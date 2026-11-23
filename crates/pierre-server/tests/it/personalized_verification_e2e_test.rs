@@ -19,8 +19,9 @@ use pierre_core::ai_policy::Withheld;
 use pierre_core::config::profiles::FitnessLevel;
 use pierre_core::models::activity::ActivityBuilder;
 use pierre_core::models::{
-    Activity, AnchorProvenance, DataSource, DeviceType, SportType, StoredRecoveryMetrics,
-    StoredSleepSession, TenantId, ThresholdProvenance, ThresholdStatedOn, UserPhysiologicalProfile,
+    Activity, AnchorProvenance, DataSource, DeviceType, ProfileVdot, SportType,
+    StoredRecoveryMetrics, StoredSleepSession, TenantId, ThresholdProvenance, ThresholdStatedOn,
+    UserPhysiologicalProfile,
 };
 use pierre_core::transport::{Transport, TransportPolicy};
 use pierre_database::repositories::InsertClaimVerdictParams;
@@ -79,6 +80,14 @@ fn profile(user_id: Uuid) -> UserPhysiologicalProfile {
         d_prime_meters: None,
         threshold_provenance: ThresholdProvenance::default(),
         threshold_stated_on: ThresholdStatedOn::default(),
+        vo2_max_method: None,
+        // A 10 km raced last week: the snapshot's VDOT, which the synthetic
+        // training runs (VDOT 32) do not replace while it is fresh.
+        vdot: Some(ProfileVdot {
+            value: 50.0,
+            as_of: (Timestamp::now() - Elapsed::days(7)).utc_date(),
+            method: Some("race: 10 km in 41:21".to_owned()),
+        }),
         anchor_provenance: AnchorProvenance::default(),
         transport_policy: TransportPolicy::AnyTransport,
         sex: None,
@@ -139,7 +148,7 @@ async fn physiology_and_activities_drive_a_personalized_contradiction() -> Resul
     assert!(metrics.data_days >= 14, "data_days={}", metrics.data_days);
 
     // Run the verdict pipeline: a 2:30/km threshold prescription is absurdly
-    // fast for VO2max 50 → the personalized layer fires Contradicted before evidence.
+    // fast for VDOT 50 → the personalized layer fires Contradicted before evidence.
     let strategy = ConservativeStrategy::default();
     let ctx = PersonalizedContext {
         metrics: &metrics,

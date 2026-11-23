@@ -281,6 +281,11 @@ pub fn apply_promotion(profile: &mut UserPhysiologicalProfile, promotion: &Promo
             &mut profile.anchor_provenance.vo2_max,
             m,
         );
+        // A recorded method described the value just replaced; the promoted
+        // one is a device's reading, which its stamp already says.
+        if moved.vo2_max {
+            profile.vo2_max_method = None;
+        }
     }
     if let Some(m) = promotion.weight.filter(|_| promotable.weight) {
         moved.weight = promote(
@@ -394,6 +399,35 @@ mod tests {
             as_of,
             policy: TransportPolicy::AnyTransport,
         }
+    }
+
+    #[test]
+    fn a_promoted_vo2max_drops_the_method_of_the_estimate_it_replaces() {
+        let mut estimated = profile();
+        estimated.vo2_max = Some(48.0);
+        estimated.vo2_max_method = Some("cooper_test".to_owned());
+        estimated.anchor_provenance.vo2_max = Some(AnchorStamp {
+            origin: AnchorOrigin::Estimated,
+            as_of: Some(day(2)),
+        });
+        let promotion = Promotion {
+            resting_hr: None,
+            vo2_max: Some(measured(53.0, day(28))),
+            weight: None,
+        };
+        assert!(
+            apply_promotion(&mut estimated, &promotion).vo2_max,
+            "an estimate is refreshed from the device"
+        );
+        assert_eq!(
+            estimated.vo2_max,
+            Some(53.0),
+            "bug: the device's reading must replace the estimate"
+        );
+        assert_eq!(
+            estimated.vo2_max_method, None,
+            "the Cooper method described the replaced estimate, not the device's reading"
+        );
     }
 
     #[test]

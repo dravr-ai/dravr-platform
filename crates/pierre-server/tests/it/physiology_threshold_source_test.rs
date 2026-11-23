@@ -33,7 +33,7 @@ use pierre_fitness_compute::AthleteInputs;
 use pierre_tool_runtime::implementations::analytics::analyze_detailed_training_load;
 use pierre_tool_runtime::implementations::analytics::output::{FitnessScoreResult, ProvidersUsed};
 use pierre_tool_runtime::implementations::analytics::{
-    calculate_fitness_metrics, generate_training_recommendations, NutritionAthlete,
+    calculate_fitness_metrics, generate_training_recommendations, AthleteReads,
 };
 use pierre_tool_runtime::implementations::stored_physiology::stored_athlete_inputs;
 use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
@@ -295,7 +295,7 @@ async fn the_pace_zones_read_the_saved_lactate_threshold() -> Result<()> {
         &executor,
         user_id,
         &tenant_id,
-        json!({"vo2_max": 55.0, "lactate_threshold_percentage": 0.80}),
+        json!({"vdot": 55.0, "lactate_threshold_percentage": 0.80}),
     )
     .await?;
 
@@ -321,7 +321,12 @@ async fn the_pace_zones_read_the_saved_lactate_threshold() -> Result<()> {
     assert_ne!(
         saved["personalized_zones"]["pace_zones"]["zone_3_threshold"],
         higher["personalized_zones"]["pace_zones"]["zone_3_threshold"],
-        "threshold pace moves with the share of VO2max held at threshold"
+        "threshold pace moves with the share of VDOT held at threshold"
+    );
+    assert_eq!(
+        saved["input_sources"]["vdot"],
+        json!("stated"),
+        "the paces come from the saved VDOT: {saved}"
     );
     Ok(())
 }
@@ -590,7 +595,7 @@ async fn the_recovery_recommendations_read_the_threshold_heart_rate_saved_with_s
             Err(&HrZonesUnavailable::NoProfile),
             config,
             None,
-            &NutritionAthlete::default(),
+            &AthleteReads::default(),
         )
         .metrics
         .and_then(|m| m.ctl)

@@ -119,6 +119,8 @@ async fn fixture() -> Fixture {
         d_prime_meters: None,
         threshold_provenance: ThresholdProvenance::default(),
         threshold_stated_on: ThresholdStatedOn::default(),
+        vo2_max_method: None,
+        vdot: None,
         anchor_provenance: AnchorProvenance::default(),
         transport_policy: TransportPolicy::AnyTransport,
         sex: None,

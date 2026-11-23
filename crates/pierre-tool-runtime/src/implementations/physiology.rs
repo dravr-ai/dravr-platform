@@ -39,10 +39,11 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use dravr_cageux::algorithms::PREDICTABLE_VDOT;
 use dravr_cageux::physiological_constants::physiological_defaults::{
     LACTATE_THRESHOLD_MAX, LACTATE_THRESHOLD_MIN,
 };
-use dravr_tronc::dates::{CivilDate, Timestamp};
+use dravr_tronc::dates::CivilDate;
 use serde_json::{json, Map, Value};
 use tracing::info;
 use uuid::Uuid;
@@ -54,6 +55,10 @@ use crate::implementations::configuration::{
 };
 use crate::implementations::lactate_thresholds::EstimateLactateThresholdsTool;
 use crate::implementations::physiology_anchors::{self, SportAnchorUpdate};
+use crate::implementations::physiology_args::{
+    optional_label, optional_number, optional_whole_number, parse_fitness_level, parse_sex,
+    provenance_from_args, VdotStatement,
+};
 use crate::implementations::physiology_import::ImportProviderThresholdsTool;
 use crate::implementations::physiology_output::{profile_payload, SetPhysiologyResult};
 use crate::implementations::plan_flavour::RecommendPlanFlavourTool;
@@ -66,12 +71,13 @@ use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use pierre_core::config::profiles::FitnessLevel;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{
-    AnchorStamp, MeasurementKind, MetricProvenance, PhysiologicalSex, ProvenancedValue, SportType,
+    AnchorStamp, MetricProvenance, PhysiologicalSex, ProfileVdot, ProvenancedValue, SportType,
     TenantId, UserPhysiologicalProfile, ATHLETE_REPORTED_ORIGIN,
 };
 use pierre_fitness_compute::AthleteInputs;
 use pierre_mcp_schema::{JsonSchema, PropertySchema};
 use pierre_services::athlete_clock::athlete_today;
+use pierre_services::athlete_vdot::vdot_beyond_tables_warning;
 use pierre_services::effective_physiology::{record_manual_measurements, ManualMeasurements};
 use pierre_tools_core::ToolResult;
 
@@ -146,128 +152,6 @@ pub(crate) const MEASUREMENT_SOURCE_MAX_CHARS: usize = 80;
 const PROVENANCED_FIELDS: &str =
     "critical_power_watts, w_prime_joules, critical_speed_mps or d_prime_meters";
 
-/// Read an optional number, rejecting a non-numeric value rather than
-/// silently ignoring it — a dropped measurement is exactly the failure this
-/// tool exists to end.
-pub(super) fn optional_number(args: &Value, key: &str) -> AppResult<Option<f64>> {
-    match args.get(key) {
-        None | Some(Value::Null) => Ok(None),
-        Some(raw) => raw
-            .as_f64()
-            .ok_or_else(|| AppError::invalid_input(format!("'{key}' must be a number")))
-            .map(Some),
-    }
-}
-
-/// Read an optional whole number, tolerating the `285.0` an LLM emits where
-/// the schema says integer — the same leniency `commitment_create` needed
-/// after strict rejection killed live calls.
-pub(super) fn optional_whole_number(args: &Value, key: &str) -> AppResult<Option<u64>> {
-    let Some(n) = optional_number(args, key)? else {
-        return Ok(None);
-    };
-    if n.fract() != 0.0 || !(0.0..=1_000_000.0).contains(&n) {
-        return Err(AppError::invalid_input(format!(
-            "'{key}' must be a whole number, got {n}"
-        )));
-    }
-    // Guarded above: non-negative, integral, and far inside u64.
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    Ok(Some(n as u64))
-}
-
-/// Parse a fitness level from the athlete-facing label, case-insensitively.
-///
-/// Spelled out rather than deferring to serde: the enum derives `Deserialize`
-/// with no rename rule, so serde would accept only `"Recreational"` and
-/// reject the `"recreational"` an LLM writes.
-fn parse_fitness_level(raw: &str) -> AppResult<FitnessLevel> {
-    match raw.trim().to_ascii_lowercase().as_str() {
-        "beginner" => Ok(FitnessLevel::Beginner),
-        "recreational" => Ok(FitnessLevel::Recreational),
-        "intermediate" => Ok(FitnessLevel::Intermediate),
-        "advanced" => Ok(FitnessLevel::Advanced),
-        "elite" => Ok(FitnessLevel::Elite),
-        "professional" => Ok(FitnessLevel::Professional),
-        other => Err(AppError::invalid_input(format!(
-            "fitness_level must be one of beginner, recreational, intermediate, advanced, elite, professional; got '{other}'"
-        ))),
-    }
-}
-
-/// Parse `sex`. Strict: only the two values the published equations take.
-fn parse_sex(raw: &str) -> AppResult<PhysiologicalSex> {
-    PhysiologicalSex::parse(raw.trim().to_ascii_lowercase().as_str()).ok_or_else(|| {
-        AppError::invalid_input(format!("sex must be one of male, female; got '{raw}'"))
-    })
-}
-
-/// Parse `measurement_kind`. Strict: a kind the tool cannot read must not be
-/// guessed into a measurement.
-fn parse_measurement_kind(raw: &str) -> AppResult<MeasurementKind> {
-    match raw.trim().to_ascii_lowercase().as_str() {
-        "measured" => Ok(MeasurementKind::Measured),
-        "estimated" => Ok(MeasurementKind::Estimated),
-        other => Err(AppError::invalid_input(format!(
-            "measurement_kind must be measured or estimated; got '{other}'"
-        ))),
-    }
-}
-
-/// Parse the provenance one call gives its critical-power family values:
-/// `None` when the call names none of `measurement_kind`,
-/// `measurement_source` or `measured_on`.
-///
-/// # Errors
-/// Returns an invalid-input error when `measurement_source` or `measured_on`
-/// arrives without `measurement_kind`, the source is too long, or the date is
-/// not a `YYYY-MM-DD` day up to today.
-fn provenance_from_args(args: &Value) -> AppResult<Option<MetricProvenance>> {
-    let kind = args
-        .get("measurement_kind")
-        .and_then(Value::as_str)
-        .map(parse_measurement_kind)
-        .transpose()?;
-    let origin = args
-        .get("measurement_source")
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(str::to_owned);
-    if let Some(ref source) = origin {
-        if source.chars().count() > MEASUREMENT_SOURCE_MAX_CHARS {
-            return Err(AppError::invalid_input(format!(
-                "measurement_source must be at most {MEASUREMENT_SOURCE_MAX_CHARS} characters"
-            )));
-        }
-    }
-    let as_of = args
-        .get("measured_on")
-        .and_then(Value::as_str)
-        .map(|raw| {
-            CivilDate::parse_from_str(raw.trim(), "%Y-%m-%d").map_err(|_| {
-                AppError::invalid_input(format!(
-                    "measured_on must be a date as YYYY-MM-DD; got '{raw}'"
-                ))
-            })
-        })
-        .transpose()?;
-    if let Some(day) = as_of {
-        if day > Timestamp::now().utc_date() {
-            return Err(AppError::invalid_input(format!(
-                "measured_on cannot be in the future; got {day}"
-            )));
-        }
-    }
-    match kind {
-        Some(kind) => Ok(Some(MetricProvenance { kind, origin, as_of })),
-        None if origin.is_some() || as_of.is_some() => Err(AppError::invalid_input(
-            "measurement_source and measured_on describe a measurement_kind; pass measurement_kind too",
-        )),
-        None => Ok(None),
-    }
-}
-
 /// The fields one `set_physiology` call carries. Every field is optional; the
 /// tool rejects a call that sets none of them.
 struct PhysiologyUpdate {
@@ -278,6 +162,12 @@ struct PhysiologyUpdate {
     threshold_hr: Option<u16>,
     lactate_threshold_percentage: Option<f64>,
     vo2_max: Option<f64>,
+    /// How `vo2_max` was found; saved with it, absent saving none.
+    vo2_max_method: Option<String>,
+    /// A VDOT the athlete or coach stated.
+    vdot: Option<f64>,
+    /// The day and method of `vdot`.
+    vdot_statement: VdotStatement,
     weight: Option<f64>,
     age: Option<u16>,
     fitness_level: Option<FitnessLevel>,
@@ -381,6 +271,15 @@ impl PhysiologyUpdate {
         // reaching the athlete as a measurement. A kind with nothing to
         // describe is refused too, so no caller believes it qualified the FTP.
         let provenance = provenance_from_args(args)?;
+        let vo2_max = optional_number(args, "vo2_max")?;
+        let vo2_max_method = optional_label(args, "vo2_max_method")?;
+        if vo2_max_method.is_some() && vo2_max.is_none() {
+            return Err(AppError::invalid_input(
+                "vo2_max_method describes a vo2_max; pass vo2_max too",
+            ));
+        }
+        let vdot = optional_number(args, "vdot")?;
+        let vdot_statement = VdotStatement::from_args(args, vdot.is_some())?;
         let carries_provenanced_value = critical_power_watts.is_some()
             || w_prime_joules.is_some()
             || critical_speed_mps.is_some()
@@ -406,7 +305,10 @@ impl PhysiologyUpdate {
             resting_hr,
             threshold_hr,
             lactate_threshold_percentage: optional_number(args, "lactate_threshold_percentage")?,
-            vo2_max: optional_number(args, "vo2_max")?,
+            vo2_max,
+            vo2_max_method,
+            vdot,
+            vdot_statement,
             weight: optional_number(args, "weight")?,
             age,
             fitness_level,
@@ -448,6 +350,9 @@ impl PhysiologyUpdate {
         if self.vo2_max.is_some() {
             names.push("vo2_max");
         }
+        if self.vdot.is_some() {
+            names.push("vdot");
+        }
         if self.weight.is_some() {
             names.push("weight");
         }
@@ -487,6 +392,8 @@ impl PhysiologyUpdate {
     /// provenance, if any, is cleared; one it does not set keeps its own. A
     /// resting heart rate, `VO2max` or weight the call sets is stamped as the
     /// athlete's, stated on `today`, so the weekly promotion never replaces it.
+    /// A `VO2max` carries the call's method or none, never an earlier one; a
+    /// VDOT carries its day (`today` when the call gives none) and method.
     fn apply_to(&self, profile: &mut UserPhysiologicalProfile, today: CivilDate) {
         if let Some(v) = self.ftp_watts {
             profile.ftp_watts = Some(v);
@@ -518,6 +425,14 @@ impl PhysiologyUpdate {
         if let Some(v) = self.vo2_max {
             profile.vo2_max = Some(v);
             profile.anchor_provenance.vo2_max = Some(AnchorStamp::athlete(today));
+            profile.vo2_max_method.clone_from(&self.vo2_max_method);
+        }
+        if let Some(value) = self.vdot {
+            profile.vdot = Some(ProfileVdot {
+                value,
+                as_of: self.vdot_statement.as_of.unwrap_or(today),
+                method: self.vdot_statement.method.clone(),
+            });
         }
         if let Some(v) = self.weight {
             profile.weight = Some(v);
@@ -602,6 +517,18 @@ fn validate_uncovered_ranges(profile: &UserPhysiologicalProfile, errors: &mut Ve
         if !(THRESHOLD_PACE_SEC_PER_KM_MIN..=THRESHOLD_PACE_SEC_PER_KM_MAX).contains(&pace) {
             errors.push(format!(
                 "threshold_pace_sec_per_km must be between {THRESHOLD_PACE_SEC_PER_KM_MIN} and {THRESHOLD_PACE_SEC_PER_KM_MAX} seconds, got {pace:.1}"
+            ));
+        }
+    }
+    // Race times are predicted across cageux's 20-90; outside Daniels'
+    // tables (30-85) a VDOT is saved with a warning ([`save_physiology`]).
+    if let Some(ref vdot) = profile.vdot {
+        if !PREDICTABLE_VDOT.contains(&vdot.value) {
+            errors.push(format!(
+                "vdot must be between {} and {}, got {:.1}",
+                PREDICTABLE_VDOT.start(),
+                PREDICTABLE_VDOT.end(),
+                vdot.value
             ));
         }
     }
@@ -817,7 +744,7 @@ pub async fn save_physiology(
     let mut updated_fields = update.field_names();
     if updated_fields.is_empty() && anchor_update.is_empty() {
         return Err(AppError::invalid_input(
-            "set_physiology needs at least one measurement: ftp_watts, threshold_pace_sec_per_km, max_hr, resting_hr, threshold_hr, lactate_threshold_percentage, vo2_max, weight, age, fitness_level, primary_sport, training_experience_years, critical_power_watts, w_prime_joules, critical_speed_mps, d_prime_meters or sport_anchors",
+            "set_physiology needs at least one measurement: ftp_watts, threshold_pace_sec_per_km, max_hr, resting_hr, threshold_hr, lactate_threshold_percentage, vo2_max, vdot, weight, age, fitness_level, primary_sport, training_experience_years, critical_power_watts, w_prime_joules, critical_speed_mps, d_prime_meters or sport_anchors",
         ));
     }
 
@@ -892,10 +819,18 @@ pub async fn save_physiology(
         "saved athlete physiology"
     );
 
+    // A VDOT this call saved beyond Daniels' tables is less certain, and the
+    // athlete hears it.
+    let warnings = update
+        .vdot
+        .and_then(vdot_beyond_tables_warning)
+        .into_iter()
+        .collect();
     Ok(SetPhysiologyResult {
         saved: true,
         created,
         updated_fields,
+        warnings,
         profile: profile_payload(&stored, sport_anchors),
         training_history,
     })
@@ -1048,6 +983,26 @@ impl SetPhysiologyTool {
                 "Lactate threshold as a fraction of VO2 max, 0.65 to 0.95 (about 0.75-0.90 trained), as a lab reports it. Places threshold pace in the pace zones and, with max_hr, estimates the LTHR when no threshold_hr is saved.",
             ),
             ("vo2_max", "number", "VO2 max in ml/kg/min."),
+            (
+                "vo2_max_method",
+                "string",
+                "How vo2_max was found, e.g. lab test.",
+            ),
+            (
+                "vdot",
+                "number",
+                "VDOT, 20-90, from a race; not a VO2max.",
+            ),
+            (
+                "vdot_as_of",
+                "string",
+                "The vdot's race day, YYYY-MM-DD; default today.",
+            ),
+            (
+                "vdot_method",
+                "string",
+                "How, e.g. 'race: 10 km in 41:21'.",
+            ),
             ("weight", "number", "Body weight in kilograms."),
             ("age", "integer", "Age in years."),
             (
@@ -1146,7 +1101,7 @@ impl McpTool<dyn ToolRuntime> for SetPhysiologyTool {
         };
         answers_with::<SetPhysiologyResult>(tool_definition(
             "set_physiology",
-            "Save the athlete's physiological measurements — FTP, threshold pace, max, resting and threshold heart rate, lactate threshold, VO2 max, weight, age, sex, and critical power, W′, critical speed and D′, and per-sport anchors — so load, zones, workout targets and every personalised calculation use their real numbers instead of generic estimates. Training load is scored against what is saved here and nowhere else (power against the FTP, heart rate against the threshold heart rate). Call this whenever the athlete states one of these values, e.g. 'my FTP is 285'. Pass only the fields they gave you; the rest keep their stored values. An estimated CP, W′, CS or D′ is quoted as an estimate with its source, never as a measurement. The result is the profile re-read after the write: report back only what it contains.",
+            "Save the athlete's physiological measurements — FTP, threshold pace, max, resting and threshold heart rate, lactate threshold, VO2 max, VDOT, weight, age, sex, and critical power, W′, critical speed and D′, and per-sport anchors — so load, zones, workout targets and every personalised calculation use their real numbers instead of generic estimates. Training load is scored against what is saved here and nowhere else (power against the FTP, heart rate against the threshold heart rate). Call this whenever the athlete states one of these values, e.g. 'my FTP is 285'. Pass only the fields they gave you; the rest keep their stored values. An estimated CP, W′, CS or D′ is quoted as an estimate with its source, never as a measurement. The result is the profile re-read after the write: report back only what it contains.",
             schema,
             annotations("Set physiology", Effect::AdditiveWrite, Reach::Internal),
         ))

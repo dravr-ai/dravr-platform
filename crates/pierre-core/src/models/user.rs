@@ -22,8 +22,8 @@ use dravr_cageux::nutrition_calculator::Gender;
 
 use super::zones::{HrZoneSet, PowerZoneSet};
 use super::{
-    AnchorProvenance, EncryptedToken, ProvenancedValue, SportType, ThresholdProvenance,
-    ThresholdStatedOn,
+    AnchorProvenance, EncryptedToken, ProfileVdot, ProvenancedValue, SportType,
+    ThresholdProvenance, ThresholdStatedOn,
 };
 
 /// Type-safe wrapper for user identifiers.
@@ -890,6 +890,16 @@ pub struct UserPhysiologicalProfile {
     /// promoted reads exactly as before.
     #[serde(default, skip_serializing_if = "AnchorProvenance::is_empty")]
     pub anchor_provenance: AnchorProvenance,
+    /// How [`Self::vo2_max`] was found (`cooper_test`, "lab test"): cleared
+    /// with every new `VO2max` saved without one, and by a weekly promotion.
+    /// Absent for a value saved before methods were recorded.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vo2_max_method: Option<String>,
+    /// A VDOT the athlete or their coach stated, from a race or as a number
+    /// ([`ProfileVdot`]). Stored apart from [`Self::vo2_max`]: a VDOT is a
+    /// performance index, and neither is ever filled from the other.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vdot: Option<ProfileVdot>,
     /// Physiological sex, for the published equations that take one
     /// ([`PhysiologicalSex`]). Set by the athlete with `set_physiology`, or
     /// filled once from a provider that reports it when none is set; a value
@@ -931,6 +941,8 @@ impl UserPhysiologicalProfile {
             threshold_provenance: ThresholdProvenance::NONE,
             threshold_stated_on: ThresholdStatedOn::NONE,
             anchor_provenance: AnchorProvenance::NONE,
+            vo2_max_method: None,
+            vdot: None,
             sex: None,
             transport_policy: TransportPolicy::AnyTransport,
         }

@@ -34,14 +34,16 @@ use crate::implementations::configuration_document::{
 };
 use crate::implementations::configuration_output::{
     ConfigurationCatalogResult, ConfigurationProfileEntry, ConfigurationProfilesResult,
-    HeartRateZone, HeartRateZones, PaceZone, PaceZones, PersonalizedZones, PersonalizedZonesResult,
-    PowerZoneBand, PowerZones as PowerZonesPayload, UpdateUserConfigurationResult,
-    UserConfigurationResult, ValidateConfigurationResult, ZoneCalculations, ZoneInputProfile,
+    HeartRateZone, HeartRateZones, PersonalizedZones, PersonalizedZonesResult, PowerZoneBand,
+    PowerZones as PowerZonesPayload, UpdateUserConfigurationResult, UserConfigurationResult,
+    ValidateConfigurationResult, ZoneCalculations, ZoneInputProfile,
+};
+use crate::implementations::configuration_pace::{
+    calculate_pace_zones_from_vdot, resolve_zone_vdot,
 };
 use crate::read_subject;
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
-use dravr_cageux::config::intelligence::VO2MaxCalculator;
 use dravr_cageux::models::maxhr::MaxHrAlgorithm;
 use dravr_cageux::physiological_constants::configuration_validation;
 use dravr_cageux::physiological_constants::physiological_defaults::{
@@ -51,13 +53,13 @@ use dravr_cageux::zones::{HrZoneBand, HrZones, PowerZones};
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use pierre_config::catalog::CatalogBuilder;
-use pierre_config::environment::TrainingZonesConfig;
 use pierre_core::config::profiles::ProfileTemplates;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::zones::HrZoneModel;
 use pierre_core::models::{TenantId, UserPhysiologicalProfile};
 use pierre_mcp_schema::{JsonSchema, PropertySchema};
 use pierre_runtime_context::ConfigLookupScope;
+use pierre_services::athlete_vdot::vdot_beyond_tables_warning;
 use pierre_tools_core::ToolResult;
 
 // ============================================================================
@@ -78,8 +80,9 @@ struct ZoneParams {
     /// Where each athlete-specific input came from, keyed by field name:
     /// `provided` (this call's arguments), `profile` (the saved physiology),
     /// `estimated_from_age` for a maximum heart rate cageux's configured
-    /// max-HR algorithm estimated from the saved age, or `daniels_default`
-    /// for a lactate threshold neither supplied nor saved.
+    /// max-HR algorithm estimated from the saved age, `daniels_default`
+    /// for a lactate threshold neither supplied nor saved, and for the VDOT
+    /// `stated`, `recent_run_estimate` or `threshold_pace_estimate`.
     sources: serde_json::Map<String, Value>,
 }
 
@@ -191,9 +194,10 @@ fn extract_zone_parameters(
     }
 }
 
-fn create_user_profile(params: &ZoneParams) -> ZoneInputProfile {
+fn create_user_profile(params: &ZoneParams, vdot: Option<f64>) -> ZoneInputProfile {
     ZoneInputProfile {
         vo2_max: params.vo2_max,
+        vdot,
         resting_hr: params.resting_hr,
         max_hr: params.max_hr,
         ftp: params.ftp_watts,
@@ -238,54 +242,6 @@ fn render_zone_calculations(zones: &HrZones) -> ZoneCalculations {
         vo2_max_source: zones.vo2_max_source,
         lactate_threshold_hr: u64::from(zones.lactate_threshold_bpm),
         aerobic_threshold_hr: u64::from(zones.aerobic_threshold_bpm),
-    }
-}
-
-/// Render the VDOT pace zones for a tool payload.
-///
-/// The zones are cageux's [`VO2MaxCalculator::calculate_pace_zones`], the one
-/// pace-zone function every surface quotes: easy, `VO2max` and neuromuscular
-/// edges are fractions of Daniels' velocity at `VO2max`, marathon and
-/// threshold edges are multiples of the threshold pace the athlete's lactate
-/// threshold puts them at, and `config` carries every edge.
-fn calculate_pace_zones_from_vo2max(
-    vo2_max: f64,
-    lactate_threshold: f64,
-    config: &TrainingZonesConfig,
-) -> PaceZones {
-    // Pace zones read only VO2max and the lactate threshold; the heart-rate
-    // fields of the calculator feed its heart-rate zones, which this does not
-    // ask for.
-    let paces =
-        VO2MaxCalculator::new(vo2_max, 0, 0, lactate_threshold).calculate_pace_zones(config);
-
-    let format_pace = |seconds_per_km: f64| -> String {
-        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-        let total_secs = if !seconds_per_km.is_finite() || seconds_per_km < 0.0 {
-            0_u32
-        } else if seconds_per_km >= 4_294_967_295.0 {
-            u32::MAX
-        } else {
-            seconds_per_km.round() as u32
-        };
-
-        let minutes = total_secs / 60;
-        let seconds = total_secs % 60;
-        format!("{minutes}:{seconds:02}")
-    };
-
-    // cageux orders each range by its own convention; a zone quotes its
-    // fastest pace (fewest seconds per kilometre) first.
-    let band = |(a, b): (f64, f64)| PaceZone {
-        min_pace: format_pace(a.min(b)),
-        max_pace: format_pace(a.max(b)),
-    };
-    PaceZones {
-        zone_1_easy: band(paces.easy_pace_range),
-        zone_2_marathon: band(paces.marathon_pace_range),
-        zone_3_threshold: band(paces.threshold_pace_range),
-        zone_4_vo2max: band(paces.vo2max_pace_range),
-        zone_5_neuromuscular_max_pace: format_pace(paces.neuromuscular_pace_max),
     }
 }
 
@@ -783,7 +739,17 @@ impl McpTool<dyn ToolRuntime> for CalculatePersonalizedZonesTool {
             PropertySchema {
                 property_type: "number".to_owned(),
                 description: Some(
-                    "VO2 max in ml/kg/min. Omit to use the athlete's saved value; pace zones are omitted when neither exists.".to_owned(),
+                    "VO2 max in ml/kg/min; it picks the heart-rate zone tier, never the paces. Omit to use the athlete's saved value.".to_owned(),
+                ),
+                ..Default::default()
+            },
+        );
+        properties.insert(
+            "vdot".to_owned(),
+            PropertySchema {
+                property_type: "number".to_owned(),
+                description: Some(
+                    "VDOT (20-90) for the pace zones; omitted, the athlete's (stated, best recent run or threshold pace).".to_owned(),
                 ),
                 ..Default::default()
             },
@@ -813,10 +779,10 @@ impl McpTool<dyn ToolRuntime> for CalculatePersonalizedZonesTool {
             PropertySchema {
                 property_type: "number".to_owned(),
                 description: Some(format!(
-                    "Lactate threshold as a fraction of VO2 max (0.65-0.95), used for pace \
-                     zones: threshold pace runs at the speed whose oxygen cost is that share of \
-                     VO2 max. Omit to use the athlete's saved value, else Daniels' threshold \
-                     intensity, {DEFAULT_LACTATE_THRESHOLD} (named in `input_sources`)."
+                    "Lactate threshold as a share of VDOT (0.65-0.95), used for pace zones: \
+                     threshold pace runs at the speed whose oxygen cost is that share of VDOT. \
+                     Omit to use the athlete's saved value, else Daniels' threshold intensity, \
+                     {DEFAULT_LACTATE_THRESHOLD} (named in `input_sources`)."
                 )),
                 ..Default::default()
             },
@@ -905,7 +871,8 @@ impl McpTool<dyn ToolRuntime> for CalculatePersonalizedZonesTool {
             // resting heart rate itself is their wellness, so the inputs
             // echoed back carry it only where a wellness read could; that
             // the zone bounds give it back was accepted with the decision.
-            let mut user_profile = create_user_profile(&params);
+            let vdot = resolve_zone_vdot(&ctx, &args, stored.as_ref(), &mut params.sources).await?;
+            let mut user_profile = create_user_profile(&params, vdot);
             if params.sources.get("resting_hr") == Some(&json!("profile")) {
                 let resting_hr =
                     read_subject::readable_physiology(stored).and_then(|profile| profile.resting_hr);
@@ -951,21 +918,22 @@ impl McpTool<dyn ToolRuntime> for CalculatePersonalizedZonesTool {
                 }
             };
 
-            let pace_zones = params
-                .vo2_max
-                .map(|vo2_max| {
-                    calculate_pace_zones_from_vo2max(
-                        vo2_max,
-                        params.lactate_threshold,
-                        zones_config,
-                    )
-                });
-            if pace_zones.is_none() {
-                unavailable.insert(
-                    "pace_zones".to_owned(),
-                    json!("needs a measured vo2_max — supply it here or save it with set_physiology; the heart-rate-ratio estimate only chooses the heart-rate zone tier"),
-                );
-            }
+            // Paces come from a VDOT, a performance index; a VO2max never
+            // cuts them (carnet#1693 item 5).
+            let pace_zones = match vdot {
+                Some(vdot) => {
+                    calculate_pace_zones_from_vdot(vdot, params.lactate_threshold, zones_config)
+                }
+                None => Err("needs a VDOT — supply vdot here, or save a race's VDOT or a threshold pace with set_physiology; a VO2max does not set paces".to_owned()),
+            };
+            let pace_zones_cut = pace_zones.is_ok();
+            let pace_zones = match pace_zones {
+                Ok(zones) => Some(zones),
+                Err(reason) => {
+                    unavailable.insert("pace_zones".to_owned(), json!(reason));
+                    None
+                }
+            };
 
             let power_zones = params
                 .ftp_watts
@@ -991,6 +959,13 @@ impl McpTool<dyn ToolRuntime> for CalculatePersonalizedZonesTool {
                         ftp: params.ftp_watts,
                     },
                     unavailable: Value::Object(unavailable),
+                    // Zones cut from a VDOT beyond Daniels' tables are less
+                    // certain, and the athlete hears it.
+                    warnings: vdot
+                        .filter(|_| pace_zones_cut)
+                        .and_then(vdot_beyond_tables_warning)
+                        .into_iter()
+                        .collect(),
                     zone_calculations,
                 },
             )

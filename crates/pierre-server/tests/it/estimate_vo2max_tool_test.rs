@@ -1,5 +1,5 @@
 // ABOUTME: Exercises estimate_vo2max end to end through the tool executor — each field test against its published equation
-// ABOUTME: Pins the profile-default path, the rejection messages, and that the tool is reachable from a chat turn
+// ABOUTME: Pins VO2max vs VDOT, Swain's heart-rate sources and window, the warnings, the profile defaults and chat reachability
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
@@ -7,6 +7,10 @@
 #![allow(missing_docs)]
 
 use anyhow::Result;
+use dravr_tronc::dates::CivilDate;
+use pierre_core::models::{
+    AnchorStamp, MeasurementKind, MetricProvenance, SportType, TenantId, UserPhysiologicalProfile,
+};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_mcp_server::tools::registry_builtin::register_builtin_tools;
 use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
@@ -101,6 +105,19 @@ fn vo2(result: &Value) -> f64 {
         .expect("vo2max_ml_kg_min is a number")
 }
 
+fn vdot(result: &Value) -> f64 {
+    result["vdot"].as_f64().expect("vdot is a number")
+}
+
+fn warnings(result: &Value) -> Vec<String> {
+    result["warnings"]
+        .as_array()
+        .expect("warnings is an array")
+        .iter()
+        .filter_map(|w| w.as_str().map(str::to_owned))
+        .collect()
+}
+
 // ============================================================================
 // Each method reproduces its published equation
 // ============================================================================
@@ -140,12 +157,46 @@ async fn cooper_reports_the_published_equation() -> Result<()> {
 }
 
 #[tokio::test]
-async fn from_vdot_reports_the_vdot_unchanged() -> Result<()> {
+async fn cooper_gives_a_vdot_and_a_threshold_pace() -> Result<()> {
     let executor = create_executor().await?;
     let (user_id, tenant_id) = create_test_user(&executor).await?;
 
-    // VDOT is already ml/kg/min. This pins the retired ×3.5 MET conversion
-    // dead: a 50 that came back as 175 would fail here.
+    // The 12-minute run read as a race through Daniels' curves: 2,800 m in
+    // 12:00 is 233.3 m/min, oxygen cost 43.59 ml/kg/min, held at 99.19 % of
+    // VO2max for 12 minutes, so VDOT 43.9 — beside Cooper's VO2max of 51.3.
+    let result = estimate(
+        &executor,
+        user_id,
+        &tenant_id,
+        json!({ "method": "cooper_test", "distance_meters": 2800 }),
+    )
+    .await?;
+    assert!(
+        (vdot(&result) - 43.9).abs() < 0.11,
+        "Cooper's run read as a 12-minute race should be VDOT 43.9: {result}"
+    );
+    let pace = result["implied_threshold_pace_sec_per_km"]
+        .as_f64()
+        .expect("Cooper's VDOT implies a threshold pace");
+    assert!(
+        (270.0..=300.0).contains(&pace),
+        "VDOT 43.9 at Daniels' 0.88 runs threshold near 4:44/km, got {pace}"
+    );
+    let to_store = result["to_store"].as_str().unwrap_or("");
+    assert!(
+        to_store.contains("vo2_max_method 'cooper_test'") && to_store.contains("vdot_method"),
+        "both numbers are storable, each with its method: {to_store}"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn from_vdot_reports_a_vdot_not_a_vo2max() -> Result<()> {
+    let executor = create_executor().await?;
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+
+    // A VDOT is a performance index, not a VO2max: it comes back under its
+    // own name, unchanged, and no VO2max is claimed from it.
     let result = estimate(
         &executor,
         user_id,
@@ -154,9 +205,247 @@ async fn from_vdot_reports_the_vdot_unchanged() -> Result<()> {
     )
     .await?;
     assert!(
-        (vo2(&result) - 50.0).abs() < f64::EPSILON,
-        "got {}",
-        vo2(&result)
+        (vdot(&result) - 50.0).abs() < f64::EPSILON,
+        "bug: a stated VDOT must come back unchanged: {result}"
+    );
+    assert_eq!(
+        result["vo2max_ml_kg_min"],
+        Value::Null,
+        "a stated VDOT gives no VO2max"
+    );
+    Ok(())
+}
+
+// ============================================================================
+// Swain's VO2-reserve cycle stage (carnet#1693 item 1)
+// ============================================================================
+
+/// One 6-minute stage at 200 W ending at 148 bpm, for an athlete of maximum
+/// 190 and resting 50: 70 % of the 140-beat reserve, so a maximal 285.7 W,
+/// and ACSM's 10.8 × 285.7 / 70 + 7 = 51.08 ml/kg/min.
+const SWAIN_VO2MAX: f64 = 10.8 * (200.0 / 0.7) / 70.0 + 7.0;
+
+#[tokio::test]
+async fn swain_names_the_heart_rates_it_used_and_where_each_came_from() -> Result<()> {
+    let executor = create_executor().await?;
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+    let saved = executor
+        .execute_tool(make_request(
+            "set_physiology",
+            json!({ "max_hr": 190 }),
+            user_id,
+            &tenant_id,
+        ))
+        .await?;
+    assert!(saved.success, "seeding failed: {:?}", saved.error);
+
+    let result = estimate(
+        &executor,
+        user_id,
+        &tenant_id,
+        json!({
+            "method": "swain_vo2_reserve",
+            "power_watts": 200,
+            "heart_rate": 148,
+            "resting_hr": 50,
+            "weight_kg": 70,
+        }),
+    )
+    .await?;
+    assert!(
+        (vo2(&result) - SWAIN_VO2MAX).abs() < 0.06,
+        "Swain should read {SWAIN_VO2MAX:.2}: {result}"
+    );
+    let used = &result["heart_rates_used"];
+    assert_eq!(
+        used["max_hr"]["bpm"],
+        json!(190.0),
+        "bug: the saved maximum heart rate must be the one used: {result}"
+    );
+    assert_eq!(
+        used["max_hr"]["source"],
+        json!("profile"),
+        "the saved maximum is the athlete's own: {result}"
+    );
+    assert_eq!(
+        used["resting_hr"]["bpm"],
+        json!(50.0),
+        "bug: the call's resting heart rate must be the one used: {result}"
+    );
+    assert_eq!(
+        used["resting_hr"]["source"],
+        json!("call"),
+        "bug: a resting heart rate the call gave must be named as the call's: {result}"
+    );
+    assert_eq!(
+        result["defaults_from_profile"],
+        json!(["max_hr"]),
+        "bug: only the maximum heart rate came from stored data: {result}"
+    );
+    assert_eq!(
+        result["implied_threshold_pace_sec_per_km"],
+        Value::Null,
+        "a cycling VO2max implies no running pace"
+    );
+    assert_eq!(
+        result["vdot"],
+        Value::Null,
+        "bug: a cycling VO2max must give no VDOT: {result}"
+    );
+    assert!(
+        warnings(&result).is_empty(),
+        "bug: an estimate inside 20-90 must carry no warning: {result}"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn swain_says_when_its_heart_rates_are_a_providers() -> Result<()> {
+    let executor = create_executor().await?;
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+    let tenant = TenantId::parse_str(&tenant_id)?;
+    // intervals.icu's maximum, and a resting heart rate the weekly promotion
+    // filed from the athlete's morning readings.
+    let mut profile = UserPhysiologicalProfile::new(user_id, SportType::Ride);
+    profile.max_hr = Some(190);
+    profile.threshold_provenance.max_hr = Some(MetricProvenance {
+        kind: MeasurementKind::Estimated,
+        origin: Some("intervals.icu".to_owned()),
+        as_of: CivilDate::from_ymd(2026, 11, 1).ok(),
+    });
+    profile.resting_hr = Some(50);
+    profile.anchor_provenance.resting_hr = CivilDate::from_ymd(2026, 11, 15)
+        .ok()
+        .map(AnchorStamp::promoted);
+    profile.weight = Some(70.0);
+    executor
+        .resources
+        .repos()
+        .user_physiological_profile
+        .upsert_user_physiological_profile(tenant, user_id, &profile)
+        .await?;
+
+    let result = estimate(
+        &executor,
+        user_id,
+        &tenant_id,
+        json!({ "method": "swain_vo2_reserve", "power_watts": 200, "heart_rate": 148 }),
+    )
+    .await?;
+    let used = &result["heart_rates_used"];
+    assert_eq!(
+        used["max_hr"]["source"],
+        json!("provider_import"),
+        "bug: an imported maximum heart rate must be named as an import: {result}"
+    );
+    assert_eq!(
+        used["max_hr"]["origin"],
+        json!("intervals.icu"),
+        "bug: an imported maximum heart rate must name its provider: {result}"
+    );
+    assert_eq!(
+        used["resting_hr"]["source"],
+        json!("device_readings"),
+        "bug: a promoted resting heart rate must be named as the device's: {result}"
+    );
+    assert_eq!(
+        used["resting_hr"]["as_of"],
+        json!("2026-11-15"),
+        "bug: a promoted resting heart rate must carry its day: {result}"
+    );
+    assert!(
+        (vo2(&result) - SWAIN_VO2MAX).abs() < 0.06,
+        "the stored heart rates and weight give the same estimate: {result}"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_swain_stage_outside_its_window_is_refused_with_the_athletes_range() -> Result<()> {
+    let executor = create_executor().await?;
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+
+    // 170 bpm is 86 % of a 50-190 reserve; the method was validated at
+    // 65-75 %, which is 141-155 bpm for this athlete.
+    let message = estimate_expecting_rejection(
+        &executor,
+        user_id,
+        &tenant_id,
+        json!({
+            "method": "swain_vo2_reserve",
+            "power_watts": 200,
+            "heart_rate": 170,
+            "max_hr": 190,
+            "resting_hr": 50,
+            "weight_kg": 70,
+        }),
+    )
+    .await?;
+    assert!(
+        message.contains("141-155 bpm"),
+        "the refusal names the athlete's own window: {message}"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_swain_estimate_outside_the_human_range_is_shown_unclamped_with_a_warning() -> Result<()>
+{
+    let executor = create_executor().await?;
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+
+    // 30 W at 70 % of reserve for 100 kg: 10.8 × 42.9 / 100 + 7 = 11.6, below
+    // anything a person measures — almost certainly a wrong input.
+    let result = estimate(
+        &executor,
+        user_id,
+        &tenant_id,
+        json!({
+            "method": "swain_vo2_reserve",
+            "power_watts": 30,
+            "heart_rate": 148,
+            "max_hr": 190,
+            "resting_hr": 50,
+            "weight_kg": 100,
+        }),
+    )
+    .await?;
+    let expected = 10.8 * (30.0 / 0.7) / 100.0 + 7.0;
+    assert!(
+        (vo2(&result) - expected).abs() < 0.06,
+        "never clamped to 20: {result}"
+    );
+    let warnings = warnings(&result);
+    assert!(
+        warnings
+            .iter()
+            .any(|w| w.contains("watts") && w.contains("body weight") && w.contains("heart rates")),
+        "the warning names the inputs to recheck: {warnings:?}"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn swain_with_no_maximum_heart_rate_asks_for_a_measured_one() -> Result<()> {
+    let executor = create_executor().await?;
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+
+    let message = estimate_expecting_rejection(
+        &executor,
+        user_id,
+        &tenant_id,
+        json!({
+            "method": "swain_vo2_reserve",
+            "power_watts": 200,
+            "heart_rate": 148,
+            "resting_hr": 50,
+            "weight_kg": 70,
+        }),
+    )
+    .await?;
+    assert!(
+        message.contains("max_hr"),
+        "bug: Swain with no maximum heart rate must ask for max_hr: {message}"
     );
     Ok(())
 }
@@ -323,6 +612,36 @@ async fn an_unknown_method_lists_the_real_ones() -> Result<()> {
     Ok(())
 }
 
+/// No `VO2max` comes from a pace, and Åstrand–Ryhming is replaced by Swain
+/// (carnet#1693 items 1 and 2): both retired methods are refused, and the
+/// refusal no longer offers them.
+#[tokio::test]
+async fn the_retired_pace_and_astrand_methods_are_refused() -> Result<()> {
+    let executor = create_executor().await?;
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+
+    for params in [
+        json!({ "method": "from_pace", "max_speed_ms": 5.0, "recovery_speed_ms": 3.0 }),
+        json!({ "method": "astrand_ryhming", "gender": "male", "heart_rate": 150,
+                "power_watts": 200, "weight_kg": 75 }),
+    ] {
+        let message =
+            estimate_expecting_rejection(&executor, user_id, &tenant_id, params.clone()).await?;
+        let offered = message
+            .split_once("expected one of")
+            .map_or("", |(_, methods)| methods);
+        assert!(
+            message.contains("unknown method") && offered.contains("swain_vo2_reserve"),
+            "bug: {params} must be refused as unknown, listing the methods that exist: {message}"
+        );
+        assert!(
+            !offered.contains("from_pace") && !offered.contains("astrand_ryhming"),
+            "bug: the refusal must not offer a retired method: {message}"
+        );
+    }
+    Ok(())
+}
+
 #[tokio::test]
 async fn gender_outside_the_fitted_equation_is_rejected() -> Result<()> {
     let executor = create_executor().await?;
@@ -351,17 +670,68 @@ async fn an_out_of_range_input_is_the_athletes_to_correct() -> Result<()> {
     let executor = create_executor().await?;
     let (user_id, tenant_id) = create_test_user(&executor).await?;
 
-    // cageux bounds VDOT to the 30–85 range the tables cover.
-    let message = estimate_expecting_rejection(
+    // A stated VDOT is bounded to the 20–90 race times are predicted for.
+    for vdot in [19.9, 90.1, 200.0] {
+        let message = estimate_expecting_rejection(
+            &executor,
+            user_id,
+            &tenant_id,
+            json!({ "method": "from_vdot", "vdot": vdot }),
+        )
+        .await?;
+        assert!(
+            message.contains("20-90"),
+            "VDOT {vdot} surfaces as invalid input naming the range: {message}"
+        );
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_slow_5k_is_a_vdot_below_daniels_tables_with_a_warning() -> Result<()> {
+    let executor = create_executor().await?;
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+
+    // 5 km in 35:00 reads VDOT 25.6: below the 30-85 Daniels' tables print,
+    // inside the 20-90 race times are predicted for. It is reported, with
+    // its threshold pace, and the warning says it is less certain — not that
+    // it cannot be saved.
+    let result = estimate(
         &executor,
         user_id,
         &tenant_id,
-        json!({ "method": "from_vdot", "vdot": 200 }),
+        json!({ "method": "race_result", "distance_meters": 5000, "time_seconds": 2100 }),
     )
     .await?;
     assert!(
-        message.contains("cannot estimate VO2max"),
-        "an estimator error surfaces as invalid input, not a server fault: {message}"
+        (vdot(&result) - 25.6).abs() < 0.05,
+        "a 35:00 5 km reads VDOT 25.6: {result}"
+    );
+    assert!(
+        result["implied_threshold_pace_sec_per_km"].is_number(),
+        "a VDOT below the tables still implies a threshold pace: {result}"
+    );
+    let race_warnings = warnings(&result);
+    assert!(
+        race_warnings.iter().any(|w| w.contains("less certain")),
+        "the warning says the VDOT is less certain: {race_warnings:?}"
+    );
+    assert!(
+        !race_warnings.iter().any(|w| w.contains("does not save")),
+        "bug: a VDOT of 25.6 is saveable and predictable: {race_warnings:?}"
+    );
+
+    // Stated, the same VDOT is accepted with the same warning.
+    let stated = estimate(
+        &executor,
+        user_id,
+        &tenant_id,
+        json!({ "method": "from_vdot", "vdot": 25.6 }),
+    )
+    .await?;
+    assert!(
+        warnings(&stated).iter().any(|w| w.contains("less certain")),
+        "a stated VDOT below the tables carries the warning: {stated}"
     );
     Ok(())
 }
@@ -444,11 +814,21 @@ async fn a_race_result_gives_a_vdot_and_the_pace_it_implies() -> Result<()> {
 
     assert_eq!(result["method"], json!("race_result"));
     // Daniels puts a sub-20 5 km in the low fifties; the assertion is a band
-    // rather than a point because the curve is fitted, not exact.
-    let estimated = vo2(&result);
+    // rather than a point because the curve is fitted, not exact. It is a
+    // VDOT, never reported as a VO2max.
+    let estimated = vdot(&result);
     assert!(
         (45.0..=60.0).contains(&estimated),
         "a 19:30 5 km should read in the high forties to high fifties, got {estimated}"
+    );
+    assert_eq!(
+        result["vo2max_ml_kg_min"],
+        Value::Null,
+        "bug: a race gives a VDOT, never a VO2max: {result}"
+    );
+    assert!(
+        warnings(&result).is_empty(),
+        "a 5 km sits inside Daniels' tables: {result}"
     );
     assert_eq!(
         result["saved"],
@@ -483,13 +863,41 @@ async fn a_race_result_gives_a_vdot_and_the_pace_it_implies() -> Result<()> {
 }
 
 #[tokio::test]
-async fn every_method_offers_the_threshold_pace_its_estimate_implies() -> Result<()> {
+async fn a_race_outside_daniels_tables_is_read_with_a_warning() -> Result<()> {
     let executor = create_executor().await?;
     let (user_id, tenant_id) = create_test_user(&executor).await?;
 
-    // The pace rides on the estimate, not on the method: a Cooper test and a
-    // stated VDOT both carry it, so an athlete who confirms a VO2max never
-    // has to run a second test to get a threshold.
+    // 1 km in 3:30: cageux reads it, but Daniels' tables start at 1500 m, so
+    // the VDOT rests on his curves beyond them.
+    let result = estimate(
+        &executor,
+        user_id,
+        &tenant_id,
+        json!({ "method": "race_result", "distance_meters": 1000, "time_seconds": 210 }),
+    )
+    .await?;
+    assert!(
+        result["vdot"].is_number(),
+        "bug: a race of any distance must give a VDOT: {result}"
+    );
+    let warnings = warnings(&result);
+    assert!(
+        warnings
+            .iter()
+            .any(|w| w.contains("1500 m to the marathon")),
+        "a 1 km effort carries the distance warning: {warnings:?}"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn every_vdot_method_offers_the_threshold_pace_its_vdot_implies() -> Result<()> {
+    let executor = create_executor().await?;
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+
+    // The pace rides on a VDOT: a Cooper test and a stated VDOT both carry
+    // it, so an athlete who confirms one never has to run a second test to
+    // get a threshold.
     for params in [
         json!({ "method": "cooper_test", "distance_meters": 2800 }),
         json!({ "method": "from_vdot", "vdot": 50 }),
@@ -519,6 +927,27 @@ async fn every_method_offers_the_threshold_pace_its_estimate_implies() -> Result
         result["implied_threshold_pace_sec_per_km"],
         json!(255.2),
         "VDOT 50 threshold pace: {result}"
+    );
+
+    // A walk's VO2max says nothing about running economy: no pace.
+    let walk = estimate(
+        &executor,
+        user_id,
+        &tenant_id,
+        json!({
+            "method": "rockport_walk",
+            "gender": "male",
+            "weight_kg": 70,
+            "age": 30,
+            "time_seconds": 780,
+            "heart_rate": 140,
+        }),
+    )
+    .await?;
+    assert_eq!(
+        walk["implied_threshold_pace_sec_per_km"],
+        Value::Null,
+        "a VO2max implies no threshold pace: {walk}"
     );
     Ok(())
 }

@@ -240,6 +240,26 @@ fn vdot_point_claim_supported() {
     assert_eq!(outcome.status, ClaimStatus::Supported);
 }
 
+/// An athlete with a `VO2max` and no performance has no VDOT: a VDOT claim is
+/// not scored against the `VO2max`, it falls through (carnet#1693 item 5).
+#[test]
+fn vdot_claim_falls_through_without_a_vdot() {
+    let m = AthleteMetrics {
+        vdot: None,
+        ..usable_metrics()
+    };
+    let strat = ConservativeStrategy::default();
+    let ctx = PersonalizedContext {
+        metrics: &m,
+        tolerance: &strat,
+    };
+    let c = claim("Your VDOT is 65.", ClaimCategory::Physiological);
+    assert!(
+        personalized_check(&c, &ctx).is_none(),
+        "with no VDOT the claim must go unchecked, not be read against VO2max 52"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // FTP: ±3% supported, silent to 5%, a misquote beyond (carnet#1080)
 // ---------------------------------------------------------------------------

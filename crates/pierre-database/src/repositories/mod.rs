@@ -272,6 +272,8 @@ pub mod user_mcp_tokens;
 pub mod user_oauth_tokens;
 /// Repository trait for durable per-user onboarding step completion state.
 pub mod user_onboarding;
+/// The stated VDOT's three columns on the physiology row: bound and read back together.
+pub(crate) mod user_physiological_profile_vdot;
 /// `UserPhysiologicalProfileRepository` + `DossierRepository`: physiology row and the read-time dossier composer
 pub mod user_physiological_profiles;
 /// Statements and row decoder for an athlete's per-sport anchors, emitted by the profile repository's macro.

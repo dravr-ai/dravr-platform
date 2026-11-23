@@ -239,6 +239,7 @@ async fn test_calculate_personalized_zones_e2e() {
         tool_name: "calculate_personalized_zones".to_owned(),
         parameters: json!({
             "vo2_max": 55.0,
+            "vdot": 55.0,
             "resting_hr": 60,
             "max_hr": 190,
             "lactate_threshold": 0.85
@@ -273,16 +274,17 @@ async fn test_calculate_personalized_zones_e2e() {
     let zones = &result["personalized_zones"];
     assert!(zones["heart_rate_zones"].is_object());
     assert!(zones["pace_zones"].is_object());
-    // Daniels' oxygen-cost curve puts VO2max 55 at 281.7 m/min; cageux cuts
-    // the easy zone at 59–74 % of that, quoted as minutes per kilometre with
-    // the fastest pace first. The zones are the same function the REST route
-    // and the athlete snapshot read, so every surface quotes 4:48–6:01.
+    // The pace zones come from the VDOT, never the VO2max: each edge is the
+    // pace whose oxygen cost on Daniels' curve is a share of VDOT 55. Easy is
+    // 59–74 %, quoted as minutes per kilometre with the fastest pace first.
+    // The zones are the same function the athlete snapshot reads, so every
+    // surface quotes 4:32–5:26.
     let easy = &zones["pace_zones"]["zone_1_easy"];
-    assert_eq!(easy["min_pace"], "4:48", "easy zone was {easy:?}");
-    assert_eq!(easy["max_pace"], "6:01", "easy zone was {easy:?}");
+    assert_eq!(easy["min_pace"], "4:32", "easy zone was {easy:?}");
+    assert_eq!(easy["max_pace"], "5:26", "easy zone was {easy:?}");
     // Threshold pace at a lactate threshold of 0.85 is the speed whose oxygen
-    // cost is 0.85 x 55 ml/kg/min on Daniels' curve, 243.0 s/km; the
-    // threshold zone is 98–102 % of it.
+    // cost is 0.85 x 55 on Daniels' curve, 243.0 s/km; the threshold zone is
+    // that share of VDOT ± 0.02.
     let threshold = &zones["pace_zones"]["zone_3_threshold"];
     assert_eq!(
         threshold["min_pace"], "3:58",
@@ -293,8 +295,8 @@ async fn test_calculate_personalized_zones_e2e() {
         "threshold zone was {threshold:?}"
     );
     assert_eq!(
-        zones["pace_zones"]["zone_5_neuromuscular_max_pace"], "3:23",
-        "neuromuscular pace is 105 % of velocity at VO2max"
+        zones["pace_zones"]["zone_5_neuromuscular_max_pace"], "3:20",
+        "neuromuscular pace is the predicted mile pace at VDOT 55"
     );
     assert!(
         zones["power_zones"].is_null(),
@@ -312,6 +314,14 @@ async fn test_calculate_personalized_zones_e2e() {
     assert_eq!(
         result["input_sources"]["vo2_max"], "provided",
         "the response must say where each number came from"
+    );
+    assert_eq!(
+        result["input_sources"]["vdot"], "provided",
+        "bug: the VDOT the call gave must be named as provided"
+    );
+    assert_eq!(
+        user_profile["vdot"], 55.0,
+        "bug: the inputs echoed must carry the VDOT the paces were cut from"
     );
 
     // Verify zone calculations metadata
@@ -560,15 +570,80 @@ async fn test_configuration_system_error_handling() {
 }
 
 #[tokio::test]
+async fn a_vdot_beyond_daniels_tables_cuts_zones_with_a_warning() {
+    let executor = create_test_tool_executor().await;
+    let zones = |vdot: f64| UniversalRequest {
+        user_id: Uuid::new_v4().to_string(),
+        tool_name: "calculate_personalized_zones".to_owned(),
+        parameters: json!({ "vdot": vdot }),
+        protocol: "mcp".to_owned(),
+        tenant_id: None,
+    };
+
+    // VDOT 25.6 (5 km in 35:00) is below the 30-85 Daniels' tables print:
+    // the zones are cut, and the answer says they are less certain.
+    let response = executor
+        .execute_tool(zones(25.6))
+        .await
+        .expect("a VDOT inside 20-90 cuts zones");
+    assert!(
+        response.success,
+        "bug: VDOT 25.6 is inside 20-90 and must be accepted: {:?}",
+        response.error
+    );
+    let result = response.result.expect("a payload");
+    assert!(
+        result["personalized_zones"]["pace_zones"].is_object(),
+        "bug: VDOT 25.6 must cut pace zones: {result}"
+    );
+    assert!(
+        result["warnings"].as_array().is_some_and(|w| w
+            .iter()
+            .any(|w| w.as_str().unwrap_or_default().contains("less certain"))),
+        "bug: zones from a VDOT below the tables carry no warning: {result}"
+    );
+
+    // Inside the tables, nothing more is said.
+    let inside = executor
+        .execute_tool(zones(50.0))
+        .await
+        .expect("VDOT 50 cuts zones")
+        .result
+        .expect("a payload");
+    assert!(
+        inside.get("warnings").is_none(),
+        "bug: zones from VDOT 50, inside the tables, carry a warning: {inside}"
+    );
+
+    // Outside 20-90 the VDOT is refused.
+    for vdot in [19.9, 90.1] {
+        let message = match executor.execute_tool(zones(vdot)).await {
+            Err(error) => error.to_string(),
+            Ok(response) => {
+                assert!(
+                    !response.success,
+                    "bug: VDOT {vdot} is outside 20-90 and was accepted"
+                );
+                response.error.unwrap_or_default()
+            }
+        };
+        assert!(
+            message.contains("vdot must be between 20 and 90"),
+            "bug: the refusal of VDOT {vdot} must name the range: {message}"
+        );
+    }
+}
+
+#[tokio::test]
 async fn a_lactate_threshold_outside_the_pace_zone_range_is_refused() {
     let executor = create_test_tool_executor().await;
-    // cageux's pace zones accept 0.65-0.95 of VO2max; a value outside it is
+    // cageux's pace zones accept 0.65-0.95 of VDOT; a value outside it is
     // refused with the range, never clamped into zones it did not ask for.
     for lactate_threshold in [0.5, 1.2] {
         let request = UniversalRequest {
             user_id: Uuid::new_v4().to_string(),
             tool_name: "calculate_personalized_zones".to_owned(),
-            parameters: json!({ "vo2_max": 55.0, "lactate_threshold": lactate_threshold }),
+            parameters: json!({ "vdot": 55.0, "lactate_threshold": lactate_threshold }),
             protocol: "mcp".to_owned(),
             tenant_id: None,
         };

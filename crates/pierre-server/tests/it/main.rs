@@ -158,6 +158,7 @@ mod athlete_home_training_status_test;
 mod athlete_home_training_volume_test;
 mod athlete_physiology_test;
 mod athlete_snapshot_form_test;
+mod athlete_snapshot_vdot_test;
 mod athlete_state_test;
 mod athlete_units_test;
 mod audit_arguments_fingerprint_test;

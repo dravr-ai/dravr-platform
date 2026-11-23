@@ -74,7 +74,9 @@ pub const DEFAULT_MARGIN_FRAC: f64 = 0.08;
 /// unverified. Pace ranges are seconds per kilometre, lo (faster) to hi (slower).
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct AthleteMetrics {
-    /// Jack Daniels `VDOT` (`VO2max` adjusted for running economy).
+    /// Jack Daniels `VDOT`: a performance index read from a race, the best
+    /// recent run or the saved threshold pace — never a `VO2max`. `None`
+    /// when no performance gives one, and a VDOT claim then goes unchecked.
     pub vdot: Option<f64>,
     /// `VO2max` in ml/kg/min.
     pub vo2max: Option<f64>,

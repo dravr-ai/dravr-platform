@@ -294,9 +294,8 @@ pub struct MetricsInputSummary {
 ///
 /// Two shapes: a prediction, or a statement of why there isn't one. The
 /// no-prediction shape carries an optional `error` because there are two ways
-/// to reach it — no running history to predict from, and a VDOT computation
-/// that failed on the history there was — and they differ only in whether
-/// there is a fault to report. Modelling them as separate variants would put
+/// to reach it — no VDOT to predict from, and a VDOT the race-time model has
+/// no times for — and they differ only in whether there is a fault to report. Modelling them as separate variants would put
 /// one variant's required keys inside the other's, and then no client could
 /// tell which it had been handed.
 #[derive(Debug, Serialize, schemars::JsonSchema)]
@@ -316,7 +315,7 @@ pub struct NoRacePrediction {
     /// Why there is no prediction, in plain language.
     pub message: String,
     /// The fault, when a computation failed rather than there being nothing
-    /// to compute from. Absent when the athlete simply has no running history.
+    /// to compute from. Absent when the athlete simply has no VDOT.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
     /// Always empty here, and always an array.
@@ -334,11 +333,16 @@ pub struct NoRacePrediction {
 pub struct RacePredictionDetail {
     /// The sport requested, echoed back.
     pub target_sport: String,
-    /// VDOT, Jack Daniels' aerobic-capacity number, rounded.
+    /// The athlete's VDOT, Daniels' performance index, rounded: read from a
+    /// performance, never from a `VO2max`.
     pub vdot: f64,
-    /// The effort the prediction was derived from.
-    pub best_performance: BestPerformance,
-    /// One prediction per standard race distance.
+    /// Where the VDOT came from: a VDOT the athlete stated, their best recent
+    /// run, or their saved threshold pace.
+    pub vdot_source: PredictionVdotSource,
+    /// True when the VDOT is an estimate (a recent run or the threshold
+    /// pace): quote the predictions as estimates.
+    pub estimated: bool,
+    /// One prediction per standard race distance, shortest first.
     pub predictions: Vec<RacePrediction>,
     /// How much to trust it, as a band rather than a number — it comes from
     /// the recency of the best effort and the volume behind it, neither of
@@ -350,23 +354,43 @@ pub struct RacePredictionDetail {
     pub notes: Vec<String>,
 }
 
-/// The athlete's best recent effort, which sets the prediction.
+/// Where a prediction's VDOT came from (cageux `resolve_vdot`, in its order).
 #[derive(Debug, Serialize, schemars::JsonSchema)]
-pub struct BestPerformance {
-    /// Distance covered, in metres.
-    pub distance_meters: f64,
-    /// Time taken, in seconds.
-    pub time_seconds: f64,
-    /// Pace as `m:ss`, for reading rather than arithmetic.
-    pub pace_min_km: String,
-    /// RFC 3339 timestamp of the effort.
-    pub date: String,
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum PredictionVdotSource {
+    /// A VDOT the athlete or coach stated, from a race or as a number, at
+    /// most 12 weeks old.
+    Stated {
+        /// The day it was true, `YYYY-MM-DD`.
+        as_of: String,
+        /// How it was found, when recorded ("race: 10 km in 41:21").
+        #[serde(skip_serializing_if = "Option::is_none")]
+        method: Option<String>,
+    },
+    /// The highest-VDOT run of the last 6 weeks, read as a race: an estimate,
+    /// and a lower bound, since a training run reads low.
+    RecentRun {
+        /// Distance covered, in metres.
+        distance_meters: f64,
+        /// Time taken, in seconds.
+        time_seconds: f64,
+        /// Pace as `m:ss`, for reading rather than arithmetic.
+        pace_min_km: String,
+        /// RFC 3339 timestamp of the run.
+        date: String,
+    },
+    /// Read back from the saved threshold pace on Daniels' curve: an
+    /// estimate.
+    ThresholdPace {
+        /// The saved threshold pace, in seconds per kilometre.
+        threshold_pace_sec_per_km: f64,
+    },
 }
 
 /// A predicted time at one race distance.
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct RacePrediction {
-    /// The race, by name: `5K`, `10K`, `Half Marathon`, `Marathon`.
+    /// The race, by name: `5K`, `10K`, `15K`, `Half Marathon`, `Marathon`.
     pub distance: String,
     /// That race in metres, so a client need not parse the name.
     pub distance_meters: f64,

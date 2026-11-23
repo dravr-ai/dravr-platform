@@ -692,7 +692,8 @@ async fn zone_calculation_uses_the_saved_profile_once_physiology_exists() -> Res
         &executor,
         user_id,
         &tenant_id,
-        json!({ "ftp_watts": 250, "resting_hr": 48, "max_hr": 192, "vo2_max": 55.0 }),
+        json!({ "ftp_watts": 250, "resting_hr": 48, "max_hr": 192, "vo2_max": 55.0,
+                "vdot": 50.0 }),
     )
     .await?;
 
@@ -720,6 +721,11 @@ async fn zone_calculation_uses_the_saved_profile_once_physiology_exists() -> Res
     assert!(
         !result["personalized_zones"]["heart_rate_zones"].is_null(),
         "HR zones must be derived from the saved heart rates"
+    );
+    assert_eq!(
+        result["input_sources"]["vdot"],
+        json!("stated"),
+        "the pace zones are cut from the saved VDOT, never the VO2max"
     );
     assert!(
         result["unavailable"]
@@ -1061,11 +1067,13 @@ async fn an_empty_anchor_reads_the_latest_measurement_and_a_stored_one_stands() 
     assert_eq!(effective.vo2_max(), Some(52.0), "the export's VO2max");
     assert_eq!(effective.weight(), Some(71.8), "the latest weigh-in");
 
-    // The VO2max estimate takes the weigh-in when the profile has none.
+    // The VO2max estimate takes the weigh-in when the profile has none. (The
+    // watch's morning is first-party-only, so this transport does not see it:
+    // the call gives its resting heart rate.)
     let estimate = executor
         .execute_tool(make_request(
             "estimate_vo2max",
-            json!({ "method": "astrand_ryhming", "gender": "male",
+            json!({ "method": "swain_vo2_reserve", "max_hr": 190, "resting_hr": 55,
                     "heart_rate": 150, "power_watts": 200 }),
             user_id,
             &tenant_id,
@@ -1078,6 +1086,11 @@ async fn an_empty_anchor_reads_the_latest_measurement_and_a_stored_one_stands() 
             .as_array()
             .is_some_and(|d| d.iter().any(|v| v == "weight_kg")),
         "bug: the weigh-in fills the estimate's weight: {estimate}"
+    );
+    assert_eq!(
+        estimate["defaults_from_profile"],
+        json!(["weight_kg"]),
+        "only the weight came from stored data: {estimate}"
     );
 
     // An anchor the athlete sets stands, however much newer a measurement is.
@@ -1219,6 +1232,178 @@ async fn a_reading_stated_in_a_first_party_only_turn_files_no_open_row() -> Resu
     Ok(())
 }
 
+/// A VDOT is saved as its own value, with the day it was true and how it was
+/// found, apart from the `VO2max` (carnet#1693 item 5); a `VO2max` is saved
+/// with the method it came with, or none — never an earlier one's.
+#[tokio::test]
+async fn a_vdot_is_saved_with_its_day_and_method_apart_from_vo2max() -> Result<()> {
+    let executor = create_executor().await?;
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+    let tenant = TenantId::from_uuid(Uuid::parse_str(&tenant_id)?);
+
+    let saved = set_physiology(
+        &executor,
+        user_id,
+        &tenant_id,
+        json!({ "vdot": 50.0, "vdot_as_of": "2026-11-01", "vdot_method": "race: 10 km in 41:21" }),
+    )
+    .await?;
+    assert_eq!(
+        saved["profile"]["vdot"],
+        json!({ "value": 50.0, "as_of": "2026-11-01", "method": "race: 10 km in 41:21" }),
+        "bug: the VDOT must be echoed with its day and method: {saved}"
+    );
+    assert_eq!(
+        saved["profile"]["vo2_max"],
+        Value::Null,
+        "a VDOT is no VO2max"
+    );
+    assert_eq!(
+        saved["updated_fields"],
+        json!(["vdot"]),
+        "bug: only the VDOT was set: {saved}"
+    );
+
+    // A VO2max saved with its method keeps the VDOT and records the method.
+    let lab = set_physiology(
+        &executor,
+        user_id,
+        &tenant_id,
+        json!({ "vo2_max": 55.0, "vo2_max_method": "lab test" }),
+    )
+    .await?;
+    assert_eq!(
+        lab["profile"]["vdot"]["value"],
+        json!(50.0),
+        "bug: saving a VO2max must keep the stated VDOT: {lab}"
+    );
+    assert_eq!(
+        lab["profile"]["vo2_max_method"],
+        json!("lab test"),
+        "bug: a VO2max must be saved with the method it came with: {lab}"
+    );
+
+    // A new VO2max with no method saves none: the lab test described the
+    // value it replaced.
+    let bare = set_physiology(&executor, user_id, &tenant_id, json!({ "vo2_max": 56.0 })).await?;
+    assert!(
+        bare["profile"].get("vo2_max_method").is_none(),
+        "bug: an earlier method stayed beside a new VO2max: {bare}"
+    );
+
+    // Straight from storage, so the echo cannot satisfy it.
+    let stored = executor
+        .resources
+        .repos()
+        .user_physiological_profile
+        .get_user_physiological_profile(tenant, user_id)
+        .await?
+        .expect("the profile is stored");
+    let vdot = stored.vdot.expect("the VDOT is stored");
+    assert!(
+        (vdot.value - 50.0).abs() < f64::EPSILON,
+        "bug: the stored VDOT is not the one saved"
+    );
+    assert_eq!(
+        vdot.as_of,
+        CivilDate::from_ymd(2026, 11, 1)?,
+        "bug: the VDOT's day was not stored"
+    );
+    assert_eq!(
+        vdot.method.as_deref(),
+        Some("race: 10 km in 41:21"),
+        "bug: the VDOT's method was not stored"
+    );
+    assert_eq!(
+        stored.vo2_max,
+        Some(56.0),
+        "bug: the latest VO2max was not stored"
+    );
+    assert_eq!(
+        stored.vo2_max_method, None,
+        "bug: a method stayed stored beside a VO2max saved without one"
+    );
+    Ok(())
+}
+
+/// A VDOT below Daniels' tables (30-85) is saved, with a warning that it
+/// rests on his curves beyond them; one inside them carries none
+/// (carnet#1693 Q21).
+#[tokio::test]
+async fn a_vdot_beyond_daniels_tables_is_saved_with_a_warning() -> Result<()> {
+    let executor = create_executor().await?;
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+
+    // 5 km in 35:00.
+    let slow = set_physiology(
+        &executor,
+        user_id,
+        &tenant_id,
+        json!({ "vdot": 25.6, "vdot_method": "race: 5 km in 35:00" }),
+    )
+    .await?;
+    assert_eq!(
+        slow["profile"]["vdot"]["value"],
+        json!(25.6),
+        "bug: a VDOT inside 20-90 must be saved: {slow}"
+    );
+    let warnings = slow["warnings"].as_array().cloned().unwrap_or_default();
+    assert!(
+        warnings
+            .iter()
+            .any(|w| w.as_str().is_some_and(|w| w.contains("less certain"))),
+        "bug: a VDOT below the tables is saved without its warning: {slow}"
+    );
+
+    let table = set_physiology(&executor, user_id, &tenant_id, json!({ "vdot": 50.0 })).await?;
+    assert!(
+        table.get("warnings").is_none(),
+        "a VDOT inside the tables says nothing more: {table}"
+    );
+    Ok(())
+}
+
+/// A VDOT stated with no day is true today; a day or method alone, a future
+/// day, a VDOT outside 20-90, or a `VO2max` method with no `VO2max` are
+/// refused rather than saved half.
+#[tokio::test]
+async fn a_vdot_without_a_day_is_todays_and_a_half_statement_is_refused() -> Result<()> {
+    let executor = create_executor().await?;
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+
+    let saved = set_physiology(&executor, user_id, &tenant_id, json!({ "vdot": 48.5 })).await?;
+    assert_eq!(
+        saved["profile"]["vdot"]["as_of"],
+        json!(Timestamp::now().utc_date().to_string()),
+        "bug: a VDOT stated with no day must be dated today: {saved}"
+    );
+    assert!(
+        saved["profile"]["vdot"].get("method").is_none(),
+        "none invented"
+    );
+
+    for (params, expected) in [
+        (json!({ "vdot_as_of": "2026-11-01" }), "pass vdot too"),
+        (json!({ "vdot_method": "stated" }), "pass vdot too"),
+        (
+            json!({ "vdot": 50.0, "vdot_as_of": "2999-01-01" }),
+            "future",
+        ),
+        (json!({ "vdot": 19.9 }), "between 20 and 90"),
+        (json!({ "vdot": 90.1 }), "between 20 and 90"),
+        (json!({ "vo2_max_method": "lab test" }), "pass vo2_max too"),
+    ] {
+        let message =
+            set_physiology_expecting_rejection(&executor, user_id, &tenant_id, params.clone())
+                .await?;
+        assert!(
+            message.contains(expected),
+            "bug: {params} must be refused with \"{expected}\": {message}"
+        );
+    }
+    Ok(())
+}
+
 /// A `VO2max` the athlete saves is an anchor, never a measurement row: the
 /// number `set_physiology` is handed is as often an estimate (a Cooper test
 /// `estimate_vo2max` computed) as a lab value, and an estimate is never
@@ -1348,7 +1533,7 @@ async fn a_failed_measurement_read_keeps_the_profile() -> Result<()> {
     let estimate = executor
         .execute_tool(make_request(
             "estimate_vo2max",
-            json!({ "method": "astrand_ryhming", "gender": "male",
+            json!({ "method": "swain_vo2_reserve", "resting_hr": 50,
                     "heart_rate": 150, "power_watts": 200, "weight_kg": 72.0 }),
             user_id,
             &tenant_id,

@@ -102,6 +102,11 @@ pub mod configuration_output;
 #[cfg(feature = "tools-config")]
 pub mod configuration_document;
 
+/// The VDOT `calculate_personalized_zones` cuts its pace zones from, and
+/// those zones rendered (`tools-config` feature).
+#[cfg(feature = "tools-config")]
+pub(crate) mod configuration_pace;
+
 /// The field dictionary as `get_connection_status` and `get_activities` carry it.
 pub mod field_dictionary;
 
@@ -200,6 +205,11 @@ pub mod physiology;
 /// and a twin mirrored onto the profile field it stands for (carnet#1496).
 #[cfg(feature = "tools-config")]
 pub(crate) mod physiology_anchors;
+
+/// `set_physiology`'s argument readers: numbers, labels, past days, the
+/// stated VDOT and a measurement's provenance (`tools-config` feature).
+#[cfg(feature = "tools-config")]
+pub(crate) mod physiology_args;
 
 /// What the physiology tools echo back: the stored profile with its
 /// per-sport anchors (`tools-config` feature).

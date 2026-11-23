@@ -45,6 +45,7 @@ pub use inner::{generate_nutrition_recommendations, load_nutrition_athlete, Nutr
 // Every mode's answer, for the same reason: the training-load modes' metrics
 // are asserted against the thresholds the athlete saved.
 pub use inner::generate_training_recommendations;
+pub use inner::AthleteReads;
 
 use crate::annotations::{annotations, Effect, Reach};
 use crate::protocol::provider_helpers::PROVIDER_ARGUMENT;
@@ -877,9 +878,9 @@ impl McpTool<dyn ToolRuntime> for PredictPerformanceTool {
         let schema = object_schema_with_format(properties, None);
         answers_with::<Formatted<RacePredictionResult>>(task_capable(tool_definition(
             "predict_performance",
-            "Predict 5K, 10K, half-marathon and marathon times (VDOT, Daniels) from the \
-             fastest-paced recent run of 3 km or more that took under 2 hours, returned under \
-             `best_performance`. Running only.",
+            "Predict 5K-marathon times (Daniels) from the athlete's VDOT: stated in the last 12 \
+             weeks, else their best run of 6 weeks, else their threshold pace (`vdot_source`). \
+             Running only.",
             schema,
             annotations(
                 "Predict race times",

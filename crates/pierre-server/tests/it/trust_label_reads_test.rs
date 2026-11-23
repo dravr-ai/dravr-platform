@@ -364,9 +364,8 @@ async fn every_read_of_the_athletes_data_over_mcp_labels_what_it_served() {
     );
 }
 
-#[tokio::test]
-async fn the_athletes_own_physiology_is_labelled_as_theirs() {
-    let (f, _) = world().await;
+/// The athlete's zones, and the trust label they were served under.
+async fn zones_and_label(f: &Fixture) -> (Value, Value) {
     let response = f
         .call(
             &f.mcp_executor(),
@@ -376,13 +375,109 @@ async fn the_athletes_own_physiology_is_labelled_as_theirs() {
         )
         .await;
     assert!(response.success, "{:?}", response.error);
-    let label = labels_of(&response).expect("the stored physiology was served");
+    let label = labels_of(&response)
+        .expect("the stored physiology was served")
+        .clone();
+    (response.result.unwrap_or_default(), label)
+}
+
+#[tokio::test]
+async fn the_athletes_own_physiology_is_labelled_as_theirs() {
+    let (f, _) = world().await;
+    // A fresh stated VDOT outranks the athlete's runs, so the zones read the
+    // profile alone and leave the cached runs unread.
+    let saved = f
+        .call(
+            &f.mcp_executor(),
+            f.athlete,
+            "set_physiology",
+            json!({ "vdot": 50.0 }),
+        )
+        .await;
+    assert!(
+        saved.success,
+        "fixture: the VDOT is saved: {:?}",
+        saved.error
+    );
+    let (zones, label) = zones_and_label(&f).await;
+    assert_eq!(
+        zones["input_sources"]["vdot"], "stated",
+        "bug: the zones must read the fresh stated VDOT: {zones}"
+    );
     assert_eq!(
         label["source_class"],
         json!(["patient_entered"]),
-        "the athlete stated every number of their profile: {label}"
+        "bug: the athlete stated every number the zones read; a run read and \
+         not used was labelled as served: {label}"
     );
-    assert_eq!(label["tier"], "T1", "{label}");
+    assert_eq!(
+        label["tier"], "T1",
+        "bug: a stated profile is tier T1: {label}"
+    );
+}
+
+#[tokio::test]
+async fn a_vdot_read_from_a_run_labels_the_run_it_came_from() {
+    let (f, _) = world().await;
+    // No VDOT stated: the athlete's uploaded 10 km runs give the zones theirs.
+    let (zones, label) = zones_and_label(&f).await;
+    assert_eq!(
+        zones["input_sources"]["vdot"], "recent_run_estimate",
+        "bug: the athlete's recent runs must give the zones a VDOT: {zones}"
+    );
+    assert_eq!(
+        label["source_class"],
+        json!(["device", "patient_entered"]),
+        "bug: the VDOT came from an uploaded run, the device's record, beside \
+         the profile the athlete stated: {label}"
+    );
+}
+
+#[tokio::test]
+async fn a_run_withheld_from_mcp_gives_way_and_a_run_not_used_is_not_labelled() {
+    let (f, _) = world().await;
+    let (before, _) = zones_and_label(&f).await;
+    assert!(
+        before["user_profile"]["vdot"].is_number(),
+        "fixture: the uploaded runs give the zones a VDOT: {before}"
+    );
+    // Beside the uploaded 10 km runs of an hour: a 10 km in 40 minutes on
+    // Strava, whose terms keep it off MCP, and one in 70 minutes on
+    // Intervals.icu, which any transport may carry.
+    for (provider, seconds) in [("strava", 2_400), ("intervals_icu", 4_200)] {
+        let run = ActivityBuilder::new(
+            format!("{provider}-10k"),
+            "10 km",
+            SportType::Run,
+            Timestamp::now() - Elapsed::days(2),
+            seconds,
+            provider,
+        )
+        .distance_meters(10_000.0)
+        .build();
+        f.repos()
+            .activity_cache
+            .upsert_activities(
+                f.athlete.id,
+                &f.athlete.tenant,
+                provider,
+                slice::from_ref(&run),
+            )
+            .await
+            .unwrap();
+    }
+    let (after, label) = zones_and_label(&f).await;
+    assert_eq!(
+        after["user_profile"]["vdot"], before["user_profile"]["vdot"],
+        "bug: the faster Strava run is withheld from MCP, so it must give way to \
+         the uploaded runs, which the slower Intervals.icu run does not outrank: {after}"
+    );
+    assert_eq!(
+        label["source_class"],
+        json!(["device", "patient_entered"]),
+        "bug: the Intervals.icu run was read and not used, so it must not be \
+         labelled as served: {label}"
+    );
 }
 
 #[tokio::test]

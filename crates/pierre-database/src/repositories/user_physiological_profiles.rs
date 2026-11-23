@@ -20,6 +20,8 @@ use serde_json::Value;
 use sqlx::Row;
 use uuid::Uuid;
 
+use crate::repositories::user_physiological_profile_vdot::{vdot_binds, vdot_from_row, VdotBinds};
+
 /// Typed CRUD for [`UserPhysiologicalProfile`] backed by the
 /// `user_physiological_profiles` table.
 ///
@@ -163,13 +165,15 @@ pub(crate) const UPSERT_PHYSIOLOGICAL_PROFILE_SQL: &str = r"
                 vo2_max_origin, vo2_max_as_of,
                 weight_origin, weight_as_of,
                 ftp_watts_stated_on, threshold_hr_stated_on, max_hr_stated_on,
-                threshold_pace_sec_per_km_stated_on
+                threshold_pace_sec_per_km_stated_on,
+                vo2_max_method, vdot, vdot_as_of, vdot_method
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
                     $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28,
                     $29, $30, $31, $32, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, $33,
                     $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46,
-                    $47, $48, $49, $50, $51, $52, $53, $54, $55, $56)
+                    $47, $48, $49, $50, $51, $52, $53, $54, $55, $56,
+                    $57, $58, $59, $60)
             ON CONFLICT (tenant_id, user_id) DO UPDATE SET
                 vo2_max = EXCLUDED.vo2_max,
                 resting_hr = EXCLUDED.resting_hr,
@@ -225,7 +229,11 @@ pub(crate) const UPSERT_PHYSIOLOGICAL_PROFILE_SQL: &str = r"
                 ftp_watts_stated_on = EXCLUDED.ftp_watts_stated_on,
                 threshold_hr_stated_on = EXCLUDED.threshold_hr_stated_on,
                 max_hr_stated_on = EXCLUDED.max_hr_stated_on,
-                threshold_pace_sec_per_km_stated_on = EXCLUDED.threshold_pace_sec_per_km_stated_on
+                threshold_pace_sec_per_km_stated_on = EXCLUDED.threshold_pace_sec_per_km_stated_on,
+                vo2_max_method = EXCLUDED.vo2_max_method,
+                vdot = EXCLUDED.vdot,
+                vdot_as_of = EXCLUDED.vdot_as_of,
+                vdot_method = EXCLUDED.vdot_method
             ";
 
 /// Read the one profile row for `(tenant_id, user_id)`.
@@ -249,7 +257,8 @@ pub(crate) const GET_PHYSIOLOGICAL_PROFILE_SQL: &str = r"
                    vo2_max_origin, vo2_max_as_of,
                    weight_origin, weight_as_of,
                    ftp_watts_stated_on, threshold_hr_stated_on, max_hr_stated_on,
-                   threshold_pace_sec_per_km_stated_on
+                   threshold_pace_sec_per_km_stated_on,
+                   vo2_max_method, vdot, vdot_as_of, vdot_method
             FROM user_physiological_profiles
             WHERE tenant_id = $1 AND user_id = $2
             LIMIT 1
@@ -300,6 +309,8 @@ pub(crate) struct ProfileBinds {
     pub(crate) threshold_hr_stated_on: Option<CivilDate>,
     pub(crate) max_hr_stated_on: Option<CivilDate>,
     pub(crate) threshold_pace_stated_on: Option<CivilDate>,
+    pub(crate) vo2_max_method: Option<String>,
+    pub(crate) vdot: VdotBinds,
 }
 
 /// The day an athlete-set threshold was stated, bound only beside a value
@@ -497,6 +508,12 @@ pub(crate) fn profile_binds(profile: &UserPhysiologicalProfile) -> AppResult<Pro
                 .as_ref(),
             profile.threshold_stated_on.threshold_pace_sec_per_km,
         ),
+        // A method describes the VO2max beside it, so none is stored alone.
+        vo2_max_method: profile
+            .vo2_max_method
+            .clone()
+            .filter(|_| profile.vo2_max.is_some()),
+        vdot: vdot_binds(profile.vdot.as_ref()),
     })
 }
 
@@ -608,6 +625,10 @@ where
         vo2_max: anchor_stamp_from_row(row, "vo2_max", vo2_max.is_some())?,
         weight: anchor_stamp_from_row(row, "weight", weight.is_some())?,
     };
+    let vo2_max_method = row
+        .try_get::<Option<String>, _>("vo2_max_method")
+        .map_err(|e| AppError::database(format!("read vo2_max_method: {e}")))?
+        .filter(|_| vo2_max.is_some());
 
     Ok(UserPhysiologicalProfile {
         user_id,
@@ -639,6 +660,8 @@ where
         threshold_provenance,
         threshold_stated_on,
         anchor_provenance,
+        vo2_max_method,
+        vdot: vdot_from_row(row)?,
         sex: row
             .try_get::<Option<String>, _>("sex")
             .map_err(|e| AppError::database(format!("read sex: {e}")))?
@@ -897,6 +920,10 @@ macro_rules! impl_user_physiological_profile_repository {
                     .bind(binds.threshold_hr_stated_on)
                     .bind(binds.max_hr_stated_on)
                     .bind(binds.threshold_pace_stated_on)
+                    .bind(binds.vo2_max_method)
+                    .bind(binds.vdot.value)
+                    .bind(binds.vdot.as_of)
+                    .bind(binds.vdot.method)
                     .execute(self.pool())
                     .await
                     .map_err(|e| {

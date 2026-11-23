@@ -17,7 +17,7 @@ use pierre_core::models::{Activity, SportType};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_fitness_compute::training_history_compute::AthleteInputs;
 use pierre_tool_runtime::implementations::analytics::{
-    generate_training_recommendations, NutritionAthlete,
+    generate_training_recommendations, AthleteReads,
 };
 use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
 use serde_json::{json, Value};
@@ -153,12 +153,13 @@ async fn heart_rate_zones_carry_zone_6_the_tier_and_where_the_vo2max_came_from()
         calculations["lactate_threshold_hr"],
         json!(expected.lactate_threshold_bpm)
     );
-    // The estimate only chose the tier: pace zones still need a real VO2max.
+    // The estimate only chose the tier: pace zones need a VDOT, which no
+    // performance has given this athlete.
     assert!(result["personalized_zones"]["pace_zones"].is_null());
     assert!(result["unavailable"]["pace_zones"]
         .as_str()
         .unwrap_or_default()
-        .contains("vo2_max"));
+        .contains("VDOT"));
 
     // A supplied VO2max below 50 is the intermediate tier: five zones only.
     let intermediate = call(
@@ -238,7 +239,7 @@ fn the_intensity_mode_reads_the_athletes_zones_and_says_why_when_it_cannot() {
     let runs = alternating_runs();
     let config = AlgorithmConfig::default();
     let athlete = AthleteInputs::default();
-    let nutrition = NutritionAthlete::default();
+    let reads = AthleteReads::default();
     let zones = HrZones::for_athlete(None, 50, 190).unwrap();
 
     let with_zones = generate_training_recommendations(
@@ -248,7 +249,7 @@ fn the_intensity_mode_reads_the_athletes_zones_and_says_why_when_it_cannot() {
         Ok(&zones),
         &config,
         None,
-        &nutrition,
+        &reads,
     );
     assert!(with_zones.hr_zones_unavailable.is_none());
     let metrics = with_zones.metrics.expect("intensity metrics");
@@ -266,7 +267,7 @@ fn the_intensity_mode_reads_the_athletes_zones_and_says_why_when_it_cannot() {
         Err(&missing),
         &config,
         None,
-        &nutrition,
+        &reads,
     );
     assert_eq!(
         without.hr_zones_unavailable.as_deref(),
@@ -286,7 +287,7 @@ fn the_intensity_mode_reads_the_athletes_zones_and_says_why_when_it_cannot() {
         Err(&missing),
         &config,
         None,
-        &nutrition,
+        &reads,
     );
     assert!(plan.hr_zones_unavailable.is_none());
 }

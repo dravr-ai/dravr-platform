@@ -68,6 +68,9 @@ pub mod athlete_anchors;
 /// The athlete's civil date, from the timezone on their user row.
 pub mod athlete_clock;
 
+/// The athlete's one VDOT, from a performance only (carnet#1693 item 5).
+pub mod athlete_vdot;
+
 /// The one display-name rule a member is rendered by, on every build.
 pub mod athlete_display_name;
 

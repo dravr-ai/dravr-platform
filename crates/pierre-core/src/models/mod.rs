@@ -175,7 +175,7 @@ pub use check_in::CheckInCadence;
 
 // Physiology provenance domain
 pub use measurement::{
-    AnchorOrigin, AnchorProvenance, AnchorStamp, MeasurementKind, MetricProvenance,
+    AnchorOrigin, AnchorProvenance, AnchorStamp, MeasurementKind, MetricProvenance, ProfileVdot,
     ProvenancedValue, ThresholdProvenance, ThresholdStatedOn, ATHLETE_REPORTED_ORIGIN,
     COACH_STATED_ORIGIN,
 };

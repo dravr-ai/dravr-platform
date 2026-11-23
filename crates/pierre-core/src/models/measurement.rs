@@ -100,6 +100,26 @@ impl<T> ProvenancedValue<T> {
     }
 }
 
+/// A VDOT the athlete or their coach stated, from a race or as a number, with
+/// the day it was true and how it was found.
+///
+/// A VDOT is Daniels' performance index, read from a race; it folds running
+/// economy and the share of `VO2max` an athlete sustains into one number, so
+/// it is stored apart from the profile's `VO2max` and never filled from one.
+/// The day is what ages it: a stated VDOT gives way to what recent running
+/// shows once it is 12 weeks old (cageux `PerformancePredictor::resolve_vdot`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct ProfileVdot {
+    /// The VDOT.
+    pub value: f64,
+    /// The day it was true: the race's day, or the day it was stated.
+    pub as_of: CivilDate,
+    /// How it was found, as the athlete or tool put it ("race: 10 km in
+    /// 41:21", "stated"). Absent when none was given; never invented.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub method: Option<String>,
+}
+
 /// Where each of the profile's four scalar thresholds came from, for the ones
 /// a provider supplied.
 ///
@@ -379,8 +399,8 @@ impl UserPhysiologicalProfile {
     ///   the athlete's when none was recorded.
     /// - A critical-power or critical-speed value takes its stated
     ///   provenance's class ([`MetricProvenance::stated_class`]).
-    /// - The lactate fraction, age and training years are written only by
-    ///   `set_physiology`, so they are the athlete's. A sex is the athlete's
+    /// - The lactate fraction, age, training years and a stated VDOT are
+    ///   written only by `set_physiology`, so they are the athlete's. A sex is the athlete's
     ///   or what a provider reported of them, which the row does not tell
     ///   apart, so it claims the least.
     ///
@@ -427,7 +447,8 @@ impl UserPhysiologicalProfile {
         .map(MetricProvenance::stated_class);
         let athletes_own = (self.lactate_threshold_percentage.is_some()
             || self.age.is_some()
-            || self.training_experience_years.is_some())
+            || self.training_experience_years.is_some()
+            || self.vdot.is_some())
         .then_some(SourceClass::PatientEntered);
         let reported_sex = self.sex.is_some().then_some(SourceClass::ThirdPartyApp);
         thresholds

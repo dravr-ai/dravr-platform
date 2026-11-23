@@ -208,7 +208,7 @@ export interface CalculatePersonalizedZonesParams {
   /** Functional Threshold Power in watts. Omit to use the athlete's saved value; power zones are omitted when neither exists. */
   ftp?: number;
 
-  /** Lactate threshold as a fraction of VO2 max (0.65-0.95), used for pace zones: threshold pace runs at the speed whose oxygen cost is that share of VO2 max. Omit to use the athlete's saved value, else Daniels' threshold intensity, 0.88 (named in `input_sources`). */
+  /** Lactate threshold as a share of VDOT (0.65-0.95), used for pace zones: threshold pace runs at the speed whose oxygen cost is that share of VDOT. Omit to use the athlete's saved value, else Daniels' threshold intensity, 0.88 (named in `input_sources`). */
   lactate_threshold?: number;
 
   /** Maximum heart rate in bpm. Omit to use the athlete's saved value, or the estimate from their saved age by the configured max-HR algorithm (algorithm.maxhr). */
@@ -217,7 +217,10 @@ export interface CalculatePersonalizedZonesParams {
   /** Resting heart rate in bpm. Omit to use the athlete's saved value. */
   resting_hr?: number;
 
-  /** VO2 max in ml/kg/min. Omit to use the athlete's saved value; pace zones are omitted when neither exists. */
+  /** VDOT (20-90) for the pace zones; omitted, the athlete's (stated, best recent run or threshold pace). */
+  vdot?: number;
+
+  /** VO2 max in ml/kg/min; it picks the heart-rate zone tier, never the paces. Omit to use the athlete's saved value. */
   vo2_max?: number;
 }
 
@@ -415,7 +418,7 @@ export interface EstimateLactateThresholdsParams {
 
 
 /**
- * Estimate the athlete's VO2max in ml/kg/min from a field test, race result or known VDOT they report (see `method`), e.g. 'I ran 2.8 km in 12 minutes'. Weight and age come from the athlete's stored data when not restated, and the result says which inputs were defaulted. This only estimates: to keep the number, call set_physiology with vo2_max after the athlete confirms it.
+ * Estimate VO2max (ml/kg/min) or VDOT from a field test, race or known VDOT the athlete reports (see `method`), e.g. 'I ran 2.8 km in 12 minutes'. Weight, age and heart rates default to stored data, named in the result. Estimates only: save with set_physiology once confirmed (`to_store`).
  */
 export interface EstimateVo2maxParams {
 
@@ -425,34 +428,34 @@ export interface EstimateVo2maxParams {
   /** Roster name of an athlete you coach who shares their training with you: reads theirs instead of yours. */
   athlete?: string;
 
-  /** cooper_test: metres covered in 12 minutes on flat ground. race_result: the race distance in metres (5 km is 5000). */
+  /** cooper_test: metres covered in 12 minutes. race_result: the distance in metres (5 km is 5000). */
   distance_meters?: number;
 
-  /** rockport_walk and astrand_ryhming: the sex the published equation was fitted on, female or male. */
+  /** rockport_walk: the sex the equation was fitted on, female or male. */
   gender?: string;
 
-  /** rockport_walk: heart rate in bpm immediately at the finish. astrand_ryhming: steady-state heart rate during the ride, 120–170 bpm. */
+  /** rockport_walk: bpm at the finish. swain_vo2_reserve: bpm at the end of the stage. */
   heart_rate?: number;
 
-  /** from_pace: the fastest speed in metres per second the athlete can hold for 3–8 minutes. */
-  max_speed_ms?: number;
+  /** swain_vo2_reserve: maximum heart rate; omitted, the saved one. */
+  max_hr?: number;
 
-  /** Which test: cooper_test (distance run in 12 minutes), rockport_walk (a timed mile walk with finishing heart rate), astrand_ryhming (steady cycling at a known power with heart rate), from_pace (a hard 3–8 minute speed and an easy speed), from_vdot (a VDOT they know), race_result (a race or time trial's distance and time). */
+  /** cooper_test (metres in 12 min: VO2max, VDOT), rockport_walk (mile walk time, finish HR), swain_vo2_reserve (6-min cycle stage at 65-75% of HR reserve: watts, end HR), race_result (race or 3-8 min effort: VDOT), from_vdot (a known VDOT). */
   method: string;
 
-  /** astrand_ryhming: the steady power held on the ergometer, in watts. */
+  /** swain_vo2_reserve: watts held through the stage. */
   power_watts?: number;
 
-  /** from_pace: the athlete's easy or recovery speed in metres per second. */
-  recovery_speed_ms?: number;
+  /** swain_vo2_reserve: resting heart rate; omitted, the saved one. */
+  resting_hr?: number;
 
-  /** rockport_walk: seconds taken to walk one mile (1,609 m) as fast as possible. race_result: the finishing time in seconds (19:30 is 1170). */
+  /** rockport_walk: seconds to walk one mile. race_result: the finishing time in seconds (19:30 is 1170). */
   time_seconds?: number;
 
-  /** from_vdot: the VDOT value, 30–85. It is already VO2max in ml/kg/min, so this reports it after range-checking. */
+  /** from_vdot: the VDOT, 20-90. */
   vdot?: number;
 
-  /** Body weight in kilograms. rockport_walk and astrand_ryhming need it; when omitted the stored profile weight is used. */
+  /** rockport_walk, swain_vo2_reserve: body weight in kg; omitted, the stored one. */
   weight_kg?: number;
 }
 
@@ -1115,7 +1118,7 @@ export interface OptimizeSleepScheduleParams {
 
 
 /**
- * Predict 5K, 10K, half-marathon and marathon times (VDOT, Daniels) from the fastest-paced recent run of 3 km or more that took under 2 hours, returned under `best_performance`. Running only.
+ * Predict 5K-marathon times (Daniels) from the athlete's VDOT: stated in the last 12 weeks, else their best run of 6 weeks, else their threshold pace (`vdot_source`). Running only.
  */
 export interface PredictPerformanceParams {
 
@@ -1771,7 +1774,7 @@ export interface SetGoalParams {
 
 
 /**
- * Save the athlete's physiological measurements — FTP, threshold pace, max, resting and threshold heart rate, lactate threshold, VO2 max, weight, age, sex, and critical power, W′, critical speed and D′, and per-sport anchors — so load, zones, workout targets and every personalised calculation use their real numbers instead of generic estimates. Training load is scored against what is saved here and nowhere else (power against the FTP, heart rate against the threshold heart rate). Call this whenever the athlete states one of these values, e.g. 'my FTP is 285'. Pass only the fields they gave you; the rest keep their stored values. An estimated CP, W′, CS or D′ is quoted as an estimate with its source, never as a measurement. The result is the profile re-read after the write: report back only what it contains.
+ * Save the athlete's physiological measurements — FTP, threshold pace, max, resting and threshold heart rate, lactate threshold, VO2 max, VDOT, weight, age, sex, and critical power, W′, critical speed and D′, and per-sport anchors — so load, zones, workout targets and every personalised calculation use their real numbers instead of generic estimates. Training load is scored against what is saved here and nowhere else (power against the FTP, heart rate against the threshold heart rate). Call this whenever the athlete states one of these values, e.g. 'my FTP is 285'. Pass only the fields they gave you; the rest keep their stored values. An estimated CP, W′, CS or D′ is quoted as an estimate with its source, never as a measurement. The result is the profile re-read after the write: report back only what it contains.
  */
 export interface SetPhysiologyParams {
 
@@ -1860,8 +1863,20 @@ export interface SetPhysiologyParams {
   /** Years of structured training experience. */
   training_experience_years?: number;
 
+  /** VDOT, 20-90, from a race; not a VO2max. */
+  vdot?: number;
+
+  /** The vdot's race day, YYYY-MM-DD; default today. */
+  vdot_as_of?: string;
+
+  /** How, e.g. 'race: 10 km in 41:21'. */
+  vdot_method?: string;
+
   /** VO2 max in ml/kg/min. */
   vo2_max?: number;
+
+  /** How vo2_max was found, e.g. lab test. */
+  vo2_max_method?: string;
 
   /** W′ (W prime) in joules, the work capacity above critical power: 20 kJ is 20000. Needs measurement_kind. */
   w_prime_joules?: number;

@@ -30,7 +30,7 @@ use crate::implementations::lactate_thresholds_output::{
     BandRow, CurveFit, DeterminedThreshold, LactatePowerZones, LactateThresholdsResult,
     StoredThresholds, ThresholdReport, UndeterminedThreshold,
 };
-use crate::implementations::physiology::optional_number;
+use crate::implementations::physiology_args::optional_number;
 use crate::read_subject;
 use crate::runtime::ToolRuntime;
 use dravr_cageux::algorithms::lactate::{

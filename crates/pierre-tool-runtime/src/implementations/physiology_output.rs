@@ -6,8 +6,8 @@
 
 use pierre_core::config::profiles::FitnessLevel;
 use pierre_core::models::{
-    AnchorProvenance, HrZoneSet, PhysiologicalSex, PowerZoneSet, ProvenancedValue, SportAnchor,
-    SportType, ThresholdProvenance, ThresholdStatedOn, UserPhysiologicalProfile,
+    AnchorProvenance, HrZoneSet, PhysiologicalSex, PowerZoneSet, ProfileVdot, ProvenancedValue,
+    SportAnchor, SportType, ThresholdProvenance, ThresholdStatedOn, UserPhysiologicalProfile,
 };
 use pierre_providers::ai_scope;
 use serde::Serialize;
@@ -31,6 +31,8 @@ pub(crate) fn profile_payload(
         threshold_hr: profile.threshold_hr,
         lactate_threshold_percentage: profile.lactate_threshold_percentage,
         vo2_max: profile.vo2_max,
+        vo2_max_method: profile.vo2_max_method.clone(),
+        vdot: profile.vdot.clone(),
         weight: profile.weight,
         age: profile.age,
         fitness_level: profile.fitness_level,
@@ -77,6 +79,15 @@ pub struct PhysiologyProfile {
     pub lactate_threshold_percentage: Option<f64>,
     /// `VO2max`, in ml/kg/min.
     pub vo2_max: Option<f64>,
+    /// How `vo2_max` was found, as it was saved (`cooper_test`, "lab
+    /// test"). Absent when none was recorded.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub vo2_max_method: Option<String>,
+    /// A VDOT the athlete or their coach stated, with the day it was true and
+    /// how it was found. A performance index read from a race, never a
+    /// `VO2max`. Absent when none is stored.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub vdot: Option<ProfileVdot>,
     /// Body mass, in kilograms.
     pub weight: Option<f64>,
     /// Age in years.
@@ -153,6 +164,11 @@ pub struct SetPhysiologyResult {
     /// Which fields this call set, by name. Names only — the measurements
     /// themselves are health data and do not belong in a field list.
     pub updated_fields: Vec<&'static str>,
+    /// What the athlete should hear about a value saved: a VDOT outside
+    /// Daniels' tables (30-85) rests on his curves beyond them and is less
+    /// certain. Absent when there is nothing to say.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<String>,
     /// The profile as it now stands, so the agent need not read it back.
     pub profile: PhysiologyProfile,
     /// What the save did to the stored daily training history

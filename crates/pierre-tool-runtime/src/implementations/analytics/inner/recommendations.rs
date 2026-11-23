@@ -9,7 +9,7 @@ use crate::implementations::analytics::recommendations_output::{
     TrainingSummary, WeekStructure,
 };
 use crate::implementations::stored_copy::{activities_or_stored, with_caveat, Reader, Served};
-use crate::implementations::stored_physiology::{stored_athlete_inputs, stored_hr_zones};
+use crate::implementations::stored_physiology::{stored_hr_zones, stored_profile};
 use crate::protocol::format::{apply_format_typed, extract_output_format};
 use crate::protocol::provider_helpers::resolve_provider_for_request;
 use crate::protocol::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
@@ -17,7 +17,7 @@ use crate::protocols::ProtocolError;
 use crate::read_subject::{self, WellnessInput};
 use dravr_cageux::config::intelligence::AlgorithmConfig;
 use dravr_cageux::pattern_detection::PatternDetector;
-use dravr_cageux::performance_prediction::PerformancePredictor;
+use dravr_cageux::performance_prediction::{PerformancePredictor, VdotReading, VdotSource};
 use dravr_cageux::physiological_constants::api_limits::DEFAULT_ACTIVITY_LIMIT;
 use dravr_cageux::training_load::TrainingLoad;
 use dravr_cageux::training_load::{FormBand, RiskLevel, TrainingLoadCalculator, TrainingLoadLevel};
@@ -30,16 +30,29 @@ use pierre_core::models::{Activity, TenantId};
 use pierre_core::uuid_utils::parse_user_id_for_protocol;
 use pierre_fitness_compute::AthleteInputs;
 use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
+use pierre_services::athlete_vdot::resolve_athlete_vdot;
 
 use super::recommendations_nutrition::{
     generate_nutrition_recommendations, load_nutrition_athlete, NutritionAthlete,
 };
 
-use std::cmp::Ordering;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::future::Future;
 use std::pin::Pin;
 use tracing::warn;
+
+/// What the recommendation modes read about the athlete beyond their
+/// sessions, thresholds and zones.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct AthleteReads {
+    /// What the nutrition mode reads.
+    pub nutrition: NutritionAthlete,
+    /// The athlete's one VDOT, from a performance only
+    /// (`pierre_services::athlete_vdot::resolve_athlete_vdot`), which the
+    /// goal-specific mode predicts race times from; `None` when no
+    /// performance gives one.
+    pub vdot: Option<VdotReading>,
+}
 
 /// The modes `generate_recommendations` answers in, the default first.
 const RECOMMENDATION_TYPES: [&str; 6] = [
@@ -121,7 +134,7 @@ pub fn generate_training_recommendations(
     hr_zones: Result<&HrZones, &HrZonesUnavailable>,
     algorithm_config: &AlgorithmConfig,
     user_timezone: Option<&str>,
-    nutrition_athlete: &NutritionAthlete,
+    reads: &AthleteReads,
 ) -> RecommendationsResult {
     if activities.is_empty() {
         return base_recommendations(
@@ -166,7 +179,11 @@ pub fn generate_training_recommendations(
             )
         }
         "goal_specific" => {
-            return generate_goal_specific_recommendations(&recent_activities, algorithm_config)
+            return generate_goal_specific_recommendations(
+                &recent_activities,
+                reads.vdot.as_ref(),
+                algorithm_config,
+            )
         }
         "recovery" => generate_recovery_recommendations(
             &recent_activities,
@@ -176,7 +193,7 @@ pub fn generate_training_recommendations(
             &zone,
         ),
         "intensity" => generate_intensity_recommendations(&recent_activities, zones),
-        "nutrition" => generate_nutrition_recommendations(latest, zones, nutrition_athlete),
+        "nutrition" => generate_nutrition_recommendations(latest, zones, &reads.nutrition),
         // `all`: the handler refuses any type outside `RECOMMENDATION_TYPES`
         // before a provider is read, so nothing else reaches this arm.
         _ => generate_comprehensive_recommendations(
@@ -600,9 +617,36 @@ fn generate_intensity_recommendations(
     }
 }
 
-/// Generate goal-specific recommendations using performance prediction
+/// What a goal-specific prediction's VDOT rests on, in words, with "an
+/// estimate" said when it is one.
+fn vdot_basis(reading: &VdotReading) -> String {
+    match reading.source {
+        VdotSource::Stated { as_of } => {
+            format!("your stated VDOT, as of {}", as_of.utc_date())
+        }
+        VdotSource::RecentRun {
+            distance_meters,
+            time_seconds,
+            ..
+        } => format!(
+            "an estimate from your best run of the last 6 weeks, {:.1}km in {}",
+            distance_meters / METERS_PER_KM,
+            PerformancePredictor::format_time(time_seconds)
+        ),
+        VdotSource::ThresholdPace {
+            threshold_pace_sec_per_km,
+        } => format!(
+            "an estimate from your saved threshold pace, {}/km",
+            PerformancePredictor::format_time(threshold_pace_sec_per_km)
+        ),
+    }
+}
+
+/// Generate goal-specific recommendations, with race predictions from the
+/// athlete's one VDOT (`vdot`) when there is one
 fn generate_goal_specific_recommendations(
     activities: &[Activity],
+    vdot: Option<&VdotReading>,
     algorithm_config: &AlgorithmConfig,
 ) -> RecommendationsResult {
     use HashMap;
@@ -623,53 +667,28 @@ fn generate_goal_specific_recommendations(
         .max_by(|a, b| a.1.cmp(b.1).then_with(|| b.0.cmp(a.0)))
         .map_or("Unknown", |(sport, _)| sport.as_str());
 
-    // Find best recent performance for predictions
-    let best_performance = activities
-        .iter()
-        .filter(|a| a.distance_meters().is_some() && a.duration_seconds() > 0)
-        .filter_map(|a| {
-            let distance = a.distance_meters()?;
-            #[allow(clippy::cast_precision_loss)]
-            let time_secs = a.duration_seconds() as f64;
-            if distance > 3_000.0 && distance < 50_000.0 && time_secs > 0.0 {
-                Some((distance, time_secs))
-            } else {
-                None
-            }
-        })
-        .max_by(|a, b| {
-            let pace_a = a.1 / (a.0 / METERS_PER_KM);
-            let pace_b = b.1 / (b.0 / METERS_PER_KM);
-            pace_b.partial_cmp(&pace_a).unwrap_or(Ordering::Equal)
-        });
-
     let mut recommendations = Vec::new();
     let priority = "medium";
     let mut race_predictions = None;
 
-    // Generate race time predictions if we have performance data
-    if let Some((distance, time)) = best_performance {
-        if let Ok(predictions) =
-            PerformancePredictor::generate_race_predictions(distance, time, algorithm_config)
-        {
-            race_predictions = Some(RacePredictionSummary {
-                based_on: format!(
-                    "{:.1}km in {}",
-                    distance / METERS_PER_KM,
-                    PerformancePredictor::format_time(time)
-                ),
-                vdot: predictions.vdot,
-                race_times: predictions
-                    .predictions
-                    .iter()
-                    .map(|(distance, minutes)| (distance.clone(), *minutes))
-                    .collect(),
-            });
-
+    // Race time predictions from the athlete's VDOT, read from a performance
+    // only: a VDOT the race-time model has no times for predicts nothing.
+    if let Some(reading) = vdot {
+        let race_times: BTreeMap<String, f64> =
+            PerformancePredictor::predictions_for_vdot(reading.vdot, algorithm_config)
+                .into_iter()
+                .collect();
+        if !race_times.is_empty() {
+            let basis = vdot_basis(reading);
             recommendations.push(format!(
-                "Your VDOT is {:.1} - use this to set appropriate training paces",
-                predictions.vdot
+                "Your VDOT is {:.1} ({basis}) - use this to set appropriate training paces",
+                reading.vdot
             ));
+            race_predictions = Some(RacePredictionSummary {
+                based_on: basis,
+                vdot: reading.vdot,
+                race_times,
+            });
         }
     }
 
@@ -924,16 +943,17 @@ pub(crate) fn handle_generate_recommendations(
             NutritionAthlete::default()
         };
 
-        // The thresholds set_physiology saved, the ones every training-load
-        // surface scores sessions against.
-        let athlete =
-            stored_athlete_inputs(&executor.resources, request.tenant_id.as_deref(), user_uuid)
-                .await
-                .map_err(|e| {
-                    ProtocolError::InternalError(format!(
-                        "generate_recommendations: reading the saved thresholds failed: {e}"
-                    ))
-                })?;
+        // The profile set_physiology saved: the thresholds every training-load
+        // surface scores sessions against, and what the athlete's VDOT is
+        // resolved from.
+        let profile = stored_profile(&executor.resources, request.tenant_id.as_deref(), user_uuid)
+            .await
+            .map_err(|e| {
+                ProtocolError::InternalError(format!(
+                    "generate_recommendations: reading the saved thresholds failed: {e}"
+                ))
+            })?;
+        let athlete = AthleteInputs::from_profile(profile.as_ref());
         // The athlete's heart-rate zones, which decide how hard a session was.
         let hr_zones =
             stored_hr_zones(&executor.resources, request.tenant_id.as_deref(), user_uuid)
@@ -979,14 +999,29 @@ pub(crate) fn handle_generate_recommendations(
                             .flatten()
                             .and_then(|user| user.timezone);
 
+                        let algorithms = &executor.cageux_config().algorithms;
+                        // Only the goal-specific mode predicts race times.
+                        let vdot = (recommendation_type == "goal_specific")
+                            .then(|| {
+                                resolve_athlete_vdot(
+                                    profile.as_ref(),
+                                    &activities,
+                                    Timestamp::now(),
+                                    algorithms,
+                                )
+                            })
+                            .flatten();
                         let analysis = generate_training_recommendations(
                             &activities,
                             recommendation_type,
                             &athlete,
                             hr_zones.as_ref(),
-                            &executor.cageux_config().algorithms,
+                            algorithms,
                             user_timezone.as_deref(),
-                            &nutrition_athlete,
+                            &AthleteReads {
+                                nutrition: nutrition_athlete,
+                                vdot,
+                            },
                         );
 
                         let result = UniversalResponse {

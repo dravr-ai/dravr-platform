@@ -43,6 +43,29 @@ fn test_parameter_lookup() {
         "catalogue bug: it offers vo2.threshold_adjustment_factor, which no computation reads"
     );
 
+    // No pace-zone percentages either: cageux cuts every pace edge from
+    // Daniels' oxygen curve on the athlete's VDOT, and nothing read these
+    // shares of vVO2max and multiples of threshold pace (carnet#1693 item 4).
+    for key in [
+        "pace.easy_zone_low",
+        "pace.easy_zone_high",
+        "pace.marathon_adjustment_low",
+        "pace.marathon_adjustment_high",
+        "pace.threshold_adjustment_low",
+        "pace.threshold_adjustment_high",
+        "pace.vo2max_zone_percentage",
+        "pace.neuromuscular_zone_percentage",
+    ] {
+        assert!(
+            CatalogBuilder::get_parameter(key).is_none(),
+            "catalogue bug: it offers {key}, which no computation reads"
+        );
+    }
+    assert!(
+        CatalogBuilder::get_module_parameters("pace_zones").is_empty(),
+        "catalogue bug: a pace-zone module is offered, and nothing reads it"
+    );
+
     // No FTP-from-VO2max coefficient either: nothing estimates FTP from VO2max.
     assert!(
         CatalogBuilder::get_parameter("vo2.power_coefficient").is_none(),

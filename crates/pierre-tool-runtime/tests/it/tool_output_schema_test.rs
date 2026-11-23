@@ -76,13 +76,13 @@ use pierre_tool_runtime::implementations::agents_output::{
 };
 use pierre_tool_runtime::implementations::analytics::output::{
     ActivityIntelligence, ActivityIntelligenceResult, ActivityMetricsResult,
-    ActivityPerformanceMetrics, AutoSelectedActivity, BestPerformance, CompareActivitiesResult,
-    DayFrequency, FitnessScoreResult, HardEasyPatternResult, ImperialWeather,
-    InsufficientPatternData, IntensityDistribution, MetricComparison, MetricWeather,
-    MetricsInputSummary, NoRacePrediction, OvertrainingResult, PatternsResult,
-    PerformanceTrendsResult, PersonalRecordComparison, RacePrediction, RacePredictionDetail,
-    RacePredictionResult, TrainingLoadResult, TrendStatistics, VolumeProgressionResult,
-    WeatherImpactAssessment, WeatherImpactResult, WeatherReading, WeeklySchedulePatternResult,
+    ActivityPerformanceMetrics, AutoSelectedActivity, CompareActivitiesResult, DayFrequency,
+    FitnessScoreResult, HardEasyPatternResult, ImperialWeather, InsufficientPatternData,
+    IntensityDistribution, MetricComparison, MetricWeather, MetricsInputSummary, NoRacePrediction,
+    OvertrainingResult, PatternsResult, PerformanceTrendsResult, PersonalRecordComparison,
+    PredictionVdotSource, RacePrediction, RacePredictionDetail, RacePredictionResult,
+    TrainingLoadResult, TrendStatistics, VolumeProgressionResult, WeatherImpactAssessment,
+    WeatherImpactResult, WeatherReading, WeeklySchedulePatternResult,
 };
 use pierre_tool_runtime::implementations::analytics::recommendations_output::RecommendationsResult;
 use pierre_tool_runtime::implementations::analytics::{
@@ -2883,12 +2883,13 @@ fn predict_performance_declares_a_schema_that_accepts_both_of_its_answers() {
         RacePredictionDetail {
             target_sport: "run".to_owned(),
             vdot: 48.0,
-            best_performance: BestPerformance {
+            vdot_source: PredictionVdotSource::RecentRun {
                 distance_meters: 10_000.0,
                 time_seconds: 2_580.0,
                 pace_min_km: "4:18".to_owned(),
                 date: "2026-08-30T09:12:00+00:00".to_owned(),
             },
+            estimated: true,
             predictions: vec![RacePrediction {
                 distance: "Half Marathon".to_owned(),
                 distance_meters: 21_097.5,
@@ -2976,12 +2977,11 @@ fn the_two_race_prediction_shapes_match_exactly_one_arm_each() {
                 RacePredictionDetail {
                     target_sport: "run".to_owned(),
                     vdot: 48.0,
-                    best_performance: BestPerformance {
-                        distance_meters: 10_000.0,
-                        time_seconds: 2_580.0,
-                        pace_min_km: "4:18".to_owned(),
-                        date: "2026-08-30T09:12:00+00:00".to_owned(),
+                    vdot_source: PredictionVdotSource::Stated {
+                        as_of: "2026-08-30".to_owned(),
+                        method: Some("race: 10 km in 43:00".to_owned()),
                     },
+                    estimated: false,
                     predictions: vec![],
                     confidence: "medium".to_owned(),
                     activities_analyzed: 9,
@@ -5275,6 +5275,7 @@ fn an_almost_empty_physiology_profile_still_validates() {
         saved: true,
         created: true,
         updated_fields: vec!["resting_hr"],
+        warnings: Vec::new(),
         profile: PhysiologyProfile {
             ftp_watts: None,
             threshold_pace_sec_per_km: None,
@@ -5297,6 +5298,8 @@ fn an_almost_empty_physiology_profile_still_validates() {
             d_prime_meters: None,
             threshold_provenance: ThresholdProvenance::default(),
             threshold_stated_on: ThresholdStatedOn::default(),
+            vo2_max_method: None,
+            vdot: None,
             anchor_provenance: AnchorProvenance::default(),
             sport_anchors: Vec::new(),
         },
@@ -5332,6 +5335,7 @@ fn a_critical_power_reaches_the_agent_with_its_kind_beside_it() {
         saved: true,
         created: true,
         updated_fields: vec!["critical_power_watts", "critical_speed_mps"],
+        warnings: Vec::new(),
         profile: PhysiologyProfile {
             ftp_watts: None,
             threshold_pace_sec_per_km: None,
@@ -5361,6 +5365,8 @@ fn a_critical_power_reaches_the_agent_with_its_kind_beside_it() {
             d_prime_meters: None,
             threshold_provenance: ThresholdProvenance::default(),
             threshold_stated_on: ThresholdStatedOn::default(),
+            vo2_max_method: None,
+            vdot: None,
             anchor_provenance: AnchorProvenance::default(),
             sport_anchors: vec![SportAnchor {
                 sport: SportFamily::Ride,
@@ -5455,6 +5461,8 @@ fn an_import_names_each_outcome_and_which_values_the_provider_supplied() {
                 ..ThresholdProvenance::default()
             },
             threshold_stated_on: ThresholdStatedOn::default(),
+            vo2_max_method: None,
+            vdot: None,
             anchor_provenance: AnchorProvenance {
                 resting_hr: CivilDate::from_ymd(2026, 10, 30)
                     .ok()
@@ -5516,12 +5524,16 @@ fn estimate_vo2max_says_it_did_not_save() {
     let derived = output_schema_for::<EstimateVo2maxResult>();
     let validator = jsonschema::validator_for(&derived).expect("compiles");
     let value = serde_json::to_value(EstimateVo2maxResult {
-        method: "cooper_12_minute".to_owned(),
-        vo2max_ml_kg_min: 52.4,
+        method: "cooper_test".to_owned(),
+        vo2max_ml_kg_min: Some(52.4),
+        vdot: Some(44.6),
         formula: "Cooper (1968): VO2max = (distance_m - 504.9) / 44.73".to_owned(),
+        warnings: Vec::new(),
+        heart_rates_used: None,
         defaults_from_profile: vec!["weight", "age"],
         stored_vo2_max: None,
-        implied_threshold_pace_sec_per_km: Some(246.5),
+        stored_vdot: None,
+        implied_threshold_pace_sec_per_km: Some(282.5),
         saved: false,
         to_store: "call set_physiology with vo2_max once the athlete confirms the number"
             .to_owned(),
@@ -5772,7 +5784,7 @@ fn a_zone_family_with_missing_inputs_is_null_and_says_what_is_missing() {
     // An athlete who has given nothing: every family null, all three named.
     let nothing_known = json!({
         "user_profile": {
-            "vo2_max": null, "resting_hr": null, "max_hr": null, "ftp": null,
+            "vo2_max": null, "vdot": null, "resting_hr": null, "max_hr": null, "ftp": null,
             "lactate_threshold": 0.88
         },
         "input_sources": {"lactate_threshold": "daniels_default"},
@@ -5781,7 +5793,7 @@ fn a_zone_family_with_missing_inputs_is_null_and_says_what_is_missing() {
         },
         "unavailable": {
             "heart_rate_zones": "needs both resting_hr and max_hr — supply them here or save them with set_physiology",
-            "pace_zones": "needs vo2_max — supply it here or save it with set_physiology",
+            "pace_zones": "needs a VDOT — supply vdot here, or save a race's VDOT or a threshold pace with set_physiology",
             "power_zones": "needs ftp — supply it here or save it with set_physiology"
         },
         "zone_calculations": null
