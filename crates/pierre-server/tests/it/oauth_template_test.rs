@@ -1129,11 +1129,16 @@ fn every_consent_flow_key_has_text_and_the_slots_english_has_in_every_locale() {
 /// reads in French on a French page, and no English line is left behind.
 #[test]
 fn a_french_consent_page_says_every_line_in_french() {
-    // The grant picker's lines are read in the athlete's language where the
-    // picker is served, in oauth2_grant_details_test.
+    // The grant picker's lines and a preset grant's own lines are read in the
+    // athlete's language where those screens are served, in
+    // oauth2_grant_details_test; this page is the plain screen.
     let keys: Vec<&str> = consent_flow_keys()
         .into_iter()
-        .filter(|key| key.starts_with("oauth.consent.") && !key.starts_with("oauth.consent.grant"))
+        .filter(|key| {
+            key.starts_with("oauth.consent.")
+                && !key.starts_with("oauth.consent.grant")
+                && !key.ends_with("Preset")
+        })
         .collect();
     let french = every_consent_line_in("fr");
     // The role lines are shown to a coach and an admin alone.

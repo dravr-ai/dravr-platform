@@ -20,6 +20,9 @@ pub const KEY_CONSENT_RETURNS_TO: &str = "oauth.consent.returnsTo";
 pub const KEY_CONSENT_SCOPES_TITLE: &str = "oauth.consent.scopesTitle";
 /// Key: what `fitness:read` allows. No format placeholders.
 pub const KEY_CONSENT_SCOPE_FITNESS_READ: &str = "oauth.consent.scope.fitnessRead";
+/// Key: [`KEY_CONSENT_SCOPE_FITNESS_READ`] on a preset grant's screen, without
+/// the injuries and activity places a preset never shares. No format placeholders.
+pub const KEY_CONSENT_SCOPE_FITNESS_READ_PRESET: &str = "oauth.consent.scope.fitnessReadPreset";
 /// Key: what `fitness:write` allows. No format placeholders.
 pub const KEY_CONSENT_SCOPE_FITNESS_WRITE: &str = "oauth.consent.scope.fitnessWrite";
 /// Key: what `profile:read` allows. No format placeholders.
@@ -54,6 +57,9 @@ pub const KEY_CONSENT_UNVERIFIED_PUBLISHED_BY: &str = "oauth.consent.unverifiedP
 pub const KEY_CONSENT_UNVERIFIED_LOOPBACK: &str = "oauth.consent.unverifiedLoopback";
 /// Key: what data reaches the client `{0}`, and that it is not medical advice
 pub const KEY_CONSENT_HEALTH: &str = "oauth.consent.health";
+/// Key: [`KEY_CONSENT_HEALTH`] on a preset grant's screen: the data listed
+/// below reaches the client `{0}`, and it is not medical advice
+pub const KEY_CONSENT_HEALTH_PRESET: &str = "oauth.consent.healthPreset";
 /// Key: Law 25 s.8 for a known client: `{0}` is run by `{1}` and processes `{2}`
 pub const KEY_CONSENT_OUTSIDE_QUEBEC_KNOWN: &str = "oauth.consent.outsideQuebecKnown";
 /// Key: Law 25 s.8 for any other client `{0}`
@@ -62,6 +68,9 @@ pub const KEY_CONSENT_OUTSIDE_QUEBEC_UNKNOWN: &str = "oauth.consent.outsideQuebe
 pub const KEY_CONSENT_IN_UNITED_STATES: &str = "oauth.consent.inUnitedStates";
 /// Key: Law 25 s.12: choosing the button `{0}` expressly consents to sharing with `{1}`
 pub const KEY_CONSENT_EXPRESS: &str = "oauth.consent.express";
+/// Key: [`KEY_CONSENT_EXPRESS`] on a preset grant's screen: choosing the
+/// button `{0}` expressly consents to sharing the listed data with `{1}`
+pub const KEY_CONSENT_EXPRESS_PRESET: &str = "oauth.consent.expressPreset";
 /// Key: data from the services `{0}` stays inside Dravr and never reaches `{1}`
 pub const KEY_CONSENT_FIRST_PARTY_ONLY: &str = "oauth.consent.firstPartyOnly";
 /// Key: "`{0}` and `{1}`", joining the last service to the ones before it
@@ -117,26 +126,6 @@ pub const KEY_CONSENT_GRANT_PURPOSE: &str = "oauth.consent.grantPurpose";
 /// Key: above the client's commitments, each quoted: `{0}`, the client
 pub const KEY_CONSENT_GRANT_COMMITMENTS: &str = "oauth.consent.grantCommitments";
 
-// A preset grant's screen lists the data it shares, so its disclosure and
-// fitness:read lines name no injuries and no activity places (Law 25; owl
-// Phase 5, slice 3a). They are listed in CONSENT_SCREEN_KEYS ahead of the
-// catalogue, so the pin that brings them never ships a consent line the
-// consent version does not cover, and are named PRESET_KEY_*, not KEY_*,
-// while the catalogue lacks them: the platform's contremaitre coupling check
-// holds every KEY_ to a key dravr-contremaitre lists. Until the text exists
-// the preset screen reads the lines every grant reads. They take
-// KEY_CONSENT_*_PRESET names once the pin carries the text.
-
-/// Key: [`KEY_CONSENT_HEALTH`] on a preset grant's screen: the data listed
-/// below reaches the client `{0}`, and it is not medical advice
-pub const PRESET_KEY_HEALTH: &str = "oauth.consent.healthPreset";
-/// Key: [`KEY_CONSENT_EXPRESS`] on a preset grant's screen: choosing the
-/// button `{0}` expressly consents to sharing the listed data with `{1}`
-pub const PRESET_KEY_EXPRESS: &str = "oauth.consent.expressPreset";
-/// Key: [`KEY_CONSENT_SCOPE_FITNESS_READ`] on a preset grant's screen, without
-/// the injuries and activity places a preset never shares. No format placeholders.
-pub const PRESET_KEY_SCOPE_FITNESS_READ: &str = "oauth.consent.scope.fitnessReadPreset";
-
 /// Every line the consent screen can show.
 ///
 /// What the user reads when they choose Allow access.
@@ -150,7 +139,7 @@ pub const CONSENT_SCREEN_KEYS: [&str; 51] = [
     KEY_CONSENT_RETURNS_TO,
     KEY_CONSENT_SCOPES_TITLE,
     KEY_CONSENT_SCOPE_FITNESS_READ,
-    PRESET_KEY_SCOPE_FITNESS_READ,
+    KEY_CONSENT_SCOPE_FITNESS_READ_PRESET,
     KEY_CONSENT_SCOPE_FITNESS_WRITE,
     KEY_CONSENT_SCOPE_PROFILE_READ,
     KEY_CONSENT_SCOPE_PROFILE_WRITE,
@@ -168,12 +157,12 @@ pub const CONSENT_SCREEN_KEYS: [&str; 51] = [
     KEY_CONSENT_UNVERIFIED_PUBLISHED_BY,
     KEY_CONSENT_UNVERIFIED_LOOPBACK,
     KEY_CONSENT_HEALTH,
-    PRESET_KEY_HEALTH,
+    KEY_CONSENT_HEALTH_PRESET,
     KEY_CONSENT_OUTSIDE_QUEBEC_KNOWN,
     KEY_CONSENT_OUTSIDE_QUEBEC_UNKNOWN,
     KEY_CONSENT_IN_UNITED_STATES,
     KEY_CONSENT_EXPRESS,
-    PRESET_KEY_EXPRESS,
+    KEY_CONSENT_EXPRESS_PRESET,
     KEY_CONSENT_FIRST_PARTY_ONLY,
     KEY_CONSENT_LIST_PAIR,
     KEY_CONSENT_ROLE_COACH,

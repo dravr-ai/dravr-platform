@@ -137,8 +137,3 @@ features:
     current: off — LAB_READER_MODEL is unset, so barrage's rules read every uploaded lab report. The model path is built and tested (an HTTP API provider or Ollama, bounded at 120 s, recorded as lab_reading usage, falling back to the rules on any failure) and is used only for an athlete who gave sensitive_t2 (carnet#1544)
     advance_when: ChefFamille names the model (an HTTP API provider or Ollama; whether copilot_headless with its built-in tools off is admitted is his open question) and a sample of real lab reports read by it shows fewer dropped results than the rules, then LAB_READER_MODEL is set on the deployment
     review_by: 2026-12-31
-  - name: consent-preset-lines
-    surface: crates/pierre-contremaitre/src/consent_strings.rs
-    current: a preset grant's consent screen (a request's own RFC 9396 authorization_details, always a narrowed preset) reads oauth.consent.healthPreset, oauth.consent.expressPreset and oauth.consent.scope.fitnessReadPreset in place of the generic lines, which name injuries and activity places a preset never shares (Law 25 wording ChefFamille approved, carnet#1544) - but the pinned dravr-contremaitre catalogue has no such lines yet, so the screen reads the generic ones; the keys are versioned in CONSENT_SCREEN_KEYS as PRESET_KEY_* and a key without a line leaves the consent version unchanged
-    advance_when: dravr-contremaitre ships the three lines in en fr es de pt and lists them in strings/server-rendered-keys.txt, the pin carries them, then the PRESET_KEY_* constants take their KEY_CONSENT_*_PRESET names, ConsentText::preset_or drops its empty-line check (a preset screen always reads the preset line) with its unworded-key test, and this entry is deleted
-    review_by: 2026-12-07

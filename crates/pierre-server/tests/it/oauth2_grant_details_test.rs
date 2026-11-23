@@ -1029,7 +1029,30 @@ async fn a_preset_screen_reads_its_preset_lines_and_the_plain_screen_never_does(
     };
     let generic_scope = shown(&world, "oauth.consent.scope.fitnessRead", &[]);
 
+    // The pinned catalogue's own preset line, in the athlete's language.
+    let pinned = details_page().await;
+    let preset_scope = shown(&world, "oauth.consent.scope.fitnessReadPreset", &[]);
+    assert!(
+        pinned.contains(&preset_scope) && !pinned.contains(&generic_scope),
+        "bug: a preset screen reads the pinned preset scope line: {pinned}"
+    );
     let registry = &world.resources.mcp.messaging_strings_registry;
+    for key in ["oauth.consent.healthPreset", "oauth.consent.expressPreset"] {
+        let line = registry.get(key, &world.user.locale);
+        assert!(
+            !line.is_empty(),
+            "fixture: the pinned catalogue carries {key}"
+        );
+        // The text between the slots, which the page shows as written.
+        for part in line.split(['{', '}']).filter(|part| part.len() > 3) {
+            let escaped = escape_html_attribute(part.trim());
+            assert!(
+                pinned.contains(&escaped),
+                "bug: a preset screen reads {key}'s {escaped:?}: {pinned}"
+            );
+        }
+    }
+
     let locale = world.user.locale.as_str();
     for (key, line) in [
         (

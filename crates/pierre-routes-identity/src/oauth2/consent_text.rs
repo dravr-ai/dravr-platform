@@ -9,15 +9,15 @@ use std::fmt;
 use axum::http::{header, HeaderMap};
 use pierre_auth::oauth2_server::models::OAuth2Error;
 use pierre_contremaitre::consent_strings::{
-    KEY_CONSENT_SCOPE_FITNESS_READ, KEY_CONSENT_SCOPE_FITNESS_WRITE,
-    KEY_CONSENT_SCOPE_OFFLINE_ACCESS, KEY_CONSENT_SCOPE_PROFILE_READ,
-    KEY_CONSENT_SCOPE_PROFILE_WRITE, KEY_ERROR_ACCOUNT_GONE, KEY_ERROR_ACCOUNT_UNAVAILABLE,
-    KEY_ERROR_AWAITS_APPROVAL, KEY_ERROR_AWAITS_EMAIL_PROOF, KEY_ERROR_CONSENT_EXPIRED,
-    KEY_ERROR_CONSENT_UNAVAILABLE, KEY_ERROR_DENIED, KEY_ERROR_GOOGLE_EXPIRED,
-    KEY_ERROR_GOOGLE_REFUSED, KEY_ERROR_INVALID_CLIENT, KEY_ERROR_INVALID_REQUEST,
-    KEY_ERROR_INVALID_REQUEST_URI, KEY_ERROR_LIMITER_UNAVAILABLE, KEY_ERROR_RATE_LIMITED,
-    KEY_ERROR_SERVER, KEY_ERROR_SIGNUP_PAUSED, KEY_ERROR_SUSPENDED, KEY_ERROR_TRY_AGAIN,
-    KEY_ERROR_UNAVAILABLE, PRESET_KEY_SCOPE_FITNESS_READ,
+    KEY_CONSENT_SCOPE_FITNESS_READ, KEY_CONSENT_SCOPE_FITNESS_READ_PRESET,
+    KEY_CONSENT_SCOPE_FITNESS_WRITE, KEY_CONSENT_SCOPE_OFFLINE_ACCESS,
+    KEY_CONSENT_SCOPE_PROFILE_READ, KEY_CONSENT_SCOPE_PROFILE_WRITE, KEY_ERROR_ACCOUNT_GONE,
+    KEY_ERROR_ACCOUNT_UNAVAILABLE, KEY_ERROR_AWAITS_APPROVAL, KEY_ERROR_AWAITS_EMAIL_PROOF,
+    KEY_ERROR_CONSENT_EXPIRED, KEY_ERROR_CONSENT_UNAVAILABLE, KEY_ERROR_DENIED,
+    KEY_ERROR_GOOGLE_EXPIRED, KEY_ERROR_GOOGLE_REFUSED, KEY_ERROR_INVALID_CLIENT,
+    KEY_ERROR_INVALID_REQUEST, KEY_ERROR_INVALID_REQUEST_URI, KEY_ERROR_LIMITER_UNAVAILABLE,
+    KEY_ERROR_RATE_LIMITED, KEY_ERROR_SERVER, KEY_ERROR_SIGNUP_PAUSED, KEY_ERROR_SUSPENDED,
+    KEY_ERROR_TRY_AGAIN, KEY_ERROR_UNAVAILABLE,
 };
 use pierre_contremaitre::messaging_strings::format_template;
 use pierre_contremaitre::MessagingStringsRegistry;
@@ -147,17 +147,6 @@ impl<'a> ConsentText<'a> {
             .unwrap_or_default()
     }
 
-    /// `preset_key` on a preset grant's screen when the catalogue words it,
-    /// else `key`: a preset line the pin does not carry yet leaves the
-    /// screen reading the line every other grant reads.
-    pub(super) fn preset_or<'k>(&self, preset: bool, preset_key: &'k str, key: &'k str) -> &'k str {
-        if preset && !self.line(preset_key).is_empty() {
-            preset_key
-        } else {
-            key
-        }
-    }
-
     /// The list item naming `scope`: what it allows in this language, then
     /// the token itself, which is all a scope Dravr does not word can show.
     /// On a preset grant's screen (`preset`), `fitness:read` reads its preset
@@ -165,9 +154,9 @@ impl<'a> ConsentText<'a> {
     pub(super) fn scope_item(&self, scope: &str, preset: bool) -> String {
         let token = escape_html_attribute(scope);
         let key = match scope {
-            "fitness:read" => self.preset_or(
+            "fitness:read" => preset_or(
                 preset,
-                PRESET_KEY_SCOPE_FITNESS_READ,
+                KEY_CONSENT_SCOPE_FITNESS_READ_PRESET,
                 KEY_CONSENT_SCOPE_FITNESS_READ,
             ),
             "fitness:write" => KEY_CONSENT_SCOPE_FITNESS_WRITE,
@@ -202,6 +191,15 @@ impl<'a> ConsentText<'a> {
     }
 }
 
+/// `preset_key` on a preset grant's screen (`preset`), else `key`.
+pub(super) const fn preset_or<'k>(preset: bool, preset_key: &'k str, key: &'k str) -> &'k str {
+    if preset {
+        preset_key
+    } else {
+        key
+    }
+}
+
 /// The line for a refusal of the OAuth error code `code`.
 fn refusal_kind(code: &str) -> &'static str {
     match code {
@@ -220,31 +218,6 @@ fn refusal_kind(code: &str) -> &'static str {
 mod tests {
     use super::*;
     use pierre_contremaitre::consent_strings::{KEY_CONSENT_ALLOW, KEY_CONSENT_LEAD};
-
-    /// A preset line the catalogue does not word leaves a preset screen
-    /// reading the line every grant reads; one it words replaces it there,
-    /// and never on any other screen.
-    #[test]
-    fn a_preset_line_replaces_the_generic_one_only_on_a_preset_screen_that_has_it() {
-        let registry = MessagingStringsRegistry::new();
-        let text = ConsentText::new(&registry, "en");
-        let unworded = "oauth.consent.noSuchPresetLine";
-        assert_eq!(
-            text.preset_or(true, unworded, KEY_CONSENT_LEAD),
-            KEY_CONSENT_LEAD,
-            "bug: a preset line the catalogue does not word replaced the generic one"
-        );
-        assert_eq!(
-            text.preset_or(true, KEY_CONSENT_ALLOW, KEY_CONSENT_LEAD),
-            KEY_CONSENT_ALLOW,
-            "bug: a worded preset line is not read on a preset screen"
-        );
-        assert_eq!(
-            text.preset_or(false, KEY_CONSENT_ALLOW, KEY_CONSENT_LEAD),
-            KEY_CONSENT_LEAD,
-            "bug: a preset line is read on a screen that is not a preset's"
-        );
-    }
 
     #[test]
     fn the_stored_locale_wins_then_the_browser_then_english() {

@@ -15,16 +15,16 @@
 use pierre_auth::oauth2_server::cimd::is_metadata_document_id;
 use pierre_auth::oauth2_server::client_registration::redirects_to_loopback;
 use pierre_contremaitre::consent_strings::{
-    KEY_CONSENT_ALLOW, KEY_CONSENT_EXPRESS, KEY_CONSENT_HEALTH, KEY_CONSENT_IN_UNITED_STATES,
-    KEY_CONSENT_OUTSIDE_QUEBEC_KNOWN, KEY_CONSENT_OUTSIDE_QUEBEC_UNKNOWN,
-    KEY_CONSENT_UNVERIFIED_BODY, KEY_CONSENT_UNVERIFIED_LOOPBACK,
-    KEY_CONSENT_UNVERIFIED_PUBLISHED_BY, KEY_CONSENT_UNVERIFIED_TITLE, KEY_CONSENT_VERIFIED,
-    PRESET_KEY_EXPRESS, PRESET_KEY_HEALTH,
+    KEY_CONSENT_ALLOW, KEY_CONSENT_EXPRESS, KEY_CONSENT_EXPRESS_PRESET, KEY_CONSENT_HEALTH,
+    KEY_CONSENT_HEALTH_PRESET, KEY_CONSENT_IN_UNITED_STATES, KEY_CONSENT_OUTSIDE_QUEBEC_KNOWN,
+    KEY_CONSENT_OUTSIDE_QUEBEC_UNKNOWN, KEY_CONSENT_UNVERIFIED_BODY,
+    KEY_CONSENT_UNVERIFIED_LOOPBACK, KEY_CONSENT_UNVERIFIED_PUBLISHED_BY,
+    KEY_CONSENT_UNVERIFIED_TITLE, KEY_CONSENT_VERIFIED,
 };
 use pierre_core::html::escape_html_attribute;
 use url::Url;
 
-use super::consent_text::ConsentText;
+use super::consent_text::{self, ConsentText};
 
 /// A client Dravr knows by its metadata-document URL: the one place a
 /// registered name can be trusted, because the URL is the client's identity
@@ -166,7 +166,7 @@ pub(super) fn trust_line(trust: &ClientTrust, text: &ConsentText<'_>) -> String 
 /// What the data is, and that it is wellness information. A preset grant's
 /// screen (`preset`) points at the data it lists instead.
 pub(super) fn health_line(client_label: &str, preset: bool, text: &ConsentText<'_>) -> String {
-    let key = text.preset_or(preset, PRESET_KEY_HEALTH, KEY_CONSENT_HEALTH);
+    let key = consent_text::preset_or(preset, KEY_CONSENT_HEALTH_PRESET, KEY_CONSENT_HEALTH);
     format!(
         r#"<p class="disclosure">{}</p>"#,
         text.html(key, &[&client_span(client_label)]),
@@ -212,7 +212,7 @@ pub(super) fn express_consent_line(
     format!(
         r#"<p class="disclosure">{}</p>"#,
         text.html(
-            text.preset_or(preset, PRESET_KEY_EXPRESS, KEY_CONSENT_EXPRESS),
+            consent_text::preset_or(preset, KEY_CONSENT_EXPRESS_PRESET, KEY_CONSENT_EXPRESS),
             &[
                 &text.html(KEY_CONSENT_ALLOW, &[]),
                 &client_span(client_label)

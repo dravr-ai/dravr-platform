@@ -189,7 +189,7 @@ mod tests {
     use super::super::consent_copy::{express_consent_line, health_line};
     use super::*;
     use dravr_tronc::dates::Timestamp;
-    use pierre_contremaitre::consent_strings::{KEY_CONSENT_EXPRESS, PRESET_KEY_HEALTH};
+    use pierre_contremaitre::consent_strings::{KEY_CONSENT_EXPRESS, KEY_CONSENT_HEALTH_PRESET};
 
     fn grant(version: Option<String>, locale: Option<&str>) -> OAuthClientGrant {
         OAuthClientGrant {
@@ -281,7 +281,7 @@ mod tests {
     #[test]
     fn a_listed_key_without_a_line_adds_nothing_to_the_version() {
         let registry = MessagingStringsRegistry::new();
-        let key = PRESET_KEY_HEALTH;
+        let key = KEY_CONSENT_HEALTH_PRESET;
         for locale in ["fr", "en"] {
             registry.update(key, locale, String::new(), "cleared".to_owned());
         }
