@@ -157,7 +157,7 @@ pub struct PersonaContract {
 
     /// Conversational softeners that are forbidden in Power-athlete
     /// replies ("nice work", "I think", "around"). Case-insensitive
-    /// substring match.
+    /// standalone word or phrase match.
     #[serde(default)]
     pub forbid_softeners: Vec<String>,
 

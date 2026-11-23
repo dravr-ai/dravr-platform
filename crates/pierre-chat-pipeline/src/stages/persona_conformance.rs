@@ -82,9 +82,11 @@ use pierre_contremaitre::PromptRegistry;
 use super::peer_grounding::PEER_FETCH_TOOL;
 
 mod repair;
+mod softeners;
 mod text;
 
 use repair::repair_instruction;
+use softeners::check_softeners;
 pub use text::{
     athlete_citations, contains_standalone_word, count_words, decimal_tokens,
     detects_label_value_block, find_standalone_word, first_use_is_unglossed, has_unglossed_acronym,
@@ -616,27 +618,6 @@ fn check_tool_call_narration(
         out.push(ContractViolation {
             rule: "forbid_tool_call_narration",
             detail: format!("tool-narration phrase '{phrase}' detected"),
-        });
-    }
-}
-
-/// Enforce [`PersonaContract::forbid_softeners`]. Each entry is a
-/// case-insensitive substring; the first match per check is reported
-/// rather than all so the log line stays short — the reader will see
-/// repeat hits surface across multiple turns.
-fn check_softeners(reply: &str, contract: &PersonaContract, out: &mut Vec<ContractViolation>) {
-    if contract.forbid_softeners.is_empty() {
-        return;
-    }
-    let lower = reply.to_lowercase();
-    if let Some(softener) = contract
-        .forbid_softeners
-        .iter()
-        .find(|s| lower.contains(&s.to_lowercase()))
-    {
-        out.push(ContractViolation {
-            rule: "forbid_softeners",
-            detail: format!("softener '{softener}' detected"),
         });
     }
 }
