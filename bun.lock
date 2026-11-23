@@ -307,6 +307,9 @@
       },
     },
   },
+  "patchedDependencies": {
+    "@react-native-cookies/cookies@6.2.1": "patches/@react-native-cookies%2Fcookies@6.2.1.patch",
+  },
   "overrides": {
     "@types/react": "~19.2.10",
     "react": "19.2.3",

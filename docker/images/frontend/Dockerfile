@@ -17,6 +17,8 @@ FROM oven/bun:1.3 AS builder
 WORKDIR /app
 
 COPY package.json bun.lock ./
+# package.json names patched dependencies; bun install refuses to run without them.
+COPY patches/ patches/
 
 COPY packages/ packages/
 COPY frontend/package.json frontend/package.json
