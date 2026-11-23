@@ -37,8 +37,11 @@ pub const SETTING_SIGNUP_DAILY_LIMIT_RESET_AT: &str = "signup_daily_limit_reset_
 pub const SETTING_SIGNUP_ACTIVATE_ON_VERIFIED_EMAIL: &str = "signup_activate_on_verified_email";
 /// Prefix of the key holding a provider's connect order (`connect_order_strava`).
 ///
-/// The value says which way a new connection goes first: `"sign_in_first"`
-/// (the default, an absent row) or `"oauth_first"` (carnet#1472, carnet#1494).
+/// The value says which way a new connection goes first:
+/// `"extension_first"` (the default, an absent row: the account sign-in,
+/// through the Dravr sign-in extension first where a web client has it),
+/// `"sign_in_first"` (the account sign-in, its credentials form first) or
+/// `"oauth_first"` (carnet#1472, carnet#1494).
 pub const SETTING_CONNECT_ORDER_PREFIX: &str = "connect_order_";
 
 /// A system setting entry

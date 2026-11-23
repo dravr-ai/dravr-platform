@@ -4,7 +4,7 @@
 // ABOUTME: Login modal for sciotte provider — collects credentials, Pierre runs Chrome in-process
 // ABOUTME: Supports Google/Apple/email login methods with 2FA (OTP and phone tap) and a provider robot check's takeover
 
-import { lazy, Suspense, useCallback, useEffect, useId, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useId, useRef, useState } from 'react';
 import { oauthApi } from '../services/api';
 import { startOAuthInThisTab } from '../utils/oauthReturn';
 import { detectSigninExtension, ExtensionSignInError, signInWithExtension } from '../utils/signinExtension';
@@ -85,6 +85,14 @@ interface SciotteLoginModalProps {
    * show theirs, for the athlete to type again.
    */
   onFallBackToOAuth?: () => void;
+  /**
+   * The card's connect order puts the sign-in extension first (its
+   * `connect_order` is not `sign_in_first`): with the extension installed,
+   * the window starts it as it opens, and the credentials form is the way
+   * in only when the athlete closes its tab or it fails (JF, carnet#1617).
+   * The extension stays offered beside the form either way.
+   */
+  extensionFirst?: boolean;
 }
 
 // AppError serialises as { code, message, ... }; legacy/in-band errors sometimes
@@ -104,6 +112,7 @@ export default function SciotteLoginModal({
   consentRequired = false,
   historyMode = false,
   onFallBackToOAuth,
+  extensionFirst = true,
 }: SciotteLoginModalProps) {
   const { t } = useTranslation();
   const { scheme } = useTheme();
@@ -172,7 +181,12 @@ export default function SciotteLoginModal({
     void detectSigninExtension(detection.signal).then((version) => {
       if (!detection.signal.aborted) setExtensionReady(version !== null);
     });
-    return () => detection.abort();
+    // Each opening asks again, so the extension never starts on what a
+    // previous opening found, before this one's state is in place.
+    return () => {
+      detection.abort();
+      setExtensionReady(false);
+    };
   }, [isOpen]);
 
   useEffect(() => {
@@ -297,6 +311,23 @@ export default function SciotteLoginModal({
       setPhase('error');
     }
   }, [applyLoginAnswer, beginRequest, consentAccepted, refusalMessage, target]);
+
+  // The extension goes first (JF, carnet#1617): once it answers, an opening
+  // whose card puts it first starts it at once, unless a notice is still the
+  // athlete's to accept. Once per opening: closing its tab, or a failure,
+  // leaves the credentials form, and the extension is a button beside it.
+  const extensionStarted = useRef(false);
+  useEffect(() => {
+    if (!isOpen) {
+      extensionStarted.current = false;
+      return;
+    }
+    if (!extensionFirst || !extensionReady || extensionStarted.current) return;
+    if (phase !== 'choose' && phase !== 'credentials') return;
+    if (notice && !consentAccepted) return;
+    extensionStarted.current = true;
+    void handleBrowserSignin();
+  }, [consentAccepted, extensionFirst, extensionReady, handleBrowserSignin, isOpen, notice, phase]);
 
   // Show `message` as the failure, offering the card's OAuth when `err` is a
   // refusal it falls back on.
@@ -596,10 +627,16 @@ export default function SciotteLoginModal({
           {phase === 'choose' && (
             <div className="space-y-3">
               {/* With the extension, the provider's own page opens in a tab of
-                  this browser; the credentials step carries the notice first. */}
+                  this browser, from this button as from the credentials step. */}
               {extensionReady && (
-                <Button variant="primary" size="lg" className="w-full" onClick={() => setPhase('credentials')}>
-                  {t('app.continueWithProvider', { provider: providerLabel })}
+                <Button
+                  variant="primary"
+                  size="lg"
+                  className="w-full"
+                  onClick={() => void handleBrowserSignin()}
+                  data-testid="sciotte-extension-signin"
+                >
+                  {t('app.signInOnProviderPage', { provider: providerLabel })}
                 </Button>
               )}
               <Button
@@ -692,9 +729,13 @@ export default function SciotteLoginModal({
                     className="w-full"
                     disabled={!!notice && !consentAccepted}
                     onClick={() => void handleBrowserSignin()}
+                    data-testid="sciotte-extension-signin"
                   >
-                    {t('app.continueWithProvider', { provider: providerLabel })}
+                    {t('app.signInOnProviderPage', { provider: providerLabel })}
                   </Button>
+                  <p className="text-xs text-on-surface/50 text-center mt-2">
+                    {t('app.signInOnProviderPageHint', { provider: providerLabel })}
+                  </p>
                   <div className="relative my-4">
                     <div className="absolute inset-0 flex items-center"><div className="w-full border-t ghost-border" /></div>
                     <div className="relative flex justify-center text-xs">

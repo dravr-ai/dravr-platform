@@ -26,7 +26,7 @@ pub mod claim_verdicts;
 pub mod coach_access;
 /// Coach-seat invitations: issue, list and revoke the email-bound invite that carries coach access (carnet#1524).
 pub mod coach_seat_invitations;
-/// The per-provider connect order: Strava and Garmin, OAuth first or the account sign-in first.
+/// The per-provider connect order of every provider with an account sign-in: the sign-in extension, the account sign-in or the OAuth first.
 pub mod connect_order;
 pub mod contremaitre_admin;
 /// Super-admin deletion ledger: the hash-chained receipts and the import tombstones.

@@ -11,8 +11,9 @@ use serde_json::{json, Value};
 
 use crate::guardian_settings_cli_test::{stdout_of, CliHome, ServerStandIn};
 
-/// The server's answer to a read or a flip: Garmin on the OAuth first, every
-/// other provider on the default sign-in first.
+/// The server's answer to a read or a flip: Garmin on the OAuth first,
+/// TrainingPeaks on the default extension first, Strava and COROS on the
+/// sign-in first.
 fn orders_reply() -> Value {
     json!({
         "success": true,
@@ -22,7 +23,7 @@ fn orders_reply() -> Value {
                 "coros": "sign_in_first",
                 "garmin": "oauth_first",
                 "strava": "sign_in_first",
-                "trainingpeaks": "sign_in_first",
+                "trainingpeaks": "extension_first",
             },
             "description": "Which way a NEW connection of each provider goes first."
         }
@@ -89,6 +90,11 @@ fn show_reads_the_route_and_a_refused_flip_exits_non_zero() {
         "bug: show does not print the stored order: {}",
         stdout_of(&shown)
     );
+    assert!(
+        stdout_of(&shown).contains("extension first  (extension_first)"),
+        "bug: show does not print the extension-first order: {}",
+        stdout_of(&shown)
+    );
 
     let refused = home.run(&[
         "settings",
@@ -113,5 +119,37 @@ fn show_reads_the_route_and_a_refused_flip_exits_non_zero() {
     assert_eq!(
         sent[1].request_line, "PUT /admin/settings/connect-order HTTP/1.1",
         "bug: set reached another route"
+    );
+}
+
+#[test]
+fn set_first_extension_sends_the_extension_first_order() {
+    let server = ServerStandIn::serve(vec![(200, orders_reply())]);
+    let home = CliHome::for_server(&server.base_url);
+
+    let output = home.run(&[
+        "settings",
+        "connect-order",
+        "set",
+        "--provider",
+        "trainingpeaks",
+        "--first",
+        "extension",
+    ]);
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "bug: a landed flip exits non-zero: {output:?}"
+    );
+    let stdout = stdout_of(&output);
+    assert!(
+        stdout.contains("trainingpeaks now connects extension first"),
+        "bug: the flip is not confirmed: {stdout}"
+    );
+    assert_eq!(
+        server.sent()[0].body,
+        Some(json!({ "provider": "trainingpeaks", "order": "extension_first" })),
+        "bug: --first extension sent another body"
     );
 }

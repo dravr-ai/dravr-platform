@@ -54,11 +54,13 @@ import PrivacySettingsTab from './PrivacySettingsTab';
 import MemoryPanel from './memory/MemoryPanel';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import {
+  cardForSlug,
   cardStatus,
   connectPlan,
   oauthFallbackTarget,
   intervalsConnectPath,
   noticeRequired,
+  signInStartsWithExtension,
 } from '@pierre/shared-constants';
 import { formatCompactNumber, formatCount, formatDate, formatResetTime } from '@pierre/chat-utils';
 import { useUsageStatus } from '../hooks/useUsageStatus';
@@ -1756,6 +1758,7 @@ Authorization: Bearer <your-token-here>`}
         consentRequired={signIn?.consentRequired ?? false}
         historyMode={signIn?.historyMode ?? false}
         onFallBackToOAuth={signIn?.fallback ? fallBackToOAuth(signIn.fallback) : undefined}
+        extensionFirst={signIn ? signInStartsWithExtension(cardForSlug(signIn.target, fitnessProviders)) : true}
       />
 
       {/* Intervals.icu: the authorization when offered, and the API-key form */}

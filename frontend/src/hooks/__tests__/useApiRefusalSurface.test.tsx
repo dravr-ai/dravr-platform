@@ -322,4 +322,14 @@ describe('useApiRefusalSurface', () => {
       expect(screen.queryByText('Strava needs reconnecting.')).not.toBeInTheDocument()
     })
   })
+  it('stays silent about an expired provider on the connections pane, which already asks for the reconnect', async () => {
+    window.location.hash = `#${CONNECTIONS_ROUTE}`
+
+    renderProbe('on-connections', providerAuthRefusal('garmin'))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('query').textContent).toBe('refused')
+    })
+    expect(screen.queryByText('Garmin needs reconnecting.')).not.toBeInTheDocument()
+  })
 })

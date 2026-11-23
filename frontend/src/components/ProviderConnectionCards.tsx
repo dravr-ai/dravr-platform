@@ -13,12 +13,14 @@ import { QUERY_KEYS } from '../constants/queryKeys';
 import {
   HISTORY_ACTION_KEYS,
   PROVIDER_LINK_POLL_INTERVAL_MS,
+  cardForSlug,
   cardStatus,
   connectPlan,
   noticeRequired,
   oauthFallbackTarget,
   providerGlyphInk,
   refusalReturnsToCard,
+  signInStartsWithExtension,
   type CardStatus,
 } from '@pierre/shared-constants';
 import type { SciotteTarget } from '@pierre/shared-types';
@@ -80,8 +82,8 @@ interface SignInWindow {
 }
 
 // SVG icons for each provider - clean and professional. `sciotte` reuses the
-// Strava chevron (it's the Strava data path); `sciotte_garmin` reuses the Garmin
-// dial; `sciotte_trainingpeaks` is a pair of peaks; `sciotte_coros` is COROS'
+// Strava chevron (it's the Strava data path); `garmin` and `sciotte_garmin` draw
+// Garmin's delta; `sciotte_trainingpeaks` is a pair of peaks; `sciotte_coros` is COROS'
 // official mark (coros.com/public/images/COROS.svg) at its own 1024 scale.
 // Default falls back to a neutral disc.
 export const ProviderIcon = ({ providerId, className }: { providerId: string; className?: string }) => {
@@ -94,10 +96,12 @@ export const ProviderIcon = ({ providerId, className }: { providerId: string; cl
           <path d="M15.387 17.944l-2.089-4.116h-3.065L15.387 24l5.15-10.172h-3.066m-7.008-5.599l2.836 5.598h4.172L10.463 0l-7 13.828h4.169" />
         </svg>
       );
+    case 'garmin':
     case 'sciotte_garmin':
+      // Garmin's delta: the triangle its wordmark stands under.
       return (
         <svg className={baseClass} viewBox="0 0 24 24" fill="currentColor">
-          <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-1-13h2v6h-2zm0 8h2v2h-2z" />
+          <path d="M12 4 21 20H3z" />
         </svg>
       );
     case 'sciotte_trainingpeaks':
@@ -556,6 +560,7 @@ export default function ProviderConnectionCards({
         consentRequired={signIn?.consentRequired ?? false}
         historyMode={signIn?.historyMode ?? false}
         onFallBackToOAuth={signIn?.fallback ? fallBackToOAuth(signIn.fallback) : undefined}
+        extensionFirst={signIn ? signInStartsWithExtension(cardForSlug(signIn.target, served)) : true}
       />
 
       <ProviderNoticeDialog

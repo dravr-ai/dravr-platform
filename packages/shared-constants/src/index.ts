@@ -228,6 +228,7 @@ export {
   refusalReloadsCards,
   refusalReturnsToCard,
   signInFallsBackToOAuth,
+  signInStartsWithExtension,
 } from './connect-plan';
 export type { CardStatus, ConnectPlanCard } from './connect-plan';
 

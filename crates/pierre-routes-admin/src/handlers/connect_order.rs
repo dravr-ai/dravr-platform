@@ -1,4 +1,4 @@
-// ABOUTME: Admin routes for the per-provider connect order: the account sign-in first (default) or the provider's OAuth first
+// ABOUTME: Admin routes for the per-provider connect order: the sign-in extension first (default), the account sign-in or the OAuth
 // ABOUTME: Super-admin only, audited, every order read before a write; `pierre-cli settings connect-order` reaches them
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -20,7 +20,7 @@ use serde_json::json;
 use tracing::info;
 
 use pierre_auth::connect_order::{
-    read_connect_order, set_connect_order, ConnectOrder, CONNECT_ORDER_PROVIDERS,
+    read_connect_order, set_connect_order, ConnectOrder, CONNECT_ORDER_PROVIDERS, DEFAULT_ORDER,
 };
 use pierre_core::admin::models::ValidatedAdminToken;
 use pierre_core::errors::{AppError, AppResult};
@@ -33,9 +33,13 @@ use crate::context::AdminApiContext;
 
 /// What the connect order means, returned with every read and write.
 const CONNECT_ORDER_DESCRIPTION: &str = "Which way a NEW connection of each provider goes first. \
+     extension_first (the default): the account sign-in whatever the seats, a web client with the \
+     Dravr sign-in extension installed starting it before the credentials form. \
+     sign_in_first: the account sign-in whatever the seats, the credentials form first and the \
+     extension offered beside it. Under both a failed sign-in falls back to the OAuth while a \
+     seat is free, and the OAuth stays open to anyone who starts it. \
      oauth_first: the provider's OAuth while a seat is free, then the account sign-in. \
-     sign_in_first: the account sign-in whatever the seats; the OAuth stays open to anyone who \
-     starts it. Existing connections are never re-routed.";
+     Existing connections are never re-routed.";
 
 /// Request to set one provider's connect order.
 #[derive(Debug, Deserialize)]
@@ -43,7 +47,7 @@ pub struct UpdateConnectOrderRequest {
     /// The provider: one of `CONNECT_ORDER_PROVIDERS` (`strava`, `garmin`,
     /// `trainingpeaks`, `coros`)
     pub provider: String,
-    /// `oauth_first` or `sign_in_first`
+    /// `extension_first`, `sign_in_first` or `oauth_first`
     pub order: String,
 }
 
@@ -115,7 +119,7 @@ pub(crate) async fn handle_set_connect_order(
     }
     let order = ConnectOrder::parse(&request.order).ok_or_else(|| {
         AppError::invalid_input(format!(
-            "unknown connect order '{}'; expected oauth_first or sign_in_first",
+            "unknown connect order '{}'; expected extension_first, sign_in_first or oauth_first",
             request.order
         ))
     })?;
@@ -130,7 +134,7 @@ pub(crate) async fn handle_set_connect_order(
     let before = after
         .orders
         .insert(request.provider.clone(), order)
-        .unwrap_or(ConnectOrder::SignInFirst);
+        .unwrap_or(DEFAULT_ORDER);
     info!(
         provider = %request.provider,
         before = before.as_str(),

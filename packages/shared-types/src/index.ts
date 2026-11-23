@@ -57,6 +57,7 @@ export type {
   EmailConfirmationResponse,
   FirebaseLoginResponse,
   SessionResponse,
+  ConnectOrder,
   ExtendedProviderStatus,
   ProviderDelegation,
   HistoryState,

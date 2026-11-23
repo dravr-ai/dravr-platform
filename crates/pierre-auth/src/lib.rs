@@ -80,7 +80,10 @@ pub mod security;
 /// The bot check on the self-serve sign-up form (Cloudflare Turnstile)
 pub mod human_check;
 
-/// The admin's per-provider connect order (OAuth first or sign-in first) for Strava and Garmin.
+/// The admin's per-provider connect order.
+///
+/// Extension first, sign-in first or OAuth first, for every provider with an
+/// account sign-in.
 pub mod connect_order;
 
 /// Garmin Developer Program client seats: its capped user pool.

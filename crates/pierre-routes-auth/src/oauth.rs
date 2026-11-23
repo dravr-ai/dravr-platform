@@ -693,6 +693,7 @@ pub(crate) async fn compute_providers_status(
                 capabilities,
                 recommended_backend,
                 seats_left,
+                connect_order: card_seats.connect_order(provider_name),
                 consent_required: notice_outstanding(resources, user_id, tenant_id, provider_name)
                     .await,
                 own_app_required,

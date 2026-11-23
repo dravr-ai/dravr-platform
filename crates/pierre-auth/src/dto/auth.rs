@@ -9,6 +9,7 @@
 //! This module contains all DTOs (Data Transfer Objects) used by the authentication
 //! routes for serialization and deserialization of API requests and responses.
 
+use crate::connect_order::ConnectOrder;
 use pierre_core::models::{DelegationStatus, ProviderAccountRole, TenantId, UserStatus};
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
@@ -687,6 +688,18 @@ pub struct ProviderStatus {
     /// providers without a seat cap.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub seats_left: Option<u32>,
+    /// The admin's connect order of this card's provider.
+    ///
+    /// Carried by a card that signs in with the provider account (`sciotte`,
+    /// `sciotte_garmin`, `sciotte_trainingpeaks`, `sciotte_coros`), on
+    /// connect, reconnect and history import alike: `"extension_first"`
+    /// (the default — a web client
+    /// with the Dravr sign-in extension installed starts it before the
+    /// credentials form), `"sign_in_first"` (the credentials form first, the
+    /// extension offered beside it) or `"oauth_first"`. `None` for every
+    /// other card.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub connect_order: Option<ConnectOrder>,
     /// Whether connecting this provider first needs the account to accept its
     /// exposure notice — TrainingPeaks, until the current notice version is
     /// accepted. The client shows the notice with a required checkbox before

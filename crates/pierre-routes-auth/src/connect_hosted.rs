@@ -182,7 +182,7 @@ struct ConnectProviderCard {
     /// Sciotte cards only.
     login_identifier: &'static str,
     /// The card's account sign-in goes first while an OAuth seat is free (the
-    /// admin's sign-in-first connect order): a sign-in that cannot complete
+    /// admin's extension-first or sign-in-first connect order): a sign-in that cannot complete
     /// or meets a challenge starts the provider's OAuth for `target` instead
     /// of showing the failure (carnet#1477). Wrong credentials never do.
     oauth_fallback: bool,
@@ -190,7 +190,9 @@ struct ConnectProviderCard {
 
 /// Whether a not-yet-connected card's sign-in falls back to its provider's
 /// OAuth: it recommends the sign-in (`mirror`) with seats still free, which
-/// only the admin's sign-in-first connect order produces.
+/// only a connect order putting the sign-in first produces (extension first
+/// or sign-in first: the hosted page has no extension, so both show the
+/// credentials).
 fn oauth_fallback(p: &ProviderStatus) -> bool {
     !p.connected
         && p.recommended_backend.as_deref() == Some("mirror")

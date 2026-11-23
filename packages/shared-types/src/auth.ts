@@ -389,6 +389,9 @@ export interface ResetPasswordResponse {
 
 // ========== OAUTH TYPES ==========
 
+/** Which way a provider with an account sign-in connects first (the card's `connect_order`). */
+export type ConnectOrder = 'extension_first' | 'sign_in_first' | 'oauth_first';
+
 /** Extended provider status from /api/providers endpoint */
 export interface ExtendedProviderStatus {
   provider: string;
@@ -439,6 +442,16 @@ export interface ExtendedProviderStatus {
    * without a seat cap.
    */
   seats_left?: number;
+  /**
+   * The admin's connect order for a provider with an account sign-in
+   * (Strava, Garmin, COROS, TrainingPeaks — their `sciotte*` cards):
+   * `extension_first` (the default) starts the Dravr sign-in extension where
+   * it is installed, then the credentials, then the OAuth; `sign_in_first`
+   * shows the credentials first, the extension beside them; `oauth_first`
+   * sends a new connection to the OAuth while a seat is free. Absent on every
+   * other card.
+   */
+  connect_order?: ConnectOrder;
   /**
    * Connecting this provider first needs the account to accept its notice —
    * TrainingPeaks' and COROS' exposure notice, WHOOP's owner authorization —
