@@ -3967,6 +3967,7 @@
       "allow": "Permitir el acceso",
       "deny": "Denegar",
       "express": "Sus datos de entrenamiento, sueño y recuperación, las lesiones que le contó a Dravr y los lugares de sus actividades son información personal sensible. Al elegir {0}, usted consiente expresamente que Dravr los comparta con {1}.",
+      "expressPreset": "Los datos de entrenamiento, sueño y recuperación que se enumeran a continuación son información personal sensible. Al elegir {0}, usted consiente expresamente que Dravr los comparta con {1}.",
       "firstPartyOnly": "Los datos que Dravr sincroniza desde su conexión con {0} permanecen dentro de Dravr y no se comparten con {1}. {1} puede leer los archivos de exportación que usted importe.",
       "grantChoiceTitle": "Elija lo que {0} puede leer",
       "grantCommitments": "{0} dice que se compromete a:",
@@ -3982,6 +3983,7 @@
       "grantTrainingCoachHint": "Sus entrenamientos con sus muestras de sensores, su actividad diaria, su carga de entrenamiento, sus resúmenes de sueño, corazón y recuperación, sus medidas corporales y su perfil, de los últimos {0} días. Sin rutas, notas ni registros de salud.",
       "grantTrainingCoachSummaryHint": "Los resúmenes de sus entrenamientos, su actividad diaria, su carga de entrenamiento, sus resúmenes de sueño, corazón y recuperación, sus medidas corporales y su perfil, de los últimos {0} días. Sin muestras de sensores, rutas, notas ni registros de salud.",
       "health": "Los datos de entrenamiento, sueño y recuperación que conectó a Dravr, las lesiones que le contó y los lugares de sus actividades se compartirán con {0}. Dravr ofrece información sobre entrenamiento y bienestar, no consejo médico.",
+      "healthPreset": "Los datos que se enumeran a continuación se compartirán con {0}. Dravr ofrece información sobre entrenamiento y bienestar, no consejo médico.",
       "inUnitedStates": "en los Estados Unidos",
       "lead": "{0} quiere acceder a sus datos de actividad física de Dravr.",
       "listPair": "{0} y {1}",
@@ -3994,6 +3996,7 @@
       "roleCoach": "Usted dirige grupos como entrenador humano. {0} también verá, por su nombre, el entrenamiento de los miembros que permitieron sus herramientas de IA en Dravr, y podrá consultar los datos de un miembro que usted nombre mientras este comparta su entrenamiento con usted.",
       "scope": {
         "fitnessRead": "leer sus datos de actividad física: actividades y sus lugares, estadísticas, sueño, análisis y lo que le contó a Dravr sobre usted, incluidas las lesiones",
+        "fitnessReadPreset": "leer sus datos de actividad física: actividades, estadísticas, sueño, análisis y su perfil",
         "fitnessWrite": "crear o modificar sus datos de actividad física: objetivos, planes y entrenamientos registrados",
         "offlineAccess": "seguir conectado sin volver a pedirle que inicie sesión, hasta que lo desconecte",
         "profileRead": "leer su perfil, sus ajustes y los servicios que ha vinculado",

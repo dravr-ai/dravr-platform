@@ -3967,6 +3967,7 @@
       "allow": "Autoriser l’accès",
       "deny": "Refuser",
       "express": "Vos données d’entraînement, de sommeil et de récupération, les blessures dont vous avez parlé à Dravr et les lieux de vos activités sont des renseignements personnels sensibles. En choisissant {0}, vous consentez expressément à ce que Dravr les communique à {1}.",
+      "expressPreset": "Les données d’entraînement, de sommeil et de récupération énumérées ci-dessous sont des renseignements personnels sensibles. En choisissant {0}, vous consentez expressément à ce que Dravr les communique à {1}.",
       "firstPartyOnly": "Les données que Dravr synchronise depuis votre connexion {0} restent dans Dravr et ne sont pas communiquées à {1}. Les fichiers d'exportation que vous importez vous-même peuvent être lus par {1}.",
       "grantChoiceTitle": "Choisissez ce que {0} peut lire",
       "grantCommitments": "{0} dit s’engager à :",
@@ -3982,6 +3983,7 @@
       "grantTrainingCoachHint": "Vos entraînements avec leurs données de capteurs, votre activité quotidienne, votre charge d’entraînement, vos résumés de sommeil, de cœur et de récupération, vos mensurations et votre profil, des {0} derniers jours. Aucun parcours, aucune note ni aucun dossier de santé.",
       "grantTrainingCoachSummaryHint": "Les résumés de vos entraînements, votre activité quotidienne, votre charge d’entraînement, vos résumés de sommeil, de cœur et de récupération, vos mensurations et votre profil, des {0} derniers jours. Aucune donnée de capteur, aucun parcours, aucune note ni aucun dossier de santé.",
       "health": "Les données d’entraînement, de sommeil et de récupération que vous avez connectées à Dravr, les blessures dont vous lui avez parlé et les lieux de vos activités seront communiqués à {0}. Dravr fournit de l’information sur l’entraînement et le mieux-être, et non des conseils médicaux.",
+      "healthPreset": "Les données énumérées ci-dessous seront communiquées à {0}. Dravr fournit de l’information sur l’entraînement et le mieux-être, et non des conseils médicaux.",
       "inUnitedStates": "aux États-Unis",
       "lead": "{0} souhaite accéder à vos données de conditionnement physique Dravr.",
       "listPair": "{0} et {1}",
@@ -3994,6 +3996,7 @@
       "roleCoach": "Vous dirigez des groupes comme coach humain. {0} verra aussi, nominativement, l’entraînement des membres qui ont autorisé vos outils d’IA dans Dravr, et pourra lire les données d’un membre que vous nommez tant qu’il partage son entraînement avec vous.",
       "scope": {
         "fitnessRead": "lire vos données de conditionnement physique : activités et leurs lieux, statistiques, sommeil, analyses, et ce que vous avez dit de vous à Dravr, y compris vos blessures",
+        "fitnessReadPreset": "lire vos données de conditionnement physique : activités, statistiques, sommeil, analyses et votre profil",
         "fitnessWrite": "créer ou modifier vos données de conditionnement physique : objectifs, plans et entraînements consignés",
         "offlineAccess": "rester connecté sans vous redemander de vous connecter, jusqu'à ce que vous le déconnectiez",
         "profileRead": "lire votre profil, vos paramètres et les services que vous avez liés",

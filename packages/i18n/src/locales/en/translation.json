@@ -3967,6 +3967,7 @@
       "allow": "Allow access",
       "deny": "Deny",
       "express": "Your training, sleep and recovery data, the injuries you told Dravr about and where your activities took place are sensitive personal information. By choosing {0} you expressly consent to Dravr sharing them with {1}.",
+      "expressPreset": "The training, sleep and recovery data listed below are sensitive personal information. By choosing {0} you expressly consent to Dravr sharing them with {1}.",
       "firstPartyOnly": "Data Dravr syncs from your {0} connection stays inside Dravr and is not shared with {1}. Export files you import yourself can be read by {1}.",
       "grantChoiceTitle": "Choose what {0} can read",
       "grantCommitments": "{0} says it will:",
@@ -3982,6 +3983,7 @@
       "grantTrainingCoachHint": "Your workouts with their sensor samples, daily activity, training load, sleep, heart and recovery summaries, body measurements and profile, from the last {0} days. No routes, notes or health records.",
       "grantTrainingCoachSummaryHint": "Your workout summaries, daily activity, training load, sleep, heart and recovery summaries, body measurements and profile, from the last {0} days. No sensor samples, routes, notes or health records.",
       "health": "Training, sleep and recovery data you connected to Dravr, the injuries you told it about and where your activities took place will be shared with {0}. Dravr gives training and wellness information, not medical advice.",
+      "healthPreset": "The data listed below will be shared with {0}. Dravr gives training and wellness information, not medical advice.",
       "inUnitedStates": "in the United States",
       "lead": "{0} wants to access your Dravr fitness data.",
       "listPair": "{0} and {1}",
@@ -3994,6 +3996,7 @@
       "roleCoach": "You lead groups as a human coach. {0} will also see, by name, the training of the members who allowed your AI tools in Dravr, and can read a member you name while they share their training with you.",
       "scope": {
         "fitnessRead": "read your fitness data: activities and where they took place, stats, sleep, analytics, and what you told Dravr about yourself, including injuries",
+        "fitnessReadPreset": "read your fitness data: activities, stats, sleep, analytics and your profile",
         "fitnessWrite": "create or change your fitness data: goals, plans and logged work",
         "offlineAccess": "stay connected without asking you to sign in again, until you disconnect it",
         "profileRead": "read your profile, your settings and which services you have linked",
