@@ -85,6 +85,9 @@ pub struct LlmUsageRecord {
     pub call_sequence: Option<i64>,
     /// When the usage was recorded (ISO 8601)
     pub created_at: String,
+    /// How an outside caller's read ended (`ok`, `error`, `refused`,
+    /// [`CallOutcome::as_str`]); `None` on every other row (carnet#1543).
+    pub outcome: Option<String>,
 }
 
 /// Per-turn summary record returned by the internal conversation-turn
@@ -115,6 +118,9 @@ pub struct ConversationTurnSummary {
     pub user_id: String,
     /// Conversation the turn belongs to, if any
     pub conversation_id: Option<String>,
+    /// How the turn ended, when an outside caller drove it and its summary
+    /// row says (`ok`, `error`); `None` for any other turn (carnet#1543).
+    pub outcome: Option<String>,
     /// Distinct MCP tool names invoked across every LLM call in the turn
     pub tools_called: Vec<String>,
     /// Individual LLM calls that were made for this turn, in insertion order
@@ -407,6 +413,149 @@ impl<'a> InsertLlmUsage<'a> {
             call_sequence: None,
         }
     }
+
+    /// The one summary row of a coaching turn an outside caller drove (an A2A
+    /// agent, the athlete's API key): what the turn did as a whole, which no
+    /// single LLM call's row can say.
+    ///
+    /// Zero tokens and cost, as every [`TURN_SUMMARY_CALL_TYPE`] row: the
+    /// turn's LLM calls carry their own. The provider and model columns hold
+    /// [`TURN_SUMMARY_CALL_TYPE`] because the turn has no single model to
+    /// name, so no reader of the row can mistake it for a model's call.
+    #[must_use]
+    pub const fn for_turn_summary(
+        tenant_id: &'a str,
+        user_id: &'a str,
+        conversation_id: Option<&'a str>,
+        turn_id: ConversationTurnId,
+        tools_called: &'a str,
+        tool_calls_count: i64,
+        execution_time_ms: i64,
+    ) -> Self {
+        Self {
+            tenant_id,
+            user_id,
+            conversation_id,
+            turn_id,
+            provider: TURN_SUMMARY_CALL_TYPE,
+            model: TURN_SUMMARY_CALL_TYPE,
+            prompt_tokens: 0,
+            completion_tokens: 0,
+            total_tokens: 0,
+            cached_tokens: 0,
+            cached_write_tokens: 0,
+            cached_write_1h_tokens: 0,
+            reasoning_tokens: 0,
+            call_type: TURN_SUMMARY_CALL_TYPE,
+            tool_calls_count,
+            tools_called,
+            execution_time_ms: Some(execution_time_ms),
+            cost_usd: 0.0,
+            call_sequence: None,
+        }
+    }
+}
+
+/// Whose data an outside caller's read reached, and through what (carnet#1543).
+///
+/// The read is a client's direct tool call, or a turn of Dravr's agent it
+/// drove; these are the columns of its `llm_usage` row the athlete's "who
+/// read my data" feed shows.
+#[derive(Debug, Clone, Copy)]
+pub struct DelegatedRead<'a> {
+    /// Whose data the call read: the coached athlete for a coach's read, the
+    /// one group member a groups tool read with no subject resolved, the
+    /// caller otherwise; `None` when the body read several members, which one
+    /// row cannot name.
+    pub subject_user_id: Option<&'a str>,
+    /// The OAuth client the caller's token was issued to, as the credential
+    /// names it; `None` when it names none.
+    pub client_id: Option<&'a str>,
+    /// The kind of credential the caller presented
+    /// (`CredentialKind::as_str`); `None` when the call carried none.
+    pub credential: Option<&'a str>,
+    /// The transport the call arrived through (`Transport::as_str`).
+    pub transport: &'a str,
+    /// The admin whose support session made the call acting as the user;
+    /// `None` for the user's own call.
+    pub impersonator_user_id: Option<&'a str>,
+    /// Whether the call or turn answered with a result, an error, or a
+    /// refusal before the tool ran.
+    pub outcome: CallOutcome,
+}
+
+/// How an outside caller's read ended (a direct tool call, an agent turn),
+/// as its `llm_usage` row's `outcome` stores it: admin counts include every one, the athlete's
+/// feed lists only [`Self::Ok`] (carnet#1543).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CallOutcome {
+    /// The tool answered with a result.
+    Ok,
+    /// The tool's body ran and answered with an error (an `isError` answer,
+    /// or a failure it raised).
+    Error,
+    /// The call was answered before the tool's body ran: a scope, role,
+    /// Guardian or read-subject refusal, or a failure on the way.
+    Refused,
+}
+
+impl CallOutcome {
+    /// The value the `outcome` column stores.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Ok => "ok",
+            Self::Error => "error",
+            Self::Refused => "refused",
+        }
+    }
+}
+
+/// What an outside caller's recorded read was.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OutsideReadKind {
+    /// A tool the client called itself, over MCP or A2A.
+    ToolCall,
+    /// A coaching turn of Dravr's agent the caller asked for (an A2A text
+    /// message, a chat message through the athlete's API key), with every
+    /// tool the agent called in it.
+    AgentTurn,
+}
+
+impl OutsideReadKind {
+    /// The name the feed gives it.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::ToolCall => "tool_call",
+            Self::AgentTurn => "agent_turn",
+        }
+    }
+}
+
+/// One recorded read an outside caller made of the athlete's own data, as
+/// their "who read my data" feed lists it (carnet#1543): a tool call, or a
+/// turn of Dravr's agent it drove.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OutsideRead {
+    /// When the call was made (a turn: when it ended).
+    pub read_at: Timestamp,
+    /// A tool call or an agent turn.
+    pub kind: OutsideReadKind,
+    /// The tool the client called; `None` for an agent turn, which names
+    /// its tools in [`Self::tools`].
+    pub tool: Option<String>,
+    /// Every tool the read ran: the one called, or the agent turn's, in
+    /// call order.
+    pub tools: Vec<String>,
+    /// The client its credential names, when it names one.
+    pub client_id: Option<String>,
+    /// The kind of credential it came through (`CredentialKind::as_str`).
+    pub credential: Option<String>,
+    /// The transport it arrived through (`Transport::as_str`).
+    pub transport: Option<String>,
+    /// The admin whose support session made it, acting as the athlete.
+    pub impersonator_user_id: Option<String>,
 }
 
 /// Aggregated LLM usage row grouped by provider, model, and call type

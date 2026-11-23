@@ -328,6 +328,7 @@ mod pipeline {
                 sender_id: None,
                 transport: Transport::A2a,
                 grant: turn.grant,
+                caller: Some(turn.credential),
                 hooks: PipelineHooks {
                     stop: Some(Arc::clone(&stop)),
                     ..PipelineHooks::none()

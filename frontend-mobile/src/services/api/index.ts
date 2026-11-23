@@ -72,6 +72,8 @@ export const gearApi = api.gear;
 // Importing the athlete's own history from a service's export.
 export const importsApi = api.imports;
 export const originalsApi = api.dataExport;
+// The athlete's "Who read your data" feed: outside apps' reads and the coach's reads per day.
+export const accessFeedApi = api.accessFeed;
 // The athlete's health records: served records by kind, the lab review queue, uploaded lab reports.
 // Built here over the shared client: createPierreApi leaves it out for the web's entry budget.
 export const healthRecordsApi = createHealthRecordsApi(api.axios);

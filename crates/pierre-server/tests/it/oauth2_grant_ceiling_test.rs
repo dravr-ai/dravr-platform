@@ -36,9 +36,11 @@ use pierre_core::models::{
     Activity, ActivityBuilder, ConnectionType, CreateUserMcpTokenRequest, OAuthClientGrant,
     SportType, TenantId, UserOAuthToken,
 };
+use pierre_database::backends::factory::DatabaseBackend;
 use pierre_mcp_server::mcp::multitenant::ProviderToolRouter;
 use pierre_mcp_server::routes::oauth_grants::OAuthGrantsRoutes;
 use pierre_providers::core::{FitnessProvider, ProviderConfig};
+use pierre_services::access_feed::own_access_feed;
 use secrecy::ExposeSecret;
 use serde_json::{json, Value};
 use uuid::Uuid;
@@ -731,4 +733,68 @@ async fn an_a2a_client_credentials_token_is_offered_as_before() {
         .json();
     let skills = card_skills(&world, token["access_token"].as_str().unwrap()).await;
     assert!(skills.contains("get_stats"), "{skills:?}");
+}
+
+/// carnet#1543 Q7: a call the grant's ceiling turns away before the tool
+/// runs still counts in the admin usage, marked refused, and the athlete's
+/// "who read my data" feed lists nothing of it: it served nothing.
+#[tokio::test]
+async fn a_ceiling_refusal_over_mcp_writes_one_refused_usage_row_and_no_feed_entry() {
+    const SELECT: &str = "SELECT model, subject_user_id, outcome FROM llm_usage \
+         WHERE call_type = 'mcp_tool' AND user_id = $1";
+    let world = reading_world().await;
+    let (_client, token) = under_preset(&world, "training_coach").await;
+
+    let records = call(&world, &token, "get_health_records", &json!({})).await;
+    assert_eq!(
+        error_code(&records).as_deref(),
+        Some("tier_exceeds_grant"),
+        "test setup bug: the preset's tier refuses a T2 read: {records}"
+    );
+
+    let user = world.user.id.to_string();
+    macro_rules! rows {
+        ($pool:expr) => {
+            sqlx::query(SELECT)
+                .bind(&user)
+                .fetch_all($pool)
+                .await
+                .unwrap()
+                .iter()
+                .map(|row| {
+                    (
+                        sqlx::Row::get::<String, _>(row, 0),
+                        sqlx::Row::get::<Option<String>, _>(row, 1),
+                        sqlx::Row::get::<Option<String>, _>(row, 2),
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+    }
+    let rows = match world.resources.agent.database.backend() {
+        DatabaseBackend::SQLite(db) => rows!(db.pool()),
+        #[cfg(feature = "postgresql")]
+        DatabaseBackend::PostgreSQL(db) => rows!(db.pool()),
+    };
+    assert_eq!(
+        rows,
+        vec![(
+            "get_health_records".to_owned(),
+            Some(user.clone()),
+            Some("refused".to_owned())
+        )],
+        "bug: a call refused on the grant's ceiling writes its one usage row, marked refused"
+    );
+
+    let feed = own_access_feed(
+        &world.resources.common.repos,
+        world.user.id,
+        Timestamp::now() - Elapsed::days(30),
+    )
+    .await
+    .unwrap();
+    assert!(
+        feed.outside_reads.is_empty(),
+        "bug: a refused call served nothing, so the feed lists none: {feed:?}"
+    );
 }

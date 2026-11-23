@@ -123,6 +123,8 @@ mod oauth_client_state;
 pub mod oauth_notifications;
 /// One-time password reset tokens issued by admins and the self-service flow
 pub mod password_reset_tokens;
+/// A member's record of their peers' reads (`PostgreSQL`)
+pub mod peer_data_reads;
 /// The persona-held notifications each digest returned (`PostgreSQL`)
 pub mod persona_digest_returns;
 /// Personal bests at the standard running distances and the runs scanned for them (`PostgreSQL`)

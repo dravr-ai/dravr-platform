@@ -585,6 +585,16 @@ async fn create_server(
         );
     }
 
+    // Every published tool definition is signed by the checkpoint key
+    // (`def_sig`, carnet#1543), installed before the first request; without a
+    // signer, none is.
+    if let Some(signer) = &checkpoint_signer {
+        resources_instance
+            .mcp
+            .tool_def_sigs
+            .install(Arc::clone(signer))?;
+    }
+
     let resources =
         spawn_background_workers(resources_instance, &barrage, blobs.ok(), checkpoint_signer);
 

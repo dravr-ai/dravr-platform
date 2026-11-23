@@ -322,8 +322,8 @@ pub use room_quote::{RoomQuote, ROOM_QUOTE_BLOCK_TYPE};
 // API key types for authentication and rate limiting
 mod api_key;
 pub use api_key::{
-    ApiKey, ApiKeyData, ApiKeyResponse, ApiKeyTier, ApiKeyUsage, ApiKeyUsageStats,
-    CreateApiKeyRequest, CreateApiKeyRequestSimple,
+    ApiKey, ApiKeyData, ApiKeyRequestDay, ApiKeyResponse, ApiKeyTier, ApiKeyUsage,
+    ApiKeyUsageStats, CreateApiKeyRequest, CreateApiKeyRequestSimple, AGENT_TURN_ROUTE,
 };
 
 // A2A protocol data types
@@ -345,9 +345,10 @@ pub use tier_quota::{
 pub mod subscription;
 pub use subscription::{Subscription, SubscriptionStatus};
 pub use usage::{
-    ConversationTurnLlmCall, ConversationTurnSummary, InsertLlmUsage, JwtMonthlyUsage, JwtUsage,
-    LlmUsageAggregateRow, LlmUsageDailyRow, LlmUsageRecord, MonthlyLimitOverride, RequestLog,
-    ToolUsage, UsageCounterRecord, WindowUsage, DIRECT_TOOL_CALL_TYPE, TURN_SUMMARY_CALL_TYPE,
+    CallOutcome, ConversationTurnLlmCall, ConversationTurnSummary, DelegatedRead, InsertLlmUsage,
+    JwtMonthlyUsage, JwtUsage, LlmUsageAggregateRow, LlmUsageDailyRow, LlmUsageRecord,
+    MonthlyLimitOverride, OutsideRead, OutsideReadKind, RequestLog, ToolUsage, UsageCounterRecord,
+    WindowUsage, DIRECT_TOOL_CALL_TYPE, TURN_SUMMARY_CALL_TYPE,
 };
 
 /// An agent package's training artefacts — flavour, skeleton, workouts — beside its prompt

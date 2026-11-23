@@ -100,6 +100,7 @@ const disconnectProvider = vi.fn().mockResolvedValue(undefined);
 const withdrawAiConsent = vi.fn().mockResolvedValue(undefined);
 const listConnectedApps = vi.fn().mockResolvedValue([]);
 const getImports = vi.fn().mockResolvedValue({ imports: [] });
+const revokeConnectedApp = vi.fn().mockResolvedValue(undefined);
 
 // Mock API service - factory must be self-contained (vi.mock is hoisted)
 vi.mock('../../services/api', () => ({
@@ -128,8 +129,9 @@ vi.mock('../../services/api', () => ({
     authorizeUrl: (...args: unknown[]) => authorizeUrl(...args),
     disconnectProvider: (...args: unknown[]) => disconnectProvider(...args),
     withdrawAiConsent: (...args: unknown[]) => withdrawAiConsent(...args),
-    listConnectedApps: () => listConnectedApps(),
     disconnectIntervalsIcu: vi.fn().mockResolvedValue(undefined),
+    listConnectedApps: (...args: unknown[]) => listConnectedApps(...args),
+    revokeConnectedApp: (...args: unknown[]) => revokeConnectedApp(...args),
   },
   pierreApi: {
     adapter: {
@@ -499,6 +501,39 @@ describe('UserSettings Component', () => {
     // A test that pins the clock for a grant's expiry hands it back.
     afterEach(() => {
       vi.mocked(Date.now).mockRestore?.();
+    });
+
+    // The Account pane's Connected apps and the privacy pane's access feed
+    // share one key and one revoke (carnet#1543): revoking here rereads the
+    // list through that key, so the app leaves.
+    it('revokes a connected app through the shared revoke, and the reread list drops it', async () => {
+      const user = userEvent.setup();
+      const claude = {
+        id: 'g1',
+        client_id: 'client-claude',
+        client_name: 'Claude',
+        client_host: 'claude.ai',
+        scope: 'fitness:read',
+        granted_at: '2026-11-01T10:00:00Z',
+        preset: null,
+        max_tier: null,
+        expires_at: null,
+      };
+      listConnectedApps.mockResolvedValueOnce([claude]).mockResolvedValue([]);
+
+      await act(async () => {
+        renderUserSettings({ initialTab: 'account' });
+      });
+
+      const section = await screen.findByTestId('account-section-connected-mcp-apps');
+      await waitFor(() => expect(within(section).getByText('Claude')).toBeInTheDocument());
+      await user.click(within(section).getByRole('button', { name: 'Revoke' }));
+      await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Revoke' }));
+
+      await waitFor(() => expect(revokeConnectedApp).toHaveBeenCalledWith('g1'));
+      await waitFor(() => expect(within(section).queryByText('Claude')).not.toBeInTheDocument());
+      expect(listConnectedApps).toHaveBeenCalledTimes(2);
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     });
 
     it('should display member since date', async () => {

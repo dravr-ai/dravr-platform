@@ -415,6 +415,18 @@ export {
   parseDataAccessRequestList,
 } from './data-access-request.js';
 
+// The athlete's "Who read your data" feed: outside apps' reads and the coach's reads per day (carnet#1543)
+export type {
+  AccessFeed,
+  AccessFeedApiKeyDay,
+  AccessFeedAppRead,
+  AccessFeedCoachDay,
+  AccessFeedCredential,
+  AccessFeedPeerDay,
+  AccessFeedReadKind,
+  AccessFeedTransport,
+} from './access-feed.js';
+
 // The athlete's gear ledger: the shoes they declare, their distance, the pair one activity was run in
 export type {
   ActivityGearResponse,

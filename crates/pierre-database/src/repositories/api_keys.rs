@@ -23,11 +23,11 @@
 //! once stored as NULL to mean unlimited; a NULL reads back as `u32::MAX`.
 
 use async_trait::async_trait;
-use dravr_tronc::dates::Timestamp;
+use dravr_tronc::dates::{CivilDate, Timestamp};
 use pierre_core::errors::{AppError, AppResult};
 use std::fmt::Write;
 
-use pierre_core::models::{ApiKey, ApiKeyTier};
+use pierre_core::models::{ApiKey, ApiKeyRequestDay, ApiKeyTier, AGENT_TURN_ROUTE};
 use uuid::Uuid;
 
 /// API key management repository
@@ -57,6 +57,96 @@ pub trait ApiKeyRepository: Send + Sync {
     ) -> AppResult<Vec<ApiKey>>;
     /// Deactivate every active key whose expiry has passed, returning how many.
     async fn cleanup_expired(&self) -> AppResult<u64>;
+    /// The REST requests `user_id`'s keys made at or after `since` that
+    /// answered with a 2xx, counted per UTC day and key, newest day first
+    /// (the athlete's "who read my data" feed, carnet#1543).
+    ///
+    /// Read from `api_key_usage`, the row the request-budget layer writes for
+    /// every request a key admits. Two kinds of request are left out, each
+    /// already one row of the feed: a key's calls through `/mcp` (each tool
+    /// call is the athlete's own `llm_usage` row, which names the tool, whose
+    /// data it read and whether it answered), and a chat message
+    /// ([`AGENT_TURN_ROUTE`]), which is its agent turn's row.
+    async fn list_request_days(
+        &self,
+        user_id: Uuid,
+        since: Timestamp,
+    ) -> AppResult<Vec<ApiKeyRequestDay>>;
+}
+
+/// The `api_key_usage.endpoint` shape of a REST request: the request-budget
+/// layer names it `METHOD /route`, while a request through `/mcp` names the
+/// tool or JSON-RPC method it called (`report_request_operation`).
+pub(crate) const REST_ENDPOINT_PATTERN: &str = "% /%";
+
+/// The `/mcp` endpoint itself and everything under it (`GET /mcp/tools`),
+/// named as routes when a request reported no operation: not REST data reads.
+pub(crate) const MCP_ENDPOINT_PATTERNS: [&str; 2] = ["% /mcp", "% /mcp/%"];
+
+/// The `api_key_usage.endpoint` of a chat message, which starts an agent turn.
+pub(crate) fn agent_turn_endpoint() -> String {
+    format!("POST {AGENT_TURN_ROUTE}")
+}
+
+/// The lowest and highest status of a request that answered with a result.
+pub(crate) const SUCCESS_STATUS_BAND: (i16, i16) = (200, 299);
+
+/// The REST requests of one user's keys since `$2` with a status in
+/// `[$3, $4]`, per UTC day and key, newest day first. `$day` is the engine's
+/// spelling of a row's UTC day as `YYYY-MM-DD` text, as in
+/// `llm_usage_daily_series_sql!`. `$5` is [`REST_ENDPOINT_PATTERN`], `$6` and
+/// `$7` the [`MCP_ENDPOINT_PATTERNS`], `$8` [`agent_turn_endpoint`].
+macro_rules! api_key_request_days_sql {
+    ($day:literal) => {
+        concat!(
+            "SELECT ",
+            $day,
+            " AS day, k.id AS key_id, k.name AS key_name, k.key_prefix AS key_prefix, \
+                    CAST(COUNT(*) AS BIGINT) AS requests \
+             FROM api_key_usage u JOIN api_keys k ON u.api_key_id = k.id \
+             WHERE k.user_id = $1 AND u.timestamp >= $2 \
+               AND u.status_code >= $3 AND u.status_code <= $4 \
+               AND u.endpoint LIKE $5 AND u.endpoint NOT LIKE $6 AND u.endpoint NOT LIKE $7 \
+               AND u.endpoint <> $8 \
+             GROUP BY ",
+            $day,
+            ", k.id, k.name, k.key_prefix \
+             ORDER BY day DESC, k.name, k.id"
+        )
+    };
+}
+pub(crate) use api_key_request_days_sql;
+
+/// Decode one row of [`api_key_request_days_sql!`].
+///
+/// # Errors
+/// Returns a database error naming the column that cannot be decoded, or the
+/// day that is not a `YYYY-MM-DD` date.
+pub(crate) fn request_day_from_row<R>(row: &R) -> AppResult<ApiKeyRequestDay>
+where
+    R: sqlx::Row,
+    for<'a> &'a str: sqlx::ColumnIndex<R>,
+    String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    i64: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+{
+    let column = |col: &str, e: sqlx::Error| {
+        AppError::database(format!("Failed to get an API key request day's {col}: {e}"))
+    };
+    let day: String = row.try_get("day").map_err(|e| column("day", e))?;
+    let requests: i64 = row.try_get("requests").map_err(|e| column("requests", e))?;
+    Ok(ApiKeyRequestDay {
+        day: CivilDate::parse_from_str(&day, "%Y-%m-%d").map_err(|e| {
+            AppError::database(format!(
+                "An API key request day is not a date ({day:?}): {e}"
+            ))
+        })?,
+        key_id: row.try_get("key_id").map_err(|e| column("key_id", e))?,
+        key_name: row.try_get("key_name").map_err(|e| column("key_name", e))?,
+        key_prefix: row
+            .try_get("key_prefix")
+            .map_err(|e| column("key_prefix", e))?,
+        requests: u32::try_from(requests).unwrap_or(u32::MAX),
+    })
 }
 
 /// The columns the [`ApiKey`] model carries, in the order every read lists them.
@@ -276,7 +366,7 @@ where
 /// here; each backend's shell invokes it with its own type, and sqlx resolves
 /// the driver from `self.pool()` per expansion.
 macro_rules! impl_api_key_repository {
-    ($ty:ty, $ids:ident) => {
+    ($ty:ty, $ids:ident, day = $day:literal) => {
         #[async_trait::async_trait]
         impl ApiKeyRepository for $ty {
             async fn create(&self, api_key: &ApiKey) -> AppResult<()> {
@@ -424,6 +514,32 @@ macro_rules! impl_api_key_repository {
                     })?;
 
                 Ok(result.rows_affected())
+            }
+
+            async fn list_request_days(
+                &self,
+                user_id: Uuid,
+                since: Timestamp,
+            ) -> AppResult<Vec<ApiKeyRequestDay>> {
+                let (lowest, highest) = SUCCESS_STATUS_BAND;
+                let [mcp, under_mcp] = MCP_ENDPOINT_PATTERNS;
+                sqlx::query(api_key_request_days_sql!($day))
+                    .bind($ids::bind(user_id))
+                    .bind(since)
+                    .bind(lowest)
+                    .bind(highest)
+                    .bind(REST_ENDPOINT_PATTERN)
+                    .bind(mcp)
+                    .bind(under_mcp)
+                    .bind(agent_turn_endpoint())
+                    .fetch_all(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to list API key request days: {e}"))
+                    })?
+                    .iter()
+                    .map(request_day_from_row)
+                    .collect()
             }
         }
     };

@@ -198,6 +198,41 @@ async function sweepSettings(page: Page, theme: (typeof THEMES)[number]) {
   await page.route('**/api/me/lab-documents', (route) =>
     route.fulfill(json({ documents: [{ document: labDocument, records: [pending], new: false }] })),
   );
+  // "Who read your data" holds a Connected app with a Revoke, an API key that
+  // points to its settings, support's reads, an agent turn, one coach day,
+  // members' days (named and served to their AI tool, gone and support's,
+  // views only) and an API key's days with their request counts, so each of
+  // its row shapes reaches the capture; the long names test the wrap (carnet#1543).
+  await page.route('**/api/me/access-feed', (route) =>
+    route.fulfill(
+      json({
+        days: 30,
+        app_reads: [
+          { read_at: '2026-11-20T10:00:00Z', kind: 'tool_call', tool: 'get_activities', tools: ['get_activities'], client_id: 'client-claude', client_name: 'Claude', client_host: 'claude.ai', credential: 'oauth_grant', transport: 'mcp_http', support_read: false },
+          { read_at: '2026-11-19T09:00:00Z', kind: 'tool_call', tool: 'get_sleep_sessions', tools: ['get_sleep_sessions'], client_id: 'client-script', client_name: 'Export script', client_host: null, credential: 'api_key', transport: 'mcp_http', support_read: false },
+          { read_at: '2026-11-18T08:00:00Z', kind: 'tool_call', tool: 'get_athlete', tools: ['get_athlete'], client_id: 'admin-console', client_name: null, client_host: null, credential: 'oauth_grant', transport: 'mcp_http', support_read: true },
+          { read_at: '2026-11-17T07:00:00Z', kind: 'agent_turn', tool: null, tools: ['get_activities', 'get_athlete'], client_id: 'client-bridge', client_name: 'Training bridge', client_host: null, credential: 'a2a_client_credentials', transport: 'a2a', support_read: false },
+        ],
+        coach_days: [
+          { day: '2026-11-20', coach_name: 'Marie', group_id: 'group-1', group_name: 'Run Club', data_class: 'training', reads: 3, views: 1, served_to_assistant: true, support_read: false },
+        ],
+        peer_days: [
+          { day: '2026-11-21', member_name: 'Alice Tremblay-Fortin', group_id: 'group-1', group_name: 'Run Club Montréal — Saturday long run', reads: 2, views: 1, served_to_assistant: true, support_read: false },
+          { day: '2026-11-20', member_name: null, group_id: 'group-2', group_name: null, reads: 1, views: 0, served_to_assistant: false, support_read: true },
+          { day: '2026-11-19', member_name: 'Bob', group_id: 'group-1', group_name: 'Run Club', reads: 0, views: 3, served_to_assistant: false, support_read: false },
+        ],
+        api_key_days: [
+          { day: '2026-11-21', key_id: 'key-1', key_name: 'Garage sync for the indoor trainer and the spreadsheet', key_prefix: 'pk_live_ab12', requests: 4 },
+          { day: '2026-11-20', key_id: 'key-1', key_name: 'Garage sync for the indoor trainer and the spreadsheet', key_prefix: 'pk_live_ab12', requests: 1 },
+        ],
+      }),
+    ),
+  );
+  await page.route('**/api/me/oauth-grants', (route) =>
+    route.fulfill(
+      json({ grants: [{ id: 'g1', client_id: 'client-claude', client_name: 'Claude', client_host: 'claude.ai', scope: 'fitness:read', granted_at: '2026-11-01T10:00:00Z' }] }),
+    ),
+  );
   await loginToDashboard(page);
   page.setDefaultTimeout(5_000);
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
@@ -229,6 +264,25 @@ async function sweepSettings(page: Page, theme: (typeof THEMES)[number]) {
       await page.screenshot({ path: `design-sweep/${theme}/user-settings-health-records-delete.png` });
       await page.keyboard.press('Escape');
       await expect(page.getByRole('dialog')).toHaveCount(0);
+      const accessFeed = page.getByTestId('access-feed');
+      await expect(accessFeed.getByTestId('access-feed-revoke')).toBeVisible();
+      await expect(accessFeed.getByTestId('access-feed-peer-day')).toHaveCount(3);
+      await expect(accessFeed.getByTestId('access-feed-api-key')).toHaveCount(1);
+      // The card is taller than the pane, which scrolls: a tall viewport
+      // holds all of it, so the capture shows every row kind.
+      const viewport = page.viewportSize();
+      await page.setViewportSize({ width: viewport?.width ?? 1280, height: 2400 });
+      await page.waitForTimeout(400);
+      await accessFeed.scrollIntoViewIfNeeded();
+      await accessFeed.screenshot({ path: `design-sweep/${theme}/user-settings-access-feed.png` });
+      // At phone width, where the members' sentences and a long key name wrap.
+      await page.setViewportSize({ width: 390, height: 2800 });
+      await page.waitForTimeout(400);
+      await accessFeed.scrollIntoViewIfNeeded();
+      await accessFeed.screenshot({ path: `design-sweep/${theme}/user-settings-access-feed-phone.png` });
+      layoutFailures.push(...describeLayoutFailures('user/settings-access-feed-phone', await measurePageLayout(page)));
+      if (viewport) await page.setViewportSize(viewport);
+      await page.waitForTimeout(400);
     }
   }
   expect(layoutFailures, `layout contract broken on ${layoutFailures.length} pane(s):\n${layoutFailures.join('\n')}`).toEqual([]);

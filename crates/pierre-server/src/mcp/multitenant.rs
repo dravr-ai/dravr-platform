@@ -32,6 +32,7 @@ use tracing::field::Empty;
 use tracing::{error, info, info_span, Level, Span};
 
 use crate::constants::service_names::PIERRE_MCP_SERVER;
+use crate::routes::access_feed::AccessFeedRoutes;
 #[cfg(feature = "tools-groups")]
 use crate::routes::coach_attention::CoachAttentionRoutes;
 #[cfg(feature = "tools-groups")]
@@ -686,6 +687,8 @@ impl ProviderToolRouter {
 
         // Connected-apps management: list/revoke a user's MCP OAuth client grants.
         let app = app.merge(OAuthGrantsRoutes::routes(Arc::clone(resources)));
+        // The owner feed: who read the athlete's data, beside its Revoke.
+        let app = app.merge(AccessFeedRoutes::routes(Arc::clone(resources)));
 
         #[cfg(feature = "client-chat")]
         let app = app

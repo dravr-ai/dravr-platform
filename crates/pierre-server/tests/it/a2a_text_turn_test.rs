@@ -266,6 +266,7 @@ async fn first_party_turn(fx: &Fixture, rider: &Rider) {
             sender_id: None,
             transport: Transport::WebApp,
             grant: OAuthScope::self_grant(),
+            caller: None,
             hooks: PipelineHooks::none(),
         },
         &profile,

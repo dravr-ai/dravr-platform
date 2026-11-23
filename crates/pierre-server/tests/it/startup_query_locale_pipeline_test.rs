@@ -216,6 +216,7 @@ async fn first_turn_user_messages(fx: &Fixture, agent_id: &str, locale: &str) ->
             ambient_group_fallback: false,
             command_persistence: CommandPersistence::Always,
             sender_id: None,
+            caller: None,
             hooks: PipelineHooks::none(),
             grant: OAuthScope::self_grant(),
         },

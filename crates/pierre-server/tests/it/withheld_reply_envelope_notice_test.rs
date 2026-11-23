@@ -96,6 +96,7 @@ async fn a_withheld_reply_still_carries_the_turns_envelope_notice() {
             ambient_group_fallback: false,
             command_persistence: CommandPersistence::Always,
             sender_id: None,
+            caller: None,
             hooks: PipelineHooks::none(),
             grant: OAuthScope::self_grant(),
         },

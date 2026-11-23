@@ -463,6 +463,18 @@ pub(crate) const SCRUB_TOKEN_NAME_SQL: &str =
     "UPDATE admin_tokens SET service_name = REPLACE(service_name, $2, $1) \
      WHERE REPLACE(service_name, $2, '') <> service_name";
 
+/// Take a deleted account out of the usage rows of the outside clients' calls
+/// that read its data under someone else's account (carnet#1543): `$1` the
+/// account's id. A coach's call reading the athlete stays the coach's usage
+/// row, as the coach's request log does, and names the athlete no longer. The
+/// account's own rows go with the purge.
+///
+/// ISOLATION EXEMPTION: every tenant's rows on purpose, selected by the
+/// deleted account's id alone: the account is gone from each tenant it was
+/// read under, and the statement only clears that id.
+pub(crate) const SCRUB_SUBJECT_LLM_USAGE_SQL: &str =
+    "UPDATE llm_usage SET subject_user_id = NULL WHERE subject_user_id = $1";
+
 /// The same rewrite on the copy of that name each key a token provisioned
 /// was recorded under, the account's own retired logins' keys included.
 pub(crate) const SCRUB_PROVISIONED_BY_NAME_SQL: &str = "UPDATE admin_provisioned_keys \

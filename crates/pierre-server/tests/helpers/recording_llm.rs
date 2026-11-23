@@ -41,6 +41,9 @@ pub(crate) struct RecordingProvider {
     requests: Mutex<Vec<RecordedRequest>>,
     queued: Mutex<VecDeque<String>>,
     standing: Mutex<String>,
+    /// Once the queue is empty, every call fails with this instead of
+    /// answering the standing reply.
+    failing: Mutex<Option<String>>,
 }
 
 impl RecordingProvider {
@@ -50,6 +53,7 @@ impl RecordingProvider {
             requests: Mutex::new(Vec::new()),
             queued: Mutex::new(VecDeque::new()),
             standing: Mutex::new(standing.to_owned()),
+            failing: Mutex::new(None),
         }
     }
 
@@ -61,6 +65,12 @@ impl RecordingProvider {
     /// Answer the next call with `reply`, ahead of the standing one.
     pub(crate) fn answer_next_with(&self, reply: &str) {
         self.queued.lock().unwrap().push_back(reply.to_owned());
+    }
+
+    /// Fail every call once the queue is empty, with `message`: a model that
+    /// went down mid-turn.
+    pub(crate) fn fail_once_queue_is_empty(&self, message: &str) {
+        *self.failing.lock().unwrap() = Some(message.to_owned());
     }
 
     /// How many requests have been recorded.
@@ -144,6 +154,10 @@ impl LlmProvider for RecordingProvider {
             conversation: joined(false),
         });
         let queued = self.queued.lock().unwrap().pop_front();
+        let failing = self.failing.lock().unwrap().clone();
+        if let (None, Some(message)) = (&queued, failing) {
+            return Err(AppError::internal(message));
+        }
         let content = queued.unwrap_or_else(|| self.standing.lock().unwrap().clone());
         Ok(ChatResponse {
             replay_blocks: None,

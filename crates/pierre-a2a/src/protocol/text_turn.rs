@@ -205,6 +205,7 @@ impl A2AServer {
                 conversation_id,
                 content,
                 grant: principal.scopes.clone(),
+                credential: principal.credential.clone(),
             },
             slot,
             coaching: Arc::clone(coaching),

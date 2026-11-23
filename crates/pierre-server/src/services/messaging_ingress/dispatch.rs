@@ -860,6 +860,7 @@ async fn serve_turn(
             CommandPersistence::Always
         },
         sender_id: Some(&dispatch.sender_id),
+        caller: None,
         hooks,
     };
 

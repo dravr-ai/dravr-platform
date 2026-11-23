@@ -108,7 +108,11 @@ use pierre_services::notification_text::{
     CONCERN_OVERTRAINING_RISK, CONCERN_VOLUME_DROP, PARAM_ROSTER_MEMBERS, PARAM_SHARED_MEMBERS,
 };
 use pierre_services::periodic::spawn_periodic;
-use pierre_tool_runtime::coach_group_view::{gate_group_view_skipping, GroupView};
+#[cfg(feature = "client-notifications")]
+use pierre_tool_runtime::coach_group_view::record_peer_view;
+use pierre_tool_runtime::coach_group_view::{
+    gate_group_view_skipping, record_room_post, GroupView,
+};
 use pierre_tool_runtime::group_fitness::fetch_member_snapshots_in;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use serde_json::{json, Map, Value};
@@ -632,6 +636,22 @@ where
     let Some(room) = digest_room(group) else {
         return false;
     };
+    if sweep.poster.is_none() {
+        return false;
+    }
+    // Each read of the post goes on the member's record first (carnet#1543).
+    let repos = MiddlewareCtx::repos(sweep.ctx.as_ref());
+    let recorded = record_room_post(
+        repos,
+        group,
+        &audience.members,
+        CoachReadSurface::WeeklyDigest,
+    );
+    if let Err(e) = recorded.await {
+        warn!(group_id = %group.id, error = %e, "digest: the chat copy's reads could not be recorded; it is not posted");
+        outcome.errors += 1;
+        return false;
+    }
     let posted = post_to_room(sweep, group, room, audience, snapshots, outcome).await;
     if posted {
         outcome.room_posts += 1;
@@ -896,11 +916,26 @@ async fn dispatch_to_managers<C>(
         return;
     };
 
+    let repos = MiddlewareCtx::repos(sweep.ctx.as_ref());
     for member in audience
         .members
         .iter()
         .filter(|m| m.role.can_manage_members())
     {
+        // A non-coach copy's reads go on each member's record first (carnet#1543).
+        let recorded = record_peer_view(
+            repos,
+            group,
+            &audience.members,
+            member.user_id,
+            CoachReadSurface::WeeklyDigest,
+        )
+        .await;
+        if let Err(e) = recorded {
+            warn!(group_id = %group.id, manager = %member.user_id, error = %e, "digest: a manager's copy could not be recorded on its members' records; it is not sent");
+            outcome.errors += 1;
+            continue;
+        }
         outcome.dispatched += 1;
         let params = manager_digest_params(
             sweep.ctx.group_service(),

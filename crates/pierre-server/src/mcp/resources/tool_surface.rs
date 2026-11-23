@@ -36,6 +36,7 @@ use tokio::sync::OnceCell;
 use tokio::time::timeout;
 
 use async_trait::async_trait;
+use dravr_tronc::mcp::canonical::to_canonical_value;
 use embacle::types::RunnerError;
 use embacle::McpToolDefinition;
 use embacle_tool_host::{ToolHost, ToolHostConfig, ToolOutcome, ToolSession, ToolSurface};
@@ -46,7 +47,6 @@ use pierre_tool_runtime::chat_catalogue::{self, SwitchedOff};
 use pierre_tool_runtime::coach_seat::TurnSeat;
 use pierre_tool_runtime::protocol::{UniversalRequest, UniversalToolExecutor};
 use pierre_tool_runtime::runtime::ToolRuntime;
-use pierre_tool_runtime::schema_canonical::to_canonical_value;
 use pierre_tool_runtime::tool_execution;
 use pierre_tool_runtime::tool_loop_io::PLATFORM_MCP_SERVER_NAME;
 use pierre_tool_runtime::tool_results;

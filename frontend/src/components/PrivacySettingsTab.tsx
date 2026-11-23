@@ -1,4 +1,4 @@
-// ABOUTME: Privacy settings tab — analytics consent, each provider's AI consent, health records, data export, access requests to a company, account deletion
+// ABOUTME: Privacy settings tab — analytics consent, each provider's AI consent, health records, who read your data, data export, access requests to a company, account deletion
 // ABOUTME: Allows users to opt in/out of anonymized usage analytics tracking, or delete their account
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -13,6 +13,7 @@ import DataExportSection from './DataExportSection';
 import DataAccessRequestsSection from './dataAccess/DataAccessRequestsSection';
 import AiConsentSettings from './settings/AiConsentSettings';
 import HealthRecordsSettings from './settings/HealthRecordsSettings';
+import AccessFeedSection from './settings/AccessFeedSection';
 import { useAuth } from '../hooks/useAuth';
 import { useTranslation } from '@pierre/i18n';
 
@@ -146,6 +147,7 @@ export default function PrivacySettingsTab({
           )}
         </div>
       </Section>
+      <AccessFeedSection />
       <DataExportSection />
       <DataAccessRequestsSection
         openRequestId={dataAccessRequest}

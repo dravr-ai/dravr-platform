@@ -77,6 +77,8 @@ pub mod personas;
 #[cfg(feature = "client-admin-api")]
 pub mod admin;
 
+/// The athlete's "who read my data" feed (carnet#1543).
+pub mod access_feed;
 /// Onboarding state — self-read endpoint that tells the frontend whether
 /// the user still needs to connect a fitness provider.
 pub mod oauth_grants;
@@ -133,6 +135,8 @@ pub mod contremaitre_webhook;
 pub mod athlete_home;
 /// The athlete's own health records: the served list, the review queue, lab report upload (carnet#1544).
 pub mod health_records;
+/// The refusal of an outside credential on a route served to the athlete's own screens only.
+pub(crate) mod own_screens;
 
 /// The athlete's gear ledger (`/api/me/gear`).
 pub mod athlete_gear;

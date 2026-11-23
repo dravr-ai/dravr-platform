@@ -38,7 +38,6 @@ use pierre_database::repositories::{
     ClinicalSelection, RecordWindow, ReviewDecision, MAX_HEALTH_RECORDS_PAGE,
 };
 use pierre_middleware::extractors::AuthenticatedUser;
-use pierre_providers::ai_scope;
 use pierre_services::health_records::read::{
     HealthRecordsPage, RecordKind, RecordView, RecordsRead,
 };
@@ -46,6 +45,7 @@ use pierre_services::stored_health::as_stored;
 use serde::{Deserialize, Serialize};
 
 use crate::mcp::resources::ServerContext;
+use crate::routes::own_screens::served_to_outside_client;
 use crate::services::lab_documents::{
     delete_lab_document, list_lab_documents, upload_lab_document, LabDocumentView, LabRecordView,
     MAX_LAB_DOCUMENT_BYTES,
@@ -100,7 +100,7 @@ pub fn health_records_routes() -> Router<Arc<ServerContext>> {
 /// The caller's tenant, refusing an outside credential: health records are
 /// read on the athlete's own screens only.
 fn own_tenant(auth: &AuthenticatedUser) -> AppResult<TenantId> {
-    if ai_scope::served_outside(auth.acts_for_outside_client()) {
+    if served_to_outside_client(auth) {
         return Err(AppError::new(
             ErrorCode::PermissionDenied,
             "Health records are not served to outside apps. The athlete sees them in Dravr.",

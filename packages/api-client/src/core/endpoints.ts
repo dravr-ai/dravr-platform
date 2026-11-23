@@ -173,6 +173,12 @@ export const ENDPOINTS = {
     CONNECTED_APP: (id: string) => `/api/me/oauth-grants/${id}`,
   },
 
+  // ==================== ACCESS FEED ====================
+  ACCESS_FEED: {
+    /** The athlete's "Who read your data" feed over the last 30 days (GET, session only). */
+    FEED: '/api/me/access-feed',
+  },
+
   // ==================== PROVIDERS ====================
   PROVIDERS: {
     /** Get all providers with connection status (OAuth and non-OAuth) */

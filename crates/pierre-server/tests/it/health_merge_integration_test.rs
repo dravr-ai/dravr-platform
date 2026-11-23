@@ -874,6 +874,7 @@ async fn an_answer_built_on_a_recovery_read_is_reported_grounded() -> Result<()>
             ambient_group_fallback: false,
             command_persistence: CommandPersistence::Always,
             sender_id: None,
+            caller: None,
             hooks: PipelineHooks::none(),
             grant: OAuthScope::self_grant(),
         },

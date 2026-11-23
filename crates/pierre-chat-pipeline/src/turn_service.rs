@@ -44,6 +44,7 @@ use pierre_core::models::groups::TranscriptSpeaker;
 use pierre_core::models::{
     ConversationTurnId, InputSource, OnboardingState, RoomQuote, TenantId, TurnOrigin,
 };
+use pierre_core::permissions::impersonation::CallerCredential;
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::Transport;
 use pierre_llm::call_record::LlmCallRecorder;
@@ -80,7 +81,9 @@ use crate::usage_counters::{
 use crate::ChatPipelineContext;
 use crate::{chat_provider_from_resources_arc, record_turn_span_context};
 
+mod outside_turn;
 mod suggestion_tap;
+use outside_turn::OutsideTurn;
 use suggestion_tap::{resolve_suggestion_tap, TapOutcome};
 
 /// Everything a surface knows about one inbound turn before the ladder runs.
@@ -156,6 +159,12 @@ pub struct TurnRequest<'a> {
     /// party acting for them. Every tool the turn offers and calls answers to
     /// it. Required, like the transport: a surface cannot forget to narrow.
     pub grant: Vec<OAuthScope>,
+    /// The credential a caller outside Dravr's own surfaces asked through
+    /// (an A2A agent's grant, the athlete's API key): the client and kind the
+    /// turn's row in the athlete's "who read my data" feed names
+    /// (carnet#1543). `None` on Dravr's own surfaces and the platform's own
+    /// turns, which write no such row.
+    pub caller: Option<CallerCredential>,
     /// Progress, streaming and chart-publishing wiring for this turn.
     pub hooks: PipelineHooks<'a>,
 }
@@ -182,6 +191,7 @@ impl fmt::Debug for TurnRequest<'_> {
             .field("sender_id", &self.sender_id.map(|_| "[REDACTED]"))
             .field("transport", &self.transport)
             .field("grant", &self.grant)
+            .field("caller", &self.caller.as_ref().map(|caller| caller.kind))
             .field("hooks", &self.hooks)
             .finish()
     }
@@ -372,17 +382,23 @@ pub async fn execute(
     request: TurnRequest<'_>,
     profile: &SurfaceProfile,
 ) -> AppResult<ServedTurn> {
+    // A turn an outside caller drove is one row of the athlete's feed.
+    let outside = OutsideTurn::of(&request);
     // Everything the turn reads serves the transport its surface declared, and
     // accumulates into the turn's own provenance: every row the turn writes is
     // stamped with what it served so far (carnet#769).
-    Box::pin(ai_scope::serve_over(
+    let served = Box::pin(ai_scope::serve_over(
         request.transport,
         ai_scope::tracking(
             ai_scope::Provenance::new(),
             execute_turn(ctx, request, profile),
         ),
     ))
-    .await
+    .await;
+    if let Some(turn) = outside {
+        turn.record(ctx, &served).await;
+    }
+    served
 }
 
 async fn execute_turn(

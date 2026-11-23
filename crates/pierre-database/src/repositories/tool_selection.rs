@@ -62,13 +62,16 @@ pub trait ToolSelectionRepository: Send + Sync {
     async fn upsert_tool_catalog_entry(&self, entry: &ToolCatalogEntry) -> AppResult<()>;
     /// Delete a tool catalog entry by tool name (removes phantom entries)
     async fn delete_tool_catalog_entry(&self, tool_name: &str) -> AppResult<bool>;
+    /// Record the hash of the definition `tools/list` now publishes for
+    /// `tool_name` (carnet#1543); `false` when no catalog row names it.
+    async fn set_tool_def_hash(&self, tool_name: &str, def_hash: &str) -> AppResult<bool>;
 }
 
 /// The columns [`tool_catalog_entry_from_row`] reads.
 macro_rules! tool_catalog_columns {
     () => {
         "id, tool_name, display_name, description, category, \
-         is_enabled_by_default, requires_provider, min_plan, created_at, updated_at"
+         is_enabled_by_default, requires_provider, min_plan, created_at, updated_at, def_hash"
     };
 }
 
@@ -169,6 +172,10 @@ pub(crate) const UPSERT_TOOL_CATALOG_ENTRY_SQL: &str = r"
                 updated_at = CURRENT_TIMESTAMP
             ";
 
+/// Record the hash of a tool's published definition.
+pub(crate) const SET_TOOL_DEF_HASH_SQL: &str =
+    "UPDATE tool_catalog SET def_hash = $2 WHERE tool_name = $1";
+
 /// Drop a catalog entry.
 pub(crate) const DELETE_TOOL_CATALOG_ENTRY_SQL: &str =
     "DELETE FROM tool_catalog WHERE tool_name = $1";
@@ -220,6 +227,7 @@ where
         updated_at: row
             .try_get("updated_at")
             .map_err(|e| column("updated_at", e))?,
+        def_hash: row.try_get("def_hash").map_err(|e| column("def_hash", e))?,
     })
 }
 
@@ -440,6 +448,18 @@ macro_rules! impl_tool_selection_repository {
                         AppError::database(format!("Failed to delete tool catalog entry: {e}"))
                     })?;
 
+                Ok(result.rows_affected() > 0)
+            }
+
+            async fn set_tool_def_hash(&self, tool_name: &str, def_hash: &str) -> AppResult<bool> {
+                let result = sqlx::query(SET_TOOL_DEF_HASH_SQL)
+                    .bind(tool_name)
+                    .bind(def_hash)
+                    .execute(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to record a tool's def_hash: {e}"))
+                    })?;
                 Ok(result.rows_affected() > 0)
             }
         }

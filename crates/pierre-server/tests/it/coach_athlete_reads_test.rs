@@ -659,6 +659,7 @@ async fn a_tool_disabled_in_the_athletes_tenant_refuses_the_coachs_read_of_them(
             min_plan: TenantPlan::Starter,
             created_at: now,
             updated_at: now,
+            def_hash: None,
         })
         .await
         .unwrap();

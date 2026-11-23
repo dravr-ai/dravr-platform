@@ -484,14 +484,19 @@ impl LlmConsumptionRoutes {
 /// - **per-call rows** written by the tool loop's
 ///   `LlmCallRecorder` (`pierre-server::services::tool_execution`) — one
 ///   per LLM call, with real per-call tokens and latency;
-/// - **one turn-summary row** written by the route layer at turn
-///   completion — tokens zeroed, carries the turn-level
-///   [`tools_called`](LlmUsageRecord::tools_called) list and the
-///   end-to-end [`execution_time_ms`](LlmUsageRecord::execution_time_ms).
+/// - **one turn-summary row** an outside caller's turn writes when it ends
+///   (an A2A text message, an API key's chat message, carnet#1543) — tokens
+///   zeroed, carries the turn-level
+///   [`tools_called`](LlmUsageRecord::tools_called) list, the end-to-end
+///   [`execution_time_ms`](LlmUsageRecord::execution_time_ms) and how the
+///   turn ended ([`outcome`](LlmUsageRecord::outcome)).
 ///
 /// The response's `llm_calls` array is populated from per-call rows;
-/// `tools_called` and `total_latency_ms` come from the summary row
-/// when present and fall back to the per-call rows otherwise.
+/// `tools_called` is the summary's list then every tool a per-call row adds,
+/// so a summary of a failed or tool-less turn shows as it is without hiding
+/// the calls' tools; `total_latency_ms` comes from the summary row when
+/// present and falls back to the per-call rows otherwise. A turn whose only
+/// row is its summary is still shown, dated by it.
 fn build_turn_summary(
     turn_id: ConversationTurnId,
     rows: &[LlmUsageRecord],
@@ -501,24 +506,21 @@ fn build_turn_summary(
         .partition(|r| r.call_type == TURN_SUMMARY_CALL_TYPE);
     let summary_row = summary_rows.first().copied();
 
-    // Tools_called: prefer the summary row's authoritative list;
-    // otherwise dedupe-union across per-call rows.
-    let tools_called: Vec<String> = summary_row
-        .and_then(|r| serde_json::from_str::<Vec<String>>(&r.tools_called).ok())
-        .unwrap_or_else(|| {
-            let mut seen: HashSet<String> = HashSet::new();
-            let mut out: Vec<String> = Vec::new();
-            for row in &per_call_rows {
-                if let Ok(names) = serde_json::from_str::<Vec<String>>(&row.tools_called) {
-                    for name in names {
-                        if seen.insert(name.clone()) {
-                            out.push(name);
-                        }
-                    }
+    // Tools_called: the summary row's list first, in its order, then every
+    // tool a per-call row names that it does not. A summary written for a
+    // turn that failed, or that ran no tool, never hides what the turn's LLM
+    // calls ran.
+    let mut seen: HashSet<String> = HashSet::new();
+    let mut tools_called: Vec<String> = Vec::new();
+    for row in summary_row.into_iter().chain(per_call_rows.iter().copied()) {
+        if let Ok(names) = serde_json::from_str::<Vec<String>>(&row.tools_called) {
+            for name in names {
+                if seen.insert(name.clone()) {
+                    tools_called.push(name);
                 }
             }
-            out
-        });
+        }
+    }
 
     let llm_calls: Vec<ConversationTurnLlmCall> = per_call_rows
         .iter()
@@ -552,8 +554,12 @@ fn build_turn_summary(
                 .sum()
         });
 
+    // A turn whose only row is its summary (a slash command, a turn refused
+    // or failed before any LLM call) is dated by it.
     let first_call_at = per_call_rows
         .first()
+        .copied()
+        .or(summary_row)
         .map_or_default(|r| r.created_at.clone());
     let last_call_at = per_call_rows
         .last()
@@ -581,6 +587,7 @@ fn build_turn_summary(
         tenant_id,
         user_id,
         conversation_id,
+        outcome: summary_row.and_then(|r| r.outcome.clone()),
         tools_called,
         llm_calls,
         total_tokens,

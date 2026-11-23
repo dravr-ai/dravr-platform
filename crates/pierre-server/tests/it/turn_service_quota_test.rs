@@ -411,6 +411,7 @@ mod turn_service_quota_tests {
                 ambient_group_fallback: false,
                 command_persistence: CommandPersistence::Always,
                 sender_id: None,
+                caller: None,
                 hooks: PipelineHooks::none(),
                 grant: OAuthScope::self_grant(),
             },

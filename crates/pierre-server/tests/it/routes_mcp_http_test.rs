@@ -15,7 +15,9 @@
 
 use crate::common;
 use crate::helpers;
+use dravr_tronc::mcp::tool::ToolCapabilities;
 use secrecy::ExposeSecret;
+use std::collections::{HashMap, HashSet};
 
 use dravr_tronc::dates::Timestamp;
 use helpers::axum_test::AxumTestRequest;
@@ -1516,5 +1518,97 @@ async fn test_personal_mcp_token_never_carries_admin() {
     assert!(
         challenge.contains("insufficient_scope") && challenge.contains("admin"),
         "the challenge names the missing scope: {challenge}"
+    );
+}
+
+/// Every definition `GET /mcp/tools` serves carries its hash, and it is the
+/// one the catalog records wherever the caller is offered the full
+/// definition, a tool needing a provider included: both are taken after
+/// `list_tools` widens its output schema (carnet#1543). A coach tool offered
+/// without its `athlete` argument is another definition, hashed apart.
+#[tokio::test]
+async fn test_mcp_tools_carry_the_def_hash_the_catalog_records() {
+    let setup = McpTestSetup::new().await.expect("Setup failed");
+    helpers::tool_def_hash::settle_def_hashes(&setup.resources).await;
+    let response = AxumTestRequest::get("/mcp/tools")
+        .header("authorization", &setup.auth_header())
+        .send(setup.routes())
+        .await;
+    assert_eq!(
+        response.status(),
+        200,
+        "bug: GET /mcp/tools refused its own caller"
+    );
+    let body: serde_json::Value = response.json();
+    let tools = body["tools"].as_array().expect("tools");
+
+    let recorded: HashMap<String, Option<String>> = setup
+        .resources
+        .common
+        .repos
+        .tool_selection
+        .get_tool_catalog()
+        .await
+        .expect("catalog")
+        .into_iter()
+        .map(|entry| (entry.tool_name, entry.def_hash))
+        .collect();
+    // The catalog records the full definition; an athlete is offered a
+    // coach tool without its `athlete` argument, which is another definition
+    // with its own hash.
+    let takes_athlete: HashSet<String> = setup
+        .resources
+        .mcp
+        .tool_registry
+        .all_schemas()
+        .into_iter()
+        .filter(|schema| {
+            schema
+                .input_schema
+                .properties
+                .as_ref()
+                .is_some_and(|properties| properties.contains_key("athlete"))
+        })
+        .map(|schema| schema.name)
+        .collect();
+    let (mut matched, mut narrowed) = (0, 0);
+    let mut needs_provider = false;
+    for tool in tools {
+        let name = tool["name"].as_str().expect("name");
+        let served = tool["_meta"]["ai.dravr.vault/tool"]["def_hash"]
+            .as_str()
+            .unwrap_or_else(|| panic!("{name} carries no def_hash"));
+        let Some(Some(stored)) = recorded.get(name) else {
+            continue;
+        };
+        if takes_athlete.contains(name)
+            && tool["inputSchema"]["properties"].get("athlete").is_none()
+        {
+            assert_ne!(served, stored, "{name}: narrowed, so hashed apart");
+            narrowed += 1;
+        } else {
+            assert_eq!(
+                served, stored,
+                "bug: {name} serves a hash the catalog does not record"
+            );
+            matched += 1;
+            needs_provider |= setup
+                .resources
+                .mcp
+                .tool_registry
+                .get(name)
+                .is_some_and(|tool| {
+                    tool.capabilities()
+                        .contains(ToolCapabilities::REQUIRES_PROVIDER)
+                });
+        }
+    }
+    assert!(
+        matched > 0 && narrowed > 0,
+        "{matched} matched, {narrowed} narrowed"
+    );
+    assert!(
+        needs_provider,
+        "a tool needing a provider is listed and matches"
     );
 }

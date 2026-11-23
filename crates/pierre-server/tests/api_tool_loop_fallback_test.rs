@@ -1132,6 +1132,7 @@ async fn the_pipeline_opens_the_tool_session_for_a_copilot_tier_behind_an_api_he
             ambient_group_fallback: false,
             command_persistence: CommandPersistence::Always,
             sender_id: None,
+            caller: None,
             hooks: PipelineHooks::none(),
             grant: OAuthScope::self_grant(),
         },

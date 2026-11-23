@@ -121,6 +121,8 @@ mod oauth_client_state;
 pub mod oauth_notifications;
 /// Password reset token management for admin-initiated password resets
 pub mod password_reset_tokens;
+/// A member's record of their peers' reads (`SQLite`)
+pub mod peer_data_reads;
 /// The persona-held notifications each digest returned (`SQLite`)
 pub mod persona_digest_returns;
 /// Personal bests at the standard running distances and the runs scanned for them (`SQLite`)

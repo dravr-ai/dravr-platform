@@ -148,7 +148,6 @@ pub mod revalidation;
 /// The shared store a discovered or composed route's line is read back from by its `route_ref`.
 pub mod route_store;
 pub mod runtime;
-pub mod schema_canonical;
 /// The capability -> OAuth scope derivation and the check the chokepoint reads.
 pub mod scopes;
 /// Guardian security classification: the blast-radius axis every tool declares
@@ -169,6 +168,8 @@ pub mod training_history_compute;
 pub mod turn_end;
 /// The per-turn store a headless turn's signals leave the ACP loopback through.
 mod turn_store;
+/// The tools an outside caller's chat turn ran, kept per turn (carnet#1543).
+pub mod turn_tools;
 
 /// Request construction and the provider call for the text-simulation CLI tool loop
 #[cfg(feature = "client-chat")]

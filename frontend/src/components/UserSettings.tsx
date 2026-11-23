@@ -63,6 +63,7 @@ import {
 import { formatCompactNumber, formatCount, formatDate, formatResetTime } from '@pierre/chat-utils';
 import { useUsageStatus } from '../hooks/useUsageStatus';
 import { useAiConsent } from '../hooks/useAiConsent';
+import { useConnectedApps, useRevokeConnectedApps } from '../hooks/useAccessFeed';
 import { useFeatureFlags, FEATURE_KEYS } from '../hooks/useFeatureFlags';
 import SciotteLoginModal from './SciotteLoginModal';
 import { ProviderNoticeDialog } from './ProviderNotice';
@@ -99,11 +100,6 @@ interface McpToken {
 const PROVIDERS = [{ id: 'whoop', name: 'WHOOP' }];
 
 const MIN_PASSWORD_LENGTH = 8;
-
-// Query key for the caller's connected OAuth apps (external MCP clients they
-// approved on the consent screen). Kept local rather than in the shared
-// QUERY_KEYS catalogue since this surface is web-only.
-const CONNECTED_APPS_QUERY_KEY = ['user-connected-apps'] as const;
 
 /**
  * The name of the preset a connected app's grant was approved for, or `null` for a plain grant
@@ -307,11 +303,7 @@ export default function UserSettings({
     data: connectedApps,
     isLoading: isLoadingConnectedApps,
     error: connectedAppsError,
-  } = useQuery({
-    queryKey: CONNECTED_APPS_QUERY_KEY,
-    queryFn: () => oauthApi.listConnectedApps(),
-    enabled: isAuthenticated,
-  });
+  } = useConnectedApps(isAuthenticated);
 
   // Fetch usage quota status
   const { data: usageData, isLoading: usageLoading } = useUsageStatus();
@@ -392,14 +384,9 @@ export default function UserSettings({
     },
   });
 
-  // Revoke a connected OAuth app (external MCP client)
-  const revokeConnectedAppMutation = useMutation({
-    mutationFn: (id: string) => oauthApi.revokeConnectedApp(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: CONNECTED_APPS_QUERY_KEY });
-      setAppToRevoke(null);
-    },
-  });
+  // Revoke a connected OAuth app (external MCP client): the shared revoke
+  // rereads this list and the privacy pane's access feed alike.
+  const revokeConnectedAppMutation = useRevokeConnectedApps();
 
   // Change password mutation
   const changePasswordMutation = useMutation({
@@ -1710,7 +1697,10 @@ Authorization: Bearer <your-token-here>`}
       <ConfirmDialog
         isOpen={appToRevoke !== null}
         onClose={() => setAppToRevoke(null)}
-        onConfirm={() => appToRevoke && revokeConnectedAppMutation.mutate(appToRevoke.id)}
+        onConfirm={() =>
+          appToRevoke &&
+          revokeConnectedAppMutation.mutate([appToRevoke.id], { onSuccess: () => setAppToRevoke(null) })
+        }
         title={t('tokens.revokeAccess')}
         message={t('app.confirmRevokeAppAccess', { app: appToRevoke?.client_name || appToRevoke?.client_id || '' })}
         confirmLabel={t('app.revoke')}

@@ -1198,6 +1198,7 @@ async fn a_disabled_tool_in_the_athletes_tenant_refuses_the_cross_tenant_write()
             min_plan: TenantPlan::Starter,
             created_at: now,
             updated_at: now,
+            def_hash: None,
         })
         .await
         .unwrap();

@@ -1,8 +1,8 @@
-// ABOUTME: Pins the connected-apps screen to the catalogue the web card already reads, in French too
-// ABOUTME: Its explanatory paragraph was a hardcoded English copy sitting beside that key
+// ABOUTME: Pins the connected-apps screen to the catalogue the web card already reads, in French too, and to the shared revoke
+// ABOUTME: Its explanatory paragraph was a hardcoded English copy; its revoke now rereads the key the access feed shares (carnet#1543)
 
 import React from 'react';
-import { Alert } from 'react-native';
+import { Alert, type AlertButton } from 'react-native';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { i18n } from '@pierre/i18n';
@@ -34,10 +34,13 @@ const GRANT = {
   expires_at: null as string | null,
 };
 
+let lastQueryClient: QueryClient | null = null;
+
 function renderScreen(): ReturnType<typeof render> {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
+  lastQueryClient = queryClient;
   return render(
     <QueryClientProvider client={queryClient}>
       <ConnectedAppsScreen />
@@ -163,6 +166,39 @@ describe('ConnectedAppsScreen', () => {
       i18n.t('app.revokeAccessQ'),
       i18n.t('app.confirmRevokeAppAccess', { app: 'Claude Desktop' }),
       expect.any(Array),
+    );
+    alertSpy.mockRestore();
+  });
+
+  it('revokes through the shared revoke, which rereads the key the access feed shares, and the app leaves', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => undefined);
+    mockListConnectedApps.mockResolvedValueOnce([GRANT]).mockResolvedValue([]);
+    renderScreen();
+    const invalidate = jest.spyOn(lastQueryClient as QueryClient, 'invalidateQueries');
+
+    fireEvent.press(await screen.findByTestId(`revoke-${GRANT.id}`));
+    const buttons = alertSpy.mock.calls[0][2] as AlertButton[];
+    buttons.find((button) => button.style === 'destructive')?.onPress?.();
+
+    await waitFor(() => expect(mockRevokeConnectedApp).toHaveBeenCalledWith(GRANT.id));
+    await waitFor(() => expect(screen.getByTestId('connected-apps-empty')).toBeTruthy());
+    expect(invalidate.mock.calls.map(([filters]) => filters?.queryKey)).toEqual(
+      expect.arrayContaining([['oauth', 'connected-apps'], ['access-feed']]),
+    );
+    alertSpy.mockRestore();
+  });
+
+  it('says a refused revoke failed, from the catalogue', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => undefined);
+    mockRevokeConnectedApp.mockRejectedValue(new Error('refused'));
+    renderScreen();
+
+    fireEvent.press(await screen.findByTestId(`revoke-${GRANT.id}`));
+    const buttons = alertSpy.mock.calls[0][2] as AlertButton[];
+    buttons.find((button) => button.style === 'destructive')?.onPress?.();
+
+    await waitFor(() =>
+      expect(alertSpy).toHaveBeenCalledWith(i18n.t('app.couldNotRevokeApp'), expect.any(String)),
     );
     alertSpy.mockRestore();
   });

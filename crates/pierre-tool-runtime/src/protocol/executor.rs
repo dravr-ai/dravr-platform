@@ -37,6 +37,7 @@ use crate::security::SecurityLabels;
 use crate::support_session;
 use crate::tool_data::ToolData;
 use crate::turn_end::{self, HandoffSlot};
+use dispatch_record::DispatchRecord;
 use dravr_cageux::config::intelligence::IntelligenceConfig;
 use dravr_tronc::mcp::tool::ToolCapabilities;
 use futures_util::future::Either;
@@ -51,19 +52,23 @@ use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::Transport;
 use pierre_providers::ai_scope;
 use pierre_services::provider_notice;
-use pierre_services::usage_counter::increment_counter;
 use serde_json::Value as JsonValue;
 use std::fmt;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 use subject::{answered_for_member, build_tool_context, subject_tool_context, Parties};
-use tracing::{info, warn, Instrument};
+use tracing::{info, Instrument};
 use uuid::Uuid;
 
 /// The access refusal: what the one access predicate withholds, rendered (carnet#1511)
 mod access;
 /// Admin-only tool calls from outside Dravr's own surfaces, on the audit trail.
 mod admin_call_audit;
+/// The usage row of a tool call an outside client made (carnet#1543).
+mod delegated_read;
+/// Charging a dispatch to the athlete's tool budget and telling admins it ran.
+mod dispatch_record;
 /// A consent grant's daily row budgets, checked and levied at dispatch
 mod grant_budget;
 /// The refusals of a call beyond its consent grant's ceiling
@@ -579,6 +584,23 @@ impl UniversalExecutor {
         &self,
         request: UniversalRequest,
     ) -> Result<UniversalResponse, ProtocolError> {
+        // An outside client's call answered before its body ran (a refusal,
+        // a failure) still writes its usage row, marked refused (carnet#1543).
+        let call = delegated_read::PreBodyCall::of(&request);
+        let body_answered = AtomicBool::new(false);
+        let result = self.execute_traced(request, &body_answered).await;
+        if !body_answered.load(Ordering::Relaxed) {
+            self.record_refused_outside_call(&call).await;
+        }
+        result
+    }
+
+    /// [`Self::execute_tool`] inside its span and admin audit.
+    async fn execute_traced(
+        &self,
+        request: UniversalRequest,
+        body_answered: &AtomicBool,
+    ) -> Result<UniversalResponse, ProtocolError> {
         // The one span per tool call, opened here because every transport
         // funnels through this function; see `dispatch_span`.
         let span = tool_call_span(&request);
@@ -588,7 +610,11 @@ impl UniversalExecutor {
         // Boxed: a tool body may dispatch another tool through here
         // (`analyze_activity` → `get_activity_intelligence`), and an inline
         // `dispatch` future would ride in that body's future and its callers'.
-        let result = Box::pin(self.dispatch(request).instrument(span.clone())).await;
+        let result = Box::pin(
+            self.dispatch(request, body_answered)
+                .instrument(span.clone()),
+        )
+        .await;
         if let Some(started) = &audited {
             admin_call_audit::settle(
                 self.resources.repos().admin_audit.as_ref(),
@@ -605,6 +631,7 @@ impl UniversalExecutor {
     async fn dispatch(
         &self,
         request: UniversalRequest,
+        body_answered: &AtomicBool,
     ) -> Result<UniversalResponse, ProtocolError> {
         let tool = self
             .resources
@@ -888,25 +915,37 @@ impl UniversalExecutor {
         if let Some(reservation) = reservation.as_mut() {
             reservation.start();
         }
-        let (((response, read_side_withheld), subject_withheld), served_items) =
-            ai_scope::tracking(
+        let ((((response, read_side_withheld), subject_withheld), served_items), read_members) =
+            delegated_read::reading_members(ai_scope::tracking(
                 provenance.clone(),
                 ai_scope::serving_items(ai_scope::subject_consents(body)),
-            )
+            ))
             .await;
         // The backstop applies the consents the body's reads ran under. For a
         // read of a coached athlete those are the athlete's, by construction:
         // the subject resolved above, whatever a nested call recorded. For the
         // caller's own call, they are the person a body read other than its
         // caller, when it read one (a group tool reading a member).
+        let read_another_person = subject_withheld.is_some();
         let consent_withheld = if subject.is_some() {
             consent_withheld
         } else {
             subject_withheld.unwrap_or(consent_withheld)
         };
-        if served_items && !response.is_error {
-            provenance.mark_provider_data();
-        }
+        mark_served_provider_data(&provenance, served_items && !response.is_error);
+        // The call's own usage row, when an outside client made it, written
+        // whatever the tool answered (carnet#1543).
+        body_answered.store(true, Ordering::Relaxed);
+        self.record_outside_call(delegated_read::OutsideCall {
+            tool_name: &tool_name,
+            started: dispatch_start,
+            outcome: delegated_read::body_outcome(response.is_error),
+            parties,
+            subject_resolved: subject.is_some(),
+            read_another_person,
+            members_read: read_members,
+        })
+        .await;
 
         // Guardian POST. The budget was reserved pre-execution; it is refunded if
         // the call returned a failure, so only *successful* consequential actions
@@ -1036,6 +1075,7 @@ impl UniversalExecutor {
                 &turn_key,
                 &tool_name,
                 universal.result.as_ref(),
+                ai_scope::effective_transport(self.transport),
             );
         }
 
@@ -1049,67 +1089,6 @@ impl UniversalExecutor {
         })
         .await;
         Ok(universal)
-    }
-
-    /// Charge the athlete's tool budget and tell admins a tool ran.
-    ///
-    /// Both belong HERE and nowhere else. Every transport funnels through
-    /// `execute_tool` — the chat `ReAct` loop, MCP-direct, A2A, and an ACP
-    /// agent's tool-host session — so a charge levied here
-    /// is levied exactly once per real dispatch. Levied at the turn's end
-    /// instead, an ACP turn paid twice for one tool (once at the tool host, once
-    /// for the turn) and paid again for tools that were never ours: Copilot's
-    /// own `noop` and shell calls are counted in the ACP-reported total but
-    /// never reach this function, so they now cost nothing.
-    ///
-    /// Only a successful dispatch is *charged*. A refused or errored call
-    /// consumed the athlete's quota under the old scheme, which is the same
-    /// mistake as letting it satisfy a citation. It is still *reported*: the
-    /// notify event sits above the charge guard and carries
-    /// `success: false`, so a tool that ran and declined stays visible to
-    /// admins.
-    ///
-    /// What no transport reports through here is a call that produced no
-    /// response at all. This is `execute_tool`'s last statement before `Ok`,
-    /// so an early `ProtocolError` return skips it, and so does a caller that
-    /// abandons the future — which is what the loopback surface's own timeout
-    /// does. `TurnToolSurface::call` also refuses outright when a turn's tool
-    /// budget is spent, before reaching `execute_tool` at all. Those three
-    /// exits are the notify lane's blind spot, and the closing analysis on
-    /// registre#103 mistook it for a wider one: every native call that DOES
-    /// return a response is catalogued here, because that surface dispatches
-    /// through this executor like every other transport.
-    ///
-    /// Fire-and-forget: a counter write must never fail a tool the athlete
-    /// already received an answer from.
-    async fn record_dispatch(&self, r: DispatchRecord<'_>) {
-        let duration_ms = u64::try_from(r.started.elapsed().as_millis()).unwrap_or(u64::MAX);
-        let tenant_id = r.tenant_uuid.map_or_default(|t| t.to_string());
-
-        info!(
-            target: "notify",
-            event = "messaging.tool_executed",
-            tenant_id = %tenant_id,
-            channel = %r.protocol,
-            tool_name = %r.tool_name,
-            success = r.response.success,
-            duration_ms = duration_ms,
-            "tool executed"
-        );
-
-        if !r.response.success || tenant_id.is_empty() {
-            return;
-        }
-
-        let repo = self.resources.repos().usage_counters.as_ref();
-        for counter_type in ["daily_tool_calls", "weekly_tool_calls"] {
-            if let Err(e) = increment_counter(repo, &tenant_id, r.user_id, counter_type, 1).await {
-                warn!(
-                    tool_name = r.tool_name,
-                    counter_type, "failed to charge tool call: {e}"
-                );
-            }
-        }
     }
 
     /// Check if executor has a specific tool
@@ -1141,24 +1120,20 @@ impl UniversalExecutor {
     }
 }
 
-/// What [`UniversalExecutor::record_dispatch`] needs to charge and report one
-/// dispatch. A struct because the six values trip the too-many-arguments lint.
-struct DispatchRecord<'a> {
-    tool_name: &'a str,
-    /// The transport this call arrived on — `chat`, `mcp`, `a2a`.
-    protocol: &'a str,
-    user_id: &'a str,
-    response: &'a UniversalResponse,
-    tenant_uuid: Option<Uuid>,
-    started: Instant,
-}
-
 impl UniversalExecutor {
     /// The turn token bound to this executor, `None` for a one-shot MCP or A2A
     /// call: such a call mints a nonce that no later reader could ever name.
     #[must_use]
     pub fn turn_token(&self) -> Option<&str> {
         self.turn_token.as_deref()
+    }
+}
+
+/// Mark `provenance` as having served provider data when the call that
+/// answered without an error put provider items in front of its caller.
+fn mark_served_provider_data(provenance: &ai_scope::Provenance, served: bool) {
+    if served {
+        provenance.mark_provider_data();
     }
 }
 

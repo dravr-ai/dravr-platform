@@ -85,6 +85,7 @@ use pierre_services::live_activities::LiveActivityStore;
 use pierre_services::originals_bundle::OriginalsBundleService;
 use pierre_services::provider_purge::ProviderPurgeService;
 
+use crate::mcp::tool_selection::start_tool_def_hash_task;
 #[cfg(feature = "slash-commands")]
 use dravr_canot::commands::CommandRegistry;
 #[cfg(feature = "client-messaging")]
@@ -419,10 +420,12 @@ impl ServerContext {
         // Hourly sweep of expired API keys, on the shared worker ledger.
         start_api_key_cleanup_task(Arc::clone(&repos.api_keys), Arc::clone(&repos.worker_runs));
 
-        // Hourly purge of the athletes' records of their human coach's reads
-        // past their 12 months, on the shared worker ledger (carnet#1445).
+        // Hourly purge of the athletes' records of their human coach's and
+        // their peers' reads past their 12 months, on the shared worker
+        // ledger (carnet#1445, carnet#1543).
         start_coach_read_retention_task(
             Arc::clone(&repos.coach_data_reads),
+            Arc::clone(&repos.peer_data_reads),
             Arc::clone(&repos.worker_runs),
         );
 
@@ -492,6 +495,13 @@ impl ServerContext {
 
         // Sync tool_catalog table with registry so tenant filtering always has complete data
         Self::run_tool_catalog_sync(&tool_registry, &repos).await;
+        // The catalog's record of each tool's published definition hash, kept
+        // up to date as contremaitre descriptions change (carnet#1543).
+        start_tool_def_hash_task(
+            Arc::clone(&tool_registry),
+            Arc::clone(&repos.tool_selection),
+            Arc::clone(&repos.worker_runs),
+        );
 
         // The tracker the shutdown drain awaits. Created ahead of the
         // notification service, which spawns every trigger dispatch onto it.
@@ -713,6 +723,8 @@ impl ServerContext {
         let mcp = super::slices::McpSlice {
             tool_registry,
             tool_selection,
+            // Installed by the composition root with the checkpoint signer.
+            tool_def_sigs: Arc::default(),
             prompt_registry: contremaitre_prompt_registry,
             tool_description_registry: contremaitre_tool_desc_registry,
             evidence_registry: contremaitre_evidence_registry,

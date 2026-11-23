@@ -5,6 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use dravr_tronc::dates::Timestamp;
@@ -62,9 +63,18 @@ pub struct FetchedOverlay {
 ///
 /// Starts empty — the compiled-in Rust descriptions serve as the fallback.
 /// Entries are populated by the contremaitre sync and updated via webhook.
+///
+/// It also says whether the descriptions have **settled**: whether what it
+/// serves is what this instance will keep serving, rather than the
+/// compiled-in text an overlay is about to replace. A record of the published
+/// definitions (the tool catalog's `def_hash`, carnet#1543) waits for it, or
+/// each instance start would record the compiled-in text and the next sync the
+/// overlay's, flapping on every deploy.
 #[derive(Debug)]
 pub struct ToolDescriptionRegistry {
     entries: RwLock<HashMap<String, ToolDescriptionEntry>>,
+    /// The first overlay sync has run, or none is configured.
+    settled: AtomicBool,
 }
 
 impl ToolDescriptionRegistry {
@@ -73,7 +83,21 @@ impl ToolDescriptionRegistry {
     pub fn new() -> Self {
         Self {
             entries: RwLock::new(HashMap::new()),
+            settled: AtomicBool::new(false),
         }
+    }
+
+    /// Mark the descriptions settled: no overlay sync is configured, or the
+    /// first one has run, whether it succeeded or failed (a failed one leaves
+    /// the compiled-in text, which is then what this instance serves).
+    pub fn mark_settled(&self) {
+        self.settled.store(true, Ordering::Release);
+    }
+
+    /// Whether the descriptions have settled ([`Self::mark_settled`]).
+    #[must_use]
+    pub fn is_settled(&self) -> bool {
+        self.settled.load(Ordering::Acquire)
     }
 
     /// Get the overlay for a tool, if one has been loaded.
@@ -157,4 +181,24 @@ impl Default for ToolDescriptionRegistry {
 pub fn parse_tool_yaml(yaml: &str) -> Result<ToolDescriptionOverlay, ContremaitreError> {
     serde_saphyr::from_str_with_options(yaml, serde_saphyr::options! { with_snippet: false })
         .map_err(|e| ContremaitreError::ManifestParse(format!("tool description YAML: {e}")))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_registry_is_unsettled_until_marked_and_stays_settled() {
+        let registry = ToolDescriptionRegistry::new();
+        assert!(
+            !registry.is_settled(),
+            "bug: a new registry has not seen its first sync"
+        );
+        registry.mark_settled();
+        registry.mark_settled();
+        assert!(
+            registry.is_settled(),
+            "bug: a marked registry is settled, however often it is marked"
+        );
+    }
 }

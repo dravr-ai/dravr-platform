@@ -30,11 +30,12 @@ use crate::repositories::{
     LlmCredentialRepository, LlmUsageRepository, McpTaskRepository, MemoryExtractionJobRepository,
     MessagingRepository, MobilityRepository, NotificationRepository, OAuth2ServerRepository,
     OAuthClientStateRepository, OAuthTokenRepository, PasswordResetRepository,
-    PersonaDigestReturnRepository, PersonalBestRepository, PlatformPostClaimRepository,
-    PlaybookRepository, PreApprovedEmailRepository, PrescribedWorkoutRepository, ProfileRepository,
-    ProviderConnectionRepository, ProviderDataRepository, PushedDataRepository, RecipeRepository,
-    RecoveryRepository, ResumableTurnRepository, RouteSummaryRepository, SecurityRepository,
-    SeederRepository, SessionRefreshTokenRepository, ShortLinkRepository, SignupCodeRepository,
+    PeerDataReadRepository, PersonaDigestReturnRepository, PersonalBestRepository,
+    PlatformPostClaimRepository, PlaybookRepository, PreApprovedEmailRepository,
+    PrescribedWorkoutRepository, ProfileRepository, ProviderConnectionRepository,
+    ProviderDataRepository, PushedDataRepository, RecipeRepository, RecoveryRepository,
+    ResumableTurnRepository, RouteSummaryRepository, SecurityRepository, SeederRepository,
+    SessionRefreshTokenRepository, ShortLinkRepository, SignupCodeRepository,
     SignupCohortRepository, SleepRepository, StoreListingsRepository,
     StravaSeatReclaimWarningRepository, SubscriptionsRepository, SyncCursorRepository,
     SystemSettingsRepository, TenantRepository, ToolSelectionRepository, TrainingHistoryRepository,
@@ -113,6 +114,9 @@ pub struct RepositoryRegistry {
     /// The athlete's record of their human coach's reads of their data, purged
     /// after 12 months (carnet#1445)
     pub coach_data_reads: Arc<dyn CoachDataReadRepository>,
+    /// A member's record of fellow group members reading their data under
+    /// their peer consent, purged with the coach reads (carnet#1543)
+    pub peer_data_reads: Arc<dyn PeerDataReadRepository>,
     /// Recipe CRUD with nutrition
     pub recipes: Arc<dyn RecipeRepository>,
     /// RSA keypairs, key rotation, audit events
@@ -354,6 +358,7 @@ impl RepositoryRegistry {
             provider_connections: db.clone(),
             calendar_preferences: db.clone(),
             coach_data_reads: db.clone(),
+            peer_data_reads: db.clone(),
             recipes: db.clone(),
             security: db.clone(),
             session_refresh_tokens: db.clone(),
@@ -472,6 +477,7 @@ impl RepositoryRegistry {
             provider_connections: db.clone(),
             calendar_preferences: db.clone(),
             coach_data_reads: db.clone(),
+            peer_data_reads: db.clone(),
             recipes: db.clone(),
             security: db.clone(),
             session_refresh_tokens: db.clone(),

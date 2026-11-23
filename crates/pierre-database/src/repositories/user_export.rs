@@ -390,6 +390,7 @@ user_export_tables_sql!(
     "user_onboarding" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 50, key: [text "user_id", text "step_id"] },
     "calendar_preferences" { rows: [uuid "user_id"], tenant: "tenant_id", except: ["set_by"], page: 5, key: [text "tenant_id", uuid "user_id"] },
     "coach_data_reads" { rows: [uuid "user_id"], tenant: "tenant_id", except: ["coach_user_id", "impersonator_user_id"], page: 200, key: [uuid "id"] },
+    "peer_data_reads" { rows: [uuid "user_id"], tenant: "tenant_id", except: ["peer_user_id", "impersonator_user_id"], page: 200, key: [uuid "id"] },
     "user_physiological_profiles" { rows: [uuid "user_id"], tenant: "tenant_id", except: [], page: 5, key: [uuid "tenant_id", uuid "user_id"] },
     "user_physiology_sport_anchors" { rows: [uuid "user_id"], tenant: "tenant_id", except: [], page: 50, key: [uuid "tenant_id", uuid "user_id", text "sport", text "anchor"] },
     "fitness_configurations" { rows: [uuid "user_id"], tenant: "tenant_id", except: [], page: 20, key: [text "id"] },
@@ -488,7 +489,7 @@ user_export_tables_sql!(
     "route_summaries" { rows: [uuid "user_id"], tenant: "tenant_id", except: [], page: 25, key: [uuid "tenant_id", uuid "user_id", text "activity_id"] },
     "compaction_blocks" { rows: [conversations], tenant: "tenant_id", except: [], page: 50, key: [text "id"] },
     "messaging_messages" { rows: [sessions], tenant: "tenant_id", except: ["raw_payload"], page: 100, key: [text "id"] },
-    "llm_usage" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 500, key: [text "id"] },
+    "llm_usage" { rows: [text "user_id"], tenant: "tenant_id", except: ["subject_user_id", "impersonator_user_id"], page: 500, key: [text "id"] },
     "a2a_tasks" { rows: [a2a_tasks], tenant: none, except: ["session_token"], page: 25, key: [text "task_id"] },
     "chat_messages" { rows: [conversations], tenant: none, except: [], page: 50, key: [text "id"] },
     "data_point_series" { rows: [sources], tenant: none, except: [], page: 500, key: [text "id"] },
@@ -681,4 +682,7 @@ pub const NOT_CREDENTIAL_COLUMNS: &[&str] = &[
     "original_tokens",
     "counter_key",
     "credential_id",
+    // The kind of credential a call came through (`oauth_grant`, `api_key`),
+    // a label from a closed list, never the credential itself.
+    "credential_kind",
 ];

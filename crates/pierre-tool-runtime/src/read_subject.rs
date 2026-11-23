@@ -69,13 +69,14 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use crate::coach_seat::TurnSeat;
-use crate::context::SUPPORT_SESSION;
 use crate::implementations::training_plan_authorship::load_conversation;
 use crate::protocol::types::UniversalResponse;
 use crate::runtime::ToolRuntime;
 
+mod peer_read;
 mod wellness;
 
+pub use peer_read::{record_daily_peer_read, record_peer_read};
 #[cfg(feature = "tools-data")]
 pub(crate) use wellness::{
     health_records_named, readable_wellness, unnamed_refusal, unnamed_wellness_note,
@@ -410,7 +411,7 @@ pub(crate) async fn coached_read(
 /// label. The transport the call declared is recorded beside it, so the
 /// athlete's record says when a read was served to the coach's outside
 /// assistant (EFVP 9.4b). So is the admin whose support session made the
-/// read while acting as the coach ([`SUPPORT_SESSION`]), so the athlete's
+/// read while acting as the coach ([`SUPPORT_SESSION`](crate::context::SUPPORT_SESSION)), so the athlete's
 /// record says it was support's read, not their coach's.
 ///
 /// Every coach read of a coached athlete records here once the gates have let
@@ -484,6 +485,7 @@ fn new_coach_read<'read>(
     tool: &'read str,
     class: CoachReadClass,
 ) -> NewCoachDataRead<'read> {
+    let (transport, impersonator) = peer_read::served_now();
     NewCoachDataRead {
         tenant: access.tenant,
         athlete: access.athlete_user_id,
@@ -492,11 +494,8 @@ fn new_coach_read<'read>(
         tool,
         class,
         read_at: Timestamp::now(),
-        transport: ai_scope::declared_transport(),
-        impersonator: SUPPORT_SESSION
-            .try_with(|support| support.as_ref().map(|grant| grant.impersonator_id))
-            .ok()
-            .flatten(),
+        transport,
+        impersonator,
     }
 }
 

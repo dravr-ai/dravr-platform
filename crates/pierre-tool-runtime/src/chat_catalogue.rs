@@ -65,9 +65,10 @@ use uuid::Uuid;
 
 use crate::coach_seat::TurnSeat;
 use crate::deployment_tools;
+use crate::registry::ToolRegistry;
 use crate::tool_access::{self, Caller, CallerRole};
 use crate::tool_selection::ToolSelectionService;
-use crate::{registry::ToolRegistry, schema_canonical::to_canonical_value};
+use dravr_tronc::mcp::canonical::to_canonical_value;
 
 /// Hex characters of the SHA-256 kept as the catalogue digest
 const DIGEST_HEX_LEN: usize = 16;

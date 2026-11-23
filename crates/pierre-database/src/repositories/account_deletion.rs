@@ -649,6 +649,18 @@ macro_rules! impl_account_deletion_repository {
                         ))
                     })?;
 
+                // A coach's usage row of a call that read the account's data
+                // stays the coach's, without the account's id (carnet#1543).
+                sqlx::query(SCRUB_SUBJECT_LLM_USAGE_SQL)
+                    .bind(&owner)
+                    .execute(guard.executor()?)
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!(
+                            "Failed to take a deleted account out of the usage rows naming it: {e}"
+                        ))
+                    })?;
+
                 let rows_removed = clear_user_in_transaction!(
                     guard,
                     $ids,

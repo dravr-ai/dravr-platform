@@ -1,4 +1,4 @@
-// ABOUTME: The athlete's record of their human coach's reads: kept 12 months, listed across their tenants, purged hourly
+// ABOUTME: The athlete's record of their coach's and peers' reads: kept 12 months, listed across their tenants, purged hourly
 // ABOUTME: One cross-instance DB sweep on the shared spawn_periodic loop and worker ledger; one listing for every surface (carnet#1445)
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -9,6 +9,9 @@
 //! An athlete's record of their human coach's reads of their data
 //! (`coach_data_reads`) is kept 12 months, rolling: each pass deletes every
 //! read recorded more than [`COACH_READ_RETENTION_MONTHS`] months before it.
+//! Their record of fellow group members' reads under their peer consent
+//! (`peer_data_reads`, carnet#1543) is kept as long, and the same pass
+//! purges it.
 //! Every surface that lists the record to the athlete lists it through
 //! [`own_coach_reads`].
 
@@ -18,12 +21,15 @@ use std::time::Duration;
 
 use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
-use pierre_database::repositories::{CoachDataRead, CoachDataReadRepository, WorkerRunRepository};
+use pierre_database::repositories::{
+    CoachDataRead, CoachDataReadRepository, PeerDataReadRepository, WorkerRunRepository,
+};
 use pierre_database::RepositoryRegistry;
 use tokio::task::AbortHandle;
 use tracing::info;
 use uuid::Uuid;
 
+use crate::medical_flag;
 use crate::periodic::spawn_periodic;
 
 /// How long an athlete's record keeps a coach's read, in months.
@@ -35,20 +41,23 @@ const WORKER_NAME: &str = "coach read retention";
 /// One pass an hour: a read is held at most an hour past its retention.
 const PERIOD: Duration = Duration::from_hours(1);
 
-/// Start the hourly purge of coach reads past their retention.
+/// Start the hourly purge of coach and peer reads past their retention.
 ///
 /// Returns the worker's abort handle; callers discard it, as a restart
 /// re-arms the worker from the ledger.
 pub fn start_coach_read_retention_task(
     reads: Arc<dyn CoachDataReadRepository>,
+    peer_reads: Arc<dyn PeerDataReadRepository>,
     ledger: Arc<dyn WorkerRunRepository>,
 ) -> AbortHandle {
     spawn_periodic(WORKER_NAME, PERIOD, ledger, move || {
         let reads = Arc::clone(&reads);
+        let peer_reads = Arc::clone(&peer_reads);
         async move {
-            purge_expired_coach_reads(reads.as_ref(), Timestamp::now())
-                .await
-                .map(|_| ())
+            let now = Timestamp::now();
+            purge_expired_coach_reads(reads.as_ref(), now).await?;
+            purge_expired_peer_reads(peer_reads.as_ref(), now).await?;
+            Ok(())
         }
     })
 }
@@ -73,11 +82,11 @@ pub async fn own_coach_reads(
     limit: u32,
 ) -> AppResult<Vec<CoachDataRead>> {
     let mut reads = Vec::new();
-    for tenant in repos.tenants.list_for_user(athlete).await? {
+    for tenant in medical_flag::athlete_tenants(repos, None, athlete).await? {
         reads.extend(
             repos
                 .coach_data_reads
-                .list_coach_reads(tenant.id, athlete, group, limit)
+                .list_coach_reads(tenant, athlete, group, limit)
                 .await?,
         );
     }
@@ -119,6 +128,29 @@ pub async fn purge_expired_coach_reads(
         info!(
             worker = WORKER_NAME,
             purged, "purged coach reads past their retention"
+        );
+    }
+    Ok(purged)
+}
+
+/// Delete every peer read recorded before the same retention at `now`,
+/// returning how many went.
+///
+/// # Errors
+///
+/// Returns the repository error when the delete fails; `spawn_periodic` logs
+/// it and retries the pass.
+pub async fn purge_expired_peer_reads(
+    reads: &dyn PeerDataReadRepository,
+    now: Timestamp,
+) -> AppResult<u64> {
+    let purged = reads
+        .purge_peer_reads_before(coach_read_cutoff(now)?)
+        .await?;
+    if purged > 0 {
+        info!(
+            worker = WORKER_NAME,
+            purged, "purged peer reads past their retention"
         );
     }
     Ok(purged)

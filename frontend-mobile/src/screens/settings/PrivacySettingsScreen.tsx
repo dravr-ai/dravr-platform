@@ -1,4 +1,4 @@
-// ABOUTME: Privacy settings screen — analytics consent (GDPR), each provider's AI consent, health records, data export, access requests and account deletion, as on web
+// ABOUTME: Privacy settings screen — analytics consent (GDPR), each provider's AI consent, health records, who read your data, data export, access requests and account deletion, as on web
 // ABOUTME: Optimistic switch that writes through userApi.updateAnalyticsConsent and reverts when the write fails
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -20,6 +20,7 @@ import { AccountDeletionSection } from './AccountDeletionSection';
 import { DataExportSection } from './DataExportSection';
 import { DataAccessRequestsSection } from './dataAccess/DataAccessRequestsSection';
 import { AiConsentSection } from './AiConsentSection';
+import { AccessFeedSection } from './AccessFeedSection';
 
 // Same lists the web Privacy & Data tab shows, so the two surfaces cannot
 // promise different things about what leaves the device.
@@ -36,10 +37,10 @@ const NEVER_COLLECTED_KEYS = [
 ] as const;
 
 /**
- * Six sections separated by space, not by cards: the consent switch as the
+ * Sections separated by space, not by cards: the consent switch as the
  * first section's action, the two promise lists as glyph-led lines
- * (DESIGN.md "Phone"), then the data export, the access requests to a company,
- * and account deletion last.
+ * (DESIGN.md "Phone"), then who read the athlete's data, the data export, the
+ * access requests to a company, and account deletion last.
  */
 export function PrivacySettingsScreen(): React.JSX.Element {
   const { t } = useTranslation();
@@ -153,6 +154,9 @@ export function PrivacySettingsScreen(): React.JSX.Element {
               ))}
             </View>
           </Section>
+
+          {/* Who read the athlete's data: outside apps' calls and the coach's reads per day (carnet#1543) */}
+          <AccessFeedSection />
 
           <DataExportSection />
 

@@ -219,6 +219,7 @@ impl PlatformPost for PipelinePlatformPost {
             sender_id: None,
             // No AG-UI wiring: this is a detached background turn, not a live
             // request with a status placeholder to edit.
+            caller: None,
             hooks: PipelineHooks {
                 scene_publisher: scene_publisher
                     .as_ref()

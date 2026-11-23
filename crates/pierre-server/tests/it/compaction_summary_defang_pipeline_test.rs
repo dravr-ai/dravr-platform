@@ -258,6 +258,7 @@ async fn a_summary_written_mid_turn_reaches_the_model_defanged() {
             ambient_group_fallback: false,
             command_persistence: CommandPersistence::Always,
             sender_id: None,
+            caller: None,
             hooks: PipelineHooks::none(),
             grant: OAuthScope::self_grant(),
         },

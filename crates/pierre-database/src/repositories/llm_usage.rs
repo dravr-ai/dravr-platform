@@ -36,7 +36,8 @@ use std::fmt::Display;
 
 use dravr_tronc::dates::{CivilDate, Timestamp};
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::usage::{LlmUsageAggregateRow, LlmUsageDailyRow};
+use pierre_core::models::usage::{LlmUsageAggregateRow, LlmUsageDailyRow, OutsideReadKind};
+use pierre_core::models::TURN_SUMMARY_CALL_TYPE;
 
 use super::LlmUsagePromptBand;
 
@@ -103,12 +104,57 @@ macro_rules! llm_usage_columns {
     };
 }
 
+/// The columns a read of whole rows selects: [`llm_usage_columns!`] and the
+/// `outcome` of a row written for an outside caller's read (carnet#1543),
+/// which the insert of an LLM call leaves NULL.
+macro_rules! llm_usage_read_columns {
+    () => {
+        concat!(llm_usage_columns!(), ", outcome")
+    };
+}
+
 /// One LLM call.
 pub(crate) const INSERT_LLM_USAGE_SQL: &str = concat!(
     "INSERT INTO llm_usage (",
     llm_usage_columns!(),
     ") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)"
 );
+
+/// An outside caller's read (a direct tool call, an agent turn's summary),
+/// with what it read and through what (carnet#1543): [`INSERT_LLM_USAGE_SQL`]'s
+/// columns, then the five the owner feed reads and the read's outcome.
+pub(crate) const INSERT_DELEGATED_USAGE_SQL: &str = concat!(
+    "INSERT INTO llm_usage (",
+    llm_usage_columns!(),
+    ", subject_user_id, client_id, credential_kind, transport, impersonator_user_id, outcome",
+    ") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27)"
+);
+
+/// The athlete's own data read by outside callers under one tenant since `$4`,
+/// newest first: their direct tool calls (`$3`) and the agent turns they drove
+/// (`$7`) whose subject is the caller and whose outcome is `$6` (a result: a
+/// call that failed served nothing). Only rows written with a subject carry
+/// one, so a first-party turn's summary row is never among them.
+pub(crate) const LIST_OUTSIDE_READS_SQL: &str =
+    "SELECT created_at, call_type, model, tools_called, client_id, credential_kind, \
+     transport, impersonator_user_id FROM llm_usage \
+     WHERE tenant_id = $1 AND user_id = $2 AND subject_user_id = $2 \
+       AND (call_type = $3 OR call_type = $7) \
+       AND created_at >= $4 AND outcome = $6 \
+     ORDER BY created_at DESC LIMIT $5";
+
+/// The kind of read an outside-read row is, from its `call_type`, with the
+/// tool it names: an agent turn's row names none, its `model` being no tool.
+pub(crate) fn outside_read_kind(
+    call_type: &str,
+    model: String,
+) -> (OutsideReadKind, Option<String>) {
+    if call_type == TURN_SUMMARY_CALL_TYPE {
+        (OutsideReadKind::AgentTurn, None)
+    } else {
+        (OutsideReadKind::ToolCall, Some(model))
+    }
+}
 
 /// The token sums every aggregate projects. Postgres sums a `BIGINT` as
 /// `NUMERIC`; the cast reads as `i64` on both.
@@ -185,7 +231,7 @@ pub(crate) use llm_usage_daily_series_sql;
 /// ($2 and $3), which are no LLM call.
 pub(crate) const RECENT_LLM_CALLS_SQL: &str = concat!(
     "SELECT ",
-    llm_usage_columns!(),
+    llm_usage_read_columns!(),
     " FROM llm_usage WHERE ($1 IS NULL OR tenant_id = $1) \
       AND call_type != $2 AND call_type != $3 \
       ORDER BY created_at DESC LIMIT $4"
@@ -196,7 +242,7 @@ pub(crate) const RECENT_LLM_CALLS_SQL: &str = concat!(
 /// billing export. The bounds bind as instants, as [`since_bound`] explains.
 pub(crate) const LLM_CALLS_BETWEEN_SQL: &str = concat!(
     "SELECT ",
-    llm_usage_columns!(),
+    llm_usage_read_columns!(),
     " FROM llm_usage WHERE ($1 IS NULL OR tenant_id = $1) \
       AND created_at >= $2 AND created_at < $3 \
       AND call_type != $4 AND call_type != $5 \
@@ -205,12 +251,14 @@ pub(crate) const LLM_CALLS_BETWEEN_SQL: &str = concat!(
 
 /// Calls since `$2` that invoked at least one tool, of tenant `$1` or of every
 /// tenant when it binds `NULL`, newest first. Per-tool aggregation happens in
-/// the handler, so no JSON SQL.
+/// the handler, so no JSON SQL. A turn-summary row (`$3`) repeats the tools its
+/// turn's LLM calls already name, so it is left out rather than counted twice.
 pub(crate) const TOOL_CALLS_SINCE_SQL: &str = concat!(
     "SELECT ",
-    llm_usage_columns!(),
+    llm_usage_read_columns!(),
     " FROM llm_usage \
       WHERE ($1 IS NULL OR tenant_id = $1) AND created_at >= $2 AND tools_called <> '[]' \
+        AND call_type != $3 \
       ORDER BY created_at DESC"
 );
 
@@ -218,7 +266,7 @@ pub(crate) const TOOL_CALLS_SINCE_SQL: &str = concat!(
 /// row backfilled without a sequence sorts last.
 pub(crate) const LLM_USAGE_BY_TURN_SQL: &str = concat!(
     "SELECT ",
-    llm_usage_columns!(),
+    llm_usage_read_columns!(),
     " FROM llm_usage WHERE turn_id = $1 \
       ORDER BY call_sequence ASC NULLS LAST, created_at ASC"
 );
@@ -371,7 +419,7 @@ pub fn call_sequence_column(value: i64) -> i32 {
 /// invoking shell must `use` every one of them.
 macro_rules! impl_llm_usage_repository {
     ($ty:ty, $row:ty, $ids:ident, day = $day:literal) => {
-        /// One [`llm_usage_columns!`] row as the record the API carries.
+        /// One [`llm_usage_read_columns!`] row as the record the API carries.
         fn llm_usage_record_from_row(row: &$row) -> AppResult<LlmUsageRecord> {
             let text = |col: &str| -> AppResult<String> {
                 row.try_get(col).map_err(|e| llm_usage_column_error(col, e))
@@ -413,6 +461,9 @@ macro_rules! impl_llm_usage_repository {
                     .map_err(|e| llm_usage_column_error("cost_usd", e))?,
                 call_sequence: call_sequence.map(i64::from),
                 created_at: created_at.to_rfc3339(),
+                outcome: row
+                    .try_get("outcome")
+                    .map_err(|e| llm_usage_column_error("outcome", e))?,
             })
         }
 
@@ -475,7 +526,99 @@ macro_rules! impl_llm_usage_repository {
                         .call_sequence
                         .map(|v| i64::from(call_sequence_column(v))),
                     created_at: now.to_rfc3339(),
+                    outcome: None,
                 })
+            }
+
+            async fn insert_delegated_usage(
+                &self,
+                params: &InsertLlmUsage<'_>,
+                read: &DelegatedRead<'_>,
+            ) -> AppResult<()> {
+                sqlx::query(INSERT_DELEGATED_USAGE_SQL)
+                    .bind(Uuid::new_v4().to_string())
+                    .bind(params.tenant_id)
+                    .bind(params.user_id)
+                    .bind(params.conversation_id)
+                    .bind($ids::bind(params.turn_id.as_uuid()))
+                    .bind(params.provider)
+                    .bind(params.model)
+                    .bind(params.prompt_tokens)
+                    .bind(params.completion_tokens)
+                    .bind(params.total_tokens)
+                    .bind(params.cached_tokens)
+                    .bind(params.cached_write_tokens)
+                    .bind(params.reasoning_tokens)
+                    .bind(params.call_type)
+                    .bind(params.tool_calls_count)
+                    .bind(params.tools_called)
+                    .bind(params.execution_time_ms)
+                    .bind(params.cost_usd)
+                    .bind(params.call_sequence.map(call_sequence_column))
+                    .bind(recorded_at())
+                    .bind(params.cached_write_1h_tokens)
+                    .bind(read.subject_user_id)
+                    .bind(read.client_id)
+                    .bind(read.credential)
+                    .bind(read.transport)
+                    .bind(read.impersonator_user_id)
+                    .bind(read.outcome.as_str())
+                    .execute(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!(
+                            "Failed to insert an outside caller's read: {e}"
+                        ))
+                    })?;
+                Ok(())
+            }
+
+            async fn list_outside_reads(
+                &self,
+                tenant_id: &str,
+                user_id: &str,
+                since: Timestamp,
+                limit: u32,
+            ) -> AppResult<Vec<OutsideRead>> {
+                let error = |e: sqlx::Error| {
+                    AppError::database(format!("Failed to list outside clients' reads: {e}"))
+                };
+                let rows = sqlx::query(LIST_OUTSIDE_READS_SQL)
+                    .bind(tenant_id)
+                    .bind(user_id)
+                    .bind(DIRECT_TOOL_CALL_TYPE)
+                    .bind(since)
+                    .bind(i64::from(limit))
+                    .bind(CallOutcome::Ok.as_str())
+                    .bind(TURN_SUMMARY_CALL_TYPE)
+                    .fetch_all(self.pool())
+                    .await
+                    .map_err(error)?;
+                rows.iter()
+                    .map(|row| {
+                        let call_type: String = row.try_get("call_type").map_err(error)?;
+                        let (kind, tool) =
+                            outside_read_kind(&call_type, row.try_get("model").map_err(error)?);
+                        let tools_called: String = row.try_get("tools_called").map_err(error)?;
+                        Ok(OutsideRead {
+                            read_at: row.try_get("created_at").map_err(error)?,
+                            kind,
+                            tool,
+                            tools: serde_json::from_str(&tools_called).map_err(|e| {
+                                AppError::database(format!(
+                                    "An outside read's tools_called is not a JSON list of tool \
+                                     names ({tools_called:?}): {e}"
+                                ))
+                            })?,
+                            client_id: row.try_get("client_id").map_err(error)?,
+                            credential: row.try_get("credential_kind").map_err(error)?,
+                            transport: row.try_get("transport").map_err(error)?,
+                            impersonator_user_id: row
+                                .try_get("impersonator_user_id")
+                                .map_err(error)?,
+                        })
+                    })
+                    .collect()
             }
 
             async fn get_llm_usage_aggregates(
@@ -617,6 +760,7 @@ macro_rules! impl_llm_usage_repository {
                 sqlx::query(TOOL_CALLS_SINCE_SQL)
                     .bind(tenant_id.map(|t| t.to_string()))
                     .bind(since_bound(since)?)
+                    .bind(TURN_SUMMARY_CALL_TYPE)
                     .fetch_all(self.pool())
                     .await
                     .map_err(|e| {

@@ -181,6 +181,8 @@ pub mod oauth;
 pub mod oauth_client_state;
 /// Shared statements and body for password-reset tokens: issue, consume once under a lockout, invalidate, rate-limit.
 pub mod password_reset_tokens;
+/// A member's record of fellow group members reading their data under peer consent (carnet#1543).
+pub mod peer_data_reads;
 /// Repository trait for the persona-held notifications each digest returned.
 pub mod persona_digest_returns;
 /// Repository trait for an athlete's personal bests at the standard running distances.
@@ -395,6 +397,7 @@ pub use messaging_proactive::{ProactiveNotice, ProactiveNoticePart};
 pub use mobility::*;
 pub use notifications::*;
 pub use oauth::*;
+pub use peer_data_reads::{NewPeerDataRead, PeerDataRead, PeerDataReadRepository};
 pub use persona_digest_returns::PersonaDigestReturnRepository;
 pub use personal_bests::{PersonalBest, PersonalBestRepository};
 pub use personal_bests::{PersonalBestSeed, PersonalBestSeedCandidate};

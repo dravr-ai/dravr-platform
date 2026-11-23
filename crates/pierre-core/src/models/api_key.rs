@@ -18,7 +18,7 @@ use crate::constants::{
 };
 use crate::errors::AppError;
 use crate::models::{ToolUsage, UserTier};
-use dravr_tronc::dates::Timestamp;
+use dravr_tronc::dates::{CivilDate, Timestamp};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -150,6 +150,33 @@ pub struct ApiKey {
     pub expires_at: Option<Timestamp>,
     /// When the key was created
     pub created_at: Timestamp,
+}
+
+/// The REST route whose request starts a turn of Dravr's agent: a chat message.
+///
+/// As the chat router registers it (a string literal there: the route scan
+/// reads literals) and the request-budget layer names its `api_key_usage` row
+/// (`POST <route>`); `access_feed_turn_test` posts through the router and
+/// fails if the two drift apart. A key's message there is listed
+/// in the athlete's feed as the turn's own row, so the key's request days
+/// leave it out (carnet#1543).
+pub const AGENT_TURN_ROUTE: &str = "/api/chat/conversations/{conversation_id}/messages";
+
+/// One UTC day of the REST requests one of a user's API keys made that
+/// answered with a result, as their "who read my data" feed lists them
+/// (carnet#1543).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ApiKeyRequestDay {
+    /// The UTC day.
+    pub day: CivilDate,
+    /// The key.
+    pub key_id: String,
+    /// The name its owner gave it.
+    pub key_name: String,
+    /// The visible prefix the key is recognised by.
+    pub key_prefix: String,
+    /// The requests it made that day that answered with a 2xx.
+    pub requests: u32,
 }
 
 /// API Key creation request with rate limit

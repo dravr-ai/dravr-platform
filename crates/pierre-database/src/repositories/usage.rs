@@ -9,7 +9,9 @@ use dravr_tronc::dates::Timestamp;
 use pierre_core::admin::models::AdminConfigOverrideRow;
 use pierre_core::errors::AppResult;
 
-use pierre_core::models::usage::{InsertLlmUsage, LlmUsageAggregateRow, LlmUsageDailyRow};
+use pierre_core::models::usage::{
+    DelegatedRead, InsertLlmUsage, LlmUsageAggregateRow, LlmUsageDailyRow, OutsideRead,
+};
 use pierre_core::models::{ApiKeyUsage, ApiKeyUsageStats, WindowUsage};
 use pierre_core::models::{
     ConversationTurnId, JwtMonthlyUsage, JwtUsage, LlmUsageRecord, RequestLog, ToolUsage,
@@ -163,6 +165,33 @@ pub struct LlmUsagePromptBand {
 pub trait LlmUsageRepository: Send + Sync {
     /// Insert a new LLM usage record
     async fn insert_llm_usage(&self, params: &InsertLlmUsage<'_>) -> AppResult<LlmUsageRecord>;
+
+    /// Insert the row of a read an outside caller made, with what it read and
+    /// through what (carnet#1543): a direct tool call an outside client made
+    /// ([`InsertLlmUsage::for_direct_tool_call`]), or the summary of a turn of
+    /// Dravr's agent an outside caller drove
+    /// ([`InsertLlmUsage::for_turn_summary`]). The record the athlete's "who
+    /// read my data" feed lists.
+    async fn insert_delegated_usage(
+        &self,
+        params: &InsertLlmUsage<'_>,
+        read: &DelegatedRead<'_>,
+    ) -> AppResult<()>;
+
+    /// The reads outside callers made of `user_id`'s own data under
+    /// `tenant_id` (their tool calls and the agent turns they drove), made at
+    /// or after `since`, newest first, at most `limit` (carnet#1543): only
+    /// those that answered with a result, as a call that failed served
+    /// nothing. A coach's or a peer's call reading them is not
+    /// one of these: it is the caller's row, and the read is the athlete's
+    /// `coach_data_reads` or `peer_data_reads` record.
+    async fn list_outside_reads(
+        &self,
+        tenant_id: &str,
+        user_id: &str,
+        since: Timestamp,
+        limit: u32,
+    ) -> AppResult<Vec<OutsideRead>>;
 
     /// Query aggregated LLM usage grouped by `provider`, `model`, and
     /// `call_type`, of one tenant or, with `None`, of every tenant: the

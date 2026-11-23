@@ -45,6 +45,7 @@
 #![allow(missing_docs)]
 
 use crate::common;
+use crate::helpers::tool_def_hash::settle_def_hashes;
 
 use common::{create_test_database, create_test_server_resources, create_test_user_with_email};
 use pierre_core::models::{TenantId, TenantPlan};
@@ -318,5 +319,148 @@ async fn a_tenant_disable_reaches_the_guardian_gate() {
     assert!(
         tenant_tool_enabled(&runtime, tenant_a, "get_training_plan").await,
         "only the overridden tool is disabled — its siblings stay enabled"
+    );
+}
+
+/// Every registry tool's catalog row records the hash of the definition
+/// `tools/list` publishes once the server is up, a refresh with nothing changed
+/// writes nothing, and a stale hash is put right by the next refresh
+/// (carnet#1543).
+#[tokio::test]
+async fn the_catalog_records_each_published_definition_hash_and_refreshes_a_stale_one() {
+    use pierre_mcp_server::mcp::tool_selection::refresh_tool_def_hashes;
+
+    let resources = create_test_server_resources().await.unwrap();
+    settle_def_hashes(&resources).await;
+    let repo = resources.common.repos.tool_selection.as_ref();
+    let registry = &resources.mcp.tool_registry;
+
+    let catalog = repo.get_tool_catalog().await.unwrap();
+    let registered: BTreeSet<String> = registry
+        .all_schemas()
+        .into_iter()
+        .map(|schema| schema.name)
+        .collect();
+    let recorded: Vec<_> = catalog
+        .iter()
+        .filter(|entry| registered.contains(&entry.tool_name))
+        .collect();
+    assert!(
+        recorded.len() >= MIN_CATALOG_ROWS,
+        "bug: the boot sync left only {} registry tools in the catalog",
+        recorded.len()
+    );
+    for entry in &recorded {
+        let hash = entry.def_hash.as_deref().unwrap_or_default();
+        assert!(
+            hash.starts_with("sha256:") && hash.len() == "sha256:".len() + 64,
+            "bug: {} records {hash:?}, not a published def_hash",
+            entry.tool_name
+        );
+    }
+
+    assert_eq!(
+        refresh_tool_def_hashes(registry, repo).await.unwrap(),
+        0,
+        "nothing changed, nothing is written"
+    );
+
+    let name = &recorded[0].tool_name;
+    let published = recorded[0].def_hash.clone();
+    assert!(
+        repo.set_tool_def_hash(name, "sha256:stale").await.unwrap(),
+        "test setup bug: {name} has a catalog row to make stale"
+    );
+    assert_eq!(
+        refresh_tool_def_hashes(registry, repo).await.unwrap(),
+        1,
+        "bug: the refresh rewrites exactly the one stale hash"
+    );
+    let restored = repo.get_tool_catalog_entry(name).await.unwrap().unwrap();
+    assert_eq!(restored.def_hash, published, "the published hash is back");
+}
+
+/// Before its descriptions have settled (the boot of an instance whose
+/// contremaitre overlay has not landed yet) the refresh records nothing,
+/// leaving even a stale hash as it is; once they have, it records the
+/// published one (carnet#1543).
+#[tokio::test]
+async fn the_definition_hashes_wait_for_the_descriptions_to_settle() {
+    use std::sync::Arc;
+
+    use pierre_contremaitre::tool_descriptions::FetchedOverlay;
+    use pierre_contremaitre::ToolDescriptionRegistry;
+    use pierre_mcp_server::mcp::tool_selection::refresh_tool_def_hashes;
+    use pierre_mcp_server::tools::registry_builtin::register_builtin_tools;
+    use pierre_tool_runtime::registry::ToolRegistry;
+
+    let resources = create_test_server_resources().await.unwrap();
+    settle_def_hashes(&resources).await;
+    let repo = resources.common.repos.tool_selection.as_ref();
+    // The server's overlay, when its shell configures one, so this registry
+    // publishes what the server does; empty otherwise.
+    let descriptions = Arc::new(ToolDescriptionRegistry::new());
+    descriptions.update_all(
+        resources
+            .mcp
+            .tool_description_registry
+            .list()
+            .into_iter()
+            .map(|(tool_name, entry)| FetchedOverlay {
+                tool_name,
+                overlay: entry.overlay,
+                sha256: entry.sha256,
+            })
+            .collect(),
+    );
+    let mut registry = ToolRegistry::new();
+    register_builtin_tools(&mut registry);
+    registry.set_tool_descriptions(Arc::clone(&descriptions));
+
+    let name = "get_activities";
+    let published = repo
+        .get_tool_catalog_entry(name)
+        .await
+        .unwrap()
+        .expect("test setup bug: the boot sync wrote get_activities' row")
+        .def_hash;
+    assert!(
+        published.is_some(),
+        "bug: once the descriptions settle the published hash is recorded"
+    );
+    assert!(
+        repo.set_tool_def_hash(name, "sha256:stale").await.unwrap(),
+        "test setup bug: no catalog row to make stale"
+    );
+
+    assert_eq!(
+        refresh_tool_def_hashes(&registry, repo).await.unwrap(),
+        0,
+        "bug: an unsettled registry's definitions are not the ones this instance will serve"
+    );
+    assert_eq!(
+        repo.get_tool_catalog_entry(name)
+            .await
+            .unwrap()
+            .unwrap()
+            .def_hash
+            .as_deref(),
+        Some("sha256:stale"),
+        "bug: nothing is written before the descriptions settle"
+    );
+
+    descriptions.mark_settled();
+    assert!(
+        refresh_tool_def_hashes(&registry, repo).await.unwrap() >= 1,
+        "bug: a settled registry's refresh records the stale hash's replacement"
+    );
+    assert_eq!(
+        repo.get_tool_catalog_entry(name)
+            .await
+            .unwrap()
+            .unwrap()
+            .def_hash,
+        published,
+        "bug: the settled refresh records the published hash"
     );
 }

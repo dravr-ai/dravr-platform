@@ -1,4 +1,4 @@
-// ABOUTME: Whose training a group view built from every member's shows its viewer, and for the group's coach the gate and record of each read
+// ABOUTME: Whose training a group view built from every member's shows its viewer, the gate of a coach's reads and the record of every read
 // ABOUTME: The room's member cards, /stats, /report, /health and the coach's weekly digest all ask here before any snapshot is read (carnet#1445)
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -33,7 +33,11 @@
 //! so they run here, where the callers of every coach view can reach them.
 //!
 //! Any other viewer reads their peers' sharing, which is no coach read: the
-//! view is the rule's set, with nothing gated or recorded.
+//! view is the rule's set, read under the viewer's tenant, with nothing
+//! gated. Each member in it other than the viewer is a peer's read of their
+//! data, and goes on the member's own record first, at most once a UTC day
+//! per view ([`read_subject::record_daily_peer_read`], carnet#1543), so their
+//! "who read my data" feed names every fellow member who saw them.
 
 use std::collections::HashSet;
 
@@ -85,8 +89,11 @@ impl GroupView {
 }
 
 /// The members of `group` whose training `viewer` may see in the view
-/// `surface` names, each read the group's human coach makes gated and on the
-/// member's record before anything of theirs is read.
+/// `surface` names.
+///
+/// Each read the group's human coach makes is gated, and every read of
+/// another member goes on that member's record (a coach read or a peer read),
+/// before anything of theirs is read.
 ///
 /// `viewer_tenant` is the tenant the view is opened under: the viewer's own
 /// training, and every member's in a view that is not the coach's, is read
@@ -107,6 +114,7 @@ pub async fn gate_group_view(
 ) -> AppResult<GroupView> {
     let candidates = in_view(group, members, viewer);
     if group.coach_user_id != Some(viewer) {
+        record_peer_view(repos, group, members, viewer, surface).await?;
         return Ok(uncoached_view(&candidates, viewer_tenant));
     }
     let mut view = GroupView::default();
@@ -124,7 +132,8 @@ pub async fn gate_group_view(
 ///
 /// For the weekly digest: a member whose gate or record fails is left out of
 /// the coach's view with a warning (`unrecorded`) and nothing of theirs is
-/// read, rather than the whole view failing for the others.
+/// read, rather than the whole view failing for the others. Any other
+/// manager's copy is recorded where it is sent ([`record_peer_view`]).
 pub async fn gate_group_view_skipping(
     repos: &RepositoryRegistry,
     group: &CoachingGroup,
@@ -188,6 +197,97 @@ fn uncoached_view(candidates: &[Uuid], viewer_tenant: TenantId) -> GroupView {
         readable: candidates.iter().map(|&id| (id, viewer_tenant)).collect(),
         ..GroupView::default()
     }
+}
+
+/// Put a non-coach viewer's read of each member they see on that member's
+/// record.
+///
+/// Once a day per view `surface` names: the record of a view built outside
+/// [`gate_group_view`] (the room's member cards, whose roster the turn's
+/// other checks read whole, and each manager's copy of the weekly digest).
+/// The group's human coach records nothing here: their view is
+/// [`gate_group_view`]'s.
+///
+/// # Errors
+///
+/// Returns the first record's error: the view is refused rather than read
+/// with a read left off a member's record.
+pub async fn record_peer_view(
+    repos: &RepositoryRegistry,
+    group: &CoachingGroup,
+    members: &[GroupMember],
+    viewer: Uuid,
+    surface: CoachReadSurface,
+) -> AppResult<()> {
+    if group.coach_user_id == Some(viewer) {
+        return Ok(());
+    }
+    let candidates = in_view(group, members, viewer);
+    for (_, recorded) in record_peer_views(repos, members, viewer, &candidates, surface).await {
+        recorded?;
+    }
+    Ok(())
+}
+
+/// Put the weekly digest posted into the group's chat on the record of each
+/// member whose week it carries, once a day per reader.
+///
+/// The post is computed over the members who share with their peers and is
+/// read by every live member in the chat, so each sharing member gets one
+/// row per other member reading it (`surface` names the post), before it is
+/// sent.
+///
+/// # Errors
+///
+/// Returns the first record's error: the post is not sent rather than sent
+/// with a read left off a member's record.
+pub async fn record_room_post(
+    repos: &RepositoryRegistry,
+    group: &CoachingGroup,
+    members: &[GroupMember],
+    surface: CoachReadSurface,
+) -> AppResult<()> {
+    let sharing = GroupService::peer_sharing_user_ids(group, members);
+    let live = || members.iter().filter(|member| member.left_at.is_none());
+    let shown_members = live().filter(|shown| sharing.contains(&shown.user_id));
+    for shown in shown_members {
+        let readers = live().filter(|reader| reader.user_id != shown.user_id);
+        for reader in readers {
+            read_subject::record_daily_peer_read(repos, shown, reader.user_id, surface.as_str())
+                .await?;
+        }
+    }
+    Ok(())
+}
+
+/// Put `viewer`'s read of each candidate but themself through the view
+/// `surface` names on that member's record, once a day, a bounded number at a
+/// time, in their order: the answer for each.
+async fn record_peer_views(
+    repos: &RepositoryRegistry,
+    members: &[GroupMember],
+    viewer: Uuid,
+    candidates: &[Uuid],
+    surface: CoachReadSurface,
+) -> Vec<(Uuid, AppResult<()>)> {
+    stream::iter(candidates.iter().copied())
+        .map(|member| async move {
+            let recorded = match members.iter().find(|m| m.user_id == member) {
+                Some(membership) if member != viewer => read_subject::record_daily_peer_read(
+                    repos,
+                    membership,
+                    viewer,
+                    surface.as_str(),
+                )
+                .await
+                .map(drop),
+                _ => Ok(()),
+            };
+            (member, recorded)
+        })
+        .buffered(ROSTER_LOOKUP_CONCURRENCY)
+        .collect()
+        .await
 }
 
 /// Ask the coach's gate for each candidate, a bounded number at a time, in

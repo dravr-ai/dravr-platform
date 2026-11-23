@@ -531,7 +531,8 @@ mod tests {
         use dravr_tronc::dates::Timestamp;
         use pierre_core::errors::AppResult;
         use pierre_core::models::usage::{
-            InsertLlmUsage, LlmUsageAggregateRow, LlmUsageDailyRow, LlmUsageRecord,
+            DelegatedRead, InsertLlmUsage, LlmUsageAggregateRow, LlmUsageDailyRow, LlmUsageRecord,
+            OutsideRead,
         };
         use pierre_core::models::{ConversationTurnId, TenantId};
         use pierre_database::repositories::{
@@ -562,6 +563,24 @@ mod tests {
             ) -> AppResult<LlmUsageRecord> {
                 sleep(SLOW_INSERT).await;
                 self.0.insert_llm_usage(params).await
+            }
+            async fn insert_delegated_usage(
+                &self,
+                params: &InsertLlmUsage<'_>,
+                read: &DelegatedRead<'_>,
+            ) -> AppResult<()> {
+                self.0.insert_delegated_usage(params, read).await
+            }
+            async fn list_outside_reads(
+                &self,
+                tenant_id: &str,
+                user_id: &str,
+                since: Timestamp,
+                limit: u32,
+            ) -> AppResult<Vec<OutsideRead>> {
+                self.0
+                    .list_outside_reads(tenant_id, user_id, since, limit)
+                    .await
             }
             async fn get_llm_usage_aggregates(
                 &self,

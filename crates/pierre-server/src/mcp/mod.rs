@@ -21,6 +21,7 @@ pub mod resources;
 pub mod task_signals;
 /// Durable owner-scoped store for MCP Tasks extension handles
 pub mod task_store;
+pub mod tool_def_sig;
 /// MCP tool handler implementations
 pub mod tool_handlers;
 /// Server-startup catalog sync — bridges the live `ToolRegistry` to the `tool_catalog` table.

@@ -147,6 +147,12 @@ pub struct ToolCatalogEntry {
     pub created_at: Timestamp,
     /// When this catalog entry was last updated
     pub updated_at: Timestamp,
+    /// The hash of the tool's full definition as `tools/list` publishes it
+    /// (`dravr_tronc` `Tool::def_hash`, `sha256:` + 64 hex digits), as last
+    /// recorded; `None` until it is (carnet#1543). A caller offered fewer
+    /// arguments is served another definition, with its own hash.
+    #[serde(default)]
+    pub def_hash: Option<String>,
 }
 
 /// Per-tenant tool override from the `tenant_tool_overrides` table

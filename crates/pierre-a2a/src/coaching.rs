@@ -19,6 +19,7 @@ use std::pin::Pin;
 use async_trait::async_trait;
 use pierre_core::errors::AppResult;
 use pierre_core::models::TenantId;
+use pierre_core::permissions::impersonation::CallerCredential;
 use pierre_core::permissions::scopes::OAuthScope;
 use uuid::Uuid;
 
@@ -56,6 +57,10 @@ pub struct CoachingTurn {
     pub content: String,
     /// The token's own grant.
     pub grant: Vec<OAuthScope>,
+    /// The credential the agent called through: the OAuth client the
+    /// athlete authorized, which the turn's row in their "who read my data"
+    /// feed names (carnet#1543).
+    pub credential: CallerCredential,
 }
 
 // The content is the athlete's words: only its size prints.
@@ -67,6 +72,7 @@ impl fmt::Debug for CoachingTurn {
             .field("conversation_id", &self.conversation_id)
             .field("content_len", &self.content.len())
             .field("grant", &self.grant)
+            .field("credential", &self.credential.kind)
             .finish()
     }
 }

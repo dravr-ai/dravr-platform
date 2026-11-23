@@ -56,7 +56,7 @@ fn executor(resources: &Arc<ServerContext>, transport: Transport) -> UniversalTo
 }
 
 /// An admin with a tenant of their own.
-async fn admin(resources: &Arc<ServerContext>) -> (Uuid, String) {
+pub(crate) async fn admin(resources: &Arc<ServerContext>) -> (Uuid, String) {
     let email = format!("audit_admin_{}@example.com", Uuid::new_v4());
     let mut user = User::new(
         email.clone(),
@@ -123,7 +123,7 @@ async fn call(
 }
 
 /// `actor`'s rows on the trail, newest first.
-async fn trail(resources: &Arc<ServerContext>, actor: Uuid) -> Vec<AuditEventRecord> {
+pub(crate) async fn trail(resources: &Arc<ServerContext>, actor: Uuid) -> Vec<AuditEventRecord> {
     resources
         .common
         .repos

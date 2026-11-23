@@ -195,6 +195,7 @@ async fn turn_flag(thread: &Thread, content: &str) -> (Option<bool>, Option<Stri
             command_persistence: CommandPersistence::Always,
             sender_id: None,
             grant: OAuthScope::self_grant(),
+            caller: None,
             hooks: PipelineHooks::none(),
         },
         &SurfaceProfile::resolve(&SurfaceRequest {

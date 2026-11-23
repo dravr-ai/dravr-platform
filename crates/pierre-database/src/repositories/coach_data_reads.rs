@@ -187,6 +187,11 @@ pub struct CoachDataRead {
     /// The admin whose support session made the read while acting as the
     /// coach; `None` for the coach's own read.
     pub impersonator: Option<Uuid>,
+    /// The read is a group view recorded at most once a UTC day
+    /// ([`CoachDataReadRepository::record_daily_coach_read`]), so it stands
+    /// for every view of that source that day; `false` for a read recorded
+    /// each time it is made.
+    pub once_a_day: bool,
 }
 
 /// What a recorded read says it was served over.
@@ -212,7 +217,8 @@ impl RecordedTransport {
     }
 }
 
-/// What a stored `transport` says a read was served over.
+/// What a stored `transport` says a read was served over, in this table or
+/// in `peer_data_reads`.
 ///
 /// # Errors
 ///
@@ -225,7 +231,7 @@ pub(crate) fn parse_transport(stored: Option<&str>) -> AppResult<RecordedTranspo
             .map(RecordedTransport::Served)
             .ok_or_else(|| {
                 AppError::database(format!(
-                    "coach_data_reads.transport holds an unknown transport {label:?}"
+                    "a read record's transport holds an unknown transport {label:?}"
                 ))
             }),
     }
@@ -255,6 +261,17 @@ pub trait CoachDataReadRepository: Send + Sync {
         tenant: TenantId,
         athlete: Uuid,
         group: Uuid,
+        limit: u32,
+    ) -> AppResult<Vec<CoachDataRead>>;
+
+    /// `athlete`'s recorded reads under `tenant` in every group, made at or
+    /// after `since`, newest first, at most `limit`: what the athlete's "who
+    /// read my data" feed counts per day (carnet#1543).
+    async fn list_coach_reads_since(
+        &self,
+        tenant: TenantId,
+        athlete: Uuid,
+        since: Timestamp,
         limit: u32,
     ) -> AppResult<Vec<CoachDataRead>>;
 
@@ -298,9 +315,20 @@ pub(crate) fn read_day(read: &NewCoachDataRead<'_>) -> String {
 /// The athlete's reads in one group under their tenant, newest first.
 pub(crate) const LIST_COACH_READS_SQL: &str = r"
             SELECT coach_user_id, group_id, tool_name, data_class, read_at, transport,
-                   impersonator_user_id
+                   impersonator_user_id, read_day
             FROM coach_data_reads
             WHERE tenant_id = $1 AND user_id = $2 AND group_id = $3
+            ORDER BY read_at DESC
+            LIMIT $4
+            ";
+
+/// The athlete's reads under their tenant in every group since `$3`, newest
+/// first.
+pub(crate) const LIST_COACH_READS_SINCE_SQL: &str = r"
+            SELECT coach_user_id, group_id, tool_name, data_class, read_at, transport,
+                   impersonator_user_id, read_day
+            FROM coach_data_reads
+            WHERE tenant_id = $1 AND user_id = $2 AND read_at >= $3
             ORDER BY read_at DESC
             LIMIT $4
             ";
@@ -321,10 +349,33 @@ pub(crate) fn coach_read_error(action: &str, e: impl Display) -> AppError {
 }
 
 /// Emit the whole [`CoachDataReadRepository`] implementation for one backend
-/// type. `$ids` is the codec in [`super::uuid_columns`] for how that
+/// type, whose rows are `$row`. `$ids` is the codec in [`super::uuid_columns`] for how that
 /// backend's id columns bind and read.
 macro_rules! impl_coach_data_read_repository {
-    ($ty:ty, $ids:ident) => {
+    ($ty:ty, $row:ty, $ids:ident) => {
+        /// One listed row as the read it records.
+        fn coach_read_from_row(row: &$row) -> AppResult<CoachDataRead> {
+            let text = |col: &str| -> AppResult<String> {
+                row.try_get(col).map_err(|e| coach_read_error("decode", e))
+            };
+            let optional = |col: &str| -> AppResult<Option<String>> {
+                row.try_get(col).map_err(|e| coach_read_error("decode", e))
+            };
+            Ok(CoachDataRead {
+                coach: $ids::read_opt(row, "coach_user_id")?,
+                group: Uuid::parse_str(&text("group_id")?)
+                    .map_err(|e| coach_read_error("decode", e))?,
+                tool: text("tool_name")?,
+                class: CoachReadClass::parse(&text("data_class")?)?,
+                read_at: row
+                    .try_get("read_at")
+                    .map_err(|e| coach_read_error("decode", e))?,
+                transport: parse_transport(optional("transport")?.as_deref())?,
+                impersonator: $ids::read_opt(row, "impersonator_user_id")?,
+                once_a_day: optional("read_day")?.is_some(),
+            })
+        }
+
         #[async_trait::async_trait]
         impl CoachDataReadRepository for $ty {
             async fn record_coach_read(&self, read: &NewCoachDataRead<'_>) -> AppResult<()> {
@@ -383,33 +434,25 @@ macro_rules! impl_coach_data_read_repository {
                     .fetch_all(self.pool())
                     .await
                     .map_err(|e| coach_read_error("list", e))?;
-                rows.iter()
-                    .map(|row| {
-                        let group: String = row
-                            .try_get("group_id")
-                            .map_err(|e| coach_read_error("decode", e))?;
-                        let class: String = row
-                            .try_get("data_class")
-                            .map_err(|e| coach_read_error("decode", e))?;
-                        let transport: Option<String> = row
-                            .try_get("transport")
-                            .map_err(|e| coach_read_error("decode", e))?;
-                        Ok(CoachDataRead {
-                            coach: $ids::read_opt(row, "coach_user_id")?,
-                            group: Uuid::parse_str(&group)
-                                .map_err(|e| coach_read_error("decode", e))?,
-                            tool: row
-                                .try_get("tool_name")
-                                .map_err(|e| coach_read_error("decode", e))?,
-                            class: CoachReadClass::parse(&class)?,
-                            read_at: row
-                                .try_get("read_at")
-                                .map_err(|e| coach_read_error("decode", e))?,
-                            transport: parse_transport(transport.as_deref())?,
-                            impersonator: $ids::read_opt(row, "impersonator_user_id")?,
-                        })
-                    })
-                    .collect()
+                rows.iter().map(coach_read_from_row).collect()
+            }
+
+            async fn list_coach_reads_since(
+                &self,
+                tenant: TenantId,
+                athlete: Uuid,
+                since: Timestamp,
+                limit: u32,
+            ) -> AppResult<Vec<CoachDataRead>> {
+                let rows = sqlx::query(LIST_COACH_READS_SINCE_SQL)
+                    .bind(tenant.to_string())
+                    .bind($ids::bind(athlete))
+                    .bind(since)
+                    .bind(i64::from(limit))
+                    .fetch_all(self.pool())
+                    .await
+                    .map_err(|e| coach_read_error("list", e))?;
+                rows.iter().map(coach_read_from_row).collect()
             }
 
             async fn purge_coach_reads_before(&self, cutoff: Timestamp) -> AppResult<u64> {

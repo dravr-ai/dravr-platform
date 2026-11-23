@@ -101,6 +101,18 @@ export const QUERY_KEYS = {
     all: ['oauth'] as const,
     status: () => ['oauth-status'] as const,
     connections: () => ['connections'] as const,
+    /**
+     * The outside apps the athlete approved on the OAuth consent screen
+     * (`GET /api/me/oauth-grants`): read by both Connected-apps screens and
+     * the access feed's Revoke, and reread after every revoke.
+     */
+    connectedApps: () => ['oauth', 'connected-apps'] as const,
+  },
+
+  // ==================== ACCESS FEED ====================
+  accessFeed: {
+    /** The athlete's "Who read your data" feed (carnet#1543), reread after a Connected-apps revoke. */
+    feed: () => ['access-feed'] as const,
   },
 
   // ==================== PROVIDERS ====================

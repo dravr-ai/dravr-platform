@@ -59,6 +59,7 @@ fn entry(category: ToolCategory, min_plan: TenantPlan, enabled: bool) -> ToolCat
         min_plan,
         created_at: Timestamp::now(),
         updated_at: Timestamp::now(),
+        def_hash: None,
     }
 }
 

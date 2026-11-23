@@ -557,6 +557,7 @@ async fn a_read_the_athletes_tenant_switched_off_writes_none() {
             min_plan: TenantPlan::Starter,
             created_at: now,
             updated_at: now,
+            def_hash: None,
         })
         .await
         .unwrap();

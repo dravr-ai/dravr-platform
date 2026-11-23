@@ -49,7 +49,7 @@ use pierre_core::models::TenantId;
 #[cfg(feature = "tools-groups")]
 use pierre_database::repositories::CoachReadSurface;
 #[cfg(feature = "tools-groups")]
-use pierre_tool_runtime::coach_group_view::gate_group_view;
+use pierre_tool_runtime::coach_group_view::{gate_group_view, record_peer_view};
 #[cfg(feature = "tools-groups")]
 use pierre_tool_runtime::group_fitness::fetch_member_snapshots_in;
 #[cfg(feature = "tools-groups")]
@@ -85,13 +85,15 @@ use super::peer_grounding::mentioned_peers;
 /// before their snapshot is fetched under their home tenant (carnet#1445). A
 /// member it refuses gets no card and nothing of theirs is read. Any other
 /// sender's turn reads every member, as the group context's own visibility
-/// rule then filters (`GroupService::inject_group_context`).
+/// rule then filters (`GroupService::inject_group_context`); each member that
+/// rule shows them goes on the member's record as a peer's `group_room` read,
+/// once a day ([`record_peer_view`], carnet#1543).
 ///
 /// # Errors
 ///
 /// Returns the repository error from the coach's gate or from a read's
-/// record: the coach's turn is refused rather than read with a read left off
-/// a member's record. A failed member or group lookup reads nobody, and is
+/// record: the turn is refused rather than read with a read left off a
+/// member's record. A failed member or group lookup reads nobody, and is
 /// otherwise swallowed (the context degrades to no card).
 #[cfg(feature = "tools-groups")]
 pub async fn resolve_group_context(
@@ -128,6 +130,16 @@ pub async fn resolve_group_context(
         .await?
         .readable
     } else {
+        // The cards this sender is shown are their peers' reads, each on the
+        // member's record once a day before anything is read (carnet#1543).
+        record_peer_view(
+            &ctx.repos,
+            &group,
+            &members,
+            viewer,
+            CoachReadSurface::GroupRoom,
+        )
+        .await?;
         members
             .iter()
             .map(|m| (m.user_id, tool_tenant_id))

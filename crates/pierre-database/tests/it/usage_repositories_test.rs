@@ -734,6 +734,16 @@ async fn rows_that_are_no_llm_call_stay_out_of_every_call_count() {
         1,
         "the per-tool view is where the row counts"
     );
+    assert!(
+        !repo
+            .get_tool_calls_since(Some(tenant), since)
+            .await
+            .unwrap()
+            .iter()
+            .any(|row| row.id == summary_row.id),
+        "bug: a turn-summary row repeats its LLM calls' tools, so the per-tool view counts \
+         them once, from the calls"
+    );
 }
 
 #[tokio::test]

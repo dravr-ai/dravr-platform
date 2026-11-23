@@ -55,6 +55,7 @@
 use crate::a2a::client::A2AClientManager;
 use crate::agui::RunRegistry as AgUiRunRegistry;
 use crate::config::admin::AdminConfigService;
+use crate::mcp::tool_def_sig::ToolDefSignatures;
 use crate::services::archive_import::ArchiveImports;
 use crate::services::lab_documents::PdfChild;
 use crate::services::photograveur_client::PhotograveurClient;
@@ -424,6 +425,11 @@ pub struct McpSlice {
     pub tool_registry: Arc<ToolRegistry>,
     /// Tool selection service for per-tenant MCP tool filtering.
     pub tool_selection: Arc<ToolSelectionService>,
+    /// The signer of every published tool definition and the signatures it
+    /// made (`def_sig`, carnet#1543): empty until the composition root
+    /// installs the checkpoint signer, so a deployment without one publishes
+    /// none.
+    pub tool_def_sigs: Arc<ToolDefSignatures>,
     /// Prompt registry for hot-reloadable system prompts and agent personas.
     pub prompt_registry: Arc<PromptRegistry>,
     /// Tool description registry for hot-reloadable MCP tool schema overlays.

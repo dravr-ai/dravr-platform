@@ -19,6 +19,8 @@
 
 #![warn(missing_docs)]
 
+/// The athlete's "who read my data" feed: outside clients' calls per call, their coach's reads per day (carnet#1543)
+pub mod access_feed;
 /// Admin reset of a whole account: every provider disconnected, every owned row wiped, the account kept.
 pub mod account_reset;
 /// The activity-sport vocabulary shared with the clients, for server-rendered text.

@@ -417,6 +417,9 @@ struct AuthorizedRead {
     /// What the coaching gates answered, when the requester reads them as
     /// that group's human coach; `None` for a peer's read.
     as_coach: Option<CoachedAthleteAccess>,
+    /// The membership the read is authorized through: whose record, in
+    /// which group, a peer's read goes on.
+    membership: GroupMember,
 }
 
 /// Authorize the requester's read of the member `rows` hold, trying each row
@@ -450,6 +453,7 @@ async fn authorize(
                         display_name: access.display_name.clone(),
                         group_name: access.group.name.clone(),
                         as_coach: Some(access),
+                        membership: row.member.clone(),
                     }));
                 }
                 // The two gates that fail before the member is shown to be
@@ -462,6 +466,7 @@ async fn authorize(
                 display_name: row.display_name.clone(),
                 group_name: row.group_name.clone(),
                 as_coach: None,
+                membership: row.member.clone(),
             }));
         } else {
             ToolResult::error(peer_refusal(row))
@@ -770,8 +775,9 @@ impl McpTool<dyn ToolRuntime> for GetGroupMemberActivitiesTool {
                 in_room = matches!(scope, ScanScope::Room(_)),
                 "get_group_member_activities: authorized consent-gated member fetch"
             );
-            // A coach's read of their athlete goes on the athlete's own record
-            // before anything of theirs is read (carnet#1445).
+            // The read goes on the member's own record before anything of
+            // theirs is read: a coach's as a coach read (carnet#1445), a
+            // fellow member's as a peer read (carnet#1543).
             if let Some(access) = &resolved.as_coach {
                 read_subject::record_coach_read(
                     data.repos(),
@@ -779,6 +785,14 @@ impl McpTool<dyn ToolRuntime> for GetGroupMemberActivitiesTool {
                     requester,
                     TOOL_NAME,
                     CoachReadClass::Training,
+                )
+                .await?;
+            } else {
+                read_subject::record_peer_read(
+                    data.repos(),
+                    &resolved.membership,
+                    requester,
+                    TOOL_NAME,
                 )
                 .await?;
             }

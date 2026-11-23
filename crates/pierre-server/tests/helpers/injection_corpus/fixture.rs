@@ -547,6 +547,7 @@ pub(crate) fn web_turn(
         command_persistence: CommandPersistence::Always,
         sender_id: None,
         grant: OAuthScope::self_grant(),
+        caller: None,
         hooks: PipelineHooks::none(),
     };
     let profile = SurfaceProfile::resolve(&SurfaceRequest {

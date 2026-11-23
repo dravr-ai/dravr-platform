@@ -339,6 +339,19 @@ export {
   coachReadSourceKey,
 } from './coach-reads';
 
+// The athlete's "Who read your data" card: its words, credential labels, the coach's day counts (carnet#1543)
+export {
+  ACCESS_FEED_ALL_KEYS,
+  ACCESS_FEED_API_KEY_DAY_REQUESTS_KEYS,
+  ACCESS_FEED_COACH_KEYS,
+  ACCESS_FEED_DAY_READS_KEYS,
+  ACCESS_FEED_DAY_VIEWS_KEYS,
+  ACCESS_FEED_KEYS,
+  ACCESS_FEED_PEER_DAY_READS_KEYS,
+  ACCESS_FEED_PEER_DAY_VIEWS_KEYS,
+  accessFeedCredentialKey,
+} from './access-feed';
+
 // The map layers both route cards draw over, and the ink the track is drawn in
 export {
   BASEMAP_STYLE,

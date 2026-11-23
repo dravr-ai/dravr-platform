@@ -35,6 +35,7 @@ use crate::reconnect::ReconnectOffers;
 use crate::registry::ToolRegistry;
 use crate::tool_selection::ToolSelectionService;
 use crate::turn_end::TurnEndDispatches;
+use crate::turn_tools::TurnTools;
 use dravr_cageux::config::intelligence::IntelligenceConfig;
 use pierre_cache::Cache;
 use pierre_config::environment::ServerConfig;
@@ -405,6 +406,14 @@ pub trait ToolRuntime: Send + Sync + 'static {
         static HANDED: LazyLock<Arc<TurnEndDispatches>> =
             LazyLock::new(|| Arc::new(TurnEndDispatches::new()));
         &HANDED
+    }
+
+    /// The process-wide store of the tools each outside caller's turn ran
+    /// (carnet#1543). Shared for the reason [`Self::reconnect_offers`] is: a
+    /// headless turn's tools run on the tool-host surface's own executor.
+    fn turn_tools(&self) -> &Arc<TurnTools> {
+        static TOOLS: LazyLock<Arc<TurnTools>> = LazyLock::new(|| Arc::new(TurnTools::new()));
+        &TOOLS
     }
 
     /// The process-wide store of the turns that read an incomplete activity

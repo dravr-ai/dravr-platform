@@ -268,6 +268,17 @@ export { type UseFeatureFlagsResult, createFeatureFlagsHook } from './featureFla
 export { type UseHomePreferencesResult, createHomePreferencesHook } from './homePreferencesHook';
 // Consent to AI use of one provider's data: the privacy toggle and the connection card share it (carnet#726).
 export { type AiConsentChange, createAiConsentHook, createAiConsentStateHook } from './aiConsentHook';
+// The "Who read your data" feed, and the one Connected-apps key and revoke it shares with both Connected-apps screens (carnet#1543).
+export {
+  type AccessFeedApiKeyGroup,
+  type AccessFeedAppGroup,
+  createAccessFeedHook,
+  createConnectedAppsHook,
+  createRevokeConnectedAppsHook,
+  groupAccessFeedApiKeyDays,
+  groupAccessFeedApps,
+  revokedInKeySettings,
+} from './accessFeedHook';
 // Statutory access requests to a company: the letter the athlete sends and its legal deadline (carnet#1646).
 export {
   type DataAccessAction,

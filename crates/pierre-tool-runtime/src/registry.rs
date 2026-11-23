@@ -126,6 +126,16 @@ impl ToolRegistry {
         self.tool_descriptions = Some(registry);
     }
 
+    /// Whether the descriptions this registry publishes have settled
+    /// ([`ToolDescriptionRegistry::is_settled`]): `true` when no overlay
+    /// registry is attached, as the compiled-in text is then all it serves.
+    #[must_use]
+    pub fn descriptions_settled(&self) -> bool {
+        self.tool_descriptions
+            .as_ref()
+            .is_none_or(|descriptions| descriptions.is_settled())
+    }
+
     /// Build a `ToolSchema` from a tool, applying external description overlays if available.
     ///
     /// A training- or wellness-class tool ([`DataClass::reads_a_coached_athlete`])

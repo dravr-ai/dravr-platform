@@ -27,6 +27,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use dravr_tronc::mcp::auth::{AuthError, AuthHook};
+use dravr_tronc::mcp::canonical::to_canonical_value;
 use dravr_tronc::mcp::host::{CallToolOutcome, ToolDispatcher};
 use dravr_tronc::mcp::protocol::JsonRpcRequest;
 use dravr_tronc::mcp::schema::{
@@ -55,8 +56,8 @@ use pierre_tool_runtime::context::{AuthMethod, SUPPORT_SESSION};
 use pierre_tool_runtime::deployment_tools;
 use pierre_tool_runtime::protocol::provider_offer::accept_no_provider_answer;
 use pierre_tool_runtime::protocol::{record_refused_admin_call, RefusedAdminCall};
+use pierre_tool_runtime::registry::ToolRegistry as RuntimeToolRegistry;
 use pierre_tool_runtime::runtime::ToolRuntime;
-use pierre_tool_runtime::schema_canonical::to_canonical_value;
 use pierre_tool_runtime::scopes::missing_scope;
 use pierre_tool_runtime::support_session::{CALLER_CREDENTIAL, END_TOOL};
 use pierre_tool_runtime::task_cancellation::scoped_with_cancel_flag;
@@ -181,6 +182,27 @@ fn schema_to_tool(schema: ToolSchema) -> Tool {
     // answer `tools/list` with the same bytes.
     tool.output_schema = schema.output_schema.as_ref().map(to_canonical_value);
     tool.execution = schema.execution;
+    tool
+}
+
+/// The definition `tools/list` publishes for `schema`: the engine's [`Tool`],
+/// with a tool that needs a provider declaring the no-provider answer it may
+/// give instead of its declared output.
+///
+/// The one place a listed definition is shaped, so the hash a client pins
+/// (`Tool::def_hash`) and the one the catalog records are taken over the same
+/// definition (carnet#1543).
+pub(crate) fn published_tool(registry: &RuntimeToolRegistry, schema: ToolSchema) -> Tool {
+    let answers_no_provider = registry.get(&schema.name).is_some_and(|tool| {
+        tool.capabilities()
+            .contains(ToolCapabilities::REQUIRES_PROVIDER)
+    });
+    let mut tool = schema_to_tool(schema);
+    if answers_no_provider {
+        tool.output_schema = tool
+            .output_schema
+            .map(|declared| to_canonical_value(&accept_no_provider_answer(declared)));
+    }
     tool
 }
 
@@ -797,22 +819,13 @@ impl ToolDispatcher<dyn ToolRuntime> for PierreToolDispatcher {
         // starting and ending (carnet#1256). `save_training_plan` refuses a
         // mid-walk save on every path, this one included.
         let registry = &self.resources.mcp.tool_registry;
-        schemas
+        let tools = schemas
             .into_iter()
-            .map(|schema| {
-                let answers_no_provider = registry.get(&schema.name).is_some_and(|tool| {
-                    tool.capabilities()
-                        .contains(ToolCapabilities::REQUIRES_PROVIDER)
-                });
-                let mut tool = schema_to_tool(schema);
-                if answers_no_provider {
-                    tool.output_schema = tool
-                        .output_schema
-                        .map(|declared| to_canonical_value(&accept_no_provider_answer(declared)));
-                }
-                tool
-            })
-            .collect()
+            .map(|schema| published_tool(registry, schema))
+            .collect();
+        // Signed over the definition as served, after every narrowing above:
+        // a narrowed variant has its own hash and its own signature.
+        self.resources.mcp.tool_def_sigs.stamp(tools).await
     }
 
     async fn call_tool(
