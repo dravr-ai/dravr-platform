@@ -475,6 +475,14 @@ export const ENDPOINTS = {
     /** Delete one lab report and its records (`DELETE`, 204) */
     LAB_DOCUMENT: (id: string) => `/api/me/lab-documents/${encodeURIComponent(id)}`,
   },
+  // ==================== DEVICE HEALTH ====================
+  /** The phone's own health store (HealthKit, Health Connect), read on the device (owl phase 9); session only */
+  DEVICE_HEALTH: {
+    /** One page of raw samples, barrage's `DeviceSamples` (`POST`, at most 2 000 samples), answering the counts */
+    SYNC: (source: string) => `/api/device-health/${encodeURIComponent(source)}/sync`,
+    /** Everything synced from the store (`DELETE`), answering the counts removed */
+    DATA: (source: string) => `/api/device-health/${encodeURIComponent(source)}/data`,
+  },
   // ==================== GEAR LEDGER ====================
   /** The shoes the athlete declares, and the pair each activity was run in (carnet#711) */
   GEAR: {

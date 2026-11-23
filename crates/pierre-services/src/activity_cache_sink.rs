@@ -137,6 +137,11 @@ pub async fn retract_activities(
 
 /// Whether a deletion of `source`'s records is the athlete's own, which they
 /// retry when it fails: an imported archive's, or a file they uploaded.
+///
+/// A phone's health store is not one: a workout deleted there is erased
+/// (`LiveActivityStore::erase`, the provider deleted it), never discarded for
+/// the athlete to bring in again, and a whole store's data goes through the
+/// provider purge.
 fn athlete_retries(source: SourceKey) -> bool {
     source.is_archive() || source == SourceKey::Live(LiveSource::Upload)
 }

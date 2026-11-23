@@ -140,6 +140,10 @@ pub mod athlete_gear;
 /// Importing the athlete's own history from a service's export (`/api/imports`).
 pub mod imports;
 
+/// The athlete's phone syncing its own health store, `HealthKit` or Health
+/// Connect (`/api/device-health`).
+pub mod device_health;
+
 /// User profile self-service routes (`/api/users/me/*`).
 ///
 /// Currently houses the `timezone` setter that web + mobile clients

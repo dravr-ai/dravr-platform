@@ -343,6 +343,7 @@ mod derived_content_provenance_test;
 mod detail_walk_edges_test;
 mod detail_walk_test;
 mod device_auth_test;
+mod device_health_ingest_test;
 mod device_web_test;
 mod documentation_accuracy_test;
 mod dossier_pillar_context_test;

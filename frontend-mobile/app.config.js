@@ -1,6 +1,8 @@
 // ABOUTME: Expo configuration for Dravr mobile app — identity, native modules and the OTA update channel
 // ABOUTME: Uses Expo Go for development; native builds only needed for speech recognition testing
 
+const { healthShareLocales } = require('./plugins/healthPurpose');
+
 module.exports = {
   name: 'Dravr',
   slug: 'dravr-app',
@@ -41,6 +43,12 @@ module.exports = {
   // app/_layout.tsx for the runtime switch.
   userInterfaceStyle: 'automatic',
   scheme: 'dravr',
+  // Per-locale InfoPlist.strings (fr, es, de, pt), so Apple's Health sheet asks
+  // in the athlete's language. The base Info.plist string is English and set by
+  // plugins/withDravrHealth.js; both read providers.deviceHealth.permissionCopy
+  // from packages/i18n. iOS-only entries: a top-level key would also be written
+  // into Android's values-b+<lang>/strings.xml.
+  locales: healthShareLocales(),
   ios: {
     supportsTablet: true,
     // Apple freezes the bundle id once an app record ships, so this is set
@@ -49,6 +57,9 @@ module.exports = {
     bundleIdentifier: 'ai.dravr.app',
     infoPlist: {
       ITSAppUsesNonExemptEncryption: false,
+      // Lets iOS pick each `locales` InfoPlist.strings (below) for the
+      // athlete's language even though the app bundle is English-based.
+      CFBundleAllowMixedLocalizations: true,
       NSMicrophoneUsageDescription:
         'Dravr needs microphone access to capture your voice for speech-to-text transcription.',
       NSSpeechRecognitionUsageDescription:
@@ -106,7 +117,8 @@ module.exports = {
       'expo-build-properties',
       {
         android: {
-          minSdkVersion: 24,
+          // 26: the floor androidx.health.connect:connect-client sets (modules/dravr-health).
+          minSdkVersion: 26,
           // 36 is what androidx.core 1.17 demands, and @maplibre/maplibre-react-native
           // pulls that in. Compiling against 35 fails checkReleaseAarMetadata before
           // a single source file is built; the EAS log names the requirement.
@@ -173,6 +185,13 @@ module.exports = {
         color: '#255f4d', // primary — BOREAL_LIGHT in design-system.ts
       },
     ],
+    // The phone's own health store for the device health sync (modules/dravr-health):
+    // the HealthKit entitlement and read purpose string, Health Connect's read
+    // permissions, and the privacy policy its permissions rationale opens: the
+    // address both clients link as LEGAL_URL (@pierre/shared-constants, which
+    // this CommonJS file cannot import; __tests__/withDravrHealth.test.ts holds
+    // the two equal). Read-only on both.
+    ['./plugins/withDravrHealth', { privacyPolicyUrl: 'https://dravr.ai/privacy' }],
     [
       'expo-speech-recognition',
       {

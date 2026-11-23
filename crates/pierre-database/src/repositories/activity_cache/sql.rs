@@ -220,14 +220,15 @@ pub(crate) const LATEST_PROVIDER_SYNC_SQL: &str = r"
 /// Latest `synced_at` any provider's cached row carries for a user.
 ///
 /// The rows the athlete brought in themselves (an uploaded file's, an
-/// imported archive's: `pierre_core::constants::oauth_providers::USER_PROVIDED_PROVIDERS`)
+/// imported archive's, a phone health store's:
+/// `pierre_core::constants::oauth_providers::USER_PROVIDED_PROVIDERS`)
 /// are left out: their `synced_at` is when the athlete uploaded or imported,
 /// which says nothing about how current any provider's copy is, and counting
 /// it would show a stale cache as just synced.
 pub(crate) const LATEST_ANY_SYNC_SQL: &str = r"
     SELECT synced_at
     FROM cached_activities
-    WHERE user_id = $1 AND tenant_id = $2 AND provider NOT IN ('upload', 'strava_archive', 'garmin_archive', 'apple_health_archive', 'coros_archive', 'whoop_archive')
+    WHERE user_id = $1 AND tenant_id = $2 AND provider NOT IN ('upload', 'strava_archive', 'garmin_archive', 'apple_health_archive', 'coros_archive', 'whoop_archive', 'apple_health', 'health_connect')
     ORDER BY synced_at DESC
     LIMIT 1";
 
@@ -255,7 +256,7 @@ pub(crate) const OLDEST_PROVIDER_START_SQL: &str = r"
 pub(crate) const HELD_USER_PROVIDED_SQL: &str = r"
     SELECT DISTINCT provider
     FROM cached_activities
-    WHERE user_id = $1 AND tenant_id = $2 AND provider IN ('upload', 'strava_archive', 'garmin_archive', 'apple_health_archive', 'coros_archive', 'whoop_archive')";
+    WHERE user_id = $1 AND tenant_id = $2 AND provider IN ('upload', 'strava_archive', 'garmin_archive', 'apple_health_archive', 'coros_archive', 'whoop_archive', 'apple_health', 'health_connect')";
 
 /// How many cached activities the user holds under each key in a tenant.
 pub(crate) const COUNT_BY_PROVIDER_SQL: &str = r"

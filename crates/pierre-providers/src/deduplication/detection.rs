@@ -26,7 +26,9 @@ use dravr_barrage::strava_edit::{edited_on_strava, StravaFigures};
 
 use super::config::DedupConfig;
 use crate::backend_resolver;
-use crate::precedence::{activity_source, rank, Ingress, Kind, Service, Source};
+use crate::precedence::{
+    activity_source, rank, two_recorders_of_one_relay, Ingress, Kind, Service, Source,
+};
 
 /// Minimum fraction of the shorter activity's duration that must overlap
 /// with the longer one for records of DIFFERENT sports to be one workout.
@@ -158,8 +160,9 @@ impl FragmentReport {
 ///   `time_window_minutes` — or on the same calendar day when either side is a
 ///   date-only scrape (`T00:00:00`) — and their distances agree within
 ///   `distance_tolerance_pct` (or either lacks a distance), or
-/// - **different sports, two providers**: their windows overlap by at least
-///   [`CROSS_SPORT_OVERLAP_FRACTION`] of the shorter one.
+/// - **different sports, two providers** (or two recorders' copies under one
+///   relay key, `precedence::two_recorders_of_one_relay`): their windows
+///   overlap by at least [`CROSS_SPORT_OVERLAP_FRACTION`] of the shorter one.
 ///
 /// Rows with no real start time never match on overlap: every midnight row
 /// "overlaps" every other, which would fold distinct sessions together.
@@ -949,7 +952,7 @@ enum Match {
 
 /// The matching rules documented on [`merge_duplicates`].
 fn workout_match(a: &Activity, b: &Activity, config: &DedupConfig) -> Match {
-    let two_providers = a.provider() != b.provider();
+    let two_providers = a.provider() != b.provider() || two_recorders_of_one_relay(a, b);
     let both_timed = has_known_time(a) && has_known_time(b);
     if sport_key(a.sport_type()) != sport_key(b.sport_type()) {
         return if two_providers && both_timed && overlaps_substantially(a, b) {
@@ -1081,7 +1084,7 @@ fn has_known_time(activity: &Activity) -> bool {
 
 /// Stable string key for a [`SportType`]. `SportType::Other("Trail Run")` is
 /// distinguished from `SportType::Run`; coalescing near-cousin sports is the
-/// cross-sport overlap rule's job, which demands two providers.
+/// cross-sport overlap rule's job, which demands two providers (or recorders).
 fn sport_key(sport: &SportType) -> String {
     match sport {
         SportType::Other(label) => format!("other:{label}"),

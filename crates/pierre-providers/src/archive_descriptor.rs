@@ -20,9 +20,10 @@
 //! policy (Athlete Data Consolidation §3.2). [`own_data_descriptors`] declares
 //! one per archive key, and a test holds the two lists together.
 //!
-//! The same holds for the two other keys the athlete's own data is filed
-//! under: an uploaded file ([`UPLOAD`]) and a reading entered by hand
-//! ([`ATHLETE`]). [`own_data_descriptors`] declares all of them.
+//! The same holds for the other keys the athlete's own data is filed under:
+//! an uploaded file ([`UPLOAD`]), a reading entered by hand ([`ATHLETE`]), and
+//! what their phone's health store syncs ([`APPLE_HEALTH`],
+//! [`HEALTH_CONNECT`]). [`own_data_descriptors`] declares all of them.
 //!
 //! They are registered with
 //! [`crate::registry::ProviderRegistry::register_descriptor`] only.
@@ -30,8 +31,8 @@
 //! offered as a connection and nothing ever fetches it.
 
 use pierre_core::constants::oauth_providers::{
-    APPLE_HEALTH_ARCHIVE, ATHLETE, COROS_ARCHIVE, GARMIN_ARCHIVE, STRAVA_ARCHIVE, UPLOAD,
-    WHOOP_ARCHIVE,
+    APPLE_HEALTH, APPLE_HEALTH_ARCHIVE, ATHLETE, COROS_ARCHIVE, GARMIN_ARCHIVE, HEALTH_CONNECT,
+    STRAVA_ARCHIVE, UPLOAD, WHOOP_ARCHIVE,
 };
 use pierre_core::transport::TransportPolicy;
 
@@ -59,12 +60,19 @@ pub struct ArchiveDescriptor {
 /// - A COROS export holds recorded activities, with their samples and laps.
 /// - A WHOOP export holds workouts with no samples, and the athlete's sleep and
 ///   the day's recovery readings, without WHOOP's own scores.
+/// - A phone's health store (Apple Health on the iPhone, Health Connect on
+///   Android) holds the workouts the athlete's watch and apps wrote into it,
+///   and their sleep, recovery readings and body measurements.
 /// - An upload holds the recordings in the files the athlete uploaded.
 /// - A manual entry holds the readings the athlete typed in.
 #[must_use]
 pub fn own_data_descriptors() -> Vec<ArchiveDescriptor> {
     let recorded =
         ProviderCapabilities::ACTIVITIES.union(ProviderCapabilities::RECORDED_ACTIVITIES);
+    let device_store = ProviderCapabilities::ACTIVITIES
+        .union(ProviderCapabilities::SLEEP_TRACKING)
+        .union(ProviderCapabilities::RECOVERY_METRICS)
+        .union(ProviderCapabilities::HEALTH_METRICS);
     vec![
         ArchiveDescriptor {
             key: STRAVA_ARCHIVE,
@@ -97,6 +105,16 @@ pub fn own_data_descriptors() -> Vec<ArchiveDescriptor> {
             capabilities: ProviderCapabilities::ACTIVITIES
                 .union(ProviderCapabilities::SLEEP_TRACKING)
                 .union(ProviderCapabilities::RECOVERY_METRICS),
+        },
+        ArchiveDescriptor {
+            key: APPLE_HEALTH,
+            display_name: "Apple Health (this iPhone)",
+            capabilities: device_store,
+        },
+        ArchiveDescriptor {
+            key: HEALTH_CONNECT,
+            display_name: "Health Connect",
+            capabilities: device_store,
         },
         ArchiveDescriptor {
             key: UPLOAD,
@@ -157,8 +175,8 @@ impl ProviderDescriptor for ArchiveDescriptor {
 mod tests {
     use pierre_core::ai_policy::first_party_only;
     use pierre_core::constants::oauth_providers::{
-        APPLE_HEALTH_ARCHIVE, ATHLETE, COROS_ARCHIVE, GARMIN, GARMIN_ARCHIVE, STRAVA,
-        STRAVA_ARCHIVE, USER_PROVIDED_PROVIDERS, WHOOP_ARCHIVE,
+        APPLE_HEALTH, APPLE_HEALTH_ARCHIVE, ATHLETE, COROS_ARCHIVE, GARMIN, GARMIN_ARCHIVE,
+        HEALTH_CONNECT, STRAVA, STRAVA_ARCHIVE, USER_PROVIDED_PROVIDERS, WHOOP_ARCHIVE,
     };
 
     use super::own_data_descriptors;
@@ -217,6 +235,39 @@ mod tests {
             names, keys,
             "bug: an own-data key has no descriptor, or two"
         );
+    }
+
+    /// A phone's health store is the athlete's own copy: served over every
+    /// transport, never a connection, and declaring its wellness.
+    #[test]
+    fn a_phones_health_store_is_readable_everywhere_and_never_connectable() {
+        let registry = ProviderRegistry::new();
+        for (key, brand) in [
+            (APPLE_HEALTH, "Apple Health (this iPhone)"),
+            (HEALTH_CONNECT, "Health Connect"),
+        ] {
+            assert!(
+                !first_party_only(&registry, key, None),
+                "bug: {key} is the athlete's own copy, served over every transport"
+            );
+            assert_eq!(brand_name(&registry, key), Some(brand), "bug: {key}'s name");
+            assert!(
+                !registry.is_supported(key),
+                "bug: {key} is pushed by the phone, never a connection"
+            );
+            let descriptor = registry.get_descriptor(key).expect("a terms descriptor");
+            for capability in [
+                ProviderCapabilities::ACTIVITIES,
+                ProviderCapabilities::SLEEP_TRACKING,
+                ProviderCapabilities::RECOVERY_METRICS,
+                ProviderCapabilities::HEALTH_METRICS,
+            ] {
+                assert!(
+                    descriptor.capabilities().contains(capability),
+                    "bug: {key} does not declare {capability:?}"
+                );
+            }
+        }
     }
 
     #[test]

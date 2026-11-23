@@ -230,16 +230,22 @@ mod tests {
     /// `USER_PROVIDED_PROVIDERS` stays a literal list: pierre-core and the
     /// cache's SQL (whose literals `activity_cache::sql`'s tests hold to it)
     /// know nothing of barrage. Barrage carries the split this policy needs
-    /// as its archive sources plus the upload live source, so the list is
+    /// as its archive sources plus three live sources the athlete brings in
+    /// themselves (the upload and the two on-device stores), so the list is
     /// pinned to exactly that: a key barrage adds as an archive, or one the
     /// list names that barrage does not know, fails here before an export
     /// could expire.
     #[test]
-    fn the_user_provided_keys_are_barrages_archives_and_its_upload() {
+    fn the_user_provided_keys_are_barrages_archives_its_upload_and_its_device_stores() {
+        let athletes_own_live = [
+            LiveSource::Upload,
+            LiveSource::AppleHealth,
+            LiveSource::HealthConnect,
+        ];
         let mut barrage: Vec<&str> = SourceKey::ALL
             .into_iter()
             .map(SourceKey::as_str)
-            .chain([LiveSource::Upload.as_str()])
+            .chain(athletes_own_live.map(LiveSource::as_str))
             .collect();
         let mut listed = USER_PROVIDED_PROVIDERS.to_vec();
         barrage.sort_unstable();
@@ -250,10 +256,13 @@ mod tests {
         );
         for key in USER_PROVIDED_PROVIDERS {
             let source = SourceKey::parse(key).unwrap_or_else(|e| panic!("{key}: {e}"));
+            let live = athletes_own_live
+                .iter()
+                .any(|own| source == SourceKey::Live(*own));
             assert_eq!(
                 source.is_archive(),
-                *key != UPLOAD,
-                "{key}: every listed key but the upload is an archive to barrage"
+                !live,
+                "{key}: every listed key but the upload and the device stores is an archive to barrage"
             );
         }
         assert_eq!(
@@ -261,6 +270,18 @@ mod tests {
             LiveSource::Upload.as_str(),
             "the upload key is barrage's upload source"
         );
+    }
+
+    #[test]
+    fn what_a_phones_health_store_synced_never_expires() {
+        let everything = policy(&json!(1), r#"{"apple_health":1,"health_connect":1}"#);
+        for store in [LiveSource::AppleHealth, LiveSource::HealthConnect] {
+            assert_eq!(
+                everything.ttl(SourceKey::Live(store)),
+                None,
+                "{store:?}: the athlete's own copy never expires"
+            );
+        }
     }
 
     #[test]

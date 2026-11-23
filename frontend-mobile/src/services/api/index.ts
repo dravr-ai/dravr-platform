@@ -12,7 +12,14 @@ import {
   ENDPOINTS,
   type LinkCompleteResponse,
   type PierreApiService,
+  requireShape,
 } from '@pierre/api-client';
+import {
+  parseDeviceHealthCounts,
+  type DeviceHealthCounts,
+  type DeviceHealthSource,
+  type DeviceSamples,
+} from '@pierre/shared-types';
 import { getApiUrl } from '../apiUrl';
 
 // Create the mobile platform adapter with secure token storage
@@ -91,5 +98,30 @@ export const channelLinkApi = {
       { state, code },
     );
     return response.data;
+  },
+};
+
+/** A counts body, or an error naming the endpoint whose answer broke the contract. */
+function deviceHealthCounts(body: unknown, endpoint: string): DeviceHealthCounts {
+  return requireShape(parseDeviceHealthCounts(body), endpoint);
+}
+
+// The phone's own health store (HealthKit, Health Connect, owl phase 9). Only
+// the phone has a store to read, so like channelLinkApi this lives here rather
+// than in a shared domain the web would never call. The body is the samples as
+// the OS handed them over; the server maps them.
+export const deviceHealthApi = {
+  /** One page of samples, at most `DEVICE_SAMPLES_MAX` of them, read from `samples.source`. */
+  async syncDeviceSamples(samples: DeviceSamples): Promise<DeviceHealthCounts> {
+    const endpoint = ENDPOINTS.DEVICE_HEALTH.SYNC(samples.source);
+    const response = await apiClient.post<unknown>(endpoint, samples);
+    return deviceHealthCounts(response.data, endpoint);
+  },
+
+  /** Everything synced from `source`: activities, nights, days and self-reports. */
+  async deleteDeviceData(source: DeviceHealthSource): Promise<DeviceHealthCounts> {
+    const endpoint = ENDPOINTS.DEVICE_HEALTH.DATA(source);
+    const response = await apiClient.delete<unknown>(endpoint);
+    return deviceHealthCounts(response.data, endpoint);
   },
 };

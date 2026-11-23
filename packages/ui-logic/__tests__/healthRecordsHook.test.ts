@@ -226,9 +226,11 @@ describe('code labels', () => {
     expect(selfReportKindLabel('new_kind', t)).toBe('new_kind');
   });
 
-  it('says a value as its quantity, else its code in words, else nothing', () => {
+  it('says a value as its code in words, else its quantity, else nothing', () => {
     expect(selfReportValue({ value: 36.4, unit: 'degC', valueCode: null }, t)).toBe('36.4 degC');
     expect(selfReportValue({ value: null, unit: null, valueCode: 'light' }, t)).toBe('Light');
     expect(selfReportValue({ value: null, unit: null, valueCode: null }, t)).toBeNull();
+    // A mood carries its valence and its class: the class is what is shown.
+    expect(selfReportValue({ value: -0.4, unit: 'valence', valueCode: 'light' }, t)).toBe('Light');
   });
 });

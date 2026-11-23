@@ -15,9 +15,9 @@
 //!   the key `terra`, received at the event's receipt, which serves them as
 //!   the cached rows `TerraProvider` (a push-only provider) reads back;
 //! - nights, recovery days, body days and daily activity totals through the
-//!   [`WellnessStore`], filed under the data source of the service Terra
-//!   relayed them from, so the precedence rank reads them as that service's,
-//!   relayed.
+//!   one wellness projection ([`wellness_projection::project`]), filed under
+//!   the data source of the service Terra relayed them from, so the
+//!   precedence rank reads them as that service's, relayed.
 //!
 //! A sleep summary and a daily summary both bring recovery readings for one
 //! date, and a body summary may arrive once per measurement, so recovery and
@@ -27,6 +27,7 @@
 //! The caller names the owner: Terra's payload carries Terra's user id, and
 //! the route that will receive Terra's webhooks resolves the connection.
 
+use dravr_barrage::WellnessRecords;
 use dravr_tronc::dates::Timestamp;
 use pierre_core::constants::oauth_providers::TERRA;
 use pierre_core::errors::AppResult;
@@ -34,7 +35,8 @@ use pierre_core::models::{DataSource, DeviceType, TenantId};
 use pierre_database::RepositoryRegistry;
 use pierre_providers::terra::TerraRecords;
 use pierre_services::live_activities::LiveActivityStore;
-use pierre_services::wellness_store::{WellnessLanded, WellnessStore, WellnessWriteMode};
+use pierre_services::wellness_projection::{self, WellnessFiling, WellnessModes};
+use pierre_services::wellness_store::WellnessWriteMode;
 use uuid::Uuid;
 
 /// What one event's records landed as.
@@ -89,103 +91,41 @@ pub async fn store_terra_records(
         return Ok(stored);
     }
 
-    let user = user_id.to_string();
-    let store = WellnessStore::new(repos);
-    let data_source_id = store
-        .record_data_source(
-            &tenant_id,
-            &DataSource {
-                id: Uuid::new_v4().to_string(),
-                user_id: user.clone(),
-                provider: TERRA.to_owned(),
-                device_model: None,
-                software_version: None,
-                // The relayed service is part of the data source's identity,
-                // so a user's WHOOP nights and Garmin nights keep their own
-                // source rather than taking the last relay's name.
-                source: relayed_from.map(str::to_lowercase),
-                device_type: DeviceType::Unknown,
-                original_source_name: relayed_from.map(str::to_lowercase),
-            },
-        )
-        .await?;
-    let filing = Filing {
-        user: &user,
-        data_source_id: &data_source_id,
+    let wellness = WellnessRecords {
+        sleep: records.nights.clone(),
+        recovery: records.recovery.clone(),
+        body: records.body.clone(),
+        daily_activity: records.daily_activity.clone(),
+        ..WellnessRecords::default()
     };
-
-    let mut writes = store.writes("terra webhook");
-    for night in &records.nights {
-        let mut night = night.clone();
-        filing.stamp(
-            &mut night.user_id,
-            &mut night.data_source_id,
-            &mut night.source_name,
-        );
-        let landed = writes.sleep(tenant_id, &night, received_at).await?;
-        stored.nights += usize::from(landed == WellnessLanded::Written);
-    }
-    for day in &records.recovery {
-        let mut day = day.clone();
-        filing.stamp(
-            &mut day.user_id,
-            &mut day.data_source_id,
-            &mut day.source_name,
-        );
-        let landed = writes
-            .recovery(
-                tenant_id,
-                &day,
-                WellnessWriteMode::PartialSummary,
-                received_at,
-            )
-            .await?;
-        stored.recovery += usize::from(landed == WellnessLanded::Written);
-    }
-    for day in &records.body {
-        let mut day = day.clone();
-        filing.stamp(
-            &mut day.user_id,
-            &mut day.data_source_id,
-            &mut day.source_name,
-        );
-        let landed = writes
-            .body(
-                tenant_id,
-                &day,
-                WellnessWriteMode::PartialSummary,
-                received_at,
-            )
-            .await?;
-        stored.body += usize::from(landed == WellnessLanded::Written);
-    }
-    for day in &records.daily_activity {
-        let mut day = day.clone();
-        filing.stamp(
-            &mut day.user_id,
-            &mut day.data_source_id,
-            &mut day.source_name,
-        );
-        let landed = writes
-            .daily_activity(tenant_id, &day, WellnessWriteMode::FullDay, received_at)
-            .await?;
-        stored.daily_activity += usize::from(landed == WellnessLanded::Written);
-    }
-    writes.report();
+    let filing = WellnessFiling {
+        tenant_id,
+        user_id,
+        provider: TERRA,
+        data_source: DataSource {
+            id: Uuid::new_v4().to_string(),
+            user_id: user_id.to_string(),
+            provider: TERRA.to_owned(),
+            device_model: None,
+            software_version: None,
+            // The relayed service is part of the data source's identity,
+            // so a user's WHOOP nights and Garmin nights keep their own
+            // source rather than taking the last relay's name.
+            source: relayed_from.map(str::to_lowercase),
+            device_type: DeviceType::Unknown,
+            original_source_name: relayed_from.map(str::to_lowercase),
+        },
+        modes: WellnessModes {
+            recovery: WellnessWriteMode::PartialSummary,
+            body: WellnessWriteMode::PartialSummary,
+            daily_activity: WellnessWriteMode::FullDay,
+        },
+        label: "terra webhook",
+    };
+    let counts = wellness_projection::project(repos, filing, &wellness, received_at).await?;
+    stored.nights = counts.nights;
+    stored.recovery = counts.recovery;
+    stored.body = counts.body;
+    stored.daily_activity = counts.daily_activity;
     Ok(stored)
-}
-
-/// Who and which data source a record is filed under.
-struct Filing<'a> {
-    user: &'a str,
-    data_source_id: &'a str,
-}
-
-impl Filing<'_> {
-    /// Stamp a record's owner, data source and the Terra key.
-    fn stamp(&self, user_id: &mut String, data_source_id: &mut String, source_name: &mut String) {
-        self.user.clone_into(user_id);
-        self.data_source_id.clone_into(data_source_id);
-        TERRA.clone_into(source_name);
-    }
 }

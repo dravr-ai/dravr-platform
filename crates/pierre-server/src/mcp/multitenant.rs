@@ -42,7 +42,7 @@ use crate::routes::request_support::declare_support_session;
 use crate::routes::request_transport::declare_request_transport;
 #[cfg(feature = "client-settings")]
 use crate::routes::{
-    athlete_gear, athlete_home, health_records, imports,
+    athlete_gear, athlete_home, device_health, health_records, imports,
     user_profile::routes as user_profile_routes,
 };
 use crate::routes::{
@@ -668,6 +668,7 @@ impl ProviderToolRouter {
             .merge(health_records::health_records_routes().with_state(Arc::clone(resources)))
             .merge(imports::import_routes().with_state(Arc::clone(resources)))
             .merge(imports::internal_import_routes(resources).with_state(Arc::clone(resources)))
+            .merge(device_health::device_health_routes().with_state(Arc::clone(resources)))
             .merge(user_profile_routes().with_state(Arc::clone(resources)));
 
         // Webhook routes for provider-pushed health data (WHOOP, Garmin, Oura)

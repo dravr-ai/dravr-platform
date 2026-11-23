@@ -35,14 +35,17 @@ pub(crate) const TS_FETCH_RANGE_SQL: &str = r"
 /// Insert one point; a second insert at the same timestamp replaces the
 /// first (riviere's last-writer-wins on the unique key). `$6` is when the
 /// point was copied from its provider, refreshed on every re-copy: the age
-/// the retention policy (`activity_retention.*`) judges the point by.
+/// the retention policy (`activity_retention.*`) judges the point by. A
+/// point written again after a range delete is present again: its
+/// `deleted_at` is cleared.
 pub(crate) const TS_INSERT_POINT_SQL: &str = r"
                 INSERT INTO data_point_series
                     (id, data_source_id, series_type_id, recorded_at, zone_offset, value, synced_at)
                 VALUES ($1, $2, $3, $4, NULL, $5, $6)
                 ON CONFLICT(data_source_id, series_type_id, recorded_at) DO UPDATE SET
                     value = EXCLUDED.value,
-                    synced_at = EXCLUDED.synced_at
+                    synced_at = EXCLUDED.synced_at,
+                    deleted_at = NULL
                 ";
 
 /// The most recent live point of a series.

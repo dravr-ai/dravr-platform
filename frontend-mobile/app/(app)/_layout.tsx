@@ -10,6 +10,7 @@ import { useTranslation } from '@pierre/i18n';
 import { settingsPane } from '@pierre/shared-constants';
 import { HeaderCloseButton } from '../../src/components/ui/HeaderCloseButton';
 import { useCoachAccessGrantRefresh } from '../../src/hooks/coachAccessHooks';
+import { useDeviceHealthForegroundSync } from '../../src/hooks/useDeviceHealth';
 import { usePushNotifications } from '../../src/hooks/usePushNotifications';
 import { useStackScreenOptions } from '../../src/navigation/stackOptions';
 import { UnitsProvider } from '../../src/providers/UnitsProvider';
@@ -22,6 +23,8 @@ export default function AppLayout() {
   // A coach-access grant shows on the next visit to Home, without signing out
   // and in again (carnet#1521).
   useCoachAccessGrantRefresh();
+  // The phone's health store, when the athlete turned it on: synced on open and on every return.
+  useDeviceHealthForegroundSync();
   const closeButton = () => <HeaderCloseButton />;
   const screenOptions = useStackScreenOptions();
   // Every screen in the signed-in app prints distances in the athlete's units (carnet#835).

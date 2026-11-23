@@ -357,6 +357,29 @@ export {
   parseLabRecord,
 } from './health-records.js';
 
+// The on-device health stores (HealthKit, Health Connect): the raw samples the phone sends and the counts it gets back
+export type {
+  DeviceCategorySample,
+  DeviceDaySample,
+  DeviceDeletedSamples,
+  DeviceHealthCounts,
+  DeviceHealthSource,
+  DeviceMeasure,
+  DeviceQuantitySample,
+  DeviceQuantityWindow,
+  DeviceRecorder,
+  DeviceSamples,
+  DeviceSleepWindow,
+  DeviceStateOfMindSample,
+  DeviceWorkoutSample,
+} from './device-health.js';
+export {
+  DEVICE_HEALTH_SOURCES,
+  DEVICE_SAMPLES_MAX,
+  deviceSamplesCount,
+  parseDeviceHealthCounts,
+} from './device-health.js';
+
 // The athlete's originals bundle: the files the data export leaves out, built on request
 export type {
   OriginalsBundle,

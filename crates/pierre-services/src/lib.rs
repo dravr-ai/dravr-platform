@@ -239,6 +239,8 @@ pub mod health_records;
 /// The lab reader's configurable model: none by default, else one tool-free HTTP provider or Ollama (carnet#1544)
 pub mod lab_document_model;
 
+/// The one projection of a batch of wellness records: the archive sink, Terra and the device health sync file theirs through it
+pub mod wellness_projection;
 /// The one writer of wellness rows: every ingress writes nights, days, sources and series through it
 pub mod wellness_store;
 /// What the wellness store may keep of a WHOOP record: measurements, never WHOOP's own scores

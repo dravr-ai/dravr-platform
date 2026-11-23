@@ -228,6 +228,30 @@ jest.mock('expo-file-system', () => {
   };
 });
 
+// Mock the local dravr-health module (HealthKit / Health Connect). Jest has
+// no native side, so the module reads as a store with nothing in it: every
+// read is an empty last page. Suites that drive the sync script these per test.
+jest.mock('./modules/dravr-health', () => ({
+  DravrHealth: {
+    isAvailable: jest.fn(() => Promise.resolve(true)),
+    requestAuthorization: jest.fn(() => Promise.resolve(true)),
+    readChanges: jest.fn((type) =>
+      Promise.resolve({
+        workouts: [],
+        categories: [],
+        quantities: [],
+        states_of_mind: [],
+        deleted: [],
+        anchor: `${type}#0`,
+        more: false,
+      }),
+    ),
+    readSleep: jest.fn(() => Promise.resolve([])),
+    readQuantities: jest.fn(() => Promise.resolve([])),
+    readDays: jest.fn(() => Promise.resolve([])),
+  },
+}));
+
 // Mock expo-speech-recognition
 const mockEventListeners = {};
 jest.mock('expo-speech-recognition', () => ({

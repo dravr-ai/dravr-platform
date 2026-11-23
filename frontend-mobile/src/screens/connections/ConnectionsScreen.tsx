@@ -52,6 +52,7 @@ import { ProviderGlyph } from '../../components/ProviderGlyph';
 import { ImportOwnDataRow } from '../../components/ImportOwnDataRow';
 import { CONNECTED_APPS_ROUTE } from '../../navigation/routes';
 import { PreferredCalendarSection } from './PreferredCalendarSection';
+import { DeviceHealthSection } from './DeviceHealthSection';
 import { useSignInModal } from '../../hooks/useSignInModal';
 import { importRouteFor, refusedConnectLine, type RefusedConnect } from '../../utils/connectFlow';
 import {
@@ -662,6 +663,9 @@ export function ConnectionsScreen() {
             {/* Import your own data: below the providers, never one of them */}
             <ImportOwnDataRow />
           </Section>
+
+          {/* This phone's own health store, read on the device (owl phase 9) */}
+          <DeviceHealthSection />
 
           {/* Which connected calendar the plan goes on (carnet#1393) */}
           <PreferredCalendarSection connected={connectedProviders} />

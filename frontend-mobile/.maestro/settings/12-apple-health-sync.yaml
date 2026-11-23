@@ -1,0 +1,281 @@
+# ABOUTME: Logs a weight and a State of Mind in the Health app, then turns on Apple Health (this iPhone) on Connections and accepts the HealthKit sheet
+# ABOUTME: Checks the completed sync's counts and that the mood reads as a label on Health records, never a raw code; iOS dev client only
+
+# Runs only against a dev client build (`bunx expo run:ios --port 8082`):
+# Expo Go cannot load the dravr-health native module, so this flow launches
+# ai.dravr.app, never host.exp.Exponent, and is in no CI lane's file list.
+# It needs, on this machine:
+#   - a Pierre server started without messaging tokens;
+#   - Metro on 8082 (`expo start --dev-client --port 8082`) with
+#     EXPO_PUBLIC_API_URL on 127.0.0.1, EXPO_PUBLIC_E2E_SEEDED_SESSIONS=1 and
+#     REACT_NATIVE_PACKAGER_HOSTNAME=127.0.0.1, so the dev client reaches it;
+#   - the Maestro control process on 8098 (the dev stack's --maestro), which
+#     mints the seeded session helpers/sign-in-seeded.js asks for.
+# clearState resets Dravr's HealthKit grant too, so the sheet is asked on every
+# run. Its Continue, history and Allow steps are required, point taps on the
+# iPhone 17 (402x874) layout (see the sheet below for why). The only guarded
+# step in it is the Select All toggle. The counts assertion fails whenever the
+# sheet was not accepted. The Health app keeps what earlier runs logged, so its
+# own first-run screens are guarded too.
+
+appId: ai.dravr.app
+tags:
+  - dev-client
+
+---
+# The Health app: Dravr reads HealthKit and never writes to it, so the
+# samples it syncs are logged here first.
+- launchApp:
+    appId: com.apple.Health
+- runFlow:
+    when:
+      visible:
+        id: "UIA.Health.BuddyOnboarding.WelcomeScreen.ContinueButton"
+    commands:
+      - tapOn:
+          id: "UIA.Health.BuddyOnboarding.WelcomeScreen.ContinueButton"
+      - tapOn:
+          id: "UIA.Health.BuddyOnboarding.PrivacyScreen.ContinueButton"
+      # Health details are optional; trend notifications are switched off,
+      # since leaving them on raises an alert asking for notifications.
+      - tapOn: "Next"
+      - tapOn:
+          id: "UIA.Health.FeatureEnablement.Trend.Switch"
+      - tapOn:
+          id: "UIA.Health.BuddyOnboarding.NotificationScreen.ContinueButton"
+- extendedWaitUntil:
+    visible:
+      id: "UIA.Health.Tab.Browse"
+    timeout: 15000
+
+# A weight, under Browse > Body Measurements > Weight > Add Data.
+# The second tap on the tab pops whatever an earlier run left open.
+- tapOn:
+    id: "UIA.Health.Tab.Browse"
+- tapOn:
+    id: "UIA.Health.Tab.Browse"
+- tapOn:
+    id: "UIA.Health.Search.HKDisplayCategoryIdentifierBodyMeasurements"
+# The row is a "no data" cell on a fresh simulator and a snippet once a
+# weight exists.
+- tapOn:
+    id: "UIA\\.Health\\.(Snippet|Category\\.NoData)\\.HKQuantityTypeIdentifierBodyMass"
+- tapOn:
+    id: "UIA.Health.BarItem.Add.Button"
+- inputText: "72.4"
+- tapOn:
+    id: "UIA.Health.AddData.Add"
+- extendedWaitUntil:
+    visible:
+      id: "UIA.Health.Chart.ValueView"
+    timeout: 10000
+
+# A daily mood, under Browse > Mental Wellbeing > State of Mind.
+- tapOn:
+    id: "UIA.Health.Tab.Browse"
+- tapOn:
+    id: "UIA.Health.Tab.Browse"
+- tapOn:
+    id: "UIA.Health.Search.HKDisplayCategoryIdentifierMentalWellbeing"
+- tapOn:
+    id: "UIA\\.Health\\.(Snippet|Category\\.NoData)\\.HKDataTypeStateOfMind"
+- tapOn:
+    id: "UIA\\.Health\\.MentalHealth\\.StateOfMindTimeline\\.(GetStartedButton|LogButton)"
+# The first log opens with an introduction; later ones go straight to the
+# emotion-or-mood choice.
+- runFlow:
+    when:
+      notVisible:
+        id: "UIA.Health.MentalHealth.ReflectiveInterval.Daily"
+    commands:
+      - tapOn:
+          id: "UIA.Health.MentalHealth.NextButton"
+- tapOn:
+    id: "UIA.Health.MentalHealth.ReflectiveInterval.Daily"
+- tapOn:
+    id: "UIA.Health.MentalHealth.NextButton"
+# The valence slider starts at Neutral; drag it right, to Pleasant.
+- extendedWaitUntil:
+    visible:
+      id: "UIA.Health.MentalHealth.ValencePicker"
+    timeout: 10000
+- swipe:
+    start: "50%,83%"
+    end: "75%,83%"
+    duration: 800
+- tapOn:
+    id: "UIA.Health.MentalHealth.NextButton"
+- tapOn:
+    id: "UIA.Health.MentalHealth.Label.calm"
+- tapOn:
+    id: "UIA.Health.MentalHealth.NextButton"
+- tapOn:
+    id: "UIA.Health.MentalHealth.Domain.fitness"
+- tapOn:
+    id: "UIA.Health.MentalHealth.DoneButton"
+# Reminders are offered after the first log only.
+- runFlow:
+    when:
+      visible:
+        id: "UIA.Health.MentalHealth.NotNowNotificationsButton"
+    commands:
+      - tapOn:
+          id: "UIA.Health.MentalHealth.NotNowNotificationsButton"
+- extendedWaitUntil:
+    visible:
+      id: "UIA.Health.MentalHealth.StateOfMindTimeline.Timeline"
+    timeout: 10000
+- stopApp: com.apple.Health
+
+# Dravr, from a clean install state: no session, no HealthKit grant, the
+# Apple Health row off. The dev client loads the bundle from Metro on 8082.
+- stopApp
+- clearKeychain
+- launchApp:
+    clearState: true
+- openLink: "exp+dravr-app://expo-development-client/?url=http%3A%2F%2F127.0.0.1%3A8082"
+- extendedWaitUntil:
+    visible:
+      id: "login-screen"
+    timeout: 120000
+# The dev client opens its developer menu over the first load.
+- runFlow:
+    when:
+      visible:
+        id: "xmark"
+    commands:
+      - tapOn:
+          id: "xmark"
+- runScript:
+    file: ../helpers/sign-in-seeded.js
+    env:
+      EMAIL: "mobiletest@pierre.dev"
+- openLink: "dravr://e2e/session?${output.seededSession.query}"
+- extendedWaitUntil:
+    visible:
+      id: "home-screen"
+    timeout: 60000
+
+# Connections, then the row.
+- tapOn:
+    id: "tab-settings"
+- extendedWaitUntil:
+    visible:
+      id: "settings-screen"
+    timeout: 10000
+- tapOn:
+    id: "settings-pane-connections"
+- extendedWaitUntil:
+    visible:
+      id: "connections-screen"
+    timeout: 10000
+- scrollUntilVisible:
+    element:
+      id: "device-health-switch"
+    timeout: 15000
+- tapOn:
+    id: "device-health-switch"
+
+# The HealthKit sheet: every category on, then the iOS 27 history step.
+# It is driven by points, not ids: the sheet is a remote view, and on an iOS
+# 27 simulator Maestro sees its tree only the first time it is presented after
+# a boot (UIA.Health.AuthSheet.AllCategoryButton, UIA.Health.Allow.Button);
+# every later presentation shows an empty container. The points are the
+# iPhone 17 (402x874) layout. The steps are required: the counts asserted
+# below exist only once the sheet was accepted.
+# The sheet slides up after the app asks; a tap that lands before it settles
+# is lost, the sheet then declines with nothing selected and the counts below
+# stay at zero.
+- swipe:
+    start: "50%,50%"
+    end: "50%,51%"
+    duration: 6000
+- waitForAnimationToEnd:
+    timeout: 5000
+# "Select All 26 Topics" is a toggle, so it is tapped only when the tree shows
+# it reading "Select All". That tree is there on the first presentation after
+# a boot, which is also when nothing is pre-selected. Later presentations show
+# no tree, and on them iOS 27 pre-selects every type granted before (seen on
+# four presentations in a row). A blind tap there would deselect all 26, and
+# the sheet would then decline.
+- runFlow:
+    when:
+      visible:
+        id: "UIA.Health.AuthSheet.AllCategoryButton"
+        text: "Select All.*"
+    commands:
+      - tapOn:
+          id: "UIA.Health.AuthSheet.AllCategoryButton"
+# To the foot of the type list, where "Continue" (UIA.Health.Allow.Button) is.
+- repeat:
+    times: 8
+    commands:
+      - swipe:
+          start: "50%,85%"
+          end: "50%,15%"
+          duration: 300
+- tapOn:
+    point: "50%,78%"
+- swipe:
+    start: "50%,30%"
+    end: "50%,31%"
+    duration: 1500
+# How much history: "All Recorded Data and Future Data", then "Allow".
+- tapOn:
+    point: "50%,70%"
+- tapOn:
+    point: "50%,86%"
+
+# The first sync reads back 90 days and posts them; the row then shows its
+# counts: workouts · nights · days · entries. The weight makes at least one
+# day and the mood at least one entry. Digits and separators only, so the
+# check holds in every locale.
+- extendedWaitUntil:
+    visible:
+      id: "device-health-counts"
+    timeout: 90000
+- assertVisible:
+    id: "device-health-counts"
+    text: "\\d+ [^·]+ · \\d+ [^·]+ · [1-9]\\d* [^·]+ · [1-9]\\d* [^·]+"
+- assertNotVisible:
+    id: "device-health-error"
+- assertVisible:
+    id: "device-health-switch"
+    checked: true
+
+# Health records: the mood is served back to the athlete, named by its
+# label, never by a raw snake_case code.
+- tapOn:
+    id: "tab-settings"
+- extendedWaitUntil:
+    visible:
+      id: "settings-screen"
+    timeout: 10000
+- scrollUntilVisible:
+    element:
+      id: "settings-pane-privacy"
+    timeout: 15000
+- tapOn:
+    id: "settings-pane-privacy"
+- extendedWaitUntil:
+    visible:
+      id: "privacy-settings-screen"
+    timeout: 10000
+- tapOn:
+    id: "privacy-health-records-button"
+- extendedWaitUntil:
+    visible:
+      id: "health-records-screen"
+    timeout: 10000
+- scrollUntilVisible:
+    element:
+      id: "health-records-kind-self_reports"
+    timeout: 10000
+- tapOn:
+    id: "health-records-kind-self_reports"
+- extendedWaitUntil:
+    visible:
+      id: "health-self-report-.*"
+    timeout: 15000
+- assertNotVisible:
+    text: ".*[a-z]+_[a-z]+.*"

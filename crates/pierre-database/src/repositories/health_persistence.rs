@@ -28,39 +28,9 @@
 //! Postgres, so one statement serves both drivers and cannot drift between
 //! them; nothing on these tables is spelled differently per engine.
 
-use pierre_core::models::DeviceType;
-
-// ============================================================================
-// DeviceType <-> text
-// ============================================================================
-
-/// The text `data_sources.device_type` stores for each [`DeviceType`].
-pub(crate) const fn device_type_to_str(dt: DeviceType) -> &'static str {
-    match dt {
-        DeviceType::Watch => "watch",
-        DeviceType::Band => "band",
-        DeviceType::Phone => "phone",
-        DeviceType::Ring => "ring",
-        DeviceType::Scale => "scale",
-        DeviceType::Unknown => "unknown",
-    }
-}
-
-/// The inverse of [`device_type_to_str`]; anything unrecognised is `Unknown`.
-pub(crate) fn str_to_device_type(s: &str) -> DeviceType {
-    match s.to_lowercase().as_str() {
-        "watch" => DeviceType::Watch,
-        "band" => DeviceType::Band,
-        "phone" => DeviceType::Phone,
-        "ring" => DeviceType::Ring,
-        "scale" => DeviceType::Scale,
-        _ => DeviceType::Unknown,
-    }
-}
-
-// ============================================================================
-// data_sources
-// ============================================================================
+/// A data source's device type as its stored text, and back.
+mod data_sources;
+pub(crate) use data_sources::{device_type_to_str, str_to_device_type};
 
 /// Insert or refresh a data source. The conflict target matches
 /// `idx_data_sources_identity` (NULL-coalesced, so provider-level sources
@@ -85,6 +55,17 @@ pub(crate) use lookups::{
     EARLIEST_SOURCE_DATED_SQL, EARLIEST_SOURCE_SLEEP_SQL, FIND_HEALTH_SNAPSHOT_TENANT_SQL,
     FIND_RECOVERY_METRIC_TENANT_SQL, FIND_SLEEP_SESSION_TENANT_SQL, GET_RECOVERY_ORIGINS_SQL,
     GET_SLEEP_ORIGINS_SQL, LIST_DATA_SOURCES_SQL,
+};
+
+/// The deletes: one row by id, softly or for good, the nights a window is
+/// re-read over and the days a span is.
+mod deletes;
+pub(crate) use deletes::{
+    DELETE_HEALTH_SNAPSHOTS_DATED_SQL, DELETE_HEALTH_SNAPSHOT_SQL,
+    DELETE_RECOVERY_METRICS_DATED_SQL, DELETE_RECOVERY_METRIC_SQL,
+    DELETE_SLEEP_SESSIONS_OVERLAPPING_SQL, DELETE_SLEEP_SESSION_SQL,
+    SOFT_DELETE_HEALTH_SNAPSHOT_SQL, SOFT_DELETE_RECOVERY_METRIC_SQL,
+    SOFT_DELETE_SLEEP_SESSION_SQL,
 };
 
 // ============================================================================
@@ -156,14 +137,6 @@ pub(crate) const GET_SLEEP_SESSIONS_SQL: &str = concat!(
             ORDER BY start_time DESC
             "
 );
-
-/// Soft-delete one session: stamps `deleted_at` once, never twice.
-pub(crate) const SOFT_DELETE_SLEEP_SESSION_SQL: &str = "UPDATE sleep_sessions SET deleted_at = $1 \
-                 WHERE id = $2 AND tenant_id = $3 AND deleted_at IS NULL";
-
-/// Hard-delete one session under its tenant.
-pub(crate) const DELETE_SLEEP_SESSION_SQL: &str =
-    "DELETE FROM sleep_sessions WHERE id = $1 AND tenant_id = $2";
 
 // ============================================================================
 // recovery_metrics
@@ -349,15 +322,6 @@ pub(crate) const GET_LATEST_RECOVERY_METRICS_SQL: &str = concat!(
             "
 );
 
-/// Soft-delete one recovery row: stamps `deleted_at` once, never twice.
-pub(crate) const SOFT_DELETE_RECOVERY_METRIC_SQL: &str =
-    "UPDATE recovery_metrics SET deleted_at = $1 \
-                 WHERE id = $2 AND tenant_id = $3 AND deleted_at IS NULL";
-
-/// Hard-delete one recovery row under its tenant.
-pub(crate) const DELETE_RECOVERY_METRIC_SQL: &str =
-    "DELETE FROM recovery_metrics WHERE id = $1 AND tenant_id = $2";
-
 // ============================================================================
 // health_snapshots
 // ============================================================================
@@ -468,15 +432,6 @@ pub(crate) const GET_LATEST_HEALTH_SNAPSHOTS_SQL: &str = concat!(
             ORDER BY h.date DESC
             "
 );
-
-/// Soft-delete one snapshot: stamps `deleted_at` once, never twice.
-pub(crate) const SOFT_DELETE_HEALTH_SNAPSHOT_SQL: &str =
-    "UPDATE health_snapshots SET deleted_at = $1 \
-                 WHERE id = $2 AND tenant_id = $3 AND deleted_at IS NULL";
-
-/// Hard-delete one snapshot under its tenant.
-pub(crate) const DELETE_HEALTH_SNAPSHOT_SQL: &str =
-    "DELETE FROM health_snapshots WHERE id = $1 AND tenant_id = $2";
 
 // ============================================================================
 // daily_activity
@@ -793,6 +748,27 @@ macro_rules! impl_health_persistence_repositories {
                 Ok(result.rows_affected() > 0)
             }
 
+            async fn delete_sleep_sessions_overlapping(
+                &self,
+                user_id: Uuid,
+                tenant_id: &TenantId,
+                provider: &str,
+                (from, to): (Timestamp, Timestamp),
+            ) -> AppResult<u64> {
+                sqlx::query(DELETE_SLEEP_SESSIONS_OVERLAPPING_SQL)
+                    .bind(user_id.to_string())
+                    .bind(tenant_id.to_string())
+                    .bind(provider)
+                    .bind(from)
+                    .bind(to)
+                    .execute(self.pool())
+                    .await
+                    .map(|done| done.rows_affected())
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to delete a sleep window: {e}"))
+                    })
+            }
+
             async fn find_sleep_session_tenant(&self, id: &str) -> AppResult<Option<TenantId>> {
                 let row = sqlx::query(FIND_SLEEP_SESSION_TENANT_SQL)
                     .bind(id)
@@ -965,6 +941,25 @@ macro_rules! impl_health_persistence_repositories {
                 Ok(result.rows_affected() > 0)
             }
 
+            async fn delete_recovery_metrics_dated(
+                &self,
+                user_id: Uuid,
+                tenant_id: &TenantId,
+                provider: &str,
+                (first, last): (CivilDate, CivilDate),
+            ) -> AppResult<u64> {
+                sqlx::query(DELETE_RECOVERY_METRICS_DATED_SQL)
+                    .bind(user_id.to_string())
+                    .bind(tenant_id.to_string())
+                    .bind(provider)
+                    .bind(first)
+                    .bind(last)
+                    .execute(self.pool())
+                    .await
+                    .map(|done| done.rows_affected())
+                    .map_err(|e| AppError::database(format!("Failed to delete recovery days: {e}")))
+            }
+
             async fn find_recovery_metric_tenant(&self, id: &str) -> AppResult<Option<TenantId>> {
                 let row = sqlx::query(FIND_RECOVERY_METRIC_TENANT_SQL)
                     .bind(id)
@@ -1105,6 +1100,25 @@ macro_rules! impl_health_persistence_repositories {
                 })?;
 
                 Ok(result.rows_affected() > 0)
+            }
+
+            async fn delete_health_snapshots_dated(
+                &self,
+                user_id: Uuid,
+                tenant_id: &TenantId,
+                provider: &str,
+                (first, last): (CivilDate, CivilDate),
+            ) -> AppResult<u64> {
+                sqlx::query(DELETE_HEALTH_SNAPSHOTS_DATED_SQL)
+                    .bind(user_id.to_string())
+                    .bind(tenant_id.to_string())
+                    .bind(provider)
+                    .bind(first)
+                    .bind(last)
+                    .execute(self.pool())
+                    .await
+                    .map(|done| done.rows_affected())
+                    .map_err(|e| AppError::database(format!("Failed to delete body days: {e}")))
             }
 
             async fn find_health_snapshot_tenant(&self, id: &str) -> AppResult<Option<TenantId>> {

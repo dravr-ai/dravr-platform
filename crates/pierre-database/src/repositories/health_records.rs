@@ -324,6 +324,20 @@ pub trait HealthRecordRepository: Send + Sync {
         records: &[ClinicalRecordWrite],
     ) -> AppResult<u64>;
 
+    /// Delete the athlete's self-reports filed under `provider` whose record
+    /// ids are in `record_ids`: the records their source no longer holds.
+    /// Returns how many rows were deleted; an id no row holds deletes nothing.
+    ///
+    /// # Errors
+    /// Returns a database error when a delete fails.
+    async fn delete_self_reports(
+        &self,
+        tenant_id: &TenantId,
+        user_id: Uuid,
+        provider: &str,
+        record_ids: &[String],
+    ) -> AppResult<u64>;
+
     /// The athlete's self-reports starting in `window`, newest first.
     ///
     /// # Errors
@@ -488,6 +502,11 @@ pub(crate) const UPSERT_CLINICAL_RECORD_SQL: &str = r"
         effective_at = excluded.effective_at,
         lab_document_id = excluded.lab_document_id,
         updated_at = excluded.updated_at";
+
+/// One of the athlete's self-reports under a provider key, by its record id.
+pub(crate) const DELETE_SELF_REPORT_SQL: &str = r"
+    DELETE FROM self_reports
+    WHERE tenant_id = $1 AND user_id = $2 AND provider = $3 AND record_id = $4";
 
 /// The athlete's self-reports starting in a window, newest first.
 pub(crate) const LIST_SELF_REPORTS_SQL: &str = r"
@@ -765,6 +784,35 @@ macro_rules! impl_health_record_repository {
                     written += done.rows_affected();
                 }
                 Ok(written)
+            }
+
+            async fn delete_self_reports(
+                &self,
+                tenant_id: &TenantId,
+                user_id: Uuid,
+                provider: &str,
+                record_ids: &[String],
+            ) -> AppResult<u64> {
+                if record_ids.is_empty() {
+                    return Ok(0);
+                }
+                let failed =
+                    |e: sqlx::Error| AppError::database(format!("delete_self_reports: {e}"));
+                let mut tx = self.pool().begin().await.map_err(failed)?;
+                let mut deleted = 0;
+                for record_id in record_ids {
+                    let done = sqlx::query(DELETE_SELF_REPORT_SQL)
+                        .bind($ids::bind(tenant_id.as_uuid()))
+                        .bind($ids::bind(user_id))
+                        .bind(provider)
+                        .bind(record_id)
+                        .execute(&mut *tx)
+                        .await
+                        .map_err(failed)?;
+                    deleted += done.rows_affected();
+                }
+                tx.commit().await.map_err(failed)?;
+                Ok(deleted)
             }
 
             async fn list_self_reports(

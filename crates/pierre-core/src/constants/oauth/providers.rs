@@ -564,9 +564,28 @@ pub const GARMIN_ARCHIVE: &str = "garmin_archive";
 /// Health export, held by dravr-barrage.
 ///
 /// Its activities are served from the activity cache, its sleep, resting heart
-/// rate and HRV from the wellness stores. No connection shares it: Apple
-/// Health has no live provider here, so nothing names it as a companion.
+/// rate and HRV from the wellness stores. It is [`APPLE_HEALTH`]'s companion:
+/// a read pinned to the athlete's iPhone also serves the export they imported.
 pub const APPLE_HEALTH_ARCHIVE: &str = "apple_health_archive";
+
+/// The source key of what the athlete's iPhone syncs from Apple Health.
+///
+/// The companion app reads `HealthKit` and sends it into dravr-barrage's
+/// `LiveSource::AppleHealth`. Apple Health is a relay: it holds what the athlete's watch and apps wrote
+/// into it, so a workout names its recorder as its `source`. Like an archive,
+/// the copy is the athlete's own, under their own terms: never expired, kept
+/// across every disconnect, and readable by AI, MCP, A2A and API keys alike,
+/// the tier consent narrowing that for T2 and T3. No connection backs it:
+/// the phone pushes it, nothing fetches, refreshes or revokes it.
+pub const APPLE_HEALTH: &str = "apple_health";
+
+/// The source key of what the athlete's Android phone syncs from Health
+/// Connect.
+///
+/// The companion app sends it into dravr-barrage's
+/// `LiveSource::HealthConnect`: a relay under the athlete's own terms, as
+/// [`APPLE_HEALTH`] is.
+pub const HEALTH_CONNECT: &str = "health_connect";
 
 /// The source key of a history the athlete imported from their own COROS
 /// export, held by dravr-barrage. It is apart from [`COROS`], the live
@@ -592,8 +611,8 @@ pub const ATHLETE: &str = "athlete";
 ///
 /// Every SQL statement that names user-provided keys lists exactly these, a
 /// rule `activity_cache::sql`'s tests hold the literals to. The list is
-/// dravr-barrage's archive sources plus its upload source, which
-/// `pierre_services::retention_policy`'s tests pin it to.
+/// dravr-barrage's archive sources, its upload source and its two on-device
+/// stores, which `pierre_services::retention_policy`'s tests pin it to.
 pub const USER_PROVIDED_PROVIDERS: &[&str] = &[
     UPLOAD,
     STRAVA_ARCHIVE,
@@ -601,6 +620,8 @@ pub const USER_PROVIDED_PROVIDERS: &[&str] = &[
     APPLE_HEALTH_ARCHIVE,
     COROS_ARCHIVE,
     WHOOP_ARCHIVE,
+    APPLE_HEALTH,
+    HEALTH_CONNECT,
 ];
 
 /// Whether `provider` is a key the athlete brought data in under
@@ -612,8 +633,9 @@ pub fn is_user_provided(provider: &str) -> bool {
 
 /// The [`SourceClass`] of an item served under the key `provider`.
 ///
-/// A device's own connection, an uploaded file and every archive the athlete
-/// imported are the device's record; a reading the athlete typed in is
+/// A device's own connection, an uploaded file, every archive the athlete
+/// imported and what their phone's health store syncs are the device's
+/// record; a reading the athlete typed in is
 /// theirs. A scrape mirror ([`MIRROR_PAIRS`]) relays the service it mirrors,
 /// so its items take that service's class: Strava read through sciotte is the
 /// device's record, as Strava over `OAuth` is, and TrainingPeaks read the same
@@ -638,12 +660,13 @@ pub fn source_class_of(provider: &str) -> SourceClass {
 /// The keys an athlete's own copies of `provider`'s activities are held under.
 ///
 /// Asking for `strava` also reads the Strava history they imported, and
-/// `garmin`, `coros` and `whoop` theirs. Apple Health has no live key to ask
-/// for.
+/// `garmin`, `coros` and `whoop` theirs. Asking for `apple_health`, what the
+/// athlete's iPhone syncs, also reads the Apple Health export they imported.
 #[must_use]
 pub fn companion_keys(provider: &str) -> &'static [&'static str] {
     match provider {
         STRAVA => &[STRAVA_ARCHIVE],
+        APPLE_HEALTH => &[APPLE_HEALTH_ARCHIVE],
         GARMIN => &[GARMIN_ARCHIVE],
         COROS => &[COROS_ARCHIVE],
         WHOOP => &[WHOOP_ARCHIVE],
@@ -750,6 +773,46 @@ mod tests {
         activity_attribution, garmin_contribution, garmin_recorded, garmin_service_attribution,
         workout_attribution, GarminContribution,
     };
+
+    mod device_stores {
+        use super::super::{
+            companion_keys, is_user_provided, source_class_of, APPLE_HEALTH, APPLE_HEALTH_ARCHIVE,
+            HEALTH_CONNECT,
+        };
+        use crate::ai_policy::SourceClass;
+
+        /// A phone's health store is the athlete's own copy of their devices'
+        /// records: kept as an archive is, and classed as the device's.
+        #[test]
+        fn a_phones_health_store_is_the_athletes_own_device_record() {
+            for key in [APPLE_HEALTH, HEALTH_CONNECT] {
+                assert!(
+                    is_user_provided(key),
+                    "bug: {key} would expire or go with a disconnect"
+                );
+                assert_eq!(
+                    source_class_of(key),
+                    SourceClass::Device,
+                    "bug: {key} relays a device's own record"
+                );
+            }
+        }
+
+        /// A read pinned to the iPhone's Apple Health also reads the export
+        /// the athlete imported; Health Connect has no export to read.
+        #[test]
+        fn apple_health_reads_its_export_beside_it() {
+            assert_eq!(
+                companion_keys(APPLE_HEALTH),
+                [APPLE_HEALTH_ARCHIVE],
+                "bug: the iPhone's lane does not read the imported export"
+            );
+            assert!(
+                companion_keys(HEALTH_CONNECT).is_empty(),
+                "bug: Health Connect names a companion it has none of"
+            );
+        }
+    }
 
     mod source_class {
         use super::super::{

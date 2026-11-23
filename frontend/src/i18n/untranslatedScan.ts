@@ -510,6 +510,10 @@ const DATA_MODULES = [
   // The keys a keyboard reports (`Enter`, `Escape`, `ArrowDown`). Translating
   // one would stop the palette answering to it.
   'src/hooks/composerKeys.ts',
+  // HealthKit and Health Connect type identifiers (`HKQuantityTypeIdentifierBodyMass`,
+  // `WeightRecord`) the phone hands its OS store. Translating one would stop the
+  // store answering to it.
+  'src/services/deviceHealth/catalogue.ts',
 ];
 
 /** Whether `file` is one of the data registries above. */

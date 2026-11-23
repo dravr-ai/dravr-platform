@@ -71,13 +71,19 @@ export function selfReportValueLabel(code: string, t: Translate): string {
   return codeLabel('selfReport.value', code, t);
 }
 
-/** A cycle-tracking entry's value: its quantity with its unit, else its code in words, else `null` (a presence). */
+/**
+ * A self-report's value: its code in words, else its quantity with its unit,
+ * else `null` (a presence). The code comes first because an entry carrying
+ * both says it in words: a mood's valence (-0.4 `valence`) is read as its
+ * class (`slightly_unpleasant`).
+ */
 export function selfReportValue(
   report: { value: number | null; unit: string | null; valueCode: string | null },
   t: Translate,
 ): string | null {
+  if (report.valueCode) return selfReportValueLabel(report.valueCode, t);
   if (report.value !== null) return report.unit ? `${report.value} ${report.unit}` : String(report.value);
-  return report.valueCode ? selfReportValueLabel(report.valueCode, t) : null;
+  return null;
 }
 
 /** The label key of each kind the records selector offers. */

@@ -95,6 +95,7 @@ crates/pierre-server/src/routes/chat/participants.rs:Cannot add a user who is no
 crates/pierre-server/src/routes/chat/room_quote.rs:That message is not shared with you
 crates/pierre-server/src/routes/coach_roster.rs:Only a coach attached to a group can read a roster
 crates/pierre-server/src/routes/coach_roster.rs:Your coach access is off, so you cannot read a roster
+crates/pierre-server/src/routes/device_health.rs:A phone's health data is synced and deleted only from Dravr's own app
 crates/pierre-server/src/routes/health_records.rs:Health records are not served to outside apps. The athlete sees them in Dravr.
 crates/pierre-server/src/routes/imports.rs:Imports are started and managed only from Dravr's own apps
 crates/pierre-server/src/routes/imports.rs:The import link names an account outside its tenant

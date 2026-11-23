@@ -20,6 +20,7 @@ export type {
 export { createApiClient, createAxiosClient } from './core/client';
 export type { ApiClient } from './core/client';
 export { ENDPOINTS } from './core/endpoints';
+export { requireShape } from './core/shape';
 export type { EndpointKeys } from './core/endpoints';
 
 // Re-export domain API factories

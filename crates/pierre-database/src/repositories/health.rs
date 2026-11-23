@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use async_trait::async_trait;
-use dravr_tronc::dates::Timestamp;
+use dravr_tronc::dates::{CivilDate, Timestamp};
 use pierre_core::errors::AppResult;
 
 use pierre_core::models::{
@@ -157,6 +157,18 @@ pub trait SleepRepository: Send + Sync {
         soft: bool,
     ) -> AppResult<bool>;
 
+    /// Delete for good every night `user_id` holds under `provider` that
+    /// overlaps the window `[from, to)` (it starts before `to` and ends after
+    /// `from`), soft-deleted nights included: the nights a source re-reads
+    /// that window into. Returns how many nights were deleted.
+    async fn delete_sleep_sessions_overlapping(
+        &self,
+        user_id: Uuid,
+        tenant_id: &TenantId,
+        provider: &str,
+        window: (Timestamp, Timestamp),
+    ) -> AppResult<u64>;
+
     /// Look up the owning tenant for a sleep session id.
     ///
     /// Discovery query used by adapters that receive an external id with
@@ -230,6 +242,17 @@ pub trait RecoveryRepository: Send + Sync {
         soft: bool,
     ) -> AppResult<bool>;
 
+    /// Delete for good every recovery day `user_id` holds under `provider`
+    /// dated `first` to `last`, both included, soft-deleted days included:
+    /// the days a source re-reads whole. Returns how many were deleted.
+    async fn delete_recovery_metrics_dated(
+        &self,
+        user_id: Uuid,
+        tenant_id: &TenantId,
+        provider: &str,
+        dates: (CivilDate, CivilDate),
+    ) -> AppResult<u64>;
+
     /// Look up the owning tenant for a recovery metric id.
     ///
     /// See [`SleepRepository::find_sleep_session_tenant`] for the rationale.
@@ -291,6 +314,18 @@ pub trait HealthSnapshotRepository: Send + Sync {
         id: &str,
         soft: bool,
     ) -> AppResult<bool>;
+
+    /// Delete for good every body day `user_id` holds under `provider`
+    /// dated `first` to `last`, both included, as
+    /// [`RecoveryRepository::delete_recovery_metrics_dated`] deletes recovery
+    /// days. Returns how many were deleted.
+    async fn delete_health_snapshots_dated(
+        &self,
+        user_id: Uuid,
+        tenant_id: &TenantId,
+        provider: &str,
+        dates: (CivilDate, CivilDate),
+    ) -> AppResult<u64>;
 
     /// Look up the owning tenant for a health snapshot id.
     ///

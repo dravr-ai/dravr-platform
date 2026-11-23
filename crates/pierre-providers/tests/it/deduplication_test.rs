@@ -3091,3 +3091,57 @@ fn the_start_window_rules_do_not_depend_on_arrival_order() {
         }
     }
 }
+
+// Two recorders' copies under one relay key (Phase 9, P7): Strava and Garmin
+// Connect both write one run into Apple Health or Health Connect, each with
+// its own sport label, under the one relay key. `terra` stands for the relay
+// keys here; a copy is told apart by the recorder it names as its source.
+
+fn relayed_copy(id: &str, sport: SportType, recorder: Option<&str>) -> Activity {
+    let builder = provider_activity(id, oauth_providers::TERRA, sport, base_time(), 3_000)
+        .distance_meters(10_000.0);
+    match recorder {
+        Some(recorder) => builder.source(recorder).build(),
+        None => builder.build(),
+    }
+}
+
+#[test]
+fn two_recorders_copies_of_one_run_under_one_relay_key_fold_across_sports() {
+    let activities = vec![
+        relayed_copy("hk-strava", SportType::Run, Some("Strava")),
+        relayed_copy("hk-garmin", SportType::TrailRunning, Some("Garmin Connect")),
+    ];
+    let (merged, report) = merge_duplicates(activities, &DedupConfig::default());
+    assert_eq!(
+        merged.len(),
+        1,
+        "bug: two recorders' overlapping copies under one relay key are one run: {:?}",
+        ids(&merged)
+    );
+    assert_eq!(report.groups.len(), 1, "bug: one group of two copies");
+}
+
+#[test]
+fn one_recorders_or_unnamed_copies_under_one_relay_key_stay_apart_across_sports() {
+    let one_recorder = vec![
+        relayed_copy("hk-a", SportType::Run, Some("Garmin Connect")),
+        relayed_copy("hk-b", SportType::TrailRunning, Some("Garmin Connect")),
+    ];
+    let (merged, _) = merge_duplicates(one_recorder, &DedupConfig::default());
+    assert_eq!(
+        merged.len(),
+        2,
+        "bug: one recorder's two sports are not two providers' copies"
+    );
+    let unnamed = vec![
+        relayed_copy("hk-c", SportType::Run, Some("Strava")),
+        relayed_copy("hk-d", SportType::TrailRunning, None),
+    ];
+    let (merged, _) = merge_duplicates(unnamed, &DedupConfig::default());
+    assert_eq!(
+        merged.len(),
+        2,
+        "bug: a copy naming no recorder is no evidence of a second one"
+    );
+}

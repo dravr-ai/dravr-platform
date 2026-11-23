@@ -20,6 +20,7 @@
 //! | `apple_health_archive`, `coros_archive`, `garmin_archive`, `strava_archive`, `whoop_archive` | the export's service | export |
 //! | a mirror backend (`sciotte`, `sciotte_coros`...) | the service it signed in to | capture |
 //! | `intervals_icu`, `trainingpeaks`, `terra`, naming another service's device | that service | relay |
+//! | `apple_health`, `health_connect` (a phone's health store), naming its recorder | the recorder's service, else apple / other | relay |
 //! | `upload` | the device's service, else upload | upload |
 //! | `athlete` | athlete | manual |
 //! | any other connection | its own service | api |
@@ -34,9 +35,9 @@
 
 pub use dravr_equilibre::precedence::{rank, Ingress, Kind, Service, Source};
 use pierre_core::constants::oauth_providers::{
-    garmin_recorded, APPLE_HEALTH_ARCHIVE, ATHLETE, COROS, COROS_ARCHIVE, GARMIN, GARMIN_ARCHIVE,
-    INTERVALS_ICU, STRAVA, STRAVA_ARCHIVE, SYNTHETIC, SYNTHETIC_SLEEP, TERRA, TRAININGPEAKS,
-    UPLOAD, WAHOO, WHOOP, WHOOP_ARCHIVE,
+    garmin_recorded, APPLE_HEALTH, APPLE_HEALTH_ARCHIVE, ATHLETE, COROS, COROS_ARCHIVE, GARMIN,
+    GARMIN_ARCHIVE, HEALTH_CONNECT, INTERVALS_ICU, STRAVA, STRAVA_ARCHIVE, SYNTHETIC,
+    SYNTHETIC_SLEEP, TERRA, TRAININGPEAKS, UPLOAD, WAHOO, WHOOP, WHOOP_ARCHIVE,
 };
 use pierre_core::models::{Activity, DataSource};
 
@@ -96,8 +97,12 @@ pub fn key_source(key: &str) -> Option<Source> {
         INTERVALS_ICU => source(Service::IntervalsIcu, Ingress::Api),
         TRAININGPEAKS => source(Service::TrainingPeaks, Ingress::Api),
         UPLOAD => source(Service::Upload, Ingress::Upload),
-        // An aggregator: what it holds is its devices' (a relay), never its own.
-        TERRA => source(Service::Other, Ingress::Relay),
+        // An aggregator, and Android's health store, which is no service's:
+        // what each holds is its devices' and apps' (a relay), never its own.
+        TERRA | HEALTH_CONNECT => source(Service::Other, Ingress::Relay),
+        // Apple's health store, holding what the athlete's watch and apps
+        // wrote into it.
+        APPLE_HEALTH => source(Service::Apple, Ingress::Relay),
         // Fixture data, generated on the spot.
         SYNTHETIC | SYNTHETIC_SLEEP => source(Service::Other, Ingress::Api),
         mirror if backend_resolver::is_mirror_backend(mirror) => {
@@ -116,11 +121,36 @@ fn base_source(key: &str) -> Source {
 /// Whether `key` is a service that relays other services' recordings: its
 /// rows name the service or device that recorded them.
 fn is_relay(key: &str) -> bool {
-    [INTERVALS_ICU, TRAININGPEAKS, TERRA].contains(&key)
+    [
+        INTERVALS_ICU,
+        TRAININGPEAKS,
+        TERRA,
+        APPLE_HEALTH,
+        HEALTH_CONNECT,
+    ]
+    .contains(&key)
+}
+
+/// Whether two activities are copies two recorders wrote into one relay: one
+/// relay key ([`is_relay`]), each naming its recorder as its `source`, the two
+/// names differing. A relay holds what every app and device synced to it, so
+/// Strava's and Garmin Connect's copies of one run sit under one key, often
+/// with two sports; a row naming no recorder is no evidence of a second one.
+pub(crate) fn two_recorders_of_one_relay(a: &Activity, b: &Activity) -> bool {
+    a.provider() == b.provider()
+        && is_relay(a.provider())
+        && matches!(
+            (a.source(), b.source()),
+            (Some(one), Some(other)) if !one.eq_ignore_ascii_case(other)
+        )
 }
 
 /// Whether a wellness row filed under `key` needs its data source to name
 /// its recorder ([`wellness_source`]): a relay's or an upload's row does.
+///
+/// A phone's health store files its wellness under one data source of its
+/// own (`source` `"device"`, naming no service), so its rows stay the key's
+/// own.
 #[must_use]
 pub fn needs_data_source(key: &str) -> bool {
     key == UPLOAD || is_relay(key)
@@ -196,12 +226,17 @@ pub fn activity_source(activity: &Activity) -> Source {
 }
 
 /// Whether a service's copies of a workout can be another service's
-/// recording relayed: Strava, intervals.icu, TrainingPeaks and an aggregator
-/// hold the recordings of the devices their athletes sync to them.
+/// recording relayed: Strava, intervals.icu, TrainingPeaks, Apple Health and
+/// an aggregator hold the recordings of the devices and apps their athletes
+/// sync to them.
 const fn relays_recordings(service: Service) -> bool {
     matches!(
         service,
-        Service::Strava | Service::IntervalsIcu | Service::TrainingPeaks | Service::Other
+        Service::Strava
+            | Service::IntervalsIcu
+            | Service::TrainingPeaks
+            | Service::Apple
+            | Service::Other
     )
 }
 
@@ -210,8 +245,9 @@ mod tests {
     use dravr_tronc::dates::Timestamp;
     use pierre_core::constants::oauth_providers::USER_PROVIDED_PROVIDERS;
     use pierre_core::constants::oauth_providers::{
-        APPLE_HEALTH_ARCHIVE, ATHLETE, COROS_ARCHIVE, GARMIN, GARMIN_ARCHIVE, INTERVALS_ICU,
-        SCIOTTE, SCIOTTE_COROS, STRAVA, STRAVA_ARCHIVE, UPLOAD, WHOOP, WHOOP_ARCHIVE,
+        APPLE_HEALTH, APPLE_HEALTH_ARCHIVE, ATHLETE, COROS_ARCHIVE, GARMIN, GARMIN_ARCHIVE,
+        HEALTH_CONNECT, INTERVALS_ICU, SCIOTTE, SCIOTTE_COROS, STRAVA, STRAVA_ARCHIVE, TERRA,
+        UPLOAD, WHOOP, WHOOP_ARCHIVE,
     };
     use pierre_core::models::{ActivityBuilder, DataSource, DeviceType, SportType};
 
@@ -282,6 +318,54 @@ mod tests {
             wellness_source(INTERVALS_ICU, Some(&relayed)),
             Source::new(Service::Garmin, Ingress::Relay)
         );
+    }
+
+    /// A phone's health store files its wellness under one data source
+    /// naming no service (`source` `"device"`), so a day or a night read back
+    /// is the store's own, never a service's it does not name.
+    #[test]
+    fn a_phones_health_store_wellness_is_the_stores_own() {
+        for key in [APPLE_HEALTH, HEALTH_CONNECT] {
+            let filed = data_source(key, None, Some("device"));
+            let own = key_source(key).expect("a device store is a written key");
+            assert_eq!(
+                wellness_source(key, Some(&filed)),
+                own,
+                "bug: {key}'s wellness was ranked as another service's"
+            );
+            assert_eq!(own.ingress, Ingress::Relay, "bug: {key} is a relay");
+        }
+        assert_eq!(
+            key_source(APPLE_HEALTH).map(|source| source.service),
+            Some(Service::Apple),
+            "bug: Apple Health is Apple's store"
+        );
+    }
+
+    /// A workout an app wrote into a phone's health store is that app's
+    /// recording relayed, and two apps' copies of one session under one store
+    /// are two recorders of one relay.
+    #[test]
+    fn a_phones_health_store_workout_is_its_recorders_relayed() {
+        assert_eq!(
+            activity_source(&run(APPLE_HEALTH, Some("Watch7,1"), Some("Connect"))),
+            Source::new(Service::Apple, Ingress::Relay),
+            "bug: an Apple Watch recording synced by the iPhone is Apple's"
+        );
+        assert_eq!(
+            activity_source(&run(HEALTH_CONNECT, None, Some("Garmin Connect"))),
+            Source::new(Service::Garmin, Ingress::Relay),
+            "bug: Garmin Connect's copy in Health Connect is Garmin's, relayed"
+        );
+        for key in [APPLE_HEALTH, HEALTH_CONNECT] {
+            assert!(
+                two_recorders_of_one_relay(
+                    &run(key, None, Some("Strava")),
+                    &run(key, None, Some("Garmin Connect"))
+                ),
+                "bug: {key} holds two recorders' copies of one session"
+            );
+        }
     }
 
     #[test]
@@ -400,6 +484,53 @@ mod tests {
         assert_eq!(
             activity_source(&run(WHOOP, None, None)),
             Source::new(Service::Whoop, Ingress::Api)
+        );
+    }
+
+    #[test]
+    fn two_recorders_are_told_apart_only_under_one_relay_key_naming_both() {
+        let strava = run(TERRA, None, Some("Strava"));
+        let garmin = run(TERRA, None, Some("Garmin Connect"));
+        assert!(
+            two_recorders_of_one_relay(&strava, &garmin),
+            "bug: two recorders' copies under one relay key"
+        );
+        assert!(
+            !two_recorders_of_one_relay(&strava, &run(TERRA, None, Some("strava"))),
+            "bug: one recorder, its name in another case, read as two"
+        );
+        assert!(
+            !two_recorders_of_one_relay(&strava, &run(TERRA, None, None)),
+            "bug: a copy naming no recorder read as a second recorder"
+        );
+        assert!(
+            !two_recorders_of_one_relay(
+                &run(STRAVA, None, Some("Strava")),
+                &run(STRAVA, None, Some("Garmin Connect"))
+            ),
+            "bug: a key that is no relay read as one"
+        );
+        assert!(
+            !two_recorders_of_one_relay(&strava, &run(INTERVALS_ICU, None, Some("Garmin"))),
+            "bug: two keys are two providers, not two recorders of one relay"
+        );
+    }
+
+    #[test]
+    fn an_apple_health_copy_of_a_garmin_recording_is_garmins_relayed() {
+        assert_eq!(
+            activity_source(&run(APPLE_HEALTH_ARCHIVE, None, Some("Garmin Connect"))),
+            Source::new(Service::Garmin, Ingress::Relay),
+            "bug: Apple Health relays what Garmin Connect wrote into it"
+        );
+        assert_eq!(
+            activity_source(&run(
+                APPLE_HEALTH_ARCHIVE,
+                Some("Apple Watch Ultra 2"),
+                None
+            )),
+            Source::new(Service::Apple, Ingress::Export),
+            "bug: an Apple Watch recording is Apple's own"
         );
     }
 }

@@ -42,8 +42,9 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 
-use dravr_riviere::{DataPoint, SeriesType};
-use dravr_tronc::dates::Timestamp;
+use dravr_barrage::device::{QuantityKind, QuantityWindow};
+use dravr_riviere::{DataPoint, SeriesType, TimeRange};
+use dravr_tronc::dates::{CivilDate, Timestamp};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{
     DataSource, StoredDailyActivity, StoredHealthMetrics, StoredRecoveryMetrics,
@@ -221,6 +222,111 @@ impl<'repos> WellnessStore<'repos> {
             .delete_sleep_session_by_id(&tenant_id, id, soft)
             .await?;
         Ok(true)
+    }
+
+    /// Delete for good every night `user_id` holds under `provider` in
+    /// `tenant_id` that overlaps `[from, to)`: the window a source re-reads
+    /// whole, so the nights it sends again replace them and a night it no
+    /// longer holds is gone. A night only touching an edge is kept. Returns
+    /// how many nights were deleted.
+    ///
+    /// # Errors
+    /// Returns the repository's error when the delete fails.
+    pub async fn delete_sleep_window(
+        &self,
+        tenant_id: &TenantId,
+        user_id: Uuid,
+        provider: &str,
+        (from, to): (Timestamp, Timestamp),
+    ) -> AppResult<u64> {
+        self.repos
+            .sleep
+            .delete_sleep_sessions_overlapping(user_id, tenant_id, provider, (from, to))
+            .await
+    }
+
+    /// Delete for good what `source`'s key holds for its athlete in
+    /// `tenant_id` of the readings a phone's quantity window re-read, so the
+    /// readings it sends again replace them and one it no longer holds is
+    /// gone: a series kind's points (SDNN, glucose) in `[from, to)`, under
+    /// the key's data source; a day-level kind's recovery and body days of
+    /// the window's local dates. Returns how many rows were deleted.
+    ///
+    /// # Errors
+    /// Returns the repository's error when recording the source or a delete
+    /// fails.
+    pub async fn delete_quantity_window(
+        &self,
+        tenant_id: &TenantId,
+        source: &DataSource,
+        window: &QuantityWindow,
+    ) -> AppResult<u64> {
+        let series = match window.kind {
+            QuantityKind::HrvSdnn => SeriesType::HrvSdnn,
+            QuantityKind::Glucose => SeriesType::BloodGlucose,
+            QuantityKind::RestingHeartRate | QuantityKind::HrvRmssd | QuantityKind::BodyMass => {
+                let Some(dates) = window.local_dates() else {
+                    return Ok(0);
+                };
+                let user_id = Uuid::parse_str(&source.user_id).map_err(|e| {
+                    AppError::invalid_input(format!("data source owner {}: {e}", source.user_id))
+                })?;
+                return self
+                    .delete_days(
+                        tenant_id,
+                        user_id,
+                        &source.provider,
+                        (*dates.start(), *dates.end()),
+                    )
+                    .await;
+            }
+        };
+        self.delete_series_window(tenant_id, source, series, (window.from, window.to))
+            .await
+    }
+
+    /// Delete for good the series points of `series` that the data source
+    /// `source` holds in `tenant_id`, recorded in `[from, to)`. The source is
+    /// recorded first, as a write of the same batch records it, so the
+    /// points it owns are its athlete's own and no one else's.
+    async fn delete_series_window(
+        &self,
+        tenant_id: &TenantId,
+        source: &DataSource,
+        series: SeriesType,
+        (from, to): (Timestamp, Timestamp),
+    ) -> AppResult<u64> {
+        if from >= to {
+            return Ok(0);
+        }
+        let source_id = self.record_data_source(tenant_id, source).await?;
+        self.repos
+            .time_series_points
+            .delete_range(&source_id, series.id(), &TimeRange::new(from, to))
+            .await
+            .map_err(|e| AppError::database(format!("delete series {}: {e}", series.as_str())))
+    }
+
+    /// Delete for good the recovery and body days `user_id` holds under
+    /// `provider` in `tenant_id` dated `first` to `last`, both included.
+    async fn delete_days(
+        &self,
+        tenant_id: &TenantId,
+        user_id: Uuid,
+        provider: &str,
+        dates: (CivilDate, CivilDate),
+    ) -> AppResult<u64> {
+        let recovery = self
+            .repos
+            .recovery
+            .delete_recovery_metrics_dated(user_id, tenant_id, provider, dates)
+            .await?;
+        let body = self
+            .repos
+            .health_snapshots
+            .delete_health_snapshots_dated(user_id, tenant_id, provider, dates)
+            .await?;
+        Ok(recovery + body)
     }
 
     /// Delete the recovery day stored under `id`, as
