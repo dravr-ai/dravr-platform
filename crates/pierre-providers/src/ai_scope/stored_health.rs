@@ -22,7 +22,7 @@ use pierre_database::repositories::WellnessRowOrigin;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
-use super::filter_typed;
+use super::{filter_typed, Dated};
 
 /// A stored health record — a night's sleep, a day's recovery, a day's body
 /// metrics, a day's activity totals — as the sync pipeline persisted it.
@@ -34,6 +34,9 @@ pub trait StoredHealthRecord: Serialize + DeserializeOwned {
     fn data_source_id(&self) -> &str;
     /// The provider the record was stored under.
     fn source_name(&self) -> &str;
+    /// When the record is dated, for a grant's window floor; `None` for one
+    /// that names no date.
+    fn dated(&self) -> Option<Dated>;
 }
 
 impl StoredHealthRecord for StoredSleepSession {
@@ -43,6 +46,10 @@ impl StoredHealthRecord for StoredSleepSession {
 
     fn source_name(&self) -> &str {
         &self.source_name
+    }
+
+    fn dated(&self) -> Option<Dated> {
+        Some(Dated::At(self.start_datetime))
     }
 }
 
@@ -54,6 +61,10 @@ impl StoredHealthRecord for StoredRecoveryMetrics {
     fn source_name(&self) -> &str {
         &self.source_name
     }
+
+    fn dated(&self) -> Option<Dated> {
+        Some(Dated::Day(self.date))
+    }
 }
 
 impl StoredHealthRecord for StoredHealthMetrics {
@@ -63,6 +74,10 @@ impl StoredHealthRecord for StoredHealthMetrics {
 
     fn source_name(&self) -> &str {
         &self.source_name
+    }
+
+    fn dated(&self) -> Option<Dated> {
+        Some(Dated::Day(self.date))
     }
 }
 
@@ -74,6 +89,10 @@ impl StoredHealthRecord for StoredDailyActivity {
     fn source_name(&self) -> &str {
         &self.source_name
     }
+
+    fn dated(&self) -> Option<Dated> {
+        Some(Dated::Day(self.date))
+    }
 }
 
 impl StoredHealthRecord for WellnessRowOrigin {
@@ -83,6 +102,10 @@ impl StoredHealthRecord for WellnessRowOrigin {
 
     fn source_name(&self) -> &str {
         &self.provider
+    }
+
+    fn dated(&self) -> Option<Dated> {
+        None
     }
 }
 

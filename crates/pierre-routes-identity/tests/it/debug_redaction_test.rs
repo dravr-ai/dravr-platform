@@ -24,7 +24,7 @@ fn printed_without(value: &impl Debug, secrets: &[&str]) -> String {
 }
 
 #[test]
-fn the_login_page_never_prints_its_state_password_or_google_link() {
+fn the_login_page_never_prints_its_state_password_google_link_or_request_uri() {
     let labels = LoginPageLabels::new(&MessagingStringsRegistry::new(), "en");
     let params = LoginHtmlParams {
         client_id: "mcp-client",
@@ -35,10 +35,12 @@ fn the_login_page_never_prints_its_state_password_or_google_link() {
         code_challenge: "challenge",
         code_challenge_method: "S256",
         resource: "",
+        request_uri: "urn:ietf:params:oauth:request_uri:sentinel-request-uri-7f3a",
         default_email: "dev@example.com",
         default_password: "sentinel-password-7f3a",
         google_start_url: Some("/oauth2/google/start?state=sentinel-google-7f3a"),
         labels: &labels,
+        authorization_details: "",
     };
     let printed = printed_without(
         &params,
@@ -46,14 +48,15 @@ fn the_login_page_never_prints_its_state_password_or_google_link() {
             "sentinel-state-7f3a",
             "sentinel-password-7f3a",
             "sentinel-google-7f3a",
+            "sentinel-request-uri-7f3a",
         ],
     );
-    assert_eq!(printed.matches("[REDACTED]").count(), 3, "{printed}");
+    assert_eq!(printed.matches("[REDACTED]").count(), 4, "{printed}");
     assert!(printed.contains("mcp-client"), "{printed}");
 }
 
 #[test]
-fn the_consent_page_never_prints_its_state_csrf_token_or_switch_link() {
+fn the_consent_page_never_prints_its_state_csrf_token_switch_link_or_request_uri() {
     let strings = MessagingStringsRegistry::new();
     let params = ConsentHtmlParams {
         client_id: "mcp-client",
@@ -64,6 +67,7 @@ fn the_consent_page_never_prints_its_state_csrf_token_or_switch_link() {
         code_challenge: "challenge",
         code_challenge_method: "S256",
         resource: "",
+        request_uri: "urn:ietf:params:oauth:request_uri:sentinel-request-uri-7f3a",
         csrf_token: "sentinel-csrf-7f3a",
         client_label: "Example Client",
         account_email: "athlete@example.com",
@@ -71,6 +75,7 @@ fn the_consent_page_never_prints_its_state_csrf_token_or_switch_link() {
         first_party_only_sources: &["Strava"],
         text: &ConsentText::new(&strings, "en"),
         role: ConsentRole::default(),
+        grant_choice: None,
     };
     let printed = printed_without(
         &params,
@@ -78,8 +83,9 @@ fn the_consent_page_never_prints_its_state_csrf_token_or_switch_link() {
             "sentinel-state-7f3a",
             "sentinel-csrf-7f3a",
             "sentinel-switch-7f3a",
+            "sentinel-request-uri-7f3a",
         ],
     );
-    assert_eq!(printed.matches("[REDACTED]").count(), 3, "{printed}");
+    assert_eq!(printed.matches("[REDACTED]").count(), 4, "{printed}");
     assert!(printed.contains("Example Client"), "{printed}");
 }

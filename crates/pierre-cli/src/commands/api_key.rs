@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use clap::Subcommand;
 use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::civil_time::UTC_MINUTE;
 use pierre_core::errors::{AppError, AppResult};
@@ -12,6 +13,44 @@ use pierre_database::RepositoryRegistry;
 use super::tool::lookup_user;
 
 type Result<T> = AppResult<T>;
+
+/// `pierre-cli api-key`: a user's API keys, and the tools one key called.
+#[non_exhaustive]
+#[derive(Subcommand)]
+pub(crate) enum ApiKeyCommand {
+    /// List a user's API keys, revoked ones marked
+    List {
+        /// Email of the key owner
+        #[arg(long)]
+        email: String,
+    },
+
+    /// Show one key's requests and the tools it called, most-called first
+    Usage {
+        /// Email of the key owner; the key must be theirs
+        #[arg(long)]
+        email: String,
+
+        /// API key id (from `api-key list`)
+        key_id: String,
+
+        /// Window in days, ending now
+        #[arg(long, default_value_t = 30)]
+        days: u32,
+    },
+}
+
+/// Run one `api-key` verb.
+pub(crate) async fn dispatch(repos: &RepositoryRegistry, action: ApiKeyCommand) -> Result<()> {
+    match action {
+        ApiKeyCommand::List { email } => list(repos, email).await,
+        ApiKeyCommand::Usage {
+            email,
+            key_id,
+            days,
+        } => usage(repos, email, key_id, days).await,
+    }
+}
 
 /// List every API key a user owns, revoked ones included and marked.
 pub(crate) async fn list(repos: &RepositoryRegistry, email: String) -> Result<()> {

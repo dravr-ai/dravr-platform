@@ -48,6 +48,8 @@ fn create_test_auth_result(user_id: Uuid) -> AuthResult {
             impersonation: None,
         },
         active_tenant_id: None,
+        client_grant_id: None,
+        ceiling: None,
     }
 }
 

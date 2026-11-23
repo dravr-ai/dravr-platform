@@ -125,6 +125,7 @@ async fn authorize(database: &Database, client_id: &str) -> Timestamp {
         family_id: "test-family".to_owned(),
         family_created_at: None,
         resource: None,
+        client_grant_id: None,
     };
     database
         .repositories()
@@ -156,6 +157,7 @@ async fn issue_dependents(database: &Database, client_id: &str) {
             code_challenge: None,
             code_challenge_method: None,
             resource: None,
+            client_grant_id: None,
         })
         .await
         .unwrap();
@@ -193,6 +195,8 @@ async fn grant(database: &Database, client_id: &str) {
             revoked_at: None,
             consent_version: None,
             consent_locale: None,
+            authorization_details: None,
+            expires_at: None,
         })
         .await
         .unwrap();
@@ -325,6 +329,7 @@ async fn an_expired_registration_past_its_grace_goes_with_everything_issued_thro
             expired: 1,
             abandoned: 0,
             orphaned_grants: 1,
+            expired_pushed_requests: 0,
         }
     );
 
@@ -374,6 +379,7 @@ async fn a_registration_no_user_authorized_is_reclaimed_after_a_day() {
             expired: 0,
             abandoned: 1,
             orphaned_grants: 1,
+            expired_pushed_requests: 0,
         }
     );
     assert!(!exists(&database, &abandoned).await);

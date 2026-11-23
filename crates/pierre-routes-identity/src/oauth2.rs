@@ -16,6 +16,7 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
+use dravr_tronc::dates::Timestamp;
 use pierre_auth::admin::jwks::JwksManager;
 use pierre_auth::auth::{AuthManager, Claims};
 use pierre_auth::config::oauth::OAuth2ServerConfig;
@@ -25,7 +26,7 @@ use pierre_auth::oauth2_server::{
     endpoints::{AdminAccess, CheckedAuthorization, OAuth2AuthorizationServer},
     first_party::is_first_party,
     models::{
-        AuthorizeRequest, ClientRegistrationPayload, OAuth2Error, TokenRequest,
+        AuthorizeRejection, AuthorizeRequest, ClientRegistrationPayload, OAuth2Error, TokenRequest,
         ValidateRefreshRequest, ValidateRefreshResponse, ValidationStatus,
     },
     rate_limiting::OAuth2RateLimiter,
@@ -43,15 +44,19 @@ use secrecy::{ExposeSecret, SecretString};
 use std::fmt;
 use std::{collections::HashMap, net::SocketAddr, sync::Arc};
 use tokio::task::spawn_blocking;
-use tracing::{debug, error, info, trace, warn};
+use tracing::{debug, error, info, warn};
 
 use crate::authorize_redirect::{code_redirect, error_redirect, rejection_response};
 use crate::oauth2_rate_limited::{page_refusal, refusal};
 
+use self::authorize_params::requests_fresh_login;
+use self::pages::ConsentReader;
 use self::session::SignInCookie;
 
 /// The consent screen's Admin access box, offered to a live admin (carnet#1511)
 mod admin_access;
+/// How a pending authorization request travels between the flow's pages
+mod authorize_params;
 /// The consent form's submission: the user's decision on an authorization
 mod consent;
 /// What the consent screen says about who is asking and where the data goes
@@ -64,6 +69,8 @@ mod consent_text;
 mod consent_version;
 /// "Continue with Google": server-side Google sign-in on the hosted login page
 mod google_login;
+/// RFC 7662 token introspection for the resource servers an admin named
+mod introspect;
 /// The JWKS endpoint serving the RS256 public keys
 mod jwks;
 /// The hosted login form's submission: a metered password sign-in
@@ -72,10 +79,16 @@ mod login_form;
 mod login_text;
 /// Server-rendered login, consent and error pages of the authorization flow
 mod pages;
+/// RFC 9126 pushed authorization requests
+mod par;
+/// What the consent screen offers to grant, and the review digest of each choice
+mod picker;
 /// RFC 7009 token revocation
 mod revoke;
 /// The sign-in cookie: its name, value and reading.
 mod session;
+/// `POST /oauth2/token-validate`: the SDK's check of its own token
+mod token_validate;
 /// did:web for the checkpoint key and the newest signed checkpoint (carnet#1542)
 mod transparency;
 /// What a hosted page shows its reader, as the consent text version reads it.
@@ -87,6 +100,7 @@ pub use consent_text::ConsentText;
 pub use google_login::GoogleSignIn;
 pub use login_text::LoginPageLabels;
 pub use pages::{ConsentHtmlParams, ConsentRole, LoginHtmlParams};
+pub use picker::GrantChoice;
 
 /// OAuth 2.0 server context shared across all handlers
 #[derive(Clone)]
@@ -191,10 +205,14 @@ impl OAuth2Routes {
             .route("/oauth2/register", post(Self::handle_client_registration))
             // OAuth 2.0 Authorization endpoint
             .route("/oauth2/authorize", get(Self::handle_authorization))
+            // RFC 9126: Pushed Authorization Requests
+            .route("/oauth2/par", post(Self::handle_par))
             // OAuth 2.0 Token endpoint
             .route("/oauth2/token", post(Self::handle_token))
             // RFC 7009: Token Revocation
             .route("/oauth2/revoke", post(Self::handle_revoke))
+            // RFC 7662: Token Introspection
+            .route("/oauth2/introspect", post(Self::handle_introspect))
             // Login page and submission
             .route("/oauth2/login", get(Self::handle_oauth_login_page))
             .route("/oauth2/login", post(Self::handle_oauth_login_submit))
@@ -255,7 +273,16 @@ impl OAuth2Routes {
             return refused;
         }
 
-        // Parse query parameters into AuthorizeRequest
+        // A pushed request (RFC 9126) is read from the store, and the rest of
+        // the query is ignored.
+        let resolved = match Self::resolve_authorize_params(&context, params).await {
+            Ok(resolved) => resolved,
+            Err(error) => {
+                let text = Self::reader_text(&context, &headers).await;
+                return Self::render_oauth_error_response(&error, &text);
+            }
+        };
+        let params = resolved.params;
         let request = match Self::parse_authorize_request(&params) {
             Ok(req) => req,
             Err(error) => {
@@ -269,7 +296,11 @@ impl OAuth2Routes {
         let checked = match Self::authorization_server(&context)
             .check_authorize_request(&request)
             .await
-        {
+            .and_then(|checked| {
+                picker::refuse_unoffered_details(&context.strings, &checked)
+                    .map(|()| checked)
+                    .map_err(AuthorizeRejection::RedirectedToClient)
+            }) {
             Ok(checked) => checked,
             Err(rejection) => {
                 let text = Self::reader_text(&context, &headers).await;
@@ -285,7 +316,7 @@ impl OAuth2Routes {
         // app and back in never lands in the account the browser remembers.
         // The login redirect below does not carry `prompt`, so the request
         // the form sends back after the password is checked proceeds.
-        let (user_id, tenant_id) = if requests_fresh_login(&params) {
+        let (user_id, tenant_id) = if resolved.honours_prompt && requests_fresh_login(&params) {
             (None, None)
         } else {
             Self::extract_authenticated_user(&headers, &context).await
@@ -429,7 +460,12 @@ impl OAuth2Routes {
         // otherwise show consent before any code is minted.
         let grant_tenant =
             Self::resolve_grant_tenant(context, authenticated_user_id, tenant_id.clone()).await;
-        let has_grant = match &grant_tenant {
+        let subject = consent_version::ConsentSubject {
+            client_id: &request.client_id,
+            redirect_uri: &redirect_uri,
+            first_party_only_sources: &context.first_party_only_sources,
+        };
+        let skip_grant = match &grant_tenant {
             Some(tid) => context
                 .oauth2_server
                 .find_active_client_grant(
@@ -443,23 +479,18 @@ impl OAuth2Routes {
                     error!("Failed to look up the client grant, showing consent: {e}");
                     None
                 })
-                .is_some_and(|grant| {
-                    consent_version::approved_under_current_text(
-                        &context.strings,
-                        &grant,
-                        consent_version::ConsentSubject {
-                            client_id: &request.client_id,
-                            redirect_uri: &redirect_uri,
-                            first_party_only_sources: &context.first_party_only_sources,
-                        },
-                    )
+                .filter(|grant| {
+                    grant.is_live_at(Timestamp::now())
+                        && picker::skip_accepts(&context.strings, grant, checked, subject)
                 }),
-            None => false,
+            None => None,
         };
 
         // An admin always sees the screen: Admin access is chosen per
         // connection and never granted again silently (carnet#1511, Q20).
-        if has_grant && !checked.consent_every_time && !user.role.is_admin() {
+        // The code names the grant the screen was skipped under.
+        let skippable = !checked.consent_every_time && !user.role.is_admin();
+        if let Some(grant) = skip_grant.filter(|_| skippable) {
             return Self::mint_authorization_code(
                 context,
                 request,
@@ -467,12 +498,18 @@ impl OAuth2Routes {
                 tenant_id,
                 redirect_uri,
                 AdminAccess::Withheld,
+                Some(grant.id),
             )
             .await;
         }
 
         let text = ConsentText::for_reader(&context.strings, Some(&user.locale), headers);
         let role = Self::consent_role(context, &user, checked.admin_grantable).await;
+        let raw_details = request.authorization_details.as_deref();
+        let choice = match GrantChoice::for_screen(checked, raw_details, &text, subject) {
+            Ok(choice) => choice,
+            Err(error) => return Self::render_oauth_error_response(&error, &text),
+        };
         // The consent form's synchronizer token, bound to this user: a page
         // on another origin cannot read it, so it cannot post an approval.
         match context.csrf_manager.generate_token(authenticated_user_id) {
@@ -480,10 +517,13 @@ impl OAuth2Routes {
                 &request,
                 &csrf_token,
                 checked.client_name.as_deref(),
-                &user.email,
                 &context.first_party_only_sources,
                 &text,
-                role,
+                ConsentReader {
+                    account_email: &user.email,
+                    role,
+                    grant_choice: &choice,
+                },
             ),
             Err(e) => {
                 error!("Failed to mint the consent form token: {e}");
@@ -536,7 +576,9 @@ impl OAuth2Routes {
     ///
     /// Reached only with a request [`OAuth2AuthorizationServer::check_authorize_request`]
     /// accepted, so the client and `redirect_uri` are verified and a failure
-    /// here goes back to the client too.
+    /// here goes back to the client too. `client_grant_id` is the consent
+    /// grant the code is issued under, `None` for Dravr's own apps, which no
+    /// consent grant governs.
     async fn mint_authorization_code(
         context: &OAuth2Context,
         request: AuthorizeRequest,
@@ -544,10 +586,24 @@ impl OAuth2Routes {
         tenant_id: Option<String>,
         redirect_uri: String,
         access: AdminAccess,
+        client_grant_id: Option<String>,
     ) -> Response {
         let state = request.state.clone();
+        // A pushed request yields one code: spent before it is minted.
+        if let Err(error) = Self::spend_pushed_request(context, &request).await {
+            let user = context.users.get_global(authenticated_user_id).await;
+            let locale = user.ok().flatten().map(|user| user.locale);
+            let text = ConsentText::new(&context.strings, locale.as_deref().unwrap_or_default());
+            return Self::render_oauth_error_response(&error, &text);
+        }
         match Self::authorization_server(context)
-            .authorize_with_admin_access(request, Some(authenticated_user_id), tenant_id, access)
+            .authorize_with_admin_access(
+                request,
+                Some(authenticated_user_id),
+                tenant_id,
+                access,
+                client_grant_id,
+            )
             .await
         {
             Ok(response) => {
@@ -727,98 +783,6 @@ impl OAuth2Routes {
         response
     }
 
-    /// Build validation response for valid credentials
-    fn validation_success_response() -> Response {
-        (
-            StatusCode::OK,
-            Json(serde_json::json!({
-                "valid": true
-            })),
-        )
-            .into_response()
-    }
-
-    /// Build validation response for invalid client
-    fn validation_invalid_client_response() -> Response {
-        (
-            StatusCode::OK,
-            Json(serde_json::json!({
-                "valid": false,
-                "error": "invalid_client",
-                "error_description": "Client ID not found or invalid"
-            })),
-        )
-            .into_response()
-    }
-
-    /// Build validation response for missing credentials
-    fn validation_missing_credentials_response() -> Response {
-        (
-            StatusCode::OK,
-            Json(serde_json::json!({
-                "valid": false,
-                "error": "invalid_request",
-                "error_description": "Either access token or client_id must be provided"
-            })),
-        )
-            .into_response()
-    }
-
-    /// Validate `client_id` and return appropriate response
-    async fn validate_client_id_response(
-        oauth2_server: Arc<dyn OAuth2ServerRepository>,
-        client_id: &str,
-    ) -> Response {
-        let client_manager = ClientRegistrationManager::new(oauth2_server);
-        match client_manager.get_client(client_id).await {
-            Ok(_) => {
-                info!(
-                    "Credentials validated successfully for client_id: {}",
-                    client_id
-                );
-                Self::validation_success_response()
-            }
-            Err(e) => {
-                ClientRegistrationManager::log_lookup_failure(client_id, &e);
-                Self::validation_invalid_client_response()
-            }
-        }
-    }
-
-    /// Handle token validation request (POST /oauth2/token-validate)
-    async fn handle_token_validate(
-        State(context): State<OAuth2Context>,
-        headers: HeaderMap,
-        Json(request): Json<serde_json::Value>,
-    ) -> Response {
-        debug!("Token validation request received");
-
-        // Extract client_id from request body (optional)
-        let client_id = request.get("client_id").and_then(|v| v.as_str());
-
-        // Validate access token if provided
-        let token_valid = match Self::validate_bearer_token_for_validate_endpoint(
-            &headers,
-            &context.auth_manager,
-            &context.jwks_manager,
-            &context.config.mcp_resources(),
-        ) {
-            Ok(valid) => valid,
-            Err(response) => return *response,
-        };
-
-        // Validate client_id if provided
-        if let Some(cid) = client_id {
-            return Self::validate_client_id_response(context.oauth2_server, cid).await;
-        }
-
-        if token_valid {
-            Self::validation_success_response()
-        } else {
-            Self::validation_missing_credentials_response()
-        }
-    }
-
     /// Handle OAuth login page (GET /oauth2/login)
     async fn handle_oauth_login_page(
         State(context): State<OAuth2Context>,
@@ -858,6 +822,12 @@ impl OAuth2Routes {
         let resource = params
             .get("resource")
             .map_or_else(String::new, ToString::to_string);
+        let request_uri = params
+            .get("request_uri")
+            .map_or_else(String::new, ToString::to_string);
+        let authorization_details = params
+            .get("authorization_details")
+            .map_or_else(String::new, ToString::to_string);
 
         // Get default form values from OAuth2ServerConfig (for dev/test only)
         // Safe: Option<String> ownership for HTML template
@@ -877,7 +847,10 @@ impl OAuth2Routes {
         let google_start_url = context
             .google_sign_in
             .as_ref()
-            .and_then(|_| Self::parse_authorize_request(&params).ok())
+            .and_then(|_| {
+                Self::pushed_reference(&params)
+                    .or_else(|| Self::parse_authorize_request(&params).ok())
+            })
             .map(|request| {
                 Self::authorize_params_url(
                     &format!(
@@ -899,6 +872,8 @@ impl OAuth2Routes {
                 code_challenge: &code_challenge,
                 code_challenge_method: &code_challenge_method,
                 resource: &resource,
+                request_uri: &request_uri,
+                authorization_details: &authorization_details,
                 default_email: &default_email,
                 default_password: &default_password,
                 google_start_url: google_start_url.as_deref(),
@@ -958,163 +933,6 @@ impl OAuth2Routes {
             })
     }
 
-    /// Validate Bearer token for token-validate endpoint (returns OK with valid:false on errors).
-    ///
-    /// A token audience-bound to `resource`, the MCP resource this server mints
-    /// for, is as valid as one carrying the platform audience.
-    fn validate_bearer_token_for_validate_endpoint(
-        headers: &HeaderMap,
-        auth_manager: &AuthManager,
-        jwks_manager: &JwksManager,
-        resources: &[&str],
-    ) -> Result<bool, Box<Response>> {
-        let Some(header) = headers.get(header::AUTHORIZATION) else {
-            // No token provided - not an error, just return false
-            return Ok(false);
-        };
-
-        let header_str = header.to_str().map_err(|_| {
-            Box::new(
-                (
-                    StatusCode::OK,
-                    Json(serde_json::json!({
-                        "valid": false,
-                        "error": "invalid_request",
-                        "error_description": "Invalid Authorization header encoding"
-                    })),
-                )
-                    .into_response(),
-            )
-        })?;
-
-        let token = header_str.strip_prefix("Bearer ").ok_or_else(|| {
-            Box::new(
-                (
-                    StatusCode::OK,
-                    Json(serde_json::json!({
-                        "valid": false,
-                        "error": "invalid_request",
-                        "error_description": "Authorization header must use Bearer scheme"
-                    })),
-                )
-                    .into_response(),
-            )
-        })?;
-
-        match auth_manager.validate_resource_token(token, jwks_manager, resources) {
-            Ok(_) => Ok(true),
-            Err(e) => {
-                debug!("Token validation failed: {}", e);
-                Err(Box::new(
-                    (
-                        StatusCode::OK,
-                        Json(serde_json::json!({
-                            "valid": false,
-                            "error": "invalid_token",
-                            "error_description": "Access token is invalid or expired"
-                        })),
-                    )
-                        .into_response(),
-                ))
-            }
-        }
-    }
-
-    /// Build login URL with OAuth parameters preserved for redirect
-    fn build_login_url_with_oauth_params(request: &AuthorizeRequest) -> String {
-        Self::authorize_params_url("/oauth2/login", request)
-    }
-
-    /// Build authorization URL from the login form's fields, with the OAuth
-    /// parameters preserved for the redirect
-    fn build_authorization_url_from_form(form: &HashMap<String, String>) -> String {
-        let field = |name: &str| form.get(name).filter(|v| !v.is_empty()).cloned();
-        let request = AuthorizeRequest {
-            response_type: field("response_type").unwrap_or_default(),
-            client_id: field("client_id").unwrap_or_default(),
-            redirect_uri: field("redirect_uri").unwrap_or_default(),
-            scope: field("scope"),
-            state: field("state"),
-            code_challenge: field("code_challenge"),
-            code_challenge_method: field("code_challenge_method"),
-            resource: field("resource"),
-        };
-        Self::authorize_params_url("/oauth2/authorize", &request)
-    }
-
-    /// `base` carrying the authorization request's parameters, every value
-    /// URL-encoded: `client_id`, `redirect_uri`, `response_type` and `state`
-    /// always, the scope, PKCE challenge and method and the RFC 8707
-    /// resource when present and non-empty. The login page, the Google
-    /// sign-in hop and the return to `/oauth2/authorize` all carry a pending
-    /// request this one way.
-    fn authorize_params_url(base: &str, request: &AuthorizeRequest) -> String {
-        use std::fmt::Write;
-
-        let mut url = format!(
-            "{base}?client_id={}&redirect_uri={}&response_type={}&state={}",
-            urlencoding::encode(&request.client_id),
-            urlencoding::encode(&request.redirect_uri),
-            urlencoding::encode(&request.response_type),
-            urlencoding::encode(request.state.as_deref().unwrap_or(""))
-        );
-        let optional = [
-            ("scope", &request.scope),
-            ("code_challenge", &request.code_challenge),
-            ("code_challenge_method", &request.code_challenge_method),
-            ("resource", &request.resource),
-        ];
-        for (name, value) in optional {
-            if let Some(value) = value.as_deref().filter(|v| !v.is_empty()) {
-                write!(&mut url, "&{name}={}", urlencoding::encode(value)).ok();
-            }
-        }
-        url
-    }
-
-    /// Parse query parameters into `AuthorizeRequest`
-    fn parse_authorize_request(
-        params: &HashMap<String, String>,
-    ) -> Result<AuthorizeRequest, OAuth2Error> {
-        trace!(
-            "Parsing OAuth authorize request with {} parameters",
-            params.len()
-        );
-
-        // A missing response_type is refused by `check_authorize_request`, once
-        // the client and redirect_uri are known, so it can reach the client.
-        let response_type = params.get("response_type").cloned().unwrap_or_default();
-
-        let client_id = params
-            .get("client_id")
-            .ok_or_else(|| OAuth2Error::invalid_request("Missing client_id parameter"))?
-            .clone(); // Safe: String ownership required for OAuth2 request struct
-
-        let redirect_uri = params
-            .get("redirect_uri")
-            .ok_or_else(|| OAuth2Error::invalid_request("Missing redirect_uri parameter"))?
-            .clone(); // Safe: String ownership required for OAuth2 request struct
-
-        let scope = params.get("scope").cloned();
-        let state = params.get("state").cloned();
-        let code_challenge = params.get("code_challenge").cloned();
-        let code_challenge_method = params.get("code_challenge_method").cloned();
-        // The login and consent forms always post a `resource` field, empty
-        // when the client named none; empty is absent, not a resource.
-        let resource = params.get("resource").filter(|r| !r.is_empty()).cloned();
-
-        Ok(AuthorizeRequest {
-            response_type,
-            client_id,
-            redirect_uri,
-            scope,
-            state,
-            code_challenge,
-            code_challenge_method,
-            resource,
-        })
-    }
-
     /// Parse form data into `TokenRequest`
     fn parse_token_request(
         form: &HashMap<String, String>,
@@ -1157,14 +975,4 @@ impl OAuth2Routes {
             resource,
         })
     }
-}
-
-/// Whether an authorization request carries `OpenID` Connect `prompt=login`
-/// (Core §3.1.2.1): the athlete signs in again, whatever session exists.
-fn requests_fresh_login(params: &HashMap<String, String>) -> bool {
-    params.get("prompt").is_some_and(|prompt| {
-        prompt
-            .split_ascii_whitespace()
-            .any(|value| value == "login")
-    })
 }

@@ -499,6 +499,7 @@ async fn test_tools_list_http_matches_in_process_registry() -> Result<()> {
         grant: &grant,
         transport: Some(Transport::McpHttp),
         support_session: false,
+        ceiling: None,
     };
     tool_access::retain_offered(&registry, &mut schemas, &admin);
     assert!(

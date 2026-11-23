@@ -36,8 +36,8 @@ use pierre_runtime_context::A2ACtx;
 use pierre_tool_runtime::context::SUPPORT_SESSION;
 use pierre_tool_runtime::protocol::trust_labels::{self, TRUST_LABELS_META_KEY};
 use pierre_tool_runtime::protocol::{
-    guardian_block_reason, record_refused_admin_call, RefusedAdminCall, UniversalRequest,
-    UniversalResponse, UniversalToolExecutor,
+    grant_block, guardian_block_reason, record_refused_admin_call, RefusedAdminCall,
+    UniversalRequest, UniversalResponse, UniversalToolExecutor,
 };
 use pierre_tool_runtime::runtime::ToolRuntime;
 use pierre_tool_runtime::support_session::{self, CALLER_CREDENTIAL};
@@ -157,10 +157,12 @@ enum SendOutcome {
     Failure(SendFailure),
 }
 
-/// The Guardian's `error_code` and `reason` when it denied the call, read only
-/// from a response the chokepoint itself stamped: a tool cannot put words here.
+/// The Guardian's `error_code` and `reason` when it denied the call, and the
+/// consent grant's (its ceiling, its daily row budget with `retry_after_secs`),
+/// read only from a response the chokepoint itself stamped: a tool cannot put
+/// words here.
 fn guardian_refusal_data(response: &UniversalResponse) -> Option<Value> {
-    (guardian_block_reason(response) == Some("guardian"))
+    (guardian_block_reason(response) == Some("guardian") || grant_block(response))
         .then(|| response.result.clone())
         .flatten()
 }
@@ -966,6 +968,7 @@ impl A2AServer {
         let run = async {
             UniversalToolExecutor::new(tool_runtime.clone()) // Safe: Arc clone
                 .with_scopes(scopes)
+                .with_ceiling(principal.ceiling.clone())
                 .with_transport(Transport::A2a)
                 .with_caller_writing_reply()
                 .execute_tool(request)

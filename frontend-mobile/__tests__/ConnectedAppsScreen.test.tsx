@@ -29,6 +29,9 @@ const GRANT = {
   client_host: null as string | null,
   scope: 'fitness:read',
   granted_at: '2026-08-01T10:00:00Z',
+  preset: null as string | null,
+  max_tier: null as 'T0' | 'T1' | 'T2' | 'T3' | null,
+  expires_at: null as string | null,
 };
 
 function renderScreen(): ReturnType<typeof render> {
@@ -92,6 +95,21 @@ describe('ConnectedAppsScreen', () => {
     await waitFor(() =>
       expect(screen.getByText('fitness:read · Connecté le 1 août 2026')).toBeTruthy(),
     );
+  });
+
+  it('says when a grant expires, and says nothing of expiry for one that never does', async () => {
+    await i18n.changeLanguage('fr');
+    mockListConnectedApps.mockResolvedValue([
+      { ...GRANT, preset: 'sleep_coach', max_tier: 'T1', expires_at: '2026-09-01T10:00:00Z' },
+      { ...GRANT, id: 'grant-2', client_name: 'Plain client' },
+    ]);
+    renderScreen();
+    await waitFor(() =>
+      expect(
+        screen.getByText('fitness:read · Connecté le 1 août 2026 · Expire le 1 sept. 2026'),
+      ).toBeTruthy(),
+    );
+    expect(screen.getByText('fitness:read · Connecté le 1 août 2026')).toBeTruthy();
   });
 
   it('names the app it is about to revoke from the catalogue, in the label and the confirm', async () => {

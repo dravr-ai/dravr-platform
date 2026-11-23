@@ -234,3 +234,162 @@ async fn every_tool_is_listed_exactly_when_the_dispatcher_lets_it_through() {
         "{counts:?}"
     );
 }
+
+// ============================================================================
+// Under a preset grant (owl phase 5, slice 3): list = card = dispatch
+// ============================================================================
+
+/// What `/mcp` lists, A2A's extended card offers and the dispatcher lets
+/// through under a preset grant's token, for every registered tool: one
+/// predicate read three ways, the ceiling from the token's own grant.
+#[tokio::test]
+async fn under_a_preset_grant_list_card_and_dispatch_agree() {
+    use crate::helpers::axum_test::AxumTestRequest;
+    use crate::helpers::consent_form::with_grant_lines;
+    use crate::oauth2_grant_details_test::{
+        approve_with, code_of, exchange, register, tokens, world,
+    };
+    use pierre_auth::oauth2_server::authorization_details::athlete_zone;
+    use pierre_auth::oauth2_server::grant_ceiling::GrantCeiling;
+    use pierre_core::models::TenantId;
+    use pierre_mcp_server::mcp::multitenant::ProviderToolRouter;
+
+    let world = world().await;
+    with_grant_lines(&world.resources.mcp.messaging_strings_registry);
+    let res = world.resources.clone();
+    let tenant = TenantId::from_uuid(world.tenant_id.parse().unwrap());
+    res.agent
+        .database
+        .repositories()
+        .tenants
+        .set_plan(tenant, "enterprise")
+        .await
+        .unwrap();
+    let registered: Vec<String> = res
+        .mcp
+        .tool_registry
+        .tool_names()
+        .into_iter()
+        .map(str::to_owned)
+        .collect();
+
+    let mut mismatches = Vec::new();
+    for preset in ["training_coach", "sleep_coach"] {
+        let client = register(&world).await;
+        let approved = approve_with(
+            &world,
+            &client,
+            &[(
+                "scope",
+                "fitness:read fitness:write profile:read profile:write",
+            )],
+            Some(preset),
+        )
+        .await;
+        let (token, _) = tokens(&exchange(&world, &client, &code_of(&approved)).await);
+        let grant = res
+            .common
+            .repos
+            .oauth2_server
+            .list_client_grants(&world.user.id.to_string(), &world.tenant_id)
+            .await
+            .unwrap()
+            .into_iter()
+            .find(|grant| grant.client_id == client.id)
+            .unwrap();
+        let ceiling = GrantCeiling::from_document(
+            &grant.id,
+            grant.authorization_details.as_deref().unwrap(),
+            &athlete_zone(None),
+        )
+        .unwrap();
+
+        let listing: Value = AxumTestRequest::post("/mcp")
+            .header("authorization", &format!("Bearer {token}"))
+            .json(&json!({"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}))
+            .send(ProviderToolRouter::build_http_app(&res))
+            .await
+            .json();
+        let offered: BTreeSet<String> = listing["result"]["tools"]
+            .as_array()
+            .unwrap_or_else(|| panic!("{listing}"))
+            .iter()
+            .map(|tool| tool["name"].as_str().unwrap().to_owned())
+            .collect();
+        let card: Value = AxumTestRequest::post("/a2a/jsonrpc")
+            .header("A2A-Version", "1.0")
+            .header("authorization", &format!("Bearer {token}"))
+            .json(&json!({"jsonrpc": "2.0", "method": "GetExtendedAgentCard", "id": 1}))
+            .send(ProviderToolRouter::build_http_app(&res))
+            .await
+            .json();
+        let carded: BTreeSet<String> = card["result"]["skills"]
+            .as_array()
+            .unwrap_or_else(|| panic!("{card}"))
+            .iter()
+            .map(|skill| skill["id"].as_str().unwrap().to_owned())
+            .filter(|id| registered.contains(id))
+            .collect();
+        assert_eq!(offered, carded, "{preset}: the listing and the A2A card");
+        assert!(!offered.is_empty(), "{preset} offers its tools");
+        // What the server's instructions say to call first reads connection
+        // metadata, no stream: every preset is offered it, and the dispatch
+        // loop below proves it is callable too.
+        for connections in [
+            "get_connection_status",
+            "list_data_sources",
+            "get_data_freshness",
+        ] {
+            assert!(
+                offered.contains(connections),
+                "bug: {preset} withheld {connections}: {offered:?}"
+            );
+        }
+
+        let scopes = OAuthScope::parse_granted(&grant.scope);
+        for tool in &registered {
+            res.mcp
+                .tool_selection
+                .set_tool_override(tenant, tool, false, world.user.id, None)
+                .await
+                .ok();
+        }
+        for tool in &registered {
+            let called = UniversalToolExecutor::new(res.clone())
+                .with_scopes(scopes.clone())
+                .with_ceiling(Some(ceiling.clone()))
+                .with_transport(Transport::McpHttp)
+                .with_caller_writing_reply()
+                .execute_tool(UniversalRequest {
+                    tool_name: tool.clone(),
+                    parameters: json!({}),
+                    user_id: world.user.id.to_string(),
+                    protocol: "mcp".to_owned(),
+                    tenant_id: Some(world.tenant_id.clone()),
+                })
+                .await;
+            let passed = matches!(
+                &called,
+                Ok(response) if error_code(response.result.as_ref()) == Some(TENANT_DISABLED_ERROR_CODE)
+            );
+            if passed != offered.contains(tool) {
+                mismatches.push(format!(
+                    "{preset}: {tool} listed={} answered {called:?}",
+                    offered.contains(tool)
+                ));
+            }
+        }
+        for tool in &registered {
+            res.mcp
+                .tool_selection
+                .set_tool_override(tenant, tool, true, world.user.id, None)
+                .await
+                .ok();
+        }
+    }
+    assert!(
+        mismatches.is_empty(),
+        "bug: list and call disagree under a preset:\n{}",
+        mismatches.join("\n")
+    );
+}

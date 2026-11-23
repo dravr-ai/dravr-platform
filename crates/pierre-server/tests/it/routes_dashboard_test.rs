@@ -410,6 +410,8 @@ impl DashboardTestSetup {
                 impersonation: None,
             },
             active_tenant_id: None,
+            client_grant_id: None,
+            ceiling: None,
         }
     }
 
@@ -587,6 +589,8 @@ async fn test_get_usage_analytics_invalid_auth() -> Result<()> {
                     impersonation: None,
                 },
                 active_tenant_id: None,
+                client_grant_id: None,
+                ceiling: None,
             },
             7,
             empty_scope(),
@@ -607,6 +611,8 @@ async fn test_get_usage_analytics_invalid_auth() -> Result<()> {
                     impersonation: None,
                 },
                 active_tenant_id: None,
+                client_grant_id: None,
+                ceiling: None,
             },
             7,
             empty_scope(),

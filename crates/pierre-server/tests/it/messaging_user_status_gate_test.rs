@@ -435,6 +435,7 @@ mod messaging_user_status_gate_tests {
                 response_size_bytes: None,
                 ip_address: None,
                 user_agent: None,
+                client_grant_id: None,
             })
             .await
             .unwrap();

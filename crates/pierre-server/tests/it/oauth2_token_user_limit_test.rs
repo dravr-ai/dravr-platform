@@ -142,6 +142,8 @@ async fn code_for(resources: &Arc<ServerContext>, client_id: &str, user: &User) 
             ),
             code_challenge_method: Some("S256".to_owned()),
             resource: None,
+            request_uri: None,
+            authorization_details: None,
         },
         Some(user.id),
         None,

@@ -9,7 +9,7 @@ use pierre_providers::ai_scope;
 use tracing::warn;
 use uuid::Uuid;
 
-use super::UniversalExecutor;
+use super::{grant_ceiling_refusal, UniversalExecutor};
 use crate::first_party_tools;
 use crate::protocol::types::UniversalResponse;
 use crate::protocols::ProtocolError;
@@ -56,8 +56,10 @@ impl UniversalExecutor {
             grant: &self.scopes,
             transport,
             support_session: self.support_session.is_some(),
+            ceiling: self.ceiling.as_ref(),
         };
-        let answer = withheld(tool, &caller).or_else(|| {
+        let registry = self.resources.tool_registry();
+        let answer = withheld(registry, tool_name, tool, &caller).or_else(|| {
             if self.caller_writes_reply {
                 return None;
             }
@@ -65,7 +67,8 @@ impl UniversalExecutor {
                 role: CallerRole::default(),
                 ..caller
             };
-            withheld(tool, &role_less).filter(|why| *why != Withheld::Role(Audience::Admin))
+            withheld(registry, tool_name, tool, &role_less)
+                .filter(|why| *why != Withheld::Role(Audience::Admin))
         });
         answer
             .map(|answer| render_withheld(tool_name, answer))
@@ -95,6 +98,9 @@ pub const SUPPORT_SESSION_EXPORT_REFUSED: &str =
 ///   authz shape. Denies by default when the admin lookup failed.
 /// - A coach tool for an external caller who is neither a human coach nor an
 ///   admin: the in-band [`coach_role_refusal`], never a scope challenge.
+/// - A tool beyond the consent grant's ceiling (its tier, its streams, its
+///   window): an in-band refusal naming why ([`grant_ceiling_refusal`]);
+///   no scope would lift it, only another grant.
 fn render_withheld(
     tool_name: &str,
     withheld: Withheld,
@@ -123,6 +129,9 @@ fn render_withheld(
             })
         }
         Withheld::Role(Audience::Coach | Audience::Athlete) => Ok(coach_role_refusal(tool_name)),
+        Withheld::Tier(tier) => Ok(grant_ceiling_refusal::tier(tool_name, tier)),
+        Withheld::Stream => Ok(grant_ceiling_refusal::stream(tool_name)),
+        Withheld::Window => Ok(grant_ceiling_refusal::window(tool_name)),
         Withheld::SupportSession => {
             warn!(
                 tool_name = %tool_name,

@@ -77,6 +77,8 @@ use tokio::task::LocalKey;
 mod consent;
 /// The decorator that applies the provider-terms filters to every read.
 mod governed;
+/// The consent-grant ceiling a call runs under: window floor and row tally.
+mod grant;
 /// A human coach's read: only the athlete's AI consents apply (carnet#1262).
 mod human_coach;
 /// The provenance accumulator, and the group members it records (carnet#1174).
@@ -91,6 +93,10 @@ pub use consent::{
     with_subject_consent, withheld_providers, withhold_tier,
 };
 pub use governed::AiGovernedProvider;
+pub use grant::{
+    counting_rows, grant_ceiling, holds_stream, in_window, note_raw_rows, note_rows,
+    retain_in_window, under_grant, window_since, without_route, Dated, ServedRows,
+};
 pub use human_coach::for_human_coach;
 pub use provenance::{
     derived_member, note_member_read, reading_about, reading_members, sole, Provenance,
@@ -478,7 +484,12 @@ where
 /// Activities as a model, or a caller over an external transport, may see
 /// them; unchanged when no gate applies.
 #[must_use]
-pub fn filter_activities(lookup: &dyn ProviderTerms, activities: Vec<Activity>) -> Vec<Activity> {
+pub fn filter_activities(
+    lookup: &dyn ProviderTerms,
+    mut activities: Vec<Activity>,
+) -> Vec<Activity> {
+    // Under a grant's window, no session dated before it (plan slice 3).
+    retain_in_window(&mut activities, |a| Some(Dated::At(a.start_date())));
     let kept = filter_typed(
         lookup,
         activities,
@@ -492,7 +503,9 @@ pub fn filter_activities(lookup: &dyn ProviderTerms, activities: Vec<Activity>) 
             note_attribution(Some(GARMIN_ATTRIBUTION));
         }
     }
-    kept
+    note_rows(kept.len());
+    // A grant without routes reads the sessions, not where they were.
+    without_route(kept)
 }
 
 /// Planned workouts as a model, or a caller over an external transport, may

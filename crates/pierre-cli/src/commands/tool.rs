@@ -4,12 +4,84 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use clap::Subcommand;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_database::RepositoryRegistry;
 use pierre_services::admin_ops;
 use uuid::Uuid;
 
 type Result<T> = AppResult<T>;
+
+/// `pierre-cli tool`: per-user MCP tool allow/deny.
+#[non_exhaustive]
+#[derive(Subcommand)]
+pub(crate) enum ToolCommand {
+    /// Force-enable an MCP tool for a user (overrides plan + tenant gating)
+    Enable {
+        /// Email of the user
+        #[arg(long)]
+        email: String,
+
+        /// MCP tool name (must exist in the tool catalog)
+        #[arg(long)]
+        tool: String,
+
+        /// Admin note recorded on the override
+        #[arg(long)]
+        reason: Option<String>,
+    },
+
+    /// Force-disable an MCP tool for a user
+    Disable {
+        /// Email of the user
+        #[arg(long)]
+        email: String,
+
+        /// MCP tool name (must exist in the tool catalog)
+        #[arg(long)]
+        tool: String,
+
+        /// Admin note recorded on the override
+        #[arg(long)]
+        reason: Option<String>,
+    },
+
+    /// Remove a per-user tool override (revert to plan/tenant/default)
+    Reset {
+        /// Email of the user
+        #[arg(long)]
+        email: String,
+
+        /// MCP tool name
+        #[arg(long)]
+        tool: String,
+    },
+
+    /// List a user's per-user tool overrides
+    List {
+        /// Email of the user
+        #[arg(long)]
+        email: String,
+    },
+}
+
+/// Run one `tool` verb.
+pub(crate) async fn dispatch(repos: &RepositoryRegistry, action: ToolCommand) -> Result<()> {
+    match action {
+        ToolCommand::Enable {
+            email,
+            tool,
+            reason,
+        } => enable(repos, email, tool, reason).await,
+        ToolCommand::Disable {
+            email,
+            tool,
+            reason,
+        } => disable(repos, email, tool, reason).await,
+        ToolCommand::Reset { email, tool } => reset(repos, email, tool).await,
+        ToolCommand::List { email } => list(repos, email).await,
+    }
+}
 
 /// Force-enable a specific MCP tool for a user (overrides plan + tenant gating).
 pub(crate) async fn enable(

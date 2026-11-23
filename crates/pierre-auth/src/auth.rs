@@ -32,6 +32,7 @@ use uuid::Uuid;
 
 use crate::admin::jwks::JwksManager;
 use crate::oauth2_server::first_party::names_third_party;
+use crate::oauth2_server::grant_ceiling::GrantCeiling;
 use pierre_core::constants::{
     service_names::{MCP, OAUTH2_AUTHORIZE, PIERRE_MCP_SERVER},
     time_constants::SECONDS_PER_HOUR,
@@ -49,6 +50,7 @@ const EXPIRED_AT: Pattern<Timestamp> = date_pattern!(Timestamp, "%Y-%m-%d %H:%M:
 mod delegated_token;
 mod method;
 mod session_token;
+pub use delegated_token::TokenLineage;
 pub use method::{
     refuse_support_session, AuthMethod, ImpersonationGrant, IMPERSONATION_REFUSED_ACTION,
     IMPERSONATION_WRITE_REFUSED,
@@ -244,6 +246,15 @@ pub struct Claims {
     /// other token, and on one minted before this claim existed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub grant_id: Option<String>,
+    /// The consent grant a delegated access token was minted under: the
+    /// `oauth_client_grants` row the athlete approved, which the code, every
+    /// refresh token of its family and every access token minted from them
+    /// name. `/mcp` and A2A admit the token only while that grant is live.
+    /// Not [`Self::grant_id`], the refresh family. `None` on any other token,
+    /// and on one minted before this claim existed, which is admitted as
+    /// before.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_grant_id: Option<String>,
 }
 
 impl Claims {
@@ -327,20 +338,25 @@ pub struct AuthResult {
     /// The OAuth grant a delegated token was minted under
     /// ([`Claims::grant_id`]); `None` for every other credential.
     pub grant_id: Option<String>,
+    /// The consent grant a delegated token was minted under
+    /// ([`Claims::client_grant_id`]); `None` for every other credential, and
+    /// for a delegated token minted before the claim existed.
+    pub client_grant_id: Option<String>,
+    /// What a delegated token under a detailed consent grant may reach;
+    /// `None` for a plain grant and every other credential.
+    pub ceiling: Option<GrantCeiling>,
 }
 
 /// Authentication manager for `JWT` tokens and user sessions
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct AuthManager {
     token_expiry_hours: i64,
-}
-
-impl Clone for AuthManager {
-    fn clone(&self) -> Self {
-        Self {
-            token_expiry_hours: self.token_expiry_hours,
-        }
-    }
+    /// The authorization server's issuer identifier, its metadata's `issuer`
+    /// (`OAuth2ServerConfig::issuer_url`), which every `/oauth2/token` access
+    /// token carries as `iss` (RFC 9068 §2.2). `None` on a manager built
+    /// without it (the CLI, benches, tests), which mints and accepts only
+    /// [`PIERRE_MCP_SERVER`], the name sessions and impersonation tokens keep.
+    oauth_issuer: Option<String>,
 }
 
 impl AuthManager {
@@ -358,7 +374,45 @@ impl AuthManager {
     /// Create a new authentication manager
     #[must_use]
     pub const fn new(token_expiry_hours: i64) -> Self {
-        Self { token_expiry_hours }
+        Self {
+            token_expiry_hours,
+            oauth_issuer: None,
+        }
+    }
+
+    /// The manager minting OAuth access tokens under `issuer`, the
+    /// authorization server's metadata `issuer`, and accepting it on them.
+    #[must_use]
+    pub fn with_oauth_issuer(mut self, issuer: impl Into<String>) -> Self {
+        self.oauth_issuer = Some(issuer.into());
+        self
+    }
+
+    /// The `iss` an OAuth access token is minted with: the authorization
+    /// server's issuer, or [`PIERRE_MCP_SERVER`] on a manager without one.
+    fn oauth_token_issuer(&self) -> &str {
+        self.oauth_issuer.as_deref().unwrap_or(PIERRE_MCP_SERVER)
+    }
+
+    /// Every `iss` a token this manager validates may carry, before its kind
+    /// is read ([`Self::issuer_fits_kind`]).
+    fn accepted_issuers(&self) -> Vec<&str> {
+        iter::once(PIERRE_MCP_SERVER)
+            .chain(self.oauth_issuer.as_deref())
+            .collect()
+    }
+
+    /// Whether `claims.iss` is one the token's kind may carry. A session or an
+    /// impersonation token carries [`PIERRE_MCP_SERVER`] only. An OAuth
+    /// access token (a third party's delegation, or a client's own
+    /// client-credentials token) carries the authorization server's issuer,
+    /// or [`PIERRE_MCP_SERVER`] when an older binary minted it.
+    fn issuer_fits_kind(claims: &Claims) -> bool {
+        if claims.iss == PIERRE_MCP_SERVER {
+            return true;
+        }
+        claims.impersonator_id.is_none()
+            && (claims.is_delegated() || claims.client_credentials_client().is_some())
     }
 
     /// Generate a `JWT` token for a user with RS256 asymmetric signing
@@ -480,6 +534,7 @@ impl AuthManager {
             impersonation_session_id: None,
             client_id: client_id.map(str::to_owned),
             grant_id: None,
+            client_grant_id: None,
         };
 
         // Get active RSA key from JWKS manager
@@ -579,6 +634,7 @@ impl AuthManager {
             // An admin acting as the athlete, through no client.
             client_id: None,
             grant_id: None,
+            client_grant_id: None,
         };
 
         // Get active RSA key from JWKS manager
@@ -613,11 +669,7 @@ impl AuthManager {
         token: &str,
         jwks_manager: &JwksManager,
     ) -> AppResult<Claims> {
-        Self::require_session(Self::validate_token_for(
-            token,
-            jwks_manager,
-            &[OAUTH2_AUTHORIZE],
-        )?)
+        Self::require_session(self.validate_token_for(token, jwks_manager, &[OAUTH2_AUTHORIZE])?)
     }
 
     /// `claims` when they are a session ([`Claims::is_session`]); a token a
@@ -644,7 +696,7 @@ impl AuthManager {
     /// - JWKS manager doesn't have the specified key
     /// - Token claims cannot be deserialized
     pub fn validate_token(&self, token: &str, jwks_manager: &JwksManager) -> AppResult<Claims> {
-        Self::validate_token_for(token, jwks_manager, &[MCP])
+        self.validate_token_for(token, jwks_manager, &[MCP])
     }
 
     /// Validate a RS256 JWT token as the protected resource known by each of
@@ -661,11 +713,13 @@ impl AuthManager {
         jwks_manager: &JwksManager,
         resources: &[&str],
     ) -> AppResult<Claims> {
-        Self::validate_token_for(token, jwks_manager, &resource_audiences(resources))
+        self.validate_token_for(token, jwks_manager, &resource_audiences(resources))
     }
 
-    /// Validate a RS256 JWT token whose audience is one of `audiences`.
+    /// Validate a RS256 JWT token whose audience is one of `audiences`, and
+    /// whose issuer is one this manager accepts for the token's kind.
     fn validate_token_for(
+        &self,
         token: &str,
         jwks_manager: &JwksManager,
         audiences: &[&str],
@@ -691,7 +745,7 @@ impl AuthManager {
         let mut validation = Validation::new(Algorithm::RS256);
         validation.validate_exp = true;
         validation.set_audience(audiences);
-        validation.set_issuer(&[PIERRE_MCP_SERVER]);
+        validation.set_issuer(&self.accepted_issuers());
 
         let token_data = decode::<Claims>(token, &decoding_key, &validation).map_err(|e| {
             if is_presented_token_fault(e.kind()) {
@@ -701,6 +755,13 @@ impl AuthManager {
             }
             AppError::auth_invalid(format!("JWT validation failed: {e}"))
         })?;
+
+        if !Self::issuer_fits_kind(&token_data.claims) {
+            warn!(issuer = %token_data.claims.iss, "A session token carries the OAuth issuer");
+            return Err(AppError::auth_invalid(
+                "JWT validation failed: InvalidIssuer",
+            ));
+        }
 
         Ok(token_data.claims)
     }
@@ -775,7 +836,7 @@ impl AuthManager {
         token: &str,
         jwks_manager: &JwksManager,
     ) -> Result<Claims, JwtValidationError> {
-        Self::validate_detailed_for(token, jwks_manager, &[MCP])
+        self.validate_detailed_for(token, jwks_manager, &[MCP])
     }
 
     /// Validate a RS256 JWT token as the protected resource known by each of
@@ -793,19 +854,20 @@ impl AuthManager {
         jwks_manager: &JwksManager,
         resources: &[&str],
     ) -> Result<Claims, JwtValidationError> {
-        Self::validate_detailed_for(token, jwks_manager, &resource_audiences(resources))
+        self.validate_detailed_for(token, jwks_manager, &resource_audiences(resources))
     }
 
     /// Validate a RS256 JWT token whose audience is one of `audiences`, with
     /// detailed error information.
     fn validate_detailed_for(
+        &self,
         token: &str,
         jwks_manager: &JwksManager,
         audiences: &[&str],
     ) -> Result<Claims, JwtValidationError> {
         debug!("Validating RS256 JWT token (length: {} chars)", token.len());
 
-        let claims = Self::decode_token_claims(token, jwks_manager, audiences)?;
+        let claims = self.decode_token_claims(token, jwks_manager, audiences)?;
         Self::validate_claims_expiry(&claims)?;
 
         debug!(
@@ -816,8 +878,10 @@ impl AuthManager {
     }
 
     /// Decode RS256 JWT token claims without expiration validation, accepting
-    /// a token whose audience is one of `audiences`
+    /// a token whose audience is one of `audiences` and whose issuer is one
+    /// this manager accepts for the token's kind
     fn decode_token_claims(
+        &self,
         token: &str,
         jwks_manager: &JwksManager,
         audiences: &[&str],
@@ -852,11 +916,19 @@ impl AuthManager {
         let mut validation_no_exp = Validation::new(Algorithm::RS256);
         validation_no_exp.validate_exp = false;
         validation_no_exp.set_audience(audiences);
-        validation_no_exp.set_issuer(&[PIERRE_MCP_SERVER]);
+        validation_no_exp.set_issuer(&self.accepted_issuers());
 
-        decode::<Claims>(token, &decoding_key, &validation_no_exp)
+        let claims = decode::<Claims>(token, &decoding_key, &validation_no_exp)
             .map(|token_data| token_data.claims)
-            .map_err(|e| Self::convert_jwt_error(&e))
+            .map_err(|e| Self::convert_jwt_error(&e))?;
+        if Self::issuer_fits_kind(&claims) {
+            Ok(claims)
+        } else {
+            warn!(issuer = %claims.iss, "A session token carries the OAuth issuer");
+            Err(JwtValidationError::TokenInvalid {
+                reason: "Token validation failed: InvalidIssuer".to_owned(),
+            })
+        }
     }
 
     /// Validate claims expiration with detailed logging
@@ -958,9 +1030,10 @@ impl AuthManager {
     ) -> AppResult<String> {
         // First validate the old token signature (even if expired)
         // This ensures the refresh request is legitimate
-        Self::decode_token_claims(old_token, jwks_manager, &[MCP]).map_err(|e| -> AppError {
-            AppError::auth_invalid(format!("Failed to validate old token for refresh: {e}"))
-        })?;
+        self.decode_token_claims(old_token, jwks_manager, &[MCP])
+            .map_err(|e| -> AppError {
+                AppError::auth_invalid(format!("Failed to validate old token for refresh: {e}"))
+            })?;
 
         // Generate new token - atomic counter ensures uniqueness
         self.generate_token(user, jwks_manager)
@@ -1050,7 +1123,7 @@ impl AuthManager {
             email: "client_credentials".to_owned(),
             iat: now.epoch_seconds(),
             exp: expiry.epoch_seconds(),
-            iss: PIERRE_MCP_SERVER.to_owned(),
+            iss: self.oauth_token_issuer().to_owned(),
             jti: Uuid::new_v4().to_string(),
             // Empty because a client-credentials token belongs to a machine
             // client, not to an athlete, so there are no connected providers to
@@ -1063,6 +1136,7 @@ impl AuthManager {
             impersonation_session_id: None,
             client_id: Some(client_id.to_owned()),
             grant_id: None,
+            client_grant_id: None,
         };
 
         // Get active RSA key from JWKS manager

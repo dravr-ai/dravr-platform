@@ -68,6 +68,29 @@ impl RequestBudget {
     }
 }
 
+impl RequestBudget {
+    /// The tighter of two budgets that both admit a request: the one with
+    /// less left once it is counted, an unlimited budget being the looser.
+    /// What the `X-RateLimit-*` headers report when two budgets apply.
+    #[must_use]
+    pub const fn tighter(self, other: Self) -> Self {
+        match (
+            self.remaining_after_this_request(),
+            other.remaining_after_this_request(),
+        ) {
+            (None, _) => other,
+            (Some(_), None) => self,
+            (Some(own), Some(theirs)) => {
+                if theirs < own {
+                    other
+                } else {
+                    self
+                }
+            }
+        }
+    }
+}
+
 /// A user's monthly request budget, from its month-to-date requests and the
 /// admin's override read with them.
 ///
@@ -89,6 +112,34 @@ pub fn calculate_jwt_rate_limit(
             used: usage.used,
             resets_at: next_utc_month_start(now),
         })
+}
+
+/// The sliding window a consent grant's `requests_per_hour` is counted over,
+/// in hours.
+const GRANT_WINDOW_HOURS: i64 = 1;
+
+/// The first instant a consent grant's hourly window covers at `now`: the
+/// requests admitted under it after this count against its budget.
+#[must_use]
+pub fn grant_window_start(now: Timestamp) -> Timestamp {
+    now - Elapsed::hours(GRANT_WINDOW_HOURS)
+}
+
+/// A consent grant's request budget: `requests_per_hour` over a sliding hour,
+/// given the requests `usage` counted inside it (the grant's `jwt_usage`
+/// rows), metered by [`sliding_window_budget`].
+#[must_use]
+pub fn calculate_grant_budget(
+    requests_per_hour: u32,
+    usage: &WindowUsage,
+    now: Timestamp,
+) -> RequestBudget {
+    sliding_window_budget(
+        requests_per_hour,
+        Elapsed::hours(GRANT_WINDOW_HOURS),
+        usage,
+        now,
+    )
 }
 
 /// The first instant an API key's sliding window covers at `now`: its calls
@@ -204,6 +255,12 @@ pub enum OAuth2Endpoint {
     TokenUser,
     /// `POST /oauth2/register`
     Register,
+    /// `POST /oauth2/par`, RFC 9126 pushed authorization requests, metered per
+    /// client address in a window of its own at the token endpoint's rate
+    Par,
+    /// `POST /oauth2/introspect`, RFC 7662 token introspection, metered per
+    /// client address in a window of its own at the token endpoint's rate
+    Introspect,
     /// A signed-in account re-confirming its password (`change-password`,
     /// account deletion), metered per account rather than per address
     PasswordConfirm,
@@ -238,6 +295,8 @@ impl OAuth2Endpoint {
             Self::Token => "token",
             Self::TokenUser => "token_user",
             Self::Register => "register",
+            Self::Par => "par",
+            Self::Introspect => "introspect",
             Self::PasswordConfirm => "password_confirm",
             Self::PasswordLogin => "password_login",
             Self::PasswordLoginAccount => "password_login_account",
@@ -307,7 +366,9 @@ impl OAuth2RateLimitConfig {
     pub const fn get_limit(&self, endpoint: OAuth2Endpoint) -> u32 {
         match endpoint {
             OAuth2Endpoint::Authorize => self.authorize_rpm,
-            OAuth2Endpoint::Token => self.token_rpm,
+            OAuth2Endpoint::Token | OAuth2Endpoint::Par | OAuth2Endpoint::Introspect => {
+                self.token_rpm
+            }
             OAuth2Endpoint::TokenUser => self.token_user_rpm,
             OAuth2Endpoint::Register => self.register_rpm,
             OAuth2Endpoint::PasswordConfirm => self.password_confirm_rpm,
@@ -358,5 +419,77 @@ impl OAuth2RateLimitStatus {
             self.retry_after_seconds = Some(retry_after);
         }
         self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn usage(count: u32, oldest: Option<Timestamp>) -> WindowUsage {
+        WindowUsage { count, oldest }
+    }
+
+    #[test]
+    fn a_grant_budget_meters_its_hour_and_resets_as_its_oldest_call_leaves() {
+        let now = Timestamp::now();
+        let oldest = now - Elapsed::minutes(10);
+        let budget = calculate_grant_budget(30, &usage(29, Some(oldest)), now);
+        assert!(
+            !budget.is_exceeded(),
+            "bug: the last call of the hour was refused"
+        );
+        assert_eq!(
+            budget.remaining_after_this_request(),
+            Some(0),
+            "bug: the last call of the hour reports calls left"
+        );
+        let spent = calculate_grant_budget(30, &usage(30, Some(oldest)), now);
+        assert!(spent.is_exceeded(), "bug: a spent hour admitted a call");
+        assert_eq!(
+            spent,
+            RequestBudget::Metered {
+                limit: 30,
+                used: 30,
+                resets_at: oldest + Elapsed::hours(1),
+            },
+            "bug: a spent hour does not reset as its oldest call leaves"
+        );
+        assert_eq!(
+            grant_window_start(now),
+            now - Elapsed::hours(1),
+            "bug: the grant's window is not the last hour"
+        );
+    }
+
+    #[test]
+    fn the_tighter_budget_is_the_one_with_less_left() {
+        let now = Timestamp::now();
+        let monthly = RequestBudget::Metered {
+            limit: 1_000,
+            used: 10,
+            resets_at: now,
+        };
+        let hourly = calculate_grant_budget(30, &usage(5, None), now);
+        assert_eq!(
+            monthly.tighter(hourly),
+            hourly,
+            "bug: the looser budget was reported"
+        );
+        assert_eq!(
+            hourly.tighter(monthly),
+            hourly,
+            "bug: the looser budget was reported"
+        );
+        assert_eq!(
+            RequestBudget::Unlimited.tighter(hourly),
+            hourly,
+            "bug: an unlimited budget read as the tighter"
+        );
+        assert_eq!(
+            hourly.tighter(RequestBudget::Unlimited),
+            hourly,
+            "bug: an unlimited budget read as the tighter"
+        );
     }
 }

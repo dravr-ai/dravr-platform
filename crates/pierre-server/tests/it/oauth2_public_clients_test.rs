@@ -133,6 +133,8 @@ fn authorize_request(client_id: &str, redirect: &str, scope: Option<&str>) -> Au
         code_challenge: Some(challenge()),
         code_challenge_method: Some("S256".to_owned()),
         resource: None,
+        request_uri: None,
+        authorization_details: None,
     }
 }
 

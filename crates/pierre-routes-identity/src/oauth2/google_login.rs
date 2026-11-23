@@ -173,7 +173,12 @@ impl OAuth2Routes {
             return no_store(Self::google_unavailable(&text));
         };
 
-        let request = match Self::parse_authorize_request(&params) {
+        // A pushed request (RFC 9126) is read from the store; the sealed
+        // request carries its `request_uri`, which the return resolves again.
+        let request = match Self::resolve_authorize_params(&context, params)
+            .await
+            .and_then(|resolved| Self::parse_authorize_request(&resolved.params))
+        {
             Ok(request) => request,
             Err(error) => return no_store(Self::render_oauth_error_response(&error, &text)),
         };

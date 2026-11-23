@@ -33,6 +33,8 @@ use uuid::Uuid;
 
 use crate::rate_limiting::{enforce_request_budget, log_budget_refusal, report_api_key_request};
 
+/// The consent grant a delegated token is admitted under, and its ceiling
+mod grant;
 mod impersonation;
 /// One credential's outcome, and how it becomes the request's answer.
 mod outcome;
@@ -579,6 +581,8 @@ impl McpAuthMiddleware {
                 // client, so it names none.
                 client_id: None,
                 grant_id: None,
+                client_grant_id: None,
+                ceiling: None,
             },
             budget,
         })
@@ -642,7 +646,7 @@ impl McpAuthMiddleware {
                 caller: user_id,
             }
         })?;
-        record_jwt_usage_for_request(&self.repos, user_id, "mcp:token", "AUTH").await;
+        record_jwt_usage_for_request(&self.repos, user_id, None, "mcp:token", "AUTH").await;
         self.note_activity(&user).await;
 
         // Like an API key, the token names no tenant: the owner's first one.
@@ -671,6 +675,8 @@ impl McpAuthMiddleware {
                 // a registered one: no client was verified.
                 client_id: None,
                 grant_id: None,
+                client_grant_id: None,
+                ceiling: None,
             },
             budget,
         })
@@ -812,6 +818,8 @@ impl McpAuthMiddleware {
             scopes: OAuthScope::self_grant(),
             client_id: None,
             grant_id: None,
+            client_grant_id: None,
+            ceiling: None,
         })
     }
 
@@ -911,7 +919,9 @@ impl McpAuthMiddleware {
 
         // A delegated token speaks for the athlete only while they let it. It
         // is refused before it spends anything of theirs, as any bad credential.
-        self.require_unwithdrawn_grant(&claims, user_id, policy)
+        // Under a detailed grant it carries that grant's ceiling from here on.
+        let ceiling = self
+            .require_unwithdrawn_grant(&claims, &user, policy)
             .await?;
 
         // The user's month-to-date requests against its monthly limit (an
@@ -932,6 +942,13 @@ impl McpAuthMiddleware {
                 caller: user_id,
             }
         })?;
+        // Then the grant's own hour, and the headers report the tighter.
+        let budget = match &ceiling {
+            Some(ceiling) => {
+                budget.tighter(self.enforce_grant_budget(user_id, ceiling, now).await?)
+            }
+            None => budget,
+        };
 
         // Record JWT usage so the *next* request sees an accurate
         // `get_jwt_current_usage` and the rate-limit gate actually fires.
@@ -940,7 +957,10 @@ impl McpAuthMiddleware {
         // Bearer header, `MCP`, and — via `authenticate_channel` — every
         // messaging webhook). Same posture as
         // `services::messaging_ingress::record_channel_usage`.
-        record_jwt_usage_for_request(&self.repos, user_id, "http:jwt", "AUTH").await;
+        // Counted against the grant the ceiling names, which a token without
+        // the claim is held to as well.
+        let counted_grant = ceiling.as_ref().map(|c| c.client_grant_id.as_str());
+        record_jwt_usage_for_request(&self.repos, user_id, counted_grant, "http:jwt", "AUTH").await;
         self.note_activity(&user).await;
 
         Ok(Admitted {
@@ -954,6 +974,8 @@ impl McpAuthMiddleware {
                 scopes,
                 client_id: claims.client_id,
                 grant_id: claims.grant_id,
+                client_grant_id: claims.client_grant_id,
+                ceiling,
             },
             budget,
         })
@@ -982,60 +1004,6 @@ impl McpAuthMiddleware {
             warn!(user_id = %user_id, status = ?user.user_status, error = %e, "API access denied by user-status gate");
         })?;
         Ok(user)
-    }
-
-    /// Refuse a delegated token whose athlete has withdrawn the client's access.
-    ///
-    /// The JWT stays good until it expires, so this is what makes revocation
-    /// take effect within seconds on the paths that take such a token. Only
-    /// the scoped paths take one, and the caller has refused a first-party
-    /// session there before this runs; a token naming no client is not one a
-    /// grant governs. A read that fails refuses the request, as a quota that
-    /// cannot be read does.
-    ///
-    /// # Errors
-    /// `AuthInvalid` when the consent was withdrawn, so a client re-authorizes;
-    /// a database error when the tenant or the grant cannot be read.
-    async fn require_unwithdrawn_grant(
-        &self,
-        claims: &Claims,
-        user_id: Uuid,
-        policy: GrantPolicy<'_>,
-    ) -> AppResult<()> {
-        let GrantPolicy::ScopesEnforced { .. } = policy else {
-            return Ok(());
-        };
-        let Some(client_id) = claims.client_id.as_deref() else {
-            return Ok(());
-        };
-        let tenant_id = match claims.active_tenant_id.clone() {
-            Some(tenant_id) => tenant_id,
-            None => match self.repos.tenants.first_for_user(user_id).await? {
-                Some(tenant_id) => tenant_id.to_string(),
-                // No tenant, no grant the client could have been given here.
-                None => return Ok(()),
-            },
-        };
-        let standing = match &self.grant_standings {
-            Some(standings) => standings.read(user_id, &tenant_id, client_id).await?,
-            None => {
-                self.repos
-                    .oauth2_server
-                    .client_grant_standing(&user_id.to_string(), &tenant_id, client_id)
-                    .await?
-            }
-        };
-        if standing.admits_token_issued_at(claims.iat) {
-            return Ok(());
-        }
-        warn!(
-            user_id = %user_id,
-            client_id = %client_id,
-            "Delegated token refused: the athlete withdrew this client's access"
-        );
-        Err(AppError::auth_invalid(
-            "The athlete withdrew this application's access; authorize it again",
-        ))
     }
 
     /// Get reference to the auth manager for testing purposes
@@ -1076,6 +1044,9 @@ impl McpAuthMiddleware {
 /// that uses this calculator (HTTP cookie, Bearer header, `MCP`, and — via
 /// [`McpAuthMiddleware::authenticate_channel`] — every messaging webhook).
 ///
+/// `client_grant_id` names the consent grant a delegated token was admitted
+/// under, whose hourly budget counts the row; `None` for every other request.
+///
 /// `endpoint` is rendered like `http:jwt` / `messaging:telegram` so admin
 /// usage reports can disaggregate by transport. `status_code = 200`
 /// reflects the auth result, not the eventual handler outcome — the rate-
@@ -1088,6 +1059,7 @@ impl McpAuthMiddleware {
 pub async fn record_jwt_usage_for_request(
     repos: &RepositoryRegistry,
     user_id: Uuid,
+    client_grant_id: Option<&str>,
     endpoint: &str,
     method: &str,
 ) {
@@ -1103,6 +1075,7 @@ pub async fn record_jwt_usage_for_request(
         response_size_bytes: None,
         ip_address: None,
         user_agent: None,
+        client_grant_id: client_grant_id.map(str::to_owned),
     };
 
     if let Err(e) = repos.usage.record_jwt_usage(&usage).await {
@@ -1137,6 +1110,7 @@ mod tests {
             scope: String::new(),
             client_id: client_id.map(str::to_owned),
             grant_id: None,
+            client_grant_id: None,
         }
     }
 

@@ -1,20 +1,29 @@
 // ABOUTME: Signing the access token an OAuth grant is redeemed for, under the refresh family the grant started
-// ABOUTME: The family rides in the grant_id claim, which an admin's support session is bound to (carnet#1511)
+// ABOUTME: The family rides in the grant_id claim (support sessions, carnet#1511), the consent grant in client_grant_id
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
 use dravr_tronc::dates::{Elapsed, Timestamp};
 use jsonwebtoken::{encode, Algorithm, Header};
-use pierre_core::constants::{
-    limits::OAUTH_ACCESS_TOKEN_EXPIRY_HOURS,
-    service_names::{MCP, PIERRE_MCP_SERVER},
-};
+use pierre_core::constants::{limits::OAUTH_ACCESS_TOKEN_EXPIRY_HOURS, service_names::MCP};
 use pierre_core::errors::{AppError, AppResult};
 use uuid::Uuid;
 
 use super::{AuthManager, Claims, DelegatedGrant};
 use crate::admin::jwks::JwksManager;
+
+/// Where a delegated access token comes from: the refresh family its
+/// authorization started, and the consent grant that authorization was given
+/// under.
+#[derive(Debug, Clone, Copy)]
+pub struct TokenLineage<'grant> {
+    /// The refresh family ([`Claims::grant_id`])
+    pub family_id: &'grant str,
+    /// The consent grant ([`Claims::client_grant_id`]); `None` for a family
+    /// begun before grants were named
+    pub client_grant_id: Option<&'grant str>,
+}
 
 impl AuthManager {
     /// Generate OAuth access token with RS256 asymmetric signing
@@ -40,7 +49,7 @@ impl AuthManager {
         providers: &[String],
         active_tenant_id: Option<String>,
     ) -> AppResult<String> {
-        Self::mint_oauth_access_token(
+        self.mint_oauth_access_token(
             jwks_manager,
             grant,
             None,
@@ -50,9 +59,10 @@ impl AuthManager {
         )
     }
 
-    /// [`Self::generate_oauth_access_token`] for a token minted under the
-    /// refresh family `grant_id`, which it carries in [`Claims::grant_id`]:
-    /// what the authorization server's code and refresh grants mint.
+    /// [`Self::generate_oauth_access_token`] for a token minted under
+    /// `lineage`: the refresh family it carries in [`Claims::grant_id`] and
+    /// the consent grant it carries in [`Claims::client_grant_id`], what the
+    /// authorization server's code and refresh grants mint.
     ///
     /// # Errors
     ///
@@ -61,26 +71,27 @@ impl AuthManager {
         &self,
         jwks_manager: &JwksManager,
         grant: &DelegatedGrant<'_>,
-        grant_id: &str,
+        lineage: &TokenLineage<'_>,
         user_id: &Uuid,
         providers: &[String],
         active_tenant_id: Option<String>,
     ) -> AppResult<String> {
-        Self::mint_oauth_access_token(
+        self.mint_oauth_access_token(
             jwks_manager,
             grant,
-            Some(grant_id),
+            Some(lineage),
             user_id,
             providers,
             active_tenant_id,
         )
     }
 
-    /// Sign a delegated access token, under `grant_id` when it has one.
+    /// Sign a delegated access token, under `lineage` when it has one.
     fn mint_oauth_access_token(
+        &self,
         jwks_manager: &JwksManager,
         grant: &DelegatedGrant<'_>,
-        grant_id: Option<&str>,
+        lineage: Option<&TokenLineage<'_>>,
         user_id: &Uuid,
         providers: &[String],
         active_tenant_id: Option<String>,
@@ -93,7 +104,9 @@ impl AuthManager {
             email: format!("oauth_{user_id}@system.local"),
             iat: now.epoch_seconds(),
             exp: expiry.epoch_seconds(),
-            iss: PIERRE_MCP_SERVER.to_owned(),
+            // The authorization server's issuer (RFC 9068 §2.2), the
+            // metadata's `issuer`; sessions keep the platform's own name.
+            iss: self.oauth_token_issuer().to_owned(),
             jti: Uuid::new_v4().to_string(),
             // The athlete's connected fitness providers — what this field
             // means everywhere else it is written. It used to receive `scopes`
@@ -107,7 +120,10 @@ impl AuthManager {
             impersonator_id: None,
             impersonation_session_id: None,
             client_id: Some(grant.client_id.to_owned()),
-            grant_id: grant_id.map(str::to_owned),
+            grant_id: lineage.map(|lineage| lineage.family_id.to_owned()),
+            client_grant_id: lineage
+                .and_then(|lineage| lineage.client_grant_id)
+                .map(str::to_owned),
         };
 
         // Get active RSA key from JWKS manager

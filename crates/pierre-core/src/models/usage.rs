@@ -233,6 +233,9 @@ pub struct JwtUsage {
     pub ip_address: Option<String>,
     /// Client user agent string
     pub user_agent: Option<String>,
+    /// The consent grant a delegated token's request was admitted under,
+    /// whose hourly budget counts it; `None` for every other credential
+    pub client_grant_id: Option<String>,
 }
 
 /// An admin's per-user monthly request limit, as `user_rate_limit_overrides`

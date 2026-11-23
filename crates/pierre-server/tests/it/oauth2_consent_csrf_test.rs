@@ -24,6 +24,7 @@ use axum::extract::connect_info::MockConnectInfo;
 use base64::{engine::general_purpose, Engine as _};
 use common::create_test_tenant;
 use helpers::axum_test::{AxumTestRequest, AxumTestResponse};
+use helpers::consent_form::review_digest;
 use pierre_auth::oauth2_server::client_registration::ClientRegistrationManager;
 use pierre_auth::oauth2_server::models::ClientRegistrationRequest;
 use pierre_auth::security::cookies::auth_cookie_name;
@@ -80,8 +81,16 @@ fn authorize_uri(client_id: &str) -> String {
     )
 }
 
-/// The consent page the signed-in athlete is shown, and its form token.
-async fn consent_page(resources: &Arc<ServerContext>, client_id: &str, cookie: &str) -> String {
+/// What a rendered consent form proves it came from: its synchronizer token
+/// and the review digest of the screen.
+struct FormProof {
+    token: String,
+    digest: String,
+}
+
+/// The consent page the signed-in athlete is shown: its form token and the
+/// screen's review digest.
+async fn consent_page(resources: &Arc<ServerContext>, client_id: &str, cookie: &str) -> FormProof {
     let page = AxumTestRequest::get(&authorize_uri(client_id))
         .header("cookie", cookie)
         .send(app(resources))
@@ -94,7 +103,10 @@ async fn consent_page(resources: &Arc<ServerContext>, client_id: &str, cookie: &
         .and_then(|rest| rest.split('"').next())
         .unwrap_or_else(|| panic!("the consent form carries its token: {html}"))
         .to_owned();
-    token
+    FormProof {
+        token,
+        digest: review_digest(&html),
+    }
 }
 
 /// Submit the consent form with `decision`, carrying `token` when given.
@@ -102,7 +114,7 @@ async fn submit(
     resources: &Arc<ServerContext>,
     client_id: &str,
     cookie: &str,
-    token: Option<&str>,
+    proof: Option<&FormProof>,
     decision: &str,
 ) -> AxumTestResponse {
     let challenge = challenge();
@@ -115,8 +127,9 @@ async fn submit(
         ("code_challenge_method", "S256"),
         ("decision", decision),
     ];
-    if let Some(token) = token {
-        form.push(("csrf_token", token));
+    if let Some(proof) = proof {
+        form.push(("csrf_token", proof.token.as_str()));
+        form.push(("review_digest", proof.digest.as_str()));
     }
     AxumTestRequest::post("/oauth2/consent")
         .header("cookie", cookie)

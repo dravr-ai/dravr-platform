@@ -1521,6 +1521,11 @@ Authorization: Bearer <your-token-here>`}
                                   <p className="text-xs text-outline mt-1">
                                     {t('app.connectedOn', { date: formatDate(app.granted_at, language) })}
                                   </p>
+                                  {app.expires_at && (
+                                    <p className="text-xs text-outline" data-testid={`connected-app-expiry-${app.id}`}>
+                                      {t('apiKeys.expiresOn', { date: formatDate(app.expires_at, language) })}
+                                    </p>
+                                  )}
                                 </div>
                                 <Button
                                   variant="danger-outline"

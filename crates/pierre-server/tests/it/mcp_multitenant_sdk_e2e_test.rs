@@ -435,6 +435,7 @@ async fn spend_jwt_budget(resources: &ServerContext, user_id: Uuid, count: u32) 
                     response_size_bytes: None,
                     ip_address: None,
                     user_agent: None,
+                    client_grant_id: None,
                 })
                 .await
         })

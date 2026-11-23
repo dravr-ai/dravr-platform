@@ -675,6 +675,7 @@ async fn a_late_131047_reaches_the_app_of_an_athlete_past_their_request_budget()
             response_size_bytes: None,
             ip_address: None,
             user_agent: None,
+            client_grant_id: None,
         })
         .await
         .unwrap();

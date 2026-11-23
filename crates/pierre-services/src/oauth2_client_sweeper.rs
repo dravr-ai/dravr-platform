@@ -59,6 +59,7 @@ pub fn start_oauth2_client_sweeper(
                     expired = sweep.expired,
                     abandoned = sweep.abandoned,
                     orphaned_grants = sweep.orphaned_grants,
+                    expired_pushed_requests = sweep.expired_pushed_requests,
                     "OAuth2 client sweep deleted stale registrations"
                 );
             }

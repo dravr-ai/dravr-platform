@@ -32,8 +32,11 @@ use uuid::Uuid;
 pub const GRANT_STANDING_TTL: Duration = Duration::from_secs(30);
 
 /// The `provider` segment of the entries' keys, which keeps them apart from
-/// the provider data sharing the cache.
-const KEY_NAMESPACE: &str = "_oauth_client_grant";
+/// the provider data sharing the cache. It is not the `_oauth_client_grant`
+/// segment a replica that lists no live grants writes under: such an entry
+/// would read as "no grant" for every token naming one, so during a rolling
+/// deploy the two shapes never share a key.
+const KEY_NAMESPACE: &str = "_oauth_client_grant_standing";
 
 /// Reads and forgets where consents stand.
 #[derive(Clone)]

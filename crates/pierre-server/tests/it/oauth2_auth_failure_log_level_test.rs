@@ -227,6 +227,8 @@ fn authorize_request(client_id: &str, state: &str) -> AuthorizeRequest {
         code_challenge: Some(CODE_CHALLENGE.to_owned()),
         code_challenge_method: Some("S256".to_owned()),
         resource: None,
+        request_uri: None,
+        authorization_details: None,
     }
 }
 

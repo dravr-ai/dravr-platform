@@ -20,6 +20,7 @@
 
 use crate::common;
 use crate::helpers;
+use crate::helpers::consent_form::review_digest;
 use pierre_test_support::account::delete_account;
 use secrecy::{ExposeSecret, SecretString};
 
@@ -556,6 +557,7 @@ async fn google_sign_in_goes_to_google_and_back_to_consent_for_a_new_account() {
             ("code_challenge_method", "S256"),
             ("resource", ""),
             ("csrf_token", csrf_token.as_str()),
+            ("review_digest", review_digest(&page).as_str()),
             ("decision", "approve"),
         ])
         .send(f.routes())
@@ -1448,6 +1450,7 @@ async fn proving_an_unverified_accounts_email_retires_every_credential_it_held()
             family_id: Uuid::new_v4().to_string(),
             family_created_at: None,
             resource: None,
+            client_grant_id: None,
         })
         .await
         .unwrap();

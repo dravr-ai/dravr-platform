@@ -8,29 +8,30 @@ use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{
     ClientGrantStanding, DeviceAuthorization, OAuth2AuthCode, OAuth2Client, OAuth2ClientSweep,
-    OAuth2RefreshToken, OAuth2State, OAuthClientGrant,
+    OAuth2PushedRequest, OAuth2RefreshToken, OAuth2State, OAuthClientGrant,
 };
 use secrecy::ExposeSecret;
+use sqlx::postgres::PgRow;
 use uuid::Uuid;
 
 use crate::backends::postgres::PostgresDatabase;
 use crate::backends::shared::encryption::HasEncryption;
 use crate::repositories::tokens::{
-    client_grant_from_row, device_authorization_from_row, impl_oauth2_server_repository,
-    oauth2_auth_code_from_row, oauth2_client_from_row, oauth2_refresh_token_from_row,
-    oauth2_state_from_row, APPROVE_DEVICE_AUTHORIZATION_SQL, CONSUME_OAUTH2_AUTH_CODE_SQL,
+    client_grant_from_row, device_authorization_from_row, impl_client_grant_writes,
+    impl_oauth2_server_repository, impl_pushed_request_store, oauth2_auth_code_from_row,
+    oauth2_client_from_row, oauth2_refresh_token_from_row, oauth2_state_from_row,
+    APPROVE_DEVICE_AUTHORIZATION_SQL, CONSUME_OAUTH2_AUTH_CODE_SQL,
     CONSUME_OAUTH2_REFRESH_TOKEN_SQL, CONSUME_OAUTH2_STATE_SQL, CREATE_DEVICE_AUTHORIZATION_SQL,
     DELETE_ABANDONED_OAUTH2_CLIENTS_SQL, DELETE_CLIENT_GRANTS_FOR_CLIENT_SQL,
     DELETE_DEVICE_AUTHORIZATION_SQL, DELETE_EXPIRED_OAUTH2_CLIENTS_SQL, DELETE_OAUTH2_CLIENT_SQL,
     DELETE_ORPHANED_CLIENT_GRANTS_SQL, DENY_DEVICE_AUTHORIZATION_SQL,
-    EXTEND_OAUTH2_CLIENT_EXPIRY_SQL, FIND_ACTIVE_CLIENT_GRANT_SQL,
+    EXTEND_OAUTH2_CLIENT_EXPIRY_SQL, FIND_ACTIVE_CLIENT_GRANT_SQL, GET_CLIENT_GRANT_SQL,
     GET_DEVICE_AUTHORIZATION_BY_CODE_HASH_SQL, GET_DEVICE_AUTHORIZATION_BY_USER_CODE_SQL,
     GET_OAUTH2_CLIENT_SQL, GET_OAUTH2_REFRESH_TOKEN_SQL, LIST_CLIENT_GRANTS_SQL,
-    LIST_CLIENT_GRANT_HISTORY_SQL, PEEK_OAUTH2_AUTH_CODE_SQL, REVOKE_CLIENT_GRANT_SQL,
-    REVOKE_CLIENT_OAUTH2_AUTH_CODES_SQL, REVOKE_CLIENT_OAUTH2_REFRESH_TOKENS_SQL,
-    REVOKE_OAUTH2_REFRESH_TOKEN_FAMILY_SQL, REVOKE_USER_OAUTH2_REFRESH_TOKENS_SQL,
-    REVOKE_WITHDRAWN_OAUTH2_REFRESH_TOKENS_SQL, STAMP_OAUTH2_CLIENT_AUTHORIZED_SQL,
-    STORE_CLIENT_GRANT_SQL, STORE_OAUTH2_AUTH_CODE_SQL, STORE_OAUTH2_CLIENT_SQL,
+    LIST_CLIENT_GRANT_HISTORY_SQL, PEEK_OAUTH2_AUTH_CODE_SQL, REVOKE_CLIENT_OAUTH2_AUTH_CODES_SQL,
+    REVOKE_CLIENT_OAUTH2_REFRESH_TOKENS_SQL, REVOKE_OAUTH2_REFRESH_TOKEN_FAMILY_SQL,
+    REVOKE_USER_OAUTH2_REFRESH_TOKENS_SQL, REVOKE_WITHDRAWN_OAUTH2_REFRESH_TOKENS_SQL,
+    STAMP_OAUTH2_CLIENT_AUTHORIZED_SQL, STORE_OAUTH2_AUTH_CODE_SQL, STORE_OAUTH2_CLIENT_SQL,
     STORE_OAUTH2_CLIENT_WITHIN_CEILING_SQL, STORE_OAUTH2_REFRESH_TOKEN_SQL, STORE_OAUTH2_STATE_SQL,
     STORE_WITHDRAWN_CLIENT_GRANT_SQL, SWEEP_EXPIRED_DEVICE_AUTHORIZATIONS_SQL,
     UPDATE_PUBLIC_OAUTH2_CLIENT_METADATA_SQL, WITHDRAW_CLIENT_GRANTS_SQL,
@@ -38,3 +39,5 @@ use crate::repositories::tokens::{
 use crate::repositories::OAuth2ServerRepository;
 
 impl_oauth2_server_repository!(PostgresDatabase);
+impl_client_grant_writes!(PostgresDatabase, PgRow);
+impl_pushed_request_store!(PostgresDatabase);

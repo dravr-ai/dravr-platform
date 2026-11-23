@@ -146,10 +146,12 @@ fn google_login_params(
         code_challenge: "challenge_abc",
         code_challenge_method: "S256",
         resource: "https://mcp.example.test",
+        request_uri: "",
         default_email: "",
         default_password: "",
         google_start_url,
         labels: &ENGLISH_LABELS,
+        authorization_details: "",
     }
 }
 
@@ -226,6 +228,7 @@ fn test_consent_page_escapes_the_client_name_and_names_the_account() {
         code_challenge: "challenge_abc",
         code_challenge_method: "S256",
         resource: "",
+        request_uri: "",
         csrf_token: "token",
         client_label: "<script>alert(1)</script>",
         account_email: "athlete@example.test",
@@ -233,6 +236,7 @@ fn test_consent_page_escapes_the_client_name_and_names_the_account() {
         first_party_only_sources: &["Strava"],
         text: &ConsentText::new(&STRINGS, "en"),
         role: pierre_routes_identity::ConsentRole::default(),
+        grant_choice: None,
     });
 
     assert!(!html.contains("<script>"), "{html}");
@@ -273,6 +277,7 @@ fn test_consent_page_names_the_host_the_browser_goes_to() {
             code_challenge: "challenge_abc",
             code_challenge_method: "S256",
             resource: "",
+            request_uri: "",
             csrf_token: "token",
             client_label: "Claude",
             account_email: "athlete@example.test",
@@ -280,6 +285,7 @@ fn test_consent_page_names_the_host_the_browser_goes_to() {
             first_party_only_sources: &[],
             text: &ConsentText::new(&STRINGS, "en"),
             role: pierre_routes_identity::ConsentRole::default(),
+            grant_choice: None,
         })
     };
 
@@ -323,6 +329,7 @@ fn test_consent_page_names_the_data_that_stays_inside_dravr() {
             code_challenge: "challenge_abc",
             code_challenge_method: "S256",
             resource: "",
+            request_uri: "",
             csrf_token: "token",
             client_label: "Claude",
             account_email: "athlete@example.test",
@@ -330,6 +337,7 @@ fn test_consent_page_names_the_data_that_stays_inside_dravr() {
             first_party_only_sources: sources,
             text: &ConsentText::new(&STRINGS, "en"),
             role: pierre_routes_identity::ConsentRole::default(),
+            grant_choice: None,
         })
     };
 
@@ -378,6 +386,7 @@ fn test_consent_page_states_the_client_trust_and_the_data_obligations() {
             code_challenge: "challenge_abc",
             code_challenge_method: "S256",
             resource: "",
+            request_uri: "",
             csrf_token: "token",
             client_label: label,
             account_email: "athlete@example.test",
@@ -385,6 +394,7 @@ fn test_consent_page_states_the_client_trust_and_the_data_obligations() {
             first_party_only_sources: &[],
             text: &ConsentText::new(&STRINGS, "en"),
             role: pierre_routes_identity::ConsentRole::default(),
+            grant_choice: None,
         })
     };
 
@@ -447,10 +457,12 @@ async fn test_generate_login_html() {
         code_challenge: test_challenge,
         code_challenge_method: test_method,
         resource: test_resource,
+        request_uri: "",
         default_email: test_email,
         default_password: test_password,
         google_start_url: None,
         labels: &ENGLISH_LABELS,
+        authorization_details: "",
     });
 
     // Verify all placeholders were replaced with actual values
@@ -564,10 +576,12 @@ async fn test_generate_login_html_empty_scope() {
         code_challenge: "challenge",
         code_challenge_method: "S256",
         resource: "",
+        request_uri: "",
         default_email: "test@example.com",
         default_password: "",
         google_start_url: None,
         labels: &ENGLISH_LABELS,
+        authorization_details: "",
     });
 
     // An empty request renders the grant it will actually be ISSUED —
@@ -682,10 +696,12 @@ async fn test_templates_use_boreal_design_system() {
         code_challenge: "challenge",
         code_challenge_method: "S256",
         resource: "",
+        request_uri: "",
         default_email: "",
         default_password: "",
         google_start_url: None,
         labels: &ENGLISH_LABELS,
+        authorization_details: "",
     });
     let dark_at = html
         .find("@media (prefers-color-scheme: dark)")
@@ -842,10 +858,12 @@ async fn test_login_html_escapes_xss_in_state() {
         code_challenge: "challenge",
         code_challenge_method: "S256",
         resource: "",
+        request_uri: "",
         default_email: "",
         default_password: "",
         google_start_url: None,
         labels: &ENGLISH_LABELS,
+        authorization_details: "",
     });
 
     // The XSS payload should NOT appear unescaped
@@ -875,10 +893,12 @@ async fn test_login_html_escapes_xss_in_redirect_uri() {
         code_challenge: "challenge",
         code_challenge_method: "S256",
         resource: "",
+        request_uri: "",
         default_email: "",
         default_password: "",
         google_start_url: None,
         labels: &ENGLISH_LABELS,
+        authorization_details: "",
     });
 
     // The attribute breakout should NOT appear unescaped
@@ -907,10 +927,12 @@ async fn test_oauth_login_page_integration() {
         code_challenge: "integration_challenge",
         code_challenge_method: "S256",
         resource: "",
+        request_uri: "",
         default_email: "test@pierre.test",
         default_password: "test123",
         google_start_url: None,
         labels: &ENGLISH_LABELS,
+        authorization_details: "",
     });
 
     // Verify complete HTML structure
@@ -996,6 +1018,7 @@ fn consent_in(locale: &str, client_id: &str, redirect_uri: &str, scope: &str) ->
         code_challenge: "challenge_abc",
         code_challenge_method: "S256",
         resource: "",
+        request_uri: "",
         csrf_token: "token",
         client_label: "Agent",
         account_email: "athlete@example.test",
@@ -1003,6 +1026,7 @@ fn consent_in(locale: &str, client_id: &str, redirect_uri: &str, scope: &str) ->
         first_party_only_sources: &["Strava", "Garmin", "WHOOP"],
         text: &ConsentText::new(&STRINGS, locale),
         role: pierre_routes_identity::ConsentRole::default(),
+        grant_choice: None,
     })
 }
 
@@ -1226,6 +1250,7 @@ fn a_french_consent_page_escapes_what_the_client_supplies() {
         code_challenge: "c",
         code_challenge_method: "S256",
         resource: "",
+        request_uri: "",
         csrf_token: "token",
         client_label: "<script>alert(1)</script>{1}{{T_ALLOW}}",
         account_email: "<i>a</i>@example.test",
@@ -1233,6 +1258,7 @@ fn a_french_consent_page_escapes_what_the_client_supplies() {
         first_party_only_sources: &["<u>x</u>"],
         text: &ConsentText::new(&STRINGS, "fr"),
         role: pierre_routes_identity::ConsentRole::default(),
+        grant_choice: None,
     });
     for raw in ["<script>", "<b>scope", "<i>a", "<u>x"] {
         assert!(!html.contains(raw), "{raw}: {html}");
@@ -1295,6 +1321,7 @@ fn consent_for_role(role: pierre_routes_identity::ConsentRole, locale: &str) -> 
         code_challenge: "challenge_abc",
         code_challenge_method: "S256",
         resource: "",
+        request_uri: "",
         csrf_token: "token",
         client_label: "Claude",
         account_email: "coach@example.test",
@@ -1302,6 +1329,7 @@ fn consent_for_role(role: pierre_routes_identity::ConsentRole, locale: &str) -> 
         first_party_only_sources: &["Strava"],
         text: &ConsentText::new(&STRINGS, locale),
         role,
+        grant_choice: None,
     })
 }
 
@@ -1346,4 +1374,79 @@ fn a_coach_and_an_admin_read_their_role_line_and_an_athlete_none() {
         admin.contains(&admin_line) && !admin.contains(&coach_line),
         "{admin}"
     );
+}
+
+/// The consent template places the grant choice inside the form, above the
+/// Admin access box and the buttons, and a page rendered without one leaves
+/// no placeholder behind.
+#[test]
+fn the_consent_template_places_the_grant_choice_in_the_form() {
+    // A scanner over a template, the data under test: where a placeholder
+    // sits in the form is the template's own layout, which no render shows
+    // apart from the lines that fill it.
+    let template = include_str!("../../../pierre-routes-identity/templates/oauth_consent.html");
+    let form = template
+        .split("<form method=\"post\" action=\"/oauth2/consent\">")
+        .nth(1)
+        .and_then(|rest| rest.split("</form>").next())
+        .expect("the consent form");
+    let choice = form
+        .find("{{GRANT_CHOICE}}")
+        .expect("the grant choice is in the form");
+    let admin = form
+        .find("{{ADMIN_ACCESS}}")
+        .expect("the Admin access box is in the form");
+    let allow = form.find("{{T_ALLOW}}").expect("the Allow button");
+    assert!(
+        choice < admin && admin < allow,
+        "choice, then admin box, then the buttons"
+    );
+
+    for locale in ["en", "fr"] {
+        let page = consent_in(
+            locale,
+            "mcp_client_1",
+            "https://client.example.test/cb",
+            "fitness:read",
+        );
+        assert!(
+            !page.contains("{{"),
+            "no placeholder survives the render: {page}"
+        );
+        assert!(
+            !page.contains("name=\"grant\""),
+            "no choice was given to render"
+        );
+    }
+}
+
+/// A request's `authorization_details` ride the login page as a hidden
+/// field, escaped, so the request the form sends back still carries them.
+#[tokio::test]
+async fn the_login_page_carries_the_requests_authorization_details() {
+    let details = r#"[{"type":"https://pdpp.dev/data-access","purpose_description":"<b>x</b>"}]"#;
+    let html = OAuth2Routes::generate_login_html(pierre_routes_identity::LoginHtmlParams {
+        client_id: "mcp_client_1",
+        redirect_uri: "https://client.example.test/cb",
+        response_type: "code",
+        state: "s",
+        scope: "fitness:read",
+        code_challenge: "challenge_abc",
+        code_challenge_method: "S256",
+        resource: "",
+        request_uri: "",
+        authorization_details: details,
+        default_email: "",
+        default_password: "",
+        google_start_url: None,
+        labels: &ENGLISH_LABELS,
+    });
+    assert!(
+        html.contains(&format!(
+            "name=\"authorization_details\" value=\"{}\"",
+            escape_html_attribute(details)
+        )),
+        "{html}"
+    );
+    assert!(!html.contains("<b>x</b>"), "the client's markup is escaped");
 }

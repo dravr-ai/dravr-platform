@@ -47,6 +47,16 @@
 //! writes: carnet#1533 refuses every external write that names an athlete
 //! (`offers_athlete_argument`, applied by [`retain_offered`]).
 //!
+//! Under a detailed consent grant ([`GrantCeiling`], plan slice 3 item 6)
+//! the ceiling is read right after the scope, from what the tool declares it
+//! reads ([`ToolData`]): every write scope is withheld (a preset is a read
+//! set); a tool reading a tier above the grant's `max_tier` is withheld
+//! ([`Withheld::Tier`]); a tool is offered only when it has a declaration
+//! whose streams are non-empty and all held by the grant (an incidental
+//! route aside), reads no person's data, or reads only connection metadata
+//! ([`Withheld::Stream`]); and a tool aggregating the whole history is
+//! withheld under the grant's data window ([`Withheld::Window`]).
+//!
 //! Listing keeps a tool when [`withheld`] answers `None`; the dispatch
 //! chokepoint refuses a call with the same answer. The role is read live on
 //! each listing and each call and kept nowhere: `/mcp` holds no session, and
@@ -63,11 +73,14 @@ use tracing::warn;
 use uuid::Uuid;
 
 use crate::protocol::types::UniversalResponse;
-use crate::read_subject::ATHLETE_ARGUMENT;
+use crate::read_subject::{DataClass, ATHLETE_ARGUMENT};
 use crate::registry::ToolRegistry;
 use crate::scopes::missing_scope;
 use crate::security::{Audience, RuntimeTool, ToolReach};
+use crate::tool_data::ToolData;
+use dravr_barrage::{Stream, Tier};
 use dravr_tronc::mcp::tool::ToolCapabilities;
+use pierre_auth::oauth2_server::grant_ceiling::GrantCeiling;
 
 /// `error_code` of the in-band refusal a coach tool returns to an external
 /// caller who is neither a human coach nor an admin.
@@ -132,6 +145,9 @@ pub struct Caller<'grant> {
     /// The call is made in an admin's support session, acting as the user
     /// (carnet#1511, carnet#1634).
     pub support_session: bool,
+    /// The ceiling of the detailed consent grant the credential was minted
+    /// under; `None` under a plain grant and for every other credential.
+    pub ceiling: Option<&'grant GrantCeiling>,
 }
 
 impl Caller<'_> {
@@ -153,18 +169,33 @@ pub enum Withheld {
     /// The tool carries the user's whole record away, and the caller is an
     /// admin's support session.
     SupportSession,
+    /// The tool reads data of this tier, above the consent grant's ceiling.
+    Tier(Tier),
+    /// The tool reads a stream the consent grant does not hold, or declares
+    /// none it holds.
+    Stream,
+    /// The tool aggregates the whole history, past the consent grant's data
+    /// window.
+    Window,
 }
 
-/// The first reason `tool` is withheld from `caller`, or `None` when it is
-/// offered and may be called.
+/// The first reason `tool`, registered in `registry` as `name`, is withheld
+/// from `caller`, or `None` when it is offered and may be called. What the
+/// tool reads is its declaration in `registry` ([`ToolData`]).
 #[must_use]
-pub fn withheld(tool: &dyn RuntimeTool, caller: &Caller<'_>) -> Option<Withheld> {
+pub fn withheld(
+    registry: &ToolRegistry,
+    name: &str,
+    tool: &dyn RuntimeTool,
+    caller: &Caller<'_>,
+) -> Option<Withheld> {
     decide(
         Declared {
             surface: tool.reach(),
             audience: tool.audience(),
             capabilities: tool.capabilities(),
             exports_record: tool.exports_record(),
+            data: registry.tool_data(name).copied(),
         },
         caller,
     )
@@ -177,12 +208,19 @@ struct Declared {
     audience: Audience,
     capabilities: ToolCapabilities,
     exports_record: bool,
+    /// What it reads; `None` for a tool that declared nothing.
+    data: Option<ToolData>,
 }
 
 /// [`withheld`] over what a tool declares.
 fn decide(tool: Declared, caller: &Caller<'_>) -> Option<Withheld> {
     if let Some(missing) = missing_scope(caller.grant, tool.capabilities) {
         return Some(Withheld::Scope(missing));
+    }
+    if let Some(ceiling) = caller.ceiling {
+        if let Some(beyond) = beyond_ceiling(&tool, caller.grant, ceiling) {
+            return Some(beyond);
+        }
     }
     if caller.support_session && tool.exports_record {
         return Some(Withheld::SupportSession);
@@ -205,6 +243,47 @@ fn decide(tool: Declared, caller: &Caller<'_>) -> Option<Withheld> {
         Audience::Coach => (caller.is_external() && !caller.role.coach && !caller.role.admin)
             .then_some(Withheld::Role(Audience::Coach)),
     }
+}
+
+/// Why `tool` is beyond `ceiling`, the consent grant `grant` was minted
+/// under, or `None` when the grant reaches it.
+fn beyond_ceiling(
+    tool: &Declared,
+    grant: &[OAuthScope],
+    ceiling: &GrantCeiling,
+) -> Option<Withheld> {
+    // A preset is a read set: every write scope is withheld.
+    let read_only: Vec<OAuthScope> = grant
+        .iter()
+        .copied()
+        .filter(|scope| {
+            !matches!(
+                scope,
+                OAuthScope::FitnessWrite | OAuthScope::ProfileWrite | OAuthScope::Admin
+            )
+        })
+        .collect();
+    if let Some(missing) = missing_scope(&read_only, tool.capabilities) {
+        return Some(Withheld::Scope(missing));
+    }
+    let Some(data) = tool.data else {
+        return Some(Withheld::Stream);
+    };
+    if let Some(tier) = data
+        .required_streams()
+        .map(Stream::tier)
+        .filter(|tier| !ceiling.reaches(*tier))
+        .min()
+    {
+        return Some(Withheld::Tier(tier));
+    }
+    if data.class() != Some(DataClass::NoSubject) && !data.connection_metadata() {
+        let mut streams = data.required_streams().peekable();
+        if streams.peek().is_none() || !streams.all(|stream| ceiling.holds(stream)) {
+            return Some(Withheld::Stream);
+        }
+    }
+    data.whole_history().then_some(Withheld::Window)
 }
 
 /// Whether `caller` is offered the `athlete` argument on `tool`.
@@ -233,7 +312,7 @@ pub fn retain_offered(registry: &ToolRegistry, schemas: &mut Vec<ToolSchema>, ca
     schemas.retain(|schema| {
         registry
             .get(&schema.name)
-            .is_none_or(|tool| withheld(tool.as_ref(), caller).is_none())
+            .is_none_or(|tool| withheld(registry, &schema.name, tool.as_ref(), caller).is_none())
     });
     for schema in schemas.iter_mut() {
         let offered = registry
@@ -287,6 +366,7 @@ mod tests {
             audience,
             capabilities,
             exports_record: false,
+            data: None,
         }
     }
 
@@ -311,6 +391,7 @@ mod tests {
             grant,
             transport: Some(transport),
             support_session: false,
+            ceiling: None,
         }
     }
 
@@ -441,6 +522,7 @@ mod tests {
             grant: &READ_ONLY,
             transport: None,
             support_session: false,
+            ceiling: None,
         };
         assert_eq!(
             decide(roster, &undeclared),
@@ -524,5 +606,175 @@ mod tests {
             None,
             "everything else the user sees is served"
         );
+    }
+
+    mod under_a_preset {
+        use super::*;
+        use dravr_barrage::Preset;
+        use dravr_barrage::Stream::{
+            Fitness, Labs, Profile, RestrictedNotes, Sleep, Workout, WorkoutRaw, WorkoutRoute,
+        };
+        use dravr_tronc::dates::{Timestamp, Zone};
+        use pierre_auth::oauth2_server::authorization_details::preset_defaults;
+
+        fn ceiling(preset: Preset) -> GrantCeiling {
+            let details = preset_defaults(preset, "https://mcp.example.test/mcp")
+                .freeze(Timestamp::now(), &Zone::utc())
+                .unwrap()
+                .0;
+            GrantCeiling::of_details("g", &details, &Zone::utc()).unwrap()
+        }
+
+        fn reads(capabilities: ToolCapabilities, data: ToolData) -> Declared {
+            Declared {
+                data: Some(data),
+                ..tool(ToolReach::AnyTransport, Audience::Athlete, capabilities)
+            }
+        }
+
+        fn of(streams: &'static [Stream]) -> ToolData {
+            ToolData::of(DataClass::Training, streams)
+        }
+
+        fn under<'a>(grant: &'a [OAuthScope], ceiling: &'a GrantCeiling) -> Caller<'a> {
+            Caller {
+                ceiling: Some(ceiling),
+                ..caller(ATHLETE, grant, Transport::McpHttp)
+            }
+        }
+
+        const SESSIONS: &[Stream] = &[Workout];
+        const SAMPLES: &[Stream] = &[Workout, WorkoutRaw];
+        const PLACED: &[Stream] = &[Workout, WorkoutRoute];
+        const RECORDS: &[Stream] = &[Labs, RestrictedNotes];
+        const MEMORY: &[Stream] = &[RestrictedNotes];
+        const NIGHTS: &[Stream] = &[Sleep];
+        const PHYSIOLOGY: &[Stream] = &[Fitness, Profile];
+
+        #[test]
+        fn a_training_grant_reads_its_streams_and_nothing_else() {
+            let training = ceiling(Preset::TrainingCoach);
+            let every = OAuthScope::delegable_grant();
+            let caller = under(&every, &training);
+            assert_eq!(
+                decide(reads(READ, of(SESSIONS)), &caller),
+                None,
+                "bug: a training grant was refused its sessions"
+            );
+            assert_eq!(
+                decide(reads(READ, of(SAMPLES)), &caller),
+                None,
+                "summary_and_raw"
+            );
+            assert_eq!(
+                decide(reads(READ, of(PHYSIOLOGY)), &caller),
+                None,
+                "bug: a training grant was refused the athlete's physiology"
+            );
+            assert_eq!(
+                decide(reads(READ, of(PLACED)), &caller),
+                Some(Withheld::Stream),
+                "bug: a tool whose answer is the place reached a grant without routes"
+            );
+            let incidental = ToolData::of(DataClass::Training, PLACED).with_incidental_route();
+            assert_eq!(
+                decide(reads(READ, incidental), &caller),
+                None,
+                "an incidental route is served without its coordinates"
+            );
+            let undeclared = tool(ToolReach::AnyTransport, Audience::Athlete, READ);
+            assert_eq!(
+                decide(undeclared, &caller),
+                Some(Withheld::Stream),
+                "bug: a tool declaring nothing reached a preset grant"
+            );
+            assert_eq!(
+                decide(reads(READ, of(&[])), &caller),
+                Some(Withheld::Stream),
+                "a tool declaring no stream reads no preset's data"
+            );
+            let reference = ToolData::of(DataClass::NoSubject, &[]);
+            assert_eq!(
+                decide(reads(READ, reference), &caller),
+                None,
+                "bug: a tool reading no person's data was refused a preset grant"
+            );
+            let connections = ToolData::of(DataClass::Training, &[]).with_connection_metadata();
+            assert_eq!(
+                decide(reads(READ, connections), &caller),
+                None,
+                "which sources are connected is offered under any preset"
+            );
+            let own_connections = ToolData::own(&[]).with_connection_metadata();
+            assert_eq!(
+                decide(reads(READ, own_connections), &caller),
+                None,
+                "bug: the athlete's own connections were refused a preset grant"
+            );
+            let history = ToolData::of(DataClass::Training, SESSIONS).with_whole_history();
+            assert_eq!(
+                decide(reads(READ, history), &caller),
+                Some(Withheld::Window),
+                "bug: a whole-history total reached a grant's window"
+            );
+        }
+
+        #[test]
+        fn the_tier_answers_before_the_streams_and_writes_are_withheld_on_scope() {
+            let training = ceiling(Preset::TrainingCoach);
+            let every = OAuthScope::delegable_grant();
+            let preset = under(&every, &training);
+            assert_eq!(
+                decide(reads(READ, of(RECORDS)), &preset),
+                Some(Withheld::Tier(Tier::T2)),
+                "bug: health records were refused on their streams, not tier_exceeds_grant"
+            );
+            assert_eq!(
+                decide(reads(READ, of(MEMORY)), &preset),
+                Some(Withheld::Tier(Tier::T3)),
+                "bug: a T3 read was not refused on its tier"
+            );
+            assert_eq!(
+                decide(reads(WRITE, of(SESSIONS)), &preset),
+                Some(Withheld::Scope(OAuthScope::FitnessWrite)),
+                "bug: a preset grant wrote"
+            );
+            assert_eq!(
+                decide(
+                    reads(WRITE, of(SESSIONS)),
+                    &caller(ATHLETE, &every, Transport::McpHttp)
+                ),
+                None,
+                "a plain grant still writes"
+            );
+            let read_only = READ_ONLY;
+            assert_eq!(
+                decide(reads(WRITE, of(RECORDS)), &under(&read_only, &training)),
+                Some(Withheld::Scope(OAuthScope::FitnessWrite)),
+                "the scope answers first"
+            );
+        }
+
+        #[test]
+        fn a_sleep_grant_reads_no_session() {
+            let sleep = ceiling(Preset::SleepCoach);
+            let every = OAuthScope::delegable_grant();
+            let caller = under(&every, &sleep);
+            assert_eq!(
+                decide(reads(READ, of(NIGHTS)), &caller),
+                None,
+                "bug: a sleep grant was refused its nights"
+            );
+            assert_eq!(
+                decide(reads(READ, of(SESSIONS)), &caller),
+                Some(Withheld::Stream),
+                "bug: a sleep grant read sessions"
+            );
+            assert_eq!(
+                decide(reads(READ, of(SAMPLES)), &caller),
+                Some(Withheld::Stream),
+                "bug: a sleep grant read workout samples"
+            );
+        }
     }
 }

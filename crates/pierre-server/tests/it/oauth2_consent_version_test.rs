@@ -34,6 +34,7 @@ use uuid::Uuid;
 
 use crate::common::{self, create_test_tenant};
 use crate::helpers::axum_test::{AxumTestRequest, AxumTestResponse};
+use crate::helpers::consent_form::{hidden_field, review_digest, with_grant_lines};
 
 const REDIRECT: &str = "https://client.example.test/callback";
 const VERIFIER: &str = "consent-version-pkce-verifier-0123456789-abcdefghijklmnop";
@@ -147,6 +148,7 @@ async fn approve(resources: &Arc<ServerContext>, client_id: &str, who: &Athlete)
             ("code_challenge_method", "S256"),
             ("decision", "approve"),
             ("csrf_token", token.as_str()),
+            ("review_digest", review_digest(&html).as_str()),
         ])
         .send(app(resources))
         .await;
@@ -289,6 +291,8 @@ async fn a_grant_recorded_without_a_version_asks_again() {
             revoked_at: None,
             consent_version: None,
             consent_locale: None,
+            authorization_details: None,
+            expires_at: None,
         })
         .await
         .unwrap();
@@ -305,5 +309,67 @@ async fn a_grant_recorded_without_a_version_asks_again() {
     assert!(
         !asks(&resources, &client_id, &who).await,
         "bug: a grant approved under the current text is not asked again"
+    );
+}
+
+/// A preset grant records the review digest of its screen: the text version
+/// bound to the preset's terms, never the bare version a plain grant records.
+/// A change to any line the picker shows asks it again too.
+#[tokio::test]
+async fn a_preset_grant_records_its_review_digest_and_a_picker_line_change_asks_again() {
+    let resources = resources().await;
+    with_grant_lines(&resources.mcp.messaging_strings_registry);
+    let client_id = register(&resources).await;
+    let who = athlete(&resources, "consent-version-preset@example.test").await;
+
+    let screen = authorize(&resources, &client_id, &who).await;
+    assert_eq!(screen.status(), 200);
+    let page = screen.text();
+    let plain_digest = hidden_field(&page, "review_digest_everything").unwrap();
+    let digest = hidden_field(&page, "review_digest_training_coach").unwrap();
+    assert_ne!(digest, plain_digest, "each choice is its own review");
+    let token = resources
+        .auth
+        .csrf_manager
+        .generate_token(who.user.id)
+        .unwrap();
+    let challenge = challenge();
+    let approved = AxumTestRequest::post("/oauth2/consent")
+        .header("cookie", &who.cookie)
+        .form(&[
+            ("response_type", "code"),
+            ("client_id", client_id.as_str()),
+            ("redirect_uri", REDIRECT),
+            ("state", "preset-state"),
+            ("code_challenge", challenge.as_str()),
+            ("code_challenge_method", "S256"),
+            ("grant", "training_coach"),
+            ("review_digest_training_coach", digest.as_str()),
+            ("decision", "approve"),
+            ("csrf_token", token.as_str()),
+        ])
+        .send(app(&resources))
+        .await;
+    assert_eq!(approved.status(), 303, "{}", approved.text());
+
+    let recorded = grants(&resources, &who).await;
+    assert_eq!(
+        recorded[0].consent_version.as_deref(),
+        Some(digest.as_str())
+    );
+    assert!(
+        !asks(&resources, &client_id, &who).await,
+        "a scope-only request is answered by the preset grant"
+    );
+
+    resources.mcp.messaging_strings_registry.update(
+        "oauth.consent.grantSleepCoach",
+        "en",
+        "Sleep and recovery coach".to_owned(),
+        "reworded-picker".to_owned(),
+    );
+    assert!(
+        asks(&resources, &client_id, &who).await,
+        "bug: a grant approved before a picker line changed is shown the screen again"
     );
 }

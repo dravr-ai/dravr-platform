@@ -64,12 +64,13 @@ macro_rules! record_jwt_usage_sql {
     ($id:literal, $inet:literal) => {
         concat!(
             "INSERT INTO jwt_usage (id, user_id, timestamp, endpoint, method, status_code, \
-                 response_time_ms, request_size_bytes, response_size_bytes, ip_address, user_agent) \
+                 response_time_ms, request_size_bytes, response_size_bytes, ip_address, user_agent, \
+                 client_grant_id) \
              VALUES (",
             $id,
             ", $1, $2, $3, $4, $5, $6, $7, $8, $9",
             $inet,
-            ", $10)"
+            ", $10, $11)"
         )
     };
 }
@@ -82,6 +83,13 @@ pub(crate) use record_jwt_usage_sql;
 pub(crate) const API_KEY_WINDOW_USAGE_SQL: &str = "SELECT COUNT(*) AS count, \
             MIN(timestamp) AS oldest \
      FROM api_key_usage WHERE api_key_id = $1 AND timestamp > $2";
+
+/// A user's requests admitted under consent grant `$2` after `$3` and the
+/// earliest of them: the grant's usage inside its hourly window. Served by
+/// the `(user_id, client_grant_id, timestamp)` partial index.
+pub(crate) const GRANT_WINDOW_USAGE_SQL: &str = "SELECT COUNT(*) AS count, \
+            MIN(timestamp) AS oldest \
+     FROM jwt_usage WHERE user_id = $1 AND client_grant_id = $2 AND timestamp > $3";
 
 /// A key's totals over `[$5, $6]`. `$1..=$3` are the success band and the
 /// failure floor: a 2xx is successful, 400 and up failed, so a 3xx is in
@@ -483,10 +491,38 @@ macro_rules! impl_usage_repository {
                     .bind(usage.response_size_bytes.map(saturating_i32))
                     .bind(&usage.ip_address)
                     .bind(&usage.user_agent)
+                    .bind(&usage.client_grant_id)
                     .execute(self.pool())
                     .await
                     .map_err(|e| AppError::database(format!("Failed to record JWT usage: {e}")))?;
                 Ok(())
+            }
+
+            async fn get_grant_window_usage(
+                &self,
+                user_id: Uuid,
+                client_grant_id: &str,
+                window_start: Timestamp,
+            ) -> AppResult<WindowUsage> {
+                let row = sqlx::query(GRANT_WINDOW_USAGE_SQL)
+                    .bind($ids::bind(user_id))
+                    .bind(client_grant_id)
+                    .bind(window_start)
+                    .fetch_one(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to get grant window usage: {e}"))
+                    })?;
+                let count: i64 = row
+                    .try_get("count")
+                    .map_err(|e| usage_column_error("count", e))?;
+                let oldest: Option<Timestamp> = row
+                    .try_get("oldest")
+                    .map_err(|e| usage_column_error("oldest", e))?;
+                Ok(WindowUsage {
+                    count: u32_from_count(count, "count")?,
+                    oldest,
+                })
             }
 
             async fn get_jwt_current_usage(&self, user_id: Uuid) -> AppResult<JwtMonthlyUsage> {

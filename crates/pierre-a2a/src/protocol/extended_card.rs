@@ -49,11 +49,12 @@ impl A2AServer {
             grant: &acting.scopes,
             transport: Some(Transport::A2a),
             support_session: acting.support.is_some(),
+            ceiling: principal.ceiling.as_ref(),
         };
         card.skills.retain(|skill| {
-            registry
-                .get(&skill.id)
-                .is_none_or(|tool| tool_access::withheld(tool.as_ref(), &caller).is_none())
+            registry.get(&skill.id).is_none_or(|tool| {
+                tool_access::withheld(registry, &skill.id, tool.as_ref(), &caller).is_none()
+            })
         });
         let public_skill_ids: Vec<String> =
             card.skills.iter().map(|skill| skill.id.clone()).collect(); // Safe: String ownership for dedup set

@@ -462,6 +462,7 @@ async fn test_jwt_usage_tracking() -> Result<()> {
         response_size_bytes: Some(200),
         ip_address: Some("127.0.0.1".to_owned()),
         user_agent: Some("test-client".to_owned()),
+        client_grant_id: None,
         timestamp: Timestamp::now(),
     };
 
@@ -488,6 +489,7 @@ async fn test_jwt_usage_tracking() -> Result<()> {
         response_size_bytes: Some(1000),
         ip_address: Some("127.0.0.1".to_owned()),
         user_agent: Some("test-client".to_owned()),
+        client_grant_id: None,
         timestamp: Timestamp::now(),
     };
 
@@ -1251,6 +1253,7 @@ mod postgres_tests {
                 response_size_bytes: Some(1024),
                 ip_address: Some("10.0.0.1".to_owned()),
                 user_agent: Some("postgres-jwt-client/1.0".to_owned()),
+                client_grant_id: None,
             };
 
             db.repositories().usage.record_jwt_usage(&jwt_usage).await?;

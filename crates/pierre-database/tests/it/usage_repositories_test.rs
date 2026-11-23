@@ -96,6 +96,7 @@ fn jwt_call(user_id: Uuid, at: Timestamp) -> JwtUsage {
         response_size_bytes: Some(2048),
         ip_address: Some("203.0.113.7".to_owned()),
         user_agent: Some("usage-test/1.0".to_owned()),
+        client_grant_id: None,
     }
 }
 

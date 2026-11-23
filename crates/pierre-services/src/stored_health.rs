@@ -114,11 +114,15 @@ pub(crate) async fn governed_by_sources<T: StoredHealthRecord>(
     records: Vec<T>,
     sources: &[DataSource],
 ) -> AppResult<StoredHealth<T>> {
+    // Under a grant's window, no row dated before it, gate or not.
+    let mut records = records;
+    ai_scope::retain_in_window(&mut records, StoredHealthRecord::dated);
     let records = if records.is_empty() || !ai_scope::policies_apply() {
         records
     } else {
         ai_scope::filter_stored_health(terms, records, sources)
     };
+    ai_scope::note_rows(records.len());
     let garmin = garmin_rows_attribution(&records, sources);
     let attribution =
         attribution_of(repos, user_id, tenant, garmin, serves_intervals(&records)).await?;
@@ -443,7 +447,11 @@ pub async fn holds_recovery_rows(
 ) -> AppResult<bool> {
     // Where the rows came from, never the rows: governing a row needs only
     // its provider and data source, and a yes/no serves no reading, so it
-    // owes no attribution either.
+    // owes no attribution either. Under a grant's window, only rows inside it.
+    let start = ai_scope::window_since().map_or(start, |since| start.max(since));
+    if start > end {
+        return Ok(false);
+    }
     let mut origins = repos
         .recovery
         .recovery_origins(user_id, tenant, start, end)

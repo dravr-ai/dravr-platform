@@ -46,6 +46,7 @@ async fn test_jwt_usage_tracking() {
         response_size_bytes: Some(512),
         ip_address: Some("192.168.1.1".into()),
         user_agent: Some("TestClient/1.0".into()),
+        client_grant_id: None,
     };
 
     let repos = db.repositories();

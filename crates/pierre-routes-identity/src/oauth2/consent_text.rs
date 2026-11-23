@@ -115,6 +115,11 @@ impl<'a> ConsentText<'a> {
         Self::for_reader(strings, None, headers)
     }
 
+    /// The catalogue the text reads from.
+    pub(super) const fn strings(&self) -> &'a MessagingStringsRegistry {
+        self.strings
+    }
+
     /// The page's `lang` attribute.
     pub(super) const fn lang(&self) -> &'static str {
         self.locale

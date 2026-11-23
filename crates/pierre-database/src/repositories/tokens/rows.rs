@@ -123,6 +123,9 @@ where
         resource: row
             .try_get("resource")
             .map_err(|e| column_error("resource", e))?,
+        client_grant_id: row
+            .try_get("client_grant_id")
+            .map_err(|e| column_error("client_grant_id", e))?,
     })
 }
 
@@ -172,6 +175,9 @@ where
         family_created_at: row
             .try_get("family_created_at")
             .map_err(|e| column_error("family_created_at", e))?,
+        client_grant_id: row
+            .try_get("client_grant_id")
+            .map_err(|e| column_error("client_grant_id", e))?,
     })
 }
 
@@ -262,6 +268,12 @@ where
         consent_locale: row
             .try_get("consent_locale")
             .map_err(|e| column_error("consent_locale", e))?,
+        authorization_details: row
+            .try_get("authorization_details")
+            .map_err(|e| column_error("authorization_details", e))?,
+        expires_at: row
+            .try_get("expires_at")
+            .map_err(|e| column_error("expires_at", e))?,
     })
 }
 

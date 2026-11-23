@@ -250,6 +250,7 @@ async fn seed_jwt_calls(resources: &Arc<ServerContext>, user_id: Uuid, count: u3
                         response_size_bytes: None,
                         ip_address: None,
                         user_agent: None,
+                        client_grant_id: None,
                     })
                     .await
             }

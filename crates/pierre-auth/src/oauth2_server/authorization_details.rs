@@ -1,0 +1,169 @@
+// ABOUTME: RFC 9396 authorization_details for owl's presets — parsed, narrowed and resolved to the one document a grant stores
+// ABOUTME: Whatever the server cannot enforce is refused with invalid_authorization_details, never stored and ignored
+//
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 dravr.ai
+
+//! # Authorization details (RFC 9396, owl PDPP §3–§4)
+//!
+//! A client may ask for less than everything: one `https://pdpp.dev/data-access`
+//! detail naming a preset (`training_coach`, `sleep_coach`, barrage's frozen
+//! stream sets), optionally narrowed by one
+//! `https://dravr.ai/pdpp/health-profile/v0/health-constraints` detail.
+//!
+//! Resolution happens in two steps:
+//! - [`parse_authorization_details`] and [`resolve`] run before the athlete
+//!   signs in, so a refusal reaches the client as RFC 6749 §4.1.2.1 sends it.
+//!   They expand the preset and take the narrower of its value and the
+//!   client's for every field.
+//! - [`ResolvedDetails::freeze`] runs when the athlete approves: the data
+//!   window's `since` becomes the athlete's local midnight `window` days back,
+//!   in UTC, and the lifetime becomes the grant's `expires_at`.
+//!
+//! [`ResolvedDetails`] is the document the grant stores, the token response
+//! echoes (RFC 9396 §7) and introspection returns: a JSON array of the two
+//! resolved details, serialized from typed structs in a fixed field order. It
+//! names the preset and never a stream (stream names are not published, E5).
+//!
+//! Every member the server cannot enforce yet is refused, which is what
+//! `critical: true` asks: explicit `streams`, `raw_streams`, `time_range`,
+//! `single_use`, `total_rows`, `code_filter`, `egress`, a step-up, a Host
+//! Profile, `max_tier` above T1; so are the members only the server sets and
+//! every unknown member.
+
+pub use dravr_barrage::{Preset, Tier};
+use serde::{Deserialize, Serialize};
+use tracing::warn;
+
+use super::models::OAuth2Error;
+
+/// ISO 8601 durations of fixed-length units
+mod duration;
+/// A client's request, parsed and checked against the field table
+mod parse;
+/// The resolved document a grant stores
+mod resolved;
+
+pub use parse::{parse_authorization_details, RequestedDetails};
+pub use resolved::{athlete_zone, preset_defaults, resolve, review_digest, ResolvedDetails};
+
+/// The PDPP Core detail type a client asks for data with.
+pub(crate) const DATA_ACCESS_TYPE: &str = "https://pdpp.dev/data-access";
+
+/// Dravr's health-profile detail type, narrowing one data-access detail.
+pub(crate) const HEALTH_CONSTRAINTS_TYPE: &str =
+    "https://dravr.ai/pdpp/health-profile/v0/health-constraints";
+
+/// The detail types this server resolves, as discovery lists them.
+pub const AUTHORIZATION_DETAILS_TYPES: [&str; 2] = [DATA_ACCESS_TYPE, HEALTH_CONSTRAINTS_TYPE];
+
+/// The longest `authorization_details` parameter read, in bytes.
+pub(crate) const MAX_AUTHORIZATION_DETAILS_BYTES: usize = 8 * 1024;
+
+/// The refusal of a request's `authorization_details` (RFC 9396 §5).
+fn refused(description: &str) -> OAuth2Error {
+    warn!("authorization_details refused: {description}");
+    OAuth2Error::invalid_authorization_details(description)
+}
+
+/// How much of a preset's data a grant reads.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Representation {
+    /// Summaries only: no raw sample stream
+    Summary,
+    /// Summaries and the preset's own raw streams
+    SummaryAndRaw,
+}
+
+/// How long a grant may be used: `continuous` alone until single-use grants.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AccessMode {
+    /// Read repeatedly while the grant stands
+    Continuous,
+}
+
+/// The resource server a detail's data is read from.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Source {
+    /// The resource identifier: the resource the tokens are for
+    pub id: String,
+}
+
+/// What a client commits to, in its own words.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ClientClaims {
+    /// Each commitment, as the client wrote it
+    pub commitments: Vec<String>,
+}
+
+/// How long a client says it keeps what it reads, in its own words.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Retention {
+    /// An ISO 8601 duration
+    pub max_duration: String,
+    /// What it does with the data then (`delete`, …)
+    pub on_expiry: String,
+}
+
+/// A grant's budgets: the narrower of the preset's and the client's.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Budgets {
+    /// Calls per hour
+    pub requests_per_hour: u32,
+    /// Rows served per UTC day
+    pub rows_per_day: u32,
+    /// Raw time-series samples served per UTC day
+    pub raw_rows_per_day: u32,
+}
+
+#[cfg(test)]
+mod tests {
+    //! Fixtures the parse and resolved tests share: the two details a client
+    //! sends, and their resolution for tokens bound to [`MCP`].
+
+    use super::{parse_authorization_details, resolve, ResolvedDetails};
+    use super::{DATA_ACCESS_TYPE, HEALTH_CONSTRAINTS_TYPE};
+    use crate::oauth2_server::models::OAuth2Error;
+    use serde_json::{json, Value};
+
+    /// The resource the fixtures' tokens are for.
+    pub(super) const MCP: &str = "https://mcp.example.test/mcp";
+
+    /// A training-coach data-access detail, `extra`'s members laid over it.
+    pub(super) fn access(extra: &Value) -> Value {
+        let mut detail = json!({
+            "type": DATA_ACCESS_TYPE,
+            "source": {"id": MCP},
+            "selection_preset": "training_coach",
+        });
+        if let (Value::Object(detail), Value::Object(extra)) = (&mut detail, extra) {
+            detail.extend(extra.clone());
+        }
+        detail
+    }
+
+    /// A critical health-constraints detail applying to detail 0, `extra`'s
+    /// members laid over it.
+    pub(super) fn constraints(extra: &Value) -> Value {
+        let mut detail = json!({
+            "type": HEALTH_CONSTRAINTS_TYPE,
+            "applies_to": 0,
+            "critical": true,
+        });
+        if let (Value::Object(detail), Value::Object(extra)) = (&mut detail, extra) {
+            detail.extend(extra.clone());
+        }
+        detail
+    }
+
+    /// `details` parsed and resolved for tokens bound to [`MCP`].
+    pub(super) fn resolved(details: &Value) -> Result<ResolvedDetails, OAuth2Error> {
+        resolve(&parse_authorization_details(&details.to_string())?, &[MCP])
+    }
+}

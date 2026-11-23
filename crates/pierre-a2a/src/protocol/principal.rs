@@ -11,6 +11,7 @@
 //! to the tasks keyed to clients it owns.
 
 use dravr_tronc::dates::Timestamp;
+use pierre_auth::oauth2_server::grant_ceiling::GrantCeiling;
 use pierre_auth::rate_limiting::{a2a_client_window_start, calculate_a2a_client_rate_limit};
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::a2a::{user_task_key, A2AClient};
@@ -55,6 +56,11 @@ pub(super) struct AuthPrincipal {
     /// user token was minted under; nothing for a client-credentials token:
     /// a machine client never holds `admin`).
     pub(super) credential: CallerCredential,
+    /// The ceiling of the detailed consent grant a user token was minted
+    /// under (plan slice 3): what the extended card offers and every call
+    /// reaches, carried with a detached task. `None` under a plain grant and
+    /// for a client-credentials token, which has no consent grant.
+    pub(super) ceiling: Option<GrantCeiling>,
 }
 
 /// A call refused before it reached its handler, and whom its credential
@@ -217,6 +223,7 @@ impl A2AServer {
                 scopes: admitted.scopes,
                 active_tenant_id: Some(active_tenant_id),
                 credential,
+                ceiling: admitted.ceiling,
             });
         }
 
@@ -293,6 +300,7 @@ impl A2AServer {
             client_id: Some(client.id),
             scopes,
             active_tenant_id: None,
+            ceiling: None,
         })
     }
 

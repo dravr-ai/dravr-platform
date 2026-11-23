@@ -182,6 +182,7 @@ mod tests {
                 grant: &grant,
                 transport: Some(Transport::McpHttp),
                 support_session: false,
+                ceiling: None,
             };
             let mut schemas = registry.all_schemas();
             retain_offered(&registry, &mut schemas, &athlete);

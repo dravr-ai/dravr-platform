@@ -62,6 +62,10 @@ const CANCEL_POLL_INTERVAL: Duration = Duration::from_secs(5);
 const SUPPORT_SESSION_TEXT_MESSAGE: &str = "This agent is in a support session acting as a \
      user, which serves tool calls only. Call admin_impersonate_end to talk as yourself again.";
 
+/// What a caller under a preset grant reads: its grant reaches tools alone.
+const PRESET_GRANT_TEXT_MESSAGE: &str = "The athlete gave this agent access to part of their \
+     data, which serves tool calls only. Address a tool with a data part.";
+
 /// What a client-credentials caller reads: it acts for no athlete.
 const NO_ATHLETE_MESSAGE: &str =
     "A text message asks an athlete's coach, and a client-credentials token acts for no athlete. \
@@ -134,6 +138,15 @@ impl A2AServer {
             return Err(refuse(
                 A2ASpecError::UnsupportedOperation,
                 NO_ATHLETE_MESSAGE.to_owned(),
+            ));
+        }
+        // The coach's turn reads the athlete's whole record into its prompt,
+        // past any stream, tier or window a preset grant narrows to: a grant
+        // with a ceiling calls tools, never the coach (plan slice 3).
+        if principal.ceiling.is_some() {
+            return Err(refuse(
+                A2ASpecError::UnsupportedOperation,
+                PRESET_GRANT_TEXT_MESSAGE.to_owned(),
             ));
         }
         if Self::support_session_live(resources.ctx.as_ref(), principal).await {

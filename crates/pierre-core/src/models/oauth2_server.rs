@@ -50,6 +50,45 @@ pub struct OAuth2ClientSweep {
     pub abandoned: u64,
     /// Consent grants deleted because the client they name no longer exists
     pub orphaned_grants: u64,
+    /// RFC 9126 pushed authorization requests deleted past their expiry
+    pub expired_pushed_requests: u64,
+}
+
+/// An RFC 9126 pushed authorization request, one `oauth2_pushed_requests` row.
+///
+/// The `request_uri` handed to the client is never stored, only its SHA-256.
+/// `Debug` is hand-written: the parameters carry the request's `state`, so
+/// they print as their size.
+#[derive(Clone)]
+pub struct OAuth2PushedRequest {
+    /// Row identifier
+    pub id: String,
+    /// SHA-256 hex of the `request_uri` the client was given
+    pub request_uri_hash: String,
+    /// The client that pushed the request, the only one that may use it
+    pub client_id: String,
+    /// The checked authorization request's parameters, as a JSON object of strings
+    pub parameters: String,
+    /// When the `request_uri` stops resolving
+    pub expires_at: Timestamp,
+    /// When a code was minted from it; `None` while unused
+    pub used_at: Option<Timestamp>,
+    /// When the client pushed it
+    pub created_at: Timestamp,
+}
+
+impl fmt::Debug for OAuth2PushedRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("OAuth2PushedRequest")
+            .field("id", &self.id)
+            .field("request_uri_hash", &self.request_uri_hash)
+            .field("client_id", &self.client_id)
+            .field("parameters_bytes", &self.parameters.len())
+            .field("expires_at", &self.expires_at)
+            .field("used_at", &self.used_at)
+            .field("created_at", &self.created_at)
+            .finish()
+    }
 }
 
 /// A pending RFC 8628 Device Authorization for `pierre-cli auth login`.
@@ -124,6 +163,10 @@ pub struct OAuth2AuthCode {
     /// RFC 8707 resource the authorization was bound to — the audience of the
     /// access token this code is exchanged for. `None` when the request named none.
     pub resource: Option<String>,
+    /// The consent grant (`oauth_client_grants.id`) the code was issued
+    /// under; `None` for a code minted before grants were named, or for one
+    /// no consent grant governs (Dravr's own apps).
+    pub client_grant_id: Option<String>,
 }
 
 impl fmt::Debug for OAuth2AuthCode {
@@ -141,6 +184,7 @@ impl fmt::Debug for OAuth2AuthCode {
             .field("code_challenge", &self.code_challenge)
             .field("code_challenge_method", &self.code_challenge_method)
             .field("resource", &self.resource)
+            .field("client_grant_id", &self.client_grant_id)
             .finish()
     }
 }
@@ -176,6 +220,10 @@ pub struct OAuth2RefreshToken {
     /// the absolute family lifetime. `None` is a legacy family issued before
     /// the column existed: no absolute limit.
     pub family_created_at: Option<Timestamp>,
+    /// The consent grant (`oauth_client_grants.id`) the family was issued
+    /// under, which every successor and access token minted from it carries.
+    /// `None` for a family begun before grants were named.
+    pub client_grant_id: Option<String>,
 }
 
 /// OAuth 2.0 State for CSRF Protection

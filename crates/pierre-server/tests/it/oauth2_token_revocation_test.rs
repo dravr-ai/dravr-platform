@@ -178,6 +178,8 @@ async fn connect(world: &World) -> Connection {
                 code_challenge: Some(challenge()),
                 code_challenge_method: Some("S256".to_owned()),
                 resource: None,
+                request_uri: None,
+                authorization_details: None,
             },
             Some(world.user_id),
             Some(world.tenant_id.to_string()),
@@ -216,6 +218,8 @@ async fn connect(world: &World) -> Connection {
             revoked_at: None,
             consent_version: None,
             consent_locale: None,
+            authorization_details: None,
+            expires_at: None,
         })
         .await
         .unwrap();
@@ -348,6 +352,8 @@ async fn a_code_issued_before_its_grant_was_revoked_is_not_redeemed() {
                 code_challenge: Some(challenge()),
                 code_challenge_method: Some("S256".to_owned()),
                 resource: None,
+                request_uri: None,
+                authorization_details: None,
             },
             Some(world.user_id),
             Some(world.tenant_id.to_string()),
@@ -417,6 +423,7 @@ async fn a_token_written_after_its_grant_was_revoked_does_not_survive() {
             family_id: Uuid::new_v4().to_string(),
             resource: None,
             family_created_at: Some(Timestamp::now()),
+            client_grant_id: None,
         })
         .await
         .unwrap();
@@ -507,6 +514,7 @@ async fn stored_refresh_token(
             family_id: Uuid::new_v4().to_string(),
             family_created_at,
             resource: None,
+            client_grant_id: None,
         })
         .await
         .unwrap();
@@ -871,6 +879,8 @@ async fn consenting_again_does_not_revive_a_token_from_before_the_revocation() {
             revoked_at: None,
             consent_version: None,
             consent_locale: None,
+            authorization_details: None,
+            expires_at: None,
         })
         .await
         .unwrap();
@@ -955,6 +965,8 @@ async fn a_standing_is_held_for_its_window_and_forgotten_on_demand() {
             revoked_at: None,
             consent_version: None,
             consent_locale: None,
+            authorization_details: None,
+            expires_at: None,
         })
         .await
         .unwrap();

@@ -162,6 +162,7 @@ impl Display for PkceMethod {
 ///         expires_in: 3600,
 ///         scope: Some("read".to_owned()),
 ///         refresh_token: Some(SecretString::from("refresh_xyz")),
+///         authorization_details: None,
 ///     };
 ///     let authenticated = authorized.exchange(token_response)?;
 ///

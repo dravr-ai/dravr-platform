@@ -41,7 +41,9 @@
             <input type="hidden" name="code_challenge" value="{{CODE_CHALLENGE}}">
             <input type="hidden" name="code_challenge_method" value="{{CODE_CHALLENGE_METHOD}}">
             <input type="hidden" name="resource" value="{{RESOURCE}}">
+            <input type="hidden" name="request_uri" value="{{REQUEST_URI}}">
             <input type="hidden" name="csrf_token" value="{{CSRF_TOKEN}}">
+            {{GRANT_CHOICE}}
             {{ADMIN_ACCESS}}
             <div class="actions">
                 <button type="submit" name="decision" value="approve" class="btn btn-primary btn-block">{{T_ALLOW}}</button>

@@ -35,6 +35,8 @@ fn auth_for(user_id: Uuid, active_tenant_id: Option<Uuid>) -> AuthResult {
             impersonation: None,
         },
         active_tenant_id,
+        client_grant_id: None,
+        ceiling: None,
     }
 }
 

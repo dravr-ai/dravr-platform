@@ -320,7 +320,57 @@ impl ClientRegistrationManager {
             ));
         }
         let scope = OAuthScope::render_granted(&OAuthScope::default_grant());
+        let client_secret = self
+            .store_client_credentials_client(client_id, client_name, scope)
+            .await?;
+        info!(client_id = %client_id, "client_credentials registration provisioned");
+        Ok(client_secret)
+    }
 
+    /// Provision the confidential client a resource server introspects
+    /// tokens with (RFC 7662 §2.1), named `client_name`: its new `client_id`
+    /// and secret, which the caller shows once and this server never again.
+    ///
+    /// It authenticates at the token endpoint with HTTP Basic
+    /// (`client_secret_basic`, RFC 7591 §2's default). Its only grant type is
+    /// `client_credentials`, and it has no redirect URI, since a resource
+    /// server never runs a user's authorization. Its registered scope is
+    /// empty: introspection needs only that the client authenticates, and a
+    /// `client_credentials` token request from it is refused `invalid_scope`
+    /// whatever scope it names, so it mints nothing. It never expires
+    /// (`client_secret_expires_at` 0, RFC 7591 §3.2.1), so neither the
+    /// pending ceiling nor the retention sweep counts or deletes it; rotating
+    /// its secret is deleting it and creating another.
+    ///
+    /// # Errors
+    /// Returns an error if the name holds a control character, the system RNG
+    /// or Argon2 fails, or the registration cannot be stored
+    pub async fn register_introspection_client(
+        &self,
+        client_name: &str,
+    ) -> Result<(String, SecretString), OAuth2Error> {
+        if client_name.chars().any(char::is_control) {
+            return Err(OAuth2Error::invalid_client_metadata(
+                "client_name must not contain control characters",
+            ));
+        }
+        let client_id = Self::generate_client_id();
+        let client_secret = self
+            .store_client_credentials_client(&client_id, client_name, String::new())
+            .await?;
+        info!(client_id = %client_id, "introspection client provisioned");
+        Ok((client_id, SecretString::from(client_secret)))
+    }
+
+    /// Store a confidential `client_credentials`-only registration under
+    /// `client_id` with the registered `scope`, no redirect URI and no
+    /// expiry: its secret.
+    async fn store_client_credentials_client(
+        &self,
+        client_id: &str,
+        client_name: &str,
+        scope: String,
+    ) -> Result<String, OAuth2Error> {
         let client_secret = Self::generate_client_secret()?;
         let client = OAuth2Client {
             id: Uuid::new_v4().to_string(),
@@ -340,7 +390,6 @@ impl ClientRegistrationManager {
             error!(error = %e, client_id = %client_id, "Failed to store client_credentials registration");
             OAuth2Error::server_error("Failed to store client registration")
         })?;
-        info!(client_id = %client_id, "client_credentials registration provisioned");
         Ok(client_secret)
     }
 
@@ -489,7 +538,8 @@ impl ClientRegistrationManager {
         }
     }
 
-    /// Delete the registrations the retention policy no longer keeps, as of `now`.
+    /// Delete the registrations the retention policy no longer keeps, as of
+    /// `now`, and the pushed authorization requests expired by then.
     ///
     /// Two kinds go: a registration whose `expires_at` is more than
     /// `expired_grace_secs` before `now`, and one no user ever authorized that
@@ -507,6 +557,7 @@ impl ClientRegistrationManager {
             .delete_stale_clients(
                 retention_cutoff(now, retention.expired_grace_secs),
                 retention_cutoff(now, retention.abandoned_after_secs),
+                now,
             )
             .await
     }

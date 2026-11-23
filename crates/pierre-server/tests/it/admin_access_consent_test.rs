@@ -56,6 +56,7 @@ use uuid::Uuid;
 
 use crate::common::{self, create_test_tenant};
 use crate::helpers::axum_test::{AxumTestRequest, AxumTestResponse};
+use crate::helpers::consent_form::with_grant_lines;
 
 const REDIRECT: &str = "https://client.example.test/callback";
 const STATE: &str = "admin-access-state";
@@ -261,8 +262,10 @@ async fn approve(
     let csrf_token = hidden(&page, "csrf_token");
     let echoed_scope = hidden(&page, "scope");
     let state = hidden(&page, "state");
+    let review_digest = hidden(&page, "review_digest");
     let challenge = pkce_challenge();
     let mut form = vec![
+        ("review_digest", review_digest.as_str()),
         ("response_type", "code"),
         ("client_id", client_id),
         ("redirect_uri", REDIRECT),
@@ -614,6 +617,66 @@ async fn an_admin_is_offered_an_unticked_box_naming_the_redirect_host_in_bold() 
     );
 }
 
+/// With the grant picker on the screen, the Admin access box sits beside
+/// Everything alone, and a preset choice never holds admin, ticked or not.
+#[tokio::test]
+async fn admin_access_sits_beside_everything_and_a_preset_choice_never_holds_admin() {
+    let resources = resources().await;
+    let client = register(&resources).await;
+    let (_admin, session) = member(&resources, true).await;
+    let routes = || {
+        let strings = MessagingStringsRegistry::new();
+        with_grant_lines(&strings);
+        oauth2_routes_with(&resources, strings)
+    };
+    let resource = mcp_resource(&resources);
+    let page = AxumTestRequest::get(&authorize_uri(&client.0, None, Some(&resource)))
+        .header("cookie", &cookie(&session))
+        .send(routes())
+        .await
+        .body_text();
+    let at = |needle: &str| {
+        page.find(needle)
+            .unwrap_or_else(|| panic!("the screen carries {needle}: {page}"))
+    };
+    assert!(
+        at(r#"value="everything""#) < at(r#"name="admin_access""#)
+            && at(r#"name="admin_access""#) < at(r#"value="training_coach""#),
+        "bug: the Admin access box is not beside Everything: {page}"
+    );
+
+    let state = hidden(&page, "state");
+    let scope = hidden(&page, "scope");
+    let csrf_token = hidden(&page, "csrf_token");
+    let digest = hidden(&page, "review_digest_training_coach");
+    let challenge = pkce_challenge();
+    let approved = AxumTestRequest::post("/oauth2/consent")
+        .header("cookie", &cookie(&session))
+        .form(&[
+            ("response_type", "code"),
+            ("client_id", client.0.as_str()),
+            ("redirect_uri", REDIRECT),
+            ("state", state.as_str()),
+            ("scope", scope.as_str()),
+            ("code_challenge", challenge.as_str()),
+            ("code_challenge_method", "S256"),
+            ("resource", resource.as_str()),
+            ("csrf_token", csrf_token.as_str()),
+            ("grant", "training_coach"),
+            ("review_digest_training_coach", digest.as_str()),
+            ("admin_access", "granted"),
+            ("decision", "approve"),
+        ])
+        .send(routes())
+        .await;
+    let code = code_of(&approved);
+    let (_access, _refresh, granted) = exchange(&resources, (&client.0, &client.1), &code).await;
+    assert!(
+        !scope_names(&granted).contains(&"admin"),
+        "bug: a preset grant holds admin: {granted}"
+    );
+}
+
 #[tokio::test]
 async fn an_admin_is_offered_no_box_on_a_request_not_bound_to_the_platform() {
     let resources = resources().await;
@@ -667,10 +730,12 @@ async fn a_non_admin_never_sees_the_box_and_no_crafted_request_or_form_grants_ad
     // A form that names admin in its scope and ticks the box anyway.
     let csrf_token = hidden(&page, "csrf_token");
     let state = hidden(&page, "state");
+    let review_digest = hidden(&page, "review_digest");
     let challenge = pkce_challenge();
     let forged = AxumTestRequest::post("/oauth2/consent")
         .header("cookie", &cookie(&session))
         .form(&[
+            ("review_digest", review_digest.as_str()),
             ("response_type", "code"),
             ("client_id", client.0.as_str()),
             ("redirect_uri", REDIRECT),
@@ -791,6 +856,7 @@ fn the_box_names_a_differing_document_host_and_says_this_computer_for_a_loopback
             code_challenge: "c",
             code_challenge_method: "S256",
             resource: "",
+            request_uri: "",
             csrf_token: "t",
             client_label: "Claude",
             account_email: "admin@example.test",
@@ -801,6 +867,7 @@ fn the_box_names_a_differing_document_host_and_says_this_computer_for_a_loopback
                 coach: false,
                 admin: true,
             },
+            grant_choice: None,
         })
     };
 
@@ -857,6 +924,7 @@ fn the_box_is_not_offered_while_the_catalogue_has_no_lines_for_it() {
         code_challenge: "c",
         code_challenge_method: "S256",
         resource: "",
+        request_uri: "",
         csrf_token: "t",
         client_label: "Claude",
         account_email: "admin@example.test",
@@ -867,6 +935,7 @@ fn the_box_is_not_offered_while_the_catalogue_has_no_lines_for_it() {
             coach: false,
             admin: true,
         },
+        grant_choice: None,
     });
     assert!(
         !html.contains("admin_access"),

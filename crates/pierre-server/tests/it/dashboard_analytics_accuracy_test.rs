@@ -147,6 +147,8 @@ impl AnalyticsFixture {
                 impersonation: None,
             },
             active_tenant_id: Some(self.tenant_id),
+            client_grant_id: None,
+            ceiling: None,
         }
     }
 

@@ -249,8 +249,8 @@ pub use oauth_client::OAuthClientState;
 
 // Tenant domain
 pub use tenant::{
-    ClientGrantStanding, LlmCredentialRecord, LlmCredentialSummary, OAuthClientGrant, Tenant,
-    TenantId, TenantOAuthCredentials,
+    ClientGrantStanding, LlmCredentialRecord, LlmCredentialSummary, OAuthClientGrant,
+    StandingGrant, Tenant, TenantId, TenantOAuthCredentials,
 };
 
 // Tool selection domain
@@ -262,8 +262,8 @@ pub use tool_selection::{
 // OAuth 2.0 server persistence models
 mod oauth2_server;
 pub use oauth2_server::{
-    DeviceAuthorization, OAuth2AuthCode, OAuth2Client, OAuth2ClientSweep, OAuth2RefreshToken,
-    OAuth2State,
+    DeviceAuthorization, OAuth2AuthCode, OAuth2Client, OAuth2ClientSweep, OAuth2PushedRequest,
+    OAuth2RefreshToken, OAuth2State,
 };
 
 // First-party refresh tokens — the credential a device holds between JWTs

@@ -41,6 +41,7 @@ use dravr_cageux::config::intelligence::IntelligenceConfig;
 use dravr_tronc::mcp::tool::ToolCapabilities;
 use futures_util::future::Either;
 use pierre_auth::auth::ImpersonationGrant;
+use pierre_auth::oauth2_server::grant_ceiling::GrantCeiling;
 use pierre_config::environment::default_provider;
 use pierre_core::ai_policy::WithConsent;
 use pierre_core::constants::oauth::providers::is_credential_free;
@@ -63,6 +64,10 @@ use uuid::Uuid;
 mod access;
 /// Admin-only tool calls from outside Dravr's own surfaces, on the audit trail.
 mod admin_call_audit;
+/// A consent grant's daily row budgets, checked and levied at dispatch
+mod grant_budget;
+/// The refusals of a call beyond its consent grant's ceiling
+mod grant_ceiling_refusal;
 /// Answering a call the Guardian blocked, and leaving the block for the turn.
 mod guardian_block;
 /// Whose data a dispatched call reads (carnet#1387).
@@ -190,6 +195,13 @@ pub struct UniversalExecutor {
     /// body. A nested dispatch then reads that athlete too, and is charged to
     /// the coach who asked, rather than resolving a subject of its own.
     read_subject: Option<ReadSubject>,
+    /// The ceiling of the detailed consent grant the caller's token was
+    /// minted under (plan slice 3): bound by an entry point with
+    /// [`Self::with_ceiling`], or inherited from the scope it was built in,
+    /// so a nested dispatch reads no wider. Held here for the reason
+    /// [`Self::transport`] is, and scoped around each body
+    /// ([`ai_scope::under_grant`]).
+    ceiling: Option<GrantCeiling>,
 }
 
 impl fmt::Debug for UniversalExecutor {
@@ -210,6 +222,7 @@ impl fmt::Debug for UniversalExecutor {
             .field("provenance", &self.provenance)
             .field("caller_writes_reply", &self.caller_writes_reply)
             .field("read_subject", &self.read_subject)
+            .field("ceiling", &self.ceiling)
             .finish_non_exhaustive()
     }
 }
@@ -258,7 +271,19 @@ impl UniversalExecutor {
             caller_writes_reply: false,
             // A nested dispatch reads the coached athlete its caller reads.
             read_subject: scoped_read_subject(),
+            // And reads no wider than the grant its caller runs under.
+            ceiling: ai_scope::grant_ceiling(),
         }
+    }
+
+    /// Bind the ceiling of the consent grant the caller's token was minted
+    /// under. A binding only narrows: `None` keeps an inherited ceiling.
+    #[must_use]
+    pub fn with_ceiling(mut self, ceiling: Option<GrantCeiling>) -> Self {
+        if ceiling.is_some() {
+            self.ceiling = ceiling;
+        }
+        self
     }
 
     /// Bind that the caller writes its own reply from each result.
@@ -419,7 +444,8 @@ impl UniversalExecutor {
             }
         }
 
-        Ok(None)
+        // A consent grant whose day of rows is spent runs nothing more today.
+        Ok(self.row_budget_refusal(tool_name, parties).await)
     }
 
     /// Count a call that spends the turn's write budget as attempted.
@@ -839,6 +865,11 @@ impl UniversalExecutor {
         } else {
             Either::Right(ai_scope::with_ai_consent(consent_withheld.clone(), body))
         });
+        // Every reader below runs under the grant's ceiling, which counts
+        // the rows they serve for its daily budgets.
+        // Boxed for the reason the body above is.
+        let body =
+            Box::pin(self.levied(parties, ai_scope::under_grant(self.ceiling.clone(), body)));
         let body = async {
             match transport {
                 Some(served) => ai_scope::serve_over(served, body).await,

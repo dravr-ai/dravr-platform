@@ -27,7 +27,7 @@ use pierre_core::ai_policy::ProviderTerms;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
 use pierre_database::RepositoryRegistry;
-use pierre_providers::ai_scope::StoredHealthRecord;
+use pierre_providers::ai_scope::{self, Dated, StoredHealthRecord};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -102,6 +102,12 @@ impl StoredHealthRecord for SourceSeries {
     fn source_name(&self) -> &str {
         &self.provider
     }
+
+    /// A series is read inside the window already: its range is clamped to
+    /// it ([`continuous_series`]).
+    fn dated(&self) -> Option<Dated> {
+        None
+    }
 }
 
 /// The store's error as a database error naming the read.
@@ -130,6 +136,11 @@ pub async fn continuous_series(
         .data_sources
         .list_data_sources(user_id, tenant)
         .await?;
+    // Under a grant's window no sample before it is read (plan slice 3).
+    let start = ai_scope::window_since().map_or(start, |since| start.max(since));
+    if start >= end {
+        return governed_by_sources(repos, terms, user_id, tenant, Vec::new(), &sources).await;
+    }
     let range = TimeRange::new(start, end);
     let store = &repos.time_series_points;
 
@@ -165,7 +176,10 @@ pub async fn continuous_series(
         }
     }
 
-    governed_by_sources(repos, terms, user_id, tenant, found, &sources).await
+    let served = governed_by_sources(repos, terms, user_id, tenant, found, &sources).await?;
+    // Each sample, or window of samples, is a raw row of a grant's budget.
+    ai_scope::note_raw_rows(served.records.iter().map(SourceSeries::len).sum());
+    Ok(served)
 }
 
 #[cfg(test)]

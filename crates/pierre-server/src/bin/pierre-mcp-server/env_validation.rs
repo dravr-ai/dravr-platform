@@ -71,6 +71,12 @@ pub(crate) fn validate_required_environment() -> Result<()> {
             description: "Comma-separated resource identifiers of satellite MCP servers (e.g. https://commere.dravr.ai/mcp) the OAuth endpoints also mint audience-bound tokens for, carrying the grant's tenant. The platform's own /mcp refuses those tokens. Unset: none.",
         },
         EnvValidation {
+            name: "OAUTH2_INTROSPECTION_CLIENTS",
+            value: env::var("OAUTH2_INTROSPECTION_CLIENTS").ok(),
+            required: false,
+            description: "Comma-separated client ids of the confidential OAuth clients (resource servers, created with `pierre-cli oauth2-client create --name <resource server>`) allowed to call RFC 7662 /oauth2/introspect. Any other caller is refused 401 invalid_client. Unset: none.",
+        },
+        EnvValidation {
             name: "PROVIDER_LINK_WEBHOOK_URL",
             value: env::var("PROVIDER_LINK_WEBHOOK_URL").ok(),
             required: false,

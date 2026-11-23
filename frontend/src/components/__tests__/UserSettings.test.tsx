@@ -98,6 +98,7 @@ const authorizeUrl = vi.fn((provider: string) => `/api/oauth/authorize/${provide
 const getProvidersStatus = vi.fn().mockResolvedValue({ providers: [] });
 const disconnectProvider = vi.fn().mockResolvedValue(undefined);
 const withdrawAiConsent = vi.fn().mockResolvedValue(undefined);
+const listConnectedApps = vi.fn().mockResolvedValue([]);
 const getImports = vi.fn().mockResolvedValue({ imports: [] });
 
 // Mock API service - factory must be self-contained (vi.mock is hoisted)
@@ -127,6 +128,7 @@ vi.mock('../../services/api', () => ({
     authorizeUrl: (...args: unknown[]) => authorizeUrl(...args),
     disconnectProvider: (...args: unknown[]) => disconnectProvider(...args),
     withdrawAiConsent: (...args: unknown[]) => withdrawAiConsent(...args),
+    listConnectedApps: () => listConnectedApps(),
     disconnectIntervalsIcu: vi.fn().mockResolvedValue(undefined),
   },
   pierreApi: {
@@ -527,6 +529,33 @@ describe('UserSettings Component', () => {
       } finally {
         await i18n.changeLanguage('en');
       }
+    });
+
+    it("says when a connected app's grant expires, and nothing of expiry for one that never does", async () => {
+      const grant = {
+        id: 'grant-1',
+        client_id: 'mcp_client_0123456789abcdef',
+        client_name: 'Sleep coach app',
+        client_host: 'coach.example',
+        scope: 'fitness:read',
+        granted_at: '2026-08-01T10:00:00Z',
+        preset: 'sleep_coach',
+        max_tier: 'T1',
+        expires_at: '2026-09-01T10:00:00Z',
+      };
+      listConnectedApps.mockResolvedValueOnce([
+        grant,
+        { ...grant, id: 'grant-2', client_name: 'Plain app', preset: null, max_tier: null, expires_at: null },
+      ]);
+      await act(async () => {
+        renderUserSettings({ initialTab: 'account' });
+      });
+
+      expect(await screen.findByTestId('connected-app-expiry-grant-1')).toHaveTextContent(
+        i18n.t('apiKeys.expiresOn', { date: 'Sep 1, 2026' }),
+      );
+      expect(screen.getByText('Plain app')).toBeInTheDocument();
+      expect(screen.queryByTestId('connected-app-expiry-grant-2')).not.toBeInTheDocument();
     });
 
     it('should show change password button', async () => {

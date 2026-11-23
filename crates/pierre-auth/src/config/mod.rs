@@ -16,6 +16,9 @@ pub mod mcp_resource;
 /// The satellite MCP servers the authorization server mints for
 mod satellites;
 
+/// The resource servers allowed to introspect tokens (RFC 7662)
+mod introspection;
+
 /// Rate limiting configuration
 pub mod rate_limit;
 

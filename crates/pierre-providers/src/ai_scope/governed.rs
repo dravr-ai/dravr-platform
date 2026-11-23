@@ -24,7 +24,7 @@ use pierre_core::pagination::{CursorPage, PaginationParams};
 
 use super::{
     consented_read, filter_activities, filter_one, filter_planned_workouts, first_party_only_read,
-    policies_apply, withheld_error,
+    note_raw_rows, policies_apply, withheld_error,
 };
 use crate::core::{
     ActivityQueryParams, FitnessProvider, OAuth2Credentials, OwnerStores, ProviderConfig,
@@ -163,9 +163,12 @@ impl FitnessProvider for AiGovernedProvider {
             return self.inner.get_activity_streams(id).await;
         }
         // Streams carry no provenance of their own: read the activity they
-        // belong to and let its policy decide.
+        // belong to and let its policy, and a grant's window, decide.
         let activity = self.get_activity_with_streams(id).await?;
-        Ok(activity.time_series_data().cloned())
+        let streams = activity.time_series_data().cloned();
+        // Each sample is a raw row of a grant's daily budget.
+        note_raw_rows(streams.as_ref().map_or(0, |series| series.timestamps.len()));
+        Ok(streams)
     }
 
     async fn read_thresholds(

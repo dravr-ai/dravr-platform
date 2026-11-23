@@ -88,7 +88,8 @@ pub(super) async fn refresh_channel_last_active(
 /// can disaggregate by transport.
 pub(super) async fn record_channel_usage(resources: &ServerContext, user_id: Uuid, channel: &str) {
     let endpoint = format!("messaging:{channel}");
-    record_jwt_usage_for_request(&resources.common.repos, user_id, &endpoint, "WEBHOOK").await;
+    record_jwt_usage_for_request(&resources.common.repos, user_id, None, &endpoint, "WEBHOOK")
+        .await;
 }
 
 /// Log a channel authentication that neither resolved nor was answered.

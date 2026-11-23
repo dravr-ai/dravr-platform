@@ -11,6 +11,8 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 use uuid::Uuid;
 
+use super::authorization_details::ResolvedDetails;
+
 /// The error code a throttled OAuth endpoint answers with, alongside HTTP 429.
 const TOO_MANY_REQUESTS: &str = "too_many_requests";
 
@@ -109,6 +111,18 @@ pub struct AuthorizeRequest {
     /// RFC 8707 resource indicator: the resource server the tokens this
     /// authorization yields are for. `None` mints the platform audience.
     pub resource: Option<String>,
+    /// The RFC 9126 `request_uri` the request was pushed under, which every
+    /// page of the flow carries in place of the parameters and which is spent
+    /// when a code is minted from it; `None` for a request sent in the query.
+    /// Defaulted so a request sealed before it existed still opens.
+    #[serde(default)]
+    pub request_uri: Option<String>,
+    /// RFC 9396 `authorization_details`, as the client sent them: a JSON
+    /// array the authorization server resolves to a preset grant; `None`
+    /// asks for no details. Defaulted so a request sealed before it existed
+    /// still opens.
+    #[serde(default)]
+    pub authorization_details: Option<String>,
 }
 
 impl fmt::Debug for AuthorizeRequest {
@@ -122,6 +136,11 @@ impl fmt::Debug for AuthorizeRequest {
             .field("code_challenge", &self.code_challenge)
             .field("code_challenge_method", &self.code_challenge_method)
             .field("resource", &self.resource)
+            .field(
+                "request_uri",
+                &self.request_uri.as_ref().map(|_| "[REDACTED]"),
+            )
+            .field("authorization_details", &self.authorization_details)
             .finish()
     }
 }
@@ -202,6 +221,10 @@ pub struct TokenResponse {
     /// Refresh token (optional)
     #[serde(serialize_with = "pierre_core::secret::serialize_exposed_option")]
     pub refresh_token: Option<SecretString>,
+    /// The details the grant was approved for (RFC 9396 §7); absent for a
+    /// plain grant
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub authorization_details: Option<ResolvedDetails>,
 }
 
 /// OAuth 2.0 Error Response
@@ -289,6 +312,31 @@ impl OAuth2Error {
             error_uri: Some(
                 "https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.2.1".to_owned(),
             ),
+            retry_after: None,
+        }
+    }
+
+    /// Create an `invalid_request_uri` error (RFC 9126 §2.2): the
+    /// `request_uri` is unknown, expired, already used, or another client's
+    #[must_use]
+    pub fn invalid_request_uri(description: &str) -> Self {
+        Self {
+            error: "invalid_request_uri".to_owned(),
+            error_description: Some(description.to_owned()),
+            error_uri: Some("https://datatracker.ietf.org/doc/html/rfc9126#section-2.2".to_owned()),
+            retry_after: None,
+        }
+    }
+
+    /// Create an `invalid_authorization_details` error (RFC 9396 §5): the
+    /// request's `authorization_details` name a type, member or value this
+    /// server does not resolve or cannot enforce
+    #[must_use]
+    pub fn invalid_authorization_details(description: &str) -> Self {
+        Self {
+            error: "invalid_authorization_details".to_owned(),
+            error_description: Some(description.to_owned()),
+            error_uri: Some("https://datatracker.ietf.org/doc/html/rfc9396#section-5".to_owned()),
             retry_after: None,
         }
     }

@@ -1,5 +1,5 @@
 // ABOUTME: Connected apps pane — one Section of 52 rows, the external MCP OAuth clients (e.g. Claude Desktop) approved on the consent screen
-// ABOUTME: Each row names the client with its scope and grant date under it and an ink Revoke on the trailing side (Boreal v2.2 Phase 4)
+// ABOUTME: Each row names the client with its scope, grant date and expiry under it and an ink Revoke on the trailing side (Boreal v2.2 Phase 4)
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
@@ -115,6 +115,9 @@ export function ConnectedAppsScreen(): React.JSX.Element {
                       grant.client_host,
                       grant.scope,
                       t('app.connectedOn', { date: formatDate(grant.granted_at, language) }),
+                      grant.expires_at
+                        ? t('apiKeys.expiresOn', { date: formatDate(grant.expires_at, language) })
+                        : null,
                     ]
                       .filter(Boolean)
                       .join(' · ')}

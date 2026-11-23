@@ -799,6 +799,7 @@ async fn test_list_tools_carries_every_declared_output_schema() {
         grant: &grant,
         transport: Some(Transport::McpHttp),
         support_session: false,
+        ceiling: None,
     };
     let mut declared: Vec<&str> = registry
         .tool_names()
@@ -807,9 +808,9 @@ async fn test_list_tools_carries_every_declared_output_schema() {
             registry
                 .get(name)
                 .is_some_and(|tool| tool.definition().output_schema.is_some())
-                && registry
-                    .get(name)
-                    .is_some_and(|tool| tool_access::withheld(tool.as_ref(), &caller).is_none())
+                && registry.get(name).is_some_and(|tool| {
+                    tool_access::withheld(&registry, name, tool.as_ref(), &caller).is_none()
+                })
         })
         .collect();
     declared.sort_unstable();

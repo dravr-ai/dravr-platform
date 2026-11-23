@@ -237,6 +237,8 @@ fn an_authorize_request_never_prints_its_state() {
         code_challenge: Some("public-challenge".to_owned()),
         code_challenge_method: Some("S256".to_owned()),
         resource: None,
+        request_uri: None,
+        authorization_details: None,
     };
     let printed = printed_without(&request, &["sentinel-state-7f3a"]);
     assert!(printed.contains("AuthorizeRequest"), "{printed}");

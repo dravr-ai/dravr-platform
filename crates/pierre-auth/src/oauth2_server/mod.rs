@@ -6,6 +6,8 @@
 
 /// Apple App Attest: verifying the iOS app's key attestation and assertions
 pub mod app_attest;
+/// RFC 9396 `authorization_details`: owl's presets, narrowed and resolved
+pub mod authorization_details;
 /// Client ID Metadata Documents: a `client_id` that is an https URL
 pub mod cimd;
 /// Client authentication on the token endpoint: Basic, form body, or none
@@ -16,6 +18,8 @@ pub mod client_registration;
 pub mod endpoints;
 /// Dravr's own web and mobile apps as clients of this server
 pub mod first_party;
+/// What a call under a detailed consent grant may reach
+pub mod grant_ceiling;
 /// Where a user's consent to a client stands, read through a short-lived cache
 pub mod grant_standing;
 /// The known-device cookie that lets a browser skip the account sign-in window
@@ -30,6 +34,8 @@ mod pkce;
 pub mod play_integrity;
 /// Google Play Integrity: decoding the Android app's token at Google
 pub mod play_integrity_decoder;
+/// RFC 9126 pushed authorization requests: the `request_uri` and its lifetime
+pub mod pushed;
 /// Rate limiting for OAuth 2.0 endpoints
 pub mod rate_limiting;
 /// Checks on the text a client sends, before any of it reaches a query

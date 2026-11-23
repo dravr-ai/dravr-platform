@@ -43,6 +43,15 @@ pub trait UsageRepository: Send + Sync {
     /// override for them, read in one statement: the inputs of the JWT
     /// request budget besides the tier
     async fn get_jwt_current_usage(&self, user_id: Uuid) -> AppResult<JwtMonthlyUsage>;
+    /// The user's requests admitted under consent grant `client_grant_id`
+    /// after `window_start` (the grant's hourly window) and the earliest of
+    /// them: the input of the grant's request budget
+    async fn get_grant_window_usage(
+        &self,
+        user_id: Uuid,
+        client_grant_id: &str,
+        window_start: Timestamp,
+    ) -> AppResult<WindowUsage>;
     /// Get request logs with filtering options
     async fn get_request_logs(
         &self,

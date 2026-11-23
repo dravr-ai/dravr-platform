@@ -47,7 +47,10 @@ use pierre_core::models::TenantId;
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::Transport;
 use pierre_mcp_transport::tenant_isolation::{extract_tenant_context_internal, log_tenant_failure};
-use pierre_middleware::rate_limiting::{report_request_credential, report_request_operation};
+use pierre_middleware::rate_limiting::{
+    report_request_ceiling, report_request_credential, report_request_operation,
+};
+use pierre_providers::ai_scope;
 use pierre_tool_runtime::context::{AuthMethod, SUPPORT_SESSION};
 use pierre_tool_runtime::deployment_tools;
 use pierre_tool_runtime::protocol::provider_offer::accept_no_provider_answer;
@@ -360,6 +363,9 @@ impl AuthHook<dyn ToolRuntime> for PierreAuthHook {
         // to (carnet#1511), which the engine's context cannot carry to the
         // dispatcher.
         report_request_credential(auth_result.caller_credential());
+        // And the ceiling of the consent grant it was admitted under, which
+        // the listing and the call read back (plan slice 3).
+        report_request_ceiling(auth_result.ceiling.clone());
 
         match extract_tenant_context_internal(
             &self.resources.common.repos,
@@ -766,11 +772,13 @@ impl ToolDispatcher<dyn ToolRuntime> for PierreToolDispatcher {
         // above, so nothing is resolved here.
         if let Some(user_id) = user_id {
             let granted = OAuthScope::parse_granted(&ctx.scopes.join(" "));
+            let ceiling = support::ceiling();
             let caller = Caller {
                 role: CallerRole::resolve(&self.resources.common.repos, user_id).await,
                 grant: &granted,
                 transport: Some(Transport::McpHttp),
                 support_session: support.is_some(),
+                ceiling: ceiling.as_ref(),
             };
             tool_access::retain_offered(&self.resources.mcp.tool_registry, &mut schemas, &caller);
         }
@@ -845,17 +853,23 @@ impl ToolDispatcher<dyn ToolRuntime> for PierreToolDispatcher {
             }
         };
         let ctx = &call_ctx;
+        // Captured by value, as the credential is: a task-local does not
+        // cross the spawn of a call converted into a task.
+        let ceiling = support::ceiling();
         let dispatch = |resources: Arc<ServerContext>, state: Arc<dyn ToolRuntime>| {
             CALLER_CREDENTIAL.scope(
                 credential.clone(),
                 SUPPORT_SESSION.scope(
                     session.clone(),
-                    run_dispatch(
-                        resources,
-                        state,
-                        ctx.clone(),
-                        name.to_owned(),
-                        arguments.clone(),
+                    ai_scope::under_grant(
+                        ceiling.clone(),
+                        run_dispatch(
+                            resources,
+                            state,
+                            ctx.clone(),
+                            name.to_owned(),
+                            arguments.clone(),
+                        ),
                     ),
                 ),
             )
@@ -1048,6 +1062,8 @@ mod tests {
             scopes,
             client_id: client_id.map(str::to_owned),
             grant_id: None,
+            client_grant_id: None,
+            ceiling: None,
         }
     }
 

@@ -32,7 +32,7 @@ mod support_session_assistant_tests {
     use axum::http::{Request, StatusCode};
     use axum::Router;
     use dravr_tronc::dates::{Elapsed, Timestamp};
-    use pierre_auth::auth::{DelegatedGrant, IMPERSONATION_WRITE_REFUSED};
+    use pierre_auth::auth::{DelegatedGrant, TokenLineage, IMPERSONATION_WRITE_REFUSED};
     use pierre_core::models::{OAuth2Client, OAuth2RefreshToken, OAuthClientGrant};
     use pierre_core::permissions::impersonation::{
         BoundCredential, ImpersonationSession, ENDED_ACTION, EXPIRED_ACTION, STARTED_ACTION,
@@ -182,6 +182,7 @@ mod support_session_assistant_tests {
                     family_id: family.clone(),
                     resource: None,
                     family_created_at: Some(now),
+                    client_grant_id: None,
                 })
                 .await
                 .unwrap();
@@ -197,7 +198,10 @@ mod support_session_assistant_tests {
                         scopes: &scopes,
                         audience: None,
                     },
-                    &family,
+                    &TokenLineage {
+                        family_id: &family,
+                        client_grant_id: None,
+                    },
                     &who.id,
                     &[],
                     Some(who.tenant.to_string()),
@@ -956,6 +960,8 @@ mod support_session_assistant_tests {
                 revoked_at: None,
                 consent_version: None,
                 consent_locale: None,
+                authorization_details: None,
+                expires_at: None,
             })
             .await
             .unwrap();

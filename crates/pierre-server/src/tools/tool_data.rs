@@ -47,14 +47,18 @@ const TOOL_DATA: &[(&str, ToolData)] = &[
         ToolData::of(Training, &[TrainingLoad, Workout]),
     ),
     // The sessions themselves: their names are the athlete's or their
-    // provider's text, and their start coordinates and city place them.
+    // provider's text, and their start coordinates and city place them. The
+    // place is incidental: a grant without routes reads the sessions without
+    // it.
     (
         "get_activities",
-        ToolData::of(Training, &[Workout, WorkoutRoute]).with_athlete_text(),
+        ToolData::of(Training, &[Workout, WorkoutRoute])
+            .with_athlete_text()
+            .with_incidental_route(),
     ),
     (
         "export_latest_snapshot",
-        ToolData::of(Training, &[Workout, WorkoutRoute]),
+        ToolData::of(Training, &[Workout, WorkoutRoute]).with_incidental_route(),
     ),
     (
         "analyze_weather_impact",
@@ -147,13 +151,25 @@ const TOOL_DATA: &[(&str, ToolData)] = &[
     // sources and how fresh each is. A count's breakdown names the gear and
     // routes the athlete named.
     ("get_athlete", ToolData::of(Training, &[Profile])),
-    ("get_stats", ToolData::of(Training, &[ActivityDaily])),
+    // All-time and this-year totals: undated, past any grant's window.
+    (
+        "get_stats",
+        ToolData::of(Training, &[ActivityDaily]).with_whole_history(),
+    ),
     (
         "query_activities",
         ToolData::of(Training, &[ActivityDaily, Workout]).with_athlete_text(),
     ),
-    ("list_data_sources", ToolData::of(Training, &[])),
-    ("get_data_freshness", ToolData::of(Training, &[])),
+    // Which sources are connected and how fresh each is: no stream's row,
+    // so a preset grant is offered them.
+    (
+        "list_data_sources",
+        ToolData::of(Training, &[]).with_connection_metadata(),
+    ),
+    (
+        "get_data_freshness",
+        ToolData::of(Training, &[]).with_connection_metadata(),
+    ),
     // The athlete's wellness: sleep, recovery and readiness — the day's note
     // they typed into their source's log included — health snapshots and
     // intraday heart rate, and what is derived from them.
@@ -310,7 +326,12 @@ const TOOL_DATA: &[(&str, ToolData)] = &[
     // unlink and refresh them.
     ("connect_provider", ToolData::own(&[])),
     ("disconnect_provider", ToolData::own(&[])),
-    ("get_connection_status", ToolData::own(&[])),
+    // What the server's instructions tell a client to call first: offered
+    // under a preset grant, as it reads no stream.
+    (
+        "get_connection_status",
+        ToolData::own(&[]).with_connection_metadata(),
+    ),
     ("refresh_provider_data", ToolData::own(&[])),
     ("get_provider_roster", ToolData::own(&[])),
     // The caller's own recipes.

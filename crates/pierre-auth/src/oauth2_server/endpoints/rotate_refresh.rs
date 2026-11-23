@@ -1,5 +1,5 @@
 // ABOUTME: Rotating a presented OAuth 2.0 refresh token into its successor
-// ABOUTME: Consumes the token once, keeps its family and lifetime, and yields to a consent withdrawn meanwhile; admin lives a day
+// ABOUTME: Consumes the token once, keeps its family, consent grant and lifetime, and yields to a consent withdrawn meanwhile; admin lives a day
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -88,8 +88,9 @@ impl OAuth2AuthorizationServer {
             revoked: false,
             family_id: consumed.family_id.clone(),
             family_created_at: consumed.family_created_at,
-            // Rotation keeps the grant's resource binding.
+            // Rotation keeps the grant's resource binding and its consent grant.
             resource: consumed.resource.clone(),
+            client_grant_id: consumed.client_grant_id.clone(),
         };
         self.store_refresh_token(&successor).await?;
 

@@ -108,6 +108,7 @@ async fn an_auth_code_is_exchanged_once_and_only_by_its_client_and_redirect() {
         code_challenge: Some("E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM".to_owned()),
         code_challenge_method: Some("S256".to_owned()),
         resource: Some("https://mcp.example".to_owned()),
+        client_grant_id: None,
     };
     repos.oauth2_server.store_auth_code(&code).await.unwrap();
 
@@ -228,6 +229,7 @@ async fn a_refresh_token_rotates_once_for_its_client_and_is_stored_hashed() {
         family_id: "test-family".to_owned(),
         family_created_at: None,
         resource: Some("https://mcp.example".to_owned()),
+        client_grant_id: None,
     };
     repos
         .oauth2_server
@@ -387,12 +389,15 @@ async fn a_client_grant_is_idempotent_and_revocable_by_its_owner_only() {
         revoked_at: None,
         consent_version: Some("text-v1".to_owned()),
         consent_locale: Some("fr".to_owned()),
+        authorization_details: None,
+        expires_at: None,
     };
-    repos
+    let stored = repos
         .oauth2_server
         .store_client_grant(&grant)
         .await
         .unwrap();
+    assert_eq!(stored, grant.id, "a new grant is stored under its own id");
     // Approved again under a newer consent text, read in English.
     let again = OAuthClientGrant {
         id: Uuid::new_v4().to_string(),
@@ -400,11 +405,15 @@ async fn a_client_grant_is_idempotent_and_revocable_by_its_owner_only() {
         consent_locale: Some("en".to_owned()),
         ..grant.clone()
     };
-    repos
+    let restored = repos
         .oauth2_server
         .store_client_grant(&again)
         .await
         .unwrap();
+    assert_eq!(
+        restored, grant.id,
+        "a re-consent reports the row that holds the grant, not the id it offered"
+    );
 
     let listed = repos
         .oauth2_server
@@ -662,4 +671,93 @@ async fn opening_a_device_authorization_sweeps_the_expired_ones_and_no_live_one(
         .unwrap()
         .expect("the live approved login");
     assert_eq!(still_approved.status, "approved");
+}
+
+#[tokio::test]
+async fn a_client_grant_keeps_its_details_and_expiry_and_is_read_by_its_owner() {
+    let db = create_test_db().await.unwrap();
+    let repos = db.repositories();
+    let client = fresh_client(repos).await;
+    let user_id = Uuid::new_v4().to_string();
+    let expires_at = Timestamp::now() + Elapsed::days(30);
+    let grant = OAuthClientGrant {
+        id: Uuid::new_v4().to_string(),
+        user_id: user_id.clone(),
+        tenant_id: "tenant-e".to_owned(),
+        client_id: client.client_id.clone(),
+        scope: "read".to_owned(),
+        granted_at: Timestamp::now(),
+        revoked_at: None,
+        consent_version: Some("text-v1".to_owned()),
+        consent_locale: Some("en".to_owned()),
+        authorization_details: Some(r#"{"preset":"sleep_coach"}"#.to_owned()),
+        expires_at: Some(expires_at),
+    };
+    let id = repos
+        .oauth2_server
+        .store_client_grant(&grant)
+        .await
+        .unwrap();
+    // A re-consent offering other details keeps the row's own.
+    repos
+        .oauth2_server
+        .store_client_grant(&OAuthClientGrant {
+            id: Uuid::new_v4().to_string(),
+            authorization_details: None,
+            expires_at: None,
+            ..grant.clone()
+        })
+        .await
+        .unwrap();
+
+    let read = repos
+        .oauth2_server
+        .get_client_grant(&id, &user_id, "tenant-e")
+        .await
+        .unwrap()
+        .expect("the owner reads its grant");
+    assert_eq!(
+        read.authorization_details.as_deref(),
+        Some(r#"{"preset":"sleep_coach"}"#),
+        "bug: the grant's details did not read back"
+    );
+    assert_eq!(
+        read.expires_at.map(Timestamp::epoch_seconds),
+        Some(expires_at.epoch_seconds()),
+        "bug: the grant's expiry did not read back"
+    );
+    for (user, tenant) in [
+        (Uuid::new_v4().to_string(), "tenant-e"),
+        (user_id.clone(), "tenant-other"),
+    ] {
+        assert!(
+            repos
+                .oauth2_server
+                .get_client_grant(&id, &user, tenant)
+                .await
+                .unwrap()
+                .is_none(),
+            "a grant is read only by the user and tenant that hold it"
+        );
+    }
+
+    let standing = repos
+        .oauth2_server
+        .client_grant_standing(&user_id, "tenant-e", &client.client_id)
+        .await
+        .unwrap();
+    assert_eq!(
+        standing.grants.len(),
+        1,
+        "bug: the standing does not list the one live grant"
+    );
+    assert_eq!(
+        standing.grants[0].id, id,
+        "bug: the standing lists another grant"
+    );
+    assert_eq!(
+        standing.grants[0].authorization_details.as_deref(),
+        Some(r#"{"preset":"sleep_coach"}"#),
+        "bug: the standing lost the grant's details"
+    );
 }

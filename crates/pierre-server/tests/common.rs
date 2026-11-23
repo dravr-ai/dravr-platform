@@ -1481,6 +1481,33 @@ struct ContextParts {
     /// nobody reads back. Never the production factory.
     #[cfg(feature = "client-messaging")]
     channel_adapters: Option<Arc<dyn ChannelAdapterFactory>>,
+    /// Build the auth manager as the server binary does, minting and
+    /// accepting the config's `issuer_url` on OAuth access tokens; otherwise
+    /// it knows only the legacy `pierre-mcp-server`.
+    oauth_issuer: bool,
+}
+
+/// [`create_test_server_resources_with_config`] whose auth manager carries the
+/// config's OAuth issuer, as `create_auth_manager` builds the deployed one:
+/// every `/oauth2/token` access token is minted with `iss = issuer_url`.
+pub(crate) fn create_test_server_resources_with_oauth_issuer(
+    config: ServerConfig,
+) -> BoxedServerContext {
+    Box::pin(async move {
+        let database = create_test_db_with_key(generate_encryption_key().to_vec()).await?;
+        Box::pin(create_test_server_resources_over(
+            database,
+            None,
+            Vec::new(),
+            Some(config),
+            None,
+            ContextParts {
+                oauth_issuer: true,
+                ..ContextParts::default()
+            },
+        ))
+        .await
+    })
 }
 
 /// [`create_test_server_resources_with_chat_provider`] over `adapters`, so a
@@ -1572,6 +1599,7 @@ async fn create_test_server_resources_over(
         live_records,
         #[cfg(feature = "client-messaging")]
         channel_adapters,
+        oauth_issuer,
     } = parts;
     // As deployed, uploaded files share the imports' blob store; without
     // imports the context keeps them in a memory store of its own, since no
@@ -1587,8 +1615,6 @@ async fn create_test_server_resources_over(
     init_test_http_clients();
     init_server_config();
 
-    let auth_manager = AuthManager::new(24);
-
     let admin_jwt_secret = "test_admin_secret";
     // Whatever config the test built, a provider endpoint it named no
     // stand-in for is refused, never the provider's real host; so is a
@@ -1596,6 +1622,12 @@ async fn create_test_server_resources_over(
     let mut config = config_override.unwrap_or_else(test_server_config);
     refuse_what_leaves_the_machine(&mut config);
     let config = Arc::new(config);
+
+    let auth_manager = if oauth_issuer {
+        AuthManager::new(24).with_oauth_issuer(config.oauth2_server.issuer_url.clone())
+    } else {
+        AuthManager::new(24)
+    };
 
     // Create test cache with background cleanup disabled for tests
     let cache_config = CacheConfig {

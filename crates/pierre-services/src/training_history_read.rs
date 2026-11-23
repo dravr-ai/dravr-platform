@@ -55,6 +55,7 @@ use pierre_fitness_compute::training_history_compute::{
     compute_training_history, warmup_days, AthleteInputs, MAX_BACKFILL_DAYS,
 };
 use pierre_providers::activity_source::ActivitySourceRank;
+use pierre_providers::ai_scope::Dated;
 use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
 use pierre_providers::registry::global_registry;
 use pierre_providers::{ai_scope, backend_resolver};
@@ -255,10 +256,15 @@ pub async fn fetch_history_rows(
     if to < from {
         return Err(AppError::invalid_input("from > to"));
     }
-    repos
+    let mut rows = repos
         .training_history
         .get_training_history(tenant_id, user_id, from, to)
-        .await
+        .await?;
+    // Under a grant's window, the days before it are not served; a day's
+    // derived row inside it is, though computed from earlier days.
+    ai_scope::retain_in_window(&mut rows, |row| Some(Dated::Day(row.date)));
+    ai_scope::note_rows(rows.len());
+    Ok(rows)
 }
 
 /// The history rows a model, or a caller over an external transport, may read
@@ -290,7 +296,10 @@ pub async fn history_rows_for_model(
         .await;
         if !withheld.is_empty() {
             ai_scope::record_withheld(withheld);
-            return Ok(computed?.states);
+            let mut states = computed?.states;
+            ai_scope::retain_in_window(&mut states, |row| Some(Dated::Day(row.date)));
+            ai_scope::note_rows(states.len());
+            return Ok(states);
         }
     }
     fetch_history_rows(sources.repos, tenant_id, user_id, from, to).await

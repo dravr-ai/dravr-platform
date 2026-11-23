@@ -17,6 +17,7 @@ use std::env;
 use tracing::{debug, info, warn};
 
 use super::google_sign_in::GoogleSignInConfig;
+use super::introspection::resolve_introspection_clients;
 use super::mcp_resource::resolve_mcp_resource_aliases;
 use super::satellites::resolve_satellite_resources;
 use crate::oauth2_server::first_party::{first_party_web_origins, FirstPartyRedirects};
@@ -360,7 +361,19 @@ pub struct OAuth2ServerConfig {
     /// The platform's own `/mcp` never accepts one: it answers to
     /// [`Self::mcp_resources`] only, so a token minted for a satellite cannot
     /// be replayed against the platform, nor the reverse.
+    ///
+    /// Such a token's `iss` is [`Self::issuer_url`], the metadata's `issuer`
+    /// (RFC 9068 §2.2), never `pierre-mcp-server`, which only first-party
+    /// sessions carry: a satellite enrolled here sets its
+    /// `{PREFIX}_CALLER_ISSUER` to the issuer URL.
     pub satellite_resources: Vec<String>,
+    /// The confidential clients allowed to introspect this server's tokens at
+    /// `/oauth2/introspect` (RFC 7662), from `OAUTH2_INTROSPECTION_CLIENTS`
+    /// (comma-separated client ids). Empty admits none. A resource server's
+    /// client is created by an admin (`pierre-cli oauth2-client create
+    /// --name <resource server>`), never through dynamic registration, whose
+    /// clients anyone can make.
+    pub introspection_clients: Vec<String>,
     /// Default email for OAuth login page (dev/test only - do not use in production)
     pub default_login_email: Option<String>,
     /// Default password for OAuth login page (dev/test only - NEVER use in production!);
@@ -392,6 +405,7 @@ impl Default for OAuth2ServerConfig {
             mcp_resource_url: "http://localhost:8081".to_owned(),
             mcp_resource_aliases: Vec::new(),
             satellite_resources: Vec::new(),
+            introspection_clients: Vec::new(),
             default_login_email: None,
             default_login_password: None,
             client_retention: ClientRetentionConfig::default(),
@@ -594,6 +608,9 @@ impl OAuth2ServerConfig {
             ),
             satellite_resources: resolve_satellite_resources(
                 env::var("OAUTH2_SATELLITE_RESOURCES").ok().as_deref(),
+            ),
+            introspection_clients: resolve_introspection_clients(
+                env::var("OAUTH2_INTROSPECTION_CLIENTS").ok().as_deref(),
             ),
             default_login_email: env::var("OAUTH_DEFAULT_EMAIL").ok(),
             default_login_password: env::var("OAUTH_DEFAULT_PASSWORD")

@@ -314,6 +314,21 @@ pub struct OAuthClientGrant {
     pub consent_version: Option<String>,
     /// The language the consent screen was shown in when the user approved.
     pub consent_locale: Option<String>,
+    /// The RFC 9396 authorization details the grant was resolved to, as one
+    /// JSON document. `None` is a plain grant, which reaches what every grant
+    /// reached before details existed.
+    pub authorization_details: Option<String>,
+    /// When the grant stops admitting a token; `None` never expires.
+    pub expires_at: Option<Timestamp>,
+}
+
+impl OAuthClientGrant {
+    /// Whether the grant still admits a token at `now`: not revoked, and not
+    /// past its expiry.
+    #[must_use]
+    pub fn is_live_at(&self, now: Timestamp) -> bool {
+        self.revoked_at.is_none() && self.expires_at.is_none_or(|expires_at| now < expires_at)
+    }
 }
 
 /// Where a user's consent to one OAuth client stands in one tenant.
@@ -321,15 +336,110 @@ pub struct OAuthClientGrant {
 /// What a resource server asks of an access token it holds: the token is
 /// self-contained, so only this says whether the athlete has since taken the
 /// access back.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ClientGrantStanding {
-    /// Whether an un-revoked grant exists for the client
+    /// Whether a live grant exists for the client: un-revoked and unexpired
     pub active: bool,
     /// When a grant for the client was last revoked; `None` when none ever was
     pub last_revoked_at: Option<Timestamp>,
+    /// The client's live grants: un-revoked and unexpired when read
+    pub grants: Vec<StandingGrant>,
+}
+
+/// One live grant of a [`ClientGrantStanding`]: what a token naming it by
+/// its `client_grant_id` claim is admitted under.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StandingGrant {
+    /// The grant's id, the `oauth_client_grants` row
+    pub id: String,
+    /// The exact space-separated scope string the grant was consented to
+    pub scope: String,
+    /// The grant's resolved authorization details; `None` for a plain grant
+    pub authorization_details: Option<String>,
+    /// When the grant stops admitting a token; `None` never expires
+    pub expires_at: Option<Timestamp>,
 }
 
 impl ClientGrantStanding {
+    /// The standing of a client whose every grant, live or revoked, is
+    /// `grants`, read at `now`.
+    #[must_use]
+    pub fn of_grants(grants: &[OAuthClientGrant], now: Timestamp) -> Self {
+        let live: Vec<StandingGrant> = grants
+            .iter()
+            .filter(|grant| grant.is_live_at(now))
+            .map(|grant| StandingGrant {
+                id: grant.id.clone(),
+                scope: grant.scope.clone(),
+                authorization_details: grant.authorization_details.clone(),
+                expires_at: grant.expires_at,
+            })
+            .collect();
+        Self {
+            active: !live.is_empty(),
+            last_revoked_at: grants.iter().filter_map(|grant| grant.revoked_at).max(),
+            grants: live,
+        }
+    }
+
+    /// Whether an access token issued at `issued_at` (seconds since the epoch,
+    /// the `iat` claim) and naming `client_grant_id` still speaks for the
+    /// athlete at `now`.
+    ///
+    /// A token that names its grant is admitted only while that grant is
+    /// among the live ones and unexpired at `now`: a standing read before the
+    /// expiry may still be cached after it. A token naming none, minted
+    /// before grants were named, keeps [`Self::admits_token_issued_at`].
+    #[must_use]
+    pub fn admits_token(
+        &self,
+        issued_at: i64,
+        client_grant_id: Option<&str>,
+        now: Timestamp,
+    ) -> bool {
+        client_grant_id.map_or_else(
+            || self.admits_token_issued_at(issued_at),
+            |id| {
+                self.grants.iter().any(|grant| {
+                    grant.id == id && grant.expires_at.is_none_or(|expires_at| now < expires_at)
+                })
+            },
+        )
+    }
+
+    /// The live grant whose authorization details a token is held to, if any.
+    ///
+    /// A token naming its grant (`client_grant_id`) is held to that grant:
+    /// `None` when that grant is plain. A token naming none, minted before
+    /// grants were named, is held to the client's live grant for its `scope`
+    /// when that one carries details, and otherwise to any live grant that
+    /// does: a token without the claim never reads wider than a detailed
+    /// consent the client holds. `None` only when no live grant carries
+    /// details.
+    #[must_use]
+    pub fn detailed_grant_for(
+        &self,
+        client_grant_id: Option<&str>,
+        scope: &str,
+    ) -> Option<&StandingGrant> {
+        let detailed = |grant: &&StandingGrant| grant.authorization_details.is_some();
+        client_grant_id.map_or_else(
+            || {
+                self.grants
+                    .iter()
+                    .find(|grant| grant.scope == scope)
+                    .filter(detailed)
+                    .or_else(|| self.grants.iter().find(detailed))
+            },
+            |id| {
+                self.grants
+                    .iter()
+                    .find(|grant| grant.id == id)
+                    .filter(detailed)
+            },
+        )
+    }
+
     /// Whether an access token issued at `issued_at` (seconds since the epoch,
     /// the `iat` claim) still speaks for the athlete.
     ///
@@ -418,6 +528,7 @@ pub struct TenantOAuthCredentials {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use dravr_tronc::dates::Elapsed;
 
     fn owned_by(owner: Uuid) -> Tenant {
         Tenant::new(
@@ -452,5 +563,194 @@ mod tests {
     #[test]
     fn attribution_is_none_without_tenants() {
         assert_eq!(Tenant::attribution_tenant(&[], Uuid::new_v4()), None);
+    }
+
+    fn grant(
+        id: &str,
+        revoked_at: Option<Timestamp>,
+        expires_at: Option<Timestamp>,
+    ) -> OAuthClientGrant {
+        OAuthClientGrant {
+            id: id.to_owned(),
+            user_id: "u".to_owned(),
+            tenant_id: "t".to_owned(),
+            client_id: "c".to_owned(),
+            scope: "fitness:read".to_owned(),
+            granted_at: Timestamp::now() - Elapsed::days(1),
+            revoked_at,
+            consent_version: None,
+            consent_locale: None,
+            authorization_details: None,
+            expires_at,
+        }
+    }
+
+    #[test]
+    fn a_standing_lists_only_live_unexpired_grants() {
+        let now = Timestamp::now();
+        let hour = Elapsed::hours(1);
+        let standing = ClientGrantStanding::of_grants(
+            &[
+                grant("live", None, None),
+                grant("dated", None, Some(now + hour)),
+                grant("expired", None, Some(now - hour)),
+                grant("revoked", Some(now - hour), None),
+            ],
+            now,
+        );
+        let ids: Vec<&str> = standing.grants.iter().map(|g| g.id.as_str()).collect();
+        assert_eq!(
+            ids,
+            ["live", "dated"],
+            "bug: an expired or revoked grant is listed as live"
+        );
+        assert!(
+            standing.active,
+            "bug: a client with live grants reads as inactive"
+        );
+        assert_eq!(
+            standing.last_revoked_at,
+            Some(now - hour),
+            "bug: the last revocation was not kept"
+        );
+    }
+
+    #[test]
+    fn an_expired_grant_does_not_count_as_active() {
+        let now = Timestamp::now();
+        let standing = ClientGrantStanding::of_grants(
+            &[grant("expired", None, Some(now - Elapsed::seconds(1)))],
+            now,
+        );
+        assert!(!standing.active, "bug: an expired grant counts as active");
+        assert_eq!(
+            standing.grants,
+            Vec::new(),
+            "bug: an expired grant is listed as live"
+        );
+    }
+
+    #[test]
+    fn a_token_naming_its_grant_is_admitted_only_while_that_grant_lives() {
+        let now = Timestamp::now();
+        let hour = Elapsed::hours(1);
+        let standing = ClientGrantStanding::of_grants(
+            &[
+                grant("live", None, None),
+                grant("revoked", Some(now - hour), None),
+                grant("soon", None, Some(now + hour)),
+            ],
+            now,
+        );
+        let iat = now.epoch_seconds();
+        assert!(
+            standing.admits_token(iat, Some("live"), now),
+            "bug: a token naming a live grant was refused"
+        );
+        assert!(
+            !standing.admits_token(iat, Some("revoked"), now),
+            "bug: a token naming a revoked grant was admitted"
+        );
+        assert!(
+            !standing.admits_token(iat, Some("unknown"), now),
+            "bug: a token naming an unknown grant was admitted"
+        );
+        // A standing cached before the expiry still refuses after it.
+        assert!(
+            standing.admits_token(iat, Some("soon"), now),
+            "bug: a token naming a grant before its expiry was refused"
+        );
+        assert!(
+            !standing.admits_token(iat, Some("soon"), now + hour),
+            "bug: a cached standing admitted a token past its grant's expiry"
+        );
+    }
+
+    #[test]
+    fn a_token_naming_no_grant_keeps_the_issued_at_rule() {
+        let now = Timestamp::now();
+        let revoked_at = now - Elapsed::hours(1);
+        let standing = ClientGrantStanding::of_grants(
+            &[
+                grant("old", Some(revoked_at), None),
+                grant("new", None, None),
+            ],
+            now,
+        );
+        assert!(
+            standing.admits_token(now.epoch_seconds(), None, now),
+            "bug: a claimless token issued after the last revocation was refused"
+        );
+        assert!(
+            !standing.admits_token(revoked_at.epoch_seconds(), None, now),
+            "bug: a claimless token issued before the last revocation was admitted"
+        );
+        let never = ClientGrantStanding::of_grants(&[], now);
+        assert!(
+            never.admits_token(now.epoch_seconds(), None, now),
+            "bug: a claimless token was refused though no grant was ever revoked"
+        );
+        assert!(
+            !never.admits_token(now.epoch_seconds(), Some("any"), now),
+            "bug: a token naming a grant was admitted with no grant live"
+        );
+    }
+
+    fn detailed(id: &str, scope: &str) -> OAuthClientGrant {
+        OAuthClientGrant {
+            scope: scope.to_owned(),
+            authorization_details: Some("[]".to_owned()),
+            ..grant(id, None, None)
+        }
+    }
+
+    #[test]
+    fn a_token_is_held_to_the_detailed_grant_it_names_or_its_scope_falls_under() {
+        let now = Timestamp::now();
+        let standing = ClientGrantStanding::of_grants(
+            &[
+                grant("plain", None, None),
+                detailed("preset", "fitness:read profile:read"),
+            ],
+            now,
+        );
+        let held = |claim, scope| {
+            standing
+                .detailed_grant_for(claim, scope)
+                .map(|grant| grant.id.clone())
+        };
+        assert_eq!(
+            held(Some("preset"), "fitness:read"),
+            Some("preset".to_owned()),
+            "bug: a token naming a preset grant is not held to it"
+        );
+        assert_eq!(
+            held(Some("plain"), "fitness:read"),
+            None,
+            "a plain grant has no ceiling"
+        );
+        assert_eq!(
+            held(Some("gone"), "fitness:read"),
+            None,
+            "bug: a token naming an unknown grant is held to one"
+        );
+        assert_eq!(
+            held(None, "fitness:read profile:read"),
+            Some("preset".to_owned()),
+            "a claimless token is held to its scope's grant"
+        );
+        assert_eq!(
+            held(None, "fitness:read"),
+            Some("preset".to_owned()),
+            "bug: a claimless token whose scope names a plain grant read wider than the \
+             client's detailed one"
+        );
+        let plain_only = ClientGrantStanding::of_grants(&[grant("plain", None, None)], now);
+        assert!(
+            plain_only
+                .detailed_grant_for(None, "fitness:read")
+                .is_none(),
+            "bug: a client with only plain grants held a token to details"
+        );
     }
 }

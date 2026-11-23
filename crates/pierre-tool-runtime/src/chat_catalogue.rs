@@ -339,12 +339,15 @@ pub fn offered_schemas(
                 && deployment_tools::answers_with(registry, &schema.name, deployment)
                 && registry.get(&schema.name).is_none_or(|tool| {
                     tool_access::withheld(
+                        registry,
+                        &schema.name,
                         tool.as_ref(),
                         &Caller {
                             role: CallerRole::default(),
                             grant,
                             transport,
                             support_session: false,
+                            ceiling: None,
                         },
                     )
                     .is_none()

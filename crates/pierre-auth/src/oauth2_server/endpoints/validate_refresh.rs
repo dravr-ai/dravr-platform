@@ -13,7 +13,7 @@ use uuid::Uuid;
 
 use super::admin_grant::holds_admin;
 use super::OAuth2AuthorizationServer;
-use crate::auth::{Claims, JwtValidationError};
+use crate::auth::{Claims, JwtValidationError, TokenLineage};
 use crate::oauth2_server::first_party::is_first_party;
 use crate::oauth2_server::models::{
     OAuth2Error, OAuth2RefreshToken, ValidateRefreshRequest, ValidateRefreshResponse,
@@ -100,7 +100,11 @@ impl OAuth2AuthorizationServer {
             .oauth2_server
             .client_grant_standing(&user_id.to_string(), tenant_id, client_id)
             .await?;
-        Ok(!standing.admits_token_issued_at(claims.iat))
+        Ok(!standing.admits_token(
+            claims.iat,
+            claims.client_grant_id.as_deref(),
+            Timestamp::now(),
+        ))
     }
 
     /// Create a successful refresh response
@@ -154,7 +158,9 @@ impl OAuth2AuthorizationServer {
         // Checked before the refresh token is rotated away: a grant bound to a
         // resource this server no longer serves cannot mint a usable token,
         // and a grant whose tenant the user left is revoked.
-        let grant = self
+        // `/oauth2/validate-and-refresh` answers no details: the SDK reads
+        // the token and nothing beside it.
+        let (grant, _) = self
             .check_refresh_grant(refresh_token_value, None)
             .await
             .map_err(refusal_error)?;
@@ -188,7 +194,10 @@ impl OAuth2AuthorizationServer {
                     refresh_token_data.user_id,
                     refresh_token_data.tenant_id.as_str(),
                 )),
-                Some(&consumed.family_id),
+                Some(TokenLineage {
+                    family_id: &consumed.family_id,
+                    client_grant_id: consumed.client_grant_id.as_deref(),
+                }),
                 &granted,
                 audience.as_deref(),
             )

@@ -182,6 +182,8 @@ mod tests {
             consent_every_time: false,
             unstored_client: None,
             admin_grantable,
+            details: None,
+            preset_source: None,
         }
     }
 

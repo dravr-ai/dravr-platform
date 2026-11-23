@@ -67,6 +67,7 @@ use axum::response::Response;
 use dravr_tronc::dates::Timestamp;
 use futures_util::FutureExt;
 use http::{HeaderMap, HeaderValue, StatusCode};
+use pierre_auth::oauth2_server::grant_ceiling::GrantCeiling;
 use pierre_auth::rate_limiting::RequestBudget;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{A2AUsage, ApiKeyUsage};
@@ -136,6 +137,9 @@ struct RequestReport {
     /// and a support session binds it, for the handler to read back
     /// ([`request_credential`]).
     credential: Option<CallerCredential>,
+    /// The ceiling of the detailed consent grant that credential was admitted
+    /// under, for the handler to read back ([`request_ceiling`]).
+    ceiling: Option<GrantCeiling>,
 }
 
 /// One request's report. `Arc` because two owners need it: the task-local
@@ -243,6 +247,32 @@ pub fn request_credential() -> Option<CallerCredential> {
             slot.lock()
                 .unwrap_or_else(PoisonError::into_inner)
                 .credential
+                .clone()
+        })
+        .ok()
+        .flatten()
+}
+
+/// Record the ceiling of the consent grant that admitted this request
+/// (plan slice 3 item 6), beside its credential.
+///
+/// For the door [`report_request_credential`] serves: `/mcp` lists and calls
+/// through the MCP engine's context, which has no slot for it. Outside a
+/// request scope it is dropped; the door then has no request to serve.
+pub fn report_request_ceiling(ceiling: Option<GrantCeiling>) {
+    report(|slot| slot.ceiling = ceiling);
+}
+
+/// The ceiling [`report_request_ceiling`] recorded for this request; `None`
+/// under a plain grant, for every other credential, and outside a request
+/// scope.
+#[must_use]
+pub fn request_ceiling() -> Option<GrantCeiling> {
+    REQUEST_REPORT
+        .try_with(|slot| {
+            slot.lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .ceiling
                 .clone()
         })
         .ok()

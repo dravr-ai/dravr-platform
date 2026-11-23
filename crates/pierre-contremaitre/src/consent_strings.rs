@@ -88,6 +88,44 @@ pub const KEY_CONSENT_ADMIN_ACCESS_GOES_TO_TWO_HOSTS: &str =
 /// Key: what `{0}` reads for a loopback redirect: a program on this device
 pub const KEY_CONSENT_ADMIN_ACCESS_THIS_COMPUTER: &str = "oauth.consent.adminAccessThisComputer";
 
+// The grant picker's and the requested details' lines (owl Phase 5, slice
+// 3a) are listed in CONSENT_SCREEN_KEYS ahead of the catalogue, so the pin
+// that brings them never ships a consent line the consent version does not
+// cover. They are named GRANT_KEY_*, not KEY_*, while the catalogue lacks
+// them: oauth_template_test holds every KEY_ to its text in all five
+// locales, and neither the picker nor a request's details are shown or
+// honoured until that text exists. They take KEY_CONSENT_GRANT_* names once
+// the pin carries the text.
+
+/// Key: above the picker: choose what `{0}`, the client, can read
+pub const GRANT_KEY_CHOICE_TITLE: &str = "oauth.consent.grantChoiceTitle";
+/// Key: the picker's first choice, preselected: every tool, as today
+pub const GRANT_KEY_EVERYTHING: &str = "oauth.consent.grantEverything";
+/// Key: what Everything grants, and that it lasts until removed
+pub const GRANT_KEY_EVERYTHING_HINT: &str = "oauth.consent.grantEverythingHint";
+/// Key: the `training_coach` preset's name
+pub const GRANT_KEY_TRAINING_COACH: &str = "oauth.consent.grantTrainingCoach";
+/// Key: what `training_coach` reads: `{0}`, the days of data back
+pub const GRANT_KEY_TRAINING_COACH_HINT: &str = "oauth.consent.grantTrainingCoachHint";
+/// Key: what `training_coach` reads without raw samples: `{0}`, the days
+/// of data back
+pub const GRANT_KEY_TRAINING_COACH_SUMMARY_HINT: &str =
+    "oauth.consent.grantTrainingCoachSummaryHint";
+/// Key: the `sleep_coach` preset's name
+pub const GRANT_KEY_SLEEP_COACH: &str = "oauth.consent.grantSleepCoach";
+/// Key: what `sleep_coach` reads: `{0}`, the days of data back
+pub const GRANT_KEY_SLEEP_COACH_HINT: &str = "oauth.consent.grantSleepCoachHint";
+/// Key: how long a preset grant lasts: `{0}`, whole days
+pub const GRANT_KEY_LASTS_DAYS: &str = "oauth.consent.grantLastsDays";
+/// Key: how long a preset grant lasts: `{0}`, hours, under a day
+pub const GRANT_KEY_LASTS_HOURS: &str = "oauth.consent.grantLastsHours";
+/// Key: above a request's resolved details: `{0}`, the client, asks only for
+pub const GRANT_KEY_REQUESTED: &str = "oauth.consent.grantRequested";
+/// Key: the client's purpose, quoted: `{0}` the client, `{1}` its words
+pub const GRANT_KEY_PURPOSE: &str = "oauth.consent.grantPurpose";
+/// Key: above the client's commitments, each quoted: `{0}`, the client
+pub const GRANT_KEY_COMMITMENTS: &str = "oauth.consent.grantCommitments";
+
 /// Every line the consent screen can show.
 ///
 /// What the user reads when they choose Allow access.
@@ -95,7 +133,7 @@ pub const KEY_CONSENT_ADMIN_ACCESS_THIS_COMPUTER: &str = "oauth.consent.adminAcc
 /// a key the screen renders and this list leaves out is a wording change
 /// nobody is asked again about; its test holds every `oauth.consent.` key in
 /// the catalogue to this list.
-pub const CONSENT_SCREEN_KEYS: [&str; 35] = [
+pub const CONSENT_SCREEN_KEYS: [&str; 48] = [
     KEY_CONSENT_TITLE,
     KEY_CONSENT_LEAD,
     KEY_CONSENT_RETURNS_TO,
@@ -131,6 +169,19 @@ pub const CONSENT_SCREEN_KEYS: [&str; 35] = [
     KEY_CONSENT_ADMIN_ACCESS_GOES_TO,
     KEY_CONSENT_ADMIN_ACCESS_GOES_TO_TWO_HOSTS,
     KEY_CONSENT_ADMIN_ACCESS_THIS_COMPUTER,
+    GRANT_KEY_CHOICE_TITLE,
+    GRANT_KEY_EVERYTHING,
+    GRANT_KEY_EVERYTHING_HINT,
+    GRANT_KEY_TRAINING_COACH,
+    GRANT_KEY_TRAINING_COACH_HINT,
+    GRANT_KEY_TRAINING_COACH_SUMMARY_HINT,
+    GRANT_KEY_SLEEP_COACH,
+    GRANT_KEY_SLEEP_COACH_HINT,
+    GRANT_KEY_LASTS_DAYS,
+    GRANT_KEY_LASTS_HOURS,
+    GRANT_KEY_REQUESTED,
+    GRANT_KEY_PURPOSE,
+    GRANT_KEY_COMMITMENTS,
 ];
 
 /// Key: "Connection Failed": the error page's title and heading. No format placeholders.

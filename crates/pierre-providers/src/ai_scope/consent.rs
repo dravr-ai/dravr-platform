@@ -35,7 +35,7 @@ use pierre_core::constants::oauth_providers::{
 };
 use pierre_core::errors::{AppError, AppResult};
 
-use super::{exposure, record_withheld};
+use super::{exposure, grant_ceiling, record_withheld};
 
 tokio::task_local! {
     /// The providers whose data the athlete has not consented to hand to AI,
@@ -196,6 +196,11 @@ enum TierRefusal {
 /// own screens — every tier is read.
 fn tier_refusal(tier: Tier) -> Option<TierRefusal> {
     let gate = exposure()?;
+    // A call under a detailed consent grant reads nothing above its
+    // `max_tier`, whatever the athlete consented to (plan slice 3).
+    if grant_ceiling().is_some_and(|ceiling| !ceiling.reaches(tier)) {
+        return Some(TierRefusal::External);
+    }
     let class = match tier {
         Tier::T0 | Tier::T1 => return None,
         Tier::T2 if gate.external => return Some(TierRefusal::External),

@@ -3806,6 +3806,7 @@ dependencies = [
  "bcrypt",
  "ciborium",
  "der 0.7.10",
+ "dravr-barrage",
  "dravr-tronc",
  "http",
  "jsonwebtoken",

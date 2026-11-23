@@ -47,6 +47,7 @@
 //! they say nothing about what is shared. Every scope a client may ask for
 //! is listed, so each scope's line is in the version.
 
+use pierre_auth::oauth2_server::authorization_details::{review_digest, ResolvedDetails};
 use pierre_auth::oauth2_server::client_registration::redirects_to_loopback;
 use pierre_contremaitre::consent_strings::CONSENT_SCREEN_KEYS;
 use pierre_contremaitre::MessagingStringsRegistry;
@@ -120,6 +121,7 @@ fn digested_page(template: &str, text: &ConsentText<'_>, subject: ConsentSubject
             code_challenge: "",
             code_challenge_method: "",
             resource: "",
+            request_uri: "",
             csrf_token: "",
             client_label: DIGESTED_CLIENT_LABEL,
             account_email: DIGESTED_ACCOUNT,
@@ -129,6 +131,9 @@ fn digested_page(template: &str, text: &ConsentText<'_>, subject: ConsentSubject
             // The version digests the screen an athlete reads; the role
             // lines join it through their text (CONSENT_SCREEN_KEYS).
             role: ConsentRole::default(),
+            // Each choice's lines join it through their text; the details
+            // each choice grants join its review digest.
+            grant_choice: None,
         },
     )
 }
@@ -150,20 +155,22 @@ fn version_of(page: &str, text: &ConsentText<'_>) -> String {
     hex::encode(digest.finalize())
 }
 
-/// Whether `grant` was approved under the consent text its language reads
-/// now for `subject`. A grant recording no version or no language was
-/// approved before either was recorded, and is not current.
+/// Whether `grant`, which stored `details`, was approved under the consent
+/// text its language reads now for `subject`: its recorded review digest is
+/// the one those details have under that text (the text version itself for
+/// a plain grant). A grant recording no version or no language was approved
+/// before either was recorded, and is not current.
 pub(super) fn approved_under_current_text(
     strings: &MessagingStringsRegistry,
     grant: &OAuthClientGrant,
+    details: Option<&ResolvedDetails>,
     subject: ConsentSubject<'_>,
 ) -> bool {
-    match (&grant.consent_version, &grant.consent_locale) {
-        (Some(version), Some(locale)) => {
-            *version == consent_version(&ConsentText::new(strings, locale), subject)
-        }
-        _ => false,
-    }
+    let (Some(version), Some(locale)) = (&grant.consent_version, &grant.consent_locale) else {
+        return false;
+    };
+    let current = consent_version(&ConsentText::new(strings, locale), subject);
+    review_digest(&current, details).is_ok_and(|digest| *version == digest)
 }
 
 #[cfg(test)]
@@ -184,6 +191,8 @@ mod tests {
             revoked_at: None,
             consent_version: version,
             consent_locale: locale.map(str::to_owned),
+            authorization_details: None,
+            expires_at: None,
         }
     }
 
@@ -652,6 +661,7 @@ mod tests {
             approved_under_current_text(
                 &registry,
                 &grant(Some(current.clone()), Some("fr")),
+                None,
                 subject
             ),
             "bug: a grant approved under the current text in its language is current"
@@ -660,6 +670,7 @@ mod tests {
             !approved_under_current_text(
                 &registry,
                 &grant(Some(current.clone()), Some("en")),
+                None,
                 subject
             ),
             "the version is the text of the language it was approved in"
@@ -668,6 +679,7 @@ mod tests {
             !approved_under_current_text(
                 &registry,
                 &grant(Some(current), Some("fr")),
+                None,
                 claude(&["Garmin"])
             ),
             "bug: a grant approved before a service left the first-party-only list is asked again"
@@ -676,13 +688,47 @@ mod tests {
             !approved_under_current_text(
                 &registry,
                 &grant(Some("old".to_owned()), Some("fr")),
+                None,
                 subject
             ),
             "bug: a grant approved under older text is asked again"
         );
         assert!(
-            !approved_under_current_text(&registry, &grant(None, None), subject),
+            !approved_under_current_text(&registry, &grant(None, None), None, subject),
             "bug: a grant recorded before versions is asked again"
+        );
+    }
+
+    #[test]
+    fn a_detailed_grant_is_current_only_under_its_own_review_digest() {
+        use pierre_auth::oauth2_server::authorization_details::{preset_defaults, Preset};
+        let registry = MessagingStringsRegistry::new();
+        let current = version(&registry, "fr");
+        let subject = claude(&SOURCES);
+        let training = preset_defaults(Preset::TrainingCoach, "https://mcp.example.test/mcp");
+        let sleep = preset_defaults(Preset::SleepCoach, "https://mcp.example.test/mcp");
+        let digest = review_digest(&current, Some(&training)).unwrap_or_default();
+        let approved = grant(Some(digest), Some("fr"));
+        assert!(
+            approved_under_current_text(&registry, &approved, Some(&training), subject),
+            "bug: a preset grant approved under the current text is current"
+        );
+        assert!(
+            !approved_under_current_text(&registry, &approved, Some(&sleep), subject),
+            "bug: a digest binds the details it was approved for"
+        );
+        assert!(
+            !approved_under_current_text(&registry, &approved, None, subject),
+            "bug: a detailed grant's digest read as a plain grant's"
+        );
+        assert!(
+            approved_under_current_text(
+                &registry,
+                &grant(Some(current), Some("fr")),
+                None,
+                subject
+            ),
+            "bug: a plain grant's digest is its text version"
         );
     }
 }

@@ -143,6 +143,8 @@ fn authorize_request(client_id: &str, scope: Option<&str>) -> AuthorizeRequest {
         code_challenge: Some(challenge()),
         code_challenge_method: Some("S256".to_owned()),
         resource: None,
+        request_uri: None,
+        authorization_details: None,
     }
 }
 
@@ -444,6 +446,7 @@ async fn a_refresh_token_holding_admin_mints_a_token_without_it() {
             family_id: "test-family".to_owned(),
             family_created_at: Some(Timestamp::now()),
             resource: None,
+            client_grant_id: None,
         })
         .await
         .unwrap();
@@ -502,6 +505,7 @@ async fn a_refresh_family_holding_admin_with_no_recorded_start_mints_nothing() {
             family_id: "test-family-no-start".to_owned(),
             family_created_at: None,
             resource: None,
+            client_grant_id: None,
         })
         .await
         .unwrap();

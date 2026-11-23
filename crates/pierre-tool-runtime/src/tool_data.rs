@@ -32,6 +32,16 @@ pub struct ToolData {
     /// (an activity's name, a planned workout's description, a segment's
     /// name), which no one at Dravr checked.
     athlete_text: bool,
+    /// Whether the route it declares is incidental: the start coordinates,
+    /// city and segment efforts beside each session, which a grant without
+    /// routes still reads the sessions of, served without them.
+    incidental_route: bool,
+    /// Whether it aggregates the athlete's whole history into undated totals
+    /// (all-time, this year), which a grant's data window cannot floor.
+    whole_history: bool,
+    /// Whether it reads only connection metadata: which sources the athlete
+    /// connected, their devices, and how fresh each is, never a stream's row.
+    connection_metadata: bool,
 }
 
 impl ToolData {
@@ -42,6 +52,9 @@ impl ToolData {
             class: Some(class),
             streams,
             athlete_text: false,
+            incidental_route: false,
+            whole_history: false,
+            connection_metadata: false,
         }
     }
 
@@ -54,6 +67,9 @@ impl ToolData {
             class: None,
             streams,
             athlete_text: false,
+            incidental_route: false,
+            whole_history: false,
+            connection_metadata: false,
         }
     }
 
@@ -62,6 +78,53 @@ impl ToolData {
     pub const fn with_athlete_text(mut self) -> Self {
         self.athlete_text = true;
         self
+    }
+
+    /// This tool, whose declared route is incidental to the sessions it
+    /// serves: under a grant without routes it serves them without their
+    /// start coordinates, city and segment efforts.
+    #[must_use]
+    pub const fn with_incidental_route(mut self) -> Self {
+        self.incidental_route = true;
+        self
+    }
+
+    /// This tool, aggregating the athlete's whole history into undated
+    /// totals: withheld under a grant's data window.
+    #[must_use]
+    pub const fn with_whole_history(mut self) -> Self {
+        self.whole_history = true;
+        self
+    }
+
+    /// This tool, reading only connection metadata and no stream: what any
+    /// preset grant is offered, since a client is told to ask which sources
+    /// are connected before it reads any of them.
+    #[must_use]
+    pub const fn with_connection_metadata(mut self) -> Self {
+        self.connection_metadata = true;
+        self
+    }
+
+    /// The streams a grant must hold for it to be called: those it declares,
+    /// less an incidental route.
+    pub(crate) fn required_streams(&self) -> impl Iterator<Item = Stream> + '_ {
+        self.streams
+            .iter()
+            .copied()
+            .filter(|stream| !(self.incidental_route && *stream == Stream::WorkoutRoute))
+    }
+
+    /// Whether it aggregates the athlete's whole history.
+    #[must_use]
+    pub(crate) const fn whole_history(&self) -> bool {
+        self.whole_history
+    }
+
+    /// Whether it reads only connection metadata.
+    #[must_use]
+    pub(crate) const fn connection_metadata(&self) -> bool {
+        self.connection_metadata
     }
 
     /// Whose data a coach's call may read through it.

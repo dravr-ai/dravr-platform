@@ -11,16 +11,19 @@ use axum::{
     http::HeaderMap,
     response::{IntoResponse, Redirect, Response},
 };
-use dravr_tronc::dates::Timestamp;
+use dravr_tronc::dates::{Timestamp, Zone};
+use pierre_auth::oauth2_server::authorization_details::{athlete_zone, ResolvedDetails};
 use pierre_auth::oauth2_server::endpoints::{AdminAccess, OAuth2AuthorizationServer};
 use pierre_auth::oauth2_server::models::{AuthorizeRequest, OAuth2Error};
+use pierre_core::errors::AppError;
 use pierre_core::models::{OAuthClientGrant, User, UserStatus};
 use tracing::{error, warn};
 use uuid::Uuid;
 
 use super::admin_access;
 use super::consent_text::ConsentText;
-use super::consent_version::{consent_version, ConsentSubject};
+use super::consent_version::ConsentSubject;
+use super::picker;
 use super::{OAuth2Context, OAuth2Routes};
 use crate::authorize_redirect::{error_redirect, rejection_response};
 
@@ -47,13 +50,18 @@ pub(super) const CONSENT_NOT_RECORDED: &str =
 pub(super) const CONSENT_UNAVAILABLE: &str = "The consent screen could not be prepared";
 
 /// What the athlete approved on the consent screen: a client, the scope the
-/// authorization was checked to carry, and the text they were shown.
+/// authorization was checked to carry, the details it grants, and the
+/// language and review digest of the screen they were shown.
 struct Approval<'form> {
     client_id: &'form str,
     scope: &'form str,
     text: &'form ConsentText<'form>,
-    /// What the screen disclosed about the client, which the version covers
-    subject: ConsentSubject<'form>,
+    /// The details approved; `None` for a plain grant
+    details: Option<&'form ResolvedDetails>,
+    /// The review digest the screen was rendered and approved under
+    review_digest: String,
+    /// The athlete's zone, which the details' window is frozen in
+    zone: Zone,
 }
 
 impl OAuth2Routes {
@@ -67,7 +75,12 @@ impl OAuth2Routes {
         headers: HeaderMap,
         Form(form): Form<HashMap<String, String>>,
     ) -> Response {
-        let request = match Self::parse_authorize_request(&form) {
+        // A pushed request (RFC 9126) is read again from the store: the
+        // form's `request_uri` names it, and its other fields are ignored.
+        let request = match Self::resolve_authorize_params(&context, form.clone())
+            .await
+            .and_then(|resolved| Self::parse_authorize_request(&resolved.params))
+        {
             Ok(req) => req,
             Err(error) => {
                 let text = Self::reader_text(&context, &headers).await;
@@ -86,6 +99,14 @@ impl OAuth2Routes {
             }
         };
         let redirect_uri = request.redirect_uri.clone();
+        if let Err(error) = picker::refuse_unoffered_details(&context.strings, &checked) {
+            return error_redirect(
+                &context.config.issuer_url,
+                &redirect_uri,
+                request.state.as_deref(),
+                &error,
+            );
+        }
 
         // The consent decision must belong to the authenticated user.
         let (user_id, tenant_id) = Self::extract_authenticated_user(&headers, &context).await;
@@ -128,9 +149,32 @@ impl OAuth2Routes {
         // The text the screen was rendered in for this user, which the
         // approval is recorded under.
         let text = ConsentText::for_reader(&context.strings, Some(&user.locale), &headers);
+        // What the athlete chose to grant, and the screen must still read as
+        // it did when they chose it.
+        let subject = ConsentSubject {
+            client_id: &request.client_id,
+            redirect_uri: &redirect_uri,
+            first_party_only_sources: &context.first_party_only_sources,
+        };
+        let (details, digest_field) = picker::chosen(&form, &checked, &context.strings);
+        let review_digest = match picker::check_review_digest(
+            &form,
+            &digest_field,
+            details.as_ref(),
+            &text,
+            subject,
+        ) {
+            Ok(digest) => digest,
+            Err(error) => return Self::render_oauth_error_response(&error, &text),
+        };
         // Admin access, read from the box only for an admin now, on a request
-        // it may be granted on; the grant and the code carry the same scope.
-        let access = admin_access::decided(&form, &user, &checked, &text);
+        // it may be granted on, beside Everything; a preset grant never holds
+        // it. The grant and the code carry the same scope.
+        let access = if details.is_some() {
+            AdminAccess::Withheld
+        } else {
+            admin_access::decided(&form, &user, &checked, &text)
+        };
         let scope = OAuth2AuthorizationServer::granted_scope(&checked, access);
 
         // A client first seen in this flow gets its row before the grant naming it.
@@ -145,39 +189,54 @@ impl OAuth2Routes {
 
         // No record, no code: the athlete can neither see nor revoke a grant
         // that was not written, and a code would connect the client anyway.
-        if let Err(error) = Self::record_consent(
+        // The code names the grant actually stored, so its tokens stand and
+        // fall with it.
+        let client_grant_id = match Self::record_consent(
             &context,
             Approval {
                 client_id: &request.client_id,
                 scope: &scope,
                 text: &text,
-                subject: ConsentSubject {
-                    client_id: &request.client_id,
-                    redirect_uri: &redirect_uri,
-                    first_party_only_sources: &context.first_party_only_sources,
-                },
+                details: details.as_ref(),
+                review_digest,
+                zone: athlete_zone(user.timezone.as_deref()),
             },
             user_id,
             tenant_id.clone(),
         )
         .await
         {
-            return error_redirect(
-                &context.config.issuer_url,
-                &redirect_uri,
-                request.state.as_deref(),
-                &error,
-            );
-        }
+            Ok(client_grant_id) => client_grant_id,
+            Err(error) => {
+                return error_redirect(
+                    &context.config.issuer_url,
+                    &redirect_uri,
+                    request.state.as_deref(),
+                    &error,
+                );
+            }
+        };
 
-        Self::mint_authorization_code(&context, request, user_id, tenant_id, redirect_uri, access)
-            .await
+        Self::mint_authorization_code(
+            &context,
+            request,
+            user_id,
+            tenant_id,
+            redirect_uri,
+            access,
+            Some(client_grant_id),
+        )
+        .await
     }
 
     /// Record the athlete's approval of `scope`, the grant the authorization
-    /// was checked to carry, with the version and language of the consent
-    /// text it was given under. A duplicate active grant keeps its row and
-    /// takes the new version at the storage layer.
+    /// was checked to carry, with the review digest and language of the
+    /// consent text it was given under, and the details it grants with their
+    /// window frozen now and their expiry. A live grant with the same terms
+    /// keeps its row and takes the new digest at the storage layer. A grant's
+    /// details never change under it, so an approval of other details, or one
+    /// onto a row past its expiry, revokes that row and stores a new grant.
+    /// Returns the id of the row that holds the grant.
     ///
     /// # Errors
     /// `server_error` when the grant's tenant cannot be resolved or the grant
@@ -187,16 +246,34 @@ impl OAuth2Routes {
         approval: Approval<'_>,
         user_id: Uuid,
         tenant_id: Option<String>,
-    ) -> Result<(), OAuth2Error> {
+    ) -> Result<String, OAuth2Error> {
         let Approval {
             client_id,
             scope,
             text,
-            subject,
+            details,
+            review_digest,
+            zone,
         } = approval;
         let Some(tid) = Self::resolve_grant_tenant(context, user_id, tenant_id).await else {
             error!(user_id = %user_id, client_id, "OAuth consent not recorded: the grant has no tenant");
             return Err(OAuth2Error::server_error(CONSENT_NOT_RECORDED));
+        };
+        let not_recorded = |e: AppError| {
+            error!(user_id = %user_id, client_id, "Failed to persist OAuth client grant: {e}");
+            OAuth2Error::server_error(CONSENT_NOT_RECORDED)
+        };
+        let granted_at = Timestamp::now();
+        let (document, expires_at) = match details {
+            Some(details) => {
+                let (frozen, expires_at) =
+                    details.freeze(granted_at, &zone).map_err(not_recorded)?;
+                (
+                    Some(frozen.to_document().map_err(not_recorded)?),
+                    Some(expires_at),
+                )
+            }
+            None => (None, None),
         };
         let grant = OAuthClientGrant {
             id: Uuid::new_v4().to_string(),
@@ -204,19 +281,28 @@ impl OAuth2Routes {
             tenant_id: tid.clone(),
             client_id: client_id.to_owned(),
             scope: scope.to_owned(),
-            granted_at: Timestamp::now(),
+            granted_at,
             revoked_at: None,
-            consent_version: Some(consent_version(text, subject)),
+            consent_version: Some(review_digest),
             consent_locale: Some(text.lang().to_owned()),
+            authorization_details: document,
+            expires_at,
         };
-        context
+        let live = context
             .oauth2_server
-            .store_client_grant(&grant)
+            .find_active_client_grant(&grant.user_id, &tid, client_id, scope)
             .await
-            .map_err(|e| {
-                error!(user_id = %user_id, client_id, "Failed to persist OAuth client grant: {e}");
-                OAuth2Error::server_error(CONSENT_NOT_RECORDED)
-            })?;
+            .map_err(not_recorded)?;
+        let stored = match live {
+            Some(live) if !same_terms(&live, details) || !live.is_live_at(grant.granted_at) => {
+                context
+                    .oauth2_server
+                    .replace_client_grant(&live.id, &grant)
+                    .await
+            }
+            _ => context.oauth2_server.store_client_grant(&grant).await,
+        };
+        let client_grant_id = stored.map_err(not_recorded)?;
         // A resource server may hold this client as withdrawn from before: the
         // token this consent is about to mint must not be refused on that.
         context
@@ -224,7 +310,7 @@ impl OAuth2Routes {
             .grant_standings()
             .forget(user_id, &tid, client_id)
             .await;
-        Ok(())
+        Ok(client_grant_id)
     }
 
     /// The signed-in account, when it may authorize a client: it exists and
@@ -304,6 +390,7 @@ impl OAuth2Routes {
             tenant_id,
             redirect_uri,
             AdminAccess::Withheld,
+            None,
         )
         .await
     }
@@ -347,5 +434,16 @@ impl OAuth2Routes {
                 Some(OAuth2Error::access_denied(SUSPENDED))
             }
         }
+    }
+}
+
+/// Whether the live grant `live` grants exactly `details` (none for a plain
+/// grant), whenever it was approved. A stored document that does not read
+/// grants nothing anyone can name, so it is replaced.
+fn same_terms(live: &OAuthClientGrant, details: Option<&ResolvedDetails>) -> bool {
+    match (picker::stored_details(live), details) {
+        (Ok(None), None) => true,
+        (Ok(Some(stored)), Some(details)) => stored.same_terms(details),
+        _ => false,
     }
 }

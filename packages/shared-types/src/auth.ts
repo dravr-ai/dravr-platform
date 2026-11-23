@@ -772,6 +772,15 @@ export interface OAuthGrant {
   scope: string;
   /** When the grant was made (RFC 3339). */
   granted_at: string;
+  /**
+   * The preset a detailed grant was approved for (`training_coach`, `sleep_coach`); `null` for a plain
+   * grant, which reaches what it always did. A preset this client does not know yet is shown unlabelled.
+   */
+  preset: string | null;
+  /** The highest sensitivity tier a detailed grant reads; `null` for a plain grant. */
+  max_tier: 'T0' | 'T1' | 'T2' | 'T3' | null;
+  /** When the grant stops admitting a token (RFC 3339); `null` never expires. A past value is an expired grant. */
+  expires_at: string | null;
 }
 
 // ========== MCP TOKEN TYPES ==========

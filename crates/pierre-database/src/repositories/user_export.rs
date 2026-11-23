@@ -525,6 +525,10 @@ pub const USER_EXPORT_EXCLUDED_TABLES: &[(&str, &str)] = &[
     ),
     ("oauth2_states", "credential: in-flight OAuth state"),
     (
+        "oauth2_pushed_requests",
+        "an AS protocol table: written before any user is known, holds no user",
+    ),
+    (
         "oauth_client_states",
         "credential: in-flight provider OAuth state and PKCE verifier",
     ),

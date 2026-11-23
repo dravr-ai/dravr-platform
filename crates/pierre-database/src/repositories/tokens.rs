@@ -37,8 +37,14 @@
 //! Postgres, so one statement serves both drivers and cannot drift between
 //! them.
 
+/// Revoking and replacing a consent grant, one body for both
+mod grant_writes;
+/// The RFC 9126 pushed authorization request store
+pub(crate) mod pushed;
 mod rows;
 
+pub(crate) use grant_writes::impl_client_grant_writes;
+pub(crate) use pushed::impl_pushed_request_store;
 pub(crate) use rows::{
     client_grant_from_row, device_authorization_from_row, oauth2_auth_code_from_row,
     oauth2_client_from_row, oauth2_refresh_token_from_row, oauth2_state_from_row,
@@ -131,8 +137,8 @@ pub(crate) const GET_OAUTH2_CLIENT_SQL: &str = r"
 
 /// Mint an authorization code with its PKCE challenge and RFC 8707 resource.
 pub(crate) const STORE_OAUTH2_AUTH_CODE_SQL: &str = r"
-            INSERT INTO oauth2_auth_codes (code, client_id, user_id, tenant_id, redirect_uri, scope, code_challenge, code_challenge_method, expires_at, used, state, resource)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+            INSERT INTO oauth2_auth_codes (code, client_id, user_id, tenant_id, redirect_uri, scope, code_challenge, code_challenge_method, expires_at, used, state, resource, client_grant_id)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
             ";
 
 /// Exchange the code exactly once: it must belong to the client, match the
@@ -146,14 +152,14 @@ pub(crate) const CONSUME_OAUTH2_AUTH_CODE_SQL: &str = r"
               AND redirect_uri = $3
               AND used = FALSE
               AND expires_at > $4
-            RETURNING code, client_id, user_id, tenant_id, redirect_uri, scope, expires_at, used, state, code_challenge, code_challenge_method, resource
+            RETURNING code, client_id, user_id, tenant_id, redirect_uri, scope, expires_at, used, state, code_challenge, code_challenge_method, resource, client_grant_id
             ";
 
 /// The code [`CONSUME_OAUTH2_AUTH_CODE_SQL`] would exchange right now, read
 /// without spending it: the same client, redirect, unused and unexpired at
 /// `$4` conditions, so a row here is one the exchange could still match.
 pub(crate) const PEEK_OAUTH2_AUTH_CODE_SQL: &str = r"
-            SELECT code, client_id, user_id, tenant_id, redirect_uri, scope, expires_at, used, state, code_challenge, code_challenge_method, resource
+            SELECT code, client_id, user_id, tenant_id, redirect_uri, scope, expires_at, used, state, code_challenge, code_challenge_method, resource, client_grant_id
             FROM oauth2_auth_codes
             WHERE code = $1
               AND client_id = $2
@@ -165,13 +171,13 @@ pub(crate) const PEEK_OAUTH2_AUTH_CODE_SQL: &str = r"
 /// Store a refresh token under its HMAC, with the RFC 8707 resource its grant
 /// is bound to.
 pub(crate) const STORE_OAUTH2_REFRESH_TOKEN_SQL: &str = r"
-            INSERT INTO oauth2_refresh_tokens (token, client_id, user_id, tenant_id, scope, created_at, expires_at, revoked, family_id, resource, family_created_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+            INSERT INTO oauth2_refresh_tokens (token, client_id, user_id, tenant_id, scope, created_at, expires_at, revoked, family_id, resource, family_created_at, client_grant_id)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
             ";
 
 /// A refresh token by its HMAC, whatever its state.
 pub(crate) const GET_OAUTH2_REFRESH_TOKEN_SQL: &str = r"
-            SELECT token, client_id, user_id, tenant_id, scope, created_at, expires_at, revoked, family_id, resource, family_created_at
+            SELECT token, client_id, user_id, tenant_id, scope, created_at, expires_at, revoked, family_id, resource, family_created_at, client_grant_id
             FROM oauth2_refresh_tokens
             WHERE token = $1
             ";
@@ -185,7 +191,7 @@ pub(crate) const CONSUME_OAUTH2_REFRESH_TOKEN_SQL: &str = r"
               AND client_id = $2
               AND revoked = FALSE
               AND expires_at > $3
-            RETURNING token, client_id, user_id, tenant_id, scope, created_at, expires_at, revoked, family_id, resource, family_created_at
+            RETURNING token, client_id, user_id, tenant_id, scope, created_at, expires_at, revoked, family_id, resource, family_created_at, client_grant_id
             ";
 
 /// Revoke every live member of the rotation chain the token (by HMAC)
@@ -229,21 +235,33 @@ pub(crate) const CONSUME_OAUTH2_STATE_SQL: &str = r"
 /// the conflict target names that index, which both engines resolve. A
 /// re-consent to the same grant keeps its row and records the consent text
 /// it was given under, so a screen asked again because its text changed is
-/// not asked again on the next authorization.
+/// not asked again on the next authorization. The details and expiry are
+/// written with the row and never by the re-consent: a grant's details do not
+/// change under it. Returns the id of the row that holds the grant, the
+/// existing one on a re-consent.
 pub(crate) const STORE_CLIENT_GRANT_SQL: &str = r"
             INSERT INTO oauth_client_grants
                 (id, user_id, tenant_id, client_id, scope, granted_at, revoked_at,
-                 consent_version, consent_locale)
-            VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP, NULL, $6, $7)
+                 consent_version, consent_locale, authorization_details, expires_at)
+            VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP, NULL, $6, $7, $8, $9)
             ON CONFLICT (user_id, tenant_id, client_id, scope) WHERE revoked_at IS NULL
             DO UPDATE SET consent_version = excluded.consent_version,
                           consent_locale = excluded.consent_locale
+            RETURNING id
+            ";
+
+/// The ids of a user's live grants to one client in one tenant, but one:
+/// what an approval of that one revokes.
+pub(crate) const LIST_OTHER_LIVE_CLIENT_GRANTS_SQL: &str = r"
+            SELECT id FROM oauth_client_grants
+            WHERE user_id = $1 AND tenant_id = $2 AND client_id = $3 AND id <> $4
+              AND revoked_at IS NULL
             ";
 
 /// The live grant for one `(user, tenant, client, scope)` tuple.
 pub(crate) const FIND_ACTIVE_CLIENT_GRANT_SQL: &str = r"
             SELECT id, user_id, tenant_id, client_id, scope, granted_at, revoked_at,
-                   consent_version, consent_locale
+                   consent_version, consent_locale, authorization_details, expires_at
             FROM oauth_client_grants
             WHERE user_id = $1 AND tenant_id = $2 AND client_id = $3 AND scope = $4
               AND revoked_at IS NULL
@@ -253,10 +271,19 @@ pub(crate) const FIND_ACTIVE_CLIENT_GRANT_SQL: &str = r"
 /// A user's live grants within a tenant, newest first.
 pub(crate) const LIST_CLIENT_GRANTS_SQL: &str = r"
             SELECT id, user_id, tenant_id, client_id, scope, granted_at, revoked_at,
-                   consent_version, consent_locale
+                   consent_version, consent_locale, authorization_details, expires_at
             FROM oauth_client_grants
             WHERE user_id = $1 AND tenant_id = $2 AND revoked_at IS NULL
             ORDER BY granted_at DESC
+            ";
+
+/// One grant by its id, live or not; `user_id` + `tenant_id` in the filter is
+/// the ownership check.
+pub(crate) const GET_CLIENT_GRANT_SQL: &str = r"
+            SELECT id, user_id, tenant_id, client_id, scope, granted_at, revoked_at,
+                   consent_version, consent_locale, authorization_details, expires_at
+            FROM oauth_client_grants
+            WHERE id = $1 AND user_id = $2 AND tenant_id = $3
             ";
 
 /// Soft-delete a grant; `user_id` + `tenant_id` in the filter is the
@@ -272,7 +299,7 @@ pub(crate) const REVOKE_CLIENT_GRANT_SQL: &str = r"
 /// Every grant, live or revoked, a user gave one client in one tenant.
 pub(crate) const LIST_CLIENT_GRANT_HISTORY_SQL: &str = r"
             SELECT id, user_id, tenant_id, client_id, scope, granted_at, revoked_at,
-                   consent_version, consent_locale
+                   consent_version, consent_locale, authorization_details, expires_at
             FROM oauth_client_grants
             WHERE user_id = $1 AND tenant_id = $2 AND client_id = $3
             ";
@@ -522,6 +549,7 @@ macro_rules! impl_oauth2_server_repository {
                 &self,
                 expired_before: Timestamp,
                 unauthorized_before: Timestamp,
+                now: Timestamp,
             ) -> AppResult<OAuth2ClientSweep> {
                 let sweep_error = |e: sqlx::Error| {
                     AppError::database(format!("Failed to sweep OAuth2 clients: {e}"))
@@ -545,6 +573,14 @@ macro_rules! impl_oauth2_server_repository {
                     .await
                     .map_err(sweep_error)?
                     .rows_affected();
+                let expired_pushed_requests = sqlx::query(
+                    $crate::repositories::tokens::pushed::DELETE_EXPIRED_PUSHED_REQUESTS_SQL,
+                )
+                .bind(now)
+                .execute(&mut *tx)
+                .await
+                .map_err(sweep_error)?
+                .rows_affected();
                 Self::end_sessions_of_revoked(
                     &mut tx,
                     $crate::repositories::support_binding::RevokedCredential::DeletedFamilies,
@@ -557,6 +593,7 @@ macro_rules! impl_oauth2_server_repository {
                     expired,
                     abandoned,
                     orphaned_grants,
+                    expired_pushed_requests,
                 })
             }
 
@@ -586,6 +623,7 @@ macro_rules! impl_oauth2_server_repository {
                     .bind(auth_code.used)
                     .bind(&auth_code.state)
                     .bind(&auth_code.resource)
+                    .bind(&auth_code.client_grant_id)
                     .execute(self.pool())
                     .await
                     .map_err(|e| {
@@ -620,6 +658,7 @@ macro_rules! impl_oauth2_server_repository {
                     .bind(&refresh_token.family_id)
                     .bind(&refresh_token.resource)
                     .bind(refresh_token.family_created_at)
+                    .bind(&refresh_token.client_grant_id)
                     .execute(&mut *tx)
                     .await
                     .map_err(store_error)?;
@@ -816,22 +855,27 @@ macro_rules! impl_oauth2_server_repository {
                 row.map(|row| oauth2_state_from_row(&row)).transpose()
             }
 
-            async fn store_client_grant(&self, grant: &OAuthClientGrant) -> AppResult<()> {
-                sqlx::query(STORE_CLIENT_GRANT_SQL)
-                    .bind(&grant.id)
-                    .bind(&grant.user_id)
-                    .bind(&grant.tenant_id)
-                    .bind(&grant.client_id)
-                    .bind(&grant.scope)
-                    .bind(&grant.consent_version)
-                    .bind(&grant.consent_locale)
-                    .execute(self.pool())
+            async fn store_client_grant(&self, grant: &OAuthClientGrant) -> AppResult<String> {
+                self.store_grant_rows(grant).await
+            }
+
+            async fn get_client_grant(
+                &self,
+                id: &str,
+                user_id: &str,
+                tenant_id: &str,
+            ) -> AppResult<Option<OAuthClientGrant>> {
+                let row = sqlx::query(GET_CLIENT_GRANT_SQL)
+                    .bind(id)
+                    .bind(user_id)
+                    .bind(tenant_id)
+                    .fetch_optional(self.pool())
                     .await
                     .map_err(|e| {
-                        AppError::database(format!("Failed to store OAuth client grant: {e}"))
+                        AppError::database(format!("Failed to read OAuth client grant: {e}"))
                     })?;
 
-                Ok(())
+                row.map(|row| client_grant_from_row(&row)).transpose()
             }
 
             async fn find_active_client_grant(
@@ -878,61 +922,48 @@ macro_rules! impl_oauth2_server_repository {
                 user_id: &str,
                 tenant_id: &str,
             ) -> AppResult<bool> {
-                let revoke_error = |e: sqlx::Error| {
-                    AppError::database(format!("Failed to revoke OAuth client grant: {e}"))
-                };
-                let mut tx = self.pool().begin().await.map_err(revoke_error)?;
+                self.revoke_grant_rows(id, user_id, tenant_id).await
+            }
 
-                let revoked = sqlx::query_scalar::<_, String>(REVOKE_CLIENT_GRANT_SQL)
-                    .bind(id)
-                    .bind(user_id)
-                    .bind(tenant_id)
-                    .fetch_optional(&mut *tx)
-                    .await
-                    .map_err(revoke_error)?;
-                let Some(client_id) = revoked else {
-                    return Ok(false);
-                };
+            async fn replace_client_grant(
+                &self,
+                live_id: &str,
+                grant: &OAuthClientGrant,
+            ) -> AppResult<String> {
+                self.replace_grant_rows(live_id, grant).await
+            }
 
-                // The grant is the consent the client's refresh tokens ride
-                // on: revoking it without them would leave the client
-                // refreshing indefinitely.
-                sqlx::query(REVOKE_CLIENT_OAUTH2_REFRESH_TOKENS_SQL)
-                    .bind(tenant_id)
-                    .bind(user_id)
-                    .bind(&client_id)
-                    .execute(&mut *tx)
-                    .await
-                    .map_err(revoke_error)?;
-                sqlx::query(REVOKE_CLIENT_OAUTH2_AUTH_CODES_SQL)
-                    .bind(tenant_id)
-                    .bind(user_id)
-                    .bind(&client_id)
-                    .execute(&mut *tx)
-                    .await
-                    .map_err(revoke_error)?;
-                let families =
-                    $crate::repositories::support_binding::RevokedCredential::ClientFamilies {
-                        tenant_id,
-                        user_id,
-                        client_id: &client_id,
-                    };
-                Self::end_sessions_of_revoked(&mut tx, families).await?;
+            async fn store_pushed_request(&self, request: &OAuth2PushedRequest) -> AppResult<()> {
+                self.store_pushed_row(request).await
+            }
 
-                tx.commit().await.map_err(revoke_error)?;
+            async fn find_pushed_request(
+                &self,
+                request_uri_hash: &str,
+                client_id: &str,
+                now: Timestamp,
+            ) -> AppResult<Option<OAuth2PushedRequest>> {
+                self.find_pushed_row(request_uri_hash, client_id, now).await
+            }
 
-                // A refresh already past its consume may have written its
-                // successor after the statement above took its snapshot. It
-                // checks the grant after writing, and this runs after the
-                // revocation is visible, so one of the two always sees the other.
-                sqlx::query(REVOKE_CLIENT_OAUTH2_REFRESH_TOKENS_SQL)
-                    .bind(tenant_id)
-                    .bind(user_id)
-                    .bind(&client_id)
-                    .execute(self.pool())
+            async fn extend_pushed_request(
+                &self,
+                request_uri_hash: &str,
+                client_id: &str,
+                expires_at: Timestamp,
+            ) -> AppResult<()> {
+                self.extend_pushed_row(request_uri_hash, client_id, expires_at)
                     .await
-                    .map_err(revoke_error)?;
-                Ok(true)
+            }
+
+            async fn consume_pushed_request(
+                &self,
+                request_uri_hash: &str,
+                client_id: &str,
+                now: Timestamp,
+            ) -> AppResult<bool> {
+                self.consume_pushed_row(request_uri_hash, client_id, now)
+                    .await
             }
 
             async fn client_grant_standing(
@@ -954,10 +985,7 @@ macro_rules! impl_oauth2_server_repository {
                     .iter()
                     .map(client_grant_from_row)
                     .collect::<AppResult<Vec<_>>>()?;
-                Ok(ClientGrantStanding {
-                    active: grants.iter().any(|grant| grant.revoked_at.is_none()),
-                    last_revoked_at: grants.iter().filter_map(|grant| grant.revoked_at).max(),
-                })
+                Ok(ClientGrantStanding::of_grants(&grants, Timestamp::now()))
             }
 
             async fn withdraw_client_access(

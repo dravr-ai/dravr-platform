@@ -16,6 +16,7 @@
 //! exception: they run as the admin, so the session can always be ended.
 
 use dravr_tronc::mcp::tool::ToolContext;
+use pierre_auth::oauth2_server::grant_ceiling::GrantCeiling;
 use pierre_core::errors::AppResult;
 use pierre_core::permissions::impersonation::CallerCredential;
 use pierre_core::permissions::scopes::OAuthScope;
@@ -34,6 +35,14 @@ use crate::mcp::resources::ServerContext;
 /// outside an HTTP request, which starts and serves no session.
 pub(super) fn credential() -> Option<CallerCredential> {
     rate_limiting::request_credential()
+}
+
+/// The ceiling of the consent grant a `/mcp` call's credential was admitted
+/// under, as the auth hook recorded it for this request (plan slice 3);
+/// `None` under a plain grant, for every other credential and outside an
+/// HTTP request.
+pub(super) fn ceiling() -> Option<GrantCeiling> {
+    rate_limiting::request_ceiling()
 }
 
 /// The support session live for the admin `ctx` names on the credential

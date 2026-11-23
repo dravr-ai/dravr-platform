@@ -406,7 +406,10 @@ async fn initialize_jwt_secret(
 fn create_auth_manager(config: &ServerConfig) -> AuthManager {
     #[allow(clippy::cast_possible_wrap)]
     {
-        let auth_manager = AuthManager::new(config.auth.jwt_expiry_hours as i64);
+        // Every `/oauth2/token` access token carries the metadata's `issuer`
+        // (RFC 9068 §2.2); sessions keep the platform's own name.
+        let auth_manager = AuthManager::new(config.auth.jwt_expiry_hours as i64)
+            .with_oauth_issuer(config.oauth2_server.issuer_url.clone());
         info!("Authentication manager initialized with RS256");
         auth_manager
     }

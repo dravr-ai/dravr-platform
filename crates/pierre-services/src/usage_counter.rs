@@ -343,6 +343,27 @@ pub async fn increment_counter(
     Ok(record.value)
 }
 
+/// The value of a usage counter in its current period, `0` when it has no row.
+///
+/// Read without an [`AdminConfigLookup`] in scope: the counter
+/// [`increment_counter`] writes, for a caller that holds its own limit (a
+/// consent grant's daily row budget).
+///
+/// # Errors
+/// Returns an error if the repository read fails.
+pub async fn current_counter(
+    repo: &dyn UsageCounterRepository,
+    tenant_id: &str,
+    user_id: &str,
+    counter_type: &str,
+) -> AppResult<i64> {
+    let period = current_period(counter_type);
+    let record = repo
+        .get_counter(tenant_id, user_id, counter_type, &period)
+        .await?;
+    Ok(record.value)
+}
+
 /// Compute the current period string for a counter type
 ///
 /// - `daily_*` → `YYYY-MM-DD` (today)

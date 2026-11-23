@@ -10,7 +10,7 @@ use tracing::debug;
 use uuid::Uuid;
 
 use super::OAuth2AuthorizationServer;
-use crate::auth::DelegatedGrant;
+use crate::auth::{DelegatedGrant, TokenLineage};
 
 impl OAuth2AuthorizationServer {
     /// Generate JWT access token with RS256 asymmetric signing.
@@ -27,15 +27,16 @@ impl OAuth2AuthorizationServer {
     /// belongs to ([`Self::require_grant_tenant`]); the token carries it as
     /// `active_tenant_id`. A user token is never minted without one.
     ///
-    /// `grant_id` is the refresh family a user token is minted in, which it
-    /// carries as its `grant_id` claim: the grant an admin's support session
-    /// is bound to (carnet#1511). The code grant starts the family and the
-    /// refresh grant keeps it.
+    /// `lineage` is the refresh family a user token is minted in, which it
+    /// carries as its `grant_id` claim (the grant an admin's support session
+    /// is bound to, carnet#1511), and the consent grant the family was given
+    /// under, its `client_grant_id` claim. The code grant starts the family
+    /// and the refresh grant keeps both.
     pub(super) async fn generate_access_token(
         &self,
         client_id: &str,
         subject: Option<(Uuid, &str)>,
-        grant_id: Option<&str>,
+        lineage: Option<TokenLineage<'_>>,
         granted: &[OAuthScope],
         audience: Option<&str>,
     ) -> AppResult<String> {
@@ -83,11 +84,11 @@ impl OAuth2AuthorizationServer {
             audience,
         };
         let tenant = Some(tenant_id.to_owned());
-        match grant_id {
-            Some(grant_id) => self.auth_manager.generate_oauth_access_token_in_grant(
+        match lineage {
+            Some(lineage) => self.auth_manager.generate_oauth_access_token_in_grant(
                 &self.jwks_manager,
                 &grant,
-                grant_id,
+                &lineage,
                 &uid,
                 &providers,
                 tenant,
