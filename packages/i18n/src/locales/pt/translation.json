@@ -4738,7 +4738,6 @@
       "neverSynced": "Ainda não sincronizado",
       "lastSync": "Última sincronização {{time}}",
       "off": "Desativado. O que foi sincronizado fica até você excluir.",
-      "counts": "{{activities}} treinos · {{nights}} noites · {{days}} dias · {{selfReports}} registros",
       "deleteAction": "Excluir dados sincronizados",
       "deleteTitle": "Excluir os dados sincronizados?",
       "deleteBody": "Isso remove todos os treinos, noites, dias e registros que o Dravr sincronizou de {{name}} e desativa a sincronização. Nada é excluído deste telefone.",

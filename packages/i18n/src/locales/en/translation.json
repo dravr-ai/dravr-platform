@@ -4738,7 +4738,6 @@
       "neverSynced": "Not synced yet",
       "lastSync": "Last sync {{time}}",
       "off": "Off. What was synced stays until you delete it.",
-      "counts": "{{activities}} workouts · {{nights}} nights · {{days}} days · {{selfReports}} entries",
       "deleteAction": "Delete synced data",
       "deleteTitle": "Delete synced data?",
       "deleteBody": "This removes every workout, night, day and entry Dravr synced from {{name}} and turns syncing off. Nothing on this phone is deleted.",
