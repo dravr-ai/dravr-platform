@@ -4562,6 +4562,24 @@
         "t3Hint": "Also lets AI apps you connect to Dravr, such as Claude or ChatGPT, read your notes and your agent's memory. Your Dravr agent and your human coach read those either way."
       }
     },
+    "garminConsent": {
+      "title": "Before you connect Garmin",
+      "intro": "Choose what Dravr may do with your Garmin data. You can connect without ticking either box and change both at any time in Privacy & Data.",
+      "aiLabel": "Let my AI agent read my Garmin data",
+      "aiHint": "Without it, you still see your Garmin data in Dravr, and no AI agent reads it.",
+      "transferLabel": "Send the workouts my agent plans to my Garmin Connect calendar",
+      "transferHint": "Dravr then sends each workout's name, date, steps and targets to Garmin, which uses them under its own privacy policy. Don't ask Dravr to send anything you aren't allowed to upload to Garmin.",
+      "privacyLink": "Garmin's privacy policy",
+      "continue": "Continue"
+    },
+    "transferConsent": {
+      "title": "Workouts sent to your services",
+      "blurb": "Some services can receive the workouts your agent plans. Withdrawing stops sending at once; nothing else changes.",
+      "label": "Send planned workouts to {{provider}}",
+      "allowed": "Dravr sends your planned workouts to {{provider}} again.",
+      "withdrawn": "Dravr no longer sends workouts to {{provider}}.",
+      "failed": "Could not update this setting. Please try again."
+    },
     "connectTombstoned": "This {{provider}} account belonged to a Dravr account deleted on {{date}}. Its data stays deleted until you choose to start fresh with it.",
     "connectTombstonedClear": "Start fresh and connect",
     "import": {

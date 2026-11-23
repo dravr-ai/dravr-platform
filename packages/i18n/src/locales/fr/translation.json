@@ -4562,6 +4562,24 @@
         "t3Hint": "Permet aussi aux applications d’IA que tu connectes à Dravr, comme Claude ou ChatGPT, de lire tes notes et la mémoire de ton agent. Ton agent Dravr et ton coach humain les lisent dans tous les cas."
       }
     },
+    "garminConsent": {
+      "title": "Avant de connecter Garmin",
+      "intro": "Choisis ce que Dravr peut faire de tes données Garmin. Tu peux te connecter sans cocher aucune case et changer les deux en tout temps dans Confidentialité et données.",
+      "aiLabel": "Autoriser mon agent IA à lire mes données Garmin",
+      "aiHint": "Sans cette autorisation, tu vois quand même tes données Garmin dans Dravr, et aucun agent IA ne les lit.",
+      "transferLabel": "Envoyer les entraînements que mon agent planifie à mon calendrier Garmin Connect",
+      "transferHint": "Dravr envoie alors le nom, la date, les étapes et les cibles de chaque entraînement à Garmin, qui les utilise selon sa propre politique de confidentialité. Ne demande pas à Dravr d’envoyer ce que tu n’as pas le droit de téléverser sur Garmin.",
+      "privacyLink": "Politique de confidentialité de Garmin",
+      "continue": "Continuer"
+    },
+    "transferConsent": {
+      "title": "Entraînements envoyés à tes services",
+      "blurb": "Certains services peuvent recevoir les entraînements que ton agent planifie. Retirer ton autorisation arrête l’envoi immédiatement; rien d’autre ne change.",
+      "label": "Envoyer les entraînements planifiés à {{provider}}",
+      "allowed": "Dravr envoie de nouveau tes entraînements planifiés à {{provider}}.",
+      "withdrawn": "Dravr n’envoie plus d’entraînements à {{provider}}.",
+      "failed": "Impossible de mettre à jour ce réglage. Réessaie."
+    },
     "connectTombstoned": "Ce compte {{provider}} appartenait à un compte Dravr supprimé le {{date}}. Ses données restent supprimées tant que tu ne choisis pas de repartir de zéro avec lui.",
     "connectTombstonedClear": "Repartir de zéro et connecter",
     "import": {

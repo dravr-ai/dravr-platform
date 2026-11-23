@@ -4562,6 +4562,24 @@
         "t3Hint": "Erlaubt auch KI-Apps, die du mit Dravr verbindest, etwa Claude oder ChatGPT, deine Notizen und das Gedächtnis deines Agenten zu lesen. Dein Dravr-Agent und dein menschlicher Coach lesen diese in jedem Fall."
       }
     },
+    "garminConsent": {
+      "title": "Bevor du Garmin verbindest",
+      "intro": "Wähle, was Dravr mit deinen Garmin-Daten tun darf. Du kannst dich verbinden, ohne ein Kästchen anzukreuzen, und beides jederzeit unter Datenschutz & Daten ändern.",
+      "aiLabel": "Meinem KI-Agenten erlauben, meine Garmin-Daten zu lesen",
+      "aiHint": "Ohne diese Erlaubnis siehst du deine Garmin-Daten trotzdem in Dravr, und kein KI-Agent liest sie.",
+      "transferLabel": "Die Workouts, die mein Agent plant, an meinen Garmin Connect-Kalender senden",
+      "transferHint": "Dravr sendet dann Name, Datum, Schritte und Zielwerte jedes Workouts an Garmin, das sie nach seiner eigenen Datenschutzerklärung verwendet. Bitte Dravr nicht, etwas zu senden, das du nicht zu Garmin hochladen darfst.",
+      "privacyLink": "Datenschutzerklärung von Garmin",
+      "continue": "Weiter"
+    },
+    "transferConsent": {
+      "title": "An deine Dienste gesendete Workouts",
+      "blurb": "Manche Dienste können die Workouts empfangen, die dein Agent plant. Ein Widerruf stoppt das Senden sofort; sonst ändert sich nichts.",
+      "label": "Geplante Workouts an {{provider}} senden",
+      "allowed": "Dravr sendet deine geplanten Workouts wieder an {{provider}}.",
+      "withdrawn": "Dravr sendet keine Workouts mehr an {{provider}}.",
+      "failed": "Diese Einstellung konnte nicht aktualisiert werden. Bitte versuche es erneut."
+    },
     "connectTombstoned": "Dieses {{provider}}-Konto gehörte zu einem Dravr-Konto, das am {{date}} gelöscht wurde. Seine Daten bleiben gelöscht, bis du dich entscheidest, damit neu anzufangen.",
     "connectTombstonedClear": "Neu anfangen und verbinden",
     "import": {
