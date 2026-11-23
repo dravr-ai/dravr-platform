@@ -9,9 +9,12 @@
 //! A place is where an athlete keeps starting, and `get_activities` serves
 //! each row's place as `{id, name}`. This tool names one as the athlete asks
 //! ("call where I rode Saturday Gai-Luron"), renames it, or clears the name
-//! so the place goes back to its automatic one. By activity, an activity with
-//! a recorded route and no place yet becomes a place of its own: the athlete
-//! asserted the spot (`pierre_services::athlete_places::name_place`).
+//! so the place goes back to its automatic one. By activity, a ride from home
+//! names the area its track rode through (carnet#1723); an activity with a
+//! recorded route and no place yet becomes a place of its own, the athlete
+//! having asserted the spot, unless it starts at home and reached no area:
+//! home is never a place, and that is refused as no place
+//! (`pierre_services::athlete_places::name_place`).
 //!
 //! The answer is the place as a row serves it (`served_place_name`): over MCP
 //! and A2A only a name the athlete gave is shown, so a clear that leaves an

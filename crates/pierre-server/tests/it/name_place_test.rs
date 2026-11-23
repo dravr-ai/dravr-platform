@@ -47,10 +47,12 @@ const TRAILHEAD_CITY: &str = "Saint-Bruno";
 /// Degrees of latitude per ~100 m.
 const STEP_LAT: f64 = 0.0009;
 
-/// Out 1.5 km north from `origin` and back on the same road: the trimmed
-/// start and end sit on one spot, so each run's two endpoints count once.
+/// Out 600 m north from `origin` and back on the same road: the trimmed
+/// start and end sit on one spot, so each run's two endpoints count once,
+/// and a run from the door never goes far enough for an area to place it
+/// (carnet#1723), so the door stays home.
 fn out_and_back(origin: (f64, f64)) -> Vec<(f64, f64)> {
-    let out: Vec<(f64, f64)> = (0..=15)
+    let out: Vec<(f64, f64)> = (0..=6)
         .map(|i| (f64::from(i).mul_add(STEP_LAT, origin.0), origin.1))
         .collect();
     out.iter()
