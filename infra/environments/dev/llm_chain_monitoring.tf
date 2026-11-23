@@ -82,6 +82,25 @@ resource "google_logging_metric" "llm_tier_quota" {
   }
 }
 
+# The chain's head tier is left out of this alert (JF, 2026-11-23). The head
+# is an Anthropic organization whose credit is spent on purpose, with no
+# auto-reload: every time its 15-minute quota cooldown runs out under traffic
+# it refuses one call and the turn falls through, which opened this incident
+# four times an hour and buried a real refusal on any other tier. A head that
+# stops answering altogether is still caught: dravr-llm-startup-probe-failed
+# when no tier answers, dravr-llm-chain-fallthrough on a burst of skips.
+#
+# The head's name is read from PIERRE_LLM_CHAIN in main.tf, the one place the
+# chain is written (the live incident eval lane reads that same line), so a
+# reordered chain moves the exclusion with it. Rotating which organization is
+# the head (bin/rotate-llm-head.sh) does not change the name: the tier is
+# `anthropic` whichever key it holds.
+locals {
+  # Anchored at a line start, as the eval lane's grep is, so a comment that
+  # quotes `PIERRE_LLM_CHAIN = "…"` cannot win over the real assignment.
+  llm_chain_head = regex("(?m)^[ \\t]*PIERRE_LLM_CHAIN[ \\t]*=[ \\t]*\"([^=#,\"]+)", file("${path.module}/main.tf"))[0]
+}
+
 resource "google_monitoring_alert_policy" "llm_tier_rate_limited" {
   project      = var.project_id
   display_name = "dravr-llm-tier-rate-limited"
@@ -91,7 +110,9 @@ resource "google_monitoring_alert_policy" "llm_tier_rate_limited" {
     content   = <<-EOT
       An LLM tier answered with a quota or rate limit in the last 5 minutes.
       The tier label names it, read from the error text. This is the platform's account for that
-      provider, not an athlete's budget.
+      provider, not an athlete's budget. The chain's head (${local.llm_chain_head})
+      is not watched here: its credit is spent on purpose and the chain passes
+      over it.
 
       With a runtime chain configured the next tier is serving the turns;
       without one, athletes are failing right now — reorder PIERRE_LLM_CHAIN
@@ -114,7 +135,7 @@ resource "google_monitoring_alert_policy" "llm_tier_rate_limited" {
     display_name = "LLM tier quota or rate limit in 5min window"
 
     condition_threshold {
-      filter          = "resource.type=\"cloud_run_revision\" AND metric.type=\"logging.googleapis.com/user/${google_logging_metric.llm_tier_quota.name}\""
+      filter          = "resource.type=\"cloud_run_revision\" AND metric.type=\"logging.googleapis.com/user/${google_logging_metric.llm_tier_quota.name}\" AND metric.label.tier != \"${local.llm_chain_head}\""
       duration        = "0s"
       comparison      = "COMPARISON_GT"
       threshold_value = 0
