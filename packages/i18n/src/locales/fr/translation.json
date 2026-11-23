@@ -3590,8 +3590,10 @@
         "verify_claim": "Vérifier l'affirmation",
         "withdraw_prescribed_workout": "Retirer la séance prescrite"
       },
+      "confirm_elsewhere": "Ce brouillon a été fait dans une autre conversation. Confirme-le là où tu l'as rédigé.",
       "confirm_expired": "Ce brouillon a expiré. Relance /agent create pour en créer un nouveau.",
       "confirm_not_found": "Aucune action en attente ne correspond à ce code. Elle a peut-être déjà été traitée.",
+      "confirm_type_in_thread": "Ce bouton ne sait pas dans quelle conversation il se trouve. Tape {0} dans la conversation où tu as fait le brouillon.",
       "denied": "Cette action a été bloquée par sécurité. Si tu la veux toujours, demande-la dans un nouveau message.",
       "denied_after_actions": "Déjà fait : {0}. L'action suivante a été bloquée par sécurité, alors je me suis arrêté là. Si tu la veux toujours, demande-la dans un nouveau message.",
       "unconfirmed_actions": "Aucune réponse reçue pour : {0}. C'est peut-être passé, alors vérifie avant de redemander."
@@ -3689,6 +3691,7 @@
     "archived_conversation_quota": "Cette conversation est archivée, et tu as déjà {0} conversations ouvertes — le maximum de ton forfait. Supprime-en une dans l'app pour continuer ici.",
     "rate_limited": "Tu envoies des messages un peu trop vite pour ton forfait. Attends un moment, puis réessaie — je serai là.",
     "reply_withheld": "Ma réponse n'est pas passée — elle mélangeait des détails techniques qui n'ont pas leur place ici. Renvoie ton dernier message et on reprend là où on en était.",
+    "room_reply_held": "Ma réponse s'appuie sur l'entraînement d'un membre que ce groupe ne partage pas, alors elle reste dans l'app Dravr. Ouvre le groupe là-bas pour la lire.",
     "reply_stop": {
       "truncated": "✂️ Ma réponse a été coupée avant la fin. Demande-moi de continuer et je reprends là où je me suis arrêté.",
       "filtered": "⚠️ Une partie de ma réponse a été retirée par un filtre de contenu, elle est peut-être incomplète. Essaie de reformuler ta question."

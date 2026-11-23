@@ -3590,8 +3590,10 @@
         "verify_claim": "Aussage prüfen",
         "withdraw_prescribed_workout": "Vorgegebene Einheit zurückziehen"
       },
+      "confirm_elsewhere": "Dieser Entwurf entstand in einer anderen Unterhaltung. Bestätige ihn dort, wo du ihn erstellt hast.",
       "confirm_expired": "Dieser Entwurf ist abgelaufen. Führe /agent create erneut aus, um einen neuen zu erstellen.",
       "confirm_not_found": "Keine ausstehende Aktion passt zu diesem Code. Möglicherweise wurde sie bereits bearbeitet.",
+      "confirm_type_in_thread": "Dieser Button weiß nicht, in welcher Unterhaltung er steht. Tippe {0} in der Unterhaltung, in der du den Entwurf erstellt hast.",
       "denied": "Diese Aktion wurde aus Sicherheitsgründen blockiert. Wenn du sie weiterhin möchtest, bitte in einer neuen Nachricht darum.",
       "denied_after_actions": "Bereits erledigt: {0}. Die nächste Aktion wurde aus Sicherheitsgründen blockiert, deshalb habe ich dort aufgehört. Wenn du sie weiterhin möchtest, bitte in einer neuen Nachricht darum.",
       "unconfirmed_actions": "Keine Antwort erhalten von: {0}. Es könnte trotzdem durchgegangen sein, prüfe das also, bevor du erneut darum bittest."
@@ -3689,6 +3691,7 @@
     "archived_conversation_quota": "Diese Unterhaltung ist archiviert, und du hast bereits {0} offene Unterhaltungen — das Maximum deines Tarifs. Lösche eine in der App, um hier weiterzumachen.",
     "rate_limited": "Du sendest Nachrichten etwas schneller, als dein Tarif erlaubt. Warte einen Moment und versuch es dann noch einmal — ich bin hier.",
     "reply_withheld": "Meine Antwort ging nicht raus — sie enthielt technische Details, die hier nicht hingehören. Schick mir deine letzte Nachricht noch einmal und wir machen dort weiter, wo wir waren.",
+    "room_reply_held": "Meine Antwort stützt sich auf das Training eines Mitglieds, das dieser Gruppenchat nicht teilt, deshalb bleibt sie in der Dravr-App. Öffne die Gruppe dort, um sie zu lesen.",
     "reply_stop": {
       "truncated": "✂️ Meine Antwort wurde abgeschnitten, bevor ich fertig war. Bitte mich weiterzumachen, und ich setze dort an, wo ich aufgehört habe.",
       "filtered": "⚠️ Ein Inhaltsfilter hat einen Teil meiner Antwort entfernt, sie ist also womöglich unvollständig. Versuch, deine Frage anders zu formulieren."

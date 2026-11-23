@@ -3590,8 +3590,10 @@
         "verify_claim": "Verify factual claim",
         "withdraw_prescribed_workout": "Withdraw prescribed workout"
       },
+      "confirm_elsewhere": "That draft was made in another conversation. Confirm it there, where you drafted it.",
       "confirm_expired": "That draft has expired. Run /agent create again to make a new one.",
       "confirm_not_found": "No pending action matches that code. It may already have been resolved.",
+      "confirm_type_in_thread": "This button can't tell which conversation it's in. Type {0} in the conversation where you made the draft.",
       "denied": "That action was blocked for safety. If you still want it, ask in a new message.",
       "denied_after_actions": "Already done: {0}. The next action was blocked for safety, so I stopped there. If you still want it, ask in a new message.",
       "unconfirmed_actions": "No answer came back from: {0}. It may have gone through, so check before asking again."
@@ -3689,6 +3691,7 @@
     "archived_conversation_quota": "This conversation is archived, and you already have {0} conversations open — the maximum for your plan. Delete one in the app to continue here.",
     "rate_limited": "You're sending messages a little faster than your plan allows. Give it a moment and try again — I'll be here.",
     "reply_withheld": "My reply didn't go through — it mixed in technical details that don't belong here. Send your last message again and we'll pick up where we left off.",
+    "room_reply_held": "My answer draws on a member's training that this group chat doesn't share, so it stays in the Dravr app. Open the group there to read it.",
     "reply_stop": {
       "truncated": "✂️ My reply was cut off before I finished. Ask me to continue and I'll pick up where I stopped.",
       "filtered": "⚠️ Part of my reply was removed by a content filter, so it may be incomplete. Try rephrasing your question."

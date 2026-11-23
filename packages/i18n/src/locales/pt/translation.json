@@ -3590,8 +3590,10 @@
         "verify_claim": "Verificar a afirmação",
         "withdraw_prescribed_workout": "Retirar o treino prescrito"
       },
+      "confirm_elsewhere": "Esse rascunho foi feito noutra conversa. Confirma-o lá, onde o redigiste.",
       "confirm_expired": "Esse rascunho expirou. Executa /agent create de novo para criar outro.",
       "confirm_not_found": "Nenhuma ação pendente corresponde a esse código. Talvez já tenha sido resolvida.",
+      "confirm_type_in_thread": "Este botão não sabe em que conversa está. Escreve {0} na conversa onde fizeste o rascunho.",
       "denied": "Essa ação foi bloqueada por segurança. Se ainda a quiseres, pede-a numa nova mensagem.",
       "denied_after_actions": "Já feito: {0}. A ação seguinte foi bloqueada por segurança, por isso parei aí. Se ainda a quiseres, pede-a numa nova mensagem.",
       "unconfirmed_actions": "Não chegou resposta de: {0}. Pode ter sido feito, por isso confirma antes de voltares a pedir."
@@ -3689,6 +3691,7 @@
     "archived_conversation_quota": "Esta conversa está arquivada e já tens {0} conversas abertas — o máximo do teu plano. Elimina uma na app para continuares aqui.",
     "rate_limited": "Estás a enviar mensagens um pouco mais depressa do que o teu plano permite. Aguarda um momento e tenta novamente — eu estarei aqui.",
     "reply_withheld": "A minha resposta não seguiu — misturava detalhes técnicos que não têm lugar aqui. Envia de novo a tua última mensagem e retomamos onde estávamos.",
+    "room_reply_held": "A minha resposta baseia-se no treino de um membro que este chat de grupo não partilha, por isso fica na app Dravr. Abre o grupo lá para a leres.",
     "reply_stop": {
       "truncated": "✂️ A minha resposta foi cortada antes de terminar. Pede-me para continuar e retomo onde parei.",
       "filtered": "⚠️ Um filtro de conteúdo removeu parte da minha resposta, por isso pode estar incompleta. Tenta reformular a tua pergunta."
