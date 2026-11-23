@@ -163,9 +163,12 @@ resource "google_logging_metric" "llm_startup_probe_failed" {
     unit        = "1"
 
     labels {
-      key         = "provider"
-      value_type  = "STRING"
-      description = "The chain's head provider; the line is about the whole chain, not this tier"
+      key        = "provider"
+      value_type = "STRING"
+      # A label's description cannot change in place: rewording it destroys
+      # and recreates the metric. It names the chain's head; the line is
+      # about the whole chain, as the alert's documentation says.
+      description = "The primary provider whose startup probe failed"
     }
   }
 
