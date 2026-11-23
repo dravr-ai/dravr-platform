@@ -34,7 +34,7 @@ use uuid::Uuid;
 
 use crate::common::{self, create_test_tenant};
 use crate::helpers::axum_test::{AxumTestRequest, AxumTestResponse};
-use crate::helpers::consent_form::{hidden_field, review_digest, with_grant_lines};
+use crate::helpers::consent_form::{hidden_field, review_digest};
 
 const REDIRECT: &str = "https://client.example.test/callback";
 const VERIFIER: &str = "consent-version-pkce-verifier-0123456789-abcdefghijklmnop";
@@ -137,6 +137,7 @@ async fn approve(resources: &Arc<ServerContext>, client_id: &str, who: &Athlete)
         .unwrap()
         .to_owned();
     let challenge = challenge();
+    let (digest_field, digest) = review_digest(&html);
     let approved = AxumTestRequest::post("/oauth2/consent")
         .header("cookie", &who.cookie)
         .form(&[
@@ -148,7 +149,7 @@ async fn approve(resources: &Arc<ServerContext>, client_id: &str, who: &Athlete)
             ("code_challenge_method", "S256"),
             ("decision", "approve"),
             ("csrf_token", token.as_str()),
-            ("review_digest", review_digest(&html).as_str()),
+            (digest_field, digest.as_str()),
         ])
         .send(app(resources))
         .await;
@@ -318,7 +319,6 @@ async fn a_grant_recorded_without_a_version_asks_again() {
 #[tokio::test]
 async fn a_preset_grant_records_its_review_digest_and_a_picker_line_change_asks_again() {
     let resources = resources().await;
-    with_grant_lines(&resources.mcp.messaging_strings_registry);
     let client_id = register(&resources).await;
     let who = athlete(&resources, "consent-version-preset@example.test").await;
 
@@ -364,7 +364,7 @@ async fn a_preset_grant_records_its_review_digest_and_a_picker_line_change_asks_
 
     resources.mcp.messaging_strings_registry.update(
         "oauth.consent.grantSleepCoach",
-        "en",
+        &who.user.locale,
         "Sleep and recovery coach".to_owned(),
         "reworded-picker".to_owned(),
     );

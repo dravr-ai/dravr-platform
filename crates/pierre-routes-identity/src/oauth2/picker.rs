@@ -21,11 +21,9 @@
 //! athlete approves is what the screen showed. A plain grant's digest is the
 //! text version itself.
 //!
-//! **The lines are not in the catalogue yet.** They are authored in
-//! dravr-contremaitre first and reach this crate with the pin. Until every
-//! one of them reads ([`offered`]), the screen shows the plain grant alone,
-//! as before, and a request carrying details is refused before sign-in: its
-//! details are never shown with empty lines, nor granted unseen.
+//! A picker whose lines read empty in English is not shown ([`offered`]):
+//! the screen then offers the plain grant alone, and an athlete is never
+//! handed an unlabelled choice.
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
@@ -36,10 +34,11 @@ use pierre_auth::oauth2_server::authorization_details::{
 use pierre_auth::oauth2_server::endpoints::CheckedAuthorization;
 use pierre_auth::oauth2_server::models::OAuth2Error;
 use pierre_contremaitre::consent_strings::{
-    GRANT_KEY_CHOICE_TITLE, GRANT_KEY_COMMITMENTS, GRANT_KEY_EVERYTHING, GRANT_KEY_EVERYTHING_HINT,
-    GRANT_KEY_LASTS_DAYS, GRANT_KEY_LASTS_HOURS, GRANT_KEY_PURPOSE, GRANT_KEY_REQUESTED,
-    GRANT_KEY_SLEEP_COACH, GRANT_KEY_SLEEP_COACH_HINT, GRANT_KEY_TRAINING_COACH,
-    GRANT_KEY_TRAINING_COACH_HINT, GRANT_KEY_TRAINING_COACH_SUMMARY_HINT,
+    KEY_CONSENT_GRANT_CHOICE_TITLE, KEY_CONSENT_GRANT_COMMITMENTS, KEY_CONSENT_GRANT_EVERYTHING,
+    KEY_CONSENT_GRANT_EVERYTHING_HINT, KEY_CONSENT_GRANT_LASTS_DAYS, KEY_CONSENT_GRANT_LASTS_HOURS,
+    KEY_CONSENT_GRANT_PURPOSE, KEY_CONSENT_GRANT_REQUESTED, KEY_CONSENT_GRANT_SLEEP_COACH,
+    KEY_CONSENT_GRANT_SLEEP_COACH_HINT, KEY_CONSENT_GRANT_TRAINING_COACH,
+    KEY_CONSENT_GRANT_TRAINING_COACH_HINT, KEY_CONSENT_GRANT_TRAINING_COACH_SUMMARY_HINT,
 };
 use pierre_contremaitre::MessagingStringsRegistry;
 use pierre_core::constants::time_constants;
@@ -52,19 +51,19 @@ use super::consent_version::{consent_version, ConsentSubject};
 
 /// Every line the picker and the requested details show.
 const GRANT_KEYS: [&str; 13] = [
-    GRANT_KEY_CHOICE_TITLE,
-    GRANT_KEY_EVERYTHING,
-    GRANT_KEY_EVERYTHING_HINT,
-    GRANT_KEY_TRAINING_COACH,
-    GRANT_KEY_TRAINING_COACH_HINT,
-    GRANT_KEY_TRAINING_COACH_SUMMARY_HINT,
-    GRANT_KEY_SLEEP_COACH,
-    GRANT_KEY_SLEEP_COACH_HINT,
-    GRANT_KEY_LASTS_DAYS,
-    GRANT_KEY_LASTS_HOURS,
-    GRANT_KEY_REQUESTED,
-    GRANT_KEY_PURPOSE,
-    GRANT_KEY_COMMITMENTS,
+    KEY_CONSENT_GRANT_CHOICE_TITLE,
+    KEY_CONSENT_GRANT_EVERYTHING,
+    KEY_CONSENT_GRANT_EVERYTHING_HINT,
+    KEY_CONSENT_GRANT_TRAINING_COACH,
+    KEY_CONSENT_GRANT_TRAINING_COACH_HINT,
+    KEY_CONSENT_GRANT_TRAINING_COACH_SUMMARY_HINT,
+    KEY_CONSENT_GRANT_SLEEP_COACH,
+    KEY_CONSENT_GRANT_SLEEP_COACH_HINT,
+    KEY_CONSENT_GRANT_LASTS_DAYS,
+    KEY_CONSENT_GRANT_LASTS_HOURS,
+    KEY_CONSENT_GRANT_REQUESTED,
+    KEY_CONSENT_GRANT_PURPOSE,
+    KEY_CONSENT_GRANT_COMMITMENTS,
 ];
 
 /// The picker's form field, and the value of its plain choice.
@@ -79,28 +78,11 @@ const FIELD_DIGEST: &str = "review_digest";
 pub(super) const CONSENT_CHANGED: &str =
     "The consent screen changed while it was open; start the connection again";
 
-/// Whether the catalogue carries every line the picker and a request's
-/// details show, in English at least: until it does, neither is shown.
+/// Whether the catalogue carries every line the picker shows, in English at
+/// least: a picker with an empty line is not shown.
 pub(super) fn offered(strings: &MessagingStringsRegistry) -> bool {
     let english = ConsentText::new(strings, "en");
     GRANT_KEYS.iter().all(|key| !english.line(key).is_empty())
-}
-
-/// Refuse a request carrying details the screen cannot show yet.
-///
-/// # Errors
-/// `invalid_authorization_details` while the lines are not in the catalogue.
-pub(super) fn refuse_unoffered_details(
-    strings: &MessagingStringsRegistry,
-    checked: &CheckedAuthorization,
-) -> Result<(), OAuth2Error> {
-    if checked.details.is_some() && !offered(strings) {
-        warn!("authorization_details refused: the consent screen cannot show them yet");
-        return Err(OAuth2Error::invalid_authorization_details(
-            "authorization_details are not offered yet",
-        ));
-    }
-    Ok(())
 }
 
 /// One of the picker's choices.
@@ -222,12 +204,18 @@ fn picker_digest_field(choice: &str) -> String {
 fn preset_lines(details: &ResolvedDetails, text: &ConsentText<'_>) -> (String, String) {
     let days = details.window_days().to_string();
     let (name, hint) = match details.preset() {
-        Preset::SleepCoach => (GRANT_KEY_SLEEP_COACH, GRANT_KEY_SLEEP_COACH_HINT),
-        _ if details.representation() == Representation::Summary => (
-            GRANT_KEY_TRAINING_COACH,
-            GRANT_KEY_TRAINING_COACH_SUMMARY_HINT,
+        Preset::SleepCoach => (
+            KEY_CONSENT_GRANT_SLEEP_COACH,
+            KEY_CONSENT_GRANT_SLEEP_COACH_HINT,
         ),
-        _ => (GRANT_KEY_TRAINING_COACH, GRANT_KEY_TRAINING_COACH_HINT),
+        _ if details.representation() == Representation::Summary => (
+            KEY_CONSENT_GRANT_TRAINING_COACH,
+            KEY_CONSENT_GRANT_TRAINING_COACH_SUMMARY_HINT,
+        ),
+        _ => (
+            KEY_CONSENT_GRANT_TRAINING_COACH,
+            KEY_CONSENT_GRANT_TRAINING_COACH_HINT,
+        ),
     };
     (
         text.html(name, &[]),
@@ -244,11 +232,14 @@ fn lasts_line(details: &ResolvedDetails, text: &ConsentText<'_>) -> String {
     let seconds = details.lifetime().num_seconds();
     let day = i64::from(time_constants::SECONDS_PER_DAY);
     if seconds % day == 0 {
-        text.html(GRANT_KEY_LASTS_DAYS, &[&(seconds / day).to_string()])
+        text.html(
+            KEY_CONSENT_GRANT_LASTS_DAYS,
+            &[&(seconds / day).to_string()],
+        )
     } else {
         let hour = i64::from(time_constants::SECONDS_PER_HOUR);
         let hours = (seconds + hour - 1) / hour;
-        text.html(GRANT_KEY_LASTS_HOURS, &[&hours.to_string()])
+        text.html(KEY_CONSENT_GRANT_LASTS_HOURS, &[&hours.to_string()])
     }
 }
 
@@ -261,15 +252,15 @@ fn picker_html(
     text: &ConsentText<'_>,
 ) -> String {
     let mut html = format!(
-        r#"<fieldset class="grant-choice"><legend class="scopes-title">{}</legend>"#,
-        text.html(GRANT_KEY_CHOICE_TITLE, &[client])
+        r#"<fieldset class="scopes grant-choice"><legend class="scopes-title">{}</legend>"#,
+        text.html(KEY_CONSENT_GRANT_CHOICE_TITLE, &[client])
     );
     for choice in choices {
         let (label, hint, checked) = choice.details.as_ref().map_or_else(
             || {
                 (
-                    text.html(GRANT_KEY_EVERYTHING, &[]),
-                    text.html(GRANT_KEY_EVERYTHING_HINT, &[]),
+                    text.html(KEY_CONSENT_GRANT_EVERYTHING, &[]),
+                    text.html(KEY_CONSENT_GRANT_EVERYTHING_HINT, &[]),
                     " checked",
                 )
             },
@@ -280,7 +271,7 @@ fn picker_html(
         );
         write!(
             html,
-            r#"<label class="check"><input type="radio" name="{FIELD_GRANT}" value="{value}"{checked}> <span class="callout-title">{label}</span></label><p class="fineprint">{hint}</p>"#,
+            r#"<div class="grant-option"><label class="check"><input type="radio" name="{FIELD_GRANT}" value="{value}"{checked}> <span class="grant-label">{label}</span></label><p class="grant-hint">{hint}</p>"#,
             value = choice.value,
         )
         .ok();
@@ -291,6 +282,7 @@ fn picker_html(
             &picker_digest_field(choice.value),
             &choice.review_digest,
         ));
+        html.push_str("</div>");
     }
     html.push_str("</fieldset>");
     html
@@ -307,15 +299,15 @@ fn requested_html(
 ) -> String {
     let (label, hint) = preset_lines(details, text);
     let mut html = format!(
-        r#"<div class="callout"><p class="callout-title">{} {label}</p><p>{hint}</p>"#,
-        text.html(GRANT_KEY_REQUESTED, &[client]),
+        r#"<div class="scopes grant-requested"><p class="grant-label">{} {label}</p><p>{hint}</p>"#,
+        text.html(KEY_CONSENT_GRANT_REQUESTED, &[client]),
     );
     if let Some(purpose) = details.purpose_description() {
         write!(
             html,
             "<p>{}</p>",
             text.html(
-                GRANT_KEY_PURPOSE,
+                KEY_CONSENT_GRANT_PURPOSE,
                 &[client, &escape_html_attribute(purpose)]
             )
         )
@@ -325,7 +317,7 @@ fn requested_html(
         write!(
             html,
             "<p>{}</p><ul>",
-            text.html(GRANT_KEY_COMMITMENTS, &[client])
+            text.html(KEY_CONSENT_GRANT_COMMITMENTS, &[client])
         )
         .ok();
         for commitment in details.commitments() {

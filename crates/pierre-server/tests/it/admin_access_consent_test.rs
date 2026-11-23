@@ -56,7 +56,7 @@ use uuid::Uuid;
 
 use crate::common::{self, create_test_tenant};
 use crate::helpers::axum_test::{AxumTestRequest, AxumTestResponse};
-use crate::helpers::consent_form::with_grant_lines;
+use crate::helpers::consent_form::review_digest;
 
 const REDIRECT: &str = "https://client.example.test/callback";
 const STATE: &str = "admin-access-state";
@@ -249,41 +249,6 @@ fn hidden(page: &str, name: &str) -> String {
         .to_owned()
 }
 
-/// What approving a plain (scope-only) screen as it was rendered posts: a
-/// screen offering the grant picker carries one review digest per choice,
-/// and the athlete approves its preselected choice, Everything, under that
-/// choice's digest; a screen without the picker carries one digest.
-struct PlainApproval {
-    field: &'static str,
-    value: String,
-    choice: Option<&'static str>,
-}
-
-impl PlainApproval {
-    fn of(page: &str) -> Self {
-        let (field, choice) = if page.contains("name=\"review_digest_everything\"") {
-            ("review_digest_everything", Some("everything"))
-        } else {
-            ("review_digest", None)
-        };
-        Self {
-            field,
-            value: hidden(page, field),
-            choice,
-        }
-    }
-
-    /// The fields the approval posts: the digest, and the chosen `grant`
-    /// when the picker is shown (a screen without it posts none).
-    fn fields(&self) -> Vec<(&'static str, &str)> {
-        let mut fields = vec![(self.field, self.value.as_str())];
-        if let Some(choice) = self.choice {
-            fields.push(("grant", choice));
-        }
-        fields
-    }
-}
-
 /// Approve the consent screen, ticking Admin access when `tick`; the code.
 async fn approve(
     resources: &Arc<ServerContext>,
@@ -297,10 +262,10 @@ async fn approve(
     let csrf_token = hidden(&page, "csrf_token");
     let echoed_scope = hidden(&page, "scope");
     let state = hidden(&page, "state");
-    let approval = PlainApproval::of(&page);
+    let (digest_field, review_digest) = review_digest(&page);
     let challenge = pkce_challenge();
-    let mut form = approval.fields();
-    form.extend([
+    let mut form = vec![
+        (digest_field, review_digest.as_str()),
         ("response_type", "code"),
         ("client_id", client_id),
         ("redirect_uri", REDIRECT),
@@ -311,7 +276,7 @@ async fn approve(
         ("resource", resource.unwrap_or_default()),
         ("csrf_token", csrf_token.as_str()),
         ("decision", "approve"),
-    ]);
+    ];
     if tick {
         form.push(("admin_access", "granted"));
     }
@@ -659,11 +624,7 @@ async fn admin_access_sits_beside_everything_and_a_preset_choice_never_holds_adm
     let resources = resources().await;
     let client = register(&resources).await;
     let (_admin, session) = member(&resources, true).await;
-    let routes = || {
-        let strings = MessagingStringsRegistry::new();
-        with_grant_lines(&strings);
-        oauth2_routes_with(&resources, strings)
-    };
+    let routes = || oauth2_routes_with(&resources, MessagingStringsRegistry::new());
     let resource = mcp_resource(&resources);
     let page = AxumTestRequest::get(&authorize_uri(&client.0, None, Some(&resource)))
         .header("cookie", &cookie(&session))
@@ -765,25 +726,24 @@ async fn a_non_admin_never_sees_the_box_and_no_crafted_request_or_form_grants_ad
     // A form that names admin in its scope and ticks the box anyway.
     let csrf_token = hidden(&page, "csrf_token");
     let state = hidden(&page, "state");
-    let approval = PlainApproval::of(&page);
+    let (digest_field, review_digest) = review_digest(&page);
     let challenge = pkce_challenge();
-    let mut form = approval.fields();
-    form.extend([
-        ("response_type", "code"),
-        ("client_id", client.0.as_str()),
-        ("redirect_uri", REDIRECT),
-        ("state", state.as_str()),
-        ("scope", "fitness:read admin"),
-        ("code_challenge", challenge.as_str()),
-        ("code_challenge_method", "S256"),
-        ("resource", resource.as_str()),
-        ("csrf_token", csrf_token.as_str()),
-        ("decision", "approve"),
-        ("admin_access", "granted"),
-    ]);
     let forged = AxumTestRequest::post("/oauth2/consent")
         .header("cookie", &cookie(&session))
-        .form(&form)
+        .form(&[
+            (digest_field, review_digest.as_str()),
+            ("response_type", "code"),
+            ("client_id", client.0.as_str()),
+            ("redirect_uri", REDIRECT),
+            ("state", state.as_str()),
+            ("scope", "fitness:read admin"),
+            ("code_challenge", challenge.as_str()),
+            ("code_challenge_method", "S256"),
+            ("resource", resource.as_str()),
+            ("csrf_token", csrf_token.as_str()),
+            ("decision", "approve"),
+            ("admin_access", "granted"),
+        ])
         .send(oauth2_routes(&resources))
         .await;
     let code = code_of(&forged);

@@ -19,7 +19,6 @@ use crate::a2a_client_credentials_token_test::{
 };
 use crate::common;
 use crate::helpers::axum_test::AxumTestRequest;
-use crate::helpers::consent_form::with_grant_lines;
 use crate::helpers::stand_in_provider::{standing_in, with_registry, Account};
 use crate::oauth2_grant_details_test::{
     access_detail, approve_with, code_of, constraints_detail, exchange, forget_standing,
@@ -131,7 +130,6 @@ fn training_coach_with(world: &World, budgets: &Value) -> String {
 
 /// A fresh client, approved for the picker's `preset`: the client and token.
 async fn under_preset(world: &World, preset: &str) -> (Client, String) {
-    with_grant_lines(&world.resources.mcp.messaging_strings_registry);
     let client = register(world).await;
     let token = connect(world, &client, &[], Some(preset)).await;
     (client, token)
@@ -242,7 +240,6 @@ fn error_code(body: &Value) -> Option<String> {
 #[tokio::test]
 async fn a_training_coach_grant_is_offered_and_served_its_preset_alone() {
     let world = reading_world().await;
-    with_grant_lines(&world.resources.mcp.messaging_strings_registry);
     let client = register(&world).await;
     // Asked with the write scope too: the preset withholds every write.
     let token = connect(
@@ -544,7 +541,6 @@ async fn a_preset_client_never_calls_without_its_ceiling() {
 #[tokio::test]
 async fn a_preset_approval_revokes_the_clients_older_grant_of_another_scope() {
     let world = world().await;
-    with_grant_lines(&world.resources.mcp.messaging_strings_registry);
     let client = register(&world).await;
     world
         .resources
@@ -587,7 +583,6 @@ async fn a_preset_approval_revokes_the_clients_older_grant_of_another_scope() {
 #[tokio::test]
 async fn a_grant_spent_for_the_hour_is_answered_429_with_retry_after() {
     let world = world().await;
-    with_grant_lines(&world.resources.mcp.messaging_strings_registry);
     let client = register(&world).await;
     let details = training_coach_with(&world, &json!({"requests_per_hour": 2}));
     let token = connect(
@@ -619,7 +614,6 @@ async fn a_grant_spent_for_the_hour_is_answered_429_with_retry_after() {
 #[tokio::test]
 async fn a_grant_spent_for_the_day_answers_budget_exhausted_over_mcp_and_a2a() {
     let world = reading_world().await;
-    with_grant_lines(&world.resources.mcp.messaging_strings_registry);
     let details = training_coach_with(&world, &json!({"rows_per_day": 1}));
 
     let over_mcp = register(&world).await;
@@ -675,7 +669,6 @@ async fn a_grant_spent_for_the_day_answers_budget_exhausted_over_mcp_and_a2a() {
 #[tokio::test]
 async fn a_plain_grant_reads_and_writes_as_before() {
     let world = reading_world().await;
-    with_grant_lines(&world.resources.mcp.messaging_strings_registry);
     let client = register(&world).await;
     let token = connect(&world, &client, &[], Some("everything")).await;
     let offered = listed(&world, &token).await;

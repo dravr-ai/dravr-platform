@@ -245,7 +245,6 @@ async fn every_tool_is_listed_exactly_when_the_dispatcher_lets_it_through() {
 #[tokio::test]
 async fn under_a_preset_grant_list_card_and_dispatch_agree() {
     use crate::helpers::axum_test::AxumTestRequest;
-    use crate::helpers::consent_form::with_grant_lines;
     use crate::oauth2_grant_details_test::{
         approve_with, code_of, exchange, register, tokens, world,
     };
@@ -255,7 +254,6 @@ async fn under_a_preset_grant_list_card_and_dispatch_agree() {
     use pierre_mcp_server::mcp::multitenant::ProviderToolRouter;
 
     let world = world().await;
-    with_grant_lines(&world.resources.mcp.messaging_strings_registry);
     let res = world.resources.clone();
     let tenant = TenantId::from_uuid(world.tenant_id.parse().unwrap());
     res.agent

@@ -15,8 +15,9 @@ use pierre_contremaitre::consent_strings::{
     KEY_ERROR_AWAITS_APPROVAL, KEY_ERROR_AWAITS_EMAIL_PROOF, KEY_ERROR_CONSENT_EXPIRED,
     KEY_ERROR_CONSENT_UNAVAILABLE, KEY_ERROR_DENIED, KEY_ERROR_GOOGLE_EXPIRED,
     KEY_ERROR_GOOGLE_REFUSED, KEY_ERROR_INVALID_CLIENT, KEY_ERROR_INVALID_REQUEST,
-    KEY_ERROR_LIMITER_UNAVAILABLE, KEY_ERROR_RATE_LIMITED, KEY_ERROR_SERVER,
-    KEY_ERROR_SIGNUP_PAUSED, KEY_ERROR_SUSPENDED, KEY_ERROR_TRY_AGAIN, KEY_ERROR_UNAVAILABLE,
+    KEY_ERROR_INVALID_REQUEST_URI, KEY_ERROR_LIMITER_UNAVAILABLE, KEY_ERROR_RATE_LIMITED,
+    KEY_ERROR_SERVER, KEY_ERROR_SIGNUP_PAUSED, KEY_ERROR_SUSPENDED, KEY_ERROR_TRY_AGAIN,
+    KEY_ERROR_UNAVAILABLE,
 };
 use pierre_contremaitre::messaging_strings::format_template;
 use pierre_contremaitre::MessagingStringsRegistry;
@@ -29,6 +30,7 @@ use super::consent::{
     CONSENT_UNAVAILABLE, SUSPENDED,
 };
 use super::google_login::{SIGN_IN_REFUSED, TRANSACTION_REFUSED};
+use super::par::REQUEST_URI_REFUSED;
 use crate::oauth2_rate_limited::{LIMITER_UNAVAILABLE, RATE_LIMIT_EXCEEDED};
 
 /// The language of last resort on these pages. Consent has to be read to be
@@ -38,7 +40,7 @@ const FALLBACK_LOCALE: &str = "en";
 
 /// The refusals these pages word exactly, by the description the error
 /// carries; each key's English is that description.
-const WORDED_REFUSALS: [(&str, &str); 13] = [
+const WORDED_REFUSALS: [(&str, &str); 14] = [
     (AWAITS_EMAIL_PROOF, KEY_ERROR_AWAITS_EMAIL_PROOF),
     (AWAITS_APPROVAL, KEY_ERROR_AWAITS_APPROVAL),
     (SUSPENDED, KEY_ERROR_SUSPENDED),
@@ -51,6 +53,7 @@ const WORDED_REFUSALS: [(&str, &str); 13] = [
     (SIGN_IN_REFUSED, KEY_ERROR_GOOGLE_REFUSED),
     (TRANSACTION_REFUSED, KEY_ERROR_GOOGLE_EXPIRED),
     (SIGNUP_PAUSED, KEY_ERROR_SIGNUP_PAUSED),
+    (REQUEST_URI_REFUSED, KEY_ERROR_INVALID_REQUEST_URI),
     ("Please try again.", KEY_ERROR_TRY_AGAIN),
 ];
 
@@ -186,6 +189,7 @@ impl<'a> ConsentText<'a> {
 fn refusal_kind(code: &str) -> &'static str {
     match code {
         "invalid_request" => KEY_ERROR_INVALID_REQUEST,
+        "invalid_request_uri" => KEY_ERROR_INVALID_REQUEST_URI,
         "invalid_client" => KEY_ERROR_INVALID_CLIENT,
         "access_denied" => KEY_ERROR_DENIED,
         "server_error" => KEY_ERROR_SERVER,
@@ -265,6 +269,40 @@ mod tests {
         assert!(french.contains("demande de connexion"), "{french}");
         let english = ConsentText::new(&registry, "en").refusal(&technical);
         assert_eq!(english, "Missing client_id parameter");
+    }
+
+    #[test]
+    fn a_spent_request_uri_says_so_in_french_and_keeps_english_whole() {
+        let registry = MessagingStringsRegistry::new();
+        let spent = OAuth2Error::invalid_request_uri("The request_uri expired");
+        let french = ConsentText::new(&registry, "fr").refusal(&spent);
+        assert_eq!(
+            french,
+            escape_html_attribute(&registry.get(KEY_ERROR_INVALID_REQUEST_URI, "fr")),
+        );
+        assert!(french.contains("lien de connexion"), "{french}");
+        let english = ConsentText::new(&registry, "en").refusal(&spent);
+        assert_eq!(english, "The request_uri expired");
+    }
+
+    /// The refusal a spent or unknown `request_uri` carries reads as the
+    /// catalogue's line on an English page too, not only in another language.
+    #[test]
+    fn the_request_uri_refusal_reads_as_its_catalogue_line_in_english_and_french() {
+        let registry = MessagingStringsRegistry::new();
+        let refused = OAuth2Error::invalid_request_uri(REQUEST_URI_REFUSED);
+        for locale in ["en", "fr"] {
+            let line = registry.get(KEY_ERROR_INVALID_REQUEST_URI, locale);
+            assert!(
+                !line.is_empty(),
+                "bug: {locale} has no invalidRequestUri line"
+            );
+            assert_eq!(
+                ConsentText::new(&registry, locale).refusal(&refused),
+                escape_html_attribute(&line),
+                "{locale}"
+            );
+        }
     }
 
     #[test]

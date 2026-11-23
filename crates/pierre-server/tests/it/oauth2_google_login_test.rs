@@ -546,6 +546,7 @@ async fn google_sign_in_goes_to_google_and_back_to_consent_for_a_new_account() {
         .unwrap()
         .to_owned();
     let challenge = pkce_challenge();
+    let (digest_field, digest) = review_digest(&page);
     let approved = AxumTestRequest::post("/oauth2/consent")
         .header("cookie", &format!("{SESSION}={jwt}"))
         .form(&[
@@ -557,7 +558,7 @@ async fn google_sign_in_goes_to_google_and_back_to_consent_for_a_new_account() {
             ("code_challenge_method", "S256"),
             ("resource", ""),
             ("csrf_token", csrf_token.as_str()),
-            ("review_digest", review_digest(&page).as_str()),
+            (digest_field, digest.as_str()),
             ("decision", "approve"),
         ])
         .send(f.routes())

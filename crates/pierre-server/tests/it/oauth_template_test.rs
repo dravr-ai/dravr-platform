@@ -1129,9 +1129,11 @@ fn every_consent_flow_key_has_text_and_the_slots_english_has_in_every_locale() {
 /// reads in French on a French page, and no English line is left behind.
 #[test]
 fn a_french_consent_page_says_every_line_in_french() {
+    // The grant picker's lines are read in the athlete's language where the
+    // picker is served, in oauth2_grant_details_test.
     let keys: Vec<&str> = consent_flow_keys()
         .into_iter()
-        .filter(|key| key.starts_with("oauth.consent."))
+        .filter(|key| key.starts_with("oauth.consent.") && !key.starts_with("oauth.consent.grant"))
         .collect();
     let french = every_consent_line_in("fr");
     // The role lines are shown to a coach and an admin alone.
@@ -1449,4 +1451,52 @@ async fn the_login_page_carries_the_requests_authorization_details() {
         "{html}"
     );
     assert!(!html.contains("<b>x</b>"), "the client's markup is escaped");
+}
+
+/// The rule of `selector` in the consent page's stylesheet, up to its `}`.
+fn css_rule<'page>(page: &'page str, selector: &str) -> &'page str {
+    let start = page
+        .find(&format!("{selector} {{"))
+        .unwrap_or_else(|| panic!("the consent page's sheet styles {selector}"));
+    let end = page[start..].find('}').map_or(page.len(), |at| start + at);
+    &page[start..end]
+}
+
+/// The grant picker the consent page can carry is styled by the sheet it
+/// embeds: a radio drawn on the page's tokens with an outline-token edge in
+/// both schemes, never the browser's own colours, and a left-aligned hint
+/// indented under its label rather than centred fine print.
+#[test]
+fn the_consent_sheet_draws_the_grant_picker_on_the_page_tokens() {
+    let page = consent_in(
+        "en",
+        "mcp_client_1",
+        "https://client.example.test/cb",
+        "fitness:read",
+    );
+    let radio = css_rule(&page, r#".check input[type="radio"]"#);
+    for declaration in [
+        "appearance: none;",
+        "border: 1px solid rgb(var(--color-outline));",
+        "accent-color: rgb(var(--color-primary));",
+    ] {
+        assert!(radio.contains(declaration), "{declaration}: {radio}");
+    }
+    let checked = css_rule(&page, r#".check input[type="radio"]:checked"#);
+    assert!(checked.contains("background-color: rgb(var(--color-primary));"));
+    let hint = css_rule(&page, ".grant-hint");
+    assert!(hint.contains("margin: 4px 0 0 28px;"), "{hint}");
+    assert!(!hint.contains("text-align: center"), "{hint}");
+    let legend = css_rule(&page, ".grant-choice legend");
+    assert!(
+        legend.contains("float: left;"),
+        "the title sits inside the frame: {legend}"
+    );
+    // The scope box is the neutral, left-aligned frame both the picker and
+    // a request's own details sit in.
+    let frame = css_rule(&page, ".scopes");
+    assert!(
+        frame.contains("border: 1px solid var(--ghost-border);")
+            && frame.contains("text-align: left;")
+    );
 }

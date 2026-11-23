@@ -496,6 +496,11 @@ describe('UserSettings Component', () => {
   });
 
   describe('Account Tab', () => {
+    // A test that pins the clock for a grant's expiry hands it back.
+    afterEach(() => {
+      vi.mocked(Date.now).mockRestore?.();
+    });
+
     it('should display member since date', async () => {
       const user = userEvent.setup();
 
@@ -532,6 +537,8 @@ describe('UserSettings Component', () => {
     });
 
     it("says when a connected app's grant expires, and nothing of expiry for one that never does", async () => {
+      // Before the grant's end, so it reads as live.
+      vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-08-15T00:00:00Z'));
       const grant = {
         id: 'grant-1',
         client_id: 'mcp_client_0123456789abcdef',
@@ -556,6 +563,42 @@ describe('UserSettings Component', () => {
       );
       expect(screen.getByText('Plain app')).toBeInTheDocument();
       expect(screen.queryByTestId('connected-app-expiry-grant-2')).not.toBeInTheDocument();
+      // A preset grant is named by its preset, a plain one by its scope.
+      const sleep = i18n.t('tokens.connectedAppsPresetSleepCoach');
+      expect(sleep).not.toEqual('tokens.connectedAppsPresetSleepCoach');
+      expect(screen.getByText(sleep)).toBeInTheDocument();
+      expect(screen.getByText('fitness:read')).toBeInTheDocument();
+    });
+
+    it("shows a grant whose end has passed as expired, muted, with Revoke kept", async () => {
+      vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-11-22T00:00:00Z'));
+      listConnectedApps.mockResolvedValueOnce([
+        {
+          id: 'grant-old',
+          client_id: 'mcp_client_0123456789abcdef',
+          client_name: 'Sleep coach app',
+          client_host: 'coach.example',
+          scope: 'fitness:read',
+          granted_at: '2026-08-01T10:00:00Z',
+          preset: 'sleep_coach',
+          max_tier: 'T1',
+          expires_at: '2026-09-01T10:00:00Z',
+        },
+      ]);
+      await act(async () => {
+        renderUserSettings({ initialTab: 'account' });
+      });
+
+      const expiry = await screen.findByTestId('connected-app-expiry-grant-old');
+      const expired = i18n.t('providers.expired');
+      expect(expired).not.toEqual('providers.expired');
+      expect(expiry).toHaveTextContent(expired);
+      expect(expiry).toHaveAttribute('data-expired', 'true');
+      expect(expiry).toHaveClass('text-outline');
+      expect(expiry).not.toHaveTextContent(i18n.t('apiKeys.expiresOn', { date: 'Sep 1, 2026' }));
+      expect(screen.getByText('Sleep coach app')).toHaveClass('text-on-surface-variant');
+      const section = screen.getByTestId('account-section-connected-mcp-apps');
+      expect(within(section).getByRole('button', { name: i18n.t('settingsUi.revoke') })).toBeInTheDocument();
     });
 
     it('should show change password button', async () => {

@@ -238,7 +238,7 @@ async fn authorization_code(
         .unwrap_or_else(|| panic!("the consent form carries its synchronizer token: {page}"))
         .to_owned();
 
-    let digest = review_digest(&page);
+    let (digest_field, digest) = review_digest(&page);
     let challenge = pkce_challenge();
     let form = [
         ("response_type", "code"),
@@ -249,7 +249,7 @@ async fn authorization_code(
         ("code_challenge_method", "S256"),
         ("resource", resource.unwrap_or_default()),
         ("csrf_token", csrf_token.as_str()),
-        ("review_digest", digest.as_str()),
+        (digest_field, digest.as_str()),
         ("decision", "approve"),
     ];
     let approved = AxumTestRequest::post("/oauth2/consent")

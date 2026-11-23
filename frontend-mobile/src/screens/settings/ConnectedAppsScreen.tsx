@@ -1,5 +1,5 @@
 // ABOUTME: Connected apps pane — one Section of 52 rows, the external MCP OAuth clients (e.g. Claude Desktop) approved on the consent screen
-// ABOUTME: Each row names the client with its scope, grant date and expiry under it and an ink Revoke on the trailing side (Boreal v2.2 Phase 4)
+// ABOUTME: Each row names the client with its preset (else scope), grant date and expiry under it and an ink Revoke on the trailing side (Boreal v2.2 Phase 4)
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
@@ -15,6 +15,24 @@ import { describeApiError } from '@pierre/ui-logic';
 import { formatDate } from '@pierre/chat-utils';
 
 const CONNECTED_APPS_QUERY_KEY = ['oauth', 'connected-apps'] as const;
+
+/**
+ * The name of the preset a grant was approved for, or `null` for a plain grant and for a preset
+ * this build does not know yet. Each key is a literal so the catalogue gate sees it.
+ */
+const presetLabel = (preset: string | null, t: (key: string) => string): string | null => {
+  switch (preset) {
+    case 'training_coach':
+      return t('tokens.connectedAppsPresetTrainingCoach');
+    case 'sleep_coach':
+      return t('tokens.connectedAppsPresetSleepCoach');
+    default:
+      return null;
+  }
+};
+
+/** Whether a grant ending at `expiresAt` has already ended. */
+const grantHasExpired = (expiresAt: string): boolean => Date.parse(expiresAt) <= Date.now();
 
 /** The app's registered name, else the id it was approved under. */
 const connectedAppName = (grant: OAuthGrant): string => grant.client_name || grant.client_id;
@@ -106,6 +124,7 @@ export function ConnectedAppsScreen(): React.JSX.Element {
             ) : (
               grants.map((grant, index) => {
                 const revoking = revokeMutation.isPending && revokeMutation.variables === grant.id;
+                const expired = grant.expires_at !== null && grantHasExpired(grant.expires_at);
                 return (
                   <Row
                     key={grant.id}
@@ -113,14 +132,16 @@ export function ConnectedAppsScreen(): React.JSX.Element {
                     title={connectedAppName(grant)}
                     subtitle={[
                       grant.client_host,
-                      grant.scope,
+                      presetLabel(grant.preset, t) ?? grant.scope,
                       t('app.connectedOn', { date: formatDate(grant.granted_at, language) }),
-                      grant.expires_at
+                      grant.expires_at && !expired
                         ? t('apiKeys.expiresOn', { date: formatDate(grant.expires_at, language) })
                         : null,
                     ]
                       .filter(Boolean)
                       .join(' · ')}
+                    hint={expired ? t('providers.expired') : undefined}
+                    hintTestID={`connected-app-expired-${grant.id}`}
                     last={index === grants.length - 1}
                     trailing={
                       revoking ? (

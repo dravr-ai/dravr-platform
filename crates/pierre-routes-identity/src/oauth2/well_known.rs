@@ -15,7 +15,6 @@ use pierre_auth::oauth2_server::authorization_details::AUTHORIZATION_DETAILS_TYP
 use pierre_core::permissions::scopes::OAuthScope;
 use tokio::task::spawn_blocking;
 
-use super::picker;
 use super::{OAuth2Context, OAuth2Routes};
 
 /// The dialed authority a request carries, per [`DIALED_HOST_HEADERS`].
@@ -31,13 +30,6 @@ impl OAuth2Routes {
         State(context): State<OAuth2Context>,
     ) -> Json<serde_json::Value> {
         let issuer_url = context.config.issuer_url.clone();
-        // RFC 9396: the detail types this server resolves, once the consent
-        // screen can show them; none before.
-        let details_types: &[&str] = if picker::offered(&context.strings) {
-            &AUTHORIZATION_DETAILS_TYPES
-        } else {
-            &[]
-        };
 
         // Use spawn_blocking for JSON serialization (CPU-bound operation)
         let discovery_json = spawn_blocking(move || {
@@ -66,7 +58,8 @@ impl OAuth2Routes {
                 // OAuth Client ID Metadata Documents: an https URL `client_id`
                 // is fetched and validated instead of registered.
                 "client_id_metadata_document_supported": true,
-                "authorization_details_types_supported": details_types
+                // RFC 9396: the detail types this server resolves.
+                "authorization_details_types_supported": AUTHORIZATION_DETAILS_TYPES
             })
         })
         .await

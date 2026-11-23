@@ -45,9 +45,11 @@ use uuid::Uuid;
 use super::{authorization_header, OAuth2Context, OAuth2Routes};
 use crate::oauth2_rate_limited::refusal;
 
-/// The refusal of a `request_uri` that does not resolve.
+/// The refusal of a `request_uri` that does not resolve: the English of
+/// `oauth.error.invalidRequestUri`, so the refusal page words it in the
+/// reader's language.
 pub(super) const REQUEST_URI_REFUSED: &str =
-    "This authorization request expired or was already used; start the connection again";
+    "This connection link has expired or was already used. Start connecting the app again.";
 
 /// The refusal when a pushed request could not be read or written.
 const PUSHED_REQUEST_UNAVAILABLE: &str = "The authorization request could not be processed";
@@ -116,11 +118,10 @@ impl OAuth2Routes {
             .collect();
         params.insert("client_id".to_owned(), client_id.clone());
         let request = Self::parse_authorize_request(&params)?;
-        let checked = Self::authorization_server(context)
+        Self::authorization_server(context)
             .check_authorize_request(&request)
             .await
             .map_err(AuthorizeRejection::into_error)?;
-        super::picker::refuse_unoffered_details(&context.strings, &checked)?;
         Self::store_pushed(context, &client_id, &params).await
     }
 

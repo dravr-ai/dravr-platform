@@ -25,11 +25,20 @@ pub(crate) fn hidden_field(page: &str, name: &str) -> Option<String> {
         .map(|value| value.replace("&quot;", "\"").replace("&amp;", "&"))
 }
 
-/// The review digest a plain consent screen, or a request's own details,
-/// was rendered under: the `review_digest` an approval of it echoes.
-pub(crate) fn review_digest(page: &str) -> String {
-    hidden_field(page, "review_digest")
+/// The field and the review digest a plain approval of `page` echoes:
+/// `review_digest` on a plain screen or a request's own details, and
+/// `review_digest_everything` on the grant picker, whose preselected
+/// Everything is the plain grant.
+pub(crate) fn review_digest(page: &str) -> (&'static str, String) {
+    plain_digest(page)
         .unwrap_or_else(|| panic!("the consent screen carries its review digest: {page}"))
+}
+
+/// [`review_digest`], or `None` for a page that is no consent screen.
+pub(crate) fn plain_digest(page: &str) -> Option<(&'static str, String)> {
+    ["review_digest", "review_digest_everything"]
+        .into_iter()
+        .find_map(|field| hidden_field(page, field).map(|digest| (field, digest)))
 }
 
 /// The consent screen `cookie`'s athlete is shown for the authorization
@@ -56,50 +65,4 @@ pub(crate) fn authorize_query(pairs: &[(&str, &str)]) -> String {
         .map(|(name, value)| format!("{name}={}", urlencoding::encode(value)))
         .collect::<Vec<_>>()
         .join("&")
-}
-
-/// The proposed English of the grant picker's and the requested details'
-/// lines, not yet in the catalogue: what dravr-contremaitre is asked to add
-/// (owl Phase 5, slice 3a). Until the pin carries them the screen shows
-/// neither, so these suites serve it from a catalogue carrying them.
-pub(crate) const PROPOSED_GRANT_LINES: [(&str, &str); 13] = [
-    ("oauth.consent.grantChoiceTitle", "Choose what {0} can read"),
-    ("oauth.consent.grantEverything", "Everything, as today"),
-    (
-        "oauth.consent.grantEverythingHint",
-        "Every tool your account offers, with no end date. You can remove it in Connected apps.",
-    ),
-    ("oauth.consent.grantTrainingCoach", "Training coach"),
-    (
-        "oauth.consent.grantTrainingCoachHint",
-        "Your workouts with their sensor samples, daily activity, training load, sleep, heart and recovery summaries, body measurements and profile, from the last {0} days. No routes, notes or health records.",
-    ),
-    (
-        "oauth.consent.grantTrainingCoachSummaryHint",
-        "Your workout summaries, daily activity, training load, sleep, heart and recovery summaries, body measurements and profile, from the last {0} days. No sensor samples, routes, notes or health records.",
-    ),
-    ("oauth.consent.grantSleepCoach", "Sleep coach"),
-    (
-        "oauth.consent.grantSleepCoachHint",
-        "Your sleep, heart and recovery summaries, daily activity and profile, from the last {0} days. No workouts, routes, notes or health records.",
-    ),
-    (
-        "oauth.consent.grantLastsDays",
-        "Access ends {0} days after you allow it.",
-    ),
-    (
-        "oauth.consent.grantLastsHours",
-        "Access ends {0} hours after you allow it.",
-    ),
-    ("oauth.consent.grantRequested", "{0} asks only for:"),
-    ("oauth.consent.grantPurpose", "In {0}’s own words: “{1}”"),
-    ("oauth.consent.grantCommitments", "{0} says it will:"),
-];
-
-/// Give `registry` the picker's proposed English lines, as a runtime sync
-/// would deliver them once dravr-contremaitre carries them.
-pub(crate) fn with_grant_lines(registry: &pierre_contremaitre::MessagingStringsRegistry) {
-    for (key, line) in PROPOSED_GRANT_LINES {
-        registry.update(key, "en", line.to_owned(), format!("proposed-{key}"));
-    }
 }

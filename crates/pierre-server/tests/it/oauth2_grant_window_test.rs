@@ -17,7 +17,6 @@
 //! history does show, so the comparison is not two empty answers.
 
 use crate::helpers::axum_test::AxumTestRequest;
-use crate::helpers::consent_form::with_grant_lines;
 use crate::helpers::stand_in_provider::{standing_in, with_registry, Account};
 use crate::oauth2_grant_details_test::{
     approve_with, code_of, exchange, forget_standing, register, tokens, world, Client, World,
@@ -289,7 +288,6 @@ async fn grant_of(world: &World, client: &Client) -> OAuthClientGrant {
 /// A client approved for `grant` by the athlete: its token and grant id, the
 /// window moved to `since` when given.
 async fn connect(world: &World, grant: &str, since: Option<Timestamp>) -> (String, String) {
-    with_grant_lines(&world.resources.mcp.messaging_strings_registry);
     let client = register(world).await;
     let approved = approve_with(world, &client, &[], Some(grant)).await;
     let token = tokens(&exchange(world, &client, &code_of(&approved)).await).0;

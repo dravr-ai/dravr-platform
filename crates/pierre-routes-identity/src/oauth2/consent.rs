@@ -99,14 +99,6 @@ impl OAuth2Routes {
             }
         };
         let redirect_uri = request.redirect_uri.clone();
-        if let Err(error) = picker::refuse_unoffered_details(&context.strings, &checked) {
-            return error_redirect(
-                &context.config.issuer_url,
-                &redirect_uri,
-                request.state.as_deref(),
-                &error,
-            );
-        }
 
         // The consent decision must belong to the authenticated user.
         let (user_id, tenant_id) = Self::extract_authenticated_user(&headers, &context).await;

@@ -14,7 +14,7 @@
 
 use crate::common;
 use crate::helpers::axum_test::{AxumTestRequest, AxumTestResponse};
-use crate::helpers::consent_form::{authorize_query, hidden_field, with_grant_lines};
+use crate::helpers::consent_form::{authorize_query, hidden_field};
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -30,7 +30,9 @@ use pierre_auth::auth::{Claims, DelegatedGrant, TokenLineage};
 use pierre_auth::oauth2_server::client_registration::ClientRegistrationManager;
 use pierre_auth::oauth2_server::models::ClientRegistrationRequest;
 use pierre_auth::security::cookies::auth_cookie_name;
+use pierre_contremaitre::messaging_strings::format_template;
 use pierre_core::constants::oauth2_client_retention::MAX_PENDING_REGISTRATIONS;
+use pierre_core::html::escape_html_attribute;
 use pierre_core::models::{OAuthClientGrant, User};
 use pierre_database::backends::factory::DatabaseBackend;
 use pierre_mcp_server::mcp::multitenant::ProviderToolRouter;
@@ -631,7 +633,6 @@ async fn a_token_without_the_claim_still_works_under_a_plain_grant() {
 #[tokio::test]
 async fn a_re_consent_with_other_details_replaces_the_grant() {
     let world = world().await;
-    with_grant_lines(&world.resources.mcp.messaging_strings_registry);
     let client = register(&world).await;
     let code = approve(&world, &client).await;
     let old = live_grants(&world).await[0].id.clone();
@@ -827,7 +828,6 @@ fn refusal_to_client(response: &AxumTestResponse) -> (String, String) {
 #[tokio::test]
 async fn every_refused_detail_reaches_the_client_before_sign_in() {
     let world = world().await;
-    with_grant_lines(&world.resources.mcp.messaging_strings_registry);
     let client = register(&world).await;
     let access = |extra: Value| access_detail(&world, &extra);
     let constraints = |extra: Value| constraints_detail(&extra);
@@ -965,9 +965,32 @@ async fn every_refused_detail_reaches_the_client_before_sign_in() {
     assert!(live_grants(&world).await.is_empty(), "nothing was granted");
 }
 
+/// The pinned catalogue's `key` in the athlete's language, its slots filled
+/// with `slots`, as the consent screen escapes it.
+fn shown(world: &World, key: &str, slots: &[&str]) -> String {
+    let line = world
+        .resources
+        .mcp
+        .messaging_strings_registry
+        .get(key, &world.user.locale);
+    assert!(!line.is_empty(), "the pinned catalogue carries {key}");
+    format_template(&escape_html_attribute(&line), slots)
+}
+
 #[tokio::test]
-async fn details_are_refused_and_unadvertised_until_the_catalogue_can_show_them() {
+async fn details_are_advertised_and_shown_from_the_pinned_catalogue() {
     let world = world().await;
+    let body = AxumTestRequest::get("/.well-known/oauth-authorization-server")
+        .send(app(&world.resources))
+        .await
+        .body_text();
+    assert_eq!(
+        serde_json::from_str::<Value>(&body).unwrap()["authorization_details_types_supported"],
+        json!([DATA_ACCESS, HEALTH_CONSTRAINTS])
+    );
+
+    // A request's details are shown before they are granted, never refused
+    // for lack of lines.
     let client = register(&world).await;
     let details = training_coach_details(&world, "");
     let query = request_query(
@@ -975,42 +998,19 @@ async fn details_are_refused_and_unadvertised_until_the_catalogue_can_show_them(
         &fresh_state(),
         &[("authorization_details", &details)],
     );
-    let (error, _) = refusal_to_client(&authorize_query_as(&world, &query, true).await);
-    assert_eq!(
-        error, "invalid_authorization_details",
-        "never granted unseen"
+    let screen = authorize_query_as(&world, &query, true).await;
+    assert_eq!(screen.status(), 200, "{}", screen.body_text());
+    let page = screen.body_text();
+    assert!(
+        page.contains(&shown(&world, "oauth.consent.grantTrainingCoach", &[])),
+        "{page}"
     );
-
-    let discovery = |world: &World| {
-        let app = app(&world.resources);
-        async move {
-            let body = AxumTestRequest::get("/.well-known/oauth-authorization-server")
-                .send(app)
-                .await
-                .body_text();
-            serde_json::from_str::<Value>(&body).unwrap()["authorization_details_types_supported"]
-                .clone()
-        }
-    };
-    assert_eq!(discovery(&world).await, json!([]));
-    // The plain screen shows no picker either.
-    let plain =
-        authorize_query_as(&world, &request_query(&client, &fresh_state(), &[]), true).await;
-    assert_eq!(plain.status(), 200);
-    assert!(!plain.body_text().contains("name=\"grant\""), "no picker");
-    assert!(hidden_field(&plain.body_text(), "review_digest").is_some());
-
-    with_grant_lines(&world.resources.mcp.messaging_strings_registry);
-    assert_eq!(
-        discovery(&world).await,
-        json!([DATA_ACCESS, HEALTH_CONSTRAINTS])
-    );
+    assert!(hidden_field(&page, "review_digest").is_some());
 }
 
 #[tokio::test]
 async fn the_picker_offers_everything_preselected_then_each_preset() {
     let world = world().await;
-    with_grant_lines(&world.resources.mcp.messaging_strings_registry);
     let client = register(&world).await;
     let screen =
         authorize_query_as(&world, &request_query(&client, &fresh_state(), &[]), true).await;
@@ -1032,12 +1032,40 @@ async fn the_picker_offers_everything_preselected_then_each_preset() {
             "each choice carries its digest"
         );
     }
-    assert!(page.contains("Training coach") && page.contains("Sleep coach"));
-    assert!(page.contains("from the last 90 days"), "{page}");
+    // The choices sit in the scope list's neutral frame, each radio on one
+    // line with its label and its hint under it, never the centred fine print.
     assert!(
-        page.contains("Access ends 30 days after you allow it."),
+        page.contains(r#"<fieldset class="scopes grant-choice"><legend class="scopes-title">"#),
         "{page}"
     );
+    assert_eq!(
+        page.matches(r#"<div class="grant-option"><label class="check"><input type="radio""#)
+            .count(),
+        3,
+        "{page}"
+    );
+    assert_eq!(
+        page.matches(r#"</span></label><p class="grant-hint">"#)
+            .count(),
+        3,
+        "{page}"
+    );
+    assert!(
+        !page[page.find("<fieldset").unwrap()..page.find("</fieldset>").unwrap()]
+            .contains("fineprint"),
+        "a hint is not centred fine print: {page}"
+    );
+    for (key, slots) in [
+        ("oauth.consent.grantEverything", &[][..]),
+        ("oauth.consent.grantTrainingCoach", &[]),
+        ("oauth.consent.grantTrainingCoachHint", &["90"]),
+        ("oauth.consent.grantSleepCoach", &[]),
+        ("oauth.consent.grantSleepCoachHint", &["90"]),
+        ("oauth.consent.grantLastsDays", &["30"]),
+    ] {
+        let line = shown(&world, key, slots);
+        assert!(page.contains(&line), "{key} reads {line:?}: {page}");
+    }
 
     // Everything is the plain grant, as today.
     approve(&world, &client).await;
@@ -1081,7 +1109,6 @@ async fn the_picker_offers_everything_preselected_then_each_preset() {
 #[tokio::test]
 async fn a_training_coach_request_resolves_end_to_end_to_a_token_echoing_its_details() {
     let world = world().await;
-    with_grant_lines(&world.resources.mcp.messaging_strings_registry);
     let client = register(&world).await;
     let details = training_coach_details(&world, "Plan <b>your</b> week {{CSRF_TOKEN}}");
 
@@ -1113,8 +1140,10 @@ async fn a_training_coach_request_resolves_end_to_end_to_a_token_echoing_its_det
     let screen = authorize_query_as(&world, &query, true).await;
     assert_eq!(screen.status(), 200, "{}", screen.body_text());
     let page = screen.body_text();
-    assert!(page.contains("asks only for:"), "{page}");
-    assert!(page.contains("Training coach"), "{page}");
+    assert!(
+        page.contains(&shown(&world, "oauth.consent.grantTrainingCoach", &[])),
+        "{page}"
+    );
     assert!(
         page.contains("Plan &lt;b&gt;your&lt;/b&gt; week"),
         "the client's words, escaped: {page}"
@@ -1124,6 +1153,14 @@ async fn a_training_coach_request_resolves_end_to_end_to_a_token_echoing_its_det
         "bug: the client's markup reached the page"
     );
     assert!(page.contains("<q>Used only for your plan</q>"), "{page}");
+    assert!(
+        page.contains(r#"<div class="scopes grant-requested"><p class="grant-label">"#),
+        "the details read as information in the neutral frame, not a warning: {page}"
+    );
+    assert!(
+        page.contains("<ul><li><q>Used only for your plan</q></li></ul>"),
+        "{page}"
+    );
     assert!(
         !page.contains(r#"name="grant""#),
         "no picker for a request's own details"
@@ -1208,7 +1245,6 @@ async fn a_training_coach_request_resolves_end_to_end_to_a_token_echoing_its_det
 #[tokio::test]
 async fn a_signed_out_details_request_carries_its_details_to_the_login_page() {
     let world = world().await;
-    with_grant_lines(&world.resources.mcp.messaging_strings_registry);
     let client = register(&world).await;
     let details = training_coach_details(&world, "");
     let query = request_query(
@@ -1230,7 +1266,6 @@ async fn a_signed_out_details_request_carries_its_details_to_the_login_page() {
 #[tokio::test]
 async fn an_approval_under_a_stale_review_digest_is_refused() {
     let world = world().await;
-    with_grant_lines(&world.resources.mcp.messaging_strings_registry);
     let client = register(&world).await;
     let details = training_coach_details(&world, "");
     let state = fresh_state();
@@ -1296,7 +1331,6 @@ async fn an_approval_under_a_stale_review_digest_is_refused() {
 #[tokio::test]
 async fn a_remembered_preset_grant_answers_its_own_details_and_a_plain_request_only() {
     let world = world().await;
-    with_grant_lines(&world.resources.mcp.messaging_strings_registry);
     let client = register(&world).await;
     let details = training_coach_details(&world, "");
     let approved = approve_with(
@@ -1346,7 +1380,6 @@ async fn a_remembered_preset_grant_answers_its_own_details_and_a_plain_request_o
 #[tokio::test]
 async fn an_expired_preset_grant_is_asked_again_and_replaced() {
     let world = world().await;
-    with_grant_lines(&world.resources.mcp.messaging_strings_registry);
     let client = register(&world).await;
     let details = training_coach_details(&world, "");
     let extra = [("authorization_details", details.as_str())];

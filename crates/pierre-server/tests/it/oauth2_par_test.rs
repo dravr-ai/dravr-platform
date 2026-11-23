@@ -12,7 +12,7 @@
 
 use crate::common;
 use crate::helpers::axum_test::{AxumTestRequest, AxumTestResponse};
-use crate::helpers::consent_form::hidden_field;
+use crate::helpers::consent_form::plain_digest;
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -233,7 +233,8 @@ async fn approve(
         .generate_token(world.user.id)
         .unwrap();
     // The screen the athlete approves, resolved again from the request_uri;
-    // a signed-out browser is sent to the login page and has none.
+    // a signed-out browser is sent to the login page, and a spent request is
+    // refused, so neither has one.
     let screen = AxumTestRequest::get(&format!(
         "/oauth2/authorize?client_id={}&request_uri={}",
         urlencoding::encode(&client.id),
@@ -242,14 +243,15 @@ async fn approve(
     .header("cookie", cookie)
     .send(app(&world.resources))
     .await;
-    let digest = hidden_field(&screen.body_text(), "review_digest").unwrap_or_default();
+    let (digest_field, digest) =
+        plain_digest(&screen.body_text()).unwrap_or(("review_digest", String::new()));
     let form = vec![
         ("client_id", client.id.as_str()),
         ("request_uri", request_uri),
         ("redirect_uri", "https://evil.example.test/cb"),
         ("decision", "approve"),
         ("csrf_token", token.as_str()),
-        ("review_digest", digest.as_str()),
+        (digest_field, digest.as_str()),
     ];
     AxumTestRequest::post("/oauth2/consent")
         .header("cookie", cookie)

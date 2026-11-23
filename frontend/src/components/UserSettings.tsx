@@ -105,6 +105,26 @@ const MIN_PASSWORD_LENGTH = 8;
 // QUERY_KEYS catalogue since this surface is web-only.
 const CONNECTED_APPS_QUERY_KEY = ['user-connected-apps'] as const;
 
+/**
+ * The name of the preset a connected app's grant was approved for, or `null` for a plain grant
+ * and for a preset this build does not know yet. Each key is a literal so the catalogue gate sees it.
+ */
+function connectedAppPresetLabel(preset: string | null, t: (key: string) => string): string | null {
+  switch (preset) {
+    case 'training_coach':
+      return t('tokens.connectedAppsPresetTrainingCoach');
+    case 'sleep_coach':
+      return t('tokens.connectedAppsPresetSleepCoach');
+    default:
+      return null;
+  }
+}
+
+/** Whether a connected app's grant, ending at `expiresAt`, has already ended. */
+function grantHasExpired(expiresAt: string): boolean {
+  return Date.parse(expiresAt) <= Date.now();
+}
+
 /** Return Tailwind color class based on usage percentage: green < 70%, amber 70-90%, red > 90% */
 function getUsageBarColor(current: number, limit: number): string {
   if (limit <= 0) return 'bg-success';
@@ -1513,18 +1533,38 @@ Authorization: Bearer <your-token-here>`}
                                 className="flex items-start justify-between gap-3 border-t ghost-border-faint py-3 first:border-t-0"
                               >
                                 <div className="min-w-0">
-                                  <p className="font-medium text-on-surface break-all">{app.client_name || app.client_id}</p>
+                                  <p
+                                    className={`font-medium break-all ${
+                                      app.expires_at && grantHasExpired(app.expires_at)
+                                        ? 'text-on-surface-variant'
+                                        : 'text-on-surface'
+                                    }`}
+                                  >
+                                    {app.client_name || app.client_id}
+                                  </p>
                                   {app.client_host && (
                                     <p className="text-sm text-on-surface-variant break-all">{app.client_host}</p>
                                   )}
-                                  <p className="text-sm text-on-surface-variant break-words">{app.scope}</p>
+                                  <p className="text-sm text-on-surface-variant break-words">
+                                    {connectedAppPresetLabel(app.preset, t) ?? app.scope}
+                                  </p>
                                   <p className="text-xs text-outline mt-1">
                                     {t('app.connectedOn', { date: formatDate(app.granted_at, language) })}
                                   </p>
                                   {app.expires_at && (
-                                    <p className="text-xs text-outline" data-testid={`connected-app-expiry-${app.id}`}>
-                                      {t('apiKeys.expiresOn', { date: formatDate(app.expires_at, language) })}
-                                    </p>
+                                    grantHasExpired(app.expires_at) ? (
+                                      <p
+                                        className="text-xs font-medium text-outline"
+                                        data-testid={`connected-app-expiry-${app.id}`}
+                                        data-expired="true"
+                                      >
+                                        {t('providers.expired')}
+                                      </p>
+                                    ) : (
+                                      <p className="text-xs text-outline" data-testid={`connected-app-expiry-${app.id}`}>
+                                        {t('apiKeys.expiresOn', { date: formatDate(app.expires_at, language) })}
+                                      </p>
+                                    )
                                   )}
                                 </div>
                                 <Button

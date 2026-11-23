@@ -150,7 +150,8 @@ async fn connect(world: &World, client: &Client) -> (String, String) {
         ("code_challenge", challenge.as_str()),
         ("code_challenge_method", "S256"),
     ]);
-    let digest = review_digest(&consent_page(app(&world.resources), &cookie, &query).await);
+    let (digest_field, digest) =
+        review_digest(&consent_page(app(&world.resources), &cookie, &query).await);
     let approved = AxumTestRequest::post("/oauth2/consent")
         .header("cookie", &cookie)
         .form(&[
@@ -162,7 +163,7 @@ async fn connect(world: &World, client: &Client) -> (String, String) {
             ("code_challenge_method", "S256"),
             ("decision", "approve"),
             ("csrf_token", csrf.as_str()),
-            ("review_digest", digest.as_str()),
+            (digest_field, digest.as_str()),
         ])
         .send(app(&world.resources))
         .await;

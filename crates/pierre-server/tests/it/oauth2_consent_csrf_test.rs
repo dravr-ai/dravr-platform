@@ -85,7 +85,8 @@ fn authorize_uri(client_id: &str) -> String {
 /// and the review digest of the screen.
 struct FormProof {
     token: String,
-    digest: String,
+    /// The field the screen carries the digest in, and the digest
+    digest: (&'static str, String),
 }
 
 /// The consent page the signed-in athlete is shown: its form token and the
@@ -129,7 +130,7 @@ async fn submit(
     ];
     if let Some(proof) = proof {
         form.push(("csrf_token", proof.token.as_str()));
-        form.push(("review_digest", proof.digest.as_str()));
+        form.push((proof.digest.0, proof.digest.1.as_str()));
     }
     AxumTestRequest::post("/oauth2/consent")
         .header("cookie", cookie)

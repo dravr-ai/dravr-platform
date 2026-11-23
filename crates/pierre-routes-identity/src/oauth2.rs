@@ -26,7 +26,7 @@ use pierre_auth::oauth2_server::{
     endpoints::{AdminAccess, CheckedAuthorization, OAuth2AuthorizationServer},
     first_party::is_first_party,
     models::{
-        AuthorizeRejection, AuthorizeRequest, ClientRegistrationPayload, OAuth2Error, TokenRequest,
+        AuthorizeRequest, ClientRegistrationPayload, OAuth2Error, TokenRequest,
         ValidateRefreshRequest, ValidateRefreshResponse, ValidationStatus,
     },
     rate_limiting::OAuth2RateLimiter,
@@ -296,11 +296,7 @@ impl OAuth2Routes {
         let checked = match Self::authorization_server(&context)
             .check_authorize_request(&request)
             .await
-            .and_then(|checked| {
-                picker::refuse_unoffered_details(&context.strings, &checked)
-                    .map(|()| checked)
-                    .map_err(AuthorizeRejection::RedirectedToClient)
-            }) {
+        {
             Ok(checked) => checked,
             Err(rejection) => {
                 let text = Self::reader_text(&context, &headers).await;

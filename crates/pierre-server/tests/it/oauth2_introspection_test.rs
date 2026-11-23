@@ -12,9 +12,7 @@
 
 use crate::common;
 use crate::helpers::axum_test::{AxumTestRequest, AxumTestResponse};
-use crate::helpers::consent_form::{
-    authorize_query, consent_page, hidden_field, review_digest, with_grant_lines,
-};
+use crate::helpers::consent_form::{authorize_query, consent_page, hidden_field, review_digest};
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -140,7 +138,8 @@ async fn connect(world: &World, client: &Client) -> (String, String) {
         ("code_challenge", challenge.as_str()),
         ("code_challenge_method", "S256"),
     ]);
-    let digest = review_digest(&consent_page(app(&world.resources), &world.cookie, &query).await);
+    let (digest_field, digest) =
+        review_digest(&consent_page(app(&world.resources), &world.cookie, &query).await);
     let approved = AxumTestRequest::post("/oauth2/consent")
         .header("cookie", &world.cookie)
         .form(&[
@@ -152,7 +151,7 @@ async fn connect(world: &World, client: &Client) -> (String, String) {
             ("code_challenge_method", "S256"),
             ("decision", "approve"),
             ("csrf_token", csrf.as_str()),
-            ("review_digest", digest.as_str()),
+            (digest_field, digest.as_str()),
         ])
         .send(app(&world.resources))
         .await;
@@ -430,10 +429,9 @@ async fn an_admin_provisioned_introspection_client_authenticates_and_mints_nothi
     }
 }
 
-/// The athlete connects `client` choosing Training coach on the picker: the
+/// The athlete connects `client` choosing the `training_coach` preset: the
 /// access token.
 async fn connect_as_training_coach(world: &World, client: &Client) -> String {
-    with_grant_lines(&world.resources.mcp.messaging_strings_registry);
     let challenge = general_purpose::URL_SAFE_NO_PAD.encode(Sha256::digest(VERIFIER.as_bytes()));
     let state = format!("state-{}", Uuid::new_v4().simple());
     let request = [
@@ -500,7 +498,7 @@ async fn connect_as_training_coach(world: &World, client: &Client) -> String {
 #[tokio::test]
 async fn a_preset_grant_introspects_with_its_resolved_details() {
     let world = world().await;
-    // A plain grant, given while the picker's lines are not in the catalogue.
+    // A plain grant: the screen's Everything, as today.
     let plain_client = register(&world).await;
     let (plain, _) = connect(&world, &plain_client).await;
     let client = register(&world).await;
