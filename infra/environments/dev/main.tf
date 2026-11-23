@@ -810,6 +810,10 @@ module "backend" {
     # The Anthropic Messages API key pool, the chain's head (carnet#875): one
     # key per organization, each with its own credit. Further organizations
     # are _4, _5, … — read in order until the first unset one.
+    # The first organization's credit is spent and stays the head on purpose
+    # (JF, 2026-11-23): no auto-reload on any organization, the chain's
+    # fall-through serves the turn, and a head that refuses keeps that path
+    # exercised in production. Do not reorder these to "fix" a spent head.
     ANTHROPIC_API_KEY   = module.secrets.secret_ids["anthropic_api_key"]
     ANTHROPIC_API_KEY_2 = module.secrets.secret_ids["anthropic_api_key_2"]
     ANTHROPIC_API_KEY_3 = module.secrets.secret_ids["anthropic_api_key_3"]

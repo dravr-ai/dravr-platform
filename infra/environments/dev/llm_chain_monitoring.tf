@@ -149,7 +149,7 @@ resource "google_logging_metric" "llm_startup_probe_failed" {
   project = var.project_id
   name    = "dravr-llm-startup-probe-failed"
 
-  description = "Counts 'LLM startup probe failed' lines on the API service: a revision started with a chat primary that could not complete its first turn."
+  description = "Counts 'LLM startup probe failed' lines on the API service: an instance started and no tier of the chain answered its probe, so every chat turn is refused until one does."
 
   filter = <<-EOT
     resource.type="cloud_run_revision"
@@ -165,7 +165,7 @@ resource "google_logging_metric" "llm_startup_probe_failed" {
     labels {
       key         = "provider"
       value_type  = "STRING"
-      description = "The primary provider whose startup probe failed"
+      description = "The chain's head provider; the line is about the whole chain, not this tier"
     }
   }
 
@@ -181,14 +181,16 @@ resource "google_monitoring_alert_policy" "llm_startup_probe_failed" {
 
   documentation {
     content   = <<-EOT
-      A new API revision came up and its chat primary failed the startup
-      probe (provider label). Every turn now depends on the runtime chain;
-      if the chain is empty or also failing, athletes are dead-ending.
+      An API instance started and no tier of the LLM chain answered its
+      probe. Chat refuses every turn on that instance until a tier answers;
+      the instance asks again every 5 minutes and recovers by itself when one
+      does. The provider label is the chain's head, not the tier at fault.
 
-        gcloud logging read 'resource.labels.service_name="${var.service_name}-api" AND jsonPayload.message:"startup probe"' --project=${var.project_id} --freshness=30m --limit=10
+        gcloud logging read 'resource.labels.service_name="${var.service_name}-api" AND jsonPayload.message:"LLM chain tier"' --project=${var.project_id} --freshness=30m --limit=30
 
-      The probe's error line right above it names the cause (a spent quota,
-      a rejected token, an unreachable runtime).
+      Those lines give one verdict per tier, each with its cause (a spent
+      quota, a rejected token, an unreachable runtime). A single failing tier
+      does not fire this alert: the chain passes over it.
     EOT
     mime_type = "text/markdown"
   }
