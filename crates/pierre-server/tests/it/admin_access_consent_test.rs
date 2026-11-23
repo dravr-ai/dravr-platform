@@ -249,6 +249,41 @@ fn hidden(page: &str, name: &str) -> String {
         .to_owned()
 }
 
+/// What approving a plain (scope-only) screen as it was rendered posts: a
+/// screen offering the grant picker carries one review digest per choice,
+/// and the athlete approves its preselected choice, Everything, under that
+/// choice's digest; a screen without the picker carries one digest.
+struct PlainApproval {
+    field: &'static str,
+    value: String,
+    choice: Option<&'static str>,
+}
+
+impl PlainApproval {
+    fn of(page: &str) -> Self {
+        let (field, choice) = if page.contains("name=\"review_digest_everything\"") {
+            ("review_digest_everything", Some("everything"))
+        } else {
+            ("review_digest", None)
+        };
+        Self {
+            field,
+            value: hidden(page, field),
+            choice,
+        }
+    }
+
+    /// The fields the approval posts: the digest, and the chosen `grant`
+    /// when the picker is shown (a screen without it posts none).
+    fn fields(&self) -> Vec<(&'static str, &str)> {
+        let mut fields = vec![(self.field, self.value.as_str())];
+        if let Some(choice) = self.choice {
+            fields.push(("grant", choice));
+        }
+        fields
+    }
+}
+
 /// Approve the consent screen, ticking Admin access when `tick`; the code.
 async fn approve(
     resources: &Arc<ServerContext>,
@@ -262,10 +297,10 @@ async fn approve(
     let csrf_token = hidden(&page, "csrf_token");
     let echoed_scope = hidden(&page, "scope");
     let state = hidden(&page, "state");
-    let review_digest = hidden(&page, "review_digest");
+    let approval = PlainApproval::of(&page);
     let challenge = pkce_challenge();
-    let mut form = vec![
-        ("review_digest", review_digest.as_str()),
+    let mut form = approval.fields();
+    form.extend([
         ("response_type", "code"),
         ("client_id", client_id),
         ("redirect_uri", REDIRECT),
@@ -276,7 +311,7 @@ async fn approve(
         ("resource", resource.unwrap_or_default()),
         ("csrf_token", csrf_token.as_str()),
         ("decision", "approve"),
-    ];
+    ]);
     if tick {
         form.push(("admin_access", "granted"));
     }
@@ -730,24 +765,25 @@ async fn a_non_admin_never_sees_the_box_and_no_crafted_request_or_form_grants_ad
     // A form that names admin in its scope and ticks the box anyway.
     let csrf_token = hidden(&page, "csrf_token");
     let state = hidden(&page, "state");
-    let review_digest = hidden(&page, "review_digest");
+    let approval = PlainApproval::of(&page);
     let challenge = pkce_challenge();
+    let mut form = approval.fields();
+    form.extend([
+        ("response_type", "code"),
+        ("client_id", client.0.as_str()),
+        ("redirect_uri", REDIRECT),
+        ("state", state.as_str()),
+        ("scope", "fitness:read admin"),
+        ("code_challenge", challenge.as_str()),
+        ("code_challenge_method", "S256"),
+        ("resource", resource.as_str()),
+        ("csrf_token", csrf_token.as_str()),
+        ("decision", "approve"),
+        ("admin_access", "granted"),
+    ]);
     let forged = AxumTestRequest::post("/oauth2/consent")
         .header("cookie", &cookie(&session))
-        .form(&[
-            ("review_digest", review_digest.as_str()),
-            ("response_type", "code"),
-            ("client_id", client.0.as_str()),
-            ("redirect_uri", REDIRECT),
-            ("state", state.as_str()),
-            ("scope", "fitness:read admin"),
-            ("code_challenge", challenge.as_str()),
-            ("code_challenge_method", "S256"),
-            ("resource", resource.as_str()),
-            ("csrf_token", csrf_token.as_str()),
-            ("decision", "approve"),
-            ("admin_access", "granted"),
-        ])
+        .form(&form)
         .send(oauth2_routes(&resources))
         .await;
     let code = code_of(&forged);
