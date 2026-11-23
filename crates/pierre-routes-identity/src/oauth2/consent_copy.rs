@@ -19,6 +19,7 @@ use pierre_contremaitre::consent_strings::{
     KEY_CONSENT_OUTSIDE_QUEBEC_KNOWN, KEY_CONSENT_OUTSIDE_QUEBEC_UNKNOWN,
     KEY_CONSENT_UNVERIFIED_BODY, KEY_CONSENT_UNVERIFIED_LOOPBACK,
     KEY_CONSENT_UNVERIFIED_PUBLISHED_BY, KEY_CONSENT_UNVERIFIED_TITLE, KEY_CONSENT_VERIFIED,
+    PRESET_KEY_EXPRESS, PRESET_KEY_HEALTH,
 };
 use pierre_core::html::escape_html_attribute;
 use url::Url;
@@ -162,11 +163,13 @@ pub(super) fn trust_line(trust: &ClientTrust, text: &ConsentText<'_>) -> String 
     }
 }
 
-/// What the data is, and that it is wellness information.
-pub(super) fn health_line(client_label: &str, text: &ConsentText<'_>) -> String {
+/// What the data is, and that it is wellness information. A preset grant's
+/// screen (`preset`) points at the data it lists instead.
+pub(super) fn health_line(client_label: &str, preset: bool, text: &ConsentText<'_>) -> String {
+    let key = text.preset_or(preset, PRESET_KEY_HEALTH, KEY_CONSENT_HEALTH);
     format!(
         r#"<p class="disclosure">{}</p>"#,
-        text.html(KEY_CONSENT_HEALTH, &[&client_span(client_label)]),
+        text.html(key, &[&client_span(client_label)]),
     )
 }
 
@@ -199,12 +202,17 @@ pub(super) fn outside_quebec_line(
 }
 
 /// Law 25 s.12: health data is sensitive, so consent is expressly asked for,
-/// in words apart from the scope list, naming the button that gives it.
-pub(super) fn express_consent_line(client_label: &str, text: &ConsentText<'_>) -> String {
+/// in words apart from the scope list, naming the button that gives it. A
+/// preset grant's screen (`preset`) names the data it lists instead.
+pub(super) fn express_consent_line(
+    client_label: &str,
+    preset: bool,
+    text: &ConsentText<'_>,
+) -> String {
     format!(
         r#"<p class="disclosure">{}</p>"#,
         text.html(
-            KEY_CONSENT_EXPRESS,
+            text.preset_or(preset, PRESET_KEY_EXPRESS, KEY_CONSENT_EXPRESS),
             &[
                 &text.html(KEY_CONSENT_ALLOW, &[]),
                 &client_span(client_label)
@@ -324,17 +332,17 @@ mod tests {
         };
         for line in [
             trust_line(&trust, &text),
-            health_line(hostile, &text),
+            health_line(hostile, false, &text),
             outside_quebec_line(&trust, hostile, &text),
-            express_consent_line(hostile, &text),
+            express_consent_line(hostile, false, &text),
         ] {
             assert!(!line.contains("<script>"), "{line}");
         }
         assert!(trust_line(&trust, &text).contains("Unverified app"));
         assert!(trust_line(&trust, &text).contains("program on this device"));
-        assert!(health_line("X", &text).contains("not medical advice"));
+        assert!(health_line("X", false, &text).contains("not medical advice"));
         assert!(outside_quebec_line(&trust, "X", &text).contains("outside Québec"));
-        assert!(express_consent_line("X", &text).contains("expressly consent"));
+        assert!(express_consent_line("X", false, &text).contains("expressly consent"));
     }
 
     #[test]

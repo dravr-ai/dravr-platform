@@ -1008,6 +1008,63 @@ async fn details_are_advertised_and_shown_from_the_pinned_catalogue() {
     assert!(hidden_field(&page, "review_digest").is_some());
 }
 
+/// A preset grant's screen lists the data it shares, so it reads the
+/// preset's disclosure and scope lines, which name no injuries and no
+/// activity places, in place of the lines every grant reads. The plain
+/// screen never reads them.
+#[tokio::test]
+async fn a_preset_screen_reads_its_preset_lines_and_the_plain_screen_never_does() {
+    let world = world().await;
+    let client = register(&world).await;
+    let details = training_coach_details(&world, "");
+    let details_page = || async {
+        let query = request_query(
+            &client,
+            &fresh_state(),
+            &[("authorization_details", &details)],
+        );
+        let screen = authorize_query_as(&world, &query, true).await;
+        assert_eq!(screen.status(), 200, "{}", screen.body_text());
+        screen.body_text()
+    };
+    let generic_scope = shown(&world, "oauth.consent.scope.fitnessRead", &[]);
+
+    let registry = &world.resources.mcp.messaging_strings_registry;
+    let locale = world.user.locale.as_str();
+    for (key, line) in [
+        (
+            "oauth.consent.healthPreset",
+            "PRESET HEALTH shared with {0}.",
+        ),
+        (
+            "oauth.consent.expressPreset",
+            "PRESET EXPRESS: by choosing {0} you consent to {1}.",
+        ),
+        (
+            "oauth.consent.scope.fitnessReadPreset",
+            "PRESET SCOPE read your activities",
+        ),
+    ] {
+        registry.update(key, locale, line.to_owned(), "proposed".to_owned());
+    }
+
+    let after = details_page().await;
+    for preset in ["PRESET HEALTH", "PRESET EXPRESS", "PRESET SCOPE"] {
+        assert!(after.contains(preset), "bug: {preset} is shown: {after}");
+    }
+    assert!(
+        !after.contains(&generic_scope),
+        "bug: the preset screen still reads the generic scope line: {after}"
+    );
+    let plain = authorize_query_as(&world, &request_query(&client, &fresh_state(), &[]), true)
+        .await
+        .body_text();
+    assert!(
+        !plain.contains("PRESET") && plain.contains(&generic_scope),
+        "bug: the plain screen reads a preset line: {plain}"
+    );
+}
+
 #[tokio::test]
 async fn the_picker_offers_everything_preselected_then_each_preset() {
     let world = world().await;

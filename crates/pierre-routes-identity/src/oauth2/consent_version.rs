@@ -141,15 +141,26 @@ fn digested_page(template: &str, text: &ConsentText<'_>, subject: ConsentSubject
 /// The version of the consent text: what `page` shows a reader, and every
 /// catalogue line the screen can show as `text` reads it.
 fn version_of(page: &str, text: &ConsentText<'_>) -> String {
+    version_over(page, text, &CONSENT_SCREEN_KEYS)
+}
+
+/// [`version_of`] over the lines `keys` name.
+fn version_over(page: &str, text: &ConsentText<'_>, keys: &[&str]) -> String {
     let mut digest = Sha256::new();
     digest.update(visible_text(page).as_bytes());
     digest.update([0]);
-    for key in CONSENT_SCREEN_KEYS {
+    for key in keys {
+        // A key the catalogue has no line for yet says nothing to a reader:
+        // listing it here ahead of its strings asks no one again.
+        let line = text.line(key);
+        if line.is_empty() {
+            continue;
+        }
         // Each key and its line end in a NUL, so no two texts run together
         // into the same bytes.
         digest.update(key.as_bytes());
         digest.update([0]);
-        digest.update(text.line(key).as_bytes());
+        digest.update(line.as_bytes());
         digest.update([0]);
     }
     hex::encode(digest.finalize())
@@ -178,7 +189,7 @@ mod tests {
     use super::super::consent_copy::{express_consent_line, health_line};
     use super::*;
     use dravr_tronc::dates::Timestamp;
-    use pierre_contremaitre::consent_strings::KEY_CONSENT_EXPRESS;
+    use pierre_contremaitre::consent_strings::{KEY_CONSENT_EXPRESS, PRESET_KEY_HEALTH};
 
     fn grant(version: Option<String>, locale: Option<&str>) -> OAuthClientGrant {
         OAuthClientGrant {
@@ -260,6 +271,51 @@ mod tests {
             version(&registry, "en"),
             english,
             "a French change leaves the English version alone"
+        );
+    }
+
+    /// The platform lists a key before the catalogue ships its line: a
+    /// listed key with no line in the reader's language or in English adds
+    /// nothing to the version, so listing it asks no one again, and its
+    /// line's arrival is a new version.
+    #[test]
+    fn a_listed_key_without_a_line_adds_nothing_to_the_version() {
+        let registry = MessagingStringsRegistry::new();
+        let key = PRESET_KEY_HEALTH;
+        for locale in ["fr", "en"] {
+            registry.update(key, locale, String::new(), "cleared".to_owned());
+        }
+        let text = ConsentText::new(&registry, "fr");
+        assert!(
+            text.line(key).is_empty(),
+            "fixture: the cleared key reads no line"
+        );
+        let page = digested_page(
+            OAuth2Routes::OAUTH_CONSENT_TEMPLATE,
+            &text,
+            claude(&SOURCES),
+        );
+        let others: Vec<&str> = CONSENT_SCREEN_KEYS
+            .into_iter()
+            .filter(|listed| *listed != key)
+            .collect();
+        let without_line = version_of(&page, &text);
+        assert_eq!(
+            without_line,
+            version_over(&page, &text, &others),
+            "bug: a listed key with no line changed the version"
+        );
+
+        registry.update(
+            key,
+            "fr",
+            "Les données énumérées ci-dessous seront communiquées à {0}.".to_owned(),
+            "arrived".to_owned(),
+        );
+        assert_ne!(
+            version_of(&page, &ConsentText::new(&registry, "fr")),
+            without_line,
+            "bug: a line's arrival is a new version"
         );
     }
 
@@ -351,12 +407,12 @@ mod tests {
         );
         let shown = visible_text(&page);
         for scope in OAuthScope::advertised_as_str() {
-            let line = visible_text(&text.scope_item(scope));
+            let line = visible_text(&text.scope_item(scope, false));
             assert!(shown.contains(&line), "bug: {scope}'s line is read: {line}");
         }
         for line in [
-            health_line(DIGESTED_CLIENT_LABEL, &text),
-            express_consent_line(DIGESTED_CLIENT_LABEL, &text),
+            health_line(DIGESTED_CLIENT_LABEL, false, &text),
+            express_consent_line(DIGESTED_CLIENT_LABEL, false, &text),
         ] {
             let line = visible_text(&line);
             assert!(shown.contains(&line), "bug: the line is read: {line}");
@@ -402,7 +458,7 @@ mod tests {
         // A word wrapped in an inline tag reads as it did, the full stop after
         // it included; a space written as a reference reads as a space; a
         // `<template>` never renders.
-        let health = health_line(DIGESTED_CLIENT_LABEL, &text);
+        let health = health_line(DIGESTED_CLIENT_LABEL, false, &text);
         let dot = health
             .rfind(".</p>")
             .expect("fixture: the health line ends a sentence");
@@ -624,7 +680,7 @@ mod tests {
 
         // As the code that builds the health line would reword it.
         let served = page(template, &text);
-        let health = health_line(DIGESTED_CLIENT_LABEL, &text);
+        let health = health_line(DIGESTED_CLIENT_LABEL, false, &text);
         assert!(served.contains(&health), "fixture: the page shows the line");
         let reworded = served.replace(&health, &format!("Not sensitive. {health}"));
         assert_ne!(

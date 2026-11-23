@@ -184,6 +184,12 @@ impl GrantChoice {
     pub(super) const fn places_admin_box(&self) -> bool {
         !matches!(self.0, Offer::Plain { .. })
     }
+
+    /// Whether the screen grants one preset alone: a request's own details,
+    /// which always narrow a preset. The picker offers Everything too.
+    pub(super) const fn is_preset(&self) -> bool {
+        matches!(self.0, Offer::Requested { .. })
+    }
 }
 
 /// A hidden form field.

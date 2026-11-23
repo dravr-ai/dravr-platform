@@ -355,9 +355,12 @@ impl OAuth2Routes {
         };
         // Each scope becomes a list item; its text is HTML-escaped before the
         // (literal) <li> markup is substituted into the template.
+        // A preset grant's screen lists the data it shares, so its lines
+        // name no injuries and no activity places the preset never reads.
+        let preset = params.grant_choice.is_some_and(GrantChoice::is_preset);
         let scope_items: String = displayed_scope
             .split_whitespace()
-            .map(|scope| text.scope_item(scope))
+            .map(|scope| text.scope_item(scope, preset))
             .collect();
 
         let trust = ClientTrust::of(params.client_id, params.redirect_uri);
@@ -422,14 +425,17 @@ impl OAuth2Routes {
                 ),
             )
             .replace("{{TRUST_LINE}}", &trust_line(&trust, text))
-            .replace("{{HEALTH_LINE}}", &health_line(params.client_label, text))
+            .replace(
+                "{{HEALTH_LINE}}",
+                &health_line(params.client_label, preset, text),
+            )
             .replace(
                 "{{OUTSIDE_QUEBEC_LINE}}",
                 &outside_quebec_line(&trust, params.client_label, text),
             )
             .replace(
                 "{{EXPRESS_CONSENT_LINE}}",
-                &express_consent_line(params.client_label, text),
+                &express_consent_line(params.client_label, preset, text),
             )
             .replace("{{ADMIN_ACCESS}}", &admin_box)
             .replace("{{CLIENT_ID}}", &escape_html_attribute(params.client_id))
