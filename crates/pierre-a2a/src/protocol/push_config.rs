@@ -12,6 +12,7 @@ use crate::protocol_types::{
 };
 use crate::{push, A2ARequest, A2AResponse};
 use dravr_tronc::dates::Timestamp;
+use dravr_tronc::error::{INTERNAL_ERROR, SERVER_ERROR_START};
 use pierre_core::models::a2a::A2APushNotificationConfig;
 use serde_json::{from_value, json, to_value, Map, Value};
 use tracing::error;
@@ -56,7 +57,7 @@ impl A2AServer {
             .map_err(|e| {
                 error!("Failed to persist A2A push config: {e}");
                 Box::new(Self::a2a_error(
-                    -32000,
+                    SERVER_ERROR_START,
                     "Failed to persist push notification config",
                     request_id.cloned(),
                 ))
@@ -119,7 +120,11 @@ impl A2AServer {
                 Ok(value) => Self::ok(value, request.id),
                 Err(e) => {
                     error!("Failed to serialize A2A push config: {e}");
-                    Self::a2a_error(-32603, "Failed to serialize push config", request.id)
+                    Self::a2a_error(
+                        INTERNAL_ERROR,
+                        "Failed to serialize push config",
+                        request.id,
+                    )
                 }
             },
             Err(err) => *err,
@@ -165,13 +170,17 @@ impl A2AServer {
                 Ok(value) => Self::ok(value, request.id),
                 Err(e) => {
                     error!("Failed to serialize A2A push config: {e}");
-                    Self::a2a_error(-32603, "Failed to serialize push config", request.id)
+                    Self::a2a_error(
+                        INTERNAL_ERROR,
+                        "Failed to serialize push config",
+                        request.id,
+                    )
                 }
             },
             Ok(None) => Self::invalid_params("Unknown push notification config id", request.id),
             Err(e) => {
                 error!("Failed to load A2A push config: {e}");
-                Self::a2a_error(-32000, "Database error", request.id)
+                Self::a2a_error(SERVER_ERROR_START, "Database error", request.id)
             }
         }
     }
@@ -216,7 +225,7 @@ impl A2AServer {
             }
             Err(e) => {
                 error!("Failed to list A2A push configs: {e}");
-                Self::a2a_error(-32000, "Database error", request.id)
+                Self::a2a_error(SERVER_ERROR_START, "Database error", request.id)
             }
         }
     }
@@ -260,7 +269,7 @@ impl A2AServer {
             Ok(false) => Self::invalid_params("Unknown push notification config id", request.id),
             Err(e) => {
                 error!("Failed to delete A2A push config: {e}");
-                Self::a2a_error(-32000, "Database error", request.id)
+                Self::a2a_error(SERVER_ERROR_START, "Database error", request.id)
             }
         }
     }

@@ -70,7 +70,7 @@ use crate::turn_service::{CommandTurn, SlashRequest};
 pub const ROOM_VISIBLE_COMMANDS: [&str; 8] = [
     "group-respond",
     "group-digest",
-    "group-coach",
+    "group-agent",
     "agent-add",
     "plan-share",
     "calibrate",

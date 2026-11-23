@@ -60,6 +60,12 @@ pub use client::A2AClientManager;
 pub use client_types::{
     A2ARateLimitStatus, ClientCredentials, ClientRegistrationRequest, ClientUsageStats, DailyUsage,
 };
+/// Its standard error codes are dravr-tronc's too, so every A2A surface names
+/// the same constants instead of repeating the numbers.
+pub use dravr_tronc::error::{
+    INTERNAL_ERROR, INVALID_PARAMS, INVALID_REQUEST, METHOD_NOT_FOUND, PARSE_ERROR,
+    SERVER_ERROR_START,
+};
 /// The JSON-RPC 2.0 envelope A2A speaks is dravr-tronc's: the transport
 /// sets the `auth` token from the `Authorization` header, and a request body
 /// never can, since those extension fields are never deserialized.

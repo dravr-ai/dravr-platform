@@ -1,5 +1,5 @@
 // ABOUTME: How a Copilot headless turn ends — a text tool call handed to the text loop, a degenerate reply retried once
-// ABOUTME: Records the calls the runtime ran as the turn's tool round, drains the loopback's signals, assembles the ToolLoopResult
+// ABOUTME: Records the calls the runtime ran as the turn's tool round, extracts its activity list, assembles the ToolLoopResult
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -11,7 +11,9 @@ use pierre_core::llm::tool_simulation;
 use pierre_core::models::GUARDIAN_DENIED_FINISH_REASON;
 use pierre_core::narration::is_degenerate_reply;
 use pierre_llm::call_record::{emit_call_record_with_text, CallRecordInputs};
-use pierre_llm::{ChatMessage, ChatRequest, ChatResponse, ObservedToolCall, TokenUsage};
+use pierre_llm::{
+    ChatMessage, ChatRequest, ChatResponse, FunctionResponse, ObservedToolCall, TokenUsage,
+};
 use pierre_providers::ai_scope;
 use pierre_services::chat_stream::{TurnEvent, TurnEventSink};
 use tracing::{info, warn};
@@ -24,6 +26,7 @@ use crate::tool_loop_io::{
 };
 use crate::tool_loop_telemetry::millis_elapsed;
 use crate::tool_progress;
+use crate::tool_results::extract_activity_list;
 
 /// Strip the headless reply, retry once if the turn was degenerate, and
 /// assemble the [`ToolLoopResult`].
@@ -59,7 +62,10 @@ use crate::tool_progress;
 /// through [`ToolLoopParams::tool_message_recorder`], as every other loop
 /// records its rounds (ADR-016): without them a follow-up turn sees a grounded
 /// answer with no evidence behind it. A degenerate first pass and its retry are
-/// two rounds, each written from the calls it reported.
+/// two rounds, each written from the calls it reported. The activity list a
+/// `get_activities` call among them returned is extracted from the same
+/// results, so a headless data answer carries the list every other loop's
+/// does.
 ///
 /// `streamed_to` is the sink the reply's prose reached, `None` when none did
 /// (a turn that did not stream, or one that wrote only `<tool_call>` blocks):
@@ -109,19 +115,18 @@ pub async fn finalize_headless_turn(
             // the agent read from a tool result as unsupported, and its re-ask
             // had the agent retract it (carnet#1038).
             let mut result = run_cli_tool_loop(params, llm_messages, Some(first_reply)).await?;
+            // The text loop extracted the activity list from the
+            // `get_activities` result its blocks ran, and it stands: a
+            // headless turn shows the list the athlete's data answer refers
+            // to, as every other loop does (the fold keeps it after the
+            // introduction a first reply opens with, carnet#1039).
             settle_turn_signals(params, &mut result);
-            // Still a headless turn: its tools were asked for over the turn's
-            // MCP servers, and a headless turn folds no deterministic activity
-            // list. The text loop extracts one from a `get_activities` result,
-            // and a surface without a list card folds it ahead of the reply, so
-            // keeping it put a list dump above every data answer, ahead of the
-            // introduction a first reply opens with.
-            result.activity_list = None;
             return Ok(result);
         }
     }
 
     record_observed_round(params, &headless_response.tool_calls);
+    let mut activity_list = observed_activity_list(&headless_response.tool_calls);
     let mut tool_calls_count =
         u32::try_from(headless_response.tool_calls.len()).unwrap_or(u32::MAX);
     let mut tools_called: Vec<String> = headless_response
@@ -146,6 +151,9 @@ pub async fn finalize_headless_turn(
         usage = retry.usage;
         finish_reason = retry.finish_reason;
         record_observed_round(params, &retry.tool_calls);
+        // The retry's list is the newer read; a retry that read none keeps
+        // the first pass's, as a later round without one does in every loop.
+        activity_list = observed_activity_list(&retry.tool_calls).or(activity_list);
         tool_calls_count = tool_calls_count
             .saturating_add(u32::try_from(retry.tool_calls.len()).unwrap_or(u32::MAX));
         tools_called.extend(retry.tool_calls.iter().map(observed_tool_name));
@@ -155,10 +163,9 @@ pub async fn finalize_headless_turn(
         content,
         usage,
         finish_reason,
-        // Copilot Headless manages tools autonomously via ACP — the platform
-        // never sees individual tool responses, so activity_list extraction
-        // (which requires inspecting get_activities results) is not possible.
-        activity_list: None,
+        // Extracted from the results the runtime reported, the same ones
+        // recorded as the turn's rounds above.
+        activity_list,
         tool_calls_count,
         tools_called,
         // Set by `settle_turn_signals` below, from the chokepoint's record.
@@ -298,6 +305,27 @@ fn observed_tool_results(calls: &[ObservedToolCall]) -> String {
         .join("\n\n")
 }
 
+/// The activity list a `get_activities` call in `calls` returned, extracted as
+/// every other loop extracts it ([`extract_activity_list`]).
+///
+/// The SDK transport hands back each call's result as the JSON text the
+/// loopback seam serialized, so it parses back to the payload the other loops
+/// read. A call reported without its result (the ACP adapter), or with text
+/// that is not JSON (a refusal's reason), has no list to give.
+fn observed_activity_list(calls: &[ObservedToolCall]) -> Option<String> {
+    let responses: Vec<FunctionResponse> = calls
+        .iter()
+        .filter_map(|call| {
+            let response = serde_json::from_str(call.result.as_deref()?).ok()?;
+            Some(FunctionResponse {
+                name: observed_tool_name(call),
+                response,
+            })
+        })
+        .collect();
+    extract_activity_list(&responses)
+}
+
 /// Take back the first reply's streamed prose, which will not be the turn's
 /// reply: the text loop's answer to its `<tool_call>` blocks, or the retry of
 /// a degenerate turn, replaces it, and neither streams. Left on screen it
@@ -396,6 +424,40 @@ mod tests {
             observed_tool_results(&calls),
             "[Tool Result for get_stats]: {\"rides\":3}\n\n[Tool Result for get_athlete]: Ana",
             "every reported result, and only those, must reach the round in order"
+        );
+    }
+
+    /// The list comes from the `get_activities` result the runtime reported,
+    /// parsed back from the JSON text the loopback serialized; another tool's
+    /// result, a result-less call and a non-JSON refusal give none.
+    #[test]
+    fn the_activity_list_comes_from_a_reported_get_activities_result() {
+        let listed = call(
+            Some("dravr-get_activities"),
+            "Get activities",
+            Some("{\"activity_list\":\"Mon 31 km\",\"count\":1}"),
+        );
+        assert_eq!(
+            observed_activity_list(&[call(Some("get_athlete"), "Get athlete", Some("{}")), listed]),
+            Some("Mon 31 km".to_owned()),
+            "a reported get_activities result yields its list"
+        );
+        assert_eq!(
+            observed_activity_list(&[
+                call(None, "get_activities", None),
+                call(
+                    Some("dravr-get_activities"),
+                    "Get activities",
+                    Some("declined")
+                ),
+                call(
+                    Some("dravr-get_stats"),
+                    "Get stats",
+                    Some("{\"activity_list\":\"not a listing\"}")
+                ),
+            ]),
+            None,
+            "no reported get_activities payload, no list"
         );
     }
 

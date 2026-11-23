@@ -426,7 +426,7 @@ impl CommandHandler for AgentRemoveHandler {
 }
 
 /// Handler for `/agent invite` — the `/agent`-domain spelling of
-/// `/group invite agent`.
+/// `/group invite coach`.
 ///
 /// Both run [`issue_group_invite`], so whoever redeems the code is attached
 /// as the group's human coach either way. Bringing a Dravr agent into a

@@ -28,7 +28,7 @@ use crate::{CommandHandler, PlatformCommandContext};
 /// command carried its id ([`named_group`]), and the invite is filed under
 /// its [`TargetGroup::tenant_id`]. An unknown id and a group the caller is
 /// not in get the same "not a member" answer. The one implementation behind
-/// two triggers: `/group invite [agent]` and `/agent invite` resolve the
+/// two triggers: `/group invite [coach]` and `/agent invite` resolve the
 /// conversation's group through the same ladder, enforce the same role and
 /// file the invite through the same `GroupService` path, so the two
 /// spellings cannot drift.

@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use dravr_tronc::error::{INTERNAL_ERROR, SERVER_ERROR_START};
 use pierre_core::transport::Transport;
 use pierre_tool_runtime::deployment_tools;
 use pierre_tool_runtime::support_session::END_TOOL;
@@ -42,7 +43,7 @@ impl A2AServer {
         // ends it (carnet#1511).
         let acting = match Self::acting(resources.ctx.as_ref(), &principal).await {
             Ok(acting) => acting,
-            Err(reason) => return Self::a2a_error(-32000, reason, request.id),
+            Err(reason) => return Self::a2a_error(SERVER_ERROR_START, reason, request.id),
         };
         let caller = Caller {
             role: CallerRole::resolve(resources.ctx.repos(), acting.user_id).await,
@@ -87,7 +88,11 @@ impl A2AServer {
             Ok(value) => Self::ok(value, request.id),
             Err(e) => {
                 error!("Failed to serialize A2A extended agent card: {e}");
-                Self::a2a_error(-32603, "Failed to serialize extended card", request.id)
+                Self::a2a_error(
+                    INTERNAL_ERROR,
+                    "Failed to serialize extended card",
+                    request.id,
+                )
             }
         }
     }

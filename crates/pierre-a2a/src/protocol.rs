@@ -26,6 +26,9 @@ use crate::protocol_types::{
 };
 use crate::{A2ARequest, A2AResponse, JSONRPC_VERSION};
 use dravr_tronc::dates::SecondsFormat;
+use dravr_tronc::error::{
+    INTERNAL_ERROR, INVALID_PARAMS, INVALID_REQUEST, METHOD_NOT_FOUND, SERVER_ERROR_START,
+};
 use pierre_core::models::a2a::user_task_key;
 pub use pierre_core::models::a2a::{A2ATask, TaskStatus};
 use pierre_core::permissions::impersonation::CallerCredential;
@@ -258,12 +261,12 @@ impl A2AServer {
             // SSE-only methods: the HTTP layer intercepts these before
             // non-streaming dispatch; a non-SSE caller lands here.
             "SendStreamingMessage" | "SubscribeToTask" => Self::a2a_error(
-                -32600,
+                INVALID_REQUEST,
                 "Streaming methods require the SSE transport",
                 request.id,
             ),
             _ => Self::a2a_error(
-                -32601,
+                METHOD_NOT_FOUND,
                 format!("Method not found: {}", request.method),
                 request.id,
             ),
@@ -321,7 +324,7 @@ impl A2AServer {
 
     /// Create an invalid-params (`-32602`) error response.
     fn invalid_params(message: impl Into<String>, request_id: Option<Value>) -> A2AResponse {
-        Self::a2a_error(-32602, message, request_id)
+        Self::a2a_error(INVALID_PARAMS, message, request_id)
     }
 
     /// Create an authentication-failure response. Carries the
@@ -329,7 +332,7 @@ impl A2AServer {
     fn auth_error(message: impl Into<String>, request_id: Option<Value>) -> A2AResponse {
         A2AResponse::error_with_data(
             request_id,
-            -32000,
+            SERVER_ERROR_START,
             message,
             error_info("AUTHENTICATION_REQUIRED"),
         )
@@ -337,7 +340,11 @@ impl A2AServer {
 
     /// Create a standard server-not-configured error response
     fn server_not_configured_error(request_id: Option<Value>) -> A2AResponse {
-        Self::a2a_error(-32000, "A2A server not properly configured", request_id)
+        Self::a2a_error(
+            SERVER_ERROR_START,
+            "A2A server not properly configured",
+            request_id,
+        )
     }
 
     /// Successful JSON-RPC response wrapper.
@@ -408,7 +415,7 @@ impl A2AServer {
             Ok(value) => Self::ok(value, request_id),
             Err(e) => {
                 error!("Failed to serialize A2A task: {e}");
-                Self::a2a_error(-32603, "Failed to serialize task", request_id)
+                Self::a2a_error(INTERNAL_ERROR, "Failed to serialize task", request_id)
             }
         }
     }
@@ -421,7 +428,7 @@ impl A2AServer {
             Ok(value) => Self::ok(json!({ "task": value }), request_id),
             Err(e) => {
                 error!("Failed to serialize A2A task: {e}");
-                Self::a2a_error(-32603, "Failed to serialize task", request_id)
+                Self::a2a_error(INTERNAL_ERROR, "Failed to serialize task", request_id)
             }
         }
     }
@@ -591,14 +598,14 @@ impl A2AServer {
             .map_err(|e| {
                 error!("Failed to resolve client ownership: {e}");
                 Box::new(Self::a2a_error(
-                    -32000,
+                    SERVER_ERROR_START,
                     "Failed to resolve client ownership",
                     request_id.cloned(),
                 ))
             })?;
         owned.into_iter().next().ok_or_else(|| {
             Box::new(Self::a2a_error(
-                -32000,
+                SERVER_ERROR_START,
                 "Failed to resolve client ownership",
                 request_id.cloned(),
             ))
@@ -664,7 +671,7 @@ impl A2AServer {
             let input = to_value(&message).map_err(|e| {
                 error!("Failed to serialize A2A message: {e}");
                 Box::new(Self::a2a_error(
-                    -32603,
+                    INTERNAL_ERROR,
                     "Failed to serialize message",
                     request_id.cloned(),
                 ))
@@ -677,7 +684,7 @@ impl A2AServer {
                 .map_err(|e| {
                     error!("Failed to persist task: {e}");
                     Box::new(Self::a2a_error(
-                        -32000,
+                        SERVER_ERROR_START,
                         "Failed to persist task",
                         request_id.cloned(),
                     ))
@@ -694,7 +701,7 @@ impl A2AServer {
         let history_json = to_value(&history).map_err(|e| {
             error!("Failed to serialize A2A history: {e}");
             Box::new(Self::a2a_error(
-                -32603,
+                INTERNAL_ERROR,
                 "Failed to serialize history",
                 request_id.cloned(),
             ))
@@ -706,7 +713,7 @@ impl A2AServer {
             .map_err(|e| {
                 error!("Failed to persist task history: {e}");
                 Box::new(Self::a2a_error(
-                    -32000,
+                    SERVER_ERROR_START,
                     "Failed to persist task history",
                     request_id.cloned(),
                 ))

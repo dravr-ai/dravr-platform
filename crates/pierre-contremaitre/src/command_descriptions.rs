@@ -56,8 +56,8 @@ pub const KEY_COMMAND_DESC_DENY: &str = "commands.deny.description";
 pub const KEY_COMMAND_DESC_HELP: &str = "commands.help.description";
 /// Key: one-line description of the `status` catalogue command — `/help`, the command palette and the Telegram menu.
 pub const KEY_COMMAND_DESC_STATUS: &str = "commands.status.description";
-/// Key: one-line description of the `group-agent` catalogue command — `/help`, the command palette and the Telegram menu.
-pub const KEY_COMMAND_DESC_GROUP_COACH: &str = "commands.group-coach.description";
+/// Key: one-line description of the `group-agent` catalogue command (`/group agent`) — `/help`, the command palette and the Telegram menu.
+pub const KEY_COMMAND_DESC_GROUP_AGENT: &str = "commands.group-agent.description";
 /// Key: one-line description of the `group-consent` catalogue command — `/help`, the command palette and the Telegram menu.
 pub const KEY_COMMAND_DESC_GROUP_CONSENT: &str = "commands.group-consent.description";
 /// Key: one-line description of the `group-reads` catalogue command — `/help`, the command palette and the Telegram menu.

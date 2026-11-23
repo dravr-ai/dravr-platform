@@ -1688,11 +1688,11 @@ async fn the_ramp_check_grades_the_earliest_week_not_the_first_in_the_payload() 
         planned.contains("1.0"),
         "the earliest week (1.0 h) must be the one measured, got {planned}"
     );
-    assert!(
-        checked[0]
-            .field("baseline_hours")
-            .is_some_and(|b| b.contains("1.0")),
-        "the seeded baseline must be the comparison: {captured:?}"
+    assert_eq!(
+        checked[0].field("baseline_hours"),
+        Some("<3"),
+        "the seeded one-hour baseline is the comparison, reported as its band \
+         and never as the athlete's exact weekly hours: {captured:?}"
     );
     Ok(())
 }

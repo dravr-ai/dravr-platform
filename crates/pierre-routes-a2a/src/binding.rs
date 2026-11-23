@@ -48,7 +48,7 @@ use pierre_a2a::{
         RATE_LIMIT_EXCEEDED_REASON,
     },
     A2ARequest, A2AResponse, A2AServer, JsonRpcError, A2A_VERSION, A2A_VERSION_HEADER,
-    JSONRPC_VERSION,
+    INVALID_PARAMS, JSONRPC_VERSION, METHOD_NOT_FOUND, PARSE_ERROR, SERVER_ERROR_START,
 };
 use pierre_auth::config::{www_authenticate_challenge, DIALED_HOST_HEADERS};
 use pierre_core::auth_header::extract_bearer_token;
@@ -256,7 +256,7 @@ fn parse_jsonrpc_body(body: &[u8]) -> Result<A2ARequest, Box<A2AResponse>> {
         .map_err(|e| {
             Box::new(A2AResponse::error(
                 None,
-                -32700,
+                PARSE_ERROR,
                 format!("Parse error: body is not UTF-8: {e}"),
             ))
         })
@@ -324,17 +324,26 @@ pub(crate) async fn handle_jsonrpc<C: MiddlewareCtx + A2ACtx>(
 /// Map a JSON-RPC error to the HTTP status + `google.rpc.Code` name of the
 /// v1.0.1 error-mapping table.
 fn rest_error_mapping(error: &JsonRpcError) -> (StatusCode, &'static str) {
+    if let Some(spec_error) = A2ASpecError::from_code(error.code) {
+        return match spec_error {
+            A2ASpecError::TaskNotFound => (StatusCode::NOT_FOUND, "NOT_FOUND"),
+            A2ASpecError::TaskNotCancelable
+            | A2ASpecError::PushNotificationNotSupported
+            | A2ASpecError::UnsupportedOperation
+            | A2ASpecError::ExtendedAgentCardNotConfigured
+            | A2ASpecError::ExtensionSupportRequired
+            | A2ASpecError::VersionNotSupported => (StatusCode::BAD_REQUEST, "FAILED_PRECONDITION"),
+            A2ASpecError::ContentTypeNotSupported => (StatusCode::BAD_REQUEST, "INVALID_ARGUMENT"),
+            _ => (StatusCode::INTERNAL_SERVER_ERROR, "INTERNAL"),
+        };
+    }
     match error.code {
-        -32001 => (StatusCode::NOT_FOUND, "NOT_FOUND"),
-        -32002 | -32003 | -32004 | -32007 | -32008 | -32009 => {
-            (StatusCode::BAD_REQUEST, "FAILED_PRECONDITION")
-        }
-        -32005 | -32602 | -32700 => (StatusCode::BAD_REQUEST, "INVALID_ARGUMENT"),
-        -32601 => (StatusCode::NOT_IMPLEMENTED, "UNIMPLEMENTED"),
-        -32000 if has_reason(error, AUTHENTICATION_REQUIRED) => {
+        INVALID_PARAMS | PARSE_ERROR => (StatusCode::BAD_REQUEST, "INVALID_ARGUMENT"),
+        METHOD_NOT_FOUND => (StatusCode::NOT_IMPLEMENTED, "UNIMPLEMENTED"),
+        SERVER_ERROR_START if has_reason(error, AUTHENTICATION_REQUIRED) => {
             (StatusCode::UNAUTHORIZED, "UNAUTHENTICATED")
         }
-        -32000 if has_reason(error, RATE_LIMIT_EXCEEDED_REASON) => {
+        SERVER_ERROR_START if has_reason(error, RATE_LIMIT_EXCEEDED_REASON) => {
             (StatusCode::TOO_MANY_REQUESTS, "RESOURCE_EXHAUSTED")
         }
         _ => (StatusCode::INTERNAL_SERVER_ERROR, "INTERNAL"),
@@ -707,7 +716,7 @@ pub(crate) async fn rest_extended_card<C: MiddlewareCtx + A2ACtx>(
 
 #[cfg(test)]
 mod tests {
-    use super::parse_jsonrpc_body;
+    use super::{parse_jsonrpc_body, PARSE_ERROR};
 
     #[test]
     fn a_body_that_is_not_utf8_is_a_parse_error_with_a_null_id() {
@@ -718,7 +727,7 @@ mod tests {
             .as_ref()
             .expect("a refused body is answered with an error envelope");
         assert_eq!(
-            error.code, -32700,
+            error.code, PARSE_ERROR,
             "a body that is not UTF-8 is a JSON-RPC parse error (binding bug otherwise)"
         );
         assert!(

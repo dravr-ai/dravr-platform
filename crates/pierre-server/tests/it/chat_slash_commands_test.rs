@@ -1725,7 +1725,7 @@ async fn owner_in_a_solo_thread_is_not_offered_group_management() {
 
     for hidden in [
         "/group invite",
-        "/group coach",
+        "/group agent",
         "/group respond",
         "/group digest",
         "/group members",
@@ -1817,7 +1817,7 @@ async fn help_hides_group_commands_from_an_athlete_with_no_group() {
         "/group digest",
         "/group status",
         "/group leave",
-        "/group coach",
+        "/group agent",
         "/agent assign",
     ] {
         assert!(
@@ -1888,7 +1888,7 @@ async fn help_hides_admin_only_commands_from_a_plain_group_member() {
     }
     for hidden in [
         "/group invite",
-        "/group coach",
+        "/group agent",
         "/group respond",
         "/group digest",
         "/agent assign",
@@ -1921,7 +1921,7 @@ async fn help_shows_admin_only_commands_to_a_group_owner() {
 
     for shown in [
         "/group invite",
-        "/group coach agent-name",
+        "/group agent agent-name",
         "/group respond mentions|all",
         "/group digest off|chat|managers",
         "/agent assign agent-id group-id",
@@ -1962,7 +1962,7 @@ async fn help_shows_argument_options_localized_headings_and_stable_order() {
     for signature in [
         "/group consent [coach] yes|no",
         "/group respond mentions|all",
-        "/group coach agent-name",
+        "/group agent agent-name",
         "/plan [athlete] [week|today]",
         // Named, not a `pillar` placeholder: the athlete must be able to type
         // one of these without knowing the internal DB slugs.
@@ -2077,7 +2077,7 @@ async fn help_shows_agent_assign_to_an_owner_who_is_a_member_of_the_ambient_grou
     // the fix did not simply widen the filter for everything.
     for hidden in [
         "/group invite",
-        "/group coach",
+        "/group agent",
         "/group respond",
         "/group digest",
     ] {
@@ -2144,7 +2144,7 @@ async fn help_shows_own_group_commands_when_the_room_belongs_to_another_group() 
     // caller is not a member of it, so they would refuse.
     for hidden in [
         "/group invite",
-        "/group coach",
+        "/group agent",
         "/group respond",
         "/group digest",
         "/group consent",

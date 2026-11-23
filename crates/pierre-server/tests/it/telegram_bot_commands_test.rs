@@ -131,7 +131,7 @@ mod telegram_menu_tests {
         // than posted — otherwise a single catalogue typo empties the menu.
         let commands = vec![
             ("help".to_owned(), "Show available commands".to_owned()),
-            ("group-coach".to_owned(), "Set the group coach".to_owned()),
+            ("group-agent".to_owned(), "Set the group agent".to_owned()),
             ("Status".to_owned(), "Show status".to_owned()),
             ("blank".to_owned(), "   ".to_owned()),
         ];

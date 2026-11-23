@@ -289,8 +289,62 @@ pub(super) fn emit_vision_saved(plan_id: &str, flavour: &FlavourSelection) {
     }
 }
 
+/// The band an athlete's recent weekly hours falls in, as the ramp events
+/// report it.
+///
+/// The notify events are forwarded to `PostHog`, and the athlete's exact
+/// weekly training volume is a personal figure the analytics side has no need
+/// for: what the ramp rail is measured on is whether plans open too far above
+/// load, at what kind of training volume. So the events carry the band, while
+/// the agent — which writes the sentence to the athlete — still receives the
+/// exact hours in the save result.
+///
+/// Each band includes its lower bound and excludes its upper one, so exactly
+/// 3.0 h reads `3-6`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WeeklyHoursBucket {
+    UnderThree,
+    ThreeToSix,
+    SixToTen,
+    TenToFifteen,
+    FifteenPlus,
+}
+
+impl WeeklyHoursBucket {
+    /// The band `hours` falls in. A value that compares as below every bound
+    /// (including NaN, which the ramp check never produces) reads as the
+    /// lowest band rather than inflating the athlete's volume.
+    fn of(hours: f64) -> Self {
+        if hours >= 15.0 {
+            Self::FifteenPlus
+        } else if hours >= 10.0 {
+            Self::TenToFifteen
+        } else if hours >= 6.0 {
+            Self::SixToTen
+        } else if hours >= 3.0 {
+            Self::ThreeToSix
+        } else {
+            Self::UnderThree
+        }
+    }
+
+    /// Value of the event's `baseline_hours` field.
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::UnderThree => "<3",
+            Self::ThreeToSix => "3-6",
+            Self::SixToTen => "6-10",
+            Self::TenToFifteen => "10-15",
+            Self::FifteenPlus => "15+",
+        }
+    }
+}
+
 /// Emit the ramp verdict, including the explicit "could not measure" case so a
 /// quiet log means the comparison ran and passed.
+///
+/// `baseline_hours` carries the athlete's recent weekly hours as a
+/// [`WeeklyHoursBucket`] band, never the raw figure.
 pub(super) fn emit_ramp_verdict(plan_id: &str, verdict: &RampVerdict) {
     match verdict {
         RampVerdict::Exceeded {
@@ -303,7 +357,7 @@ pub(super) fn emit_ramp_verdict(plan_id: &str, verdict: &RampVerdict) {
                 event = "training_plan.ramp_warning",
                 plan_id = %plan_id,
                 planned_hours = format!("{planned_hours:.1}"),
-                baseline_hours = format!("{baseline_hours:.1}"),
+                baseline_hours = WeeklyHoursBucket::of(*baseline_hours).as_str(),
                 increase_pct = format!("{:.0}", increase * 100.0),
                 "planned opening week exceeds the athlete's recent weekly load"
             );
@@ -317,7 +371,7 @@ pub(super) fn emit_ramp_verdict(plan_id: &str, verdict: &RampVerdict) {
                 event = "training_plan.ramp_checked",
                 plan_id = %plan_id,
                 planned_hours = format!("{planned_hours:.1}"),
-                baseline_hours = format!("{baseline_hours:.1}"),
+                baseline_hours = WeeklyHoursBucket::of(*baseline_hours).as_str(),
                 "planned opening week is within the athlete's recent weekly load"
             );
         }
@@ -330,5 +384,46 @@ pub(super) fn emit_ramp_verdict(plan_id: &str, verdict: &RampVerdict) {
                 "could not compare the planned opening week against recent load"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::WeeklyHoursBucket;
+
+    #[test]
+    fn each_band_starts_at_its_lower_bound() {
+        for (hours, band) in [
+            (0.0, "<3"),
+            (2.99, "<3"),
+            (3.0, "3-6"),
+            (5.99, "3-6"),
+            (6.0, "6-10"),
+            (9.99, "6-10"),
+            (10.0, "10-15"),
+            (14.99, "10-15"),
+            (15.0, "15+"),
+            (40.0, "15+"),
+        ] {
+            assert_eq!(
+                WeeklyHoursBucket::of(hours).as_str(),
+                band,
+                "{hours} h must read as {band}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_value_below_every_bound_reads_as_the_lowest_band() {
+        assert_eq!(
+            WeeklyHoursBucket::of(f64::NAN),
+            WeeklyHoursBucket::UnderThree,
+            "NaN must read as the lowest band, never inflate the athlete's volume (bucketing bug)"
+        );
+        assert_eq!(
+            WeeklyHoursBucket::of(-1.0),
+            WeeklyHoursBucket::UnderThree,
+            "a negative figure must read as the lowest band (bucketing bug)"
+        );
     }
 }

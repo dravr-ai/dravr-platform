@@ -22,6 +22,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use dravr_tronc::error::SERVER_ERROR_START;
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::TenantId;
 use pierre_mcp_transport::tenant_isolation::{extract_tenant_context_internal, log_tenant_failure};
@@ -229,7 +230,7 @@ impl A2AServer {
             Err(e) => {
                 log_tenant_failure(principal.user_id, &e);
                 Err(Box::new(Self::a2a_error(
-                    -32000,
+                    SERVER_ERROR_START,
                     "Failed to resolve tenant context",
                     request_id.cloned(),
                 )))
@@ -253,7 +254,7 @@ impl A2AServer {
             _ => {
                 error!("A2A text turn could not be admitted: {error}");
                 Self::a2a_error(
-                    -32000,
+                    SERVER_ERROR_START,
                     "The coach could not take this message",
                     request_id.cloned(),
                 )

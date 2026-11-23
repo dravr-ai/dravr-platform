@@ -11,6 +11,7 @@
 //! to the tasks keyed to clients it owns.
 
 use dravr_tronc::dates::Timestamp;
+use dravr_tronc::error::SERVER_ERROR_START;
 use pierre_auth::oauth2_server::grant_ceiling::GrantCeiling;
 use pierre_auth::rate_limiting::{a2a_client_window_start, calculate_a2a_client_rate_limit};
 use pierre_core::errors::{AppError, ErrorCode};
@@ -262,7 +263,7 @@ impl A2AServer {
             Err(e) => {
                 error!("Failed to resolve A2A client during authentication: {e}");
                 return Err(RefusedCall::from(Box::new(Self::a2a_error(
-                    -32000,
+                    SERVER_ERROR_START,
                     "Failed to resolve A2A client",
                     Some(request_id),
                 ))));
@@ -402,7 +403,7 @@ impl A2AServer {
             .map_err(|e| {
                 error!("Failed to resolve client ownership: {e}");
                 Box::new(Self::a2a_error(
-                    -32000,
+                    SERVER_ERROR_START,
                     "Failed to resolve client ownership",
                     request_id.cloned(),
                 ))
@@ -435,7 +436,7 @@ impl A2AServer {
             Err(e) => {
                 error!("A2A task lookup database error: {e}");
                 return Err(Box::new(Self::a2a_error(
-                    -32000,
+                    SERVER_ERROR_START,
                     "Database error",
                     request_id.cloned(),
                 )));
@@ -467,7 +468,7 @@ impl A2AServer {
         if error.is_server_fault() {
             error!("A2A authentication could not complete: {error}");
             return Self::a2a_error(
-                -32000,
+                SERVER_ERROR_START,
                 "Authentication could not complete",
                 Some(request_id),
             );
@@ -488,7 +489,7 @@ impl A2AServer {
     ) -> A2AResponse {
         A2AResponse::error_with_data(
             request_id,
-            -32000,
+            SERVER_ERROR_START,
             message,
             rate_limit_details(retry_after_secs),
         )

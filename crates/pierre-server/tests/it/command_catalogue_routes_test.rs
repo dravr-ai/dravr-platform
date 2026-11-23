@@ -306,7 +306,7 @@ async fn owner_in_a_solo_thread_is_not_offered_group_management() {
 
     for hidden in [
         "/group invite",
-        "/group coach",
+        "/group agent",
         "/group respond",
         "/group digest",
         "/coach invite",
@@ -360,7 +360,7 @@ async fn member_in_a_bound_conversation_is_listed_per_role() {
         listed.contains(&ANY_GROUP_COMMAND),
         "a member belongs to a group, so {ANY_GROUP_COMMAND} must be listed, got {listed:?}"
     );
-    for hidden in [MANAGE_MEMBERS_COMMAND, "/group coach", "/coach invite"] {
+    for hidden in [MANAGE_MEMBERS_COMMAND, "/group agent", "/coach invite"] {
         assert!(
             !listed.contains(&hidden),
             "{hidden} needs manage standing in the thread's group, got {listed:?}"

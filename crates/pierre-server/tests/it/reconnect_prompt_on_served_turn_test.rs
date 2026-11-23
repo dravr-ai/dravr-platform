@@ -1407,26 +1407,28 @@ async fn a_headless_turn_that_streamed_only_its_block_sends_no_retraction() {
     );
 }
 
-/// A headless reply handed to the text loop keeps the headless contract and
-/// carries no activity list, though its block fetched the athlete's
-/// activities: a surface without a list card would fold the list ahead of the
-/// reply (carnet#1032).
+/// A headless reply handed to the text loop carries the activity list its
+/// block fetched, as a headless turn that called the tool natively does: the
+/// list is what the data answer refers to, on every path.
 #[tokio::test]
-async fn a_headless_turn_handed_to_the_text_loop_folds_no_activity_list() {
+async fn a_headless_turn_handed_to_the_text_loop_carries_its_activity_list() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, tenant) = athlete_with_a_dead_primary(&resources).await;
     let acp_turn = Uuid::new_v4().to_string();
 
-    // The same call the block makes carries a list the text loop's extractor
-    // captures, so an absent list below is the hand-off dropping it.
-    let payload = loopback_get_activities(&resources, user_id, tenant, &acp_turn).await;
+    // The same call the block makes carries the list the text loop's
+    // extractor captures, so the turn's list below is the one it served. Made
+    // under a turn of its own: under the turn below, the block's identical
+    // call would be answered as a repeat, with no list to carry.
+    let probe_turn = Uuid::new_v4().to_string();
+    let payload = loopback_get_activities(&resources, user_id, tenant, &probe_turn).await;
+    let served = extract_activity_list(&[FunctionResponse {
+        name: "get_activities".to_owned(),
+        response: payload,
+    }]);
     assert!(
-        extract_activity_list(&[FunctionResponse {
-            name: "get_activities".to_owned(),
-            response: payload,
-        }])
-        .is_some(),
-        "get_activities serves a list the text loop would capture"
+        served.is_some(),
+        "get_activities serves a list the text loop captures"
     );
 
     let reply = HeadlessToolResponse {
@@ -1451,9 +1453,9 @@ async fn a_headless_turn_handed_to_the_text_loop_folds_no_activity_list() {
         vec!["get_activities".to_owned()],
         "the reply's own block fetched the activities"
     );
-    assert!(
-        result.activity_list.is_none(),
-        "a handed-off headless turn folds no list ahead of its reply"
+    assert_eq!(
+        result.activity_list, served,
+        "a handed-off headless turn keeps the list its block fetched"
     );
 }
 

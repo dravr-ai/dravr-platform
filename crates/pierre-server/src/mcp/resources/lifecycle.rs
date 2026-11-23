@@ -53,7 +53,7 @@ use pierre_commands::{
     discover::{DiscoverHandler, DiscoverInstallHandler},
     fortnight::FortnightHandler,
     group::{
-        GroupCoachHandler, GroupDigestHandler, GroupLeaveHandler, GroupListHandler,
+        GroupAgentHandler, GroupDigestHandler, GroupLeaveHandler, GroupListHandler,
         GroupMembersHandler, GroupRespondHandler, GroupStatusHandler,
     },
     group_consent::GroupConsentHandler,
@@ -811,7 +811,7 @@ impl ServerContext {
             ("group-status", Arc::new(GroupStatusHandler)),
             ("group-members", Arc::new(GroupMembersHandler)),
             ("group-invite", Arc::new(GroupInviteHandler)),
-            ("group-coach", Arc::new(GroupCoachHandler)),
+            ("group-agent", Arc::new(GroupAgentHandler)),
             ("group-respond", Arc::new(GroupRespondHandler)),
             ("group-digest", Arc::new(GroupDigestHandler)),
             ("group-leave", Arc::new(GroupLeaveHandler)),

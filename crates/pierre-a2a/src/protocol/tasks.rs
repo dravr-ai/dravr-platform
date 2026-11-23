@@ -13,6 +13,7 @@ use crate::protocol_types::{
 };
 use crate::{A2ARequest, A2AResponse};
 use dravr_tronc::dates::Timestamp;
+use dravr_tronc::error::{INTERNAL_ERROR, SERVER_ERROR_START};
 use pierre_core::models::a2a::A2ATask;
 use serde_json::{from_value, to_value, Value};
 use std::cmp::Reverse;
@@ -137,7 +138,7 @@ impl A2AServer {
                 .map_err(|e| {
                     error!("Failed to resolve client ownership: {e}");
                     Box::new(Self::a2a_error(
-                        -32000,
+                        SERVER_ERROR_START,
                         "Failed to resolve client ownership",
                         request_id.cloned(),
                     ))
@@ -162,7 +163,7 @@ impl A2AServer {
                 .map_err(|e| {
                     error!("A2A task list database error: {e}");
                     Box::new(Self::a2a_error(
-                        -32000,
+                        SERVER_ERROR_START,
                         "Database error",
                         request_id.cloned(),
                     ))
@@ -234,7 +235,7 @@ impl A2AServer {
             Ok(value) => Self::ok(value, request.id),
             Err(e) => {
                 error!("Failed to serialize A2A task list: {e}");
-                Self::a2a_error(-32603, "Failed to serialize task list", request.id)
+                Self::a2a_error(INTERNAL_ERROR, "Failed to serialize task list", request.id)
             }
         }
     }
@@ -279,7 +280,7 @@ impl A2AServer {
             .await
         {
             error!("Failed to cancel A2A task: {e}");
-            return Self::a2a_error(-32000, "Failed to cancel task", request.id);
+            return Self::a2a_error(SERVER_ERROR_START, "Failed to cancel task", request.id);
         }
 
         let context_id = record.context_id.clone().unwrap_or_default();

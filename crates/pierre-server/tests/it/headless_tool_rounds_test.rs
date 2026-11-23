@@ -1,5 +1,5 @@
 // ABOUTME: A Copilot headless turn writes the tool rounds its runtime ran, so the next turn replays their evidence
-// ABOUTME: Drives finalize_headless_turn into the chat repository's recorder and reads the tool_result rows back (ADR-016)
+// ABOUTME: Drives finalize_headless_turn into the chat repository's recorder, reads the rows and the activity list back (ADR-016)
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -32,7 +32,7 @@ use pierre_providers::ai_scope::{self, Provenance};
 use pierre_tool_runtime::protocol::UniversalToolExecutor;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use pierre_tool_runtime::tool_execution::finalize_headless_turn;
-use pierre_tool_runtime::tool_loop_io::{ToolLoopParams, ToolMessageRecorder};
+use pierre_tool_runtime::tool_loop_io::{ToolLoopParams, ToolLoopResult, ToolMessageRecorder};
 use serde_json::json;
 use uuid::Uuid;
 
@@ -170,6 +170,15 @@ impl Thread {
     /// until `persist_held`: the rows are then on disk when this returns,
     /// rather than on a spawned write the test would have to wait out.
     async fn finish(&self, first: HeadlessToolResponse, runtime: ScriptedRuntime) -> String {
+        self.finish_turn(first, runtime).await.content
+    }
+
+    /// [`Self::finish`], returning the whole result the chat pipeline reads.
+    async fn finish_turn(
+        &self,
+        first: HeadlessToolResponse,
+        runtime: ScriptedRuntime,
+    ) -> ToolLoopResult {
         let recorder = Arc::new(ChatRepoToolMessageRecorder::new(
             Arc::clone(&self.resources.common.repos.chat),
             self.conversation_id.clone(),
@@ -218,7 +227,7 @@ impl Thread {
         .await
         .expect("the turn finishes");
         recorder.persist_held().await;
-        result.content
+        result
     }
 
     /// A group member whose data a turn in this thread may read.
@@ -384,5 +393,64 @@ async fn the_round_names_the_member_the_turn_read() {
     assert!(
         two.rows().await.is_empty(),
         "a round about two members cannot name both, so it is not kept"
+    );
+}
+
+/// The recorded `get_activities` result carries the list the athlete's data
+/// answer refers to, so the headless turn hands the pipeline the same
+/// `activity_list` the API and text loops extract from it.
+#[tokio::test]
+async fn a_headless_turn_that_read_activities_carries_their_list() {
+    let thread = Thread::new().await;
+
+    let result = thread
+        .finish_turn(
+            reply(
+                ANSWER,
+                vec![
+                    sdk_call("toolu_01", "get_connection_status", STATUS),
+                    sdk_call("toolu_02", "get_activities", ACTIVITIES),
+                ],
+            ),
+            ScriptedRuntime::new(None),
+        )
+        .await;
+
+    assert_eq!(
+        result.activity_list.as_deref(),
+        Some("Mon 31 km, Wed 28 km, Sat 33 km"),
+        "the list comes from the get_activities result the runtime reported"
+    );
+}
+
+/// A turn that listed no activities has no list to fold: another tool's
+/// result, and a `get_activities` call the ACP adapter reported without its
+/// result, both leave it empty.
+#[tokio::test]
+async fn a_headless_turn_without_an_activities_result_carries_no_list() {
+    let thread = Thread::new().await;
+    let acp_call = ObservedToolCall {
+        id: "acp-tool-1".to_owned(),
+        title: "get_activities".to_owned(),
+        status: "Completed".to_owned(),
+        ..ObservedToolCall::default()
+    };
+
+    let result = thread
+        .finish_turn(
+            reply(
+                ANSWER,
+                vec![
+                    sdk_call("toolu_01", "get_connection_status", STATUS),
+                    acp_call,
+                ],
+            ),
+            ScriptedRuntime::new(None),
+        )
+        .await;
+
+    assert_eq!(
+        result.activity_list, None,
+        "no reported get_activities payload means no list"
     );
 }
