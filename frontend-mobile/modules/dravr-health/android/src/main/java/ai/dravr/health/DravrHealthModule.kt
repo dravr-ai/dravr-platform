@@ -384,7 +384,8 @@ class DravrHealthModule : Module() {
 /**
  * When a record starts: an interval record's start, an instantaneous record's
  * time. The library keeps IntervalRecord and InstantaneousRecord internal, so
- * each type this module reads is named.
+ * each type in RECORD_TYPES is named. A type missing here fails its read loudly:
+ * a fabricated start would filter every one of its records out unseen.
  */
 private fun Record.startInstant(): Instant = when (this) {
   is ExerciseSessionRecord -> startTime
@@ -395,5 +396,5 @@ private fun Record.startInstant(): Instant = when (this) {
   is RestingHeartRateRecord -> time
   is HeartRateVariabilityRmssdRecord -> time
   is WeightRecord -> time
-  else -> Instant.EPOCH
+  else -> error("bug: startInstant has no start for ${this::class.simpleName}, a type RECORD_TYPES reads")
 }
