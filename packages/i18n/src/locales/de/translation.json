@@ -1537,7 +1537,7 @@
       "list_item": "• {0} — @{1}\n  {2}\n",
       "list_item_no_handle": "• {0}\n  {1}\n",
       "no_description": "Keine Beschreibung",
-      "remove_group_thread": "In einem Gruppenchat gehört der Agent der Gruppe — nutze /group coach, um ihn zu wechseln.",
+      "remove_group_thread": "In einem Gruppenchat gehört der Agent der Gruppe — nutze /group agent, um ihn zu wechseln.",
       "remove_nothing": "Dieser Unterhaltung ist kein Agent zugeordnet.",
       "removed": "{0} antwortet in dieser Unterhaltung nicht mehr.",
       "user_updated": "Agent gewählt: {0}."
@@ -1701,6 +1701,9 @@
       "reads_source_group_health": "die Gesundheitshinweise der Gruppe",
       "reads_source_weekly_digest": "die Wochenzusammenfassung der Gruppe",
       "reads_source_physiology_view": "deine Schwellen, aus den Gruppeninfos"
+    },
+    "group-agent": {
+      "description": "Den Dravr-Agenten dieser Gruppe festlegen oder ihren menschlichen Coach lösen"
     },
     "group-coach": {
       "description": "Den Dravr-Agenten dieser Gruppe festlegen oder ihren menschlichen Coach lösen"

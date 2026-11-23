@@ -1537,7 +1537,7 @@
       "list_item": "• {0} — @{1}\n  {2}\n",
       "list_item_no_handle": "• {0}\n  {1}\n",
       "no_description": "Sin descripción",
-      "remove_group_thread": "En un grupo, el agente pertenece al grupo — usa /group coach para cambiarlo.",
+      "remove_group_thread": "En un grupo, el agente pertenece al grupo — usa /group agent para cambiarlo.",
       "remove_nothing": "Ningún agente está asociado a esta conversación.",
       "removed": "{0} ya no responde en esta conversación.",
       "user_updated": "Agente seleccionado: {0}."
@@ -1701,6 +1701,9 @@
       "reads_source_group_health": "las alertas de salud del grupo",
       "reads_source_weekly_digest": "su resumen semanal del grupo",
       "reads_source_physiology_view": "tus umbrales, desde Info del grupo"
+    },
+    "group-agent": {
+      "description": "Elegir el agente Dravr de este grupo, o desvincular a su coach humano"
     },
     "group-coach": {
       "description": "Elegir el agente Dravr de este grupo, o desvincular a su coach humano"

@@ -1537,7 +1537,7 @@
       "list_item": "• {0} — @{1}\n  {2}\n",
       "list_item_no_handle": "• {0}\n  {1}\n",
       "no_description": "Sans description",
-      "remove_group_thread": "Dans un groupe, l'agent appartient au groupe — utilise /group coach pour le changer.",
+      "remove_group_thread": "Dans un groupe, l'agent appartient au groupe — utilise /group agent pour le changer.",
       "remove_nothing": "Aucun agent n'est attaché à cette conversation.",
       "removed": "{0} ne répond plus dans cette conversation.",
       "user_updated": "Agent sélectionné : {0}."
@@ -1701,6 +1701,9 @@
       "reads_source_group_health": "les signaux de santé du groupe",
       "reads_source_weekly_digest": "son résumé hebdomadaire du groupe",
       "reads_source_physiology_view": "tes seuils, depuis Infos du groupe"
+    },
+    "group-agent": {
+      "description": "Choisir l'agent Dravr de ce groupe, ou détacher son coach humain"
     },
     "group-coach": {
       "description": "Choisir l'agent Dravr de ce groupe, ou détacher son coach humain"
