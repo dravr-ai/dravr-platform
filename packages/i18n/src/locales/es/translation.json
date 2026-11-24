@@ -3374,8 +3374,8 @@
   },
   "messaging": {
     "account": {
-      "no_provider": "Antes de chatear, conecta un servicio de fitness (Strava, Garmin, TrainingPeaks, COROS, Whoop) desde la app Dravr — sin él no tengo datos de actividad para orientarte.\n\nConéctate aquí:\n{0}",
-      "no_provider_with_email": "Antes de chatear, conecta un servicio de fitness (Strava, Garmin, TrainingPeaks, COROS, Whoop) desde la app Dravr — sin él no tengo datos de actividad para orientarte.\n\nInicia sesión con tu cuenta {1} aquí:\n{0}",
+      "no_provider": "Antes de chatear, conecta un servicio de fitness (Strava, Garmin, TrainingPeaks, COROS, WHOOP) desde la app Dravr — sin él no tengo datos de actividad para orientarte.\n\nConéctate aquí:\n{0}",
+      "no_provider_with_email": "Antes de chatear, conecta un servicio de fitness (Strava, Garmin, TrainingPeaks, COROS, WHOOP) desde la app Dravr — sin él no tengo datos de actividad para orientarte.\n\nInicia sesión con tu cuenta {1} aquí:\n{0}",
       "pending": "Tu cuenta está vinculada a este canal, pero aún espera la aprobación de un administrador. Podrás hablar con Dravr en cuanto se active — te avisaremos por aquí.",
       "registration_approved": "🎉 ¡Tu cuenta de Dravr ha sido aprobada! Ya puedes hablar con tu agente aquí. Hazme tu primera pregunta cuando quieras.",
       "suspended": "Tu cuenta de Dravr está suspendida. Contacta con soporte para recuperar el acceso."
@@ -3441,7 +3441,7 @@
     },
     "connect": {
       "button": "Conectar mi cuenta",
-      "prompt": "Conectemos tu servicio de fitness (Strava, Garmin, TrainingPeaks, COROS o Whoop) para que pueda orientarte con tus datos reales. Toca el botón de abajo para conectarte de forma segura.",
+      "prompt": "Conectemos tu servicio de fitness (Strava, Garmin, TrainingPeaks, COROS o WHOOP) para que pueda orientarte con tus datos reales. Toca el botón de abajo para conectarte de forma segura.",
       "title": "Conectar un servicio de fitness"
     },
     "empty_reply": "Hmm, no pude armar una respuesta. ¿Puedes reformular tu pregunta?",
@@ -3583,6 +3583,7 @@
         "remember_fact": "Recordar un dato",
         "save_recipe": "Guardar la receta",
         "save_training_plan": "Guardar el plan de entrenamiento",
+        "save_workout_to_library": "Guardar el entrenamiento en la biblioteca",
         "set_fitness_config": "Definir la configuración de fitness",
         "set_goal": "Definir el objetivo",
         "set_physiology": "Definir la fisiología",
@@ -4343,10 +4344,7 @@
       "void": "Anulada"
     },
     "editor": {
-      "open": "Crear desde una familia",
-      "title": "Crear una sesión para el {{date}}",
       "family": "Familia",
-      "preset": "Variante",
       "sport": "Deporte",
       "param": {
         "sets": "Series",
@@ -4356,7 +4354,6 @@
         "setRestSeconds": "Recuperación entre series (s)",
         "durationMinutes": "Duración (min)"
       },
-      "range": "Rango con evidencia {{min}}–{{max}}",
       "derivedHeading": "Qué hace esta sesión",
       "derived": {
         "ratio": "Relación esfuerzo:recuperación",
@@ -4370,23 +4367,18 @@
       "minutes": "{{count}} min",
       "stepsHeading": "Pasos",
       "findingsHeading": "Lo que encontró la comprobación",
-      "findingsNone": "Dentro de la evidencia de la familia.",
       "findingsNote": "Los hallazgos son advertencias: la sesión se guarda tal como la creaste.",
       "draftNote": "Guardada en tu borrador. {{name}} solo la ve cuando publicas.",
-      "replaces": "Sustituye la sesión de este día en tu borrador.",
       "measuring": "Midiendo…",
       "previewFailed": "No se pudo medir esta sesión.",
       "save": "Guardar en el borrador",
       "saving": "Guardando…",
-      "saved": "Guardada en tu borrador.",
       "saveFailed": "No se pudo guardar esta sesión.",
       "loading": "Cargando familias…",
       "noFamilies": "No hay familias de entrenamiento disponibles para {{name}}.",
       "loadFailed": "No se pudieron cargar las familias de entrenamiento.",
       "edit": "Editar día",
       "editTitle": "Editar {{date}}",
-      "modeSession": "Esta sesión",
-      "modeFamily": "Desde una familia",
       "restDay": "Día de descanso",
       "workout": "Título",
       "duration": "Duración (min)",
@@ -4394,7 +4386,6 @@
       "stepLabel": "Paso",
       "stepDuration": "Duración (m:ss)",
       "stepTarget": "Objetivo",
-      "stepRepeat": "Repeticiones",
       "addStep": "Añadir un paso",
       "removeStep": "Quitar el paso {{number}}",
       "moveStepUp": "Subir el paso {{number}}",
@@ -4404,7 +4395,6 @@
       "format": "Formato",
       "testedRange": "Rango probado {{min}}–{{max}}",
       "findingsInside": "Dentro del rango probado.",
-      "noFamilyForSport": "Ninguna familia de entrenamiento tiene una forma para este deporte: {{sport}}.",
       "replacesWith": "Sustituye {{from}} por {{to}}.",
       "replacesWithRest": "Sustituye {{from}} por un día de descanso.",
       "replacesRest": "Sustituye el día de descanso por {{to}}.",
@@ -4415,7 +4405,6 @@
       "keepEditing": "Seguir editando",
       "edited": "Editado",
       "editedNote": "Editaste este día en tu borrador.",
-      "restore": "Deshacer tus cambios",
       "restoreNote": "Vuelve a poner {{from}}, como estaba el día antes de tu primer cambio.",
       "restoreNoteRest": "Vuelve a poner el día de descanso, como estaba antes de tu primer cambio.",
       "restored": "{{date}} vuelve a estar como antes en tu borrador.",

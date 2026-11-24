@@ -3374,8 +3374,8 @@
   },
   "messaging": {
     "account": {
-      "no_provider": "Bevor wir chatten, verbinde einen Fitness-Dienst (Strava, Garmin, TrainingPeaks, COROS, Whoop) in der Dravr-App — ohne ihn habe ich keine Aktivitätsdaten, um dich zu coachen.\n\nVerbinde dich hier:\n{0}",
-      "no_provider_with_email": "Bevor wir chatten, verbinde einen Fitness-Dienst (Strava, Garmin, TrainingPeaks, COROS, Whoop) in der Dravr-App — ohne ihn habe ich keine Aktivitätsdaten, um dich zu coachen.\n\nMelde dich mit deinem Konto {1} hier an:\n{0}",
+      "no_provider": "Bevor wir chatten, verbinde einen Fitness-Dienst (Strava, Garmin, TrainingPeaks, COROS, WHOOP) in der Dravr-App — ohne ihn habe ich keine Aktivitätsdaten, um dich zu coachen.\n\nVerbinde dich hier:\n{0}",
+      "no_provider_with_email": "Bevor wir chatten, verbinde einen Fitness-Dienst (Strava, Garmin, TrainingPeaks, COROS, WHOOP) in der Dravr-App — ohne ihn habe ich keine Aktivitätsdaten, um dich zu coachen.\n\nMelde dich mit deinem Konto {1} hier an:\n{0}",
       "pending": "Dein Konto ist mit diesem Kanal verknüpft, wartet aber noch auf die Freigabe durch einen Admin. Sobald es aktiviert ist, kannst du mit Dravr chatten — du wirst hier benachrichtigt.",
       "registration_approved": "🎉 Dein Dravr-Konto wurde freigeschaltet! Du kannst jetzt hier mit deinem Agenten chatten. Stell mir deine erste Frage, wann immer du möchtest.",
       "suspended": "Dein Dravr-Konto ist gesperrt. Wende dich an den Support, um den Zugang wiederherzustellen."
@@ -3441,7 +3441,7 @@
     },
     "connect": {
       "button": "Konto verbinden",
-      "prompt": "Verbinden wir deinen Fitness-Dienst (Strava, Garmin, TrainingPeaks, COROS oder Whoop), damit ich dich mit echten Daten coachen kann. Tippe unten auf den Button, um dich sicher zu verbinden.",
+      "prompt": "Verbinden wir deinen Fitness-Dienst (Strava, Garmin, TrainingPeaks, COROS oder WHOOP), damit ich dich mit echten Daten coachen kann. Tippe unten auf den Button, um dich sicher zu verbinden.",
       "title": "Fitness-Dienst verbinden"
     },
     "empty_reply": "Hmm, ich konnte keine Antwort formulieren. Kannst du deine Frage umformulieren?",
@@ -3583,6 +3583,7 @@
         "remember_fact": "Information merken",
         "save_recipe": "Rezept speichern",
         "save_training_plan": "Trainingsplan speichern",
+        "save_workout_to_library": "Einheit in der Bibliothek speichern",
         "set_fitness_config": "Fitnesskonfiguration festlegen",
         "set_goal": "Ziel festlegen",
         "set_physiology": "Physiologie festlegen",
@@ -4343,10 +4344,7 @@
       "void": "Storniert"
     },
     "editor": {
-      "open": "Aus einer Familie erstellen",
-      "title": "Einheit für {{date}} erstellen",
       "family": "Familie",
-      "preset": "Vorlage",
       "sport": "Sportart",
       "param": {
         "sets": "Serien",
@@ -4356,7 +4354,6 @@
         "setRestSeconds": "Pause zwischen Serien (s)",
         "durationMinutes": "Dauer (min)"
       },
-      "range": "Belegter Bereich {{min}}–{{max}}",
       "derivedHeading": "Was diese Einheit bewirkt",
       "derived": {
         "ratio": "Verhältnis Belastung:Pause",
@@ -4370,23 +4367,18 @@
       "minutes": "{{count}} min",
       "stepsHeading": "Schritte",
       "findingsHeading": "Was die Prüfung gefunden hat",
-      "findingsNone": "Innerhalb der Evidenz der Familie.",
       "findingsNote": "Befunde sind Warnungen: Die Einheit wird so gespeichert, wie du sie erstellt hast.",
       "draftNote": "In deinem Entwurf gespeichert. {{name}} sieht sie erst, wenn du veröffentlichst.",
-      "replaces": "Ersetzt die Einheit dieses Tages in deinem Entwurf.",
       "measuring": "Wird gemessen…",
       "previewFailed": "Diese Einheit konnte nicht gemessen werden.",
       "save": "Im Entwurf speichern",
       "saving": "Wird gespeichert…",
-      "saved": "In deinem Entwurf gespeichert.",
       "saveFailed": "Diese Einheit konnte nicht gespeichert werden.",
       "loading": "Familien werden geladen…",
       "noFamilies": "Für {{name}} sind keine Trainingsfamilien verfügbar.",
       "loadFailed": "Die Trainingsfamilien konnten nicht geladen werden.",
       "edit": "Tag bearbeiten",
       "editTitle": "{{date}} bearbeiten",
-      "modeSession": "Diese Einheit",
-      "modeFamily": "Aus einer Familie",
       "restDay": "Ruhetag",
       "workout": "Titel",
       "duration": "Dauer (min)",
@@ -4394,7 +4386,6 @@
       "stepLabel": "Schritt",
       "stepDuration": "Dauer (m:ss)",
       "stepTarget": "Ziel",
-      "stepRepeat": "Wiederholungen",
       "addStep": "Schritt hinzufügen",
       "removeStep": "Schritt {{number}} entfernen",
       "moveStepUp": "Schritt {{number}} nach oben",
@@ -4404,7 +4395,6 @@
       "format": "Format",
       "testedRange": "Getesteter Bereich {{min}}–{{max}}",
       "findingsInside": "Im getesteten Bereich.",
-      "noFamilyForSport": "Keine Trainingsfamilie hat eine Form für diese Sportart: {{sport}}.",
       "replacesWith": "Ersetzt {{from}} durch {{to}}.",
       "replacesWithRest": "Ersetzt {{from}} durch einen Ruhetag.",
       "replacesRest": "Ersetzt den Ruhetag durch {{to}}.",
@@ -4415,7 +4405,6 @@
       "keepEditing": "Weiter bearbeiten",
       "edited": "Bearbeitet",
       "editedNote": "Du hast diesen Tag in deinem Entwurf bearbeitet.",
-      "restore": "Änderungen rückgängig machen",
       "restoreNote": "Stellt {{from}} wieder her, wie der Tag vor deiner ersten Änderung war.",
       "restoreNoteRest": "Stellt den Ruhetag wieder her, wie der Tag vor deiner ersten Änderung war.",
       "restored": "{{date}} ist in deinem Entwurf wieder wie vorher.",

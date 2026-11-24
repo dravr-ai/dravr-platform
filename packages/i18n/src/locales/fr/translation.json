@@ -3374,8 +3374,8 @@
   },
   "messaging": {
     "account": {
-      "no_provider": "Avant de discuter, connecte un service de fitness (Strava, Garmin, TrainingPeaks, COROS, Whoop) depuis l'app Dravr — sans ça je n'ai aucune donnée d'activité pour t'aider.\n\nConnecte-toi ici :\n{0}",
-      "no_provider_with_email": "Avant de discuter, connecte un service de fitness (Strava, Garmin, TrainingPeaks, COROS, Whoop) depuis l'app Dravr — sans ça je n'ai aucune donnée d'activité pour t'aider.\n\nConnecte-toi avec ton compte {1} ici :\n{0}",
+      "no_provider": "Avant de discuter, connecte un service de fitness (Strava, Garmin, TrainingPeaks, COROS, WHOOP) depuis l'app Dravr — sans ça je n'ai aucune donnée d'activité pour t'aider.\n\nConnecte-toi ici :\n{0}",
+      "no_provider_with_email": "Avant de discuter, connecte un service de fitness (Strava, Garmin, TrainingPeaks, COROS, WHOOP) depuis l'app Dravr — sans ça je n'ai aucune donnée d'activité pour t'aider.\n\nConnecte-toi avec ton compte {1} ici :\n{0}",
       "pending": "Ton compte est lié à ce canal, mais il est en attente d'approbation par un administrateur. Tu pourras discuter avec Dravr dès qu'il sera activé — on te préviendra ici.",
       "registration_approved": "🎉 Ton compte Dravr a été approuvé ! Tu peux maintenant discuter avec ton agent ici. Pose-moi ta première question quand tu veux.",
       "suspended": "Ton compte Dravr est suspendu. Contacte le support pour rétablir l'accès."
@@ -3441,7 +3441,7 @@
     },
     "connect": {
       "button": "Connecter mon compte",
-      "prompt": "Connectons ton service de fitness (Strava, Garmin, TrainingPeaks, COROS ou Whoop) pour que je puisse te coacher sur tes vraies données. Touche le bouton ci-dessous pour te connecter en toute sécurité.",
+      "prompt": "Connectons ton service de fitness (Strava, Garmin, TrainingPeaks, COROS ou WHOOP) pour que je puisse te coacher sur tes vraies données. Touche le bouton ci-dessous pour te connecter en toute sécurité.",
       "title": "Connecter un service de fitness"
     },
     "empty_reply": "Hmm, je n'ai pas réussi à formuler une réponse. Peux-tu reformuler ta question?",
@@ -3583,6 +3583,7 @@
         "remember_fact": "Retenir une information",
         "save_recipe": "Enregistrer la recette",
         "save_training_plan": "Enregistrer le plan d'entraînement",
+        "save_workout_to_library": "Enregistrer la séance dans la bibliothèque",
         "set_fitness_config": "Définir la configuration de fitness",
         "set_goal": "Définir l'objectif",
         "set_physiology": "Définir la physiologie",
@@ -4343,10 +4344,7 @@
       "void": "Annulée"
     },
     "editor": {
-      "open": "Construire depuis une famille",
-      "title": "Construire une séance pour le {{date}}",
       "family": "Famille",
-      "preset": "Préréglage",
       "sport": "Sport",
       "param": {
         "sets": "Séries",
@@ -4356,7 +4354,6 @@
         "setRestSeconds": "Récupération entre séries (s)",
         "durationMinutes": "Durée (min)"
       },
-      "range": "Plage étayée {{min}}–{{max}}",
       "derivedHeading": "Ce que fait cette séance",
       "derived": {
         "ratio": "Rapport effort:récupération",
@@ -4370,23 +4367,18 @@
       "minutes": "{{count}} min",
       "stepsHeading": "Étapes",
       "findingsHeading": "Ce que la vérification a relevé",
-      "findingsNone": "Dans les données probantes de la famille.",
       "findingsNote": "Ces constats sont des avertissements : la séance est enregistrée telle que tu l’as construite.",
       "draftNote": "Enregistrée dans ton brouillon. {{name}} ne la voit qu’une fois que tu publies.",
-      "replaces": "Remplace la séance de ce jour dans ton brouillon.",
       "measuring": "Mesure en cours…",
       "previewFailed": "Cette séance n’a pas pu être mesurée.",
       "save": "Enregistrer dans le brouillon",
       "saving": "Enregistrement…",
-      "saved": "Enregistrée dans ton brouillon.",
       "saveFailed": "Cette séance n’a pas pu être enregistrée.",
       "loading": "Chargement des familles…",
       "noFamilies": "Aucune famille de séances n’est disponible pour {{name}}.",
       "loadFailed": "Les familles de séances n’ont pas pu être chargées.",
       "edit": "Modifier le jour",
       "editTitle": "Modifier {{date}}",
-      "modeSession": "Cette séance",
-      "modeFamily": "Depuis une famille",
       "restDay": "Jour de repos",
       "workout": "Titre",
       "duration": "Durée (min)",
@@ -4394,7 +4386,6 @@
       "stepLabel": "Étape",
       "stepDuration": "Durée (m:ss)",
       "stepTarget": "Cible",
-      "stepRepeat": "Répétitions",
       "addStep": "Ajouter une étape",
       "removeStep": "Retirer l’étape {{number}}",
       "moveStepUp": "Monter l’étape {{number}}",
@@ -4404,7 +4395,6 @@
       "format": "Format",
       "testedRange": "Plage testée {{min}}–{{max}}",
       "findingsInside": "Dans la plage testée.",
-      "noFamilyForSport": "Aucune famille de séances n’a de version pour ce sport : {{sport}}.",
       "replacesWith": "Remplace {{from}} par {{to}}.",
       "replacesWithRest": "Remplace {{from}} par un jour de repos.",
       "replacesRest": "Remplace le jour de repos par {{to}}.",
@@ -4415,7 +4405,6 @@
       "keepEditing": "Continuer à modifier",
       "edited": "Modifié",
       "editedNote": "Tu as modifié ce jour dans ton brouillon.",
-      "restore": "Annuler tes modifications",
       "restoreNote": "Remet {{from}}, comme le jour était avant ta première modification.",
       "restoreNoteRest": "Remet le jour de repos, comme le jour était avant ta première modification.",
       "restored": "{{date}} est revenu comme avant dans ton brouillon.",

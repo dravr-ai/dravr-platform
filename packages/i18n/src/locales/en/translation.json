@@ -3374,8 +3374,8 @@
   },
   "messaging": {
     "account": {
-      "no_provider": "Before we chat, connect a fitness service (Strava, Garmin, TrainingPeaks, COROS, Whoop) from the Dravr app — without one I have no activity data to coach you on.\n\nConnect here:\n{0}",
-      "no_provider_with_email": "Before we chat, connect a fitness service (Strava, Garmin, TrainingPeaks, COROS, Whoop) from the Dravr app — without one I have no activity data to coach you on.\n\nSign in with your {1} account here:\n{0}",
+      "no_provider": "Before we chat, connect a fitness service (Strava, Garmin, TrainingPeaks, COROS, WHOOP) from the Dravr app — without one I have no activity data to coach you on.\n\nConnect here:\n{0}",
+      "no_provider_with_email": "Before we chat, connect a fitness service (Strava, Garmin, TrainingPeaks, COROS, WHOOP) from the Dravr app — without one I have no activity data to coach you on.\n\nSign in with your {1} account here:\n{0}",
       "pending": "Your account is linked to this channel, but it's still waiting for admin approval. You'll be able to chat with Dravr as soon as it's activated — you'll get a heads-up here.",
       "registration_approved": "🎉 Your Dravr account has been approved! You can now chat with your agent right here. Ask me your first question whenever you're ready.",
       "suspended": "Your Dravr account is suspended. Contact support to restore access."
@@ -3441,7 +3441,7 @@
     },
     "connect": {
       "button": "Connect your account",
-      "prompt": "Let's connect your fitness service (Strava, Garmin, TrainingPeaks, COROS or Whoop) so I can coach you on your real data. Tap the button below to connect securely.",
+      "prompt": "Let's connect your fitness service (Strava, Garmin, TrainingPeaks, COROS or WHOOP) so I can coach you on your real data. Tap the button below to connect securely.",
       "title": "Connect a fitness service"
     },
     "empty_reply": "Hmm, I couldn't put a reply together. Can you rephrase your question?",
@@ -3583,6 +3583,7 @@
         "remember_fact": "Remember fact",
         "save_recipe": "Save recipe",
         "save_training_plan": "Save training plan",
+        "save_workout_to_library": "Save workout to library",
         "set_fitness_config": "Set fitness configuration",
         "set_goal": "Set goal",
         "set_physiology": "Set physiology",
@@ -4343,10 +4344,7 @@
       "void": "Void"
     },
     "editor": {
-      "open": "Build from family",
-      "title": "Build a session for {{date}}",
       "family": "Family",
-      "preset": "Preset",
       "sport": "Sport",
       "param": {
         "sets": "Sets",
@@ -4356,7 +4354,6 @@
         "setRestSeconds": "Rest between sets (s)",
         "durationMinutes": "Duration (min)"
       },
-      "range": "Evidence range {{min}}–{{max}}",
       "derivedHeading": "What this session does",
       "derived": {
         "ratio": "Work:rest ratio",
@@ -4370,23 +4367,18 @@
       "minutes": "{{count}} min",
       "stepsHeading": "Steps",
       "findingsHeading": "What the check found",
-      "findingsNone": "Inside the family's evidence.",
       "findingsNote": "Findings are warnings: the session saves as you built it.",
       "draftNote": "Saved to your draft. {{name}} sees it only once you publish.",
-      "replaces": "Replaces this day's session in your draft.",
       "measuring": "Measuring…",
       "previewFailed": "This session could not be measured.",
       "save": "Save to draft",
       "saving": "Saving…",
-      "saved": "Saved to your draft.",
       "saveFailed": "This session could not be saved.",
       "loading": "Loading families…",
       "noFamilies": "No workout families are available for {{name}}.",
       "loadFailed": "The workout families could not be loaded.",
       "edit": "Edit day",
       "editTitle": "Edit {{date}}",
-      "modeSession": "This session",
-      "modeFamily": "From a family",
       "restDay": "Rest day",
       "workout": "Title",
       "duration": "Duration (min)",
@@ -4394,7 +4386,6 @@
       "stepLabel": "Step",
       "stepDuration": "Duration (m:ss)",
       "stepTarget": "Target",
-      "stepRepeat": "Repeat",
       "addStep": "Add a step",
       "removeStep": "Remove step {{number}}",
       "moveStepUp": "Move step {{number}} up",
@@ -4404,7 +4395,6 @@
       "format": "Format",
       "testedRange": "Tested range {{min}}–{{max}}",
       "findingsInside": "Inside the tested range.",
-      "noFamilyForSport": "No workout family has a form for this sport: {{sport}}.",
       "replacesWith": "Replaces {{from}} with {{to}}.",
       "replacesWithRest": "Replaces {{from}} with a rest day.",
       "replacesRest": "Replaces the rest day with {{to}}.",
@@ -4415,7 +4405,6 @@
       "keepEditing": "Keep editing",
       "edited": "Edited",
       "editedNote": "You edited this day in your draft.",
-      "restore": "Undo your edits",
       "restoreNote": "Puts back {{from}}, as the day stood before your first edit.",
       "restoreNoteRest": "Puts back the rest day, as the day stood before your first edit.",
       "restored": "{{date}} is back as it was in your draft.",
