@@ -68,7 +68,8 @@ fn keyed_message(domain: KeyedDomain, message: &[u8]) -> String {
 /// key's primary version, verbatim.
 ///
 /// # Errors
-/// The backend's HMAC failure.
+/// When the keyring is stale once the keyset is adopted: a new digest is
+/// never written under a primary that may have been demoted.
 pub fn index_mac(
     keys: &dyn HasEncryption,
     domain: KeyedDomain,
@@ -81,7 +82,8 @@ pub fn index_mac(
 /// then the other live version's, or the primary's twice with one live key.
 ///
 /// # Errors
-/// None today; kept fallible so a caller's key failure has a path.
+/// Never: a lookup hashes under keys already loaded. It returns a result to
+/// match [`index_mac`] and [`index_identity`], which can fail.
 pub fn index_lookup(
     keys: &dyn HasEncryption,
     domain: KeyedDomain,
@@ -170,7 +172,11 @@ mod tests {
 
         let before_rotation = index_mac(&old, domain, b"ab").unwrap();
         let after_rotation = index_mac(&rotated, domain, b"ab").unwrap();
-        assert_eq!(index_version_of(&before_rotation), 1);
+        assert_eq!(
+            index_version_of(&before_rotation),
+            1,
+            "bug: a write before the rotation is not under index v1"
+        );
         assert_eq!(
             index_version_of(&after_rotation),
             2,

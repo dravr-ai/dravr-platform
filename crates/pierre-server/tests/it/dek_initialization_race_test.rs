@@ -315,8 +315,16 @@ async fn fresh_database_stores_exactly_the_booting_key() {
         .await
         .unwrap()
         .expect("a fresh database gets its keyset document at boot");
-    assert_eq!(doc.primary(KeyFamily::Data).unwrap(), 1);
-    assert_eq!(doc.primary(KeyFamily::Index).unwrap(), 1);
+    assert_eq!(
+        doc.primary(KeyFamily::Data).unwrap(),
+        1,
+        "bug: a fresh keyset's data primary is not v1"
+    );
+    assert_eq!(
+        doc.primary(KeyFamily::Index).unwrap(),
+        1,
+        "bug: a fresh keyset's index primary is not v1"
+    );
     assert_eq!(
         doc.versions(KeyFamily::Data).len(),
         1,
@@ -351,7 +359,10 @@ async fn existing_key_is_never_replaced_by_a_booting_instance() {
 
     // A second instance boots with its own random bootstrap key.
     let (mut second, second_key) = booting_manager();
-    assert_ne!(second_key, original_key);
+    assert_ne!(
+        second_key, original_key,
+        "test setup: two instances draw the same bootstrap key"
+    );
     let second_database = open_instance(&database, second_key).await;
     assert!(
         second_database
@@ -395,7 +406,10 @@ async fn concurrent_fresh_initializations_converge_on_one_key() {
         let database = create_concurrent_test_db().await.unwrap();
         let (mut manager_a, key_a) = booting_manager();
         let (mut manager_b, key_b) = booting_manager();
-        assert_ne!(key_a, key_b);
+        assert_ne!(
+            key_a, key_b,
+            "test setup: two instances draw the same bootstrap key"
+        );
         let database_a = open_instance(&database, key_a).await;
         let database_b = open_instance(&database, key_b).await;
 
@@ -436,14 +450,17 @@ async fn rotation_that_loses_the_race_fails_and_keeps_the_winner() {
 
     // A concurrent rotation stored version 2 first.
     let winner_bytes = kek().wrap(&[9u8; 32]).await.unwrap();
-    assert!(insert_key_if_absent(
-        database.as_security_repository(),
-        KeyFamily::Data,
-        2,
-        &winner_bytes
-    )
-    .await
-    .unwrap());
+    assert!(
+        insert_key_if_absent(
+            database.as_security_repository(),
+            KeyFamily::Data,
+            2,
+            &winner_bytes
+        )
+        .await
+        .unwrap(),
+        "test setup: the concurrent rotation's v2 was not stored"
+    );
     let winner = Base64Standard.encode(&winner_bytes);
 
     let result = manager.rotate(&database, KeyFamily::Data).await;
@@ -468,13 +485,21 @@ async fn rotation_that_loses_the_race_fails_and_keeps_the_winner() {
         !doc.versions(KeyFamily::Data).contains_key(&2),
         "the losing rotation must not record a version it did not store"
     );
-    assert_eq!(doc.primary(KeyFamily::Data).unwrap(), 1);
+    assert_eq!(
+        doc.primary(KeyFamily::Data).unwrap(),
+        1,
+        "bug: the losing rotation moved the data primary"
+    );
     assert_eq!(
         keyset_text(&database).await,
         original_keyset,
         "the losing rotation leaves the keyset document as it was"
     );
-    assert_eq!(database.keyring().current().data_primary(), 1);
+    assert_eq!(
+        database.keyring().current().data_primary(),
+        1,
+        "bug: the losing rotation's instance seals under another primary"
+    );
     assert_runs_on(&database, &original_key, "the losing rotation's instance");
 }
 
@@ -509,8 +534,16 @@ async fn concurrent_rotations_of_one_family_stage_exactly_one() {
         2,
         "one version staged beside v1: {versions:?}"
     );
-    assert_eq!(versions[&2].state, KeyState::Staged);
-    assert_eq!(doc.primary(KeyFamily::Data).unwrap(), 1);
+    assert_eq!(
+        versions[&2].state,
+        KeyState::Staged,
+        "bug: the winning rotation's v2 is not staged"
+    );
+    assert_eq!(
+        doc.primary(KeyFamily::Data).unwrap(),
+        1,
+        "bug: staging moved the data primary"
+    );
 
     // The staged row is the one the document records: it unwraps, and a
     // promotion seals under it on both instances.
@@ -563,7 +596,11 @@ async fn concurrent_rotations_of_one_family_stage_exactly_one() {
             .encrypt_data_with_aad(DOMAIN, who, AAD)
             .unwrap();
         assert!(sealed.starts_with("v2:"), "{who} seals under v2: {sealed}");
-        assert_eq!(oracle.open(DOMAIN, &sealed, AAD).unwrap(), who);
+        assert_eq!(
+            oracle.open(DOMAIN, &sealed, AAD).unwrap(),
+            who,
+            "bug: {who}'s seal does not open under the stored v2"
+        );
     }
 }
 
@@ -578,9 +615,12 @@ async fn failed_active_version_read_fails_initialization() {
         .wrap(DatabaseEncryptionKey::generate().as_bytes())
         .await
         .unwrap();
-    assert!(insert_key_if_absent(security, KeyFamily::Data, 2, &wrapped)
-        .await
-        .unwrap());
+    assert!(
+        insert_key_if_absent(security, KeyFamily::Data, 2, &wrapped)
+            .await
+            .unwrap(),
+        "test setup: the legacy v2 key was not stored"
+    );
     security
         .update_system_secret(ACTIVE_VERSION_SECRET, "2")
         .await
@@ -640,7 +680,11 @@ async fn failed_keyset_read_fails_initialization() {
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(doc.primary(KeyFamily::Data).unwrap(), 2);
+    assert_eq!(
+        doc.primary(KeyFamily::Data).unwrap(),
+        2,
+        "bug: the failed boot moved the keyset's data primary"
+    );
     assert_eq!(
         database
             .as_security_repository()

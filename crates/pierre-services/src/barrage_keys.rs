@@ -16,7 +16,7 @@
 //!   `identity` (keyed original names, keyed Apple ids) goes through
 //!   [`pierre_database::keyed::index_identity`]: the raw MAC under the Index
 //!   family's **first** version, never the primary, so an identity does not
-//!   move when the primary rotates (carnet#1347 maps it to version 1).
+//!   move when the primary rotates (version 1, never retired: carnet#1347).
 //! - [`checkpoint_signer`]: the Cloud KMS `EC_SIGN_ED25519` key named by
 //!   `PIERRE_CHECKPOINT_SIGNING_KEY` ([`KmsSigner`]); on a deployment that
 //!   runs no KMS (local, tests), a ring key whose seed is an identity under
@@ -87,8 +87,8 @@ impl fmt::Debug for PlatformKeyed {
 }
 
 impl PlatformKeyed {
-    /// Keyed digests under `database`'s Index key. Build it once the real
-    /// DEK is installed (after the key manager's initialization).
+    /// Keyed digests under `database`'s Index key. The handle shares the
+    /// process keyring, so the keys the key manager installs later reach it.
     #[must_use]
     pub fn of(database: &Database) -> Self {
         let keys: Arc<dyn HasEncryption + Send + Sync> = match database.backend() {
@@ -396,6 +396,10 @@ pub async fn checkpoint_signer(keyed: &PlatformKeyed) -> AppResult<Option<Arc<dy
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
+    use dravr_tronc::dates::Timestamp;
+    use pierre_database::backends::shared::keyring::Keyring;
     use pierre_test_support::db::{create_test_db, create_test_db_with_key};
     use ring::signature::{UnparsedPublicKey, ED25519};
 
@@ -438,6 +442,37 @@ mod tests {
             other_key.identity(KeyedDomain::BlobName, b"m").unwrap(),
             name,
             "bug: an identity does not depend on the Index key"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_backend_identity_stays_put_when_the_index_primary_rotates() {
+        let v1 = vec![7_u8; 32];
+        let database = create_test_db_with_key(v1.clone()).await.unwrap();
+        let keyed = PlatformKeyed::of(&database);
+        let name = keyed.identity(KeyedDomain::BlobName, b"m").unwrap();
+        let digest = keyed.mac(KeyedDomain::BlobName, b"m").unwrap().0;
+
+        let rotated = Keyring::new(
+            BTreeMap::from([(1, v1.clone())]),
+            1,
+            BTreeMap::from([(1, v1), (2, vec![8_u8; 32])]),
+            2,
+            1,
+            true,
+        )
+        .unwrap();
+        database.keyring().install(rotated, Timestamp::now());
+
+        assert_ne!(
+            keyed.mac(KeyedDomain::BlobName, b"m").unwrap().0,
+            digest,
+            "bug: a new digest is not written under the rotated Index primary"
+        );
+        assert_eq!(
+            keyed.identity(KeyedDomain::BlobName, b"m").unwrap(),
+            name,
+            "bug: an identity moved with the Index primary"
         );
     }
 

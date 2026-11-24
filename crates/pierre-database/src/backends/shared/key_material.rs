@@ -324,12 +324,6 @@ impl StoredSecretKind {
         Self::LlmApiKey,
     ];
 
-    /// The seal domain of a value stored in this column.
-    #[must_use]
-    pub const fn domain(self) -> SealDomain {
-        SealDomain::Stored(self)
-    }
-
     /// The AAD one stored row of this kind is sealed under, from that row's
     /// own columns as the sweep selects them: its key and up to three parts
     /// (see [`crate::repositories::security::SealedRow`]).

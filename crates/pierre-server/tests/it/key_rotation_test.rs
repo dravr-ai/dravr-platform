@@ -25,6 +25,7 @@ use pierre_database::backends::shared::encryption::create_rsa_key_aad_context;
 use pierre_database::backends::shared::key_material::StoredSecretKind;
 use pierre_database::backends::shared::keyring::{KeyFamily, SealDomain};
 use pierre_database::backends::SecurityRepository;
+use pierre_database::RepositoryRegistry;
 use pierre_test_support::db::create_test_db_with_key;
 use serial_test::serial;
 
@@ -100,7 +101,8 @@ async fn make_legacy(booted: &Booted, active: u32) {
         assert!(
             insert_key_if_absent(security, KeyFamily::Data, version, &wrapped)
                 .await
-                .unwrap()
+                .unwrap(),
+            "test setup: legacy data v{version} was not stored"
         );
     }
     security
@@ -170,7 +172,7 @@ async fn exec(database: &Database, sql: &str, value: &str, key: &str) {
     }
 }
 
-/// Tick the controller at `now` and return the report.
+/// Tick the controller at `now`.
 async fn tick(booted: &Booted, controller: &KeysetController, now: Timestamp) {
     controller.tick(booted.security(), now).await.unwrap();
 }
@@ -180,9 +182,20 @@ async fn tick(booted: &Booted, controller: &KeysetController, now: Timestamp) {
 async fn a_fresh_database_writes_its_keyset_at_boot_and_reboots_from_it() {
     let booted = boot().await;
     let (_, doc) = read_keyset(booted.security()).await.unwrap().unwrap();
-    assert_eq!(doc.primary(KeyFamily::Data).unwrap(), 1);
-    assert_eq!(doc.primary(KeyFamily::Index).unwrap(), 1);
-    assert!(booted.database.keyring().current().adopted());
+    assert_eq!(
+        doc.primary(KeyFamily::Data).unwrap(),
+        1,
+        "bug: a fresh keyset's data primary is not v1"
+    );
+    assert_eq!(
+        doc.primary(KeyFamily::Index).unwrap(),
+        1,
+        "bug: a fresh keyset's index primary is not v1"
+    );
+    assert!(
+        booted.database.keyring().current().adopted(),
+        "bug: a fresh database boots on the legacy layout"
+    );
 
     let sealed = booted
         .security()
@@ -202,7 +215,8 @@ async fn a_fresh_database_writes_its_keyset_at_boot_and_reboots_from_it() {
                 "aad"
             )
             .unwrap(),
-        "secret"
+        "secret",
+        "bug: a value sealed before a reboot does not open after it"
     );
 }
 
@@ -214,8 +228,16 @@ async fn a_legacy_database_runs_as_before_until_adopted() {
     let legacy = reboot(booted).await;
     let ring = legacy.database.keyring().current();
     assert!(!ring.adopted(), "no document means the legacy layout");
-    assert_eq!(ring.data_primary(), 2);
-    assert_eq!(ring.versions(KeyFamily::Data), vec![1, 2]);
+    assert_eq!(
+        ring.data_primary(),
+        2,
+        "bug: the legacy active version is not the data primary"
+    );
+    assert_eq!(
+        ring.versions(KeyFamily::Data),
+        vec![1, 2],
+        "bug: a legacy version is not loaded"
+    );
 
     // The controller does nothing before adoption.
     let controller = legacy.controller(Vec::new());
@@ -223,9 +245,19 @@ async fn a_legacy_database_runs_as_before_until_adopted() {
         .tick(legacy.security(), Timestamp::now() + Elapsed::days(400))
         .await
         .unwrap();
-    assert_eq!(report.transitions, Vec::new());
-    assert_eq!(report.resealed, 0);
-    assert!(read_keyset(legacy.security()).await.unwrap().is_none());
+    assert_eq!(
+        report.transitions,
+        Vec::new(),
+        "bug: the controller moved a key before adoption"
+    );
+    assert_eq!(
+        report.resealed, 0,
+        "bug: the controller re-sealed a row before adoption"
+    );
+    assert!(
+        read_keyset(legacy.security()).await.unwrap().is_none(),
+        "bug: the controller adopted the legacy layout"
+    );
 
     // Adoption is the admin's, and happens once.
     let doc = legacy
@@ -234,17 +266,25 @@ async fn a_legacy_database_runs_as_before_until_adopted() {
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(doc.primary(KeyFamily::Data).unwrap(), 2);
+    assert_eq!(
+        doc.primary(KeyFamily::Data).unwrap(),
+        2,
+        "bug: adoption did not keep the legacy active version primary"
+    );
     assert_eq!(
         legacy.state(KeyFamily::Data, 1).await,
-        KeyState::DecryptOnly
+        KeyState::DecryptOnly,
+        "bug: adoption did not keep the older version decrypt_only"
     );
-    assert!(legacy
-        .key_manager
-        .adopt(&legacy.database)
-        .await
-        .unwrap()
-        .is_none());
+    assert!(
+        legacy
+            .key_manager
+            .adopt(&legacy.database)
+            .await
+            .unwrap()
+            .is_none(),
+        "bug: a second adoption wrote a document"
+    );
     let gone = legacy
         .security()
         .get_system_secret(ACTIVE_VERSION_SECRET)
@@ -253,7 +293,10 @@ async fn a_legacy_database_runs_as_before_until_adopted() {
         gone.is_err(),
         "adoption deletes the legacy active-version secret"
     );
-    assert!(legacy.database.keyring().current().adopted());
+    assert!(
+        legacy.database.keyring().current().adopted(),
+        "bug: adoption did not reload this process's keyring"
+    );
 }
 
 #[tokio::test]
@@ -297,9 +340,12 @@ async fn adoption_sweeps_every_row_to_the_primary_then_disables_the_old_key() {
         "kid-plain",
     )
     .await;
-    assert!(stored_pool_secret(&booted.database)
-        .await
-        .starts_with("v1:"));
+    assert!(
+        stored_pool_secret(&booted.database)
+            .await
+            .starts_with("v1:"),
+        "test setup: the pool secret is not sealed under v1"
+    );
 
     make_legacy(&booted, 2).await;
     let legacy = reboot(booted).await;
@@ -313,12 +359,18 @@ async fn adoption_sweeps_every_row_to_the_primary_then_disables_the_old_key() {
     let now = Timestamp::now();
 
     tick(&legacy, &controller, now).await;
-    assert!(stored_pool_secret(&legacy.database)
-        .await
-        .starts_with("v2:"));
-    assert!(stored_private_key(&legacy.database, "kid-sealed")
-        .await
-        .starts_with("v2:"));
+    assert!(
+        stored_pool_secret(&legacy.database)
+            .await
+            .starts_with("v2:"),
+        "bug: the sweep did not re-seal the pool secret under v2"
+    );
+    assert!(
+        stored_private_key(&legacy.database, "kid-sealed")
+            .await
+            .starts_with("v2:"),
+        "bug: the sweep did not re-seal the private key under v2"
+    );
     assert!(
         stored_private_key(&legacy.database, "kid-plain")
             .await
@@ -331,7 +383,8 @@ async fn adoption_sweeps_every_row_to_the_primary_then_disables_the_old_key() {
             .count_sealed_under(StoredSecretKind::RsaPrivateKey, 1)
             .await
             .unwrap(),
-        0
+        0,
+        "bug: a private key is still under v1 after a complete sweep"
     );
     let pem = legacy
         .security()
@@ -341,13 +394,17 @@ async fn adoption_sweeps_every_row_to_the_primary_then_disables_the_old_key() {
             &create_rsa_key_aad_context("kid-plain"),
         )
         .unwrap();
-    assert_eq!(pem, "-----BEGIN PRIVATE KEY-----\nBBBB");
+    assert_eq!(
+        pem, "-----BEGIN PRIVATE KEY-----\nBBBB",
+        "bug: the sealed plaintext key does not open to its PEM"
+    );
 
     // Disabling waits L + the sign-in cookie's TTL, then two zero counts.
     tick(&legacy, &controller, now + Elapsed::minutes(20)).await;
     assert_eq!(
         legacy.state(KeyFamily::Data, 1).await,
-        KeyState::DecryptOnly
+        KeyState::DecryptOnly,
+        "bug: v1 was disabled inside the disable wait"
     );
     tick(&legacy, &controller, now + Elapsed::minutes(26)).await;
     assert_eq!(
@@ -356,14 +413,19 @@ async fn adoption_sweeps_every_row_to_the_primary_then_disables_the_old_key() {
         "one zero is not enough"
     );
     tick(&legacy, &controller, now + Elapsed::minutes(31)).await;
-    assert_eq!(legacy.state(KeyFamily::Data, 1).await, KeyState::Disabled);
+    assert_eq!(
+        legacy.state(KeyFamily::Data, 1).await,
+        KeyState::Disabled,
+        "bug: a drained v1 was not disabled on the second zero"
+    );
     assert_eq!(
         legacy
             .database
             .keyring()
             .current()
             .versions(KeyFamily::Data),
-        vec![2]
+        vec![2],
+        "bug: the disabled v1 is still loaded"
     );
 
     // Everything still opens, and index v1 (the same row) still hashes.
@@ -374,16 +436,24 @@ async fn adoption_sweeps_every_row_to_the_primary_then_disables_the_old_key() {
             .await
             .unwrap()
             .as_deref(),
-        Some(POOL_SECRET)
+        Some(POOL_SECRET),
+        "bug: the re-sealed pool secret does not open after v1 is disabled"
     );
-    assert_eq!(legacy.state(KeyFamily::Index, 1).await, KeyState::Primary);
+    assert_eq!(
+        legacy.state(KeyFamily::Index, 1).await,
+        KeyState::Primary,
+        "bug: disabling data v1 moved index v1, which shares its row"
+    );
 
     // Destroy is refused before 14 days; enable undoes the disable.
-    assert!(legacy
-        .key_manager
-        .destroy(&legacy.database, KeyFamily::Data, 1)
-        .await
-        .is_err());
+    assert!(
+        legacy
+            .key_manager
+            .destroy(&legacy.database, KeyFamily::Data, 1)
+            .await
+            .is_err(),
+        "bug: data v1 was destroyed"
+    );
     legacy
         .key_manager
         .enable(&legacy.database, KeyFamily::Data, 1)
@@ -391,7 +461,8 @@ async fn adoption_sweeps_every_row_to_the_primary_then_disables_the_old_key() {
         .unwrap();
     assert_eq!(
         legacy.state(KeyFamily::Data, 1).await,
-        KeyState::DecryptOnly
+        KeyState::DecryptOnly,
+        "bug: enable did not bring v1 back to decrypt_only"
     );
 
     let history = legacy
@@ -408,7 +479,7 @@ async fn adoption_sweeps_every_row_to_the_primary_then_disables_the_old_key() {
     );
 }
 
-fn repos_of(booted: &Booted) -> Arc<pierre_database::RepositoryRegistry> {
+fn repos_of(booted: &Booted) -> Arc<RepositoryRegistry> {
     Arc::clone(booted.database.repositories())
 }
 
@@ -437,16 +508,25 @@ async fn a_row_that_does_not_open_is_reported_and_holds_its_key() {
     let controller = booted.controller(Vec::new());
     let now = Timestamp::now() + Elapsed::minutes(16);
     tick(&booted, &controller, now).await;
-    assert_eq!(booted.state(KeyFamily::Data, 2).await, KeyState::Primary);
+    assert_eq!(
+        booted.state(KeyFamily::Data, 2).await,
+        KeyState::Primary,
+        "bug: v2 was not promoted after the fleet window"
+    );
     let state = SweepState::read(booted.security()).await.unwrap();
-    assert_eq!(state.unreadable_under(1), 1);
+    assert_eq!(
+        state.unreadable_under(1),
+        1,
+        "bug: the tampered row is not kept in the unreadable set"
+    );
 
     for minutes in [30, 40, 50] {
         tick(&booted, &controller, now + Elapsed::minutes(minutes)).await;
     }
     assert_eq!(
         booted.state(KeyFamily::Data, 1).await,
-        KeyState::DecryptOnly
+        KeyState::DecryptOnly,
+        "bug: v1 was disabled while an unreadable row names it"
     );
 
     // The admin deletes the row; the next complete pass clears it.
@@ -460,7 +540,11 @@ async fn a_row_that_does_not_open_is_reported_and_holds_its_key() {
     for minutes in [60, 65] {
         tick(&booted, &controller, now + Elapsed::minutes(minutes)).await;
     }
-    assert_eq!(booted.state(KeyFamily::Data, 1).await, KeyState::Disabled);
+    assert_eq!(
+        booted.state(KeyFamily::Data, 1).await,
+        KeyState::Disabled,
+        "bug: v1 was not disabled once its unreadable row was gone"
+    );
 }
 
 struct FailingHolder;
@@ -491,10 +575,15 @@ async fn an_external_holder_whose_count_fails_holds_the_key() {
     }
     assert_eq!(
         booted.state(KeyFamily::Data, 1).await,
-        KeyState::DecryptOnly
+        KeyState::DecryptOnly,
+        "bug: v1 was disabled while a holder's count failed"
     );
     let state = SweepState::read(booted.security()).await.unwrap();
-    assert_eq!(state.holders.get("failing"), Some(&None));
+    assert_eq!(
+        state.holders.get("failing"),
+        Some(&None),
+        "bug: the failed holder count is not recorded as failed"
+    );
 }
 
 #[tokio::test]
@@ -537,12 +626,15 @@ async fn an_index_rotation_signs_no_one_out() {
         "one rotation per family at a time"
     );
     // Staged: writes stay on k1, lookups try both.
-    assert!(repos
-        .session_refresh_tokens
-        .consume_token("before-staging", Timestamp::now())
-        .await
-        .unwrap()
-        .is_some());
+    assert!(
+        repos
+            .session_refresh_tokens
+            .consume_token("before-staging", Timestamp::now())
+            .await
+            .unwrap()
+            .is_some(),
+        "bug: a k1 token does not exchange while k2 is staged"
+    );
 
     let controller = booted.controller(Vec::new());
     tick(
@@ -551,29 +643,42 @@ async fn an_index_rotation_signs_no_one_out() {
         Timestamp::now() + Elapsed::minutes(16),
     )
     .await;
-    assert_eq!(booted.state(KeyFamily::Index, 2).await, KeyState::Primary);
+    assert_eq!(
+        booted.state(KeyFamily::Index, 2).await,
+        KeyState::Primary,
+        "bug: index k2 was not promoted after the fleet window"
+    );
 
     // A token minted under k1 still exchanges after k2 is primary, and its
     // successor is hashed under k2.
-    assert!(repos
-        .session_refresh_tokens
-        .consume_token("before-promotion", Timestamp::now())
-        .await
-        .unwrap()
-        .is_some());
+    assert!(
+        repos
+            .session_refresh_tokens
+            .consume_token("before-promotion", Timestamp::now())
+            .await
+            .unwrap()
+            .is_some(),
+        "bug: a k1 token does not exchange after k2 is primary"
+    );
     repos
         .session_refresh_tokens
         .store_token("after", &record("f3"))
         .await
         .unwrap();
     let hash = booted.database.keyring().hash_for_storage("after").unwrap();
-    assert!(hash.starts_with("k2:"));
-    assert!(repos
-        .session_refresh_tokens
-        .consume_token("after", Timestamp::now())
-        .await
-        .unwrap()
-        .is_some());
+    assert!(
+        hash.starts_with("k2:"),
+        "bug: a new hash is not written under k2: {hash}"
+    );
+    assert!(
+        repos
+            .session_refresh_tokens
+            .consume_token("after", Timestamp::now())
+            .await
+            .unwrap()
+            .is_some(),
+        "bug: a token minted under k2 does not exchange"
+    );
 
     // A used index key is never retired: k1 stays loaded long after every
     // refresh token under it has expired, and the family does not rotate again.
@@ -582,7 +687,8 @@ async fn an_index_rotation_signs_no_one_out() {
     }
     assert_eq!(
         booted.state(KeyFamily::Index, 1).await,
-        KeyState::DecryptOnly
+        KeyState::DecryptOnly,
+        "bug: a used index key was retired"
     );
     assert!(
         booted

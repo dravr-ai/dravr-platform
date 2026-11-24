@@ -512,10 +512,11 @@ impl KeysetDocument {
         })
     }
 
-    /// Whether `version` may be destroyed now: disabled for
-    /// [`DESTROY_AFTER_DISABLED`], and for v1 (one stored row serves both
-    /// families) both families' v1 disabled or destroyed. The row count is
-    /// the caller's.
+    /// Whether `version` may be destroyed now: a data version disabled for
+    /// [`DESTROY_AFTER_DISABLED`]. The row count is the caller's.
+    ///
+    /// An index version never is (a used index key is never retired, JF,
+    /// carnet#1347), and neither is data v1: its stored row is index v1's.
     ///
     /// # Errors
     ///
@@ -548,16 +549,9 @@ impl KeysetDocument {
             )));
         }
         if version == 1 {
-            let other = match family {
-                KeyFamily::Data => KeyFamily::Index,
-                KeyFamily::Index => KeyFamily::Data,
-            };
-            let other_state = self.versions(other).get(&1).map(|k| k.state);
-            if other_state.is_some_and(KeyState::is_loaded) {
-                return Err(AppError::invalid_input(format!(
-                    "v1 is one stored key for both families, and {other} v1 is still in use"
-                )));
-            }
+            return Err(AppError::invalid_input(
+                "data v1 is never destroyed: its stored key is also index v1, which is never retired",
+            ));
         }
         Ok(())
     }
@@ -743,7 +737,8 @@ mod tests {
         doc.promote_due(at(15));
         assert_eq!(
             doc.versions(KeyFamily::Index)[&1].state,
-            KeyState::DecryptOnly
+            KeyState::DecryptOnly,
+            "the promotion demotes index v1"
         );
         assert_eq!(
             doc.disable_candidates(at(60 * 24 * 400)),
@@ -828,11 +823,11 @@ mod tests {
                 .is_err(),
             "a key disabled for 13 days is not destroyed"
         );
-        // v1 is also index v1, which is still primary.
+        // v1 is also index v1, which is never retired.
         assert!(
             doc.check_destroyable(KeyFamily::Data, 1, at(45 + 60 * 24 * 15))
                 .is_err(),
-            "data v1 is not destroyed while index v1 is in use"
+            "bug: data v1 is destroyable, and its row is index v1's"
         );
 
         let enabled = doc.enable(KeyFamily::Data, 1, at(50)).unwrap();

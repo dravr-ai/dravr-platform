@@ -942,7 +942,9 @@ macro_rules! impl_oauth_token_repository {
             ) -> AppResult<()> {
                 let encrypted = HasEncryption::encrypt_data_with_aad(
                     self,
-                    StoredSecretKind::StravaPoolClientSecret.domain(),
+                    $crate::backends::shared::keyring::SealDomain::Stored(
+                        StoredSecretKind::StravaPoolClientSecret,
+                    ),
                     client_secret,
                     &strava_pool_app_aad(client_id),
                 )?;

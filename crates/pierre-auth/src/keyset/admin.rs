@@ -13,7 +13,7 @@ use pierre_database::repositories::security::KeyLifecycleEvent;
 use tracing::info;
 
 use super::controller::{count_remaining, record_transitions, stage_key, write_keyset, SweepState};
-use super::document::{KeyState, KeyVersion, KeysetDocument, KEYSET_SECRET};
+use super::document::{KeyState, KeyVersion, KeysetDocument, Transition, KEYSET_SECRET};
 use super::events;
 use super::loader::read_keyset;
 use super::secrets::{load_key, read_legacy_active_version, secret_name, ACTIVE_VERSION_SECRET};
@@ -130,10 +130,11 @@ impl KeyManager {
         self.refresh_keyring(database).await
     }
 
-    /// Destroy a disabled version: refused unless it has been disabled for
-    /// 14 days, a fresh count of its rows is zero, and (for v1) both
-    /// families' v1 are out of use. The document moves to `destroyed`
-    /// first; the wrapped key is deleted second.
+    /// Destroy a disabled data version: refused unless it has been disabled
+    /// for 14 days and a fresh count of its rows is zero, and always for an
+    /// index version and for data v1, whose row is index v1's
+    /// ([`KeysetDocument::check_destroyable`]). The document moves to
+    /// `destroyed` first; the wrapped key is deleted second.
     ///
     /// The count covers the stored rows. External holders were counted when
     /// the key was disabled, and a disabled key seals nothing new, so they
@@ -168,22 +169,9 @@ impl KeyManager {
         }
         let transition = doc.destroy(family, version, now)?;
         Self::write_or_conflict(database, &text, &doc, &[transition], now).await?;
-        // v1 is one row for both families: it goes once neither needs it.
-        let other_v1_gone = version != 1 || {
-            let other = match family {
-                KeyFamily::Data => KeyFamily::Index,
-                KeyFamily::Index => KeyFamily::Data,
-            };
-            doc.versions(other)
-                .get(&1)
-                .is_none_or(|key| key.state == KeyState::Destroyed)
-        };
-        if other_v1_gone {
-            security
-                .delete_system_secret(&secret_name(family, version))
-                .await?;
-        }
-        Ok(())
+        security
+            .delete_system_secret(&secret_name(family, version))
+            .await
     }
 
     /// The keyset's states, ages, rows left under each non-primary version,
@@ -294,7 +282,7 @@ impl KeyManager {
         database: &Database,
         text: &str,
         doc: &KeysetDocument,
-        transitions: &[super::document::Transition],
+        transitions: &[Transition],
         now: Timestamp,
     ) -> AppResult<()> {
         if write_keyset(

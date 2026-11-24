@@ -46,7 +46,7 @@ use pierre_database::repositories::security::SealedRow;
 use serde::{Deserialize, Serialize};
 use tracing::{error, info, warn};
 
-use super::document::{KeysetDocument, Transition, KEYSET_SECRET};
+use super::document::{KeyState, KeysetDocument, Transition, KEYSET_SECRET};
 use super::events;
 use super::loader::{read_keyset, KeysetLoader};
 use super::secrets::{insert_key_if_absent, secret_name};
@@ -191,7 +191,7 @@ pub async fn record_transitions(
             event = transition.event(),
             key_family = %transition.family,
             key_version = transition.version,
-            from = transition.from.map(super::document::KeyState::as_str),
+            from = transition.from.map(KeyState::as_str),
             to = transition.to.as_str(),
             "{}",
             transition.message()

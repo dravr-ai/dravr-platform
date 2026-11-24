@@ -518,11 +518,27 @@ async fn dek_read_failure_pages() {
 
     let page = captured.page("key_material.dek_read_failed");
     if breaks_every_secret(&database) {
-        assert_eq!(page.message(), Some(KEYSET_READ_FAILED));
+        assert_eq!(
+            page.message(),
+            Some(KEYSET_READ_FAILED),
+            "bug: the page does not name the failed keyset read"
+        );
     } else {
-        assert_eq!(page.message(), Some("Failed to read a stored key version"));
-        assert_eq!(required(&page, "key_family"), "data");
-        assert_eq!(required(&page, "key_version"), "1");
+        assert_eq!(
+            page.message(),
+            Some("Failed to read a stored key version"),
+            "bug: the page does not name the failed key read"
+        );
+        assert_eq!(
+            required(&page, "key_family"),
+            "data",
+            "bug: the page does not name the data family"
+        );
+        assert_eq!(
+            required(&page, "key_version"),
+            "1",
+            "bug: the page does not name the unreadable v1"
+        );
     }
 }
 
@@ -541,7 +557,11 @@ async fn dek_read_failure_on_the_legacy_layout_pages() {
     } else {
         "Failed to read the stored DEK; refusing to initialize key management"
     };
-    assert_eq!(page.message(), Some(expected));
+    assert_eq!(
+        page.message(),
+        Some(expected),
+        "bug: the page does not name the failed read"
+    );
 }
 
 #[tokio::test]
@@ -551,10 +571,17 @@ async fn dek_unwrap_failure_pages() {
     let captured = Captured::start();
     // A different key-encryption key: the stored DEK cannot be unwrapped.
     let (mut booting, _) = booting_manager(8);
-    assert!(booting.complete_initialization(&database).await.is_err());
+    assert!(
+        booting.complete_initialization(&database).await.is_err(),
+        "bug: a key that does not unwrap booted"
+    );
 
     let page = captured.page("key_material.dek_unwrap_failed");
-    assert_eq!(required(&page, "key_version"), "1");
+    assert_eq!(
+        required(&page, "key_version"),
+        "1",
+        "bug: the page does not name the v1 that failed to unwrap"
+    );
 }
 
 /// The stored Strava access token for `user_id`, read through `database`.
@@ -736,7 +763,11 @@ async fn active_dek_version_missing_from_the_store_pages() {
     boot_refuses(&database).await;
 
     let page = captured.page("key_material.dek_read_failed");
-    assert_eq!(required(&page, "key_version"), "2");
+    assert_eq!(
+        required(&page, "key_version"),
+        "2",
+        "bug: the page does not name the missing v2"
+    );
 }
 
 #[tokio::test]
@@ -748,7 +779,11 @@ async fn stored_dek_that_is_not_base64_pages() {
     boot_refuses(&database).await;
 
     let page = captured.page("key_material.dek_read_failed");
-    assert_eq!(required(&page, "key_version"), "1");
+    assert_eq!(
+        required(&page, "key_version"),
+        "1",
+        "bug: the page does not name the v1 that is not base64"
+    );
 }
 
 #[tokio::test]
@@ -762,7 +797,11 @@ async fn stored_dek_of_the_wrong_length_pages() {
     boot_refuses(&database).await;
 
     let page = captured.page("key_material.dek_unwrap_failed");
-    assert_eq!(required(&page, "key_version"), "1");
+    assert_eq!(
+        required(&page, "key_version"),
+        "1",
+        "bug: the page does not name the v1 of the wrong length"
+    );
 }
 
 #[tokio::test]

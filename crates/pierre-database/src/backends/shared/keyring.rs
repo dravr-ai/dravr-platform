@@ -609,7 +609,11 @@ mod tests {
         );
 
         let other_key = Keyring::single(key(9)).open(DOMAIN, &sealed, AAD);
-        assert_eq!(code(other_key), Err(ErrorCode::InternalError));
+        assert_eq!(
+            code(other_key),
+            Err(ErrorCode::InternalError),
+            "bug: a value opened under another key"
+        );
 
         let ring = ring(&[1], 1, &[1], 1);
         let unknown = ring.open(DOMAIN, "v7:AAAA", AAD).unwrap_err();
@@ -621,10 +625,14 @@ mod tests {
             unknown.message
         );
         let short = ring.open(DOMAIN, "v1:AAAA", AAD).unwrap_err();
-        assert_eq!(short.message, "Invalid encrypted data: too short");
+        assert_eq!(
+            short.message, "Invalid encrypted data: too short",
+            "bug: a value shorter than its nonce is not refused as too short"
+        );
         assert_eq!(
             code(ring.open(DOMAIN, "v1:not base64!", AAD)),
-            Err(ErrorCode::InternalError)
+            Err(ErrorCode::InternalError),
+            "bug: a value that is not base64 opened"
         );
     }
 

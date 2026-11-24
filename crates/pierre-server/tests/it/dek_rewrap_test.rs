@@ -55,7 +55,10 @@ async fn rewrap_kek_preserves_data_and_invalidates_old_kek() {
         .as_security_repository()
         .encrypt_data_with_aad(DOMAIN, "secret", AAD)
         .unwrap();
-    assert!(ciphertext_v1.starts_with("v1:"));
+    assert!(
+        ciphertext_v1.starts_with("v1:"),
+        "bug: a fresh keyset does not seal under v1: {ciphertext_v1}"
+    );
     key_manager
         .rotate(&database, KeyFamily::Data)
         .await
@@ -76,7 +79,10 @@ async fn rewrap_kek_preserves_data_and_invalidates_old_kek() {
         .as_security_repository()
         .encrypt_data_with_aad(DOMAIN, "rotated-secret", AAD)
         .unwrap();
-    assert!(ciphertext_v2.starts_with("v2:"));
+    assert!(
+        ciphertext_v2.starts_with("v2:"),
+        "bug: the promoted v2 does not seal new values: {ciphertext_v2}"
+    );
 
     let kek_b = Box::new(LocalKekProvider::from_mek(MasterEncryptionKey::from_bytes(
         [0xBB; 32],

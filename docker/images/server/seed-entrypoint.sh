@@ -22,7 +22,7 @@ if [ -n "$DATABASE_HOST" ] && [ -n "$DATABASE_NAME" ] && [ -n "$DATABASE_USER" ]
     echo "Constructed DATABASE_URL for Cloud SQL (PostgreSQL via unix socket)"
 fi
 
-# `key ...` runs a key-rotation operator command (pierre-cli key adopt |
+# `key ...` runs a key-rotation admin command (pierre-cli key adopt |
 # rotate | status | enable | destroy | rewrap-kek) inside the VPC, where the
 # private Cloud SQL instance is reachable. It needs the KEK: execute the job
 # with --update-env-vars=PIERRE_KMS_KEY_RESOURCE=... (see the vault runbook

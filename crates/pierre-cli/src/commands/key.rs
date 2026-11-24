@@ -41,7 +41,7 @@ use pierre_core::config::database::PostgresPoolConfig;
 use pierre_core::errors::AppResult;
 use pierre_core::redaction::redact_url;
 use pierre_database::backends::factory::Database;
-use pierre_database::backends::shared::keyring::KeyFamily;
+use pierre_database::backends::shared::keyring::{KeyFamily, FLEET_WINDOW};
 use pierre_database::DatabaseProvider;
 use pierre_services::supervised::spawn_supervised_loop;
 use tracing::info;
@@ -141,7 +141,8 @@ pub(crate) async fn dispatch(action: KeyCommand, database_url: &str) -> AppResul
             for family in family.families() {
                 let version = key_manager.rotate(&database, *family).await?;
                 println!(
-                    "Staged {family} v{version}. The server's rotation controller promotes it after 15 minutes, then re-seals and drains the old key."
+                    "Staged {family} v{version}. The server's rotation controller promotes it after {} minutes, then re-seals and drains the old key.",
+                    FLEET_WINDOW.as_secs() / 60
                 );
             }
             Ok(())
@@ -164,6 +165,7 @@ pub(crate) async fn dispatch(action: KeyCommand, database_url: &str) -> AppResul
             println!("{} v{version} is destroyed.", KeyFamily::from(family));
             Ok(())
         }
+        // Returned above: it opens the database with the source KEK instead.
         KeyCommand::RewrapKek => Ok(()),
     }
 }

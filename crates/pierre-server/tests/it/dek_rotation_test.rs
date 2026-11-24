@@ -99,7 +99,11 @@ async fn dek_rotation_preserves_old_data_and_blind_index() {
         .tick(security, Timestamp::now() + Elapsed::minutes(16))
         .await
         .unwrap();
-    assert_eq!(database.keyring().current().data_primary(), 2);
+    assert_eq!(
+        database.keyring().current().data_primary(),
+        2,
+        "bug: the controller did not promote v2 after the fleet window"
+    );
 
     // 1. Old v1 ciphertext is still decryptable (no data loss on rotation).
     assert_eq!(
@@ -122,12 +126,17 @@ async fn dek_rotation_preserves_old_data_and_blind_index() {
         security
             .decrypt_data_with_aad(DOMAIN, &ciphertext_v2, AAD)
             .unwrap(),
-        "token-2"
+        "token-2",
+        "bug: a value sealed under the new primary does not open"
     );
 
     // 3. The refresh-token blind index is unchanged: a data rotation does not
     //    move the index primary.
-    assert_eq!(database.keyring().current().index_primary(), 1);
+    assert_eq!(
+        database.keyring().current().index_primary(),
+        1,
+        "bug: a data rotation moved the index primary"
+    );
     let blind_index_after = database.keyring().hash_for_storage("refresh-xyz").unwrap();
     assert_eq!(
         blind_index_before, blind_index_after,
@@ -140,12 +149,19 @@ async fn dek_rotation_preserves_old_data_and_blind_index() {
 async fn dek_survives_reload_after_rotation() {
     // First lifecycle: initialize, rotate, encrypt under v2.
     let (key_manager, database, bootstrap_key) = boot().await;
-    assert_eq!(rotate_and_promote(&key_manager, &database).await, 2);
+    assert_eq!(
+        rotate_and_promote(&key_manager, &database).await,
+        2,
+        "bug: the first data rotation did not promote v2"
+    );
     let ciphertext_v2 = database
         .as_security_repository()
         .encrypt_data_with_aad(DOMAIN, "persisted", AAD)
         .unwrap();
-    assert!(ciphertext_v2.starts_with("v2:"));
+    assert!(
+        ciphertext_v2.starts_with("v2:"),
+        "bug: the promoted v2 does not seal new values: {ciphertext_v2}"
+    );
 
     // A restarted process opens its handle on a bootstrap key alone: v2 is
     // not in it, so only the reload can make the ciphertext open.
@@ -166,7 +182,11 @@ async fn dek_survives_reload_after_rotation() {
         .complete_initialization(&database)
         .await
         .unwrap();
-    assert_eq!(database.keyring().current().data_primary(), 2);
+    assert_eq!(
+        database.keyring().current().data_primary(),
+        2,
+        "bug: a reload does not load the rotated primary"
+    );
     assert_eq!(
         database
             .as_security_repository()
