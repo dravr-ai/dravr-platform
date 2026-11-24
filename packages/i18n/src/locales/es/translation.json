@@ -1238,7 +1238,11 @@
     },
     "verdictsNone": "Ningún veredicto",
     "deleteChatRow": "Eliminar este chat…",
-    "deleteChatTitle": "¿Eliminar este chat?"
+    "deleteChatTitle": "¿Eliminar este chat?",
+    "science_change": {
+      "pace_zones": "Una nota sobre tus zonas de ritmo: desde el 23 de noviembre trazo cada límite de zona a partir de la curva de coste de oxígeno de Daniels. Tu rango fácil aparece ahora entre 15 y 50 segundos por kilómetro más rápido que antes, y tu rango de maratón se sitúa en torno a tu ritmo de maratón previsto. Tu forma de correr no cambió, solo la forma de trazar las zonas.",
+      "training_load": "Una nota sobre tus cifras: el 21 de noviembre cambié la forma de calcular la carga de entrenamiento. Las salidas en bici cuentan ahora según la potencia normalizada, las sesiones con pulsómetro según tu reserva de frecuencia cardíaca y las carreras frente a tu ritmo umbral. Tu forma de fondo (CTL) puede haber subido o bajado de golpe en esa fecha. Tu entrenamiento no cambió, solo la forma de contarlo."
+    }
   },
   "coachHome": {
     "switch": {

@@ -1238,7 +1238,11 @@
     },
     "verdictsNone": "Aucun verdict",
     "deleteChatRow": "Supprimer cette discussion…",
-    "deleteChatTitle": "Supprimer cette discussion ?"
+    "deleteChatTitle": "Supprimer cette discussion ?",
+    "science_change": {
+      "pace_zones": "Une précision sur tes zones d'allure : depuis le 23 novembre, je trace chaque limite de zone à partir de la courbe de coût en oxygène de Daniels. Ta plage d'allure facile paraît maintenant de 15 à 50 secondes par kilomètre plus rapide qu'avant, et ta plage marathon se situe autour de ton allure marathon prédite. Ta course n'a pas changé, seulement la façon de tracer les zones.",
+      "training_load": "Une précision sur tes chiffres : le 21 novembre, j'ai changé la façon de calculer la charge d'entraînement. Les sorties à vélo comptent maintenant selon la puissance normalisée, les séances au cardio selon ta réserve de fréquence cardiaque, et les courses par rapport à ton allure seuil. Ta forme de fond (CTL) a pu monter ou baisser d'un coup à cette date. Ton entraînement n'a pas changé, seulement la façon de le compter."
+    }
   },
   "coachHome": {
     "switch": {

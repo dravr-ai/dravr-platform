@@ -1238,7 +1238,11 @@
     },
     "verdictsNone": "Keine Urteile",
     "deleteChatRow": "Diesen Chat löschen…",
-    "deleteChatTitle": "Diesen Chat löschen?"
+    "deleteChatTitle": "Diesen Chat löschen?",
+    "science_change": {
+      "pace_zones": "Ein Hinweis zu deinen Pace-Zonen: Seit dem 23. November leite ich jede Zonengrenze aus Daniels' Sauerstoffkostenkurve ab. Dein lockerer Bereich zeigt jetzt etwa 15 bis 50 Sekunden pro Kilometer schneller als vorher, und dein Marathonbereich liegt um dein vorhergesagtes Marathontempo. Dein Laufen hat sich nicht geändert, nur die Art, wie die Zonen gezogen werden.",
+      "training_load": "Ein Hinweis zu deinen Zahlen: Am 21. November habe ich geändert, wie die Trainingsbelastung berechnet wird. Radfahrten zählen jetzt nach normalisierter Leistung, Herzfrequenz-Einheiten nach deiner Herzfrequenzreserve und Läufe gemessen an deinem Schwellentempo. Deine Fitness (CTL) kann an diesem Tag nach oben oder unten gesprungen sein. Dein Training hat sich nicht geändert, nur die Art, wie es gezählt wird."
+    }
   },
   "coachHome": {
     "switch": {

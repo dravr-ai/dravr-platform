@@ -1238,7 +1238,11 @@
     },
     "verdictsNone": "Nenhum veredito",
     "deleteChatRow": "Eliminar esta conversa…",
-    "deleteChatTitle": "Eliminar esta conversa?"
+    "deleteChatTitle": "Eliminar esta conversa?",
+    "science_change": {
+      "pace_zones": "Uma nota sobre as tuas zonas de ritmo: desde 23 de novembro traço cada limite de zona a partir da curva de custo de oxigénio de Daniels. A tua faixa fácil aparece agora entre 15 e 50 segundos por quilómetro mais rápida do que antes, e a tua faixa de maratona fica à volta do teu ritmo de maratona previsto. A tua corrida não mudou, só a forma de traçar as zonas.",
+      "training_load": "Uma nota sobre os teus números: a 21 de novembro mudei a forma de calcular a carga de treino. As saídas de bicicleta contam agora pela potência normalizada, as sessões com frequência cardíaca pela tua reserva de frequência cardíaca e as corridas face ao teu ritmo de limiar. A tua forma de base (CTL) pode ter subido ou descido de repente nessa data. O teu treino não mudou, só a forma de o contar."
+    }
   },
   "coachHome": {
     "switch": {

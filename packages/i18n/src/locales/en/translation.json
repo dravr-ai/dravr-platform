@@ -1238,7 +1238,11 @@
     },
     "verdictsNone": "No verdicts",
     "deleteChatRow": "Delete this chat…",
-    "deleteChatTitle": "Delete this chat?"
+    "deleteChatTitle": "Delete this chat?",
+    "science_change": {
+      "pace_zones": "A note on your pace zones: on 23 November I started cutting every zone edge from Daniels' oxygen-cost curve. Your easy range now reads about 15 to 50 seconds per kilometre faster than before, and your marathon range sits around your predicted marathon pace. Your running didn't change, only the way the zones are drawn.",
+      "training_load": "A note on your numbers: on 21 November I changed how training load is scored. Rides now count by normalized power, heart-rate sessions by your heart-rate reserve, and runs against your threshold pace. Your fitness (CTL) may have stepped up or down on that date. Your training didn't change, only the way it is counted."
+    }
   },
   "coachHome": {
     "switch": {
