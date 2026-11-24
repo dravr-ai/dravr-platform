@@ -53,6 +53,7 @@ crates/pierre-middleware/src/auth.rs:This access token was delegated to an appli
 crates/pierre-providers/src/delegation.rs:That athlete no longer shares their {brand} account with this coach
 crates/pierre-providers/src/delegation.rs:{brand} does not show this athlete's sport settings to the coach's account
 crates/pierre-providers/src/delegation.rs:{brand} refused this calendar write: the coach's {brand} account reads this athlete but may not write their calendar
+crates/pierre-providers/src/intervals_icu_provider/library.rs:{brand} kept Dravr out of your workout library: your {brand} connection was made before Dravr asked for it. Reconnect {brand} in Dravr, then save again
 crates/pierre-providers/src/sciotte_error.rs:That athlete is not on this coach account's roster
 crates/pierre-routes-admin/src/auth/service.rs:Permission required: {required_permission}
 crates/pierre-routes-admin/src/handlers/admin_rate_limit_override.rs:Rate-limit override endpoints require cookie authentication

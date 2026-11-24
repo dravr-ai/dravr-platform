@@ -1,5 +1,5 @@
 // ABOUTME: Pins the requests a workout-library save sends Intervals.icu: folder lookup, folder create, workout create, and the no-op re-save
-// ABOUTME: Also that a provider built for a coached athlete never writes a library, and that Intervals.icu declares one
+// ABOUTME: Also that a provider built for a coached athlete never writes a library, that an OAuth grant missing the library scope is told to reconnect, and that Intervals.icu declares one
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -8,6 +8,7 @@ use std::sync::{Arc, Mutex};
 
 use dravr_tronc::dates::CivilDate;
 use pierre_providers::core::{CredentialKind, FitnessProvider, OAuth2Credentials};
+use pierre_providers::errors::ErrorCode;
 use pierre_providers::intervals_icu_provider::IntervalsIcuProvider;
 use pierre_providers::models::{PlannedSession, PlannedSessionKind, SportType, WorkoutStep};
 use pierre_providers::spi::IntervalsIcuDescriptor;
@@ -18,6 +19,9 @@ use tokio::net::TcpListener;
 
 const COACH_ID: &str = "i100";
 const COACH_KEY: &str = "coach-key";
+/// An OAuth token granted before Dravr asked for `LIBRARY:WRITE`: the stub
+/// refuses it every library call, as Intervals.icu does.
+const GRANT_WITHOUT_LIBRARY: &str = "grant-without-library";
 
 /// Every request the stub saw: method, target, and the JSON body a write sent.
 type Seen = Arc<Mutex<Vec<(String, String, Value)>>>;
@@ -114,11 +118,16 @@ async fn spawn_library(folders: Value, seen: Seen) -> String {
                 let body: Value = serde_json::from_slice(raw.get(end + 4..).unwrap_or_default())
                     .unwrap_or(Value::Null);
                 let path = format!("/api/v1/athlete/{COACH_ID}");
-                let (status, answer) = match (method.as_str(), target.strip_prefix(&path)) {
-                    ("GET", Some("/folders")) => ("200 OK", folders.to_string()),
-                    ("POST", Some("/folders")) => ("200 OK", r#"{"id":31}"#.to_owned()),
-                    ("POST", Some("/workouts")) => ("200 OK", r#"{"id":77}"#.to_owned()),
-                    _ => ("404 Not Found", "{}".to_owned()),
+                let stale = format!("authorization: Bearer {GRANT_WITHOUT_LIBRARY}");
+                let (status, answer) = if head.lines().any(|l| l.eq_ignore_ascii_case(&stale)) {
+                    ("403 Forbidden", "{}".to_owned())
+                } else {
+                    match (method.as_str(), target.strip_prefix(&path)) {
+                        ("GET", Some("/folders")) => ("200 OK", folders.to_string()),
+                        ("POST", Some("/folders")) => ("200 OK", r#"{"id":31}"#.to_owned()),
+                        ("POST", Some("/workouts")) => ("200 OK", r#"{"id":77}"#.to_owned()),
+                        _ => ("404 Not Found", "{}".to_owned()),
+                    }
                 };
                 seen.lock().unwrap().push((method, target, body));
                 let response = format!(
@@ -316,6 +325,52 @@ async fn a_blank_folder_name_is_refused_before_any_request() {
         requests(&seen).is_empty(),
         "bug: refused before any request: {:?}",
         requests(&seen)
+    );
+}
+
+#[tokio::test]
+async fn an_oauth_grant_without_the_library_scope_is_told_to_reconnect() {
+    let seen = Seen::default();
+    let base = spawn_library(json!([]), Arc::clone(&seen)).await;
+    let mut config = offline_provider_config("intervals_icu").unwrap();
+    config.api_base_url = base;
+    let provider = IntervalsIcuProvider::with_config(config);
+    provider
+        .set_credentials(OAuth2Credentials {
+            client_id: String::new(),
+            access_token: Some(SecretString::from(GRANT_WITHOUT_LIBRARY.to_owned())),
+            scopes: vec!["ACTIVITY:READ".to_owned(), "CALENDAR:WRITE".to_owned()],
+            kind: CredentialKind::OAuthBearer,
+            ..coach_credentials()
+        })
+        .await
+        .expect("set creds");
+
+    let error = provider
+        .save_library_workout(&session(), "Dravr")
+        .await
+        .expect_err("Intervals.icu keeps this grant out of the library");
+
+    assert_eq!(
+        error.code,
+        ErrorCode::PermissionDenied,
+        "bug: a refusal of its own, never a broken connection: {}",
+        error.message
+    );
+    assert!(
+        error.message.contains("Reconnect"),
+        "bug: the coach is told how to fix it: {}",
+        error.message
+    );
+    let seen = requests(&seen);
+    let calls: Vec<(&str, &str)> = seen
+        .iter()
+        .map(|(method, target, _)| (method.as_str(), target.as_str()))
+        .collect();
+    assert_eq!(
+        calls,
+        [("GET", "/api/v1/athlete/0/folders")],
+        "bug: nothing is written after the listing is refused"
     );
 }
 

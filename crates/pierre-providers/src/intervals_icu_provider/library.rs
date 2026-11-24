@@ -11,11 +11,18 @@
 //! `POST /workouts` unless the folder already holds the same workout. All
 //! three go to the credential's own athlete path. Nothing in the library is
 //! updated or deleted.
+//!
+//! An OAuth grant made before Dravr asked for `LIBRARY:WRITE` reaches
+//! everything but the library, and Intervals.icu refuses it there with a
+//! 403. That refusal says to reconnect, with its own code: the connection
+//! itself is fine, so nothing marks it for reconnecting.
 
+use reqwest::StatusCode;
 use serde_json::Value;
 
-use super::{send_traced, status_error, CallAuth, IntervalsIcuProvider, Target};
-use crate::errors::{AppError, AppResult};
+use super::{brand, send_traced, status_error, CallAuth, IntervalsIcuProvider};
+use crate::core::CredentialKind;
+use crate::errors::{AppError, AppResult, ErrorCode};
 use crate::intervals_icu_library::{
     find_folder, find_same_workout, folder_body, library_workout_body, CreatedLibraryItem,
     LibraryFolder,
@@ -53,10 +60,8 @@ impl IntervalsIcuProvider {
                 "folder must name a library folder in 1 to {MAX_FOLDER_NAME_CHARS} characters"
             )));
         }
-        let folders: Vec<LibraryFolder> = self
-            .get_athlete_json("list_folders", "/folders", &[], Target::Athlete)
-            .await?;
         let auth = self.require_credentials().await?;
+        let folders: Vec<LibraryFolder> = self.list_folders(&auth).await?;
         let (folder_id, folder_name, folder_created) =
             if let Some(found) = find_folder(&folders, folder) {
                 let body = library_workout_body(session, found.id);
@@ -98,8 +103,8 @@ impl IntervalsIcuProvider {
     ///
     /// # Errors
     ///
-    /// Returns the transport failure, [`status_error`] for a refused call, or
-    /// the decode failure.
+    /// Returns the transport failure, [`library_refusal`] for a refused call,
+    /// or the decode failure.
     async fn post_athlete_json(
         &self,
         auth: &CallAuth,
@@ -117,11 +122,125 @@ impl IntervalsIcuProvider {
             .await
             .map_err(|e| AppError::external_service("intervals_icu", format!("{op}: {e}")))?;
         if !response.status().is_success() {
-            return Err(status_error(op, response.status()));
+            return Err(library_refusal(auth.kind, op, response.status()));
         }
         response
             .json()
             .await
             .map_err(|e| AppError::external_service("intervals_icu", format!("{op} decode: {e}")))
+    }
+
+    /// `GET /folders` at the credential's own athlete path: every folder and
+    /// plan, each with the workouts in it.
+    ///
+    /// # Errors
+    ///
+    /// Returns the transport failure, [`library_refusal`] for a refused call,
+    /// or the decode failure.
+    async fn list_folders(&self, auth: &CallAuth) -> AppResult<Vec<LibraryFolder>> {
+        const OP: &str = "list_folders";
+        let url = self.athlete_url(auth, "/folders");
+        let req = auth
+            .authorize(self.http.get(&url))?
+            .header("Accept", "application/json");
+        self.admit_request().await?;
+        let response = send_traced(req, OP, &url)
+            .await
+            .map_err(|e| AppError::external_service("intervals_icu", format!("{OP}: {e}")))?;
+        if !response.status().is_success() {
+            return Err(library_refusal(auth.kind, OP, response.status()));
+        }
+        response
+            .json()
+            .await
+            .map_err(|e| AppError::external_service("intervals_icu", format!("{OP} decode: {e}")))
+    }
+}
+
+/// A refused library call: a 403 to an OAuth grant is a grant made before
+/// Dravr asked for the library, which reconnecting renews; anything else is
+/// [`status_error`].
+fn library_refusal(kind: CredentialKind, op: &str, status: StatusCode) -> AppError {
+    if status == StatusCode::FORBIDDEN && matches!(kind, CredentialKind::OAuthBearer) {
+        let brand = brand();
+        return AppError::new(
+            ErrorCode::PermissionDenied,
+            format!(
+                "{brand} kept Dravr out of your workout library: your {brand} connection was \
+                 made before Dravr asked for it. Reconnect {brand} in Dravr, then save again"
+            ),
+        );
+    }
+    status_error(op, status)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_403_to_an_api_key_is_no_reconnect() {
+        // A personal API key carries every scope: a refusal is not a stale
+        // grant, and reconnecting would change nothing.
+        let error = library_refusal(
+            CredentialKind::ApiKey,
+            "list_folders",
+            StatusCode::FORBIDDEN,
+        );
+        assert_eq!(
+            error.code,
+            ErrorCode::ExternalServiceError,
+            "bug: an API key's 403 is the upstream refusing, not a stale grant: {}",
+            error.message
+        );
+        assert!(
+            error.message.contains("list_folders returned 403"),
+            "bug: the refusal names the call and its status: {}",
+            error.message
+        );
+        assert!(
+            !error.message.contains("Reconnect"),
+            "bug: {}",
+            error.message
+        );
+    }
+
+    #[test]
+    fn a_403_to_an_oauth_grant_says_to_reconnect() {
+        let error = library_refusal(
+            CredentialKind::OAuthBearer,
+            "create_workout",
+            StatusCode::FORBIDDEN,
+        );
+        // `==`, not `assert_eq!`: the PermissionDenied message gate reads a
+        // comparison as a read site, never as a construction.
+        assert!(
+            error.code == ErrorCode::PermissionDenied,
+            "bug: a refusal of its own, never a broken connection: {:?} {}",
+            error.code,
+            error.message
+        );
+        assert!(
+            error.message.contains("Reconnect"),
+            "bug: {}",
+            error.message
+        );
+    }
+
+    #[test]
+    fn a_401_to_an_oauth_grant_stays_the_shared_reconnect() {
+        // A withdrawn grant is a broken connection: only a 403 is the
+        // library's own refusal.
+        let error = library_refusal(
+            CredentialKind::OAuthBearer,
+            "list_folders",
+            StatusCode::UNAUTHORIZED,
+        );
+        assert_eq!(
+            error.code,
+            ErrorCode::ProviderAuthRequired,
+            "bug: a 401 to an OAuth grant marks the connection for reconnecting: {}",
+            error.message
+        );
     }
 }
