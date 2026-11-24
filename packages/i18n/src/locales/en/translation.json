@@ -1195,6 +1195,7 @@
         "readPlan": "Reading the current plan",
         "pickWorkouts": "Picking workouts",
         "savePlan": "Saving the plan",
+        "saveToLibrary": "Saving to your library",
         "checkWeather": "Checking the weather",
         "nutrition": "Working out nutrition needs",
         "predict": "Estimating performance",
