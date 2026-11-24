@@ -249,17 +249,28 @@ export default function MessageList({
   // The opening jump is instant: a smooth scroll would leave the top of the
   // window in view for its first frames, and the reader would be taken for
   // having scrolled back to it.
-  const openedRef = useRef(false);
+  // The opening belongs to one thread. The list stays mounted when the
+  // athlete switches threads, so the next thread's history opens it again
+  // rather than smooth-scrolling from where the previous one was left.
+  const openingRef = useRef<{ conversationId: string | null | undefined; opened: boolean }>({
+    conversationId,
+    opened: false,
+  });
   useEffect(() => {
-    if (!openedRef.current) {
+    const opening = openingRef.current;
+    if (opening.conversationId !== conversationId) {
+      opening.conversationId = conversationId;
+      opening.opened = false;
+    }
+    if (!opening.opened) {
       if (!lastMessageId) return;
-      openedRef.current = true;
+      opening.opened = true;
       if (!followOnOpen && !isStreaming) return;
       messagesEndRef.current?.scrollIntoView({ behavior: 'auto' });
       return;
     }
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [lastMessageId, streamingContent, followOnOpen, isStreaming]);
+  }, [conversationId, lastMessageId, streamingContent, followOnOpen, isStreaming]);
 
   // Filter out internal LLM plumbing rows (tool_call / tool_result) so their
   // raw <tool_call>/<tool_result> XML never renders — this matters most for
@@ -398,7 +409,9 @@ export default function MessageList({
 
   if (isLoading) {
     return (
-      <div className="py-8 text-center text-sm text-on-surface-variant">{t('chat.loadingMessages')}</div>
+      <div role="status" className="py-8 text-center text-sm text-on-surface-variant">
+        {t('chat.loadingMessages')}
+      </div>
     );
   }
 

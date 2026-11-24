@@ -403,7 +403,7 @@ test.describe('Chat - the web surface profile', () => {
     await expect(turn).toContainText('now');
     // The fortnight, down to the session's structure.
     await expect(turn).toContainText('Seuil 3x10');
-    await expect(turn).toContainText('Seuil · 10m · Threshold ×3');
+    await expect(turn).toContainText('Seuil · 10 min · Threshold ×3');
     await expect(turn).toContainText('threshold_3x10');
     // The card is the rendering; the projection's field names never reach the page.
     await expect(turn).not.toContainText('goal_race');

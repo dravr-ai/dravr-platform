@@ -504,7 +504,7 @@ function PersonalSurface({
               aria-label={t('chat.newChat')}
               title={t('chat.newChat')}
               data-testid="home-history-new"
-              className="flex h-11 w-11 items-center justify-center rounded-lg text-primary transition-colors hover:bg-surface-container-low disabled:opacity-50 focus-ring"
+              className="flex h-11 w-11 items-center justify-center rounded-lg text-primary transition-colors hover:bg-surface-container-low disabled:opacity-50 focus-ring-visible"
             >
               <Plus className="h-5 w-5" aria-hidden="true" />
             </button>

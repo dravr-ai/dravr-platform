@@ -6,7 +6,7 @@
 
 import { useRef, useEffect, useLayoutEffect, useState, useCallback, useId } from 'react';
 import { clsx } from 'clsx';
-import { Lock, Quote, Slash, Square, Users, X } from 'lucide-react';
+import { ArrowUp, Lock, Quote, Slash, Square, Users, X } from 'lucide-react';
 import type { MessageAudience, RoomQuote } from '@pierre/shared-types';
 import { PRIVATE_LANE_KEYS, privateLaneComposerText } from '@pierre/chat-utils';
 import CommandPalette from '../CommandPalette';
@@ -270,8 +270,8 @@ export default function MessageInput({
           </div>
         ) : null}
         {/* The composer is a chat surface, not a form field — DESIGN.md "Inputs / Fields"
-            and "Chat surfaces" list the two separately. It is the one white shape on the paper:
-            a 41px field with a hairline, radius 12, the slash on its left and
+            and "Chat surfaces" list the two separately. It is the one white shape on the paper
+            (the raised tier in dark): a 41px field with a hairline, radius 12, the slash on its left and
             the send on its right, both inside it. The measured chat products
             all draw the composer lighter than the page, never darker, and
             none of them puts a helper line under it — the placeholder says
@@ -362,9 +362,11 @@ export default function MessageInput({
               'block w-full resize-none overflow-hidden rounded-xl border py-2 pl-11 pr-12 text-base transition-colors placeholder:text-outline focus:outline-none focus:ring-2 [@media(pointer:coarse)]:min-h-[48px] [@media(pointer:coarse)]:py-3',
               // The typed text keeps body ink on the private wash and on the plain field alike.
               PRIVATE.inks.typed,
+              // The plain field is white in light; in dark the lowest tier sits
+              // below the canvas, so it takes the raised-card tier and lifts.
               isPrivate
                 ? `border-dashed border-warning/60 focus:ring-warning/30 ${PRIVATE.fill}`
-                : 'ghost-border bg-surface-container-lowest focus:border-transparent focus:ring-primary/40',
+                : 'ghost-border bg-surface-container-lowest dark:bg-surface-container-high focus:border-transparent focus:ring-primary/40',
             )}
             // The measured slot: the left padding clears the switch and the slash.
             style={leftInset !== null ? { paddingLeft: leftInset + COMPOSER_TEXT_GAP } : undefined}
@@ -402,9 +404,9 @@ export default function MessageInput({
                     : 'text-on-surface-variant cursor-not-allowed'
                 )}
               >
-                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-                </svg>
+                {/* An arrow, as the phone's composer draws it: a paper plane
+                    at this size reads as a warning triangle. */}
+                <ArrowUp className="h-4 w-4" aria-hidden="true" />
               </button>
             )}
           </div>

@@ -4,6 +4,7 @@
 // ABOUTME: A coach's hand-written session structure on both clients — steps, sets of steps under one ×N, time or distance, and targets (carnet#1727)
 // ABOUTME: Pure list operations over PlanStep[]; the sets are the providers' repeat grouping made visible, the targets the server's grammar composed
 
+import { clockDuration } from '@pierre/chat-utils';
 import type { PlanStep } from '@pierre/shared-types';
 
 /** A step a coach adds: five minutes, unnamed and with no target, until they write it. */
@@ -244,10 +245,7 @@ export function stepsTotalSeconds(steps: readonly PlanStep[]): number {
 
 /** A step's duration as the field shows it: `m:ss` (`90` → `1:30`, `600` → `10:00`). */
 export function formatStepDuration(seconds: number): string {
-  const whole = Math.max(0, Math.round(seconds));
-  const minutes = Math.floor(whole / 60);
-  const rest = whole % 60;
-  return `${minutes}:${String(rest).padStart(2, '0')}`;
+  return clockDuration(seconds);
 }
 
 /**

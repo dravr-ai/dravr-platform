@@ -146,8 +146,8 @@ describe('WorkoutPlanCard', () => {
     expect(screen.getByText('4 x 8 min at threshold')).toBeInTheDocument();
     expect(screen.getByText(/65 min/)).toBeInTheDocument();
     // The repeated step carries its count.
-    expect(screen.getByText('Threshold · 8m · Threshold ×4')).toBeInTheDocument();
-    expect(screen.getByText('Warm-up · 15m · Z1')).toBeInTheDocument();
+    expect(screen.getByText('Threshold · 8 min · Threshold ×4')).toBeInTheDocument();
+    expect(screen.getByText('Warm-up · 15 min · Z1')).toBeInTheDocument();
     // The template and the tier it resolved in.
     expect(screen.getByText('threshold_4x8')).toBeInTheDocument();
     expect(screen.getByText(/catalogue/)).toBeInTheDocument();

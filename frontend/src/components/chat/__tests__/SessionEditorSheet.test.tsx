@@ -1227,7 +1227,7 @@ describe('"Edit day" on a plan card', () => {
       expect(within(derived).getByText('Work, % of MAP')).toBeInTheDocument();
       expect(within(derived).getByText('118 %')).toBeInTheDocument();
       expect(within(derived).getByText('19.5 min')).toBeInTheDocument();
-      expect(editor.getByText('Work · 30s · 120% FTP ×11')).toBeInTheDocument();
+      expect(editor.getByText('Work · 30 s · 120% FTP ×11')).toBeInTheDocument();
       expect(editor.getByTestId('plan-day-evidence')).toHaveTextContent('Cycling trials only');
       expect(editor.getByTestId('session-editor-counts-as')).toHaveTextContent('Counts as VO2max');
       expect(editor.getByTestId('session-editor-anchor')).toHaveTextContent('Anchor: FTP 280 W, their own.');
@@ -1327,7 +1327,7 @@ describe('"Edit day" on a plan card', () => {
 
       await waitFor(() => expect(repsAsked()).toContain(14));
       expect(repsAsked()).not.toContain(1);
-      expect(await editor.findByText('Work · 30s · 120% FTP ×14')).toBeInTheDocument();
+      expect(await editor.findByText('Work · 30 s · 120% FTP ×14')).toBeInTheDocument();
     });
 
     it('keeps a value outside the range, shows what the check found, and saves it as built (D3)', async () => {

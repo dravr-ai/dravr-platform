@@ -62,14 +62,14 @@ function planDate(date: string, language: string): string {
   return formatCivilDate(date, language, { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
-/** "label · Nm · zone", with "×repeat" appended when the step is repeated. */
+/** "label · 4 min · zone", with "×repeat" appended when the step is repeated. */
 function stepText(step: PlanStep): string {
   const text = [step.label, stepDuration(step.duration_seconds), step.target_zone].join(' · ');
   return step.repeat !== undefined && step.repeat > 1 ? `${text} ×${step.repeat}` : text;
 }
 
 /**
- * A session's steps, each as "label · Nm · zone ×repeat", its note on hover.
+ * A session's steps, each as "label · 4 min · zone ×repeat", its note on hover.
  * One list for the plan card's day and the day editor's preview, so a
  * step reads the same in both. `className` lays the list out: inline on the
  * card's day, one step a line in the editor.

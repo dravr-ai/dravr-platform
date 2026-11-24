@@ -42,7 +42,8 @@ interface ConversationItemProps {
  * conversation. One trigger leaves the row clickable, which is also how
  * Telegram and iMessage reach the same three actions; a right-click on the
  * row opens the same menu. The trigger shows on hover or focus, and stays
- * while the menu is open.
+ * while the menu is open. A coarse pointer has no hover, so on a phone it
+ * always shows, as a message's actions do.
  */
 function RowMenu({
   open,
@@ -72,7 +73,7 @@ function RowMenu({
         '!absolute right-2 top-1/2 -translate-y-1/2',
         open
           ? 'opacity-100'
-          : 'opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto',
+          : 'opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto [@media(pointer:coarse)]:opacity-100 [@media(pointer:coarse)]:pointer-events-auto',
       )}
       items={[
         {
@@ -166,13 +167,15 @@ const ConversationItem = memo(function ConversationItem({
   const [menuOpen, setMenuOpen] = useState(false);
 
   // A room's avatar is a square, an agent's a circle; the glyph and the
-  // accessible name beside it carry the same fact in words.
+  // accessible name beside it carry the same fact in words. On the selected
+  // row's tint a hairline keeps its edge, since the primary slot is that tint.
   const avatar = (
     <div
       className={clsx(
         'flex h-9 w-9 flex-shrink-0 select-none items-center justify-center text-xs font-semibold',
         avatarShapeClass(row.kind === 'group' ? 'square' : 'circle'),
         avatarSlotClass(row.avatarSlot),
+        isSelected && !isEditing && 'border ghost-border-strong',
       )}
       data-testid="conversation-avatar"
       aria-hidden="true"
@@ -213,6 +216,11 @@ const ConversationItem = memo(function ConversationItem({
     );
   }
 
+  // The open thread's row is the selected tile (DESIGN.md "Colors": the
+  // `primary-container` tint), so it never reads as the neutral hover fill;
+  // its words take the tint's bound ink ("The Bound Ink Rule").
+  const secondaryInk = isSelected ? 'text-on-primary-container/85' : null;
+
   return (
     <li
       className={clsx('group relative', menuOpen && 'z-20')}
@@ -229,17 +237,20 @@ const ConversationItem = memo(function ConversationItem({
         onClick={onSelect}
         aria-current={isSelected ? 'true' : undefined}
         className={clsx(
-          'flex min-h-[60px] w-full items-center gap-3 px-4 text-left transition-colors focus-ring',
-          isSelected ? 'bg-surface-container-low' : 'hover:bg-surface-container-low/60',
+          'flex min-h-[60px] w-full items-center gap-3 px-4 text-left transition-colors focus-ring-visible',
+          isSelected ? 'bg-primary-container' : 'hover:bg-surface-container-low/60',
         )}
       >
         {avatar}
-        <div className="flex min-h-[60px] min-w-0 flex-1 flex-col justify-center gap-0.5 border-b ghost-border-faint pr-8 group-last:border-b-0">
+        {/* The right padding clears the actions trigger: 28px at `right-2` with
+            a fine pointer, and 44px, always shown, on a coarse one. */}
+        <div className="flex min-h-[60px] min-w-0 flex-1 flex-col justify-center gap-0.5 border-b ghost-border-faint pr-8 group-last:border-b-0 [@media(pointer:coarse)]:pr-12">
           <div className="flex items-center gap-2 min-w-0">
             <KindGlyph row={row} />
             <p
               className={clsx(
-                'min-w-0 flex-1 truncate text-sm text-on-surface',
+                'min-w-0 flex-1 truncate text-sm',
+                isSelected ? 'text-on-primary-container' : 'text-on-surface',
                 unread ? 'font-semibold' : 'font-medium',
               )}
               data-testid="conversation-title"
@@ -249,7 +260,7 @@ const ConversationItem = memo(function ConversationItem({
             {/* The athlete a plan thread is about, when its title does not already say. */}
             {row.subjectName && (
               <span
-                className="min-w-0 flex-shrink truncate text-xs text-on-surface-variant"
+                className={clsx('min-w-0 flex-shrink truncate text-xs', secondaryInk ?? 'text-on-surface-variant')}
                 data-testid="conversation-subject"
               >
                 {row.subjectName}
@@ -264,8 +275,17 @@ const ConversationItem = memo(function ConversationItem({
                 {t('chat.archived')}
               </span>
             )}
+            {/* An unread time is `primary` ink on the canvas; on the selected
+                tint it takes the bound ink, since the bare hue never labels its own tint. */}
             <span
-              className={clsx('flex-shrink-0 whitespace-nowrap text-xs', unread ? 'text-primary' : 'text-outline')}
+              className={clsx(
+                'flex-shrink-0 whitespace-nowrap text-xs',
+                unread
+                  ? isSelected
+                    ? 'text-on-primary-container'
+                    : 'text-primary'
+                  : (secondaryInk ?? 'text-outline'),
+              )}
               data-testid="conversation-timestamp"
             >
               {row.timestamp}
@@ -274,7 +294,7 @@ const ConversationItem = memo(function ConversationItem({
           <div className="flex items-center gap-2 min-w-0">
             {seatLine ? (
               <p
-                className="min-w-0 flex-1 truncate text-sm text-on-surface-variant"
+                className={clsx('min-w-0 flex-1 truncate text-sm', secondaryInk ?? 'text-on-surface-variant')}
                 data-testid="conversation-seat-line"
               >
                 {seatLine}
@@ -283,7 +303,7 @@ const ConversationItem = memo(function ConversationItem({
               <p
                 className={clsx(
                   'min-w-0 flex-1 truncate text-sm',
-                  unread ? 'text-on-surface-variant' : 'text-outline',
+                  secondaryInk ?? (unread ? 'text-on-surface-variant' : 'text-outline'),
                 )}
                 data-testid="conversation-preview"
               >

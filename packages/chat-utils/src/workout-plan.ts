@@ -6,12 +6,25 @@ import type { PlanFueling } from '@pierre/shared-types';
 import type { Translate } from './text';
 
 /**
- * A step's duration as the compact figure the steps line carries: whole
- * minutes once a step lasts one, seconds under that so a stride does not
- * read as "0m".
+ * A step's duration as the compact figure the steps line carries: seconds
+ * under a minute ("30 s") so a stride does not read as "0 min", whole minutes
+ * as "4 min", and anything else as "1:30" so a 90 s interval is not rounded
+ * up to two minutes. "min", never "m", because the same card prints distances
+ * in metres.
  */
 export function stepDuration(seconds: number): string {
-  return seconds < 60 ? `${seconds}s` : `${Math.round(seconds / 60)}m`;
+  const total = Math.max(0, Math.round(seconds));
+  if (total < 60) return `${total} s`;
+  return total % 60 === 0 ? `${total / 60} min` : clockDuration(total);
+}
+
+/**
+ * A duration as a clock reads it, `m:ss` (`90` → `1:30`, `600` → `10:00`): the
+ * steps line's odd minutes and the day editor's step field print the same.
+ */
+export function clockDuration(seconds: number): string {
+  const whole = Math.max(0, Math.round(seconds));
+  return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, '0')}`;
 }
 
 /**

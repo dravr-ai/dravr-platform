@@ -156,7 +156,7 @@ Surfaces step by fill in light because a pale hairline vanishes on white; dark g
 | `surface-container-lowest` | `#ffffff` | `#0b0e0b` | Light: cards, agent data, popovers, table bodies. Do not use to raise a card in dark: it sinks below the canvas |
 | `surface-container-low` | `#ebeae5` | `#191c19` | Composer and search fields, row hover, the day pill |
 | `surface-container` | `#e0dfda` | `#1d201d` | Pressed states |
-| `surface-container-high` | `#d7d6d1` | `#272b27` | Reserved in light; raised cards in dark |
+| `surface-container-high` | `#d7d6d1` | `#272b27` | Reserved in light; raised cards and the composer in dark |
 | `surface-container-highest` | `#cfcec9` | `#323532` | Reserved |
 | `outline` | `#525a55` | `#b0b6af` | A **text** role: helper lines, timestamps, counts (4.5:1 on every light tier) |
 | `outline-variant` | `#c0c8c3` | `#414845` | Inactive icons, separator hints |
@@ -279,7 +279,7 @@ A **segmented control** switches one surface between two to four modes: Coach Ho
 A status is an 8px dot beside the word that says it, never a tinted chip and never red or green text. The dot takes a feedback tone; a category dot takes its pillar hue.
 
 ### Page header and text tabs
-Every athlete destination opens with one 52px row (`TabHeader`): the page's name in Schibsted Grotesk (18px, 600), an optional caption-size count, the page's own controls on the right, a hairline below. No icon square, no gradient, no second line. Filters under it are **text tabs**: sentence-case words with a 2px `primary` underline on the active one, a mono count beside a word, a 44px minimum target. Pill chips are retired from athlete surfaces.
+Every athlete destination opens with one 52px row (`TabHeader`): the page's name in Schibsted Grotesk (18px, 600), an optional caption-size count, the page's own controls on the right, a hairline below. No icon square, no gradient, no second line. Filters under it are **text tabs**: sentence-case words with a 2px `primary` underline on the active one, a mono count beside a word, and the target Layout sets for every control: 44px on a coarse pointer and under `lg`, 32–36px with a fine pointer at desktop widths. Pill chips are retired from athlete surfaces.
 
 ### Empty states
 One sentence at the interface size, left-aligned in the content column where the rows would have been, and, when there is something to do, one inline `primary` link. No icon, no card, no filled button.
@@ -288,7 +288,7 @@ One sentence at the interface size, left-aligned in the content column where the
 Login is two sheets. The aside carries the lockup top-left, the mark at 220px and the product's one serif line; the form column carries the heading, underlined fields and the one filled button. In light the aside sits on `primary-container` and the form on `surface-container-lowest`; in dark the aside is `surface-container-low` and the form `surface` (1.09:1, carried by the hairline). The aside's ink is bound to its ground: `on-primary-container` in light, `on-surface` / `on-surface-variant` / `outline` in dark; only the wordmark stays `primary`. Below `lg` the aside is gone. Other auth pages are one hairline card on `surface`; every onboarding step is a bare column under a row of small dots with sentence-case labels (filled `primary` done, ringed current, `outline` ring ahead, dashed when put off). The aside names no provider and never describes the design.
 
 ### Chat surfaces — Home's conversation and the Groups messenger
-The athlete's own conversation with Dravr is Home; the Groups tab is the messenger for rooms with other people. The agent's turn is **prose on the canvas** (24px avatar, name and time, words to 620px, no fill, no border); the athlete's is the one bubble, on `primary-container`, on the right. The composer is the one white shape on the paper (40px, radius 12, ghost-border). Plan cards are the one hairline card in the thread.
+The athlete's own conversation with Dravr is Home; the Groups tab is the messenger for rooms with other people. The agent's turn is **prose on the canvas** (24px avatar, name and time, words to 620px, no fill, no border); the athlete's is the one bubble, on `primary-container`, on the right. The composer is the one white shape on the paper (40px, radius 12, ghost-border); in dark it takes `surface-container-high`, because `surface-container-lowest` would sink it below the canvas. Plan cards are the one hairline card in the thread.
 
 **The coach's day editor.** In a coach's plan thread every entry of a day carries "Edit day" ("Edit session" when its date holds several), and a date's last entry carries "Add a session". The editor is a sheet that opens on the session as it stands: title, sport, duration, intensity and steps edited in place, a Rest switch, and "From a family" as its second mode, sport first, where the kernel's preview and warn-only findings sit under the values. The footer names what a save replaces; a sheet with changes asks before it closes; an edited or added session is marked on the card and can be undone. A hand-written session says it is not checked against a family's evidence, in body ink, never a warning tone.
 

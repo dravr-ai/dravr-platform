@@ -14,7 +14,11 @@ function row(id: string, extra: Partial<Message> = {}): Message {
 }
 
 function renderList(props: Partial<Parameters<typeof MessageList>[0]> = {}) {
-  return render(
+  return render(list(props));
+}
+
+function list(props: Partial<Parameters<typeof MessageList>[0]> = {}) {
+  return (
     <MessageList
       messages={[row('a'), row('b', { role: 'assistant' })]}
       messageMetadata={new Map()}
@@ -34,7 +38,7 @@ function renderList(props: Partial<Parameters<typeof MessageList>[0]> = {}) {
       onSubmitFeedbackReason={vi.fn()}
       onRetryMessage={vi.fn()}
       {...props}
-    />,
+    />
   );
 }
 
@@ -81,10 +85,46 @@ describe('MessageList windows', () => {
     expect(onReachStart).not.toHaveBeenCalled();
   });
 
+  it('announces the thread it is reading as a polite status', () => {
+    renderList({ isLoading: true });
+    expect(screen.getByRole('status')).toHaveTextContent('Loading messages...');
+  });
+
   it('opens on the newest row at once, so the top of the window is never taken for a read back', () => {
     const scroll = vi.spyOn(Element.prototype, 'scrollIntoView');
     renderList({ hasEarlier: true, onReachStart: vi.fn() });
     expect(scroll).toHaveBeenCalledWith({ behavior: 'auto' });
+    scroll.mockRestore();
+  });
+
+  it('opens every thread switched to at once, never smooth-scrolling from the last one', () => {
+    const scroll = vi.spyOn(Element.prototype, 'scrollIntoView');
+    const { rerender } = renderList({ conversationId: 'first' });
+    scroll.mockClear();
+    rerender(list({ conversationId: 'second', messages: [row('c'), row('d', { role: 'assistant' })] }));
+    expect(scroll).toHaveBeenCalledWith({ behavior: 'auto' });
+    expect(scroll).not.toHaveBeenCalledWith({ behavior: 'smooth' });
+    scroll.mockRestore();
+  });
+
+  it('opens a thread switched to once its history loads, not while it reads', () => {
+    const scroll = vi.spyOn(Element.prototype, 'scrollIntoView');
+    const { rerender } = renderList({ conversationId: 'first' });
+    rerender(list({ conversationId: 'second', messages: [], isLoading: true }));
+    scroll.mockClear();
+    rerender(list({ conversationId: 'second', messages: [row('c'), row('d', { role: 'assistant' })] }));
+    expect(scroll).toHaveBeenCalledWith({ behavior: 'auto' });
+    expect(scroll).not.toHaveBeenCalledWith({ behavior: 'smooth' });
+    scroll.mockRestore();
+  });
+
+  it('still follows a row that lands in the open thread with a smooth scroll', () => {
+    const scroll = vi.spyOn(Element.prototype, 'scrollIntoView');
+    const { rerender } = renderList({ conversationId: 'first' });
+    scroll.mockClear();
+    rerender(list({ conversationId: 'first', messages: [row('a'), row('b', { role: 'assistant' }), row('e')] }));
+    expect(scroll).toHaveBeenCalledWith({ behavior: 'smooth' });
+    expect(scroll).not.toHaveBeenCalledWith({ behavior: 'auto' });
     scroll.mockRestore();
   });
 

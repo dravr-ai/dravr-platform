@@ -612,13 +612,15 @@ const MessageItem = memo(function MessageItem({
   // The row's actions live under the bubble and show on hover, focus or a
   // coarse pointer. An error row offers only the retry; a command reply or an
   // agent's welcome, only the copy — there is no model to rate or re-run.
+  // Each icon-only button is named by `aria-label`; the `title` is its
+  // pointer tooltip, which assistive tech does not reliably read as a name.
   const actions = isError ? (
     onRetry && (
       <button
         onClick={onRetry}
         className="flex items-center gap-1 rounded bg-surface-container-high px-2 py-1 text-xs font-medium text-on-surface transition-colors hover:bg-surface-container-highest"
       >
-        <RefreshCw className="h-3.5 w-3.5" />
+        <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
         <span>{t('chat.retry')}</span>
       </button>
     )
@@ -629,8 +631,9 @@ const MessageItem = memo(function MessageItem({
           onClick={() => onCopy(readableCopy)}
           className={ACTION_BUTTON}
           title={t('chat.copyMessage')}
+          aria-label={t('chat.copyMessage')}
         >
-          <Copy className="h-3.5 w-3.5" />
+          <Copy className="h-3.5 w-3.5" aria-hidden="true" />
         </button>
       )}
       {onShare && !platformRow && (
@@ -638,8 +641,9 @@ const MessageItem = memo(function MessageItem({
           onClick={() => onShare(readableCopy)}
           className={ACTION_BUTTON}
           title={t('chat.share')}
+          aria-label={t('chat.share')}
         >
-          <Share2 className="h-3.5 w-3.5" />
+          <Share2 className="h-3.5 w-3.5" aria-hidden="true" />
         </button>
       )}
       {onThumbsUp && !platformRow && (
@@ -647,8 +651,9 @@ const MessageItem = memo(function MessageItem({
           onClick={onThumbsUp}
           className={`${ACTION_BUTTON_SHAPE} ${feedback === 'up' ? 'text-primary' : ACTION_TONE_IDLE}`}
           title={t('chat.feedbackGood')}
+          aria-label={t('chat.feedbackGood')}
         >
-          <ThumbsUp className={`h-3.5 w-3.5 ${feedback === 'up' ? 'fill-current' : ''}`} />
+          <ThumbsUp className={`h-3.5 w-3.5 ${feedback === 'up' ? 'fill-current' : ''}`} aria-hidden="true" />
         </button>
       )}
       {onThumbsDown && !platformRow && (
@@ -656,13 +661,19 @@ const MessageItem = memo(function MessageItem({
           onClick={onThumbsDown}
           className={`${ACTION_BUTTON_SHAPE} ${feedback === 'down' ? 'text-error' : ACTION_TONE_IDLE}`}
           title={t('chat.feedbackPoor')}
+          aria-label={t('chat.feedbackPoor')}
         >
-          <ThumbsDown className={`h-3.5 w-3.5 ${feedback === 'down' ? 'fill-current' : ''}`} />
+          <ThumbsDown className={`h-3.5 w-3.5 ${feedback === 'down' ? 'fill-current' : ''}`} aria-hidden="true" />
         </button>
       )}
       {onRetry && !platformRow && (
-        <button onClick={onRetry} className={ACTION_BUTTON} title={t('chat.regenerateResponse')}>
-          <RefreshCw className="h-3.5 w-3.5" />
+        <button
+          onClick={onRetry}
+          className={ACTION_BUTTON}
+          title={t('chat.regenerateResponse')}
+          aria-label={t('chat.regenerateResponse')}
+        >
+          <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
         </button>
       )}
       {metadata && !platformRow && (

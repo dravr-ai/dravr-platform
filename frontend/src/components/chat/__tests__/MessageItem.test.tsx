@@ -31,6 +31,25 @@ const mockMetadata: MessageMetadata = {
 };
 
 describe('MessageItem', () => {
+  describe('markdown headings', () => {
+    // The typography plugin sizes a "###" at 19.3px, louder than the 18px
+    // column titles around the thread: a reply's headings sit on the ramp.
+    it('puts every reply heading on the type ramp, the largest at the 18px title step', () => {
+      render(
+        <MessageItem
+          message={{ ...mockAssistantMessage, content: '# Season\n\n## Block\n\n### Week\n\n#### Day\n\nEasy 45 min.' }}
+        />
+      );
+
+      const sizes = [1, 2, 3, 4].map((level) => {
+        const heading = screen.getByRole('heading', { level });
+        expect(heading).toHaveClass('!font-semibold');
+        return [...heading.classList].find((name) => name.startsWith('!text-'));
+      });
+      expect(sizes).toEqual(['!text-xl', '!text-lg', '!text-base', '!text-sm']);
+    });
+  });
+
   describe('basic rendering', () => {
     it('should render assistant message with Dravr avatar', () => {
       render(<MessageItem message={mockAssistantMessage} />);
@@ -99,6 +118,26 @@ describe('MessageItem', () => {
       // "create insight" lightbulb nor the "share to feed" button exists.
       expect(screen.queryByTitle('Create shareable insight')).not.toBeInTheDocument();
       expect(screen.queryByTitle('Share insight')).not.toBeInTheDocument();
+    });
+
+    it('names every icon-only action with aria-label, not with its tooltip alone', () => {
+      render(
+        <MessageItem
+          message={mockAssistantMessage}
+          onCopy={vi.fn()}
+          onShare={vi.fn()}
+          onThumbsUp={vi.fn()}
+          onThumbsDown={vi.fn()}
+          onRetry={vi.fn()}
+        />
+      );
+
+      for (const name of ['Copy message', 'Share', 'Good response', 'Poor response', 'Regenerate response']) {
+        const button = screen.getByRole('button', { name });
+        expect(button).toHaveAttribute('aria-label', name);
+        expect(button).toHaveAttribute('title', name);
+        expect(button.querySelector('svg')).toHaveAttribute('aria-hidden', 'true');
+      }
     });
 
     it('should not render action buttons for user messages', () => {

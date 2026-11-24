@@ -1,23 +1,44 @@
 // ABOUTME: Unit tests for the workout-plan card's figures — a step's compact duration and a day's fuelling line
-// ABOUTME: Red if a stride reads "0m" or sodium turns into a prescribed intake on either client
+// ABOUTME: Red if a 90 s interval reads "2 min", a stride "0 min", or sodium turns into a prescribed intake
 
 import { describe, expect, it } from 'vitest';
-import { fuelParts, stepDuration } from '../src/workout-plan';
+import { clockDuration, fuelParts, stepDuration } from '../src/workout-plan';
 
 /** A translator that shows which key and params it was handed. */
 const t = (key: string, params?: Record<string, string | number>) =>
   `${key}(${JSON.stringify(params ?? {})})`;
 
+describe('clockDuration', () => {
+  it('reads a duration as a clock, seconds padded, a negative as nothing', () => {
+    expect(clockDuration(90)).toBe('1:30');
+    expect(clockDuration(600)).toBe('10:00');
+    expect(clockDuration(5)).toBe('0:05');
+    expect(clockDuration(89.6)).toBe('1:30');
+    expect(clockDuration(-3)).toBe('0:00');
+  });
+});
+
 describe('stepDuration', () => {
-  it('prints seconds under a minute so a stride never reads "0m"', () => {
-    expect(stepDuration(20)).toBe('20s');
-    expect(stepDuration(59)).toBe('59s');
+  it('prints seconds under a minute so a stride never reads "0 min"', () => {
+    expect(stepDuration(20)).toBe('20 s');
+    expect(stepDuration(59)).toBe('59 s');
   });
 
-  it('rounds to whole minutes from a minute up', () => {
-    expect(stepDuration(60)).toBe('1m');
-    expect(stepDuration(450)).toBe('8m');
-    expect(stepDuration(1200)).toBe('20m');
+  it('prints whole minutes as "min", never "m", which reads as metres', () => {
+    expect(stepDuration(60)).toBe('1 min');
+    expect(stepDuration(240)).toBe('4 min');
+    expect(stepDuration(1200)).toBe('20 min');
+  });
+
+  it('keeps the seconds of a part minute instead of rounding them away', () => {
+    expect(stepDuration(90)).toBe('1:30');
+    expect(stepDuration(450)).toBe('7:30');
+    expect(stepDuration(65)).toBe('1:05');
+  });
+
+  it('rounds a fractional second before choosing the form', () => {
+    expect(stepDuration(59.6)).toBe('1 min');
+    expect(stepDuration(29.4)).toBe('29 s');
   });
 });
 

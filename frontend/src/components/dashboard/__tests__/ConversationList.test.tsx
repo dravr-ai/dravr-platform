@@ -159,6 +159,33 @@ describe('ConversationList', () => {
     expect(await screen.findByText('No chats match')).toBeInTheDocument();
   });
 
+  it('draws its filters as text tabs sized by the pointer, the underline under the chosen word alone', async () => {
+    getConversations.mockResolvedValue(page([conversation({ id: 'c1', unread_count: 1 })]));
+    renderList({ scope: 'personal' });
+    await screen.findByText('Marathon plan');
+
+    const tabs = within(screen.getByRole('radiogroup')).getAllByRole('radio');
+    expect(tabs.map((tab) => tab.textContent)).toEqual(['All', 'Unread', 'Agents']);
+    const label = (tab: HTMLElement) => tab.querySelector('span') as HTMLElement;
+    for (const tab of tabs) {
+      // 44x44 on a coarse pointer and under lg; with a fine pointer the
+      // padding keeps even a three-letter word clear of the 32px floor and
+      // the height at the 36px ceiling (6 + 18 + 10 + 2). The ring is for
+      // the keyboard only: a click on a tab moves on.
+      expect(tab).toHaveClass('touch-target', 'px-3.5', 'pt-1.5', 'focus-ring-visible');
+      expect(label(tab)).toHaveClass('pb-2.5', 'border-b-2');
+      expect(tab).not.toHaveClass('focus-ring');
+    }
+    expect(tabs[0]).toHaveAttribute('aria-checked', 'true');
+    expect(label(tabs[0])).toHaveClass('border-primary');
+    expect(label(tabs[1])).toHaveClass('border-transparent');
+
+    fireEvent.click(tabs[1]);
+    expect(tabs[1]).toHaveAttribute('aria-checked', 'true');
+    expect(label(tabs[1])).toHaveClass('border-primary');
+    expect(label(tabs[0])).toHaveClass('border-transparent');
+  });
+
   it('offers Load more while the total exceeds the rows and asks for the next page', async () => {
     const first = Array.from({ length: CONVERSATION_PAGE_SIZE }, (_, i) =>
       conversation({ id: `c${i}`, title: `Chat ${i}` }),

@@ -1174,7 +1174,7 @@ test.describe('Athlete Home', () => {
 
     await page.getByTestId(`home-week-day-${TODAY}`).click();
     const detail = page.getByTestId('home-week-detail');
-    await expect(detail).toContainText('Warm-up · 15m · Z1');
+    await expect(detail).toContainText('Warm-up · 15 min · Z1');
     await detail.getByRole('button', { name: /^Walk me through my session on .+: Tempo run$/ }).click();
     await expect(page.getByPlaceholder('Message Dravr...').first()).toHaveValue(
       /^Walk me through my session on .+: Tempo run$/,

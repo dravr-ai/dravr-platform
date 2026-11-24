@@ -94,7 +94,7 @@ function Sentence({ text, figure }: { text: string; figure: string | number }) {
 }
 
 /**
- * "label · Nm · zone", with "×repeat" appended when the step is repeated.
+ * "label · 4 min · zone", with "×repeat" appended when the step is repeated.
  * The duration and the repeat count are the step's two figures. The family
  * editor's preview draws its steps with this same line.
  */

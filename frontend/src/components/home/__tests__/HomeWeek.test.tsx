@@ -157,7 +157,7 @@ describe('HomeWeek — this week', () => {
     expect(within(detail).getByText('No activity this day.')).toBeInTheDocument();
     expect(within(detail).getByText('Tempo run')).toBeInTheDocument();
     expect(within(detail).getByText('Steps')).toBeInTheDocument();
-    expect(within(detail).getByText('Warm-up · 15m · Z1')).toBeInTheDocument();
+    expect(within(detail).getByText('Warm-up · 15 min · Z1')).toBeInTheDocument();
     expect(within(detail).getByText('Fuel')).toBeInTheDocument();
 
     const named = formatCivilDate(TODAY, 'en', DRAFT_DATE);

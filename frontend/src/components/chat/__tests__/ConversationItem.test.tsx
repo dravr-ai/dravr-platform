@@ -286,6 +286,60 @@ describe('ConversationItem actions', () => {
     expect(screen.getByRole('button', { name: /Sunday long run/ })).toHaveAttribute('aria-current', 'true');
   });
 
+  it('draws the selected row as the tint under its bound ink, never as the hover fill', () => {
+    renderRow(conversation(), {}, { isSelected: true });
+
+    const selected = screen.getByRole('button', { name: /Sunday long run/ });
+    expect(selected).toHaveClass('bg-primary-container');
+    expect(selected.className).not.toMatch(/surface-container-low/);
+    expect(screen.getByTestId('conversation-title')).toHaveClass('text-on-primary-container');
+    expect(screen.getByTestId('conversation-preview')).toHaveClass('text-on-primary-container/85');
+    // The primary avatar slot is the same tint: a hairline keeps its edge.
+    expect(screen.getByTestId('conversation-avatar')).toHaveClass('border', 'ghost-border-strong');
+  });
+
+  it('marks an unread time in primary on the canvas and in the bound ink on the selected tint', () => {
+    const { unmount } = renderRow(conversation({ unread_count: 2 }));
+    expect(screen.getByTestId('conversation-timestamp')).toHaveClass('text-primary');
+    unmount();
+
+    renderRow(conversation({ unread_count: 2 }), {}, { isSelected: true });
+    const time = screen.getByTestId('conversation-timestamp');
+    expect(time).toHaveClass('text-on-primary-container');
+    expect(time).not.toHaveClass('text-primary');
+  });
+
+  it('hovers an unselected row with the neutral fill and no tint', () => {
+    renderRow(conversation());
+
+    const row = screen.getByRole('button', { name: /Sunday long run/ });
+    expect(row).toHaveClass('hover:bg-surface-container-low/60');
+    expect(row).not.toHaveClass('bg-primary-container');
+    expect(screen.getByTestId('conversation-title')).toHaveClass('text-on-surface');
+    expect(screen.getByTestId('conversation-avatar')).not.toHaveClass('border');
+  });
+
+  it('rings the row for keyboard focus only, so a click leaves no ring behind', () => {
+    renderRow(conversation());
+
+    const row = screen.getByRole('button', { name: /Sunday long run/ });
+    expect(row).toHaveClass('focus-ring-visible');
+    expect(row).not.toHaveClass('focus-ring');
+  });
+
+  it('always shows its actions trigger to a coarse pointer, which has no hover', () => {
+    renderRow(conversation());
+
+    // The trigger's wrapper carries the visibility; jsdom cannot evaluate the
+    // media query, so the class that answers it is what is checked.
+    const wrapper = screen.getByTestId('conversation-actions-trigger').parentElement as HTMLElement;
+    expect(wrapper).toHaveClass('opacity-0', 'pointer-events-none');
+    expect(wrapper).toHaveClass('[@media(pointer:coarse)]:opacity-100', '[@media(pointer:coarse)]:pointer-events-auto');
+    // The 44px trigger it always shows there sits clear of the time and the unread pill.
+    const words = screen.getByTestId('conversation-timestamp').parentElement?.parentElement as HTMLElement;
+    expect(words).toHaveClass('pr-8', '[@media(pointer:coarse)]:pr-12');
+  });
+
   it('closes its menu on Escape and leaves the history sheet it sits in open', async () => {
     const user = userEvent.setup();
     const onSheetClose = vi.fn();

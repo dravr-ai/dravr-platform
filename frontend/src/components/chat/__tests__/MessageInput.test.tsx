@@ -83,6 +83,14 @@ describe('MessageInput stop button', () => {
     expect(screen.queryByTestId('stop-turn-button')).toBeNull();
   });
 
+  it('draws send as an up arrow the button names, never the paper plane that read as a warning', () => {
+    renderComposer();
+    const send = screen.getByRole('button', { name: 'Send message' });
+    const glyph = send.querySelector('svg');
+    expect(glyph).toHaveClass('lucide-arrow-up', 'h-4', 'w-4');
+    expect(glyph).toHaveAttribute('aria-hidden', 'true');
+  });
+
   it('replaces send with an enabled stop button while a turn streams, and stops on press', async () => {
     const user = userEvent.setup();
     renderComposer(false, { isStreaming: true });
@@ -137,6 +145,12 @@ describe('MessageInput slash affordance', () => {
     expect(composer.tagName).toBe('TEXTAREA');
     expect(composer).toHaveAttribute('name', 'message');
     expect(composer.id).not.toBe('');
+  });
+
+  it('lifts the field above the canvas in both themes: white in light, the raised tier in dark', () => {
+    renderComposer();
+    const composer = screen.getByRole('textbox', { name: 'Message Dravr' });
+    expect(composer).toHaveClass('bg-surface-container-lowest', 'dark:bg-surface-container-high', 'ghost-border');
   });
 
   it('is disabled with the composer', () => {

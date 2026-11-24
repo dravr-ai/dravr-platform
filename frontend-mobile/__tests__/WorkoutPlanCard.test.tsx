@@ -157,8 +157,8 @@ describe('WorkoutPlanCard', () => {
     expect(day.getByText('65 min').props.className).toContain('font-mono');
     expect(day.getByText(/· Run ·.*· threshold$/)).toBeTruthy();
     // A step is one sentence whose duration and repeat count are mono spans.
-    expect(day.getByText(/Threshold · 8m · Threshold ×4/)).toBeTruthy();
-    expect(day.getByText('8m').props.className).toContain('font-mono');
+    expect(day.getByText(/Threshold · 8 min · Threshold ×4/)).toBeTruthy();
+    expect(day.getByText('8 min').props.className).toContain('font-mono');
     expect(day.getByText('×4').props.className).toContain('font-mono');
     expect(day.getByText(/threshold_4x8/)).toBeTruthy();
     expect(day.getByText(/catalogue/)).toBeTruthy();

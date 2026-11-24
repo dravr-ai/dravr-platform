@@ -158,7 +158,16 @@ export default function ConversationList({
           placeholder={t(text.search)}
           aria-label={t(text.search)}
         />
-        <div className="mt-2.5 flex gap-[18px] border-b ghost-border" role="radiogroup" aria-label={t(text.title)}>
+        {/* Text tabs (DESIGN.md "Page header and text tabs"), sized by the
+            pointer as "Layout" asks: `touch-target` makes each 44x44 on a
+            coarse pointer and under lg, and with a fine pointer the padding
+            alone makes it 36px tall (6 + the 18px line + 10 + the 2px
+            underline) and at least the word plus 28px wide, so even "All"
+            clears the 32px floor. The label sits at the foot of the target
+            with the 2px underline hugging the word. The padding spaces the
+            words, so they sit an even distance apart however short a label
+            is, and the first still lines up with the search field. */}
+        <div className="mt-1 flex border-b ghost-border" role="radiogroup" aria-label={t(text.title)}>
           {FILTERS_BY_SCOPE[scope].map((entry) => {
             const active = filter === entry.key;
             return (
@@ -170,13 +179,15 @@ export default function ConversationList({
                 data-testid={`conversation-filter-${entry.key}`}
                 onClick={() => setFilter(entry.key)}
                 className={clsx(
-                  '-mb-px flex touch-target justify-center border-b-2 pb-2.5 text-sm font-medium transition-colors focus-ring',
-                  active
-                    ? 'border-primary text-on-surface'
-                    : 'border-transparent text-on-surface-variant hover:text-on-surface',
+                  '-mb-px flex touch-target items-end justify-center px-3.5 pt-1.5 text-sm font-medium transition-colors first:-ml-3.5 focus-ring-visible',
+                  active ? 'text-on-surface' : 'text-on-surface-variant hover:text-on-surface',
                 )}
               >
-                {t(entry.labelKey)}
+                <span
+                  className={clsx('border-b-2 pb-2.5', active ? 'border-primary' : 'border-transparent')}
+                >
+                  {t(entry.labelKey)}
+                </span>
               </button>
             );
           })}
