@@ -2,10 +2,10 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: The chat screen opens the thread its route names out of the one conversation list, by id
-// ABOUTME: Red if the screen keeps its own list again, or re-reads the thread each time the list re-reads its row
+// ABOUTME: Red if the screen keeps its own list, re-reads the thread each time the list re-reads its row, or shows one thread's unsent line in another
 
 import React from 'react';
-import { act, render, screen, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { QUERY_KEYS } from '@pierre/shared-constants';
 
@@ -68,6 +68,7 @@ jest.mock('../src/services/api', () => ({
 // hand back the same state on every render, as the real ones do.
 const mockLoadMessages = jest.fn().mockResolvedValue(undefined);
 const mockClearMessages = jest.fn();
+const mockSendTurn = jest.fn().mockResolvedValue(null);
 jest.mock('../src/screens/chat/useMessages', () => {
   const state = {
     messages: [],
@@ -86,7 +87,7 @@ jest.mock('../src/screens/chat/useMessages', () => {
     roomUnavailable: false,
     loadMessages: (...args: unknown[]) => mockLoadMessages(...args),
     refreshVerdicts: jest.fn(),
-    sendTurn: jest.fn(),
+    sendTurn: (...args: unknown[]) => mockSendTurn(...args),
     retryMessage: jest.fn(),
     handleThumbsUp: jest.fn(),
     handleThumbsDown: jest.fn(),
@@ -150,6 +151,7 @@ jest.mock('../src/screens/chat/useChatPlusActions', () => {
 });
 
 import { ChatScreen } from '../src/screens/chat/ChatScreen';
+import { NEW_CONVERSATION_ID } from '../src/navigation/routes';
 
 function row(id: string, overrides: Record<string, unknown> = {}) {
   return {
@@ -169,6 +171,8 @@ describe('ChatScreen opening its thread out of the conversation list', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mockParams.conversationId = 'conv-1';
+    delete mockParams.draft;
     client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     mockGetConversations.mockResolvedValue({ conversations: [row('conv-0'), row('conv-1')], total: 2 });
   });
@@ -219,6 +223,83 @@ describe('ChatScreen opening its thread out of the conversation list', () => {
     );
     expect(mockLoadMessages).toHaveBeenCalledTimes(1);
     expect(mockClearMessages).not.toHaveBeenCalled();
+  });
+
+  it("keeps each thread's unsent line to that thread when the route opens another", async () => {
+    const view = mount();
+    await waitFor(() => expect(screen.getByTestId('open-thread-title').props.children).toBe('Chat conv-1'));
+    fireEvent.changeText(screen.getByTestId('message-input'), 'je suis pret');
+
+    mockParams.conversationId = 'conv-0';
+    view.rerender(
+      <QueryClientProvider client={client}>
+        <ChatScreen />
+      </QueryClientProvider>,
+    );
+    await waitFor(() => expect(screen.getByTestId('open-thread-title').props.children).toBe('Chat conv-0'));
+    expect(screen.getByTestId('message-input').props.value).toBe('');
+    fireEvent.changeText(screen.getByTestId('message-input'), 'Saturday works');
+
+    mockParams.conversationId = 'conv-1';
+    view.rerender(
+      <QueryClientProvider client={client}>
+        <ChatScreen />
+      </QueryClientProvider>,
+    );
+    await waitFor(() => expect(screen.getByTestId('message-input').props.value).toBe('je suis pret'));
+  });
+
+  // Ids of their own in the tests below: a composer line outlives the
+  // screen that typed it, and the test above leaves lines in conv-0 and conv-1.
+  it("fills the routed thread's composer with the route's draft and sends it as a draft", async () => {
+    mockGetConversations.mockResolvedValue({ conversations: [row('conv-drafted')], total: 1 });
+    mockParams.conversationId = 'conv-drafted';
+    mockParams.draft = 'How did my week go?';
+    mount();
+
+    await waitFor(() => expect(screen.getByTestId('open-thread-title').props.children).toBe('Chat conv-drafted'));
+    expect(screen.getByTestId('message-input').props.value).toBe('How did my week go?');
+    fireEvent.press(screen.getByTestId('send-button'));
+
+    await waitFor(() => expect(mockSendTurn).toHaveBeenCalledTimes(1));
+    expect(mockSendTurn).toHaveBeenCalledWith('conv-drafted', 'How did my week go?', { origin: 'draft' });
+  });
+
+  it('leaves a line typed in a new chat, then left, out of the next thread opened', async () => {
+    mockGetConversations.mockResolvedValue({ conversations: [row('conv-next')], total: 1 });
+    mockParams.conversationId = NEW_CONVERSATION_ID;
+    const newChat = mount();
+    fireEvent.changeText(screen.getByTestId('message-input'), 'left in a new chat');
+    newChat.unmount();
+
+    mockParams.conversationId = 'conv-next';
+    mount();
+    await waitFor(() => expect(screen.getByTestId('open-thread-title').props.children).toBe('Chat conv-next'));
+    expect(screen.getByTestId('message-input').props.value).toBe('');
+  });
+
+  it('keeps a line typed in a new chat there when the same screen opens an existing thread', async () => {
+    mockGetConversations.mockResolvedValue({ conversations: [row('conv-picked')], total: 1 });
+    mockParams.conversationId = NEW_CONVERSATION_ID;
+    const view = mount();
+    fireEvent.changeText(screen.getByTestId('message-input'), 'typed in a new chat');
+
+    mockParams.conversationId = 'conv-picked';
+    view.rerender(
+      <QueryClientProvider client={client}>
+        <ChatScreen />
+      </QueryClientProvider>,
+    );
+    await waitFor(() => expect(screen.getByTestId('open-thread-title').props.children).toBe('Chat conv-picked'));
+    expect(screen.getByTestId('message-input').props.value).toBe('');
+
+    mockParams.conversationId = NEW_CONVERSATION_ID;
+    view.rerender(
+      <QueryClientProvider client={client}>
+        <ChatScreen />
+      </QueryClientProvider>,
+    );
+    await waitFor(() => expect(screen.getByTestId('message-input').props.value).toBe('typed in a new chat'));
   });
 
   it('finds a routed thread that sits below the first page of the list', async () => {

@@ -30,6 +30,7 @@ import {
   providerStatusLine,
 } from '@pierre/shared-constants';
 import type { TurnSendOptions } from '@pierre/shared-types';
+import { useComposerDraft, writeComposerDraft } from '@pierre/ui-logic';
 
 import { ChatHeaderTitle, threadTitle } from './ChatHeaderTitle';
 import { ChatPlusFlows } from './ChatPlusFlows';
@@ -73,7 +74,6 @@ export function ChatScreen() {
   const inputRef = useRef<TextInput>(null);
 
   // UI State
-  const [inputText, setInputText] = useState('');
   const [infoVisible, setInfoVisible] = useState(false);
   const [renamePromptVisible, setRenamePromptVisible] = useState(false);
   const [renameConversationId, setRenameConversationId] = useState<string | null>(null);
@@ -82,6 +82,10 @@ export function ChatScreen() {
   // Custom hooks. The open thread is a row of the one conversation list: this
   // screen holds which id is open, never a copy of the list.
   const conversations = useOpenConversation();
+  // The composer's unsent line belongs to the open thread: opening another
+  // chat shows that chat's own draft, never the line typed somewhere else.
+  const viewerId = user?.id ?? null;
+  const composerDraft = useComposerDraft(viewerId, conversations.openId);
   // The personal thread is named after its agent in the athlete's language,
   // read off the same agent list Agent info and the @ palette read. Only the
   // personal thread reads it, so only the personal thread asks for it.
@@ -320,21 +324,19 @@ export function ChatScreen() {
   // and waits for the athlete, `send` runs once. Both are command text built
   // by COMMAND_DRAFTS, and each is honoured once per value so a re-render on
   // the same route never re-sends it.
+  // The draft fills the thread the route names, which may not be the open one
+  // yet. The store also says whether a navigation put the line there, so its
+  // send is reported as a draft (carnet#828); a command line is not a question
+  // draft, and a draft the athlete erased entirely is no longer one.
   const draftedRef = useRef<string | null>(null);
-  // Whether the composer holds a draft a navigation put there, so its send
-  // is reported as one (carnet#828). A command line is not a question draft,
-  // and a draft the athlete erased entirely is no longer one.
-  const [draftSeeded, setDraftSeeded] = useState(false);
   useEffect(() => {
     const draft = typeof params.draft === 'string' ? params.draft : null;
     if (!draft || draftedRef.current === draft) return;
     draftedRef.current = draft;
-    setDraftSeeded(!draft.startsWith('/'));
-    setInputText(draft);
-  }, [params.draft]);
-  useEffect(() => {
-    if (inputText === '') setDraftSeeded(false);
-  }, [inputText]);
+    const routed = params.conversationId;
+    const thread = routed && routed !== NEW_CONVERSATION_ID ? routed : null;
+    writeComposerDraft(viewerId, thread, () => ({ text: draft, seeded: !draft.startsWith('/') }));
+  }, [params.draft, params.conversationId, viewerId]);
 
   const sentRef = useRef<string | null>(null);
   useEffect(() => {
@@ -512,11 +514,11 @@ export function ChatScreen() {
           usageStatus={usageStatus}
           providerStatus={providerStatus}
           isLoading={conversations.isLoading}
-          inputText={inputText}
-          onChangeInputText={setInputText}
+          inputText={composerDraft.text}
+          onChangeInputText={composerDraft.setText}
           inputRef={inputRef}
           sendText={sendText}
-          composerOrigin={draftSeeded ? 'draft' : undefined}
+          composerOrigin={composerDraft.seeded ? 'draft' : undefined}
           starters={starters}
           planSubjectName={planSubject?.kind === 'subject' ? planSubject.name : null}
           coachRoomName={coachRoom}

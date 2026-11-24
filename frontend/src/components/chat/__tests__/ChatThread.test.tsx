@@ -110,6 +110,8 @@ function Host(props: {
   openThread: OpenThread;
   focusComposerOnOpen?: boolean;
   action?: PendingComposerAction;
+  /** Threads the host offers to open, the way a conversation list does; `null` is new chat. */
+  switchTo?: (string | null)[];
 }) {
   const [conversationId, setConversationId] = useState<string | null>(props.initial);
   const [action, setAction] = useState<PendingComposerAction | null>(props.action ?? null);
@@ -124,6 +126,9 @@ function Host(props: {
     <div className="flex h-full flex-col">
       <p data-testid="host-conversation">{conversationId ?? 'none'}</p>
       <p data-testid="host-subtitle">{thread.subtitle ?? ''}</p>
+      {props.switchTo?.map(id => (
+        <button key={id ?? 'none'} type="button" onClick={() => setConversationId(id)}>{`open ${id ?? 'new chat'}`}</button>
+      ))}
       <ChatThread
         thread={thread}
         conversationTitle={thread.title}
@@ -266,6 +271,61 @@ describe('ChatThread', () => {
     expect(sendTurn.mock.calls[0][0]).toBe('conv-new');
     expect(sendTurn.mock.calls[0][1]).toBe('uc:1:about_me_more');
     expect(await screen.findByText('Finish my profile')).toBeInTheDocument();
+  });
+
+  it('keeps each thread’s unsent line to that thread when the athlete switches between them', async () => {
+    // Ids of their own: a draft outlives the render, and no other test opens these.
+    getConversations.mockResolvedValue({
+      conversations: [
+        { id: 'conv-frederic', title: 'Plan · Frederic', agent_id: null },
+        { id: 'conv-room', title: 'Coaching Freddy', agent_id: null },
+      ],
+      total: 2,
+    });
+    const user = userEvent.setup();
+    renderThread({ initial: 'conv-frederic', openThread, switchTo: ['conv-frederic', 'conv-room'] });
+
+    await screen.findByText('Hi, ready when you are.');
+    await user.type(composer(), 'je suis pret');
+
+    await user.click(screen.getByRole('button', { name: 'open conv-room' }));
+    await waitFor(() => expect(screen.getByTestId('host-conversation')).toHaveTextContent('conv-room'));
+    expect(composer()).toHaveValue('');
+    await user.type(composer(), 'Saturday works');
+
+    await user.click(screen.getByRole('button', { name: 'open conv-frederic' }));
+    await waitFor(() => expect(composer()).toHaveValue('je suis pret'));
+
+    await user.click(screen.getByRole('button', { name: 'open conv-room' }));
+    await waitFor(() => expect(composer()).toHaveValue('Saturday works'));
+    expect(sendTurn).not.toHaveBeenCalled();
+  });
+
+  it('keeps a line typed in new chat there when the athlete opens an existing thread', async () => {
+    getConversations.mockResolvedValue({
+      conversations: [{ id: 'conv-picked', title: 'Picked by hand', agent_id: null }],
+      total: 1,
+    });
+    const user = userEvent.setup();
+    renderThread({ initial: null, openThread, switchTo: ['conv-picked', null] });
+
+    await user.type(composer(), 'typed in a new chat');
+    await user.click(screen.getByRole('button', { name: 'open conv-picked' }));
+    await waitFor(() => expect(screen.getByTestId('host-conversation')).toHaveTextContent('conv-picked'));
+    expect(composer()).toHaveValue('');
+
+    await user.click(screen.getByRole('button', { name: 'open new chat' }));
+    await waitFor(() => expect(composer()).toHaveValue('typed in a new chat'));
+    expect(openThread).not.toHaveBeenCalled();
+  });
+
+  it('moves a line drafted with no thread open into the thread opened for it', async () => {
+    openThread.mockResolvedValue({ id: 'conv-drafted' });
+    renderThread({ initial: null, openThread, action: { kind: 'draft', text: 'How was my week?' } });
+
+    await waitFor(() => expect(screen.getByTestId('host-conversation')).toHaveTextContent('conv-drafted'));
+    await waitFor(() => expect(composer()).toHaveValue('How was my week?'));
+    expect(sendTurn).not.toHaveBeenCalled();
   });
 
   it('leaves focus where it was unless the host asks the composer to take it', async () => {

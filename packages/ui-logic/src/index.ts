@@ -18,6 +18,15 @@ export {
   useTurnElapsedMs,
 } from './useTurnTrail';
 
+// The composer's unsent line, kept per thread
+export {
+  type ComposerDraft,
+  type ComposerDraftHandle,
+  carryNoThreadDraft,
+  useComposerDraft,
+  writeComposerDraft,
+} from './useComposerDraft';
+
 // Toast hook
 export {
   type ToastType,

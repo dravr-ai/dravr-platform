@@ -32,12 +32,15 @@ import {
   QUERY_KEYS,
 } from '@pierre/shared-constants';
 import {
+  carryNoThreadDraft,
   describeApiError,
   describeTurnFailure,
   isTurnFailureRetryable,
   privateSendFailureText,
   streamedReplyCallbacks,
+  useComposerDraft,
   useTurnTrail,
+  writeComposerDraft,
   type UsePrivateLaneResult,
 } from '@pierre/ui-logic';
 import { replySceneBlocks, type MessagesResponse } from '@pierre/api-client';
@@ -269,7 +272,6 @@ export function useChatThread({
   const { t, language } = useTranslation();
   const queryClient = useQueryClient();
   const showErrorToast = useErrorToast();
-  const [newMessage, setNewMessage] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
   // Who the streaming turn speaks to: the room, or the coach's private lane.
   const [streamingAudience, setStreamingAudience] = useState<MessageAudience>('room');
@@ -305,14 +307,21 @@ export function useChatThread({
   const [lostTurn, dispatchLostTurn] = useReducer(reduceLostTurn<FailedTurnNote>, null);
   const oauth = useOAuthCompletion(onSelectConversation);
   const [pendingPrompt, setPendingPrompt] = useState<Omit<PendingComposerAction, 'kind'> | null>(null);
-  // Whether the composer holds text a draft affordance put there (Home Today,
-  // the route draft, "back up this claim"), so its send is reported as a
-  // draft rather than as typed. Cleared when the composer empties.
-  const draftSeededRef = useRef(false);
   const [messageMetadata, setMessageMetadata] = useState<Map<string, MessageMetadata>>(new Map());
   // Which model wrote a reply, and how long it took, is an admin's reading
   // (carnet#1147): an athlete talks to their agent, never to a model id.
   const { user } = useAuth();
+  const draftOwner = user?.id ?? null;
+  // The composer's unsent line belongs to the thread it was typed in: opening
+  // another chat shows that chat's own draft. It also says whether a draft
+  // affordance (Home Today, the route draft, "back up this claim") put the
+  // line there, so its send is reported as a draft rather than as typed.
+  const {
+    text: composerText,
+    seeded: composerSeeded,
+    setText: setComposerText,
+    seed: seedComposer,
+  } = useComposerDraft(draftOwner, selectedConversation);
   const showsReplyModel = hasAdminRole(user);
   // What the server decided this turn draws, keyed by assistant message id.
   // Not persisted: a reloaded conversation has no block list on the wire, so
@@ -661,6 +670,9 @@ export function useChatThread({
     mutationFn: (options) => openThread({ athlete_speaks_first: options?.athleteSpeaksFirst || undefined }),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.chat.conversations() });
+      // A line drafted in new chat is what this thread was opened for: it
+      // moves in before the thread is drawn.
+      carryNoThreadDraft(draftOwner, data.id);
       onSelectConversation(data.id);
     },
     onError: (error) => {
@@ -994,6 +1006,8 @@ export function useChatThread({
    */
   const sendPrivateTurn = useCallback(async (content: string, options: TurnSendOptions = {}) => {
     if (!content || turnInFlight || !laneAvailable) return;
+    // The room whose composer the words came from, should they be handed back.
+    const typedIn = selectedConversation;
 
     setIsStreaming(true);
     setStreamingAudience('private');
@@ -1066,12 +1080,13 @@ export function useChatThread({
         }),
       );
       // Nothing was stored: the coach's typed words go back where they typed
-      // them, unless they have already started something else there.
+      // them — that room's composer, even if another thread is open now —
+      // unless they have already started something else there.
       if (outcome.refused && options.display === undefined) {
-        setNewMessage(current => (current.trim() ? current : content));
+        writeComposerDraft(draftOwner, typedIn, held => (held.text.trim() ? held : { text: content, seeded: false }));
       }
     }
-  }, [turnInFlight, laneAvailable, sendToLane, laneAthleteName, usageStatus, t, queryClient, showsReplyModel, beginTrail, trailProse, trailRetract, trailProgress, finishTrail, markReplyLanded]);
+  }, [turnInFlight, laneAvailable, sendToLane, laneAthleteName, usageStatus, t, queryClient, showsReplyModel, beginTrail, trailProse, trailRetract, trailProgress, finishTrail, markReplyLanded, selectedConversation, draftOwner]);
 
   /**
    * Stop the turn that is streaming.
@@ -1117,31 +1132,21 @@ export function useChatThread({
    * clear the box.
    */
   const sendComposer = useCallback(() => {
-    const typed = newMessage.trim();
+    const typed = composerText.trim();
     // While a turn runs the composer is disabled; a send that still reaches
     // here keeps the athlete's words in the box rather than dropping them.
     if (!typed || turnInFlight) return;
-    const origin: MessageOrigin | undefined = draftSeededRef.current ? 'draft' : undefined;
-    draftSeededRef.current = false;
-    setNewMessage('');
+    const origin: MessageOrigin | undefined = composerSeeded ? 'draft' : undefined;
+    setComposerText('');
     // "Only <agent>": the turn goes to the coach's private lane, never the room.
     if (laneAvailable && laneAudience === 'private') {
       void sendPrivateTurn(typed, { origin });
       return;
     }
     void sendTurn(typed, { origin });
-  }, [newMessage, sendTurn, sendPrivateTurn, turnInFlight, laneAvailable, laneAudience]);
+  }, [composerText, composerSeeded, setComposerText, sendTurn, sendPrivateTurn, turnInFlight, laneAvailable, laneAudience]);
 
-  // A draft the athlete erased entirely is no longer a draft: what they type
-  // next is their own.
-  useEffect(() => {
-    if (newMessage === '') draftSeededRef.current = false;
-  }, [newMessage]);
-
-  const seedDraft = useCallback((text: string) => {
-    draftSeededRef.current = true;
-    setNewMessage(text);
-  }, []);
+  const seedDraft = useCallback((text: string) => seedComposer(text, true), [seedComposer]);
 
   // A prompt queued while the conversation was still being created, or while
   // a turn was running in it — streaming here or restored after a reload — is
@@ -1181,11 +1186,12 @@ export function useChatThread({
       startConversation({ athleteSpeaksFirst: true });
       return;
     }
+    // With no thread open the line waits in new chat and moves into the thread
+    // being opened for it once it exists. A command line (`/`, the palette
+    // opener) is not a question draft.
     if (!selectedConversation) startConversation();
-    // A command line (`/`, the palette opener) is not a question draft.
-    draftSeededRef.current = !action.text.startsWith('/');
-    setNewMessage(action.text);
-  }, [selectedConversation, startConversation, sendTurn, holdQueuedSend]);
+    seedComposer(action.text, !action.text.startsWith('/'));
+  }, [selectedConversation, startConversation, sendTurn, holdQueuedSend, seedComposer]);
 
   // The host's own composer action — an activity view prompt or chip — drafted or sent once.
   useEffect(() => {
@@ -1288,8 +1294,8 @@ export function useChatThread({
     retryFailedTurn: retryableTurn !== null ? retryFailedTurn : undefined,
     oauthNotification: oauth.notification,
     dismissOAuthNotification: oauth.dismiss,
-    composerText: newMessage,
-    setComposerText: setNewMessage,
+    composerText,
+    setComposerText,
     sendComposer,
     seedDraft,
     runComposerAction,
