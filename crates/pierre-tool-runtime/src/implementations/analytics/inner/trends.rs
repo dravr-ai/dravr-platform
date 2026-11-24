@@ -177,17 +177,24 @@ fn analyze_performance_trend(
         };
     }
 
-    // Convert to TrendDataPoint format and perform regression
-    compute_trend_statistics(metric, timeframe, metric_type, &data_points_with_timestamp)
+    compute_trend_statistics(metric, timeframe, metric_type, data_points_with_timestamp)
 }
 
-/// Compute trend statistics from data points
+/// Compute trend statistics from data points in any order.
+///
+/// The points are put in date order, oldest first, before anything reads
+/// them: the regression takes their order as time's (cageux fits against the
+/// point index), and the first and last points are the start and end the
+/// change is measured between. Providers return activities newest-first, so
+/// unsorted points read an improving athlete as declining.
 fn compute_trend_statistics(
     metric: &str,
     timeframe: &str,
     metric_type: MetricType,
-    data_points_with_timestamp: &[(Timestamp, f64)],
+    mut data_points_with_timestamp: Vec<(Timestamp, f64)>,
 ) -> PerformanceTrendsResult {
+    data_points_with_timestamp.sort_by_key(|&(date, _)| date);
+    let data_points_with_timestamp = data_points_with_timestamp.as_slice();
     // Convert to TrendDataPoint format
     let trend_data_points: Vec<TrendDataPoint> = data_points_with_timestamp
         .iter()
@@ -247,7 +254,6 @@ fn compute_trend_statistics(
         statistics: Some(TrendStatistics {
             slope: regression_result.slope,
             r_squared: regression_result.r_squared,
-            confidence: regression_result.r_squared,
             correlation: regression_result.correlation,
             standard_error: regression_result.standard_error,
             p_value: regression_result.p_value,
@@ -327,8 +333,7 @@ fn generate_trend_insights(
     match trend {
         "improving" => {
             insights.push(format!(
-                "Your {} is improving with {:.1}% confidence",
-                metric,
+                "Your {metric} is improving; the trend line explains {:.0}% of the variation (R²)",
                 r_squared * 100.0
             ));
             if r_squared > 0.7 {
@@ -337,8 +342,7 @@ fn generate_trend_insights(
         }
         "declining" => {
             insights.push(format!(
-                "Your {} is declining with {:.1}% confidence",
-                metric,
+                "Your {metric} is declining; the trend line explains {:.0}% of the variation (R²)",
                 r_squared * 100.0
             ));
             if slope < -0.05 {
@@ -420,4 +424,66 @@ pub(crate) fn handle_analyze_performance_trends(
             Err(response) => Ok(*response),
         }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use std::error::Error;
+
+    use super::*;
+    use dravr_tronc::dates::Elapsed;
+
+    #[test]
+    fn newest_first_points_are_fitted_in_date_order() -> Result<(), Box<dyn Error>> {
+        let now = Timestamp::now();
+        let days_ago = |n: i64| now - Elapsed::days(n);
+        // Speed rising over five weeks, with the noise real sessions carry (a
+        // perfectly straight series has no p-value to judge), delivered
+        // newest-first as providers do.
+        let newest_first = vec![
+            (days_ago(0), 3.4),
+            (days_ago(7), 3.31),
+            (days_ago(14), 3.27),
+            (days_ago(21), 3.15),
+            (days_ago(28), 3.12),
+            (days_ago(35), 3.0),
+        ];
+
+        let result = compute_trend_statistics("speed", "month", MetricType::Speed, newest_first);
+
+        assert_eq!(
+            result.trend, "improving",
+            "bug: rising speed fitted newest-first reads as a decline"
+        );
+        let statistics = result.statistics.ok_or("a fitted trend")?;
+        assert!(
+            statistics.slope > 0.0,
+            "bug: the slope of rising speed is {}",
+            statistics.slope
+        );
+        assert_eq!(
+            statistics.start_value,
+            Some(3.0),
+            "bug: the start is not the oldest session"
+        );
+        assert_eq!(
+            statistics.end_value,
+            Some(3.4),
+            "bug: the end is not the newest session"
+        );
+        assert!(
+            statistics.percent_change.is_some_and(|change| change > 0.0),
+            "bug: the change from oldest to newest is not a rise: {:?}",
+            statistics.percent_change
+        );
+        assert!(
+            result
+                .insights
+                .iter()
+                .all(|line| !line.contains("confidence")),
+            "bug: R² is presented as a confidence: {:?}",
+            result.insights
+        );
+        Ok(())
+    }
 }

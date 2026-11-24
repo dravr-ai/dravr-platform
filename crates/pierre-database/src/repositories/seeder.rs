@@ -35,7 +35,7 @@
 use async_trait::async_trait;
 use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::AppResult;
-use pierre_core::models::mobility::{ActivityMuscleMapping, StretchingExercise, YogaPose};
+use pierre_core::models::mobility::{StretchingExercise, YogaPose};
 use pierre_core::models::User;
 use uuid::Uuid;
 
@@ -107,7 +107,7 @@ pub trait SeederRepository: Send + Sync {
     /// Find a user by email address (returns full User if found)
     async fn seed_find_user_by_email(&self, email: &str) -> AppResult<Option<User>>;
 
-    // ---- Mobility seeder (stretching, yoga, activity mappings) ----
+    // ---- Mobility seeder (stretching, yoga) ----
 
     /// Upsert a stretching exercise, identified by its `name`: every row
     /// already carrying the name is refreshed in place, keeping its id and
@@ -122,9 +122,6 @@ pub trait SeederRepository: Send + Sync {
     /// Upsert a yoga pose, identified by its `english_name` the way
     /// [`Self::seed_upsert_stretching_exercise`] is by its name.
     async fn seed_upsert_yoga_pose(&self, pose: &YogaPose) -> AppResult<()>;
-
-    /// Upsert an activity-muscle mapping (insert or replace on conflict)
-    async fn seed_upsert_activity_mapping(&self, mapping: &ActivityMuscleMapping) -> AppResult<()>;
 
     // ---- LLM usage seeder ----
 
@@ -489,20 +486,6 @@ pub(crate) const UPSERT_YOGA_POSE_SQL: &str = "INSERT INTO yoga_poses \
               progressions = EXCLUDED.progressions, cues = EXCLUDED.cues, \
               warmup_poses = EXCLUDED.warmup_poses, followup_poses = EXCLUDED.followup_poses, \
               image_url = EXCLUDED.image_url, video_url = EXCLUDED.video_url, \
-              updated_at = EXCLUDED.updated_at";
-
-/// Insert or refresh an activity's muscle mapping, keyed on the UNIQUE
-/// `activity_type`; the row keeps its `created_at`.
-pub(crate) const UPSERT_ACTIVITY_MAPPING_SQL: &str = "INSERT INTO activity_muscle_mapping \
-             (id, activity_type, primary_muscles, secondary_muscles, \
-              recommended_stretch_categories, recommended_yoga_categories, \
-              created_at, updated_at) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8) \
-             ON CONFLICT (activity_type) DO UPDATE SET \
-              primary_muscles = EXCLUDED.primary_muscles, \
-              secondary_muscles = EXCLUDED.secondary_muscles, \
-              recommended_stretch_categories = EXCLUDED.recommended_stretch_categories, \
-              recommended_yoga_categories = EXCLUDED.recommended_yoga_categories, \
               updated_at = EXCLUDED.updated_at";
 
 /// The email of the oldest admin account; the full row comes from

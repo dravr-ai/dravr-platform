@@ -4792,7 +4792,6 @@ dependencies = [
  "pierre-dev-fixture",
  "pierre-email",
  "pierre-evals",
- "pierre-external",
  "pierre-fitness-compute",
  "pierre-formatters",
  "pierre-groups",

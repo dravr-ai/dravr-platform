@@ -939,16 +939,17 @@ impl UserPhysiologicalProfile {
         }
     }
 
-    /// The saved maximum heart rate, else cageux's estimate from the saved
-    /// age by `algorithm` — the max-HR estimator the deployment configures
-    /// (`AlgorithmConfig::maxhr_algorithm`, admin key `algorithm.maxhr`).
-    /// `None` with neither a maximum nor an age, or when the estimator
-    /// refuses the age.
+    /// The saved maximum heart rate, else cageux's estimate from the saved age
+    /// and sex by `algorithm`, the configured estimator (`algorithm.maxhr`): an
+    /// athlete saved as male is never read on Gulati's women's equation; one
+    /// with no saved sex is read on the configured one. `None` with neither a
+    /// maximum nor an age, or when the estimator refuses the age.
     #[must_use]
     pub fn estimated_max_hr(&self, algorithm: MaxHrAlgorithm) -> Option<u16> {
         self.max_hr.or_else(|| {
             let age = self.age?;
-            let estimate = algorithm.estimate(u32::from(age), None).ok()?;
+            let sex = self.sex.map(PhysiologicalSex::as_str);
+            let estimate = algorithm.estimate(u32::from(age), sex).ok()?;
             // Safe: every estimator returns a heart rate inside 0-220 bpm.
             #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
             let bpm = estimate.round() as u16;
@@ -1137,6 +1138,28 @@ mod tests {
             "mira.s",
             "never the whole address"
         );
+    }
+
+    #[test]
+    fn an_estimated_maximum_never_reads_a_man_on_gulatis_womens_equation() {
+        let mut athlete = UserPhysiologicalProfile::new(Uuid::nil(), SportType::Run);
+        athlete.age = Some(40);
+        // Gulati 206 - 0.88 x 40 = 170.8 for her, Tanaka 208 - 0.7 x 40 for him;
+        // a saved maximum wins over both.
+        for (sex, max_hr, expected) in [
+            (PhysiologicalSex::Female, None, 171),
+            (PhysiologicalSex::Male, None, 180),
+            (PhysiologicalSex::Male, Some(188), 188),
+        ] {
+            athlete.sex = Some(sex);
+            athlete.max_hr = max_hr;
+            let got = athlete.estimated_max_hr(MaxHrAlgorithm::Gulati);
+            assert_eq!(
+                got,
+                Some(expected),
+                "bug: {sex:?} with saved max {max_hr:?}"
+            );
+        }
     }
 
     fn with_role(role: UserRole) -> User {

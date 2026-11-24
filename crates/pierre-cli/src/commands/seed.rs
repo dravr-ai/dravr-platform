@@ -55,7 +55,7 @@ pub(crate) enum SeedCommand {
     /// Populate the `llm_usage` table with realistic call data for analytics dashboards
     LlmUsage(LlmUsageArgs),
 
-    /// Seed or refresh stretching exercises, yoga poses, and activity-muscle mappings (idempotent)
+    /// Seed or refresh stretching exercises and yoga poses (idempotent)
     Mobility,
 
     /// Seed diverse synthetic activities for testing without OAuth providers

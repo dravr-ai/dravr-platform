@@ -19,9 +19,9 @@ pub struct SleepToolParamsConfig {
     pub activity_limit: u32,
     /// Minimum days of sleep history required for trend analysis
     pub trend_min_days: usize,
-    /// Sleep trend improving threshold (hours)
+    /// Sleep trend improving threshold (points of 0-100 sleep quality)
     pub trend_improving_threshold: f64,
-    /// Sleep trend declining threshold (hours)
+    /// Sleep trend declining threshold (points of 0-100 sleep quality)
     pub trend_declining_threshold: f64,
     /// Additional sleep hours when fatigued
     pub fatigue_bonus_hours: f64,

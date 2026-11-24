@@ -9,7 +9,6 @@
 //! Tests the `MobilityRepository` operations on whichever backend the test factory opens:
 //! - Stretching exercises: list, get, search, filter
 //! - Yoga poses: list, get, search, filter by category/difficulty/recovery
-//! - Activity-muscle mappings
 
 #![allow(missing_docs, clippy::unwrap_used, clippy::expect_used)]
 

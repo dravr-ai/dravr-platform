@@ -356,7 +356,6 @@ bcrypt = "0.16"
 jsonwebtoken = { version = "10.4", features = ["rust_crypto", "use_pem"], default-features = false }
 pierre-agent-parser = { version = "0.3.0", path = "../pierre-agent-parser" }
 pierre-evals = { version = "0.3.0", path = "../pierre-evals" }
-pierre-external = { version = "0.3.0", path = "../pierre-external" }
 pierre-formatters = { version = "0.3.0", path = "../pierre-formatters" }
 pierre-seeders = { version = "0.3.0", path = "../pierre-seeders" }
 rand_chacha = "0.9"

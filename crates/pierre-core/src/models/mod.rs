@@ -368,8 +368,8 @@ pub use agents::{
 /// Recipe data models for nutrition planning with training-aware meal timing (from dravr-cageux)
 pub use dravr_cageux::models::recipes;
 pub use mobility::{
-    ActivityMuscleMapping, DifficultyLevel, ListStretchingFilter, ListYogaFilter,
-    StretchingCategory, StretchingExercise, YogaCategory, YogaPose, YogaPoseType,
+    DifficultyLevel, ListStretchingFilter, ListYogaFilter, StretchingCategory, StretchingExercise,
+    YogaCategory, YogaPose, YogaPoseType,
 };
 pub use recipes::{
     DietaryRestriction, IngredientUnit, MacroTargets, MealTiming, Recipe, RecipeConstraints,

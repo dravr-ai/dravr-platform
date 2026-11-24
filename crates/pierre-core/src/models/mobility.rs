@@ -1,12 +1,11 @@
 // ABOUTME: Mobility domain types for stretching exercises and yoga poses
-// ABOUTME: Data models for recovery training recommendations and activity-muscle mappings
+// ABOUTME: Data models for recovery training recommendations and their list filters
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
 use dravr_tronc::dates::Timestamp;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 // ============================================================================
 // Stretching Exercise Types
@@ -388,29 +387,4 @@ pub struct ListYogaFilter {
     pub limit: Option<u32>,
     /// Offset for pagination
     pub offset: Option<u32>,
-}
-
-// ============================================================================
-// Activity-Muscle Mapping
-// ============================================================================
-
-/// Mapping of activity type to muscle stress levels
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ActivityMuscleMapping {
-    /// Unique identifier
-    pub id: String,
-    /// Activity type (running, cycling, etc.)
-    pub activity_type: String,
-    /// Primary muscles with stress levels (1-10)
-    pub primary_muscles: HashMap<String, u8>,
-    /// Secondary muscles with stress levels (1-10)
-    pub secondary_muscles: HashMap<String, u8>,
-    /// Recommended stretch categories
-    pub recommended_stretch_categories: Vec<String>,
-    /// Recommended yoga categories
-    pub recommended_yoga_categories: Vec<String>,
-    /// Creation timestamp
-    pub created_at: Timestamp,
-    /// Last update timestamp
-    pub updated_at: Timestamp,
 }

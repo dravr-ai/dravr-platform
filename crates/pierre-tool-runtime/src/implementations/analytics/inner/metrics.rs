@@ -21,7 +21,7 @@ use dravr_tronc::dates::Timestamp;
 use pierre_config::constants::time_constants::SECONDS_PER_MINUTE;
 use pierre_config::constants::units::METERS_PER_KM;
 use pierre_core::models::zones::HrZonesUnavailable;
-use pierre_core::models::UserPhysiologicalProfile;
+use pierre_core::models::{PhysiologicalSex, UserPhysiologicalProfile};
 use pierre_core::uuid_utils::parse_user_id_for_protocol;
 use pierre_formatters::OutputFormat;
 use std::collections::HashMap;
@@ -117,9 +117,11 @@ fn parse_activity_parameters(
 /// Determine maximum heart rate
 ///
 /// This call's `max_hr` first, then the saved maximum, else cageux's estimate
-/// from the age (this call's, else the saved one) by `algorithm`, the
-/// deployment's configured max-HR estimator; else none, and the heart-rate
-/// reading is absent rather than read against a stranger's maximum.
+/// from the age (this call's, else the saved one) and the saved sex by
+/// `algorithm`, the deployment's configured max-HR estimator; else none, and
+/// the heart-rate reading is absent rather than read against a stranger's
+/// maximum. The sex selects a sex-specific equation's form (Gulati's is
+/// women's), so an athlete saved as male is never read on it.
 fn determine_max_heart_rate(
     max_hr_provided: Option<f64>,
     user_age: Option<u32>,
@@ -139,7 +141,8 @@ fn determine_max_heart_rate(
         });
     }
     let age = user_age.or_else(|| profile.and_then(|p| p.age).map(u32::from))?;
-    let bpm = algorithm.estimate(age, None).ok()?;
+    let sex = profile.and_then(|p| p.sex).map(PhysiologicalSex::as_str);
+    let bpm = algorithm.estimate(age, sex).ok()?;
     Some(MaxHeartRate {
         bpm,
         source: format!("estimated_from_age_{age}_{}", algorithm.name()),
@@ -505,6 +508,33 @@ mod tests {
         assert_eq!(aged.source, "estimated_from_age_40_tanaka");
         let reading = heart_rate_reading(Some(150), Some(&athlete), Some(&aged))?;
         assert_eq!(reading, HrZones::for_athlete(None, 50, 180)?.reading(150));
+        Ok(())
+    }
+
+    #[test]
+    fn gulatis_womens_equation_never_reads_an_athlete_saved_as_male() -> Result<(), Box<dyn Error>>
+    {
+        let mut woman = profile(Some(50), None);
+        woman.sex = Some(PhysiologicalSex::Female);
+        let hers = determine_max_heart_rate(None, Some(40), Some(&woman), MaxHrAlgorithm::Gulati)
+            .ok_or("estimated for her")?;
+        // Gulati: 206 - 0.88 x 40 = 170.8.
+        assert!(
+            (hers.bpm - 170.8).abs() < 1e-9,
+            "bug: a woman is not read on Gulati's equation: {}",
+            hers.bpm
+        );
+
+        let mut man = profile(Some(50), None);
+        man.sex = Some(PhysiologicalSex::Male);
+        let his = determine_max_heart_rate(None, Some(40), Some(&man), MaxHrAlgorithm::Gulati)
+            .ok_or("estimated for him")?;
+        // A man is read on Tanaka's equation instead: 208 - 0.7 x 40 = 180.
+        assert!(
+            (his.bpm - 180.0).abs() < 1e-9,
+            "bug: a man is read on Gulati's women's equation: {}",
+            his.bpm
+        );
         Ok(())
     }
 

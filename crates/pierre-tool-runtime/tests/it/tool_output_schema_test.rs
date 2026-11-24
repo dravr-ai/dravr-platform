@@ -2646,7 +2646,6 @@ fn analyze_performance_trends_declares_a_schema_that_accepts_both_of_its_answers
         statistics: Some(TrendStatistics {
             slope: -0.004,
             r_squared: 0.62,
-            confidence: 0.62,
             correlation: -0.79,
             standard_error: 0.001,
             p_value: Some(0.002),

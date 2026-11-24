@@ -167,22 +167,10 @@ pub fn analyze_detailed_training_load(
 
     let taper_recommendation = taper_status(band);
 
-    // Periodization suggestions
-    let mut periodization_suggestions = Vec::new();
-    if atl > ctl * 1.5 {
-        periodization_suggestions
-            .push("Recent spike in training - allow adaptation time".to_owned());
-    } else if ctl > 30.0 && atl < ctl * 0.8 {
-        periodization_suggestions
-            .push("Well adapted to current load - room to build gradually".to_owned());
-    }
-    if ctl < 30.0 {
-        periodization_suggestions
-            .push("Building base - focus on consistency and volume".to_owned());
-    } else if ctl > 80.0 {
-        periodization_suggestions
-            .push("High fitness level - maintain or add recovery weeks".to_owned());
-    }
+    // The chronic load's band, cageux's, read once: the suggestions, the
+    // recommendations and `training_zones` all place the athlete in it, so
+    // no two parts of this payload can put one CTL in different bands.
+    let level = TrainingLoadLevel::from_ctl(ctl);
 
     TrainingLoadResult::Analyzed(Box::new(TrainingLoadDetail {
         load_metrics: LoadMetrics {
@@ -196,9 +184,9 @@ pub fn analyze_detailed_training_load(
         form_band: band,
         form_assessment: band.label().to_owned(),
         taper_status: taper_recommendation.to_owned(),
-        periodization_suggestions,
-        training_zones: training_load_level(ctl),
-        recommendations: generate_load_recommendations(ctl, band, form_pct),
+        periodization_suggestions: periodization_suggestions(level, atl, ctl),
+        training_zones: training_load_level(level),
+        recommendations: generate_load_recommendations(level, band, form_pct),
         activities_analyzed: training_load.tss_history.len(),
         // The one shared key, so this surface and `get_training_history` cannot
         // describe the same number two different ways (registre#199).
@@ -259,22 +247,47 @@ const fn taper_status(band: FormBand) -> &'static str {
     }
 }
 
-/// Place a chronic load in cageux's [`TrainingLoadLevel`] bands; the level
+/// Periodization suggestions from the acute:chronic balance and the band of
+/// the chronic load, `level`, which is cageux's band for `ctl`.
+fn periodization_suggestions(level: TrainingLoadLevel, atl: f64, ctl: f64) -> Vec<String> {
+    let mut suggestions = Vec::new();
+    if atl > ctl * 1.5 {
+        suggestions.push("Recent spike in training - allow adaptation time".to_owned());
+    } else if level != TrainingLoadLevel::Beginner && atl < ctl * 0.8 {
+        suggestions.push("Well adapted to current load - room to build gradually".to_owned());
+    }
+    match level {
+        TrainingLoadLevel::Beginner => {
+            suggestions.push("Building base - focus on consistency and volume".to_owned());
+        }
+        TrainingLoadLevel::Elite | TrainingLoadLevel::VeryHigh => {
+            suggestions.push("High fitness level - maintain or add recovery weeks".to_owned());
+        }
+        TrainingLoadLevel::Intermediate | TrainingLoadLevel::Advanced => {}
+    }
+    suggestions
+}
+
+/// A chronic load's place in cageux's [`TrainingLoadLevel`] bands; the level
 /// and its CTL span come from the same band, so they cannot disagree.
-fn training_load_level(ctl: f64) -> TrainingZone {
-    let level = TrainingLoadLevel::from_ctl(ctl);
+fn training_load_level(level: TrainingLoadLevel) -> TrainingZone {
     TrainingZone {
         level: level.label().to_owned(),
         ctl_range: level.ctl_range().to_owned(),
     }
 }
 
-/// Generate load-specific recommendations from the athlete's form band.
+/// Generate load-specific recommendations from the athlete's form band and
+/// the band of their chronic load.
 ///
 /// Descriptive, banded on the athlete's own chronic load — never absolute
 /// TSB thresholds, which misread elite athletes' normal training blocks
 /// as emergencies. `form_pct` is carried only to quote the number back.
-fn generate_load_recommendations(ctl: f64, band: FormBand, form_pct: Option<f64>) -> Vec<String> {
+fn generate_load_recommendations(
+    level: TrainingLoadLevel,
+    band: FormBand,
+    form_pct: Option<f64>,
+) -> Vec<String> {
     let mut recommendations = Vec::new();
 
     // Deep fatigue is the only band that asks the athlete to back off, and it
@@ -308,14 +321,14 @@ fn generate_load_recommendations(ctl: f64, band: FormBand, form_pct: Option<f64>
         _ => {}
     }
 
-    // Progressive load recommendations
-    if ctl < 30.0 {
-        recommendations
-            .push("Building base - grow weekly TSS gradually (3-5 points/week)".to_owned());
-    } else if ctl > 80.0 {
-        recommendations.push(
+    // Progressive load recommendations, on cageux's chronic-load bands
+    match level {
+        TrainingLoadLevel::Beginner => recommendations
+            .push("Building base - grow weekly TSS gradually (3-5 points/week)".to_owned()),
+        TrainingLoadLevel::Elite | TrainingLoadLevel::VeryHigh => recommendations.push(
             "High chronic load - schedule periodic recovery weeks (reduce 20-30%)".to_owned(),
-        );
+        ),
+        TrainingLoadLevel::Intermediate | TrainingLoadLevel::Advanced => {}
     }
 
     if recommendations.is_empty() {
@@ -595,6 +608,84 @@ fn fire_training_load_notifications(
             user_id,
             tenant_id,
             conversation_id.as_deref(),
+        );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn advice(ctl: f64) -> Vec<String> {
+        generate_load_recommendations(TrainingLoadLevel::from_ctl(ctl), FormBand::Productive, None)
+    }
+
+    #[test]
+    fn chronic_load_advice_follows_cageuxs_bands() {
+        // Beginner is below 25: base building.
+        assert!(
+            advice(24.0)[0].starts_with("Building base"),
+            "bug: a Beginner CTL is not told to build base: {:?}",
+            advice(24.0)
+        );
+        // 25 and up is Intermediate: neither base building nor recovery weeks.
+        assert_eq!(
+            advice(27.0),
+            ["Training load is well balanced - maintain current approach"],
+            "bug: an Intermediate CTL gets band-specific advice"
+        );
+        // Advanced stays below 70; Elite (70+) and Very High get recovery weeks.
+        assert_eq!(
+            advice(69.0),
+            ["Training load is well balanced - maintain current approach"],
+            "bug: an Advanced CTL gets band-specific advice"
+        );
+        assert!(
+            advice(75.0)[0].starts_with("High chronic load"),
+            "bug: an Elite CTL is not offered recovery weeks: {:?}",
+            advice(75.0)
+        );
+        assert!(
+            advice(120.0)[0].starts_with("High chronic load"),
+            "bug: a Very High CTL is not offered recovery weeks: {:?}",
+            advice(120.0)
+        );
+        // The band reported beside the advice is the same band.
+        assert_eq!(
+            training_load_level(TrainingLoadLevel::from_ctl(75.0)).level,
+            "Elite",
+            "bug: the reported band differs from the band the advice reads"
+        );
+    }
+
+    fn suggestions(ctl: f64, atl: f64) -> Vec<String> {
+        periodization_suggestions(TrainingLoadLevel::from_ctl(ctl), atl, ctl)
+    }
+
+    #[test]
+    fn periodization_suggestions_follow_cageuxs_bands() {
+        assert_eq!(
+            suggestions(24.0, 18.0),
+            ["Building base - focus on consistency and volume"],
+            "bug: a Beginner CTL is called well adapted, or not told to build base"
+        );
+        assert_eq!(
+            suggestions(27.0, 20.0),
+            ["Well adapted to current load - room to build gradually"],
+            "bug: an Intermediate CTL is not read as adapted, or is told to build base"
+        );
+        assert_eq!(
+            suggestions(75.0, 70.0),
+            ["High fitness level - maintain or add recovery weeks"],
+            "bug: an Elite CTL is not offered recovery weeks"
+        );
+        assert_eq!(
+            suggestions(120.0, 90.0),
+            [
+                "Well adapted to current load - room to build gradually",
+                "High fitness level - maintain or add recovery weeks"
+            ],
+            "bug: a Very High CTL is not offered recovery weeks"
         );
     }
 }

@@ -1,17 +1,17 @@
 // ABOUTME: Mobility data seeding utility for Pierre MCP Server
-// ABOUTME: Seeds stretching exercises, yoga poses, and activity-muscle mappings
+// ABOUTME: Seeds stretching exercises and yoga poses
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
 //! Mobility data seeder for Pierre MCP Server.
 //!
-//! This binary creates the default stretching exercises, yoga poses, and
-//! activity-muscle mappings for the mobility feature.
+//! This binary creates the default stretching exercises and yoga poses for
+//! the mobility feature.
 //!
 //! Every run writes the whole catalogue: a stretch or pose already present
-//! under its name, and a mapping under its activity type, is refreshed in
-//! place, so a corrected entry reaches a seeded database on the next run.
+//! under its name is refreshed in place, so a corrected entry reaches a
+//! seeded database on the next run.
 //!
 //! Usage:
 //! ```bash
@@ -19,13 +19,10 @@
 //! pierre-cli seed mobility
 //! ```
 
-use std::collections::HashMap;
-
 use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::AppResult;
 use pierre_core::models::mobility::{
-    ActivityMuscleMapping, DifficultyLevel, StretchingCategory, StretchingExercise, YogaCategory,
-    YogaPose, YogaPoseType,
+    DifficultyLevel, StretchingCategory, StretchingExercise, YogaCategory, YogaPose, YogaPoseType,
 };
 use pierre_database::RepositoryRegistry;
 use tracing::info;
@@ -692,104 +689,8 @@ const YOGA_POSES: &[YogaPoseData] = &[
     },
 ];
 
-// ============================================================================
-// Activity-Muscle Mapping Data
-// ============================================================================
-
-struct ActivityMappingData {
-    activity_type: &'static str,
-    primary_muscles: &'static [(&'static str, u8)],
-    secondary_muscles: &'static [(&'static str, u8)],
-    recommended_stretch_categories: &'static [&'static str],
-    recommended_yoga_categories: &'static [&'static str],
-}
-
-const ACTIVITY_MAPPINGS: &[ActivityMappingData] = &[
-    ActivityMappingData {
-        activity_type: "running",
-        primary_muscles: &[
-            ("calves", 9),
-            ("quadriceps", 8),
-            ("hamstrings", 8),
-            ("glutes", 7),
-            ("hip_flexors", 7),
-        ],
-        secondary_muscles: &[("core", 5), ("lower_back", 4), ("it_band", 6)],
-        recommended_stretch_categories: &["static", "dynamic"],
-        recommended_yoga_categories: &["standing", "supine"],
-    },
-    ActivityMappingData {
-        activity_type: "cycling",
-        primary_muscles: &[
-            ("quadriceps", 9),
-            ("glutes", 8),
-            ("hip_flexors", 8),
-            ("calves", 6),
-        ],
-        secondary_muscles: &[
-            ("hamstrings", 5),
-            ("lower_back", 6),
-            ("neck", 5),
-            ("shoulders", 4),
-        ],
-        recommended_stretch_categories: &["static"],
-        recommended_yoga_categories: &["standing", "supine", "twist"],
-    },
-    ActivityMappingData {
-        activity_type: "swimming",
-        primary_muscles: &[("lats", 9), ("shoulders", 9), ("chest", 7), ("triceps", 7)],
-        secondary_muscles: &[("core", 6), ("hip_flexors", 5), ("calves", 4)],
-        recommended_stretch_categories: &["static", "dynamic"],
-        recommended_yoga_categories: &["standing", "supine"],
-    },
-    ActivityMappingData {
-        activity_type: "hiking",
-        primary_muscles: &[
-            ("quadriceps", 8),
-            ("glutes", 8),
-            ("calves", 7),
-            ("hamstrings", 6),
-        ],
-        secondary_muscles: &[("hip_flexors", 5), ("core", 5), ("lower_back", 5)],
-        recommended_stretch_categories: &["static"],
-        recommended_yoga_categories: &["standing", "supine"],
-    },
-    ActivityMappingData {
-        activity_type: "strength_training",
-        primary_muscles: &[
-            ("chest", 7),
-            ("back", 7),
-            ("shoulders", 7),
-            ("biceps", 6),
-            ("triceps", 6),
-        ],
-        secondary_muscles: &[("core", 6), ("quadriceps", 5), ("glutes", 5)],
-        recommended_stretch_categories: &["static", "pnf"],
-        recommended_yoga_categories: &["standing", "supine", "twist"],
-    },
-    ActivityMappingData {
-        activity_type: "desk_work",
-        primary_muscles: &[
-            ("hip_flexors", 8),
-            ("lower_back", 7),
-            ("neck", 7),
-            ("shoulders", 6),
-        ],
-        secondary_muscles: &[("chest", 5), ("hamstrings", 5), ("wrists", 4)],
-        recommended_stretch_categories: &["static", "dynamic"],
-        recommended_yoga_categories: &["seated", "standing", "twist"],
-    },
-    ActivityMappingData {
-        activity_type: "walking",
-        primary_muscles: &[("calves", 6), ("glutes", 5), ("quadriceps", 5)],
-        secondary_muscles: &[("hamstrings", 4), ("hip_flexors", 4), ("core", 3)],
-        recommended_stretch_categories: &["static"],
-        recommended_yoga_categories: &["standing", "supine"],
-    },
-];
-
-/// Seed the default stretching exercises, yoga poses, and activity-muscle
-/// mappings, refreshing whichever of them a database already holds.
+/// Seed the default stretching exercises and yoga poses, refreshing whichever
+/// of them a database already holds.
 ///
 /// # Errors
 ///
@@ -799,7 +700,6 @@ pub async fn run(repos: &RepositoryRegistry) -> AppResult<()> {
     let now = Timestamp::now();
     seed_stretching_exercises(repos, now).await?;
     seed_yoga_poses(repos, now).await?;
-    seed_activity_mappings(repos, now).await?;
     log_mobility_summary();
     Ok(())
 }
@@ -807,10 +707,9 @@ pub async fn run(repos: &RepositoryRegistry) -> AppResult<()> {
 /// Log counts of seeded mobility resources.
 fn log_mobility_summary() {
     info!(
-        "=== Seeding Complete: {} stretches, {} yoga poses, {} mappings ===",
+        "=== Seeding Complete: {} stretches, {} yoga poses ===",
         STRETCHING_EXERCISES.len(),
-        YOGA_POSES.len(),
-        ACTIVITY_MAPPINGS.len()
+        YOGA_POSES.len()
     );
 }
 
@@ -836,19 +735,6 @@ async fn seed_yoga_poses(repos: &RepositoryRegistry, now: Timestamp) -> AppResul
         let pose = to_yoga_pose(data, now);
         repos.seeder.seed_upsert_yoga_pose(&pose).await?;
         info!("  + {}", data.english_name);
-    }
-    Ok(())
-}
-
-async fn seed_activity_mappings(repos: &RepositoryRegistry, now: Timestamp) -> AppResult<()> {
-    info!(
-        "Seeding {} activity-muscle mappings...",
-        ACTIVITY_MAPPINGS.len()
-    );
-    for data in ACTIVITY_MAPPINGS {
-        let mapping = to_activity_mapping(data, now);
-        repos.seeder.seed_upsert_activity_mapping(&mapping).await?;
-        info!("  + {}", data.activity_type);
     }
     Ok(())
 }
@@ -912,30 +798,6 @@ fn to_yoga_pose(data: &YogaPoseData, now: Timestamp) -> YogaPose {
         followup_poses: Vec::new(),
         image_url: None,
         video_url: None,
-        created_at: now,
-        updated_at: now,
-    }
-}
-
-fn to_activity_mapping(data: &ActivityMappingData, now: Timestamp) -> ActivityMuscleMapping {
-    let primary_muscles: HashMap<String, u8> = data
-        .primary_muscles
-        .iter()
-        .map(|(k, v)| ((*k).to_owned(), *v))
-        .collect();
-    let secondary_muscles: HashMap<String, u8> = data
-        .secondary_muscles
-        .iter()
-        .map(|(k, v)| ((*k).to_owned(), *v))
-        .collect();
-
-    ActivityMuscleMapping {
-        id: Uuid::new_v4().to_string(),
-        activity_type: data.activity_type.to_owned(),
-        primary_muscles,
-        secondary_muscles,
-        recommended_stretch_categories: to_str_vec(data.recommended_stretch_categories),
-        recommended_yoga_categories: to_str_vec(data.recommended_yoga_categories),
         created_at: now,
         updated_at: now,
     }

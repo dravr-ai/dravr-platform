@@ -960,11 +960,6 @@
           "TrendStatistics": {
             "description": "The linear regression behind a performance trend.",
             "properties": {
-              "confidence": {
-                "description": "Confidence in the trend. The same number as `r_squared`: the fit is\nwhat the confidence is, and both names are on the wire already.",
-                "format": "double",
-                "type": "number"
-              },
               "correlation": {
                 "description": "Pearson correlation between the metric and time.",
                 "format": "double",
@@ -1000,12 +995,12 @@
                 ]
               },
               "r_squared": {
-                "description": "Share of variance the line explains, 0 to 1.",
+                "description": "Share of variance the line explains, 0 to 1. How well the line fits,\nnot a confidence level: `p_value` carries the slope's significance.",
                 "format": "double",
                 "type": "number"
               },
               "slope": {
-                "description": "Change in the metric per day.",
+                "description": "Change in the metric from one activity to the next, fitted over the\nactivities in date order. Not per day: activities are not evenly\nspaced, and the fit reads each one as one step.",
                 "format": "double",
                 "type": "number"
               },
@@ -1026,7 +1021,6 @@
             "required": [
               "slope",
               "r_squared",
-              "confidence",
               "correlation",
               "standard_error",
               "p_value",
@@ -1156,7 +1150,7 @@
       },
       "_meta": {
         "ai.dravr.vault/tool": {
-          "def_hash": "sha256:93bd43f2d843cc698dd0c2c3959f8e6bc1e94bf812cadc128fcd09ce2c2ef96a"
+          "def_hash": "sha256:9b40e403b7334c64f06c428651c672a2785bd423595fe7005c657f6aba306728"
         }
       }
     },

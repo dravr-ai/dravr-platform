@@ -6,7 +6,7 @@
 
 use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::mobility::{ActivityMuscleMapping, StretchingExercise, YogaPose};
+use pierre_core::models::mobility::{StretchingExercise, YogaPose};
 use pierre_core::models::{normalize_email, User};
 use uuid::Uuid;
 
@@ -20,9 +20,9 @@ use crate::repositories::seeder::{
     INSERT_API_KEY_SQL, INSERT_LLM_USAGE_SQL, INSERT_STORE_LISTING_SQL,
     INSERT_SYNTHETIC_ACTIVITY_SQL, INSERT_TENANT_USER_SQL, STRETCHING_IDS_BY_NAME_SQL,
     TAKE_CATALOGUE_OWNERSHIP_SQL, UPDATE_AGENT_SQL, UPDATE_USER_TENANT_SQL,
-    UPSERT_ACTIVITY_MAPPING_SQL, UPSERT_AGENT_TRANSLATION_SQL, UPSERT_DEMO_USER_SQL,
-    UPSERT_PROVIDER_CONNECTION_SQL, UPSERT_STRETCHING_EXERCISE_SQL, UPSERT_TENANT_SQL,
-    UPSERT_YOGA_POSE_SQL, USER_ID_BY_EMAIL_SQL, USER_TENANT_SQL, YOGA_POSE_IDS_BY_NAME_SQL,
+    UPSERT_AGENT_TRANSLATION_SQL, UPSERT_DEMO_USER_SQL, UPSERT_PROVIDER_CONNECTION_SQL,
+    UPSERT_STRETCHING_EXERCISE_SQL, UPSERT_TENANT_SQL, UPSERT_YOGA_POSE_SQL, USER_ID_BY_EMAIL_SQL,
+    USER_TENANT_SQL, YOGA_POSE_IDS_BY_NAME_SQL,
 };
 use crate::repositories::seeder_body::{
     column, id_and_slug, impl_seeder_repository, int_column, json_field, status_code_column,

@@ -85,10 +85,12 @@ const LAST_NIGHT_MAX_AGE_DAYS: i64 = 1;
 
 /// HRV band: ±5% of the reading.
 ///
-/// cageux reads an athlete as fatigued only below −5% of their baseline
-/// (`determine_hrv_recovery_status`), so a figure inside the band says nothing
-/// about the athlete the stored reading does not, and rounding 62 ms to "about
-/// 60" stays inside it.
+/// A figure this close to the stored reading says nothing about the athlete
+/// the reading does not, and rounding 62 ms to "about 60" stays inside it.
+/// This is the eval's own tolerance. cageux does not read HRV on a fixed
+/// percentage: its status compares ln RMSSD with the athlete's baseline, the
+/// smallest worthwhile change wide (`HrvConfig::swc_sd_multiplier` baseline
+/// SDs, `sleep_analysis`).
 const HRV_BAND_FRAC: f64 = 0.05;
 
 /// Resting-HR band: ±3 bpm.

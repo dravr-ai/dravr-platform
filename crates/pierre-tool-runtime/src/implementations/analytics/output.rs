@@ -59,13 +59,13 @@ pub struct PerformanceTrendsResult {
 /// The linear regression behind a performance trend.
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct TrendStatistics {
-    /// Change in the metric per day.
+    /// Change in the metric from one activity to the next, fitted over the
+    /// activities in date order. Not per day: activities are not evenly
+    /// spaced, and the fit reads each one as one step.
     pub slope: f64,
-    /// Share of variance the line explains, 0 to 1.
+    /// Share of variance the line explains, 0 to 1. How well the line fits,
+    /// not a confidence level: `p_value` carries the slope's significance.
     pub r_squared: f64,
-    /// Confidence in the trend. The same number as `r_squared`: the fit is
-    /// what the confidence is, and both names are on the wire already.
-    pub confidence: f64,
     /// Pearson correlation between the metric and time.
     pub correlation: f64,
     /// Standard error of the slope estimate.

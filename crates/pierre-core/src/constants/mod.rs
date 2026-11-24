@@ -748,9 +748,11 @@ pub mod sleep_recovery {
     pub const ACTIVITY_LIMIT: u32 = 42;
     /// Minimum number of days of sleep history required for trend analysis
     pub const TREND_MIN_DAYS: usize = 7;
-    /// Sleep trend improving threshold (hours increase over previous period)
+    /// Sleep trend improving threshold: points of 0-100 sleep quality the
+    /// recent period's mean must rise above the previous period's
     pub const TREND_IMPROVING_THRESHOLD: f64 = 5.0;
-    /// Sleep trend declining threshold (hours decrease below previous period)
+    /// Sleep trend declining threshold: points of 0-100 sleep quality the
+    /// recent period's mean must fall below the previous period's
     pub const TREND_DECLINING_THRESHOLD: f64 = 5.0;
     /// Additional sleep hours recommended when athlete is fatigued (TSB negative)
     pub const FATIGUE_BONUS_HOURS: f64 = 0.5;

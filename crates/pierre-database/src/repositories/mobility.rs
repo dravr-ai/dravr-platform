@@ -1,4 +1,4 @@
-// ABOUTME: Repository trait for the mobility catalogue (stretching exercises, yoga poses, activity-muscle mappings)
+// ABOUTME: Repository trait for the mobility catalogue (stretching exercises, yoga poses)
 // ABOUTME: Every statement written once as a shared const, one generic row parser per table, one macro emitting each backend's impl
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0

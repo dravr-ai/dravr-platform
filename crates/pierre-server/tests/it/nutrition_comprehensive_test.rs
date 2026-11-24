@@ -1,5 +1,5 @@
 // ABOUTME: Comprehensive algorithm tests for all nutrition calculation functions
-// ABOUTME: Tests BMR, TDEE, macros, nutrient timing with 46 test cases covering all scenarios
+// ABOUTME: Tests BMR, TDEE, macros and nutrient timing across every scenario
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai

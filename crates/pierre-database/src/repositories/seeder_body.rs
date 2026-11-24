@@ -316,33 +316,6 @@ macro_rules! impl_seeder_repository {
                 Ok(())
             }
 
-            async fn seed_upsert_activity_mapping(
-                &self,
-                mapping: &ActivityMuscleMapping,
-            ) -> AppResult<()> {
-                sqlx::query(UPSERT_ACTIVITY_MAPPING_SQL)
-                    .bind(&mapping.id)
-                    .bind(&mapping.activity_type)
-                    .bind(json_field(&mapping.primary_muscles, "primary_muscles")?)
-                    .bind(json_field(&mapping.secondary_muscles, "secondary_muscles")?)
-                    .bind(json_field(
-                        &mapping.recommended_stretch_categories,
-                        "recommended_stretch_categories",
-                    )?)
-                    .bind(json_field(
-                        &mapping.recommended_yoga_categories,
-                        "recommended_yoga_categories",
-                    )?)
-                    .bind(mapping.created_at)
-                    .bind(mapping.updated_at)
-                    .execute(self.pool())
-                    .await
-                    .map_err(|e| {
-                        AppError::database(format!("Failed to upsert activity mapping: {e}"))
-                    })?;
-                Ok(())
-            }
-
             async fn seed_get_admin_user(&self) -> AppResult<Option<User>> {
                 let email: Option<String> = sqlx::query_scalar(ADMIN_USER_EMAIL_SQL)
                     .fetch_optional(self.pool())

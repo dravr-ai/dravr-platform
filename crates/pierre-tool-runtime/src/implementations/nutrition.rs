@@ -96,6 +96,10 @@ fn build_usda_client(context: &ToolExecutionContext) -> Result<Arc<UsdaClient>, 
     Ok(shared_usda_client(api_key))
 }
 
+/// Most foods `search_food` returns in one page: the figure its schema
+/// promises the model.
+const MAX_FOOD_SEARCH_PAGE_SIZE: u64 = 50;
+
 /// What `calculate_daily_nutrition` says instead of targets when a clinician
 /// sets them. Foods and patterns only (Thomas, Erdman & Burke 2016: fuel for
 /// the work of the day, protein spread across it) — no amount.
@@ -655,7 +659,9 @@ impl McpTool<dyn ToolRuntime> for SearchFoodTool {
             "page_size".to_owned(),
             PropertySchema {
                 property_type: "integer".to_owned(),
-                description: Some("Number of results per page (default: 10, max: 50)".to_owned()),
+                description: Some(format!(
+                    "Number of results per page (default: 10, max: {MAX_FOOD_SEARCH_PAGE_SIZE})"
+                )),
                 ..Default::default()
             },
         );
@@ -708,12 +714,15 @@ impl McpTool<dyn ToolRuntime> for SearchFoodTool {
 
             let page_size_u64 = args.get("page_size").and_then(Value::as_u64).unwrap_or(10);
 
+            // The schema promises at most 50 results a page, and the model
+            // reads every one it is handed: USDA's own ceiling of 200 is not
+            // the tool's.
             #[allow(clippy::cast_possible_truncation)]
-            let page_size = if (1..=200).contains(&page_size_u64) {
+            let page_size = if (1..=MAX_FOOD_SEARCH_PAGE_SIZE).contains(&page_size_u64) {
                 page_size_u64 as u32
             } else {
                 return Ok(ToolResult::error(json!({
-                    "error": "Page size must be between 1 and 200"
+                    "error": format!("Page size must be between 1 and {MAX_FOOD_SEARCH_PAGE_SIZE}")
                 })));
             };
 

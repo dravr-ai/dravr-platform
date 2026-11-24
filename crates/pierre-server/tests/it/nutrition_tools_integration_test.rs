@@ -653,12 +653,13 @@ async fn test_search_food_missing_query() -> Result<()> {
 async fn test_search_food_page_size_boundary() -> Result<()> {
     let executor = create_nutrition_test_executor().await?;
 
-    // Page size > 200 should be rejected
+    // The schema promises at most 50 a page; 51 is refused, though USDA
+    // itself would serve up to 200.
     let request = create_test_request(
         "search_food",
         json!({
             "query": "apple",
-            "page_size": 300
+            "page_size": 51
         }),
     );
 
@@ -666,10 +667,10 @@ async fn test_search_food_page_size_boundary() -> Result<()> {
 
     // A key is configured, so this is the page-size validation, not the
     // missing-key refusal.
-    assert!(!response.success, "Should not succeed with page_size > 200");
+    assert!(!response.success, "Should not succeed with page_size > 50");
     let error = response.error.unwrap_or_default();
     assert!(
-        error.contains("Page size must be between 1 and 200"),
+        error.contains("Page size must be between 1 and 50"),
         "Should be rejected by page-size validation, got: {error}"
     );
 
