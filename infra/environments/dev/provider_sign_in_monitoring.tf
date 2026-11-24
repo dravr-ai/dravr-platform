@@ -23,8 +23,9 @@
 #
 # Matched on the message text and the tracing target, never on severity: the
 # line was INFO when this landed and is being raised to WARN with `provider`
-# and `reason` fields, and the alert must hold on both sides of that deploy.
-# Before it, the provider and reason labels are empty; user_id is there on both.
+# and `reason` fields (then `method_used` and a masked `account`), and the alert
+# must hold on both sides of that deploy. Before it those labels read (null);
+# user_id, tenant_id and http_request_id are there on both.
 
 resource "google_monitoring_alert_policy" "provider_sign_in_rejected" {
   project      = var.project_id
@@ -32,30 +33,23 @@ resource "google_monitoring_alert_policy" "provider_sign_in_rejected" {
   combiner     = "OR"
 
   documentation {
-    subject   = "Provider sign-in refused: $${log.extracted_label.provider} ($${log.extracted_label.reason})"
+    subject   = "Provider sign-in refused: $${log.extracted_label.provider} — $${log.extracted_label.reason}"
     mime_type = "text/markdown"
     content   = <<-EOT
-      An athlete's credential sign-in to a provider was refused by the provider.
-      The api answered 200 with `status: failed`, so the athlete saw a sign-in
-      error and is likely stuck (onboarding included).
+      An athlete's credential sign-in was refused by the provider. The api
+      answered 200 with `status: failed`, so no 5xx alert saw it.
 
       * Provider: `$${log.extracted_label.provider}`
       * Provider's reason: `$${log.extracted_label.reason}`
+      * Sign-in method: `$${log.extracted_label.method}`
+      * Account typed at the provider (masked): `$${log.extracted_label.account}`
       * User: `$${log.extracted_label.user_id}`
+      * Tenant: `$${log.extracted_label.tenant_id}`
+      * Request id: `$${log.extracted_label.http_request_id}`
 
-      (Provider and reason are empty on a build that predates the WARN log
-      line carrying them.)
+      [This user's api logs, last hour](https://console.cloud.google.com/logs/query;query=resource.labels.service_name%3D%22${var.service_name}-api%22%0AjsonPayload.user_id%3D%22$${log.extracted_label.user_id}%22;duration=PT1H?project=${var.project_id})
 
-      What to do:
-      1. Find the line: Logs Explorer on the `${var.service_name}-api` service,
-         `jsonPayload.message:"Sciotte remote login rejected by provider"`. The
-         same trace holds the sciotte sign-in service's side.
-      2. Wrong password or an expired account: reach the athlete and help them
-         retry. A refusal text the athlete did not cause (captcha, blocked
-         sign-in, a changed provider page) on several athletes means the
-         provider changed: check the sciotte login canary.
-      3. Workaround for the athlete meanwhile: connect through the sign-in
-         extension or OAuth from the connections screen.
+      What to do: the athlete is stuck at connect; the window now offers OAuth — check they got through.
     EOT
   }
 
@@ -73,9 +67,14 @@ resource "google_monitoring_alert_policy" "provider_sign_in_rejected" {
       # The GcpFormatter (crates/pierre-logging/src/gcp.rs) writes each tracing
       # field as a jsonPayload key.
       label_extractors = {
-        "provider" = "EXTRACT(jsonPayload.provider)"
-        "reason"   = "EXTRACT(jsonPayload.reason)"
-        "user_id"  = "EXTRACT(jsonPayload.user_id)"
+        "provider"        = "EXTRACT(jsonPayload.provider)"
+        "reason"          = "EXTRACT(jsonPayload.reason)"
+        "user_id"         = "EXTRACT(jsonPayload.user_id)"
+        "tenant_id"       = "EXTRACT(jsonPayload.tenant_id)"
+        "http_request_id" = "EXTRACT(jsonPayload.http_request_id)"
+        # method_used, not method: jsonPayload.method is the HTTP verb.
+        "method"  = "EXTRACT(jsonPayload.method_used)"
+        "account" = "EXTRACT(jsonPayload.account)"
       }
     }
   }
