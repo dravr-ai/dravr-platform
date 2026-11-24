@@ -311,8 +311,9 @@ resource "google_secret_manager_secret_version" "wahoo_client_secret_placeholder
 }
 
 # Intervals.icu OAuth app (carnet#47), issued at https://intervals.icu/oauth/apply.
-# Real values land out-of-band (`gcloud secrets versions add`); until then
-# athletes link by pasting their API key, the only path the clients offer.
+# The placeholder versions only seed the secrets: the real values are added
+# out-of-band (`gcloud secrets versions add`). With them set, the clients offer
+# the authorization beside the API-key link.
 resource "google_secret_manager_secret" "intervals_icu_client_id" {
   project   = var.project_id
   secret_id = "${var.service_name}-intervals-icu-client-id"

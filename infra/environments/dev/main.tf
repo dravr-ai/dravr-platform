@@ -794,8 +794,8 @@ module "backend" {
     # ({BASE_URL}/api/oauth/callback/garmin), so no GARMIN_REDIRECT_URI.
     GARMIN_CLIENT_ID     = module.secrets.secret_ids["garmin_client_id"]
     GARMIN_CLIENT_SECRET = module.secrets.secret_ids["garmin_client_secret"]
-    # Intervals.icu OAuth app (carnet#47). Placeholder until the app is
-    # approved; the API-key link needs neither.
+    # Intervals.icu OAuth app (carnet#47). The clients offer its
+    # authorization beside the API-key link, which needs neither.
     INTERVALS_ICU_CLIENT_ID     = module.secrets.secret_ids["intervals_icu_client_id"]
     INTERVALS_ICU_CLIENT_SECRET = module.secrets.secret_ids["intervals_icu_client_secret"]
     USDA_API_KEY                = module.secrets.secret_ids["usda_api_key"]
