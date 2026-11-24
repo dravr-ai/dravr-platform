@@ -458,6 +458,24 @@ impl NextSteps {
     }
 }
 
+/// The steps a reply hands over, the model's `quick_replies` first ([`for_reply`]).
+/// A reply withheld for a leak is an apology, not the answer the steps would
+/// have followed, so it hands over none.
+pub(crate) async fn handed_over(
+    ctx: &ChatPipelineContext,
+    input: &TurnInput,
+    profile: &SurfaceProfile,
+    conv: &ConversationRecord,
+    plan_was_saved: bool,
+    leak_replaced: bool,
+    quick_replies: Vec<String>,
+) -> NextSteps {
+    if leak_replaced {
+        return NextSteps::default();
+    }
+    for_reply(ctx, input, profile, conv, plan_was_saved, quick_replies).await
+}
+
 /// The next steps the agent's reply to `input` offers.
 ///
 /// A post the platform composed on its own ends on the catalogue's use cases

@@ -15,7 +15,8 @@
 /// An athlete gets each such post once however many triggers fire for it —
 /// the first-sync post once ever, a check-in once per day its cadence posts
 /// on, a landing reaction once per local day or once per ride, as the
-/// `activity_landed.frequency` admin parameter says.
+/// `activity_landed.frequency` admin parameter says, and the note on a science
+/// change once per change.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PostPurpose {
     /// The agent's first post once the athlete's data lands.
@@ -24,6 +25,9 @@ pub enum PostPurpose {
     CheckIn,
     /// The agent's reaction to a workout a live sync just landed.
     ActivityLanded,
+    /// The note a reply carries when a science change moved numbers the
+    /// athlete had already seen, claimed under the change's id (carnet#1718).
+    ScienceNote,
 }
 
 impl PostPurpose {
@@ -40,6 +44,7 @@ impl PostPurpose {
             Self::FirstSync => "first_sync",
             Self::CheckIn => "check_in",
             Self::ActivityLanded => "activity_landed",
+            Self::ScienceNote => "science_note",
         }
     }
 }

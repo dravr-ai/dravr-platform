@@ -102,7 +102,6 @@ pub use turn::{TurnInput, UserMessageResult};
 #[cfg(feature = "tools-verification")]
 use follow_through::persist_verdicts_for_turn;
 use follow_through::{finish_turn_follow_through, FinishTurnInputs};
-use next_steps::NextSteps;
 use pierre_core::uuid_utils::parse_uuid;
 use recovery::{run_recovery_and_post_process, RecoveryAndPostProcessInputs};
 
@@ -814,6 +813,21 @@ async fn answer_stored_turn(
         || (result.content.clone(), None),
         |(caveated, stamp)| (caveated, Some(stamp)),
     );
+    // A science change that moved numbers the athlete had seen says so once,
+    // ahead of the attribution so that line stays last (carnet#1718). Read
+    // beside it, the title of the agent answering.
+    let ((persisted_assistant_content, science_notes), answered_by) = tokio::join!(
+        stages::science_note::tell_due(
+            ctx,
+            &input,
+            &conv,
+            seat,
+            &result,
+            persisted_assistant_content,
+            &profile.locale,
+        ),
+        stages::introduction::answering_title(ctx, &input, &conv, agent_ctx.as_ref()),
+    );
     // A reply derived in part from Garmin device-sourced data says so, in the
     // platform's words on every surface (carnet#521).
     let persisted_assistant_content = stages::source_attribution::attribute_reply(
@@ -827,8 +841,6 @@ async fn answer_stored_turn(
         stages::source_attribution::model_answered(&result),
         &profile.locale,
     );
-    let answered_by =
-        stages::introduction::answering_title(ctx, &input, &conv, agent_ctx.as_ref()).await;
     // A reply the platform composed on its own initiative is posted only when
     // it grounded in the athlete's data and did not refuse (carnet#831).
     if let Some(withheld) = stages::platform_grounding::withheld_platform_reply(
@@ -851,7 +863,7 @@ async fn answer_stored_turn(
     }
     // The steps this reply hands over ride its stored row and its live
     // actions alike.
-    let next_steps = steps_handed_over(
+    let next_steps = next_steps::handed_over(
         ctx,
         &input,
         profile,
@@ -898,14 +910,15 @@ async fn answer_stored_turn(
     // A platform turn's tool rounds land now that its reply is admitted,
     // ahead of the reply drawn from them.
     tool_rounds.persist_held().await;
-    let (assistant_message, updated_conversation) = persist_assistant_response(
-        database,
-        ctx.repos.groups.as_ref(),
-        &assistant_params,
-        input.conversation_tenant_id,
-        input.origin,
-    )
-    .await?;
+    let (assistant_message, updated_conversation) = science_notes
+        .told_once(persist_assistant_response(
+            database,
+            ctx.repos.groups.as_ref(),
+            &assistant_params,
+            input.conversation_tenant_id,
+            input.origin,
+        ))
+        .await?;
     // The reply to an app post in a group connected to a chat follows that
     // post into the chat, when the room may read it (carnet#1683).
     room_relay::relay_reply(
@@ -1016,24 +1029,6 @@ async fn answer_stored_turn(
             answered_by,
         },
     ))
-}
-
-/// The steps a reply hands over, the model's `quick_replies` first. A reply
-/// withheld for a leak is an apology, not the answer the steps would have
-/// followed, so it hands over none.
-async fn steps_handed_over(
-    ctx: &ChatPipelineContext,
-    input: &TurnInput,
-    profile: &SurfaceProfile,
-    conv: &ConversationRecord,
-    plan_was_saved: bool,
-    leak_replaced: bool,
-    quick_replies: Vec<String>,
-) -> NextSteps {
-    if leak_replaced {
-        return NextSteps::default();
-    }
-    next_steps::for_reply(ctx, input, profile, conv, plan_was_saved, quick_replies).await
 }
 
 /// Ask the wired [`ScenePublisher`] to mint an image per stored chart spec.

@@ -92,6 +92,8 @@ pub(crate) mod quick_replies;
 pub mod refresh;
 /// The language a platform note appended to a reply is written in.
 pub(crate) mod reply_locale;
+/// The note a reply carries once when a science change moved numbers the athlete saw (carnet#1718).
+pub(crate) mod science_note;
 /// The Garmin attribution line a reply derived from Garmin data carries.
 pub(crate) mod source_attribution;
 /// A coach's thread bound to one athlete: the gates re-run, then the athlete's coach view (carnet#1070).

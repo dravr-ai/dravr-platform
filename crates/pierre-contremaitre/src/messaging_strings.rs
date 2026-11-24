@@ -930,6 +930,14 @@ pub const KEY_RESET_WALK_INTERRUPTED: &str = "commands.reset.walk_interrupted";
 /// which stamps the same shape; the server needs it for a thread it forges
 /// itself.
 pub const KEY_NEW_CONVERSATION_TITLE_PREFIX: &str = "chat.newConversationTitlePrefix";
+/// Key: the note on the 2026-11-21 training-load change, appended once to the
+/// next reply whose tools show the athlete's CTL, ATL or form (carnet#1718).
+/// No format placeholders.
+pub const KEY_SCIENCE_CHANGE_TRAINING_LOAD: &str = "chat.science_change.training_load";
+/// Key: the note on the 2026-11-23 pace-zone change, appended once to the next
+/// reply whose tools show the athlete's running pace zones (carnet#1718).
+/// No format placeholders.
+pub const KEY_SCIENCE_CHANGE_PACE_ZONES: &str = "chat.science_change.pace_zones";
 
 // ── memory fact sentences ──────────────────────────────────────────────────
 // One key per `PredicateCode`; `{0}` is the athlete's own words (the object).
