@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: A sign-in-first card's account sign-in that cannot complete hands over to the provider's OAuth (carnet#1477)
-// ABOUTME: Pins the reasons that fall back, the wrong credentials that never do, and a window offered no fallback
+// ABOUTME: Pins the refusals that fall back, the turned-down credentials that offer it beside a retry, and a window offered none
 
 import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react-native';
@@ -60,14 +60,29 @@ describe('SciotteLoginModal (mobile) — the OAuth a failed sign-in falls back t
     },
   );
 
-  it('keeps wrong credentials in the window, for the athlete to type again', async () => {
-    sciotteLogin.mockResolvedValue({ status: 'failed', error: 'Invalid email or password' });
+  // An account the provider does not know by that email (one opened with
+  // Google or Apple has no password there) answers like wrong credentials:
+  // the athlete may retype, or connect the same account through OAuth.
+  it('offers both a retry and the OAuth when the provider turns the credentials down', async () => {
+    sciotteLogin.mockResolvedValue({ status: 'failed', error: "Couldn't find this account" });
     const onFallBackToOAuth = jest.fn();
 
     signIn(onFallBackToOAuth);
 
     expect(await screen.findByText(i18n.t('app.connectionFailed'))).toBeTruthy();
+    expect(screen.getByText(i18n.t('app.tryAgain'))).toBeTruthy();
     expect(onFallBackToOAuth).not.toHaveBeenCalled();
+    fireEvent.press(screen.getByTestId('sciotte-oauth-fallback'));
+    expect(onFallBackToOAuth).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps a turned-down sign-in to a retry when its card has no OAuth', async () => {
+    sciotteLogin.mockResolvedValue({ status: 'failed', error: 'Invalid email or password' });
+
+    signIn(undefined);
+
+    expect(await screen.findByText(i18n.t('app.connectionFailed'))).toBeTruthy();
+    expect(screen.queryByTestId('sciotte-oauth-fallback')).toBeNull();
   });
 
   it('shows the failure when its card offers no OAuth to fall back to', async () => {

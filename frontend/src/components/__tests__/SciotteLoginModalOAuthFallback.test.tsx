@@ -1,5 +1,5 @@
 // ABOUTME: A sign-in that cannot complete offers the provider's OAuth, started by the athlete's click (carnet#1477, carnet#1667)
-// ABOUTME: Pins the reasons that offer it, the wrong credentials that never do, and a window offered no fallback
+// ABOUTME: Pins the refusals and turned-down credentials that offer it, the refusals that never do, and a window offered no fallback
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -71,16 +71,33 @@ describe('SciotteLoginModal — the OAuth a failed sign-in falls back to', () =>
     });
   }
 
-  it('keeps wrong credentials in the window, for the athlete to type again', async () => {
-    sciotteLogin.mockResolvedValue({ status: 'failed', error: 'Invalid email or password' });
+  // An account the provider does not know by that email (one opened with
+  // Google or Apple has no password there) answers like wrong credentials:
+  // the athlete may retype, or connect the same account through OAuth.
+  it('offers both a retry and the OAuth when the provider turns the credentials down', async () => {
+    sciotteLogin.mockResolvedValue({ status: 'failed', error: "Couldn't find this account" });
     const onFallBackToOAuth = vi.fn();
     renderModal(onFallBackToOAuth);
 
     await signIn();
 
+    expect(await screen.findByText("Couldn't find this account")).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /try again|retry/i })).toBeInTheDocument();
+    const offer = screen.getByTestId('sciotte-oauth-fallback');
+    expect(offer).toHaveTextContent('Continue with Garmin');
+    expect(onFallBackToOAuth).not.toHaveBeenCalled();
+    await userEvent.setup().click(offer);
+    expect(onFallBackToOAuth).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps a turned-down sign-in to a retry when its card has no OAuth', async () => {
+    sciotteLogin.mockResolvedValue({ status: 'failed', error: 'Invalid email or password' });
+    renderModal(undefined);
+
+    await signIn();
+
     expect(await screen.findByRole('button', { name: /try again|retry/i })).toBeInTheDocument();
     expect(screen.queryByTestId('sciotte-oauth-fallback')).not.toBeInTheDocument();
-    expect(onFallBackToOAuth).not.toHaveBeenCalled();
   });
 
   it('keeps any other refusal in the window', async () => {

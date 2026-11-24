@@ -1061,6 +1061,20 @@ export function SciotteLoginModal({
               <Text className="text-base font-semibold" style={{ color: PLATE_INK }}>{t('app.tryAgain')}</Text>
             </LinearGradient>
           </TouchableOpacity>
+          {/* A sign-in the provider turned down is never a dead end: the
+              card's OAuth, where it has one, connects the same account. */}
+          {onFallBackToOAuth && (
+            <TouchableOpacity
+              onPress={onFallBackToOAuth}
+              activeOpacity={0.8}
+              className="mt-3 rounded-xl border border-border bg-background-secondary px-8 py-3 items-center"
+              testID="sciotte-oauth-fallback"
+            >
+              <Text className="text-base text-text-primary font-semibold">
+                {t('app.continueWithProvider', { provider: platformName })}
+              </Text>
+            </TouchableOpacity>
+          )}
         </View>
       );
     }

@@ -284,11 +284,17 @@ export default function SciotteLoginModal({
           setPhase('error');
         }
       } else {
+        // The provider turned the sign-in down: wrong credentials, or an
+        // account it does not know by that email (one signed in to it with
+        // Google or Apple has no password there). The athlete retypes, or
+        // takes the card's OAuth where it has one: a sign-in that failed is
+        // never a dead end.
+        setOAuthOffered(onFallBackToOAuth !== undefined);
         setError(data.error || t('auth.loginFailed'));
         setPhase('error');
       }
     },
-    [onClose, onConnected, t]
+    [onClose, onConnected, onFallBackToOAuth, t]
   );
 
   // The sign-in run in the athlete's own browser: the extension opens the

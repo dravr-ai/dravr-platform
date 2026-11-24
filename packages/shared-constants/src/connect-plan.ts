@@ -224,8 +224,10 @@ export function signInStartsWithExtension(card: Pick<ConnectPlanCard, 'connect_o
  * Whether a refused sign-in falls back to its provider's OAuth when its card
  * offers one ({@link oauthFallbackTarget}): the sign-in could not complete
  * ({@link SIGN_IN_UNAVAILABLE}) or the provider stopped it at a challenge.
- * Wrong credentials answer `status: failed`, never a refusal, so the athlete
- * types them again instead.
+ * A sign-in the provider turns down answers `status: failed`, never a
+ * refusal: the window then offers both a retry and the card's OAuth, since an
+ * account the provider does not know by that email (one opened with Google or
+ * Apple has no password there) is connected only through the OAuth.
  */
 export function signInFallsBackToOAuth(reason: string | null | undefined): boolean {
   return reason === SIGN_IN_UNAVAILABLE || reason === SCIOTTE_LOGIN_CHALLENGE;
