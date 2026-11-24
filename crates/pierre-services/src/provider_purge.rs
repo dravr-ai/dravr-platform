@@ -28,13 +28,14 @@
 
 use std::fmt;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use pierre_core::errors::AppResult;
 use pierre_core::models::TenantId;
 use pierre_database::repositories::{
     HealthRecordRepository, ProviderDataPurge, ProviderDataRepository, ProviderPurge, PurgeReason,
-    LAB_DOCUMENT_PROVIDER, LAB_DOCUMENT_SOURCE_MARKER,
+    UploadNameLock, LAB_DOCUMENT_PROVIDER, LAB_DOCUMENT_SOURCE_MARKER,
 };
 use pierre_database::RepositoryRegistry;
 use pierre_providers::originals::OriginalsStore;
@@ -42,6 +43,10 @@ use tracing::info;
 use uuid::Uuid;
 
 use crate::live_activities::LiveActivityStore;
+
+/// How often a purge renews the leases it holds while it deletes their
+/// files: well inside a lease's lapse, so none is taken over under it.
+const LEASE_RENEWAL: Duration = Duration::from_secs(30);
 
 /// Purges a provider's data from the tables and the live activity store.
 #[derive(Clone)]
@@ -76,28 +81,72 @@ impl ProviderPurgeService {
         })
     }
 
+    /// Delete one lab document's PDF under both its names, under the file's
+    /// lease, which is returned: its row goes after, in the purge's own
+    /// statement, and the caller holds the lease until it has.
+    async fn delete_lab_file(
+        &self,
+        tenant_id: &TenantId,
+        user_id: Uuid,
+        file_sha256: &str,
+    ) -> AppResult<UploadNameLock> {
+        let lock = self
+            .originals
+            .lock_file(tenant_id, user_id, file_sha256)
+            .await?;
+        self.originals.delete_named_file(&lock).await?;
+        Ok(lock)
+    }
+
+    /// Delete the PDFs of `files` (tenant, athlete, digest), each under its
+    /// lease, and return the leases, fenced: renewed at
+    /// [`LEASE_RENEWAL`] intervals while the deletes run, so a long purge
+    /// keeps every lease, then once more at the end. The caller deletes the
+    /// rows next and holds the leases until it has; a lease lost on the way
+    /// fails the purge before any row goes, and its retry starts over.
+    async fn delete_lab_file_batch(
+        &self,
+        files: &[(TenantId, Uuid, &str)],
+    ) -> AppResult<Vec<UploadNameLock>> {
+        let mut leases = Vec::with_capacity(files.len());
+        let mut renewed = Instant::now();
+        for (tenant_id, user_id, file_sha256) in files {
+            leases.push(
+                self.delete_lab_file(tenant_id, *user_id, file_sha256)
+                    .await?,
+            );
+            if renewed.elapsed() >= LEASE_RENEWAL {
+                self.originals.fence_all(&leases).await?;
+                renewed = Instant::now();
+            }
+        }
+        self.originals.fence_all(&leases).await?;
+        Ok(leases)
+    }
+
     /// Delete the PDFs of the athlete's lab documents when `provider` is
-    /// [`LAB_DOCUMENT_PROVIDER`], before the tables delete their rows.
+    /// [`LAB_DOCUMENT_PROVIDER`], before the tables delete their rows: the
+    /// leases returned are held until they have.
     async fn delete_lab_files(
         &self,
         user_id: Uuid,
         tenant_id: &TenantId,
         provider: &str,
-    ) -> AppResult<()> {
+    ) -> AppResult<Vec<UploadNameLock>> {
         if provider != LAB_DOCUMENT_PROVIDER {
-            return Ok(());
+            return Ok(Vec::new());
         }
         let documents = self
             .health_records
             .list_lab_documents(tenant_id, user_id)
             .await?;
-        for document in &documents {
-            self.originals
-                .delete_named_file(tenant_id, user_id, &document.file_sha256)
-                .await?;
-        }
+        let files: Vec<_> = documents
+            .iter()
+            .map(|document| (*tenant_id, user_id, document.file_sha256.as_str()))
+            .collect();
+        let leases = self.delete_lab_file_batch(&files).await?;
         info!(%user_id, %tenant_id, files = documents.len(), "Deleted the purged lab documents' files");
-        Ok(())
+        Ok(leases)
     }
 
     /// Delete the store's records of `provider` for the athlete, when it is
@@ -128,11 +177,13 @@ impl ProviderPurge for ProviderPurgeService {
         provider: &str,
         reason: PurgeReason,
     ) -> AppResult<ProviderDataPurge> {
-        self.delete_lab_files(user_id, tenant_id, provider).await?;
+        let leases = self.delete_lab_files(user_id, tenant_id, provider).await?;
+        self.originals.fence_all(&leases).await?;
         let purge = self
             .data
             .purge_user_provider_data(user_id, tenant_id, provider, reason)
             .await?;
+        drop(leases);
         self.delete_live_records(user_id, tenant_id, provider)
             .await?;
         Ok(purge)
@@ -145,10 +196,14 @@ impl ProviderPurge for ProviderPurgeService {
         provider: &str,
         reason: PurgeReason,
     ) -> AppResult<ProviderDataPurge> {
-        self.delete_lab_files(user_id, tenant_id, provider).await?;
-        self.data
+        let leases = self.delete_lab_files(user_id, tenant_id, provider).await?;
+        self.originals.fence_all(&leases).await?;
+        let purge = self
+            .data
             .purge_user_provider_wellness(user_id, tenant_id, provider, reason)
-            .await
+            .await;
+        drop(leases);
+        purge
     }
 
     async fn purge_user_provider_activities(
@@ -176,12 +231,18 @@ impl ProviderPurge for ProviderPurgeService {
         reason: PurgeReason,
     ) -> AppResult<ProviderDataPurge> {
         // The statements delete lab documents only under their own source.
-        if source == LAB_DOCUMENT_SOURCE_MARKER {
-            self.delete_lab_files(user_id, tenant_id, provider).await?;
-        }
-        self.data
+        let leases = if source == LAB_DOCUMENT_SOURCE_MARKER {
+            self.delete_lab_files(user_id, tenant_id, provider).await?
+        } else {
+            Vec::new()
+        };
+        self.originals.fence_all(&leases).await?;
+        let purge = self
+            .data
             .purge_user_provider_source_wellness(user_id, tenant_id, provider, source, reason)
-            .await
+            .await;
+        drop(leases);
+        purge
     }
 
     async fn purge_user_provider_source_data(
@@ -193,32 +254,39 @@ impl ProviderPurge for ProviderPurgeService {
         reason: PurgeReason,
     ) -> AppResult<ProviderDataPurge> {
         // The statements delete lab documents only under their own source.
-        if source == LAB_DOCUMENT_SOURCE_MARKER {
-            self.delete_lab_files(user_id, tenant_id, provider).await?;
-        }
+        let leases = if source == LAB_DOCUMENT_SOURCE_MARKER {
+            self.delete_lab_files(user_id, tenant_id, provider).await?
+        } else {
+            Vec::new()
+        };
+        self.originals.fence_all(&leases).await?;
         let purge = self
             .data
             .purge_user_provider_source_data(user_id, tenant_id, provider, source, reason)
             .await?;
+        drop(leases);
         self.delete_live_records(user_id, tenant_id, provider)
             .await?;
         Ok(purge)
     }
 
     async fn purge_provider_data(&self, provider: &str) -> AppResult<ProviderDataPurge> {
+        let mut leases = Vec::new();
         if provider == LAB_DOCUMENT_PROVIDER {
             let files = self.health_records.list_every_lab_document_file().await?;
-            for file in &files {
-                self.originals
-                    .delete_named_file(&file.tenant_id, file.user_id, &file.file_sha256)
-                    .await?;
-            }
+            let named: Vec<_> = files
+                .iter()
+                .map(|file| (file.tenant_id, file.user_id, file.file_sha256.as_str()))
+                .collect();
+            leases = self.delete_lab_file_batch(&named).await?;
             info!(
                 files = files.len(),
                 "Deleted every lab document's file for the provider purge"
             );
         }
+        self.originals.fence_all(&leases).await?;
         let purge = self.data.purge_provider_data(provider).await?;
+        drop(leases);
         if self.live.keeps(provider) {
             let athletes = self.live.delete_source_everywhere(provider).await?;
             info!(

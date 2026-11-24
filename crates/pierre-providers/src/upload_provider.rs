@@ -25,7 +25,10 @@
 //!
 //! An uploaded activity's id is the SHA-256 of its file followed by the
 //! session's index in it ([`upload_activity_id`]), so the same file uploaded
-//! twice names the same activities.
+//! twice names the same activities. A file whose row carries a keyed base
+//! (`upload-k<hex16>`, carnet#1701) names its activities by that base and the
+//! index instead; [`parse_upload_activity_id`] reads both shapes, and
+//! [`OriginalsStore::file_of_activity`] resolves either to its file.
 
 use std::fmt;
 use std::sync::Arc;
@@ -61,20 +64,66 @@ pub fn file_sha256(bytes: &[u8]) -> String {
     hex::encode(digest(&SHA256, bytes))
 }
 
-/// The id of the activity a file's session at `index` becomes.
+/// The id of the activity a file's session at `index` becomes: the base its
+/// ids carry (its digest, or its keyed base), a dash and the index.
 #[must_use]
-pub fn upload_activity_id(file_sha256: &str, index: usize) -> String {
-    format!("{file_sha256}-{index}")
+pub fn upload_activity_id(id_base: &str, index: usize) -> String {
+    format!("{id_base}-{index}")
 }
 
-/// The file hash and session index an uploaded activity's id names, or
-/// `None` for an id that is not one.
+/// The prefix of an uploaded file's keyed base (`upload-k<hex16>`).
+const KEYED_BASE_PREFIX: &str = "upload-k";
+
+/// How many hex characters follow [`KEYED_BASE_PREFIX`].
+const KEYED_BASE_HEX: usize = 16;
+
+/// What an uploaded activity's id names: its file, by digest or by keyed
+/// base, and the session's index in it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UploadActivityId<'id> {
+    /// `<sha256>-<index>`: the file's digest, as every file uploaded before
+    /// keyed ids carries.
+    Digest {
+        /// The file's SHA-256, 64 hex characters.
+        sha: &'id str,
+        /// The session's index in the file.
+        index: usize,
+    },
+    /// `upload-k<hex16>-<index>`: the keyed base the file's row records.
+    Keyed {
+        /// The keyed base, `upload-k<hex16>`.
+        base: &'id str,
+        /// The session's index in the file.
+        index: usize,
+    },
+}
+
+impl UploadActivityId<'_> {
+    /// The session's index in its file.
+    #[must_use]
+    pub const fn index(&self) -> usize {
+        match self {
+            Self::Digest { index, .. } | Self::Keyed { index, .. } => *index,
+        }
+    }
+}
+
+/// Whether `text` is `len` hex characters.
+fn is_hex(text: &str, len: usize) -> bool {
+    text.len() == len && text.bytes().all(|b| b.is_ascii_hexdigit())
+}
+
+/// What an uploaded activity's id names, in either shape, or `None` for an
+/// id that is not one.
 #[must_use]
-pub fn parse_upload_activity_id(id: &str) -> Option<(&str, usize)> {
-    let (sha, index) = id.rsplit_once('-')?;
-    let well_formed = sha.len() == 64 && sha.bytes().all(|b| b.is_ascii_hexdigit());
-    well_formed.then_some(())?;
-    Some((sha, index.parse().ok()?))
+pub fn parse_upload_activity_id(id: &str) -> Option<UploadActivityId<'_>> {
+    let (base, index) = id.rsplit_once('-')?;
+    let index: usize = index.parse().ok()?;
+    if is_hex(base, 64) {
+        return Some(UploadActivityId::Digest { sha: base, index });
+    }
+    let keyed = base.strip_prefix(KEYED_BASE_PREFIX)?;
+    is_hex(keyed, KEYED_BASE_HEX).then_some(UploadActivityId::Keyed { base, index })
 }
 
 /// The series of each session of `file` named in `indices`, with its index.
@@ -93,7 +142,29 @@ pub fn upload_session_series(
         .collect()
 }
 
-/// Store each session series of the uploaded file `file_sha256`.
+/// How an uploaded file's activities are named: the file's digest, and the
+/// base its activities' ids carry (the digest itself, or the keyed base its
+/// row records).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct UploadedFileIds<'file> {
+    /// The file's SHA-256.
+    pub sha256: &'file str,
+    /// The base of its activities' ids ([`upload_activity_id`]).
+    pub id_base: &'file str,
+}
+
+impl<'file> UploadedFileIds<'file> {
+    /// A file whose activities' ids carry its digest.
+    #[must_use]
+    pub const fn by_digest(sha256: &'file str) -> Self {
+        Self {
+            sha256,
+            id_base: sha256,
+        }
+    }
+}
+
+/// Store each session series of the uploaded `file`.
 ///
 /// Each goes to the one per-activity sample store, under the activity id
 /// that session became, with `origin = 'upload'` and the file's hash as
@@ -107,12 +178,12 @@ pub async fn store_upload_series(
     streams: &dyn ActivityStreamRepository,
     tenant_id: &TenantId,
     user_id: Uuid,
-    file_sha256: &str,
+    file: UploadedFileIds<'_>,
     series: &[(usize, TimeSeriesData)],
     synced_at: Timestamp,
 ) -> AppResult<()> {
     for (index, samples) in series {
-        let activity_id = upload_activity_id(file_sha256, *index);
+        let activity_id = upload_activity_id(file.id_base, *index);
         streams
             .upsert_activity_streams(&ActivityStreamsWrite {
                 tenant_id,
@@ -120,7 +191,7 @@ pub async fn store_upload_series(
                 provider: UPLOAD,
                 activity_id: &activity_id,
                 origin: StreamOrigin::Upload,
-                source_ref: Some(file_sha256),
+                source_ref: Some(file.sha256),
                 streams: samples,
                 synced_at,
             })
@@ -219,9 +290,15 @@ impl UserProvidedProvider {
             return Ok(None);
         };
         let not_found = || AppError::not_found(format!("{UPLOADED_ACTIVITY} {id}"));
-        let (sha, index) = parse_upload_activity_id(id).ok_or_else(not_found)?;
+        let parsed = parse_upload_activity_id(id).ok_or_else(not_found)?;
+        let index = parsed.index();
+        let (tenant_id, user_id) = (&self.stores.tenant_id, self.stores.user_id);
+        let sha = files
+            .file_of_activity(tenant_id, user_id, parsed)
+            .await?
+            .ok_or_else(not_found)?;
         let bytes = files
-            .get_upload(&self.stores.tenant_id, self.stores.user_id, sha)
+            .get_upload(tenant_id, user_id, &sha)
             .await?
             .ok_or_else(not_found)?;
         // The decode is CPU-bound and memory-heavy: it runs on the blocking
@@ -339,12 +416,48 @@ mod tests {
         let sha = file_sha256(b"a ride");
         assert_eq!(sha.len(), 64);
         let id = upload_activity_id(&sha, 2);
-        assert_eq!(parse_upload_activity_id(&id), Some((sha.as_str(), 2)));
+        assert_eq!(
+            parse_upload_activity_id(&id),
+            Some(UploadActivityId::Digest {
+                sha: sha.as_str(),
+                index: 2
+            }),
+            "bug: a digest upload id does not round-trip"
+        );
+    }
+
+    #[test]
+    fn a_keyed_upload_id_names_its_base_and_session() {
+        let id = "upload-k0123456789abcdef-3";
+        let parsed = parse_upload_activity_id(id);
+        assert_eq!(
+            parsed,
+            Some(UploadActivityId::Keyed {
+                base: "upload-k0123456789abcdef",
+                index: 3
+            }),
+            "bug: a keyed upload id does not parse to its base and index"
+        );
+        assert_eq!(
+            parsed.map(|p| p.index()),
+            Some(3),
+            "bug: a keyed upload id's index is not its session's"
+        );
     }
 
     #[test]
     fn an_id_that_is_not_an_upload_names_nothing() {
-        for id in ["12345", "abc-0", "", "-1"] {
+        for id in [
+            "12345",
+            "abc-0",
+            "",
+            "-1",
+            "upload-k0123-0",
+            "upload-k0123456789abcdeg-0",
+            "upload-0123456789abcdef-0",
+            "upload-k0123456789abcdef",
+            "upload-k0123456789abcdef-x",
+        ] {
             assert_eq!(parse_upload_activity_id(id), None, "{id}");
         }
         let sha = file_sha256(b"x");

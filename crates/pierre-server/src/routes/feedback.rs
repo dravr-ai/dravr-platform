@@ -228,24 +228,22 @@ async fn post_message(
     let locale = bounded(request.locale.as_deref(), MAX_LOCALE_CHARS);
 
     // The bytes are kept before the row that names them is written, so a row
-    // never names a screenshot the blob store does not hold.
-    let kept_image = match &image {
+    // never names a screenshot the blob store does not hold; both under the
+    // file's lock, so a delete or a keyed-name copy never runs between them.
+    let image_lock = match &image {
         Some(screenshot) => {
-            resources
-                .common
-                .originals
-                .put_named_file(
-                    &tenant_id,
-                    auth.user_id,
-                    &screenshot.kept.sha256,
-                    &screenshot.kept.media_type,
-                    screenshot.bytes.clone(),
-                )
+            let originals = &resources.common.originals;
+            let lock = originals
+                .lock_file(&tenant_id, auth.user_id, &screenshot.kept.sha256)
                 .await?;
-            Some(&screenshot.kept)
+            originals
+                .put_named_file(&lock, &screenshot.kept.media_type, screenshot.bytes.clone())
+                .await?;
+            Some(lock)
         }
         None => None,
     };
+    let kept_image = image.as_ref().map(|screenshot| &screenshot.kept);
 
     let message = resources
         .common
@@ -264,6 +262,7 @@ async fn post_message(
             at: Timestamp::now(),
         })
         .await?;
+    drop(image_lock);
 
     let agent_id = match &about {
         Some(about) => {

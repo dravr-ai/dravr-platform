@@ -35,9 +35,10 @@ use pierre_core::permissions::impersonation::ImpersonationSession;
 use pierre_database::repositories::feedback_messages::{
     FeedbackImage, FeedbackWriter, NewFeedbackMessage,
 };
-use pierre_database::repositories::{BundleStatus, ExportBundle};
+use pierre_database::repositories::{BundleStatus, ExportBundle, UploadedFileWrite};
 use pierre_database::RepositoryRegistry;
 use pierre_mcp_server::mcp::resources::ServerContext;
+use pierre_providers::originals::keyed_upload_key;
 use pierre_routes_admin::handlers::types::ResetAccountRequest;
 use pierre_routes_admin::handlers::user_removal::handle_reset_user;
 use pierre_routes_auth::AuthRoutes;
@@ -362,30 +363,29 @@ async fn uploads_and_feedback_images_are_in_the_bundle() {
         .unwrap();
     repos
         .uploaded_activity_files
-        .record_uploaded_file(
-            &tenant,
-            ana.id,
-            &upload_sha.to_hex(),
-            upload.len() as u64,
-            "upload",
-        )
+        .record_uploaded_file(&UploadedFileWrite {
+            tenant_id: &tenant,
+            user_id: ana.id,
+            file_sha256: &upload_sha.to_hex(),
+            byte_size: upload.len() as u64,
+            origin: "upload",
+            record_base: None,
+            blob_keyed: false,
+        })
         .await
         .unwrap();
     let png = b"\x89PNG\r\n\x1a\nscreenshot".to_vec();
     let png_sha = Sha256::of(&png);
-    setup
-        .resources
-        .common
-        .originals
-        .put_named_file(
-            &tenant,
-            ana.id,
-            &png_sha.to_hex(),
-            "image/png",
-            Bytes::copy_from_slice(&png),
-        )
+    let originals = &setup.resources.common.originals;
+    let lock = originals
+        .lock_file(&tenant, ana.id, &png_sha.to_hex())
         .await
         .unwrap();
+    originals
+        .put_named_file(&lock, "image/png", Bytes::copy_from_slice(&png))
+        .await
+        .unwrap();
+    drop(lock);
     let image = FeedbackImage {
         sha256: png_sha.to_hex(),
         media_type: "image/png".to_owned(),
@@ -424,6 +424,73 @@ async fn uploads_and_feedback_images_are_in_the_bundle() {
         members[&format!("feedback/{png_sha}.png")],
         png,
         "bug: the screenshot's bytes are not the ones attached"
+    );
+}
+
+/// A file whose row says it is kept under its keyed name is bundled from
+/// that name, by its digest, beside one still kept under its content name
+/// (carnet#1701).
+#[tokio::test]
+async fn a_keyed_upload_is_bundled_from_its_keyed_name() {
+    let setup = Setup::new().await;
+    let repos = setup.repos();
+    let (ana, tenant) = athlete(&repos, "ana").await;
+    let scope = Scope::new(tenant.as_uuid(), ana.id);
+    let (legacy, keyed) = (fit(9), fit(11));
+    let (legacy_sha, keyed_sha) = (Sha256::of(&legacy), Sha256::of(&keyed));
+    let keyed_name = keyed_upload_key(
+        setup.resources.common.activity_records.as_ref(),
+        &tenant,
+        ana.id,
+        &keyed_sha.to_hex(),
+    )
+    .unwrap();
+    for (key, bytes) in [
+        (BlobKey::upload(scope, legacy_sha), &legacy),
+        (keyed_name, &keyed),
+    ] {
+        setup
+            .blobs
+            .put(
+                &key,
+                Bytes::copy_from_slice(bytes),
+                &BlobMeta::new("application/fit"),
+            )
+            .await
+            .unwrap();
+    }
+    for (sha, size, blob_keyed) in [
+        (legacy_sha, legacy.len(), false),
+        (keyed_sha, keyed.len(), true),
+    ] {
+        repos
+            .uploaded_activity_files
+            .record_uploaded_file(&UploadedFileWrite {
+                tenant_id: &tenant,
+                user_id: ana.id,
+                file_sha256: &sha.to_hex(),
+                byte_size: size as u64,
+                origin: "upload",
+                record_base: None,
+                blob_keyed,
+            })
+            .await
+            .unwrap();
+    }
+
+    let view = setup.built(&ana, None).await;
+    assert_eq!(view["status"], "ready", "{view}");
+    let members = members(&setup.download(&ana, &view).await.bytes());
+    verified(&members);
+    assert_eq!(
+        members[&format!("upload/{legacy_sha}.fit")],
+        legacy,
+        "bug: a content-named upload left the bundle"
+    );
+    assert_eq!(
+        members[&format!("upload/{keyed_sha}.fit")],
+        keyed,
+        "bug: a keyed upload was not bundled from its keyed name"
     );
 }
 

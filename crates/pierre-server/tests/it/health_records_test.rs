@@ -93,6 +93,7 @@ fn clinical(
         checks: Vec::new(),
         locator: None,
         read_by: None,
+        legacy_id: None,
     }
 }
 
@@ -124,6 +125,7 @@ fn sensitive_export() -> WellnessRecords {
             unit: None,
             cycle_start: true,
             protection_used: None,
+            legacy_id: None,
         }],
         clinical: vec![observation("o-1"), condition("c-1")],
         ..WellnessRecords::default()

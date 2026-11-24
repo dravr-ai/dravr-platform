@@ -1,4 +1,4 @@
-// ABOUTME: Covers the deletes a re-read source needs: nights overlapping a window, days in a date span, self-reports by id
+// ABOUTME: Covers the deletes a re-read source needs: nights overlapping a window, days in a date span, self-reports by id, a keyed record's legacy row (carnet#1701)
 // ABOUTME: Each scoped to one tenant, user and provider; a night touching the window only at an edge is kept
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -13,7 +13,8 @@ use pierre_core::models::{
     TenantId, User,
 };
 use pierre_database::repositories::{
-    RecordFiling, RecordWindow, SelfReportWrite, WellnessWriteMode,
+    ClinicalRecordWrite, ClinicalSelection, RecordFiling, RecordWindow, SelfReportWrite,
+    WellnessWriteMode,
 };
 use pierre_database::RepositoryRegistry;
 use pierre_test_support::db::create_test_db;
@@ -200,6 +201,7 @@ fn report(record_id: &str) -> SelfReportWrite {
         unit: Some("valence".to_owned()),
         cycle_start: false,
         protection_used: None,
+        legacy_id: None,
     }
 }
 
@@ -440,5 +442,166 @@ async fn a_dated_delete_removes_only_its_owners_days_of_its_key_in_the_span() {
         days_held(repos, &other_tenant, owner).await,
         (theirs.clone(), theirs),
         "bug: the owner's day in another tenant was deleted"
+    );
+}
+
+const WIDE: RecordWindow = RecordWindow {
+    since: None,
+    until: None,
+    limit: 200,
+};
+
+fn clinical(record_id: &str, legacy_id: Option<&str>) -> ClinicalRecordWrite {
+    ClinicalRecordWrite {
+        record_id: record_id.to_owned(),
+        resource_type: "Observation".to_owned(),
+        tier: "T2".to_owned(),
+        sensitivity_class: None,
+        fhir_version: "4.0.1".to_owned(),
+        resource: r#"{"resourceType":"Observation"}"#.to_owned(),
+        stripped: r#"{"resourceType":"Observation"}"#.to_owned(),
+        provenance: r#"{"resourceType":"Provenance"}"#.to_owned(),
+        flat: None,
+        derivation: "verbatim".to_owned(),
+        review_state: "none".to_owned(),
+        checks: "[]".to_owned(),
+        locator: None,
+        read_by: None,
+        effective_at: Some(at(9)),
+        lab_document_id: None,
+        legacy_id: legacy_id.map(str::to_owned),
+    }
+}
+
+async fn file_clinical(
+    repos: &RepositoryRegistry,
+    (tenant, user, provider): (&TenantId, Uuid, &str),
+    records: &[ClinicalRecordWrite],
+) {
+    let source = data_source(repos, tenant, user, provider).await;
+    repos
+        .health_records
+        .upsert_clinical_records(
+            RecordFiling {
+                tenant_id: tenant,
+                user_id: user,
+                provider,
+                data_source_id: &source,
+            },
+            records,
+        )
+        .await
+        .unwrap();
+}
+
+async fn clinical_count(repos: &RepositoryRegistry, tenant: &TenantId, user: Uuid) -> usize {
+    repos
+        .health_records
+        .list_clinical_records(
+            tenant,
+            user,
+            ClinicalSelection::Served { observations: None },
+            WIDE,
+        )
+        .await
+        .unwrap()
+        .len()
+}
+
+/// A re-import that keyed a record's id replaces the row its legacy id held
+/// with the keyed one, never keeping both; only under the owner, tenant and
+/// key it was written under (carnet#1701).
+#[tokio::test]
+async fn a_keyed_record_replaces_the_row_its_legacy_id_held() {
+    let db = create_test_db().await.unwrap();
+    let repos = db.repositories();
+    let tenant = TenantId::parse_str(TENANT).unwrap();
+    let other_tenant = TenantId::parse_str(OTHER_TENANT).unwrap();
+    let (who, neighbour) = (user(repos).await, user(repos).await);
+    for (t, u, key) in [
+        (&tenant, who, KEY),
+        (&tenant, who, OTHER_KEY),
+        (&other_tenant, who, KEY),
+        (&tenant, neighbour, KEY),
+    ] {
+        file_reports(repos, (t, u, key), &["garmin-legacy"]).await;
+        file_clinical(repos, (t, u, key), &[clinical("fhir-legacy", None)]).await;
+    }
+
+    let mut keyed = report("garmin-k0123456789abcdef");
+    keyed.legacy_id = Some("garmin-legacy".to_owned());
+    let source = data_source(repos, &tenant, who, KEY).await;
+    repos
+        .health_records
+        .upsert_self_reports(
+            RecordFiling {
+                tenant_id: &tenant,
+                user_id: who,
+                provider: KEY,
+                data_source_id: &source,
+            },
+            &[keyed],
+        )
+        .await
+        .unwrap();
+    file_clinical(
+        repos,
+        (&tenant, who, KEY),
+        &[clinical("fhir-k0123456789abcdef", Some("fhir-legacy"))],
+    )
+    .await;
+
+    assert_eq!(
+        reports_of(repos, &tenant, who).await,
+        vec![OTHER_KEY.to_owned(), KEY.to_owned()],
+        "bug: the legacy self-report stayed beside its keyed row, or another key's went"
+    );
+    assert_eq!(
+        clinical_count(repos, &tenant, who).await,
+        2,
+        "bug: the legacy clinical row stayed beside its keyed row, or another key's went"
+    );
+    assert_eq!(
+        reports_of(repos, &other_tenant, who).await,
+        vec![KEY.to_owned()],
+        "bug: the owner's legacy row in another tenant was deleted"
+    );
+    assert_eq!(
+        clinical_count(repos, &other_tenant, who).await,
+        1,
+        "bug: the owner's legacy clinical row in another tenant was deleted"
+    );
+    assert_eq!(
+        reports_of(repos, &tenant, neighbour).await,
+        vec![KEY.to_owned()],
+        "bug: another athlete's legacy row was deleted"
+    );
+    assert_eq!(
+        clinical_count(repos, &tenant, neighbour).await,
+        1,
+        "bug: another athlete's legacy clinical row was deleted"
+    );
+
+    // A record whose legacy id is its own id deletes nothing.
+    let mut same = report("garmin-legacy");
+    same.legacy_id = Some("garmin-legacy".to_owned());
+    let source = data_source(repos, &tenant, neighbour, KEY).await;
+    repos
+        .health_records
+        .upsert_self_reports(
+            RecordFiling {
+                tenant_id: &tenant,
+                user_id: neighbour,
+                provider: KEY,
+                data_source_id: &source,
+            },
+            &[same],
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        reports_of(repos, &tenant, neighbour).await,
+        vec![KEY.to_owned()],
+        "bug: a record replaced itself away"
     );
 }

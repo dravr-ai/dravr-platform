@@ -27,14 +27,22 @@ use std::time::Duration as StdDuration;
 
 use dravr_tronc::dates::Timestamp;
 
+use async_trait::async_trait;
 use bytes::Bytes;
 use dravr_barrage::blob::memory::MemoryBlobStore;
+use dravr_barrage::blob::{
+    BlobKey, BlobMeta, BlobPrefix, BlobStat, BlobStore, DeletePage, PageToken, UploadTarget,
+};
 use dravr_barrage::digest::Sha256;
+use dravr_barrage::BarrageError;
+use futures_util::stream::BoxStream;
 use pierre_auth::auth::AuthManager;
 use pierre_cache::{Cache, CacheConfig};
 use pierre_core::constants::oauth::providers::SENSITIVE_T2;
 use pierre_core::errors::ErrorCode;
 use pierre_core::models::TenantId;
+use pierre_database::backends::factory::DatabaseBackend;
+use pierre_database::repositories::UploadNameLock;
 use pierre_database::repositories::{
     ClinicalSelection, PurgeReason, RecordWindow, ReviewDecision, LAB_DOCUMENT_PROVIDER,
 };
@@ -43,6 +51,9 @@ use pierre_mcp_server::services::lab_documents::{delete_lab_document, upload_lab
 use pierre_services::lab_document_model::LabReaderModel;
 use pierre_services::provider_notice::grant_consent;
 use serde_json::Value;
+use std::ops::Range;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Mutex, OnceLock};
 use uuid::Uuid;
 
 use crate::archive_import_test::seed_athlete;
@@ -90,6 +101,15 @@ async fn context(model: LabReaderModel) -> Arc<ServerContext> {
 
 /// [`context`], reading PDFs with the child `pdf_text_bin`.
 async fn context_with(model: LabReaderModel, pdf_text_bin: PathBuf) -> Arc<ServerContext> {
+    context_over(model, pdf_text_bin, Arc::new(MemoryBlobStore::default())).await
+}
+
+/// [`context_with`], keeping files in `blobs`.
+async fn context_over(
+    model: LabReaderModel,
+    pdf_text_bin: PathBuf,
+    blobs: Arc<dyn BlobStore>,
+) -> Arc<ServerContext> {
     common::init_server_config();
     let database = common::create_test_database().await.unwrap();
     let cache = Cache::new(CacheConfig {
@@ -112,7 +132,7 @@ async fn context_with(model: LabReaderModel, pdf_text_bin: PathBuf) -> Arc<Serve
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 lab_reader: Some(model),
                 pdf_text_bin: Some(pdf_text_bin),
-                blobs: Some(Ok(Arc::new(MemoryBlobStore::default()))),
+                blobs: Some(Ok(blobs)),
                 ..ServerContextOptions::testing(common::offline_adapters())
             },
         )
@@ -639,5 +659,178 @@ async fn two_simultaneous_uploads_are_both_read_one_child_at_a_time() {
     assert!(
         alive.iter().all(|count| count.trim() == "1"),
         "bug: two PDF children were alive at once: {alive:?}"
+    );
+}
+
+/// A blob store that, once armed, makes the lease on the file being deleted
+/// lapse and lets another holder take it, at its first delete: a purge whose
+/// lease is lost while it works.
+struct LapsingBlobs {
+    inner: MemoryBlobStore,
+    armed: AtomicBool,
+    context: OnceLock<(Arc<ServerContext>, TenantId, Uuid, String)>,
+    taken: Mutex<Vec<UploadNameLock>>,
+}
+
+impl LapsingBlobs {
+    /// Let every lease of `sha` lapse, then claim it as another holder.
+    async fn lapse_and_take(&self) {
+        let Some((resources, tenant, user, sha)) = self.context.get() else {
+            return;
+        };
+        let sql = "UPDATE upload_name_leases SET leased_until_ms = 0 WHERE file_sha256 = $1";
+        match resources.agent.database.backend() {
+            DatabaseBackend::SQLite(sqlite) => {
+                sqlx::query(sql)
+                    .bind(sha)
+                    .execute(sqlite.pool())
+                    .await
+                    .unwrap();
+            }
+            #[cfg(feature = "postgresql")]
+            DatabaseBackend::PostgreSQL(pg) => {
+                sqlx::query(sql).bind(sha).execute(pg.pool()).await.unwrap();
+            }
+        }
+        let taken = resources
+            .common
+            .originals
+            .lock_file(tenant, *user, sha)
+            .await
+            .unwrap();
+        self.taken.lock().unwrap().push(taken);
+    }
+}
+
+#[async_trait]
+impl BlobStore for LapsingBlobs {
+    async fn put_stream(
+        &self,
+        key: &BlobKey,
+        body: BoxStream<'_, Result<Bytes, BarrageError>>,
+        meta: &BlobMeta,
+    ) -> Result<BlobStat, BarrageError> {
+        self.inner.put_stream(key, body, meta).await
+    }
+
+    async fn put(
+        &self,
+        key: &BlobKey,
+        bytes: Bytes,
+        meta: &BlobMeta,
+    ) -> Result<BlobStat, BarrageError> {
+        self.inner.put(key, bytes, meta).await
+    }
+
+    async fn open_upload(
+        &self,
+        key: &BlobKey,
+        meta: &BlobMeta,
+        length: u64,
+        origin: Option<&str>,
+    ) -> Result<UploadTarget, BarrageError> {
+        self.inner.open_upload(key, meta, length, origin).await
+    }
+
+    async fn get(&self, key: &BlobKey) -> Result<Option<Bytes>, BarrageError> {
+        self.inner.get(key).await
+    }
+
+    async fn get_range(&self, key: &BlobKey, range: Range<u64>) -> Result<Bytes, BarrageError> {
+        self.inner.get_range(key, range).await
+    }
+
+    async fn size(&self, key: &BlobKey) -> Result<Option<u64>, BarrageError> {
+        self.inner.size(key).await
+    }
+
+    async fn delete(&self, key: &BlobKey) -> Result<(), BarrageError> {
+        if self.armed.swap(false, Ordering::SeqCst) {
+            self.lapse_and_take().await;
+        }
+        self.inner.delete(key).await
+    }
+
+    async fn delete_prefix_page(
+        &self,
+        prefix: &BlobPrefix,
+        token: Option<PageToken>,
+    ) -> Result<DeletePage, BarrageError> {
+        self.inner.delete_prefix_page(prefix, token).await
+    }
+}
+
+/// A purge whose lease on a lab report lapses while it deletes the PDF, and
+/// is taken by another holder, deletes no row under that holder: it fails,
+/// the document stays for its retry, and the retry, once the other holder is
+/// done, purges it.
+#[tokio::test]
+async fn a_purge_that_loses_its_lease_deletes_no_row() {
+    let blobs = Arc::new(LapsingBlobs {
+        inner: MemoryBlobStore::default(),
+        armed: AtomicBool::new(false),
+        context: OnceLock::new(),
+        taken: Mutex::new(Vec::new()),
+    });
+    let shared: Arc<dyn BlobStore> = blobs.clone();
+    let resources = context_over(LabReaderModel::rules(), pdf_child(), shared).await;
+    let athlete = seed_athlete(&resources, "lab-purge-lapse").await;
+    let (tenant, user) = (athlete.tenant, athlete.user_id);
+    upload_lab_document(&resources, tenant, user, Bytes::from_static(REPORT))
+        .await
+        .unwrap();
+    let file = Sha256::of(REPORT).to_hex();
+    assert!(blobs
+        .context
+        .set((Arc::clone(&resources), tenant, user, file))
+        .is_ok());
+    blobs.armed.store(true, Ordering::SeqCst);
+
+    let purge = resources
+        .common
+        .provider_purge
+        .purge_user_provider_data(
+            user,
+            &tenant,
+            LAB_DOCUMENT_PROVIDER,
+            PurgeReason::AthleteDisconnect,
+        )
+        .await;
+    assert!(
+        purge.is_err(),
+        "bug: a purge that lost its lease went on to delete the rows"
+    );
+    let repos = &resources.common.repos;
+    assert_eq!(
+        repos
+            .health_records
+            .list_lab_documents(&tenant, user)
+            .await
+            .unwrap()
+            .len(),
+        1,
+        "bug: the purge deleted a row under another holder's lease"
+    );
+
+    blobs.taken.lock().unwrap().clear();
+    resources
+        .common
+        .provider_purge
+        .purge_user_provider_data(
+            user,
+            &tenant,
+            LAB_DOCUMENT_PROVIDER,
+            PurgeReason::AthleteDisconnect,
+        )
+        .await
+        .unwrap();
+    assert!(
+        repos
+            .health_records
+            .list_lab_documents(&tenant, user)
+            .await
+            .unwrap()
+            .is_empty(),
+        "bug: the retry did not purge the document"
     );
 }

@@ -245,6 +245,7 @@ impl ServerContext {
         let originals_bundles = OriginalsBundleService::over(&activity_records, &blobs, &repos);
         let originals = Arc::new(OriginalsStore::new(
             blobs,
+            Arc::clone(&activity_records),
             Arc::clone(&repos.uploaded_activity_files),
         ));
         let provider_purge = ProviderPurgeService::shared(

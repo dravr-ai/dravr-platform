@@ -287,6 +287,7 @@ account_reset_tables!(
     "personal_best_seeds",
     "cached_activities",
     "uploaded_activity_files",
+    "upload_name_leases",
     "user_export_bundles",
     "activity_route_tracks",
     "athlete_places",

@@ -98,6 +98,7 @@ pub fn self_report_write(report: &SelfReport) -> AppResult<SelfReportWrite> {
         unit: report.unit.clone(),
         cycle_start: report.cycle_start,
         protection_used: report.protection_used,
+        legacy_id: report.legacy_id.clone(),
     })
 }
 
@@ -173,6 +174,7 @@ pub fn clinical_write(
         read_by: record.read_by.as_ref().map(ReadingEngine::label),
         effective_at: effective_at(record),
         lab_document_id: lab_document_id.map(str::to_owned),
+        legacy_id: record.legacy_id.clone(),
     })
 }
 

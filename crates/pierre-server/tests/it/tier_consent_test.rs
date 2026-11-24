@@ -820,6 +820,7 @@ async fn file_health_records(f: &Fixture) {
         read_by: None,
         effective_at: Some(effective),
         lab_document_id: None,
+        legacy_id: None,
     };
     repos
         .health_records
@@ -836,6 +837,7 @@ async fn file_health_records(f: &Fixture) {
         unit: None,
         cycle_start: true,
         protection_used: None,
+        legacy_id: None,
     };
     repos
         .health_records

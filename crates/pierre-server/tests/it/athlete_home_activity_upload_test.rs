@@ -26,6 +26,7 @@ use crate::retention_sweep_test::configure;
 use std::ops::Range;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 
 use async_trait::async_trait;
 use axum::body::{to_bytes, Body};
@@ -47,18 +48,20 @@ use pierre_core::models::{ActivityBuilder, SportType, Tenant, TenantId, User};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::Transport;
 use pierre_database::backends::factory::DatabaseBackend;
+use pierre_database::repositories::UploadedFileWrite;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::athlete_home::athlete_home_routes;
 use pierre_mcp_server::services::activity_upload::MAX_UPLOAD_BYTES;
 use pierre_mcp_server::services::retention_sweep_worker::retention_sweeper;
-use pierre_providers::originals::OriginalsStore;
-use pierre_providers::upload_provider::file_sha256;
+use pierre_providers::originals::{keyed_upload_key, OriginalsStore};
+use pierre_providers::upload_provider::{file_sha256, UploadActivityId};
 use pierre_services::barrage_keys::memory_records;
 use pierre_test_support::fit::{bloated_file, course_file, FitWorkout};
 use pierre_tool_runtime::protocol::{
     is_no_provider_refusal, UniversalRequest, UniversalToolExecutor,
 };
 use serde_json::{json, Value};
+use tokio::time;
 use tower::ServiceExt;
 use uuid::Uuid;
 
@@ -781,9 +784,24 @@ fn inspectable_originals(resources: &Arc<ServerContext>) -> (Arc<MemoryBlobStore
     let shared: Arc<dyn BlobStore> = blobs.clone();
     let store = OriginalsStore::new(
         Ok(shared),
+        Arc::clone(&resources.common.activity_records),
         Arc::clone(&resources.common.repos.uploaded_activity_files),
     );
     (blobs, store)
+}
+
+/// The row of a file the athlete uploaded before keyed names: no keyed base,
+/// no keyed copy.
+fn legacy_file<'a>(athlete: &'a Athlete, sha: &'a str, byte_size: u64) -> UploadedFileWrite<'a> {
+    UploadedFileWrite {
+        tenant_id: &athlete.tenant,
+        user_id: athlete.user_id,
+        file_sha256: sha,
+        byte_size,
+        origin: UPLOAD,
+        record_base: None,
+        blob_keyed: false,
+    }
 }
 
 /// The blob key the athlete's upload of `sha` lives under.
@@ -1043,7 +1061,7 @@ async fn without_a_blob_store_an_upload_is_refused_and_nothing_is_kept() {
 
     // A row written while a store was placed, read where none is.
     files
-        .record_uploaded_file(&athlete.tenant, athlete.user_id, &sha, 10, UPLOAD)
+        .record_uploaded_file(&legacy_file(&athlete, &sha, 10))
         .await
         .unwrap();
     let originals = Arc::clone(&resources.common.originals);
@@ -1213,6 +1231,14 @@ const SQLITE_DROP_FILE_BYTES: &str =
 const POSTGRES_DROP_FILE_BYTES: &str =
     include_str!("../../../../migrations_pg/20261102120000_drop_uploaded_file_bytes.sql");
 
+/// What the migration after the drop adds to this table (carnet#1701,
+/// `20261124110000_owl_keyed_upload_names.sql`): `SQLite`'s drop rebuilds the
+/// table without it, so the replay adds it again, as the migration order does.
+/// Postgres's drop removes the one column and keeps the rest.
+const SQLITE_KEYED_UPLOAD_COLUMNS: &str = "
+    ALTER TABLE uploaded_activity_files ADD COLUMN blob_keyed INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE uploaded_activity_files ADD COLUMN record_base TEXT;";
+
 /// The drop refuses while any row still holds bytes, leaving the column and
 /// the bytes as they were, and its refusal names what is held and the
 /// remedy, since no code is left to drain a row; once none does, the column
@@ -1269,6 +1295,9 @@ async fn the_file_bytes_drop_refuses_while_a_row_holds_bytes() {
     raw(&resources, SQLITE_DROP_FILE_BYTES, POSTGRES_DROP_FILE_BYTES)
         .await
         .unwrap();
+    raw(&resources, SQLITE_KEYED_UPLOAD_COLUMNS, "SELECT 1")
+        .await
+        .unwrap();
     let select = "SELECT file_bytes FROM uploaded_activity_files";
     assert!(
         raw(&resources, select, select).await.is_err(),
@@ -1288,15 +1317,423 @@ async fn the_file_bytes_drop_refuses_while_a_row_holds_bytes() {
     raw(&resources, origin, origin).await.unwrap();
     assert!(
         files
-            .record_uploaded_file(
-                &athlete.tenant,
-                athlete.user_id,
-                &file_sha256(b"new"),
-                3,
-                UPLOAD
-            )
+            .record_uploaded_file(&legacy_file(&athlete, &file_sha256(b"new"), 3))
             .await
             .unwrap(),
         "bug: a file is recorded after the drop"
+    );
+}
+
+// ============================================================================
+// Keyed upload names and ids (carnet#1701)
+// ============================================================================
+
+/// The keyed name the athlete's upload of `sha` is kept under once copied.
+fn keyed_key(resources: &Arc<ServerContext>, athlete: &Athlete, sha: &str) -> BlobKey {
+    keyed_upload_key(
+        resources.common.activity_records.as_ref(),
+        &athlete.tenant,
+        athlete.user_id,
+        sha,
+    )
+    .unwrap()
+}
+
+/// A file kept under its keyed name reads from it, one kept under its
+/// content name still reads, a delete removes both names, and bytes under
+/// the keyed name that are not the file's are refused.
+#[tokio::test]
+async fn an_upload_reads_its_keyed_name_then_its_content_name_and_deletes_both() {
+    let resources = common::create_test_server_resources().await.unwrap();
+    let athlete = seed_athlete(&resources, "keyed-names").await;
+    let (blobs, originals) = inspectable_originals(&resources);
+    let file = FitWorkout::ride(yesterday_morning(), 600).encode();
+    let sha = file_sha256(&file);
+    let keyed = keyed_key(&resources, &athlete, &sha);
+    assert_ne!(
+        keyed,
+        upload_key(&athlete, &sha),
+        "bug: a file's keyed name is its content name"
+    );
+    let stranger = seed_athlete(&resources, "keyed-names-stranger").await;
+    assert_ne!(
+        keyed,
+        keyed_key(&resources, &stranger, &sha),
+        "bug: two athletes' copies of one file share a keyed name"
+    );
+
+    // Kept before keyed names: the content name reads.
+    originals
+        .put_upload(
+            &athlete.tenant,
+            athlete.user_id,
+            &sha,
+            Bytes::from(file.clone()),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        originals
+            .get_upload(&athlete.tenant, athlete.user_id, &sha)
+            .await
+            .unwrap()
+            .as_deref(),
+        Some(file.as_slice()),
+        "bug: a content-named upload no longer reads"
+    );
+
+    // Copied under its keyed name, then the content copy gone: the keyed
+    // name reads.
+    blobs
+        .put(
+            &keyed,
+            Bytes::from(file.clone()),
+            &BlobMeta::new("application/vnd.ant.fit"),
+        )
+        .await
+        .unwrap();
+    blobs.delete(&upload_key(&athlete, &sha)).await.unwrap();
+    assert_eq!(
+        originals
+            .get_upload(&athlete.tenant, athlete.user_id, &sha)
+            .await
+            .unwrap()
+            .as_deref(),
+        Some(file.as_slice()),
+        "bug: a keyed-named upload does not read"
+    );
+
+    // Both names held: a delete removes both, then the row.
+    blobs
+        .put(
+            &upload_key(&athlete, &sha),
+            Bytes::from(file.clone()),
+            &BlobMeta::new("application/vnd.ant.fit"),
+        )
+        .await
+        .unwrap();
+    assert!(
+        originals
+            .delete_upload(&athlete.tenant, athlete.user_id, &sha)
+            .await
+            .unwrap(),
+        "bug: a held upload's delete reports it was not held"
+    );
+    for key in [&keyed, &upload_key(&athlete, &sha)] {
+        assert!(
+            blobs.get(key).await.unwrap().is_none(),
+            "bug: a deleted upload left {key:?}"
+        );
+    }
+
+    // Bytes under the keyed name that are not the file's are refused.
+    originals
+        .put_upload(
+            &athlete.tenant,
+            athlete.user_id,
+            &sha,
+            Bytes::from(file.clone()),
+        )
+        .await
+        .unwrap();
+    let other = FitWorkout::ride(yesterday_morning(), 900).encode();
+    blobs
+        .put(
+            &keyed,
+            Bytes::from(other),
+            &BlobMeta::new("application/vnd.ant.fit"),
+        )
+        .await
+        .unwrap();
+    assert!(
+        originals
+            .get_upload(&athlete.tenant, athlete.user_id, &sha)
+            .await
+            .is_err(),
+        "bug: bytes under a keyed name were served without their digest checked"
+    );
+}
+
+/// A file row keeps the first keyed base it is given, whatever a later
+/// upload of the same file brings, and a keyed activity id resolves to its
+/// file through it while the legacy id still names the file itself.
+#[tokio::test]
+async fn a_keyed_activity_id_resolves_through_its_files_record_base() {
+    let resources = common::create_test_server_resources().await.unwrap();
+    let athlete = seed_athlete(&resources, "keyed-ids").await;
+    let files = &resources.common.repos.uploaded_activity_files;
+    let originals = &resources.common.originals;
+    let sha = file_sha256(b"a two-session file");
+    let base = "upload-k0123456789abcdef";
+
+    assert!(
+        files
+            .record_uploaded_file(&legacy_file(&athlete, &sha, 10))
+            .await
+            .unwrap(),
+        "bug: a first upload of a file reads as held"
+    );
+    assert_eq!(
+        files
+            .file_of_record_base(&athlete.tenant, athlete.user_id, base)
+            .await
+            .unwrap(),
+        None,
+        "bug: a legacy row answers a keyed base"
+    );
+    let mut keyed = legacy_file(&athlete, &sha, 10);
+    keyed.record_base = Some(base);
+    keyed.blob_keyed = true;
+    assert!(
+        !files.record_uploaded_file(&keyed).await.unwrap(),
+        "bug: a held file reads as new"
+    );
+    let mut other = legacy_file(&athlete, &sha, 10);
+    other.record_base = Some("upload-kfedcba9876543210");
+    files.record_uploaded_file(&other).await.unwrap();
+
+    assert_eq!(
+        files
+            .file_of_record_base(&athlete.tenant, athlete.user_id, base)
+            .await
+            .unwrap()
+            .as_deref(),
+        Some(sha.as_str()),
+        "bug: the first keyed base was not kept"
+    );
+    let keyed_id = UploadActivityId::Keyed { base, index: 1 };
+    assert_eq!(
+        originals
+            .file_of_activity(&athlete.tenant, athlete.user_id, keyed_id)
+            .await
+            .unwrap()
+            .as_deref(),
+        Some(sha.as_str()),
+        "bug: a keyed activity id did not resolve to its file"
+    );
+    let legacy_id = UploadActivityId::Digest {
+        sha: &sha,
+        index: 0,
+    };
+    assert_eq!(
+        originals
+            .file_of_activity(&athlete.tenant, athlete.user_id, legacy_id)
+            .await
+            .unwrap()
+            .as_deref(),
+        Some(sha.as_str()),
+        "bug: a digest activity id did not name its own file"
+    );
+    let stranger = seed_athlete(&resources, "keyed-ids-stranger").await;
+    assert_eq!(
+        originals
+            .file_of_activity(&stranger.tenant, stranger.user_id, keyed_id)
+            .await
+            .unwrap(),
+        None,
+        "bug: another athlete's keyed id resolved"
+    );
+    assert!(
+        files
+            .delete_uploaded_file(&athlete.tenant, athlete.user_id, &sha)
+            .await
+            .unwrap(),
+        "bug: a held file's row was not deleted"
+    );
+}
+
+/// One file's lock is held by one holder at a time: a second waits until
+/// the first is dropped.
+#[tokio::test]
+async fn one_files_lock_is_held_by_one_holder_at_a_time() {
+    let resources = common::create_test_server_resources().await.unwrap();
+    let athlete = seed_athlete(&resources, "upload-lock").await;
+    let sha = file_sha256(b"a locked file");
+    let originals = Arc::clone(&resources.common.originals);
+    let first = originals
+        .lock_file(&athlete.tenant, athlete.user_id, &sha)
+        .await
+        .unwrap();
+
+    let waiter = {
+        let originals = Arc::clone(&originals);
+        let (tenant, user, sha) = (athlete.tenant, athlete.user_id, sha.clone());
+        tokio::spawn(async move { originals.lock_file(&tenant, user, &sha).await.map(drop) })
+    };
+    time::sleep(Duration::from_millis(300)).await;
+    assert!(
+        !waiter.is_finished(),
+        "bug: a second holder took a held file's lock"
+    );
+    drop(first);
+    time::timeout(Duration::from_secs(10), waiter)
+        .await
+        .expect("bug: the lock was not released when its holder was dropped")
+        .unwrap()
+        .unwrap();
+    assert!(
+        originals
+            .lock_file(&athlete.tenant, athlete.user_id, "not a digest")
+            .await
+            .is_err(),
+        "bug: a lock was taken on a name that is not a digest"
+    );
+}
+
+/// A file its own table names (a feedback screenshot, a lab report) reads
+/// from its keyed name, then its content name, and its delete removes both.
+#[tokio::test]
+async fn a_named_file_reads_and_deletes_under_both_names() {
+    let resources = common::create_test_server_resources().await.unwrap();
+    let athlete = seed_athlete(&resources, "keyed-named").await;
+    let (blobs, originals) = inspectable_originals(&resources);
+    let png = b"\x89PNG\r\n\x1a\na screenshot".to_vec();
+    let sha = file_sha256(&png);
+    let keyed = keyed_key(&resources, &athlete, &sha);
+
+    let lock = originals
+        .lock_file(&athlete.tenant, athlete.user_id, &sha)
+        .await
+        .unwrap();
+    originals
+        .put_named_file(&lock, "image/png", Bytes::from(png.clone()))
+        .await
+        .unwrap();
+    drop(lock);
+    assert!(
+        blobs
+            .get(&upload_key(&athlete, &sha))
+            .await
+            .unwrap()
+            .is_some(),
+        "bug: a named file was not kept under its content name"
+    );
+
+    blobs
+        .put(
+            &keyed,
+            Bytes::from(png.clone()),
+            &BlobMeta::new("image/png"),
+        )
+        .await
+        .unwrap();
+    blobs.delete(&upload_key(&athlete, &sha)).await.unwrap();
+    assert_eq!(
+        originals
+            .get_named_file(&athlete.tenant, athlete.user_id, &sha)
+            .await
+            .unwrap()
+            .as_deref(),
+        Some(png.as_slice()),
+        "bug: a keyed-named file does not read"
+    );
+
+    blobs
+        .put(
+            &upload_key(&athlete, &sha),
+            Bytes::from(png.clone()),
+            &BlobMeta::new("image/png"),
+        )
+        .await
+        .unwrap();
+    let lock = originals
+        .lock_file(&athlete.tenant, athlete.user_id, &sha)
+        .await
+        .unwrap();
+    originals.delete_named_file(&lock).await.unwrap();
+    drop(lock);
+    for key in [&keyed, &upload_key(&athlete, &sha)] {
+        assert!(
+            blobs.get(key).await.unwrap().is_none(),
+            "bug: a deleted named file left {key:?}"
+        );
+    }
+    assert_eq!(
+        originals
+            .get_named_file(&athlete.tenant, athlete.user_id, &sha)
+            .await
+            .unwrap(),
+        None,
+        "bug: a deleted named file still reads"
+    );
+}
+
+/// Two writes of one file at once: the second waits for the first's lease,
+/// both succeed, one finds the file new and the other already held, and the
+/// file reads back whole under one row. A delete racing them ends with no
+/// file and no row, or the file whole with its row.
+#[tokio::test]
+async fn concurrent_writes_of_one_file_end_consistent() {
+    let resources = common::create_test_server_resources().await.unwrap();
+    let athlete = seed_athlete(&resources, "concurrent-writes").await;
+    let (_, originals) = inspectable_originals(&resources);
+    let originals = Arc::new(originals);
+    let file = FitWorkout::ride(yesterday_morning(), 600).encode();
+    let sha = file_sha256(&file);
+
+    let writers: Vec<_> = (0..2)
+        .map(|_| {
+            let originals = Arc::clone(&originals);
+            let (tenant, user, sha, bytes) = (
+                athlete.tenant,
+                athlete.user_id,
+                sha.clone(),
+                Bytes::from(file.clone()),
+            );
+            tokio::spawn(async move { originals.put_upload(&tenant, user, &sha, bytes).await })
+        })
+        .collect();
+    let mut new = 0;
+    for writer in writers {
+        if writer.await.unwrap().unwrap() {
+            new += 1;
+        }
+    }
+    assert_eq!(
+        new, 1,
+        "bug: one file was new to the athlete twice, or never"
+    );
+    assert_eq!(
+        originals
+            .get_upload(&athlete.tenant, athlete.user_id, &sha)
+            .await
+            .unwrap()
+            .as_deref(),
+        Some(file.as_slice()),
+        "bug: two concurrent writes of one file did not leave it whole"
+    );
+
+    let writer = {
+        let originals = Arc::clone(&originals);
+        let (tenant, user, sha, bytes) = (
+            athlete.tenant,
+            athlete.user_id,
+            sha.clone(),
+            Bytes::from(file.clone()),
+        );
+        tokio::spawn(async move { originals.put_upload(&tenant, user, &sha, bytes).await })
+    };
+    let deleter = {
+        let originals = Arc::clone(&originals);
+        let (tenant, user, sha) = (athlete.tenant, athlete.user_id, sha.clone());
+        tokio::spawn(async move { originals.delete_upload(&tenant, user, &sha).await })
+    };
+    writer.await.unwrap().unwrap();
+    deleter.await.unwrap().unwrap();
+    let held = resources
+        .common
+        .repos
+        .uploaded_activity_files
+        .holds_uploaded_file(&athlete.tenant, athlete.user_id, &sha)
+        .await
+        .unwrap();
+    let read = originals
+        .get_upload(&athlete.tenant, athlete.user_id, &sha)
+        .await
+        .unwrap();
+    assert_eq!(
+        read.as_deref(),
+        held.then_some(file.as_slice()),
+        "bug: a write racing a delete left a row without its file, or a file without its row"
     );
 }

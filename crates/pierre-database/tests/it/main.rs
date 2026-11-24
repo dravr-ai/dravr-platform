@@ -55,6 +55,7 @@ mod test_db_factory_test;
 mod test_db_survives_cancelled_query_test;
 mod tool_selection_repository_test;
 mod unit_preferences_test;
+mod upload_name_lock_test;
 mod usage_repositories_test;
 mod user_export_bundles_test;
 mod user_export_test;

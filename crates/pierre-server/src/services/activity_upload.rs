@@ -54,7 +54,7 @@ use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
 use pierre_providers::fit_decode::decode_bounded;
 use pierre_providers::upload_provider::{
     file_sha256, parse_upload_activity_id, store_upload_series, upload_activity_id,
-    upload_session_series,
+    upload_session_series, UploadedFileIds,
 };
 use pierre_services::live_activities::WriteOrigin;
 use pierre_tool_runtime::runtime::ToolRuntime;
@@ -173,7 +173,7 @@ pub async fn upload_activity_file(
         repos.activity_streams.as_ref(),
         &tenant_id,
         user_id,
-        &sha,
+        UploadedFileIds::by_digest(&sha),
         &kept_series,
         synced_at,
     )
@@ -230,7 +230,13 @@ pub async fn delete_uploaded_activity(
     activity_id: &str,
 ) -> AppResult<()> {
     let not_found = || AppError::not_found(format!("uploaded activity {activity_id}"));
-    let (sha, _) = parse_upload_activity_id(activity_id).ok_or_else(not_found)?;
+    let parsed = parse_upload_activity_id(activity_id).ok_or_else(not_found)?;
+    // A keyed id names its file through the file's row; one whose row is
+    // gone names no file left to delete.
+    let file = runtime
+        .originals()
+        .file_of_activity(&tenant_id, user_id, parsed)
+        .await?;
     // A row the cache served before the store kept uploads is not the
     // store's, and is deleted all the same: it counts as removed too.
     let cached = runtime
@@ -246,13 +252,18 @@ pub async fn delete_uploaded_activity(
     if !(cached || held) {
         // A delete that failed part-way removed the activity and left its
         // file: the retry finishes deleting the file, then answers done.
-        if finish_file_delete(runtime, &tenant_id, user_id, sha).await? {
-            info!(%user_id, tenant_id = %tenant_id, activity_id, "uploaded file left by an interrupted delete was deleted");
-            return Ok(());
+        if let Some(sha) = &file {
+            if finish_file_delete(runtime, &tenant_id, user_id, sha).await? {
+                info!(%user_id, tenant_id = %tenant_id, activity_id, "uploaded file left by an interrupted delete was deleted");
+                return Ok(());
+            }
         }
         return Err(not_found());
     }
-    let file_deleted = finish_file_delete(runtime, &tenant_id, user_id, sha).await?;
+    let file_deleted = match &file {
+        Some(sha) => finish_file_delete(runtime, &tenant_id, user_id, sha).await?,
+        None => false,
+    };
     after_stored_activities_changed(runtime, tenant_id, user_id).await;
     info!(
         %user_id,

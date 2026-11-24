@@ -339,6 +339,7 @@ user_owned_tables!(
     "route_summaries",
     "cached_activities",
     "uploaded_activity_files",
+    "upload_name_leases",
     "user_export_bundles",
     "activity_route_tracks",
     "athlete_places",

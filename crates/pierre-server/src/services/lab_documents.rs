@@ -532,17 +532,6 @@ pub async fn upload_lab_document(
     )
     .await?;
     let page_count = u32::try_from(pages.len()).unwrap_or(u32::MAX);
-    resources
-        .common
-        .originals
-        .put_named_file(
-            &tenant_id,
-            user_id,
-            &file_sha256,
-            LAB_DOCUMENT_MEDIA_TYPE,
-            body,
-        )
-        .await?;
     let received_at = Timestamp::now();
     let reading = read_pages(resources, (tenant_id, user_id), pages, digest, received_at).await?;
     let write = document_write(
@@ -550,11 +539,22 @@ pub async fn upload_lab_document(
         reading.as_ref(),
         received_at,
     );
-    let Some(document_id) = repos
+    // The file and the row naming it are written under the file's lock, so
+    // a delete or a keyed-name copy of it never runs between the two. The
+    // reading above, the slow part, runs before the lock is taken.
+    let originals = &resources.common.originals;
+    let lock = originals
+        .lock_file(&tenant_id, user_id, &file_sha256)
+        .await?;
+    originals
+        .put_named_file(&lock, LAB_DOCUMENT_MEDIA_TYPE, body)
+        .await?;
+    let inserted = repos
         .health_records
         .insert_lab_document(&tenant_id, user_id, &write)
-        .await?
-    else {
+        .await?;
+    drop(lock);
+    let Some(document_id) = inserted else {
         // The same file landed from a second request meanwhile: answer it.
         let held = repos
             .health_records
@@ -647,15 +647,19 @@ pub async fn delete_lab_document(
     else {
         return Ok(false);
     };
-    resources
-        .common
-        .originals
-        .delete_named_file(tenant_id, user_id, &document.file_sha256)
+    // The file and its row go under the file's lock, so a keyed-name copy
+    // never puts the file back between the two.
+    let originals = &resources.common.originals;
+    let lock = originals
+        .lock_file(tenant_id, user_id, &document.file_sha256)
         .await?;
-    repos
+    originals.delete_named_file(&lock).await?;
+    let deleted = repos
         .health_records
         .delete_lab_document(tenant_id, user_id, id)
-        .await
+        .await;
+    drop(lock);
+    deleted
 }
 
 #[cfg(test)]

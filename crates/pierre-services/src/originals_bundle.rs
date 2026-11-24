@@ -275,28 +275,62 @@ fn text<'row>(row: &'row Value, column: &str) -> Option<&'row str> {
     row.get(column).and_then(Value::as_str)
 }
 
-/// The uploaded file `row` names: its tenant, the athlete and a digest, keyed
-/// as the originals store keys every upload. The bundle checks the bytes
-/// against the row's digest column, the digest of the bytes whatever the
-/// key's name.
+/// Whether `row` says its file is kept under its keyed name (`blob_keyed`,
+/// carnet#1701): a boolean on Postgres, an integer on `SQLite`.
+fn blob_keyed(row: &Value) -> bool {
+    match row.get("blob_keyed") {
+        Some(Value::Bool(keyed)) => *keyed,
+        Some(Value::Number(keyed)) => keyed.as_i64().is_some_and(|keyed| keyed != 0),
+        _ => false,
+    }
+}
+
+/// How an uploaded file a row names is found: the context's record store,
+/// whose Index key names it, and the athlete.
+#[derive(Clone, Copy)]
+struct UploadNaming<'store> {
+    records: &'store dyn ActivityRecordStore,
+    user_id: Uuid,
+}
+
+/// The uploaded file `row` names: its tenant, the athlete and a digest, under
+/// the one name its row says it is kept under — its keyed name once
+/// `blob_keyed`, its content name before — as the originals store names every
+/// upload. The bundle checks the bytes against the row's digest column, the
+/// digest of the bytes whatever the key's name. `None` for a row naming no
+/// file.
+///
+/// # Errors
+///
+/// The Index key's failure, naming a keyed file.
 fn upload_file(
     row: &Value,
-    user_id: Uuid,
+    naming: UploadNaming<'_>,
     digest_column: &str,
     kind: BundleFileKind,
     media_type: Option<String>,
-) -> Option<BundleFile> {
-    let tenant = TenantId::parse_str(text(row, "tenant_id")?).ok()?;
-    let digest = text(row, digest_column)?;
-    let key = originals::upload_key(&tenant, user_id, digest).ok()?;
-    let sha256 = Sha256::parse_hex(digest).ok()?;
-    Some(BundleFile {
+) -> AppResult<Option<BundleFile>> {
+    let Some(tenant) = text(row, "tenant_id").and_then(|t| TenantId::parse_str(t).ok()) else {
+        return Ok(None);
+    };
+    let Some(digest) = text(row, digest_column) else {
+        return Ok(None);
+    };
+    let Ok(sha256) = Sha256::parse_hex(digest) else {
+        return Ok(None);
+    };
+    let key = if blob_keyed(row) {
+        originals::keyed_upload_key(naming.records, &tenant, naming.user_id, digest)?
+    } else {
+        originals::upload_key(&tenant, naming.user_id, digest)?
+    };
+    Ok(Some(BundleFile {
         key,
         sha256,
         kind,
         media_type,
         records: Vec::new(),
-    })
+    }))
 }
 
 impl OriginalsBundleService {
@@ -494,10 +528,14 @@ impl OriginalsBundleService {
                     .map_err(|e| AppError::internal(format!("bundle originals: {e}")))?,
             );
         }
+        let naming = UploadNaming {
+            records: self.records.as_ref(),
+            user_id,
+        };
         self.walk(
             user_id,
             "uploaded_activity_files",
-            |row| upload_file(row, user_id, "file_sha256", BundleFileKind::Upload, None),
+            |row| upload_file(row, naming, "file_sha256", BundleFileKind::Upload, None),
             &mut files,
         )
         .await?;
@@ -507,7 +545,7 @@ impl OriginalsBundleService {
             |row| {
                 upload_file(
                     row,
-                    user_id,
+                    naming,
                     "image_sha256",
                     BundleFileKind::FeedbackImage,
                     text(row, "image_media_type").map(str::to_owned),
@@ -522,7 +560,7 @@ impl OriginalsBundleService {
             |row| {
                 upload_file(
                     row,
-                    user_id,
+                    naming,
                     "file_sha256",
                     BundleFileKind::Upload,
                     Some(originals::LAB_DOCUMENT_MEDIA_TYPE.to_owned()),
@@ -543,7 +581,7 @@ impl OriginalsBundleService {
         &self,
         user_id: Uuid,
         name: &str,
-        file_of: impl Fn(&Value) -> Option<BundleFile> + Send + Sync,
+        file_of: impl Fn(&Value) -> AppResult<Option<BundleFile>> + Send + Sync,
         files: &mut Vec<BundleFile>,
     ) -> AppResult<()> {
         let table = export_table(name)?;
@@ -555,7 +593,9 @@ impl OriginalsBundleService {
                 .export_page(table, user_id, &after)
                 .await?;
             let read = i64::try_from(page.rows.len()).unwrap_or(i64::MAX);
-            files.extend(page.rows.iter().filter_map(&file_of));
+            for row in &page.rows {
+                files.extend(file_of(row)?);
+            }
             match page.last_key {
                 Some(last) if read >= table.page_rows => after = last,
                 _ => return Ok(()),

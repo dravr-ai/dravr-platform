@@ -74,6 +74,9 @@ pub struct SelfReportWrite {
     pub cycle_start: bool,
     /// Protection recorded as used, for sexual activity.
     pub protection_used: Option<bool>,
+    /// The unkeyed id an earlier import stored it under, when this one is
+    /// keyed: that row is replaced by this one (carnet#1701).
+    pub legacy_id: Option<String>,
 }
 
 /// One stored self-report.
@@ -137,6 +140,9 @@ pub struct ClinicalRecordWrite {
     pub effective_at: Option<Timestamp>,
     /// The lab document it was read from.
     pub lab_document_id: Option<String>,
+    /// The unkeyed id an earlier import stored it under, when this one is
+    /// keyed: that row is replaced by this one (carnet#1701).
+    pub legacy_id: Option<String>,
 }
 
 /// One stored clinical record.
@@ -302,7 +308,9 @@ pub struct StoredLabDocument {
 #[async_trait]
 pub trait HealthRecordRepository: Send + Sync {
     /// Store `reports` under `filing`, each replacing the row its record id
-    /// already holds. Returns how many rows were written.
+    /// already holds, and the row its legacy id holds when it carries one: a
+    /// re-import that keyed a record's id moves it, never duplicates it.
+    /// Returns how many rows were written.
     ///
     /// # Errors
     /// Returns a database error when a write fails.
@@ -313,8 +321,9 @@ pub trait HealthRecordRepository: Send + Sync {
     ) -> AppResult<u64>;
 
     /// Store `records` under `filing`, each replacing the content of the row
-    /// its record id already holds, never its review decision. Returns how
-    /// many rows were written.
+    /// its record id already holds, never its review decision, and the row
+    /// its legacy id holds when it carries one. Returns how many rows were
+    /// written.
     ///
     /// # Errors
     /// Returns a database error when a write fails.
@@ -507,6 +516,17 @@ pub(crate) const UPSERT_CLINICAL_RECORD_SQL: &str = r"
 pub(crate) const DELETE_SELF_REPORT_SQL: &str = r"
     DELETE FROM self_reports
     WHERE tenant_id = $1 AND user_id = $2 AND provider = $3 AND record_id = $4";
+
+/// One of the athlete's clinical records under a provider key, by its record
+/// id: the row a keyed record's legacy id held.
+pub(crate) const DELETE_CLINICAL_RECORD_SQL: &str = r"
+    DELETE FROM clinical_records
+    WHERE tenant_id = $1 AND user_id = $2 AND provider = $3 AND record_id = $4";
+
+/// The legacy id a written record replaces, unless it is the record's own.
+pub(crate) fn replaced_legacy<'a>(record_id: &str, legacy_id: Option<&'a str>) -> Option<&'a str> {
+    legacy_id.filter(|legacy| *legacy != record_id)
+}
 
 /// The athlete's self-reports starting in a window, newest first.
 pub(crate) const LIST_SELF_REPORTS_SQL: &str = r"
@@ -721,8 +741,11 @@ macro_rules! impl_health_record_repository {
                 reports: &[SelfReportWrite],
             ) -> AppResult<u64> {
                 let now = Timestamp::now();
+                let failed =
+                    |e: sqlx::Error| AppError::database(format!("upsert_self_reports: {e}"));
                 let mut written = 0;
                 for report in reports {
+                    let mut tx = self.pool().begin().await.map_err(failed)?;
                     let done = sqlx::query(UPSERT_SELF_REPORT_SQL)
                         .bind(Uuid::new_v4().to_string())
                         .bind($ids::bind(filing.tenant_id.as_uuid()))
@@ -739,9 +762,22 @@ macro_rules! impl_health_record_repository {
                         .bind(report.cycle_start)
                         .bind(report.protection_used)
                         .bind(now)
-                        .execute(self.pool())
+                        .execute(&mut *tx)
                         .await
-                        .map_err(|e| AppError::database(format!("upsert_self_reports: {e}")))?;
+                        .map_err(failed)?;
+                    if let Some(legacy) =
+                        replaced_legacy(&report.record_id, report.legacy_id.as_deref())
+                    {
+                        sqlx::query(DELETE_SELF_REPORT_SQL)
+                            .bind($ids::bind(filing.tenant_id.as_uuid()))
+                            .bind($ids::bind(filing.user_id))
+                            .bind(filing.provider)
+                            .bind(legacy)
+                            .execute(&mut *tx)
+                            .await
+                            .map_err(failed)?;
+                    }
+                    tx.commit().await.map_err(failed)?;
                     written += done.rows_affected();
                 }
                 Ok(written)
@@ -753,8 +789,11 @@ macro_rules! impl_health_record_repository {
                 records: &[ClinicalRecordWrite],
             ) -> AppResult<u64> {
                 let now = Timestamp::now();
+                let failed =
+                    |e: sqlx::Error| AppError::database(format!("upsert_clinical_records: {e}"));
                 let mut written = 0;
                 for record in records {
+                    let mut tx = self.pool().begin().await.map_err(failed)?;
                     let done = sqlx::query(UPSERT_CLINICAL_RECORD_SQL)
                         .bind(Uuid::new_v4().to_string())
                         .bind($ids::bind(filing.tenant_id.as_uuid()))
@@ -778,9 +817,22 @@ macro_rules! impl_health_record_repository {
                         .bind(record.effective_at)
                         .bind(record.lab_document_id.as_deref())
                         .bind(now)
-                        .execute(self.pool())
+                        .execute(&mut *tx)
                         .await
-                        .map_err(|e| AppError::database(format!("upsert_clinical_records: {e}")))?;
+                        .map_err(failed)?;
+                    if let Some(legacy) =
+                        replaced_legacy(&record.record_id, record.legacy_id.as_deref())
+                    {
+                        sqlx::query(DELETE_CLINICAL_RECORD_SQL)
+                            .bind($ids::bind(filing.tenant_id.as_uuid()))
+                            .bind($ids::bind(filing.user_id))
+                            .bind(filing.provider)
+                            .bind(legacy)
+                            .execute(&mut *tx)
+                            .await
+                            .map_err(failed)?;
+                    }
+                    tx.commit().await.map_err(failed)?;
                     written += done.rows_affected();
                 }
                 Ok(written)

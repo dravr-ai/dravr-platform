@@ -43,7 +43,8 @@ use pierre_database::RepositoryRegistry;
 use pierre_providers::fit_decode::decode_bounded;
 use pierre_providers::originals::OriginalsStore;
 use pierre_providers::upload_provider::{
-    parse_upload_activity_id, store_upload_series, upload_session_series,
+    parse_upload_activity_id, store_upload_series, upload_session_series, UploadActivityId,
+    UploadedFileIds,
 };
 use pierre_services::periodic::spawn_periodic;
 use tracing::{info, warn};
@@ -74,8 +75,26 @@ pub struct UploadStreamsBackfillReport {
     pub unreadable: usize,
 }
 
-/// One owed file: its owner, tenant and hash.
-type OwedFile = (String, String, String);
+/// What an owed activity's id names its file by.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+enum OwedBase {
+    /// The file's digest, which the id carries.
+    Sha(String),
+    /// The keyed base the file's row records.
+    Keyed(String),
+}
+
+impl OwedBase {
+    /// The base the owed activities' ids carry.
+    fn id_base(&self) -> &str {
+        match self {
+            Self::Sha(base) | Self::Keyed(base) => base,
+        }
+    }
+}
+
+/// One owed file: its tenant, owner and the base its ids name it by.
+type OwedFile = (String, String, OwedBase);
 
 /// Start the backfill on the worker ledger.
 ///
@@ -122,9 +141,9 @@ pub async fn run_upload_streams_backfill_pass(
         .list_activities_without_current_streams(UPLOAD, ACTIVITIES_PER_PASS)
         .await?;
     let mut report = UploadStreamsBackfillReport::default();
-    for ((tenant, user, sha), indices) in by_file(owed, &mut report) {
+    for ((tenant, user, base), indices) in by_file(owed, &mut report) {
         let owed_here = indices.len();
-        match backfill_file(repos, originals, &tenant, &user, &sha, indices).await {
+        match backfill_file(repos, originals, &tenant, &user, &base, indices).await {
             Ok(stored) => {
                 report.files += 1;
                 report.activities += stored;
@@ -136,7 +155,7 @@ pub async fn run_upload_streams_backfill_pass(
                     worker = WORKER_NAME,
                     user_id = %user,
                     tenant_id = %tenant,
-                    file_sha256 = %sha,
+                    id_base = %base.id_base(),
                     error = %e,
                     "uploaded file's samples not backfilled"
                 );
@@ -154,12 +173,18 @@ fn by_file(
 ) -> BTreeMap<OwedFile, Vec<usize>> {
     let mut files: BTreeMap<OwedFile, Vec<usize>> = BTreeMap::new();
     for activity in owed {
-        let Some((sha, index)) = parse_upload_activity_id(&activity.activity_id) else {
-            report.unreadable += 1;
-            continue;
+        let (base, index) = match parse_upload_activity_id(&activity.activity_id) {
+            Some(UploadActivityId::Digest { sha, index }) => (OwedBase::Sha(sha.to_owned()), index),
+            Some(UploadActivityId::Keyed { base, index }) => {
+                (OwedBase::Keyed(base.to_owned()), index)
+            }
+            None => {
+                report.unreadable += 1;
+                continue;
+            }
         };
         files
-            .entry((activity.tenant_id, activity.user_id, sha.to_owned()))
+            .entry((activity.tenant_id, activity.user_id, base))
             .or_default()
             .push(index);
     }
@@ -173,15 +198,23 @@ async fn backfill_file(
     originals: &OriginalsStore,
     tenant: &str,
     user: &str,
-    sha: &str,
+    base: &OwedBase,
     indices: Vec<usize>,
 ) -> AppResult<usize> {
     let tenant_id = TenantId::parse_str(tenant)
         .map_err(|e| AppError::invalid_input(format!("cached tenant id {tenant}: {e}")))?;
     let user_id = Uuid::parse_str(user)
         .map_err(|e| AppError::invalid_input(format!("cached user id {user}: {e}")))?;
+    let sha = match base {
+        OwedBase::Sha(sha) => sha.clone(),
+        OwedBase::Keyed(keyed) => repos
+            .uploaded_activity_files
+            .file_of_record_base(&tenant_id, user_id, keyed)
+            .await?
+            .ok_or_else(|| AppError::not_found(format!("uploaded file of {keyed}")))?,
+    };
     let bytes = originals
-        .get_upload(&tenant_id, user_id, sha)
+        .get_upload(&tenant_id, user_id, &sha)
         .await?
         .ok_or_else(|| AppError::not_found(format!("uploaded file {sha}")))?;
     let series = decode_bounded(move || {
@@ -193,7 +226,10 @@ async fn backfill_file(
         repos.activity_streams.as_ref(),
         &tenant_id,
         user_id,
-        sha,
+        UploadedFileIds {
+            sha256: &sha,
+            id_base: base.id_base(),
+        },
         &series,
         Timestamp::now(),
     )

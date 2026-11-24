@@ -581,6 +581,10 @@ pub const USER_EXPORT_EXCLUDED_TABLES: &[(&str, &str)] = &[
     ("persona_digest_returns", "operational: digest bookkeeping"),
     ("platform_post_claims", "operational: post claims"),
     (
+        "upload_name_leases",
+        "operational: a short lease serializing the writes of one uploaded file",
+    ),
+    (
         "strava_seat_reclaim_warnings",
         "operational: seat-reclaim bookkeeping",
     ),
@@ -686,4 +690,7 @@ pub const NOT_CREDENTIAL_COLUMNS: &[&str] = &[
     // The kind of credential a call came through (`oauth_grant`, `api_key`),
     // a label from a closed list, never the credential itself.
     "credential_kind",
+    // Whether an uploaded file is kept under its keyed name (carnet#1701): a
+    // flag the originals bundle reads to name the file, never a key.
+    "blob_keyed",
 ];
