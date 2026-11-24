@@ -6,6 +6,7 @@ import { render, fireEvent, waitFor } from '@testing-library/react-native';
 import { Alert, Linking } from 'react-native';
 import * as WebBrowser from 'expo-web-browser';
 import { i18n } from '@pierre/i18n';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 const mockPush = jest.fn();
 jest.mock('expo-router', () => ({
@@ -47,6 +48,16 @@ const TELEGRAM_LINK = {
 import { MessagingChannelsScreen } from '../src/screens/settings/MessagingChannelsScreen';
 import { apiRefusal } from '../integration/app/helpers/apiRefusal';
 
+/** The screen reads its two lists through React Query, so each render gets a cache of its own. */
+function renderScreen() {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={client}>
+      <MessagingChannelsScreen />
+    </QueryClientProvider>,
+  );
+}
+
 const CHANNELS = [
   { channel: 'telegram', display_name: 'Telegram', method: 'deep_link', recommended: true },
   { channel: 'slack', display_name: 'Slack', method: 'oauth', recommended: false },
@@ -72,13 +83,13 @@ describe('MessagingChannelsScreen', () => {
   });
 
   it('lists a linked channel with its handle', async () => {
-    const { getByTestId, getByText } = render(<MessagingChannelsScreen />);
+    const { getByTestId, getByText } = renderScreen();
     await waitFor(() => expect(getByTestId('messaging-link-telegram')).toBeTruthy());
     expect(getByText('@athlete')).toBeTruthy();
   });
 
   it('offers only unlinked channels under Available', async () => {
-    const { getByTestId, queryByTestId } = render(<MessagingChannelsScreen />);
+    const { getByTestId, queryByTestId } = renderScreen();
     await waitFor(() => expect(getByTestId('messaging-link-add-slack')).toBeTruthy());
     // Telegram is already linked — offering to link it again would 400.
     expect(queryByTestId('messaging-link-add-telegram')).toBeNull();
@@ -93,7 +104,7 @@ describe('MessagingChannelsScreen', () => {
         confirm?.onPress?.();
       });
 
-    const { getByTestId } = render(<MessagingChannelsScreen />);
+    const { getByTestId } = renderScreen();
     await waitFor(() => expect(getByTestId('messaging-unlink-telegram')).toBeTruthy());
     fireEvent.press(getByTestId('messaging-unlink-telegram'));
 
@@ -107,7 +118,7 @@ describe('MessagingChannelsScreen', () => {
     // An empty list here reads as "nothing linked" and would invite someone to
     // re-link a channel they already have.
     mockListLinks.mockRejectedValueOnce(new Error('offline'));
-    const { getByTestId } = render(<MessagingChannelsScreen />);
+    const { getByTestId } = renderScreen();
     await waitFor(() => expect(getByTestId('messaging-error')).toBeTruthy());
     expect(getByTestId('messaging-retry')).toBeTruthy();
   });
@@ -117,7 +128,7 @@ describe('MessagingChannelsScreen', () => {
       { channel: 'telegram', channel_user_id: 'tg-1', display_name: null, linked_at: 'now' },
       { channel: 'slack', channel_user_id: 'sl-1', display_name: null, linked_at: 'now' },
     ]);
-    const { getByTestId, queryByTestId } = render(<MessagingChannelsScreen />);
+    const { getByTestId, queryByTestId } = renderScreen();
     await waitFor(() => expect(getByTestId('messaging-all-linked')).toBeTruthy());
     expect(queryByTestId('messaging-none-configured')).toBeNull();
   });
@@ -129,7 +140,7 @@ describe('MessagingChannelsScreen', () => {
   it('separates nothing-configured from everything-linked, and from unlinked-and-waiting', async () => {
     mockGetAvailableChannels.mockResolvedValue([]);
     mockListLinks.mockResolvedValue([]);
-    const nothing = render(<MessagingChannelsScreen />);
+    const nothing = renderScreen();
     await waitFor(() => expect(nothing.getByTestId('messaging-none-configured')).toBeTruthy());
     expect(nothing.queryByTestId('messaging-all-linked')).toBeNull();
     // "Link one below" points at nothing here, so the linked panel says
@@ -140,7 +151,7 @@ describe('MessagingChannelsScreen', () => {
 
     mockGetAvailableChannels.mockResolvedValue(CHANNELS);
     mockListLinks.mockResolvedValue([]);
-    const some = render(<MessagingChannelsScreen />);
+    const some = renderScreen();
     await waitFor(() => expect(some.getByTestId('messaging-link-add-telegram')).toBeTruthy());
     expect(some.queryByTestId('messaging-none-configured')).toBeNull();
     expect(some.queryByTestId('messaging-all-linked')).toBeNull();
@@ -151,7 +162,7 @@ describe('MessagingChannelsScreen', () => {
       { channel: 'telegram', channel_user_id: 'tg-1', display_name: null, linked_at: 'now' },
       { channel: 'slack', channel_user_id: 'sl-1', display_name: null, linked_at: 'now' },
     ]);
-    const all = render(<MessagingChannelsScreen />);
+    const all = renderScreen();
     await waitFor(() => expect(all.getByTestId('messaging-all-linked')).toBeTruthy());
     expect(all.queryByTestId('messaging-none-configured')).toBeNull();
 
@@ -171,7 +182,7 @@ describe('MessagingChannelsScreen', () => {
     const openURL = jest.spyOn(Linking, 'openURL').mockResolvedValue(true);
     mockListLinks.mockResolvedValue([]);
     mockInitLink.mockResolvedValue(TELEGRAM_LINK);
-    const { getByTestId } = render(<MessagingChannelsScreen />);
+    const { getByTestId } = renderScreen();
 
     await waitFor(() => expect(getByTestId('messaging-link-add-telegram')).toBeTruthy());
     fireEvent.press(getByTestId('messaging-link-add-telegram'));
@@ -193,7 +204,7 @@ describe('MessagingChannelsScreen', () => {
       url: `${RETURN_URI}?channel=slack&state=pair-42&code=provider-code`,
     });
     mockListLinks.mockResolvedValue([]);
-    const { getByTestId } = render(<MessagingChannelsScreen />);
+    const { getByTestId } = renderScreen();
 
     await waitFor(() => expect(getByTestId('messaging-link-add-slack')).toBeTruthy());
     fireEvent.press(getByTestId('messaging-link-add-slack'));
@@ -218,7 +229,7 @@ describe('MessagingChannelsScreen', () => {
     mockListLinks.mockResolvedValue([]);
     mockInitLink.mockRejectedValue(apiRefusal(400, { message: 'channel not configured' }));
 
-    const { getByTestId } = render(<MessagingChannelsScreen />);
+    const { getByTestId } = renderScreen();
     await waitFor(() => expect(getByTestId('messaging-link-add-slack')).toBeTruthy());
     fireEvent.press(getByTestId('messaging-link-add-slack'));
 
@@ -242,7 +253,7 @@ describe('MessagingChannelsScreen', () => {
     mockInitLink.mockResolvedValue(TELEGRAM_LINK);
     const url = TELEGRAM_LINK.linking_url;
 
-    const { getByTestId } = render(<MessagingChannelsScreen />);
+    const { getByTestId } = renderScreen();
     await waitFor(() => expect(getByTestId('messaging-link-add-telegram')).toBeTruthy());
     fireEvent.press(getByTestId('messaging-link-add-telegram'));
 

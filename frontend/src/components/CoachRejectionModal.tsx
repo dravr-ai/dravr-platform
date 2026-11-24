@@ -8,7 +8,7 @@ import { useId, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminApi } from '../services/api';
 import { Button, Textarea, Select, Alert, ALERT_TONE } from './ui';
-import { QUERY_KEYS } from '../constants/queryKeys';
+import { QUERY_KEYS } from '@pierre/shared-constants';
 import { useDialog } from '../hooks/useDialog';
 
 const REJECTION_REASONS = [

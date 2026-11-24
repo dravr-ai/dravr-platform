@@ -1587,7 +1587,6 @@ async fn create_test_user(repos: &RepositoryRegistry) -> (Uuid, TenantId) {
         approved_at: Some(Timestamp::now()),
         created_at: Timestamp::now(),
         last_active: Timestamp::now(),
-        strava_token: None,
         firebase_uid: None,
         auth_provider: String::new(),
         analytics_consent: false,

@@ -8,7 +8,7 @@
 //! [`SciotteProvider::read_through`], the provider's use of
 //! [`read_imported_persisting`]. Each is first admitted against the budget
 //! its credentials carry: the athlete's session-read windows at this backend
-//! (carnet#1661), so a refused read never reaches the session. A session the scraped platform rotated on a
+//! (carnet#1661), so a refused read never reaches the session. A session the provider rotated on a
 //! read (Garmin logs the old cookie out) replaces the one the provider holds,
 //! so its later reads import the live copy, and reaches the token-refresh
 //! callback as the credentials the provider was given with the rotated

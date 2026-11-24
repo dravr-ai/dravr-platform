@@ -28,6 +28,7 @@
 //! list's job, which every Home load already runs.
 
 use pierre_core::civil_time::day_start_utc;
+use pierre_runtime_context::require_tenant;
 use std::sync::Arc;
 
 use axum::extract::{Query, State};
@@ -47,7 +48,7 @@ use pierre_tool_runtime::runtime::ToolRuntime;
 use serde::{Deserialize, Serialize};
 use tracing::warn;
 
-use super::{active_tenant, copies_per_workout, home_activities, HomeActivity};
+use super::{copies_per_workout, home_activities, HomeActivity};
 use crate::mcp::resources::ServerContext;
 
 /// Most days one read spans, both ends included: the six weeks a month grid
@@ -115,7 +116,7 @@ pub(super) async fn get_calendar(
     let CalendarQuery { from, to, locale } = query;
     check_span(from, to)?;
     let user_id = auth.user_id;
-    let tenant_id = active_tenant(&auth)?;
+    let tenant_id = require_tenant(&resources, &auth).await?;
     let repos = resources.repos();
     let user = repos.users.get_global(user_id).await?;
     let zone = resolve_zone(user.as_ref().and_then(|u| u.timezone.as_deref()));

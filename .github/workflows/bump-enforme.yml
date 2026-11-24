@@ -10,7 +10,7 @@
 #   directly (pierre-logging, pierre-providers, pierre-routes-auth, pierre-services,
 #   pierre-tool-runtime) and also depends
 #   on dravr-enforme, which pins dravr-sciotte itself for its Garmin and Strava
-#   scraping — a diamond. ci-backend.yml hard-fails any build where a dravr-* crate
+#   reads — a diamond. ci-backend.yml hard-fails any build where a dravr-* crate
 #   resolves to two versions, so moving the sciotte pin alone produces a lockfile with
 #   two dravr-sciotte entries and a branch that can never merge.
 #
@@ -134,7 +134,7 @@ jobs:
   #   environments/dev/ but the `environment` variable inside it is "development".
   #   Guessing "dev" from the path yields a token Cloud Run rejects with 401 — a
   #   valid token for an audience the service does not accept, which looks nothing
-  #   like the 403 an unauthenticated call gets. The probe asserts both scraping
+  #   like the 403 an unauthenticated call gets. The probe asserts both sciotte
   #   providers, because a build that lost one still boots.
   #
   # * The platform binary. dravr-enforme is a Rust crate compiled INTO

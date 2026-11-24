@@ -1,32 +1,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: The one table placing an agent category under a pillar on the web, and the classes its three readers derive
+// ABOUTME: The classes the web's three readers derive from an agent category's pillar, which the shared table decides
 // ABOUTME: The admin pill's tone, the store's dot and the team picker's avatar — each with its own fallback, as the phone's readers keep theirs
 
+import { coachCategoryPillar, type CategoryPillar } from '@pierre/shared-constants';
 import { BADGE_TONE, type BadgeTone } from './ui/badgeTone';
-
-/** The pillar a coach category draws its hue from. */
-export type CategoryPillar = 'activity' | 'nutrition' | 'recovery' | 'mobility';
-
-/**
- * Which pillar a category belongs to, or none. Keyed by the lower-cased
- * category, since admin screens show whatever casing the catalogue stored;
- * the phone's `categoryPillar` folds case the same way. Recipes are food, so they sit under nutrition, on both. `analysis`,
- * `custom` and any key this build has no pillar for answer `null`; each
- * reader below says what that draws.
- */
-const CATEGORY_PILLAR: Record<string, CategoryPillar> = {
-  training: 'activity',
-  nutrition: 'nutrition',
-  recipes: 'nutrition',
-  recovery: 'recovery',
-  mobility: 'mobility',
-};
-
-export function coachCategoryPillar(category: string): CategoryPillar | null {
-  return CATEGORY_PILLAR[category.toLowerCase()] ?? null;
-}
 
 /** The badge tone of an admin category pill; a category with no pillar takes `primary`. */
 export function coachCategoryTone(category: string): BadgeTone {

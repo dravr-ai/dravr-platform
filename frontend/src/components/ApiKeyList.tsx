@@ -9,7 +9,7 @@ import type { StatusFilterValue } from './ui';
 import { useAuth } from '../hooks/useAuth';
 import { adminApi } from '../services/api';
 import type { AdminToken } from '../types/api';
-import { QUERY_KEYS } from '../constants/queryKeys';
+import { QUERY_KEYS } from '@pierre/shared-constants';
 import { describeAdminError } from '../utils/adminLocale';
 import { isRotated } from '../utils/adminToken';
 

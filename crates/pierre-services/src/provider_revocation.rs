@@ -1,4 +1,4 @@
-// ABOUTME: Upstream grant revocation, scrape-session drop + provider-data purge for the disconnect chokepoint
+// ABOUTME: Upstream grant revocation, signed-in session drop + provider-data purge for the disconnect chokepoint
 // ABOUTME: Never blocks local deletion, and reports whether the provider confirmed the revocation
 
 // SPDX-License-Identifier: MIT OR Apache-2.0

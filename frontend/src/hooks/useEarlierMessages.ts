@@ -9,7 +9,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { prependWindow, type EarlierWindows } from '@pierre/chat-utils';
 import type { Message } from '@pierre/shared-types';
 import { chatApi } from '../services/api';
-import { QUERY_KEYS } from '../constants/queryKeys';
+import { QUERY_KEYS } from '@pierre/shared-constants';
 
 export interface EarlierMessages {
   /** The windows read back so far, oldest first; `undefined` before the first. */

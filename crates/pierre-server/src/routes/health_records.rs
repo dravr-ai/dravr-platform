@@ -38,6 +38,7 @@ use pierre_database::repositories::{
     ClinicalSelection, RecordWindow, ReviewDecision, MAX_HEALTH_RECORDS_PAGE,
 };
 use pierre_middleware::extractors::AuthenticatedUser;
+use pierre_runtime_context::{resolve_tenant_in, tenant::require, TenantMode};
 use pierre_services::health_records::read::{
     HealthRecordsPage, RecordKind, RecordView, RecordsRead,
 };
@@ -99,16 +100,15 @@ pub fn health_records_routes() -> Router<Arc<ServerContext>> {
 
 /// The caller's tenant, refusing an outside credential: health records are
 /// read on the athlete's own screens only.
-fn own_tenant(auth: &AuthenticatedUser) -> AppResult<TenantId> {
+async fn own_tenant(resources: &ServerContext, auth: &AuthenticatedUser) -> AppResult<TenantId> {
     if served_to_outside_client(auth) {
         return Err(AppError::new(
             ErrorCode::PermissionDenied,
             "Health records are not served to outside apps. The athlete sees them in Dravr.",
         ));
     }
-    auth.active_tenant_id
-        .map(TenantId::from_uuid)
-        .ok_or_else(|| AppError::auth_invalid("Health records require an active tenant"))
+    let tenants = resources.common.repos.tenants.as_ref();
+    require(resolve_tenant_in(tenants, auth, TenantMode::Required).await?)
 }
 
 async fn get_records(
@@ -116,7 +116,7 @@ async fn get_records(
     auth: AuthenticatedUser,
     Query(query): Query<RecordsQuery>,
 ) -> AppResult<Json<HealthRecordsPage>> {
-    let tenant_id = own_tenant(&auth)?;
+    let tenant_id = own_tenant(&resources, &auth).await?;
     let kind = RecordKind::parse(&query.kind).ok_or_else(|| {
         AppError::invalid_input("kind must be labs, clinical, glucose or self_reports")
     })?;
@@ -144,7 +144,7 @@ async fn get_review(
     State(resources): State<Arc<ServerContext>>,
     auth: AuthenticatedUser,
 ) -> AppResult<Json<ReviewQueue>> {
-    let tenant_id = own_tenant(&auth)?;
+    let tenant_id = own_tenant(&resources, &auth).await?;
     let pending = resources
         .common
         .repos
@@ -172,7 +172,7 @@ async fn decide(
     id: &str,
     decision: ReviewDecision,
 ) -> AppResult<StatusCode> {
-    let tenant_id = own_tenant(auth)?;
+    let tenant_id = own_tenant(resources, auth).await?;
     let decided = resources
         .common
         .repos
@@ -207,7 +207,7 @@ async fn post_lab_document(
     auth: AuthenticatedUser,
     body: Bytes,
 ) -> AppResult<(StatusCode, Json<LabDocumentView>)> {
-    let tenant_id = own_tenant(&auth)?;
+    let tenant_id = own_tenant(&resources, &auth).await?;
     let view = upload_lab_document(&resources, tenant_id, auth.user_id, body).await?;
     let status = if view.new {
         StatusCode::CREATED
@@ -221,7 +221,7 @@ async fn get_lab_documents(
     State(resources): State<Arc<ServerContext>>,
     auth: AuthenticatedUser,
 ) -> AppResult<Json<LabDocumentList>> {
-    let tenant_id = own_tenant(&auth)?;
+    let tenant_id = own_tenant(&resources, &auth).await?;
     Ok(Json(LabDocumentList {
         documents: list_lab_documents(&resources, &tenant_id, auth.user_id).await?,
     }))
@@ -232,7 +232,7 @@ async fn delete_document(
     auth: AuthenticatedUser,
     Path(id): Path<String>,
 ) -> AppResult<StatusCode> {
-    let tenant_id = own_tenant(&auth)?;
+    let tenant_id = own_tenant(&resources, &auth).await?;
     if delete_lab_document(&resources, &tenant_id, auth.user_id, &id).await? {
         Ok(StatusCode::NO_CONTENT)
     } else {

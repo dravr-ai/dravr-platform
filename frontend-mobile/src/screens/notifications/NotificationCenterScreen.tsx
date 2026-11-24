@@ -60,7 +60,7 @@ interface NotificationSection {
  * The label between two days of the feed — left-aligned, no fill, inline in
  * the list. Not a reuse of the chat thread's `DaySeparator`: that one is
  * centered and pill-shaped, a different visual shape from what the vault
- * generator draws for this screen (Boreal v2.2 Phase 5, P5.7).
+ * generator draws for this screen.
  */
 function NotificationDayHeader({ label }: { label: string }) {
   return (
@@ -117,9 +117,9 @@ export function NotificationCenterScreen() {
 
   /**
    * The confirm both the swipe action and the long-press menu land on —
-   * mirroring Memory's `confirmForget`/`presentMemoryFactMenu` pair exactly
-   * (Boreal v2.2 Phase 5, P5.8): one shared callback, so a delete triggered
-   * either way asks the same question and calls the same mutation.
+   * mirroring Memory's `confirmForget`/`presentMemoryFactMenu` pair exactly:
+   * one shared callback, so a delete triggered either way asks the same
+   * question and calls the same mutation.
    */
   const confirmDelete = useCallback((item: NotificationItem) => {
     Alert.alert(t('shell.notificationDelete'), undefined, [
@@ -198,7 +198,7 @@ export function NotificationCenterScreen() {
   return (
     <View className="flex-1 bg-background-primary" testID="notification-center-screen">
       {/* "Tout lire" replaces the old filled pill as an ink header action —
-          it only exists while something is unread (Boreal v2.2 Phase 5, P5.8). */}
+          it only exists while something is unread. */}
       <Stack.Screen
         options={{
           headerRight: () =>

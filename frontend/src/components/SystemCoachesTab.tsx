@@ -11,8 +11,7 @@ import type { Agent, User } from '../types/api';
 import { BADGE_TONE, Card, Button, Select, Textarea, Input } from './ui';
 import { clsx } from 'clsx';
 import { coachCategoryTone } from './coachCategory';
-import { QUERY_KEYS } from '../constants/queryKeys';
-import { COACH_CATEGORY_LABEL_KEY } from '@pierre/shared-constants';
+import { COACH_CATEGORY_LABEL_KEY, QUERY_KEYS } from '@pierre/shared-constants';
 import { ADMIN_LOCALE } from '../utils/adminLocale';
 import { useDialog } from '../hooks/useDialog';
 

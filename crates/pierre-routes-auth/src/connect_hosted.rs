@@ -133,7 +133,7 @@ const CREDENTIALS_KIND: &str = "credentials";
 struct ConnectProviderCard {
     /// Provider id passed to `oauth-init` (OAuth kind) or used for routing.
     provider: String,
-    /// User-facing label (e.g. "Strava", "Garmin", "Whoop").
+    /// User-facing label (e.g. "Strava", "Garmin", "WHOOP").
     display_name: String,
     /// The line under the label, in the user's locale, as `/api/providers`
     /// serves it.
@@ -353,7 +353,7 @@ async fn build_connect_providers(
                 oauth_fallback: false,
                 consents: offered_at_connect(&provider_name).collect(),
             }),
-            // Any remaining OAuth provider (Whoop, and future keepers).
+            // Any remaining OAuth provider (WHOOP, and future keepers).
             _ if p.requires_oauth => cards.push(ConnectProviderCard {
                 history_state: p.history.state,
                 history_sign_in: false,

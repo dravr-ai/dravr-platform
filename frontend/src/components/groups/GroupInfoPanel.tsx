@@ -53,10 +53,11 @@ import GroupChatConnection from './GroupChatConnection';
 import WhoSeesWhat from './WhoSeesWhat';
 import { useMemberActions } from './useMemberActions';
 import { DisclosureRow, QuietExitRow, ROW_DIVIDER, RowBox, ValueRow } from './GroupInfoParts';
-import { DIGEST_MODES, RESPOND_MODE_LABEL_KEY } from './groupSettingsLabels';
+import { RESPOND_MODE_LABEL_KEY } from './groupSettingsLabels';
 import type { GroupMember, GroupRole, GroupTrend } from '@pierre/shared-types';
 import {
   COACH_CONSENTS_KEYS,
+  DIGEST_MODES,
   analyticsScopeLine,
   coachPlatformName,
   offeredConsents,

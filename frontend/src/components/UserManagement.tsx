@@ -13,7 +13,7 @@ import CoachAccessRequests from './CoachAccessRequests';
 import NewUsersView from './NewUsersView';
 import UserApprovalModal from './UserApprovalModal';
 import UserDetailDrawer from './UserDetailDrawer';
-import { QUERY_KEYS } from '../constants/queryKeys';
+import { QUERY_KEYS } from '@pierre/shared-constants';
 import { formatDateTime } from '@pierre/chat-utils';
 import { ADMIN_LOCALE } from '../utils/adminLocale';
 import { offersSuspend } from '../utils/suspendOffer';

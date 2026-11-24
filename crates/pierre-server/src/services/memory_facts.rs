@@ -27,7 +27,7 @@ use pierre_auth::auth::AuthResult;
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_middleware::extract_auth_from_headers;
 use pierre_providers::ai_scope;
-use pierre_runtime_context::{resolve_tenant, tenant::require, TenantMode};
+use pierre_runtime_context::require_tenant;
 use pierre_services::locale::resolve_user_locale;
 use pierre_services::memory_facts::{
     approve_user_fact, fact_kind_from_query, fact_status_from_query, forget_user_fact,
@@ -69,7 +69,7 @@ pub async fn get_facts_handler(
     Query(params): Query<ListFactsQuery>,
 ) -> Result<Response, AppError> {
     let auth = extract_auth_from_headers(&headers, &resources).await?;
-    let tenant_id = require(resolve_tenant(&resources, &auth, TenantMode::Required).await?)?;
+    let tenant_id = require_tenant(&resources, &auth).await?;
     refuse_outside_memory_read(&resources, &auth, tenant_id.as_uuid()).await?;
     let data = resources.data();
     let limit = params.limit.unwrap_or(DEFAULT_LIST_LIMIT);
@@ -112,7 +112,7 @@ pub async fn forget_fact_handler(
     Path(fact_id): Path<String>,
 ) -> Result<Response, AppError> {
     let auth = extract_auth_from_headers(&headers, &resources).await?;
-    let tenant_id = require(resolve_tenant(&resources, &auth, TenantMode::Required).await?)?;
+    let tenant_id = require_tenant(&resources, &auth).await?;
     let data = resources.data();
 
     let response = forget_user_fact(
@@ -144,7 +144,7 @@ pub async fn approve_fact_handler(
     Path(fact_id): Path<String>,
 ) -> Result<Response, AppError> {
     let auth = extract_auth_from_headers(&headers, &resources).await?;
-    let tenant_id = require(resolve_tenant(&resources, &auth, TenantMode::Required).await?)?;
+    let tenant_id = require_tenant(&resources, &auth).await?;
     // Approving answers with the fact: a read of the memory like the list.
     refuse_outside_memory_read(&resources, &auth, tenant_id.as_uuid()).await?;
     let data = resources.data();

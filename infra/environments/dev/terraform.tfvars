@@ -69,8 +69,8 @@ mcp_resource_url = "https://mcp.dravr.ai/mcp"
 # boot-sync ran on the bind path and saturated a single core, so 1 vCPU missed
 # Cloud Run's ~55s startup probe (rev 00465) — FIXED (the sync runs off the bind
 # path via init_contremaitre_registries -> the poll's first immediate tick); and
-# (b) the in-pod headless-Chrome sciotte scrape was CPU-hungry — GONE: the pod
-# runs no Chrome since carnet#978 (scrapes run on the sciotte service, sized on
+# (b) the in-pod browser sign-in was CPU-hungry — GONE: the pod
+# runs no Chrome since carnet#978 (provider reads run on the sciotte service, sized on
 # its own below), and the image ships none (db083300b). Neither reason holds
 # now; what remains on this CPU is the chat turns and, when the LLM chain falls
 # through to Copilot, its runtime. Whether that fits 1 vCPU is unmeasured, so the
@@ -115,7 +115,7 @@ backend_max_instances = 3
 # SINGLETON shared across all turns (built once, kept warm), and the ACP transport
 # mutex already serializes LLM turns onto it — so concurrent chat turns per pod are
 # capped by that mutex, NOT by this setting. No headless Chrome runs in this pod:
-# scrapes and their admission control live in the dedicated dravr-sciotte
+# provider reads and their admission control live in the dedicated dravr-sciotte
 # service (ADR-021 Phase 4).
 # concurrency=1 was pure harm: it forced one pod per request, so a single user's
 # ~13-request parallel dashboard load cold-started ~13 pods (a herd) that then
@@ -147,20 +147,20 @@ labels = {
   environment = "development"
 }
 
-# ADR-021: deploy the dedicated sciotte scraper service (min=0, cpu_idle=true —
+# ADR-021: deploy the dedicated sciotte service (min=0, cpu_idle=true —
 # ~$0 idle). Deploy-only: backend_sciotte_remote stays default-false, so the
 # API keeps its in-process path until the service is validated on dev.
 enable_sciotte_service = true
 
-# ADR-021 traffic flip: dev API routes sciotte logins/scrapes to the dedicated
+# ADR-021 traffic flip: dev API routes sciotte logins/reads to the dedicated
 # service. Rollback = set false + apply (in-process path stays compiled in
 # until Phase 4).
 backend_sciotte_remote = true
 
-# registre#36 close-out: Cloud Run IAM on the scraper (allow_unauthenticated
+# registre#36 close-out: Cloud Run IAM on the sciotte service (allow_unauthenticated
 # = false + run.invoker for the app SA), so a reachable URL stops meaning an
 # open one and any future route that forgets an app-level gate is still
-# rejected before the container. Flipped 2026-08-21, after both the scraper
+# rejected before the container. Flipped 2026-08-21, after both the sciotte service
 # (identity-token verifier, rev 00013) and the API (IdTokenSource caller,
 # rev 00822) were serving the token auth this depends on.
 backend_sciotte_iam = true

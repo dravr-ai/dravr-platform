@@ -195,15 +195,15 @@ pub struct Claims {
     pub iss: String,
     /// JWT ID (unique identifier for this token)
     pub jti: String,
-    /// Available fitness providers
-    pub providers: Vec<String>,
     /// Audience (who the token is intended for): the platform audience `mcp`,
     /// or the RFC 8707 resource an OAuth access token was bound to — which only
     /// that resource server accepts
     pub aud: String,
-    /// Active tenant `ID` for this session (user can belong to multiple tenants)
-    /// This is the tenant context for all operations in this session.
-    /// Use POST /api/tenants/switch to change the active tenant.
+    /// The tenant this session asks to act in (a user can belong to several).
+    ///
+    /// It is honoured only after `pierre_runtime_context::tenant::resolve_tenant` finds a
+    /// membership row for it; a session naming none acts in the account's first tenant. `POST
+    /// /tenants/switch` changes it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub active_tenant_id: Option<String>,
     /// Original user ID when impersonating (the admin)
@@ -219,11 +219,6 @@ pub struct Claims {
     /// resource server cannot tell "this caller was granted everything" from
     /// "this caller predates scopes" without one, and would have to let the
     /// second through to keep the first working.
-    ///
-    /// Before this claim existed, `generate_oauth_access_token` wrote the grant
-    /// into [`Self::providers`] — a field that everywhere else holds fitness
-    /// provider slugs — so an OAuth-minted token reported `fitness:read` as one
-    /// of the athlete's connected providers.
     ///
     /// `#[serde(default)]` so a token minted before this claim still decodes;
     /// it decodes to the empty grant, which the gate refuses for any tool that
@@ -526,7 +521,6 @@ impl AuthManager {
             exp: expiry.epoch_seconds(),
             iss: PIERRE_MCP_SERVER.to_owned(),
             jti: Uuid::new_v4().to_string(),
-            providers: user.available_providers(),
             scope: Self::session_scope(),
             aud: audience.to_owned(),
             active_tenant_id,
@@ -625,7 +619,6 @@ impl AuthManager {
             exp: expiry,
             iss: PIERRE_MCP_SERVER.to_owned(),
             jti: Uuid::new_v4().to_string(),
-            providers: target_user.available_providers(),
             scope: Self::session_scope(),
             aud: MCP.to_owned(),
             active_tenant_id,
@@ -973,7 +966,6 @@ impl AuthManager {
             jwt_token: SecretString::from(jwt_token),
             expires_at,
             email: user.email.clone(),
-            available_providers: user.available_providers(),
         })
     }
 
@@ -986,7 +978,6 @@ impl AuthManager {
                     authenticated: true,
                     user_id: Some(user_id),
                     error: None,
-                    available_providers: claims.providers,
                 },
                 Err(e) => {
                     warn!(
@@ -999,7 +990,6 @@ impl AuthManager {
                         authenticated: false,
                         user_id: None,
                         error: Some("Invalid user ID in token".into()),
-                        available_providers: vec![],
                     }
                 }
             },
@@ -1007,7 +997,6 @@ impl AuthManager {
                 authenticated: false,
                 user_id: None,
                 error: Some(jwt_error.to_string()),
-                available_providers: vec![],
             },
         }
     }
@@ -1125,10 +1114,6 @@ impl AuthManager {
             exp: expiry.epoch_seconds(),
             iss: self.oauth_token_issuer().to_owned(),
             jti: Uuid::new_v4().to_string(),
-            // Empty because a client-credentials token belongs to a machine
-            // client, not to an athlete, so there are no connected providers to
-            // report — not a placeholder. The grant rides in `scope`.
-            providers: Vec::new(),
             scope: scopes.join(" "),
             aud: audience.unwrap_or(MCP).to_owned(),
             active_tenant_id,

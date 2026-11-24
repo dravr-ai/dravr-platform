@@ -47,14 +47,14 @@ const GROUP_CONVERSATION = {
   created_at: '2026-09-14T09:00:00Z',
   updated_at: '2026-09-14T11:00:00Z',
 };
-jest.mock('../src/screens/chat/useConversations', () => ({
-  useConversations: () => ({
+jest.mock('../src/screens/chat/useOpenConversation', () => ({
+  useOpenConversation: () => ({
     conversations: [GROUP_CONVERSATION],
+    openId: GROUP_CONVERSATION.id,
     currentConversation: GROUP_CONVERSATION,
     isLoading: false,
-    error: null,
-    loadConversations: jest.fn(),
-    setCurrentConversation: jest.fn(),
+    refresh: jest.fn(),
+    openConversation: jest.fn(),
     createConversation: jest.fn(),
     switchToConversation: jest.fn(),
     deleteConversation: jest.fn(),

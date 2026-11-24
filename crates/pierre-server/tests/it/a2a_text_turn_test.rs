@@ -155,7 +155,6 @@ fn grant(resources: &ServerContext, rider: &Rider, scopes: &[&str]) -> String {
                 audience: None,
             },
             &rider.user_id,
-            &[],
             Some(rider.tenant.to_string()),
         )
         .unwrap();

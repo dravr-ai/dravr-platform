@@ -1,16 +1,16 @@
-// ABOUTME: Health sync's daily-summary reads, made on the dedicated dravr-sciotte scraper service
+// ABOUTME: Health sync's daily-summary reads of the athlete's signed-in provider session, made on the dravr-sciotte service
 // ABOUTME: Implements dravr-enforme's DailySummaryReader over the sciotte service client (ADR-021)
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! The daily-summary reader the health sync's scrape-backed providers use.
+//! The health sync's daily-summary reader for session-read providers.
 //!
 //! dravr-enforme's Garmin and COROS adapters read one day's summary at a
 //! time through a [`DailySummaryReader`]. Here that read runs on the
-//! dedicated scraper service, exactly as the platform's activity reads do
+//! dedicated sciotte service, exactly as the platform's activity reads do
 //! (ADR-021): the platform-held session is imported first, which re-hydrates
-//! a service that scaled to zero, then the day is scraped over HTTP. A read
+//! a service that scaled to zero, then the day is read over HTTP. A read
 //! that reaches an instance the import did not is imported once more and
 //! re-sent, so that instance holding no session is never reported as the
 //! athlete's credentials having expired. No browser runs in the API pod.

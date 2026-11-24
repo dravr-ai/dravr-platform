@@ -6,14 +6,12 @@
 
 use std::{
     collections::{HashMap, HashSet},
-    fmt::Write,
     sync::Arc,
 };
 
 use dravr_tronc::dates::Timestamp;
 use secrecy::SecretString;
 use tracing::{debug, error, field, info, warn, Span};
-use urlencoding::encode;
 
 use crate::analytics::cache_user_email;
 use crate::coach_platform::coach_platform;
@@ -641,7 +639,7 @@ impl OAuthService {
         // Validate provider is supported
         self.validate_provider(provider)?;
 
-        // Use active_tenant_id from JWT claims (user's selected tenant)
+        // The tenant the caller resolved for the request; this service selects none.
         let tenant_id = active_tenant_id.map(TenantId::from_uuid).ok_or_else(|| {
             AppError::auth_invalid("No active tenant in session — cannot disconnect provider")
         })?;
@@ -752,6 +750,7 @@ impl OAuthService {
         .await?;
         let ClientSettings {
             client_id,
+            client_secret,
             redirect_uri,
             scope,
             ..
@@ -779,53 +778,21 @@ impl OAuthService {
             },
         );
 
-        // Generate PKCE parameters when provider supports it
-        let pkce = if params.use_pkce {
-            Some(PkceParams::generate())
-        } else {
-            None
-        };
-
-        // URL-encode parameters for OAuth URLs
-        let encoded_state = encode(&state);
-        let encoded_redirect_uri = encode(&redirect_uri);
-
-        // Build authorization URL with provider-specific parameters
-        let mut auth_url = format!(
-            "{}?client_id={}&response_type=code&redirect_uri={}&state={}",
-            self.auth_url_for(provider, &endpoints),
+        // The same configuration the code exchange presents. Its builder
+        // sends the challenge, and the verifier is kept below, only when the
+        // provider uses PKCE; the provider's own parameters ride last.
+        let oauth_config = OAuth2Config {
             client_id,
-            encoded_redirect_uri,
-            encoded_state
-        );
-
-        // A provider with no scope to request (Garmin's is fixed server-side)
-        // gets no `scope` parameter at all: an empty `scope=` is a parameter
-        // its authorization does not define.
-        if !scope.is_empty() {
-            use Write;
-            let _ = write!(&mut auth_url, "&scope={}", encode(&scope));
-        }
-
-        // Add PKCE code_challenge to authorization URL when enabled
-        if let Some(ref pkce_params) = pkce {
-            use Write;
-            let _ = write!(
-                &mut auth_url,
-                "&code_challenge={}&code_challenge_method={}",
-                encode(&pkce_params.code_challenge),
-                encode(&pkce_params.code_challenge_method)
-            );
-        }
-
-        // Add provider-specific additional parameters
-        for (key, value) in params.additional_auth_params {
-            use Write;
-            // Writing to String cannot fail
-            let _ = write!(&mut auth_url, "&{}={}", encode(key), encode(value));
-        }
-
-        let authorization_url = auth_url;
+            client_secret,
+            auth_url: self.auth_url_for(provider, &endpoints),
+            token_url: self.token_url_for(provider, &endpoints),
+            redirect_uri: redirect_uri.clone(),
+            scopes: vec![scope.clone()],
+            use_pkce: params.use_pkce,
+        };
+        let pkce = PkceParams::generate();
+        let authorization_url =
+            oauth_config.authorization_url(&state, &pkce, params.additional_auth_params)?;
 
         // Store state server-side for CSRF protection with 10-minute TTL.
         // The code_challenge field stores the PKCE code_verifier (needed during
@@ -838,7 +805,7 @@ impl OAuthService {
             tenant_id: Some(tenant_id.to_string()),
             redirect_uri,
             scope: Some(scope).filter(|scope| !scope.is_empty()),
-            pkce_code_verifier: pkce.as_ref().map(|p| p.code_verifier.clone()),
+            pkce_code_verifier: params.use_pkce.then_some(pkce.code_verifier),
             oauth_app_client_id: oauth_app_attribution,
             created_at: now,
             expires_at: now + Elapsed::minutes(10),
@@ -972,16 +939,6 @@ pub async fn get_user_for_oauth(
             )))
         }
     }
-}
-
-/// Extract tenant ID for OAuth operations from JWT claims
-///
-/// Returns the `active_tenant_id` from the user's JWT session.
-///
-/// # Errors
-/// Returns `AppError::auth_invalid` when no active tenant is set in the session.
-pub fn extract_tenant_id(active_tenant_id: Option<TenantId>) -> Result<TenantId, AppError> {
-    active_tenant_id.ok_or_else(|| AppError::auth_invalid("No active tenant in session"))
 }
 
 /// The error a failed authorization-code exchange surfaces as, logged at the

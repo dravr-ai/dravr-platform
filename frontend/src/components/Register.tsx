@@ -18,11 +18,11 @@ import { Button, Input, RevealButton, Alert } from './ui';
 import { GoogleSignInButton } from './GoogleSignInButton';
 import { TurnstileWidget, type TurnstileWidgetHandle } from './TurnstileWidget';
 import AnalyticsConsentOptIn from './AnalyticsConsentOptIn';
-import { QUERY_KEYS } from '../constants/queryKeys';
+import { QUERY_KEYS } from '@pierre/shared-constants';
 
 import { DravrLogo } from './DravrLogo';
 import { useTranslation } from '@pierre/i18n';
-import { describeRegistration, isInvalidSignupCode } from '@pierre/ui-logic';
+import { describeRegistration, isInvalidSignupCode, isPasswordLongEnough } from '@pierre/ui-logic';
 
 interface RegisterProps {
   onNavigateToLogin: () => void;
@@ -87,7 +87,7 @@ export default function Register({ onNavigateToLogin, onRegistrationSuccess, ini
     }
 
     // Validate password strength
-    if (password.length < 8) {
+    if (!isPasswordLongEnough(password)) {
       setError(t('app.passwordTooShort'));
       return;
     }

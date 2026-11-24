@@ -8,7 +8,7 @@ import { formatList } from '@pierre/chat-utils';
 import { CONNECTIONS_ROUTE } from '../constants/surfaceLayout';
 import { useProviderConnection } from '../hooks/useHome';
 import { useOnboardingStatus } from '../hooks/useOnboardingStatus';
-import { athleteStepsWaived } from '../onboarding/steps';
+import { athleteStepsWaived } from '@pierre/shared-constants/onboarding';
 import { Button, ALERT_TONE } from './ui';
 
 /**

@@ -643,7 +643,7 @@ impl OAuth2AuthorizationServer {
 
         let response = match request.grant_type.as_str() {
             "authorization_code" => self.handle_authorization_code_grant(request).await,
-            "client_credentials" => self.handle_client_credentials_grant(&client, request).await,
+            "client_credentials" => self.handle_client_credentials_grant(&client, &request),
             "refresh_token" => self.handle_refresh_token_grant(request).await,
             _ => Err(OAuth2Error::unsupported_grant_type()),
         }?;
@@ -720,7 +720,6 @@ impl OAuth2AuthorizationServer {
                 &granted,
                 audience.as_deref(),
             )
-            .await
             .map_err(|e| {
                 error!(
                     "Failed to generate access token for client_id={}: {:#}",
@@ -787,10 +786,10 @@ impl OAuth2AuthorizationServer {
     /// is (RFC 6749 §3.3, §5.2): an unknown or undelegable name, or one
     /// outside what the client registered, is `invalid_scope` — never dropped
     /// while the rest is minted.
-    async fn handle_client_credentials_grant(
+    fn handle_client_credentials_grant(
         &self,
         client: &OAuth2Client,
-        request: TokenRequest,
+        request: &TokenRequest,
     ) -> Result<TokenResponse, OAuth2Error> {
         let audience = self.audience(request.resource.as_deref(), None)?;
 
@@ -804,7 +803,6 @@ impl OAuth2AuthorizationServer {
                 &granted,
                 audience.as_deref(),
             )
-            .await
             .map_err(|e| {
                 error!(
                     "Failed to generate client credentials access token for client_id={}: {:#}",
@@ -888,7 +886,6 @@ impl OAuth2AuthorizationServer {
                 &granted,
                 audience.as_deref(),
             )
-            .await
             .map_err(|e| {
                 error!(
                     "Failed to generate access token from refresh for client_id={}: {:#}",

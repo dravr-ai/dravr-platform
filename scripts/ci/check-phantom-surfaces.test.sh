@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ABOUTME: Fixture test for check-phantom-surfaces.sh's route gate and web service scan — what the old scans missed
-# ABOUTME: Pins multi-line, {param} and .nest routes, the stock/diff contract, the marker, uncalled web methods, shared hooks, fail-closed scans
+# ABOUTME: Pins multi-line, {param} and .nest routes, the stock/diff contract, the marker, uncalled web methods, shared hooks, fail-closed scans, --all-routes
 #
 # SPDX-License-Identifier: MIT OR Apache-2.0
 # Copyright (c) 2026 dravr.ai
@@ -350,6 +350,142 @@ printf 'export const createThingHooks = (api: any) => ({ useCount: () => api.cou
 commit "$root" "add a method only a shared hook calls"
 expect "a method only a shared ui-logic hook calls passes" "$root" 0 HEAD~1
 expect_output "the scan counts it as called" "api-client: all 2 domain methods have a production caller."
+
+# ---------------------------------------------------------------------------
+# 10. --all-routes: every registered route, whatever the diff
+# ---------------------------------------------------------------------------
+# The diff gate above cannot see a route that loses its last caller, and reads
+# `/api/` alone. This mode reads the whole tree and needs no base, so no case
+# here commits anything.
+
+# outside <root> <lines> — rewrites the declared outside-callers file.
+outside() {
+    printf '# who calls each route from outside the tree\n%s' "$2" \
+        > "$1/scripts/ci/routes-called-from-outside.txt"
+}
+
+root="$(tree allroutes)"
+outside "$root" ""
+expect "a tree whose every route has a caller passes" "$root" 0 --all-routes
+expect_output "the run counts what it read" "1 routes: 1 called from the tree, 0 declared as called from outside, 0 clientless"
+
+routes "$root" "$MULTILINE_WIDGETS"
+expect "a route nothing calls fails without any diff" "$root" 1 --all-routes
+expect_output "the refusal names the route and where it is registered" "   /api/widgets  (crates/demo/src/routes.rs:"
+
+# The other way a route goes dead: its last caller is removed.
+routes "$root" ""
+printf 'export const createDemoApi = () => ({\n    async listThings() {\n      return [];\n    },\n});\n' \
+    > "$root/packages/api-client/src/domains/demo.ts"
+expect "a route whose last caller was removed fails" "$root" 1 --all-routes
+expect_output "the refusal names the abandoned route" "   /api/things  (crates/demo/src/routes.rs:"
+
+# A caller in a test is not a caller.
+mkdir -p "$root/frontend/src/__tests__"
+printf "fetch('/api/things');\n" > "$root/frontend/src/__tests__/things.test.ts"
+expect "a mention in a test file does not count" "$root" 1 --all-routes
+
+# Routes outside /api/, which scan 4 never reads: a webhook another party
+# posts to, and a probe path that a longer path must not stand in for.
+root="$(tree outside)"
+routes "$root" '        .route("/webhooks/acme", post(acme))
+        .route("/health", get(health))
+'
+outside "$root" '/webhooks/acme    Acme: its push endpoint
+'
+mkdir -p "$root/scripts"
+printf '#!/bin/bash\ncurl -fsS "http://localhost:8081/health"\n' > "$root/scripts/smoke.sh"
+expect "a declared outside caller and a script's probe pass" "$root" 0 --all-routes
+expect_output "the declared route is printed with who calls it" "   /webhooks/acme  — Acme: its push endpoint"
+
+printf '#!/bin/bash\ncurl -fsS "http://localhost:8081/api/health"\n' > "$root/scripts/smoke.sh"
+expect "a longer path does not stand in for /health" "$root" 1 --all-routes
+expect_output "the uncalled probe is named" "   /health  (crates/demo/src/routes.rs:"
+printf '#!/bin/bash\ncurl -fsS "http://localhost:8081/health"\n' > "$root/scripts/smoke.sh"
+
+outside "$root" '/webhooks/acme    Acme: its push endpoint
+/webhooks/gone    Acme: an endpoint since removed
+'
+expect "a declaration naming no registered route fails" "$root" 1 --all-routes
+expect_output "the stale line is named" "routes-called-from-outside.txt:3: /webhooks/gone is not a route the server registers"
+
+outside "$root" '/webhooks/acme
+'
+expect "a declaration without a reason fails" "$root" 1 --all-routes
+expect_output "the reasonless line is named" "routes-called-from-outside.txt:2: /webhooks/acme gives no reason"
+
+rm "$root/scripts/ci/routes-called-from-outside.txt"
+expect "a missing declarations file fails closed" "$root" 1 --all-routes
+expect_output "the refusal says what is missing" "scripts/ci/routes-called-from-outside.txt not found"
+
+# Callers that do not spell the path in one literal: a path built on a
+# constant of the same file, and a string concatenation.
+root="$(tree composed)"
+outside "$root" ""
+routes "$root" '        .route("/admin/apps", get(apps))
+        .route("/admin/apps/{client_id}", post(app))
+        .route("/admin/apps/{client_id}/seats", get(seats))
+'
+mkdir -p "$root/crates/pierre-cli/src" "$root/crates/demo/templates"
+cat > "$root/crates/pierre-cli/src/apps.rs" <<'RS'
+const APPS_PATH: &str = "/admin/apps";
+
+pub fn paths(client_id: &str) -> (String, String) {
+    (APPS_PATH.to_owned(), format!("{APPS_PATH}/{client_id}"))
+}
+RS
+printf "<script>fetch('/admin/apps/' + encodeURIComponent(id) + '/seats');</script>\n" \
+    > "$root/crates/demo/templates/apps.html"
+expect "a path built on a constant, and one concatenated, are callers" "$root" 0 --all-routes
+
+# A router a unit test builds inside src/ serves no traffic.
+root="$(tree testmodule)"
+outside "$root" ""
+cat >> "$root/crates/demo/src/routes.rs" <<'RS'
+
+#[cfg(test)]
+mod tests {
+    use axum::routing::get;
+    use axum::Router;
+
+    #[test]
+    fn serves() {
+        let _app: Router = Router::new().route("/probe", get(|| async { "ok" }));
+    }
+}
+RS
+expect "a route registered only inside a unit-test module is not a route" "$root" 0 --all-routes
+
+# The module is read out up to its own closing brace: a router declared after
+# it serves traffic, and a comment's `.route(` beside it does not.
+cat >> "$root/crates/demo/src/routes.rs" <<'RS'
+
+// A doc example: .route("/example", get(example))
+pub fn late_router() -> Router {
+    Router::new().route("/api/late", get(late))
+}
+RS
+expect "a route declared after a unit-test module is still a route" "$root" 1 --all-routes
+expect_output "the refusal names the route behind the module" "   /api/late  (crates/demo/src/routes.rs:"
+if grep -Fq "/example" "$OUT"; then
+    fail "a .route( in a comment was read as a route"
+else
+    pass "a .route( in a comment is not a route"
+fi
+
+# A registered gap stays visible and does not fail.
+root="$(tree allmarker)"
+outside "$root" ""
+routes "$root" '        // LIMITATION(registre#9): /api/widgets has no client
+'"$MULTILINE_WIDGETS"
+expect "a route named by a LIMITATION marker at its declaration passes" "$root" 0 --all-routes
+expect_output "the registered gap is printed with its issue" "Registered gap (registre#9): /api/widgets has no caller"
+
+# The modes are documented where a reader asks for them.
+root="$(tree help)"
+expect "--help exits 0" "$root" 0 --help
+expect_output "--help names the whole-tree mode" "check-phantom-surfaces.sh --all-routes"
+expect "an unknown option is refused" "$root" 64 --no-such-mode
 
 echo ""
 if [[ "$failures" -gt 0 ]]; then

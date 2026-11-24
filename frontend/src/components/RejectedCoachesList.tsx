@@ -9,7 +9,7 @@ import { adminApi } from '../services/api';
 import { clsx } from 'clsx';
 import { BADGE_TONE, ALERT_TONE } from './ui';
 import { coachCategoryTone } from './coachCategory';
-import { QUERY_KEYS } from '../constants/queryKeys';
+import { QUERY_KEYS } from '@pierre/shared-constants';
 import { formatDateTime } from '@pierre/chat-utils';
 import { ADMIN_LOCALE } from '../utils/adminLocale';
 

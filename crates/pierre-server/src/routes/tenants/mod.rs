@@ -1,27 +1,22 @@
-// ABOUTME: Tenant management route handlers for multi-tenant operations
-// ABOUTME: Provides REST endpoints for creating, listing, switching tenants, and tenant configuration
+// ABOUTME: Tenant route handler for multi-tenant sessions
+// ABOUTME: Provides the REST endpoint that switches a session's active tenant
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! Tenant management routes
-//!
-//! This module handles tenant CRUD operations for multi-tenant functionality.
-//! All handlers require valid JWT authentication.
+//! Tenant routes
 //!
 //! Users can belong to multiple tenants (like Slack workspaces or GitHub organizations).
 //! The active tenant for a session is determined by the `active_tenant_id` claim in the JWT.
 //! Use the POST /tenants/switch endpoint to change the active tenant and receive a new JWT.
-
-/// Service layer for multi-tenant management operations
-pub mod service;
+//! The handler requires valid JWT authentication.
 
 use crate::mcp::resources::ServerContext;
 use axum::{
     extract::State,
     http::StatusCode,
     response::{IntoResponse, Response},
-    routing::{get, post},
+    routing::post,
     Json, Router,
 };
 use dravr_tronc::dates::Timestamp;
@@ -56,67 +51,16 @@ pub struct SwitchTenantResponse {
     pub expires_in: u64,
 }
 
-/// Response listing all tenants a user belongs to
-#[derive(Debug, Serialize)]
-pub struct UserTenantsResponse {
-    /// List of tenants the user belongs to
-    pub tenants: Vec<UserTenantInfo>,
-    /// Currently active tenant ID (if any)
-    pub active_tenant_id: Option<String>,
-}
-
-/// Information about a tenant membership
-#[derive(Debug, Serialize)]
-pub struct UserTenantInfo {
-    /// Tenant UUID
-    pub tenant_id: String,
-    /// Tenant display name
-    pub name: String,
-    /// Tenant slug
-    pub slug: String,
-    /// User's role in this tenant
-    pub role: String,
-    /// Whether this is the currently active tenant
-    pub is_active: bool,
-}
-
-/// Tenant management routes
+/// Tenant routes
 #[derive(Debug)]
 pub struct TenantRoutes;
 
 impl TenantRoutes {
-    /// Create all tenant management routes
+    /// Create the tenant routes
     pub fn routes(resources: Arc<ServerContext>) -> Router {
         Router::new()
-            .route("/tenants", post(Self::handle_create_tenant))
-            .route("/tenants", get(Self::handle_list_tenants))
             .route("/tenants/switch", post(Self::handle_switch_tenant))
-            .route("/tenants/my", get(Self::handle_list_my_tenants))
             .with_state(resources)
-    }
-
-    /// Handle tenant creation
-    async fn handle_create_tenant(
-        State(resources): State<Arc<ServerContext>>,
-        auth: AuthenticatedUser,
-        Json(request): Json<service::CreateTenantRequest>,
-    ) -> Result<Response, AppError> {
-        let auth = auth.into_inner();
-        let response =
-            service::create_tenant(request, auth, &resources.common.repos.auth_repos()).await?;
-
-        Ok((StatusCode::CREATED, Json(response)).into_response())
-    }
-
-    /// Handle listing tenants
-    async fn handle_list_tenants(
-        State(resources): State<Arc<ServerContext>>,
-        auth: AuthenticatedUser,
-    ) -> Result<Response, AppError> {
-        let auth = auth.into_inner();
-        let response = service::list_tenants(auth, &resources.common.repos.auth_repos()).await?;
-
-        Ok((StatusCode::OK, Json(response)).into_response())
     }
 
     /// Handle switching active tenant
@@ -223,64 +167,6 @@ impl TenantRoutes {
                 tenant_name: tenant.name,
                 role: role_str,
                 expires_in,
-            }),
-        )
-            .into_response())
-    }
-
-    /// Handle listing all tenants the user belongs to
-    ///
-    /// Returns a list of all tenants the user is a member of, along with their role
-    /// in each tenant and which one is currently active.
-    async fn handle_list_my_tenants(
-        State(resources): State<Arc<ServerContext>>,
-        auth: AuthenticatedUser,
-    ) -> Result<Response, AppError> {
-        let auth = auth.into_inner();
-
-        // Get the current active tenant from JWT claims (if any)
-        let active_tenant_id = auth.active_tenant_id.map(TenantId::from_uuid);
-
-        // Get all tenants the user belongs to
-        let tenants = resources
-            .common
-            .repos
-            .tenants
-            .list_for_user(auth.user_id)
-            .await
-            .map_err(|e| AppError::database(format!("Failed to list user tenants: {e}")))?;
-
-        let mut tenant_infos = Vec::with_capacity(tenants.len());
-
-        for tenant in tenants {
-            // Get user's role in this tenant
-            let role = resources
-                .common
-                .repos
-                .tenants
-                .get_user_role(auth.user_id, tenant.id)
-                .await
-                .map_err(|e| AppError::database(format!("Failed to get tenant role: {e}")))?
-                .unwrap_or_else(|| "member".to_owned());
-
-            let is_active = active_tenant_id
-                .as_ref()
-                .is_some_and(|active| *active == tenant.id);
-
-            tenant_infos.push(UserTenantInfo {
-                tenant_id: tenant.id.to_string(),
-                name: tenant.name,
-                slug: tenant.slug,
-                role,
-                is_active,
-            });
-        }
-
-        Ok((
-            StatusCode::OK,
-            Json(UserTenantsResponse {
-                tenants: tenant_infos,
-                active_tenant_id: active_tenant_id.map(|id| id.to_string()),
             }),
         )
             .into_response())

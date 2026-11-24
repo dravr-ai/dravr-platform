@@ -18,7 +18,7 @@ import {
   usePersonalConversation,
   useUnreadConversationTotal,
 } from '../useConversationList';
-import { QUERY_KEYS } from '../../constants/queryKeys';
+import { QUERY_KEYS } from '@pierre/shared-constants';
 
 const getConversations = vi.fn();
 const updateConversation = vi.fn();

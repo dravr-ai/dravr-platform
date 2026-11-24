@@ -87,9 +87,7 @@ BACKEND_PATHS=(
     "GET /providers/signin/success"
     "GET /providers/sciotte/login?token=t"            # the same page at the path links sent before carnet#1207 carry
     "GET /r/abc"
-    "GET /fitness/config"
-    "GET /tenants"                                    # bare path: list
-    "POST /tenants"                                   # bare path: create
+    "POST /tenants/switch"                            # the one tenants route
     "GET /ws"                                         # WebSocket proxy block
     "POST /webhooks/garmin/t/activities"              # Garmin push block (larger body cap)
 )
@@ -100,6 +98,7 @@ SPA_PATHS=(
     "GET /"
     "GET /dashboard"
     "GET /dashboard/status"                           # the backend mounts nothing under /dashboard
+    "GET /tenants"                                    # nor at the bare /tenants
     "GET /mcpanything"
     "GET /index.html"
     "GET /auth/callback"                              # first-party sign-in return leg (carnet#787)

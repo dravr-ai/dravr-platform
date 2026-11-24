@@ -6,6 +6,7 @@
 
 use pierre_auth::dto::auth::LoginResponse;
 use pierre_auth::security::cookies::{host_cookie_name, SameSitePolicy, SecureCookieConfig};
+use pierre_core::constants::timeouts;
 use pierre_core::errors::{AppError, AppResult};
 
 use super::{OAuth2Context, OAuth2Routes};
@@ -14,8 +15,17 @@ use super::{OAuth2Context, OAuth2Routes};
 /// `__Host-` prefix an HTTPS issuer gives it
 const SESSION_COOKIE: &str = "pierre_session";
 
-/// Lifetime of the session cookie: the 24 hours of the JWT it carries
-const SESSION_COOKIE_MAX_AGE_SECS: i64 = 86_400;
+/// The session cookie's `Max-Age` for a configured
+/// `SESSION_COOKIE_MAX_AGE_SECS`, which defaults to the 24 hours of the JWT
+/// the cookie carries.
+///
+/// A cookie counts its lifetime in signed seconds: a configured value past
+/// that range falls back to the compiled default rather than being truncated.
+fn session_cookie_max_age(configured_secs: u64) -> i64 {
+    i64::try_from(configured_secs)
+        .or_else(|_| i64::try_from(timeouts::SESSION_COOKIE_MAX_AGE_SECS))
+        .unwrap_or(i64::MAX)
+}
 
 /// Which cookie signed the athlete in at `/oauth2/authorize`, which decides
 /// the audience its token must carry.
@@ -69,15 +79,17 @@ impl OAuth2Routes {
         )
     }
 
-    /// The `Set-Cookie` value carrying the authorization server's sign-in
-    /// token, the same for the password and the Google sign-in: `HttpOnly`,
-    /// `Secure` on an HTTPS issuer, `SameSite=Lax` so the redirect into
-    /// `/oauth2/authorize` sends it, and the JWT's own 24-hour lifetime.
+    /// The `Set-Cookie` value carrying the authorization server's sign-in token, the same for the
+    /// password and the Google sign-in.
+    ///
+    /// `HttpOnly`, `Secure` on an HTTPS issuer, `SameSite=Lax` so the redirect into
+    /// `/oauth2/authorize` sends it, and the configured `SESSION_COOKIE_MAX_AGE_SECS` lifetime, by
+    /// default the JWT's own 24 hours.
     pub(super) fn session_cookie(context: &OAuth2Context, token: &str) -> String {
         SecureCookieConfig {
             name: Self::session_cookie_name(context),
             value: token.to_owned(),
-            max_age_secs: SESSION_COOKIE_MAX_AGE_SECS,
+            max_age_secs: session_cookie_max_age(context.session_cookie_max_age_secs),
             http_only: true,
             secure: Self::cookies_secure(context),
             same_site: SameSitePolicy::Lax,
@@ -116,5 +128,28 @@ impl OAuth2Routes {
             }
         }
         app_token
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use pierre_core::constants::timeouts;
+
+    use super::session_cookie_max_age;
+
+    #[test]
+    fn the_configured_lifetime_is_the_cookie_max_age() {
+        assert_eq!(session_cookie_max_age(3_600), 3_600);
+        assert_eq!(session_cookie_max_age(0), 0);
+    }
+
+    #[test]
+    fn a_lifetime_past_signed_seconds_falls_back_to_the_default() {
+        let default = i64::try_from(timeouts::SESSION_COOKIE_MAX_AGE_SECS)
+            .expect("bug: the compiled default lifetime fits a cookie's signed seconds");
+        let longest = i64::MAX.unsigned_abs();
+        assert_eq!(session_cookie_max_age(longest), i64::MAX);
+        assert_eq!(session_cookie_max_age(longest + 1), default);
+        assert_eq!(session_cookie_max_age(u64::MAX), default);
     }
 }

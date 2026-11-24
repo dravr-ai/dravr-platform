@@ -1,5 +1,5 @@
-// ABOUTME: Sciotte provider — forwards every scrape to the dedicated dravr-sciotte service over HTTP
-// ABOUTME: Holds the platform's AuthSession and calls the remote scraper; no in-process Chrome (ADR-021)
+// ABOUTME: Sciotte provider — reads the athlete's own data from their signed-in provider session, with their consent
+// ABOUTME: Holds the platform's AuthSession and forwards each read to the dravr-sciotte service over HTTP (ADR-021)
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -7,10 +7,10 @@
 //! # Sciotte Provider
 //!
 //! Implements `FitnessProvider` by delegating to the dedicated `dravr-sciotte`
-//! scraper service over HTTP (ADR-021). Since the Phase 4 cutover the platform
-//! runs no headless Chrome: this provider holds the platform-held [`AuthSession`]
-//! and forwards it to the service on each fetch, which scrapes the fitness
-//! platform (Strava, Garmin Connect, etc.) and returns activities.
+//! service over HTTP (ADR-021). This provider holds the platform-held
+//! [`AuthSession`] and forwards it to the service on each fetch, which reads
+//! the athlete's own data from their signed-in provider session (Strava,
+//! Garmin Connect, etc.), with their consent, and returns activities.
 
 use async_trait::async_trait;
 use dravr_sciotte::client::{ClientError, SciotteClient};

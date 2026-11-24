@@ -11,7 +11,7 @@ import { avatarSlot, initialsFor } from '@pierre/chat-utils';
 import type { UseCaseStarter } from '@pierre/shared-types';
 import { useTranslation } from '@pierre/i18n';
 import { chatApi } from '../../services/api';
-import { QUERY_KEYS } from '../../constants/queryKeys';
+import { QUERY_KEYS } from '@pierre/shared-constants';
 import { useIsDesktop, useIsMobile } from '../../hooks/useBreakpoint';
 import { useComposerFocused } from '../../hooks/useComposerFocused';
 import { ChatComposeMenu, ChatEmptyState } from '../chat';

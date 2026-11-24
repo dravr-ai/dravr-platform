@@ -12,8 +12,6 @@ use async_trait::async_trait;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{ProviderFreshness, RefreshConfig, TenantId};
 use pierre_mcp_schema::{JsonSchema, PropertySchema};
-#[cfg(feature = "health-sync")]
-use pierre_services::provider_refresh::SyncNotifier;
 use pierre_services::provider_refresh::{self, RefreshService, SyncMetrics};
 use pierre_tools_core::ToolResult;
 use serde::Serialize;
@@ -331,8 +329,6 @@ pub fn create_sync_tools() -> Vec<Box<dyn RuntimeTool>> {
 
 /// Build a `RefreshService` from the tool execution context.
 fn build_refresh_service(context: &ToolExecutionContext) -> RefreshService {
-    #[cfg(feature = "health-sync")]
-    let notifier: Arc<dyn SyncNotifier> = context.resources.sync_notifier();
     let auth_repos = context.resources.repos().auth_repos();
     RefreshService::new(
         &auth_repos,
@@ -341,8 +337,6 @@ fn build_refresh_service(context: &ToolExecutionContext) -> RefreshService {
         Arc::clone(context.resources.repos()),
         #[cfg(feature = "health-sync")]
         context.resources.sync_orchestrator().cloned(),
-        #[cfg(feature = "health-sync")]
-        notifier,
     )
 }
 

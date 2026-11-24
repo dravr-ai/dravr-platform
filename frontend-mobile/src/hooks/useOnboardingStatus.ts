@@ -5,6 +5,7 @@
 // ABOUTME: Mirrors the web App.tsx gate so chat/coach/messaging are reachable only with a connected provider
 
 import { useQuery } from '@tanstack/react-query';
+import { QUERY_KEYS } from '@pierre/shared-constants';
 import { userApi } from '../services/api';
 
 /**
@@ -19,7 +20,7 @@ import { userApi } from '../services/api';
  */
 export function useOnboardingStatus(enabled: boolean) {
   return useQuery({
-    queryKey: ['user-onboarding-status'] as const,
+    queryKey: QUERY_KEYS.user.onboardingStatus(),
     queryFn: () => userApi.getOnboardingStatus(),
     enabled,
     staleTime: 5_000,

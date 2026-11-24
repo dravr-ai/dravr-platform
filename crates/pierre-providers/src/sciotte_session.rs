@@ -6,7 +6,7 @@
 
 //! Reads through a platform-held sciotte session.
 //!
-//! The platform stores each scrape session on the athlete's token row and
+//! The platform stores each athlete's signed-in provider session on the athlete's token row and
 //! imports it into the dravr-sciotte service before every read, so a service
 //! instance that scaled to zero is re-seeded from the stored copy (ADR-021).
 //! A provider can rotate a session's cookies on a read: Garmin changes its

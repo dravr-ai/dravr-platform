@@ -1,5 +1,5 @@
 // ABOUTME: Single-flight for the activity pre-fetch a provider connect starts, one per (tenant, user, provider)
-// ABOUTME: A reader of the same session awaits the read already in flight instead of scraping it again
+// ABOUTME: A reader of the same session awaits the read already in flight instead of reading it again
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -7,10 +7,10 @@
 //! The activity pre-fetch a provider connect starts, shared with every reader
 //! that arrives while it runs.
 //!
-//! A scrape connect fires its own reads at once: the pre-fetch that warms the
+//! A session connect fires its own reads at once: the pre-fetch that warms the
 //! cache, the health backfill, and whatever screen the athlete lands on next
 //! (the web onboarding asks for its coach proposal within a second). Each one
-//! is a browser on the scraper service, which serves a fixed number at a time,
+//! is a browser on the sciotte service, which serves a fixed number at a time,
 //! so on 2026-10-02 a COROS connect shed its own proposal read with a 503 and
 //! failed a daily-summary read with a 500 (carnet#736).
 //!

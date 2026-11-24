@@ -48,7 +48,7 @@ pub use crate::logging::LoggingConfig;
 // MCP
 pub use crate::mcp::{AppBehaviorConfig, McpConfig, ProtocolConfig, TokioRuntimeConfig};
 // Network
-pub use crate::network::{CorsConfig, HttpClientConfig, SseBufferStrategy, SseConfig, TlsConfig};
+pub use crate::network::{CorsConfig, HttpClientConfig, SessionCookieConfig, TlsConfig};
 // OAuth (canonical types live in pierre-auth)
 pub use pierre_auth::config::oauth::{
     default_provider, FirebaseConfig, OAuth2ServerConfig, OAuthConfig, OAuthProviderConfig,
@@ -102,8 +102,8 @@ pub struct ServerConfig {
     pub app_behavior: AppBehaviorConfig,
     /// HTTP client timeout configuration
     pub http_client: HttpClientConfig,
-    /// SSE connection management configuration
-    pub sse: SseConfig,
+    /// The OAuth session cookie's lifetime
+    pub session_cookie: SessionCookieConfig,
     /// Server host
     pub host: String,
     /// Base URL for OAuth and external URLs
@@ -222,7 +222,7 @@ impl Default for ServerConfig {
             usda_api_key: None,
             app_behavior: AppBehaviorConfig::default(),
             http_client: HttpClientConfig::default(),
-            sse: SseConfig::default(),
+            session_cookie: SessionCookieConfig::default(),
             host: String::new(),
             base_url: String::new(),
             website_base_url: String::new(),
@@ -286,7 +286,7 @@ impl ServerConfig {
             usda_api_key: usda_key_from(env::var("USDA_API_KEY").ok().as_deref()),
             app_behavior: AppBehaviorConfig::from_env()?,
             http_client: HttpClientConfig::from_env(),
-            sse: SseConfig::from_env()?,
+            session_cookie: SessionCookieConfig::from_env()?,
             host: env::var("HOST").unwrap_or_else(|_| "localhost".to_owned()),
             // Unset, the server is reached on its own port on this host.
             base_url: env::var("BASE_URL")

@@ -58,8 +58,9 @@ use axum::extract::Request;
 use axum::middleware;
 use axum::response::Response;
 use axum::Router;
+use dravr_tronc::server::trace_context::TraceContext;
 use pierre_llm::health::{LlmHealthSnapshot, LlmHealthState, LlmHealthStatus};
-use pierre_logging::request_trace::{self, CLOUD_TRACE_CONTEXT_HEADER, TRACEPARENT_HEADER};
+use pierre_logging::request_trace::{self, CLOUD_TRACE_CONTEXT_HEADER};
 #[cfg(feature = "telemetry")]
 use pierre_middleware::telemetry_middleware;
 use pierre_middleware::{
@@ -112,11 +113,12 @@ fn http_request_span(request: &Request<Body>) -> Span {
         .get::<RequestId>()
         .map(|id| id.0.as_str());
     let headers = request.headers();
-    let header = |name: &str| headers.get(name).and_then(|value| value.to_str().ok());
-    let cloud_trace_id = request_trace::inbound_trace_id(
-        header(TRACEPARENT_HEADER),
-        header(CLOUD_TRACE_CONTEXT_HEADER),
-    );
+    let trace_context = TraceContext::from_headers(headers);
+    let cloud_trace_context = headers
+        .get(CLOUD_TRACE_CONTEXT_HEADER)
+        .and_then(|value| value.to_str().ok());
+    let cloud_trace_id =
+        request_trace::inbound_trace_id(trace_context.as_ref(), cloud_trace_context);
     info_span!(
         "request",
         method = %request.method(),
@@ -373,8 +375,6 @@ impl ProviderToolRouter {
         use crate::routes::api_keys::ApiKeyRoutes;
         #[cfg(feature = "client-messaging")]
         use crate::routes::commands::CommandRoutes;
-        #[cfg(feature = "client-settings")]
-        use crate::routes::fitness::FitnessConfigurationRoutes;
         #[cfg(feature = "protocol-mcp")]
         use crate::routes::mcp::McpRoutes;
         #[cfg(all(feature = "client-chat", feature = "client-messaging"))]
@@ -406,8 +406,6 @@ impl ProviderToolRouter {
         use pierre_routes_identity::UserOAuthAppRoutes;
         #[cfg(feature = "client-admin-ui")]
         use pierre_routes_web_admin::WebAdminRoutes;
-        #[cfg(feature = "transport-sse")]
-        use pierre_sse::SseRoutes;
 
         #[cfg(feature = "client-admin-api")]
         use crate::config::routes::{admin_config_router, AdminConfigState};
@@ -598,6 +596,7 @@ impl ProviderToolRouter {
                 config: Arc::new(resources.common.config.oauth2_server.clone()),
                 rate_limiter: resources.auth.oauth2_rate_limiter.clone(),
                 refresh_token_expiry_days: resources.common.config.auth.refresh_token_expiry_days,
+                session_cookie_max_age_secs: resources.common.config.session_cookie.max_age_secs,
                 csrf_manager: resources.auth.csrf_manager.clone(),
                 accounts: resources.account_service(),
                 google_sign_in: resources.oauth2_google_sign_in(),
@@ -637,22 +636,6 @@ impl ProviderToolRouter {
         };
 
         // ═══════════════════════════════════════════════════════════════
-        // TRANSPORT ROUTES
-        // ═══════════════════════════════════════════════════════════════
-
-        #[cfg(feature = "transport-sse")]
-        let app = {
-            // Upcast Arc<ServerContext> → Arc<dyn SseCtx>. The turbofish pins
-            // `clone` to the concrete type so the binding can coerce it.
-            let sse_ctx: Arc<dyn pierre_runtime_context::SseCtx> =
-                Arc::<ServerContext>::clone(resources);
-            app.merge(SseRoutes::routes(
-                Arc::clone(&resources.sse.sse_manager),
-                sse_ctx,
-            ))
-        };
-
-        // ═══════════════════════════════════════════════════════════════
         // CLIENT-WEB ROUTES
         // ═══════════════════════════════════════════════════════════════
 
@@ -662,7 +645,6 @@ impl ProviderToolRouter {
 
         #[cfg(feature = "client-settings")]
         let app = app
-            .merge(FitnessConfigurationRoutes::routes(Arc::clone(resources)))
             .merge(pierre_routes_billing::billing_routes().with_state(Arc::clone(resources)))
             .merge(athlete_home::athlete_home_routes().with_state(Arc::clone(resources)))
             .merge(athlete_gear::athlete_gear_routes().with_state(Arc::clone(resources)))
@@ -894,13 +876,6 @@ impl ProviderToolRouter {
             }))
         }
 
-        async fn plugins_health_handler() -> Json<serde_json::Value> {
-            Json(serde_json::json!({
-                "status": "ok",
-                "plugins": []
-            }))
-        }
-
         async fn ready_handler(State(state): State<Arc<LlmHealthState>>) -> impl IntoResponse {
             let snapshot = state.snapshot().await;
             let code = match snapshot.status {
@@ -925,7 +900,6 @@ impl ProviderToolRouter {
 
         Router::new()
             .route("/health", get(health_handler))
-            .route("/health/plugins", get(plugins_health_handler))
             .route("/ready", get(ready_handler))
             .route("/health/llm", get(llm_health_handler))
             .with_state(llm_health)

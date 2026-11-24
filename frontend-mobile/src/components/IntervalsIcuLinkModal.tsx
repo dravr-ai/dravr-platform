@@ -16,7 +16,7 @@ import {
 import { useThemeColors } from '../constants/theme';
 import { oauthApi, userApi } from '../services/api';
 import { ProviderGlyph } from './ProviderGlyph';
-import { PROVIDER_BRAND } from '../constants/brands';
+import { PROVIDER_BRAND } from '@pierre/shared-constants';
 import { Button, Input, Sheet } from './ui';
 import { useTranslation } from '@pierre/i18n';
 
@@ -113,10 +113,10 @@ export function IntervalsIcuLinkModal({ visible, onClose, onConnected, onAuthori
     <Sheet visible={visible} onClose={onClose} testID="intervals-sheet" backdropTestID="intervals-sheet-backdrop">
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <View className="flex-row items-center gap-3 mb-4">
-          <ProviderGlyph providerId="intervals_icu" label={PROVIDER_BRAND.intervalsIcu} />
+          <ProviderGlyph providerId="intervals_icu" label={PROVIDER_BRAND.intervals_icu} />
           <View className="flex-1 min-w-0">
             <Text className="text-lg font-semibold text-text-primary">
-              {t('app.connectProvider', { provider: PROVIDER_BRAND.intervalsIcu })}
+              {t('app.connectProvider', { provider: PROVIDER_BRAND.intervals_icu })}
             </Text>
             {view === 'key' && (
               <Text className="text-xs text-text-tertiary">{t('shell.intervalsApiKeyHint')}</Text>
@@ -135,7 +135,7 @@ export function IntervalsIcuLinkModal({ visible, onClose, onConnected, onAuthori
         ) : tombstone ? (
           <View testID="intervals-tombstoned">
             <Text className="text-sm text-text-secondary mb-4">
-              {describeProviderTombstone(tombstone, PROVIDER_BRAND.intervalsIcu, { language, t })}
+              {describeProviderTombstone(tombstone, PROVIDER_BRAND.intervals_icu, { language, t })}
             </Text>
             {error && (
               <Text className="text-sm text-error mb-3" testID="intervals-error">

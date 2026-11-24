@@ -52,7 +52,7 @@ jest.mock('../src/services/api', () => ({
   notificationsApi: {},
 }));
 
-// `useConversations` and `useMessages` are the real hooks: the new thread's
+// `useOpenConversation` and `useMessages` are the real hooks: the new thread's
 // creation and the read it starts are what this file is about. The other
 // hooks hand back the same state on every render, as the real ones do.
 jest.mock('../src/screens/chat/useProviderStatus', () => {

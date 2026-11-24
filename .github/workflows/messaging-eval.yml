@@ -29,8 +29,8 @@
 #                                              runtime in socket mode but
 #                                              required by the seed step)
 #
-# LLM provider (carnet#845, JF 2026-10-09: "copilot/haiku"):
-#   DRAVR_MCP_SERVER_COPILOT_GITHUB_TOKEN    — Copilot account token the
+# LLM provider (carnet#845, 2026-10-09: copilot_sdk on Haiku):
+#   DRAVR_MCP_SERVER_COPILOT_GITHUB_TOKEN    — the credential the
 #                                              copilot_sdk provider runs on;
 #                                              the model is claude-haiku-4.5
 

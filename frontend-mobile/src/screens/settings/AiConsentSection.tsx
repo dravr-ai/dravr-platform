@@ -37,7 +37,7 @@ export function AiConsentSection(): React.JSX.Element {
   const colors = useThemeColors();
   const { isAuthenticated } = useAuth();
   const { data } = useQuery({
-    queryKey: QUERY_KEYS.user.providerConnections(),
+    queryKey: QUERY_KEYS.providers.status(),
     queryFn: () => oauthApi.getProvidersStatus(),
     enabled: isAuthenticated,
   });

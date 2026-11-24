@@ -7,7 +7,7 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { userApi } from '../services/api';
-import { QUERY_KEYS } from '../constants/queryKeys';
+import { QUERY_KEYS } from '@pierre/shared-constants';
 import { Button, Input, Alert } from './ui';
 import { useDialog } from '../hooks/useDialog';
 import { Trans, useTranslation } from '@pierre/i18n';
@@ -80,7 +80,6 @@ export default function OAuthAppSetupModal({
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.user.oauthApps() });
       // The provider card stops asking for an app of the user's own.
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.providers.status() });
-      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.user.providerConnections() });
       onSaved();
     },
     onError: (err: unknown) => {

@@ -5,7 +5,7 @@
 // ABOUTME: Dismissible; t('discover.openChat') asks the caller for a thread bound to the agent, which welcomes
 
 import { Button, Card } from '../ui';
-import { coachAddDraft, coachMention } from './coachDraft';
+import { coachAddDraft, coachMention } from '@pierre/ui-logic';
 import { useTranslation } from '@pierre/i18n';
 
 export interface PostInstallHintProps {

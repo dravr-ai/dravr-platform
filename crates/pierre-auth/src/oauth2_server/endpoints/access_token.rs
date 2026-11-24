@@ -13,13 +13,8 @@ use super::OAuth2AuthorizationServer;
 use crate::auth::{DelegatedGrant, TokenLineage};
 
 impl OAuth2AuthorizationServer {
-    /// Generate JWT access token with RS256 asymmetric signing.
-    ///
-    /// Async because a user-bound token has to carry the athlete's real
-    /// connected providers. That field used to be filled with the granted
-    /// scopes, which is how an OAuth-minted token came to report `fitness:read`
-    /// as a connected provider; the grant now rides in the token's own `scope`
-    /// claim and `providers` means what it means everywhere else.
+    /// Generate JWT access token with RS256 asymmetric signing. The grant
+    /// rides in the token's `scope` claim.
     ///
     /// `audience` is the RFC 8707 resource the token is bound to, `None` for
     /// the platform audience. `subject` is the user the grant acts for and the
@@ -32,7 +27,7 @@ impl OAuth2AuthorizationServer {
     /// is bound to, carnet#1511), and the consent grant the family was given
     /// under, its `client_grant_id` claim. The code grant starts the family
     /// and the refresh grant keeps both.
-    pub(super) async fn generate_access_token(
+    pub(super) fn generate_access_token(
         &self,
         client_id: &str,
         subject: Option<(Uuid, &str)>,
@@ -67,17 +62,6 @@ impl OAuth2AuthorizationServer {
                 });
         };
 
-        // SECURITY: Global lookup — OAuth2 token minting, no tenant context.
-        // A user who cannot be read has no providers to report; the token is
-        // still minted, because the grant is what authorizes it and the
-        // provider list is descriptive.
-        let providers = self
-            .users
-            .get_global(uid)
-            .await
-            .ok()
-            .flatten()
-            .map_or_default(|user| user.available_providers());
         let grant = DelegatedGrant {
             client_id,
             scopes: &scopes,
@@ -90,14 +74,12 @@ impl OAuth2AuthorizationServer {
                 &grant,
                 &lineage,
                 &uid,
-                &providers,
                 tenant,
             ),
             None => self.auth_manager.generate_oauth_access_token(
                 &self.jwks_manager,
                 &grant,
                 &uid,
-                &providers,
                 tenant,
             ),
         }

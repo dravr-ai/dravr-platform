@@ -1,4 +1,4 @@
-// ABOUTME: Maps a scraped Strava activity's raw tag map into cageux activity tags
+// ABOUTME: Maps the raw tag map of a Strava activity read through the athlete's session into cageux activity tags
 // ABOUTME: Tag ids are Strava's tag id space, never the workout_type code space
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -7,11 +7,12 @@
 use dravr_sciotte::models::Activity as SciotteActivity;
 use pierre_core::models::{ActivityTag, TagSource, TaggedBy};
 
-/// The athlete's own tags on a scraped Strava activity, each stamped
-/// [`TagSource::ProviderTag`]. `None` when the page carried no tag map (an
-/// activity past the first training-list page, or one read by its detail
-/// page alone), so "never read" stays apart from "read, none set" (`Some`
-/// of an empty list).
+/// The athlete's own tags on a Strava activity read through their session, each stamped
+/// [`TagSource::ProviderTag`].
+///
+/// `None` when the page carried no tag map (an activity past the first training-list page, or one
+/// read by its detail page alone), so "never read" stays apart from "read, none set" (`Some` of an
+/// empty list).
 ///
 /// Strava's tag ids are their own vocabulary ([`ActivityTag::from_strava_tag`]);
 /// the `workout_type` code is read separately by cageux's merged view.

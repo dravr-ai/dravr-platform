@@ -100,7 +100,7 @@ fn create_test_config() -> Arc<ServerConfig> {
                 server_version: "0.1.0".to_owned(),
             },
         },
-        sse: SseConfig::default(),
+        session_cookie: SessionCookieConfig::default(),
         oauth2_server: OAuth2ServerConfig::default(),
         ..Default::default()
     })

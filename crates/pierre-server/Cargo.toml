@@ -94,12 +94,7 @@ tools-all = [
 ]
 
 # Individual tool categories
-# `transport-sse` because the refresh tools build a `RefreshService`, whose
-# `SyncNotifier` handle is `ToolRuntime::sync_notifier` — a method the trait
-# only declares under SSE. `pierre-tool-runtime/tools-connection` states the
-# same implication on its side; the host has to state it too, or the impl
-# disappears while the trait method stays.
-tools-connection = ["pierre-tool-runtime/tools-connection", "transport-sse"]      # connect_provider, get_connection_status, disconnect (+ refresh_provider_data, get_data_freshness)
+tools-connection = ["pierre-tool-runtime/tools-connection"]      # connect_provider, get_connection_status, disconnect (+ refresh_provider_data, get_data_freshness)
 tools-data = ["pierre-tool-runtime/tools-data"]            # get_activities, get_athlete, get_stats (+ endurance workouts)
 tools-analytics = ["pierre-tool-runtime/tools-analytics"]       # analyze_activity, calculate_metrics, trends, discover_routes, compose_route
 tools-goals = ["pierre-tool-runtime/tools-goals"]           # set_goal, track_progress, suggest_goals
@@ -132,26 +127,24 @@ protocol-all = ["protocol-rest", "protocol-mcp", "protocol-a2a"]
 # TRANSPORT FEATURES
 # ═══════════════════════════════════════════════════════════════
 transport-http = []
-transport-sse = ["dep:pierre-sse", "pierre-tool-runtime/transport-sse", "pierre-chat-pipeline?/transport-sse"]
 # Local language detection (lingua, ~22 MB of language models), shipped in
 # server-production and server-full so a turn reads its own language without
 # an LLM call; a build without it asks the LLM. carnet#825, carnet#839.
 language-detection = ["pierre-chat-pipeline?/language-detection"]
 transport-stdio = []
 
-transport-all = ["transport-http", "transport-sse", "transport-stdio"]
-transport-web = ["transport-http", "transport-sse"]
+transport-all = ["transport-http", "transport-stdio"]
 
 # ═══════════════════════════════════════════════════════════════
 # GRANULAR CLIENT-WEB FEATURES
 # ═══════════════════════════════════════════════════════════════
 client-dashboard = ["protocol-rest", "dep:pierre-routes-dashboard"]     # dashboard routes (extracted to pierre-routes-dashboard)
 client-settings = ["protocol-rest", "dep:pierre-routes-billing"]      # configuration.rs, fitness.rs
-# The chat pipeline's context holds the SSE manager, the group service and the
-# slash-command registries unconditionally (pierre-chat-pipeline turns its own
-# `tools-groups` on by default), so a chat build states all three; left
-# implied, they only surface in a build that turns `client-chat` on alone.
-client-chat = ["protocol-rest", "pierre-tool-runtime/client-chat", "dep:pierre-chat-pipeline", "dep:async-stream", "dep:embacle-tool-host", "transport-sse", "tools-groups", "slash-commands"]  # chat.rs + tool-loop strategies in pierre-tool-runtime; chat pipeline orchestrator extracted to pierre-chat-pipeline
+# The chat pipeline's context holds the group service and the slash-command
+# registries unconditionally (pierre-chat-pipeline turns its own
+# `tools-groups` on by default), so a chat build states both; left implied,
+# they only surface in a build that turns `client-chat` on alone.
+client-chat = ["protocol-rest", "pierre-tool-runtime/client-chat", "dep:pierre-chat-pipeline", "dep:async-stream", "dep:embacle-tool-host", "tools-groups", "slash-commands"]  # chat.rs + tool-loop strategies in pierre-tool-runtime; chat pipeline orchestrator extracted to pierre-chat-pipeline
 client-agents = ["protocol-rest", "tools-agents", "dep:pierre-routes-agents"]  # the agent routes
 client-oauth-apps = ["protocol-rest", "oauth"]       # user_oauth_apps.rs
 
@@ -236,7 +229,6 @@ pierre-routes-groups = { version = "0.3.0", path = "../pierre-routes-groups", op
 pierre-routes-identity = { version = "0.3.0", path = "../pierre-routes-identity", optional = true }
 pierre-routes-web-admin = { version = "0.3.0", path = "../pierre-routes-web-admin", optional = true }
 pierre-services = { version = "0.3.0", path = "../pierre-services" }
-pierre-sse = { version = "0.3.0", path = "../pierre-sse", optional = true }
 dravr-cageux = { workspace = true }
 # Archive imports and the athlete's kept originals: the SQLite record and job
 # stores for local runs, the Fs blob store locally and GCS when deployed, and
@@ -448,10 +440,6 @@ harness = false
 
 [[bench]]
 name = "serialization_bench"
-harness = false
-
-[[bench]]
-name = "sse_concurrency_bench"
 harness = false
 
 [[bench]]

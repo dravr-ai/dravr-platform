@@ -55,7 +55,7 @@ const ROOTS = [
  * them by shape rather than by name: console output, font families, arguments
  * to `.includes()`/`.startsWith()`/`.endsWith()` (ErrorBoundary matches the
  * browser's own "Loading chunk" text to detect a stale bundle), and proper
- * nouns, which live in `constants/brands.ts` as data.
+ * nouns, which live in `shared-constants/src/brands.ts` as data.
  *
  * Admin chrome is deliberately out of scope and ships in English: user
  * management, tool and harness config, claim verdicts.

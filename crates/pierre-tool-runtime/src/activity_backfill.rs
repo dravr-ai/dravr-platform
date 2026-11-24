@@ -52,6 +52,7 @@ use pierre_database::repositories::{
 };
 use pierre_providers::core::{ActivityQueryParams, FitnessProvider};
 use pierre_providers::request_budget::{in_background, is_background};
+use pierre_services::lease_guard::{keep_lease, LeaseGuard};
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
@@ -622,50 +623,31 @@ async fn run_recorded_backfill(job: &ActivityBackfillJob, row_id: &JobLease, att
     drop(renewal);
 }
 
-/// The lease renewal a running backfill keeps alive; aborted when dropped.
-struct LeaseRenewal(JoinHandle<()>);
-
-impl Drop for LeaseRenewal {
-    fn drop(&mut self) {
-        self.0.abort();
-    }
-}
-
 /// Renew the job's lease every [`BACKFILL_LEASE_RENEWAL`] until the guard
 /// drops. A renewal the ledger refuses means the row is gone or another
 /// runner leased it past this one — the run still finishes, because its
 /// writes are idempotent and only the follow-up push has a dedup claim of
 /// its own; the renewals just stop.
-fn keep_backfill_lease(job: &ActivityBackfillJob, row_id: &JobLease) -> LeaseRenewal {
-    let resources = job.resources.clone();
-    let row_id = row_id.clone();
-    let user_id = job.user_id;
-    let provider = job.provider_name.clone();
-    LeaseRenewal(tokio::spawn(async move {
-        loop {
-            sleep(BACKFILL_LEASE_RENEWAL).await;
-            match resources
+fn keep_backfill_lease(job: &ActivityBackfillJob, row_id: &JobLease) -> LeaseGuard {
+    let resources = Arc::clone(&job.resources);
+    let lease = row_id.clone();
+    let renew = move || {
+        let resources = Arc::clone(&resources);
+        let lease = lease.clone();
+        async move {
+            resources
                 .repos()
                 .activity_backfill_jobs
-                .renew_backfill_job_lease(&row_id, now_ms().saturating_add(lease_ms()))
+                .renew_backfill_job_lease(&lease, now_ms().saturating_add(lease_ms()))
                 .await
-            {
-                Ok(true) => {}
-                Ok(false) => {
-                    warn!(
-                        user_id = %user_id,
-                        provider = %provider,
-                        row_id = %row_id,
-                        "Activity backfill: job is no longer this runner's; letting the run finish anyway"
-                    );
-                    return;
-                }
-                Err(e) => {
-                    warn!(row_id = %row_id, error = %e, "Activity backfill: lease could not be renewed");
-                }
-            }
         }
-    }))
+    };
+    keep_lease(
+        "activity backfill job",
+        row_id.to_string(),
+        BACKFILL_LEASE_RENEWAL,
+        renew,
+    )
 }
 
 fn now_ms() -> i64 {

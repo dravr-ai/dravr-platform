@@ -4,16 +4,16 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! Garmin's SSO puts a captcha in front of a sign-in it does not trust, and
-//! the scraper service stops there without answering it: `403
+//! Garmin's SSO may ask for a human check (a captcha) at a sign-in, and
+//! the sciotte service stops there without answering it: `403
 //! {"error":"login_challenge"}`. Read as an unrecognised login answer, that
-//! paged an admin for a provider's bot check and told the athlete nothing
-//! useful. The platform now answers it with its own copy and the reason the
-//! hosted pages select on, and goes around the system-failure path.
+//! paged an admin for a check only the athlete can answer and told the
+//! athlete nothing useful. The platform now answers it with its own copy and
+//! the reason the hosted pages select on, and raises no system-failure alert.
 //!
 //! A re-login also sends the athlete's previous session as `prior_session`, so
-//! the provider sees the device it trusted last time instead of a stranger —
-//! but only once the platform has observed that session dead: its expiry is
+//! the sign-in continues from the athlete's own earlier session on that
+//! device — but only once the platform has observed that session dead: its expiry is
 //! past, or a read the provider refused flagged the athlete's connection
 //! `needs_reauth`. Sciotte sessions carry no expiry in practice, so the flag
 //! is what makes the case reachable. One not observed dead (no past expiry,

@@ -5,6 +5,7 @@
 // ABOUTME: Every figure follows the admin scope; agents ranked by uses, users by last activity; the range moves only Requests
 
 import { useQuery } from "@tanstack/react-query";
+import { QUERY_KEYS } from "@pierre/shared-constants";
 import { adminApi } from "../services/api";
 import { useAdminScope } from "../hooks/useAdminScope";
 import {
@@ -33,7 +34,7 @@ export default function EngagementTab({ onNavigate }: EngagementTabProps) {
 
   // Every other figure, read in the same scope as the series
   const { data: engagement, isLoading: engagementLoading } = useQuery({
-    queryKey: ["admin", "engagement", requested] as const,
+    queryKey: QUERY_KEYS.adminScoped.engagement(requested),
     queryFn: () => adminApi.getEngagement(requested),
   });
 

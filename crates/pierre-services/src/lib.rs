@@ -254,7 +254,7 @@ pub mod whoop_terms;
 /// The one row-level merge of stored activity copies into workouts, and the gates a read applies first
 pub mod workouts;
 
-/// Health sync's daily-summary reads, made on the dedicated sciotte scraper service
+/// Health sync's daily-summary reads, made on the dedicated sciotte service
 #[cfg(feature = "health-sync")]
 pub mod sciotte_health_reader;
 
@@ -468,9 +468,7 @@ pub mod quota_policy;
 /// Provider data refresh service: freshness checks, on-chat triggers, manual sync.
 ///
 /// Owns `RefreshService`, `start_scheduled_sync`,
-/// `compute_smart_interval`, and `SyncMetrics`. Push notifications go through
-/// the abstract `SyncNotifier` trait so the service is decoupled from the
-/// concrete pierre-server `SseManager`.
+/// `compute_smart_interval`, and `SyncMetrics`.
 pub mod provider_refresh;
 
 /// The one sync-failure notice each failing provider owes an athlete,
@@ -493,6 +491,12 @@ pub mod units;
 
 /// One tick loop for every background worker
 pub mod periodic;
+
+// Outer doc omitted: `lease_guard.rs`'s inner `//!` header is the module's doc.
+pub mod lease_guard;
+
+// Outer doc omitted: `backoff.rs`'s inner `//!` header is the module's doc.
+pub mod backoff;
 
 /// Agent version diff computation
 pub mod recipes;

@@ -141,7 +141,6 @@ async fn member_with_oauth_token(resources: &Arc<ServerContext>) -> (Uuid, Strin
                 audience: None,
             },
             &user.id,
-            &[],
             tenants.first().map(|tenant| tenant.id.to_string()),
         )
         .unwrap();

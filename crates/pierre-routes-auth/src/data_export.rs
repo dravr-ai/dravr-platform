@@ -113,6 +113,7 @@ use pierre_core::models::TenantId;
 use pierre_database::repositories::{
     UserExportRepository, UserExportTable, USER_EXPORT_EXCLUDED_TABLES,
 };
+use pierre_runtime_context::{resolve_tenant_in, TenantMode};
 use pierre_services::barrage_keys::published_checkpoint_key;
 
 use self::barrage::{write_barrage, ExportSources, Section};
@@ -426,8 +427,9 @@ async fn write_row<S: ChunkSink>(
 pub(crate) struct OwnSession {
     /// The athlete.
     pub(crate) user_id: Uuid,
-    /// The session's active tenant, or the athlete's first when it names
-    /// none; `None` for an account in no tenant, which still exports its data.
+    /// The tenant the session names while the athlete belongs to it, or their
+    /// first when it names none; `None` for an account in no tenant, which
+    /// still exports its data.
     pub(crate) tenant_id: Option<TenantId>,
 }
 
@@ -456,10 +458,8 @@ pub(crate) async fn own_session(
         ));
     }
     Span::current().record("user_id", auth.user_id.to_string());
-    let tenant_id = match auth.active_tenant_id {
-        Some(tenant) => Some(TenantId::from_uuid(tenant)),
-        None => resources.repos.tenants.first_for_user(auth.user_id).await?,
-    };
+    let tenants = resources.repos.tenants.as_ref();
+    let tenant_id = resolve_tenant_in(tenants, &auth, TenantMode::Optional).await?;
     Ok(OwnSession {
         user_id: auth.user_id,
         tenant_id,

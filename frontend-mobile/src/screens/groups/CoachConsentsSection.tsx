@@ -21,6 +21,7 @@ import {
   type DelegationConsent,
 } from '@pierre/shared-constants';
 import { refusalProvider, refusalReason } from '@pierre/ui-logic';
+import { formatDate } from '@pierre/chat-utils';
 import { useTranslation } from '@pierre/i18n';
 import { useThemeColors } from '../../constants/theme';
 import { ALERT_TONE, Button, Row, switchColors } from '../../components/ui';
@@ -203,7 +204,7 @@ export function CoachConsentsSection({ groupId, consents, coach }: CoachConsents
               ...(consents.sensitive_t2_read && consents.sensitive_t2_read_until
                 ? [
                     t(SENSITIVE_T2_FLAG_KEYS.until, {
-                      date: new Date(consents.sensitive_t2_read_until).toLocaleDateString(i18n.language),
+                      date: formatDate(consents.sensitive_t2_read_until, i18n.language),
                     }),
                   ]
                 : []),

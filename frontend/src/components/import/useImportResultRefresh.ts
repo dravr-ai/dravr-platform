@@ -7,7 +7,7 @@
 import { useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { IMPORT_RESULT_STORAGE_KEY } from '@pierre/ui-logic';
-import { QUERY_KEYS } from '../../constants/queryKeys';
+import { QUERY_KEYS } from '@pierre/shared-constants';
 
 /**
  * While the calling provider list is mounted, an import the window finishes
@@ -21,7 +21,6 @@ export function useImportResultRefresh(): void {
     const onStorage = (event: StorageEvent) => {
       if (event.key !== IMPORT_RESULT_STORAGE_KEY || !event.newValue) return;
       void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.providers.status() });
-      void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.user.providerConnections() });
       void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.imports.all });
       void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.user.onboardingStatus() });
     };

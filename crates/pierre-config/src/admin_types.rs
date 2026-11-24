@@ -69,7 +69,7 @@ pub struct ParameterRange {
 /// Admin-configurable parameter with full metadata
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AdminConfigParameter {
-    /// Unique key identifier (e.g., `feature.auto_approval_enabled`)
+    /// Unique key identifier (e.g., `usage_quotas.daily_message_cap`)
     pub key: String,
     /// Human-readable display name
     pub display_name: String,
@@ -117,7 +117,7 @@ pub struct AdminConfigParameter {
 /// Configuration category for organizing parameters in the UI
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AdminConfigCategory {
-    /// Unique identifier (e.g., `feature_flags`)
+    /// Unique identifier (e.g., `usage_quotas`)
     pub id: String,
     /// Internal name for API use
     pub name: String,

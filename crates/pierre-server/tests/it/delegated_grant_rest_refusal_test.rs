@@ -147,7 +147,6 @@ fn delegated_token(
                 audience: None,
             },
             &athlete.user_id,
-            &[],
             None,
         )
         .unwrap()
@@ -528,6 +527,7 @@ fn oauth2_routes(resources: &Arc<ServerContext>) -> axum::Router {
         jwks_manager: resources.auth.jwks_manager.clone(),
         config: Arc::new(resources.common.config.oauth2_server.clone()),
         refresh_token_expiry_days: 30,
+        session_cookie_max_age_secs: 86_400,
         csrf_manager: resources.auth.csrf_manager.clone(),
         accounts: resources.account_service(),
         google_sign_in: None,
@@ -926,13 +926,6 @@ async fn no_route_an_admins_session_reaches_takes_a_delegation_holding_every_sco
             router: |resources| ChatRoutes::routes(Arc::clone(resources)),
             path: format!("{plan_card}/draft"),
             ask: Ask::Delete,
-            session_status: 404,
-        },
-        Reached {
-            what: "PUT …/subject-plan/draft/days/{date}",
-            router: |resources| ChatRoutes::routes(Arc::clone(resources)),
-            path: format!("{plan_card}/draft/days/2026-11-18"),
-            ask: Ask::Put(json!({ "family": "vo2max_short", "sport": "ride" })),
             session_status: 404,
         },
         Reached {

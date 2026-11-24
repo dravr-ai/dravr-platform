@@ -7,7 +7,7 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { coachesApi } from '../../services/api';
-import { QUERY_KEYS } from '../../constants/queryKeys';
+import { QUERY_KEYS } from '@pierre/shared-constants';
 import { Button, ConfirmDialog, ALERT_TONE } from '../ui';
 import CoachFormModal from './CoachFormModal';
 import CoachVersionHistory from './CoachVersionHistory';

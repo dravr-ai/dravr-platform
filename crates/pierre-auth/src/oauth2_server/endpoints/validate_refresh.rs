@@ -187,21 +187,19 @@ impl OAuth2AuthorizationServer {
                 )
             })?;
 
-        let new_access_token = self
-            .generate_access_token(
-                &refresh_token_data.client_id,
-                Some((
-                    refresh_token_data.user_id,
-                    refresh_token_data.tenant_id.as_str(),
-                )),
-                Some(TokenLineage {
-                    family_id: &consumed.family_id,
-                    client_grant_id: consumed.client_grant_id.as_deref(),
-                }),
-                &granted,
-                audience.as_deref(),
-            )
-            .await?;
+        let new_access_token = self.generate_access_token(
+            &refresh_token_data.client_id,
+            Some((
+                refresh_token_data.user_id,
+                refresh_token_data.tenant_id.as_str(),
+            )),
+            Some(TokenLineage {
+                family_id: &consumed.family_id,
+                client_grant_id: consumed.client_grant_id.as_deref(),
+            }),
+            &granted,
+            audience.as_deref(),
+        )?;
 
         info!(
             "Refresh token rotated via validate_and_refresh for user {}",

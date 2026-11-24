@@ -12,7 +12,7 @@ import { useAuth } from '../hooks/useAuth';
 import { useGroupPermissions } from '../hooks/useGroups';
 import { Button, Card, ConfirmDialog, Input, Select, Alert, ALERT_TONE, Switch } from './ui';
 import { formatDateTime } from '@pierre/chat-utils';
-import { QUERY_KEYS } from '../constants/queryKeys';
+import { QUERY_KEYS } from '@pierre/shared-constants';
 import FeatureFlagsPanel from './FeatureFlagsPanel';
 import { featureFlagsQuery } from './featureFlagsQuery';
 import { ADMIN_LOCALE } from '../utils/adminLocale';

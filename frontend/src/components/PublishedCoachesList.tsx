@@ -11,7 +11,7 @@ import { BADGE_TONE, Button, Select } from './ui';
 import { clsx } from 'clsx';
 import { coachCategoryTone } from './coachCategory';
 import { ConfirmDialog } from './ui';
-import { QUERY_KEYS } from '../constants/queryKeys';
+import { QUERY_KEYS } from '@pierre/shared-constants';
 import { formatDate } from '@pierre/chat-utils';
 import { ADMIN_LOCALE } from '../utils/adminLocale';
 

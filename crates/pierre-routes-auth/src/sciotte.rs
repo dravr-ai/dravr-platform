@@ -818,14 +818,14 @@ fn login_challenge_refusal(provider: &str) -> AppError {
 /// exactly the moment the service is busiest, turning healthy backpressure into
 /// an admin page storm.
 ///
-/// A sign-in the provider stopped at a challenge (a captcha) goes around it
-/// too: it is the provider's bot check, which no admin can answer, and the
-/// athlete is told so in [`friendly_login_challenge_message`]'s words. Unlike
+/// A sign-in the provider stopped at a human check raises no such alert
+/// either: only the athlete can answer it, and the athlete is told so in
+/// [`friendly_login_challenge_message`]'s words. Unlike
 /// a shed it ends the attempt — the service stopped the login — so it is an
 /// `Err`, which the continuation handlers answer by dropping the flow.
 ///
 /// A step its own caller cancelled (the sign-in window closed and asked the
-/// service to stop it) goes around it as well: it is a quiet `409`
+/// service to stop it) raises none as well: it is a quiet `409`
 /// ([`login_cancelled_refusal`]), since nobody waits on the answer. It is an
 /// `Err` too, so the continuation handlers drop the flow it ended.
 ///
@@ -953,9 +953,9 @@ pub(crate) async fn handle_sciotte_login(
     // login; anything older is replaced by signing in with these credentials.
     // One the platform has observed dead (its expiry is past, or a refused
     // read flagged this caller's connection to the provider `needs_reauth` or
-    // `revoked`) seeds the login browser with its cookies so the provider
-    // sees the device it trusted last time; one not observed dead is never
-    // sent, since its live cookies could sign in to the account a coach is
+    // `revoked`) seeds the login browser with its cookies so the sign-in
+    // continues from the athlete's own earlier session on that device; one
+    // not observed dead is never sent, since its live cookies could sign in to the account a coach is
     // switching away from. The lookups are by this caller's (user, tenant,
     // provider), so no other athlete's session or connection can seed it.
     let prior_session = match stored_session_use(&resources, user_id, tenant_id, provider).await? {

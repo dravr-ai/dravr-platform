@@ -57,8 +57,8 @@ export function StoreCoachDetailScreen() {
   const { t, language } = useTranslation();
   const colors = useThemeColors();
   // Still used by the action bar's Edit/Installed buttons below — the two
-  // stacked prompt/system-prompt/metadata blocks lost their card fill per
-  // Boreal v2.2 Phase 5 (P5.3), but the action bar itself is out of that scope.
+  // stacked prompt/system-prompt/metadata blocks carry no card fill, but
+  // the action bar keeps its own.
   const cardStyle = useCardStyle();
   const router = useRouter();
   const findPersonalThread = useFindPersonalThread();

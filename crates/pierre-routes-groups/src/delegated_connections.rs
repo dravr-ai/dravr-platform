@@ -44,6 +44,7 @@ use pierre_providers::backend_resolver::user_facing_name;
 use pierre_providers::core::ActivityQueryParams;
 use pierre_providers::registry::ProviderRegistry;
 use pierre_providers::request_budget::in_background;
+use pierre_runtime_context::require_tenant;
 use pierre_runtime_context::{GroupsCtx, MiddlewareCtx};
 use pierre_services::coach_consents::{
     consent_offer, link_consents, link_offer, link_reads_wellness, set_coach_consents,
@@ -358,15 +359,12 @@ impl DelegatedConnectionRoutes {
     }
 
     /// The group, active, and the caller's tenant.
-    async fn open_group<C: GroupsCtx>(
+    async fn open_group<C: GroupsCtx + MiddlewareCtx>(
         resources: &Arc<C>,
         auth: &AuthResult,
         group_id: &str,
     ) -> Result<(CoachingGroup, TenantId), AppError> {
-        let tenant = auth
-            .active_tenant_id
-            .map(TenantId::from_uuid)
-            .ok_or_else(|| AppError::auth_invalid("No active tenant in session"))?;
+        let tenant = require_tenant(resources, auth).await?;
         let group = resources
             .group_service()
             .get_group(group_id, tenant)

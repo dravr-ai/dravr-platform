@@ -10,7 +10,7 @@
 //! Self-serve sign-up stays bounded once it can activate itself:
 //!
 //! 1. the admin's kill switch closes every self-serve door, and the
-//!    admin's own door (the admin register route) stays open;
+//!    unbounded registration the service keeps for an admin stays open;
 //! 2. the 24-hour ceiling refuses past the accounts it admits;
 //!    both refusals are a 429 reading the paused message;
 //! 3. one client address gets a window of sign-ups, resends and confirmation

@@ -11,7 +11,7 @@ import type { GroupInviteKind, JoinHeldInviteResponse } from '@pierre/shared-typ
 import { apiErrorStatus, isCoachInviteNotForAccount } from '@pierre/ui-logic';
 import { groupsApi } from '../services/api';
 import { useToast } from '../components/ui';
-import { QUERY_KEYS } from '../constants/queryKeys';
+import { QUERY_KEYS } from '@pierre/shared-constants';
 import {
   dropCarriedGroupInvite,
   readCarriedGroupInvite,

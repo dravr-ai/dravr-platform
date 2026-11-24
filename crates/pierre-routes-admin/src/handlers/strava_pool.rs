@@ -6,8 +6,10 @@
 
 //! Admin CRUD over the `strava_oauth_app_pool` table.
 //!
-//! The pool holds extra platform-owned Strava OAuth apps that grow the
-//! athlete-seat cap beside the env `STRAVA_CLIENT_ID` app.
+//! The pool holds the platform-owned Strava OAuth applications registered
+//! beside the env `STRAVA_CLIENT_ID` app. Each serves a bounded number of
+//! athletes; the pool records which application an athlete authorized under
+//! and frees a seat when an athlete disconnects.
 //!
 //! These are the step-A endpoints of the authenticated admin CLI (ADR-022):
 //! super-admin-gated, and the **server** encrypts the `client_secret` with its

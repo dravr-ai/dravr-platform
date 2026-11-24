@@ -16,7 +16,7 @@
 #     them (3 or more in 15 minutes) instead of taking a ratio, which at alpha
 #     traffic swings to 50% on one failure out of two requests.
 #   - The 15-minute median was 137 ms at its median and 452 ms at p90, but a
-#     long chat turn or provider scrape alone can push a quiet window's median
+#     long chat turn or provider read alone can push a quiet window's median
 #     past 55 s, and the metric has no route label to exclude those routes.
 #     So the latency policy fires on a median above 5 s only while the window
 #     holds at least 30 requests: broad slowness, not one long turn.

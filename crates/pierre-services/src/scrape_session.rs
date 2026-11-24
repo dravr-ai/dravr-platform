@@ -1,13 +1,15 @@
-// ABOUTME: Storing a sciotte scrape session for a user, and an admin cloning one account's session onto another
+// ABOUTME: Storing an athlete's signed-in sciotte session for a user, and an admin cloning one account's session onto another
 // ABOUTME: One write path for the hosted login and the admin clone; the clone refuses OAuth grants and dead sessions
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! Scrape-session persistence and the admin clone.
+//! Persistence of an athlete's signed-in provider session, and the admin
+//! clone.
 //!
-//! A sciotte login ends with an [`AuthSession`] — the provider cookies the
-//! scraper replays — which the platform stores as a `session` token row and
+//! A sciotte login ends with an [`AuthSession`] — the athlete's signed-in
+//! provider session, which sciotte reads their own data through with their
+//! consent — which the platform stores as a `session` token row and
 //! registers as a manual connection. [`persist_sciotte_session`] is that write,
 //! and the only one: the hosted login calls it, and so does the admin
 //! clone through [`ScrapeSessionInstaller`], which the auth route crate

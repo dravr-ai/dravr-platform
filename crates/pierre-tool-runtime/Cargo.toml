@@ -12,12 +12,11 @@ publish = false
 
 [features]
 # Forwarded from pierre-server so the trait surface can expose the
-# matching optional services (notification, sync orchestrator, SSE
-# notifier, evidence registry) without dragging their crates in
+# matching optional services (notification, sync orchestrator,
+# evidence registry) without dragging their crates in
 # unconditionally.
 client-notifications = ["dep:pierre-notifications"]
 health-sync = ["dep:dravr-enforme", "pierre-services/health-sync"]
-transport-sse = []
 # Provider feature flag (auth.rs has a small synthetic-provider code path).
 # Chat tool-loop strategies (API/headless/CLI) used by client-chat in pierre-server.
 client-chat = []
@@ -32,7 +31,7 @@ tools-admin = ["tools-agents"]  # admin tools depend on coach tools
 tools-analytics = []       # discover_routes (Overpass + OSM piste data), compose_route
 tools-mobility = []
 tools-config = []          # fitness config tools, user configuration
-tools-connection = ["transport-sse"]  # sync / refresh tools (refresh_provider_data, get_data_freshness) — require SSE for SyncNotifier
+tools-connection = []      # sync / refresh tools (refresh_provider_data, get_data_freshness)
 tools-data = []            # endurance workout tools (list_workout_templates, prescribe_workout) + data access tools
 tools-goals = []           # set_goal, track_progress, suggest_goals, analyze_goal_feasibility
 tools-groups = []          # group_fitness snapshot fetcher used by chat_pipeline group context injection

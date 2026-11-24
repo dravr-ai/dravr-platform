@@ -5,6 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 import { useQuery } from '@tanstack/react-query';
+import { QUERY_KEYS } from '@pierre/shared-constants';
 import {
   adminApi,
   type VerdictCalibrationStats,
@@ -45,7 +46,7 @@ function verdictTotalCount(totals: VerdictStatusBreakdown): number {
 export default function VerdictCalibrationPanel() {
   const { requested } = useAdminScope();
   const { data: stats, isLoading, isError } = useQuery<VerdictCalibrationStats>({
-    queryKey: ['admin', 'evals', 'verdict-stats', requested] as const,
+    queryKey: QUERY_KEYS.adminScoped.verdictStats(requested),
     queryFn: () => adminApi.getVerdictCalibrationStats(requested, 30),
   });
 

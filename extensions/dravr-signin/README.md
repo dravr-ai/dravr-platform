@@ -3,10 +3,10 @@
 Signs the athlete in to Garmin, Strava, TrainingPeaks or COROS **in their own
 browser** and hands that provider's session to Dravr (carnet#1617).
 
-Since 2026-11-16, Garmin puts a reCAPTCHA in front of every sign-in that comes
-from a cloud browser, sciotte's included, but still serves reads to a session
-it signed in. So the sign-in runs where the provider sees a person: the
-athlete's own Chrome. sciotte then reads with that session as after any sign-in.
+The athlete signs in to their provider themselves, on the provider's own
+sign-in page, in a normal tab of their own browser: in a sign-in made this
+way, their password and their second factor do not pass through Dravr. Dravr
+then reads their training with that session, as after any sign-in.
 
 ## How it works
 

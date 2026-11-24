@@ -1,5 +1,5 @@
 // ABOUTME: renderHook with a QueryClientProvider — the app's own provider, so chat hooks behave as they ship
-// ABOUTME: useMessages and useConversations invalidate the conversation-list query, which needs a client in scope
+// ABOUTME: useMessages and the conversation hooks read and invalidate the conversation-list query, which needs a client in scope
 
 import React from 'react';
 import { renderHook as rtlRenderHook } from '@testing-library/react-native';

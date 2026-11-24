@@ -156,8 +156,8 @@ use pierre_config::environment::{
     AppBehaviorConfig, AuthConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment,
     ExternalServicesConfig, HttpClientConfig, LogLevel, LoggingConfig, MonitoringConfig,
     OAuth2ServerConfig, OAuthConfig, OAuthProviderConfig, PostgresPoolConfig, ProtocolConfig,
-    ProviderEndpointOverride, SecurityConfig, SecurityHeadersConfig, ServerConfig, SseConfig,
-    StravaApiConfig, TlsConfig,
+    ProviderEndpointOverride, SecurityConfig, SecurityHeadersConfig, ServerConfig,
+    SessionCookieConfig, StravaApiConfig, TlsConfig,
 };
 use pierre_core::errors::protocol::ProtocolError;
 use pierre_core::models::CoachingPersona;
@@ -264,7 +264,7 @@ fn create_test_server_config_without_oauth() -> Arc<ServerConfig> {
                 server_version: env!("CARGO_PKG_VERSION").to_owned(),
             },
         },
-        sse: SseConfig::default(),
+        session_cookie: SessionCookieConfig::default(),
         oauth2_server: OAuth2ServerConfig::default(),
         monitoring: MonitoringConfig::default(),
         ..Default::default()
@@ -353,7 +353,7 @@ fn create_test_server_config() -> Arc<ServerConfig> {
                 server_version: env!("CARGO_PKG_VERSION").to_owned(),
             },
         },
-        sse: SseConfig::default(),
+        session_cookie: SessionCookieConfig::default(),
         oauth2_server: OAuth2ServerConfig::default(),
         monitoring: MonitoringConfig::default(),
         ..Default::default()
@@ -493,7 +493,6 @@ async fn create_active_user(database: &Database, user_id: Uuid, email: &str) {
         approved_at: Some(Timestamp::now()),
         created_at: Timestamp::now(),
         last_active: Timestamp::now(),
-        strava_token: None,
         firebase_uid: None,
         auth_provider: String::new(),
         analytics_consent: false,
@@ -989,7 +988,6 @@ async fn test_connection_status_with_oauth_manager() {
         approved_at: Some(Timestamp::now()),
         created_at: Timestamp::now(),
         last_active: Timestamp::now(),
-        strava_token: None,
         firebase_uid: None,
         auth_provider: String::new(),
         analytics_consent: false,
@@ -1071,7 +1069,6 @@ async fn test_analyze_activity_token_refresh() {
         approved_at: Some(Timestamp::now()),
         created_at: Timestamp::now(),
         last_active: Timestamp::now(),
-        strava_token: None,
         firebase_uid: None,
         auth_provider: String::new(),
         analytics_consent: false,
@@ -1164,7 +1161,6 @@ async fn test_concurrent_token_operations() {
         approved_at: Some(Timestamp::now()),
         created_at: Timestamp::now(),
         last_active: Timestamp::now(),
-        strava_token: None,
         firebase_uid: None,
         auth_provider: String::new(),
         analytics_consent: false,
@@ -1254,7 +1250,6 @@ async fn test_oauth_provider_init_failure() {
         approved_at: Some(Timestamp::now()),
         created_at: Timestamp::now(),
         last_active: Timestamp::now(),
-        strava_token: None,
         firebase_uid: None,
         auth_provider: String::new(),
         analytics_consent: false,

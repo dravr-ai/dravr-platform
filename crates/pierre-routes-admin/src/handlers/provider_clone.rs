@@ -7,9 +7,9 @@
 //! The admin clone of a provider connection.
 //!
 //! End-to-end testing onboarding on a deployed environment needs fresh
-//! accounts with a working Garmin connection, and a Garmin login per account
-//! means a captcha-prone SSO round per test. A sciotte scrape session is a
-//! cookie jar the scraper replays, so it can be shared: this route copies the
+//! accounts with a working Garmin connection, and each test account would
+//! otherwise need its own provider sign-in. An admin's own signed-in session
+//! can be shared with a test account instead: this route copies the
 //! source account's session onto the target, same session id, through the
 //! same store and data warm-up a login runs
 //! ([`pierre_services::scrape_session`] has the rules on what may be cloned

@@ -33,6 +33,7 @@ use pierre_core::constants::oauth_providers::{
     consent_key, provider_notice, sensitive_display_name, NoticeKind,
 };
 use pierre_core::errors::AppError;
+use pierre_runtime_context::require_tenant_in;
 use pierre_services::provider_notice::{consent_state, grant_consent, withdraw_consent};
 use serde_json::json;
 
@@ -80,9 +81,9 @@ async fn read_consent(
         .auth_middleware
         .authenticate_request_with_headers(headers)
         .await?;
-    let tenant_id = auth
-        .active_tenant_id
-        .ok_or_else(|| AppError::invalid_input("No active tenant for this session"))?;
+    let tenant_id = require_tenant_in(resources.repos.tenants.as_ref(), &auth)
+        .await?
+        .as_uuid();
     let key = resolved_key(provider, kind);
     let state = consent_state(&resources.repos, tenant_id, auth.user_id, &key, kind).await;
     Ok((
@@ -115,9 +116,9 @@ async fn give_consent(
         },
     )
     .await?;
-    let tenant_id = auth
-        .active_tenant_id
-        .ok_or_else(|| AppError::invalid_input("No active tenant for this session"))?;
+    let tenant_id = require_tenant_in(resources.repos.tenants.as_ref(), &auth)
+        .await?
+        .as_uuid();
     let key = resolved_key(provider, kind);
     let brand = brand(resources, &key);
     grant_consent(
@@ -164,7 +165,7 @@ async fn take_back_consent(
 /// `null` for a key that asks no such consent of this account.
 ///
 /// # Errors
-/// Unauthenticated; or no active tenant for this session.
+/// Unauthenticated; or an account with no tenant.
 pub(crate) async fn handle_get_ai_consent(
     State(resources): State<AuthRoutesContext>,
     Path(provider): Path<String>,

@@ -15,12 +15,11 @@ use pierre_core::models::agents::AgentCategory;
 use pierre_core::models::groups::GroupInviteKind;
 use pierre_core::models::{
     AddMessageParams, AgentRuntimeContext, ConversationLastMessage, ConversationRecord,
-    ConversationSummary, DeviceAuthorization, EncryptedToken, GroupInvite, MessageFeedbackRecord,
-    MessagePage, MessageRecord, OAuth2AuthCode, OAuth2State, OAuthClientState, TenantId,
-    ThreadTopic, UpsertMessageFeedbackParams, User,
+    ConversationSummary, DeviceAuthorization, GroupInvite, MessageFeedbackRecord, MessagePage,
+    MessageRecord, OAuth2AuthCode, OAuth2State, OAuthClientState, TenantId, ThreadTopic,
+    UpsertMessageFeedbackParams, User,
 };
 use pierre_core::transport::TransportPolicy;
-use secrecy::SecretString;
 use uuid::Uuid;
 
 /// Formats `value` both ways, asserts none of `secrets` appears in either,
@@ -439,13 +438,12 @@ fn an_admin_token_never_prints_the_hash_it_is_verified_against_or_its_secret_has
 
 /// Every field of a [`User`], in declaration order: each one still prints
 /// its name, so a row in a log line is still a row someone can read.
-const USER_FIELDS: [&str; 22] = [
+const USER_FIELDS: [&str; 21] = [
     "id",
     "email",
     "display_name",
     "password_hash",
     "tier",
-    "strava_token",
     "created_at",
     "last_active",
     "is_active",
@@ -465,26 +463,13 @@ const USER_FIELDS: [&str; 22] = [
 ];
 
 #[test]
-fn a_user_never_prints_its_password_hash_or_its_provider_tokens() {
-    let mut user = User::new(
+fn a_user_never_prints_its_password_hash() {
+    let user = User::new(
         "athlete@example.com".to_owned(),
         "sentinel-pwhash-7f3a".to_owned(),
         Some("Athlete".to_owned()),
     );
-    user.strava_token = Some(EncryptedToken {
-        access_token: SecretString::from("sentinel-access-7f3a"),
-        refresh_token: SecretString::from("sentinel-refresh-7f3a"),
-        expires_at: Timestamp::now(),
-        scope: "activity:read".to_owned(),
-    });
-    let printed = printed_without(
-        &user,
-        &[
-            "sentinel-pwhash-7f3a",
-            "sentinel-access-7f3a",
-            "sentinel-refresh-7f3a",
-        ],
-    );
+    let printed = printed_without(&user, &["sentinel-pwhash-7f3a"]);
     assert!(printed.starts_with("User {"), "{printed}");
     assert!(
         printed.contains(r#"password_hash: "[REDACTED]""#),

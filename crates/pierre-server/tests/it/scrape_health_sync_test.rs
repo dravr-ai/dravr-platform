@@ -40,17 +40,15 @@ use dravr_enforme::traits::credential_store::CredentialStore;
 use dravr_enforme::traits::cursor_store::SyncCursorStore;
 use dravr_enforme::traits::recovery_store::RecoveryStore;
 use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp};
-use pierre_core::errors::AppError;
 use pierre_core::models::{
-    ConnectionType, OAuthNotification, RefreshConfig, StoredRecoveryMetrics, SyncStatus, TenantId,
-    UserOAuthToken,
+    ConnectionType, RefreshConfig, StoredRecoveryMetrics, SyncStatus, TenantId, UserOAuthToken,
 };
 use pierre_database::backends::factory::Database;
 use pierre_database::RepositoryRegistry;
 use pierre_services::health_sync::{
     history_walk_scope, sync_error_is_push_stand_down, wellness_pull_stands_down, PierreSyncStorage,
 };
-use pierre_services::provider_refresh::{scrape_sync_not_due, RefreshService, SyncNotifier};
+use pierre_services::provider_refresh::{scrape_sync_not_due, RefreshService};
 use pierre_services::sciotte_health_reader::{SciotteServiceReader, SessionRows};
 use pierre_test_support::db::create_test_db_with_key;
 use pierre_test_support::garmin::{connect_garmin_session, grant_garmin_push};
@@ -570,21 +568,6 @@ async fn a_scrape_sync_waits_six_hours_and_an_api_sync_never_waits() {
     assert!(!scrape_sync_not_due(&auth, &whoop, "whoop").await);
 }
 
-/// The refresh service needs a notifier; these tests assert on what was
-/// scraped, not on SSE delivery.
-struct NoopNotifier;
-
-#[async_trait]
-impl SyncNotifier for NoopNotifier {
-    async fn send_notification(
-        &self,
-        _user_id: Uuid,
-        _notification: &OAuthNotification,
-    ) -> Result<(), AppError> {
-        Ok(())
-    }
-}
-
 #[tokio::test]
 async fn a_chat_turn_never_scrapes_for_a_garmin_session_or_a_leftover_garmin_row() {
     let db = create_test_db().await;
@@ -605,7 +588,6 @@ async fn a_chat_turn_never_scrapes_for_a_garmin_session_or_a_leftover_garmin_row
                 .build_orchestrator_with_reader(&reader, REFUSED_WELLNESS, None)
                 .unwrap(),
         ),
-        Arc::new(NoopNotifier),
     );
 
     let status = service
@@ -875,7 +857,6 @@ fn refresh_service(
                 .build_orchestrator_with_reader(reader, REFUSED_WELLNESS, None)
                 .unwrap(),
         ),
-        Arc::new(NoopNotifier),
     )
 }
 

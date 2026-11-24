@@ -39,7 +39,7 @@ use pierre_tool_runtime::activity_fetch::fetch_provider_head;
 use pierre_tool_runtime::runtime::ToolRuntime;
 
 use super::strava_webhook_gate::{OwnerFetchGate, OWNER_FETCH_WINDOW};
-use super::webhooks::{notify_owner, report_sync, resolve_owner, stamp_last_sync};
+use super::webhooks::{report_sync, resolve_owner, stamp_last_sync};
 use crate::mcp::resources::ServerContext;
 
 /// The only event Wahoo sends.
@@ -244,15 +244,6 @@ async fn sync_wahoo_owner(resources: &Arc<ServerContext>, owner_id: &str, after:
             info!(user_id = %user_id, fetched, "Wahoo webhook-triggered workout fetch completed");
             stamp_last_sync(resources, user_id, &tenant_id, WAHOO).await;
             report_sync(resources, user_id, &tenant_id, WAHOO, true).await;
-            if fetched > 0 {
-                notify_owner(
-                    resources,
-                    user_id,
-                    WAHOO,
-                    format!("Wahoo workout synced: {fetched} recent activities fetched"),
-                )
-                .await;
-            }
         }
         Err(e) => {
             warn!(

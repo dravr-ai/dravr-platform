@@ -21,15 +21,9 @@
 //!
 //! The composition root in `mcp::multitenant` mounts those routers via
 //! `pierre_routes_<area>::<RouterType>::routes(…)`. Modules in this
-//! directory are pierre-server-local (e.g. `mcp`, `health`, `chat`,
-//! `messaging`, `webhooks`, `endurance`, `athlete_home`, `onboarding`).
-
-// ═══════════════════════════════════════════════════════════════
-// ALWAYS ENABLED - Core infrastructure
-// ═══════════════════════════════════════════════════════════════
-
-/// Health check and system status routes
-pub mod health;
+//! directory are pierre-server-local (e.g. `mcp`, `chat`, `messaging`,
+//! `webhooks`, `endurance`, `athlete_home`, `onboarding`). The health and
+//! readiness probes are served by the composition root itself.
 
 // ═══════════════════════════════════════════════════════════════
 // PROTOCOL FEATURES
@@ -42,10 +36,6 @@ pub mod mcp;
 // ═══════════════════════════════════════════════════════════════
 // CLIENT-WEB FEATURES
 // ═══════════════════════════════════════════════════════════════
-
-/// Fitness configuration routes
-#[cfg(feature = "client-settings")]
-pub mod fitness;
 
 /// Chat conversation routes for AI assistants
 #[cfg(feature = "client-chat")]

@@ -12,6 +12,7 @@ import type {
   ClaimVerdict,
   CreateAdminTokenResponse,
   DispositionReason,
+  KnownFeatureFlag,
   RotateAdminTokenResponse,
   User,
   VerdictDisposition,
@@ -217,13 +218,6 @@ export interface FeatureFlagRow {
   enabled: boolean;
   updated_at: string;
   updated_by: string | null;
-}
-
-/// Registry entry shown in admin UIs even when no row is stored.
-export interface KnownFeatureFlag {
-  key: string;
-  description: string;
-  default_enabled: boolean;
 }
 
 /// Where a user's effective tool enablement decision came from (snake_case wire format).
@@ -714,8 +708,9 @@ export const adminApi = {
 
   /**
    * Make an account an admin, or a user again, from the console session
-   * (`POST /api/admin/users/{id}/promote` or `/demote`). The server refuses a
-   * self-demotion and the last active admin.
+   * (`POST /api/admin/users/{id}/promote` or
+   * `POST /api/admin/users/{id}/demote`). The server refuses a self-demotion
+   * and the last active admin.
    */
   async setUserAdminRole(userId: string, makeAdmin: boolean): Promise<{
     id: string;

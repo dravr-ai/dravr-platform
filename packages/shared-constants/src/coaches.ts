@@ -46,6 +46,39 @@ export function coachCategoryLabelKey(category: string): string {
   return COACH_CATEGORY_LABEL_KEY[category as AgentCategory] ?? COACH_CATEGORY_LABEL_KEY.custom;
 }
 
+/** The pillar an agent category draws its hue from. */
+export type CategoryPillar = 'activity' | 'nutrition' | 'recovery' | 'mobility';
+
+/**
+ * The one table placing an agent category under a pillar, for the web and the
+ * phone alike. Recipes are food, so they sit under nutrition. `analysis` and
+ * `custom` belong to no pillar and are absent.
+ *
+ * Each client keeps only what it draws from the pillar — a class, an ink, a
+ * tone — and its own fallback for a category with none.
+ */
+const CATEGORY_PILLAR: Partial<Record<AgentCategory, CategoryPillar>> = {
+  training: 'activity',
+  nutrition: 'nutrition',
+  recipes: 'nutrition',
+  recovery: 'recovery',
+  mobility: 'mobility',
+};
+
+/**
+ * The pillar a category belongs to, or `null` for one with none. `category` is
+ * the English key stored on the agent and sent on the wire, so it is matched
+ * as data rather than translated, with its case folded: an admin screen shows
+ * whatever casing the catalogue stored. A key this build has no pillar for
+ * answers `null` too.
+ */
+export function coachCategoryPillar(category: string): CategoryPillar | null {
+  const key = category.toLowerCase();
+  return Object.prototype.hasOwnProperty.call(CATEGORY_PILLAR, key)
+    ? (CATEGORY_PILLAR[key as AgentCategory] ?? null)
+    : null;
+}
+
 /**
  * The catalogue tag marking an agent written for a human coach rather than
  * for athletes. Mirrors `Agent::COACH_TOOL_TAG` on the server.

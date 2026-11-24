@@ -13,7 +13,7 @@ import OnboardingCoachProposal from './OnboardingCoachProposal';
 import OnboardingProgress from './OnboardingProgress';
 import OnboardingShell from './OnboardingShell';
 import InviteJourneyLine from './InviteJourneyLine';
-import { currentOnboardingStep, onboardingProgress, type OnboardingStepId } from '../onboarding/steps';
+import { currentOnboardingStep, onboardingProgress, type OnboardingStepId } from '@pierre/shared-constants/onboarding';
 import type { OnboardingState } from '../hooks/useOnboardingState';
 
 // The coach-only steps load when a coach reaches them: every sign-up meets

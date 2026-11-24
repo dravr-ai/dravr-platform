@@ -7,7 +7,7 @@
 import { useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { messagingLinkApi } from '../../services/api';
-import { CHANNEL_LINK_POLL_INTERVAL_MS } from '@pierre/shared-constants';
+import { CHANNEL_LINK_POLL_INTERVAL_MS, QUERY_KEYS } from '@pierre/shared-constants';
 import { Button } from '../ui';
 import ChannelLinkPanel from '../ChannelLinkPanel';
 import { useTranslation } from '@pierre/i18n';
@@ -42,7 +42,7 @@ export default function ChatAppConnect({
   // One link-init per channel: re-initialising would mint a fresh code and
   // invalidate the QR the person may be mid-scan of, so never refetch it.
   const { data: link, isLoading, isError, refetch, isFetching } = useQuery({
-    queryKey: ['messaging-link-init', channel],
+    queryKey: QUERY_KEYS.messaging.linkInit(channel),
     queryFn: () => messagingLinkApi.initLink(channel),
     staleTime: Infinity,
     retry: 1,
@@ -54,7 +54,7 @@ export default function ChatAppConnect({
   // and a poll that kept running would bill an instance for a sheet the
   // person has already left.
   const { data: links } = useQuery({
-    queryKey: ['messaging-links'],
+    queryKey: QUERY_KEYS.messaging.links(),
     queryFn: () => messagingLinkApi.listLinks(),
     refetchInterval: query =>
       query.state.data?.some((l) => l.channel === channel) ? false : CHANNEL_LINK_POLL_INTERVAL_MS,

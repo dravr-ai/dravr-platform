@@ -7,7 +7,7 @@
 import React, { useState } from 'react';
 import { View, Text, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import type { WarningLevel } from './useUsageStatus';
+import type { WarningLevel } from '@pierre/chat-utils';
 import { useThemeColors } from '../../constants/theme';
 import { ALERT_TONE, alertInkColor, type AlertTone } from '../../components/ui';
 import { useTranslation } from '@pierre/i18n';

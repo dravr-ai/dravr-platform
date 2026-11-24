@@ -203,7 +203,6 @@ mod support_session_assistant_tests {
                         client_grant_id: None,
                     },
                     &who.id,
-                    &[],
                     Some(who.tenant.to_string()),
                 )
                 .unwrap();
@@ -278,7 +277,6 @@ mod support_session_assistant_tests {
                         audience: None,
                     },
                     &who.id,
-                    &[],
                     Some(who.tenant.to_string()),
                 )
                 .unwrap();

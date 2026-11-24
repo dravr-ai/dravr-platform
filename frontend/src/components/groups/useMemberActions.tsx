@@ -7,6 +7,7 @@
 import { useState, type ReactNode } from 'react';
 import type { GroupMember, GroupRole } from '@pierre/shared-types';
 import { useTranslation } from '@pierre/i18n';
+import { canManageGroup } from '@pierre/shared-constants';
 import { describeApiError } from '@pierre/ui-logic';
 import { ConfirmDialog, useErrorToast, useSuccessToast } from '../ui';
 import type { OverflowMenuItem } from '../ui';
@@ -32,7 +33,7 @@ export function useMemberActions(groupId: string, currentUserRole: GroupRole, cu
   const showError = useErrorToast();
   const showSuccess = useSuccessToast();
 
-  const canManageMembers = currentUserRole === 'owner' || currentUserRole === 'admin';
+  const canManageMembers = canManageGroup(currentUserRole);
   const isOwner = currentUserRole === 'owner';
   const nameOf = (member: GroupMember) => member.display_name ?? t('groups.memberFallback');
 

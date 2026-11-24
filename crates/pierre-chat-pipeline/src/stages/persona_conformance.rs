@@ -171,12 +171,22 @@ fn style_violations(
     violations
 }
 
-/// Tools whose every result is a coached athlete's data: the roster overview,
-/// the coaching-platform roster, which names the coach's members, and the
-/// consent-gated member fetch. The member fetch is also the name the
-/// pipeline records when it fetches a named peer itself
-/// ([`super::peer_grounding`], [`super::capability_subject`]), so
-/// `tools_called` carries it whichever side made the call.
+/// Tools after which a data block in a coach's reply is about a roster athlete rather than the
+/// coach, so it must say whose it is.
+///
+/// Two of them return a coached athlete's sessions: the roster overview and the consent-gated
+/// member fetch. The coaching-platform roster returns no session: it names the Dravr members on the
+/// coach's platform roster with where each stands with the coach's groups, and counts every other
+/// athlete by state and access, so a block built from it still lists athletes.
+///
+/// All three read through the caller's own coach standing, which is why the
+/// server's tool-data table declares them as the caller's own reads; this
+/// list says whose data the reply then shows, a different fact.
+///
+/// The member fetch is also the name the pipeline records when it fetches a
+/// named peer itself ([`super::peer_grounding`],
+/// [`super::capability_subject`]), so `tools_called` carries it whichever
+/// side made the call.
 const ROSTER_READ_TOOLS: &[&str] = &[
     "get_roster_overview",
     "get_provider_roster",

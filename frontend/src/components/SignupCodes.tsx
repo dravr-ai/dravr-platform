@@ -13,7 +13,7 @@ import {
   type SignupCodeListing,
 } from '../services/api/admin';
 import { Button, Badge, Input, Section } from './ui';
-import { QUERY_KEYS } from '../constants/queryKeys';
+import { QUERY_KEYS } from '@pierre/shared-constants';
 import { formatDate } from '@pierre/chat-utils';
 import { ADMIN_LOCALE } from '../utils/adminLocale';
 

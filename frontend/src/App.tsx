@@ -492,7 +492,7 @@ function AppContent() {
   // Authenticated and active — hand off to the onboarding flow, which renders
   // the current onboarding step (the first applicable step not yet complete) or
   // the dashboard once onboarding is finished. The step decision and its state
-  // live in `useOnboardingState` and the step registry (`onboarding/steps`).
+  // live in `useOnboardingState` and the step registry (`@pierre/shared-constants/onboarding`).
   return (
     <div className="min-h-dvh bg-surface">
       <OfflineBanner />

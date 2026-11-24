@@ -110,7 +110,7 @@ impl AuthService {
             return Ok(());
         }
 
-        if !self.should_auto_approve_email(&user.email).await
+        if !self.should_auto_approve_email(&user.email).await?
             && !self.verified_and_self_activating(user.id).await
         {
             return Ok(());

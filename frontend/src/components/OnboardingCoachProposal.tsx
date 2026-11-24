@@ -6,7 +6,7 @@
 
 import { useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from '@pierre/i18n';
-import { QUERY_KEYS } from '../constants/queryKeys';
+import { QUERY_KEYS } from '@pierre/shared-constants';
 import type { TeamStepChoice } from '../hooks/useOnboardingState';
 import { chatApi, coachesApi } from '../services/api';
 import { Button } from './ui';

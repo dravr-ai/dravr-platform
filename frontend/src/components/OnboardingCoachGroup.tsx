@@ -17,12 +17,12 @@ import {
   coachSeatState,
   defaultGroupAgent,
   groupAgentChoices,
+  QUERY_KEYS,
 } from '@pierre/shared-constants';
 import { useTranslation } from '@pierre/i18n';
 import { coachesApi, userApi } from '../services/api';
 import { useCoachGroupSetup } from '../hooks/useGroups';
 import { useAuth } from '../hooks/useAuth';
-import { QUERY_KEYS } from '../constants/queryKeys';
 import { Button, Input, ALERT_TONE } from './ui';
 import OnboardingShell from './OnboardingShell';
 import CoachAccessRequest from './CoachAccessRequest';

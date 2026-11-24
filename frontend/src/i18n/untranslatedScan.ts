@@ -497,7 +497,6 @@ const DATA_MODULES = [
   // quoted back inside the agent's own system prompt, so the list an athlete
   // picks from must read exactly as the value stored on the account.
   'shared-constants/src/brands.ts',
-  'src/constants/brands.ts',
   // The surface registry. `label` is the id each platform's parity test
   // asserts against; the chrome an athlete reads comes from the catalogue
   // (the French app paints `Discussion`, not this file's `Chat`).

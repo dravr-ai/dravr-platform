@@ -25,9 +25,9 @@ pub use pierre_core::models;
 
 // Re-export LLM types from pierre-core (canonical definitions live there)
 pub use pierre_core::llm::{
-    ChatMessage, ChatRequest, ChatResponse, ChatStream, LlmCapabilities, LlmProvider,
-    LlmProviderRegistry, McpHeader, McpServerConfig, McpTransport, MessageRole, StreamChunk,
-    TokenUsage, ToolStreamEvent, ToolTurnStream,
+    ChatMessage, ChatRequest, ChatResponse, ChatStream, LlmCapabilities, LlmProvider, McpHeader,
+    McpServerConfig, McpTransport, MessageRole, StreamChunk, TokenUsage, ToolStreamEvent,
+    ToolTurnStream,
 };
 
 /// What one recorded LLM call is, its sink, and the recorded completion

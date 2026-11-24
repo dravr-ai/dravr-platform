@@ -121,14 +121,6 @@ module.exports = {
         'on-info-container': 'rgb(var(--color-on-info-container) / <alpha-value>)',
         'on-success-container': 'rgb(var(--color-on-success-container) / <alpha-value>)',
         'on-warning-container': 'rgb(var(--color-on-warning-container) / <alpha-value>)',
-
-        // Provider brand colors — belong to third parties, unchanged across modes.
-        providers: {
-          strava: '#FC4C02',
-          garmin: '#007CC3',
-          whoop: '#00D46A',
-          terra: '#6366F1',
-        },
       },
       // Two faces beside the system one, loaded in app/_layout.tsx under these
       // family names: Schibsted Grotesk 600 for the wordmark and the auth and

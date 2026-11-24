@@ -9,7 +9,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminApi } from '../services/api';
 import { Card, Button, Select } from './ui';
 import { useAuth } from '../hooks/useAuth';
-import { QUERY_KEYS } from '../constants/queryKeys';
+import { QUERY_KEYS } from '@pierre/shared-constants';
 
 type TenantPlan = 'starter' | 'professional' | 'enterprise';
 

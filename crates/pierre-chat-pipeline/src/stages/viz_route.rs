@@ -59,6 +59,11 @@ const ROUTE_STREAM_TOOL: &str = "extract_activity_streams";
 
 /// The tools that store a proposed route's line, and so the only ones a block
 /// naming a `route_ref` may cite: a ref is copied from one of their results.
+///
+/// The clients read the same names to draw a proposed route apart from a
+/// recorded one. Both lists are held to
+/// `packages/mcp-types/src/proposed-route-tools.json`, which the server
+/// freezes against the route tools themselves.
 const PROPOSED_ROUTE_TOOLS: [&str; 2] = ["discover_routes", "compose_route"];
 
 /// How many maps one reply may have lines read for, of either kind.
@@ -719,6 +724,32 @@ mod tests {
                 RouteSubject::Activity(lookalike.to_owned()),
                 RouteSubject::Activity("14872003941".to_owned()),
             ]
+        );
+    }
+
+    /// The names are matched as strings and the route tools live where this crate cannot see them.
+    ///
+    /// The list is held to the committed one the server freezes against those tools
+    /// (`proposed_route_tools_fixture_test`) and the clients hold their own copy to.
+    #[test]
+    fn proposed_route_tools_match_the_committed_list() {
+        use std::fs;
+        use std::path::PathBuf;
+
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../packages/mcp-types/src/proposed-route-tools.json");
+        let text =
+            fs::read_to_string(&path).unwrap_or_else(|e| panic!("missing {}: {e}", path.display()));
+        let mut listed: Vec<String> = serde_json::from_str(&text)
+            .unwrap_or_else(|e| panic!("{} is not a JSON array of names: {e}", path.display()));
+        listed.sort();
+        let mut own = PROPOSED_ROUTE_TOOLS.to_vec();
+        own.sort_unstable();
+        assert_eq!(
+            listed,
+            own,
+            "PROPOSED_ROUTE_TOOLS and {} name different tools",
+            path.display()
         );
     }
 

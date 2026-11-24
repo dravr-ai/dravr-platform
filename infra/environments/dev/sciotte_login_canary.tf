@@ -1,17 +1,17 @@
 # ABOUTME: Garmin credential-login canary — a fresh login through the deployed sciotte service every 6 h
-# ABOUTME: Added 2026-10-16 (carnet#1078) after a Garmin captcha blocked every new athlete for a week unnoticed
+# ABOUTME: Added 2026-10-16 (carnet#1078) after Garmin sign-in failed for every new athlete for a week unnoticed
 #
 # Background
 # ----------
 # From about 2026-10-09 until 2026-10-16 no new athlete could connect Garmin:
-# Garmin put a captcha in front of the sign-in and sciotte waited out its
-# whole budget behind it (carnet#1035). The only signal was athletes failing.
+# the sign-in never reached its code step and sciotte waited out its whole
+# budget (carnet#1035). The only signal was athletes failing.
 #
 # This job signs a dedicated canary account in through the deployed
 # sciotte sign-in service — the revision, flags and Cloud Run egress
 # athletes get — with `pierre-cli canary sciotte-login --provider garmin`,
-# and stops at the first decision point (a code step passes; a captcha, a
-# stall or a refusal fails). A failed run logs at ERROR, which the
+# and stops at the first decision point (a code step passes; an added
+# verification step, a stall or a refusal fails). A failed run logs at ERROR, which the
 # dravr-mcp-server-job-failures alert counts: the job name ends in `-job` so
 # the alert's filter (monitoring.tf) already covers it.
 #
@@ -20,8 +20,8 @@
 # in feature-phases.yaml.
 #
 # Every run is one real Garmin login from prod's egress on one account, so
-# the cadence stays at 6 h: a faster canary would itself feed Garmin's risk
-# score.
+# the cadence stays at 6 h: the canary signs in no more often than an
+# athlete reconnecting would.
 #
 # The image is not pinned here (the module ignores it); publish-images.yml
 # re-points this job at each new server image, like the seed jobs.
@@ -128,7 +128,7 @@ module "sciotte_login_canary" {
 # -----------------------------------------------------------------------------
 # Idle-cost: each run wakes the sciotte sign-in service (sciotte_login.tf;
 # the read service before backend_sciotte_login_split) for one login (up to
-# ~330 s of headless Chrome). The sign-in service is request-billed (cpu_idle
+# ~330 s of Chrome). The sign-in service is request-billed (cpu_idle
 # = true, min 0), and every 6 h is far outside the ~15 min idle window, so no
 # idle cost (check-keep-warm-traffic.sh). Paused besides, see below.
 
@@ -142,9 +142,8 @@ resource "google_cloud_scheduler_job" "sciotte_login_canary" {
   time_zone        = "Etc/UTC"
   attempt_deadline = "320s"
 
-  # Paused 2026-10-22 by ChefFamille's call: the canary secrets hold a team
-  # member's own Garmin login, so every run was a real sign-in on their
-  # account. Resume only once the secrets name a dedicated canary account.
+  # Paused 2026-10-22: the canary secrets do not yet name a dedicated canary
+  # account. Resume only once they do.
   # While paused nothing runs, so nothing logs at ERROR and the job-failures
   # alert stays quiet: a Garmin sign-in breakage is again visible only as
   # athletes failing to connect.

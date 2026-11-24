@@ -1,10 +1,10 @@
 # ABOUTME: Every three hours, refreshes the provider captures of the athletes who chatted this week
-# ABOUTME: Keeps a scraped head current between daily sweeps, since a chat's own read lands after its reply
+# ABOUTME: Keeps a session-read head current between daily sweeps, since a chat's own read lands after its reply
 #
-# A scraped capture (sciotte Strava, Garmin, …) moves only when something reads
+# A session-read capture (sciotte Strava, Garmin, …) moves only when something reads
 # it. The daily sweep in monitor-capture-staleness.yml reads every live
 # connection once a day; between two sweeps the head moves only when the athlete
-# chats, and a chat's read drives a headless browser for 20-30 s against a 15 s
+# chats, and a chat's read can take 20-30 s against a 15 s
 # turn budget, so its result lands after the reply that needed it. On 2026-10-27
 # an athlete's 07:56 ride was missing from a 11:21 answer for exactly that reason
 # (carnet#1206).
@@ -14,9 +14,9 @@
 # `provider_connections.last_used_at` on the connection that answered, and
 # every capturable connection of that athlete then counts as active) and
 # passing over heads a fetch reached in the last two hours. An athlete who has
-# not chatted this week waits for the daily sweep, so the scraper is not woken
-# for everyone eight times a day.
-# Flagged scrape sessions are the one exception: every sweep also retries the
+# not chatted this week waits for the daily sweep, so the sciotte service is not
+# woken for everyone eight times a day.
+# Flagged provider sessions are the one exception: every sweep also retries the
 # ones whose retry is due, whoever owns them, and their own six-hour claim
 # (SCRAPE_SESSION_RETRY_INTERVAL_HOURS) holds each to four reads a day.
 #
@@ -42,7 +42,7 @@ on:
         default: "2"
 
 concurrency:
-  # Shared with the daily sweep: two sweeps at once would scrape the same heads.
+  # Shared with the daily sweep: two sweeps at once would read the same heads.
   group: monitor-capture-staleness
   cancel-in-progress: false
 
@@ -102,7 +102,7 @@ jobs:
             jq -r '"attempted \(.attempted) · refreshed \(.refreshed) · flagged \(.flagged) · failed \(.failed) · deferred \(.deferred) · coach accounts \(.coach_accounts) · skipped \(.skipped) · passed over \(.passed_over) · completed \(.completed)"' /tmp/refresh.json
           } >> "${GITHUB_STEP_SUMMARY}"
           # A transient failure is a head the athlete will be served stale
-          # from, and three in a row on 2026-10-30 were a scraper release that
+          # from, and three in a row on 2026-10-30 were a sciotte release that
           # could not read Strava at all: the lane went green on `failed: 0`
           # because nothing ever read that count (carnet#1278). A flagged
           # connection is the athlete's to reconnect and stays a count. So is

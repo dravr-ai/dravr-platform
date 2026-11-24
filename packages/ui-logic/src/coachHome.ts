@@ -23,7 +23,7 @@ import {
   COACH_ORDINAL_TITLE_PARAM,
   COACH_PLURAL_LINE_PARAM,
   countKey,
-  providerBrand,
+  providerName,
   signedWhole,
 } from '@pierre/shared-constants';
 import { ordinalKey } from '@pierre/chat-utils';
@@ -177,13 +177,6 @@ export function daysBetween(from: string, to: string): number | null {
   const a = civilDayNumber(from);
   const b = civilDayNumber(to);
   return Number.isNaN(a) || Number.isNaN(b) ? null : b - a;
-}
-
-/** A provider's brand name from its wire id; an id the brand table does not know is capitalised. */
-export function providerName(id: string): string {
-  const known = providerBrand(id.toLowerCase());
-  if (known !== null) return known;
-  return id.length === 0 ? id : `${id.charAt(0).toUpperCase()}${id.slice(1)}`;
 }
 
 /** The one letter (two for a longer name) a source chip prints. */

@@ -438,7 +438,7 @@ impl AuthService {
     async fn create_federated_user(&self, identity: &FederatedIdentity<'_>) -> AppResult<User> {
         self.admit_self_signup().await?;
         let email = identity.email.as_str();
-        let (user_status, approved_at, approved_by) = self.determine_approval_status(email).await;
+        let (user_status, approved_at, approved_by) = self.determine_approval_status(email).await?;
         let user_id = Uuid::new_v4();
         let display_name = identity
             .display_name
@@ -452,7 +452,6 @@ impl AuthService {
             display_name: identity.display_name.map(str::to_owned),
             password_hash: FEDERATED_ONLY_PASSWORD_HASH.to_owned(),
             tier: UserTier::Starter,
-            strava_token: None,
             created_at: now,
             last_active: now,
             is_active: true,

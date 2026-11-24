@@ -1321,7 +1321,7 @@ const REGISTRY_CONSTRUCTORS: [&str; 2] = [
 ];
 
 /// Whether `line` calls `constructor` by that exact path: the name is not
-/// the tail of a longer one (`LlmProviderRegistry::new(`).
+/// the tail of a longer one (a `FakeProviderRegistry::new(` is another type's).
 fn calls(line: &str, constructor: &str) -> bool {
     line.match_indices(constructor).any(|(at, _)| {
         !line[..at]

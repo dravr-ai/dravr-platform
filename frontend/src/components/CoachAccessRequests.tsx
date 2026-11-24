@@ -9,7 +9,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { CoachAccessRequestView } from '@pierre/shared-types';
 import { formatDate } from '@pierre/chat-utils';
 import { coachAccessAdminApi } from '../services/api';
-import { QUERY_KEYS } from '../constants/queryKeys';
+import { QUERY_KEYS } from '@pierre/shared-constants';
 import { Button, EmptyState, Section, Textarea } from './ui';
 import { ADMIN_LOCALE } from '../utils/adminLocale';
 import CoachSeatInvitations from './CoachSeatInvitations';

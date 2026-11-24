@@ -165,10 +165,6 @@ impl ChatRoutes {
                 "/api/chat/conversations/{conversation_id}/subject-plan/session-preview",
                 post(subject_session::preview_subject_session),
             )
-            .route(
-                "/api/chat/conversations/{conversation_id}/subject-plan/draft/days/{date}",
-                put(subject_session::put_subject_draft_day),
-            )
             // One session of the date, by its position and as the client saw
             // it: a family build, edited by hand or made a rest entry, put
             // back, removed; and a session added to the date (carnet#1714,

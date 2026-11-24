@@ -126,6 +126,9 @@ pub struct OAuth2Context {
     pub rate_limiter: Arc<OAuth2RateLimiter>,
     /// Refresh-token lifetime in days, the `REFRESH_TOKEN_EXPIRY_DAYS` sessions read too
     pub refresh_token_expiry_days: i64,
+    /// `Max-Age` of the sign-in cookie in seconds, the configured
+    /// `SESSION_COOKIE_MAX_AGE_SECS`
+    pub session_cookie_max_age_secs: u64,
     /// Mints and checks the consent form's synchronizer token: the form is
     /// plain HTML, so it cannot carry the `X-CSRF-Token` header the API's
     /// cookie sessions use
@@ -152,6 +155,10 @@ impl fmt::Debug for OAuth2Context {
             .field("config", &self.config)
             .field("rate_limiter", &self.rate_limiter)
             .field("refresh_token_expiry_days", &self.refresh_token_expiry_days)
+            .field(
+                "session_cookie_max_age_secs",
+                &self.session_cookie_max_age_secs,
+            )
             .field("csrf_manager", &self.csrf_manager)
             .field("accounts", &self.accounts)
             .field("google_sign_in", &self.google_sign_in)

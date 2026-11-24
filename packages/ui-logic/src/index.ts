@@ -1,15 +1,6 @@
 // ABOUTME: Main entry point for @pierre/ui-logic package
 // ABOUTME: Re-exports the headless UI hooks and the server-state hooks both clients bind
 
-// Button hook
-export {
-  type ButtonVariant,
-  type ButtonSize,
-  type UseButtonProps,
-  type UseButtonReturn,
-  useButton,
-} from './useButton';
-
 // Async action hook
 export {
   type AsyncActionState,
@@ -37,21 +28,8 @@ export {
   useToast,
 } from './useToast';
 
-// Form field hook and validators
-export {
-  type ValidationResult,
-  type Validator,
-  type UseFormFieldProps,
-  type UseFormFieldReturn,
-  useFormField,
-  // Common validators
-  required,
-  minLength,
-  maxLength,
-  email,
-  range,
-  pattern,
-} from './useFormField';
+// The password minimum and the e-mail shape every credential form checks
+export { MIN_PASSWORD_LENGTH, isEmailAddress, isPasswordLongEnough } from './credentialRules';
 
 export { useAbortOnClose } from './useAbortOnClose';
 export { isSignInPhaseLive, useSignInAttempt } from './useSignInAttempt';
@@ -151,6 +129,9 @@ export {
 } from './archiveImport';
 
 export { cardAwaitingHistory, cardExportSource } from './cardHistory';
+export { connectAction, followConnectPlan, type ConnectAction, type ConnectHandlers } from './connectDispatch';
+export { coachAddDraft, coachMention } from './coachDraft';
+export { orderTeam, teamInOrder, type OrderedTeam } from './team';
 
 export type { ImportTombstoneRefusal } from './importTombstone';
 export { describeRegistration } from './registration';
@@ -321,6 +302,8 @@ export {
   createAiConsentStateHook,
   createTransferConsentHook,
 } from './aiConsentHook';
+// The provider cards on the one provider-status key: every screen that connects or disconnects reads them here.
+export { type ProviderCards, type ProviderCardsOptions, createProviderCardsHook } from './providerCardsHook';
 // The "Who read your data" feed, and the one Connected-apps key and revoke it shares with both Connected-apps screens (carnet#1543).
 export {
   type AccessFeedApiKeyGroup,
@@ -569,7 +552,6 @@ export {
   nextPhase,
   planLastDay,
   providerLetter,
-  providerName,
   queueCount,
   queueWhen,
   reasonTitle,

@@ -71,6 +71,7 @@ fn oauth2_routes(resources: &Arc<ServerContext>) -> Router {
         jwks_manager: resources.auth.jwks_manager.clone(),
         config: Arc::new(resources.common.config.oauth2_server.clone()),
         refresh_token_expiry_days: 30,
+        session_cookie_max_age_secs: 86_400,
         csrf_manager: resources.auth.csrf_manager.clone(),
         accounts: resources.account_service(),
         google_sign_in: None,
@@ -912,7 +913,6 @@ async fn consenting_again_does_not_revive_a_token_from_before_the_revocation() {
                 audience: None,
             },
             &world.user_id,
-            &[],
             Some(world.tenant_id.to_string()),
         )
         .unwrap();
@@ -1102,7 +1102,6 @@ fn token_holding_every_scope(world: &World, connection: &Connection) -> String {
                 audience: None,
             },
             &world.user_id,
-            &[],
             Some(world.tenant_id.to_string()),
         )
         .unwrap()

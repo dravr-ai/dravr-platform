@@ -15,8 +15,6 @@ use serde_json::json;
 use std::str::FromStr;
 use tracing::{error, field, field::Empty, info, warn, Span};
 
-use pierre_routes_admin::auth::service::AdminAuthService;
-
 use crate::email_verification::issue_verification_email;
 use crate::password_attempts::meter_password_attempt;
 use crate::registration_sign_in::{registration_sign_in_code, PublicRegisterResponse};
@@ -28,17 +26,15 @@ use crate::AuthRoutesContext;
 use pierre_auth::password::verify_password;
 use pierre_auth::security::cookies::{clear_auth_cookie, set_auth_cookie, set_csrf_cookie};
 use pierre_config::constants::error_messages;
-use pierre_core::auth_header::extract_bearer_token_owned;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::{CoachingPersona, ColorScheme, TenantId, UserStatus, SUPPORTED_LOCALES};
 use pierre_middleware::PeerAddress;
 
 use pierre_auth::dto::auth::{
     AnalyticsConsentRequest, ChangePasswordRequest, CompleteResetRequest, FirebaseLoginRequest,
-    ForgotPasswordRequest, ForgotPasswordResponse, LogoutRequest, RegisterRequest,
-    RegisterResponse, SessionResponse, UpdateCoachingPersonaRequest, UpdateCoachingRoleRequest,
-    UpdateLocaleRequest, UpdateProfileRequest, UpdateProfileResponse, UpdateThemeRequest, UserInfo,
-    UserStatsResponse,
+    ForgotPasswordRequest, ForgotPasswordResponse, LogoutRequest, RegisterResponse,
+    SessionResponse, UpdateCoachingPersonaRequest, UpdateCoachingRoleRequest, UpdateLocaleRequest,
+    UpdateProfileRequest, UpdateProfileResponse, UpdateThemeRequest, UserInfo, UserStatsResponse,
 };
 
 use dravr_tronc::dates::{Elapsed, Timestamp};
@@ -59,84 +55,6 @@ pub(crate) fn record_new_account(response: &RegisterResponse) {
     let span = Span::current();
     span.record("user_id", field::display(&response.user_id));
     span.record("tenant_id", field::display(response.tenant_id));
-}
-
-/// Handle user registration (admin-authenticated)
-///
-/// REQUIRES: Admin authentication (Bearer token in Authorization header)
-///
-/// Security: Only administrators can create new users to prevent
-/// unauthorized user creation, database pollution, and `DoS` attacks.
-#[tracing::instrument(
-    skip(resources, headers, request),
-    fields(route = "admin_register", user_id = Empty, tenant_id = Empty, source = Empty, success = Empty)
-)]
-pub(crate) async fn handle_register(
-    State(resources): State<AuthRoutesContext>,
-    headers: HeaderMap,
-    Json(request): Json<RegisterRequest>,
-) -> Result<Response, AppError> {
-    // Extract and validate admin token
-    let auth_header = headers
-        .get("authorization")
-        .and_then(|h| h.to_str().ok())
-        .ok_or_else(|| {
-            AppError::auth_invalid(
-                "Missing Authorization header for user registration - admin token required",
-            )
-        })?;
-
-    let token = extract_bearer_token_owned(auth_header)
-        .map_err(|_| AppError::auth_invalid("Invalid Authorization header format"))?;
-
-    // Validate admin token
-    let admin_auth_service = AdminAuthService::new(
-        resources.repos.admin.clone(),
-        resources.repos.users.clone(),
-        resources.jwks_manager.clone(),
-    );
-
-    // Authenticate admin (no specific permission check - any valid admin token can register users)
-    admin_auth_service
-        .authenticate(&token, None)
-        .await
-        .map_err(|e| {
-            if e.is_server_fault() {
-                error!(error = %e, "Admin token check could not complete for user registration");
-            } else {
-                warn!(error = %e, "Failed to authenticate admin token for user registration");
-            }
-            e.into_auth_refusal("Admin authentication failed")
-        })?;
-
-    info!("Admin-authenticated user registration attempt");
-
-    let auth_service = resources.account_service();
-
-    match auth_service.register(request.clone()).await {
-        Ok(response) => {
-            // notify: record the new user and their personal tenant on the current
-            // span so the NotifyLayer attributes the user.signed_up event to that
-            // tenant without re-passing them.
-            record_new_account(&response);
-            info!(
-                target: "notify",
-                event = "user.signed_up",
-                source = "admin",
-                "user account created"
-            );
-            send_post_registration_email(&resources, &request.email, &response, false).await;
-            Ok((StatusCode::CREATED, Json(response)).into_response())
-        }
-        Err(e) => {
-            if e.is_server_fault() {
-                error!("Registration failed: {}", e);
-            } else {
-                warn!("Registration refused: {}", e);
-            }
-            Err(e)
-        }
-    }
 }
 
 /// Fire-and-forget post-registration email dispatch

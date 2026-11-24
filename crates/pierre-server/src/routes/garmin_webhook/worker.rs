@@ -46,6 +46,7 @@ use pierre_database::repositories::{
 };
 use pierre_providers::http_client::read_capped;
 use pierre_providers::request_budget::GARMIN_ACTIVITY_FILES;
+use pierre_services::backoff::doubling_backoff;
 use pierre_services::garmin_push::shares_activities;
 use pierre_services::garmin_push::{
     ingest_batch, parse_envelope, ActivityFile, BatchOutcome, GarminOwner, GarminPushHost, Retry,
@@ -64,7 +65,7 @@ use secrecy::ExposeSecret;
 use tracing::{error, info, warn};
 
 use crate::mcp::resources::ServerContext;
-use crate::routes::webhooks::{notify_owner, report_sync, stamp_last_sync};
+use crate::routes::webhooks::{report_sync, stamp_last_sync};
 use crate::services::activity_upload::MAX_UPLOAD_BYTES;
 use crate::services::grant_withdrawal::GrantWithdrawal;
 use dravr_tronc::dates::Elapsed;
@@ -100,10 +101,16 @@ fn duration_ms(duration: Duration) -> i64 {
     i64::try_from(duration.as_millis()).unwrap_or(i64::MAX)
 }
 
-/// The wait before the run after `attempts` runs.
+/// The wait before the run after `attempts` runs: [`FIRST_BACKOFF`] doubled
+/// per run before the last. It has no ceiling of its own, because a row is
+/// marked `failed` after [`MAX_ATTEMPTS`] runs.
 fn backoff_ms(attempts: i64) -> i64 {
-    let doublings = u32::try_from(attempts.saturating_sub(1).clamp(0, 16)).unwrap_or(0);
-    duration_ms(FIRST_BACKOFF).saturating_mul(1_i64 << doublings)
+    let earlier_failures = attempts.saturating_sub(1);
+    duration_ms(doubling_backoff(
+        FIRST_BACKOFF,
+        Duration::MAX,
+        earlier_failures,
+    ))
 }
 
 /// Run one leased row through the ingest and settle it: `done`, handed back
@@ -575,13 +582,7 @@ impl GarminPushHost for ServerHost {
         }
     }
 
-    async fn landed(
-        &self,
-        owner: GarminOwner,
-        kind: SummaryType,
-        stored: usize,
-        landed: Option<LandedSession>,
-    ) {
+    async fn landed(&self, owner: GarminOwner, kind: SummaryType, landed: Option<LandedSession>) {
         if kind == SummaryType::UserPermissionsChange {
             self.flag_if_activities_withdrawn(owner).await;
             return;
@@ -592,14 +593,8 @@ impl GarminPushHost for ServerHost {
         let tenant = owner.tenant_id.to_string();
         stamp_last_sync(&self.resources, owner.user_id, &tenant, GARMIN).await;
         report_sync(&self.resources, owner.user_id, &tenant, GARMIN, true).await;
-        notify_owner(
-            &self.resources,
-            owner.user_id,
-            GARMIN,
-            format!("Garmin {}: {stored} new records", kind.key()),
-        )
-        .await; // The push lands a workout through the same sink every live write
-                // hands its landing to, off the worker's path.
+        // The push lands a workout through the same sink every live write
+        // hands its landing to, off the worker's path.
         if let Some(session) = landed {
             use pierre_tool_runtime::runtime::SessionLandedSink;
 

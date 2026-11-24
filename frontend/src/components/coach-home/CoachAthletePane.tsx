@@ -25,6 +25,8 @@ import {
   VERDICT_CHIP_SEPARATOR,
   countKey,
   verdictChipLabel,
+  QUERY_KEYS,
+  providerName,
 } from '@pierre/shared-constants';
 import { useTranslation } from '@pierre/i18n';
 import {
@@ -36,14 +38,12 @@ import {
   describeSource,
   endedPlan,
   formatSyncTime,
-  providerName,
   sourceChipWords,
   sourceChips,
   trainingCut,
   type QueueEntry,
 } from '@pierre/ui-logic';
 import { coachRepliesApi } from '../../services/api';
-import { QUERY_KEYS } from '../../constants/queryKeys';
 import { BADGE_TONE, Button, EmptyState } from '../ui';
 import { AthleteAvatar, FormStrip, StatusDot } from './parts';
 import { phaseClass } from './phaseStyle';

@@ -1,4 +1,4 @@
-// ABOUTME: GET families, POST session-preview, the draft/days/{date} writes and each session's under /api/chat/conversations/{id}/subject-plan
+// ABOUTME: GET families, POST session-preview and each session's draft/days/{date}/{n} writes under /api/chat/conversations/{id}/subject-plan
 // ABOUTME: Pins the catalogue's ranges, a warn-only preview, the family and hand-written writes, add, remove, restore, and every refusal by its reason
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -287,24 +287,6 @@ impl Fixture {
         .await
     }
 
-    async fn put_day(
-        &self,
-        conversation: &str,
-        date: &str,
-        body: Value,
-        auth: &str,
-    ) -> (StatusCode, Value) {
-        self.request(
-            AxumTestRequest::put(&format!(
-                "{}/draft/days/{date}?locale=en",
-                Self::base(conversation)
-            ))
-            .json(&body),
-            auth,
-        )
-        .await
-    }
-
     /// `PUT …/draft/days/{date}/{n}`: a family build over session n.
     async fn put_session(
         &self,
@@ -464,6 +446,11 @@ fn athletes_session() -> Value {
     json!({ "sport": "run", "workout": ATHLETE_WORKOUT })
 }
 
+/// A family-build write's body: `build` over the session the card showed.
+fn over(expect: &Value, build: &Value) -> Value {
+    json!({ "build": build, "expect": expect })
+}
+
 fn short_intervals(params: &Value) -> Value {
     json!({ "family": FAMILY, "preset": "30_15", "sport": "ride", "params": params })
 }
@@ -497,7 +484,6 @@ async fn only_the_coachs_own_thread_about_an_athlete_opens_the_editor() {
     for (status, body) in [
         fx.families(&fx.thread, owner, "en").await,
         fx.preview(&fx.thread, preview.clone(), owner).await,
-        fx.put_day(&fx.thread, &date, build.clone(), owner).await,
         fx.put_session(&fx.thread, at, session_build.clone(), owner)
             .await,
         fx.put_hand_session(&fx.thread, at, easy_fifty(), &expect, owner)
@@ -533,7 +519,6 @@ async fn only_the_coachs_own_thread_about_an_athlete_opens_the_editor() {
     for (status, body) in [
         fx.families(&plain, coach, "en").await,
         fx.preview(&plain, preview.clone(), coach).await,
-        fx.put_day(&plain, &date, build.clone(), coach).await,
         fx.put_session(&plain, at, session_build.clone(), coach)
             .await,
         fx.put_hand_session(&plain, at, easy_fifty(), &expect, coach)
@@ -560,10 +545,6 @@ async fn only_the_coachs_own_thread_about_an_athlete_opens_the_editor() {
         .await
         .unwrap();
     for (write, (status, body)) in [
-        (
-            "family day",
-            fx.put_day(&fx.thread, &date, build, &key).await,
-        ),
         (
             "family session",
             fx.put_session(&fx.thread, at, session_build, &key).await,
@@ -810,10 +791,10 @@ async fn saving_a_day_opens_a_draft_with_it_generated_and_leaves_the_live_plan()
     let date = ymd(monday(1) + Elapsed::days(2));
 
     let (status, saved) = fx
-        .put_day(
+        .put_session(
             &fx.thread,
-            &date,
-            short_intervals(&json!({ "sets": 4 })),
+            (&date, 0),
+            over(&athletes_session(), &short_intervals(&json!({ "sets": 4 }))),
             &fx.coach.auth,
         )
         .await;
@@ -935,11 +916,12 @@ async fn a_day_saved_into_an_open_draft_keeps_the_weeks_other_days() {
     let draft_id = before["draft_state"]["draft_id"].clone();
 
     let date = ymd(monday(1) + Elapsed::days(3));
+    let drafted_run = json!({ "sport": "run", "workout": COACH_WORKOUT });
     let (status, saved) = fx
-        .put_day(
+        .put_session(
             &fx.thread,
-            &date,
-            json!({ "family": FAMILY, "sport": "run" }),
+            (&date, 0),
+            over(&drafted_run, &json!({ "family": FAMILY, "sport": "run" })),
             &fx.coach.auth,
         )
         .await;
@@ -1011,13 +993,9 @@ async fn a_day_saved_into_an_open_draft_keeps_the_weeks_other_days() {
 async fn a_date_no_week_holds_and_a_plan_that_does_not_exist_write_nothing() {
     let fx = Fixture::new(true).await;
     let far = ymd(monday(6));
+    let build = over(&athletes_session(), &short_intervals(&json!({})));
     let (status, body) = fx
-        .put_day(
-            &fx.thread,
-            &far,
-            short_intervals(&json!({})),
-            &fx.coach.auth,
-        )
+        .put_session(&fx.thread, (&far, 0), build.clone(), &fx.coach.auth)
         .await;
     assert_eq!(
         status,
@@ -1032,12 +1010,7 @@ async fn a_date_no_week_holds_and_a_plan_that_does_not_exist_write_nothing() {
     assert!(!fx.has_draft().await, "bug: a refused write opened a draft");
 
     let (status, body) = fx
-        .put_day(
-            &fx.thread,
-            "2026-13-40",
-            short_intervals(&json!({})),
-            &fx.coach.auth,
-        )
+        .put_session(&fx.thread, ("2026-13-40", 0), build.clone(), &fx.coach.auth)
         .await;
     assert_eq!(
         status,
@@ -1052,12 +1025,7 @@ async fn a_date_no_week_holds_and_a_plan_that_does_not_exist_write_nothing() {
 
     let bare = Fixture::new(false).await;
     let (status, body) = bare
-        .put_day(
-            &bare.thread,
-            &ymd(monday(1)),
-            short_intervals(&json!({})),
-            &bare.coach.auth,
-        )
+        .put_session(&bare.thread, (&ymd(monday(1)), 0), build, &bare.coach.auth)
         .await;
     assert_eq!(
         status,
@@ -1259,10 +1227,10 @@ async fn a_family_build_over_a_day_is_marked_edited_and_restores() {
     let date = ymd(monday(1) + Elapsed::days(2));
 
     let (status, saved) = fx
-        .put_day(
+        .put_session(
             &fx.thread,
-            &date,
-            short_intervals(&json!({})),
+            (&date, 0),
+            over(&athletes_session(), &short_intervals(&json!({}))),
             &fx.coach.auth,
         )
         .await;
@@ -1809,7 +1777,7 @@ async fn a_date_holds_five_sessions_one_rest_and_takes_a_session_where_it_held_n
 }
 
 #[tokio::test]
-async fn the_released_put_writes_the_dates_first_entry_and_a_build_lands_by_position() {
+async fn a_build_lands_on_the_session_its_position_names_and_leaves_the_dates_others() {
     let fx = Fixture::new(true).await;
     let date = ymd(monday(1) + Elapsed::days(2));
     let coach = fx.coach.auth.as_str();
@@ -1818,15 +1786,19 @@ async fn the_released_put_writes_the_dates_first_entry_and_a_build_lands_by_posi
         .await;
     assert_eq!(status, StatusCode::OK, "fixture: the coach adds a session");
 
-    // The route released app builds call names no session: it builds over
-    // the date's first entry and leaves the second.
+    // A build over the date's first session leaves the second.
     let (status, saved) = fx
-        .put_day(&fx.thread, &date, short_intervals(&json!({})), coach)
+        .put_session(
+            &fx.thread,
+            (&date, 0),
+            over(&athletes_session(), &short_intervals(&json!({}))),
+            coach,
+        )
         .await;
     assert_eq!(
         status,
         StatusCode::OK,
-        "bug: the released PUT still saves: {saved}"
+        "bug: a family build over session 0 saves: {saved}"
     );
     let entries = entries_of(&saved["draft"], &date);
     assert!(
@@ -1834,7 +1806,7 @@ async fn the_released_put_writes_the_dates_first_entry_and_a_build_lands_by_posi
             && entries[0]["template_slug"] == FAMILY
             && entries[0]["edited"] == json!({ "workout": ATHLETE_WORKOUT, "rest": false })
             && entries[1]["workout"] == "Core 20 min",
-        "bug: the released PUT builds over position 0 only: {entries:?}"
+        "bug: the build over session 0 lands on position 0 only: {entries:?}"
     );
 
     // A build by position lands on the session it names.
@@ -1842,7 +1814,7 @@ async fn the_released_put_writes_the_dates_first_entry_and_a_build_lands_by_posi
         .put_session(
             &fx.thread,
             (&date, 1),
-            json!({ "build": short_intervals(&json!({})), "expect": seen(entries[1]) }),
+            over(&seen(entries[1]), &short_intervals(&json!({}))),
             coach,
         )
         .await;

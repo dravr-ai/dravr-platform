@@ -7,17 +7,13 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { AvailableChannel, ChannelLink, LinkInitResponse } from '@pierre/api-client';
-import { CHANNEL_LINK_POLL_INTERVAL_MS } from '@pierre/shared-constants';
+import { CHANNEL_LINK_POLL_INTERVAL_MS, QUERY_KEYS } from '@pierre/shared-constants';
 import { useTranslation } from '@pierre/i18n';
 import { describeApiError } from '@pierre/ui-logic';
 import { messagingLinkApi } from '../../services/api';
 import { ConfirmDialog, EmptyState, Modal, Section } from '../ui';
 import ChannelLinkPanel from '../ChannelLinkPanel';
 import { useAvailableChannels } from '../../hooks/useAvailableChannels';
-
-// The same cache entries the chat-app sheet reads, so a link made in either
-// place is already known to the other.
-const LINKS_QUERY_KEY = ['messaging-links'] as const;
 
 /** Stable empty list, so a missing or malformed links read keeps identity across renders. */
 const EMPTY_LINKS: ChannelLink[] = [];
@@ -69,7 +65,7 @@ export default function ChatAppLinks() {
   const waitingFor = awaited?.channel ?? null;
 
   const linksQuery = useQuery({
-    queryKey: LINKS_QUERY_KEY,
+    queryKey: QUERY_KEYS.messaging.links(),
     queryFn: () => messagingLinkApi.listLinks(),
     // Poll only while a started link is still live; the wait ends the moment
     // the channel appears or the code expires, so an idle pane asks nothing.
@@ -104,7 +100,7 @@ export default function ChatAppLinks() {
     onMutate: () => setActionError(null),
     onSuccess: () => {
       setLinkToRemove(null);
-      return queryClient.invalidateQueries({ queryKey: LINKS_QUERY_KEY });
+      return queryClient.invalidateQueries({ queryKey: QUERY_KEYS.messaging.links() });
     },
     onError: (err) => {
       setLinkToRemove(null);

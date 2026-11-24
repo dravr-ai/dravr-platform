@@ -11,6 +11,7 @@ import { File, Paths } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import { ENDPOINTS, type OriginalsBundle } from '@pierre/api-client';
 import { parseOriginalsSignedDownload } from '@pierre/shared-types';
+import { formatDate } from '@pierre/chat-utils';
 import { useTranslation } from '@pierre/i18n';
 import { QUERY_KEYS } from '@pierre/shared-constants';
 import {
@@ -100,7 +101,7 @@ export function OriginalsBundlePanel(): React.JSX.Element {
   });
   const current = latest.data ?? null;
   const followed = useQuery({
-    queryKey: ['originals-bundle', current?.bundleId],
+    queryKey: QUERY_KEYS.account.originalsBundle(current?.bundleId),
     queryFn: async () => remember(await originalsApi.getOriginals(current!.bundleId)),
     enabled: originalsStillBuilding(current),
     refetchInterval: (query) =>
@@ -134,7 +135,7 @@ export function OriginalsBundlePanel(): React.JSX.Element {
 
   const sealOk = sealPassphraseAccepted(passphrase);
   const building = originalsStillBuilding(bundle);
-  const expires = bundle ? new Date(bundle.expiresAt).toLocaleDateString(i18n.language) : '';
+  const expires = bundle ? formatDate(bundle.expiresAt, i18n.language) : '';
 
   return (
     <View className="gap-3 px-4 pt-4" testID="originals-bundle-panel">

@@ -30,27 +30,9 @@ use std::sync::Arc;
 use common::{create_test_server_resources, create_test_user};
 use dravr_tronc::dates::Elapsed;
 use dravr_tronc::dates::Timestamp;
-use pierre_core::errors::AppError;
-use pierre_core::models::{
-    ActivityBuilder, OAuthNotification, RefreshConfig, SportType, UserOAuthToken,
-};
-use pierre_services::provider_refresh::{RefreshService, SyncNotifier};
+use pierre_core::models::{ActivityBuilder, RefreshConfig, SportType, UserOAuthToken};
+use pierre_services::provider_refresh::RefreshService;
 use uuid::Uuid;
-
-/// No-op notifier: the refresh service requires a `SyncNotifier`, but these
-/// tests assert on freshness classification, not SSE delivery.
-struct NoopNotifier;
-
-#[async_trait::async_trait]
-impl SyncNotifier for NoopNotifier {
-    async fn send_notification(
-        &self,
-        _user_id: Uuid,
-        _notification: &OAuthNotification,
-    ) -> Result<(), AppError> {
-        Ok(())
-    }
-}
 
 /// Seed a sciotte session token so `get_provider_freshness` iterates the
 /// provider, mirroring what `store_sciotte_session` writes after login.
@@ -102,7 +84,6 @@ async fn sciotte_with_no_cache_is_reported_stale_not_fresh() {
         repos.activity_cache.clone(),
         Arc::clone(repos),
         None,
-        Arc::new(NoopNotifier),
     );
 
     let status = service
@@ -185,7 +166,6 @@ async fn sciotte_with_fresh_cache_is_reported_fresh() {
         repos.activity_cache.clone(),
         Arc::clone(repos),
         None,
-        Arc::new(NoopNotifier),
     );
 
     let status = service

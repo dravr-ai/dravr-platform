@@ -11,6 +11,9 @@ export { CHAT_APP_OFFER_STEP_ID, chatAppOfferAnswered, offeredChatApp } from './
 // The team-issued coach-seat invitation's settled steps on the progress bar
 export { settledByInviteLine, settledByInviteSegments } from './coach-invite';
 
+// The group invite link: the link a code is shared as, and the code its path names
+export { groupInviteCodeFromPath, groupInviteLink } from './invite-link';
+
 // Agent tuning bounds (mirrors the server-side range checks)
 export {
   MIN_MAX_TOOL_ITERATIONS,
@@ -18,11 +21,13 @@ export {
   DEFAULT_MAX_TOOL_ITERATIONS,
   COACH_CATEGORY_LABEL_KEY,
   coachCategoryLabelKey,
+  coachCategoryPillar,
   COACH_TOOL_TAG,
   isCoachFacing,
   groupAgentChoices,
   defaultGroupAgent,
 } from './coaches';
+export type { CategoryPillar } from './coaches';
 
 // Design system (Boreal Editorial colors, typography, spacing, effects)
 export {
@@ -48,7 +53,6 @@ export {
   providerGlyphInk,
   GRADIENT_COLORS,
   AMBIENT_SHADOW,
-  AI_GLOW,
   BUTTON_GLOW,
   TYPOGRAPHY,
   BRAND_TRACKING,
@@ -313,6 +317,9 @@ export {
   weeklyReportRecommendations,
   weeklyVolume,
   weeklyVolumeFigure,
+  DIGEST_MODES,
+  DIGEST_MODE_ORDER,
+  canManageGroup,
 } from './groups';
 
 // Coaching-platform link vocabulary: each refusal the group's link routes

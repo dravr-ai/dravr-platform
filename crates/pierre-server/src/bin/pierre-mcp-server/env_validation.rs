@@ -98,13 +98,13 @@ pub(crate) fn validate_required_environment() -> Result<()> {
             name: "WHOOP_CLIENT_ID",
             value: credential_env("WHOOP_CLIENT_ID"),
             required: false,
-            description: "Whoop OAuth application client ID for the shared Dravr-owned Whoop app. When set (with WHOOP_CLIENT_SECRET), Whoop connects via one-tap OAuth consent; when unset, Whoop falls back to bring-your-own OAuth app.",
+            description: "WHOOP OAuth application client ID for the shared Dravr-owned WHOOP app. When set (with WHOOP_CLIENT_SECRET), WHOOP connects via one-tap OAuth consent; when unset, WHOOP falls back to bring-your-own OAuth app.",
         },
         EnvValidation {
             name: "WHOOP_CLIENT_SECRET",
             value: credential_env("WHOOP_CLIENT_SECRET"),
             required: false,
-            description: "Whoop OAuth application client secret for the shared Dravr-owned Whoop app.",
+            description: "WHOOP OAuth application client secret for the shared Dravr-owned WHOOP app.",
         },
     ];
 

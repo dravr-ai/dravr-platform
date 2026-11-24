@@ -7,7 +7,7 @@
 //! # Coach platforms
 //!
 //! A coach whose athletes train on a coaching platform reads them through
-//! the coach's own account there: `TrainingPeaks` through the coach's scraper
+//! the coach's own account there: `TrainingPeaks` through the coach's signed-in
 //! session, Intervals.icu through the coach's personal API key, any other
 //! platform through the OAuth grant or API key stored by the human coach. The
 //! linking flow (`crate::delegated_connections`) and the read path are the

@@ -80,7 +80,7 @@ interface ChatInputBarProps {
  * The bar is paper with a top hairline, laid out under the message list; the
  * screen's `KeyboardAvoidingView` moves it with the keyboard. Its leading slot
  * is empty — typing `/` opens the command palette, and the empty thread's
- * hint sentence is what tells a new athlete so (Boreal v2.2 P3.3, P3.4).
+ * hint sentence is what tells a new athlete so.
  */
 /** The bar's own breathing room under the field, keyboard up or down. */
 const BAR_BOTTOM_PADDING = 8;

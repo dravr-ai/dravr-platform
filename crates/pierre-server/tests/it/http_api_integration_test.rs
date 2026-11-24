@@ -27,7 +27,7 @@ use pierre_config::environment::{
     GoalManagementConfig, HttpClientConfig, LogLevel, LoggingConfig, McpConfig, MonitoringConfig,
     OAuth2ServerConfig, OAuthConfig, OAuthProviderConfig, PostgresPoolConfig, ProtocolConfig,
     RateLimitConfig, SciotteServiceConfig, SecurityConfig, SecurityHeadersConfig, ServerConfig,
-    SleepToolParamsConfig, SseConfig, StravaApiConfig, TlsConfig, TokioRuntimeConfig,
+    SessionCookieConfig, SleepToolParamsConfig, StravaApiConfig, TlsConfig, TokioRuntimeConfig,
     TrainingZonesConfig,
 };
 use pierre_core::models::CoachingPersona;
@@ -82,7 +82,6 @@ async fn setup_test_context() -> Result<(Arc<Database>, Arc<ServerContext>, Tena
         display_name: Some("Admin".to_owned()),
         password_hash: "hash".to_owned(),
         tier: UserTier::Starter,
-        strava_token: None,
         created_at: Timestamp::now(),
         last_active: Timestamp::now(),
         is_active: true,
@@ -216,7 +215,7 @@ async fn setup_test_context() -> Result<(Arc<Database>, Arc<ServerContext>, Tena
                 server_version: env!("CARGO_PKG_VERSION").to_owned(),
             },
         },
-        sse: SseConfig::default(),
+        session_cookie: SessionCookieConfig::default(),
         oauth2_server: OAuth2ServerConfig::default(),
         host: "localhost".to_owned(),
         base_url: "http://localhost:8081".to_owned(),

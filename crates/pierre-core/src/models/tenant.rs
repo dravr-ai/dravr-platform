@@ -50,9 +50,9 @@
 //!   closes the deliberate one.
 //! - **Holding a `TenantId` proves nothing about authorization.** It does not
 //!   mean the caller belongs to that tenant. Membership is verified in
-//!   `pierre_middleware::tenant` (`verify_tenant_membership`), and this type
-//!   does not carry that verdict. Do not read a `TenantId` parameter as
-//!   "already authorized".
+//!   `pierre_runtime_context::tenant::resolve_tenant`, and this type does not
+//!   carry that verdict. Do not read a `TenantId` parameter as "already
+//!   authorized".
 
 use dravr_tronc::dates::Timestamp;
 use secrecy::SecretString;
@@ -139,9 +139,10 @@ impl TenantId {
     /// The name deliberately claims nothing about trust. Some callers pass a
     /// `tenant_id` column the server wrote; others pass a request header the
     /// client controls. **Parsing is not authorization** — a well-formed UUID
-    /// says only that it is well-formed. Membership is verified separately in
-    /// `pierre_middleware::tenant`, and callers on the client-input paths must
-    /// do that before the value is used to scope anything.
+    /// says only that it is well-formed. Membership is verified separately by
+    /// `pierre_runtime_context::tenant::resolve_tenant`, and callers on the
+    /// client-input paths must do that before the value is used to scope
+    /// anything.
     ///
     /// # Errors
     /// Returns `uuid::Error` when `s` is not a valid UUID.

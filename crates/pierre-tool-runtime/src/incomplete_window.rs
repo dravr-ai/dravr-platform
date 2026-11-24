@@ -21,21 +21,23 @@
 //! [`incomplete_window_in_payload`] is the one reader both shapes go through,
 //! and [`IncompleteWindows`] is that store.
 
+use pierre_core::constants::tools::identifiers::{GET_ACTIVITIES, GET_STATS, QUERY_ACTIVITIES};
 use pierre_core::models::coverage::IncompleteReason;
 use serde_json::Value;
 
 use crate::guardian::TurnKey;
 use crate::turn_store::{Stamp, TurnStore};
 
-/// The tools whose result carries a window's coverage, and where each
-/// carries it (a JSON pointer): a count stated over one that is short of the
-/// ask is re-asked. `get_stats` keeps its totals under `stats`, so its
-/// coverage sits there.
+/// The tools whose result carries a window's coverage, and where each carries it (a JSON pointer):
+/// a count stated over one that is short of the ask is re-asked.
+///
+/// `get_stats` keeps its totals under `stats`, so its coverage sits there. Each name is pinned to a
+/// data tool's own definition by this module's tests.
 const COUNTED_WINDOW_TOOLS: [(&str, &str); 4] = [
-    ("get_activities", "/coverage"),
+    (GET_ACTIVITIES, "/coverage"),
     ("get_segment_history", "/coverage"),
-    ("get_stats", "/stats/coverage"),
-    ("query_activities", "/coverage"),
+    (GET_STATS, "/stats/coverage"),
+    (QUERY_ACTIVITIES, "/coverage"),
 ];
 
 /// Whether one tool payload is a counted window ([`COUNTED_WINDOW_TOOLS`])
@@ -236,6 +238,25 @@ mod tests {
             ),
             "bug: a shallow history is the truth the store holds, not a count short of the ask"
         );
+    }
+
+    /// The names are matched as strings, so a renamed tool would silently
+    /// switch its count guard off; pin them to the data tools' own definitions.
+    #[cfg(feature = "tools-data")]
+    #[test]
+    fn counted_window_tools_are_the_data_tools_own_names() {
+        use crate::implementations::data::create_data_tools;
+
+        let registered: Vec<String> = create_data_tools()
+            .iter()
+            .map(|tool| tool.definition().name)
+            .collect();
+        for (name, _) in COUNTED_WINDOW_TOOLS {
+            assert!(
+                registered.iter().any(|tool| tool == name),
+                "{name} is not a registered data tool: {registered:?}"
+            );
+        }
     }
 
     #[test]

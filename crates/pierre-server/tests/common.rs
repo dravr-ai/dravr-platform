@@ -189,7 +189,7 @@ pub(crate) fn init_test_logging() {
 /// Safe to call multiple times - initialization happens only once due to `Once` guard.
 pub(crate) fn init_test_http_clients() {
     INIT_HTTP_CLIENTS.call_once(|| {
-        utils::http_client::initialize_http_clients(HttpClientConfig::default());
+        utils::http_client::initialize_http_clients(&HttpClientConfig::default());
     });
 }
 
@@ -352,9 +352,10 @@ pub(crate) async fn create_test_user_with_plan(
 
 /// Generate a JWT token for a test user that includes their `active_tenant_id`.
 ///
-/// Route handlers require `active_tenant_id` in the JWT claims to resolve the
-/// user's tenant. This helper looks up the user's tenant from the database and
-/// includes it in the generated token.
+/// Route handlers check the claimed `active_tenant_id` against the user's
+/// memberships; a token naming none acts in the user's first tenant. This
+/// helper looks up the user's tenant from the database and includes it in the
+/// generated token.
 pub(crate) async fn generate_test_token(resources: &Arc<ServerContext>, user: &User) -> String {
     let repos = resources.agent.database.repositories();
     let tenants = repos.tenants.list_for_user(user.id).await.unwrap();
@@ -453,7 +454,6 @@ pub(crate) fn delegated_test_token_for_tenant(
                 audience: None,
             },
             &user_id,
-            &[],
             tenant_id,
         )
         .unwrap()

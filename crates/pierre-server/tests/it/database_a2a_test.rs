@@ -47,7 +47,6 @@ async fn create_test_client_with_window(
         display_name: Some(format!("Test User {unique_id}")),
         password_hash: format!("test_hash_{unique_id}"),
         tier: UserTier::Professional,
-        strava_token: None,
         is_active: true,
         user_status: UserStatus::Active,
         role: UserRole::User,

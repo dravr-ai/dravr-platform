@@ -35,6 +35,7 @@ use pierre_database::repositories::user_invitations::invalid_invitation;
 use pierre_runtime_context::DataContext;
 
 use crate::admin_mail::PendingSignupMail;
+use crate::admin_settings::get_auto_approval_settings;
 use crate::analytics::{analytics, cache_user_email, hash_id};
 use crate::default_agent::first_athlete_facing;
 use crate::import_tombstones::{email_held, pending_email_tombstone};
@@ -194,9 +195,8 @@ impl AuthService {
     /// with appropriate approval status, provisions a personal tenant, and
     /// raises the `user.signed_up` notify event.
     ///
-    /// This is the admin's door too (the admin register route), so it
-    /// applies no sign-up bound; a stranger's door goes through
-    /// [`Self::self_register`].
+    /// It applies no sign-up bound, and no HTTP route reaches it: a
+    /// stranger's door goes through [`Self::self_register`].
     ///
     /// # Errors
     /// Returns error if user validation fails or database operation fails
@@ -242,7 +242,7 @@ impl AuthService {
 
         // Check if user should be auto-approved (global setting, domain
         // allow-list, or a per-email pre-approval carrying its admin)
-        let approval = self.determine_approval_status(&email).await;
+        let approval = self.determine_approval_status(&email).await?;
         let self_activates = self_serve
             && ((code_vouched && !email_held(self.data.repos(), &email).await)
                 || self.activates_on_verified(&email).await);
@@ -749,29 +749,15 @@ impl AuthService {
         Ok(Some(tenant_id.to_string()))
     }
 
-    /// Check if global auto-approval is enabled (ignores domain allow-list).
+    /// Whether global auto-approval is on (ignores the domain allow-list).
     ///
-    /// Precedence order:
-    /// 1. Environment variable (if explicitly set via `AUTO_APPROVE_USERS`)
-    /// 2. Database setting (if present in `system_settings` table)
-    /// 3. Default value (false)
-    async fn is_auto_approval_enabled(&self) -> bool {
-        // Environment variable takes precedence when explicitly set
-        if self.config.app_behavior.auto_approve_users_from_env {
-            return self.config.app_behavior.auto_approve_users;
-        }
-
-        // Fall back to database setting if present
-        match self.data.database().is_auto_approval_enabled().await {
-            Ok(Some(db_setting)) => db_setting,
-            Ok(None) => self.config.app_behavior.auto_approve_users,
-            Err(e) => {
-                tracing::warn!(
-                    "Failed to check auto-approval setting, falling back to config: {e}"
-                );
-                self.config.app_behavior.auto_approve_users
-            }
-        }
+    /// [`get_auto_approval_settings`] owns the env > database > default
+    /// precedence; a failed read of the stored row is the caller's error, so
+    /// no account is created under a posture nobody chose.
+    async fn is_auto_approval_enabled(&self) -> AppResult<bool> {
+        let settings =
+            get_auto_approval_settings(self.data.database(), &self.config.app_behavior).await?;
+        Ok(settings.enabled)
     }
 
     /// Fetch the standing per-email pre-approval for `email`, if any.
@@ -815,32 +801,35 @@ impl AuthService {
     /// - The address is on the per-email pre-approval list (`pierre-cli user
     ///   allow --email X`), OR
     /// - The email domain is in the `AUTO_APPROVE_DOMAINS` allow-list
-    async fn should_auto_approve_email(&self, email: &str) -> bool {
-        if self.is_auto_approval_enabled().await {
-            return true;
+    ///
+    /// # Errors
+    /// Returns an error if the stored auto-approval setting cannot be read.
+    async fn should_auto_approve_email(&self, email: &str) -> AppResult<bool> {
+        if self.is_auto_approval_enabled().await? {
+            return Ok(true);
         }
 
         if self.pre_approval_for(email).await.is_some() {
             tracing::debug!("Auto-approving pre-approved email");
-            return true;
+            return Ok(true);
         }
 
         let domains = &self.config.app_behavior.auto_approve_domains;
         if domains.is_empty() {
-            return false;
+            return Ok(false);
         }
 
         // Extract domain from email (lowercase for case-insensitive comparison)
         let email_domain = match email.rsplit_once('@') {
             Some((_, domain)) => domain.to_lowercase(),
-            None => return false,
+            None => return Ok(false),
         };
 
         let approved = domains.iter().any(|d| d == &email_domain);
         if approved {
             tracing::debug!(email_domain = %email_domain, "Auto-approving user from allowed domain");
         }
-        approved
+        Ok(approved)
     }
 
     /// Determine user approval status from the per-email pre-approval list,
@@ -851,24 +840,27 @@ impl AuthService {
     /// the global switch and domain list are policy, not a person, and leave
     /// it `None`. An email a deleted account's tombstone holds is admitted by
     /// no rule: it waits Pending for an admin or an explicit clear.
+    ///
+    /// # Errors
+    /// Returns an error if the stored auto-approval setting cannot be read.
     async fn determine_approval_status(
         &self,
         email: &str,
-    ) -> (UserStatus, Option<Timestamp>, Option<uuid::Uuid>) {
+    ) -> AppResult<(UserStatus, Option<Timestamp>, Option<uuid::Uuid>)> {
         let now = Timestamp::now();
         if email_held(self.data.repos(), email).await {
-            return (UserStatus::Pending, None, None);
+            return Ok((UserStatus::Pending, None, None));
         }
         if let Some(entry) = self.pre_approval_for(email).await {
             tracing::debug!("Auto-approval granted via pre-approved email");
             let approved_by = self.existing_admin(entry.allowed_by).await;
-            return (UserStatus::Active, Some(now), approved_by);
+            return Ok((UserStatus::Active, Some(now), approved_by));
         }
-        if self.should_auto_approve_email(email).await {
+        if self.should_auto_approve_email(email).await? {
             tracing::debug!("Auto-approval granted for new user");
-            (UserStatus::Active, Some(now), None)
+            Ok((UserStatus::Active, Some(now), None))
         } else {
-            (UserStatus::Pending, None, None)
+            Ok((UserStatus::Pending, None, None))
         }
     }
 

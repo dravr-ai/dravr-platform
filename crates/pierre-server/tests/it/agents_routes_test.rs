@@ -640,12 +640,21 @@ async fn test_version_reads_denied_for_non_owner_same_tenant() {
         .expect("test user owns a tenant");
     let owner_tenant = Some(owner_tenant_id.to_string());
 
-    // Attacker: a DIFFERENT user, but carrying the victim's active tenant in
-    // their JWT so the request is same-tenant, different-user.
-    let (_attacker_id, attacker) =
+    // Attacker: a DIFFERENT user who is a member of the victim's tenant and
+    // names it in their JWT, so the request is same-tenant, different-user. The
+    // membership row is what makes it so: a token that only claims the tenant
+    // is refused before the ownership check under test is reached.
+    let (attacker_id, attacker) =
         create_test_user_with_email(&resources.agent.database, "attacker@example.com")
             .await
             .unwrap();
+    resources
+        .common
+        .repos
+        .users
+        .update_tenant_id(attacker_id, owner_tenant_id)
+        .await
+        .unwrap();
     let attacker_token = format!(
         "Bearer {}",
         resources

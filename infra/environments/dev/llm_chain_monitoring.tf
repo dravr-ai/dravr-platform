@@ -57,7 +57,7 @@ resource "google_logging_metric" "llm_tier_quota" {
   # limited or out of quota: anthropic#2: credit balance exhausted: ...").
   # The extractor reads the tier from either shape, so a spent Anthropic
   # credit (HTTP 402, a RateLimit since embacle 0.35) is labelled with the
-  # pool account that refused: anthropic, anthropic#2, ...
+  # credential that refused: anthropic, anthropic#2, ...
   filter = <<-EOT
     resource.type="cloud_run_revision"
     resource.labels.service_name="${var.service_name}-api"

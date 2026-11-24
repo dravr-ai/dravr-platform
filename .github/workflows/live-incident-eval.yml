@@ -15,19 +15,19 @@
 # WHOSE MODEL ANSWERS
 #
 # Dev's chain, PIERRE_LLM_CHAIN read from infra/environments/dev/main.tf so the lane
-# follows it: anthropic serving the coaching model on the Messages API and its second
-# and third organizations (anthropic#2, anthropic#3), then copilot_sdk on its own model, then claude_code and
-# its second account (claude-code#2), then gemini. Every tier runs on the live dev
-# credential, from the Secret Manager entry the service reads; the two account probes
-# check the Copilot and first Claude ones every morning (copilot-health-probe.yml,
+# follows it: anthropic serving the coaching model on the Messages API and its additional
+# credentials (anthropic#2, anthropic#3), then copilot_sdk on its own model, then claude_code and
+# its additional credential (claude-code#2), then gemini. Every tier runs on the live dev
+# credential, from the Secret Manager entry the service reads; the two credential probes
+# check the copilot_sdk and first claude_code ones every morning (copilot-health-probe.yml,
 # claude-health-probe.yml).
 #
 # The whole chain runs, not its head alone (decided 2026-10-12, carnet#504): a turn the
 # head cannot serve — a spent credit, a timeout, an empty answer — is re-run down the
 # chain, as it is for an athlete, and that answer is what gets graded. The server log
 # marks such a turn with "Runtime LLM fallback engaged". The cost of that choice is
-# stated rather than hidden: this lane spends the Anthropic organizations' credit,
-# and a spent credit spends the Copilot and Claude accounts behind it.
+# stated rather than hidden: this lane spends the primary tier's budget,
+# and a refused head spends the fallback tiers behind it.
 #
 # HOW AN OUTAGE STAYS OUT OF THE FINDINGS
 #
@@ -257,8 +257,8 @@ jobs:
               echo "::error::PIERRE_LLM_CHAIN entry '${ENTRY}' (${SOURCE}) names no model" >&2
               exit 1
             fi
-            # `provider#N=model` sets a pooled account's model, not a tier:
-            # the account comes with its provider's numbered credential.
+            # `provider#N=model` sets an additional credential's model, not a tier:
+            # it comes with its provider's numbered credential.
             case "${ENTRY%%=*}" in *'#'*) continue ;; esac
             PROVIDER="${ENTRY%%=*}"
             if [ -n "${CHAIN_INPUT}" ]; then

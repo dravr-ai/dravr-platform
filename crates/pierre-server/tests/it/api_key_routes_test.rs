@@ -22,7 +22,7 @@ use pierre_config::environment::{
     GoalManagementConfig, HttpClientConfig, LogLevel, LoggingConfig, McpConfig, MonitoringConfig,
     OAuth2ServerConfig, OAuthConfig, OAuthProviderConfig, PostgresPoolConfig, ProtocolConfig,
     RateLimitConfig, SciotteServiceConfig, SecurityConfig, SecurityHeadersConfig, ServerConfig,
-    SleepToolParamsConfig, SseConfig, StravaApiConfig, TlsConfig, TokioRuntimeConfig,
+    SessionCookieConfig, SleepToolParamsConfig, StravaApiConfig, TlsConfig, TokioRuntimeConfig,
     TrainingZonesConfig,
 };
 use pierre_core::models::User;
@@ -173,7 +173,7 @@ async fn create_test_setup() -> (ApiKeyRoutes, Uuid, AuthResult) {
                             server_version: env!("CARGO_PKG_VERSION").to_owned(),
                         },
                     },
-                    sse: SseConfig::default(),
+                    session_cookie: SessionCookieConfig::default(),
                     oauth2_server: OAuth2ServerConfig::default(),
                     host: "localhost".to_owned(),
                     base_url: "http://localhost:8081".to_owned(),

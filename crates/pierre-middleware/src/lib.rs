@@ -7,7 +7,7 @@
 //! # Pierre Middleware
 //!
 //! Axum-based HTTP middleware shared across every Pierre transport (REST, MCP,
-//! A2A, messaging webhooks). Auth (JWT + API key + cookie), tenant resolution,
+//! A2A, messaging webhooks). Auth (JWT + API key + cookie),
 //! CSRF, CORS, rate limiting, redaction, tracing, request-id propagation, and
 //! admin authorization guards.
 //!
@@ -40,9 +40,6 @@ pub mod response_failure_log;
 pub mod telemetry;
 /// Axum extractor for a tenant id supplied in the URL path
 pub mod tenant_path;
-
-/// Tenant context extraction middleware
-pub mod tenant;
 
 // Admin authorization guard
 
@@ -117,12 +114,3 @@ pub use request_id::RequestId;
 pub use response_failure_log::response_failure_log_middleware;
 #[cfg(feature = "telemetry")]
 pub use telemetry::telemetry_middleware;
-
-// Tenant context middleware
-
-/// Require tenant context helper function
-pub use tenant::require_tenant_context;
-/// Tenant context extraction middleware
-pub use tenant::tenant_context_middleware;
-/// Extracted tenant context wrapper for request extensions
-pub use tenant::ExtractedTenantContext;

@@ -8,11 +8,10 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen, waitFor, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { PROVIDER_LINK_POLL_INTERVAL_MS } from '@pierre/shared-constants';
+import { PROVIDER_LINK_POLL_INTERVAL_MS, QUERY_KEYS } from '@pierre/shared-constants';
 import { i18n } from '@pierre/i18n';
 import ProviderConnectionCards from '../ProviderConnectionCards';
 import { ThemeProvider } from '../../hooks/useTheme';
-import { QUERY_KEYS } from '../../constants/queryKeys';
 
 const authorizeUrl = vi.fn((provider: string) => `/api/oauth/authorize/${provider}`);
 const getProvidersStatus = vi.fn();
@@ -782,6 +781,32 @@ describe('ProviderConnectionCards — Intervals.icu', () => {
 
     expect(await screen.findByTestId('intervals-modal')).toHaveAttribute('data-offers-authorize', 'false');
     expect(screen.queryByTestId('own-app-setup')).toBeNull();
+    expect(assign).not.toHaveBeenCalled();
+  });
+
+  it('reconnects a card the athlete authorized straight through the authorization, never the key form', async () => {
+    getProvidersStatus.mockResolvedValue({
+      providers: [{ ...intervalsCard(false), connected: true, connection_type: 'oauth', needs_reauth: true }],
+    });
+    const user = userEvent.setup();
+    renderCards();
+
+    await user.click(await screen.findByText(i18n.t('app.reconnect')));
+
+    expect(assign).toHaveBeenCalledWith('/api/oauth/authorize/intervals_icu');
+    expect(screen.queryByTestId('intervals-modal')).toBeNull();
+  });
+
+  it('reconnects a key-linked card through the key form alone', async () => {
+    getProvidersStatus.mockResolvedValue({
+      providers: [{ ...intervalsCard(false), connected: true, connection_type: 'manual', needs_reauth: true }],
+    });
+    const user = userEvent.setup();
+    renderCards();
+
+    await user.click(await screen.findByText(i18n.t('app.reconnect')));
+
+    expect(await screen.findByTestId('intervals-modal')).toHaveAttribute('data-offers-authorize', 'false');
     expect(assign).not.toHaveBeenCalled();
   });
 });

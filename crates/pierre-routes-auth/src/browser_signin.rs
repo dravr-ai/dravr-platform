@@ -6,13 +6,12 @@
 
 //! The sign-in that runs in the athlete's own browser (carnet#1617).
 //!
-//! A provider can refuse a sign-in from a cloud browser and still serve reads
-//! to the session it signed in: Garmin's SSO has put a reCAPTCHA in front of
-//! every sign-in from Dravr's egress since 2026-11-16 while sciotte's reads
-//! from the same egress pass. So the sign-in moves to the athlete: the Dravr
-//! browser extension, or the app's `WebView`, opens the provider's own sign-in
-//! page, waits for its signed-in landing and hands Dravr that provider's
-//! cookies. sciotte then reads with them as after any sign-in.
+//! The athlete signs in to their provider in their own browser, on the
+//! provider's own sign-in page, and the session is handed to the server with
+//! their consent: the Dravr browser extension, or the app's `WebView`, opens
+//! that page, waits for its signed-in landing and hands Dravr that provider's
+//! cookies. sciotte then reads the athlete's own data with them as after any
+//! sign-in.
 //!
 //! - `GET /api/providers/browser-signin` is sciotte's
 //!   [`BrowserSigninCatalog`]: per provider the page to open, the URLs that

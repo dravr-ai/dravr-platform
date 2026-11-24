@@ -12,7 +12,6 @@ import { storeApi, coachesApi } from '../services/api';
 import { track } from '../services/analytics';
 import { SearchField, TabHeader, Alert } from './ui';
 import { NotificationBell } from './notifications/NotificationBell';
-import { QUERY_KEYS } from '../constants/queryKeys';
 import CoachEditSheet from './discover/CoachEditSheet';
 import PostInstallHint from './discover/PostInstallHint';
 import { homeConversationRoute } from './home/homeRoute';
@@ -27,6 +26,7 @@ import {
   countKey,
   INSTALL_COUNT_KEYS,
   isCoachFacing,
+  QUERY_KEYS,
 } from '@pierre/shared-constants';
 import { describeApiError } from '@pierre/ui-logic';
 import type { StoreAgent, StoreAgentDetail } from '@pierre/shared-types';

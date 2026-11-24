@@ -6,10 +6,6 @@
 
 use std::collections::{HashMap, HashSet};
 use std::fmt::Display;
-// Both name the sync notifier handed to `RefreshService`, which only exists
-// under `health-sync`.
-#[cfg(feature = "health-sync")]
-use std::sync::Arc;
 
 use axum::{
     extract::{Path, Query, State},
@@ -32,14 +28,13 @@ use pierre_core::models::{ConnectionType, DelegationStatus, ProviderAccountRole,
 use pierre_mcp_transport::oauth_flow_manager::OAuthTemplateRenderer;
 use pierre_providers::backend_resolver;
 use pierre_providers::ProviderCapabilities;
+use pierre_runtime_context::require_tenant_in;
+use pierre_runtime_context::{resolve_tenant_in, TenantMode};
 use pierre_services::coach_platform::coach_platforms;
 use pierre_services::delegated_connections::{member_delegation, MemberDelegation};
-use pierre_services::oauth_flow::{
-    extract_tenant_id, get_user_for_oauth, AuthUrlOptions, OAuthService,
-};
+use pierre_services::oauth_flow::{get_user_for_oauth, AuthUrlOptions, OAuthService};
 use pierre_services::oauth_redirects;
 use pierre_services::provider_notice::{asks_for_notice, consent_state};
-use pierre_services::provider_refresh::RefreshService;
 use pierre_services::provider_revocation::DisconnectReason;
 
 use crate::oauth_start::{query_consents, require_oauth_start_notice, OAuthStartQuery};
@@ -305,12 +300,15 @@ pub(crate) async fn handle_providers_status(
         .authenticate_request_with_headers(&headers)
         .await?;
 
+    // The catalogue is read by an account mid-signup too, before it has a tenant.
+    let tenants = resources.repos.tenants.as_ref();
+    let tenant = resolve_tenant_in(tenants, &auth_result, TenantMode::Optional).await?;
     // The web and mobile screens read the user's profile locale.
     let locale = resolve_user_locale(resources.repos.users.as_ref(), auth_result.user_id).await;
     let response = compute_providers_status(
         &resources,
         auth_result.user_id,
-        auth_result.active_tenant_id,
+        tenant.map(|t| t.as_uuid()),
         &locale,
     )
     .await?;
@@ -806,7 +804,8 @@ pub(crate) async fn handle_mobile_oauth_init(
 
     // Verify user exists
     get_user_for_oauth(resources.repos.users.as_ref(), user_id).await?;
-    let tenant_id = extract_tenant_id(auth_result.active_tenant_id.map(TenantId::from_uuid))?;
+    let tenants = resources.repos.tenants.as_ref();
+    let tenant_id = require_tenant_in(tenants, &auth_result).await?;
     // A dead grant is answered in the same shape, its sign-in in the
     // authorization's place: a shipped build opens whatever URL it is given.
     let blocked = query.get("sign_in_blocked").is_some_and(|v| v == "true");
@@ -945,7 +944,8 @@ pub(crate) async fn handle_oauth_authorize_redirect(
         )
         .await?;
     let user_id = auth_result.user_id;
-    let tenant_id = extract_tenant_id(auth_result.active_tenant_id.map(TenantId::from_uuid))?;
+    let tenants = resources.repos.tenants.as_ref();
+    let tenant_id = require_tenant_in(tenants, &auth_result).await?;
 
     let span = Span::current();
     span.record("user_id", field::display(&user_id));
@@ -1033,13 +1033,13 @@ pub(crate) async fn handle_disconnect_provider_rest(
         .await?;
 
     let user_id = auth_result.user_id;
+    let tenants = resources.repos.tenants.as_ref();
+    let tenant = require_tenant_in(tenants, &auth_result).await?;
 
     // Record IDs on the span for request tracing.
     let span = Span::current();
     span.record("user_id", field::display(&user_id));
-    if let Some(tenant_id) = auth_result.active_tenant_id {
-        span.record("tenant_id", field::display(&tenant_id));
-    }
+    span.record("tenant_id", field::display(&tenant));
 
     info!("Disconnecting provider {} for user {}", provider, user_id);
 
@@ -1051,89 +1051,10 @@ pub(crate) async fn handle_disconnect_provider_rest(
         .disconnect_provider(
             user_id,
             &provider,
-            auth_result.active_tenant_id,
+            Some(tenant.as_uuid()),
             DisconnectReason::Athlete,
         )
         .await?;
 
     Ok(StatusCode::NO_CONTENT.into_response())
-}
-
-/// Trigger a data sync for a specific provider.
-///
-/// POST /api/providers/{provider}/sync
-///
-/// Starts a background sync and returns immediately with status.
-/// Optionally blocks if `?wait=true` query parameter is provided.
-#[tracing::instrument(
-    skip(resources, headers, params),
-    fields(
-        route = "provider_sync",
-        provider = %provider,
-        user_id = Empty,
-        tenant_id = Empty,
-    )
-)]
-pub(crate) async fn handle_sync_provider(
-    State(resources): State<AuthRoutesContext>,
-    Path(provider): Path<String>,
-    Query(params): Query<HashMap<String, String>>,
-    headers: HeaderMap,
-) -> Result<Response, AppError> {
-    let auth_result = resources
-        .auth_middleware
-        .authenticate_request_with_headers(&headers)
-        .await?;
-
-    let user_id = auth_result.user_id;
-    let tenant_id = auth_result
-        .active_tenant_id
-        .ok_or_else(|| AppError::auth_invalid("Tenant context required for sync"))?;
-    let wait = params.get("wait").is_some_and(|v| v == "true");
-
-    // Record IDs on the span so the NotifyLayer can attribute the
-    // provider.fetch_started event without re-passing fields.
-    let span = Span::current();
-    span.record("user_id", field::display(&user_id));
-    span.record("tenant_id", field::display(&tenant_id));
-
-    info!(
-        user_id = %user_id,
-        provider = %provider,
-        wait = %wait,
-        "REST-triggered provider sync"
-    );
-
-    // notify: explicit REST sync is unambiguously user_initiated.
-    info!(
-        target: "notify",
-        event = "provider.fetch_started",
-        provider = %provider,
-        trigger = "user_initiated",
-        "user-triggered provider sync starting"
-    );
-
-    let auth_repos = resources.repos.auth_repos();
-    let refresh_service = RefreshService::new(
-        &auth_repos,
-        resources.repos.activity_cache.clone(),
-        #[cfg(feature = "health-sync")]
-        Arc::clone(&resources.repos),
-        #[cfg(feature = "health-sync")]
-        resources.sync_orchestrator.clone(),
-        #[cfg(feature = "health-sync")]
-        resources.sync_notifier.clone(),
-    );
-
-    let result = refresh_service
-        .refresh_provider(user_id, TenantId::from_uuid(tenant_id), &provider, wait)
-        .await;
-
-    Ok(Json(json!({
-        "provider": result.provider,
-        "success": result.success,
-        "message": result.message,
-        "records_synced": result.records_synced,
-    }))
-    .into_response())
 }

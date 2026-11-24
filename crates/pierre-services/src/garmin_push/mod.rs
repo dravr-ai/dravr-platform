@@ -303,16 +303,10 @@ pub trait GarminPushHost: Send + Sync {
         callback_url: &str,
     ) -> AppResult<ActivityFile>;
 
-    /// `stored` records of `kind` landed for `owner`; `landed` is the newest
-    /// workout among them that was newer than everything the owner held, and
-    /// no copy of one.
-    async fn landed(
-        &self,
-        owner: GarminOwner,
-        kind: SummaryType,
-        stored: usize,
-        landed: Option<LandedSession>,
-    );
+    /// Records of `kind` landed for `owner`; `landed` is the newest workout
+    /// among them that was newer than everything the owner held, and no copy
+    /// of one.
+    async fn landed(&self, owner: GarminOwner, kind: SummaryType, landed: Option<LandedSession>);
 }
 
 /// Why some records of a batch must be tried again later.
@@ -489,8 +483,7 @@ pub async fn ingest_batch(
             written.landed = None;
         }
         if written.stored > 0 {
-            host.landed(owner, kind, written.stored, written.landed.clone())
-                .await;
+            host.landed(owner, kind, written.landed.clone()).await;
         }
         outcome.absorb(written);
     }

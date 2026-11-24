@@ -31,9 +31,7 @@
 //!   activity intelligence, sync orchestrator and its abort handle, cageux /
 //!   harness / persona contract config registries. Also carries a
 //!   `FitnessRepos` view-struct projection.
-//! - `SseSlice` — push-notification transports: SSE manager, AG-UI run
-//!   registry, sampling peer, progress notification sender, cancellation
-//!   registry.
+//! - `SseSlice` — streaming transports: the AG-UI run registry.
 //! - `A2ASlice` — agent-to-agent client manager and A2A system user service.
 //! - `BillingSlice` — billing provider. Also carries a `UsageRepos` view-struct
 //!   projection.
@@ -113,8 +111,6 @@ use pierre_services::lab_document_model::LabReaderModel;
 use pierre_services::live_activities::LiveActivityStore;
 use pierre_services::originals_bundle::OriginalsBundleService;
 use pierre_services::tenant_chat_provider::TenantChatProviderCache;
-#[cfg(feature = "transport-sse")]
-use pierre_sse::SseManager;
 use pierre_tool_runtime::guardian::GuardianConfigRegistry;
 use pierre_tool_runtime::registry::ToolRegistry;
 #[cfg(feature = "client-messaging")]
@@ -373,12 +369,9 @@ impl fmt::Debug for FitnessSlice {
     }
 }
 
-/// Push-notification transports.
+/// Streaming transports.
 #[derive(Clone)]
 pub struct SseSlice {
-    /// Server-Sent Events manager for streaming notifications and MCP protocol.
-    #[cfg(feature = "transport-sse")]
-    pub sse_manager: Arc<SseManager>,
     /// AG-UI run registry — chat pipeline publishes per-run broadcast channels here.
     pub agui_registry: Arc<AgUiRunRegistry>,
 }

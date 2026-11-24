@@ -444,11 +444,6 @@ pub(super) struct SessionPreviewRequest {
     pub build: SessionBuild,
 }
 
-/// `PUT …/subject-plan/draft/days/{date}` body: the build saved over the
-/// date's first entry of the coach's draft, as the released app builds send
-/// it (carnet#1515).
-pub(super) type DraftDayRequest = SessionBuild;
-
 /// `PUT …/subject-plan/draft/days/{date}/{n}` body: a family build over
 /// session n of the date, as the client last saw it (carnet#1716).
 #[derive(Debug, Deserialize)]

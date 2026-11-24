@@ -2,134 +2,15 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: React Query hook for fetching usage quota status from the backend (mobile)
-// ABOUTME: Used by chat components to display usage warnings and block at limits
+// ABOUTME: Wires the query and the translator to the banner decision in @pierre/chat-utils
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { LimitCheckResult, ReplyNotice, UsageStatusResponse } from '@pierre/shared-types';
+import type { ReplyNotice, UsageStatusResponse } from '@pierre/shared-types';
 import { useTranslation } from '@pierre/i18n';
-import { formatCount, formatResetTime, quotaNoticeBanner, USAGE_SENTENCE_KEYS } from '@pierre/chat-utils';
-import type { Translate, UsageCounter } from '@pierre/chat-utils';
+import { computeWarningState, warningStateFromNotice } from '@pierre/chat-utils';
 import { usageApi } from '../../services/api';
 import { QUERY_KEYS } from '@pierre/shared-constants';
-
-/** Warning level for display */
-export type WarningLevel = 'none' | 'warning' | 'burst' | 'blocked';
-
-/** Computed warning state */
-export interface UsageWarningState {
-  level: WarningLevel;
-  sendDisabled: boolean;
-  message: string;
-  resetsAt: string;
-}
-
-const LEVEL_PRIORITY: Record<WarningLevel, number> = {
-  none: 0,
-  warning: 1,
-  burst: 2,
-  blocked: 3,
-};
-
-function getCounterLevel(counter: LimitCheckResult): WarningLevel {
-  if (!counter.allowed) return 'blocked';
-  if (counter.burst_zone) return 'burst';
-  if (counter.warning) return 'warning';
-  return 'none';
-}
-
-/**
- * `t` is the caller's translator. The sentences were built as English
- * templates and the banner rendered them verbatim under French chrome
- * (carnet#207); each counter now has its own whole sentence per level
- * (`USAGE_SENTENCE_KEYS`), so no language has to inflect a slotted name.
- */
-export function computeWarningState(
-  data: UsageStatusResponse | undefined,
-  t: Translate,
-  language: string,
-): UsageWarningState {
-  if (!data) {
-    return { level: 'none', sendDisabled: false, message: '', resetsAt: '' };
-  }
-
-  const counters: Array<{ counter: LimitCheckResult; name: UsageCounter }> = [
-    { counter: data.daily.messages, name: 'dailyMessages' },
-    { counter: data.daily.tokens, name: 'dailyTokens' },
-    { counter: data.weekly.messages, name: 'weeklyMessages' },
-  ];
-
-  let worstLevel: WarningLevel = 'none';
-  let worstCounter: LimitCheckResult | null = null;
-  let worstName: UsageCounter = 'dailyMessages';
-
-  for (const { counter, name } of counters) {
-    const level = getCounterLevel(counter);
-    if (LEVEL_PRIORITY[level] > LEVEL_PRIORITY[worstLevel]) {
-      worstLevel = level;
-      worstCounter = counter;
-      worstName = name;
-    }
-  }
-
-  if (!worstCounter || worstLevel === 'none') {
-    return { level: 'none', sendDisabled: false, message: '', resetsAt: '' };
-  }
-
-  const params = {
-    // Grouped in the athlete's notation: the raw `456792/500000` read as one
-    // unbroken string of digits under any chrome.
-    current: formatCount(worstCounter.current, language),
-    limit: formatCount(worstCounter.limit, language),
-    time: formatResetTime(worstCounter.resets_at, t('settingsUi.midnightUtc'), language),
-    percent: worstCounter.limit > 0
-      ? Math.round((worstCounter.current / worstCounter.limit) * 100)
-      : 0,
-  };
-
-  let message: string;
-  switch (worstLevel) {
-    case 'blocked':
-      message = t(USAGE_SENTENCE_KEYS.reached[worstName], params);
-      break;
-    case 'burst':
-      message = t(USAGE_SENTENCE_KEYS.burst[worstName], params);
-      break;
-    case 'warning':
-      message = t(USAGE_SENTENCE_KEYS.used[worstName], params);
-      break;
-    default:
-      message = '';
-  }
-
-  return {
-    level: worstLevel,
-    sendDisabled: worstLevel === 'blocked',
-    message,
-    resetsAt: worstCounter.resets_at,
-  };
-}
-
-/**
- * Compute the warning state from a turn's own `notice` reply block.
- *
- * Shares its wording with web through `quotaNoticeBanner`, so the same cap
- * reads the same way on both clients. A notice never blocks sending: the turn
- * it rode already succeeded.
- */
-export function warningStateFromNotice(
-  notice: ReplyNotice,
-  t: Translate,
-  language: string,
-): UsageWarningState {
-  const banner = quotaNoticeBanner(notice, t('settingsUi.midnightUtc'), language);
-  return {
-    level: banner.level,
-    sendDisabled: false,
-    message: t(banner.text.key, banner.text.params),
-    resetsAt: banner.resetsAt,
-  };
-}
 
 /**
  * Hook to fetch and compute usage warning state for mobile chat.
@@ -157,13 +38,18 @@ export function useUsageStatus() {
     if (data) setTurnNotice(null);
   }, [data]);
 
-  const warningState = useMemo(
-    () =>
-      turnNotice
-        ? warningStateFromNotice(turnNotice, t, language)
-        : computeWarningState(data, t, language),
-    [turnNotice, data, t, language],
-  );
+  const warningState = useMemo(() => {
+    const state = turnNotice
+      ? warningStateFromNotice(turnNotice, t('settingsUi.midnightUtc'), language)
+      : computeWarningState(data, t('settingsUi.midnightUtc'), language);
+    return {
+      level: state.level,
+      sendDisabled: state.sendDisabled,
+      // The native banner takes the finished sentence; empty when there is none.
+      message: state.text ? t(state.text.key, state.text.params) : '',
+      resetsAt: state.resetsAt,
+    };
+  }, [turnNotice, data, t, language]);
 
   const invalidate = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: QUERY_KEYS.usage.status() });

@@ -19,9 +19,7 @@ use axum::{
     Json, Router,
 };
 use dravr_tronc::dates::Timestamp;
-use pierre_auth::auth::AuthResult;
 use pierre_core::errors::AppError;
-use pierre_core::models::TenantId;
 use pierre_core::pagination::StoreSortOrder;
 use pierre_database::backends::StoreListingsRepository;
 use pierre_database::database::{AgentCategory, AgentWithListing, PublishStatus};
@@ -36,6 +34,8 @@ use pierre_services::locale::resolve_user_locale;
 use serde::{Deserialize, Serialize};
 use tracing::{field, info, Span};
 use uuid::Uuid;
+
+use crate::agents::get_user_tenant;
 
 /// Query parameters for browsing published agents
 #[derive(Debug, Deserialize)]
@@ -156,16 +156,6 @@ where
         )
 }
 
-/// Get tenant ID for an authenticated user
-///
-/// Extracts `active_tenant_id` from JWT claims (user's selected tenant).
-/// Returns an error if no active tenant is set in the session.
-fn get_user_tenant(auth: &AuthResult) -> Result<TenantId, AppError> {
-    auth.active_tenant_id
-        .map(TenantId::from_uuid)
-        .ok_or_else(|| AppError::auth_invalid("No active tenant in session"))
-}
-
 /// Get store listings repository from the runtime context.
 fn get_store_manager<C: AgentsCtx>(ctx: &Arc<C>) -> &dyn StoreListingsRepository {
     ctx.repos().store_listings.as_ref()
@@ -187,7 +177,7 @@ async fn handle_browse<C: AgentsCtx + MiddlewareCtx>(
 ) -> Result<Response, AppError> {
     let auth = auth.into_inner();
     // A caller with no tenant has no business reading the store.
-    get_user_tenant(&auth)?;
+    get_user_tenant(&auth, &ctx).await?;
 
     let coach_tools = coach_tools_for(
         MiddlewareCtx::repos(ctx.as_ref()).users.as_ref(),
@@ -253,7 +243,7 @@ async fn handle_get_agent<C: AgentsCtx + MiddlewareCtx>(
         .ok_or_else(|| AppError::not_found(format!("Coach {agent_id}")))?;
     // A caller with no tenant has no business reading the store, so the
     // membership check stays even though the locale no longer needs it.
-    get_user_tenant(&auth)?;
+    get_user_tenant(&auth, &ctx).await?;
     let locale = resolve_user_locale(
         MiddlewareCtx::repos(ctx.as_ref()).users.as_ref(),
         auth.user_id,
@@ -281,7 +271,7 @@ async fn handle_search<C: AgentsCtx + MiddlewareCtx>(
     // Search across all tenants (global Store), read in the athlete's language.
     // A caller with no tenant has no business searching it, so the membership
     // check stays even though the locale no longer needs it.
-    get_user_tenant(&auth)?;
+    get_user_tenant(&auth, &ctx).await?;
     let locale = resolve_user_locale(
         MiddlewareCtx::repos(ctx.as_ref()).users.as_ref(),
         auth.user_id,
@@ -332,7 +322,7 @@ async fn handle_install<C: AgentsCtx + MiddlewareCtx>(
     Path(agent_id): Path<String>,
 ) -> Result<Response, AppError> {
     let auth = auth.into_inner();
-    let tenant_id = get_user_tenant(&auth)?;
+    let tenant_id = get_user_tenant(&auth, &ctx).await?;
 
     let coach_tools = coach_tools_for(
         MiddlewareCtx::repos(ctx.as_ref()).users.as_ref(),
@@ -380,7 +370,7 @@ async fn handle_uninstall<C: AgentsCtx + MiddlewareCtx>(
     Path(agent_id): Path<String>,
 ) -> Result<Response, AppError> {
     let auth = auth.into_inner();
-    let tenant_id = get_user_tenant(&auth)?;
+    let tenant_id = get_user_tenant(&auth, &ctx).await?;
 
     // Record IDs on the span so the NotifyLayer can attribute the
     // agent.uninstalled event without re-passing fields.
@@ -429,7 +419,7 @@ async fn handle_list_installations<C: AgentsCtx + MiddlewareCtx>(
     auth: AuthenticatedUser,
 ) -> Result<Response, AppError> {
     let auth = auth.into_inner();
-    let tenant_id = get_user_tenant(&auth)?;
+    let tenant_id = get_user_tenant(&auth, &ctx).await?;
 
     let manager = get_store_manager(&ctx);
 

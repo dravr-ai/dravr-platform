@@ -7,7 +7,7 @@ import { adminApi } from '../services/api';
 import type { User } from '../types/api';
 import { Button } from './ui';
 import UserApprovalModal from './UserApprovalModal';
-import { QUERY_KEYS } from '../constants/queryKeys';
+import { QUERY_KEYS } from '@pierre/shared-constants';
 import { ADMIN_LOCALE } from '../utils/adminLocale';
 
 export default function PendingUsersList() {

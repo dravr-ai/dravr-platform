@@ -13,7 +13,7 @@
     clippy::float_cmp
 )]
 
-use pierre_llm::{ChatMessage, LlmCapabilities, LlmProviderRegistry, MessageRole};
+use pierre_llm::{ChatMessage, LlmCapabilities, MessageRole};
 
 #[test]
 fn message_role_serializes_to_lowercase_strings() {
@@ -55,13 +55,4 @@ fn llm_capabilities_bitflags_compose() {
     assert!(caps.contains(LlmCapabilities::STREAMING));
     assert!(caps.contains(LlmCapabilities::FUNCTION_CALLING));
     assert!(!caps.contains(LlmCapabilities::VISION));
-}
-
-#[test]
-fn provider_registry_returns_none_for_unknown_lookup() {
-    let registry = LlmProviderRegistry::new();
-    assert!(
-        registry.get("nonexistent-provider").is_none(),
-        "empty registry must return None for any provider name"
-    );
 }

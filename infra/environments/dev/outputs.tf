@@ -186,6 +186,6 @@ output "archive_import_queue_id" {
 }
 
 output "nat_egress_ip" {
-  description = "The static public address the VPC's outbound traffic (the sciotte scraper's provider sign-ins included) leaves from"
+  description = "The static public address the VPC's outbound traffic (the sciotte service's provider sign-ins included) leaves from"
   value       = module.networking.nat_egress_ip
 }

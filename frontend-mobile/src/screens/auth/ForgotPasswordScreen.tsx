@@ -15,7 +15,7 @@ import { Button, FormScrollView, Input } from '../../components/ui';
 import { spacing } from '../../constants/theme';
 import { useRouter } from 'expo-router';
 import { useTranslation } from '@pierre/i18n';
-import { describeApiError } from '@pierre/ui-logic';
+import { describeApiError, isEmailAddress } from '@pierre/ui-logic';
 
 export function ForgotPasswordScreen() {
   const { t } = useTranslation();
@@ -29,7 +29,7 @@ export function ForgotPasswordScreen() {
 
     if (!email.trim()) {
       newErrors.email = t('validation.emailRequired');
-    } else if (!/\S+@\S+\.\S+/.test(email)) {
+    } else if (!isEmailAddress(email.trim())) {
       newErrors.email = t('validation.email');
     }
 

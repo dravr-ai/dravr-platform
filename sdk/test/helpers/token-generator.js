@@ -30,8 +30,7 @@ function generateTestToken(userId, email, expiresIn = 3600) {
         sub: userId,
         email: email,
         iat: now,
-        exp: now + expiresIn,
-        providers: [] // No providers connected initially
+        exp: now + expiresIn
     };
 
     // Base64url encode

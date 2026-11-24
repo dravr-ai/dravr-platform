@@ -21,6 +21,7 @@ import {
   type DelegationConsent,
 } from '@pierre/shared-constants';
 import { refusalProvider, refusalReason } from '@pierre/ui-logic';
+import { formatDate } from '@pierre/chat-utils';
 import { useTranslation } from '@pierre/i18n';
 import { useSetCoachConsents } from '../../hooks/useGroups';
 import { Button, Checkbox, ConfirmDialog, Select, useErrorToast, useSuccessToast, ALERT_TONE } from '../ui';
@@ -198,7 +199,7 @@ export default function CoachConsentsSection({ groupId, consents, coach }: Coach
           {consents.sensitive_t2_read && consents.sensitive_t2_read_until && (
             <p className="text-xs text-on-surface-variant" data-testid="coach-consent-sensitive-until">
               {t(SENSITIVE_T2_FLAG_KEYS.until, {
-                date: new Date(consents.sensitive_t2_read_until).toLocaleDateString(i18n.language),
+                date: formatDate(consents.sensitive_t2_read_until, i18n.language),
               })}
             </p>
           )}

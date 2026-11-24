@@ -1,5 +1,5 @@
 // ABOUTME: One notification: a leading unread dot, the hued category word and title on a baseline line, a mono time trailing, the body underneath
-// ABOUTME: 56pt tall (Boreal v2.2 Phase 5, the vault generator's `screen_notifications`, `notif_row: 56`) — no badge, no delete button on the row
+// ABOUTME: 56pt tall (the vault generator's `screen_notifications`, `notif_row: 56`) — no badge, no delete button on the row
 
 import React from 'react';
 import { Pressable, Text, View } from 'react-native';
@@ -28,7 +28,7 @@ export interface NotificationRowProps {
  * `NOTIFICATION_CATEGORY_META`) and the title, a trailing
  * `font-mono tabular-nums` time, then the body on its own line beneath. No
  * pill, no badge, no inline action buttons — those already live behind a tap
- * (the detail modal), so the row stays a single, scannable shape (P5.6).
+ * (the detail modal), so the row stays a single, scannable shape.
  */
 export function NotificationRow({ item, onPress, onLongPress }: NotificationRowProps) {
   const colors = useThemeColors();

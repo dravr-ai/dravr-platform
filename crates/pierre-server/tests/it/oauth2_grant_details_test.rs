@@ -576,7 +576,6 @@ async fn a_token_naming_a_revoked_grant_is_refused_at_mcp() {
                     client_grant_id: Some(client_grant_id),
                 },
                 &world.user.id,
-                &[],
                 Some(world.tenant_id.clone()),
             )
             .unwrap()
@@ -620,7 +619,6 @@ async fn a_token_without_the_claim_still_works_under_a_plain_grant() {
                 audience: None,
             },
             &world.user.id,
-            &[],
             Some(world.tenant_id.clone()),
         )
         .unwrap();

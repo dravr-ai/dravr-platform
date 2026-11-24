@@ -1102,7 +1102,6 @@ mod tests {
             exp: 0,
             iss: PIERRE_MCP_SERVER.to_owned(),
             jti: "jti-1".to_owned(),
-            providers: Vec::new(),
             aud: MCP.to_owned(),
             active_tenant_id: None,
             impersonator_id: None,

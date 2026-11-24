@@ -255,19 +255,22 @@ describe('ConnectionsScreen rows', () => {
     (Platform as { OS: string }).OS = 'ios';
     (oauthApi.withdrawAiConsent as jest.Mock).mockResolvedValue(undefined);
     const client = newQueryClient();
-    // What the Privacy screen and Home read before the athlete came here.
-    client.setQueryData(QUERY_KEYS.user.providerConnections(), { providers: [{ ...connectedWhoop, ai_consent: true }] });
-    client.setQueryData(QUERY_KEYS.providers.status(), { providers: [] });
+    // What the Privacy screen and Home read before the athlete came here: one cache entry.
+    client.setQueryData(QUERY_KEYS.providers.status(), { providers: [{ ...connectedWhoop, ai_consent: true }] });
     await renderWith([{ ...connectedWhoop, ai_consent: true }], client);
 
+    // The screen reads its rows on that same entry, so the withdrawal's
+    // invalidation is a new read of it, not a flag on a copy nobody watches.
+    const readsBefore = getProvidersStatus.mock.calls.length;
+    const updatedBefore = client.getQueryState(QUERY_KEYS.providers.status())?.dataUpdateCount ?? 0;
     fireEvent(screen.getByTestId('provider-row-whoop'), 'longPress');
     const spy = ActionSheetIOS.showActionSheetWithOptions as unknown as jest.Mock;
     (spy.mock.calls[0][1] as (index: number) => void)(0);
 
+    await waitFor(() => expect(getProvidersStatus.mock.calls.length).toBe(readsBefore + 1));
     await waitFor(() =>
-      expect(client.getQueryState(QUERY_KEYS.user.providerConnections())?.isInvalidated).toBe(true),
+      expect(client.getQueryState(QUERY_KEYS.providers.status())?.dataUpdateCount).toBe(updatedBefore + 1),
     );
-    expect(client.getQueryState(QUERY_KEYS.providers.status())?.isInvalidated).toBe(true);
   });
 
   it('a disconnected row has no menu to long-press', async () => {

@@ -7,6 +7,7 @@
 import React, { useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import { useQuery } from '@tanstack/react-query';
+import { QUERY_KEYS } from '@pierre/shared-constants';
 import type { ParqAnswer, ParqQuestion } from '@pierre/shared-types';
 import { useTranslation } from '@pierre/i18n';
 import { userApi } from '../services/api';
@@ -15,7 +16,7 @@ import { Button } from './ui';
 /** The seven questions, read once per session: the set never varies per athlete. */
 export function useParqQuestions() {
   return useQuery({
-    queryKey: ['parq-questions'],
+    queryKey: QUERY_KEYS.parq.questions(),
     queryFn: () => userApi.getParqQuestions(),
     staleTime: Infinity,
   });

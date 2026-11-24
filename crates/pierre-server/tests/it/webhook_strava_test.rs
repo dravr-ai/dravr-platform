@@ -333,9 +333,8 @@ async fn cached_strava_rows(
 }
 
 /// An activity-create event for a linked athlete fetches through the OAuth
-/// provider into `cached_activities`, stamps `last_sync`, and tells the
-/// athlete's SSE stream how many activities landed. A handler that only logs
-/// leaves zero rows, no stamp and an empty stream.
+/// provider into `cached_activities` and stamps `last_sync`. A handler that
+/// only logs leaves zero rows and no stamp.
 #[tokio::test]
 #[serial]
 async fn activity_create_fetches_the_owners_activities_into_the_cache() {
@@ -347,11 +346,6 @@ async fn activity_create_fetches_the_owners_activities_into_the_cache() {
         0,
         "premise: nothing cached before the webhook"
     );
-    let mut sse = resources
-        .sse
-        .sse_manager
-        .register_notification_stream(user_id)
-        .await;
 
     let event_time = Timestamp::now().epoch_seconds();
     let status = post_event(&resources, &strava_event("create", OWNER_ID, event_time)).await;
@@ -425,17 +419,6 @@ async fn activity_create_fetches_the_owners_activities_into_the_cache() {
     assert!(
         freshness.is_some(),
         "the fetch mark is written with the rows"
-    );
-
-    let message = sse
-        .try_recv()
-        .expect("the athlete's SSE stream carries the sync notification");
-    let payload: Value = serde_json::from_str(message.trim_start_matches("data: ").trim()).unwrap();
-    assert_eq!(payload["provider"], "strava");
-    assert_eq!(payload["success"], true);
-    assert_eq!(
-        payload["message"], "Strava activity created: 1 recent activities fetched",
-        "the notification says what actually happened"
     );
 }
 

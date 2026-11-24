@@ -70,7 +70,6 @@ async fn test_complete_tenant_onboarding_workflow() -> Result<()> {
         display_name: Some("Acme Admin".to_owned()),
         password_hash: "hashed_password".to_owned(),
         tier: UserTier::Enterprise,
-        strava_token: None,
         created_at: Timestamp::now(),
         last_active: Timestamp::now(),
         is_active: true,
@@ -95,7 +94,6 @@ async fn test_complete_tenant_onboarding_workflow() -> Result<()> {
         display_name: Some("Beta Admin".to_owned()),
         password_hash: "hashed_password".to_owned(),
         tier: UserTier::Professional,
-        strava_token: None,
         created_at: Timestamp::now(),
         last_active: Timestamp::now(),
         is_active: true,
@@ -348,7 +346,6 @@ async fn setup_multitenant_scenario(
         display_name: Some("Multi Tenant User".to_owned()),
         password_hash: "hashed_password".to_owned(),
         tier: UserTier::Professional,
-        strava_token: None,
         created_at: Timestamp::now(),
         last_active: Timestamp::now(),
         is_active: true,
@@ -513,7 +510,7 @@ fn create_test_server_config() -> ServerConfig {
                 server_version: env!("CARGO_PKG_VERSION").to_owned(),
             },
         },
-        sse: SseConfig::default(),
+        session_cookie: SessionCookieConfig::default(),
         oauth2_server: OAuth2ServerConfig::default(),
         ..Default::default()
     }

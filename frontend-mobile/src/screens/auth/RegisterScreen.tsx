@@ -18,6 +18,8 @@ import {
   describeRegistration,
   isInvalidSignupCode,
   useAsyncAction,
+  isEmailAddress,
+  isPasswordLongEnough,
 } from '@pierre/ui-logic';
 import { ANALYTICS_POLICY_URL, QUERY_KEYS } from '@pierre/shared-constants';
 import { useAuth } from '../../contexts/AuthContext';
@@ -97,13 +99,13 @@ export function RegisterScreen() {
 
     if (!email.trim()) {
       newErrors.email = t('validation.emailRequired');
-    } else if (!/\S+@\S+\.\S+/.test(email)) {
+    } else if (!isEmailAddress(email.trim())) {
       newErrors.email = t('validation.email');
     }
 
     if (!password) {
       newErrors.password = t('validation.passwordRequired');
-    } else if (password.length < 8) {
+    } else if (!isPasswordLongEnough(password)) {
       newErrors.password = t('app.passwordTooShort');
     }
 

@@ -43,7 +43,7 @@ const SHARED_KEYS = {
 
 /**
  * Read by the browser alone. The phone's empty state is one sentence and, when
- * filtered, one link (`ui/EmptyState`, Boreal v2.2 Phase 4), so it has no hint
+ * filtered, one link (`ui/EmptyState`), so it has no hint
  * line to translate; the browser's memory panel still shows one under each
  * sentence. The keys stay in the catalogue for as long as the browser reads them.
  */

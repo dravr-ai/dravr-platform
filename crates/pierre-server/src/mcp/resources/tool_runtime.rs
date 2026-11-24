@@ -27,8 +27,6 @@ use pierre_runtime_context::{AdminConfigLookup, DataContext};
 #[cfg(all(feature = "client-messaging", feature = "client-groups"))]
 use pierre_services::group_chat_poster::GroupChatPoster;
 use pierre_services::live_activities::LiveActivityStore;
-#[cfg(feature = "transport-sse")]
-use pierre_services::provider_refresh::SyncNotifier;
 use pierre_tool_runtime::guardian::Guardian;
 use pierre_tool_runtime::registry::ToolRegistry;
 #[cfg(feature = "client-messaging")]
@@ -136,11 +134,6 @@ impl ToolRuntime for ServerContext {
     #[cfg(feature = "client-notifications")]
     fn notification_service(&self) -> Option<&Arc<NotificationService>> {
         self.common.notification_service.as_ref()
-    }
-
-    #[cfg(feature = "transport-sse")]
-    fn sync_notifier(&self) -> Arc<dyn SyncNotifier> {
-        self.sse.sse_manager.clone()
     }
 
     #[cfg(feature = "health-sync")]

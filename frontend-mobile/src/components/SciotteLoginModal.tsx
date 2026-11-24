@@ -45,11 +45,11 @@ import {
   SCIOTTE_LOGIN_FLOW_EXPIRED,
   SCIOTTE_LOGIN_PRESETS,
   SCIOTTE_NUMBER_MATCH_REPOLL_MS,
+  SIGN_IN_BRAND,
   loginIdentifierField,
   signInFallsBackToOAuth,
 } from '@pierre/shared-constants';
 import { useTranslation } from '@pierre/i18n';
-import { PROVIDER_BRAND } from '../constants/brands';
 import {
   describeApiError,
   isSignInPhaseLive,
@@ -200,7 +200,7 @@ const METHOD_CONFIGS: Record<LoginMethod, MethodConfig> = {
   google: {
     titleKey: 'app.brandGoogle',
     emailPlaceholderKey: 'app.googleEmail',
-    brandName: PROVIDER_BRAND.google,
+    brandName: SIGN_IN_BRAND.google,
     renderIcon: (size: number) => <GoogleLogo size={size} />,
     brandGradient: BRAND_COLORS.google.gradient,
     bgColor: '#FFFFFF',
@@ -208,7 +208,7 @@ const METHOD_CONFIGS: Record<LoginMethod, MethodConfig> = {
   apple: {
     titleKey: 'app.brandApple',
     emailPlaceholderKey: 'app.appleIdEmail',
-    brandName: PROVIDER_BRAND.apple,
+    brandName: SIGN_IN_BRAND.apple,
     renderIcon: (size: number) => <AppleLogo size={size} color={PLATE_INK} />,
     brandGradient: BRAND_COLORS.apple.gradient,
     bgColor: '#000000',

@@ -6,13 +6,13 @@
 
 //! The one write-back of a token a provider changed on its own.
 //!
-//! An OAuth provider refreshes its pair when a call is refused; a scraped
-//! provider's session can come back from a read with a rotated cookie
+//! An OAuth provider refreshes its pair when a call is refused; a signed-in
+//! provider session can come back from a read with a rotated cookie
 //! (Garmin logs the old value out). [`StoredTokenRow::write_back`] is that
 //! write, whoever holds the token. It goes over the one row the provider's
 //! credentials were read from, and only while that row still stands: it must
 //! still carry the `id` it was read with (a reconnect writes a fresh one),
-//! and a scrape session row must still carry the session's `session_id`.
+//! and a signed-in session row must still carry the session's `session_id`.
 //! The write is a compare-and-swap on the row exactly as it was just read
 //! ([`OAuthTokenRepository::refresh_token`]), scoped to that row's user,
 //! tenant and provider. No other row is written, an admin's clone of the

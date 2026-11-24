@@ -67,7 +67,7 @@ BASELINE_WEB_LARGE_TEXT=46
 # rules Phases 1-5 applied to the phone, ratcheted from what that migration
 # left rather than zeroed — a `useCardStyle`/`<Card` site the design note
 # names as deliberate (StoreCoachDetailScreen's action bar, a floating menu)
-# is not debt, and BillingScreen/SciotteLoginModal/BrandIcons keep their
+# is not debt, and SciotteLoginModal/BrandIcons keep their
 # literals by the same out-of-scope call Phase 2 made.
 BASELINE_MOBILE_HEX_LITERALS=0
 BASELINE_MOBILE_CARD_SITES=9
@@ -107,7 +107,7 @@ BASELINE_MOBILE_CARD_SITES=9
 # dot inside it, one site each, a radio's own circle rather than a card or
 # button that skipped the radius ladder.
 BASELINE_MOBILE_ROUNDED_FULL=37
-BASELINE_MOBILE_INLINE_BORDER_RADIUS=31
+BASELINE_MOBILE_INLINE_BORDER_RADIUS=27
 
 # Feedback tints written by hand instead of read from a tone table
 # (DESIGN.md "Alerts", carnet#1584). A banner, notice, inline error or
@@ -500,9 +500,9 @@ echo "-- Boreal v2.2 mobile density backlog --"
 # same trap the gradient check above hit).
 MOBILE_HEX_LITERALS=$(grep -rEo "['\"\[]#[0-9a-fA-F]{3,8}\b|['\"]rgba?\([0-9]" "$PROJECT_ROOT/frontend-mobile/src" --include='*.tsx' 2>/dev/null \
     | grep -v '__tests__' \
-    | grep -vE 'BrandIcons\.tsx|SciotteLoginModal\.tsx|BillingScreen\.tsx' \
+    | grep -vE 'BrandIcons\.tsx|SciotteLoginModal\.tsx' \
     | wc -l | tr -d ' ')
-check_ratchet "mobile hex/rgba literals outside BrandIcons/SciotteLoginModal/BillingScreen" \
+check_ratchet "mobile hex/rgba literals outside BrandIcons/SciotteLoginModal" \
     "$MOBILE_HEX_LITERALS" "$BASELINE_MOBILE_HEX_LITERALS" \
     "Read the value from useThemeColors()/tokens instead of a frozen literal (DESIGN.md \"Colors\")."
 

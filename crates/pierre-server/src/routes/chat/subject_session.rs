@@ -12,19 +12,19 @@
 //!   each preset with its evidence ranges per sport;
 //! - `POST …/subject-plan/session-preview` — the session a build makes on
 //!   the athlete's stored anchors, measured by the envelope check and worded
-//!   as the plan card and the envelope notice word it. Nothing is written;
-//! - `PUT …/subject-plan/draft/days/{date}` — the build saved over the date's
-//!   first entry of the coach's draft, opened from the live plan when the
-//!   coach holds none, answered with what `GET …/subject-plan` reads after the
-//!   write. The released app builds call it; it names no session.
+//!   as the plan card and the envelope notice word it. Nothing is written.
 //!
 //! carnet#1714 and carnet#1716. The editor opens on one session of a date,
 //! which may hold several. A session is addressed by its 0-based position
 //! `{n}` among the date's entries, and every write names it as the client
 //! last saw it (`expect`: the card's `sport` and `workout`); a position that
-//! no longer holds that session is a 409 `session_moved`, nothing written:
+//! no longer holds that session is a 409 `session_moved`, nothing written.
+//! Each write lands in the coach's draft, opened from the live plan when the
+//! coach holds none, and is answered with what `GET …/subject-plan` reads
+//! after it:
 //!
-//! - `PUT …/draft/days/{date}/{n}` — a family build over session n;
+//! - `PUT …/subject-plan/draft/days/{date}/{n}` — a family build over
+//!   session n;
 //! - `PUT …/draft/days/{date}/{n}/session` — session n as the coach wrote it
 //!   by hand, or a rest entry. It names no family, so no envelope check
 //!   measures it; it passes the agent's own day bounds;
@@ -80,8 +80,8 @@ use crate::tools::runtime_adapter::into_runtime;
 
 use super::common::{get_tenant_id, refusal, refuse_external_coach_write};
 use super::dto::{
-    AddSessionRequest, DraftDayRequest, DraftSessionRequest, FamilyCatalogueResponse,
-    HandSessionRequest, SessionExpectRequest, SessionPreviewRequest,
+    AddSessionRequest, DraftSessionRequest, FamilyCatalogueResponse, HandSessionRequest,
+    SessionExpectRequest, SessionPreviewRequest,
 };
 use super::subject_plan::{
     coach_locale, coached_thread, record_thread_read, subject_plan_response, CoachedThread,
@@ -287,45 +287,16 @@ async fn day_write_answer(
     Ok((StatusCode::OK, Json(response)).into_response())
 }
 
-/// `PUT /api/chat/conversations/{id}/subject-plan/draft/days/{date}`: the
-/// build saved over the date's first entry of the coach's draft of the
-/// athlete's plan — a new entry where the date holds none — answered with the
-/// subject plan as `GET …/subject-plan` reads it after the write. The
-/// released app builds call it (carnet#1515); it names no session, so it
-/// carries no `expect`.
-///
-/// 404 `no_plan` when the athlete has no live plan and the coach no draft;
-/// 422 `no_plan_week` when no week of the plan holds the date; 403
-/// `external_transport` for an outside client. Nothing is written on any of
-/// them.
-pub(super) async fn put_subject_draft_day(
-    State(resources): State<Arc<ServerContext>>,
-    auth: AuthenticatedUser,
-    Path((conversation_id, raw_date)): Path<(String, String)>,
-    Query(query): Query<TrainingPlanQuery>,
-    Json(build): Json<DraftDayRequest>,
-) -> Result<Response, AppError> {
-    let write = day_write(&resources, &auth, &conversation_id, &raw_date).await?;
-    let runtime = into_runtime(&resources);
-    let outcome = save_draft_day(&runtime, &write.editor, write.date, None, &build).await?;
-    day_write_answer(
-        &resources,
-        auth.user_id,
-        write,
-        outcome,
-        query.locale.as_deref(),
-    )
-    .await
-}
-
 /// `PUT /api/chat/conversations/{id}/subject-plan/draft/days/{date}/{n}`: a
 /// family build saved over session n of the date in the coach's draft
 /// (carnet#1716), answered with the subject plan as `GET …/subject-plan`
 /// reads it after the write.
 ///
 /// 409 `session_moved` when position n no longer holds the session `expect`
-/// names; the build's 400 refusals; 404 `no_plan`; 422 `no_plan_week`; 403
-/// `external_transport`. Nothing is written on any of them.
+/// names; the build's 400 refusals; 404 `no_plan` when the athlete has no
+/// live plan and the coach no draft; 422 `no_plan_week` when no week of the
+/// plan holds the date; 403 `external_transport` for an outside client.
+/// Nothing is written on any of them.
 pub(super) async fn put_subject_draft_session(
     State(resources): State<Arc<ServerContext>>,
     auth: AuthenticatedUser,
@@ -339,14 +310,7 @@ pub(super) async fn put_subject_draft_session(
         expect: request.expect,
     };
     let runtime = into_runtime(&resources);
-    let outcome = save_draft_day(
-        &runtime,
-        &write.editor,
-        write.date,
-        Some(&at),
-        &request.build,
-    )
-    .await?;
+    let outcome = save_draft_day(&runtime, &write.editor, write.date, &at, &request.build).await?;
     day_write_answer(
         &resources,
         auth.user_id,

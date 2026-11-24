@@ -12,7 +12,7 @@ import { BADGE_TONE, Button, Card, Section, Alert } from './ui';
 import { clsx } from 'clsx';
 import { coachCategoryTone } from './coachCategory';
 import CoachRejectionModal from './CoachRejectionModal';
-import { QUERY_KEYS } from '../constants/queryKeys';
+import { QUERY_KEYS } from '@pierre/shared-constants';
 import { formatDateTime } from '@pierre/chat-utils';
 import { ADMIN_LOCALE } from '../utils/adminLocale';
 import { useDialog } from '../hooks/useDialog';

@@ -1,4 +1,4 @@
-// ABOUTME: Folds a scraped detail's recorded streams, or failing them its GPS track, into the activity's time series
+// ABOUTME: Folds a detail read's recorded streams, or failing them its GPS track, into the activity's time series
 // ABOUTME: Strava's streams cross channel for channel on their time axis; a bare track keeps its points and elevations
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0

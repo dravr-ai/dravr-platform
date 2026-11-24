@@ -1,5 +1,5 @@
 // ABOUTME: OAuth token models for secure credential storage and notifications
-// ABOUTME: EncryptedToken, DecryptedToken, UserOAuthToken, UserOAuthApp, OAuthNotification, and session types
+// ABOUTME: UserOAuthToken, UserOAuthApp, OAuthNotification, and session types
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -39,162 +39,6 @@ pub struct OAuthAppCredentials {
     #[serde(rename = "clientSecret")]
     #[serde(serialize_with = "crate::secret::serialize_exposed")]
     pub client_secret: SecretString,
-}
-
-/// Encrypted `OAuth` token storage
-///
-/// Tokens are encrypted at rest using AES-256-GCM encryption.
-/// Only decrypted when needed for `API` calls.
-/// Each encrypted token has its nonce prepended to the ciphertext.
-///
-/// It is held in memory and written through the token repositories, never
-/// serialized: no serde derive, so no JSON can carry the ciphertext out.
-#[derive(Debug, Clone)]
-pub struct EncryptedToken {
-    /// Encrypted access token with prepended nonce (base64 encoded: \[12-byte nonce\]\[ciphertext\])
-    pub access_token: SecretString,
-    /// Encrypted refresh token with prepended nonce (base64 encoded: \[12-byte nonce\]\[ciphertext\])
-    pub refresh_token: SecretString,
-    /// When the access token expires
-    pub expires_at: Timestamp,
-    /// Token scope permissions
-    pub scope: String,
-}
-
-#[cfg(feature = "crypto-errors")]
-impl EncryptedToken {
-    /// Create a new encrypted token
-    ///
-    /// Encrypts both access and refresh tokens with independent nonces.
-    /// Each nonce is prepended to its corresponding ciphertext for cryptographic independence.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if encryption fails or if the encryption key is invalid
-    pub fn new(
-        access_token: &str,
-        refresh_token: &str,
-        expires_at: Timestamp,
-        scope: String,
-        encryption_key: &[u8],
-    ) -> AppResult<Self> {
-        use base64::{engine::general_purpose, Engine as _};
-        use ring::aead::{Aad, LessSafeKey, Nonce, UnboundKey, AES_256_GCM};
-        use ring::rand::{SecureRandom, SystemRandom};
-
-        let rng = SystemRandom::new();
-
-        // Encrypt access token with its own nonce
-        let mut access_nonce_bytes = [0u8; 12];
-        rng.fill(&mut access_nonce_bytes)?;
-        let access_nonce = Nonce::assume_unique_for_key(access_nonce_bytes);
-
-        let unbound_key = UnboundKey::new(&AES_256_GCM, encryption_key)?;
-        let key = LessSafeKey::new(unbound_key);
-
-        let mut access_token_data = access_token.as_bytes().to_vec();
-        key.seal_in_place_append_tag(access_nonce, Aad::empty(), &mut access_token_data)?;
-
-        // Prepend nonce to ciphertext (modern pattern)
-        let mut access_combined = access_nonce_bytes.to_vec();
-        access_combined.extend(access_token_data);
-        let encrypted_access = general_purpose::STANDARD.encode(access_combined);
-
-        // Encrypt refresh token with its own independent nonce
-        let mut refresh_nonce_bytes = [0u8; 12];
-        rng.fill(&mut refresh_nonce_bytes)?;
-        let refresh_nonce = Nonce::assume_unique_for_key(refresh_nonce_bytes);
-
-        let unbound_key2 = UnboundKey::new(&AES_256_GCM, encryption_key)?;
-        let key2 = LessSafeKey::new(unbound_key2);
-
-        let mut refresh_token_data = refresh_token.as_bytes().to_vec();
-        key2.seal_in_place_append_tag(refresh_nonce, Aad::empty(), &mut refresh_token_data)?;
-
-        // Prepend nonce to ciphertext (modern pattern)
-        let mut refresh_combined = refresh_nonce_bytes.to_vec();
-        refresh_combined.extend(refresh_token_data);
-        let encrypted_refresh = general_purpose::STANDARD.encode(refresh_combined);
-
-        Ok(Self {
-            access_token: SecretString::from(encrypted_access),
-            refresh_token: SecretString::from(encrypted_refresh),
-            expires_at,
-            scope,
-        })
-    }
-
-    /// Decrypt the token for use
-    ///
-    /// Extracts nonces from the prepended ciphertext and decrypts each token independently.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if decryption fails, nonce is invalid, or the encryption key is incorrect
-    pub fn decrypt(&self, encryption_key: &[u8]) -> AppResult<DecryptedToken> {
-        use base64::{engine::general_purpose, Engine as _};
-        use ring::aead::{Aad, LessSafeKey, Nonce, UnboundKey, AES_256_GCM};
-        use secrecy::ExposeSecret;
-
-        // Decrypt access token: extract nonce from prepended data
-        let access_combined =
-            general_purpose::STANDARD.decode(self.access_token.expose_secret())?;
-        if access_combined.len() < 12 {
-            return Err(AppError::invalid_input("Invalid access token: too short"));
-        }
-
-        let (access_nonce_bytes, access_ciphertext) = access_combined.split_at(12);
-        let access_nonce = Nonce::assume_unique_for_key(access_nonce_bytes.try_into()?);
-
-        let unbound_key = UnboundKey::new(&AES_256_GCM, encryption_key)?;
-        let key = LessSafeKey::new(unbound_key);
-
-        let mut access_data = access_ciphertext.to_vec();
-        let access_plaintext = key.open_in_place(access_nonce, Aad::empty(), &mut access_data)?;
-        let access_token = String::from_utf8(access_plaintext.to_vec())
-            .map_err(|e| AppError::invalid_input(format!("Invalid UTF-8 in access token: {e}")))?;
-
-        // Decrypt refresh token: extract nonce from prepended data
-        let refresh_combined =
-            general_purpose::STANDARD.decode(self.refresh_token.expose_secret())?;
-        if refresh_combined.len() < 12 {
-            return Err(AppError::invalid_input("Invalid refresh token: too short"));
-        }
-
-        let (refresh_nonce_bytes, refresh_ciphertext) = refresh_combined.split_at(12);
-        let refresh_nonce = Nonce::assume_unique_for_key(refresh_nonce_bytes.try_into()?);
-
-        let unbound_key2 = UnboundKey::new(&AES_256_GCM, encryption_key)?;
-        let key2 = LessSafeKey::new(unbound_key2);
-
-        let mut refresh_data = refresh_ciphertext.to_vec();
-        let refresh_plaintext =
-            key2.open_in_place(refresh_nonce, Aad::empty(), &mut refresh_data)?;
-        let refresh_token = String::from_utf8(refresh_plaintext.to_vec())
-            .map_err(|e| AppError::invalid_input(format!("Invalid UTF-8 in refresh token: {e}")))?;
-
-        Ok(DecryptedToken {
-            access_token: SecretString::from(access_token),
-            refresh_token: SecretString::from(refresh_token),
-            expires_at: self.expires_at,
-            scope: self.scope.clone(),
-        })
-    }
-}
-
-/// Decrypted `OAuth` token for `API` calls
-///
-/// This is never stored - only exists in memory during `API` requests.
-#[derive(Debug, Clone)]
-pub struct DecryptedToken {
-    /// Plain text access token
-    pub access_token: SecretString,
-    /// Plain text refresh token
-    pub refresh_token: SecretString,
-    /// When the access token expires
-    pub expires_at: Timestamp,
-    /// Token scope permissions
-    pub scope: String,
 }
 
 /// The `token_type` a stored row carries when its `access_token` is a personal
@@ -366,8 +210,6 @@ pub struct UserSession {
     pub expires_at: Timestamp,
     /// User's email for display
     pub email: String,
-    /// Available fitness providers for this user
-    pub available_providers: Vec<String>,
 }
 
 /// Authentication request for `MCP` protocol
@@ -391,8 +233,6 @@ pub struct AuthResponse {
     pub user_id: Option<Uuid>,
     /// Error message if authentication failed
     pub error: Option<String>,
-    /// Available fitness providers for this user
-    pub available_providers: Vec<String>,
 }
 
 /// Type of provider connection
@@ -682,8 +522,10 @@ pub struct OAuthNotification {
     pub read_at: Option<Timestamp>,
 }
 
-/// A platform-owned Strava OAuth app in the shared-app pool, stored beside the
-/// env `STRAVA_CLIENT_ID` app to grow the total athlete-seat capacity.
+/// A platform-owned Strava OAuth app in the shared-app pool, registered beside
+/// the env `STRAVA_CLIENT_ID` app.
+///
+/// Each application serves a bounded number of athletes.
 ///
 /// The `client_secret` is intentionally absent — it is stored encrypted and is
 /// only ever fetched (decrypted) at token exchange/refresh via the repository's

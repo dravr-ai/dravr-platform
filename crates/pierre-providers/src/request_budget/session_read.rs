@@ -6,7 +6,7 @@
 
 //! The session-read caps (carnet#1661).
 //!
-//! Every read of an athlete's signed-in session at a scraped provider (the
+//! Every read of an athlete's signed-in session at a provider (the
 //! four [`SESSION_READ_BACKENDS`]) is one request to that provider made as
 //! the athlete, through their own account. Each is admitted against the
 //! athlete's own windows at that backend, sized by their tier

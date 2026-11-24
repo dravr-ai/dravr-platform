@@ -733,6 +733,7 @@ async fn oauth2_routes(limiter: OAuth2RateLimiter) -> (Router, String) {
         jwks_manager: common::get_shared_test_jwks(),
         config: Arc::new(OAuth2ServerConfig::default()),
         refresh_token_expiry_days: 30,
+        session_cookie_max_age_secs: 86_400,
         csrf_manager: Arc::new(CsrfTokenManager::with_secret(b"oauth2-test-csrf-secret")),
         // These routes sign no one in; the account rules only have to exist
         accounts: common::create_test_server_resources()

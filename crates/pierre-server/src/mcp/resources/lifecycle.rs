@@ -139,8 +139,6 @@ use pierre_services::pricing_loader;
 use pierre_services::sync_failure_notice::SyncFailureNotices;
 use pierre_services::tenant_chat_provider::TenantChatProviderCache;
 use pierre_services::usage_pruning::start_usage_pruning_task;
-#[cfg(feature = "transport-sse")]
-use pierre_sse::SseManager;
 use pierre_tool_runtime::guardian::GuardianConfigRegistry;
 use pierre_tool_runtime::registry::ToolRegistry;
 use pierre_tool_runtime::tool_selection::ToolSelectionService;
@@ -348,10 +346,6 @@ impl ServerContext {
             Self::resolve_jwks_manager(jwks_manager, database_arc.as_ref(), rsa_key_size_bits)
                 .await?;
 
-        // Create SSE manager with configured buffer size
-        #[cfg(feature = "transport-sse")]
-        let sse_manager = Arc::new(SseManager::new(config.sse.max_buffer_size));
-
         // Create auth middleware after jwks_manager is initialized
         let auth_middleware = Arc::new(
             McpAuthMiddleware::new(
@@ -548,7 +542,6 @@ impl ServerContext {
                 &provider_registry,
                 config.webhooks.whoop_secret.as_ref(),
                 &request_limiter,
-                &sse_manager,
                 SyncFailureNotices::new(
                     Arc::clone(&repos.provider_connections),
                     sync_notice_service,
@@ -667,8 +660,6 @@ impl ServerContext {
         };
 
         let sse = super::slices::SseSlice {
-            #[cfg(feature = "transport-sse")]
-            sse_manager,
             agui_registry: Arc::new(AgUiRunRegistry::new()),
         };
 
@@ -975,7 +966,7 @@ impl ServerContext {
     /// Initialize the health data sync orchestrator and start the Pierre-aware scheduler.
     ///
     /// Uses Pierre's `start_scheduled_sync` instead of enforme's built-in scheduler
-    /// to add post-sync behaviors: `last_sync` updates and SSE notifications.
+    /// to add post-sync behaviors: `last_sync` updates and sync-failure notices.
     ///
     /// Returns the storage adapter (kept for post-Arc injection of the
     /// credential refresher), the orchestrator, and the abort handle for the
@@ -991,7 +982,6 @@ impl ServerContext {
         provider_registry: &ProviderRegistry,
         whoop_webhook_secret: Option<&SecretString>,
         request_limiter: &Arc<ProviderRateLimiter>,
-        sse_manager: &Arc<SseManager>,
         notices: SyncFailureNotices,
     ) -> AppResult<(
         Arc<PierreSyncStorage>,
@@ -1001,7 +991,6 @@ impl ServerContext {
         use pierre_core::errors::AppError;
         use pierre_services::provider_refresh::start_scheduled_sync;
 
-        use pierre_services::provider_refresh::SyncNotifier;
         // The wellness readers ask Intervals.icu and WHOOP at the API the
         // provider registry names for each, as the activity and link calls
         // do. A build that registers no provider for one of them reads none
@@ -1020,13 +1009,8 @@ impl ServerContext {
             .map_err(|e| {
                 AppError::internal(format!("health sync providers could not be built: {e}"))
             })?;
-        let notifier: Arc<dyn SyncNotifier> = Arc::<SseManager>::clone(sse_manager);
-        let abort_handle = start_scheduled_sync(
-            Arc::clone(&orchestrator),
-            Arc::clone(&adapter),
-            notifier,
-            notices,
-        );
+        let abort_handle =
+            start_scheduled_sync(Arc::clone(&orchestrator), Arc::clone(&adapter), notices);
         info!("Health data sync scheduler started (Pierre-aware)");
         Ok((adapter, orchestrator, abort_handle))
     }

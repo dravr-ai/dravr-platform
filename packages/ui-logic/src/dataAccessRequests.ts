@@ -18,6 +18,7 @@ import {
   type EditDataAccessRequest,
 } from '@pierre/shared-types';
 import { apiErrorStatus } from './apiError';
+import { isEmailAddress } from './credentialRules';
 
 const CIVIL_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -183,8 +184,6 @@ export type DataAccessDraftErrors = Partial<
   Record<'controller' | 'controller_contact' | 'athlete_identifier', string>
 >;
 
-const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
 /**
  * The form's errors, as keys; empty when it can be sent. The contact may be
  * a postal address over several lines, so only a one-line contact that looks
@@ -201,7 +200,7 @@ export function validateDataAccessDraft(form: DataAccessDraftForm): DataAccessDr
   }
   if (contact === '' || contact.length > DATA_ACCESS_FIELD_LIMITS.controller_contact) {
     errors.controller_contact = 'dataAccess.error.contactRequired';
-  } else if (!/[\r\n]/.test(contact) && contact.includes('@') && !EMAIL.test(contact)) {
+  } else if (!/[\r\n]/.test(contact) && contact.includes('@') && !isEmailAddress(contact)) {
     errors.controller_contact = 'dataAccess.error.contactInvalid';
   }
   if (

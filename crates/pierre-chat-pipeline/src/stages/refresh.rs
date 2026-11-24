@@ -32,10 +32,6 @@ use pierre_database::RepositoryRegistry;
 
 use pierre_core::models::TenantId;
 use pierre_services::provider_refresh::RefreshService;
-#[cfg(feature = "health-sync")]
-use pierre_services::provider_refresh::SyncNotifier;
-#[cfg(feature = "health-sync")]
-use pierre_sse::SseManager;
 
 /// Inputs to [`refresh_and_hint`].
 ///
@@ -61,11 +57,6 @@ pub struct RefreshDeps<'a> {
     /// Optional sync orchestrator used to schedule background refreshes.
     #[cfg(feature = "health-sync")]
     pub sync_orchestrator: &'a Option<Arc<dravr_enforme::SyncOrchestrator>>,
-    /// SSE manager used to push refresh-status events to the client. Present
-    /// only under `health-sync`, the feature that owns the background sync the
-    /// events describe.
-    #[cfg(feature = "health-sync")]
-    pub sse_manager: &'a Arc<SseManager>,
 }
 
 impl fmt::Debug for RefreshDeps<'_> {
@@ -74,8 +65,6 @@ impl fmt::Debug for RefreshDeps<'_> {
         debug.field("auth_repos", &self.auth_repos);
         #[cfg(feature = "health-sync")]
         debug.field("sync_orchestrator", &self.sync_orchestrator);
-        #[cfg(feature = "health-sync")]
-        debug.field("sse_manager", &self.sse_manager);
         debug.finish_non_exhaustive()
     }
 }
@@ -101,8 +90,6 @@ pub async fn refresh_and_hint(
         registry,
         #[cfg(feature = "health-sync")]
         sync_orchestrator,
-        #[cfg(feature = "health-sync")]
-        sse_manager,
     } = deps;
     let config = RefreshConfig::default();
     if !config.on_chat_enabled {
@@ -113,8 +100,6 @@ pub async fn refresh_and_hint(
         return None;
     };
 
-    #[cfg(feature = "health-sync")]
-    let notifier: Arc<dyn SyncNotifier> = sse_manager.clone();
     let refresh_service = RefreshService::new(
         auth_repos,
         activity_cache,
@@ -122,8 +107,6 @@ pub async fn refresh_and_hint(
         Arc::clone(registry),
         #[cfg(feature = "health-sync")]
         sync_orchestrator.clone(),
-        #[cfg(feature = "health-sync")]
-        notifier,
     );
 
     let status = refresh_service

@@ -23,6 +23,7 @@ import {
   coachCategoryLabelKey,
   countKey,
   ONBOARDING_WINDOW_SUMMARY_KEYS,
+  QUERY_KEYS,
 } from '@pierre/shared-constants';
 import { useRouter } from 'expo-router';
 import { useOpenPersonalTopic } from '../chat/usePersonalThread';
@@ -69,7 +70,7 @@ export function OnboardingCoachProposalScreen() {
   };
 
   const { data, isLoading, isError } = useQuery({
-    queryKey: ['coaches', 'proposal'] as const,
+    queryKey: QUERY_KEYS.coaches.proposal(),
     queryFn: () => coachesApi.getProposal(),
     staleTime: Infinity,
     retry: 1,

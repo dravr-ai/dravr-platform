@@ -6,7 +6,7 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { adminApi } from '../../services/api';
-import { QUERY_KEYS } from '../../constants/queryKeys';
+import { QUERY_KEYS } from '@pierre/shared-constants';
 import type { ConversationScope } from '@pierre/chat-utils';
 import { useUnreadConversationTotal } from '../../hooks/useConversationList';
 import type { User } from '../../types/api';

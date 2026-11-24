@@ -23,7 +23,7 @@ use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{Subscription, SubscriptionStatus, TenantId, TierQuotaConfig, UserTier};
 use pierre_database::views::{AuthRepos, UsageRepos};
 use pierre_middleware::extractors::AuthenticatedUser;
-use pierre_runtime_context::{BillingCtx, MiddlewareCtx};
+use pierre_runtime_context::{resolve_tenant, BillingCtx, MiddlewareCtx, TenantMode};
 use serde::{Deserialize, Serialize};
 use tracing::{error, field, info, instrument, Span};
 use uuid::Uuid;
@@ -209,20 +209,16 @@ async fn plans() -> Json<PlansResponse> {
     })
 }
 
-/// The tenant a billing action applies to: the token's active tenant when
-/// the JWT names one, otherwise the user's first membership — the same
-/// resolution `GET /api/users/me/quota` uses. A user with no tenant at all
-/// has nothing a subscription could attach to, so that is a 404.
-async fn resolve_tenant_id<C: BillingCtx>(
-    resources: &C,
+/// The tenant a billing action applies to, selected by the canonical resolver.
+///
+/// That is the tenant the session names when the user belongs to it, otherwise the user's first membership — the same
+/// resolution `GET /api/users/me/quota` uses. A user with no tenant at all has nothing a
+/// subscription could attach to, so that is a 404.
+async fn resolve_tenant_id<C: BillingCtx + MiddlewareCtx>(
+    resources: &Arc<C>,
     auth: &AuthenticatedUser,
 ) -> AppResult<String> {
-    if let Some(tenant) = auth.active_tenant_id {
-        return Ok(tenant.to_string());
-    }
-    BillingCtx::repos(resources)
-        .tenants
-        .first_for_user(auth.user_id)
+    resolve_tenant(resources, auth, TenantMode::Optional)
         .await?
         .map(|tenant_id| tenant_id.to_string())
         .ok_or_else(|| AppError::not_found("user has no active tenant"))
@@ -266,7 +262,7 @@ async fn checkout<C: BillingCtx + MiddlewareCtx>(
         "start a billing checkout",
     )
     .await?;
-    let tenant_id = resolve_tenant_id(resources.as_ref(), &auth).await?;
+    let tenant_id = resolve_tenant_id(&resources, &auth).await?;
     let req = CheckoutRequest {
         tier: body.tier,
         tenant_id,

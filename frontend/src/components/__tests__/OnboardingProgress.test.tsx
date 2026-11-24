@@ -7,7 +7,7 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import OnboardingProgress from '../OnboardingProgress';
-import type { OnboardingProgressItem } from '../../onboarding/steps';
+import type { OnboardingProgressItem } from '@pierre/shared-constants/onboarding';
 
 const STEPS: OnboardingProgressItem[] = [
   { id: 'profile_type', labelKey: 'onboarding.stepProfile', status: 'done' },

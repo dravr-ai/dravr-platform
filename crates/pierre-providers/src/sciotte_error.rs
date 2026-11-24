@@ -4,10 +4,10 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! What a failed call to the sciotte scraper service is, in the platform's
+//! What a failed call to the sciotte service is, in the platform's
 //! error vocabulary.
 //!
-//! The scraper service is called through `dravr-sciotte`'s own client, whose
+//! The sciotte service is called through `dravr-sciotte`'s own client, whose
 //! [`ClientError`] names what the service answered. [`to_app_error`] is the
 //! only place that names it in the platform's [`ErrorCode`]s:
 //!

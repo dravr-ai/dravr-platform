@@ -149,6 +149,10 @@
                 showError(S.linkExpired);
             }
 
+            // Every request this page makes goes through BASE:
+            //   POST /providers/connect/import/{source}
+            //   GET  /providers/connect/import/{source}/current
+            //   POST /providers/connect/import/{source}/{id}/cancel
             async function call(method, path, body) {
                 const init = {
                     method: method,

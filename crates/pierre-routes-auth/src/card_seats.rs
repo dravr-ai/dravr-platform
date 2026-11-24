@@ -6,8 +6,8 @@
 
 //! Which backend the Strava and Garmin cards recommend.
 //!
-//! Both providers cap the athletes one client may connect. A new connection
-//! signs in through the mirror by default, and goes through the provider's
+//! Each registered client of either provider serves a bounded number of
+//! athletes. A new connection signs in through the mirror by default, and goes through the provider's
 //! OAuth while a seat remains only under the admin's OAuth-first order
 //! (carnet#1472). A reconnect signs in through the mirror whatever the order
 //! and the seats: a dead grant reconnects only through the hosted sign-in
@@ -46,16 +46,16 @@ impl CardSeats {
     /// Count both pools once, for every card of one provider list.
     pub(crate) async fn count(resources: &AuthRoutesContext) -> Self {
         // Strava's pool is the env-default STRAVA_CLIENT_ID app plus any
-        // enabled DB pool apps. Strava enforces a per-application athlete cap
-        // that no API header exposes, so a NEW Strava connection prefers
-        // OAuth while ANY pool seat remains.
+        // enabled DB pool apps. Each application serves a bounded number of
+        // athletes, a number no API header reports, so the seats are counted
+        // here: a NEW Strava connection is offered OAuth while a seat remains.
         let strava = strava_pool::strava_seat_summary(
             resources.repos.oauth_tokens.as_ref(),
             &resources.config.oauth,
         )
         .await
         .map_or(0, |s| s.left());
-        // Garmin's Developer Program caps the users one client may connect.
+        // Garmin's Developer Program client serves a bounded number of users.
         let garmin = match garmin_seats::garmin_seat_summary(
             resources.repos.provider_connections.as_ref(),
             &resources.config.oauth,

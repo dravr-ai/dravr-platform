@@ -428,7 +428,7 @@ mod tests {
     /// The real Strava provider, its base URL on a fixture serving `pool`,
     /// holding the bearer a seeded `user` carries.
     async fn provider_on_fixture(pool: SqlitePool, user: &str) -> StravaProvider {
-        HTTP_CLIENTS.call_once(|| initialize_http_clients(HttpClientConfig::default()));
+        HTTP_CLIENTS.call_once(|| initialize_http_clients(&HttpClientConfig::default()));
         let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
         let addr = listener.local_addr().expect("local addr");
         tokio::spawn(async move { serve(listener, app(pool, garmin_fixture())).await });
@@ -459,7 +459,7 @@ mod tests {
 
     /// The real Garmin provider, its base URL on a fixture serving `pool`.
     async fn garmin_on_fixture(pool: SqlitePool, user: &str) -> GarminProvider {
-        HTTP_CLIENTS.call_once(|| initialize_http_clients(HttpClientConfig::default()));
+        HTTP_CLIENTS.call_once(|| initialize_http_clients(&HttpClientConfig::default()));
         let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
         let addr = listener.local_addr().expect("local addr");
         tokio::spawn(async move { serve(listener, app(pool, garmin_fixture())).await });

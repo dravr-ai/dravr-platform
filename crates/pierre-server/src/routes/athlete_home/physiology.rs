@@ -52,6 +52,7 @@ use pierre_core::errors::AppResult;
 use pierre_core::models::periodization::{AnchorConfidence, AnchorValue, SportFamily};
 use pierre_core::models::{AnchorUnit, HeldAnchors, SportAnchorName, TenantId, UnitSystem};
 use pierre_middleware::extractors::AuthenticatedUser;
+use pierre_runtime_context::require_tenant;
 use pierre_services::athlete_anchors::stored_athlete_anchors;
 use pierre_services::locale::user_locale;
 use pierre_services::personas::resolve_persona_locale;
@@ -59,7 +60,6 @@ use pierre_services::units::resolve_user_units;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use super::active_tenant;
 use crate::mcp::resources::ServerContext;
 
 /// Query parameters for `GET` and `PUT /api/me/physiology`.
@@ -207,7 +207,7 @@ pub(super) async fn get_physiology(
     auth: AuthenticatedUser,
     Query(query): Query<PhysiologyQuery>,
 ) -> AppResult<Json<PhysiologyResponse>> {
-    let tenant_id = active_tenant(&auth)?;
+    let tenant_id = require_tenant(&resources, &auth).await?;
     let body = physiology_response(
         &resources,
         tenant_id,

@@ -207,19 +207,13 @@ async fn cached_wahoo_ids(
 }
 
 /// A workout summary for a linked athlete fetches through the OAuth provider
-/// into the cache, keyed by the Wahoo workout id, stamps `last_sync`, and
-/// tells the athlete's live stream.
+/// into the cache, keyed by the Wahoo workout id, and stamps `last_sync`.
 #[tokio::test]
 #[serial]
 async fn a_workout_summary_fetches_the_owners_workouts_into_the_cache() {
     let (api_base, hits) = mock_wahoo().await;
     let resources = context_pointed_at(&api_base, Some(PORTAL_TOKEN)).await;
     let (user_id, tenant_id) = seed_linked_athlete(&resources).await;
-    let mut sse = resources
-        .sse
-        .sse_manager
-        .register_notification_stream(user_id)
-        .await;
 
     let status = post_body(&resources, summary_event(PORTAL_TOKEN).to_string()).await;
     assert_eq!(status, StatusCode::OK, "Wahoo is acknowledged at once");
@@ -240,9 +234,6 @@ async fn a_workout_summary_fetches_the_owners_workouts_into_the_cache() {
         .unwrap()
         .expect("last_sync is stamped after the fetch");
     assert!(Timestamp::now() - last_sync < Elapsed::minutes(1));
-    let message = sse.try_recv().expect("the athlete's stream hears of it");
-    let payload: Value = serde_json::from_str(message.trim_start_matches("data: ").trim()).unwrap();
-    assert_eq!(payload["provider"], "wahoo");
 }
 
 /// A body whose token is not the portal's is refused and nothing is fetched.

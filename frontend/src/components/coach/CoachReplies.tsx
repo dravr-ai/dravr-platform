@@ -17,11 +17,11 @@ import {
   REPLY_FLAG_REASONS as REASONS,
   VERDICT_STATUS_LABEL_KEY,
   coachReviewWeekSummary,
+  QUERY_KEYS,
 } from '@pierre/shared-constants';
 import { useTranslation } from '@pierre/i18n';
 import { ALL_COACHED_ATHLETES, coachedAthleteOptions, describeApiError, replyStatus } from '@pierre/ui-logic';
 import { coachRepliesApi } from '../../services/api';
-import { QUERY_KEYS } from '../../constants/queryKeys';
 import { TabHeader } from '../ui/TabHeader';
 import { Button, Select, Textarea, useErrorToast, useSuccessToast } from '../ui';
 import { StatusDot, type DotTone } from '../coach-home/parts';

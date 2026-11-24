@@ -337,7 +337,6 @@ async fn a_token_an_integration_holds_cannot_export() {
                 audience: None,
             },
             &ana.id,
-            &[],
             Some(tenant.to_string()),
         )
         .unwrap();

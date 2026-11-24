@@ -94,10 +94,6 @@ pub mod limits {
 
 /// Timeout configurations
 pub mod timeouts {
-    /// Default HTTP client request timeout in seconds
-    pub const HTTP_CLIENT_TIMEOUT_SECS: u64 = 30;
-    /// Default HTTP client connect timeout in seconds
-    pub const HTTP_CLIENT_CONNECT_TIMEOUT_SECS: u64 = 10;
     /// OAuth client request timeout in seconds
     pub const OAUTH_CLIENT_TIMEOUT_SECS: u64 = 15;
     /// OAuth client connect timeout in seconds
@@ -106,12 +102,6 @@ pub mod timeouts {
     pub const API_CLIENT_TIMEOUT_SECS: u64 = 60;
     /// API client connect timeout in seconds
     pub const API_CLIENT_CONNECT_TIMEOUT_SECS: u64 = 10;
-    /// Health check client timeout in seconds
-    pub const HEALTH_CHECK_TIMEOUT_SECS: u64 = 5;
-    /// SSE cleanup task interval in seconds
-    pub const SSE_CLEANUP_INTERVAL_SECS: u64 = 300; // 5 minutes
-    /// SSE connection timeout in seconds (inactive connections removed after this duration)
-    pub const SSE_CONNECTION_TIMEOUT_SECS: u64 = 600; // 10 minutes
     /// OAuth session cookie Max-Age in seconds (matches JWT expiration)
     pub const SESSION_COOKIE_MAX_AGE_SECS: u64 = 86400; // 24 hours
 }
@@ -597,8 +587,6 @@ pub mod network_config {
     pub const OAUTH_CODE_VERIFIER_LENGTH: usize = 128;
     /// SSE broadcast channel size
     pub const SSE_BROADCAST_CHANNEL_SIZE: usize = 1000;
-    /// Maximum concurrent SSE connections per user (`DoS` prevention)
-    pub const SSE_MAX_CONNECTIONS_PER_USER: usize = 5;
 }
 
 /// HTTP status codes

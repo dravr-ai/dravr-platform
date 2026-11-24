@@ -102,11 +102,21 @@ async fn make_coach_user(
         .await
         .unwrap();
     let token = match tenant {
-        Some(tid) => res
-            .auth
-            .auth_manager
-            .generate_token_with_tenant(&user, &res.auth.jwks_manager, Some(tid.to_string()))
-            .unwrap(),
+        Some(tid) => {
+            // In-tenant means a membership row: a token that only claims the
+            // tenant is refused before any group rule is read.
+            res.agent
+                .database
+                .repositories()
+                .users
+                .update_tenant_id(uid, tid)
+                .await
+                .unwrap();
+            res.auth
+                .auth_manager
+                .generate_token_with_tenant(&user, &res.auth.jwks_manager, Some(tid.to_string()))
+                .unwrap()
+        }
         None => generate_test_token(res, &user).await,
     };
     (uid, format!("Bearer {token}"))

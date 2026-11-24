@@ -6,11 +6,13 @@
 
 //! Strava shared-app OAuth **pool** logic.
 //!
-//! Strava caps how many athletes a single OAuth app may connect and does not
-//! expose that cap via the API. To grow capacity beyond the env-default
-//! `STRAVA_CLIENT_ID` app, admins register additional apps in the
-//! `strava_oauth_app_pool` table. This module decides which app an
-//! authorization uses (the pool app that issued the athlete's token while it
+//! Each registered Strava application serves a bounded number of athletes,
+//! a number Strava's API does not report. The applications are the
+//! env-default `STRAVA_CLIENT_ID` app and the ones admins register in the
+//! `strava_oauth_app_pool` table. The pool records which application an
+//! athlete authorized under and frees a seat when an athlete disconnects.
+//! This module decides which app an authorization uses (the pool app that
+//! issued the athlete's token while it
 //! has room, otherwise the env app first, then pool apps in order). A token
 //! whose issuing app is already known (at code exchange from the pinned
 //! state, at refresh from the stored token) resolves that app's secret

@@ -79,20 +79,6 @@ pub(super) fn expected_index(
         .ok_or(DraftDayOutcome::SessionMoved)
 }
 
-/// Where a save on `date` writes in `days`: the session `at` names, else
-/// `SessionMoved`; with no `at`, the date's first entry, or a new entry
-/// (`None`) where the date holds none.
-pub(super) fn written_index(
-    days: &[PlannedDay],
-    date: &str,
-    at: Option<&SessionAt>,
-) -> Result<Option<usize>, DraftDayOutcome> {
-    at.map_or_else(
-        || Ok(entry_index(days, date, 0)),
-        |at| expected_index(days, date, at).map(Some),
-    )
-}
-
 /// The snapshot a coach's day save stamps on the day it writes: the one the
 /// replaced day already carries, so a second edit keeps what the first one
 /// replaced; else the replaced day itself. `None` where no day stood on the
@@ -229,14 +215,9 @@ mod tests {
             );
         }
         assert_eq!(
-            written_index(&days, DATE, None),
-            Ok(Some(1)),
-            "bug: a write naming no session writes the date's first entry"
-        );
-        assert_eq!(
-            written_index(&days, "2026-11-20", None),
-            Ok(None),
-            "bug: a write naming no session on an empty date adds one"
+            expected_index(&days, "2026-11-20", &at(0, "ride", "Endurance")),
+            Err(DraftDayOutcome::SessionMoved),
+            "bug: a date holding no entry holds no session to write over"
         );
     }
 

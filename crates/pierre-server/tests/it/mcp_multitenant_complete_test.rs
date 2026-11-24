@@ -25,7 +25,7 @@ use pierre_config::environment::{
     AppBehaviorConfig, AuthConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment,
     ExternalServicesConfig, GarminApiConfig, HttpClientConfig, LogLevel, LoggingConfig,
     OAuth2ServerConfig, OAuthConfig, OAuthProviderConfig, PostgresPoolConfig, ProtocolConfig,
-    SciotteServiceConfig, SecurityConfig, SecurityHeadersConfig, ServerConfig, SseConfig,
+    SciotteServiceConfig, SecurityConfig, SecurityHeadersConfig, ServerConfig, SessionCookieConfig,
     StravaApiConfig, TlsConfig,
 };
 use pierre_core::models::CoachingPersona;
@@ -151,7 +151,7 @@ fn create_test_config(port: u16) -> Arc<ServerConfig> {
                 server_version: env!("CARGO_PKG_VERSION").to_owned(),
             },
         },
-        sse: SseConfig::default(),
+        session_cookie: SessionCookieConfig::default(),
         oauth2_server: OAuth2ServerConfig::default(),
         ..Default::default()
     })
@@ -199,7 +199,6 @@ impl MultiTenantMcpClient {
             display_name: Some(display_name.to_owned()),
             password_hash,
             tier: UserTier::Starter,
-            strava_token: None,
             is_active: true,
             user_status: UserStatus::Active, // Already active
             role: UserRole::User,

@@ -8,16 +8,17 @@
 //! Integration tests for `pierre_runtime_context::tenant::resolve_tenant`.
 //!
 //! The canonical tenant resolver replaced ~10 ad-hoc
-//! `TenantId::from_uuid(user_id)` fallbacks across the route layer. These five
-//! tests pin its observable contract so a future refactor can't quietly
+//! `TenantId::from_uuid(user_id)` fallbacks across the route layer. The first
+//! five tests pin its observable contract so a future refactor can't quietly
 //! reintroduce the user-id fabrication that masked the "user has no
-//! tenant" failure mode.
+//! tenant" failure mode; the last pins that the repository-shaped door,
+//! `resolve_tenant_in`, answers by the same rule.
 
 use anyhow::Result;
 use pierre_auth::auth::{AuthMethod, AuthResult};
 use pierre_core::errors::ErrorCode;
 use pierre_core::permissions::scopes::OAuthScope;
-use pierre_runtime_context::{resolve_tenant, MiddlewareCtx, TenantMode};
+use pierre_runtime_context::{resolve_tenant, resolve_tenant_in, MiddlewareCtx, TenantMode};
 use uuid::Uuid;
 
 use crate::common;
@@ -155,5 +156,41 @@ async fn empty_list_optional_returns_none() -> Result<()> {
         resolved.is_none(),
         "Optional with no tenants must return None, got {resolved:?}"
     );
+    Ok(())
+}
+
+/// A caller holding the tenants repository and no runtime context goes
+/// through `resolve_tenant_in`, which answers as `resolve_tenant` does: the
+/// claimed tenant when the membership is real, a refusal when it is not, the
+/// first tenant when none is claimed.
+#[tokio::test]
+async fn the_repository_door_applies_the_same_rule() -> Result<()> {
+    let resources = common::create_test_server_resources().await?;
+    let (user_id, _user) =
+        common::create_test_user_with_email(&resources.agent.database, "repo-door@pierre.test")
+            .await?;
+    let tenants = resources.repos().tenants.as_ref();
+    let own = tenants
+        .list_for_user(user_id)
+        .await?
+        .first()
+        .map(|t| t.id.as_uuid())
+        .expect("create_test_user_with_email seeds at least one tenant");
+
+    let claimed = auth_for(user_id, Some(own));
+    let by_context = resolve_tenant(&resources, &claimed, TenantMode::Required).await?;
+    let by_repository = resolve_tenant_in(tenants, &claimed, TenantMode::Required).await?;
+    assert_eq!(by_repository, by_context);
+    assert_eq!(by_repository.map(|t| t.as_uuid()), Some(own));
+
+    let unclaimed = auth_for(user_id, None);
+    let first = resolve_tenant_in(tenants, &unclaimed, TenantMode::Required).await?;
+    assert_eq!(first.map(|t| t.as_uuid()), Some(own));
+
+    let forged = auth_for(user_id, Some(Uuid::new_v4()));
+    let err = resolve_tenant_in(tenants, &forged, TenantMode::Optional)
+        .await
+        .expect_err("a claim with no membership is refused in either mode");
+    assert_eq!(err.code, ErrorCode::AuthInvalid);
     Ok(())
 }

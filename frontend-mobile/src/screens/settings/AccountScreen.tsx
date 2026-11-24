@@ -5,6 +5,7 @@ import React, { useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useTranslation } from '@pierre/i18n';
+import { isPasswordLongEnough } from '@pierre/ui-logic';
 import { ACCOUNT_ROLE_LABEL_KEY, settingsPaneSections } from '@pierre/shared-constants';
 import { formatCompactNumber, formatCount, formatDate, formatResetTime, type Translate } from '@pierre/chat-utils';
 import type { LimitCheckResult } from '@pierre/shared-types';
@@ -92,7 +93,7 @@ export function AccountScreen() {
       Alert.alert(t('common.error'), t('app.newPasswordsMismatch'));
       return;
     }
-    if (newPassword.length < 8) {
+    if (!isPasswordLongEnough(newPassword)) {
       Alert.alert(t('common.error'), t('app.passwordTooShort'));
       return;
     }

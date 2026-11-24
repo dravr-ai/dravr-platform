@@ -272,4 +272,34 @@ describe('BillingScreen', () => {
       });
     }
   });
+
+  // The page drew a dark-only palette of literal hexes, so it ignored the
+  // athlete's appearance setting: every colour is now a theme token class.
+  it('draws a quota bar in the feedback token its state calls for, never a literal colour', async () => {
+    mockGetSubscription.mockResolvedValue(null);
+    const counter = (counter_type: string, warning: boolean, burst_zone: boolean) => ({
+      counter_type,
+      current: 25,
+      limit: 100,
+      warning,
+      burst_zone,
+      resets_at: '2026-01-16T00:00:00Z',
+    });
+    mockGetMyQuota.mockResolvedValue({
+      tier: 'starter',
+      counters: [
+        counter('daily_messages', false, false),
+        counter('daily_tokens', true, false),
+        counter('daily_tool_calls', true, true),
+      ],
+    });
+
+    renderScreen();
+
+    const calm = await screen.findByTestId('quota-bar-daily_messages');
+    expect(calm.props.className).toContain('bg-success');
+    expect(calm.props.style).toEqual({ width: '25%' });
+    expect(screen.getByTestId('quota-bar-daily_tokens').props.className).toContain('bg-warning');
+    expect(screen.getByTestId('quota-bar-daily_tool_calls').props.className).toContain('bg-error');
+  });
 });

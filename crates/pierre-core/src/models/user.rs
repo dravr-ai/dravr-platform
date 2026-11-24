@@ -22,8 +22,8 @@ use dravr_cageux::nutrition_calculator::Gender;
 
 use super::zones::{HrZoneSet, PowerZoneSet};
 use super::{
-    AnchorProvenance, EncryptedToken, ProfileVdot, ProvenancedValue, SportType,
-    ThresholdProvenance, ThresholdStatedOn,
+    AnchorProvenance, ProfileVdot, ProvenancedValue, SportType, ThresholdProvenance,
+    ThresholdStatedOn,
 };
 
 /// Type-safe wrapper for user identifiers.
@@ -449,8 +449,6 @@ pub struct User {
     pub password_hash: String,
     /// User tier for rate limiting
     pub tier: UserTier,
-    /// Encrypted Strava tokens
-    pub strava_token: Option<EncryptedToken>,
     /// When the user account was created
     pub created_at: Timestamp,
     /// Last time user accessed the system
@@ -522,9 +520,8 @@ pub struct User {
 }
 
 /// Every field as stored, except `password_hash`, which prints as
-/// `[REDACTED]` whatever it holds. The Strava tokens are `SecretString`s,
-/// which print as redacted themselves. A field prints only once it is
-/// listed here, so a new one is left out until someone decides it may.
+/// `[REDACTED]` whatever it holds. A field prints only once it is listed
+/// here, so a new one is left out until someone decides it may.
 impl Debug for User {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         f.debug_struct("User")
@@ -533,7 +530,6 @@ impl Debug for User {
             .field("display_name", &self.display_name)
             .field("password_hash", &"[REDACTED]")
             .field("tier", &self.tier)
-            .field("strava_token", &self.strava_token)
             .field("created_at", &self.created_at)
             .field("last_active", &self.last_active)
             .field("is_active", &self.is_active)
@@ -665,7 +661,6 @@ impl User {
             display_name,
             password_hash,
             tier: UserTier::Starter, // Default to starter tier
-            strava_token: None,
             created_at: now,
             last_active: now,
             is_active: true,
@@ -683,24 +678,6 @@ impl User {
             timezone: None,
             theme: None,
         }
-    }
-
-    /// Check if user has valid Strava token
-    #[must_use]
-    pub fn has_strava_access(&self) -> bool {
-        self.strava_token
-            .as_ref()
-            .is_some_and(|token| token.expires_at > Timestamp::now())
-    }
-
-    /// Get list of available providers for this user
-    #[must_use]
-    pub fn available_providers(&self) -> Vec<String> {
-        let mut providers = Vec::with_capacity(1);
-        if self.has_strava_access() {
-            providers.push("strava".into());
-        }
-        providers
     }
 
     /// Update last active timestamp

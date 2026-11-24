@@ -260,7 +260,6 @@ async fn a_third_party_apps_oauth_token_is_refused_by_the_chat_route_before_any_
                 audience: None,
             },
             &a.user,
-            &[],
             Some(a.tenant.to_string()),
         )
         .unwrap();
@@ -360,7 +359,6 @@ async fn the_feed_is_refused_to_every_outside_credential_as_health_records_are()
                 audience: None,
             },
             &a.user,
-            &[],
             Some(a.tenant.to_string()),
         )
         .unwrap();

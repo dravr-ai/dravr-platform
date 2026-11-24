@@ -32,7 +32,6 @@ export const QUERY_KEYS = {
     profile: () => ['user-profile'] as const,
     stats: () => ['userStats'] as const,
     oauthApps: () => ['user-oauth-apps'] as const,
-    providerConnections: () => ['provider-connections'] as const,
     onboardingStatus: () => ['user-onboarding-status'] as const,
     coachAccessRequest: () => ['user-coach-access-request'] as const,
     /** The units the athlete reads, and the Settings choice behind them. */
@@ -70,6 +69,8 @@ export const QUERY_KEYS = {
      * request's and each poll's) is written here, so a pane opened again shows it.
      */
     originalsLatest: () => ['originals-latest'] as const,
+    /** One originals bundle by id, polled while it is still being built. */
+    originalsBundle: (bundleId?: string) => ['originals-bundle', bundleId] as const,
   },
 
   // ==================== HEALTH RECORDS ====================
@@ -257,6 +258,8 @@ export const QUERY_KEYS = {
     list: (category?: string, favoritesOnly?: boolean, personalize?: boolean) =>
       ['coaches', 'user-coaches', category, favoritesOnly, personalize] as const,
     assignments: (agentId?: string) => ['coaches', 'coach-assignments', agentId] as const,
+    /** The team onboarding proposes: a one-time snapshot of the athlete's data, never invalidated. */
+    proposal: () => ['coaches', 'proposal'] as const,
   },
 
   // ==================== PERSONAS ====================
@@ -307,6 +310,63 @@ export const QUERY_KEYS = {
     coachSeatInvitations: () => ['coach-seat-invitations'] as const,
     rateLimit: (userId?: string) => ['user-rate-limit', userId] as const,
     activity: (userId?: string) => ['user-activity', userId] as const,
+    /** One user's usage figures, in the admin's user drawer. */
+    usage: (userId?: string) => ['adminUsers', 'usage', userId] as const,
+    /** One user's admin-only profile (persona, memories), in the same drawer. */
+    adminProfile: (userId?: string) => ['adminUsers', 'admin-profile', userId] as const,
+  },
+
+  // ==================== ADMIN - SCOPED SCREENS ====================
+  // Each read names the tenant scope it was made in (`tenantId` omitted is
+  // every tenant), so picking another scope is another cache entry.
+  adminScoped: {
+    /** The tenants the scope picker offers. */
+    scopeTenants: () => ['admin', 'scope-tenants'] as const,
+    engagement: (tenantId?: string) => ['admin', 'engagement', tenantId] as const,
+    toolUsage: (days: number, tenantId?: string) => ['admin', 'tool-usage', days, tenantId] as const,
+    memoryWorkerMetrics: (tenantId?: string) => ['admin', 'memory-worker-metrics', tenantId] as const,
+    verdictStats: (tenantId?: string) => ['admin', 'evals', 'verdict-stats', tenantId] as const,
+  },
+
+  // ==================== ADMIN - CLAIM VERDICTS ====================
+  // The three `all*` keys are the prefixes a disposition change invalidates:
+  // every page, every health window and every message lookup, whatever its
+  // scope and filters.
+  adminClaimVerdicts: {
+    allPages: () => ['admin', 'claim-verdicts'] as const,
+    /** One page of verdicts: the tenant scope, then the filters in the order the table shows them. */
+    page: (
+      tenantId: string | undefined,
+      filters: {
+        status: string;
+        category: string;
+        coach: string;
+        layer: string;
+        disposition: string;
+        limit: number;
+      },
+    ) =>
+      [
+        'admin',
+        'claim-verdicts',
+        tenantId,
+        filters.status,
+        filters.category,
+        filters.coach,
+        filters.layer,
+        filters.disposition,
+        filters.limit,
+      ] as const,
+    allHealth: () => ['admin', 'claim-verdicts-health'] as const,
+    health: (tenantId: string | undefined, windowDays: number) =>
+      ['admin', 'claim-verdicts-health', tenantId, windowDays] as const,
+    allMessages: () => ['admin', 'claim-verdicts-message'] as const,
+    /** Every verdict on one message, looked up by its id. */
+    message: (tenantId: string | undefined, messageId: string) =>
+      ['admin', 'claim-verdicts-message', tenantId, messageId] as const,
+    /** One verdict's detail, in the tenant that holds it. */
+    detail: (tenantId: string | undefined, verdictId: string) =>
+      ['admin', 'claim-verdict', tenantId, verdictId] as const,
   },
 
   // ==================== ADMIN - TOKENS ====================
@@ -415,6 +475,28 @@ export const QUERY_KEYS = {
   messaging: {
     all: ['messaging'] as const,
     channels: () => ['messaging-channels'] as const,
+    /** The chat apps this account has linked. */
+    links: () => ['messaging-links'] as const,
+    /** The chat apps this deployment offers to link. */
+    availableChannels: () => ['messaging-available-channels'] as const,
+    /** One channel's link start: the code, deep link or QR the athlete follows. */
+    linkInit: (channel: string) => ['messaging-link-init', channel] as const,
+  },
+
+  // ==================== MEMORY ====================
+  memory: {
+    /** Every memory-fact read; invalidating it rereads the list and the drafts. */
+    facts: () => ['memory', 'facts'] as const,
+    /** The saved facts, narrowed to one kind (`''` for every kind). */
+    factList: (kind: string) => ['memory', 'facts', kind] as const,
+    /** The facts waiting for review; under `facts()`, so keeping or discarding one rereads both lists. */
+    drafts: () => ['memory', 'facts', 'drafts'] as const,
+  },
+
+  // ==================== PAR-Q ====================
+  parq: {
+    /** The health-screening questionnaire, in the reader's language. */
+    questions: () => ['parq-questions'] as const,
   },
 
   // ==================== BILLING ====================

@@ -20,7 +20,7 @@ use axum::{extract::State, Json};
 use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::AppError;
 use pierre_middleware::extractors::AuthenticatedUser;
-use pierre_runtime_context::{resolve_tenant, tenant::require, TenantMode};
+use pierre_runtime_context::require_tenant;
 use pierre_services::first_run::coach::{
     coach_setup, CoachFacts, CoachGroup, CoachStep, JoinedAthlete,
 };
@@ -125,7 +125,7 @@ pub async fn get_coach_setup(
     auth: AuthenticatedUser,
 ) -> Result<Json<CoachSetupResponse>, AppError> {
     let auth = auth.into_inner();
-    let tenant = require(resolve_tenant(&resources, &auth, TenantMode::Required).await?)?;
+    let tenant = require_tenant(&resources, &auth).await?;
     let facts = CoachFacts::read(&resources.common.repos, tenant, auth.user_id).await?;
     let setup = coach_setup(&facts);
     Ok(Json(CoachSetupResponse {

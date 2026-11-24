@@ -12,7 +12,7 @@
 //! `users.role = 'admin'` via [`pierre_middleware::admin_guard::require_admin`].
 //!
 //! Endpoints covered:
-//! - Admin roles (`users/{id}/promote`, `users/{id}/demote`, `admins`)
+//! - Admin roles (`users/{id}/promote`, `users/{id}/demote`)
 //! - Per-user profile (`users/{id}/admin-profile`)
 //! - Per-user tool overrides (`tools/user/{id}/*`)
 //! - Tenant plan (`tenants/{id}/plan`)
@@ -179,24 +179,6 @@ struct AdminPrivilegeChangeUser {
     role: String,
 }
 
-/// Admin user entry for the list-admins response
-#[derive(Serialize)]
-struct AdminListEntry {
-    id: String,
-    email: String,
-    display_name: Option<String>,
-    role: String,
-    user_status: String,
-    created_at: String,
-}
-
-/// Response for listing all admins
-#[derive(Serialize)]
-struct AdminListResponse {
-    count: usize,
-    admins: Vec<AdminListEntry>,
-}
-
 /// Query parameters for `GET /api/admin/analytics/recent-activity`.
 #[derive(Debug, Deserialize)]
 pub struct RecentActivityQuery {
@@ -300,7 +282,6 @@ impl WebAdminRoutes {
                 "/api/admin/users/{user_id}/demote",
                 post(Self::handle_demote_user),
             )
-            .route("/api/admin/admins", get(Self::handle_list_admins))
             // Billing / usage routes
             .route(
                 "/api/admin/users/{user_id}/usage",
@@ -660,44 +641,6 @@ impl WebAdminRoutes {
                     is_admin: result.is_admin,
                     role: result.role,
                 },
-            }),
-        )
-            .into_response())
-    }
-
-    /// List all admin users across all tenants
-    async fn handle_list_admins(
-        State(resources): State<WebAdminContext>,
-        headers: HeaderMap,
-    ) -> Result<Response, AppError> {
-        let auth = Self::authenticate_admin(&headers, &resources).await?;
-
-        info!(
-            admin_user_id = %auth.user_id,
-            "Web admin listing all admin users"
-        );
-
-        let admins = admin_ops::list_all_admins(&resources.data, auth.user_id).await?;
-
-        let entries: Vec<AdminListEntry> = admins
-            .into_iter()
-            .map(|a| AdminListEntry {
-                id: a.id,
-                email: a.email,
-                display_name: a.display_name,
-                role: a.role,
-                user_status: a.user_status,
-                created_at: a.created_at,
-            })
-            .collect();
-
-        let count = entries.len();
-
-        Ok((
-            StatusCode::OK,
-            Json(AdminListResponse {
-                count,
-                admins: entries,
             }),
         )
             .into_response())

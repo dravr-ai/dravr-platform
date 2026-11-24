@@ -7,10 +7,11 @@
 import { useState, type ReactNode } from 'react';
 import type { CoachingGroup, GroupDigestMode, GroupRespondMode, UpdateGroupRequest } from '@pierre/shared-types';
 import { useTranslation } from '@pierre/i18n';
+import { DIGEST_MODES, DIGEST_MODE_ORDER } from '@pierre/shared-constants';
 import { describeApiError } from '@pierre/ui-logic';
 import { useUpdateGroup } from '../../hooks/useGroups';
 import { Checkbox, Input, Select, Textarea, useErrorToast, useSuccessToast } from '../ui';
-import { DIGEST_MODES, RESPOND_MODE_LABEL_KEY } from './groupSettingsLabels';
+import { RESPOND_MODE_LABEL_KEY } from './groupSettingsLabels';
 
 interface GroupSettingsFormProps {
   group: CoachingGroup;
@@ -133,7 +134,7 @@ export default function GroupSettingsForm({ group, isAdmin, canSetDigest, childr
             setDigestMode(next);
             void save({ digest_mode: next }, () => setDigestMode(previous));
           }}
-          options={(Object.keys(DIGEST_MODES) as GroupDigestMode[]).map((mode) => ({
+          options={DIGEST_MODE_ORDER.map((mode) => ({
             value: mode,
             label: t(DIGEST_MODES[mode].labelKey),
           }))}

@@ -41,6 +41,7 @@ use pierre_groups::creation_policy::{
 use pierre_groups::group_agent::require_athlete_facing;
 use pierre_groups::strategies::tier::{tier_enables_digest, tier_strategy_for};
 use pierre_middleware::AuthenticatedUser;
+use pierre_runtime_context::require_tenant;
 use pierre_runtime_context::{GroupsCtx, MiddlewareCtx};
 use pierre_services::coach_access::{name_requested_group, CoachAccessNotices};
 use pierre_services::coach_consents;
@@ -157,11 +158,30 @@ impl GroupRoutes {
     // Helpers
     // ========================================================================
 
-    /// Extract tenant ID from auth claims
-    fn get_tenant_id(auth: &AuthResult) -> Result<TenantId, AppError> {
-        auth.active_tenant_id
-            .map(TenantId::from_uuid)
-            .ok_or_else(|| AppError::auth_invalid("No active tenant in session"))
+    /// The id of the agent a new group is bound to.
+    ///
+    /// It must be one the caller can read in this tenant, so a stale or
+    /// foreign id never makes a group nobody can talk to, and one that
+    /// answers athletes.
+    async fn chosen_agent_id<C: GroupsCtx + MiddlewareCtx>(
+        resources: &Arc<C>,
+        chosen: Option<&str>,
+        user_id: Uuid,
+        tenant_id: TenantId,
+    ) -> Result<String, AppError> {
+        let Some(agent_id) = chosen else {
+            return Err(AppError::invalid_input(
+                "Choose the group's agent before creating it",
+            ));
+        };
+        let agent = resources
+            .repos()
+            .agents
+            .get_by_id(agent_id, user_id, tenant_id)
+            .await?
+            .ok_or_else(|| AppError::not_found(format!("Agent {agent_id}")))?;
+        require_athlete_facing(&agent)?;
+        Ok(agent.id.to_string())
     }
 
     /// Build metadata for responses
@@ -315,7 +335,7 @@ impl GroupRoutes {
         Json(body): Json<CreateGroupBody>,
     ) -> Result<Response, AppError> {
         let auth = auth.into_inner();
-        let tenant_id = Self::get_tenant_id(&auth)?;
+        let tenant_id = require_tenant(&resources, &auth).await?;
         let repos = resources.repos();
 
         let name = body.name.trim();
@@ -331,19 +351,13 @@ impl GroupRoutes {
         )
         .await?;
 
-        // The agent must be one the caller can read in this tenant, so a
-        // stale or foreign id never makes a group nobody can talk to.
-        let Some(agent_id) = body.agent_id else {
-            return Err(AppError::invalid_input(
-                "Choose the group's agent before creating it",
-            ));
-        };
-        let agent = repos
-            .agents
-            .get_by_id(&agent_id, auth.user_id, tenant_id)
-            .await?
-            .ok_or_else(|| AppError::not_found(format!("Agent {agent_id}")))?;
-        require_athlete_facing(&agent)?;
+        let agent_id = Self::chosen_agent_id(
+            &resources,
+            body.agent_id.as_deref(),
+            auth.user_id,
+            tenant_id,
+        )
+        .await?;
 
         // ADR-018: asking to coach never grants coaching. A caller without
         // the right gets the group, coachless, and the client says so.
@@ -369,7 +383,7 @@ impl GroupRoutes {
         let request = CreateGroupRequest {
             name: name.to_owned(),
             description: body.description,
-            agent_id: agent.id.to_string(),
+            agent_id,
             max_members: None,
             coach_user_id,
         };
@@ -379,42 +393,60 @@ impl GroupRoutes {
             .create_group(&request, auth.user_id, tenant_id, plan_tier.as_ref())
             .await?;
 
-        // `coach_is_me` is sent only by the onboarding "Your group" step on
-        // both surfaces, so this times a coach's setup from their signup
-        // (carnet#739). `coach_attached` is false while coach access is
-        // pending.
         if let Some(coach) = &coach {
-            info!(
-                target: "notify",
-                event = "onboarding.coach_group_created",
-                user_id = %auth.user_id,
-                tenant_id = %tenant_id,
-                group_id = %created.id,
-                coach_attached = created.coach_user_id.is_some(),
-                seconds_since_signup = Timestamp::now()
-                    .signed_duration_since(coach.created_at)
-                    .num_seconds()
-                    .max(0),
-                "coach created their group during onboarding"
-            );
-            // A coach-access request already waiting is the one this group's
-            // step shows as sent, so a grant must attach the coach to it.
-            if created.coach_user_id.is_none() {
-                if let Err(e) =
-                    name_requested_group(repos, auth.user_id, (created.id, tenant_id)).await
-                {
-                    warn!(
-                        user_id = %auth.user_id,
-                        group_id = %created.id,
-                        error = %e,
-                        "Could not name the new group on the coach's waiting coach access request"
-                    );
-                }
-            }
+            Self::note_onboarding_coach_group(
+                &resources,
+                (auth.user_id, coach.created_at),
+                tenant_id,
+                &created,
+            )
+            .await;
         }
 
         let response = Self::group_response(&resources, created, auth.user_id).await?;
         Ok((StatusCode::CREATED, Json(response)).into_response())
+    }
+
+    /// Record that a coach created their group during onboarding.
+    ///
+    /// `coach_is_me` is sent only by the onboarding "Your group" step on both
+    /// surfaces, so this times a coach's setup from their signup
+    /// (carnet#739). `coach_attached` is false while coach access is pending;
+    /// then the coach-access request already waiting is the one this group's
+    /// step shows as sent, so it is made to name this group and a grant
+    /// attaches the coach to it.
+    async fn note_onboarding_coach_group<C: GroupsCtx + MiddlewareCtx>(
+        resources: &Arc<C>,
+        (user_id, signed_up_at): (Uuid, Timestamp),
+        tenant_id: TenantId,
+        created: &CoachingGroup,
+    ) {
+        info!(
+            target: "notify",
+            event = "onboarding.coach_group_created",
+            user_id = %user_id,
+            tenant_id = %tenant_id,
+            group_id = %created.id,
+            coach_attached = created.coach_user_id.is_some(),
+            seconds_since_signup = Timestamp::now()
+                .signed_duration_since(signed_up_at)
+                .num_seconds()
+                .max(0),
+            "coach created their group during onboarding"
+        );
+        if created.coach_user_id.is_some() {
+            return;
+        }
+        if let Err(e) =
+            name_requested_group(resources.repos(), user_id, (created.id, tenant_id)).await
+        {
+            warn!(
+                user_id = %user_id,
+                group_id = %created.id,
+                error = %e,
+                "Could not name the new group on the coach's waiting coach access request"
+            );
+        }
     }
 
     /// The tenant's configured group-creation policy, when it has set one.
@@ -434,7 +466,7 @@ impl GroupRoutes {
         auth: AuthenticatedUser,
     ) -> Result<Response, AppError> {
         let auth = auth.into_inner();
-        let tenant_id = Self::get_tenant_id(&auth)?;
+        let tenant_id = require_tenant(&resources, &auth).await?;
 
         // The policy is reported back whether or not it decides, so it is
         // read eagerly here rather than through the lazy create-path check.
@@ -468,7 +500,7 @@ impl GroupRoutes {
         Path(group_id): Path<String>,
     ) -> Result<Response, AppError> {
         let auth = auth.into_inner();
-        let tenant_id = Self::get_tenant_id(&auth)?;
+        let tenant_id = require_tenant(&resources, &auth).await?;
 
         Self::require_member_or_coach(&resources, &group_id, auth.user_id, tenant_id).await?;
 
@@ -491,7 +523,7 @@ impl GroupRoutes {
         Json(body): Json<UpdateGroupRequest>,
     ) -> Result<Response, AppError> {
         let auth = auth.into_inner();
-        let tenant_id = Self::get_tenant_id(&auth)?;
+        let tenant_id = require_tenant(&resources, &auth).await?;
 
         authorize_group_update(&resources, &group_id, &auth, tenant_id, &body).await?;
         // Resolved in the scope the group's turns resolve it in — the
@@ -525,7 +557,7 @@ impl GroupRoutes {
         Path(group_id): Path<String>,
     ) -> Result<Response, AppError> {
         let auth = auth.into_inner();
-        let tenant_id = Self::get_tenant_id(&auth)?;
+        let tenant_id = require_tenant(&resources, &auth).await?;
 
         // Only owner can delete
         Self::require_owner(&resources, &group_id, auth.user_id).await?;
@@ -553,7 +585,7 @@ impl GroupRoutes {
         Path(group_id): Path<String>,
     ) -> Result<Response, AppError> {
         let auth = auth.into_inner();
-        let tenant_id = Self::get_tenant_id(&auth)?;
+        let tenant_id = require_tenant(&resources, &auth).await?;
 
         Self::require_member_or_coach(&resources, &group_id, auth.user_id, tenant_id).await?;
 
@@ -758,9 +790,10 @@ impl GroupRoutes {
         group_id: &str,
         member: GroupMember,
     ) -> Result<CoachSharingResponse, AppError> {
+        let tenant_id = require_tenant(resources, auth).await?;
         let group = resources
             .group_service()
-            .get_group(group_id, Self::get_tenant_id(auth)?)
+            .get_group(group_id, tenant_id)
             .await?
             .ok_or_else(|| AppError::not_found("You are not a member of this group"))?;
         let answered_at = resources
@@ -852,7 +885,7 @@ impl GroupRoutes {
             "create a group invite",
         )
         .await?;
-        let tenant_id = Self::get_tenant_id(&auth)?;
+        let tenant_id = require_tenant(&resources, &auth).await?;
 
         // Verify admin/owner role
         Self::require_admin(&resources, &group_id, auth.user_id).await?;
@@ -1034,7 +1067,7 @@ impl GroupRoutes {
         Path(group_id): Path<String>,
     ) -> Result<Response, AppError> {
         let auth = auth.into_inner();
-        let tenant_id = Self::get_tenant_id(&auth)?;
+        let tenant_id = require_tenant(&resources, &auth).await?;
         // Only the room line is wanted: the owner asked for this themselves,
         // so no notice or mail goes out.
         let notices = CoachAccessNotices {
@@ -1062,7 +1095,7 @@ impl GroupRoutes {
         Path(group_id): Path<String>,
     ) -> Result<Response, AppError> {
         let auth = auth.into_inner();
-        let tenant_id = Self::get_tenant_id(&auth)?;
+        let tenant_id = require_tenant(&resources, &auth).await?;
 
         // Verify admin/owner role
         Self::require_admin(&resources, &group_id, auth.user_id).await?;

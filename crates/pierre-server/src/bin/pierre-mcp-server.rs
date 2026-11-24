@@ -54,6 +54,7 @@ use pierre_mcp_server::{
     },
     utils::http_client::initialize_http_clients,
 };
+use pierre_services::admin_settings::get_auto_approval_settings;
 use pierre_services::agent_package_repair::repair_stored_flavours;
 #[cfg(feature = "client-messaging")]
 use pierre_services::channel_adapters::ConfigChannelAdapters;
@@ -250,7 +251,7 @@ async fn bootstrap_server(config: ServerConfig, stdio_only: bool) -> Result<()> 
 }
 
 fn initialize_global_configs(config: &ServerConfig) -> Result<()> {
-    initialize_http_clients(config.http_client.clone());
+    initialize_http_clients(&config.http_client);
     info!("HTTP client configuration initialized");
 
     init_server_config()?;
@@ -377,20 +378,9 @@ async fn initialize_jwt_secret(
 
     info!("Admin JWT secret ready for secure token generation");
 
-    // Check auto-approval setting
-    // Precedence: env var (if set) > database > default
-    let auto_approve = if config.app_behavior.auto_approve_users_from_env {
-        config.app_behavior.auto_approve_users
-    } else {
-        database
-            .is_auto_approval_enabled()
-            .await
-            .ok()
-            .flatten()
-            .unwrap_or(config.app_behavior.auto_approve_users)
-    };
+    let auto_approval = get_auto_approval_settings(database, &config.app_behavior).await?;
 
-    check_admin_status(repos, auto_approve).await;
+    check_admin_status(repos, auto_approval.enabled).await;
 
     let domains = &config.app_behavior.auto_approve_domains;
     if !domains.is_empty() {

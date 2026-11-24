@@ -37,7 +37,7 @@ describe('providerStatusLine', () => {
         t,
         [
           { connected: true, display_name: 'Strava' },
-          { connected: false, display_name: 'Whoop' },
+          { connected: false, display_name: 'WHOOP' },
           { connected: true, display_name: 'Garmin' },
         ],
         true,

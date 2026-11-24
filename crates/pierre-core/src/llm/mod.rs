@@ -20,7 +20,6 @@
 //! - [`ChatResponse`]: Completion result with content and usage stats
 //! - [`ChatStream`]: Streaming response as a pinned trait object
 
-use std::fmt;
 use std::pin::Pin;
 
 use async_trait::async_trait;
@@ -209,70 +208,6 @@ pub trait LlmProvider: Send + Sync {
 
     /// Check if the provider is healthy and API key is valid
     async fn health_check(&self) -> Result<bool, AppError>;
-}
-
-// ============================================================================
-// Provider Registry
-// ============================================================================
-
-/// Registry for LLM providers
-///
-/// Manages available providers and provides lookup by name.
-pub struct LlmProviderRegistry {
-    providers: Vec<Box<dyn LlmProvider>>,
-}
-
-impl fmt::Debug for LlmProviderRegistry {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("LlmProviderRegistry")
-            .field(
-                "providers",
-                &self.providers.iter().map(|p| p.name()).collect::<Vec<_>>(),
-            )
-            .finish()
-    }
-}
-
-impl LlmProviderRegistry {
-    /// Create a new empty registry
-    #[must_use]
-    pub fn new() -> Self {
-        Self {
-            providers: Vec::new(),
-        }
-    }
-
-    /// Register a provider
-    pub fn register(&mut self, provider: Box<dyn LlmProvider>) {
-        self.providers.push(provider);
-    }
-
-    /// Get a provider by name
-    #[must_use]
-    pub fn get(&self, name: &str) -> Option<&dyn LlmProvider> {
-        self.providers
-            .iter()
-            .find(|p| p.name() == name)
-            .map(AsRef::as_ref)
-    }
-
-    /// List all registered providers
-    #[must_use]
-    pub fn list(&self) -> Vec<&dyn LlmProvider> {
-        self.providers.iter().map(AsRef::as_ref).collect()
-    }
-
-    /// Get the default provider (first registered)
-    #[must_use]
-    pub fn default_provider(&self) -> Option<&dyn LlmProvider> {
-        self.providers.first().map(AsRef::as_ref)
-    }
-}
-
-impl Default for LlmProviderRegistry {
-    fn default() -> Self {
-        Self::new()
-    }
 }
 
 #[cfg(test)]

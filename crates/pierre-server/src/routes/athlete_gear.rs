@@ -41,11 +41,12 @@ use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::{
     default_pair, parse_shoe_sport, shoe_sport_slug, AthleteGear, AttributionSource,
-    GearDeclaration, GearKind, SportType, TenantId, DEFAULT_SHOE_WARN_DISTANCE_METERS,
+    GearDeclaration, GearKind, SportType, DEFAULT_SHOE_WARN_DISTANCE_METERS,
 };
 use pierre_core::uuid_utils::parse_uuid;
 use pierre_database::repositories::GearDeletion;
 use pierre_middleware::extractors::AuthenticatedUser;
+use pierre_runtime_context::require_tenant;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -206,17 +207,6 @@ pub fn athlete_gear_routes() -> Router<Arc<ServerContext>> {
         )
 }
 
-/// The tenant whose activity cache the request reads.
-fn active_tenant(auth: &AuthenticatedUser) -> AppResult<TenantId> {
-    auth.active_tenant_id
-        .map(TenantId::from_uuid)
-        .ok_or_else(|| {
-            AppError::auth_invalid(
-                "Gear endpoints require an active tenant in the JWT — switch tenant first",
-            )
-        })
-}
-
 /// A shoe sport from its wire spelling.
 fn shoe_sport(sport: &str) -> AppResult<SportType> {
     parse_shoe_sport(sport).ok_or_else(|| {
@@ -249,7 +239,7 @@ async fn list_gear(
     State(resources): State<Arc<ServerContext>>,
     auth: AuthenticatedUser,
 ) -> AppResult<Json<GearList>> {
-    let tenant_id = active_tenant(&auth)?;
+    let tenant_id = require_tenant(&resources, &auth).await?;
     let now = Timestamp::now();
     let ledger = read_ledger(&resources, auth.user_id, &tenant_id, now).await?;
     Ok(Json(GearList {
@@ -404,7 +394,7 @@ async fn get_activity_gear(
     auth: AuthenticatedUser,
     Path((provider, activity_id)): Path<(String, String)>,
 ) -> AppResult<Json<ActivityGearBody>> {
-    let tenant_id = active_tenant(&auth)?;
+    let tenant_id = require_tenant(&resources, &auth).await?;
     let gear = activity_gear(
         &resources,
         auth.user_id,
@@ -423,7 +413,7 @@ async fn put_activity_gear(
     Path((provider, activity_id)): Path<(String, String)>,
     Json(body): Json<ActivityGearChoice>,
 ) -> AppResult<Json<ActivityGearBody>> {
-    let tenant_id = active_tenant(&auth)?;
+    let tenant_id = require_tenant(&resources, &auth).await?;
     let gear_id = body.gear_id.as_deref().map(parse_uuid).transpose()?;
     let gear = declare_activity_gear(
         &resources,

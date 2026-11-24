@@ -43,7 +43,6 @@ fn generate_test_user() -> User {
         password_hash: "benchmark_hash_value".to_owned(),
         display_name: Some(format!("Bench User {counter}")),
         tier: UserTier::Starter,
-        strava_token: None,
         created_at: Timestamp::now(),
         last_active: Timestamp::now(),
         is_active: true,

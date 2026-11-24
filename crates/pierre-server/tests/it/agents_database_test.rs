@@ -34,7 +34,6 @@ fn test_user(id: Uuid, email: &str) -> User {
         approved_at: Some(Timestamp::now()),
         created_at: Timestamp::now(),
         last_active: Timestamp::now(),
-        strava_token: None,
         firebase_uid: None,
         auth_provider: String::new(),
         analytics_consent: false,

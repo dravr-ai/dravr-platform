@@ -40,7 +40,7 @@ use super::intake;
 use super::otp::apply_conversation_recipient;
 use super::outbound_persist::{persist_outbound_row, OutboundRowParams};
 use super::resume::{
-    finish_turn_record, hand_off_drained_turn, keep_lease, note_placeholder,
+    finish_turn_record, hand_off_drained_turn, keep_turn_lease, note_placeholder,
     release_turn_for_retry, DrainHandOff, MAX_TURN_ATTEMPTS,
 };
 use super::slash::command_body;
@@ -486,7 +486,7 @@ pub(crate) async fn dispatch_and_respond(dispatch: PendingDispatch) -> TurnClose
     // The lease this run holds on its row is renewed for as long as the run
     // lives, whichever way the turn ends, and stops before the row is
     // settled — a renewal racing the delete would only find it gone.
-    let lease_heartbeat = keep_lease(&dispatch);
+    let lease_heartbeat = keep_turn_lease(&dispatch);
     let close = run_turn(&dispatch).await;
     drop(lease_heartbeat);
     if close == TurnClose::Finished {

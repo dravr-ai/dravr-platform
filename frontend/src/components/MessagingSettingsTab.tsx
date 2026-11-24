@@ -10,9 +10,8 @@ import { messagingApi } from '../services/api';
 import type { ChannelConfigSummary } from '../services/api/messaging';
 import { Section, Button, Input, Badge, ConfirmDialog, Alert, ALERT_TONE, BADGE_TONE } from './ui';
 import { clsx } from 'clsx';
-import { QUERY_KEYS } from '../constants/queryKeys';
 import { useTranslation } from '@pierre/i18n';
-import { CHANNEL_BRAND } from '@pierre/shared-constants';
+import { CHANNEL_BRAND, QUERY_KEYS } from '@pierre/shared-constants';
 import ChatAppLinks from './settings/ChatAppLinks';
 
 interface ChannelField {

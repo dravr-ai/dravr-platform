@@ -99,7 +99,8 @@ resource "google_secret_manager_secret_version" "garmin_client_secret_placeholde
 # reads it as unset (`credential_env`, crates/pierre-auth/src/config/oauth.rs)
 # and Garmin connects through the credential connection only. When the real
 # value lands (`gcloud secrets versions add`, then a new Cloud Run revision),
-# Garmin connects through OAuth first, like Strava. The app must register
+# Garmin's OAuth path becomes available, in the connect order the card
+# carries. The app must register
 # https://app.dravr.ai/api/oauth/callback/garmin.
 resource "google_secret_manager_secret" "garmin_client_id" {
   project   = var.project_id
@@ -458,8 +459,8 @@ resource "google_secret_manager_secret_version" "copilot_github_token_placeholde
   }
 }
 
-# Long-lived OAuth token for Claude Code CLI, generated via `claude setup-token`
-# against a Pro/Max/Team/Enterprise subscription. One-year expiry; rotate
+# Long-lived OAuth token for the Claude Code CLI, generated via
+# `claude setup-token`. One-year expiry; rotate
 # annually. Consumed by embacle's claude_code runner, the `claude_code` entry
 # of PIERRE_LLM_CHAIN in infra/environments/dev/main.tf.
 resource "google_secret_manager_secret" "claude_code_oauth_token" {
@@ -482,13 +483,13 @@ resource "google_secret_manager_secret_version" "claude_code_oauth_token_placeho
   }
 }
 
-# A second Claude Code account's OAuth token, from `claude setup-token` on
-# that account. The platform pools it as its own chain tier right behind the
-# first account (claude-code#2, carnet#480): a spent account moves the turn to the
-# next account before the chain leaves Claude. Filled by hand, like the
+# An additional credential for the claude_code tier, from `claude
+# setup-token`. The platform tries it right behind the first
+# (claude-code#2, carnet#480): a refused credential moves the turn to the
+# next one before the chain leaves that tier. Filled by hand, like the
 # first — and deliberately WITHOUT a placeholder version: the service binds
-# `latest`, so a placeholder added after the real token would sign the
-# account out.
+# `latest`, so a placeholder added after the real token would replace
+# it.
 resource "google_secret_manager_secret" "claude_code_oauth_token_2" {
   project   = var.project_id
   secret_id = "${var.service_name}-claude-code-oauth-token-2"
@@ -500,12 +501,11 @@ resource "google_secret_manager_secret" "claude_code_oauth_token_2" {
   }
 }
 
-# Anthropic Messages API key of the first organization in the key pool, for
-# the `anthropic` entry of PIERRE_LLM_CHAIN (carnet#875). Each key belongs to
-# its own Anthropic organization with its own prepaid credit and a Console
-# spend limit, which is what turns the credit into a ceiling: with a payment
-# method on file and no limit, a spent credit bills the card instead of
-# answering 402. Filled by hand; the placeholder is ignored by lifecycle, as
+# Anthropic Messages API key of the primary LLM tier, the `anthropic` entry
+# of PIERRE_LLM_CHAIN (carnet#875). Each key carries its own Console spend
+# limit, which is what makes its budget a ceiling: without a limit, spend
+# past the budget is billed instead of refused. Filled by hand; the
+# placeholder is ignored by lifecycle, as
 # for the other API keys. Bound to the service as ANTHROPIC_API_KEY, the
 # chain's head — see the PIERRE_LLM_CHAIN comment in
 # infra/environments/dev/main.tf.
@@ -529,10 +529,10 @@ resource "google_secret_manager_secret_version" "anthropic_api_key_placeholder" 
   }
 }
 
-# The second Anthropic organization's API key. The platform pools it as its
-# own chain tier right behind the first (anthropic#2): a spent credit moves
-# the turn to the next organization before the chain leaves Anthropic.
-# Further organizations are _3, _4, … — read in order until the first unset
+# An additional API key for the primary tier. The platform tries it right
+# behind the first (anthropic#2): a refused key moves the turn to the next
+# one before the chain leaves the tier. Further keys are _3, _4, … — read
+# in order until the first unset
 # one. Filled by hand and deliberately WITHOUT a placeholder version, like
 # claude_code_oauth_token_2: the service binds `latest`, so a placeholder
 # added after the real key would replace it.
@@ -547,8 +547,8 @@ resource "google_secret_manager_secret" "anthropic_api_key_2" {
   }
 }
 
-# The third Anthropic organization's API key, pooled as anthropic#3 right
-# behind the second. The secret was created by hand as `-anthropic-api-key-phil`,
+# A further API key for the primary tier, tried as anthropic#3 right behind
+# the second. The secret was created by hand under the id below,
 # so it keeps that id (a secret cannot be renamed) and is adopted by the import
 # block in environments/dev/anthropic_accounts.tf. No placeholder version, for
 # the same reason as anthropic_api_key_2: the service binds `latest`.

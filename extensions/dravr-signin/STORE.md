@@ -32,8 +32,8 @@ in the `dravr-website` repo) must say the same.
 ### Description
 
 > Dravr is an AI training partner that reads your training from Garmin, Strava, TrainingPeaks and
-> COROS. Some of these services block a sign-in made on your behalf. With this extension you sign in
-> yourself, in a normal tab of your own browser, and hand that sign-in to Dravr.
+> COROS. With this extension you sign in yourself, in a normal tab of your own browser, on the
+> service's own sign-in page, and hand that sign-in to Dravr.
 >
 > How it works:
 > 1. In Dravr (app.dravr.ai), choose "Continue with Garmin", for example.

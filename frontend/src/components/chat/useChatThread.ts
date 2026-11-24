@@ -29,6 +29,7 @@ import {
   MENTION_PREFIX,
   providerStatusLine,
   trackAbsence,
+  QUERY_KEYS,
 } from '@pierre/shared-constants';
 import {
   describeApiError,
@@ -54,7 +55,6 @@ import { hasAdminRole } from '@pierre/shared-types';
 import { useTranslation } from '@pierre/i18n';
 import { chatApi, groupsApi, providersApi } from '../../services/api';
 import { track } from '../../services/analytics';
-import { QUERY_KEYS } from '../../constants/queryKeys';
 import { useUsageStatus } from '../../hooks/useUsageStatus';
 import { cachedConversations, useConversationList } from '../../hooks/useConversationList';
 import { useMarkConversationRead } from '../../hooks/useMarkConversationRead';

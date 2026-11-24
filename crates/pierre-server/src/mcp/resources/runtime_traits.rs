@@ -1,5 +1,5 @@
 // ABOUTME: pierre_runtime_context::*Ctx trait impls projecting ServerContext onto narrow per-subsystem facades
-// ABOUTME: Each impl exposes only the Arc handles a downstream route/service crate needs (auth, billing, identity, dashboard, mcp-dispatch, a2a, sse, agents, social, command)
+// ABOUTME: Each impl exposes only the Arc handles a downstream route/service crate needs (auth, billing, identity, dashboard, mcp-dispatch, a2a, agents, social, command)
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -12,8 +12,6 @@ use pierre_auth::auth::{AuthManager, AuthResult};
 #[cfg(feature = "protocol-a2a")]
 use pierre_auth::config::OAuth2ServerConfig;
 use pierre_auth::security::csrf::CsrfTokenManager;
-#[cfg(feature = "transport-sse")]
-use pierre_config::environment::SseBufferStrategy;
 use pierre_config::security::llm_base_url_policy as config_llm_base_url_policy;
 use pierre_core::billing::BillingProvider;
 use pierre_core::errors::AppResult;
@@ -131,31 +129,6 @@ impl pierre_runtime_context::A2ACtx for ServerContext {
 
     fn spawn_detached_task(&self, task: Pin<Box<dyn Future<Output = ()> + Send + 'static>>) {
         self.common.turns.spawn(task);
-    }
-}
-
-#[cfg(feature = "transport-sse")]
-#[async_trait::async_trait]
-impl pierre_runtime_context::SseCtx for ServerContext {
-    fn sse_buffer_overflow_strategy(&self) -> pierre_runtime_context::SseBufferOverflowStrategy {
-        match self.common.config.sse.buffer_overflow_strategy {
-            SseBufferStrategy::DropOldest => {
-                pierre_runtime_context::SseBufferOverflowStrategy::DropOldest
-            }
-            SseBufferStrategy::DropNew => {
-                pierre_runtime_context::SseBufferOverflowStrategy::DropNew
-            }
-            SseBufferStrategy::CloseConnection => {
-                pierre_runtime_context::SseBufferOverflowStrategy::CloseConnection
-            }
-        }
-    }
-
-    async fn authenticate_request(&self, auth_header: Option<&str>) -> AppResult<AuthResult> {
-        self.auth
-            .auth_middleware
-            .authenticate_request(auth_header)
-            .await
     }
 }
 

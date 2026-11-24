@@ -13,11 +13,11 @@ import {
   SENSITIVE_T3_CONSENT,
   TRANSFER_CONSENT_KEYS,
   aiConsentCards,
+  QUERY_KEYS,
   transferConsentCards,
 } from '@pierre/shared-constants';
 import { useTranslation } from '@pierre/i18n';
 import { oauthApi } from '../../services/api';
-import { QUERY_KEYS } from '../../constants/queryKeys';
 import { useAuth } from '../../hooks/useAuth';
 import { useAiConsent, useAiConsentState } from '../../hooks/useAiConsent';
 import { useTransferConsent } from '../../hooks/useTransferConsent';
@@ -36,7 +36,7 @@ export default function AiConsentSettings() {
   const { isAuthenticated } = useAuth();
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const { data } = useQuery({
-    queryKey: QUERY_KEYS.user.providerConnections(),
+    queryKey: QUERY_KEYS.providers.status(),
     queryFn: () => oauthApi.getProvidersStatus(),
     enabled: isAuthenticated,
   });

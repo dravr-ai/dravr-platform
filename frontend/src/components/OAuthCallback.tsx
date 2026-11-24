@@ -10,7 +10,7 @@ import { DravrLogo } from './DravrLogo';
 import ProviderTombstoneNotice from './ProviderTombstoneNotice';
 import { useTranslation } from '@pierre/i18n';
 import { oauthApi, providersApi } from '../services/api';
-import { QUERY_KEYS } from '../constants/queryKeys';
+import { QUERY_KEYS, providerName } from '@pierre/shared-constants';
 
 /**
  * A machine code the return may carry (`no_seat`, `invalid_scope`,
@@ -46,7 +46,7 @@ interface OAuthCallbackProps {
 export default function OAuthCallback({ provider, error, tombstone, onClose }: OAuthCallbackProps) {
   const { t } = useTranslation();
   // The brand the provider's card shows, read from the same status query the
-  // cards poll; the capitalised id until it answers.
+  // cards poll; the brand table's name for the id until it answers.
   const { data: providersData } = useQuery({
     queryKey: QUERY_KEYS.providers.status(),
     queryFn: () => providersApi.getProvidersStatus(),
@@ -54,7 +54,7 @@ export default function OAuthCallback({ provider, error, tombstone, onClose }: O
   });
   const providerDisplay =
     providersData?.providers?.find((p) => p.provider === provider)?.display_name ??
-    provider.charAt(0).toUpperCase() + provider.slice(1);
+    providerName(provider);
 
   return (
     <div className="min-h-dvh bg-surface flex items-center justify-center px-4 pad-safe-top">

@@ -138,7 +138,7 @@ export interface SessionPreview {
   anchor?: string;
 }
 
-/** `PUT …/subject-plan/draft/days/{date}`: the build saved as that day of the coach's draft. */
+/** The `build` of `PUT …/subject-plan/draft/days/{date}/{position}`: saved over that session of the coach's draft. */
 export type DraftDayRequest = SessionBuild;
 
 /**

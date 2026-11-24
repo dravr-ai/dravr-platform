@@ -219,7 +219,7 @@ start_service "$a" sciotte 1
 gone="$SERVICE_PID"
 while alive "$gone"; do sleep 0.2; done
 rc=0
-out="$(as "$a" dev_stop sciotte "Sciotte scraper service" 2>&1)" || rc=$?
+out="$(as "$a" dev_stop sciotte "Sciotte service" 2>&1)" || rc=$?
 expect "stopping a dead record exits 0" "$rc" "0"
 case "$out" in
     *"No recorded"*) pass "a dead record reports nothing to stop" ;;

@@ -102,6 +102,7 @@ fn oauth2_routes(resources: &Arc<ServerContext>) -> axum::Router {
             &resources.common.config.rate_limiting,
         )),
         refresh_token_expiry_days: 30,
+        session_cookie_max_age_secs: 86_400,
         csrf_manager: resources.auth.csrf_manager.clone(),
         accounts: resources.account_service(),
         google_sign_in: None,
@@ -563,7 +564,6 @@ async fn a_token_bound_to_another_resource_is_refused_at_mcp() {
                     audience: Some(audience),
                 },
                 &user.id,
-                &[],
                 tenant.clone(),
             )
             .unwrap()
@@ -1061,7 +1061,6 @@ async fn a_token_bound_to_either_host_is_served_at_mcp() {
                     audience: Some(audience),
                 },
                 &user.id,
-                &[],
                 tenant.clone(),
             )
             .unwrap()
@@ -1158,7 +1157,6 @@ async fn validate_and_refresh_rotates_a_bound_grant_into_a_token_still_bound() {
                 audience: Some(OTHER_RESOURCE),
             },
             &user.id,
-            &[],
             None,
         )
         .unwrap();
@@ -1186,7 +1184,6 @@ async fn validate_and_refresh_rotates_a_bound_grant_into_a_token_still_bound() {
                 audience: Some(MCP_RESOURCE),
             },
             &intruder.id,
-            &[],
             None,
         )
         .unwrap();

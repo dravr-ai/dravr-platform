@@ -16,7 +16,7 @@ import { Button, FormScrollView, Input } from '../../components/ui';
 import { spacing } from '../../constants/theme';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useTranslation } from '@pierre/i18n';
-import { classifyApiError, describeApiError } from '@pierre/ui-logic';
+import { classifyApiError, describeApiError, isPasswordLongEnough } from '@pierre/ui-logic';
 
 export function ResetPasswordScreen() {
   const { t } = useTranslation();
@@ -43,7 +43,7 @@ export function ResetPasswordScreen() {
 
     if (!newPassword) {
       newErrors.newPassword = t('validation.newPasswordRequired');
-    } else if (newPassword.length < 8) {
+    } else if (!isPasswordLongEnough(newPassword)) {
       newErrors.newPassword = t('app.passwordTooShort');
     }
 

@@ -11,6 +11,7 @@
 //! JWT authentication and enforce tenant-scoped data access.
 
 use pierre_providers::ai_scope;
+use pierre_runtime_context::require_tenant;
 use secrecy::SecretString;
 use std::sync::Arc;
 
@@ -21,7 +22,6 @@ use axum::{
     routing::{delete, get, post},
     Json, Router,
 };
-use dravr_tronc::dates::Timestamp;
 use serde::Serialize;
 use tracing::info;
 use uuid::Uuid;
@@ -33,8 +33,8 @@ use pierre_core::transport::Transport;
 use pierre_middleware::AuthenticatedUser;
 use pierre_notifications::events::event_params;
 use pierre_notifications::models::{
-    collapse_notifications, DeviceRegistrar, ListNotificationsQuery, NotificationAnalyticsQuery,
-    NotificationCategory, NotificationFeedResponse, NotificationItem, NotificationPreferenceItem,
+    collapse_notifications, DeviceRegistrar, ListNotificationsQuery, NotificationCategory,
+    NotificationFeedResponse, NotificationItem, NotificationPreferenceItem,
     NotificationPreferencesResponse, RegisterDeviceTokenRequest, TenantId,
     UpdateNotificationPreferenceRequest, UpsertNotificationPreferenceParams,
 };
@@ -132,11 +132,8 @@ impl NotificationRoutes {
     /// - `GET /api/notifications` - List notifications (feed)
     /// - `GET /api/notifications/unread-count` - Get unread count
     /// - `POST /api/notifications/:id/read` - Mark notification as read
-    /// - `POST /api/notifications/:id/opened` - Mark notification as opened
-    /// - `POST /api/notifications/:id/dismissed` - Mark notification as dismissed
     /// - `POST /api/notifications/read-all` - Mark all as read
     /// - `DELETE /api/notifications/:id` - Delete notification
-    /// - `GET /api/notifications/analytics` - Get notification analytics
     pub fn routes<C: GroupsCtx + MiddlewareCtx>(resources: Arc<C>) -> Router {
         Router::new()
             // Device token management
@@ -167,14 +164,6 @@ impl NotificationRoutes {
                 post(Self::handle_mark_read::<C>),
             )
             .route(
-                "/api/notifications/{id}/opened",
-                post(Self::handle_mark_opened::<C>),
-            )
-            .route(
-                "/api/notifications/{id}/dismissed",
-                post(Self::handle_mark_dismissed::<C>),
-            )
-            .route(
                 "/api/notifications/read-all",
                 post(Self::handle_mark_all_read::<C>),
             )
@@ -182,19 +171,17 @@ impl NotificationRoutes {
                 "/api/notifications/{id}",
                 delete(Self::handle_delete_notification::<C>),
             )
-            // Analytics
-            .route(
-                "/api/notifications/analytics",
-                get(Self::handle_get_analytics::<C>),
-            )
             .with_state(resources)
     }
 
-    /// Extract tenant ID from authentication result
-    fn get_tenant_id(auth: &AuthResult) -> Result<TenantId, AppError> {
-        auth.active_tenant_id
-            .map(TenantId::from_uuid)
-            .ok_or_else(|| AppError::auth_invalid("No active tenant in session"))
+    /// The tenant this request acts in, resolved by the canonical rule and
+    /// carried in the notification service's own id type.
+    async fn tenant_of<C: GroupsCtx + MiddlewareCtx>(
+        resources: &Arc<C>,
+        auth: &AuthResult,
+    ) -> Result<TenantId, AppError> {
+        let tenant = require_tenant(resources, auth).await?;
+        Ok(TenantId::from_uuid(tenant.as_uuid()))
     }
 
     /// Get the notification service from the context, returning an error if not initialized
@@ -222,7 +209,7 @@ impl NotificationRoutes {
             "register a push device",
         )
         .await?;
-        let tenant_id = Self::get_tenant_id(&auth)?;
+        let tenant_id = Self::tenant_of(&resources, &auth).await?;
 
         let service = Self::get_service(&resources)?;
         let token = notif(match device_registrar() {
@@ -292,7 +279,7 @@ impl NotificationRoutes {
         auth: AuthenticatedUser,
     ) -> Result<Response, AppError> {
         let auth = auth.into_inner();
-        let tenant_id = Self::get_tenant_id(&auth)?;
+        let tenant_id = Self::tenant_of(&resources, &auth).await?;
 
         let service = Self::get_service(&resources)?;
         let tokens = notif(match device_registrar() {
@@ -330,7 +317,7 @@ impl NotificationRoutes {
         Path(id): Path<Uuid>,
     ) -> Result<Response, AppError> {
         let auth = auth.into_inner();
-        let tenant_id = Self::get_tenant_id(&auth)?;
+        let tenant_id = Self::tenant_of(&resources, &auth).await?;
 
         let service = Self::get_service(&resources)?;
         let deactivated = notif(match device_registrar() {
@@ -359,7 +346,7 @@ impl NotificationRoutes {
         auth: AuthenticatedUser,
     ) -> Result<Response, AppError> {
         let auth = auth.into_inner();
-        let tenant_id = Self::get_tenant_id(&auth)?;
+        let tenant_id = Self::tenant_of(&resources, &auth).await?;
 
         let service = Self::get_service(&resources)?;
         let prefs = notif(
@@ -389,7 +376,7 @@ impl NotificationRoutes {
         Json(request): Json<UpdateNotificationPreferenceRequest>,
     ) -> Result<Response, AppError> {
         let auth = auth.into_inner();
-        let tenant_id = Self::get_tenant_id(&auth)?;
+        let tenant_id = Self::tenant_of(&resources, &auth).await?;
 
         let enabled = request.enabled.unwrap_or(true);
         let external = ai_scope::serving_external();
@@ -441,7 +428,7 @@ impl NotificationRoutes {
         Query(query): Query<ListNotificationsQuery>,
     ) -> Result<Response, AppError> {
         let auth = auth.into_inner();
-        let tenant_id = Self::get_tenant_id(&auth)?;
+        let tenant_id = Self::tenant_of(&resources, &auth).await?;
 
         let limit = query.limit.unwrap_or(20).clamp(1, 100);
         let offset = query.offset.unwrap_or(0);
@@ -545,7 +532,7 @@ impl NotificationRoutes {
         auth: AuthenticatedUser,
     ) -> Result<Response, AppError> {
         let auth = auth.into_inner();
-        let tenant_id = Self::get_tenant_id(&auth)?;
+        let tenant_id = Self::tenant_of(&resources, &auth).await?;
 
         let service = Self::get_service(&resources)?;
         // An external caller's count leaves out first-party-only rows, as its
@@ -570,7 +557,7 @@ impl NotificationRoutes {
         Path(id): Path<Uuid>,
     ) -> Result<Response, AppError> {
         let auth = auth.into_inner();
-        let tenant_id = Self::get_tenant_id(&auth)?;
+        let tenant_id = Self::tenant_of(&resources, &auth).await?;
 
         let service = Self::get_service(&resources)?;
         let marked = notif(
@@ -592,7 +579,7 @@ impl NotificationRoutes {
         auth: AuthenticatedUser,
     ) -> Result<Response, AppError> {
         let auth = auth.into_inner();
-        let tenant_id = Self::get_tenant_id(&auth)?;
+        let tenant_id = Self::tenant_of(&resources, &auth).await?;
 
         let service = Self::get_service(&resources)?;
         let updated = notif(
@@ -621,7 +608,7 @@ impl NotificationRoutes {
         Path(id): Path<Uuid>,
     ) -> Result<Response, AppError> {
         let auth = auth.into_inner();
-        let tenant_id = Self::get_tenant_id(&auth)?;
+        let tenant_id = Self::tenant_of(&resources, &auth).await?;
 
         let service = Self::get_service(&resources)?;
         let deleted = notif(
@@ -635,91 +622,6 @@ impl NotificationRoutes {
         }
 
         Ok((StatusCode::OK, Json(serde_json::json!({"success": true}))).into_response())
-    }
-
-    /// Handle POST /api/notifications/:id/opened - Mark notification as opened
-    async fn handle_mark_opened<C: GroupsCtx + MiddlewareCtx>(
-        State(resources): State<Arc<C>>,
-        auth: AuthenticatedUser,
-        Path(id): Path<Uuid>,
-    ) -> Result<Response, AppError> {
-        let auth = auth.into_inner();
-        let tenant_id = Self::get_tenant_id(&auth)?;
-
-        let service = Self::get_service(&resources)?;
-        let marked = notif(
-            service
-                .mark_notification_opened(auth.user_id, tenant_id, id)
-                .await,
-        )?;
-
-        if !marked {
-            return Err(AppError::not_found("Notification"));
-        }
-
-        Ok((StatusCode::OK, Json(serde_json::json!({"success": true}))).into_response())
-    }
-
-    /// Handle POST /api/notifications/:id/dismissed - Mark notification as dismissed
-    async fn handle_mark_dismissed<C: GroupsCtx + MiddlewareCtx>(
-        State(resources): State<Arc<C>>,
-        auth: AuthenticatedUser,
-        Path(id): Path<Uuid>,
-    ) -> Result<Response, AppError> {
-        let auth = auth.into_inner();
-        let tenant_id = Self::get_tenant_id(&auth)?;
-
-        let service = Self::get_service(&resources)?;
-        let marked = notif(
-            service
-                .mark_notification_dismissed(auth.user_id, tenant_id, id)
-                .await,
-        )?;
-
-        if !marked {
-            return Err(AppError::not_found("Notification"));
-        }
-
-        Ok((StatusCode::OK, Json(serde_json::json!({"success": true}))).into_response())
-    }
-
-    /// Handle GET /api/notifications/analytics - Get notification analytics
-    async fn handle_get_analytics<C: GroupsCtx + MiddlewareCtx>(
-        State(resources): State<Arc<C>>,
-        auth: AuthenticatedUser,
-        Query(query): Query<NotificationAnalyticsQuery>,
-    ) -> Result<Response, AppError> {
-        let auth = auth.into_inner();
-        let tenant_id = Self::get_tenant_id(&auth)?;
-
-        let since = query
-            .since
-            .as_deref()
-            .map(Timestamp::parse_from_rfc3339)
-            .transpose()
-            .map_err(|e| AppError::invalid_input(format!("Invalid 'since' date: {e}")))?;
-
-        let until = query
-            .until
-            .as_deref()
-            .map(Timestamp::parse_from_rfc3339)
-            .transpose()
-            .map_err(|e| AppError::invalid_input(format!("Invalid 'until' date: {e}")))?;
-
-        let service = Self::get_service(&resources)?;
-        let analytics = notif(
-            service
-                .get_notification_analytics(
-                    auth.user_id,
-                    tenant_id,
-                    since,
-                    until,
-                    query.category.as_deref(),
-                )
-                .await,
-        )?;
-
-        Ok((StatusCode::OK, Json(analytics)).into_response())
     }
 }
 

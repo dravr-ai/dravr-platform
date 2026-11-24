@@ -21,12 +21,12 @@ use dravr_enforme::SyncOrchestrator;
 use dravr_tronc::dates::Timestamp;
 use secrecy::ExposeSecret;
 use serde::Deserialize;
-use tracing::{debug, error, info, warn};
+use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use pierre_core::constant_time::matches_configured_secret;
 use pierre_core::constants::oauth_providers;
-use pierre_core::models::{Activity, OAuthNotification, TenantId};
+use pierre_core::models::{Activity, TenantId};
 use pierre_providers::core::ActivityQueryParams;
 use pierre_services::oauth_flow::OAuthService;
 use pierre_services::personal_bests::is_measured_sport;
@@ -457,34 +457,6 @@ pub(super) async fn report_sync(
     }
 }
 
-/// Tell the owner's live SSE stream what a webhook sync landed.
-pub(super) async fn notify_owner(
-    resources: &ServerContext,
-    user_id: Uuid,
-    provider: &str,
-    message: String,
-) {
-    let notification = OAuthNotification {
-        id: Uuid::new_v4().to_string(),
-        user_id: user_id.to_string(),
-        provider: provider.to_owned(),
-        success: true,
-        message,
-        expires_at: None,
-        created_at: Timestamp::now(),
-        read_at: None,
-    };
-    // A user with no open SSE stream simply has nothing to notify.
-    if let Err(e) = resources
-        .sse
-        .sse_manager
-        .send_notification(user_id, &notification)
-        .await
-    {
-        debug!(%user_id, error = %e, "OAuth notification not delivered over SSE");
-    }
-}
-
 /// Fetch the recent activities of the user whose Strava athlete id a webhook
 /// named.
 ///
@@ -654,8 +626,8 @@ async fn disconnect_deauthorized_strava_owner(
 }
 
 /// Record what a webhook-triggered Strava fetch landed: stamp `last_sync`,
-/// re-arm the sync-failure notice, tell the athlete's SSE stream when the
-/// window held activities, then scan the new runs for personal records.
+/// re-arm the sync-failure notice, then scan the new runs for personal
+/// records.
 async fn land_strava_fetch(
     resources: &Arc<ServerContext>,
     event: &StravaWebhookEvent,
@@ -674,18 +646,6 @@ async fn land_strava_fetch(
     );
     stamp_last_sync(resources, user_id, tenant_id, "strava").await;
     report_sync(resources, user_id, tenant_id, "strava", true).await;
-    if fetched > 0 {
-        notify_owner(
-            resources,
-            user_id,
-            "strava",
-            format!(
-                "Strava activity {}d: {fetched} recent activities fetched",
-                event.aspect_type
-            ),
-        )
-        .await;
-    }
     scan_new_runs(resources, user_id, tenant_id, activities).await;
 }
 
@@ -779,7 +739,7 @@ async fn sync_whoop_owner(
 }
 
 /// Record that a WHOOP webhook sync created `records` for the owner: stamp
-/// `last_sync` and tell the athlete's SSE stream how many landed.
+/// `last_sync` and re-arm the sync-failure notice.
 async fn land_whoop_records(
     resources: &ServerContext,
     user_id: Uuid,
@@ -795,13 +755,6 @@ async fn land_whoop_records(
     );
     stamp_last_sync(resources, user_id, tenant_id, "whoop").await;
     report_sync(resources, user_id, tenant_id, "whoop", true).await;
-    notify_owner(
-        resources,
-        user_id,
-        "whoop",
-        format!("WHOOP data synced ({records} records)"),
-    )
-    .await;
 }
 
 /// Strava webhook event payload.

@@ -14,12 +14,11 @@ use pierre_database::repositories::{
     ExtractionRunOutcome, ExtractionRunRecord, JobLease, MemoryExtractionJobRepository,
     MemoryExtractionJobRow,
 };
-use tokio::task::JoinHandle;
-use tokio::time::sleep;
 use tracing::{info, warn};
 use uuid::Uuid;
 
 use super::{CountedRun, SpawnedExtractionRequest, EXTRACTION_JOB_LEASE};
+use crate::lease_guard::{keep_lease, LeaseGuard};
 
 /// Write how a run ended to the run ledger, which is what the admin memory
 /// worker screen measures. The ledger reports on the extraction and never
@@ -100,40 +99,30 @@ pub(super) async fn record_extraction_job(
 /// third of the lease leaves two renewals of slack before it can lapse.
 const EXTRACTION_LEASE_RENEWAL: Duration = Duration::from_secs(EXTRACTION_JOB_LEASE.as_secs() / 3);
 
-/// The lease renewal a live extraction keeps running; aborted when dropped.
-pub(crate) struct LeaseRenewal(JoinHandle<()>);
-
-impl Drop for LeaseRenewal {
-    fn drop(&mut self) {
-        self.0.abort();
-    }
-}
-
 /// Renew `lease` every [`EXTRACTION_LEASE_RENEWAL`] until the guard drops. A
 /// refused renewal means the row is gone or another claim took it: the
 /// renewals stop and the run finishes.
 pub(crate) fn keep_extraction_lease(
     jobs: Arc<dyn MemoryExtractionJobRepository>,
     lease: Option<JobLease>,
-) -> Option<LeaseRenewal> {
+) -> Option<LeaseGuard> {
     let lease = lease?;
-    Some(LeaseRenewal(tokio::spawn(async move {
-        let lease_ms = i64::try_from(EXTRACTION_JOB_LEASE.as_millis()).unwrap_or(i64::MAX);
-        loop {
-            sleep(EXTRACTION_LEASE_RENEWAL).await;
+    let lease_ms = i64::try_from(EXTRACTION_JOB_LEASE.as_millis()).unwrap_or(i64::MAX);
+    let row = lease.id.clone();
+    let renew = move || {
+        let jobs = Arc::clone(&jobs);
+        let lease = lease.clone();
+        async move {
             let until = Timestamp::now().epoch_millis().saturating_add(lease_ms);
-            match jobs.renew_extraction_job_lease(&lease, until).await {
-                Ok(true) => {}
-                Ok(false) => {
-                    warn!(job_id = %lease.id, "extraction job is no longer this runner's; letting the run finish");
-                    return;
-                }
-                Err(e) => {
-                    warn!(job_id = %lease.id, error = %e, "extraction job lease could not be renewed");
-                }
-            }
+            jobs.renew_extraction_job_lease(&lease, until).await
         }
-    })))
+    };
+    Some(keep_lease(
+        "memory extraction job",
+        row,
+        EXTRACTION_LEASE_RENEWAL,
+        renew,
+    ))
 }
 
 /// Delete the job row once nothing is owed on it any more, if this run's

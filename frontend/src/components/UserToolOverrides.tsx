@@ -11,7 +11,7 @@ import type { UserEffectiveTool, UserToolSource } from '../services/api/admin';
 import type { User } from '../types/api';
 import { BADGE_TONE, Card, Input, Button, Alert, Switch } from './ui';
 import type { BadgeTone } from './ui';
-import { QUERY_KEYS } from '../constants/queryKeys';
+import { QUERY_KEYS } from '@pierre/shared-constants';
 
 // Per-user effective-tools query key (per-tenant keys live in QUERY_KEYS.adminTools)
 const userToolsQueryKey = (userId: string) => ['user-tools', userId] as const;

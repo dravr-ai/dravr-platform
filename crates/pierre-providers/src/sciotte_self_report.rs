@@ -1,14 +1,14 @@
-// ABOUTME: The athlete's self-report on a scraped activity, routed to the scale of the platform it was scraped from
+// ABOUTME: The athlete's self-report on an activity read through sciotte, routed to the scale of the platform it was read from
 // ABOUTME: Picks the per-platform mapping (TrainingPeaks, COROS, Garmin, Strava) so a raw rank never reaches cageux
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! # Scraped self-report
+//! # Self-report read through sciotte
 //!
 //! dravr-sciotte carries the athlete's perceived exertion and feel as each
 //! platform encodes them; which encoding a row holds depends only on the
-//! platform it was scraped from. This module picks the mapping, and each
+//! platform it was read from. This module picks the mapping, and each
 //! platform's own module holds its scale and the sources for it.
 
 use dravr_sciotte::models::Activity as SciotteActivity;

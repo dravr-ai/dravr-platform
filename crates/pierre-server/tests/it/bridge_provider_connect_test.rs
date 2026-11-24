@@ -240,7 +240,6 @@ fn delegated_bearer(resources: &ServerContext, user_id: Uuid, grant: &[OAuthScop
                 audience: None,
             },
             &user_id,
-            &[],
             None,
         )
         .unwrap();

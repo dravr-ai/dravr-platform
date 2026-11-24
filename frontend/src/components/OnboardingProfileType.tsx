@@ -64,7 +64,7 @@ export default function OnboardingProfileType({
         (cached) => cached && { ...cached, coaches_others: coachesOthers },
       );
       return Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['user'] }),
+        queryClient.invalidateQueries({ queryKey: QUERY_KEYS.user.all }),
         queryClient.invalidateQueries({ queryKey: QUERY_KEYS.user.onboardingStatus() }),
       ]);
     },

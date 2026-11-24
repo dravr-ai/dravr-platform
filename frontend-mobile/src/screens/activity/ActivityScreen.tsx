@@ -34,7 +34,7 @@ import { useActivityConversation } from '../../hooks/useActivityConversation';
 import { useActivityDetail, useDeleteUploadedActivity } from '../../hooks/useActivityDetail';
 import { trackMobile } from '../../services/analytics';
 import { ChatThread } from '../chat/ChatThread';
-import { useConversations } from '../chat/useConversations';
+import { useCreateConversation } from '../chat/usePersonalThread';
 import { useMessages } from '../chat/useMessages';
 import { useProviderStatus } from '../chat/useProviderStatus';
 import { useUsageStatus } from '../chat/useUsageStatus';
@@ -206,7 +206,7 @@ function ActivityThread({
   const { t, language } = useTranslation();
   const headerHeight = useHeaderHeight();
   const { conversationId, setConversationId } = useActivityConversation(provider, activityId, detail);
-  const conversations = useConversations();
+  const createConversation = useCreateConversation();
   const messagesHook = useMessages();
   const usageStatus = useUsageStatus();
   const providerStatus = useProviderStatus();
@@ -269,8 +269,7 @@ function ActivityThread({
       if (typed) line = activityFirstLine(t, naming, trimmed);
       try {
         // Created for the line being sent: the agent posts no welcome over it.
-        const created = await conversations.createConversation({ athlete_speaks_first: true });
-        target = created.id;
+        target = await createConversation({ athlete_speaks_first: true });
       } catch (err) {
         // Nothing was sent: the question goes back where it was typed, and
         // the failure is said under the questions.
@@ -291,7 +290,7 @@ function ActivityThread({
     } finally {
       usageStatus.invalidate();
     }
-  }, [conversationId, conversations, messagesHook, naming, setConversationId, t, usageStatus]);
+  }, [conversationId, createConversation, messagesHook, naming, setConversationId, t, usageStatus]);
 
   const sendTyped = useCallback(
     (text: string, options?: TurnSendOptions) => send(text, true, options),

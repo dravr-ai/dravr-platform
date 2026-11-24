@@ -50,7 +50,7 @@ export function useGroupChatAppOffer(group: CoachingGroup | null): GroupChatAppO
     !chatAppOfferAnswered(status.data.steps);
   const { channels } = useAvailableChannels({ enabled: candidate });
   const links = useQuery({
-    queryKey: ['messaging-links'],
+    queryKey: QUERY_KEYS.messaging.links(),
     queryFn: () => messagingLinkApi.listLinks(),
     enabled: candidate,
   });

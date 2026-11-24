@@ -9,7 +9,6 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { providersApi, oauthApi } from '../services/api';
 import type { ProviderStatus } from '../services/api';
 import { track } from '../services/analytics';
-import { QUERY_KEYS } from '../constants/queryKeys';
 import {
   HISTORY_ACTION_KEYS,
   PROVIDER_LINK_POLL_INTERVAL_MS,
@@ -23,8 +22,10 @@ import {
   refusalReturnsToCard,
   signInStartsWithExtension,
   type CardStatus,
+  QUERY_KEYS,
 } from '@pierre/shared-constants';
 import type { SciotteTarget } from '@pierre/shared-types';
+import { followConnectPlan } from '@pierre/ui-logic';
 import IntervalsIcuLinkModal from './IntervalsIcuLinkModal';
 import OAuthAppSetupModal from './OAuthAppSetupModal';
 import { ownAppDevPortal } from '@pierre/domain-utils';
@@ -377,30 +378,26 @@ export default function ProviderConnectionCards({
   // The card's connect by its plan's primary way in, carrying the offered
   // consents the athlete ticked.
   const startConnect = (provider: ProviderStatus, consents: readonly string[]) => {
-    const primary = connectPlan(provider).primary;
-    switch (primary.kind) {
-      case 'oauth':
+    followConnectPlan(provider, {
+      authorize: (name) => {
         // A provider whose notice the account has not accepted (WHOOP's owner
         // authorization) shows it first; its Continue starts the flow.
-        if (primary.provider === provider.provider && noticeRequired(provider.provider, provider.consent_required)) {
+        if (name === provider.provider && noticeRequired(provider.provider, provider.consent_required)) {
           setNoticeProvider(provider.provider);
           return;
         }
-        connectViaOAuth(primary.provider, provider, false, consents);
-        return;
-      case 'sign_in':
-        // The provider's own account sign-in, after its notice when it has one.
-        openSignIn(provider, primary.target, false, true, consents);
-        return;
-      case 'intervals':
-        // The authorization first while the server offers it, with the
-        // coach's API-key form one tap away; the key form alone otherwise.
-        setIntervalsModal({ offersAuthorize: primary.path === 'choose' });
-        return;
-      case 'none':
-        // Non-OAuth providers (like synthetic) skip directly to chat.
-        if (onSkip) onSkip();
-    }
+        connectViaOAuth(name, provider, false, consents);
+      },
+      // The provider's own account sign-in, after its notice when it has one.
+      signIn: (target) => openSignIn(provider, target, false, true, consents),
+      // Intervals.icu's dialog for a new link or a key-linked card: the
+      // authorization first while the server offers it, with the coach's
+      // API-key form one tap away; the key form alone otherwise. A card the
+      // athlete authorized never comes here: it reconnects through `authorize`.
+      intervalsDialog: (offersAuthorize) => setIntervalsModal({ offersAuthorize }),
+      // Non-OAuth providers (like synthetic) skip directly to chat.
+      none: () => onSkip?.(),
+    });
   };
 
   if (isLoading) {

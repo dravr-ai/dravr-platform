@@ -430,7 +430,7 @@ jobs:
       - name: Boreal Generated Stylesheets
         run: ./scripts/ci/check-hosted-css.sh
 
-      # carnet#1207: the scraping backend's name must never reach an athlete or
+      # carnet#1207: the session-read backend's name must never reach an athlete or
       # coach. Fails when a translation value or a served hosted-page template
       # names it (provider ids, i18n keys and the /api/providers/<id>/ routes
       # are identifiers and stay). Python and grep only, like the rest of this

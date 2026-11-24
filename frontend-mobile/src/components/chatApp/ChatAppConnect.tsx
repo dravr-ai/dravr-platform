@@ -17,7 +17,7 @@ import {
   describeChannelLinkError,
   runOAuthChannelLink,
 } from '../../utils/oauthChannelLink';
-import { BOREAL_LIGHT, CHANNEL_LINK_POLL_INTERVAL_MS } from '@pierre/shared-constants';
+import { BOREAL_LIGHT, CHANNEL_LINK_POLL_INTERVAL_MS, QUERY_KEYS } from '@pierre/shared-constants';
 import { useTranslation } from '@pierre/i18n';
 
 // A QR ground is not themed: the phone camera needs white behind the code in both schemes.
@@ -54,7 +54,7 @@ export function ChatAppConnect({
     refetch,
     isFetching,
   } = useQuery({
-    queryKey: ['messaging-link-init', channel],
+    queryKey: QUERY_KEYS.messaging.linkInit(channel),
     queryFn: () => messagingApi.initLink(channel, channelLinkReturnUri()),
     staleTime: Infinity,
     retry: 1,
@@ -66,7 +66,7 @@ export function ChatAppConnect({
   // and a poll that kept running would bill an instance for a screen the
   // athlete has already left. Same rule, same constant, as the web client.
   const { data: links } = useQuery({
-    queryKey: ['messaging-links'],
+    queryKey: QUERY_KEYS.messaging.links(),
     queryFn: () => messagingApi.listLinks(),
     refetchInterval: query =>
       query.state.data?.some((l) => l.channel === channel)
@@ -119,7 +119,7 @@ export function ChatAppConnect({
   const authorize = async (started: typeof link) => {
     try {
       if (await runOAuthChannelLink(started, channelLinkReturnUri())) {
-        await queryClient.invalidateQueries({ queryKey: ['messaging-links'] });
+        await queryClient.invalidateQueries({ queryKey: QUERY_KEYS.messaging.links() });
       }
     } catch (err) {
       Alert.alert(

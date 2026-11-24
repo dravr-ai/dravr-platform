@@ -4,7 +4,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! The mirror backends' descriptors, one per service the scraper reads.
+//! The mirror backends' descriptors, one per service whose signed-in athlete
+//! session sciotte reads, with the athlete's consent.
 
 use pierre_core::constants::oauth::providers::{COROS, GARMIN, STRAVA, TRAININGPEAKS};
 use pierre_core::transport::TransportPolicy;

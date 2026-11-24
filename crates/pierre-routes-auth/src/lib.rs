@@ -28,13 +28,13 @@
 //! Everything is wired through [`AuthRoutesContext`] — a concrete state
 //! struct collecting the Arc handles every auth handler needs (auth manager,
 //! JWKS, CSRF, repos, config, email + Firebase services, provider registry,
-//! tenant OAuth client, sync notifier, optional sync orchestrator, Cache,
+//! tenant OAuth client, optional sync orchestrator, Cache,
 //! plus the `provider-sciotte`-gated link-token nonce store). The composition root in `pierre-server` builds the context once
 //! from its `ServerContext` and passes it as Axum state.
 //!
 //! The context-struct pattern (rather than a 13-method `AuthRoutesCtx`
 //! trait) matches the precedent set by [`pierre_routes_identity::oauth2`]
-//! (`OAuth2Context`) and [`pierre_routes_admin::AdminApiContext`] — fields
+//! (`OAuth2Context`) and `pierre_routes_admin::AdminApiContext` — fields
 //! pulled from disparate optional crates (Firebase, Resend, Sciotte) where
 //! growing the trait would force `pierre-runtime-context` to depend on the
 //! union of all of them.
@@ -69,7 +69,6 @@ use pierre_middleware::McpAuthMiddleware;
 use pierre_providers::ProviderRegistry;
 use pierre_runtime_context::DataContext;
 use pierre_services::originals_bundle::OriginalsBundleService;
-use pierre_services::provider_refresh::SyncNotifier;
 #[cfg(feature = "health-sync")]
 use pierre_services::sync_failure_notice::SyncFailureNotices;
 
@@ -227,8 +226,6 @@ pub struct AuthRoutesContext {
     pub email_service: Option<Arc<ResendEmailService>>,
     /// Provider registry — descriptor lookups (PKCE capability, OAuth params).
     pub provider_registry: Arc<ProviderRegistry>,
-    /// Background sync notifier (the SSE manager in production).
-    pub sync_notifier: Arc<dyn SyncNotifier>,
     /// Health-data sync orchestrator (enforme). `None` when health-sync
     /// feature is disabled or orchestrator init failed.
     #[cfg(feature = "health-sync")]
@@ -367,7 +364,6 @@ impl AuthRoutes {
                 "/api/auth/resend-verification",
                 post(email_verification::handle_resend_verification),
             )
-            .route("/api/auth/admin/register", post(login::handle_register))
             .route("/api/auth/firebase", post(login::handle_firebase_login))
             .route("/api/auth/logout", post(login::handle_logout))
             .route("/api/auth/session", get(login::handle_session))
@@ -509,11 +505,6 @@ impl AuthRoutes {
             .route(
                 "/api/oauth/providers/{provider}/disconnect",
                 delete(oauth::handle_disconnect_provider_rest),
-            )
-            // Trigger provider data sync (requires auth)
-            .route(
-                "/api/providers/{provider}/sync",
-                post(oauth::handle_sync_provider),
             )
             // Read, give or withdraw the consent to AI use of a provider's
             // data or of a consent class (requires auth; carnet#726, J2)

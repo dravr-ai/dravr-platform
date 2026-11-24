@@ -76,7 +76,7 @@ pub(crate) fn init_bench_env() {
             env::set_var("PIERRE_LLM_CHAIN", "gemini=mock-model");
         }
 
-        utils::http_client::initialize_http_clients(HttpClientConfig::default());
+        utils::http_client::initialize_http_clients(&HttpClientConfig::default());
         // Err when another caller set it first; either way it must be set now.
         drop(constants::init_server_config());
         assert!(

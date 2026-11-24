@@ -54,9 +54,6 @@ use pierre_runtime_context::{AdminConfigLookup, DataContext};
 use pierre_services::group_chat_poster::GroupChatPoster;
 use pierre_services::live_activities::{LandedSession, LiveActivityStore};
 
-#[cfg(feature = "transport-sse")]
-use pierre_services::provider_refresh::SyncNotifier;
-
 #[cfg(feature = "health-sync")]
 use dravr_enforme::SyncOrchestrator;
 #[cfg(feature = "client-notifications")]
@@ -478,14 +475,6 @@ pub trait ToolRuntime: Send + Sync + 'static {
     /// is enabled and a notification backend is wired).
     #[cfg(feature = "client-notifications")]
     fn notification_service(&self) -> Option<&Arc<NotificationService>>;
-
-    /// Narrow sync-notification handle (push interface used by the refresh
-    /// service to inform connected clients). In production this is backed
-    /// by `SseManager`, but the trait only exposes the `SyncNotifier`
-    /// surface so the trait body stays free of pierre-server-internal SSE
-    /// machinery.
-    #[cfg(feature = "transport-sse")]
-    fn sync_notifier(&self) -> Arc<dyn SyncNotifier>;
 
     /// Sync orchestrator for refreshing fitness data from providers.
     #[cfg(feature = "health-sync")]

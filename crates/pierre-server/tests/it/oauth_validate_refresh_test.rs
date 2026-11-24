@@ -39,7 +39,6 @@ async fn test_validate_jwt_token_structure() {
                 audience: None,
             },
             &user_id,
-            &[],
             None,
         )
         .expect("Failed to generate access token");

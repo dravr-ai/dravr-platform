@@ -13,7 +13,7 @@ use common::placeholder_llm_chain;
 use pierre_core::models::CoachingPersona;
 use pierre_core::permissions::scopes::OAuthScope;
 use rand::Rng;
-use secrecy::{ExposeSecret, SecretString};
+use secrecy::SecretString;
 use serde_json::json;
 use serial_test::serial;
 use std::{collections::HashMap, env, error::Error, path::PathBuf, sync::Arc};
@@ -22,9 +22,7 @@ use uuid::Uuid;
 // Import necessary modules from the main crate
 use pierre_auth::{auth::AuthManager, tenant::TenantOAuthCredentials};
 use pierre_config::environment::*;
-use pierre_core::models::{
-    DecryptedToken, Tenant, TenantId, User, UserOAuthToken, UserStatus, UserTier,
-};
+use pierre_core::models::{Tenant, TenantId, User, UserOAuthToken, UserStatus, UserTier};
 use pierre_core::permissions::UserRole;
 use pierre_mcp_server::{
     constants::oauth_providers,
@@ -167,7 +165,7 @@ async fn create_test_executor() -> Result<UniversalToolExecutor> {
                 server_version: env!("CARGO_PKG_VERSION").to_owned(),
             },
         },
-        sse: SseConfig::default(),
+        session_cookie: SessionCookieConfig::default(),
         oauth2_server: OAuth2ServerConfig::default(),
         host: "localhost".to_owned(),
         base_url: "http://localhost:8081".to_owned(),
@@ -257,7 +255,6 @@ async fn create_test_user(executor: &UniversalToolExecutor) -> Result<(User, Ten
         display_name: Some("Test User".to_owned()),
         password_hash: "fake_hash_for_ci".to_owned(),
         tier: UserTier::Starter,
-        strava_token: None,
         created_at: Timestamp::now(),
         last_active: Timestamp::now(),
         user_status: UserStatus::Active,
@@ -311,21 +308,14 @@ async fn create_test_user(executor: &UniversalToolExecutor) -> Result<(User, Ten
     let token_id = rand::rng().random::<u64>();
     let refresh_token_id = rand::rng().random::<u64>();
 
-    let mock_token = DecryptedToken {
-        access_token: SecretString::from(format!("at_{token_id:016x}_{timestamp}")),
-        refresh_token: SecretString::from(format!("rt_{refresh_token_id:016x}_{timestamp}")),
-        expires_at: now + Elapsed::hours(6),
-        scope: "read,activity:read_all,activity:write".to_owned(),
-    };
-
     let oauth_token = UserOAuthToken::new(
         user.id,
         "00000000-0000-0000-0000-000000000000".to_owned(), // tenant_id
         oauth_providers::STRAVA.to_owned(),
-        mock_token.access_token.expose_secret().to_owned(),
-        Some(mock_token.refresh_token.expose_secret().to_owned()),
-        Some(mock_token.expires_at),
-        Some(mock_token.scope.clone()), // scope as String
+        format!("at_{token_id:016x}_{timestamp}"),
+        Some(format!("rt_{refresh_token_id:016x}_{timestamp}")),
+        Some(now + Elapsed::hours(6)),
+        Some("read,activity:read_all,activity:write".to_owned()),
     );
 
     match executor

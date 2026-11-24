@@ -62,11 +62,11 @@ use serde::Serialize;
 use serde_json::Value;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tokio::task::AbortHandle;
-use tokio::time;
 use tokio_util::bytes::Bytes;
 use tracing::{info, warn};
 use uuid::Uuid;
 
+use crate::lease_guard::{keep_lease, LeaseGuard};
 use crate::originals_seal::ExportSeal;
 use crate::periodic::spawn_periodic;
 
@@ -222,16 +222,6 @@ fn in_flight(bundle: &ExportBundle, sealed: bool) -> BundleRequest {
         BundleRequest::OtherBuilding(view)
     } else {
         BundleRequest::Bundle(view)
-    }
-}
-
-/// Aborts its task when dropped: a build that ends, fails or panics stops
-/// its heartbeat, so a dead build's row goes stale and the sweep fails it.
-struct AbortOnDrop(AbortHandle);
-
-impl Drop for AbortOnDrop {
-    fn drop(&mut self) {
-        self.0.abort();
     }
 }
 
@@ -587,7 +577,7 @@ impl OriginalsBundleService {
             bundle.id,
         );
         let written = Arc::new(AtomicU64::new(0));
-        let heartbeat = AbortOnDrop(self.heartbeat(&bundle, Arc::clone(&written)));
+        let heartbeat = self.heartbeat(&bundle, Arc::clone(&written));
         let outcome = self.write(&bundle, &key, seal, &written).await;
         drop(heartbeat);
         let kept = self.settle(&bundle, &outcome).await;
@@ -668,30 +658,32 @@ impl OriginalsBundleService {
         .map_err(|e| AppError::internal(format!("bundle write: {e}")))
     }
 
-    /// Move the bundle's heartbeat every [`HEARTBEAT_EVERY`] until aborted.
-    fn heartbeat(&self, bundle: &ExportBundle, written: Arc<AtomicU64>) -> AbortHandle {
+    /// Move the bundle's heartbeat every [`HEARTBEAT_EVERY`] until the guard
+    /// drops: a build that ends, fails or panics stops its heartbeat, so a
+    /// dead build's row goes stale and the sweep fails it.
+    fn heartbeat(&self, bundle: &ExportBundle, written: Arc<AtomicU64>) -> LeaseGuard {
         let repos = Arc::clone(&self.repos);
         let (tenant, user, id) = (bundle.tenant_id, bundle.user_id, bundle.id);
-        tokio::spawn(async move {
-            let mut ticks = time::interval(HEARTBEAT_EVERY);
-            ticks.tick().await;
-            loop {
-                ticks.tick().await;
-                let files = written.load(Ordering::Relaxed);
-                match repos
+        let renew = move || {
+            let repos = Arc::clone(&repos);
+            let files = written.load(Ordering::Relaxed);
+            async move {
+                let building = repos
                     .user_export_bundles
                     .heartbeat(tenant, user, id, Timestamp::now())
-                    .await
-                {
-                    Ok(true) => info!(bundle_id = %id, files, "Originals bundle still building"),
-                    Ok(false) => return,
-                    Err(error) => {
-                        warn!(bundle_id = %id, error = %error, "Originals bundle heartbeat failed");
-                    }
+                    .await;
+                if matches!(building, Ok(true)) {
+                    info!(bundle_id = %id, files, "Originals bundle still building");
                 }
+                building
             }
-        })
-        .abort_handle()
+        };
+        keep_lease(
+            "originals bundle build",
+            id.to_string(),
+            HEARTBEAT_EVERY,
+            renew,
+        )
     }
 
     /// Say how the athlete downloads their ready bundle `id`.
@@ -839,35 +831,12 @@ pub fn start_originals_bundle_sweep(
 
 #[cfg(test)]
 mod tests {
-    use std::future;
-
     use dravr_barrage::blob::memory::MemoryBlobStore;
     use pierre_core::models::{Tenant, User};
     use pierre_test_support::db::create_test_db;
 
     use super::*;
     use crate::barrage_keys::memory_records;
-
-    #[tokio::test]
-    async fn a_build_that_panics_stops_its_heartbeat() {
-        let beating = tokio::spawn(future::pending::<()>());
-        let heartbeat = AbortOnDrop(beating.abort_handle());
-        let build = tokio::spawn(async move {
-            let _heartbeat = heartbeat;
-            panic!("the build died");
-        });
-        assert!(
-            build.await.unwrap_err().is_panic(),
-            "bug: the test build was meant to panic"
-        );
-        let stopped = time::timeout(Duration::from_secs(5), beating)
-            .await
-            .expect("bug: a dead build's heartbeat kept its row fresh");
-        assert!(
-            stopped.unwrap_err().is_cancelled(),
-            "bug: a dead build's heartbeat ended some other way than aborted"
-        );
-    }
 
     #[tokio::test]
     async fn an_athletes_own_build_answers_even_when_no_slot_is_free() {

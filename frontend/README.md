@@ -289,7 +289,7 @@ The frontend communicates with Pierre MCP Server via REST API:
 
 - **Base URL**: `http://localhost:8081` (development)
 - **Authentication**: JWT tokens stored in localStorage
-- **API Service**: `src/services/api.ts`
+- **API Service**: `src/services/api/` (the directory index is the barrel components import)
 
 Key endpoints:
 - `/api/auth/*` - Authentication

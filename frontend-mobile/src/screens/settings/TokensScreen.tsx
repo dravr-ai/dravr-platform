@@ -1,5 +1,5 @@
 // ABOUTME: API Tokens pane — one Section of 52 rows, the athlete's MCP bearer tokens with their mono prefix and an ink Revoke
-// ABOUTME: Minting happens in the one bottom Sheet; the header's ink "New token" opens it (Boreal v2.2 Phase 4, api_tokens flag)
+// ABOUTME: Minting happens in the one bottom Sheet; the header's ink "New token" opens it (behind the api_tokens flag)
 
 import React, { useCallback, useEffect, useState } from 'react';
 import { View, Text, ActivityIndicator, Alert } from 'react-native';

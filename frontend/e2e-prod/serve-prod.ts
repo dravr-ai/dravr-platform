@@ -78,7 +78,7 @@ function resolveFile(pathname: string): string | null {
   return pathname.startsWith('/assets/') ? null : join(DIST, 'index.html');
 }
 
-const BACKEND = /^\/(api|oauth|oauth2|admin|a2a|messaging|webhooks|providers|r|fitness|\.well-known)\/|^\/(mcp|tenants|ws)(\/|$)/;
+const BACKEND = /^\/(api|oauth|oauth2|admin|a2a|messaging|webhooks|providers|r|\.well-known)\/|^\/(mcp|tenants|ws)(\/|$)/;
 
 const server = createServer((request, response) => {
   // nginx.conf declares the headers at server level, so the proxy blocks inherit them too.

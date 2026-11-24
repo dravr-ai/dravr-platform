@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: React Query mutations that give or withdraw consent to AI use of a provider's data, or to sending it data, per client's OAuth API
-// ABOUTME: One call either way (carnet#726); rereads both provider reads and the key's own answer; a sibling query reads that answer
+// ABOUTME: One call either way (carnet#726); rereads the provider status and the key's own answer; a sibling query reads that answer
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { QUERY_KEYS } from '@pierre/shared-constants';
@@ -18,8 +18,8 @@ export interface AiConsentChange {
  * Build `useAiConsent` over one client's OAuth API.
  *
  * The mutation behind every AI-consent control — the privacy toggle and the
- * connection card's withdraw action alike. On settle it rereads both
- * provider-card queries, so every surface that shows a provider's consent
+ * connection card's withdraw action alike. On settle it rereads the one
+ * provider-status query, so every surface that shows a provider's consent
  * shows the server's answer rather than the tap, whichever control made it.
  */
 export function createAiConsentHook(oauthApi: Pick<OAuthApi, 'grantAiConsent' | 'withdrawAiConsent'>) {
@@ -30,7 +30,6 @@ export function createAiConsentHook(oauthApi: Pick<OAuthApi, 'grantAiConsent' | 
         allow ? oauthApi.grantAiConsent(provider) : oauthApi.withdrawAiConsent(provider),
       onSettled: async (_answer, _error, { provider }) => {
         await Promise.all([
-          queryClient.invalidateQueries({ queryKey: QUERY_KEYS.user.providerConnections() }),
           queryClient.invalidateQueries({ queryKey: QUERY_KEYS.providers.status() }),
           queryClient.invalidateQueries({ queryKey: QUERY_KEYS.providers.aiConsent(provider) }),
         ]);
@@ -78,10 +77,7 @@ export function createTransferConsentHook(
       mutationFn: ({ provider, allow }: TransferConsentChange) =>
         allow ? oauthApi.grantTransferConsent(provider) : oauthApi.withdrawTransferConsent(provider),
       onSettled: async () => {
-        await Promise.all([
-          queryClient.invalidateQueries({ queryKey: QUERY_KEYS.user.providerConnections() }),
-          queryClient.invalidateQueries({ queryKey: QUERY_KEYS.providers.status() }),
-        ]);
+        await queryClient.invalidateQueries({ queryKey: QUERY_KEYS.providers.status() });
       },
     });
   };

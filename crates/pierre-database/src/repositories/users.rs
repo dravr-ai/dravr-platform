@@ -461,7 +461,6 @@ where
         tier: tier
             .parse()
             .map_err(|e| AppError::internal(format!("Failed to parse tier: {e}")))?,
-        strava_token: None,
         is_active: row
             .try_get("is_active")
             .map_err(|e| column("is_active", e))?,

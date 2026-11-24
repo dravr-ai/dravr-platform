@@ -72,7 +72,7 @@ pub(super) async fn handle_list<C: AgentsCtx + MiddlewareCtx + ToolRuntime>(
     Query(query): Query<ListAgentsQuery>,
 ) -> Result<Response, AppError> {
     let auth = auth.into_inner();
-    let tenant_id = super::get_user_tenant(&auth)?;
+    let tenant_id = super::get_user_tenant(&auth, &ctx).await?;
 
     let manager = super::get_agents_manager(&ctx);
 
@@ -288,7 +288,7 @@ pub(super) async fn handle_proposal<C: AgentsCtx + MiddlewareCtx + ToolRuntime>(
     auth: AuthenticatedUser,
 ) -> Result<Response, AppError> {
     let auth = auth.into_inner();
-    let tenant_id = super::get_user_tenant(&auth)?;
+    let tenant_id = super::get_user_tenant(&auth, &ctx).await?;
     let locale = resolve_user_locale(
         MiddlewareCtx::repos(ctx.as_ref()).users.as_ref(),
         auth.user_id,
@@ -853,7 +853,7 @@ pub(super) async fn handle_get<C: AgentsCtx + MiddlewareCtx>(
     Path(id): Path<String>,
 ) -> Result<Response, AppError> {
     let auth = auth.into_inner();
-    let tenant_id = super::get_user_tenant(&auth)?;
+    let tenant_id = super::get_user_tenant(&auth, &ctx).await?;
 
     let manager = super::get_agents_manager(&ctx);
     let agent = manager
@@ -877,7 +877,7 @@ pub(super) async fn handle_update<C: AgentsCtx + MiddlewareCtx>(
     Json(body): Json<UpdateAgentBody>,
 ) -> Result<Response, AppError> {
     let auth = auth.into_inner();
-    let tenant_id = super::get_user_tenant(&auth)?;
+    let tenant_id = super::get_user_tenant(&auth, &ctx).await?;
 
     // Only a value the request actually assigns is range-checked; an absent
     // field and an explicit clear both mean "inherit" and carry no number.
@@ -922,7 +922,7 @@ pub(super) async fn handle_fork<C: AgentsCtx + MiddlewareCtx>(
     Path(id): Path<String>,
 ) -> Result<Response, AppError> {
     let auth = auth.into_inner();
-    let tenant_id = super::get_user_tenant(&auth)?;
+    let tenant_id = super::get_user_tenant(&auth, &ctx).await?;
     let span = Span::current();
     span.record("user_id", field::display(&auth.user_id));
     span.record("tenant_id", field::display(&tenant_id));
@@ -953,7 +953,7 @@ pub(super) async fn handle_delete<C: AgentsCtx + MiddlewareCtx>(
     Path(id): Path<String>,
 ) -> Result<Response, AppError> {
     let auth = auth.into_inner();
-    let tenant_id = super::get_user_tenant(&auth)?;
+    let tenant_id = super::get_user_tenant(&auth, &ctx).await?;
 
     let manager = super::get_agents_manager(&ctx);
     let deleted = manager.delete(&id, auth.user_id, tenant_id).await?;
@@ -986,7 +986,7 @@ pub(super) async fn handle_submit_for_review<C: AgentsCtx + MiddlewareCtx>(
     Path(id): Path<String>,
 ) -> Result<Response, AppError> {
     let auth = auth.into_inner();
-    let tenant_id = super::get_user_tenant(&auth)?;
+    let tenant_id = super::get_user_tenant(&auth, &ctx).await?;
     let span = Span::current();
     span.record("user_id", field::display(&auth.user_id));
     span.record("tenant_id", field::display(&tenant_id));
@@ -1029,7 +1029,7 @@ pub(super) async fn handle_record_usage<C: AgentsCtx + MiddlewareCtx>(
     Path(id): Path<String>,
 ) -> Result<Response, AppError> {
     let auth = auth.into_inner();
-    let tenant_id = super::get_user_tenant(&auth)?;
+    let tenant_id = super::get_user_tenant(&auth, &ctx).await?;
 
     // Record IDs on the span so this request's log lines carry the caller.
     let span = Span::current();

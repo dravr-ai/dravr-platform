@@ -19,7 +19,7 @@ use pierre_config::environment::{
     AppBehaviorConfig, AuthConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment,
     ExternalServicesConfig, HttpClientConfig, LogLevel, LoggingConfig, OAuth2ServerConfig,
     OAuthConfig, PostgresPoolConfig, ProtocolConfig, SecurityConfig, SecurityHeadersConfig,
-    ServerConfig, SseConfig, TlsConfig,
+    ServerConfig, SessionCookieConfig, TlsConfig,
 };
 use pierre_core::models::CoachingPersona;
 use pierre_core::models::{Tenant, TenantId, User, UserStatus, UserTier};
@@ -184,7 +184,7 @@ impl TestServer {
                     server_version: env!("CARGO_PKG_VERSION").to_owned(),
                 },
             },
-            sse: SseConfig::default(),
+            session_cookie: SessionCookieConfig::default(),
             oauth2_server: OAuth2ServerConfig::default(),
             ..Default::default()
         })
@@ -200,7 +200,6 @@ impl TestServer {
             display_name: Some("Test User".to_owned()),
             password_hash,
             tier: UserTier::Starter,
-            strava_token: None,
             is_active: true,
             user_status: UserStatus::Active,
             role: UserRole::User,
@@ -254,7 +253,6 @@ impl TestServer {
                 audience: None,
             },
             &user.id,
-            &[],
             None,
         )?;
 

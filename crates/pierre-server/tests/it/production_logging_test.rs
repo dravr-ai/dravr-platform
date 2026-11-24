@@ -208,7 +208,6 @@ async fn test_database_operation_instrumentation() -> Result<(), Box<dyn Error>>
         display_name: Some("Test User".to_owned()),
         password_hash: "hash".to_owned(),
         tier: UserTier::Starter,
-        strava_token: None,
         is_active: true,
         user_status: UserStatus::Active,
         role: UserRole::User,

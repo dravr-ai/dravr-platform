@@ -7,16 +7,14 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use dravr_tronc::dates::Elapsed;
 use dravr_tronc::dates::Timestamp;
 use pierre_core::models::coverage::{Coverage, CoverageWindow};
 use pierre_core::models::CoachingPersona;
 use pierre_core::models::{
-    Activity, ActivityBuilder, Athlete, EncryptedToken, HeartRateZone, PeriodTotals, PowerZone,
-    SegmentEffort, SportType, Stats, Tenant, TenantId, User, UserStatus, UserTier,
+    Activity, ActivityBuilder, Athlete, HeartRateZone, PeriodTotals, PowerZone, SegmentEffort,
+    SportType, Stats, Tenant, TenantId, User, UserStatus, UserTier,
 };
 use pierre_core::permissions::UserRole;
-use secrecy::{ExposeSecret, SecretString};
 use uuid::Uuid;
 
 /// Test data for creating sample activities
@@ -353,7 +351,6 @@ fn test_user_creation_with_required_fields() {
         display_name: Some("Test User".to_owned()),
         password_hash: "hashed_password".to_owned(),
         tier: UserTier::Professional,
-        strava_token: None,
         is_active: true,
         user_status: UserStatus::Active,
         role: UserRole::User,
@@ -467,67 +464,6 @@ fn test_power_zone_creation() {
     assert_eq!(zone.min_power, 200);
     assert_eq!(zone.max_power, 250);
     assert_eq!(zone.time_in_zone, 15);
-}
-
-#[test]
-fn test_encrypted_token_creation() {
-    let now = Timestamp::now();
-    let token = EncryptedToken {
-        access_token: SecretString::from("encrypted_access_12345"),
-        refresh_token: SecretString::from("encrypted_refresh_67890"),
-        expires_at: now + Elapsed::hours(1),
-        scope: "read write".to_owned(),
-    };
-
-    assert_eq!(token.access_token.expose_secret(), "encrypted_access_12345");
-    assert_eq!(
-        token.refresh_token.expose_secret(),
-        "encrypted_refresh_67890"
-    );
-    assert_eq!(token.scope, "read write");
-    assert!(token.expires_at > now);
-}
-
-#[test]
-fn test_user_with_encrypted_tokens() {
-    let now = Timestamp::now();
-    let user = User {
-        id: Uuid::new_v4(),
-        email: "tokenuser@example.com".to_owned(),
-        display_name: Some("Token User".to_owned()),
-        password_hash: "secure_hash".to_owned(),
-        tier: UserTier::Professional,
-        strava_token: Some(EncryptedToken {
-            access_token: SecretString::from("strava_encrypted_access"),
-            refresh_token: SecretString::from("strava_encrypted_refresh"),
-            expires_at: now + Elapsed::hours(6),
-            scope: "read_all,activity:read".to_owned(),
-        }),
-        is_active: true,
-        user_status: UserStatus::Active,
-        role: UserRole::User,
-        approved_by: Some(Uuid::new_v4()),
-        approved_at: Some(now),
-        created_at: now,
-        last_active: now,
-        firebase_uid: None,
-        auth_provider: String::new(),
-        analytics_consent: false,
-        analytics_consent_at: None,
-        locale: "fr".to_owned(),
-        coaching_persona: CoachingPersona::Casual,
-        manages_roster: false,
-        timezone: None,
-        theme: None,
-    };
-
-    // Verify the token is present
-    assert!(user.strava_token.is_some());
-
-    if let Some(strava_token) = &user.strava_token {
-        assert_eq!(strava_token.scope, "read_all,activity:read");
-        assert!(strava_token.expires_at > now);
-    }
 }
 
 /// Create test activity with detailed segment efforts for validation

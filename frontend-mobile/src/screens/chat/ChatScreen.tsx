@@ -47,9 +47,9 @@ import { usePrivateLane } from '../../hooks/usePrivateLane';
 import { coachRoomName, composerVoicePending, threadSubtitle } from '@pierre/chat-utils';
 import { useEmptyThreadStarters } from '../../hooks/useEmptyThreadStarters';
 import { usePlanThreadDraft } from '../../hooks/useCoachPlan';
-import { useConversations } from './useConversations';
 import { useMarkConversationRead } from './useMarkConversationRead';
 import { useMessages } from './useMessages';
+import { useOpenConversation } from './useOpenConversation';
 import { useProviderStatus } from './useProviderStatus';
 import { useUsageStatus } from './useUsageStatus';
 import { useTranslation } from '@pierre/i18n';
@@ -79,8 +79,9 @@ export function ChatScreen() {
   const [renameConversationId, setRenameConversationId] = useState<string | null>(null);
   const [renameDefaultTitle, setRenameDefaultTitle] = useState('');
 
-  // Custom hooks
-  const conversations = useConversations();
+  // Custom hooks. The open thread is a row of the one conversation list: this
+  // screen holds which id is open, never a copy of the list.
+  const conversations = useOpenConversation();
   // The personal thread is named after its agent in the athlete's language,
   // read off the same agent list Agent info and the @ palette read. Only the
   // personal thread reads it, so only the personal thread asks for it.
@@ -176,10 +177,9 @@ export function ChatScreen() {
     }
   }, [router]);
 
-  // Load data when authenticated
+  // Load data when authenticated. The conversation list reads itself.
   useEffect(() => {
     if (isAuthenticated) {
-      conversations.loadConversations();
       providerStatus.loadProviderStatus();
     }
     // These functions are stable from hooks, intentionally omit to avoid loops
@@ -193,9 +193,9 @@ export function ChatScreen() {
         providerStatus.loadProviderStatus();
         // Conversations can be opened from outside this screen — an invite
         // deep link and the "+" both route here by id. The id resolves against
-        // this list, so a stale list lands the athlete on an empty composer
+        // the list, so a stale list lands the athlete on an empty composer
         // instead of the conversation they just opened.
-        void conversations.loadConversations();
+        conversations.refresh();
         // Messaging turns arrive async via inbound webhook with no push to the
         // app. Reload the open conversation on focus so a reply sent from
         // Telegram (or any channel) appears without a manual pull-to-refresh.
@@ -226,23 +226,28 @@ export function ChatScreen() {
     return () => subscription.remove();
   }, [isAuthenticated, openConversationId, openGroupId, isSending, loadMessages]);
 
-  // Load messages when conversation changes
+  // Load messages when the open conversation changes. Keyed on its id, never
+  // on the row: the list re-reads the row after every turn, and a read of the
+  // thread on each of those would paint the server's copy over rows still on
+  // their way. An id whose row the list has not read yet waits for the row,
+  // which carries the group the room's lines are read from.
   useEffect(() => {
-    if (conversations.currentConversation) {
-      if (conversations.justCreatedConversationRef.current === conversations.currentConversation.id) {
-        conversations.justCreatedConversationRef.current = null;
-        return;
-      }
-      messagesHook.loadMessages(
-        conversations.currentConversation.id,
-        conversations.currentConversation.group_id,
-      );
-    } else {
+    if (conversations.openId === null) {
       messagesHook.clearMessages();
+      return;
     }
-    // Intentionally only depend on currentConversation to avoid infinite loops
+    if (!conversations.currentConversation) return;
+    if (conversations.justCreatedConversationRef.current === conversations.currentConversation.id) {
+      conversations.justCreatedConversationRef.current = null;
+      return;
+    }
+    messagesHook.loadMessages(
+      conversations.currentConversation.id,
+      conversations.currentConversation.group_id,
+    );
+    // Intentionally only depend on the open id to avoid infinite loops
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [conversations.currentConversation]);
+  }, [conversations.openId, openConversationId]);
 
   // Handle navigation params for conversation selection
   // Clear conversation when navigating to chat without a conversationId (or with 'new')
@@ -250,9 +255,9 @@ export function ChatScreen() {
     const conversationId = params?.conversationId;
     if (
       (conversationId === undefined || conversationId === NEW_CONVERSATION_ID) &&
-      conversations.currentConversation !== null
+      conversations.openId !== null
     ) {
-      conversations.setCurrentConversation(null);
+      conversations.openConversation(null);
       messagesHook.clearMessages();
     }
     // Only depend on conversationId value, not the params object reference
@@ -260,21 +265,16 @@ export function ChatScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [params.conversationId]);
 
+  // The thread the route names is the open one. Its row — title, agent,
+  // group — is read out of the list, which pages on until it finds it.
   useEffect(() => {
     const conversationId = params?.conversationId;
-    if (conversationId && conversations.conversations.length > 0) {
-      const conversation = conversations.conversations.find(c => c.id === conversationId);
-      const shouldUpdate = conversation && (
-        conversation.id !== conversations.currentConversation?.id ||
-        (!conversations.currentConversation?.title && conversation.title)
-      );
-      if (shouldUpdate) {
-        conversations.setCurrentConversation(conversation);
-      }
+    if (conversationId && conversationId !== NEW_CONVERSATION_ID) {
+      conversations.openConversation(conversationId);
     }
-    // currentConversation intentionally omitted - including it would cause infinite loops
+    // `openConversation` is a state setter, stable across renders
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [params?.conversationId, conversations.conversations]);
+  }, [params?.conversationId]);
 
   /**
    * Send one line as the next turn, creating the thread when there is none.
@@ -297,9 +297,7 @@ export function ChatScreen() {
       // it and a rename had to undo that. The athlete speaks first here, so
       // the agent the server binds posts no welcome: it would land in the
       // same instant as the answer to the line being sent.
-      const newConversation = await conversations.createConversation({ athlete_speaks_first: true });
-      if (!newConversation) return;
-      conversationId = newConversation.id;
+      conversationId = await conversations.createConversation({ athlete_speaks_first: true });
     }
 
     try {

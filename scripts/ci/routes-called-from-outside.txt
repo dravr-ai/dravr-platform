@@ -1,0 +1,65 @@
+# ABOUTME: Routes the server registers whose caller is outside this repository by design, each with who calls it
+# ABOUTME: Read by `scripts/ci/check-phantom-surfaces.sh --all-routes`; an entry naming no registered route fails the run
+#
+# One route per line: the template exactly as it is registered, whitespace,
+# then WHO calls it. This is not an exception list. A route belongs here only
+# when its caller cannot be in the tree: another party's server, a protocol
+# client, a scheduler, a link or image URL this server hands out. A route that
+# simply has no client yet is a phantom surface: delete it, wire its client, or
+# register the gap with a LIMITATION(registre#issue): marker at its declaration.
+#
+# A route with a caller in the tree needs no line here, even when outside
+# parties call it too (/oauth2/token, /health, /webhooks/strava).
+
+# --- Discovery metadata, fetched by protocol clients before they authenticate
+/.well-known/oauth-authorization-server         OAuth and MCP clients: RFC 8414 authorization-server metadata
+/.well-known/oauth-protected-resource           MCP clients: RFC 9728 protected-resource metadata
+/.well-known/oauth-protected-resource/{*path}   MCP and A2A clients: RFC 9728 metadata of a path-bearing resource (/mcp, /a2a)
+/.well-known/jwks.json                          Token verifiers: the jwks_uri the authorization-server metadata advertises
+/.well-known/did.json                           did:web resolvers: the key record_log checkpoints are signed with
+/.well-known/dravr-checkpoint                   Verifiers of the record log: the newest signed checkpoint
+/.well-known/agent-card.json                    A2A agents: agent card discovery
+
+# --- A2A 1.0 protocol bindings, called by other parties' agents
+/a2a/jsonrpc                                            External A2A agents: the JSON-RPC binding
+/a2a/message:send                                       External A2A agents: the REST binding
+/a2a/message:stream                                     External A2A agents: the REST binding (SSE)
+/a2a/tasks                                              External A2A agents: the REST binding
+/a2a/tasks/{id}                                         External A2A agents: the REST binding
+/a2a/tasks/{id}/pushNotificationConfigs                 External A2A agents: the REST binding
+/a2a/tasks/{id}/pushNotificationConfigs/{config_id}     External A2A agents: the REST binding
+/a2a/extendedAgentCard                                  External A2A agents: the authenticated agent card
+
+# --- OAuth 2.0 endpoints only a protocol client or an identity provider reaches
+/oauth2/par                     OAuth clients: RFC 9126, advertised as pushed_authorization_request_endpoint
+/oauth2/revoke                  OAuth clients: RFC 7009, advertised as revocation_endpoint
+/oauth2/login/google            The browser, from the Google button of the server-rendered /oauth2/login page (the server builds the URL)
+/oauth2/login/google/callback   Google: the redirect URI registered for Google sign-in
+
+# --- Webhooks other parties post to
+/webhooks/whoop                             WHOOP: its push endpoint
+/webhooks/wahoo/workouts                    Wahoo: workout events, as configured in its developer portal
+/webhooks/garmin/{token}/{summary_type}     Garmin: its push URL, one per summary type
+/webhooks/contremaitre                      GitHub: push events of the dravr-contremaitre repository
+/webhooks/{provider}                        The billing provider (Stripe): signed subscription events
+/api/messaging/webhook/{channel}            Messaging platforms (Slack, Discord, WhatsApp, Telegram, Messenger): inbound events
+/api/ops/slack/actions                      Slack: interactive actions (buttons, command postbacks)
+
+# --- Callbacks, links and pages this server hands out for someone else to open
+/api/messaging/link/callback/{channel}  The messaging platform's OAuth redirect: the redirect_uri the link flow sends
+/messaging/link/{code}                  The athlete's browser: the link the bot sends in a channel to link an account
+/r/{code}                               The athlete's browser: short links in outbound messages
+/api/viz/{token}                        Messaging platforms: the chart image URL a channel reply carries
+/providers/signin                       The athlete's browser: the hosted sign-in link the server sends
+/providers/sciotte/login                The athlete's browser: the same page, at the path links already sent carry
+/providers/connect/import               The athlete's browser: the import step the server-rendered connect page links to
+/admin/device                           The admin's browser: the verification URL a CLI device login prints
+/admin/device/approve-web               The admin's browser: the form of the server-rendered /admin/device page
+
+# --- Requests this deployment schedules to itself
+/internal/turns/{turn_id}/run       Cloud Tasks: the task the turn runner enqueues for a recorded messaging turn
+/internal/imports/{id}/step         Cloud Tasks: the task the archive import runner enqueues per step
+
+# --- The dravr.ai website, a separate repository
+/admin/website/sign-in-link             The dravr.ai Cloudflare Worker: mails a docs sign-in link
+/admin/website/sign-in-link/consume     The dravr.ai Cloudflare Worker: redeems a docs sign-in link

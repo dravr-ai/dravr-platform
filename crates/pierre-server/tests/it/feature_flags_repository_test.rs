@@ -24,7 +24,6 @@ async fn build_user(repos: &pierre_database::RepositoryRegistry) -> (Uuid, Tenan
         display_name: None,
         password_hash: bcrypt::hash("password123", bcrypt::DEFAULT_COST).unwrap(),
         tier: UserTier::Starter,
-        strava_token: None,
         is_active: true,
         user_status: UserStatus::Active,
         role: UserRole::User,

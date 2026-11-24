@@ -8,8 +8,8 @@
 //!
 //! A provider reached two ways supplies two different sets: Strava's API
 //! carries the normalized power, the route's summary polyline and the finer
-//! sport label that a scrape of Strava's pages does not, and the scrape
-//! carries the private note and the sensor summary on a detail page only. A
+//! sport label that a read of the athlete's signed-in session does not, and
+//! that read carries the private note and the sensor summary on a detail page only. A
 //! field a backend never supplies reads, on every row,
 //! exactly like a field the athlete never recorded: absent. The model that
 //! reads the row cannot tell the two apart, and an absent heart rate read as

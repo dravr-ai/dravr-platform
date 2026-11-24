@@ -184,7 +184,7 @@ describe('the category pair follows the appearance setting', () => {
         resolved.map(() => [colors.tokens.primary, colors.tokens.onPrimaryContainer]),
       );
 
-      // The match folds case, as the web's coachCategoryPillar does, so a
+      // The match folds case, as the shared coachCategoryPillar does, so a
       // catalogue that stored `Training` still reads as training.
       expect(categoryAccent(colors, 'Training')).toBe(categoryAccent(colors, 'training'));
     }

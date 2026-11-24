@@ -1,4 +1,4 @@
-// ABOUTME: Phase 2 admin Billing tab — CSV/JSON export of monthly LLM usage rows
+// ABOUTME: The admin Billing tab — CSV/JSON export of monthly LLM usage rows
 // ABOUTME: Calls /api/admin/billing/export and triggers a browser download
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0

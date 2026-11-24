@@ -25,7 +25,7 @@ import {
 } from '@pierre/ui-logic';
 import { importsApi } from '../../services/api';
 import { copyText } from './importCopy';
-import { QUERY_KEYS } from '../../constants/queryKeys';
+import { QUERY_KEYS } from '@pierre/shared-constants';
 import { Button, ConfirmDialog, Input } from '../ui';
 
 /** Only a source that takes a file reaches the uploader, so it stays out of the entry bundle. */

@@ -7,10 +7,9 @@ import { a2aApi } from '../services/api';
 import type { A2AClient, A2AUsageStats, A2ARateLimitStatus } from '../types/api';
 import { ALERT_TONE, Button, Section, Badge, StatusIndicator, StatusFilter, ConfirmDialog } from './ui';
 import type { StatusFilterValue } from './ui';
-import { QUERY_KEYS } from '../constants/queryKeys';
 import { useTranslation } from '@pierre/i18n';
 import { formatDate, formatDateTime } from '@pierre/chat-utils';
-import { A2A_TOTAL_APPS_KEYS, countKey } from '@pierre/shared-constants';
+import { A2A_TOTAL_APPS_KEYS, countKey, QUERY_KEYS } from '@pierre/shared-constants';
 
 /**
  * How long ago `date` was, in the athlete's language.

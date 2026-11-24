@@ -168,7 +168,7 @@ module "kms" {
 }
 
 # -----------------------------------------------------------------------------
-# Sciotte Scripts Bucket (hot-swappable JS for the sciotte service's headless Chrome)
+# Sciotte Scripts Bucket (hot-swappable page scripts for the sciotte service)
 # -----------------------------------------------------------------------------
 
 resource "google_storage_bucket" "sciotte_scripts" {
@@ -402,27 +402,27 @@ module "backend" {
       AUTO_APPROVE_USERS   = "false"
       AUTO_APPROVE_DOMAINS = "dravr.ai"
 
-      # LLM provider chain (JF, 2026-10-01; Anthropic head 2026-10-19,
+      # LLM provider chain (2026-10-01; Anthropic head 2026-10-19,
       # carnet#875; Opus head 2026-10-20, carnet#1108; Sonnet 5.5 on every
-      # Anthropic account 2026-10-29, JF): one ordered list,
+      # Anthropic credential 2026-10-29): one ordered list,
       # PIERRE_LLM_CHAIN, each entry `provider=model`
       # (crates/pierre-llm/src/config.rs, LlmChain). The first entry serves
       # every turn; a provider fault or an empty answer moves the turn to the
-      # next one, each tier on its own model. A pooled provider's further
-      # accounts sit right behind it wherever it is: anthropic is followed by
-      # anthropic#2 (ANTHROPIC_API_KEY_2) and anthropic#3
+      # next one, each tier on its own model. A provider's additional
+      # credentials sit right behind it wherever it is: anthropic is followed
+      # by anthropic#2 (ANTHROPIC_API_KEY_2) and anthropic#3
       # (ANTHROPIC_API_KEY_3), and claude_code by claude-code#2
-      # (CLAUDE_CODE_OAUTH_TOKEN_2), both bound below — a spent account moves
-      # the turn to the next account before the chain leaves that provider
-      # (carnet#480, carnet#688). An account runs its provider's model unless
+      # (CLAUDE_CODE_OAUTH_TOKEN_2), both bound below — a refused credential
+      # moves the turn to the next one before the chain leaves that provider
+      # (carnet#480, carnet#688). A credential runs its provider's model unless
       # a `provider#N=model` entry names its own; that entry sets the model
       # only, never the position. Cohere is out.
       #
-      # 1. anthropic = the Anthropic Messages API, over a pool of
-      #    organizations (ANTHROPIC_API_KEY, ANTHROPIC_API_KEY_2,
-      #    ANTHROPIC_API_KEY_3), each with its own prepaid credit under a
-      #    $199/month Console spend limit. All three serve the reply on
-      #    claude-sonnet-5-5 (JF, 2026-10-29), so a spent account hands the
+      # 1. anthropic = the primary LLM tier: the Anthropic Messages API, with
+      #    additional credentials (ANTHROPIC_API_KEY, ANTHROPIC_API_KEY_2,
+      #    ANTHROPIC_API_KEY_3), each under its own spend limit. All three
+      #    serve the reply on claude-sonnet-5-5 (2026-10-29), so a refused
+      #    credential hands the
       #    turn to the same model rather than a smaller one. Sonnet is sent
       #    every tool outside the loaded core deferred (chat_catalogue.rs,
       #    defers_on): on the live incident corpus it gave 3 findings
@@ -430,7 +430,7 @@ module "backend" {
       #    answers HTTP 400 invalid_request_error ("Your credit balance is
       #    too low"), not the 402 Anthropic documents; embacle 0.47.1 maps
       #    that wording to RateLimit, so it falls through like a quota: to
-      #    anthropic#2, then anthropic#3, then copilot_sdk. An account that
+      #    anthropic#2, then anthropic#3, then copilot_sdk. A credential that
       #    is dead under any other wording is caught by the probe instead: a
       #    tier that cannot answer "ping" is benched and passed over
       #    (crates/pierre-llm/src/tier_bench.rs, carnet#1709). Any quota
@@ -439,23 +439,23 @@ module "backend" {
       #    minutes fire dravr-llm-chain-fallthrough (llm_chain_monitoring.tf).
       #    Tool-loop iterations run on the turn's own model
       #    (PIERRE_LLM_MODEL_TOOL_ITERATION = "inherit" below).
-      # 2. copilot_sdk = GitHub's Rust Copilot runtime over stdio, on the
-      #    jfarcand Copilot account, serving claude-sonnet-5.5. Its monthly
-      #    credits reset on the 1st and have no overage (carnet#478). A whole
+      # 2. copilot_sdk = the first fallback tier: GitHub's Rust Copilot
+      #    runtime over stdio, serving claude-sonnet-5.5. Its quota is
+      #    monthly with no overage (carnet#478). A whole
       #    turn is capped by EMBACLE_SDK_PROMPT_TIMEOUT_SECS below — a turn
       #    that ends on "copilot-sdk: turn exceeded 300s" is the signal that
       #    the model is too slow for that cap.
-      # 3. claude_code = the direct Anthropic subscription — the one switched
-      #    off on 2026-05-13 for burning Opus credits during Copilot blips with
-      #    no spend cap — so it runs Sonnet, then its pooled second account.
+      # 3. claude_code = the second fallback tier, on its own credential
+      #    (CLAUDE_CODE_OAUTH_TOKEN). It has no spend cap of its own, so it
+      #    runs Sonnet, then its additional credential.
       #    `sonnet` is the alias the claude CLI publishes (it lists only
       #    sonnet, opus, haiku), so the boot model check accepts it; the CLI
       #    resolves it to its current Sonnet.
-      #    Binding ANTHROPIC_API_KEY does not move it off its subscription:
+      #    Binding ANTHROPIC_API_KEY does not change which credential it uses:
       #    since embacle 0.35.0 the claude_code runner withholds the API key
       #    from every `claude` child that holds an OAuth token (claude_code.rs,
       #    withholds_api_key).
-      # 4. gemini = the Google free tier via GEMINI_API_KEY.
+      # 4. gemini = the last fallback tier, via GEMINI_API_KEY.
       #
       # The head's model is also the model every turn asks for and the one a
       # new conversation records (carnet#824).
@@ -476,14 +476,13 @@ module "backend" {
       # a plan turn behind an Opus head (carnet#1193): Haiku's first call of
       # each turn writes the whole 62–97k prefix into its own cache, and only
       # 41% of its iteration answers were kept since 2026-10-20, so inheriting
-      # charged ~49% less quota for ~8% more USD. JF's call, 2026-10-26.
+      # charged ~49% less quota for ~8% more USD. Decided 2026-10-26.
       PIERRE_LLM_MODEL_TOOL_ITERATION = "inherit"
 
       # The synthetic LLM probe runs once per instance start and never again:
-      # its "ping" is a real turn on the head's account — a call billed
-      # against the Anthropic organization's prepaid credit. Athlete turns
-      # and the chain-fallthrough alert cover a credential that dies mid-day.
-      # (JF, 2026-09-21: "startup only".) This switches off the probe of a
+      # its "ping" is a real, billed turn on the head's credential. Athlete
+      # turns and the chain-fallthrough alert cover a credential that dies
+      # mid-day. (Decided 2026-09-21: startup only.) This switches off the probe of a
       # chain that works. What is out of service is still asked again every
       # five minutes, whatever this is set to: a benched tier, and the chain
       # itself while no tier answers (carnet#1709).
@@ -651,7 +650,7 @@ module "backend" {
       CONTREMAITRE_REPO   = "dravr-ai/dravr-contremaitre"
       CONTREMAITRE_BRANCH = "main"
 
-      # Sciotte scraper login-step timeouts (consumed by the dravr-sciotte
+      # Sciotte sign-in step timeouts (consumed by the dravr-sciotte
       # crate). The crate's compiled defaults (login 120s, password-step 30s,
       # phone-tap 60s) are too short for Strava's
       # number-match 2FA, where the user must read a number off the login
@@ -660,27 +659,27 @@ module "backend" {
       DRAVR_SCIOTTE_PASSWORD_STEP_TIMEOUT = tostring(var.backend_sciotte_password_step_timeout_secs)
       DRAVR_SCIOTTE_PHONE_TAP_TIMEOUT     = tostring(var.backend_sciotte_phone_tap_timeout_secs)
 
-      # The sciotte vision login runs on the dedicated scraper service (module
+      # The sciotte vision login runs on the dedicated sciotte service (module
       # "sciotte" below, ADR-021), which sets its own DRAVR_SCIOTTE_LOGIN_MODE,
       # and the COPILOT_HEADLESS_MODEL set there is the vision model. This
       # process holds no Chrome and builds no vision analyzer: here the
       # variable is only the Copilot headless runner's default, which a chain
       # entry's model overrides on every path that builds one
       # (crates/pierre-llm/src/embacle_provider.rs, entry_model). It is kept
-      # equal to the scraper's value so the two blocks cannot disagree; the
+      # equal to that service's value so the two blocks cannot disagree; the
       # chat chain's models are set per entry by PIERRE_LLM_CHAIN above.
       COPILOT_HEADLESS_MODEL = "claude-sonnet-5.5"
 
       # ADR-021 remote toggle: when backend_sciotte_remote is on, sciotte
-      # logins/scrapes route to the dedicated scraper services, listed in
+      # sign-ins and reads route to the dedicated sciotte services, listed in
       # order (the platform picks each session's service by its position).
       # Empty string = toggle off (the client treats it as unset), and sciotte
       # is then disabled: this pod runs no Chrome and has no in-process
-      # scraper.
+      # session reader.
       DRAVR_SCIOTTE_REMOTE_URL = var.backend_sciotte_remote ? join(",", module.sciotte[*].service_url) : ""
 
       # Audience the API addresses its identity token to. Must equal what the
-      # scraper accepts, which is why both read one local.
+      # sciotte service accepts, which is why both read one local.
       DRAVR_SCIOTTE_AUDIENCE = var.backend_sciotte_remote ? local.sciotte_audience : ""
 
       # Chart press. Empty = the capability is absent rather than broken: the
@@ -701,7 +700,7 @@ module "backend" {
       # filled by the weather backfill, so coaching has what it needs without it.
       # Enrichment only adds precise UTC start-time + HR/power/cadence.
       #
-      # "true" asks the scraper service for a detail pass over every activity
+      # "true" asks the sciotte service for a detail pass over every activity
       # the list returns (detail=every on GET /api/activities). The service
       # bounds that pass by its own per-request ceiling,
       # DRAVR_SCIOTTE_MAX_DETAIL_NAVIGATIONS (set on the sciotte service below),
@@ -803,17 +802,16 @@ module "backend" {
     GEMINI_API_KEY              = module.secrets.secret_ids["gemini_api_key"]
     COPILOT_GITHUB_TOKEN        = module.secrets.secret_ids["copilot_github_token"]
     CLAUDE_CODE_OAUTH_TOKEN     = module.secrets.secret_ids["claude_code_oauth_token"]
-    # The second Claude account, pooled as the tier right behind the first
-    # (claude-code#2). Further accounts are _3, _4, … — the platform reads
-    # them in order and stops at the first unset one (carnet#480).
+    # An additional credential for the claude_code tier, tried right behind
+    # the first (claude-code#2). Further ones are _3, _4, … — the platform
+    # reads them in order and stops at the first unset one (carnet#480).
     CLAUDE_CODE_OAUTH_TOKEN_2 = module.secrets.secret_ids["claude_code_oauth_token_2"]
-    # The Anthropic Messages API key pool, the chain's head (carnet#875): one
-    # key per organization, each with its own credit. Further organizations
-    # are _4, _5, … — read in order until the first unset one.
-    # The first organization's credit is spent and stays the head on purpose
-    # (JF, 2026-11-23): no auto-reload on any organization, the chain's
-    # fall-through serves the turn, and a head that refuses keeps that path
-    # exercised in production. Do not reorder these to "fix" a spent head.
+    # The primary tier's credentials, the chain's head (carnet#875): each key
+    # under its own spend limit. Further keys are _4, _5, … — read in order
+    # until the first unset one.
+    # A head that refuses stays the head on purpose (2026-11-23): the chain's
+    # fall-through serves the turn, and that keeps the path exercised in
+    # production. Do not reorder these to "fix" a head that refuses.
     # To choose another head deliberately, run bin/rotate-llm-head.sh: it
     # edits these three lines and, with --live, the running service.
     ANTHROPIC_API_KEY   = module.secrets.secret_ids["anthropic_api_key"]
@@ -902,7 +900,7 @@ locals {
   # against prod.
   photograveur_audience = "dravr-photograveur-${var.environment}"
 
-  # Same contract for the scraper: the service accepts it, the service requires
+  # Same contract for sciotte: the service accepts it, the service requires
   # it, and the API mints against it.
   sciotte_audience = "dravr-sciotte-${var.environment}"
 
@@ -1093,7 +1091,7 @@ module "sql_client" {
 # -----------------------------------------------------------------------------
 
 # -----------------------------------------------------------------------------
-# Sciotte scraper service (ADR-021) — the dedicated headless-Chrome service the
+# Sciotte service (ADR-021) — the dedicated provider session service the
 # API routes sciotte reads (and, until backend_sciotte_login_split, sign-ins)
 # to when DRAVR_SCIOTTE_REMOTE_URL is set. sciotte_read_services services, each
 # one instance: a read's import, read and export, and the cookie jar holding
@@ -1190,7 +1188,7 @@ module "sciotte" {
   service_account_email = module.service_accounts.app_service_account_email
 
   container_port = 3000
-  # 2 vCPU / 3Gi sized for DRAVR_SCIOTTE_MAX_CONCURRENT=3 headless Chromes
+  # 2 vCPU / 3Gi sized for DRAVR_SCIOTTE_MAX_CONCURRENT=3 Chromes
   # (~300-500MB each) plus the vision LLM subprocess headroom. Measured over
   # 2026-11-06..13 at 2Gi: CPU p99 10%, memory p99 12%, so the third Chrome
   # (the login takeover, carnet#1508) is what the extra 1Gi is for. Once
@@ -1200,7 +1198,7 @@ module "sciotte" {
   memory            = "3Gi"
   cpu_idle          = true
   startup_cpu_boost = true
-  # Every read service scales to zero (ChefFamille, 2026-11-18). Strava and
+  # Every read service scales to zero (2026-11-18). Strava and
   # Garmin reads go to the session first (carnet#1494), so the first read after
   # a quiet spell pays a cold start (p95 7.1s over 2026-11-02..16) plus a Chrome
   # launch out of the chat turn's 15s wait (DEFAULT_WAIT_FOR_REFRESH_TIMEOUT_SECS).
@@ -1214,12 +1212,12 @@ module "sciotte" {
   # Never above 1: a read's import, read and export, and the session's cookie
   # jar, must meet one instance. Reads scale by sciotte_read_services instead.
   max_instances = 1
-  # Scrapes are long-lived; keep the per-instance request budget near the
+  # Reads are long-lived; keep the per-instance request budget near the
   # queue depth so overload sheds as app-level 503+Retry-After, not as a
   # Cloud Run queue pile-up.
   max_instance_request_concurrency = 10
   # Must outlast the slowest step the platform client waits on (330s parked
-  # 2FA window; first Strava scrape measured >120s with pagination + N+1).
+  # 2FA window; first Strava read measured >120s with pagination + N+1).
   request_timeout = "600s"
 
   # INGRESS_TRAFFIC_ALL is required, not preferred: the API pod egresses
@@ -1230,9 +1228,9 @@ module "sciotte" {
 
   # Every outbound request leaves through the VPC connector and the Cloud NAT,
   # from the project's one reserved address (module.networking nat_egress_ip),
-  # not the shared Cloud Run pool. Garmin SSO scores the sign-in's source: from
-  # the shared pool it put a captcha on about 2 of 3 fresh sign-ins, while the
-  # same image from a home IP signed in on the first try (2026-11-02).
+  # not the shared Cloud Run pool. A stable egress address keeps sign-in
+  # reliable: from the shared pool about 2 of 3 fresh sign-ins did not
+  # complete (2026-11-02). Do not move this off ALL_TRAFFIC.
   vpc_connector_id = module.networking.vpc_connector_id
   vpc_egress       = "ALL_TRAFFIC"
 

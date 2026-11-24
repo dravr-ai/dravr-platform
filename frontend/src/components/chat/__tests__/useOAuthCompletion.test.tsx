@@ -8,7 +8,7 @@ import type { ReactNode } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { act, renderHook } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { QUERY_KEYS } from '../../../constants/queryKeys';
+import { QUERY_KEYS } from '@pierre/shared-constants';
 import { useOAuthCompletion } from '../useOAuthCompletion';
 
 function renderCompletion(queryClient: QueryClient) {
@@ -42,11 +42,11 @@ describe('useOAuthCompletion — the connection notice', () => {
     expect(result.current.notification?.provider).toBe('Intervals.icu');
   });
 
-  it('falls back to the capitalised id before the status has answered', () => {
+  it("falls back to the brand's own spelling before the status has answered", () => {
     const { result } = renderCompletion(new QueryClient());
 
     completeOAuth('whoop');
 
-    expect(result.current.notification?.provider).toBe('Whoop');
+    expect(result.current.notification?.provider).toBe('WHOOP');
   });
 });

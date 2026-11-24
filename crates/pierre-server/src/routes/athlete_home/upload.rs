@@ -30,9 +30,10 @@ use pierre_core::constants::oauth_providers::{STRAVA_ARCHIVE, UPLOAD};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_database::repositories::CachedActivityRow;
 use pierre_middleware::extractors::AuthenticatedUser;
+use pierre_runtime_context::require_tenant;
 use serde::Serialize;
 
-use super::{active_tenant, HomeActivity};
+use super::HomeActivity;
 use crate::mcp::resources::ServerContext;
 use crate::services::activity_upload::{
     delete_uploaded_activity, upload_activity_file, HeldCopy, MAX_UPLOAD_BYTES,
@@ -86,7 +87,7 @@ pub(super) async fn delete_activity(
     auth: AuthenticatedUser,
     Path((provider, activity_id)): Path<(String, String)>,
 ) -> AppResult<StatusCode> {
-    let tenant_id = active_tenant(&auth)?;
+    let tenant_id = require_tenant(&resources, &auth).await?;
     if provider == STRAVA_ARCHIVE {
         let scope = ops::scope_of(tenant_id, auth.user_id);
         let source = ops::offered_source(&provider)?;
@@ -117,7 +118,7 @@ async fn upload_activity(
     auth: AuthenticatedUser,
     body: Bytes,
 ) -> AppResult<(StatusCode, Json<ActivityUploadResponse>)> {
-    let tenant_id = active_tenant(&auth)?;
+    let tenant_id = require_tenant(&resources, &auth).await?;
     let runtime = into_runtime(&resources);
     let outcome = upload_activity_file(&runtime, tenant_id, auth.user_id, body).await?;
     let activities = outcome

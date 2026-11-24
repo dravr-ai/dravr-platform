@@ -117,14 +117,14 @@ jest.mock('../src/screens/chat/useMessages', () => ({
   }),
 }));
 
-jest.mock('../src/screens/chat/useConversations', () => ({
-  useConversations: () => ({
+jest.mock('../src/screens/chat/useOpenConversation', () => ({
+  useOpenConversation: () => ({
     conversations: [{ id: 'conv-1', title: 'Garmin' }],
+    openId: 'conv-1',
     currentConversation: { id: 'conv-1', title: 'Garmin' },
     isLoading: false,
-    error: null,
-    loadConversations: jest.fn(),
-    setCurrentConversation: jest.fn(),
+    refresh: jest.fn(),
+    openConversation: jest.fn(),
     createConversation: jest.fn(),
     switchToConversation: jest.fn(),
     deleteConversation: jest.fn(),
@@ -233,8 +233,10 @@ describe('ChatScreen provider reconnect', () => {
         },
       ],
     });
-    const { getByText, findByText, getByTestId } = renderChatScreen();
-    await waitFor(() => expect(mockGetProvidersStatus).toHaveBeenCalled());
+    const { getByText, findByText, findByTestId, getByTestId } = renderChatScreen();
+    // The cards have been read once the header, which reads the same status, says so:
+    // a reconnect before then has no card to owe a notice.
+    expect(await findByTestId('chat-header-provider-status')).toHaveTextContent('Reconnect needed');
 
     fireEvent.press(getByText('Reconnect WHOOP'));
 

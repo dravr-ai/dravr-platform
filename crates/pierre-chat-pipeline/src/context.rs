@@ -22,7 +22,6 @@ use pierre_llm::health::LlmHealthState;
 use pierre_llm::{ChatProvider, LlmProvider};
 use pierre_runtime_context::{AdminConfigLookup, CommandCtx, DataContext};
 use pierre_services::tenant_chat_provider::TenantChatProviderCache;
-use pierre_sse::SseManager;
 use pierre_tool_runtime::registry::ToolRegistry;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use tokio_util::task::TaskTracker;
@@ -101,8 +100,6 @@ pub struct ChatPipelineContext {
     pub harness_config_registry: Arc<HarnessConfigRegistry>,
     /// Hot-reloadable per-persona output-format conformance contracts.
     pub persona_contract_registry: Arc<PersonaContractRegistry>,
-    /// SSE manager — publishes refresh-status events to web/mobile clients.
-    pub sse_manager: Arc<SseManager>,
     /// Optional health-data sync orchestrator (enforme).
     #[cfg(feature = "health-sync")]
     pub sync_orchestrator: Option<Arc<dravr_enforme::SyncOrchestrator>>,
@@ -170,7 +167,6 @@ impl fmt::Debug for ChatPipelineContext {
         debug.field("cageux_config_registry", &self.cageux_config_registry);
         debug.field("harness_config_registry", &self.harness_config_registry);
         debug.field("persona_contract_registry", &self.persona_contract_registry);
-        debug.field("sse_manager", &self.sse_manager);
         #[cfg(feature = "health-sync")]
         debug.field("sync_orchestrator", &self.sync_orchestrator);
         #[cfg(feature = "tools-groups")]

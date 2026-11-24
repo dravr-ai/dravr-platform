@@ -34,6 +34,7 @@ use pierre_core::models::{
 };
 use pierre_database::RepositoryRegistry;
 use pierre_providers::{CredentialKind, OAuth2Credentials};
+use pierre_runtime_context::require_tenant_in;
 use pierre_services::coach_access::email_admins;
 use pierre_services::coach_access_evidence::probe_intervals_icu_roster;
 use pierre_services::delegated_connections::{forget_coach_roster, supersede_delegated_link};
@@ -129,10 +130,9 @@ async fn authenticate(
             .refuse_impersonation(resources.repos.admin_audit.as_ref(), action)
             .await?;
     }
-    let tenant_id = auth_result
-        .active_tenant_id
-        .ok_or_else(|| AppError::invalid_input("No active tenant"))?;
-    Ok((auth_result.user_id, tenant_id))
+    let tenants = resources.repos.tenants.as_ref();
+    let tenant = require_tenant_in(tenants, &auth_result).await?;
+    Ok((auth_result.user_id, tenant.as_uuid()))
 }
 
 /// `POST /api/providers/intervals_icu/link-credentials`

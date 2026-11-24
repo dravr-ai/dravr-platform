@@ -32,27 +32,7 @@ use pierre_auth::oauth2_server::client_registration::client_display_host;
 use pierre_core::errors::AppError;
 use pierre_core::models::OAuthClientGrant;
 use pierre_middleware::extract_auth_from_headers;
-
-/// Resolve the tenant a grant is keyed under: the caller's active tenant when the
-/// session carries one, otherwise their first tenant (mirroring how the consent
-/// flow keys the grant when the OAuth session has no explicit active tenant).
-async fn resolve_tenant_id(
-    resources: &Arc<ServerContext>,
-    user_id: uuid::Uuid,
-    active_tenant_id: Option<uuid::Uuid>,
-) -> Result<String, AppError> {
-    if let Some(tenant_id) = active_tenant_id {
-        return Ok(tenant_id.to_string());
-    }
-    resources
-        .common
-        .repos
-        .tenants
-        .first_for_user(user_id)
-        .await?
-        .map(|tenant_id| tenant_id.to_string())
-        .ok_or_else(|| AppError::auth_invalid("User has no tenant"))
-}
+use pierre_runtime_context::require_tenant;
 
 /// One connected MCP OAuth client in the caller's "connected apps" list.
 #[derive(Serialize)]
@@ -115,7 +95,10 @@ async fn handle_list_grants(
     headers: HeaderMap,
 ) -> Result<Response, AppError> {
     let auth = extract_auth_from_headers(&headers, &resources).await?;
-    let tenant_id = resolve_tenant_id(&resources, auth.user_id, auth.active_tenant_id).await?;
+    // The tenant a grant is keyed under: the one the session names when the
+    // account still belongs to it, otherwise the account's first, which is how
+    // the consent flow keys a grant whose session names none.
+    let tenant_id = require_tenant(&resources, &auth).await?.to_string();
     let grants = resources
         .common
         .repos
@@ -155,7 +138,10 @@ async fn handle_revoke_grant(
     Path(id): Path<String>,
 ) -> Result<Response, AppError> {
     let auth = extract_auth_from_headers(&headers, &resources).await?;
-    let tenant_id = resolve_tenant_id(&resources, auth.user_id, auth.active_tenant_id).await?;
+    // The tenant a grant is keyed under: the one the session names when the
+    // account still belongs to it, otherwise the account's first, which is how
+    // the consent flow keys a grant whose session names none.
+    let tenant_id = require_tenant(&resources, &auth).await?.to_string();
     let user_id = auth.user_id.to_string();
     let repository = &resources.common.repos.oauth2_server;
     // Named before the revocation: the resource servers hold the client's

@@ -19,8 +19,8 @@
 //! already takes over the persisted guardian document. A tenant or per-user
 //! override is narrower than the fleet and still wins.
 //!
-//! The ladder is asserted twice, against a quota parameter and against a
-//! monitoring one, because the rule is a property of the config layer and not
+//! The ladder is asserted twice, against a quota parameter and against an
+//! algorithm selection, because the rule is a property of the config layer and not
 //! of `usage_quotas`: every `EnvSource::ConfigLayer` variable behaves the same
 //! way. A rule that only held for the keys it was written against would be a
 //! coincidence, not a design.
@@ -49,6 +49,7 @@ use pierre_mcp_server::config::admin::{
 };
 use pierre_runtime_context::ConfigLookupScope;
 use pierre_test_support::db::create_test_db;
+use serde_json::{json, Value};
 use uuid::Uuid;
 
 const CATEGORY: &str = "usage_quotas";
@@ -57,9 +58,9 @@ const ENV_VAR: &str = "QUOTA_DAILY_MESSAGE_CAP";
 
 /// Second parameter, deliberately outside `usage_quotas`: the precedence rule
 /// belongs to the config layer, so it must hold here identically.
-const OTHER_CATEGORY: &str = "monitoring";
-const OTHER_KEY: &str = "monitoring.latency_warn_ms";
-const OTHER_ENV_VAR: &str = "MONITORING_LATENCY_WARN_MS";
+const OTHER_CATEGORY: &str = "algorithms";
+const OTHER_KEY: &str = "algorithm.maxhr";
+const OTHER_ENV_VAR: &str = "PIERRE_MAXHR_ALGORITHM";
 
 /// Value pinned through the environment for this test.
 const PINNED: i64 = 300;
@@ -68,11 +69,11 @@ const GLOBAL: i64 = 75;
 /// Value written to the per-user row, which must outrank the pin.
 const PER_USER: i64 = 900;
 
-/// The same three values for the monitoring parameter, inside its own
-/// catalogued range (100..=5000).
-const OTHER_PINNED: i64 = 1200;
-const OTHER_GLOBAL: i64 = 250;
-const OTHER_PER_USER: i64 = 4000;
+/// The same three values for the algorithm parameter, each one of its
+/// catalogued options and none of them its default.
+const OTHER_PINNED: &str = "fox";
+const OTHER_GLOBAL: &str = "nes";
+const OTHER_PER_USER: &str = "gulati";
 
 /// Build the service and repository against whichever backend
 /// [`create_test_db`] opened.
@@ -90,21 +91,20 @@ async fn backend(db: &Database) -> (AdminConfigService, Box<dyn AdminConfigRepos
     (service, repo)
 }
 
-/// Write one integer override at `scope`.
+/// Write one override of `case`'s parameter at `scope`.
 async fn write(
     repo: &dyn AdminConfigRepository,
     admin_id: &str,
-    category: &str,
-    key: &str,
+    case: &Case<'_>,
     scope: ConfigScope<'_>,
-    value: i64,
+    value: &Value,
 ) {
-    let json = serde_json::json!(value);
+    let key = case.key;
     repo.set_override(SetOverrideParams {
-        category,
+        category: case.category,
         key,
-        value: &json,
-        data_type: ConfigDataType::Integer,
+        value,
+        data_type: case.data_type,
         admin_user_id: admin_id,
         scope,
         reason: Some("env pin precedence test"),
@@ -113,13 +113,12 @@ async fn write(
     .unwrap_or_else(|e| panic!("write {key} at {} scope: {e}", scope.label()));
 }
 
-async fn resolved(service: &AdminConfigService, key: &str, scope: ConfigLookupScope<'_>) -> i64 {
+async fn resolved(service: &AdminConfigService, key: &str, scope: ConfigLookupScope<'_>) -> Value {
     service
         .get_override_value(key, scope)
         .await
         .unwrap()
-        .and_then(|v| v.as_i64())
-        .unwrap_or_else(|| panic!("{key} must resolve to an integer"))
+        .unwrap_or_else(|| panic!("{key} must resolve to a value"))
 }
 
 /// One parameter's three values, so the ladder assertion takes a case rather
@@ -127,16 +126,17 @@ async fn resolved(service: &AdminConfigService, key: &str, scope: ConfigLookupSc
 struct Case<'a> {
     category: &'a str,
     key: &'a str,
+    data_type: ConfigDataType,
     /// What the environment pins it to.
-    pinned: i64,
+    pinned: Value,
     /// What the system-wide row holds — outranked by the pin.
-    global: i64,
+    global: Value,
     /// What the per-user row holds — outranks the pin.
-    per_user: i64,
+    per_user: Value,
 }
 
-/// The whole ladder for one parameter. Run against a `usage_quotas` key and a
-/// `monitoring` key so the rule is shown to belong to the config layer.
+/// The whole ladder for one parameter. Run against a `usage_quotas` key and
+/// an `algorithms` key so the rule is shown to belong to the config layer.
 async fn assert_ladder(
     service: &AdminConfigService,
     repo: &dyn AdminConfigRepository,
@@ -144,25 +144,19 @@ async fn assert_ladder(
     member_id: &str,
     case: &Case<'_>,
 ) {
-    let Case {
-        category,
-        key,
-        pinned,
-        global,
-        per_user,
-    } = *case;
+    let key = case.key;
     // 1. Pin alone, no stored row anywhere.
     assert_eq!(
         resolved(service, key, ConfigLookupScope::global()).await,
-        pinned,
+        case.pinned,
         "{key}: with no stored row the environment pin must supply the value"
     );
 
     // 2. A system-wide row exists — the pin still wins.
-    write(repo, admin_id, category, key, ConfigScope::Global, global).await;
+    write(repo, admin_id, case, ConfigScope::Global, &case.global).await;
     assert_eq!(
         resolved(service, key, ConfigLookupScope::global()).await,
-        pinned,
+        case.pinned,
         "{key}: a fleet-wide pin must outrank a runtime admin edit at the same scope"
     );
 
@@ -170,10 +164,9 @@ async fn assert_ladder(
     write(
         repo,
         admin_id,
-        category,
-        key,
+        case,
         ConfigScope::User(member_id),
-        per_user,
+        &case.per_user,
     )
     .await;
     assert_eq!(
@@ -183,7 +176,7 @@ async fn assert_ladder(
             ConfigLookupScope::user(member_id, "tenant-unused")
         )
         .await,
-        per_user,
+        case.per_user,
         "{key}: a per-user exemption must beat the environment pin"
     );
 
@@ -196,7 +189,7 @@ async fn assert_ladder(
             ConfigLookupScope::user(&other, "tenant-unused")
         )
         .await,
-        pinned,
+        case.pinned,
         "{key}: one user's exemption must not raise everyone else's value"
     );
 }
@@ -204,7 +197,7 @@ async fn assert_ladder(
 #[tokio::test]
 async fn env_pin_outranks_the_global_row_but_yields_to_a_user_override() {
     env::set_var(ENV_VAR, PINNED.to_string());
-    env::set_var(OTHER_ENV_VAR, OTHER_PINNED.to_string());
+    env::set_var(OTHER_ENV_VAR, OTHER_PINNED);
 
     let db = create_test_db().await.unwrap();
 
@@ -229,23 +222,25 @@ async fn env_pin_outranks_the_global_row_but_yields_to_a_user_override() {
     // precedence walk is exercised against PostgreSQL under ci-postgres too.
     let (service, repo) = backend(&db).await;
 
-    // The same ladder, twice: a quota parameter and a monitoring one. If the
+    // The same ladder, twice: a quota parameter and an algorithm one. If the
     // second diverged, the precedence rule would be a property of the keys it
     // was written against rather than of the config layer.
     for case in [
         Case {
             category: CATEGORY,
             key: KEY,
-            pinned: PINNED,
-            global: GLOBAL,
-            per_user: PER_USER,
+            data_type: ConfigDataType::Integer,
+            pinned: json!(PINNED),
+            global: json!(GLOBAL),
+            per_user: json!(PER_USER),
         },
         Case {
             category: OTHER_CATEGORY,
             key: OTHER_KEY,
-            pinned: OTHER_PINNED,
-            global: OTHER_GLOBAL,
-            per_user: OTHER_PER_USER,
+            data_type: ConfigDataType::Enum,
+            pinned: json!(OTHER_PINNED),
+            global: json!(OTHER_GLOBAL),
+            per_user: json!(OTHER_PER_USER),
         },
     ] {
         assert_ladder(&service, repo.as_ref(), &admin_id, &member_id, &case).await;
@@ -253,8 +248,8 @@ async fn env_pin_outranks_the_global_row_but_yields_to_a_user_override() {
 
     // A global write of a pinned key is saved but outranked, and says so.
     let mut parameters = HashMap::new();
-    parameters.insert(KEY.to_owned(), serde_json::json!(90));
-    parameters.insert(OTHER_KEY.to_owned(), serde_json::json!(400));
+    parameters.insert(KEY.to_owned(), json!(90));
+    parameters.insert(OTHER_KEY.to_owned(), json!("tanaka"));
     let response = service
         .update_config(
             &UpdateConfigRequest {
@@ -284,7 +279,7 @@ async fn env_pin_outranks_the_global_row_but_yields_to_a_user_override() {
 
     // The same write scoped to a user is NOT shadowed — it beats the pin.
     let mut parameters = HashMap::new();
-    parameters.insert(KEY.to_owned(), serde_json::json!(120));
+    parameters.insert(KEY.to_owned(), json!(120));
     let response = service
         .update_config(
             &UpdateConfigRequest {
@@ -312,7 +307,7 @@ async fn env_pin_outranks_the_global_row_but_yields_to_a_user_override() {
             ConfigLookupScope::user(&member_id, "tenant-unused")
         )
         .await,
-        120,
+        json!(120),
         "the per-user write must be the value that applies"
     );
 

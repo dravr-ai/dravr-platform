@@ -230,20 +230,6 @@ mod coach_plan_write_transport_tests {
             .await
         }
 
-        /// The family editor's Save on `thread`: a day of the draft built
-        /// from a workout family (carnet#1515).
-        async fn draft_day_route(&self, thread: &str, authorization: &str) -> (StatusCode, Value) {
-            let date = Timestamp::now().utc_date() + Elapsed::days(1);
-            self.rest(
-                AxumTestRequest::put(&format!(
-                    "/api/chat/conversations/{thread}/subject-plan/draft/days/{date}"
-                ))
-                .json(&json!({ "family": "vo2max_short", "sport": "ride" })),
-                authorization,
-            )
-            .await
-        }
-
         /// The coach drafts the athlete's plan from the app.
         async fn draft_from_the_app(&self) {
             let drafted = self
@@ -657,7 +643,6 @@ mod coach_plan_write_transport_tests {
         for (route, (status, body)) in [
             ("publish", w.publish_route(&thread, &key).await),
             ("discard", w.discard_route(&thread, &key).await),
-            ("draft day", w.draft_day_route(&thread, &key).await),
             (
                 "session build",
                 w.session_route(

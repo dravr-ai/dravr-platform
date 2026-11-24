@@ -587,7 +587,7 @@ export const GRADIENT_COLORS = {
   },
 } as const;
 
-// ========== AMBIENT SHADOW / AI GLOW ==========
+// ========== AMBIENT SHADOW ==========
 
 /**
  * Product Tier elevation — replaces the marketing-tier 24px-blur ambient with a
@@ -617,26 +617,6 @@ export const AMBIENT_SHADOW = {
     shadowRadius: 24,
     shadowOffset: { width: 0, height: 12 },
   },
-  /** Legacy name retained for drop-in compatibility. */
-  ambient: {
-    shadowColor: BOREAL_LIGHT.onSurface,
-    shadowOpacity: 0.10,
-    shadowRadius: 3,
-    shadowOffset: { width: 0, height: 1 },
-  },
-} as const;
-
-/**
- * Legacy export name retained for drop-in compatibility. All entries now point
- * at the ambient-shadow spec (no violet glow). Consumers should migrate to
- * AMBIENT_SHADOW over time.
- */
-export const AI_GLOW = {
-  ambient: AMBIENT_SHADOW.ambient,
-  strong: AMBIENT_SHADOW.hover,
-  avatar: AMBIENT_SHADOW.ambient,
-  thinking: AMBIENT_SHADOW.ambient,
-  response: AMBIENT_SHADOW.ambient,
 } as const;
 
 /** Button elevation — flat by default, ambient shadow only on floating CTAs. */
@@ -717,7 +697,6 @@ export const DESIGN_SYSTEM = {
   gradients: GRADIENT_COLORS,
   effects: {
     ambientShadow: AMBIENT_SHADOW,
-    aiGlow: AI_GLOW,
     buttonGlow: BUTTON_GLOW,
   },
   typography: TYPOGRAPHY,

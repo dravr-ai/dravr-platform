@@ -52,14 +52,14 @@ jest.mock('../src/services/analytics', () => ({ trackMobile: jest.fn() }));
 // An athlete with no thread open — the state the "+" and a cold start land in,
 // and the only one where the screen has to name a conversation itself.
 const mockCreateConversation = jest.fn();
-jest.mock('../src/screens/chat/useConversations', () => ({
-  useConversations: () => ({
+jest.mock('../src/screens/chat/useOpenConversation', () => ({
+  useOpenConversation: () => ({
     conversations: [],
+    openId: null,
     currentConversation: null,
     isLoading: false,
-    error: null,
-    loadConversations: jest.fn(),
-    setCurrentConversation: jest.fn(),
+    refresh: jest.fn(),
+    openConversation: jest.fn(),
     createConversation: (...args: unknown[]) => mockCreateConversation(...args),
     switchToConversation: jest.fn(),
     deleteConversation: jest.fn(),
@@ -178,7 +178,7 @@ describe('ChatScreen keyboard column', () => {
 describe('ChatScreen new-thread title', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    mockCreateConversation.mockResolvedValue({ id: 'conv-1', title: 'Chat', agent_id: null });
+    mockCreateConversation.mockResolvedValue('conv-1');
     mockSendTurn.mockResolvedValue(null);
   });
 

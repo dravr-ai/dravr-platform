@@ -59,11 +59,8 @@ export interface CreateMcpTokenRequest {
   expires_in_days?: number;
 }
 
-// Use OAuthApp from shared-types, re-export as UserOAuthApp for backward compat
-export type UserOAuthApp = OAuthApp;
-
 export interface UserOAuthAppsResponse {
-  apps: UserOAuthApp[];
+  apps: OAuthApp[];
 }
 
 export interface SaveLlmCredentialsRequest {

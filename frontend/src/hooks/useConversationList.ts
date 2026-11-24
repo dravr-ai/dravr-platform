@@ -27,7 +27,7 @@ import { useTranslation } from '@pierre/i18n';
 import type { ConversationsResponse } from '@pierre/api-client';
 import type { Conversation } from '@pierre/shared-types';
 import { chatApi } from '../services/api';
-import { QUERY_KEYS } from '../constants/queryKeys';
+import { QUERY_KEYS } from '@pierre/shared-constants';
 
 /** Rows per page — the server clamps the list to `1..=200`, and 50 fills a sidebar many times over. */
 export const CONVERSATION_PAGE_SIZE = 50;

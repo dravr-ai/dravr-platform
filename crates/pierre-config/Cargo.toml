@@ -19,7 +19,6 @@ dravr-tronc = { workspace = true, features = ["http-client", "schemars1"] }
 pierre-llm = { version = "0.3.0", path = "../pierre-llm" }
 pierre-middleware = { version = "0.3.0", path = "../pierre-middleware" }
 
-reqwest = { version = "0.12", features = ["json", "rustls-tls", "stream"], default-features = false }
 # Derives the JSON Schema get_configuration_catalog declares.
 schemars = "1.2"
 secrecy = { workspace = true }

@@ -25,7 +25,14 @@ import {
 } from '../utils/oauthReturn';
 import type { ProviderStatus } from '../services/api';
 import { actsAsAdmin } from '@pierre/shared-types';
-import type { LimitCheckResult, OAuthGrant, SciotteTarget, ThemePreference } from '@pierre/shared-types';
+import type {
+  LimitCheckResult,
+  McpToken,
+  OAuthApp,
+  OAuthGrant,
+  SciotteTarget,
+  ThemePreference,
+} from '@pierre/shared-types';
 import {
   ACCOUNT_ROLE_LABEL_KEY,
   ACTIVE_TOKEN_COUNT_KEYS,
@@ -37,6 +44,7 @@ import {
   LEGAL_URL,
   providerGlyphInk,
   settingsPaneSections,
+  QUERY_KEYS,
 } from '@pierre/shared-constants';
 import { Button, Badge, ConfirmDialog, Input, Modal, ModalActions, Select, useErrorToast, Section, EmptyState, Alert, ALERT_TONE } from './ui';
 import { clsx } from 'clsx';
@@ -53,15 +61,15 @@ import MessagingSettingsTab from './MessagingSettingsTab';
 import NotificationSettingsTab from './NotificationSettingsTab';
 import PrivacySettingsTab from './PrivacySettingsTab';
 import MemoryPanel from './memory/MemoryPanel';
-import { QUERY_KEYS } from '../constants/queryKeys';
 import {
+  PROVIDER_BRAND,
   cardForSlug,
   cardStatus,
   connectConsentsFor,
   connectPlan,
   oauthFallbackTarget,
-  intervalsConnectPath,
   noticeRequired,
+  providerName,
   signInStartsWithExtension,
 } from '@pierre/shared-constants';
 import { formatCompactNumber, formatCount, formatDate, formatResetTime } from '@pierre/chat-utils';
@@ -78,36 +86,16 @@ import PreferredCalendarSettings from './settings/PreferredCalendarSettings';
 import IntervalsIcuLinkModal from './IntervalsIcuLinkModal';
 import OAuthAppSetupModal from './OAuthAppSetupModal';
 import { ownAppDevPortal } from '@pierre/domain-utils';
-import { describeApiError } from '@pierre/ui-logic';
+import { describeApiError, followConnectPlan, MIN_PASSWORD_LENGTH, isPasswordLongEnough } from '@pierre/ui-logic';
 
 // Garmin's offered consents, asked before its connect: loaded on the first
 // connect that offers them, so the dialog stays out of the entry bundle.
 const ConnectConsentDialog = lazy(() => import('./ConnectConsentDialog'));
 
-interface OAuthApp {
-  provider: string;
-  client_id: string;
-  redirect_uri: string;
-  created_at: string;
-}
-
-interface McpToken {
-  id: string;
-  name: string;
-  token_prefix: string;
-  expires_at: string | null;
-  last_used_at: string | null;
-  usage_count: number;
-  is_revoked: boolean;
-  created_at: string;
-}
-
 // BYO-OAuth-app credentials are only collected for WHOOP. Strava and Garmin
 // use the Sciotte hosted-login flow (credentials handled in SciotteLoginModal)
 // and have no developer-app registration step the user controls.
-const PROVIDERS = [{ id: 'whoop', name: 'WHOOP' }];
-
-const MIN_PASSWORD_LENGTH = 8;
+const PROVIDERS = [{ id: 'whoop', name: PROVIDER_BRAND.whoop }];
 
 /**
  * The name of the preset a connected app's grant was approved for, or `null` for a plain grant
@@ -264,12 +252,12 @@ export default function UserSettings({
 
   // Fetch fitness provider connection status
   const { data: providersResponse, isLoading: isLoadingProviders, refetch: refetchProviders } = useQuery({
-    queryKey: QUERY_KEYS.user.providerConnections(),
+    queryKey: QUERY_KEYS.providers.status(),
     queryFn: () => oauthApi.getProvidersStatus(),
     enabled: isAuthenticated,
     // Always refetch when the Data Providers tab is opened — a provider connected
-    // elsewhere (onboarding/chat OAuth, which uses a different query key) would
-    // otherwise show stale t('app.connect') here until a manual reconnect.
+    // in another tab or by the OAuth popup would otherwise show a stale
+    // t('app.connect') here until a manual reconnect.
     refetchOnMount: 'always',
   });
 
@@ -337,7 +325,7 @@ export default function UserSettings({
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.user.oauthApps() });
       // The provider card's `own_app_required` follows the app just saved.
-      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.user.providerConnections() });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.providers.status() });
       setCredentialMessage({ type: 'success', text: data.message });
       setShowAddCredentials(false);
       setSelectedProvider('');
@@ -355,7 +343,7 @@ export default function UserSettings({
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.user.oauthApps() });
       // Without the app, the provider card may ask for one again.
-      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.user.providerConnections() });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.providers.status() });
       setCredentialMessage({ type: 'success', text: t('settingsErr.credentialsRemoved') });
       setProviderToDelete(null);
     },
@@ -457,7 +445,7 @@ export default function UserSettings({
       setPasswordMessage({ type: 'error', text: t('settingsUi.allFieldsRequired') });
       return;
     }
-    if (newPassword.length < MIN_PASSWORD_LENGTH) {
+    if (!isPasswordLongEnough(newPassword)) {
       setPasswordMessage({ type: 'error', text: t('frag.passwordMinError', { n: MIN_PASSWORD_LENGTH }) });
       return;
     }
@@ -488,20 +476,6 @@ export default function UserSettings({
     handleConnectProvider(provider.provider, false, consents);
   };
 
-  // Intervals.icu connects, or reconnects, the way its card says: an
-  // authorized card goes straight back to the authorization, a key-linked
-  // card (a coach's: only the key reads the athletes they coach) reopens the
-  // key form, and a new link offers the authorization first with the key
-  // form beside it.
-  const startIntervalsConnect = (provider: ProviderStatus) => {
-    const path = intervalsConnectPath(provider);
-    if (path === 'authorize') {
-      handleConnectProvider(provider.provider);
-      return;
-    }
-    setIntervalsModal({ offersAuthorize: path === 'choose' });
-  };
-
   // A card's Connect follows what it shows (`cardStatus`) and how it connects
   // (`connectPlan`): a card owing its authorization shows its notice first;
   // Intervals.icu opens its dialog; an authorization goes to the provider the
@@ -525,27 +499,25 @@ export default function UserSettings({
   // The card's connect by its plan's primary way in, carrying the offered
   // consents the athlete ticked.
   const startCardConnect = (provider: ProviderStatus, consents: readonly string[]) => {
-    const primary = connectPlan(provider).primary;
-    switch (primary.kind) {
-      case 'intervals':
-        startIntervalsConnect(provider);
-        return;
-      case 'oauth':
-        if (primary.provider === provider.provider) startOAuthConnect(provider, consents);
-        else handleConnectProvider(primary.provider, false, consents);
-        return;
-      case 'sign_in':
+    followConnectPlan(provider, {
+      // Intervals.icu's dialog: a key-linked card (a coach's: only the key
+      // reads the athletes they coach) reopens the key form, and a new link
+      // offers the authorization first with the key form beside it. A card
+      // the athlete authorized goes straight back through `authorize`.
+      intervalsDialog: (offersAuthorize) => setIntervalsModal({ offersAuthorize }),
+      authorize: (name) => {
+        if (name === provider.provider) startOAuthConnect(provider, consents);
+        else handleConnectProvider(name, false, consents);
+      },
+      signIn: (target) =>
         setSignIn({
-          target: primary.target,
+          target,
           consentRequired: provider.consent_required,
           historyMode: false,
           fallback: oauthFallbackTarget(provider),
           consents,
-        });
-        return;
-      case 'none':
-        return;
-    }
+        }),
+    });
   };
 
   // A sign-in that could not complete hands over to its provider's OAuth
@@ -593,14 +565,14 @@ export default function UserSettings({
       // server withholds the raw card of a backend with a scrape mirror (native
       // `garmin`), so that backend is matched to the card it serves through the
       // card's `connected_backend`. Native `strava` reads as the Strava card's
-      // label, and a backend no card serves by its capitalised id.
+      // label, and a backend no card serves by the brand table's name for its id.
       const card = providers.find(
         (p) => p.provider === result.provider || p.connected_backend === result.provider,
       );
       const name =
         result.provider === 'strava'
           ? t('shell.sciotteTargetStrava')
-          : (card?.display_name ?? result.provider.charAt(0).toUpperCase() + result.provider.slice(1));
+          : (card?.display_name ?? providerName(result.provider));
       localStorage.removeItem(OAUTH_RESULT_KEY);
       if (result.success) {
         setProviderMessage({ type: 'success', text: t('app.providerConnected', { provider: name }) });

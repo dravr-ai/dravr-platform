@@ -41,7 +41,13 @@ import { useOnboardingStatus } from '../../hooks/useOnboardingStatus';
 import { COACH_SEAT_DONE_PREFIX, useOnboardingFlag } from '../../hooks/useOnboardingFlag';
 import { CoachSeatPanel } from '../../components/CoachSeatPanel';
 import { useSignInModal } from '../../hooks/useSignInModal';
-import { importRouteFor, refusedConnectLine, type RefusedConnect } from '../../utils/connectFlow';
+import { useProviderCards } from '../../hooks/useProviderCards';
+import {
+  importRouteFor,
+  refusedConnectLine,
+  showConnectRefusal,
+  type RefusedConnect,
+} from '../../utils/connectFlow';
 import { useTranslation } from '@pierre/i18n';
 import type { SciotteTarget } from '@pierre/shared-types';
 import {
@@ -58,12 +64,14 @@ import {
   refusalReloadsCards,
   refusalReturnsToCard,
   sciotteTargetForBackend,
+  QUERY_KEYS,
 } from '@pierre/shared-constants';
 import { useFocusEffect, useRouter } from 'expo-router';
 import {
   cardAwaitingHistory,
   cardExportSource,
   describeApiError,
+  followConnectPlan,
   importTombstoneFromReturn,
   refusalReason,
 } from '@pierre/ui-logic';
@@ -113,8 +121,15 @@ export function OnboardingConnectScreen({ mode = 'connect' }: { mode?: 'connect'
   }, [markSeatDone]);
   const router = useRouter();
   const { data: onboardingStatus } = useOnboardingStatus(isAuthenticated);
-  const [providers, setProviders] = useState<ExtendedProviderStatus[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  // The rows, on the provider-status key every other reader of them shares,
+  // read again each time the step opens. `loadStatus` reads them again and
+  // resolves to the rows read (none when the read failed), so a connect that
+  // just came back can judge the row it landed on.
+  const {
+    providers,
+    isPending: isLoading,
+    reload: loadStatus,
+  } = useProviderCards({ enabled: isAuthenticated, refetchOnMount: 'always' });
   const [connectingProvider, setConnectingProvider] = useState<string | null>(null);
   const [connectError, setConnectError] = useState<string | null>(null);
   const [moreOpen, setMoreOpen] = useState(false);
@@ -155,43 +170,11 @@ export function OnboardingConnectScreen({ mode = 'connect' }: { mode?: 'connect'
   // button so the user is never stranded if they background the app mid-flow.
   const [awaitingOAuthFor, setAwaitingOAuthFor] = useState<string | null>(null);
 
-  // Returns the providers it read (none when the read failed), so a connect
-  // that just came back can judge the row it landed on.
-  const loadStatus = useCallback(async (): Promise<ExtendedProviderStatus[]> => {
-    try {
-      setIsLoading(true);
-      const response = await oauthApi.getProvidersStatus();
-      const served = response.providers || [];
-      setProviders(served);
-      return served;
-    } catch (err) {
-      console.error('Failed to load provider list on onboarding:', err);
-      return [];
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (isAuthenticated) {
-      loadStatus();
-    }
-  }, [isAuthenticated, loadStatus]);
-
-  // The seat panel's re-read while a connection settles the seat: the cards
-  // again, for the account role, without the list's loading state.
-  const reloadProviders = useCallback(() => {
-    oauthApi
-      .getProvidersStatus()
-      .then((response) => setProviders(response.providers || []))
-      .catch(() => {});
-  }, []);
-
   // Back from the import of an export, the step may be done without a
   // connection (an import started): the onboarding status is read again.
   useFocusEffect(
     useCallback(() => {
-      void queryClient.invalidateQueries({ queryKey: ['user-onboarding-status'] });
+      void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.user.onboardingStatus() });
     }, [queryClient]),
   );
 
@@ -199,32 +182,19 @@ export function OnboardingConnectScreen({ mode = 'connect' }: { mode?: 'connect'
   // a second service is one tap away; Continue moves on. The onboarding-status
   // refetch is what lets RootLayoutNav see the first connection.
   const finalizeConnection = useCallback(async () => {
-    await queryClient.invalidateQueries({ queryKey: ['user-onboarding-status'] });
+    await queryClient.invalidateQueries({ queryKey: QUERY_KEYS.user.onboardingStatus() });
     return loadStatus();
   }, [queryClient, loadStatus]);
 
-  /**
-   * Tell the row `cardKey` its connect did not go through. When the
-   * refusal says the row's plan changed under the athlete (the seat it was
-   * shown went), the rows are read again first, and a row that now signs in
-   * opens its sign-in at once.
-   */
+  /** Tell the row `cardKey` its connect did not go through (`showConnectRefusal`). */
   const showRefusal = useCallback(
-    async (
-      cardKey: string,
-      { reload, consents }: { reload: boolean; consents?: readonly string[] },
-    ) => {
-      if (reload) {
-        const served = await loadStatus();
-        const card = served.find((p) => p.provider === cardKey);
-        const primary = card ? connectPlan(card).primary : null;
-        if (card && primary?.kind === 'sign_in') {
-          openSignIn(primary.target, card, false, false, consents);
-          return;
-        }
-      }
-      setRefusedCard({ card: cardKey });
-    },
+    (cardKey: string, options: { reload: boolean; consents?: readonly string[] }) =>
+      showConnectRefusal(cardKey, options, {
+        reloadCards: loadStatus,
+        // The sign-in a changed plan opens carries the consents ticked for the refused connect.
+        openSignIn: (target, card, consents) => openSignIn(target, card, false, false, consents),
+        setRefusedCard,
+      }),
     [loadStatus, openSignIn],
   );
   // Continue opens once a row is connected, or once the server counts the
@@ -383,30 +353,23 @@ export function OnboardingConnectScreen({ mode = 'connect' }: { mode?: 'connect'
     // The card's `connectPlan` decides: the Strava and Garmin cards (named for
     // their sign-in backends) go through the provider's authorization while
     // the server recommends it and sign in otherwise; COROS and TrainingPeaks
-    // sign in, after their notice when they have one.
-    const primary = connectPlan(provider).primary;
-    switch (primary.kind) {
-      case 'sign_in':
-        openSignIn(primary.target, provider, false, true, consents);
-        return;
-      case 'intervals':
-        // Intervals.icu leads with the athlete's authorization while the
-        // server offers it, and keeps the coach's API-key form beside it; with
-        // no client to authorize under, the key form is the only way in.
-        setIntervalsSheet({ displayName: provider.display_name, offersAuthorize: primary.path === 'choose' });
-        return;
-      case 'oauth': {
+    // sign in, after their notice when they have one. Intervals.icu goes the
+    // way its card says: an authorized card back to the authorization, a
+    // key-linked card to the key form, and a new link to the sheet that leads
+    // with the authorization and keeps the coach's API-key form beside it.
+    followConnectPlan(provider, {
+      signIn: (target) => openSignIn(target, provider, false, true, consents),
+      intervalsDialog: (offersAuthorize) =>
+        setIntervalsSheet({ displayName: provider.display_name, offersAuthorize }),
+      authorize: (name) => {
         const devPortalUrl = ownAppDevPortal(provider.provider);
         if (provider.own_app_required && devPortalUrl) {
           setOwnAppSetup({ provider, devPortalUrl, tosConsent, consents });
           return;
         }
-        void launchOAuth(primary.provider, provider.display_name, tosConsent, false, consents);
-        return;
-      }
-      case 'none':
-        return;
-    }
+        void launchOAuth(name, provider.display_name, tosConsent, false, consents);
+      },
+    });
   };
 
   // The server withholds the raw `strava` / `garmin` rows a mirror card
@@ -610,7 +573,6 @@ export function OnboardingConnectScreen({ mode = 'connect' }: { mode?: 'connect'
         {seat ? (
           <CoachSeatPanel
             providers={providers}
-            onReloadProviders={reloadProviders}
             onDone={() => void markSeatDone()}
           />
         ) : null}

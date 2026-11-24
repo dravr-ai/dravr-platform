@@ -7,7 +7,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-//! Two admin-facing "the answer must be true, not merely well-formed" contracts.
+//! Three "the answer must be true, not merely well-formed" contracts.
 //!
 //! 1. Auto-approval precedence is env var > database. An admin who saves the
 //!    toggle while `AUTO_APPROVE_USERS` is set writes a row that changes
@@ -16,6 +16,10 @@
 //!    shows success and then snaps back on the next read.
 //! 2. `/api/providers` answers "disconnected" only for a user who genuinely
 //!    holds no connection; a repository failure is a 5xx.
+//! 3. Registration decides approval through the same
+//!    [`admin_settings::get_auto_approval_settings`]: a stored setting that
+//!    cannot be read refuses the registration instead of creating the account
+//!    under whatever the process default happens to be.
 
 use crate::common;
 use crate::helpers;
@@ -25,11 +29,15 @@ use common::{create_test_server_resources, create_test_user};
 use helpers::axum_test::AxumTestRequest;
 use pierre_config::environment::AppBehaviorConfig;
 use pierre_database::backends::factory::DatabaseBackend;
+use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_routes_auth::AuthRoutes;
 use pierre_services::admin_settings;
 
 /// Breaks the connection table so the status repository read fails.
 const DROP_CONNECTIONS_TABLE: &str = "DROP TABLE provider_connections";
+
+/// Breaks the settings table so the stored auto-approval read fails.
+const DROP_SETTINGS_TABLE: &str = "DROP TABLE system_settings";
 
 /// Build an app-behavior config whose only interesting axis is where the
 /// auto-approval flag came from.
@@ -100,6 +108,96 @@ async fn auto_approval_env_override_holds_after_a_write_that_agrees_with_the_dat
         "env var must outrank the persisted row in the on direction too"
     );
     assert!(settings.overridden_by_env);
+}
+
+#[tokio::test]
+async fn auto_approval_read_failure_is_an_error_when_the_environment_does_not_decide() {
+    let resources = create_test_server_resources().await.unwrap();
+    let data = resources.data();
+    drop_settings_table(&resources).await;
+
+    // With AUTO_APPROVE_USERS set the stored row is never read, so the
+    // environment still answers.
+    let settings =
+        admin_settings::get_auto_approval_settings(data.database(), &app_behavior(true, true))
+            .await
+            .unwrap();
+    assert!(settings.enabled);
+
+    // Without it the row is the authority, and a failed read is reported
+    // rather than replaced by the process default.
+    let failure =
+        admin_settings::get_auto_approval_settings(data.database(), &app_behavior(true, false))
+            .await;
+    assert!(
+        failure.is_err(),
+        "a failed read must not fall back to the configured default"
+    );
+}
+
+#[tokio::test]
+async fn registration_is_refused_when_the_auto_approval_setting_cannot_be_read() {
+    let resources = create_test_server_resources().await.unwrap();
+    let router = AuthRoutes::routes(resources.auth_routes_context());
+
+    // Baseline: the same door creates an account while the setting reads.
+    let response = AxumTestRequest::post("/api/auth/register")
+        .json(&registration("readable-setting@example.com"))
+        .send(router.clone())
+        .await;
+    assert_eq!(response.status_code(), StatusCode::CREATED);
+
+    drop_settings_table(&resources).await;
+
+    let email = "unreadable-setting@example.com";
+    let response = AxumTestRequest::post("/api/auth/register")
+        .json(&registration(email))
+        .send(router)
+        .await;
+    assert_eq!(
+        response.status_code(),
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "an unreadable approval setting must refuse the registration"
+    );
+    let created = resources
+        .common
+        .repos
+        .users
+        .get_by_email(email)
+        .await
+        .unwrap();
+    assert!(
+        created.is_none(),
+        "no account may be created under an approval posture nobody chose"
+    );
+}
+
+/// A registration body for `email`.
+fn registration(email: &str) -> serde_json::Value {
+    serde_json::json!({
+        "email": email,
+        "password": "registrationPassword123",
+        "display_name": "Approval Setting Tester"
+    })
+}
+
+/// Drop the table the stored auto-approval setting lives in.
+async fn drop_settings_table(resources: &ServerContext) {
+    match resources.agent.database.backend() {
+        DatabaseBackend::SQLite(db) => {
+            sqlx::query(DROP_SETTINGS_TABLE)
+                .execute(db.pool())
+                .await
+                .unwrap();
+        }
+        #[cfg(feature = "postgresql")]
+        DatabaseBackend::PostgreSQL(db) => {
+            sqlx::query(DROP_SETTINGS_TABLE)
+                .execute(db.pool())
+                .await
+                .unwrap();
+        }
+    }
 }
 
 #[tokio::test]

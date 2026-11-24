@@ -37,29 +37,11 @@ use common::{create_test_server_resources, create_test_user, create_test_user_wi
 use dravr_enforme::traits::connection_store::UserConnectionStore;
 use dravr_tronc::dates::Elapsed;
 use dravr_tronc::dates::Timestamp;
-use pierre_core::errors::AppError;
-use pierre_core::models::{
-    ActivityBuilder, OAuthNotification, RefreshConfig, SportType, TenantId, UserOAuthToken,
-};
+use pierre_core::models::{ActivityBuilder, RefreshConfig, SportType, TenantId, UserOAuthToken};
 use pierre_database::RepositoryRegistry;
 use pierre_services::health_sync::PierreSyncStorage;
-use pierre_services::provider_refresh::{RefreshService, SyncNotifier};
+use pierre_services::provider_refresh::RefreshService;
 use uuid::Uuid;
-
-/// No-op notifier: the refresh service requires a `SyncNotifier`, but these
-/// tests assert on freshness classification, not SSE delivery.
-struct NoopNotifier;
-
-#[async_trait::async_trait]
-impl SyncNotifier for NoopNotifier {
-    async fn send_notification(
-        &self,
-        _user_id: Uuid,
-        _notification: &OAuthNotification,
-    ) -> Result<(), AppError> {
-        Ok(())
-    }
-}
 
 /// Seed a Strava token row. `token_type` distinguishes an OAuth exchange
 /// (`"Bearer"`, opaque access token) from a sciotte browser session
@@ -156,7 +138,6 @@ async fn strava_oauth_with_stamped_last_sync_but_cold_cache_is_stale() {
         repos.activity_cache.clone(),
         Arc::clone(repos),
         Some(orchestrator),
-        Arc::new(NoopNotifier),
     );
 
     let status = service
@@ -231,7 +212,6 @@ async fn strava_oauth_with_fresh_activity_cache_is_fresh() {
         repos.activity_cache.clone(),
         Arc::clone(repos),
         Some(orchestrator),
-        Arc::new(NoopNotifier),
     );
 
     let status = service

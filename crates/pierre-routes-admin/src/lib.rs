@@ -26,7 +26,7 @@
 //! Admin token JWT validation lives in [`auth::AdminAuthService`] /
 //! [`pierre_core::admin::AdminJwtManager`]; these are re-exported from
 //! `pierre-server`'s `admin` module for callers that still use the old
-//! path (notably `routes::auth::login::handle_register`).
+//! path.
 
 #![warn(missing_docs)]
 

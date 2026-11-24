@@ -100,11 +100,6 @@ pub trait TenantRepository: Send + Sync {
     ) -> AppResult<()>;
     /// Store tenant OAuth credentials
     async fn store_oauth_credentials(&self, credentials: &TenantOAuthCredentials) -> AppResult<()>;
-    /// Get tenant OAuth providers
-    async fn get_oauth_providers(
-        &self,
-        tenant_id: TenantId,
-    ) -> AppResult<Vec<TenantOAuthCredentials>>;
     /// Get tenant OAuth credentials for specific provider
     async fn get_oauth_credentials(
         &self,
@@ -219,15 +214,6 @@ pub(crate) const STORE_TENANT_OAUTH_CREDENTIALS_SQL: &str = r"
                 scopes = EXCLUDED.scopes,
                 rate_limit_per_day = EXCLUDED.rate_limit_per_day,
                 updated_at = EXCLUDED.updated_at
-            ";
-
-/// Every provider the tenant has live credentials for.
-pub(crate) const GET_TENANT_OAUTH_PROVIDERS_SQL: &str = r"
-            SELECT provider, client_id, client_secret_encrypted,
-                   redirect_uri, scopes, rate_limit_per_day
-            FROM tenant_oauth_credentials
-            WHERE tenant_id = $1 AND is_active = true
-            ORDER BY provider
             ";
 
 /// The tenant's live credentials for one provider.
@@ -516,37 +502,6 @@ macro_rules! impl_tenant_repository {
                     })?;
 
                 Ok(())
-            }
-
-            async fn get_oauth_providers(
-                &self,
-                tenant_id: TenantId,
-            ) -> AppResult<Vec<TenantOAuthCredentials>> {
-                let rows = sqlx::query(GET_TENANT_OAUTH_PROVIDERS_SQL)
-                    .bind(tenant_id)
-                    .fetch_all(self.pool())
-                    .await
-                    .map_err(|e| {
-                        AppError::database(format!("Failed to list OAuth providers: {e}"))
-                    })?;
-
-                rows.iter()
-                    .map(|row| {
-                        tenant_oauth_credentials_from_row(
-                            row,
-                            tenant_id,
-                            $lists::read_json(row, "scopes")?,
-                            |encrypted, aad| {
-                                decrypt_stored_secret(
-                                    self,
-                                    StoredSecretKind::TenantOAuthClientSecret,
-                                    encrypted,
-                                    aad,
-                                )
-                            },
-                        )
-                    })
-                    .collect()
             }
 
             async fn get_oauth_credentials(

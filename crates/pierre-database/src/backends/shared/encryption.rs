@@ -9,7 +9,14 @@
 //! This module harmonizes encryption across PostgreSQL and SQLite, ensuring
 //! consistent security for sensitive data at rest using AES-256-GCM with AAD binding.
 
-use pierre_core::errors::AppResult;
+use std::collections::HashMap;
+
+use base64::engine::general_purpose;
+use base64::Engine;
+use pierre_core::errors::{AppError, AppResult};
+use ring::aead::{Aad, LessSafeKey, Nonce, UnboundKey, AES_256_GCM, NONCE_LEN};
+use ring::hmac;
+use ring::rand::{SecureRandom, SystemRandom};
 use uuid::Uuid;
 
 use super::key_material::{decrypt_stored_secret, StoredSecretKind};
@@ -240,14 +247,12 @@ where
 /// # Examples
 /// ```text
 /// impl HasEncryption for Database {
-///     fn encrypt_data_with_aad(&self, data: &str, aad: &str) -> Result<String> {
-///         // AES-256-GCM implementation with ring crate
-///         // See src/database/mod.rs:690 for reference
+///     fn encrypt_data_with_aad(&self, data: &str, aad: &str) -> AppResult<String> {
+///         seal_with_aad(&self.dek_keys(), data, aad)
 ///     }
 ///
-///     fn decrypt_data_with_aad(&self, encrypted: &str, aad: &str) -> Result<String> {
-///         // Reverse of encrypt_data_with_aad
-///         // See src/database/mod.rs:729 for reference
+///     fn decrypt_data_with_aad(&self, encrypted: &str, aad: &str) -> AppResult<String> {
+///         open_with_aad(&self.dek_keys(), encrypted, aad)
 ///     }
 /// }
 /// ```
@@ -328,4 +333,271 @@ pub fn split_dek_version(stored: &str) -> (u32, &str) {
         }
     }
     (LEGACY_DEK_VERSION, stored)
+}
+
+/// The data-encryption keys a backend holds, borrowed for one envelope operation.
+pub(crate) struct DekKeys<'keys> {
+    /// Version of `active_key`; new ciphertext is tagged with it.
+    pub(crate) active_version: u32,
+    /// DEK that encrypts new data.
+    pub(crate) active_key: &'keys [u8],
+    /// Retained DEKs of earlier versions, used to decrypt only.
+    pub(crate) prior_versions: &'keys HashMap<u32, Vec<u8>>,
+}
+
+impl<'keys> DekKeys<'keys> {
+    /// The DEK bytes for a ciphertext version: the active DEK for the active
+    /// version, a retained prior DEK for an older one.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if no DEK is held for `version`.
+    fn key_for_version(&self, version: u32) -> AppResult<&'keys [u8]> {
+        if version == self.active_version {
+            Ok(self.active_key)
+        } else if let Some(key) = self.prior_versions.get(&version) {
+            Ok(key)
+        } else {
+            Err(AppError::internal(format!(
+                "No DEK available for ciphertext version {version} (active version is {})",
+                self.active_version
+            )))
+        }
+    }
+}
+
+/// Encrypt `data` with AES-256-GCM under the active DEK, bound to `aad_context`.
+///
+/// The one envelope both backends write: a fresh 96-bit nonce, the ciphertext
+/// and its authentication tag, base64-encoded and tagged with the DEK version
+/// (`"v{N}:{base64(nonce || ciphertext || tag)}"`). The AAD binds the
+/// ciphertext to its context (tenant|user|provider|table), so it cannot be
+/// moved between contexts or users.
+///
+/// # Errors
+///
+/// Returns an error if the nonce cannot be generated, the key is not a valid
+/// AES-256 key, or sealing fails.
+pub(crate) fn seal_with_aad(
+    keys: &DekKeys<'_>,
+    data: &str,
+    aad_context: &str,
+) -> AppResult<String> {
+    let rng = SystemRandom::new();
+
+    // Generate unique nonce
+    let mut nonce_bytes = [0u8; NONCE_LEN];
+    rng.fill(&mut nonce_bytes)
+        .map_err(|e| AppError::internal(format!("Failed to generate nonce: {e}")))?;
+    let nonce = Nonce::assume_unique_for_key(nonce_bytes);
+
+    // Create encryption key
+    let unbound_key = UnboundKey::new(&AES_256_GCM, keys.active_key)
+        .map_err(|e| AppError::internal(format!("Failed to create encryption key: {e}")))?;
+    let key = LessSafeKey::new(unbound_key);
+
+    // Encrypt data with AAD binding
+    let mut data_bytes = data.as_bytes().to_vec();
+    let aad = Aad::from(aad_context.as_bytes());
+    key.seal_in_place_append_tag(nonce, aad, &mut data_bytes)
+        .map_err(|e| AppError::internal(format!("Failed to encrypt data: {e}")))?;
+
+    // Combine nonce and encrypted data, base64 encode, then tag with the active DEK version
+    let mut combined = nonce_bytes.to_vec();
+    combined.extend(data_bytes);
+
+    Ok(tag_dek_version(
+        keys.active_version,
+        &general_purpose::STANDARD.encode(combined),
+    ))
+}
+
+/// Decrypt an envelope written by [`seal_with_aad`].
+///
+/// The DEK is chosen by the version the ciphertext is tagged with, and the
+/// same AAD context used for encryption must be given or authentication fails.
+///
+/// # Errors
+///
+/// Returns an error if no DEK is held for the ciphertext's version, the data
+/// is malformed, or authentication fails (AAD mismatch, wrong key, tampering).
+pub(crate) fn open_with_aad(
+    keys: &DekKeys<'_>,
+    encrypted_data: &str,
+    aad_context: &str,
+) -> AppResult<String> {
+    // Split the DEK version tag, then decode the base64 payload
+    let (dek_version, payload) = split_dek_version(encrypted_data);
+    let dek = keys.key_for_version(dek_version)?;
+    let combined = general_purpose::STANDARD
+        .decode(payload)
+        .map_err(|e| AppError::internal(format!("Failed to decode base64: {e}")))?;
+
+    if combined.len() < NONCE_LEN {
+        return Err(AppError::internal("Invalid encrypted data: too short"));
+    }
+
+    // Extract nonce and encrypted data
+    let (nonce_bytes, encrypted_bytes) = combined.split_at(NONCE_LEN);
+    let nonce = Nonce::assume_unique_for_key(
+        nonce_bytes
+            .try_into()
+            .map_err(|e| AppError::internal(format!("Invalid nonce size: {e}")))?,
+    );
+
+    // Create decryption key for the resolved DEK version
+    let unbound_key = UnboundKey::new(&AES_256_GCM, dek)
+        .map_err(|e| AppError::internal(format!("Failed to create decryption key: {e}")))?;
+    let key = LessSafeKey::new(unbound_key);
+
+    // Decrypt data with AAD verification
+    let mut decrypted_data = encrypted_bytes.to_vec();
+    let aad = Aad::from(aad_context.as_bytes());
+    let decrypted = key
+        .open_in_place(nonce, aad, &mut decrypted_data)
+        .map_err(|e| {
+            AppError::internal(format!(
+                "Decryption failed (possible AAD mismatch or tampered data): {e:?}"
+            ))
+        })?;
+
+    String::from_utf8(decrypted.to_vec())
+        .map_err(|e| AppError::internal(format!("Failed to convert decrypted data to string: {e}")))
+}
+
+/// Compute the base64 HMAC-SHA256 of a token for storage.
+///
+/// Used for refresh tokens, which need a deterministic lookup but never their
+/// original value back. Keyed with the blind-index key (DEK v1), not the
+/// active DEK, so lookups survive DEK rotation.
+#[must_use]
+pub(crate) fn hmac_token_for_storage(blind_index_key: &[u8], token: &str) -> String {
+    let key = hmac::Key::new(hmac::HMAC_SHA256, blind_index_key);
+    let tag = hmac::sign(&key, token.as_bytes());
+    general_purpose::STANDARD.encode(tag.as_ref())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use pierre_core::errors::{AppResult, ErrorCode};
+
+    use super::{hmac_token_for_storage, open_with_aad, seal_with_aad, DekKeys};
+
+    const KEY_V1: [u8; 32] = [7u8; 32];
+    const KEY_V2: [u8; 32] = [9u8; 32];
+
+    fn keys<'a>(
+        active_version: u32,
+        active_key: &'a [u8],
+        prior_versions: &'a HashMap<u32, Vec<u8>>,
+    ) -> DekKeys<'a> {
+        DekKeys {
+            active_version,
+            active_key,
+            prior_versions,
+        }
+    }
+
+    #[test]
+    fn a_sealed_value_opens_under_the_same_context() -> AppResult<()> {
+        let prior = HashMap::new();
+        let keys = keys(1, &KEY_V1, &prior);
+        let sealed = seal_with_aad(&keys, "refresh-token", "t|u|strava|user_oauth_tokens")?;
+        assert!(sealed.starts_with("v1:"), "{sealed}");
+        assert!(!sealed.contains("refresh-token"));
+        assert_eq!(
+            open_with_aad(&keys, &sealed, "t|u|strava|user_oauth_tokens")?,
+            "refresh-token"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn sealing_twice_never_repeats_a_ciphertext() -> AppResult<()> {
+        let prior = HashMap::new();
+        let keys = keys(1, &KEY_V1, &prior);
+        assert_ne!(
+            seal_with_aad(&keys, "same", "ctx")?,
+            seal_with_aad(&keys, "same", "ctx")?
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn another_context_or_key_fails_as_an_internal_error() -> AppResult<()> {
+        let prior = HashMap::new();
+        let sealed = seal_with_aad(&keys(1, &KEY_V1, &prior), "secret", "tenant-a|u")?;
+
+        let moved = open_with_aad(&keys(1, &KEY_V1, &prior), &sealed, "tenant-b|u");
+        assert_eq!(moved.map_err(|e| e.code), Err(ErrorCode::InternalError));
+
+        let wrong_key = open_with_aad(&keys(1, &KEY_V2, &prior), &sealed, "tenant-a|u");
+        assert_eq!(wrong_key.map_err(|e| e.code), Err(ErrorCode::InternalError));
+        Ok(())
+    }
+
+    #[test]
+    fn a_prior_version_still_opens_after_rotation() -> AppResult<()> {
+        let none = HashMap::new();
+        let sealed = seal_with_aad(&keys(1, &KEY_V1, &none), "old", "ctx")?;
+
+        let prior = HashMap::from([(1, KEY_V1.to_vec())]);
+        let rotated = keys(2, &KEY_V2, &prior);
+        assert_eq!(open_with_aad(&rotated, &sealed, "ctx")?, "old");
+        assert!(seal_with_aad(&rotated, "new", "ctx")?.starts_with("v2:"));
+        Ok(())
+    }
+
+    #[test]
+    fn an_untagged_payload_opens_as_version_one() -> AppResult<()> {
+        let prior = HashMap::new();
+        let keys = keys(1, &KEY_V1, &prior);
+        let sealed = seal_with_aad(&keys, "legacy", "ctx")?;
+        let untagged = sealed
+            .strip_prefix("v1:")
+            .expect("bug: a value sealed under DEK v1 carries the v1 tag");
+        assert_eq!(open_with_aad(&keys, untagged, "ctx")?, "legacy");
+        Ok(())
+    }
+
+    #[test]
+    fn malformed_ciphertext_is_refused_with_its_reason() {
+        let prior = HashMap::new();
+        let keys = keys(1, &KEY_V1, &prior);
+
+        let unknown_version = open_with_aad(&keys, "v7:AAAA", "ctx");
+        assert_eq!(
+            unknown_version.map_err(|e| (e.code, e.message)),
+            Err((
+                ErrorCode::InternalError,
+                "No DEK available for ciphertext version 7 (active version is 1)".to_owned()
+            ))
+        );
+
+        let too_short = open_with_aad(&keys, "v1:AAAA", "ctx");
+        assert_eq!(
+            too_short.map_err(|e| (e.code, e.message)),
+            Err((
+                ErrorCode::InternalError,
+                "Invalid encrypted data: too short".to_owned()
+            ))
+        );
+
+        let not_base64 = open_with_aad(&keys, "v1:not base64!", "ctx");
+        assert_eq!(
+            not_base64.map_err(|e| e.code),
+            Err(ErrorCode::InternalError)
+        );
+    }
+
+    #[test]
+    fn a_token_hash_is_deterministic_and_keyed() {
+        let hash = hmac_token_for_storage(&KEY_V1, "token");
+        assert_eq!(hash, hmac_token_for_storage(&KEY_V1, "token"));
+        assert_ne!(hash, hmac_token_for_storage(&KEY_V2, "token"));
+        assert_ne!(hash, hmac_token_for_storage(&KEY_V1, "other"));
+        assert!(!hash.contains("token"));
+    }
 }

@@ -219,15 +219,13 @@ describe('useSeatAfterPlatformLink', () => {
   it('opens the window for a platform already there on arrival when the surface says so', async () => {
     getCoachAccessRequest.mockResolvedValue({ request: null });
     getSession.mockResolvedValue({ user: { id: 'user-coach', manages_roster: false } });
-    const onRead = vi.fn();
     const { result, rerender } = renderHook(
-      ({ connected }: Props) => useSeatAfterPlatformLink(connected, { fromFirstRead: true, onRead }),
+      ({ connected }: Props) => useSeatAfterPlatformLink(connected, { fromFirstRead: true }),
       { wrapper: wrapper(), initialProps: { connected: undefined } },
     );
     rerender({ connected: ['intervals_icu'] });
 
     await waitFor(() => expect(getSession).toHaveBeenCalled());
-    expect(onRead).toHaveBeenCalled();
     await waitFor(() => expect(result.current.reading).toBe(true));
     expect(updateUser).not.toHaveBeenCalled();
   });

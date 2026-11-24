@@ -103,7 +103,6 @@ async fn test_complete_admin_user_approval_workflow() -> Result<()> {
         display_name: Some("Test User".to_owned()),
         password_hash: "hashed_password".to_owned(),
         tier: UserTier::Starter,
-        strava_token: None,
         is_active: true,
         user_status: UserStatus::Pending, // Start as pending
         role: UserRole::User,

@@ -55,7 +55,6 @@ async fn create_test_user(database: &Database, email: &str) -> Result<Uuid> {
         display_name: Some(format!("Test User {email}")),
         password_hash: bcrypt::hash("password", bcrypt::DEFAULT_COST)?,
         tier: UserTier::Professional,
-        strava_token: None,
         is_active: true,
         user_status: UserStatus::Active,
         role: UserRole::User,

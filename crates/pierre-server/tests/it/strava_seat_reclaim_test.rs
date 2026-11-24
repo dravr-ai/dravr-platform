@@ -871,7 +871,6 @@ mod strava_seat_reclaim_tests {
                     audience: None,
                 },
                 &connector.user_id,
-                &[],
                 Some(connector.tenant_id.to_string()),
             )
             .unwrap();

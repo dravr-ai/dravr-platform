@@ -22,11 +22,15 @@ import {
 import {
   cardForSlug,
   connectConsentsFor,
-  connectPlan,
   noticeRequired,
   sciotteTargetForBackend,
 } from '@pierre/shared-constants';
-import { privateSendFailureText, type PlanThreadDraft, type UsePrivateLaneResult } from '@pierre/ui-logic';
+import {
+  followConnectPlan,
+  privateSendFailureText,
+  type PlanThreadDraft,
+  type UsePrivateLaneResult,
+} from '@pierre/ui-logic';
 import type {
   ChatMessageAction,
   ClaimVerdict,
@@ -431,45 +435,38 @@ export function ChatThread({
       await providerStatus.handleConnectProvider(provider, undefined, false, false, consents);
       return;
     }
-    const primary = connectPlan(card).primary;
-    // Intervals.icu reconnects the way its card was linked, and never through
-    // an own-app setup: a key-linked card (a coach's — only the key reads the
-    // athletes they coach) reopens the key form, an authorized card goes back
-    // to the authorization, and with no client to authorize under the key
-    // form is the only way in.
-    if (primary.kind === 'intervals') {
-      if (primary.path !== 'authorize') {
-        setIntervalsSheet({ offersAuthorize: primary.path === 'choose' });
+    // The authorization of `name`, behind what the card owes first; `started`
+    // is the flow it began, which the caller waits on.
+    let started: Promise<void> | undefined;
+    const authorize = (name: string) => {
+      // No app of the server's can authorize the provider for this athlete:
+      // the credentials sheet asks for their own before any notice.
+      if (card.own_app_required) {
+        providerStatus.setNeedsCredentialsProvider(card.provider);
         return;
       }
-      await providerStatus.handleConnectProvider(card.provider);
-      return;
-    }
-    if (primary.kind === 'sign_in') {
-      // The card's own plan: a sign-in-first card's sign-in that cannot
-      // complete falls back to its OAuth (carnet#1477).
-      openSignIn(primary.target, card, false, true, consents);
-      return;
-    }
-    // No app of the server's can authorize the provider for this athlete:
-    // the credentials sheet asks for their own before any notice.
-    if (card.own_app_required) {
-      providerStatus.setNeedsCredentialsProvider(card.provider);
-      return;
-    }
-    // A provider whose notice the account has not accepted (WHOOP's owner
-    // authorization) states it first; its Continue starts the flow.
-    if (noticeRequired(card.provider, card.consent_required)) {
-      setNoticeFor(card.provider);
-      return;
-    }
-    await providerStatus.handleConnectProvider(
-      primary.kind === 'oauth' ? primary.provider : card.provider,
-      undefined,
-      false,
-      false,
-      consents,
-    );
+      // A provider whose notice the account has not accepted (WHOOP's owner
+      // authorization) states it first; its Continue starts the flow.
+      if (noticeRequired(card.provider, card.consent_required)) {
+        setNoticeFor(card.provider);
+        return;
+      }
+      started = providerStatus.handleConnectProvider(name, undefined, false, false, consents);
+    };
+    // The step every surface takes for this card. Intervals.icu reconnects
+    // the way its card was linked: a key-linked card (a coach's — only the
+    // key reads the athletes they coach) reopens the key form, an authorized
+    // card goes back to the authorization, and with no client to authorize
+    // under the key form is the only way in. A sign-in the card's own plan
+    // opens falls back to its OAuth when it cannot complete (carnet#1477).
+    // The consents the sheet returned travel with whichever step it takes.
+    followConnectPlan(card, {
+      signIn: (target) => openSignIn(target, card, false, true, consents),
+      intervalsDialog: (offersAuthorize) => setIntervalsSheet({ offersAuthorize }),
+      authorize,
+      none: () => authorize(card.provider),
+    });
+    await started;
   }, [providerStatus, openSignIn]);
 
   // A connect that offers consents it does not require (Garmin, by its card

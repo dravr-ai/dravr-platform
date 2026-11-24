@@ -56,7 +56,6 @@ function invalidateDelegation(queryClient: QueryClient, groupId: string) {
     queryClient.invalidateQueries({ queryKey: QUERY_KEYS.groups.delegationRoster(groupId) }),
     queryClient.invalidateQueries({ queryKey: QUERY_KEYS.providers.all }),
     queryClient.invalidateQueries({ queryKey: QUERY_KEYS.providers.status() }),
-    queryClient.invalidateQueries({ queryKey: QUERY_KEYS.user.providerConnections() }),
   ]);
 }
 

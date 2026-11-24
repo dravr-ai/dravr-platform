@@ -87,6 +87,7 @@ use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::{DataSource, DeviceType, TenantId};
 use pierre_database::repositories::{ProviderDataPurge, PurgeReason};
 use pierre_middleware::extractors::AuthenticatedUser;
+use pierre_runtime_context::require_tenant_in;
 use pierre_services::live_activities::WriteOrigin;
 use pierre_services::wellness_projection::{self, WellnessFiling, WellnessModes};
 use pierre_services::wellness_store::{WellnessStore, WellnessWriteMode};
@@ -174,12 +175,8 @@ async fn athlete(
         "sync or delete the athlete's phone health data",
     )
     .await?;
-    let tenant = auth
-        .active_tenant_id
-        .map(TenantId::from_uuid)
-        .ok_or_else(|| {
-            AppError::auth_invalid("Device health requires an active tenant in the JWT")
-        })?;
+    let tenants = resources.common.repos.tenants.as_ref();
+    let tenant = require_tenant_in(tenants, auth).await?;
     Ok((auth.user_id, tenant))
 }
 

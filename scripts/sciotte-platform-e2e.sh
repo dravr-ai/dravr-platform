@@ -15,7 +15,7 @@ SCIOTTE_REPO="${SCIOTTE_REPO:-$(cd "$HERE/../dravr-sciotte" 2>/dev/null && pwd |
 set -a
 # Platform .envrc: PIERRE_MASTER_ENCRYPTION_KEY, DRAVR_SCIOTTE_REMOTE_URL, DATABASE_URL, …
 source "$HERE/.envrc" >/dev/null 2>&1 || true
-# dravr-sciotte .envrc: GARMIN_USER / GARMIN_PASSWORD (the scrape creds live with the scraper).
+# dravr-sciotte .envrc: GARMIN_USER / GARMIN_PASSWORD (the provider test credentials live with sciotte).
 [ -f "$SCIOTTE_REPO/.envrc" ] && source "$SCIOTTE_REPO/.envrc" >/dev/null 2>&1 || true
 set +a
 
@@ -29,7 +29,7 @@ PLATFORM="${PLATFORM_URL:-http://localhost:8081}"
 E2E_USER="${PLATFORM_E2E_USER:-e2e@dravr.test}"
 E2E_PASS="${PLATFORM_E2E_PASSWORD:-E2eTest123!}"
 TARGET="${SCIOTTE_TARGET:-garmin}"        # garmin | strava
-# Scrape-account credentials picked by target (both live in dravr-sciotte/.envrc).
+# Provider test-account credentials picked by target (both live in dravr-sciotte/.envrc).
 if [ "$TARGET" = "strava" ]; then
   SCRAPE_USER="${STRAVA_USER:-}"
   SCRAPE_PASSWORD="${STRAVA_PASSWORD:-}"
@@ -84,7 +84,7 @@ cmd_jwt() { info "Minting fresh JWT"; rm -f "$JWT_CACHE"; local t; t=$(mint_jwt)
 
 cmd_login() {
   require_creds
-  # Login method: email (default) | google | apple. The Strava scrape account
+  # Login method: email (default) | google | apple. The Strava test account
   # authenticates via Google OAuth, so strava defaults to the google button.
   local method="${SCIOTTE_METHOD:-$([ "$TARGET" = "strava" ] && echo google || echo email)}"
   info "Platform login for $SCRAPE_USER (target=$TARGET, method=$method) → routes to the sciotte service"

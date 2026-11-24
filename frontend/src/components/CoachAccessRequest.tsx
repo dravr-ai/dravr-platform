@@ -14,11 +14,11 @@ import {
   coachSeatDeclineReason,
   coachSeatMoment,
   coachSeatState,
+  QUERY_KEYS,
 } from '@pierre/shared-constants';
 import type { CoachAccessRequest as CoachAccessRequestRecord } from '@pierre/shared-types';
 import { useTranslation } from '@pierre/i18n';
 import { providersApi, userApi } from '../services/api';
-import { QUERY_KEYS } from '../constants/queryKeys';
 import { useSeatAfterPlatformLink } from '../hooks/coachAccessHooks';
 import { BADGE_TONE, Button } from './ui';
 import ProviderConnectionCards from './ProviderConnectionCards';

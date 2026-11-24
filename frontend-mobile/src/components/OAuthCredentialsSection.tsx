@@ -9,6 +9,7 @@ import { Button, Input, Section } from './ui';
 import { ProviderGlyph } from './ProviderGlyph';
 import { userApi } from '../services/api';
 import type { ExtendedProviderStatus, OAuthApp } from '../types';
+import { PROVIDER_BRAND, providerName } from '@pierre/shared-constants';
 import { useTranslation } from '@pierre/i18n';
 import { describeApiError } from '@pierre/ui-logic';
 
@@ -19,7 +20,7 @@ interface ByoProvider {
 }
 
 // After the 2026-Q2 provider cleanup, BYO-OAuth-app is WHOOP-only.
-const PROVIDERS: ByoProvider[] = [{ id: 'whoop', name: 'WHOOP' }];
+const PROVIDERS: ByoProvider[] = [{ id: 'whoop', name: PROVIDER_BRAND.whoop }];
 
 /** Where the callback lives when the provider status has not answered yet. */
 const FALLBACK_CALLBACK_BASE = 'https://app.dravr.ai/api/oauth/callback';
@@ -149,7 +150,7 @@ export function OAuthCredentialsSection({ providers }: OAuthCredentialsSectionPr
   const getProviderInfo = (providerId: string): ByoProvider => {
     return PROVIDERS.find(p => p.id.toLowerCase() === providerId.toLowerCase()) || {
       id: providerId,
-      name: providerId.charAt(0).toUpperCase() + providerId.slice(1),
+      name: providerName(providerId),
     };
   };
 

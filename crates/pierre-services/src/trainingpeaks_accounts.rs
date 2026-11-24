@@ -12,7 +12,7 @@
 //! by [`record_trainingpeaks_role`]:
 //!
 //! - a read of a coach account's own workouts has nothing to return, so the read
-//!   path refuses it in words before any scrape once the role is recorded on the
+//!   path refuses it in words before any read once the role is recorded on the
 //!   connection;
 //! - a `TrainingPeaks` coach is a coach, so the account is granted
 //!   `manages_roster`, the permission to coach a group — but only when the

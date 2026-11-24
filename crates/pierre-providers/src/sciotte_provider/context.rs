@@ -1,10 +1,10 @@
-// ABOUTME: The scraped Strava's own zones, gear, records, best efforts, weight and paged search, read live through sciotte
+// ABOUTME: The athlete's own Strava zones, gear, records, best efforts, weight and paged search, read live through their signed-in session
 // ABOUTME: Provider-reported and never computed; an answer the provider has none of stays absent (None), never an empty default
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! Provider context reads of the scraped Strava session (carnet#1622,
+//! Provider context reads of the athlete's signed-in Strava session (carnet#1622,
 //! sciotte 2.3).
 //!
 //! Only the Strava target serves them: Garmin, `TrainingPeaks` and COROS share

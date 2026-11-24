@@ -93,8 +93,8 @@ struct LinkedUser {
 async fn setup_linked_user(base_url: String) -> LinkedUser {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, user) = create_test_user(&resources.agent.database).await.unwrap();
-    // The handler resolves the active tenant from the token; a tenant-less token
-    // fails earlier, on "No active tenant", and would never reach the provider.
+    // The handler acts in the tenant the token names, once the membership
+    // table confirms it; the link is stored and read back under that tenant.
     let tenant_id = resources
         .common
         .repos

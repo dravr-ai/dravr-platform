@@ -27,6 +27,7 @@ use pierre_core::errors::AppResult;
 use pierre_database::repositories::{FirebaseIdentityDeletionRepository, WorkerRunRepository};
 use tracing::{error, info, warn};
 
+use crate::backoff::doubling_backoff;
 use crate::periodic::spawn_periodic;
 
 /// The ledger name the sweep runs under.
@@ -40,10 +41,10 @@ const SWEEP_INTERVAL: Duration = Duration::from_mins(15);
 const SWEEP_BATCH: i64 = 50;
 
 /// Wait after the first failure; doubled after each further one.
-const FIRST_RETRY: Elapsed = Elapsed::minutes(15);
+const FIRST_RETRY: Duration = Duration::from_mins(15);
 
 /// The longest wait between two attempts.
-const MAX_RETRY: Elapsed = Elapsed::hours(24);
+const MAX_RETRY: Duration = Duration::from_hours(24);
 
 /// Failed attempts after which a stuck identity is raised to the admins.
 pub const ALERT_AFTER_ATTEMPTS: i64 = 5;
@@ -52,11 +53,11 @@ pub const ALERT_AFTER_ATTEMPTS: i64 = 5;
 /// [`FIRST_RETRY`] doubled per earlier failure, capped at [`MAX_RETRY`].
 #[must_use]
 fn next_attempt_after(attempts: i64, now: Timestamp) -> Timestamp {
-    let doublings = u32::try_from(attempts.saturating_sub(1).clamp(0, 16)).unwrap_or(16);
-    let wait = FIRST_RETRY
-        .checked_mul(1_i32 << doublings)
-        .map_or(MAX_RETRY, |wait| wait.min(MAX_RETRY));
-    now.checked_add(wait).unwrap_or(now)
+    let wait = doubling_backoff(FIRST_RETRY, MAX_RETRY, attempts.saturating_sub(1));
+    Elapsed::from_std(wait)
+        .ok()
+        .and_then(|wait| now.checked_add(wait))
+        .unwrap_or(now)
 }
 
 /// Record what one deletion attempt of `firebase_uid` came to.
@@ -183,7 +184,7 @@ mod tests {
         assert_eq!(next_attempt_after(1, now) - now, Elapsed::minutes(15));
         assert_eq!(next_attempt_after(2, now) - now, Elapsed::minutes(30));
         assert_eq!(next_attempt_after(4, now) - now, Elapsed::hours(2));
-        assert_eq!(next_attempt_after(8, now) - now, MAX_RETRY);
-        assert_eq!(next_attempt_after(i64::MAX, now) - now, MAX_RETRY);
+        assert_eq!(next_attempt_after(8, now) - now, Elapsed::hours(24));
+        assert_eq!(next_attempt_after(i64::MAX, now) - now, Elapsed::hours(24));
     }
 }

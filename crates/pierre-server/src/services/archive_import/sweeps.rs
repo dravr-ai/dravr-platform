@@ -39,6 +39,7 @@ use pierre_core::errors::{AppError, AppResult};
 use pierre_database::repositories::{ArchiveErasureRepository, PendingArchiveErasure};
 use pierre_providers::originals::OriginalsStore;
 use pierre_services::account_reset::{AccountArchiveEraser, ArchiveErasure};
+use pierre_services::backoff::doubling_backoff;
 use pierre_services::live_activities::LiveActivityStore;
 use pierre_services::periodic::spawn_periodic;
 use tracing::{info, warn};
@@ -310,10 +311,7 @@ async fn record_failure(
 /// The wait after `attempts` failures: doubling from [`FIRST_BACKOFF`],
 /// never past [`MAX_BACKOFF`].
 fn backoff(attempts: i64) -> Duration {
-    let doublings = u32::try_from(attempts.clamp(0, 16)).unwrap_or(16);
-    FIRST_BACKOFF
-        .saturating_mul(2_u32.saturating_pow(doublings))
-        .min(MAX_BACKOFF)
+    doubling_backoff(FIRST_BACKOFF, MAX_BACKOFF, attempts)
 }
 
 #[cfg(test)]

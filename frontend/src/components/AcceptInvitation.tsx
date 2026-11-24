@@ -10,6 +10,7 @@ import { Button, Input, RevealButton, Alert } from './ui';
 import { DravrLogo } from './DravrLogo';
 import AnalyticsConsentOptIn from './AnalyticsConsentOptIn';
 import { useTranslation } from '@pierre/i18n';
+import { isPasswordLongEnough } from '@pierre/ui-logic';
 import type { InvitationLinkKind } from '../utils/tokenLink';
 
 type Stage = 'form' | 'invalid' | 'accepted';
@@ -65,7 +66,7 @@ export default function AcceptInvitation({ token, kind = 'account', onSignIn, on
       setStage('invalid');
       return;
     }
-    if (password.length < 8) {
+    if (!isPasswordLongEnough(password)) {
       setError(t('app.passwordTooShort'));
       return;
     }

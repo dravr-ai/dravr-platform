@@ -46,17 +46,9 @@ impl AuthManager {
         jwks_manager: &JwksManager,
         grant: &DelegatedGrant<'_>,
         user_id: &Uuid,
-        providers: &[String],
         active_tenant_id: Option<String>,
     ) -> AppResult<String> {
-        self.mint_oauth_access_token(
-            jwks_manager,
-            grant,
-            None,
-            user_id,
-            providers,
-            active_tenant_id,
-        )
+        self.mint_oauth_access_token(jwks_manager, grant, None, user_id, active_tenant_id)
     }
 
     /// [`Self::generate_oauth_access_token`] for a token minted under
@@ -73,7 +65,6 @@ impl AuthManager {
         grant: &DelegatedGrant<'_>,
         lineage: &TokenLineage<'_>,
         user_id: &Uuid,
-        providers: &[String],
         active_tenant_id: Option<String>,
     ) -> AppResult<String> {
         self.mint_oauth_access_token(
@@ -81,7 +72,6 @@ impl AuthManager {
             grant,
             Some(lineage),
             user_id,
-            providers,
             active_tenant_id,
         )
     }
@@ -93,7 +83,6 @@ impl AuthManager {
         grant: &DelegatedGrant<'_>,
         lineage: Option<&TokenLineage<'_>>,
         user_id: &Uuid,
-        providers: &[String],
         active_tenant_id: Option<String>,
     ) -> AppResult<String> {
         let now = Timestamp::now();
@@ -108,12 +97,6 @@ impl AuthManager {
             // metadata's `issuer`; sessions keep the platform's own name.
             iss: self.oauth_token_issuer().to_owned(),
             jti: Uuid::new_v4().to_string(),
-            // The athlete's connected fitness providers — what this field
-            // means everywhere else it is written. It used to receive `scopes`
-            // here, so a token minted at the token endpoint reported
-            // `fitness:read` as a connected provider; the grant now rides in
-            // `scope`, where a resource server can read it.
-            providers: providers.to_vec(),
             scope: grant.scopes.join(" "),
             aud: grant.audience.unwrap_or(MCP).to_owned(),
             active_tenant_id,

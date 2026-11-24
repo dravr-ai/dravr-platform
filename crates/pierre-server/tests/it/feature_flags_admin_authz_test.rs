@@ -93,7 +93,6 @@ async fn seed_tenant(repos: &pierre_database::RepositoryRegistry) -> TenantId {
         display_name: None,
         password_hash: bcrypt::hash("password123", bcrypt::DEFAULT_COST).unwrap(),
         tier: UserTier::Starter,
-        strava_token: None,
         is_active: true,
         user_status: UserStatus::Active,
         role: UserRole::User,

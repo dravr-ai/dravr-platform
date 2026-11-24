@@ -6,6 +6,7 @@
 
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { QUERY_KEYS } from "@pierre/shared-constants";
 import {
   adminApi,
   type ExtractionRunCounts,
@@ -165,7 +166,7 @@ export default function MemoryExtractionMonitorTab() {
 
   const { data, isLoading, isError, error, refetch, isFetching } =
     useQuery<MemoryWorkerMetricsResponse>({
-      queryKey: ["admin", "memory-worker-metrics", requested] as const,
+      queryKey: QUERY_KEYS.adminScoped.memoryWorkerMetrics(requested),
       queryFn: () => adminApi.getMemoryWorkerMetrics(requested),
       refetchInterval: 60_000,
     });

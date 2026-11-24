@@ -21,7 +21,8 @@ use pierre_config::environment::{
     AppBehaviorConfig, AuthConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment,
     ExternalServicesConfig, HttpClientConfig, LogLevel, LoggingConfig, MonitoringConfig,
     OAuth2ServerConfig, OAuthConfig, OAuthProviderConfig, PostgresPoolConfig, ProtocolConfig,
-    SecurityConfig, SecurityHeadersConfig, ServerConfig, SseConfig, StravaApiConfig, TlsConfig,
+    SecurityConfig, SecurityHeadersConfig, ServerConfig, SessionCookieConfig, StravaApiConfig,
+    TlsConfig,
 };
 use pierre_core::models::CoachingPersona;
 use pierre_core::models::{User, UserStatus, UserTier};
@@ -105,7 +106,7 @@ fn create_test_server_config() -> Arc<ServerConfig> {
                 server_version: env!("CARGO_PKG_VERSION").to_owned(),
             },
         },
-        sse: SseConfig::default(),
+        session_cookie: SessionCookieConfig::default(),
         oauth2_server: OAuth2ServerConfig::default(),
         monitoring: MonitoringConfig::default(),
         ..Default::default()
@@ -128,7 +129,6 @@ async fn create_test_tenant_user(database: &Database, email: &str, tier: UserTie
         display_name: Some(format!("Test User ({email})")),
         password_hash: "test_hash".to_owned(),
         tier,
-        strava_token: None,
         is_active: true,
         user_status: UserStatus::Active,
         role: UserRole::User,

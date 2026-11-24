@@ -490,7 +490,6 @@ fn without_grant_claim(world: &World, client: &Client, token: &str) -> String {
                 audience: None,
             },
             &world.user.id,
-            &[],
             Some(world.tenant_id.clone()),
         )
         .unwrap()

@@ -33,7 +33,7 @@ pub(super) async fn handle_list_versions<C: AgentsCtx + MiddlewareCtx>(
     Query(query): Query<ListVersionsQuery>,
 ) -> Result<Response, AppError> {
     let auth = auth.into_inner();
-    let tenant_id = super::get_user_tenant(&auth)?;
+    let tenant_id = super::get_user_tenant(&auth, &ctx).await?;
 
     let manager = super::get_agents_manager(&ctx);
     // Authorization: reading version history exposes the agent's private content
@@ -79,7 +79,7 @@ pub(super) async fn handle_revert_version<C: AgentsCtx + MiddlewareCtx>(
     Path((id, version)): Path<(String, i32)>,
 ) -> Result<Response, AppError> {
     let auth = auth.into_inner();
-    let tenant_id = super::get_user_tenant(&auth)?;
+    let tenant_id = super::get_user_tenant(&auth, &ctx).await?;
 
     let manager = super::get_agents_manager(&ctx);
     let agent = manager
@@ -108,7 +108,7 @@ pub(super) async fn handle_diff_version<C: AgentsCtx + MiddlewareCtx>(
     Path((id, version)): Path<(String, i32)>,
 ) -> Result<Response, AppError> {
     let auth = auth.into_inner();
-    let tenant_id = super::get_user_tenant(&auth)?;
+    let tenant_id = super::get_user_tenant(&auth, &ctx).await?;
 
     let manager = super::get_agents_manager(&ctx);
 

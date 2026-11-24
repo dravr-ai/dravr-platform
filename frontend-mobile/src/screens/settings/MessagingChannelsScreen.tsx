@@ -1,11 +1,13 @@
 // ABOUTME: Messaging channels pane — two Sections, the chat apps linked to the account and the ones still available to link
-// ABOUTME: Unlink and connect are ink words on the trailing side of a 52 row; no card, no filled button (Boreal v2.2 Phase 4)
+// ABOUTME: Unlink and connect are ink words on the trailing side of a 52 row; no card, no filled button
 
 import React, { useCallback, useState } from 'react';
 import { View, Text, ActivityIndicator, Alert } from 'react-native';
 import { EmptyState, PaneScrollView, Row, Section } from '../../components/ui';
 import { useFocusEffect } from 'expo-router';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { AvailableChannel, ChannelLink } from '@pierre/api-client';
+import { QUERY_KEYS } from '@pierre/shared-constants';
 import { spacing, useThemeColors } from '../../constants/theme';
 import { messagingApi } from '../../services/api';
 import { useTranslation } from '@pierre/i18n';
@@ -29,31 +31,38 @@ export function MessagingChannelsScreen() {
   const { t } = useTranslation();
   const colors = useThemeColors();
 
-  const [links, setLinks] = useState<ChannelLink[]>([]);
-  const [available, setAvailable] = useState<AvailableChannel[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+  // The linked chat apps and the ones this deployment offers, on the keys the
+  // chat-app sheet and the group offer read them on.
+  const linksQuery = useQuery({
+    queryKey: QUERY_KEYS.messaging.links(),
+    queryFn: () => messagingApi.listLinks(),
+  });
+  const channelsQuery = useQuery({
+    queryKey: QUERY_KEYS.messaging.availableChannels(),
+    queryFn: () => messagingApi.getAvailableChannels(),
+  });
+  const links: ChannelLink[] = linksQuery.data ?? [];
+  const available: AvailableChannel[] = channelsQuery.data ?? [];
+  const isLoading = linksQuery.isPending || channelsQuery.isPending;
+  // A failed read is said rather than drawn as an empty list, which would
+  // read as "no channels linked" and invite someone to re-link one they
+  // already have.
+  const loadError = linksQuery.error ?? channelsQuery.error;
+  const error = loadError ? describeApiError(loadError, { t, fallbackKey: 'app.failedLoadChannels' }) : null;
   const [busyChannel, setBusyChannel] = useState<string | null>(null);
 
+  const { refetch: refetchLinks } = linksQuery;
+  const { refetch: refetchChannels } = channelsQuery;
+  // Bring both lists up to date, joining a read already in flight.
   const load = useCallback(async () => {
-    try {
-      setIsLoading(true);
-      setError(null);
-      const [linked, channels] = await Promise.all([
-        messagingApi.listLinks(),
-        messagingApi.getAvailableChannels(),
-      ]);
-      setLinks(linked);
-      setAvailable(channels);
-    } catch (err) {
-      // Surface the failure rather than rendering an empty list, which would
-      // read as "no channels linked" and invite someone to re-link one they
-      // already have.
-      setError(describeApiError(err, { t, fallbackKey: 'app.failedLoadChannels' }));
-    } finally {
-      setIsLoading(false);
-    }
-  }, [t]);
+    await Promise.all([refetchLinks({ cancelRefetch: false }), refetchChannels({ cancelRefetch: false })]);
+  }, [refetchLinks, refetchChannels]);
+  // A link made or removed here: every reader of the linked chat apps asks again.
+  const reloadLinks = useCallback(
+    () => queryClient.invalidateQueries({ queryKey: QUERY_KEYS.messaging.links() }),
+    [queryClient],
+  );
 
   useFocusEffect(
     useCallback(() => {
@@ -84,7 +93,7 @@ export function MessagingChannelsScreen() {
         const link = await messagingApi.initLink(channel.channel, returnUri);
         if (link.method === 'oauth') {
           if (await runOAuthChannelLink(link, returnUri)) {
-            await load();
+            await reloadLinks();
           }
         } else {
           await openExternal(link.linking_url, t);
@@ -116,7 +125,7 @@ export function MessagingChannelsScreen() {
               setBusyChannel(link.channel);
               try {
                 await messagingApi.deleteLink(link.channel);
-                await load();
+                await reloadLinks();
               } catch (err) {
                 const message = describeApiError(err, { t, fallbackKey: 'app.failedUnlinkChannel' });
                 Alert.alert(t('app.couldNotUnlink'), message);

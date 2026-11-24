@@ -6,7 +6,7 @@
 
 import { queryOptions } from '@tanstack/react-query';
 import { adminApi } from '../services/api';
-import { QUERY_KEYS } from '../constants/queryKeys';
+import { QUERY_KEYS } from '@pierre/shared-constants';
 
 /** Whose flags a panel shows: the tenant's defaults, or one user's overrides. */
 export type FeatureFlagScope =

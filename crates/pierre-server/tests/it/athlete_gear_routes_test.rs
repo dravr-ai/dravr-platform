@@ -819,3 +819,41 @@ async fn an_attributed_distance_follows_the_copy_standing_for_the_workout() {
     );
     assert_eq!(daily["activity_count"], 1, "one workout: {daily}");
 }
+
+/// The gear routes select their tenant as every route does: a session that
+/// names none reads the athlete's first tenant, and one naming a tenant the
+/// athlete holds no membership in is refused rather than believed.
+#[tokio::test]
+async fn the_ledger_is_read_in_the_tenant_the_athlete_belongs_to() {
+    let resources = common::create_test_server_resources().await.unwrap();
+    let email = format!("gear-tenant-{}@example.com", Uuid::new_v4());
+    let (user_id, user, tenant) =
+        common::create_test_user_with_plan(&resources.agent.database, &email, "starter")
+            .await
+            .unwrap();
+    let session_naming = |claim: Option<String>| Athlete {
+        user_id,
+        tenant,
+        token: resources
+            .auth
+            .auth_manager
+            .generate_token_with_tenant(&user, &resources.auth.jwks_manager, claim)
+            .unwrap(),
+    };
+
+    let unnamed = session_naming(None);
+    let (status, body) = call(&resources, &unnamed, Method::GET, "/api/me/gear", None).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "a session naming no tenant acts in the athlete's first: {body}"
+    );
+
+    let elsewhere = session_naming(Some(TenantId::generate().to_string()));
+    let (status, body) = call(&resources, &elsewhere, Method::GET, "/api/me/gear", None).await;
+    assert_eq!(
+        status,
+        StatusCode::UNAUTHORIZED,
+        "a claimed tenant with no membership row is refused: {body}"
+    );
+}

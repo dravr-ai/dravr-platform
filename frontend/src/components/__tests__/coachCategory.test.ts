@@ -1,35 +1,16 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Pins the one category -> pillar table on the web and the fallback each of its three readers keeps
-// ABOUTME: Pillars take their pillar, recipes nutrition, casing is ignored; the pill falls back to primary, the dot to neutral, the avatar to the primary container
+// ABOUTME: Pins the class each of the web's three category readers derives from the shared pillar table, and its fallback
+// ABOUTME: The pill falls back to primary, the dot to neutral, the avatar to the primary container
 
 import { describe, expect, it } from 'vitest';
 import {
   coachCategoryAvatarClass,
   coachCategoryDotClass,
-  coachCategoryPillar,
   coachCategoryTone,
 } from '../coachCategory';
 import { BADGE_TONE } from '../ui/badgeTone';
-
-describe('coachCategoryPillar', () => {
-  it.each([
-    ['training', 'activity'],
-    ['nutrition', 'nutrition'],
-    ['recipes', 'nutrition'],
-    ['recovery', 'recovery'],
-    ['mobility', 'mobility'],
-    ['Training', 'activity'],
-    ['MOBILITY', 'mobility'],
-  ])('places %s under %s', (category, pillar) => {
-    expect(coachCategoryPillar(category)).toBe(pillar);
-  });
-
-  it.each(['analysis', 'custom', 'strength', ''])('places %s under no pillar', (category) => {
-    expect(coachCategoryPillar(category)).toBeNull();
-  });
-});
 
 describe('the readers derive their class from the pillar and keep their own fallback', () => {
   it('draws an admin pill in the pillar tone, or primary', () => {

@@ -10,7 +10,8 @@
                                         (nginx-routing-check.sh's snapshot)
     backend-routes.py routes [ROOT]     every full route as PATH<TAB>FILE:LINE,
                                         one line per declaration
-                                        (check-phantom-surfaces.sh Scan 4)
+                                        (check-phantom-surfaces.sh Scan 4 and
+                                        its --all-routes mode)
 
 Why this is not a grep
 ----------------------
@@ -54,6 +55,17 @@ them fails silent — a route the scan cannot read is a route no gate checks:
 * the scan finds at least one route.
 
 Any violation exits 2 with the sites named, rather than printing a partial list.
+
+What is not a route
+-------------------
+A ``.route(`` in a comment (a doc example) and one inside a file's trailing
+``#[cfg(test)] mod … {`` (a router a unit test builds, or the stand-in server
+it calls) serve no traffic, so both are blanked before the scan. ``/``,
+``/{id}`` and ``/{bot}/getMe`` were listed as backend routes that way. The test
+module is the column-0 inline module ADR-027 prescribes, blanked from its
+``#[cfg(test)]`` to the column-0 ``}`` that closes it and no further: whatever
+follows a test module is still read, so a module that is not the file's last
+item cannot hide the routes declared after it.
 """
 
 from __future__ import annotations
@@ -76,6 +88,42 @@ CALL = re.compile(r"(\w+)\s*(?:::<[^>]*>)?\s*\(")
 FN = re.compile(
     r"^[ \t]*(?:pub(?:\([^)]*\))?\s+)?(?:const\s+)?(?:async\s+)?fn\s+(\w+)", re.M
 )
+
+
+# A whole-line comment: `//`, `///` or `//!` after optional indentation.
+COMMENT_LINE = re.compile(r"^[ \t]*//.*$", re.M)
+# The trailing unit-test module: a column-0 `#[cfg(test)]`, any further
+# attributes, then an inline `mod name {`.
+TEST_MODULE = re.compile(
+    r"^#\[cfg\(test\)\][ \t]*\n(?:#\[[^\n]*\n)*(?:pub(?:\([a-z]+\))? )?mod \w+ \{", re.M
+)
+
+
+def _blank(match: re.Match[str]) -> str:
+    return re.sub(r"[^\n]", " ", match.group(0))
+
+
+# The column-0 `}` that closes a column-0 item.
+ITEM_END = re.compile(r"^\}", re.M)
+
+
+def production_text(text: str) -> str:
+    """`text` with comments and every inline unit-test module blanked.
+
+    Blanked rather than cut, so every offset still maps to its own line. A
+    module is blanked up to its own closing brace, never to the end of the
+    file: production code after it stays in the scan.
+    """
+    position = 0
+    while module := TEST_MODULE.search(text, position):
+        close = ITEM_END.search(text, module.end())
+        position = close.end() if close else len(text)
+        text = (
+            text[: module.start()]
+            + re.sub(r"[^\n]", " ", text[module.start() : position])
+            + text[position:]
+        )
+    return COMMENT_LINE.sub(_blank, text)
 
 
 class ScanError(RuntimeError):
@@ -151,7 +199,7 @@ def scan(root: Path) -> list[tuple[str, str, int]]:
     nests: list[tuple[str, str, str, int, str, int, str]] = []
 
     for path in source_files(root):
-        text = path.read_text(errors="ignore")
+        text = production_text(path.read_text(errors="ignore"))
         rel = str(path.relative_to(root))
         fns = [(m.start(), m.group(1)) for m in FN.finditer(text)]
         for _, fn in fns:

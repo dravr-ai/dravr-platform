@@ -38,7 +38,7 @@ pub(super) async fn handle_admin_list<C: AgentsCtx + MiddlewareCtx>(
 ) -> Result<Response, AppError> {
     let auth = auth.into_inner();
     require_admin(auth.user_id, &ctx.repos().users).await?;
-    let tenant_id = super::get_user_tenant(&auth)?;
+    let tenant_id = super::get_user_tenant(&auth, &ctx).await?;
 
     let manager = super::get_agents_manager(&ctx);
     let agents = manager.list_system_agents(tenant_id).await?;
@@ -69,7 +69,7 @@ pub(super) async fn handle_admin_create<C: AgentsCtx + MiddlewareCtx>(
 ) -> Result<Response, AppError> {
     let auth = auth.into_inner();
     require_admin(auth.user_id, &ctx.repos().users).await?;
-    let tenant_id = super::get_user_tenant(&auth)?;
+    let tenant_id = super::get_user_tenant(&auth, &ctx).await?;
 
     let manager = super::get_agents_manager(&ctx);
     let agent = manager
@@ -88,7 +88,7 @@ pub(super) async fn handle_admin_get<C: AgentsCtx + MiddlewareCtx>(
 ) -> Result<Response, AppError> {
     let auth = auth.into_inner();
     require_admin(auth.user_id, &ctx.repos().users).await?;
-    let tenant_id = super::get_user_tenant(&auth)?;
+    let tenant_id = super::get_user_tenant(&auth, &ctx).await?;
 
     let manager = super::get_agents_manager(&ctx);
     let agent = manager
@@ -109,7 +109,7 @@ pub(super) async fn handle_admin_update<C: AgentsCtx + MiddlewareCtx>(
 ) -> Result<Response, AppError> {
     let auth = auth.into_inner();
     require_admin(auth.user_id, &ctx.repos().users).await?;
-    let tenant_id = super::get_user_tenant(&auth)?;
+    let tenant_id = super::get_user_tenant(&auth, &ctx).await?;
 
     let manager = super::get_agents_manager(&ctx);
     let request: UpdateAgentRequest = body.into();
@@ -148,7 +148,7 @@ pub(super) async fn handle_admin_delete<C: AgentsCtx + MiddlewareCtx>(
 ) -> Result<Response, AppError> {
     let auth = auth.into_inner();
     require_admin(auth.user_id, &ctx.repos().users).await?;
-    let tenant_id = super::get_user_tenant(&auth)?;
+    let tenant_id = super::get_user_tenant(&auth, &ctx).await?;
 
     let manager = super::get_agents_manager(&ctx);
     let deleted = manager.delete_system_agent(&id, tenant_id).await?;
@@ -172,7 +172,7 @@ pub(super) async fn handle_admin_assign<C: AgentsCtx + MiddlewareCtx>(
 ) -> Result<Response, AppError> {
     let auth = auth.into_inner();
     require_admin(auth.user_id, &ctx.repos().users).await?;
-    let tenant_id = super::get_user_tenant(&auth)?;
+    let tenant_id = super::get_user_tenant(&auth, &ctx).await?;
 
     let manager = super::get_agents_manager(&ctx);
 
@@ -231,7 +231,7 @@ pub(super) async fn handle_admin_unassign<C: AgentsCtx + MiddlewareCtx>(
 ) -> Result<Response, AppError> {
     let auth = auth.into_inner();
     require_admin(auth.user_id, &ctx.repos().users).await?;
-    let tenant_id = super::get_user_tenant(&auth)?;
+    let tenant_id = super::get_user_tenant(&auth, &ctx).await?;
 
     let manager = super::get_agents_manager(&ctx);
 
@@ -266,7 +266,7 @@ pub(super) async fn handle_admin_list_assignments<C: AgentsCtx + MiddlewareCtx>(
 ) -> Result<Response, AppError> {
     let auth = auth.into_inner();
     require_admin(auth.user_id, &ctx.repos().users).await?;
-    let tenant_id = super::get_user_tenant(&auth)?;
+    let tenant_id = super::get_user_tenant(&auth, &ctx).await?;
 
     let manager = super::get_agents_manager(&ctx);
 
@@ -297,7 +297,7 @@ pub(super) async fn handle_admin_store_stats<C: AgentsCtx + MiddlewareCtx>(
 ) -> Result<Response, AppError> {
     let auth = auth.into_inner();
     require_admin(auth.user_id, &ctx.repos().users).await?;
-    let tenant_id = super::get_user_tenant(&auth)?;
+    let tenant_id = super::get_user_tenant(&auth, &ctx).await?;
 
     let store_manager = super::get_store_manager(&ctx);
     let stats = store_manager.get_store_admin_stats(tenant_id).await?;
@@ -321,7 +321,7 @@ pub(super) async fn handle_admin_review_queue<C: AgentsCtx + MiddlewareCtx + Too
 ) -> Result<Response, AppError> {
     let auth = auth.into_inner();
     require_admin(auth.user_id, &MiddlewareCtx::repos(ctx.as_ref()).users).await?;
-    let tenant_id = super::get_user_tenant(&auth)?;
+    let tenant_id = super::get_user_tenant(&auth, &ctx).await?;
 
     let store_manager = super::get_store_manager(&ctx);
     let agents = store_manager
@@ -386,7 +386,7 @@ pub(super) async fn handle_admin_rejected<C: AgentsCtx + MiddlewareCtx + ToolRun
 ) -> Result<Response, AppError> {
     let auth = auth.into_inner();
     require_admin(auth.user_id, &MiddlewareCtx::repos(ctx.as_ref()).users).await?;
-    let tenant_id = super::get_user_tenant(&auth)?;
+    let tenant_id = super::get_user_tenant(&auth, &ctx).await?;
 
     let store_manager = super::get_store_manager(&ctx);
     let agents = store_manager
@@ -415,7 +415,7 @@ pub(super) async fn handle_admin_approve<C: AgentsCtx + MiddlewareCtx>(
 ) -> Result<Response, AppError> {
     let auth = auth.into_inner();
     require_admin(auth.user_id, &ctx.repos().users).await?;
-    let tenant_id = super::get_user_tenant(&auth)?;
+    let tenant_id = super::get_user_tenant(&auth, &ctx).await?;
 
     let store_manager = super::get_store_manager(&ctx);
     store_manager
@@ -440,7 +440,7 @@ pub(super) async fn handle_admin_reject<C: AgentsCtx + MiddlewareCtx>(
 ) -> Result<Response, AppError> {
     let auth = auth.into_inner();
     require_admin(auth.user_id, &ctx.repos().users).await?;
-    let tenant_id = super::get_user_tenant(&auth)?;
+    let tenant_id = super::get_user_tenant(&auth, &ctx).await?;
 
     let rejection_reason =
         agents_service::format_rejection_reason(&body.reason, body.notes.as_deref());
@@ -467,7 +467,7 @@ pub(super) async fn handle_admin_unpublish<C: AgentsCtx + MiddlewareCtx>(
 ) -> Result<Response, AppError> {
     let auth = auth.into_inner();
     require_admin(auth.user_id, &ctx.repos().users).await?;
-    let tenant_id = super::get_user_tenant(&auth)?;
+    let tenant_id = super::get_user_tenant(&auth, &ctx).await?;
 
     let store_manager = super::get_store_manager(&ctx);
     store_manager.unpublish_agent(&id, tenant_id).await?;

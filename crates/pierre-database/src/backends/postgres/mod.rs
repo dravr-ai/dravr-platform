@@ -220,6 +220,7 @@ pub mod worker_runs;
 /// Endurance user-authored `workout_templates` repository (Postgres)
 pub mod workout_templates;
 
+use super::shared::encryption::DekKeys;
 use super::{shared, DatabaseProvider};
 use crate::database::system_settings::{SystemSetting, SETTING_AUTO_APPROVAL_ENABLED};
 use crate::repositories::system_settings::{
@@ -372,24 +373,13 @@ impl PostgresDatabase {
         self.encryption_key = active_key;
     }
 
-    /// Resolve the DEK bytes for a given ciphertext version.
-    ///
-    /// Returns the active DEK for the active version, a retained prior DEK for an
-    /// older version, or an error if no key for that version is held.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if no DEK is available for `version`.
-    fn dek_key_for_version(&self, version: u32) -> AppResult<&[u8]> {
-        if version == self.active_dek_version {
-            Ok(&self.encryption_key)
-        } else if let Some(key) = self.prior_dek_versions.get(&version) {
-            Ok(key)
-        } else {
-            Err(AppError::database(format!(
-                "No DEK available for ciphertext version {version} (active version is {})",
-                self.active_dek_version
-            )))
+    /// The DEKs this database holds, borrowed for one envelope operation:
+    /// the active DEK for new ciphertext, the retained prior ones to decrypt.
+    fn dek_keys(&self) -> DekKeys<'_> {
+        DekKeys {
+            active_version: self.active_dek_version,
+            active_key: &self.encryption_key,
+            prior_versions: &self.prior_dek_versions,
         }
     }
 }

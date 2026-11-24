@@ -116,10 +116,12 @@ async fn change_admin(
     (response.status(), response.text())
 }
 
-async fn list_admins(resources: &Arc<ServerContext>, bearer: &str) -> (u16, String) {
-    let response = AxumTestRequest::get("/api/admin/admins")
+/// The console's listing of every account, as the session `bearer` is; the
+/// roster of admins is the rows of it that hold the role.
+async fn list_users(resources: &Arc<ServerContext>, bearer: &str) -> (u16, String) {
+    let response = AxumTestRequest::get("/api/admin/users?status=all")
         .header("authorization", bearer)
-        .send(WebAdminRoutes::routes(resources.web_admin_context()))
+        .send(console(resources))
         .await;
     (response.status(), response.text())
 }
@@ -212,7 +214,7 @@ async fn an_admin_promotes_a_user_who_then_manages_admins() {
     let (first, first_auth) = account(&resources, "first@example.com", UserRole::Admin).await;
     let (second, second_auth) = account(&resources, "second@example.com", UserRole::User).await;
 
-    let (status, body) = list_admins(&resources, &second_auth).await;
+    let (status, body) = list_users(&resources, &second_auth).await;
     assert_eq!(status, 403, "a user reads no admin roster: {body}");
 
     let (status, body) = change_admin(&resources, &first_auth, second.id, "promote").await;
@@ -228,15 +230,19 @@ async fn an_admin_promotes_a_user_who_then_manages_admins() {
 
     // The session `second` held as a user is an admin's from this request on:
     // the role is read from the row, never from the token.
-    let (status, body) = list_admins(&resources, &second_auth).await;
+    let (status, body) = list_users(&resources, &second_auth).await;
     assert_eq!(status, 200, "the promoted account reads the roster: {body}");
-    let roster: Value = serde_json::from_str(&body).unwrap();
-    assert_eq!(roster["count"], 2, "{roster}");
+    let listing: Value = serde_json::from_str(&body).unwrap();
+    let roster: Vec<&Value> = listing["data"]["users"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|account| account["is_admin"] == true)
+        .collect();
+    assert_eq!(roster.len(), 2, "{listing}");
     assert!(
-        roster["admins"]
-            .as_array()
-            .is_some_and(|admins| admins.iter().all(|a| a["role"] == "admin")),
-        "one admin role is listed, and only it: {roster}"
+        roster.iter().all(|admin| admin["role"] == "admin"),
+        "one admin role is listed, and only it: {listing}"
     );
 
     let (status, body) = change_admin(&resources, &second_auth, first.id, "demote").await;
@@ -247,7 +253,7 @@ async fn an_admin_promotes_a_user_who_then_manages_admins() {
     let row = stored(&resources, first.id).await;
     assert_eq!(row.role, UserRole::User);
 
-    let (status, body) = list_admins(&resources, &first_auth).await;
+    let (status, body) = list_users(&resources, &first_auth).await;
     assert_eq!(status, 403, "a demoted admin reads no roster: {body}");
     let (status, body) = change_admin(&resources, &first_auth, first.id, "promote").await;
     assert_eq!(

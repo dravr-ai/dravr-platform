@@ -167,7 +167,6 @@ async fn update_existing_user(
         password_hash: hash(password, DEFAULT_COST)
             .map_err(|e| AppError::internal(format!("bcrypt error: {e}")))?,
         tier,
-        strava_token: existing_user.strava_token,
         is_active: true,
         user_status: UserStatus::Active,
         role,
@@ -292,7 +291,6 @@ fn build_user(
         display_name: Some(name.to_owned()),
         password_hash,
         tier: created_tier(role),
-        strava_token: None,
         is_active: true,
         user_status: UserStatus::Active,
         role,

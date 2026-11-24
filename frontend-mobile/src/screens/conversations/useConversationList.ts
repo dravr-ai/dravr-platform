@@ -55,6 +55,38 @@ export function patchCachedConversation(
   });
 }
 
+/**
+ * Put a conversation the server just created at the head of the cached list,
+ * so whoever opened it finds its row before the next read lands. With no list
+ * read yet the row is the list until that read answers; a row already cached
+ * is replaced where it is.
+ */
+export function addCachedConversation(queryClient: QueryClient, created: Conversation): void {
+  queryClient.setQueryData<ConversationPages>(QUERY_KEYS.chat.conversations(), (data) => {
+    if (!data || data.pages.length === 0) {
+      return { pages: [{ conversations: [created], total: 1 }], pageParams: [0] };
+    }
+    const known = data.pages.some((page) => page.conversations.some((row) => row.id === created.id));
+    if (known) {
+      return {
+        ...data,
+        pages: data.pages.map((page) => ({
+          ...page,
+          conversations: page.conversations.map((row) => (row.id === created.id ? created : row)),
+        })),
+      };
+    }
+    const [first, ...rest] = data.pages;
+    return {
+      ...data,
+      pages: [
+        { ...first, conversations: [created, ...first.conversations], total: first.total + 1 },
+        ...rest,
+      ],
+    };
+  });
+}
+
 function loadedCount(pages: readonly ConversationsResponse[]): number {
   return pages.reduce((count, page) => count + (page.conversations?.length ?? 0), 0);
 }

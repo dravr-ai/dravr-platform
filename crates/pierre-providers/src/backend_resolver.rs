@@ -8,11 +8,13 @@
 //!
 //! Some fitness services have more than one auth backend inside Pierre:
 //!
-//! - `strava` (OAuth against Strava's public API) and `sciotte` (web-scraping
-//!   of the user's logged-in Strava session via dravr-sciotte)
-//! - `garmin` (OAuth) and `sciotte_garmin` (web-scraping of Garmin Connect)
-//! - `trainingpeaks` (a name only — TrainingPeaks' partner API is closed, so
-//!   no OAuth backend exists) and `sciotte_trainingpeaks` (web-scraping of the
+//! - `strava` (OAuth against Strava's public API) and `sciotte` (reads the
+//!   athlete's own data from their signed-in Strava session, with their
+//!   consent, via dravr-sciotte)
+//! - `garmin` (OAuth) and `sciotte_garmin` (the same read of the athlete's
+//!   signed-in Garmin Connect session)
+//! - `trainingpeaks` (a name only — no OAuth backend exists) and
+//!   `sciotte_trainingpeaks` (the same read of the athlete's signed-in
 //!   TrainingPeaks calendar)
 //!
 //! From the user's point of view there is only one provider — "Strava",

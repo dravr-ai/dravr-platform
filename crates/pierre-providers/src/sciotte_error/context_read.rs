@@ -4,12 +4,12 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! The scraper answers a context read the provider refused with a `500` whose
-//! marker is the scraper's own error text. A `429` or `5xx` the provider
+//! The sciotte service answers a context read the provider refused with a `500` whose
+//! marker is the service's own error text. A `429` or `5xx` the provider
 //! answered (`network error: … answered HTTP 429`) is a refusal that may pass a
 //! moment later, so it is reported as one: [`ErrorCode::ExternalRateLimited`]
 //! for the `429`, [`ErrorCode::ExternalServiceUnavailable`] for the `5xx`. A
-//! bare `429` from anything in front of the scraper is the same rate limit.
+//! bare `429` from anything in front of the service is the same rate limit.
 //!
 //! Everything else on these operations keeps its ordinary mapping
 //! ([`super::to_app_error_as`]): a dead session is an auth error, a shed is

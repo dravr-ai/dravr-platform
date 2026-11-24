@@ -8,6 +8,7 @@ import { clsx } from 'clsx';
 import { ChevronLeft } from 'lucide-react';
 import type { CoachRosterAthlete, CoachRosterGroup } from '@pierre/shared-types';
 import { useTranslation } from '@pierre/i18n';
+import { providerName } from '@pierre/shared-constants';
 import {
   agentCell,
   agentCellNeedsLook,
@@ -20,7 +21,6 @@ import {
   nonSharerStatusWords,
   planWords,
   providerLetter,
-  providerName,
   sourceChipWords,
   sourceChips,
   threadWords,

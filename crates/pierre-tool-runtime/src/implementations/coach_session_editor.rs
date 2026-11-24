@@ -94,7 +94,7 @@ pub use day_edits::{
     add_draft_session, remove_draft_day, restore_draft_day, save_draft_hand_day, AddedSession,
     HandDay,
 };
-use sessions::{placed, stamp_edit, written_index};
+use sessions::{expected_index, placed, stamp_edit};
 pub use sessions::{SessionAt, SessionExpect};
 
 /// A session as the coach builds it: what the preview measures and the
@@ -671,11 +671,9 @@ pub async fn preview_session(
     .await
 }
 
-/// Save `build` as a session on `date` of the coach's draft of the athlete's plan.
-///
-/// It goes over the session `at` names, or, with no `at`, over the date's
-/// first entry — a new one where the date holds none — as the released app
-/// builds write it (carnet#1515).
+/// Save `build` over the session `at` names on `date` of the coach's draft
+/// of the athlete's plan. A position that no longer holds that session
+/// writes nothing ([`DraftDayOutcome::SessionMoved`]).
 ///
 /// The week holding `date` is read from the draft — over the live plan when
 /// the coach holds none, which the save then opens it from — and that
@@ -696,7 +694,7 @@ pub async fn save_draft_day(
     runtime: &Arc<dyn ToolRuntime>,
     thread: &EditorThread,
     date: CivilDate,
-    at: Option<&SessionAt>,
+    at: &SessionAt,
     build: &SessionBuild,
 ) -> AppResult<DraftDayOutcome> {
     let repos = runtime.repos();
@@ -708,18 +706,18 @@ pub async fn save_draft_day(
             Err(outcome) => return Ok(outcome),
         };
         let dated = date.to_string();
-        let index = match written_index(&week.days, &dated, at) {
+        let index = match expected_index(&week.days, &dated, at) {
             Ok(index) => index,
             Err(outcome) => return Ok(outcome),
         };
         let catalogue = writer_catalogue(runtime, &thread.writer).await?;
         let anchors = stored_athlete_anchors(repos, target.tenant(), target.athlete()).await?;
-        let replaced = index.and_then(|index| week.days.get(index));
-        let position = at.map_or(0, |at| at.position);
+        let replaced = week.days.get(index);
+        let position = at.position;
         let label = sport_label(replaced, build.sport);
         let mut made = build_day(&catalogue, build, date, position, label, anchors.as_ref())?;
         stamp_edit(&mut made.day, replaced);
-        let days = placed(&week.days, index, made.day)?;
+        let days = placed(&week.days, Some(index), made.day)?;
         let saved = save_days_into_week(repos, thread, &week, &days).await?;
         info!(
             athlete_user_id = %target.athlete(),

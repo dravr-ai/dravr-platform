@@ -10,8 +10,8 @@
 //!
 //! - **open** — the kill switch. Closed, every self-serve door refuses: the
 //!   public register form, the messaging link page, in-chat sign-up and a
-//!   first Google sign-in. An admin's own doors (the admin register route,
-//!   an invitation) stay open, since an admin vouches for those accounts.
+//!   first Google sign-in. An admin's own door (an invitation) stays
+//!   open, since an admin vouches for those accounts.
 //! - **daily limit** — the most accounts self-serve sign-up admits in any 24
 //!   hours. Counted from the `users` table, whatever created the rows, because
 //!   that is the one count every replica and every deploy agrees on.

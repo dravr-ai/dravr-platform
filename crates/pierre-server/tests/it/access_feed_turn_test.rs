@@ -508,7 +508,6 @@ async fn an_a2a_text_message_through_the_door_names_the_agents_client_on_its_row
                 audience: None,
             },
             &f.user,
-            &[],
             Some(f.tenant.to_string()),
         )
         .unwrap();

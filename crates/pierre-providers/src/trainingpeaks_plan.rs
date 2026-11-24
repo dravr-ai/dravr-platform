@@ -1,4 +1,4 @@
-// ABOUTME: A TrainingPeaks planned workout, as sciotte scrapes it, in the periodization step grammar
+// ABOUTME: A TrainingPeaks planned workout, as sciotte reads it from the athlete's session, in the periodization step grammar
 // ABOUTME: Blocks become numbered sets, each step's target a RelativeIntensity label, or none when the grammar cannot hold it
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0

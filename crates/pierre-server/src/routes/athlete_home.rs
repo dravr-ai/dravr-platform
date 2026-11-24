@@ -118,6 +118,7 @@ mod volume;
 
 use pierre_core::ai_policy::first_party_only;
 use pierre_core::transport::TransportPolicy;
+use pierre_runtime_context::require_tenant;
 use std::iter;
 use std::sync::Arc;
 
@@ -567,7 +568,7 @@ async fn get_recent_activities(
     Query(query): Query<RecentActivitiesQuery>,
 ) -> AppResult<Json<RecentActivitiesResponse>> {
     let user_id = auth.user_id;
-    let tenant_id = active_tenant(&auth)?;
+    let tenant_id = require_tenant(&resources, &auth).await?;
     let limit = query.limit.map_or(DEFAULT_RECENT_LIMIT, |limit| {
         limit.clamp(MIN_RECENT_LIMIT, MAX_RECENT_LIMIT)
     });
@@ -739,7 +740,7 @@ async fn get_activity_route(
     Query(query): Query<ActivityRouteQuery>,
 ) -> AppResult<Json<ActivityRouteResponse>> {
     let user_id = auth.user_id;
-    let tenant_id = active_tenant(&auth)?;
+    let tenant_id = require_tenant(&resources, &auth).await?;
     let (stored_provider, activity) =
         owned_cached_activity(&resources, user_id, tenant_id, &provider, &activity_id).await?;
     let runtime = into_runtime(&resources);
@@ -786,7 +787,7 @@ async fn get_activity_detail(
     Path((provider, activity_id)): Path<(String, String)>,
 ) -> AppResult<Json<ActivityDetailResponse>> {
     let user_id = auth.user_id;
-    let tenant_id = active_tenant(&auth)?;
+    let tenant_id = require_tenant(&resources, &auth).await?;
     // The ownership check: the caller's own row, in this tenant, or 404.
     let (stored_provider, activity) =
         owned_cached_activity(&resources, user_id, tenant_id, &provider, &activity_id).await?;
@@ -960,7 +961,7 @@ async fn put_activity_conversation(
     Json(link): Json<ActivityConversationLink>,
 ) -> AppResult<Json<ActivityConversationLink>> {
     let user_id = auth.user_id;
-    let tenant_id = active_tenant(&auth)?;
+    let tenant_id = require_tenant(&resources, &auth).await?;
     let (stored_provider, activity) =
         owned_cached_activity(&resources, user_id, tenant_id, &provider, &activity_id).await?;
     // The thread is about the activity throughout: it carries the activity's
@@ -1065,7 +1066,7 @@ async fn get_training_plan(
     Query(query): Query<TrainingPlanQuery>,
 ) -> AppResult<Json<TrainingPlanResponse>> {
     let user_id = auth.user_id;
-    let tenant_id = active_tenant(&auth)?;
+    let tenant_id = require_tenant(&resources, &auth).await?;
     let repos = resources.repos();
     let user = repos.users.get_global(user_id).await?;
     // The athlete's civil day, the one `/plan` projects the plan on: a 23:30
@@ -1094,7 +1095,7 @@ async fn get_training_status(
     auth: AuthenticatedUser,
 ) -> AppResult<Json<TrainingStatus>> {
     let user_id = auth.user_id;
-    let tenant_id = active_tenant(&auth)?;
+    let tenant_id = require_tenant(&resources, &auth).await?;
     let user = resources.repos().users.get_global(user_id).await?;
     // The athlete's civil day: form on a day is read at the end of the day
     // before, so the server's date would show a different reading for every
@@ -1105,14 +1106,4 @@ async fn get_training_status(
     );
     let status = training_status(&into_runtime(&resources), tenant_id, user_id, today).await?;
     Ok(Json(status))
-}
-
-fn active_tenant(auth: &AuthenticatedUser) -> AppResult<TenantId> {
-    auth.active_tenant_id
-        .map(TenantId::from_uuid)
-        .ok_or_else(|| {
-            AppError::auth_invalid(
-                "Home endpoints require an active tenant in the JWT — switch tenant first",
-            )
-        })
 }

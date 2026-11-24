@@ -6,9 +6,8 @@
 
 import { useState } from 'react';
 import { AlertTriangle, X, Ban } from 'lucide-react';
-import type { WarningLevel } from '../../hooks/useUsageStatus';
+import type { TranslatableText, WarningLevel } from '@pierre/chat-utils';
 import { useTranslation } from '@pierre/i18n';
-import type { TranslatableText } from '@pierre/chat-utils';
 import { ALERT_TONE } from '../ui';
 
 interface UsageWarningBannerProps {

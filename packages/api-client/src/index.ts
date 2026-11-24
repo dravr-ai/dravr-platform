@@ -109,7 +109,6 @@ export type {
   McpToken,
   McpTokensResponse,
   CreateMcpTokenRequest,
-  UserOAuthApp,
   SaveLlmCredentialsRequest,
   SaveLlmCredentialsResponse,
   MemoryFactRow,

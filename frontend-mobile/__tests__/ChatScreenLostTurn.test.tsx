@@ -52,22 +52,22 @@ jest.mock('../src/services/api', () => ({
 // other hooks hand back the same state on every render, as the real ones do —
 // the screen reloads the thread whenever the open conversation changes
 // identity, so a fresh object per render would reload it forever.
-jest.mock('../src/screens/chat/useConversations', () => {
+jest.mock('../src/screens/chat/useOpenConversation', () => {
   const conversation = { id: 'conv-1', title: 'Half marathon' };
   const state = {
     conversations: [conversation],
+    openId: conversation.id,
     currentConversation: conversation,
     isLoading: false,
-    error: null,
-    loadConversations: jest.fn(),
-    setCurrentConversation: jest.fn(),
+    refresh: jest.fn(),
+    openConversation: jest.fn(),
     createConversation: jest.fn(),
     switchToConversation: jest.fn(),
     deleteConversation: jest.fn(),
     renameConversation: jest.fn(),
     justCreatedConversationRef: { current: null },
   };
-  return { useConversations: () => state };
+  return { useOpenConversation: () => state };
 });
 jest.mock('../src/screens/chat/useProviderStatus', () => {
   const state = {

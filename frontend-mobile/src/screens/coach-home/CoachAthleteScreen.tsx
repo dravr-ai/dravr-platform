@@ -16,6 +16,7 @@ import {
   COACH_UNVERIFIED_KEYS,
   FORM_BAND_LABEL_KEY,
   countKey,
+  providerName,
 } from '@pierre/shared-constants';
 import { formatList } from '@pierre/chat-utils';
 import { useTranslation } from '@pierre/i18n';
@@ -32,7 +33,6 @@ import {
   endedPlan,
   formatSyncTime,
   localToday,
-  providerName,
   sourceChips,
   type QueueEntry,
 } from '@pierre/ui-logic';

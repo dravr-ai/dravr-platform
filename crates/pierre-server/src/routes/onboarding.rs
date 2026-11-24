@@ -37,6 +37,8 @@ use pierre_core::errors::AppError;
 use pierre_core::models::TenantId;
 use pierre_middleware::extract_auth_from_headers;
 use pierre_middleware::extractors::AuthenticatedUser;
+use pierre_runtime_context::require_tenant;
+use pierre_runtime_context::{resolve_tenant, TenantMode};
 use pierre_services::intake::{self, INTAKE_TOPICS};
 use pierre_services::invitation::STEP_COACH_SEAT;
 use pierre_services::locale::resolve_user_locale;
@@ -160,19 +162,23 @@ pub async fn handle_self_get(
     headers: HeaderMap,
 ) -> Result<Response, AppError> {
     let auth = extract_auth_from_headers(&headers, &resources).await?;
+    // An account mid-signup may not have a tenant yet, and still needs its
+    // routing answer.
+    let tenant = resolve_tenant(&resources, &auth, TenantMode::Optional).await?;
+    let active_tenant = tenant.map(|t| t.as_uuid());
     let has_real_provider = onboarding_gate::user_has_real_provider(
         &resources.common.repos.provider_connections,
         auth.user_id,
     )
     .await?;
-    let has_provider = has_real_provider
-        || imports_own_history(&resources, auth.active_tenant_id, auth.user_id).await;
+    let has_provider =
+        has_real_provider || imports_own_history(&resources, active_tenant, auth.user_id).await;
 
     // Best-effort pillar coverage (D8: onboarding-status reflects coverage-map
-    // state). Reads as zero when there is no active tenant or the dossier can't
+    // state). Reads as zero when the account has no tenant or the dossier can't
     // be composed — never fails the routing gate.
     let (pillars_covered, onboarding_complete) =
-        pillar_coverage(&resources, auth.active_tenant_id, auth.user_id).await;
+        pillar_coverage(&resources, active_tenant, auth.user_id).await;
 
     // Durable per-step onboarding state. Best-effort like pillar coverage: a read
     // error degrades to "no persisted steps" rather than failing the routing gate.
@@ -189,7 +195,7 @@ pub async fn handle_self_get(
     // the connect step to meet. Best-effort like the reads above: a failed
     // write is retried on the next status read.
     if has_real_provider {
-        let tenant_id = auth.active_tenant_id.map(|t| t.to_string());
+        let tenant_id = tenant.map(|t| t.to_string());
         if let Err(e) = onboarding_gate::record_connect_step(
             &resources.common.repos.user_onboarding,
             auth.user_id,
@@ -278,16 +284,6 @@ pub struct ParqSubmitResponse {
     pub flags_raised: u64,
 }
 
-/// The caller's active tenant, which every onboarding answer — the check-in
-/// cadence among them — is stored under.
-pub(super) fn active_tenant(auth: &AuthenticatedUser) -> Result<TenantId, AppError> {
-    auth.active_tenant_id
-        .map(TenantId::from_uuid)
-        .ok_or_else(|| {
-            AppError::auth_invalid("onboarding endpoints require an active tenant in the JWT")
-        })
-}
-
 /// `GET /api/me/parq` — the structured PAR-Q+ questions, in the caller's
 /// language.
 ///
@@ -338,7 +334,7 @@ pub async fn handle_parq_post(
     auth: AuthenticatedUser,
     Json(req): Json<ParqAnswersRequest>,
 ) -> Result<Response, AppError> {
-    let tenant_id = active_tenant(&auth)?;
+    let tenant_id = require_tenant(&resources, &auth).await?;
     let (yes, no): (Vec<ParqAnswer>, Vec<ParqAnswer>) =
         req.answers.into_iter().partition(|a| a.yes);
     let yes_ids: Vec<String> = yes.into_iter().map(|a| a.id).collect();
@@ -395,7 +391,7 @@ pub async fn handle_about_you_post(
     auth: AuthenticatedUser,
     Json(req): Json<AboutYouRequest>,
 ) -> Result<Response, AppError> {
-    let tenant_id = active_tenant(&auth)?;
+    let tenant_id = require_tenant(&resources, &auth).await?;
     let answers = about_you::AboutYouAnswers {
         north_star: req.north_star,
         primary_sport: req.primary_sport,
@@ -505,8 +501,8 @@ pub async fn handle_step_put(
     // The team step, in one order: every agent it names is checked, then
     // each joins, then the lead is selected, then the step is written — so a
     // refused agent leaves nothing behind, and a retry converges.
-    if let Some(active_tenant) = auth.active_tenant_id {
-        let active_tenant = TenantId::from_uuid(active_tenant);
+    let tenant = resolve_tenant(&resources, &auth, TenantMode::Optional).await?;
+    if let Some(active_tenant) = tenant {
         let repos = &resources.common.repos;
         let team = intake::validate_onboarding_team(
             repos,
@@ -534,7 +530,7 @@ pub async fn handle_step_put(
             welcome_lead(&resources, &headers, auth.user_id, active_tenant, lead).await;
         }
     }
-    let tenant_id = auth.active_tenant_id.map(|t| t.to_string());
+    let tenant_id = tenant.map(|t| t.to_string());
     let previous = stored_step_status(&resources, auth.user_id, &step_id).await;
     resources
         .common

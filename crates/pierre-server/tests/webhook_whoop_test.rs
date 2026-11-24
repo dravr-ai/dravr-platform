@@ -27,7 +27,7 @@
 //   registered under the name "whoop", whose fetch returns one sleep
 //   session. That is the strongest assertion available: the sync ran for
 //   THAT user and stored a real row through the platform's stores, so
-//   `last_sync` is stamped and the SSE stream carries the record count.
+//   `last_sync` is stamped.
 #![cfg(all(feature = "health-sync", feature = "provider-whoop"))]
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
@@ -617,9 +617,8 @@ async fn no_configured_secret_verifies_no_event_whatever_the_environment_holds()
 
 /// A signed event for a linked user runs that user's sync: the mock fetch is
 /// called for THAT user, the sleep session it returns is stored through the
-/// platform's sleep store, `last_sync` is stamped and the SSE stream carries
-/// the record count. A handler that validates and logs leaves all of it
-/// untouched.
+/// platform's sleep store and `last_sync` is stamped. A handler that
+/// validates and logs leaves all of it untouched.
 #[tokio::test]
 #[serial]
 async fn signed_event_syncs_the_owning_user() {
@@ -635,11 +634,6 @@ async fn signed_event_syncs_the_owning_user() {
     )
     .await;
     assert_eq!(sleep_rows(&resources, user_id, &tenant_id).await, 0);
-    let mut sse = resources
-        .sse
-        .sse_manager
-        .register_notification_stream(user_id)
-        .await;
 
     let body = whoop_payload("sleep.updated", WHOOP_USER_ID, "sleep-uuid-1");
     let signature = sign(SECRET, &body);
@@ -674,13 +668,6 @@ async fn signed_event_syncs_the_owning_user() {
         .unwrap()
         .expect("last_sync is stamped after a sync that created records");
     assert!(Timestamp::now() - last_sync < Elapsed::minutes(1));
-
-    let message = sse
-        .try_recv()
-        .expect("the owner's SSE stream carries the sync notification");
-    let payload: Value = serde_json::from_str(message.trim_start_matches("data: ").trim()).unwrap();
-    assert_eq!(payload["provider"], "whoop");
-    assert_eq!(payload["message"], "WHOOP data synced (1 records)");
 }
 
 /// Several events for one user in one payload run one sync; the dedupe is

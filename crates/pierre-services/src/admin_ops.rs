@@ -510,23 +510,6 @@ pub struct AdminDemotion {
     pub withdrawn: WithdrawnAdminCredentials,
 }
 
-/// Admin user summary for the admins listing
-#[derive(Debug, Serialize)]
-pub struct AdminUserSummary {
-    /// User ID
-    pub id: String,
-    /// User email
-    pub email: String,
-    /// Display name (optional)
-    pub display_name: Option<String>,
-    /// User role (always `admin`)
-    pub role: String,
-    /// User status (active, pending, suspended)
-    pub user_status: String,
-    /// Account creation timestamp (RFC3339)
-    pub created_at: String,
-}
-
 /// Give `user` the admin role: the write every promotion makes.
 ///
 /// The admin API and the console reach it through
@@ -678,40 +661,6 @@ pub async fn demote_user_from_admin(
         },
         withdrawn,
     })
-}
-
-/// List all admin users across all tenants.
-///
-/// Any admin can view the full admin roster, ordered by email ascending.
-///
-/// # Errors
-///
-/// Returns `PermissionDenied` if the caller is not an admin, or `Internal`
-/// if the admin listing repository call fails.
-pub async fn list_all_admins(
-    data: &DataContext,
-    admin_user_id: Uuid,
-) -> Result<Vec<AdminUserSummary>, AppError> {
-    require_admin(admin_user_id, &data.repos().users).await?;
-
-    let admins = data
-        .repos()
-        .users
-        .list_admins()
-        .await
-        .map_err(|e| AppError::internal(format!("Failed to list admins: {e}")))?;
-
-    Ok(admins
-        .into_iter()
-        .map(|u| AdminUserSummary {
-            id: u.id.to_string(),
-            email: u.email,
-            display_name: u.display_name,
-            role: u.role.as_str().to_owned(),
-            user_status: u.user_status.to_string(),
-            created_at: u.created_at.to_rfc3339(),
-        })
-        .collect())
 }
 
 // =========================================================================
