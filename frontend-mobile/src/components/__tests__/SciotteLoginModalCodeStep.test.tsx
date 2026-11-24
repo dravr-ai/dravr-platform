@@ -83,7 +83,7 @@ describe('SciotteLoginModal (mobile) — the code step', () => {
     sciotteLogin.mockResolvedValueOnce({ status: 'error', error: 'Those credentials did not work.' });
     render(<SciotteLoginModal visible onClose={jest.fn()} onConnected={jest.fn()} target="coros" />);
     signIn();
-    expect(await screen.findByText('Those credentials did not work.')).toBeTruthy();
+    expect(await screen.findByText(/Those credentials did not work\./)).toBeTruthy();
     expect(screen.getByText('Connection Failed')).toBeTruthy();
     expect(screen.queryByText(/Signing in to/)).toBeNull();
   });

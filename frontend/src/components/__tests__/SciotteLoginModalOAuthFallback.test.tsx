@@ -81,7 +81,7 @@ describe('SciotteLoginModal — the OAuth a failed sign-in falls back to', () =>
 
     await signIn();
 
-    expect(await screen.findByText("Couldn't find this account")).toBeInTheDocument();
+    expect(await screen.findByText(/Couldn't find this account/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /try again|retry/i })).toBeInTheDocument();
     const offer = screen.getByTestId('sciotte-oauth-fallback');
     expect(offer).toHaveTextContent('Continue with Garmin');

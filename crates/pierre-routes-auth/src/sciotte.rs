@@ -622,8 +622,12 @@ pub(crate) async fn remote_login_to_response(
         }
         LoginOutcome::Failed { reason } => {
             forget_remote_flow(&resources.cache, tenant_id, user_id).await;
-            info!(
+            // An athlete the provider turned away is stuck until someone
+            // looks: the ops alert reads this line, its provider and reason.
+            warn!(
                 user_id = %user_id,
+                provider = %provider,
+                reason = %reason,
                 "Sciotte remote login rejected by provider (user credentials)"
             );
             Ok(Json(serde_json::json!({"status": "failed", "error": reason})).into_response())

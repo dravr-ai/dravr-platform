@@ -54,6 +54,7 @@ import {
   describeApiError,
   isSignInPhaseLive,
   refusalReason,
+  signInTurnedDown,
   takeoverResult,
   useAbortOnClose,
   useSignInAttempt,
@@ -412,10 +413,10 @@ export function SciotteLoginModal({
       setPhase('takeover');
       setStatus('');
     } else {
-      setError(data.error || t('auth.loginFailed'));
+      setError(signInTurnedDown(t, platformName, data.error, method === 'email' && !preset.directCredentials));
       setPhase('error');
     }
-  }, [onClose, onConnected, t]);
+  }, [method, onClose, onConnected, platformName, preset.directCredentials, t]);
 
   // The sign-in run on the athlete's phone (carnet#1617): the provider's own
   // page in a WebView, on the phone's network, signed in with the athlete's

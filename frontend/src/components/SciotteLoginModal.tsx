@@ -15,6 +15,7 @@ import {
   describeApiError,
   isSignInPhaseLive,
   refusalReason,
+  signInTurnedDown,
   useAbortOnClose,
   useSignInAttempt,
   type TakeoverResult,
@@ -290,11 +291,11 @@ export default function SciotteLoginModal({
         // takes the card's OAuth where it has one: a sign-in that failed is
         // never a dead end.
         setOAuthOffered(onFallBackToOAuth !== undefined);
-        setError(data.error || t('auth.loginFailed'));
+        setError(signInTurnedDown(t, providerLabel, data.error, method === 'email' && !preset.directCredentials));
         setPhase('error');
       }
     },
-    [onClose, onConnected, onFallBackToOAuth, t]
+    [method, onClose, onConnected, onFallBackToOAuth, preset.directCredentials, providerLabel, t]
   );
 
   // The sign-in run in the athlete's own browser: the extension opens the

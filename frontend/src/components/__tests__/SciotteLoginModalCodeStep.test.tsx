@@ -160,7 +160,7 @@ describe('SciotteLoginModal — the code step', () => {
     renderModal();
     const user = userEvent.setup();
     await signIn(user);
-    expect(await screen.findByText('Those credentials did not work.')).toBeInTheDocument();
+    expect(await screen.findByText(/Those credentials did not work\./)).toBeInTheDocument();
     // The body's heading is the one place the state is named.
     expect(screen.getByText('Login Failed')).toBeInTheDocument();
     const header = screen.getByRole('heading', { name: /Connect to COROS/ }).parentElement;

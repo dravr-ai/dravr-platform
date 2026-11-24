@@ -39,6 +39,7 @@ export {
 
 // The password minimum and the e-mail shape every credential form checks
 export { MIN_PASSWORD_LENGTH, isEmailAddress, isPasswordLongEnough } from './credentialRules';
+export { signInTurnedDown } from './signInTurnedDown';
 
 export { useAbortOnClose } from './useAbortOnClose';
 export { isSignInPhaseLive, useSignInAttempt } from './useSignInAttempt';
