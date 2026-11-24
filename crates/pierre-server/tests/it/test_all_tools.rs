@@ -13,7 +13,7 @@ use common::placeholder_llm_chain;
 use pierre_core::models::CoachingPersona;
 use pierre_core::permissions::scopes::OAuthScope;
 use rand::Rng;
-use secrecy::{ExposeSecret, SecretString};
+use secrecy::SecretString;
 use serde_json::json;
 use serial_test::serial;
 use std::{collections::HashMap, env, error::Error, path::PathBuf, sync::Arc};
@@ -22,9 +22,7 @@ use uuid::Uuid;
 // Import necessary modules from the main crate
 use pierre_auth::{auth::AuthManager, tenant::TenantOAuthCredentials};
 use pierre_config::environment::*;
-use pierre_core::models::{
-    DecryptedToken, Tenant, TenantId, User, UserOAuthToken, UserStatus, UserTier,
-};
+use pierre_core::models::{Tenant, TenantId, User, UserOAuthToken, UserStatus, UserTier};
 use pierre_core::permissions::UserRole;
 use pierre_mcp_server::{
     constants::oauth_providers,
@@ -34,6 +32,7 @@ use pierre_test_support::db::create_test_db_with_key;
 use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
 
 use crate::common;
+use dravr_tronc::dates::{Elapsed, Timestamp};
 
 #[tokio::test]
 #[serial]
@@ -148,23 +147,11 @@ async fn create_test_executor() -> Result<UniversalToolExecutor> {
             },
         },
         external_services: ExternalServicesConfig {
-            strava_api: StravaApiConfig {
-                base_url: "https://www.strava.com/api/v3".to_owned(),
-                auth_url: "https://www.strava.com/oauth/authorize".to_owned(),
-                token_url: "https://www.strava.com/oauth/token".to_owned(),
-                revoke_url: "https://www.strava.com/oauth/revoke".to_owned(),
-                ..Default::default()
-            },
-            garmin_api: GarminApiConfig {
-                base_url: "https://apis.garmin.com/wellness-api/rest".to_owned(),
-                auth_url: "https://connect.garmin.com/oauth2Confirm".to_owned(),
-                token_url: "https://diauth.garmin.com/di-oauth2-service/oauth/token".to_owned(),
-                revoke_url: "https://apis.garmin.com/wellness-api/rest/user/registration"
-                    .to_owned(),
-                ..Default::default()
-            },
+            strava_api: StravaApiConfig::default(),
+            garmin_api: GarminApiConfig::default(),
             sciotte: SciotteServiceConfig::default(),
             meta_graph_api_base: None,
+            overpass_api_base: None,
         },
         app_behavior: AppBehaviorConfig {
             max_activities_fetch: 100,
@@ -179,7 +166,7 @@ async fn create_test_executor() -> Result<UniversalToolExecutor> {
                 server_version: env!("CARGO_PKG_VERSION").to_owned(),
             },
         },
-        sse: SseConfig::default(),
+        session_cookie: SessionCookieConfig::default(),
         oauth2_server: OAuth2ServerConfig::default(),
         host: "localhost".to_owned(),
         base_url: "http://localhost:8081".to_owned(),
@@ -236,6 +223,8 @@ async fn create_test_executor() -> Result<UniversalToolExecutor> {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                lab_reader: None,
+                pdf_text_bin: None,
                 #[cfg(feature = "client-messaging")]
                 channel_adapters: common::offline_adapters(),
             },
@@ -267,12 +256,11 @@ async fn create_test_user(executor: &UniversalToolExecutor) -> Result<(User, Ten
         display_name: Some("Test User".to_owned()),
         password_hash: "fake_hash_for_ci".to_owned(),
         tier: UserTier::Starter,
-        strava_token: None,
-        created_at: chrono::Utc::now(),
-        last_active: chrono::Utc::now(),
+        created_at: Timestamp::now(),
+        last_active: Timestamp::now(),
         user_status: UserStatus::Active,
         approved_by: None,
-        approved_at: Some(chrono::Utc::now()),
+        approved_at: Some(Timestamp::now()),
         is_active: true,
         role: UserRole::User,
         firebase_uid: None,
@@ -297,8 +285,8 @@ async fn create_test_user(executor: &UniversalToolExecutor) -> Result<(User, Ten
         domain: None,
         plan: "starter".to_owned(),
         owner_user_id: user_id,
-        created_at: chrono::Utc::now(),
-        updated_at: chrono::Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
     };
 
     executor.resources.repos().tenants.create(&tenant).await?;
@@ -316,26 +304,19 @@ async fn create_test_user(executor: &UniversalToolExecutor) -> Result<(User, Ten
     }
 
     // Generate realistic fake Strava tokens for testing
-    let now = chrono::Utc::now();
-    let timestamp = now.timestamp();
+    let now = Timestamp::now();
+    let timestamp = now.epoch_seconds();
     let token_id = rand::rng().random::<u64>();
     let refresh_token_id = rand::rng().random::<u64>();
-
-    let mock_token = DecryptedToken {
-        access_token: SecretString::from(format!("at_{token_id:016x}_{timestamp}")),
-        refresh_token: SecretString::from(format!("rt_{refresh_token_id:016x}_{timestamp}")),
-        expires_at: now + chrono::Duration::hours(6),
-        scope: "read,activity:read_all,activity:write".to_owned(),
-    };
 
     let oauth_token = UserOAuthToken::new(
         user.id,
         "00000000-0000-0000-0000-000000000000".to_owned(), // tenant_id
         oauth_providers::STRAVA.to_owned(),
-        mock_token.access_token.expose_secret().to_owned(),
-        Some(mock_token.refresh_token.expose_secret().to_owned()),
-        Some(mock_token.expires_at),
-        Some(mock_token.scope.clone()), // scope as String
+        format!("at_{token_id:016x}_{timestamp}"),
+        Some(format!("rt_{refresh_token_id:016x}_{timestamp}")),
+        Some(now + Elapsed::hours(6)),
+        Some("read,activity:read_all,activity:write".to_owned()),
     );
 
     match executor

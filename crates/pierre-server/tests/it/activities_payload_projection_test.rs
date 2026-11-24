@@ -11,8 +11,8 @@ use crate::common;
 
 use std::sync::Arc;
 
-use chrono::{Duration, Utc};
 use common::{create_test_server_resources, create_test_user};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use embacle_tool_host::ToolSurface;
 use pierre_core::models::{ActivityBuilder, ConnectionType, SportType, TenantId};
 use pierre_core::permissions::scopes::OAuthScope;
@@ -379,7 +379,7 @@ async fn athlete_with_cached_rides(resources: &Arc<ServerContext>) -> (Uuid, Ten
             id.to_owned(),
             name.to_owned(),
             SportType::Ride,
-            Utc::now() - Duration::days(days_ago),
+            Timestamp::now() - Elapsed::days(days_ago),
             7_200,
             "strava".to_owned(),
         )

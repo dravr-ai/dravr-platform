@@ -6,7 +6,7 @@
 
 use crate::http::oauth_client;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
-use chrono::{DateTime, Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::constants::network_config::OAUTH_CODE_VERIFIER_LENGTH;
 use pierre_core::constants::time::DEFAULT_TOKEN_EXPIRY_SECONDS;
 use pierre_core::errors::{AppError, AppResult};
@@ -17,8 +17,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::fmt;
-use url::form_urlencoded::Serializer;
-use url::{Url, UrlQuery};
+use url::Url;
+use urlencoding::encode;
 
 /// OAuth 2.0 client configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -39,6 +39,65 @@ pub struct OAuth2Config {
     pub scopes: Vec<String>,
     /// Whether to use PKCE for enhanced security
     pub use_pkce: bool,
+}
+
+impl OAuth2Config {
+    /// The provider authorization URL this configuration sends an athlete to
+    ///
+    /// The one builder of a provider authorize URL. The parameters go out in
+    /// a fixed order: `client_id`, `response_type=code`, `redirect_uri`,
+    /// `state`, then `scope`, the `PKCE` challenge and `additional_params`
+    /// (a provider's own, such as Strava's `approval_prompt=force`). Every
+    /// value is percent-encoded except `client_id`, which goes out as the
+    /// provider issued it.
+    ///
+    /// `scope` is left out when the configuration requests none: a provider
+    /// whose scope is fixed server-side (Garmin) defines no `scope`
+    /// parameter, and an empty `scope=` is not the same as omitting it. The
+    /// challenge of `pkce` is sent only when the configuration uses `PKCE`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the authorization endpoint is not a URL
+    pub fn authorization_url(
+        &self,
+        state: &str,
+        pkce: &PkceParams,
+        additional_params: &[(&str, &str)],
+    ) -> AppResult<String> {
+        Url::parse(&self.auth_url)
+            .map_err(|e| AppError::invalid_input(format!("Invalid auth URL: {e}")))?;
+
+        let mut url = format!(
+            "{}?client_id={}&response_type=code&redirect_uri={}&state={}",
+            self.auth_url,
+            self.client_id,
+            encode(&self.redirect_uri),
+            encode(state)
+        );
+
+        let scope = self.scopes.join(" ");
+        if !scope.is_empty() {
+            url.push_str("&scope=");
+            url.push_str(&encode(&scope));
+        }
+
+        if self.use_pkce {
+            url.push_str("&code_challenge=");
+            url.push_str(&encode(&pkce.code_challenge));
+            url.push_str("&code_challenge_method=");
+            url.push_str(&encode(&pkce.code_challenge_method));
+        }
+
+        for (key, value) in additional_params {
+            url.push('&');
+            url.push_str(&encode(key));
+            url.push('=');
+            url.push_str(&encode(value));
+        }
+
+        Ok(url)
+    }
 }
 
 /// `PKCE` (Proof Key for Code Exchange) parameters for enhanced `OAuth2` security
@@ -96,7 +155,7 @@ pub struct OAuth2Token {
     /// Token type (usually "Bearer")
     pub token_type: String,
     /// Expiration timestamp (UTC)
-    pub expires_at: Option<DateTime<Utc>>,
+    pub expires_at: Option<Timestamp>,
     /// Optional refresh token for getting new access tokens
     #[serde(serialize_with = "pierre_core::secret::serialize_exposed_option")]
     pub refresh_token: Option<SecretString>,
@@ -114,7 +173,7 @@ impl OAuth2Token {
     #[must_use]
     pub fn is_expired(&self) -> bool {
         self.expires_at
-            .is_some_and(|expires_at| expires_at <= Utc::now())
+            .is_some_and(|expires_at| expires_at <= Timestamp::now())
     }
 }
 
@@ -146,69 +205,6 @@ impl OAuth2Client {
     #[must_use]
     pub const fn http_client(&self) -> &reqwest::Client {
         &self.client
-    }
-
-    /// Get authorization URL
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the authorization URL is malformed
-    pub fn get_authorization_url(&self, state: &str) -> AppResult<String> {
-        let mut url = Url::parse(&self.config.auth_url)
-            .map_err(|e| AppError::invalid_input(format!("Invalid auth URL: {e}")))?;
-
-        let mut query_pairs = url.query_pairs_mut();
-        query_pairs
-            .append_pair("client_id", &self.config.client_id)
-            .append_pair("redirect_uri", &self.config.redirect_uri)
-            .append_pair("response_type", "code");
-        self.append_scope(&mut query_pairs);
-        query_pairs.append_pair("state", state);
-
-        drop(query_pairs);
-        Ok(url.to_string())
-    }
-
-    /// Append the `scope` parameter, or nothing when the configuration
-    /// requests no scope: a provider whose scope is fixed server-side
-    /// (Garmin) defines no `scope` parameter, and an empty `scope=` is not
-    /// the same as omitting it.
-    fn append_scope(&self, query_pairs: &mut Serializer<'_, UrlQuery<'_>>) {
-        let scope = self.config.scopes.join(" ");
-        if !scope.trim().is_empty() {
-            query_pairs.append_pair("scope", &scope);
-        }
-    }
-
-    /// Get authorization `URL` with `PKCE` support
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the authorization URL is malformed
-    pub fn get_authorization_url_with_pkce(
-        &self,
-        state: &str,
-        pkce: &PkceParams,
-    ) -> AppResult<String> {
-        let mut url = Url::parse(&self.config.auth_url)
-            .map_err(|e| AppError::invalid_input(format!("Invalid auth URL: {e}")))?;
-
-        let mut query_pairs = url.query_pairs_mut();
-        query_pairs
-            .append_pair("client_id", &self.config.client_id)
-            .append_pair("redirect_uri", &self.config.redirect_uri)
-            .append_pair("response_type", "code");
-        self.append_scope(&mut query_pairs);
-        query_pairs.append_pair("state", state);
-
-        if self.config.use_pkce {
-            query_pairs
-                .append_pair("code_challenge", &pkce.code_challenge)
-                .append_pair("code_challenge_method", &pkce.code_challenge_method);
-        }
-
-        drop(query_pairs);
-        Ok(url.to_string())
     }
 
     /// Exchange authorization code for tokens
@@ -305,56 +301,11 @@ impl OAuth2Client {
         Ok(Self::token_from_response(response))
     }
 
-    /// Refresh an expired access token
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the token refresh request fails or response is invalid
-    pub async fn refresh_token(&self, refresh_token: &str) -> AppResult<OAuth2Token> {
-        let params = [
-            ("client_id", self.config.client_id.as_str()),
-            ("client_secret", self.config.client_secret.expose_secret()),
-            ("refresh_token", refresh_token),
-            ("grant_type", "refresh_token"),
-        ];
-
-        let http_response = self
-            .client
-            .post(&self.config.token_url)
-            .form(&params)
-            .send()
-            .await
-            .map_err(|e| {
-                AppError::external_service("oauth", format!("Failed to send token request: {e}"))
-            })?;
-
-        let status = http_response.status();
-        let body = http_response.text().await.map_err(|e| {
-            AppError::external_service("oauth", format!("Failed to read token response body: {e}"))
-        })?;
-
-        if !status.is_success() {
-            return Err(AppError::external_service(
-                "oauth",
-                format!("Token endpoint returned HTTP {status}: {body}"),
-            ));
-        }
-
-        let response: TokenResponse = serde_json::from_str(&body).map_err(|e| {
-            AppError::external_service(
-                "oauth",
-                format!("Failed to parse token response ({} bytes): {e}", body.len()),
-            )
-        })?;
-
-        Ok(Self::token_from_response(response))
-    }
-
     #[must_use]
     fn token_from_response(response: TokenResponse) -> OAuth2Token {
         let expires_at = response.expires_in.map(|seconds| {
-            Utc::now()
-                + Duration::seconds(i64::try_from(seconds).unwrap_or(DEFAULT_TOKEN_EXPIRY_SECONDS))
+            Timestamp::now()
+                + Elapsed::seconds(i64::try_from(seconds).unwrap_or(DEFAULT_TOKEN_EXPIRY_SECONDS))
         });
 
         // Capture the provider-side owner id when the response carries one:
@@ -440,5 +391,106 @@ fn code_exchange_refusal(status: StatusCode, body: &str) -> AppError {
             "oauth",
             format!("Token endpoint returned HTTP {status}: {body}"),
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use secrecy::SecretString;
+
+    use super::{OAuth2Config, PkceParams};
+
+    fn config(scope: &str, use_pkce: bool) -> OAuth2Config {
+        OAuth2Config {
+            client_id: "12345".to_owned(),
+            client_secret: SecretString::from("secret"),
+            auth_url: "https://provider.test/oauth/authorize".to_owned(),
+            token_url: "https://provider.test/oauth/token".to_owned(),
+            redirect_uri: "https://app.test/api/oauth/callback/strava".to_owned(),
+            scopes: vec![scope.to_owned()],
+            use_pkce,
+        }
+    }
+
+    fn pkce() -> PkceParams {
+        PkceParams {
+            code_verifier: "verifier".to_owned(),
+            code_challenge: "chal-_lenge".to_owned(),
+            code_challenge_method: "S256".to_owned(),
+        }
+    }
+
+    const BASE: &str = "https://provider.test/oauth/authorize?client_id=12345&response_type=code\
+        &redirect_uri=https%3A%2F%2Fapp.test%2Fapi%2Foauth%2Fcallback%2Fstrava";
+
+    #[test]
+    fn a_comma_separated_scope_and_a_provider_parameter_follow_the_challenge() {
+        let url = config("activity:read_all,profile:read_all", true)
+            .authorization_url("user:nonce", &pkce(), &[("approval_prompt", "force")])
+            .unwrap();
+
+        assert_eq!(
+            url,
+            format!(
+                "{BASE}&state=user%3Anonce&scope=activity%3Aread_all%2Cprofile%3Aread_all\
+                 &code_challenge=chal-_lenge&code_challenge_method=S256&approval_prompt=force"
+            )
+        );
+    }
+
+    #[test]
+    fn a_space_separated_scope_is_percent_encoded_not_plus_encoded() {
+        let url = config("read:recovery offline", true)
+            .authorization_url("s", &pkce(), &[])
+            .unwrap();
+
+        assert_eq!(
+            url,
+            format!(
+                "{BASE}&state=s&scope=read%3Arecovery%20offline\
+                 &code_challenge=chal-_lenge&code_challenge_method=S256"
+            )
+        );
+    }
+
+    #[test]
+    fn a_configuration_without_pkce_sends_no_challenge() {
+        let url = config("ACTIVITY:READ,WELLNESS:READ", false)
+            .authorization_url("s", &pkce(), &[])
+            .unwrap();
+
+        assert_eq!(
+            url,
+            format!("{BASE}&state=s&scope=ACTIVITY%3AREAD%2CWELLNESS%3AREAD")
+        );
+    }
+
+    #[test]
+    fn no_scope_to_request_leaves_the_parameter_out() {
+        let url = config("", true)
+            .authorization_url("s", &pkce(), &[])
+            .unwrap();
+
+        assert_eq!(
+            url,
+            format!("{BASE}&state=s&code_challenge=chal-_lenge&code_challenge_method=S256")
+        );
+    }
+
+    #[test]
+    fn a_provider_parameter_is_percent_encoded() {
+        let url = config("", false)
+            .authorization_url("s", &pkce(), &[("access type", "off line&x")])
+            .unwrap();
+
+        assert_eq!(url, format!("{BASE}&state=s&access%20type=off%20line%26x"));
+    }
+
+    #[test]
+    fn an_endpoint_that_is_not_a_url_is_refused() {
+        let mut config = config("read", false);
+        config.auth_url = "not-a-valid-url".to_owned();
+
+        assert!(config.authorization_url("s", &pkce(), &[]).is_err());
     }
 }

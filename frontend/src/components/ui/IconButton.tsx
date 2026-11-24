@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Icon-only button — 32px square on a fine pointer, 44px on phones and coarse pointers (touch-target).
-// ABOUTME: Visual glyph is rendered inside; the tap target follows the pointer, per DESIGN.md §8.
+// ABOUTME: Visual glyph is rendered inside; the tap target follows the pointer, per DESIGN.md "Layout".
 
 import React from 'react';
 import { clsx } from 'clsx';

@@ -24,11 +24,12 @@ use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use axum::http::StatusCode;
-use chrono::{TimeZone, Utc};
 use common::{
     create_test_server_resources_with_billing_provider, create_test_user_with_plan,
     generate_test_token,
 };
+use dravr_tronc::dates::Elapsed;
+use dravr_tronc::dates::Timestamp;
 use helpers::axum_test::AxumTestRequest;
 use helpers::notify_capture::{capture_logs, capture_notify, named};
 use pierre_core::billing::{
@@ -108,9 +109,8 @@ impl BillingProvider for RecordingBilling {
         let body: Value = serde_json::from_slice(payload.body)
             .map_err(|e| AppError::invalid_input(e.to_string()))?;
         let field = |key: &str| body[key].as_str().unwrap().to_owned();
-        let period_start = Utc
-            .timestamp_opt(body["period_start"].as_i64().unwrap(), 0)
-            .unwrap();
+        let period_start =
+            Timestamp::from_epoch_seconds(body["period_start"].as_i64().unwrap()).unwrap();
         Ok(EventEnvelope {
             event_id: field("id"),
             event_type: "subscription.upserted".to_owned(),
@@ -122,7 +122,7 @@ impl BillingProvider for RecordingBilling {
                 plan_tier: field("plan_tier"),
                 status: "active".to_owned(),
                 current_period_start: Some(period_start),
-                current_period_end: Some(period_start + chrono::Duration::seconds(PERIOD_SECS)),
+                current_period_end: Some(period_start + Elapsed::seconds(PERIOD_SECS)),
                 cancel_at_period_end: false,
                 canceled_at: None,
                 trial_end: None,
@@ -206,7 +206,7 @@ async fn coach_billed_by(email: &str, plan: &str, billing: RecordingBilling) -> 
 impl Coach {
     /// The coach's own live Professional subscription with the provider.
     async fn subscribe(&self, provider_subscription_id: &str) {
-        let now = Utc::now();
+        let now = Timestamp::now();
         self.res
             .common
             .repos
@@ -221,7 +221,7 @@ impl Coach {
                 status: SubscriptionStatus::Active,
                 plan_tier: UserTier::Professional,
                 current_period_start: Some(now),
-                current_period_end: Some(now + chrono::Duration::days(30)),
+                current_period_end: Some(now + Elapsed::days(30)),
                 cancel_at_period_end: false,
                 canceled_at: None,
                 trial_end: None,
@@ -465,7 +465,7 @@ async fn a_refused_charge_leaves_the_athlete_added_and_is_logged_as_an_error() {
         "the provider was asked for the athlete above 15"
     );
     let failures = named(&lines, "failed to apply the per-athlete charge");
-    assert_eq!(failures.len(), 1, "the refusal reaches an operator once");
+    assert_eq!(failures.len(), 1, "the refusal reaches an admin once");
     assert_eq!(failures[0].level, Level::ERROR);
     assert_eq!(failures[0].field("owner_id"), coach.user_id.to_string());
     assert!(

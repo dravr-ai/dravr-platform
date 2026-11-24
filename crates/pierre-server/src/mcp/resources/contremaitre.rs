@@ -9,7 +9,7 @@ use pierre_contremaitre::narration_vocab::install_pinned_narration_vocab;
 use pierre_contremaitre::persona_contracts::PersonaContractRegistry;
 use pierre_contremaitre::sync::{full_sync, ContremaitreRegistries};
 use pierre_contremaitre::{
-    ContremaitreConfig, EvidenceRegistry, MessagingStringsRegistry, PromptRegistry,
+    ContremaitreConfig, EvidenceRegistry, MessagingStringsRegistry, PromptRegistry, PromptStore,
     ToolDescriptionRegistry, TrainingCatalogueRegistry,
 };
 use pierre_services::supervised::spawn_supervised_loop;
@@ -71,25 +71,19 @@ impl ContremaitreLiveRegistries {
     }
 }
 
-/// Run a contremaitre full-sync against the live registries, logging the
-/// active backend (gcs vs github) and the result/error.
+/// One tick of the poll: a contremaitre full-sync of `store` into the live
+/// registries, logged with the active backend and its result, after which
+/// the tool descriptions are settled whatever that result was: they are what
+/// this instance serves until the next sync changes them.
 ///
-/// Shared by every tick of the background poll — including its first,
-/// immediate tick, which is the initial startup overlay. Kept as its own
-/// function so the poll closure stays under the workspace's
-/// cognitive-complexity threshold; the body is an `if-let` plus `match`,
-/// which clippy counts as two arms each.
-async fn run_contremaitre_full_sync(
-    config: &ContremaitreConfig,
-    registries: &ContremaitreLiveRegistries,
-) {
-    let store = config.store();
+/// Shared by every tick of the background poll, including its first,
+/// immediate tick, which is the initial startup overlay.
+async fn poll_tick(store: &dyn PromptStore, registries: &ContremaitreLiveRegistries) {
     info!(
         backend = store.backend_label(),
         "Contremaitre sync starting"
     );
-    let outcome = full_sync(registries.as_sync_registries(), store.as_ref()).await;
-    match outcome {
+    match full_sync(registries.as_sync_registries(), store).await {
         Ok(result) => info!(
             %result,
             backend = store.backend_label(),
@@ -101,6 +95,7 @@ async fn run_contremaitre_full_sync(
             "Contremaitre sync failed, using compiled-in defaults"
         ),
     }
+    registries.tool_desc.mark_settled();
 }
 
 /// Spawn the background poll that runs [`full_sync`] on an interval.
@@ -121,16 +116,36 @@ fn spawn_contremaitre_poll(config: ContremaitreConfig, registries: ContremaitreL
     // path, and re-runs every `secs` after: binding never waits on a slow
     // GitHub/GCS fetch, so a single-vCPU instance still passes the Cloud Run
     // startup probe. A panicking tick is respawned, since a dead poll would
-    // freeze every registry on its last-synced content.
+    // freeze every registry on its last-synced content; a tick that panicked
+    // is a sync that failed, so the tool descriptions settle as they are.
+    let settling = registries.clone();
     spawn_supervised_loop(
         "contremaitre prompt-reload poll",
         Duration::from_secs(secs),
         move || {
             let config = config.clone();
             let registries = registries.clone();
-            async move { run_contremaitre_full_sync(&config, &registries).await }
+            async move { poll_tick(config.store().as_ref(), &registries).await }
         },
+        move || settling.tool_desc.mark_settled(),
     );
+}
+
+/// Start the overlay sync `config` names over `registries`, or, with none
+/// configured, settle the tool descriptions at once: the compiled-in text is
+/// all this instance will serve.
+fn start_overlay_sync(config: Option<ContremaitreConfig>, registries: ContremaitreLiveRegistries) {
+    if let Some(config) = config {
+        // The poll owns the config and Arc clones of the live registries; its
+        // first immediate tick is the initial overlay (background, off the
+        // bind path), and every tick after is the fan-out / catch-up that
+        // keeps each instance converged on contremaitre HEAD without a
+        // redeploy, complementing the instant push webhook.
+        spawn_contremaitre_poll(config, registries);
+    } else {
+        info!("Contremaitre not configured, using compiled-in defaults");
+        registries.tool_desc.mark_settled();
+    }
 }
 
 /// The registries [`init_contremaitre_registries`] seeds and hands to
@@ -184,27 +199,18 @@ pub(super) fn init_contremaitre_registries(
         ),
     }
 
-    if let Some(config) = ContremaitreConfig::from_env() {
-        // The poll owns the config and Arc clones of the live registries; its
-        // first immediate tick is the initial overlay (background, off the
-        // bind path), and every tick after is the fan-out / catch-up that
-        // keeps each instance converged on contremaitre HEAD without a
-        // redeploy, complementing the instant push webhook.
-        spawn_contremaitre_poll(
-            config,
-            ContremaitreLiveRegistries {
-                prompt: Arc::clone(&prompt_registry),
-                tool_desc: Arc::clone(&tool_desc_registry),
-                evidence: Arc::clone(&evidence_registry),
-                cageux_config: Arc::clone(cageux_config_registry),
-                messaging_strings: Arc::clone(&messaging_strings_registry),
-                persona_contract: Arc::clone(persona_contract_registry),
-                training_catalogue: Arc::clone(&training_catalogue_registry),
-            },
-        );
-    } else {
-        info!("Contremaitre not configured, using compiled-in defaults");
-    }
+    start_overlay_sync(
+        ContremaitreConfig::from_env(),
+        ContremaitreLiveRegistries {
+            prompt: Arc::clone(&prompt_registry),
+            tool_desc: Arc::clone(&tool_desc_registry),
+            evidence: Arc::clone(&evidence_registry),
+            cageux_config: Arc::clone(cageux_config_registry),
+            messaging_strings: Arc::clone(&messaging_strings_registry),
+            persona_contract: Arc::clone(persona_contract_registry),
+            training_catalogue: Arc::clone(&training_catalogue_registry),
+        },
+    );
 
     ContremaitreRegistrySet {
         prompt: prompt_registry,
@@ -212,5 +218,73 @@ pub(super) fn init_contremaitre_registries(
         evidence: evidence_registry,
         messaging_strings: messaging_strings_registry,
         training_catalogue: training_catalogue_registry,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use async_trait::async_trait;
+    use pierre_contremaitre::store::StoredFile;
+    use pierre_contremaitre::ContremaitreError;
+    use pierre_contremaitre::Manifest;
+
+    use super::*;
+
+    /// A store that cannot be reached: every read fails.
+    struct Unreachable;
+
+    #[async_trait]
+    impl PromptStore for Unreachable {
+        async fn read_file(&self, path: &str) -> Result<StoredFile, ContremaitreError> {
+            Err(ContremaitreError::ManifestParse(format!(
+                "unreachable: {path}"
+            )))
+        }
+
+        async fn read_manifest(&self) -> Result<Manifest, ContremaitreError> {
+            Err(ContremaitreError::ManifestParse("unreachable".to_owned()))
+        }
+
+        fn backend_label(&self) -> &'static str {
+            "unreachable"
+        }
+    }
+
+    /// The live registries, each freshly built.
+    fn live() -> ContremaitreLiveRegistries {
+        ContremaitreLiveRegistries {
+            prompt: Arc::new(PromptRegistry::new()),
+            tool_desc: Arc::new(ToolDescriptionRegistry::new()),
+            evidence: Arc::new(EvidenceRegistry::new()),
+            cageux_config: Arc::new(CageuxConfigRegistry::from_env()),
+            messaging_strings: Arc::new(MessagingStringsRegistry::new()),
+            persona_contract: Arc::new(PersonaContractRegistry::new()),
+            training_catalogue: Arc::new(TrainingCatalogueRegistry::new()),
+        }
+    }
+
+    #[test]
+    fn with_no_overlay_configured_the_tool_descriptions_settle_at_once() {
+        let registries = live();
+        let tool_desc = Arc::clone(&registries.tool_desc);
+        start_overlay_sync(None, registries);
+        assert!(
+            tool_desc.is_settled(),
+            "bug: with nothing to sync, the compiled-in descriptions are final at boot"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_polls_first_tick_settles_the_tool_descriptions_even_when_its_sync_fails() {
+        let registries = live();
+        assert!(
+            !registries.tool_desc.is_settled(),
+            "test setup bug: nothing has synced yet"
+        );
+        poll_tick(&Unreachable, &registries).await;
+        assert!(
+            registries.tool_desc.is_settled(),
+            "bug: a failed first sync leaves the compiled-in descriptions, which are then final"
+        );
     }
 }

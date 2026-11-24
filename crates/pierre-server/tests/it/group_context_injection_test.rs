@@ -18,7 +18,7 @@
 #[cfg(feature = "tools-groups")]
 mod inject_tests {
     use crate::common::create_test_server_resources;
-    use chrono::Utc;
+    use dravr_tronc::dates::Timestamp;
     use pierre_core::models::agents::{AgentCategory, AgentVisibility, CreateSystemAgentRequest};
     use pierre_core::models::groups::{
         CoachConsents, CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
@@ -46,7 +46,7 @@ mod inject_tests {
         );
         user.user_status = UserStatus::Active;
         user.approved_by = Some(user.id);
-        user.approved_at = Some(Utc::now());
+        user.approved_at = Some(Timestamp::now());
         let user_id = user.id;
         resources.common.repos.users.create(&user).await.unwrap();
 
@@ -58,8 +58,8 @@ mod inject_tests {
             domain: None,
             plan: "professional".to_owned(),
             owner_user_id: user_id,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         };
         resources
             .common
@@ -124,7 +124,7 @@ mod inject_tests {
         peer_data_sharing: bool,
     ) -> Uuid {
         let id = Uuid::new_v4();
-        let now = Utc::now();
+        let now = Timestamp::now();
         let group = CoachingGroup {
             id,
             tenant_id: tenant_id.to_string(),
@@ -140,6 +140,7 @@ mod inject_tests {
             is_active: true,
             channel_type: None,
             channel_chat_id: None,
+            chat_connection: None,
             created_at: now,
             updated_at: now,
         };
@@ -161,7 +162,7 @@ mod inject_tests {
         role: GroupRole,
         consent: bool,
     ) {
-        let now = Utc::now();
+        let now = Timestamp::now();
         resources
             .common
             .repos
@@ -207,7 +208,7 @@ mod inject_tests {
             served_stale: false,
             timezone: None,
             deep_fatigue_mornings: Vec::new(),
-            computed_at: Utc::now(),
+            computed_at: Timestamp::now(),
         }
     }
 

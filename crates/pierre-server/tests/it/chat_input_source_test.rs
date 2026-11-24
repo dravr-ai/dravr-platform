@@ -29,7 +29,7 @@ use crate::helpers;
 use std::sync::Arc;
 
 use axum::http::StatusCode;
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::models::{
     ActivityBuilder, GuidedFlow, OnboardingState, SportType, TenantId, COMMAND_FINISH_REASON,
 };
@@ -317,7 +317,7 @@ async fn a_typed_command_offers_its_steps_and_teaches_nothing() {
 #[tokio::test]
 async fn a_command_in_a_thread_a_walk_owns_offers_no_step() {
     let fx = setup("next-step-walk@test.com").await;
-    let walk = OnboardingState::start(Utc::now().to_rfc3339(), GuidedFlow::Pillars);
+    let walk = OnboardingState::start(Timestamp::now().to_rfc3339(), GuidedFlow::Pillars);
     fx.resources
         .common
         .repos
@@ -350,7 +350,7 @@ async fn a_first_tapped_analysis_leads_to_the_weekly_comparison_once() {
             format!("strava-{}", Uuid::new_v4()),
             "Morning ride".to_owned(),
             SportType::Ride,
-            Utc::now() - Duration::days(days_ago),
+            Timestamp::now() - Elapsed::days(days_ago),
             3_600,
             "strava".to_owned(),
         )

@@ -167,7 +167,7 @@ async fn an_identity_without_a_user_id_fails() {
 
     assert!(
         !err.is_empty(),
-        "the failure must carry a message an operator can act on"
+        "the failure must carry a message an admin can act on"
     );
 }
 

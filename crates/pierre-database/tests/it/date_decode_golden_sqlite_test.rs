@@ -477,13 +477,13 @@ async fn the_shared_inbound_inputs_decode_from_stored_text() {
         ("2026-11-17T10:00:05.Z", "rejected", "rejected"),
         (
             "2016-12-31T23:59:60Z",
-            "2016-12-31T23:59:60.000000000",
-            "2016-12-31T23:59:60.000000000",
+            "2016-12-31T23:59:59.000000000",
+            "2016-12-31T23:59:59.000000000",
         ),
         (
             "2026-11-17T10:00:60Z",
-            "2026-11-17T10:00:60.000000000",
-            "2026-11-17T10:00:60.000000000",
+            "2026-11-17T10:00:59.000000000",
+            "2026-11-17T10:00:59.000000000",
         ),
         ("2026-11-17T24:00:00Z", "rejected", "rejected"),
         ("2026-02-30T10:00:05Z", "rejected", "rejected"),
@@ -661,8 +661,8 @@ async fn stored_text_decodes_as_a_zoneless_date_time() {
             (Text("10:00:05"), "rejected", "rejected"),
             (
                 Text("2026-11-17 10:00:60"),
-                "2026-11-17T10:00:60.000000000",
-                "2026-11-17T10:00:60.000000000",
+                "2026-11-17T10:00:59.000000000",
+                "2026-11-17T10:00:59.000000000",
             ),
             (Text("2026-11-17 24:00:00"), "rejected", "rejected"),
             (
@@ -734,7 +734,7 @@ async fn stored_text_decodes_as_a_time_of_day() {
             (Text("2026-11-17 10:00:05"), "rejected", "rejected"),
             (Text("2026-11-17T10:00:05+00:00"), "rejected", "rejected"),
             (Text("9:0:5"), "09:00:05.000000000", "09:00:05.000000000"),
-            (Text("10:00:60"), "10:00:60.000000000", "10:00:60.000000000"),
+            (Text("10:00:60"), "10:00:59.000000000", "10:00:59.000000000"),
             (Text("24:00:00"), "rejected", "rejected"),
             (Text("10:00 AM"), "rejected", "rejected"),
             (
@@ -753,9 +753,9 @@ async fn stored_text_decodes_as_a_time_of_day() {
     .await;
 }
 
-/// Second 60 through the database: a value holding second 60 is stored as
-/// `:60` text, reads back as the same value, and sorts between second 59 and
-/// the next minute.
+/// Second 60 through the database: second 60 is read as second 59 of its
+/// minute (carnet#1620, accepted 2026-11-18), so it is stored as `:59` text,
+/// reads back as second 59, and sorts with it before the next minute.
 #[tokio::test]
 async fn a_leap_second_is_stored_as_second_sixty_and_reads_back() {
     let db = create_sqlite_test_db().await.unwrap();
@@ -783,11 +783,11 @@ async fn a_leap_second_is_stored_as_second_sixty_and_reads_back() {
         stored,
         [
             "2016-12-31T23:59:59.500+00:00",
-            "2016-12-31T23:59:60+00:00",
-            "2016-12-31T23:59:60.500+00:00",
+            "2016-12-31T23:59:59+00:00",
+            "2016-12-31T23:59:59.500+00:00",
             "2017-01-01T00:00:00+00:00"
         ],
-        "the text an instant writes, second 60 included"
+        "the text an instant writes, second 60 read as 59"
     );
 
     let rows = sqlx::query("SELECT as_text FROM date_golden ORDER BY as_text")
@@ -798,11 +798,11 @@ async fn a_leap_second_is_stored_as_second_sixty_and_reads_back() {
     assert_eq!(
         read,
         [
+            "2016-12-31T23:59:59.000000000",
             "2016-12-31T23:59:59.500000000",
-            "2016-12-31T23:59:60.000000000",
-            "2016-12-31T23:59:60.500000000",
+            "2016-12-31T23:59:59.500000000",
             "2017-01-01T00:00:00.000000000"
         ],
-        "second 60 reads back and sorts between second 59 and the next minute"
+        "second 60 reads back as second 59 and sorts before the next minute"
     );
 }

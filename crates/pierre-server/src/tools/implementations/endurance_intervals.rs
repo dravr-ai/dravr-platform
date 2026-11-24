@@ -399,6 +399,6 @@ pub fn create_endurance_intervals_tools() -> Vec<Box<dyn RuntimeTool>> {
 // Guardian security classifications (see `pierre_tool_runtime::security`). These
 // tools export the activity intervals/routes of the athlete the call reads — the
 // caller, or a coached athlete for a coach's read — internal, no egress.
-pierre_tool_runtime::declare_security!(ExportIntervalsTool => empty);
-pierre_tool_runtime::declare_security!(ExportRoutesTool => empty);
+pierre_tool_runtime::declare_security!(ExportIntervalsTool => empty; export);
+pierre_tool_runtime::declare_security!(ExportRoutesTool => empty; export);
 pierre_tool_runtime::declare_security!(ExtractActivityStreamsTool => empty);

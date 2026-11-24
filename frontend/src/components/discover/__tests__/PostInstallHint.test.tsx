@@ -7,7 +7,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import PostInstallHint from '../PostInstallHint';
-import { coachAddDraft, coachMention } from '../coachDraft';
+import { coachAddDraft, coachMention } from '@pierre/ui-logic';
 
 describe('PostInstallHint', () => {
   it('teaches /agent add @handle and the @handle mention for the installed agent', () => {

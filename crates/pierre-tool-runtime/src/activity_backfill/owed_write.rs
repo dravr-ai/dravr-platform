@@ -27,7 +27,7 @@
 //! athlete in between ([`KeyPurge`]):
 //!
 //! - **Every activity of the key went** (a disconnect, a revocation, an
-//!   ended link, the operator's termination): every activity of the page
+//!   ended link, the admin's termination): every activity of the page
 //!   goes back, those the store held before the step included. The purge
 //!   deleted them, with their samples and gear; what stands of them now the
 //!   step's write put back.
@@ -48,7 +48,7 @@
 //!   that key's purge deletes the row. A step of a session's API phase,
 //!   writing under its grant's key while the row stays filed under the
 //!   session's, was purged when the grant's purge left the row owed a
-//!   reopen, or the operator's termination settled it as its session walked
+//!   reopen, or the admin's termination settled it as its session walked
 //!   alone.
 //! - A row that is gone says nothing by itself: the session's own purge
 //!   removes it, and so does the reaper of a row whose lease lapsed. Only the
@@ -89,7 +89,7 @@
 use std::collections::HashSet;
 use std::time::Duration as StdDuration;
 
-use chrono::{DateTime, Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::errors::AppError;
 use pierre_core::models::Activity;
 use pierre_database::repositories::{BackfillJobState, JobLease, LeasedWalkRow, PurgeReason};
@@ -173,7 +173,7 @@ pub(super) async fn land_owed(
             .await
             .map_or(Landed::Failed, |persisted| Landed::Rows(persisted.rows));
     };
-    let since = Utc::now() - Duration::seconds(PURGE_CLOCK_SKEW_SECS);
+    let since = Timestamp::now() - Elapsed::seconds(PURGE_CLOCK_SKEW_SECS);
     let Ok(attested_before) = purges_since(job, since).await else {
         return Landed::Failed;
     };
@@ -306,13 +306,13 @@ async fn held_before(job: &ActivityBackfillJob, activities: &[Activity]) -> Resu
 /// its first check.
 #[derive(Debug, Clone, Copy)]
 struct Attested<'step> {
-    since: DateTime<Utc>,
+    since: Timestamp,
     before: &'step [String],
 }
 
 /// The reasons of the purges of the step's key that reached the athlete,
 /// attested from `since` on; `Err` (logged) when they could not be read.
-async fn purges_since(job: &ActivityBackfillJob, since: DateTime<Utc>) -> Result<Vec<String>, ()> {
+async fn purges_since(job: &ActivityBackfillJob, since: Timestamp) -> Result<Vec<String>, ()> {
     job.resources
         .repos()
         .provider_data

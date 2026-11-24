@@ -63,7 +63,7 @@ pub enum OAuthScope {
     /// Change who the athlete is — profile fields, configuration, provider links.
     #[serde(rename = "profile:write")]
     ProfileWrite,
-    /// Operate the server. Held by operators, never delegated to an integration.
+    /// Operate the server. Held by admins, never delegated to an integration.
     #[serde(rename = "admin")]
     Admin,
 }
@@ -133,12 +133,15 @@ impl OAuthScope {
             .collect()
     }
 
-    /// Whether a third party may be granted this scope.
+    /// Whether a third party may *ask* for this scope.
     ///
-    /// Everything but `admin`. Operating the server stays on the operator's
-    /// own credential and is never delegated to an integration, so the
-    /// authorization server refuses it in a registration or an authorization
-    /// request, leaves it out of every token it mints, and does not publish it.
+    /// Everything but `admin`. A client never asks for `admin` and it is never
+    /// published: registration, a client metadata document and the
+    /// client-credentials grant refuse it, and `scopes_supported` leaves it
+    /// out. The one way an OAuth grant holds it is an admin ticking Admin
+    /// access on the consent screen, for the platform's own `/mcp` or `/a2a`
+    /// resource; the authorization server keeps it only while the user is an
+    /// admin (`admin_grant` in pierre-auth, carnet#1511).
     #[must_use]
     pub const fn is_delegable(self) -> bool {
         !matches!(self, Self::Admin)
@@ -168,8 +171,10 @@ impl OAuthScope {
     ///
     /// Stricter than [`Self::parse_granted`], which reads a grant that was
     /// already minted. A request is where an unknown name is the client's error
-    /// to hear about, and where `admin` is refused outright rather than
-    /// dropped: it is never delegated.
+    /// to hear about, and where `admin` is refused outright: no client may ask
+    /// for it. An authorization request drops `admin` before it reaches here,
+    /// because there it is offered on the consent screen instead
+    /// (`without_admin` in pierre-auth).
     ///
     /// # Errors
     ///

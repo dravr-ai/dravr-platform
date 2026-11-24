@@ -12,7 +12,7 @@ use axum::{
     response::IntoResponse,
     Extension,
 };
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use serde::Deserialize;
 use tracing::{error, info};
 
@@ -104,7 +104,7 @@ pub(crate) async fn handle_new_users(
     };
     let window_days = clamp_window_days(query.days);
 
-    let cohort = fetch_new_user_cohort(&context.repos, window_days, scope, Utc::now())
+    let cohort = fetch_new_user_cohort(&context.repos, window_days, scope, Timestamp::now())
         .await
         .inspect_err(|e| error!(error = %e, "Failed to read the new-user cohort"))?;
 

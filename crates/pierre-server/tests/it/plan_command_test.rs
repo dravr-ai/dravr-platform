@@ -41,21 +41,19 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::common;
+use dravr_tronc::dates::Elapsed;
+use dravr_tronc::dates::{CivilDate, Timestamp};
 
 /// Dates are derived from the real current date rather than hardcoded: the
 /// handler reads "today" from the clock, so a fixed fixture week would stop
 /// straddling today the day after it was written and the week/today views would
 /// silently start asserting the empty selection.
-fn week_dates() -> (chrono::NaiveDate, Vec<String>) {
-    let today = chrono::Utc::now().date_naive();
+fn week_dates() -> (CivilDate, Vec<String>) {
+    let today = Timestamp::now().utc_date();
     // Start two days before today so today and tomorrow both fall inside.
-    let start = today - chrono::Days::new(2);
+    let start = today - Elapsed::days(2);
     let dates = (0..7)
-        .map(|i| {
-            (start + chrono::Days::new(i))
-                .format("%Y-%m-%d")
-                .to_string()
-        })
+        .map(|i| (start + Elapsed::days(i)).to_string())
         .collect();
     (start, dates)
 }
@@ -80,6 +78,8 @@ fn day(
         template_source: None,
         template_preset: None,
         envelope: None,
+        coach_original: None,
+        coach_added: false,
     }
 }
 
@@ -154,7 +154,7 @@ async fn seed_plan_with(
     let mut blocks = leading_blocks.to_vec();
     blocks.push(PlanPhase {
         kind: PhaseKind::Build,
-        start: start.format("%Y-%m-%d").to_string(),
+        start: start.to_string(),
         weeks: 4,
         intent: "volume up, one moderate day".to_owned(),
         target_hours: Some(14.0),
@@ -183,7 +183,7 @@ async fn seed_plan_with(
         ),
         day(&dates[6], "gravel", "recovery spin", Some(90), "Z1"),
     ];
-    let week_start = start.format("%Y-%m-%d").to_string();
+    let week_start = start.to_string();
     let mut weeks = vec![PlanWeekInput {
         week_start: &week_start,
         focus: "build volume",
@@ -353,7 +353,7 @@ async fn bound_room_group(
 ) -> Result<Uuid> {
     let persona = seed_persona(resources, user_id, user_tenant, "Room Persona").await?;
     let group_id = Uuid::new_v4();
-    let now = chrono::Utc::now();
+    let now = Timestamp::now();
     resources
         .common
         .repos
@@ -375,6 +375,7 @@ async fn bound_room_group(
                 is_active: true,
                 channel_type: Some("telegram".to_owned()),
                 channel_chat_id: Some("-100123".to_owned()),
+                chat_connection: None,
                 created_at: now,
                 updated_at: now,
             },
@@ -582,16 +583,15 @@ async fn plan_today_renders_a_single_day() -> Result<()> {
 }
 
 /// A stored plan can carry a date at the far edge of the proleptic calendar:
-/// `parse_plan_date` checks the `YYYY-MM-DD` shape and chrono round-trips a
-/// signed six-digit year, so `+262142-12-31` (`NaiveDate::MAX`) persists and is
-/// read back intact. Closing a 255-week block or a 7-day week from there leaves
+/// `parse_plan_date` checks the `YYYY-MM-DD` shape, so `9999-12-31`
+/// (`CivilDate::MAX`) persists and is read back intact. Closing a 255-week block or a 7-day week from there leaves
 /// the calendar, and `/plan` must still answer the athlete.
 #[tokio::test]
 async fn plan_survives_a_stored_date_at_the_calendar_edge() -> Result<()> {
     let (resources, user_id, tenant, conversation_id) = setup().await?;
     let edge_block = PlanPhase {
         kind: PhaseKind::Base,
-        start: "+262142-01-01".to_owned(),
+        start: "9999-01-01".to_owned(),
         weeks: 255,
         intent: "far side of the calendar".to_owned(),
         target_hours: None,
@@ -605,9 +605,9 @@ async fn plan_survives_a_stored_date_at_the_calendar_edge() -> Result<()> {
         skeleton_id: None,
     };
     let edge_week = (
-        "+262142-12-31".to_owned(),
+        "9999-12-31".to_owned(),
         vec![day(
-            "+262142-12-31",
+            "9999-12-31",
             "gravel",
             "off-calendar ride",
             Some(60),
@@ -674,20 +674,16 @@ async fn seed_future_only_plan(
     user_id: Uuid,
     tenant: TenantId,
 ) -> Result<String> {
-    let today = chrono::Utc::now().date_naive();
-    let resume = today + chrono::Days::new(5);
+    let today = Timestamp::now().utc_date();
+    let resume = today + Elapsed::days(5);
     let goal = GoalRace {
         name: "Harricana".to_owned(),
-        date: (today + chrono::Days::new(120))
-            .format("%Y-%m-%d")
-            .to_string(),
+        date: (today + Elapsed::days(120)).to_string(),
         discipline: "trail run".to_owned(),
         priority: RacePriority::A,
     };
-    let resume_start = resume.format("%Y-%m-%d").to_string();
-    let second_start = (resume + chrono::Days::new(7))
-        .format("%Y-%m-%d")
-        .to_string();
+    let resume_start = resume.to_string();
+    let second_start = (resume + Elapsed::days(7)).to_string();
     let phases = vec![PlanPhase {
         kind: PhaseKind::Base,
         start: resume_start.clone(),
@@ -705,17 +701,13 @@ async fn seed_future_only_plan(
     }];
     let first_days: Vec<PlannedDay> = (0..7)
         .map(|i| {
-            let d = (resume + chrono::Days::new(i))
-                .format("%Y-%m-%d")
-                .to_string();
+            let d = (resume + Elapsed::days(i)).to_string();
             day(&d, "trail", "reintro trail", Some(60), "Z2")
         })
         .collect();
     let second_days: Vec<PlannedDay> = (0..7)
         .map(|i| {
-            let d = (resume + chrono::Days::new(7 + i))
-                .format("%Y-%m-%d")
-                .to_string();
+            let d = (resume + Elapsed::days(7 + i)).to_string();
             day(&d, "trail", "build trail", Some(75), "Z2")
         })
         .collect();
@@ -768,19 +760,17 @@ async fn seed_week_missing_today(
     user_id: Uuid,
     tenant: TenantId,
 ) -> Result<()> {
-    let today = chrono::Utc::now().date_naive();
+    let today = Timestamp::now().utc_date();
     let (start, dates) = week_dates();
     let goal = GoalRace {
         name: "Unbound XL".to_owned(),
-        date: (today + chrono::Days::new(90))
-            .format("%Y-%m-%d")
-            .to_string(),
+        date: (today + Elapsed::days(90)).to_string(),
         discipline: "gravel".to_owned(),
         priority: RacePriority::A,
     };
     let phases = vec![PlanPhase {
         kind: PhaseKind::Build,
-        start: start.format("%Y-%m-%d").to_string(),
+        start: start.to_string(),
         weeks: 4,
         intent: "volume up".to_owned(),
         target_hours: Some(14.0),
@@ -800,7 +790,7 @@ async fn seed_week_missing_today(
         .filter(|(i, _)| *i != 2)
         .map(|(_, d)| day(d, "gravel", "endurance ride", Some(90), "Z2"))
         .collect();
-    let week_start = start.format("%Y-%m-%d").to_string();
+    let week_start = start.to_string();
     resources
         .common
         .repos
@@ -911,20 +901,18 @@ async fn seed_expired_plan(
     user_id: Uuid,
     tenant: TenantId,
 ) -> Result<()> {
-    let today = chrono::Utc::now().date_naive();
-    let first = today - chrono::Days::new(30);
-    let second = today - chrono::Days::new(23);
+    let today = Timestamp::now().utc_date();
+    let first = today - Elapsed::days(30);
+    let second = today - Elapsed::days(23);
     let goal = GoalRace {
         name: "Unbound XL".to_owned(),
-        date: (today - chrono::Days::new(16))
-            .format("%Y-%m-%d")
-            .to_string(),
+        date: (today - Elapsed::days(16)).to_string(),
         discipline: "gravel".to_owned(),
         priority: RacePriority::A,
     };
     let phases = vec![PlanPhase {
         kind: PhaseKind::Taper,
-        start: first.format("%Y-%m-%d").to_string(),
+        start: first.to_string(),
         weeks: 2,
         intent: "sharpen into the race".to_owned(),
         target_hours: Some(8.0),
@@ -937,21 +925,17 @@ async fn seed_expired_plan(
         loading_pattern: None,
         skeleton_id: None,
     }];
-    let first_start = first.format("%Y-%m-%d").to_string();
-    let second_start = second.format("%Y-%m-%d").to_string();
+    let first_start = first.to_string();
+    let second_start = second.to_string();
     let first_days: Vec<PlannedDay> = (0..7)
         .map(|i| {
-            let d = (first + chrono::Days::new(i))
-                .format("%Y-%m-%d")
-                .to_string();
+            let d = (first + Elapsed::days(i)).to_string();
             day(&d, "gravel", "taper spin", Some(45), "Z1")
         })
         .collect();
     let second_days: Vec<PlannedDay> = (0..7)
         .map(|i| {
-            let d = (second + chrono::Days::new(i))
-                .format("%Y-%m-%d")
-                .to_string();
+            let d = (second + Elapsed::days(i)).to_string();
             day(&d, "gravel", "race week", Some(30), "Z1")
         })
         .collect();

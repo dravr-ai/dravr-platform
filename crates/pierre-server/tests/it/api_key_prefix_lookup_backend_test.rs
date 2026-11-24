@@ -1,5 +1,5 @@
 // ABOUTME: API-key repository contract against the REAL configured backend — the prefix lookup, the tier and
-// ABOUTME: limits a key reads back with, the operator listing's filters, and same-day expiry cleanup
+// ABOUTME: limits a key reads back with, the admin listing's filters, and same-day expiry cleanup
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -19,7 +19,7 @@
 //! test exercises `PostgreSQL` wherever one is configured and `SQLite`
 //! otherwise — the same contract on both.
 
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_auth::api_keys::{ApiKeyManager, ApiKeyTier, CreateApiKeyRequest};
 use pierre_core::models::{ApiKey, User, UserStatus, UserTier};
 use pierre_database::backends::factory::Database;
@@ -27,7 +27,7 @@ use pierre_database::RepositoryRegistry;
 use pierre_test_support::db::create_test_db;
 use uuid::Uuid;
 
-/// A distinct active user per call, returned with the email the operator
+/// A distinct active user per call, returned with the email the admin
 /// listing filters on.
 async fn fresh_user(repos: &RepositoryRegistry) -> (Uuid, String) {
     let uuid = Uuid::new_v4();
@@ -208,7 +208,7 @@ async fn created_at_round_trips_on_the_configured_backend() {
     api_key.id = format!("key_{}", Uuid::new_v4().simple());
     api_key.key_prefix = format!("pk_live_{}", Uuid::new_v4().simple());
     api_key.key_hash = format!("hash_{}", Uuid::new_v4().simple());
-    api_key.created_at = Utc::now() - Duration::days(1);
+    api_key.created_at = Timestamp::now() - Elapsed::days(1);
     repos.api_keys.create(&api_key).await.expect("key stored");
 
     let found = repos
@@ -225,11 +225,11 @@ async fn created_at_round_trips_on_the_configured_backend() {
     );
 }
 
-/// The operator listing honours every filter on both backends. `SQLite`
+/// The admin listing honours every filter on both backends. `SQLite`
 /// used to ignore the email, treat `active_only = false` as "inactive only",
 /// and cap the listing at ten rows when no limit was given.
 #[tokio::test]
-async fn the_operator_listing_filters_by_email_and_activity_on_the_configured_backend() {
+async fn the_admin_listing_filters_by_email_and_activity_on_the_configured_backend() {
     let db = backend_under_test().await;
     let repos = db.repositories();
     let (owner, owner_email) = fresh_user(repos).await;
@@ -307,7 +307,7 @@ async fn a_key_expired_minutes_ago_is_cleaned_up_on_the_configured_backend() {
     api_key.id = format!("key_{}", Uuid::new_v4().simple());
     api_key.key_prefix = format!("pk_live_{}", Uuid::new_v4().simple());
     api_key.key_hash = format!("hash_{}", Uuid::new_v4().simple());
-    api_key.expires_at = Some(Utc::now() - Duration::minutes(5));
+    api_key.expires_at = Some(Timestamp::now() - Elapsed::minutes(5));
     repos.api_keys.create(&api_key).await.expect("key stored");
 
     assert_eq!(

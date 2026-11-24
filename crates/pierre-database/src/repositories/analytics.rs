@@ -23,7 +23,7 @@
 //!   cast on the bound text; `TEXT` on `SQLite`. The cast is the `inet`
 //!   literal, empty there.
 //!
-//! Timestamps bind and read as [`DateTime<Utc>`] on both (`TIMESTAMPTZ` on
+//! Timestamps bind and read as [`Timestamp`] on both (`TIMESTAMPTZ` on
 //! Postgres, the RFC 3339 text `to_rfc3339()` produces on `SQLite`), so a
 //! window compares as an instant and not as two differently spelled
 //! strings — including the JWT month-to-date window, whose start is
@@ -35,7 +35,7 @@
 
 use std::fmt::{Display, Write};
 
-use chrono::{DateTime, Datelike, Months, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::RequestLog;
 
@@ -64,12 +64,13 @@ macro_rules! record_jwt_usage_sql {
     ($id:literal, $inet:literal) => {
         concat!(
             "INSERT INTO jwt_usage (id, user_id, timestamp, endpoint, method, status_code, \
-                 response_time_ms, request_size_bytes, response_size_bytes, ip_address, user_agent) \
+                 response_time_ms, request_size_bytes, response_size_bytes, ip_address, user_agent, \
+                 client_grant_id) \
              VALUES (",
             $id,
             ", $1, $2, $3, $4, $5, $6, $7, $8, $9",
             $inet,
-            ", $10)"
+            ", $10, $11)"
         )
     };
 }
@@ -82,6 +83,13 @@ pub(crate) use record_jwt_usage_sql;
 pub(crate) const API_KEY_WINDOW_USAGE_SQL: &str = "SELECT COUNT(*) AS count, \
             MIN(timestamp) AS oldest \
      FROM api_key_usage WHERE api_key_id = $1 AND timestamp > $2";
+
+/// A user's requests admitted under consent grant `$2` after `$3` and the
+/// earliest of them: the grant's usage inside its hourly window. Served by
+/// the `(user_id, client_grant_id, timestamp)` partial index.
+pub(crate) const GRANT_WINDOW_USAGE_SQL: &str = "SELECT COUNT(*) AS count, \
+            MIN(timestamp) AS oldest \
+     FROM jwt_usage WHERE user_id = $1 AND client_grant_id = $2 AND timestamp > $3";
 
 /// A key's totals over `[$5, $6]`. `$1..=$3` are the success band and the
 /// failure floor: a 2xx is successful, 400 and up failed, so a 3xx is in
@@ -270,12 +278,12 @@ pub fn success_ratio(success: i64, total: i64) -> f64 {
 /// made the monthly limit decorative there, and the session time zone's
 /// month on Postgres.
 #[must_use]
-pub fn current_utc_month_start() -> DateTime<Utc> {
-    let now = Utc::now();
-    now.date_naive()
+pub fn current_utc_month_start() -> Timestamp {
+    let now = Timestamp::now();
+    now.utc_date()
         .with_day(1)
-        .and_then(|first| first.and_hms_opt(0, 0, 0))
-        .map_or(now, |midnight| midnight.and_utc())
+        .and_then(|first| first.at_midnight().and_utc().ok())
+        .unwrap_or(now)
 }
 
 /// The first instant of the UTC month after the one `now` falls in: when
@@ -284,15 +292,15 @@ pub fn current_utc_month_start() -> DateTime<Utc> {
 ///
 /// Built from the first of `now`'s month, so a 29th, 30th or 31st never
 /// names a day the next month lacks. Every argument has a next month inside
-/// chrono's range except the last month it can represent, where `now` is
+/// the date types' range except the last month it can represent, where `now` is
 /// returned unchanged.
 #[must_use]
-pub fn next_utc_month_start(now: DateTime<Utc>) -> DateTime<Utc> {
-    now.date_naive()
+pub fn next_utc_month_start(now: Timestamp) -> Timestamp {
+    now.utc_date()
         .with_day(1)
-        .and_then(|first| first.checked_add_months(Months::new(1)))
-        .and_then(|next| next.and_hms_opt(0, 0, 0))
-        .map_or(now, |midnight| midnight.and_utc())
+        .and_then(|first| first.checked_add_months(1))
+        .and_then(|next| next.at_midnight().and_utc().ok())
+        .unwrap_or(now)
 }
 
 /// A request-log row projected by [`request_logs_sql`].
@@ -307,7 +315,7 @@ where
     Option<String>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     i32: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     Option<i32>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    DateTime<Utc>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Timestamp: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
     let text = |col: &str| -> AppResult<String> {
         row.try_get(col).map_err(|e| usage_column_error(col, e))
@@ -373,7 +381,7 @@ macro_rules! impl_usage_repository {
             async fn get_api_key_window_usage(
                 &self,
                 api_key_id: &str,
-                window_start: DateTime<Utc>,
+                window_start: Timestamp,
             ) -> AppResult<WindowUsage> {
                 // A system-level lookup with no user scoping: the rate
                 // limiter has only the key in hand.
@@ -388,7 +396,7 @@ macro_rules! impl_usage_repository {
                 let count: i64 = row
                     .try_get("count")
                     .map_err(|e| usage_column_error("count", e))?;
-                let oldest: Option<DateTime<Utc>> = row
+                let oldest: Option<Timestamp> = row
                     .try_get("oldest")
                     .map_err(|e| usage_column_error("oldest", e))?;
                 Ok(WindowUsage {
@@ -400,8 +408,8 @@ macro_rules! impl_usage_repository {
             async fn get_api_key_stats(
                 &self,
                 api_key_id: &str,
-                start_date: DateTime<Utc>,
-                end_date: DateTime<Utc>,
+                start_date: Timestamp,
+                end_date: Timestamp,
             ) -> AppResult<ApiKeyUsageStats> {
                 let totals = sqlx::query(API_KEY_STATS_SQL)
                     .bind(i32::from(SUCCESS_MIN))
@@ -483,10 +491,38 @@ macro_rules! impl_usage_repository {
                     .bind(usage.response_size_bytes.map(saturating_i32))
                     .bind(&usage.ip_address)
                     .bind(&usage.user_agent)
+                    .bind(&usage.client_grant_id)
                     .execute(self.pool())
                     .await
                     .map_err(|e| AppError::database(format!("Failed to record JWT usage: {e}")))?;
                 Ok(())
+            }
+
+            async fn get_grant_window_usage(
+                &self,
+                user_id: Uuid,
+                client_grant_id: &str,
+                window_start: Timestamp,
+            ) -> AppResult<WindowUsage> {
+                let row = sqlx::query(GRANT_WINDOW_USAGE_SQL)
+                    .bind($ids::bind(user_id))
+                    .bind(client_grant_id)
+                    .bind(window_start)
+                    .fetch_one(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to get grant window usage: {e}"))
+                    })?;
+                let count: i64 = row
+                    .try_get("count")
+                    .map_err(|e| usage_column_error("count", e))?;
+                let oldest: Option<Timestamp> = row
+                    .try_get("oldest")
+                    .map_err(|e| usage_column_error("oldest", e))?;
+                Ok(WindowUsage {
+                    count: u32_from_count(count, "count")?,
+                    oldest,
+                })
             }
 
             async fn get_jwt_current_usage(&self, user_id: Uuid) -> AppResult<JwtMonthlyUsage> {
@@ -520,8 +556,8 @@ macro_rules! impl_usage_repository {
                 &self,
                 user_id: Option<Uuid>,
                 api_key_id: Option<&str>,
-                start_time: Option<DateTime<Utc>>,
-                end_time: Option<DateTime<Utc>>,
+                start_time: Option<Timestamp>,
+                end_time: Option<Timestamp>,
                 status_filter: Option<&str>,
                 tool_filter: Option<&str>,
             ) -> AppResult<Vec<RequestLog>> {
@@ -564,8 +600,8 @@ macro_rules! impl_usage_repository {
             async fn count_api_key_requests(
                 &self,
                 user_id: Uuid,
-                start_time: DateTime<Utc>,
-                end_time: DateTime<Utc>,
+                start_time: Timestamp,
+                end_time: Timestamp,
             ) -> AppResult<u64> {
                 let row = sqlx::query(API_KEY_REQUEST_COUNT_SQL)
                     .bind($ids::bind(user_id))
@@ -585,8 +621,8 @@ macro_rules! impl_usage_repository {
             async fn get_top_tools_analysis(
                 &self,
                 user_id: Uuid,
-                start_time: DateTime<Utc>,
-                end_time: DateTime<Utc>,
+                start_time: Timestamp,
+                end_time: Timestamp,
             ) -> AppResult<Vec<ToolUsage>> {
                 let rows = sqlx::query(TOP_TOOLS_SQL)
                     .bind($ids::bind(user_id))

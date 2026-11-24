@@ -2,12 +2,12 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: The phone's onboarding seat panel on the shared seat probe (carnet#1529) — a link made on the screen still reads the grant back
-// ABOUTME: Pins that the session is read once a coaching platform connects, the screen's own cards are reloaded, and the step says the coach coaches
+// ABOUTME: Pins that the session is read once a coaching platform connects, the provider cards are asked for again, and the step says the coach coaches
 
 import React from 'react';
 import { render, waitFor } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import type { CoachSeatProvider } from '@pierre/shared-constants';
+import { QUERY_KEYS, type CoachSeatProvider } from '@pierre/shared-constants';
 
 // One session user for every reader — the panel and the shared probe — so a patch re-renders the panel.
 const mockAuth = { managesRoster: false, listeners: new Set<() => void>() };
@@ -63,12 +63,12 @@ describe('CoachSeatPanel', () => {
     mockGetSession.mockResolvedValue({ user: { manages_roster: false } });
   });
 
-  it('a TrainingPeaks link made on the screen still reads the grant back, and reloads the screen’s cards', async () => {
+  it('a TrainingPeaks link made on the screen still reads the grant back, and asks for the cards again', async () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
-    const onReloadProviders = jest.fn();
+    const invalidate = jest.spyOn(client, 'invalidateQueries');
     const tree = (providers: CoachSeatProvider[]) => (
       <QueryClientProvider client={client}>
-        <CoachSeatPanel providers={providers} onReloadProviders={onReloadProviders} onDone={jest.fn()} />
+        <CoachSeatPanel providers={providers} onDone={jest.fn()} />
       </QueryClientProvider>
     );
     const view = render(tree([card(false)]));
@@ -80,7 +80,7 @@ describe('CoachSeatPanel', () => {
     view.rerender(tree([card(true, 'coach')]));
 
     await waitFor(() => expect(mockUpdateUser).toHaveBeenCalledWith({ manages_roster: true }));
-    expect(onReloadProviders).toHaveBeenCalled();
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: QUERY_KEYS.providers.status() });
     expect(await view.findByTestId('coach-seat-status-coach')).toBeTruthy();
   });
 });

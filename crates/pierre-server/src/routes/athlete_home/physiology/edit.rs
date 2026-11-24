@@ -38,6 +38,7 @@ use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::periodization::SportFamily;
 use pierre_core::models::{AnchorOrigin, AnchorUnit, SportAnchorName, TenantId, UnitSystem};
 use pierre_middleware::extractors::AuthenticatedUser;
+use pierre_runtime_context::require_tenant;
 use pierre_tool_runtime::guardian::tenant_tool_enabled;
 use pierre_tool_runtime::implementations::physiology::save_physiology;
 use serde::Deserialize;
@@ -45,7 +46,6 @@ use serde_json::{json, Value};
 
 use super::{physiology_response, PhysiologyQuery, PhysiologyResponse};
 use crate::mcp::resources::ServerContext;
-use crate::routes::athlete_home::active_tenant;
 use crate::tools::runtime_adapter::into_runtime;
 
 /// The distance an entered pace is in seconds per.
@@ -249,7 +249,7 @@ pub(in super::super) async fn put_physiology_anchor(
     Query(query): Query<PhysiologyQuery>,
     Json(edit): Json<AnchorEdit>,
 ) -> AppResult<Json<PhysiologyResponse>> {
-    let tenant_id = active_tenant(&auth)?;
+    let tenant_id = require_tenant(&resources, &auth).await?;
     let (sport, anchor) = anchor_in_path(&sport, &anchor)?;
     refuse_when_edits_off(&resources, tenant_id, AnchorReader::Athlete).await?;
     let args = anchor_edit_args(sport, anchor, &edit, AnchorOrigin::Athlete.as_str())?;

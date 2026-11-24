@@ -5,9 +5,9 @@
 // Copyright (c) 2026 dravr.ai
 
 use async_trait::async_trait;
-use chrono::{NaiveDate, Utc};
 use dravr_canot::commands::CommandResponse;
 use dravr_canot::rich_text::escape_markdown;
+use dravr_tronc::dates::{CivilDate, Timestamp};
 use pierre_contremaitre::evidence_strings::{self, KEY_PLAN_SESSION_NOTES};
 use pierre_contremaitre::messaging_strings::{
     MessagingStringsRegistry, KEY_PLAN_ATHLETE_AMBIGUOUS, KEY_PLAN_ATHLETE_EMPTY,
@@ -38,6 +38,7 @@ use tracing::info;
 use uuid::Uuid;
 
 use crate::{CallerGroupStanding, CommandHandler, PlatformCommandContext};
+use dravr_tronc::dates::Elapsed;
 
 /// What the athlete asked to see.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -149,10 +150,11 @@ pub struct PlanShareHandler;
 /// for nothing and a plan that simply does not reach this date — the two used
 /// to collapse into the same "nothing scheduled" line, which is how a hole in
 /// the stored weeks read as a working plan with an easy day in it.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 enum DayStatus<'a> {
-    /// A stored week spans the date and prescribes this session.
-    Session(&'a PlannedDay),
+    /// A stored week spans the date and prescribes these entries, in the
+    /// week's order: one line each (carnet#1716). Never empty.
+    Sessions(Vec<&'a PlannedDay>),
     /// A stored week spans the date and prescribes nothing on it.
     Unscheduled,
     /// No stored week spans the date at all.
@@ -164,24 +166,28 @@ enum DayStatus<'a> {
 /// Looks for a prescribed day first, then falls back to asking whether any
 /// selected week merely *spans* the date — a week can cover a date without
 /// listing it, which is a real rest day rather than a gap.
-fn day_status<'a>(weeks: &'a [SelectedWeek<'a>], date: NaiveDate) -> DayStatus<'a> {
-    weeks.iter().find_map(|w| w.day_on(date)).map_or_else(
-        || {
-            if weeks.iter().any(|w| (w.start..=w.end).contains(&date)) {
-                DayStatus::Unscheduled
-            } else {
-                DayStatus::Uncovered
-            }
-        },
-        DayStatus::Session,
-    )
+fn day_status<'a>(weeks: &'a [SelectedWeek<'a>], date: CivilDate) -> DayStatus<'a> {
+    weeks
+        .iter()
+        .map(|w| w.days_on(date))
+        .find(|days| !days.is_empty())
+        .map_or_else(
+            || {
+                if weeks.iter().any(|w| (w.start..=w.end).contains(&date)) {
+                    DayStatus::Unscheduled
+                } else {
+                    DayStatus::Uncovered
+                }
+            },
+            DayStatus::Sessions,
+        )
 }
 
 /// The outline phase whose span contains `date`, when the outline has one.
 ///
-/// A phase whose span runs past `NaiveDate::MAX` holds no calendar date, so it
+/// A phase whose span runs past `CivilDate::MAX` holds no calendar date, so it
 /// is passed over the same way an unparseable start is.
-fn phase_on(plan: &TrainingPlan, date: NaiveDate) -> Option<&PlanPhase> {
+fn phase_on(plan: &TrainingPlan, date: CivilDate) -> Option<&PlanPhase> {
     plan.phases.iter().find(|p| p.covers(date))
 }
 
@@ -189,39 +195,50 @@ fn phase_on(plan: &TrainingPlan, date: NaiveDate) -> Option<&PlanPhase> {
 /// up again when today itself is not covered.
 fn resume_week<'a>(
     weeks: &'a [SelectedWeek<'a>],
-    today: NaiveDate,
+    today: CivilDate,
 ) -> Option<&'a SelectedWeek<'a>> {
     weeks.iter().find(|w| w.start > today)
 }
 
-/// Render one day as `"<label>: <session>"`.
+/// Render one day as `"<label>: <session>"`, one such line per entry on a
+/// date that holds several (carnet#1716).
 fn render_day(
     reg: &MessagingStringsRegistry,
     locale: &str,
     label: &str,
     day: DayStatus<'_>,
 ) -> String {
-    let session = match day {
-        DayStatus::Uncovered => reg.render(KEY_PLAN_NO_COVERAGE, locale, &[]),
-        DayStatus::Unscheduled => reg.render(KEY_PLAN_NO_SESSION, locale, &[]),
-        DayStatus::Session(d) if d.is_rest() => reg.render(KEY_PLAN_REST, locale, &[]),
-        DayStatus::Session(d) => {
-            let duration = d
-                .duration_min
-                .map_or_else(String::new, |m| format!(" {m}min"));
-            let intensity = if d.intensity.is_empty() {
-                String::new()
-            } else {
-                format!(" [{}]", d.intensity)
-            };
-            let session = format!("{}{duration}{intensity} — {}", d.sport, d.workout);
-            match session_notes(reg, locale, d) {
-                Some(notes) => reg.render(KEY_PLAN_SESSION_NOTES, locale, &[&session, &notes]),
-                None => session,
-            }
-        }
+    let line = |session: String| reg.render(KEY_PLAN_DAY_LINE, locale, &[label, &session]);
+    match day {
+        DayStatus::Uncovered => line(reg.render(KEY_PLAN_NO_COVERAGE, locale, &[])),
+        DayStatus::Unscheduled => line(reg.render(KEY_PLAN_NO_SESSION, locale, &[])),
+        DayStatus::Sessions(days) => days
+            .into_iter()
+            .map(|d| line(render_session(reg, locale, d)))
+            .collect::<Vec<_>>()
+            .join("\n"),
+    }
+}
+
+/// One entry as its day line names it: the rest day's words, or the
+/// session's sport, length, intensity and workout with its notes.
+fn render_session(reg: &MessagingStringsRegistry, locale: &str, d: &PlannedDay) -> String {
+    if d.is_rest() {
+        return reg.render(KEY_PLAN_REST, locale, &[]);
+    }
+    let duration = d
+        .duration_min
+        .map_or_else(String::new, |m| format!(" {m}min"));
+    let intensity = if d.intensity.is_empty() {
+        String::new()
+    } else {
+        format!(" [{}]", d.intensity)
     };
-    reg.render(KEY_PLAN_DAY_LINE, locale, &[label, &session])
+    let session = format!("{}{duration}{intensity} — {}", d.sport, d.workout);
+    match session_notes(reg, locale, d) {
+        Some(notes) => reg.render(KEY_PLAN_SESSION_NOTES, locale, &[&session, &notes]),
+        None => session,
+    }
 }
 
 /// What a family day's stored envelope says about it, as `/plan` notes it:
@@ -252,7 +269,7 @@ fn render_header(
     locale: &str,
     plan: &TrainingPlan,
     weeks: &[SelectedWeek<'_>],
-    today: NaiveDate,
+    today: CivilDate,
 ) -> String {
     let mut out = String::with_capacity(256);
     let days_out = parse_plan_date(&plan.goal_race.date)
@@ -293,12 +310,12 @@ fn render_view(
     locale: &str,
     view: PlanView,
     weeks: &[SelectedWeek<'_>],
-    today: NaiveDate,
+    today: CivilDate,
 ) -> String {
     let mut out = String::with_capacity(512);
     // Today and tomorrow can straddle a week boundary, so look them up across
     // the whole selection rather than only the current week.
-    let day_across = |date: NaiveDate| day_status(weeks, date);
+    let day_across = |date: CivilDate| day_status(weeks, date);
     // Naming the date the plan picks up again is what turns "not covered" from
     // a dead end into an answer. Only worth saying when today itself is the
     // uncovered date — a plan that already has today in hand needs no pointer.
@@ -326,7 +343,7 @@ fn render_view(
         PlanView::Compact => {
             let today_label = reg.render(KEY_PLAN_TODAY, locale, &[]);
             let tomorrow_label = reg.render(KEY_PLAN_TOMORROW, locale, &[]);
-            let tomorrow = today + chrono::Days::new(1);
+            let tomorrow = today + Elapsed::days(1);
             let _ = writeln!(
                 out,
                 "{}",
@@ -381,7 +398,7 @@ fn render_view(
                 let _ = writeln!(
                     out,
                     "{}",
-                    render_day(reg, locale, &day.date, DayStatus::Session(day))
+                    render_day(reg, locale, &day.date, DayStatus::Sessions(vec![day]))
                 );
             }
         }
@@ -405,10 +422,10 @@ async fn caller_record(ctx: &PlatformCommandContext) -> Option<User> {
 /// one — a 23:30 EDT `/plan` must show today's session, not tomorrow's. A
 /// missing or unparseable timezone reads as UTC, the same resolution every
 /// other surface that shows the plan applies.
-fn caller_today(user: Option<&User>) -> NaiveDate {
+fn caller_today(user: Option<&User>) -> CivilDate {
     clock_date(
-        Utc::now(),
-        resolve_zone(user.and_then(|u| u.timezone.as_deref())),
+        Timestamp::now(),
+        &resolve_zone(user.and_then(|u| u.timezone.as_deref())),
     )
 }
 
@@ -437,7 +454,7 @@ async fn render_plan_reply(
     ctx: &PlatformCommandContext,
     owner: PlanOwner,
     view: PlanView,
-    today: NaiveDate,
+    today: CivilDate,
 ) -> Result<Option<String>, AppError> {
     let reg = ctx.ctx.messaging_strings_registry();
     let repos = ctx.ctx.repos();
@@ -500,7 +517,7 @@ fn empty_plan_notice(ctx: &PlatformCommandContext) -> String {
 async fn plan_body(
     ctx: &PlatformCommandContext,
     view: PlanView,
-    today: NaiveDate,
+    today: CivilDate,
 ) -> Result<String, AppError> {
     let rendered = render_plan_reply(ctx, PlanOwner::caller(ctx), view, today).await?;
     Ok(rendered.unwrap_or_else(|| empty_plan_notice(ctx)))
@@ -770,7 +787,7 @@ mod tests {
             }
         }))
         .expect("a stored day");
-        let line = render_day(&reg, "en", "Today", DayStatus::Session(&day));
+        let line = render_day(&reg, "en", "Today", DayStatus::Sessions(vec![&day]));
         assert_eq!(
             line,
             "Today: run 45min — 30/15 (Outside the evidence · Transposed from another sport · \
@@ -783,9 +800,34 @@ mod tests {
         }))
         .expect("a stored day");
         assert_eq!(
-            render_day(&reg, "en", "Tomorrow", DayStatus::Session(&plain)),
+            render_day(&reg, "en", "Tomorrow", DayStatus::Sessions(vec![&plain])),
             "Tomorrow: ride 90min — endurance",
             "bug: a day with no envelope keeps its line as it was"
+        );
+    }
+
+    /// A date holding a ride and a rest entry beside it reads as two day
+    /// lines, in the week's order, each under the date's label (carnet#1716).
+    #[test]
+    fn a_date_with_two_entries_renders_one_line_each() {
+        let reg = MessagingStringsRegistry::new();
+        let day = |sport: &str, workout: &str| -> PlannedDay {
+            serde_json::from_value(serde_json::json!({
+                "date": "2026-07-15", "sport": sport, "workout": workout, "duration_min": 60
+            }))
+            .expect("a stored day")
+        };
+        let ride = day("ride", "endurance");
+        let strength = day("strength", "Optional: light strength");
+        assert_eq!(
+            render_day(
+                &reg,
+                "en",
+                "Tomorrow",
+                DayStatus::Sessions(vec![&ride, &strength])
+            ),
+            "Tomorrow: ride 60min — endurance\nTomorrow: strength 60min — Optional: light strength",
+            "bug: each session on the date gets its own day line"
         );
     }
 

@@ -38,6 +38,7 @@ pub(crate) use performance::handle_predict_performance;
 pub use recommendations::generate_training_recommendations;
 pub(crate) use recommendations::handle_generate_recommendations;
 pub use recommendations::recovery_actions_for;
+pub use recommendations::AthleteReads;
 pub use recommendations_nutrition::{
     generate_nutrition_recommendations, load_nutrition_athlete, NutritionAthlete,
 };

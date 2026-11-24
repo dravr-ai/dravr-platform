@@ -39,11 +39,11 @@
 use std::fmt;
 use std::sync::{Arc, Weak};
 
-use chrono::{DateTime, Duration, Timelike, Utc};
-use chrono_tz::Tz;
+use dravr_tronc::dates::{Elapsed, Timestamp, Zone};
 use pierre_config::activity_landed::{LandingDigest, LandingFrequency, DIGEST_KEY, FREQUENCY_KEY};
 use pierre_contremaitre::messaging_strings::KEY_PLATFORM_POST_ACTIVITY_LANDED_PROMPT;
 use pierre_core::civil_time::resolve_zone;
+use pierre_core::civil_time::LOCAL_MINUTE;
 use pierre_core::models::{CheckInCadence, PostPurpose, TenantId, UserStatus};
 use pierre_core::transport::TransportPolicy;
 use pierre_runtime_context::{AdminConfigLookup, ConfigLookupScope};
@@ -61,11 +61,11 @@ use crate::services::post_delivery::{
 
 /// How old a workout may be when it lands and still be reacted to: past it,
 /// "your ride from last Tuesday" would arrive after a reconnect (OQ4).
-pub const LANDED_FRESH_FOR: Duration = Duration::hours(48);
+pub const LANDED_FRESH_FOR: Elapsed = Elapsed::hours(48);
 
 /// How recently the athlete wrote to the coach for the landing to count as
 /// mid-conversation: the live reply reads the same store, so no post (OQ5).
-pub const ACTIVE_CONVERSATION: Duration = Duration::minutes(30);
+pub const ACTIVE_CONVERSATION: Elapsed = Elapsed::minutes(30);
 
 /// The newest messages read per conversation for the mid-conversation gate.
 const RECENT_MESSAGES: i64 = 10;
@@ -233,7 +233,12 @@ impl ActivityLandedPoster {
         let poster = Arc::clone(self);
         let handle = tracker.spawn(async move {
             poster
-                .land(athlete.user_id, athlete.tenant_id, session, Utc::now())
+                .land(
+                    athlete.user_id,
+                    athlete.tenant_id,
+                    session,
+                    Timestamp::now(),
+                )
                 .await
         });
         match handle.await {
@@ -254,7 +259,7 @@ impl ActivityLandedPoster {
         user_id: Uuid,
         tenant_id: TenantId,
         session: LandedSession,
-        now: DateTime<Utc>,
+        now: Timestamp,
     ) -> Landed {
         let athlete = PostAthlete { user_id, tenant_id };
         let landed = self.gate_and_post(athlete, &session, now).await;
@@ -279,7 +284,7 @@ impl ActivityLandedPoster {
         &self,
         athlete: PostAthlete,
         session: &LandedSession,
-        now: DateTime<Utc>,
+        now: Timestamp,
     ) -> Landed {
         let Some(resources) = self.ctx.upgrade() else {
             return Landed::Skipped(SkipReason::ShuttingDown);
@@ -320,7 +325,7 @@ impl ActivityLandedPoster {
         if mid_conversation(&resources, athlete, &conversations, now).await {
             return Landed::Skipped(SkipReason::MidConversation);
         }
-        if coach_quiet_hours(&resources, athlete.user_id, athlete.tenant_id, now, zone).await {
+        if coach_quiet_hours(&resources, athlete.user_id, athlete.tenant_id, now, &zone).await {
             return Landed::Skipped(SkipReason::QuietHours);
         }
         let config = LandingConfig::resolve(
@@ -332,15 +337,11 @@ impl ActivityLandedPoster {
             athlete,
         )
         .await;
-        let Some(claim) = claim(&resources, athlete, session, config.frequency, zone, now).await
+        let Some(claim) = claim(&resources, athlete, session, config.frequency, &zone, now).await
         else {
             return Landed::Skipped(SkipReason::Claimed);
         };
-        let start = session
-            .start
-            .with_timezone(&zone)
-            .format("%Y-%m-%d %H:%M")
-            .to_string();
+        let start = zone.format_with(session.start, &LOCAL_MINUTE);
         let prompt = |locale: &str| landing_prompt(&resources, locale, &start, session);
         let posted = post_to_one(
             &resources,
@@ -372,7 +373,7 @@ impl ActivityLandedPoster {
 
 /// The athlete's own zone when their account is active; `None` otherwise,
 /// and when it is unreadable (logged).
-async fn active_zone(resources: &ServerContext, athlete: PostAthlete) -> Option<Tz> {
+async fn active_zone(resources: &ServerContext, athlete: PostAthlete) -> Option<Zone> {
     match resources
         .common
         .repos
@@ -415,7 +416,7 @@ async fn mid_conversation(
     resources: &ServerContext,
     athlete: PostAthlete,
     conversations: &[&str],
-    now: DateTime<Utc>,
+    now: Timestamp,
 ) -> bool {
     let user = athlete.user_id.to_string();
     for conversation in conversations {
@@ -442,8 +443,8 @@ async fn mid_conversation(
         let wrote_lately = messages
             .iter()
             .filter(|message| message.role == "user")
-            .filter_map(|message| DateTime::parse_from_rfc3339(&message.created_at).ok())
-            .any(|at| now - at.with_timezone(&Utc) < ACTIVE_CONVERSATION);
+            .filter_map(|message| Timestamp::parse_from_rfc3339(&message.created_at).ok())
+            .any(|at| now - at < ACTIVE_CONVERSATION);
         if wrote_lately {
             return true;
         }
@@ -460,15 +461,15 @@ async fn claim(
     athlete: PostAthlete,
     session: &LandedSession,
     frequency: LandingFrequency,
-    zone: Tz,
-    now: DateTime<Utc>,
+    zone: &Zone,
+    now: Timestamp,
 ) -> Option<Claim> {
     let claims = &resources.common.repos.platform_post_claims;
     let purpose = PostPurpose::ActivityLanded.as_str();
     let (subject, claimed) = match frequency {
         LandingFrequency::PerDay => {
-            let since_midnight = now.with_timezone(&zone).time().num_seconds_from_midnight();
-            let midnight = now - Duration::seconds(i64::from(since_midnight));
+            let since_midnight = zone.civil_at(now).time().num_seconds_from_midnight();
+            let midnight = now - Elapsed::seconds(i64::from(since_midnight));
             let claimed = claims
                 .claim_platform_post_since(
                     athlete.tenant_id,
@@ -512,7 +513,7 @@ async fn mark_posted(
     resources: &ServerContext,
     athlete: PostAthlete,
     claim: &Claim,
-    now: DateTime<Utc>,
+    now: Timestamp,
 ) {
     match resources
         .common

@@ -36,7 +36,7 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::AppError;
 use pierre_core::models::{CoachReplyCorrection, CoachReplyFlag, CoachReviewWeek, ReplyFlagReason};
 use pierre_core::uuid_utils::parse_uuid;
@@ -240,7 +240,7 @@ pub async fn handle_weekly(
         &resources.common.repos,
         auth.user_id,
         query.weeks,
-        Utc::now(),
+        Timestamp::now(),
     )
     .await?;
     Ok((StatusCode::OK, Json(WeeklyResponse { weeks })).into_response())

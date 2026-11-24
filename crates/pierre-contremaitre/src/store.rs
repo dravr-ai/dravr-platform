@@ -60,7 +60,7 @@ pub trait PromptStore: Send + Sync {
     /// or parsed.
     async fn read_manifest(&self) -> Result<Manifest, ContremaitreError>;
 
-    /// Short human-readable label of the underlying backend (`"github"`). Used in startup logs so the operator can confirm
+    /// Short human-readable label of the underlying backend (`"github"`). Used in startup logs so the admin can confirm
     /// which path is live without grepping env vars.
     fn backend_label(&self) -> &'static str;
 }

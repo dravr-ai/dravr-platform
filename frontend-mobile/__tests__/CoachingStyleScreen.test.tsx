@@ -190,7 +190,7 @@ describe('CoachingStyleScreen', () => {
 
   // Turns red if the cards come back: each persona is a radio row, the rules
   // and the enforcement word sit under the selected row only, and nothing in
-  // the tree is a pill, a ring or an "Active" label (Boreal v2.2, DESIGN.md §10).
+  // the tree is a pill, a ring or an "Active" label (Boreal v2.2, DESIGN.md "Phone").
   it('renders the personas as rows, the contract under the selected one, with no card or pill', async () => {
     const { findByTestId, getByTestId, queryByTestId, queryByText, toJSON } = renderScreen();
 

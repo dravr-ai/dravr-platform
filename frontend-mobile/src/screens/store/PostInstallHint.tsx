@@ -8,7 +8,7 @@ import React from 'react';
 import { View, Text } from 'react-native';
 import { Button, Card } from '../../components/ui';
 import { useThemeColors } from '../../constants/theme';
-import { coachAddDraft, coachMention } from './coachDraft';
+import { coachAddDraft, coachMention } from '@pierre/ui-logic';
 import { useTranslation } from '@pierre/i18n';
 
 export interface PostInstallHintProps {

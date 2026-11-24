@@ -33,32 +33,15 @@ use secrecy::SecretString;
 
 use std::sync::Arc;
 
-use chrono::Utc;
 use common::{create_test_server_resources, create_test_user, create_test_user_with_email};
 use dravr_enforme::traits::connection_store::UserConnectionStore;
-use pierre_core::errors::AppError;
-use pierre_core::models::{
-    ActivityBuilder, OAuthNotification, RefreshConfig, SportType, TenantId, UserOAuthToken,
-};
+use dravr_tronc::dates::Elapsed;
+use dravr_tronc::dates::Timestamp;
+use pierre_core::models::{ActivityBuilder, RefreshConfig, SportType, TenantId, UserOAuthToken};
 use pierre_database::RepositoryRegistry;
 use pierre_services::health_sync::PierreSyncStorage;
-use pierre_services::provider_refresh::{RefreshService, SyncNotifier};
+use pierre_services::provider_refresh::RefreshService;
 use uuid::Uuid;
-
-/// No-op notifier: the refresh service requires a `SyncNotifier`, but these
-/// tests assert on freshness classification, not SSE delivery.
-struct NoopNotifier;
-
-#[async_trait::async_trait]
-impl SyncNotifier for NoopNotifier {
-    async fn send_notification(
-        &self,
-        _user_id: Uuid,
-        _notification: &OAuthNotification,
-    ) -> Result<(), AppError> {
-        Ok(())
-    }
-}
 
 /// Seed a Strava token row. `token_type` distinguishes an OAuth exchange
 /// (`"Bearer"`, opaque access token) from a sciotte browser session
@@ -83,7 +66,7 @@ async fn seed_token(
     token_type: &str,
     access_token: &str,
 ) {
-    let now = Utc::now();
+    let now = Timestamp::now();
     let token = UserOAuthToken {
         id: Uuid::new_v4().to_string(),
         user_id,
@@ -92,7 +75,7 @@ async fn seed_token(
         access_token: SecretString::from(access_token.to_owned()),
         refresh_token: Some(SecretString::from("refresh")),
         token_type: token_type.to_owned(),
-        expires_at: Some(now + chrono::Duration::hours(6)),
+        expires_at: Some(now + Elapsed::hours(6)),
         scope: Some("activity:read_all".to_owned()),
         provider_user_id: None,
         oauth_app_client_id: None,
@@ -135,7 +118,7 @@ async fn strava_oauth_with_stamped_last_sync_but_cold_cache_is_stale() {
     // Before the fix this alone made Strava read as Fresh forever.
     repos
         .oauth_tokens
-        .update_provider_last_sync(user_id, tenant_id, "strava", Utc::now())
+        .update_provider_last_sync(user_id, tenant_id, "strava", Timestamp::now())
         .await
         .unwrap();
 
@@ -143,7 +126,7 @@ async fn strava_oauth_with_stamped_last_sync_but_cold_cache_is_stale() {
     // sync in it, and its freshness must come from the activity cache.
     let storage = Arc::new(PierreSyncStorage::new(repos));
     let orchestrator = storage
-        .build_orchestrator(None, common::REFUSED_WELLNESS)
+        .build_orchestrator(None, common::REFUSED_WELLNESS, None)
         .unwrap();
     assert!(
         !orchestrator.provider_names().contains(&"strava"),
@@ -155,7 +138,6 @@ async fn strava_oauth_with_stamped_last_sync_but_cold_cache_is_stale() {
         repos.activity_cache.clone(),
         Arc::clone(repos),
         Some(orchestrator),
-        Arc::new(NoopNotifier),
     );
 
     let status = service
@@ -207,7 +189,7 @@ async fn strava_oauth_with_fresh_activity_cache_is_fresh() {
         "st1".to_owned(),
         "evening ride".to_owned(),
         SportType::Ride,
-        Utc::now() - chrono::Duration::hours(2),
+        Timestamp::now() - Elapsed::hours(2),
         3_600,
         "strava".to_owned(),
     )
@@ -222,7 +204,7 @@ async fn strava_oauth_with_fresh_activity_cache_is_fresh() {
 
     let storage = Arc::new(PierreSyncStorage::new(repos));
     let orchestrator = storage
-        .build_orchestrator(None, common::REFUSED_WELLNESS)
+        .build_orchestrator(None, common::REFUSED_WELLNESS, None)
         .unwrap();
 
     let service = RefreshService::new(
@@ -230,7 +212,6 @@ async fn strava_oauth_with_fresh_activity_cache_is_fresh() {
         repos.activity_cache.clone(),
         Arc::clone(repos),
         Some(orchestrator),
-        Arc::new(NoopNotifier),
     );
 
     let status = service

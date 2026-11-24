@@ -10,6 +10,7 @@ import { Button, Input, RevealButton, Alert } from './ui';
 import { DravrLogo } from './DravrLogo';
 import AnalyticsConsentOptIn from './AnalyticsConsentOptIn';
 import { useTranslation } from '@pierre/i18n';
+import { isPasswordLongEnough } from '@pierre/ui-logic';
 import type { InvitationLinkKind } from '../utils/tokenLink';
 
 type Stage = 'form' | 'invalid' | 'accepted';
@@ -34,7 +35,7 @@ interface AcceptInvitationProps {
  * created active the moment it is submitted.
  *
  * A link that no longer works (expired, used, replaced by a newer one) is the
- * common failure, and it leads to the create-account form: the operator's
+ * common failure, and it leads to the create-account form: the admin's
  * pre-approval stands, so signing up there still lands the account active.
  *
  * A coach-seat link (carnet#1524) carries the coach's seat: the page says so
@@ -65,7 +66,7 @@ export default function AcceptInvitation({ token, kind = 'account', onSignIn, on
       setStage('invalid');
       return;
     }
-    if (password.length < 8) {
+    if (!isPasswordLongEnough(password)) {
       setError(t('app.passwordTooShort'));
       return;
     }

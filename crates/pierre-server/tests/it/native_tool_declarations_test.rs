@@ -66,7 +66,7 @@ fn the_plan_writing_tool_is_declared() {
 ///
 /// Stage 7a.2 generated a prose list for months: a line per tool, 11,763
 /// characters beside embacle's 16,127-character catalogue of the same ~58
-/// tools. Worse than the size, it was built from `user_visible_schemas()` while
+/// tools. Worse than the size, it was built from `all_schemas()` while
 /// the declarations came from `chat_callable_schemas()`, so it advertised
 /// categories the agent could not call on any path.
 ///
@@ -215,7 +215,7 @@ fn the_surviving_advertisement_surface_is_populated() {
 /// The index and the declarations must be the same set, not two aligned sets.
 ///
 /// The deleted list's defect was never that it existed — it was that it read
-/// `user_visible_schemas()` while the declarations read
+/// `all_schemas()` while the declarations read
 /// `chat_callable_schemas()`. Two sources drift, and discipline does not stop
 /// it; this file exists because it did not.
 ///

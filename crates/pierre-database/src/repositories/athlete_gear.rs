@@ -21,7 +21,7 @@
 use std::fmt::Display;
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{
     parse_shoe_sport, ActivityGearKey, AthleteGear, AttributionSource, GearAttribution,
@@ -65,7 +65,7 @@ pub trait AthleteGearRepository: Send + Sync {
         &self,
         user_id: Uuid,
         declaration: &GearDeclaration,
-        added_at: DateTime<Utc>,
+        added_at: Timestamp,
     ) -> AppResult<Uuid>;
 
     /// Replace what the athlete declared about a pair; its history stays.
@@ -85,7 +85,7 @@ pub trait AthleteGearRepository: Send + Sync {
         &self,
         user_id: Uuid,
         gear_id: Uuid,
-        retired_at: Option<DateTime<Utc>>,
+        retired_at: Option<Timestamp>,
     ) -> AppResult<bool>;
 
     /// Delete a pair no activity is attributed to.
@@ -95,8 +95,8 @@ pub trait AthleteGearRepository: Send + Sync {
     async fn list_gear_attributions(
         &self,
         user_id: Uuid,
-        from: DateTime<Utc>,
-        to: DateTime<Utc>,
+        from: Timestamp,
+        to: Timestamp,
     ) -> AppResult<Vec<GearAttribution>>;
 
     /// Record each attribution on an activity copy that holds none yet, in
@@ -170,7 +170,7 @@ macro_rules! gear_select {
 /// `$n` placeholders throughout: sqlx accepts them on `SQLite` as well as
 /// Postgres, so one statement serves both backends. The ids bind through the
 /// backend's uuid codec (see [`super::uuid_columns`]); timestamps bind as
-/// `DateTime<Utc>`, the flag as `bool`, and each driver encodes them for its
+/// `Timestamp`, the flag as `bool`, and each driver encodes them for its
 /// own column type. The zero the sum takes over no attribution is cast to the
 /// floating type on both engines, so the column always decodes as `f64`.
 pub(crate) const LIST_GEAR_SQL: &str = concat!(gear_select!(), "ORDER BY g.added_at DESC, g.id");
@@ -316,8 +316,8 @@ where
     f64: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     i64: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     bool: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    DateTime<Utc>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    Option<DateTime<Utc>>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Timestamp: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Option<Timestamp>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
     let column = |col: &str, e: sqlx::Error| gear_error(&format!("decode {col} of"), e);
     let kind: String = row.try_get("kind").map_err(|e| column("kind", e))?;
@@ -367,7 +367,7 @@ where
     for<'a> &'a str: sqlx::ColumnIndex<R>,
     String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     f64: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    DateTime<Utc>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Timestamp: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
     let column = |col: &str, e: sqlx::Error| gear_error(&format!("decode {col} of"), e);
     let source: String = row.try_get("source").map_err(|e| column("source", e))?;
@@ -438,7 +438,7 @@ macro_rules! impl_athlete_gear_repository {
                 &self,
                 user_id: Uuid,
                 declaration: &GearDeclaration,
-                added_at: DateTime<Utc>,
+                added_at: Timestamp,
             ) -> AppResult<Uuid> {
                 let sport = shoe_sport_slug(&declaration.sport)
                     .ok_or_else(|| AppError::invalid_field("sport", "is not a shoe sport"))?;
@@ -495,7 +495,7 @@ macro_rules! impl_athlete_gear_repository {
             ) -> AppResult<bool> {
                 let sport = shoe_sport_slug(&declaration.sport)
                     .ok_or_else(|| AppError::invalid_field("sport", "is not a shoe sport"))?;
-                let now = Utc::now();
+                let now = Timestamp::now();
                 let mut tx = self
                     .pool()
                     .begin()
@@ -535,7 +535,7 @@ macro_rules! impl_athlete_gear_repository {
                 &self,
                 user_id: Uuid,
                 gear_id: Uuid,
-                retired_at: Option<DateTime<Utc>>,
+                retired_at: Option<Timestamp>,
             ) -> AppResult<bool> {
                 let statement = match retired_at {
                     Some(at) => sqlx::query(RETIRE_GEAR_SQL)
@@ -545,7 +545,7 @@ macro_rules! impl_athlete_gear_repository {
                     None => sqlx::query(RESTORE_GEAR_SQL)
                         .bind($ids::bind(user_id))
                         .bind($ids::bind(gear_id))
-                        .bind(Utc::now()),
+                        .bind(Timestamp::now()),
                 };
                 let changed = statement
                     .execute(self.pool())
@@ -582,8 +582,8 @@ macro_rules! impl_athlete_gear_repository {
             async fn list_gear_attributions(
                 &self,
                 user_id: Uuid,
-                from: DateTime<Utc>,
-                to: DateTime<Utc>,
+                from: Timestamp,
+                to: Timestamp,
             ) -> AppResult<Vec<GearAttribution>> {
                 let rows = sqlx::query(LIST_ATTRIBUTIONS_SQL)
                     .bind($ids::bind(user_id))
@@ -603,7 +603,7 @@ macro_rules! impl_athlete_gear_repository {
                 if attributions.is_empty() {
                     return Ok(0);
                 }
-                let now = Utc::now();
+                let now = Timestamp::now();
                 let mut tx = self
                     .pool()
                     .begin()
@@ -659,7 +659,7 @@ macro_rules! impl_athlete_gear_repository {
                     .bind(attribution.source.as_str())
                     .bind(attribution.start_date)
                     .bind(attribution.distance_meters)
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .execute(&mut *tx)
                     .await
                     .map_err(|e| gear_error("record a choice in", e))?;

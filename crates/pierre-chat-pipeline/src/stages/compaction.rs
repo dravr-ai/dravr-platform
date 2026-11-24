@@ -49,6 +49,19 @@ pub async fn apply_tier1_compaction(
         .iter()
         .map(|id| id.as_deref().and_then(|id| members.get(id).copied()))
         .collect();
+    // The consent keys each emitted row names, beside its id (carnet#1157).
+    let consents: HashMap<&str, &[String]> = history
+        .iter()
+        .map(|row| (row.id.as_str(), row.ai_consent_sources.as_slice()))
+        .collect();
+    let source_consents: Vec<Vec<String>> = source_ids
+        .iter()
+        .map(|id| {
+            id.as_deref()
+                .and_then(|id| consents.get(id))
+                .map_or_else(Vec::new, |sources| sources.to_vec())
+        })
+        .collect();
     // Read the active compaction tunables from the harness config registry
     // so admin updates via `PUT /admin/settings/harness` apply on the next
     // turn without a server restart.
@@ -64,6 +77,7 @@ pub async fn apply_tier1_compaction(
         conversation_id: &input.conversation_id,
         source_ids,
         source_members: &source_members,
+        source_consents: &source_consents,
         llm_messages,
         summary_for_prompt: replayable_summary,
     };

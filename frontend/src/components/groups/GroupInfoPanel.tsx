@@ -17,6 +17,7 @@ import {
   useGroupStats,
   useUpdatePeerConsent,
   useSetCoachSharing,
+  useSetCoachConsents,
   useLeaveGroup,
   useDeleteGroup,
   useRemoveCoach,
@@ -48,13 +49,15 @@ import CoachConsentsSection from './CoachConsentsSection';
 import CoachReadLog from './CoachReadLog';
 import CoachAthleteCard from './CoachAthleteCard';
 import GroupSettingsForm from './GroupSettingsForm';
+import GroupChatConnection from './GroupChatConnection';
 import WhoSeesWhat from './WhoSeesWhat';
 import { useMemberActions } from './useMemberActions';
 import { DisclosureRow, QuietExitRow, ROW_DIVIDER, RowBox, ValueRow } from './GroupInfoParts';
-import { DIGEST_MODES, RESPOND_MODE_LABEL_KEY } from './groupSettingsLabels';
+import { RESPOND_MODE_LABEL_KEY } from './groupSettingsLabels';
 import type { GroupMember, GroupRole, GroupTrend } from '@pierre/shared-types';
 import {
   COACH_CONSENTS_KEYS,
+  DIGEST_MODES,
   analyticsScopeLine,
   coachPlatformName,
   offeredConsents,
@@ -171,6 +174,10 @@ export default function GroupInfoPanel({
   const { sharing: coachSharing } = useCoachSharing(groupId, showsCoachSharing);
   const { setSharing: setCoachSharing, isPending: isSavingCoachSharing } =
     useSetCoachSharing(groupId);
+  // Whether the coach's AI assistant includes the member in its roster tools
+  // (carnet#1511): per membership, off until the member turns it on here.
+  const { setConsents: setCoachConsents, isPending: isSavingAssistantRead } =
+    useSetCoachConsents(groupId);
   const { leaveGroup, isPending: isLeaving } = useLeaveGroup();
   const { deleteGroup, isPending: isDeleting } = useDeleteGroup();
   const { removeCoach, isPending: isRemovingCoach } = useRemoveCoach(groupId);
@@ -232,6 +239,17 @@ export default function GroupInfoPanel({
         consent ? t('groups.sharingOn') : t('groups.sharingOff'),
         consent ? t('humanCoach.sharingOnNotice') : t('humanCoach.sharingOffNotice'),
       );
+    } catch (err) {
+      const message = describeApiError(err, { t, fallbackKey: 'groups.consentFailed' });
+      showError(t('app.updateFailed'), message);
+    }
+  };
+
+  /** Let the coach's AI assistant include the caller in its roster tools, or stop it. */
+  const handleAssistantReadChange = async (granted: boolean) => {
+    try {
+      await setCoachConsents({ assistant_read: granted });
+      showSuccess(t('delegation.consentsSavedToast'));
     } catch (err) {
       const message = describeApiError(err, { t, fallbackKey: 'groups.consentFailed' });
       showError(t('app.updateFailed'), message);
@@ -464,7 +482,7 @@ export default function GroupInfoPanel({
             {viewer === 'member' && <WhoSeesWhat group={group} coachSharing={coachSharing ? coachSharing.consent : null} />}
           </RowBox>
           {/* Getting the athlete in is the owner's second step: the link sits
-              right under who is here (§10). Elsewhere it is a setting. */}
+              right under who is here. Elsewhere it is a setting. */}
           {viewer === 'seat' && isAdmin && <div className="mt-3">{invites(true)}</div>}
         </Section>
       )}
@@ -545,6 +563,20 @@ export default function GroupInfoPanel({
                 />
               </div>
             )}
+            {/* Beside coach sharing: whether the coach's AI assistant (Claude,
+                ChatGPT…) includes the member in its roster tools (carnet#1511). */}
+            {showsCoachSharing && group.coach_user_id && coachConsents?.assistant_read_supported && (
+              <div className={clsx('px-4 py-3', ROW_DIVIDER)} data-testid="coach-assistant-read-row">
+                <Checkbox
+                  label={t('humanCoach.assistantOptIn.label', { coach: coachName ?? '' })}
+                  description={t('humanCoach.assistantOptIn.hint', { coach: coachName ?? '' })}
+                  checked={coachConsents.assistant_read}
+                  disabled={isSavingAssistantRead}
+                  onChange={(e) => void handleAssistantReadChange(e.target.checked)}
+                  data-testid="coach-assistant-read-switch"
+                />
+              </div>
+            )}
             {/* What the coach's agent read of the member, beside the sharing
                 that lets it (carnet#1445): only once a human coach is attached. */}
             {showsCoachSharing && group.coach_user_id && (
@@ -588,6 +620,10 @@ export default function GroupInfoPanel({
           <CoachConsentsSection groupId={groupId} consents={coachConsents} coach={coachName} />
         </Section>
       )}
+
+      {/* The group chat the room is connected to, for everyone once there is
+          one; connecting it is the owner's or the coach's (carnet#1683). */}
+      <GroupChatConnection groupId={groupId} />
 
       <RowBox data-testid="group-info-more">
         {showsThisWeek && (

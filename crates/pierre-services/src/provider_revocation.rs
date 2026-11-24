@@ -1,4 +1,4 @@
-// ABOUTME: Upstream grant revocation, scrape-session drop + provider-data purge for the disconnect chokepoint
+// ABOUTME: Upstream grant revocation, signed-in session drop + provider-data purge for the disconnect chokepoint
 // ABOUTME: Never blocks local deletion, and reports whether the provider confirmed the revocation
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -22,9 +22,9 @@
 
 use std::sync::Arc;
 
-use chrono::{Duration, Utc};
 use dravr_sciotte::client::{ClientError, SessionRemoval};
 use dravr_sciotte::models::AuthSession;
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use futures_util::future::join_all;
 use pierre_auth::oauth2_client::OAuth2Config;
 use pierre_core::constants::oauth_providers;
@@ -55,14 +55,14 @@ use crate::trainingpeaks_accounts::revoke_roster_for_coach_connection;
 /// notify event reports it.
 ///
 /// The event used to read the same whoever acted, so an athlete leaving, an
-/// operator cleaning up and the seat-reclaim sweeper freeing a seat were one
+/// admin cleaning up and the seat-reclaim sweeper freeing a seat were one
 /// indistinguishable count.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DisconnectReason {
     /// The athlete disconnected, from the app, the chat tool loop or `/mcp`.
     Athlete,
-    /// An operator disconnected them, or removed their account.
-    Operator,
+    /// An admin disconnected them, or removed their account.
+    Admin,
     /// The seat-reclaim sweeper freed the Strava seat of an idle athlete.
     SeatReclaim,
     /// The provider told us the athlete withdrew the grant on its side (a
@@ -77,7 +77,7 @@ impl DisconnectReason {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Athlete => "athlete",
-            Self::Operator => "operator",
+            Self::Admin => "admin",
             Self::SeatReclaim => "seat_reclaim",
             Self::ProviderRevoked => "provider_revoked",
         }
@@ -89,7 +89,7 @@ impl DisconnectReason {
     pub const fn purge_reason(self) -> PurgeReason {
         match self {
             Self::Athlete => PurgeReason::AthleteDisconnect,
-            Self::Operator => PurgeReason::OperatorDisconnect,
+            Self::Admin => PurgeReason::AdminDisconnect,
             Self::SeatReclaim => PurgeReason::SeatReclaim,
             Self::ProviderRevoked => PurgeReason::ProviderRevoked,
         }
@@ -99,7 +99,7 @@ impl DisconnectReason {
 /// What happened to a backend's grant at the provider when it was withdrawn.
 ///
 /// Local deletion never waits on this, so it is reported rather than enforced:
-/// an operator who asked for a seat to be freed needs to know whether the
+/// an admin who asked for a seat to be freed needs to know whether the
 /// provider confirmed it, and "the rows are gone" is not that.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "status", content = "reason", rename_all = "snake_case")]
@@ -191,22 +191,18 @@ pub enum RevocationShape {
 /// COROS disconnect stays local-delete-only.
 #[must_use]
 pub fn revocation_shape(service: &OAuthService, backend: &str) -> Option<RevocationShape> {
-    let config = service.config();
     match backend {
-        oauth_providers::STRAVA => Some(RevocationShape::TokenRevocation {
-            revoke_url: config.strava_api_config().revoke_url.clone(),
-        }),
-        oauth_providers::GARMIN => {
-            let garmin = config.garmin_api_config();
-            Some(RevocationShape::BearerDeregistration {
-                revoke_url: garmin.revoke_url.clone(),
-                token_url: garmin.token_url.clone(),
-            })
+        oauth_providers::STRAVA => {
+            let (revoke_url, _) = registry_endpoints(&service.data, backend)?;
+            Some(RevocationShape::TokenRevocation { revoke_url })
         }
         // Wahoo's `DELETE /v1/permissions` withdraws every scope the athlete
         // granted, and with the portal's cleanup flags on it also removes the
         // workouts and plans Dravr scheduled on their account.
-        oauth_providers::WHOOP | oauth_providers::INTERVALS_ICU | oauth_providers::WAHOO => {
+        oauth_providers::GARMIN
+        | oauth_providers::WHOOP
+        | oauth_providers::INTERVALS_ICU
+        | oauth_providers::WAHOO => {
             let (revoke_url, token_url) = registry_endpoints(&service.data, backend)?;
             Some(RevocationShape::BearerDeregistration {
                 revoke_url,
@@ -224,6 +220,11 @@ pub fn revocation_shape(service: &OAuthService, backend: &str) -> Option<Revocat
 /// The registry's `(revoke_url, token_url)` for a backend, or `None` — with
 /// the reason logged — when the build did not register it or it declares no
 /// revocation endpoint.
+///
+/// The registry holds each provider's defaults with the deployment's
+/// `PIERRE_<P>_REVOKE_URL` and `_TOKEN_URL` overrides applied, the same
+/// endpoints its token exchanges and refreshes use, so a disconnect revokes
+/// where the grant was made.
 fn registry_endpoints(data: &DataContext, backend: &str) -> Option<(String, String)> {
     let Some(config) = data.provider_registry().default_config(backend) else {
         debug!(
@@ -657,7 +658,7 @@ async fn live_access_token(
 ) -> Option<SecretString> {
     let expired = token
         .expires_at
-        .is_some_and(|at| at <= Utc::now() + Duration::minutes(1));
+        .is_some_and(|at| at <= Timestamp::now() + Elapsed::minutes(1));
     if !expired && !token.access_token.expose_secret().is_empty() {
         return Some(token.access_token);
     }
@@ -921,7 +922,7 @@ pub async fn clear_backend(
 /// through, so the provider card's generic Disconnect is also how a member
 /// unlinks. A coach who disconnects ends every link their session served,
 /// since nothing is left to read those athletes through. Every disconnect
-/// surface (the app, the chat tool loop, `/mcp`, an operator removing the
+/// surface (the app, the chat tool loop, `/mcp`, an admin removing the
 /// user) funnels through [`clear_backend`], so none of them can leave a link
 /// pointing at a session that is gone.
 async fn end_delegated_connections(

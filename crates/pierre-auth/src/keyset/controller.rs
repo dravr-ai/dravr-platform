@@ -23,14 +23,14 @@
 //!    the configured age.
 //!
 //! Everything a tick does can be undone: a disabled key is enabled back with
-//! `pierre-cli key enable`. Only the operator destroys a key.
+//! `pierre-cli key enable`. Only an admin destroys a key.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_database::backends::shared::encryption::{
     is_plaintext_private_key_pem, split_dek_version,
@@ -70,7 +70,7 @@ pub trait CiphertextHolder: Send + Sync {
     /// The name `key status` prints.
     fn name(&self) -> &'static str;
     /// How many values it holds that were sealed before `before`.
-    async fn count_sealed_before(&self, before: DateTime<Utc>) -> AppResult<u64>;
+    async fn count_sealed_before(&self, before: Timestamp) -> AppResult<u64>;
 }
 
 /// A stored secret that does not open under any loaded key.
@@ -93,7 +93,7 @@ pub struct SweepState {
     /// when its count failed.
     pub holders: BTreeMap<String, Option<u64>>,
     /// When the last tick ran.
-    pub last_tick_at: Option<DateTime<Utc>>,
+    pub last_tick_at: Option<Timestamp>,
     /// Consecutive ticks on which a drain count failed.
     #[serde(default)]
     pub failed_count_ticks: u32,
@@ -167,7 +167,7 @@ pub async fn write_keyset(
     expected: &str,
     doc: &KeysetDocument,
     transitions: &[Transition],
-    now: DateTime<Utc>,
+    now: Timestamp,
 ) -> AppResult<bool> {
     if !security
         .compare_and_swap_system_secret(KEYSET_SECRET, expected, &doc.to_text()?)
@@ -184,7 +184,7 @@ pub async fn write_keyset(
 pub async fn record_transitions(
     security: &dyn SecurityRepository,
     transitions: &[Transition],
-    now: DateTime<Utc>,
+    now: Timestamp,
 ) {
     for transition in transitions {
         info!(
@@ -216,7 +216,7 @@ pub async fn stage_key(
     security: &dyn SecurityRepository,
     kek: &dyn KekProvider,
     family: KeyFamily,
-    now: DateTime<Utc>,
+    now: Timestamp,
 ) -> AppResult<u32> {
     let (text, mut doc) = read_keyset(security).await?.ok_or_else(|| {
         AppError::invalid_input("the keyset is not adopted yet; run `pierre-cli key adopt` first")
@@ -255,14 +255,13 @@ pub async fn count_remaining(
     holders: &[Arc<dyn CiphertextHolder>],
     state: &mut SweepState,
     version: u32,
-    demoted_at: DateTime<Utc>,
+    demoted_at: Timestamp,
 ) -> AppResult<u64> {
     let mut total = state.unreadable_under(version);
     for kind in StoredSecretKind::ALL {
         total += security.count_sealed_under(kind, version).await?;
     }
-    let before =
-        demoted_at + chrono::Duration::from_std(FLEET_WINDOW).unwrap_or(chrono::Duration::MAX);
+    let before = demoted_at + Elapsed::from_std(FLEET_WINDOW).unwrap_or(Elapsed::MAX);
     let mut failed = None;
     for holder in holders {
         match holder.count_sealed_before(before).await {
@@ -330,7 +329,7 @@ impl KeysetController {
     pub async fn tick(
         &self,
         security: &dyn SecurityRepository,
-        now: DateTime<Utc>,
+        now: Timestamp,
     ) -> AppResult<TickReport> {
         let mut report = TickReport::default();
         let Some((text, mut doc)) = read_keyset(security).await? else {
@@ -375,7 +374,7 @@ impl KeysetController {
         security: &dyn SecurityRepository,
         doc: &mut KeysetDocument,
         state: &mut SweepState,
-        now: DateTime<Utc>,
+        now: Timestamp,
     ) -> Vec<Transition> {
         let mut disabled = Vec::new();
         let mut count_failed = false;

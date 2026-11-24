@@ -1,8 +1,8 @@
 #!/bin/bash
-# ABOUTME: Local-first harness for the ADR-021 dedicated sciotte scraper service.
+# ABOUTME: Local-first harness for the ADR-021 dedicated sciotte service.
 # ABOUTME: Runs dravr-sciotte-server on the port DRAVR_SCIOTTE_REMOTE_URL names (default 8096) and drives it via curl.
 
-# Lets you exercise the isolated scraper on localhost before any Cloud Run deploy:
+# Lets you exercise the isolated service on localhost before any Cloud Run deploy:
 # start the server, drive a real Strava/Garmin credential login (password read from
 # your terminal / env, never placed on the command line), submit OTP / pick a 2FA
 # method, then fetch activities — all against the local service. Use it to validate
@@ -58,7 +58,7 @@ BIN="${SCIOTTE_REPO}/target/debug/dravr-sciotte-server"
 # shellcheck source=../bin/dev-processes.sh
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")/../bin" && pwd)/dev-processes.sh"
 
-# No auth material: a loopback-bound scraper serves unauthenticated (its
+# No auth material: a loopback-bound service serves unauthenticated (its
 # development mode — deployed instances require Google identity tokens).
 
 # Server-side queue knobs (fail-fast if unset). Mirror the dev values.
@@ -70,7 +70,7 @@ export DRAVR_SCIOTTE_RETRY_AFTER_HINT_SECS="${DRAVR_SCIOTTE_RETRY_AFTER_HINT_SEC
 export DRAVR_SCIOTTE_CLOSED_RETRY_AFTER_SECS="${DRAVR_SCIOTTE_CLOSED_RETRY_AFTER_SECS:-60}"
 export DRAVR_SCIOTTE_MAX_CONCURRENT_READS="${DRAVR_SCIOTTE_MAX_CONCURRENT_READS:-16}"
 
-# Login step timeouts (read by the scraper). Pull from .envrc if present, else default.
+# Login step timeouts (read by the service). Pull from .envrc if present, else default.
 export DRAVR_SCIOTTE_LOGIN_TIMEOUT="${DRAVR_SCIOTTE_LOGIN_TIMEOUT:-300}"
 export DRAVR_SCIOTTE_EMAIL_STEP_TIMEOUT="${DRAVR_SCIOTTE_EMAIL_STEP_TIMEOUT:-60}"
 export DRAVR_SCIOTTE_PASSWORD_STEP_TIMEOUT="${DRAVR_SCIOTTE_PASSWORD_STEP_TIMEOUT:-180}"
@@ -152,7 +152,7 @@ get_for_session() { # path session_id
 
 usage() {
   cat <<EOF
-$(echo -e "${BLUE}sciotte-local${NC}") — local harness for the dedicated sciotte scraper service
+$(echo -e "${BLUE}sciotte-local${NC}") — local harness for the dedicated sciotte service
 
   Server:   ${BASE}   (bin: ${BIN})
 
@@ -272,7 +272,7 @@ cmd_serve_bg() {
   mkdir -p "${logdir}"
   logf="${logdir}/sciotte-service.log"
   info "Starting sciotte service (${1:-both providers}) on ${BASE} (log: ${logf})"
-  dev_stop sciotte "Sciotte scraper service" >/dev/null
+  dev_stop sciotte "Sciotte service" >/dev/null
   dev_spawn sciotte "${logf}" \
     "${BIN}" ${args[@]+"${args[@]}"} serve --host "${HOST}" --port "${PORT}"
   pid="${DEV_SPAWNED_PID}"
@@ -302,7 +302,7 @@ cmd_login() {
   local email="${1:-}"
   [ -n "${email}" ] || { err "usage: login <email> [provider]"; exit 1; }
   # Multi-provider server: name the provider on every new flow (defaults to
-  # garmin — our sciotte-scraped account). The continuation steps (otp/2fa)
+  # garmin — the account sciotte reads). The continuation steps (otp/2fa)
   # need no provider: the server resumes the flow by its id.
   local provider="${2:-${SCIOTTE_PROVIDER:-garmin}}"
   local method="${SCIOTTE_TEST_METHOD:-email}"
@@ -310,7 +310,7 @@ cmd_login() {
   if [ -z "${password}" ]; then
     read -rs -p "Password for ${email}: " password; echo
   fi
-  info "POST /auth/login-with-credentials (email=${email}, provider=${provider}, method=${method}) — driving a REAL scrape login"
+  info "POST /auth/login-with-credentials (email=${email}, provider=${provider}, method=${method}) — driving a REAL provider sign-in"
   # A new login abandons any flow an earlier one left parked.
   forget flow
   # Password goes only into the JSON body via --data @-, never argv/history.

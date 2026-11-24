@@ -357,7 +357,7 @@ fn every_tier_failing_is_a_config_error_naming_each() {
     assert_eq!(err.code, ErrorCode::ConfigError);
     assert!(
         err.message.contains("copilot binary missing") && err.message.contains("COHERE_API_KEY"),
-        "both reasons reach the operator: {}",
+        "both reasons reach the admin: {}",
         err.message
     );
 }

@@ -15,7 +15,7 @@
 use std::fmt::Display;
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
 use uuid::Uuid;
@@ -29,7 +29,7 @@ pub struct CalendarPreference {
     /// calendar. `None` once that account is deleted.
     pub set_by: Option<Uuid>,
     /// When it was recorded.
-    pub updated_at: DateTime<Utc>,
+    pub updated_at: Timestamp,
 }
 
 /// Read and write the calendar an athlete chose.
@@ -50,7 +50,7 @@ pub trait CalendarPreferenceRepository: Send + Sync {
         user_id: Uuid,
         provider: &str,
         set_by: Uuid,
-        at: DateTime<Utc>,
+        at: Timestamp,
     ) -> AppResult<()>;
 
     /// Forget the choice, so the next push asks again when several calendars
@@ -129,7 +129,7 @@ macro_rules! impl_calendar_preference_repository {
                 user_id: Uuid,
                 provider: &str,
                 set_by: Uuid,
-                at: DateTime<Utc>,
+                at: Timestamp,
             ) -> AppResult<()> {
                 sqlx::query(SET_CALENDAR_PREFERENCE_SQL)
                     .bind(tenant.to_string())

@@ -7,6 +7,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::{Dossier, DossierFact, Pillar};
 use pierre_routes_agents::agents::proposal_profile::pillar_context_prompt;
 use uuid::Uuid;
@@ -18,7 +19,7 @@ fn fact(object: &str, stale: bool) -> DossierFact {
         object: object.to_owned(),
         confidence: 0.9,
         source: "onboarding".to_owned(),
-        updated_at: chrono::Utc::now(),
+        updated_at: Timestamp::now(),
         valid_until: None,
         stale,
     }

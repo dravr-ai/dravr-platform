@@ -24,7 +24,7 @@
 use std::sync::{Arc, LazyLock};
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::TenantId;
 use uuid::Uuid;
 
@@ -34,6 +34,8 @@ use crate::incomplete_window::IncompleteWindows;
 use crate::reconnect::ReconnectOffers;
 use crate::registry::ToolRegistry;
 use crate::tool_selection::ToolSelectionService;
+use crate::turn_end::TurnEndDispatches;
+use crate::turn_tools::TurnTools;
 use dravr_cageux::config::intelligence::IntelligenceConfig;
 use pierre_cache::Cache;
 use pierre_config::environment::ServerConfig;
@@ -51,9 +53,6 @@ use pierre_providers::ProviderRegistry;
 use pierre_runtime_context::{AdminConfigLookup, DataContext};
 use pierre_services::group_chat_poster::GroupChatPoster;
 use pierre_services::live_activities::{LandedSession, LiveActivityStore};
-
-#[cfg(feature = "transport-sse")]
-use pierre_services::provider_refresh::SyncNotifier;
 
 #[cfg(feature = "health-sync")]
 use dravr_enforme::SyncOrchestrator;
@@ -116,10 +115,11 @@ impl<'job> BackfillCompletion<'job> {
     }
 }
 
-/// What asked for a history walk
-/// (`activity_backfill::history_walk::start_history_walk`): it changes
-/// nothing of what the walk does, and is logged so a walk can be traced to
-/// its ask.
+/// What asked for a history walk, logged so a walk can be traced to its ask.
+///
+/// It changes nothing of what the walk does, whether it was asked through
+/// `activity_backfill::history_walk::start_history_walk` or resumed alone
+/// through `resume_incomplete_walk`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WalkTrigger {
     /// The athlete just connected the provider: a sign-in stored a session,
@@ -134,6 +134,11 @@ pub enum WalkTrigger {
     /// A step of the walk found its phase taken by a purge while it ran, and
     /// asked again once it stopped: a grant connected meanwhile reopens it.
     PhaseReset,
+    /// The head refresh of a session the walk windows count succeeded (the
+    /// capture sweep, or a chat turn's live read of its list head): its walk
+    /// that ended incomplete is resumed from its cursor, and no other walk
+    /// is asked.
+    HeadRefreshed,
 }
 
 /// A history walk that reached the end of the athlete's history
@@ -148,7 +153,7 @@ pub struct HistoryWalkCompletion<'job> {
     /// The backend that was walked.
     pub provider: &'job str,
     /// The start of the oldest activity the walked key holds.
-    pub oldest: DateTime<Utc>,
+    pub oldest: Timestamp,
     /// The activities the whole walk wrote, every step's.
     pub activity_count: usize,
 }
@@ -391,6 +396,23 @@ pub trait ToolRuntime: Send + Sync + 'static {
         &NOTICES
     }
 
+    /// The process-wide store of what each chat turn's calls handed to its
+    /// end (carnet#1702). Shared for the reason [`Self::reconnect_offers`] is:
+    /// a headless turn's tools run on the tool-host surface's own executor.
+    fn turn_end_dispatches(&self) -> &Arc<TurnEndDispatches> {
+        static HANDED: LazyLock<Arc<TurnEndDispatches>> =
+            LazyLock::new(|| Arc::new(TurnEndDispatches::new()));
+        &HANDED
+    }
+
+    /// The process-wide store of the tools each outside caller's turn ran
+    /// (carnet#1543). Shared for the reason [`Self::reconnect_offers`] is: a
+    /// headless turn's tools run on the tool-host surface's own executor.
+    fn turn_tools(&self) -> &Arc<TurnTools> {
+        static TOOLS: LazyLock<Arc<TurnTools>> = LazyLock::new(|| Arc::new(TurnTools::new()));
+        &TOOLS
+    }
+
     /// The process-wide store of the turns that read an incomplete activity
     /// window. Shared across every dispatch path for the same reason
     /// [`Self::reconnect_offers`] is: a headless turn's tools run on the
@@ -453,14 +475,6 @@ pub trait ToolRuntime: Send + Sync + 'static {
     /// is enabled and a notification backend is wired).
     #[cfg(feature = "client-notifications")]
     fn notification_service(&self) -> Option<&Arc<NotificationService>>;
-
-    /// Narrow sync-notification handle (push interface used by the refresh
-    /// service to inform connected clients). In production this is backed
-    /// by `SseManager`, but the trait only exposes the `SyncNotifier`
-    /// surface so the trait body stays free of pierre-server-internal SSE
-    /// machinery.
-    #[cfg(feature = "transport-sse")]
-    fn sync_notifier(&self) -> Arc<dyn SyncNotifier>;
 
     /// Sync orchestrator for refreshing fitness data from providers.
     #[cfg(feature = "health-sync")]

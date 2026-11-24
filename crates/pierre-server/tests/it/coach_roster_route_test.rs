@@ -24,10 +24,10 @@ mod coach_roster_route_tests {
     use std::collections::BTreeMap;
     use std::sync::Arc;
 
-    use chrono::{Datelike, Duration, NaiveDate, Utc};
+    use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp};
     use dravr_tronc::mcp::tool::{McpTool, ToolContext};
     use pierre_core::models::periodization::PhaseKind;
-    use pierre_core::transport::TransportPolicy;
+    use pierre_core::transport::{Transport, TransportPolicy};
     use pierre_database::backends::factory::DatabaseBackend;
     use pierre_database::repositories::training_plans::{
         DraftOwner, PlanAuthor, PublishDraftParams, SaveDraftParams,
@@ -36,6 +36,7 @@ mod coach_roster_route_tests {
     use pierre_mcp_server::mcp::resources::ServerContext;
     use pierre_memory::claims::ClaimStatus;
     use pierre_memory::training_plans::{GoalRace, PlanPhase, PlannedDay, RacePriority};
+    use pierre_providers::ai_scope;
     use pierre_tool_runtime::implementations::group_roster::GetRosterOverviewTool;
     use pierre_tool_runtime::runtime::ToolRuntime;
     use serde_json::{json, Value};
@@ -375,7 +376,7 @@ mod coach_roster_route_tests {
         assert_eq!(seen, ids, "every athlete once, across the pages");
     }
 
-    fn easy_day(date: NaiveDate, workout: &str) -> PlannedDay {
+    fn easy_day(date: CivilDate, workout: &str) -> PlannedDay {
         PlannedDay {
             date: ymd(date),
             sport: "run".to_owned(),
@@ -389,6 +390,8 @@ mod coach_roster_route_tests {
             template_source: None,
             template_preset: None,
             envelope: None,
+            coach_original: None,
+            coach_added: false,
         }
     }
 
@@ -405,12 +408,12 @@ mod coach_roster_route_tests {
         seed_ride(&res, &alex, 1).await;
 
         // A ten-week base phase that opened eight days ago: today is week 2.
-        let today = Utc::now().date_naive();
-        let season_start = today - Duration::days(8);
-        let monday = today - Duration::days(i64::from(today.weekday().num_days_from_monday()));
+        let today = Timestamp::now().utc_date();
+        let season_start = today - Elapsed::days(8);
+        let monday = today - Elapsed::days(i64::from(today.weekday().num_days_from_monday()));
         let goal = GoalRace {
             name: "Harricana".to_owned(),
-            date: ymd(season_start + Duration::days(70)),
+            date: ymd(season_start + Elapsed::days(70)),
             discipline: "trail".to_owned(),
             priority: RacePriority::A,
         };
@@ -563,11 +566,13 @@ mod coach_roster_route_tests {
             .with_user(casey.id.to_string())
             .with_tenant(casey.tenant.to_string())
             .with_auth_method("jwt_bearer");
-        let tool = GetRosterOverviewTool
-            .execute(&runtime, &ctx, json!({}))
-            .await
-            .structured_content
-            .expect("structured content");
+        let tool = ai_scope::serve_over(
+            Transport::WebApp,
+            GetRosterOverviewTool.execute(&runtime, &ctx, json!({})),
+        )
+        .await
+        .structured_content
+        .expect("structured content");
         let agent_row = tool["athletes"]
             .as_array()
             .unwrap()
@@ -646,7 +651,7 @@ mod coach_roster_route_tests {
             "joining grants coach sharing and stamps the instant"
         );
 
-        let before_revoke = Utc::now();
+        let before_revoke = Timestamp::now();
         groups
             .update_coach_sharing_consent(&group.to_string(), alex.id, false)
             .await
@@ -667,16 +672,15 @@ mod coach_roster_route_tests {
         let alex_row = row(&page, alex.id).unwrap();
         assert_status_only(alex_row, "no_coach_consent");
         let stopped =
-            chrono::DateTime::parse_from_rfc3339(alex_row["sharing_stopped_at"].as_str().unwrap())
-                .unwrap()
-                .with_timezone(&Utc);
+            Timestamp::parse_from_rfc3339(alex_row["sharing_stopped_at"].as_str().unwrap())
+                .unwrap();
         assert_eq!(
-            stopped.date_naive(),
-            revoked_at.date_naive(),
+            stopped.utc_date(),
+            revoked_at.utc_date(),
             "the roster names the revoke's day: {alex_row:#}"
         );
 
-        let before_regrant = Utc::now();
+        let before_regrant = Timestamp::now();
         groups
             .update_coach_sharing_consent(&group.to_string(), alex.id, true)
             .await
@@ -705,19 +709,13 @@ mod coach_roster_route_tests {
     }
 
     /// The instant the roster names for `user`, parsed, or `None` when absent.
-    fn stopped_at(page: &Value, user: Uuid) -> Option<chrono::DateTime<Utc>> {
-        row(page, user)?.get("sharing_stopped_at").map(|v| {
-            chrono::DateTime::parse_from_rfc3339(v.as_str().unwrap())
-                .unwrap()
-                .with_timezone(&Utc)
-        })
+    fn stopped_at(page: &Value, user: Uuid) -> Option<Timestamp> {
+        row(page, user)?
+            .get("sharing_stopped_at")
+            .map(|v| Timestamp::parse_from_rfc3339(v.as_str().unwrap()).unwrap())
     }
 
-    async fn stamp_of(
-        res: &Arc<ServerContext>,
-        group: Uuid,
-        user: Uuid,
-    ) -> Option<chrono::DateTime<Utc>> {
+    async fn stamp_of(res: &Arc<ServerContext>, group: Uuid, user: Uuid) -> Option<Timestamp> {
         res.common
             .repos
             .groups

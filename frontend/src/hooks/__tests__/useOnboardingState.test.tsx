@@ -8,7 +8,7 @@ import type { ReactNode } from 'react';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { currentOnboardingStep, onboardingProgress } from '../../onboarding/steps';
+import { currentOnboardingStep, onboardingProgress } from '@pierre/shared-constants/onboarding';
 import { QUERY_KEYS } from '@pierre/shared-constants';
 
 const getOnboardingStatus = vi.fn();

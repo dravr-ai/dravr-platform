@@ -7,8 +7,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use chrono::Utc;
 use dravr_cageux::algorithms::{TssAlgorithm, Vo2maxAlgorithm};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::{Activity, ActivityBuilder, SportType};
 
 // === TSS Algorithm Integration Tests ===
@@ -19,7 +19,7 @@ fn create_test_activity_with_power(avg_power: u32, duration_seconds: u64) -> Act
         "test_tss_1",
         "Test Ride",
         SportType::Ride,
-        Utc::now(),
+        Timestamp::now(),
         duration_seconds,
         "test",
     )
@@ -43,7 +43,7 @@ fn create_test_activity_without_power(duration_seconds: u64) -> Activity {
         "test_no_power",
         "Test Ride No Power",
         SportType::Ride,
-        Utc::now(),
+        Timestamp::now(),
         duration_seconds,
         "test",
     )
@@ -259,37 +259,6 @@ fn test_tss_low_intensity_recovery_ride() {
 // === VO2max Algorithm Integration Tests ===
 
 #[test]
-fn test_vo2max_from_vdot_valid() {
-    let algorithm = Vo2maxAlgorithm::FromVdot { vdot: 50.0 };
-    let result = algorithm.estimate_vo2max();
-
-    assert!(result.is_ok(), "VO2max estimation should succeed");
-    let vo2max = result.unwrap();
-
-    // VDOT is Daniels' economy-adjusted VO2max and is already ml/kg/min — the
-    // validator bounds it to 30..=85 on exactly that basis. The old code
-    // multiplied by 3.5, the MET conversion, and reported this runner at 175,
-    // about double the highest value ever measured in a human.
-    assert!(
-        (vo2max - 50.0).abs() < 0.1,
-        "VO2max should equal the VDOT it was given, got {vo2max}"
-    );
-}
-
-#[test]
-fn test_vo2max_from_vdot_out_of_range() {
-    // VDOT too low
-    let algorithm = Vo2maxAlgorithm::FromVdot { vdot: 20.0 };
-    let result = algorithm.estimate_vo2max();
-    assert!(result.is_err(), "VDOT below 30 should fail validation");
-
-    // VDOT too high
-    let algorithm = Vo2maxAlgorithm::FromVdot { vdot: 90.0 };
-    let result = algorithm.estimate_vo2max();
-    assert!(result.is_err(), "VDOT above 85 should fail validation");
-}
-
-#[test]
 fn test_vo2max_cooper_test_valid() {
     let algorithm = Vo2maxAlgorithm::CooperTest {
         distance_meters: 2800.0,
@@ -435,98 +404,44 @@ fn test_vo2max_rockport_walk_invalid_heart_rate() {
 }
 
 #[test]
-fn test_vo2max_astrand_ryhming_valid() {
-    let algorithm = Vo2maxAlgorithm::AstrandRyhming {
-        gender: 1, // male
-        heart_rate: 150.0,
+fn test_vo2max_swain_vo2_reserve_valid() {
+    // 200 W at 148 bpm for maximum 190 and resting 50: 70 % of heart-rate
+    // reserve, a maximal 285.7 W, ACSM 10.8 × 285.7 / 70 + 7 (Swain 2004).
+    let algorithm = Vo2maxAlgorithm::SwainVo2Reserve {
         power_watts: 200.0,
-        weight_kg: 75.0,
+        heart_rate: 148.0,
+        max_hr: 190.0,
+        resting_hr: 50.0,
+        weight_kg: 70.0,
     };
-    let result = algorithm.estimate_vo2max();
-
-    assert!(result.is_ok(), "Astrand-Ryhming estimation should succeed");
-    let vo2max = result.unwrap();
-
+    let vo2max = algorithm
+        .estimate_vo2max()
+        .expect("a stage inside 65-75 % of reserve estimates");
+    let expected = 10.8 * (200.0 / 0.7) / 70.0 + 7.0;
     assert!(
-        (20.0..=90.0).contains(&vo2max),
-        "VO2max should be in physiological range, got {vo2max}"
+        (vo2max - expected).abs() < 1e-9,
+        "Swain should read {expected:.3}, got {vo2max}"
     );
 }
 
 #[test]
-fn test_vo2max_astrand_ryhming_heart_rate_out_of_range() {
-    // Heart rate too low
-    let algorithm = Vo2maxAlgorithm::AstrandRyhming {
-        gender: 1,
-        heart_rate: 100.0, // below 120 bpm
+fn test_vo2max_swain_vo2_reserve_stage_outside_its_window() {
+    // 170 bpm is 86 % of a 50-190 reserve: outside the validated 65-75 %.
+    let algorithm = Vo2maxAlgorithm::SwainVo2Reserve {
         power_watts: 200.0,
-        weight_kg: 75.0,
+        heart_rate: 170.0,
+        max_hr: 190.0,
+        resting_hr: 50.0,
+        weight_kg: 70.0,
     };
-    let result = algorithm.estimate_vo2max();
+    let message = algorithm
+        .estimate_vo2max()
+        .expect_err("a stage outside the window is refused")
+        .to_string();
     assert!(
-        result.is_err(),
-        "HR below 120 bpm should fail for submaximal test"
+        message.contains("141-155 bpm"),
+        "the refusal names the athlete's bpm window: {message}"
     );
-
-    // Heart rate too high
-    let algorithm = Vo2maxAlgorithm::AstrandRyhming {
-        gender: 1,
-        heart_rate: 180.0, // above 170 bpm
-        power_watts: 200.0,
-        weight_kg: 75.0,
-    };
-    let result = algorithm.estimate_vo2max();
-    assert!(
-        result.is_err(),
-        "HR above 170 bpm should fail for submaximal test"
-    );
-}
-
-#[test]
-fn test_vo2max_from_pace_valid() {
-    let algorithm = Vo2maxAlgorithm::FromPace {
-        max_speed_ms: 5.0,      // ~3:20 min/km pace
-        recovery_speed_ms: 3.0, // ~5:33 min/km pace
-    };
-    let result = algorithm.estimate_vo2max();
-
-    assert!(result.is_ok(), "Pace-based estimation should succeed");
-    let vo2max = result.unwrap();
-
-    assert!(
-        (20.0..=90.0).contains(&vo2max),
-        "VO2max should be in physiological range, got {vo2max}"
-    );
-}
-
-#[test]
-fn test_vo2max_from_pace_max_slower_than_recovery() {
-    let algorithm = Vo2maxAlgorithm::FromPace {
-        max_speed_ms: 3.0,
-        recovery_speed_ms: 5.0, // recovery faster than max - invalid
-    };
-    let result = algorithm.estimate_vo2max();
-
-    assert!(
-        result.is_err(),
-        "Max speed must be greater than recovery speed"
-    );
-    assert!(result
-        .unwrap_err()
-        .to_string()
-        .contains("Max speed must be greater"));
-}
-
-#[test]
-fn test_vo2max_from_pace_negative_speeds() {
-    let algorithm = Vo2maxAlgorithm::FromPace {
-        max_speed_ms: -5.0,
-        recovery_speed_ms: 3.0,
-    };
-    let result = algorithm.estimate_vo2max();
-
-    assert!(result.is_err(), "Negative speeds should fail validation");
-    assert!(result.unwrap_err().to_string().contains("must be positive"));
 }
 
 #[test]
@@ -542,9 +457,23 @@ fn test_vo2max_hybrid_string_is_rejected() {
 
 #[test]
 fn test_vo2max_algorithm_name_and_description() {
-    let vdot = Vo2maxAlgorithm::FromVdot { vdot: 50.0 };
-    assert_eq!(vdot.name(), "from_vdot");
-    assert!(vdot.description().contains("VDOT"));
+    let swain = Vo2maxAlgorithm::SwainVo2Reserve {
+        power_watts: 200.0,
+        heart_rate: 148.0,
+        max_hr: 190.0,
+        resting_hr: 50.0,
+        weight_kg: 70.0,
+    };
+    assert_eq!(
+        swain.name(),
+        "swain_vo2_reserve",
+        "bug: the name estimate_vo2max advertises is not Swain's"
+    );
+    assert!(
+        swain.description().contains("Swain"),
+        "bug: the description must name Swain: {}",
+        swain.description()
+    );
 
     let cooper = Vo2maxAlgorithm::CooperTest {
         distance_meters: 2800.0,
@@ -565,11 +494,17 @@ fn test_vo2max_algorithm_name_and_description() {
 
 #[test]
 fn test_vo2max_algorithm_formula() {
-    let vdot = Vo2maxAlgorithm::FromVdot { vdot: 50.0 };
-    assert!(vdot.formula().contains("VO2max = VDOT"));
+    let swain = Vo2maxAlgorithm::SwainVo2Reserve {
+        power_watts: 200.0,
+        heart_rate: 148.0,
+        max_hr: 190.0,
+        resting_hr: 50.0,
+        weight_kg: 70.0,
+    };
     assert!(
-        !vdot.formula().contains("3.5"),
-        "the MET factor does not apply to a value already in ml/kg/min"
+        swain.formula().contains("10.8"),
+        "bug: Swain's formula must show ACSM's 10.8: {}",
+        swain.formula()
     );
 
     let cooper = Vo2maxAlgorithm::CooperTest {
@@ -582,13 +517,15 @@ fn test_vo2max_algorithm_formula() {
 fn test_vo2max_from_str_parsing() {
     use std::str::FromStr;
 
-    // Parametrized variants should return errors (prevent zero-value foot-gun)
+    // A VDOT is a performance index, not a VO2max: no VO2max algorithm
+    // takes one.
     let vdot = Vo2maxAlgorithm::from_str("from_vdot");
-    assert!(vdot.is_err(), "FromVdot requires parameters");
     assert!(vdot
         .unwrap_err()
         .to_string()
-        .contains("requires VDOT parameter"));
+        .contains("Unknown VO2max algorithm"));
+
+    // Parametrized variants should return errors (prevent zero-value foot-gun)
 
     let cooper = Vo2maxAlgorithm::from_str("cooper_test");
     assert!(cooper.is_err(), "Cooper requires distance_meters");

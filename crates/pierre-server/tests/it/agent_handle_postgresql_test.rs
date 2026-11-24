@@ -13,7 +13,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![cfg(feature = "postgresql")]
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::agents::{
     AgentCategory, AgentHandle, AgentVisibility, CreateAgentRequest, CreateSystemAgentRequest,
 };
@@ -35,10 +35,9 @@ async fn seed_pg_user(db: &Database) -> Uuid {
         user_status: UserStatus::Active,
         role: UserRole::User,
         approved_by: None,
-        approved_at: Some(Utc::now()),
-        created_at: Utc::now(),
-        last_active: Utc::now(),
-        strava_token: None,
+        approved_at: Some(Timestamp::now()),
+        created_at: Timestamp::now(),
+        last_active: Timestamp::now(),
         firebase_uid: None,
         auth_provider: String::new(),
         analytics_consent: false,

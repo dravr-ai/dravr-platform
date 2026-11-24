@@ -204,7 +204,7 @@ fn assert_a_blank_endpoint_url_overrides_nothing() {
     }
 }
 
-/// The Garmin client's user cap: the Starter tier's 1,000 unless the operator
+/// The Garmin client's user cap: the Starter tier's 1,000 unless the admin
 /// sets one, and a zero reads as the default. `server` was read with
 /// `GARMIN_SEAT_CAPACITY` unset; called from the one test that owns the
 /// environment.

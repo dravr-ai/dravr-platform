@@ -43,7 +43,7 @@ pub struct Manifest {
     ///
     /// One entry per locale, pointing at `strings/<locale>.json`: a nested
     /// JSON file in the same shape as the catalogue the platform embeds,
-    /// holding only the keys an operator wants to override. Any of the
+    /// holding only the keys an admin wants to override. Any of the
     /// catalogue's keys can be hot-fixed this way. Optional, so a manifest
     /// without bundles still parses.
     #[serde(default)]

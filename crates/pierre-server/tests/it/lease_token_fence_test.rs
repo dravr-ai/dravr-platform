@@ -19,7 +19,7 @@
 
 use std::collections::HashSet;
 
-use chrono::{Duration, TimeZone, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::models::{PostPurpose, TenantId};
 use pierre_database::backends::{factory::Database, EnqueueOutboundParams};
 use pierre_database::repositories::{
@@ -46,7 +46,7 @@ async fn a_lapsed_extraction_claim_cannot_renew_or_finish_the_row_another_claim_
     let db = create_test_db().await;
     let ledger = &db.repositories().memory_extraction_jobs;
     let tenant = TenantId::generate();
-    let now = Utc::now().timestamp_millis();
+    let now = Timestamp::now().epoch_millis();
     let row = MemoryExtractionJobRow {
         id: Uuid::new_v4().to_string(),
         tenant_id: tenant,
@@ -117,7 +117,7 @@ async fn a_lapsed_extraction_claim_cannot_renew_or_finish_the_row_another_claim_
 async fn a_lapsed_backfill_claim_cannot_renew_or_finish_the_row_another_claim_took() {
     let db = create_test_db().await;
     let ledger = &db.repositories().activity_backfill_jobs;
-    let now = Utc::now().timestamp_millis();
+    let now = Timestamp::now().epoch_millis();
     let row = ActivityBackfillJobRow {
         id: Uuid::new_v4().to_string(),
         tenant_id: TenantId::generate(),
@@ -268,8 +268,8 @@ async fn a_lapsed_once_claim_cannot_mark_or_release_the_post_another_claim_took(
     let db = create_test_db().await;
     let claims = &db.repositories().platform_post_claims;
     let (user_id, tenant) = seed_user(&db).await;
-    let noon = Utc.with_ymd_and_hms(2026, 10, 14, 12, 0, 0).unwrap();
-    let lease = Duration::minutes(15);
+    let noon = Timestamp::parse_from_rfc3339("2026-10-14T12:00:00Z").unwrap();
+    let lease = Elapsed::minutes(15);
     let claim = |at| {
         claims.claim_platform_post_once(
             tenant,
@@ -285,7 +285,7 @@ async fn a_lapsed_once_claim_cannot_mark_or_release_the_post_another_claim_took(
         .await
         .unwrap()
         .expect("the first claim is taken");
-    let second = claim(noon + Duration::minutes(16))
+    let second = claim(noon + Elapsed::minutes(16))
         .await
         .unwrap()
         .expect("past its lease the abandoned claim is retaken");
@@ -319,7 +319,7 @@ async fn a_lapsed_once_claim_cannot_mark_or_release_the_post_another_claim_took(
         "nor free the newer claim's row"
     );
     assert!(
-        claim(noon + Duration::minutes(17)).await.unwrap().is_none(),
+        claim(noon + Elapsed::minutes(17)).await.unwrap().is_none(),
         "the newer claim's row stands, inside its lease"
     );
 
@@ -330,12 +330,12 @@ async fn a_lapsed_once_claim_cannot_mark_or_release_the_post_another_claim_took(
             "first_sync",
             PostPurpose::NO_SUBJECT,
             &second,
-            noon + Duration::minutes(18)
+            noon + Elapsed::minutes(18)
         )
         .await
         .unwrap());
     assert!(
-        claim(noon + Duration::days(30)).await.unwrap().is_none(),
+        claim(noon + Elapsed::days(30)).await.unwrap().is_none(),
         "the post the holder marked is never claimed again"
     );
 }
@@ -345,8 +345,8 @@ async fn a_lapsed_period_claim_cannot_release_or_mark_the_post_the_next_period_t
     let db = create_test_db().await;
     let claims = &db.repositories().platform_post_claims;
     let (user_id, tenant) = seed_user(&db).await;
-    let monday = Utc.with_ymd_and_hms(2026, 10, 12, 0, 0, 0).unwrap();
-    let tuesday = monday + Duration::days(1);
+    let monday = Timestamp::parse_from_rfc3339("2026-10-12T00:00:00Z").unwrap();
+    let tuesday = monday + Elapsed::days(1);
     let claim = |since, at| {
         claims.claim_platform_post_since(
             tenant,
@@ -358,11 +358,11 @@ async fn a_lapsed_period_claim_cannot_release_or_mark_the_post_the_next_period_t
         )
     };
 
-    let first = claim(monday, monday + Duration::hours(8))
+    let first = claim(monday, monday + Elapsed::hours(8))
         .await
         .unwrap()
         .expect("Monday's claim is taken");
-    let second = claim(tuesday, tuesday + Duration::hours(8))
+    let second = claim(tuesday, tuesday + Elapsed::hours(8))
         .await
         .unwrap()
         .expect("Tuesday's period retakes the row");
@@ -390,7 +390,7 @@ async fn a_lapsed_period_claim_cannot_release_or_mark_the_post_the_next_period_t
         "nor mark it posted"
     );
     assert!(
-        claim(tuesday, tuesday + Duration::hours(9))
+        claim(tuesday, tuesday + Elapsed::hours(9))
             .await
             .unwrap()
             .is_none(),
@@ -408,7 +408,7 @@ async fn a_lapsed_period_claim_cannot_release_or_mark_the_post_the_next_period_t
         .await
         .unwrap());
     assert!(
-        claim(tuesday, tuesday + Duration::hours(10))
+        claim(tuesday, tuesday + Elapsed::hours(10))
             .await
             .unwrap()
             .is_some(),

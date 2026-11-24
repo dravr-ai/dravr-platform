@@ -23,7 +23,7 @@ fn an_explicit_issuer_wins() {
     assert_eq!(
         resolve_issuer_url(Some("https://auth.example.test"), Some(DEPLOYED), 8081),
         "https://auth.example.test",
-        "an operator who names the issuer outright is not second-guessed"
+        "an admin who names the issuer outright is not second-guessed"
     );
 }
 

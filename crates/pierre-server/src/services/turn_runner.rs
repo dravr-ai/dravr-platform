@@ -29,6 +29,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use dravr_tronc::iam::GOOGLE_OIDC_JWKS_URL;
+use pierre_config::timeouts::ServerTimeouts;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::gcp_token::{MetadataTokenProvider, TokenProvider};
 use pierre_core::models::TenantId;
@@ -39,6 +40,40 @@ use crate::services::cloud_tasks::{
     create_http_task, DeliveryVerifier, HttpTask, TaskCreated, CLOUD_TASKS_API_BASE,
     CLOUD_TASKS_MAX_DISPATCH_DEADLINE,
 };
+
+/// Default wall-clock ceiling on one turn, in the web chat or on a messaging channel.
+///
+/// Not a latency target — it is the ceiling above every bound the turn runs
+/// under, so that reaching it means the turn found something with no bound of
+/// its own. The deepest of those is the whole-turn ACP prompt cap
+/// (`EMBACLE_ACP_PROMPT_TIMEOUT_SECS`, 300s on dev), and a turn legitimately
+/// opens more than one ACP session: the tool loop runs in one, the final
+/// answer in another, and embacle retries an empty answer on a third. Three
+/// full-length prompts plus delivery is the honest worst case a healthy turn
+/// can reach, so the ceiling sits just above it.
+///
+/// The cost of setting it too low is worse than setting it too high: too low
+/// replaces an answer that was still coming with a notice saying it is not,
+/// while too high only delays a placeholder that was already going to close.
+const DEFAULT_TURN_WATCHDOG_SECS: u64 = 960;
+
+/// The per-turn watchdog, as the server's config holds it
+/// (`MESSAGING_TURN_WATCHDOG_SECS`, else [`DEFAULT_TURN_WATCHDOG_SECS`]).
+///
+/// Admin-set for the same reason its siblings under it are
+/// (`EMBACLE_ACP_PROMPT_TIMEOUT_SECS`, `EMBACLE_ACP_MESSAGE_TIMEOUT_SECS`):
+/// the number that is right depends on the deployed provider chain, and
+/// re-tuning it should not need a binary. Zero or unparseable is read as unset
+/// rather than disarming the watchdog — an unbounded turn is the defect this
+/// exists to end.
+#[must_use]
+pub fn turn_watchdog(timeouts: &ServerTimeouts) -> Duration {
+    Duration::from_secs(
+        timeouts
+            .turn_watchdog_secs
+            .unwrap_or(DEFAULT_TURN_WATCHDOG_SECS),
+    )
+}
 
 /// Selects the runner: `in_process` (the default when absent) or `cloud_tasks`.
 pub const ENV_TURN_RUNNER: &str = "PIERRE_TURN_RUNNER";

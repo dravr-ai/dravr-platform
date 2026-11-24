@@ -83,7 +83,7 @@ fn test_cli_user_create_help() {
         "user create must not offer a super-admin role: {stdout}"
     );
     assert!(stdout.contains("--force"), "Should show --force option");
-    // The dev-setup script creates jf_test / phil_test / the operator through this
+    // The dev-setup script creates jf_test / phil_test / the admin through this
     // command and passes `--locale en`; a dropped flag would silently seed them French.
     assert!(stdout.contains("--locale"), "Should show --locale option");
 }
@@ -376,7 +376,7 @@ fn test_settings_harness_set_requires_the_json_argument() {
 //
 // `user allow / disallow / list-allowed` used to hold a repository handle, so
 // they opened DATABASE_URL and could only ever write the local database: an
-// operator with a valid device login could not pre-approve an address on a
+// admin with a valid device login could not pre-approve an address on a
 // deployed environment at all (registre#110). These pin the two things a
 // regression would break — the `--server` / `--token` arguments clap must
 // accept, and dispatch happening *before* the KeyManager/database bootstrap.
@@ -395,7 +395,7 @@ fn test_cli_user_allow_help_offers_remote_arguments() {
     );
     assert!(
         stdout.contains("--token"),
-        "allow must take --token for a headless/CI operator"
+        "allow must take --token for a headless/CI admin"
     );
 }
 
@@ -683,7 +683,7 @@ fn test_user_allow_help_offers_send_invite() {
 
 /// A per-user override sets the monthly request limit only: the verb offers
 /// `--monthly` and refuses `--daily` before it opens any database, so an
-/// operator cannot set a cap nothing enforces.
+/// admin cannot set a cap nothing enforces.
 #[test]
 fn test_set_rate_limit_takes_a_monthly_cap_and_refuses_a_daily_one() {
     let (exit_code, stdout, _stderr) = run_cli(&["user", "set-rate-limit", "--help"]);

@@ -75,7 +75,7 @@ use std::future::{ready, Ready};
 use std::sync::{Arc, Weak};
 
 use async_trait::async_trait;
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_contremaitre::messaging_strings::KEY_PLATFORM_POST_FIRST_SYNC_PROMPT;
 use pierre_core::models::{PostPurpose, TenantId};
 use pierre_providers::backend_resolver;
@@ -167,7 +167,7 @@ impl FirstSyncPoster {
 
         // Decided before any turn runs: the DM the athlete last wrote from,
         // when its window is open; a held DM gets no turn.
-        let dms = linked_dms(&resources, athlete, Utc::now()).await;
+        let dms = linked_dms(&resources, athlete, Timestamp::now()).await;
         // A DM writing into the personal thread posts into the thread the app
         // shows, so the app gets no second post (carnet#840).
         let dm_is_the_thread = match &dms.open {
@@ -345,7 +345,7 @@ async fn claim_first_post(
     tenant_id: TenantId,
     provider: &str,
 ) -> Option<String> {
-    let now = Utc::now();
+    let now = Timestamp::now();
     match resources
         .common
         .repos
@@ -392,7 +392,7 @@ async fn mark_first_post_posted(
             PostPurpose::FirstSync.as_str(),
             PostPurpose::NO_SUBJECT,
             lease,
-            Utc::now(),
+            Timestamp::now(),
         )
         .await
     {
@@ -435,7 +435,9 @@ async fn first_read_landed(
 ) -> bool {
     let runtime: Arc<dyn ToolRuntime> = resources;
     let params = ActivityQueryParams {
-        after: Some((Utc::now() - Duration::days(i64::from(CONNECT_RECENT_DAYS))).timestamp()),
+        after: Some(
+            (Timestamp::now() - Elapsed::days(i64::from(CONNECT_RECENT_DAYS))).epoch_seconds(),
+        ),
         before: None,
         limit: Some(FIRST_READ_LIMIT),
         offset: None,

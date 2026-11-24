@@ -1,10 +1,10 @@
-// ABOUTME: Network configuration types for HTTP clients, SSE, CORS, and TLS
+// ABOUTME: Network configuration types for HTTP clients, the session cookie, CORS, and TLS
 // ABOUTME: Handles timeouts, connection settings, and security transport options
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use pierre_core::constants::{network_config, timeouts};
+use pierre_core::constants::timeouts;
 use pierre_core::errors::{AppError, AppResult};
 use serde::{Deserialize, Serialize};
 use std::env;
@@ -13,10 +13,6 @@ use std::path::PathBuf;
 /// HTTP client timeout configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HttpClientConfig {
-    /// Shared HTTP client request timeout in seconds
-    pub shared_client_timeout_secs: u64,
-    /// Shared HTTP client connect timeout in seconds
-    pub shared_client_connect_timeout_secs: u64,
     /// OAuth client request timeout in seconds
     pub oauth_client_timeout_secs: u64,
     /// OAuth client connect timeout in seconds
@@ -25,35 +21,15 @@ pub struct HttpClientConfig {
     pub api_client_timeout_secs: u64,
     /// API client connect timeout in seconds
     pub api_client_connect_timeout_secs: u64,
-    /// Health check client timeout in seconds
-    pub health_check_timeout_secs: u64,
-    /// Enable exponential backoff retries with jitter
-    pub enable_retries: bool,
-    /// Maximum number of retry attempts
-    pub max_retries: u32,
-    /// Base delay for exponential backoff in milliseconds
-    pub retry_base_delay_ms: u64,
-    /// Maximum delay cap for retries in milliseconds
-    pub retry_max_delay_ms: u64,
-    /// Enable jitter to prevent thundering herd problem
-    pub retry_jitter_enabled: bool,
 }
 
 impl Default for HttpClientConfig {
     fn default() -> Self {
         Self {
-            shared_client_timeout_secs: timeouts::HTTP_CLIENT_TIMEOUT_SECS,
-            shared_client_connect_timeout_secs: timeouts::HTTP_CLIENT_CONNECT_TIMEOUT_SECS,
             oauth_client_timeout_secs: timeouts::OAUTH_CLIENT_TIMEOUT_SECS,
             oauth_client_connect_timeout_secs: timeouts::OAUTH_CLIENT_CONNECT_TIMEOUT_SECS,
             api_client_timeout_secs: timeouts::API_CLIENT_TIMEOUT_SECS,
             api_client_connect_timeout_secs: timeouts::API_CLIENT_CONNECT_TIMEOUT_SECS,
-            health_check_timeout_secs: timeouts::HEALTH_CHECK_TIMEOUT_SECS,
-            enable_retries: true,
-            max_retries: 3,
-            retry_base_delay_ms: 100,
-            retry_max_delay_ms: 5000,
-            retry_jitter_enabled: true,
         }
     }
 }
@@ -63,14 +39,6 @@ impl HttpClientConfig {
     #[must_use]
     pub fn from_env() -> Self {
         Self {
-            shared_client_timeout_secs: env::var("HTTP_CLIENT_TIMEOUT_SECS")
-                .ok()
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(30),
-            shared_client_connect_timeout_secs: env::var("HTTP_CLIENT_CONNECT_TIMEOUT_SECS")
-                .ok()
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(10),
             oauth_client_timeout_secs: env::var("OAUTH_CLIENT_TIMEOUT_SECS")
                 .ok()
                 .and_then(|s| s.parse().ok())
@@ -87,97 +55,34 @@ impl HttpClientConfig {
                 .ok()
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(10),
-            health_check_timeout_secs: env::var("HEALTH_CHECK_TIMEOUT_SECS")
-                .ok()
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(5),
-            enable_retries: env_var_or("HTTP_CLIENT_ENABLE_RETRIES", "true")
-                .parse()
-                .unwrap_or(true),
-            max_retries: env_var_or("HTTP_CLIENT_MAX_RETRIES", "3")
-                .parse()
-                .unwrap_or(3),
-            retry_base_delay_ms: env_var_or("HTTP_CLIENT_RETRY_BASE_DELAY_MS", "100")
-                .parse()
-                .unwrap_or(100),
-            retry_max_delay_ms: env_var_or("HTTP_CLIENT_RETRY_MAX_DELAY_MS", "5000")
-                .parse()
-                .unwrap_or(5000),
-            retry_jitter_enabled: env_var_or("HTTP_CLIENT_RETRY_JITTER", "true")
-                .parse()
-                .unwrap_or(true),
         }
     }
 }
 
-/// SSE connection management configuration
+/// The OAuth session cookie's settings.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SseConfig {
-    /// Cleanup task interval in seconds
-    pub cleanup_interval_secs: u64,
-    /// Connection timeout in seconds (connections inactive for this duration will be removed)
-    pub connection_timeout_secs: u64,
+pub struct SessionCookieConfig {
     /// OAuth session cookie Max-Age in seconds
-    pub session_cookie_max_age_secs: u64,
-    /// Enable Secure flag on cookies (requires HTTPS)
-    pub session_cookie_secure: bool,
-    /// Maximum buffer size for SSE event queue per connection
-    pub max_buffer_size: usize,
-    /// Behavior when buffer is full
-    pub buffer_overflow_strategy: SseBufferStrategy,
-    /// Broadcast channel size for SSE events
-    pub broadcast_channel_size: usize,
-    /// Maximum SSE connections per user
-    pub max_connections_per_user: usize,
+    pub max_age_secs: u64,
 }
 
-impl Default for SseConfig {
+impl Default for SessionCookieConfig {
     fn default() -> Self {
         Self {
-            cleanup_interval_secs: timeouts::SSE_CLEANUP_INTERVAL_SECS,
-            connection_timeout_secs: timeouts::SSE_CONNECTION_TIMEOUT_SECS,
-            session_cookie_max_age_secs: timeouts::SESSION_COOKIE_MAX_AGE_SECS,
-            session_cookie_secure: false, // Default to false for development, override in production
-            max_buffer_size: 1000,
-            buffer_overflow_strategy: SseBufferStrategy::default(),
-            broadcast_channel_size: network_config::SSE_BROADCAST_CHANNEL_SIZE,
-            max_connections_per_user: network_config::SSE_MAX_CONNECTIONS_PER_USER,
+            max_age_secs: timeouts::SESSION_COOKIE_MAX_AGE_SECS,
         }
     }
 }
 
-impl SseConfig {
-    /// Load SSE configuration from environment
+impl SessionCookieConfig {
+    /// Load the session cookie lifetime from the environment
     ///
     /// # Errors
     ///
-    /// Returns an error if SSE environment variables are invalid
+    /// Returns an error if `SESSION_COOKIE_MAX_AGE_SECS` is not a number
     pub fn from_env() -> AppResult<Self> {
-        let strategy_str = env_var_or("SSE_BUFFER_OVERFLOW_STRATEGY", "drop_oldest");
-        let buffer_overflow_strategy = match strategy_str.as_str() {
-            "drop_new" => SseBufferStrategy::DropNew,
-            "close_connection" => SseBufferStrategy::CloseConnection,
-            _ => SseBufferStrategy::DropOldest, // Default fallback (including "drop_oldest")
-        };
-
         Ok(Self {
-            cleanup_interval_secs: env_var_or(
-                "SSE_CLEANUP_INTERVAL_SECS",
-                &timeouts::SSE_CLEANUP_INTERVAL_SECS.to_string(),
-            )
-            .parse()
-            .map_err(|e| {
-                AppError::invalid_input(format!("Invalid SSE_CLEANUP_INTERVAL_SECS value: {e}"))
-            })?,
-            connection_timeout_secs: env_var_or(
-                "SSE_CONNECTION_TIMEOUT_SECS",
-                &timeouts::SSE_CONNECTION_TIMEOUT_SECS.to_string(),
-            )
-            .parse()
-            .map_err(|e| {
-                AppError::invalid_input(format!("Invalid SSE_CONNECTION_TIMEOUT_SECS value: {e}"))
-            })?,
-            session_cookie_max_age_secs: env_var_or(
+            max_age_secs: env_var_or(
                 "SESSION_COOKIE_MAX_AGE_SECS",
                 &timeouts::SESSION_COOKIE_MAX_AGE_SECS.to_string(),
             )
@@ -185,48 +90,8 @@ impl SseConfig {
             .map_err(|e| {
                 AppError::invalid_input(format!("Invalid SESSION_COOKIE_MAX_AGE_SECS value: {e}"))
             })?,
-            session_cookie_secure: env_var_or("SESSION_COOKIE_SECURE", "false")
-                .parse()
-                .map_err(|e| {
-                    AppError::invalid_input(format!("Invalid SESSION_COOKIE_SECURE value: {e}"))
-                })?,
-            max_buffer_size: env_var_or("SSE_MAX_BUFFER_SIZE", "1000")
-                .parse()
-                .map_err(|e| {
-                    AppError::invalid_input(format!("Invalid SSE_MAX_BUFFER_SIZE value: {e}"))
-                })?,
-            buffer_overflow_strategy,
-            broadcast_channel_size: env_var_or(
-                "SSE_BROADCAST_CHANNEL_SIZE",
-                &network_config::SSE_BROADCAST_CHANNEL_SIZE.to_string(),
-            )
-            .parse()
-            .map_err(|e| {
-                AppError::invalid_input(format!("Invalid SSE_BROADCAST_CHANNEL_SIZE value: {e}"))
-            })?,
-            max_connections_per_user: env_var_or(
-                "SSE_MAX_CONNECTIONS_PER_USER",
-                &network_config::SSE_MAX_CONNECTIONS_PER_USER.to_string(),
-            )
-            .parse()
-            .map_err(|e| {
-                AppError::invalid_input(format!("Invalid SSE_MAX_CONNECTIONS_PER_USER value: {e}"))
-            })?,
         })
     }
-}
-
-/// Strategy for handling SSE buffer overflow
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
-#[serde(rename_all = "snake_case")]
-pub enum SseBufferStrategy {
-    /// Drop oldest event when buffer is full
-    #[default]
-    DropOldest,
-    /// Drop new event when buffer is full
-    DropNew,
-    /// Close SSE connection when buffer is full
-    CloseConnection,
 }
 
 /// CORS (Cross-Origin Resource Sharing) configuration

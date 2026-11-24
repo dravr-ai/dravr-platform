@@ -7,7 +7,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use chrono::{TimeDelta, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::models::{Tenant, TenantId, User, UserStatus};
 use pierre_core::pagination::PaginationParams;
 use pierre_database::RepositoryRegistry;
@@ -25,7 +25,7 @@ async fn account(
 ) -> Uuid {
     let mut user: User = create_test_user(email, None);
     user.user_status = status;
-    user.created_at = Utc::now() - TimeDelta::minutes(age_minutes);
+    user.created_at = Timestamp::now() - Elapsed::minutes(age_minutes);
     repos.users.create(&user).await.unwrap();
     user.id
 }
@@ -42,8 +42,8 @@ async fn tenant_of(repos: &RepositoryRegistry, owner: Uuid, label: &str) -> Tena
             domain: None,
             plan: "starter".to_owned(),
             owner_user_id: owner,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         })
         .await
         .unwrap();

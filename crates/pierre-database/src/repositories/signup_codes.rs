@@ -19,7 +19,7 @@
 //! [`uuid_columns`](super::uuid_columns) codec.
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{
     GroupInviteFunnelRow, GroupInviteHold, SignupCode, SignupCodeRedemption, SignupCodeSource,
@@ -37,21 +37,20 @@ pub trait SignupCodeRepository: Send + Sync {
         code_hint: &str,
         note: Option<&str>,
         created_by: Option<Uuid>,
-        expires_at: Option<DateTime<Utc>>,
+        expires_at: Option<Timestamp>,
         max_uses: Option<i32>,
     ) -> AppResult<SignupCode>;
     /// The live code with this hash at `now`, without claiming a use.
-    async fn find_live(&self, code_hash: &str, now: DateTime<Utc>)
-        -> AppResult<Option<SignupCode>>;
+    async fn find_live(&self, code_hash: &str, now: Timestamp) -> AppResult<Option<SignupCode>>;
     /// Claim one use of the live code with this hash, atomically: `None` when
     /// it is unknown, revoked, expired or used up.
-    async fn claim(&self, code_hash: &str, now: DateTime<Utc>) -> AppResult<Option<SignupCode>>;
+    async fn claim(&self, code_hash: &str, now: Timestamp) -> AppResult<Option<SignupCode>>;
     /// Give back a use claimed for an account that could not record it.
     async fn release(&self, code_id: Uuid) -> AppResult<()>;
     /// Every code, newest first.
     async fn list(&self) -> AppResult<Vec<SignupCode>>;
     /// Withdraw a code. Returns whether a live one was revoked.
-    async fn revoke(&self, code_id: Uuid, now: DateTime<Utc>) -> AppResult<bool>;
+    async fn revoke(&self, code_id: Uuid, now: Timestamp) -> AppResult<bool>;
     /// Record that `user_id` redeemed `source`. Returns `false` when the
     /// account already holds a redemption (the new one is not recorded).
     async fn record_redemption(
@@ -59,12 +58,12 @@ pub trait SignupCodeRepository: Send + Sync {
         user_id: Uuid,
         source: SignupCodeSource,
         granted_by: Option<Uuid>,
-        now: DateTime<Utc>,
+        now: Timestamp,
     ) -> AppResult<bool>;
     /// The redemption an account holds.
     async fn redemption_for(&self, user_id: Uuid) -> AppResult<Option<SignupCodeRedemption>>;
     /// Mark an account's redemption as having activated it.
-    async fn mark_activated(&self, user_id: Uuid, now: DateTime<Utc>) -> AppResult<bool>;
+    async fn mark_activated(&self, user_id: Uuid, now: Timestamp) -> AppResult<bool>;
     /// Every redemption, newest first, for the admin listing.
     async fn list_redemptions(&self) -> AppResult<Vec<SignupCodeRedemption>>;
     /// Hold `invite_id` for `user_id` until the account joins, replacing the
@@ -73,7 +72,7 @@ pub trait SignupCodeRepository: Send + Sync {
         &self,
         user_id: Uuid,
         invite_id: Uuid,
-        now: DateTime<Utc>,
+        now: Timestamp,
     ) -> AppResult<()>;
     /// The group invite an account holds.
     async fn held_group_invite(&self, user_id: Uuid) -> AppResult<Option<GroupInviteHold>>;
@@ -88,7 +87,7 @@ pub trait SignupCodeRepository: Send + Sync {
         &self,
         user_id: Uuid,
         invite_id: Uuid,
-        now: DateTime<Utc>,
+        now: Timestamp,
     ) -> AppResult<bool>;
     /// Count one opening of the invite's public card: `open_count` up by one,
     /// `first_opened_at` set once, `last_opened_at` at `now`. Scoped to the
@@ -97,7 +96,7 @@ pub trait SignupCodeRepository: Send + Sync {
         &self,
         invite_id: Uuid,
         tenant_id: &str,
-        now: DateTime<Utc>,
+        now: Timestamp,
     ) -> AppResult<bool>;
     /// The funnel of every invite of `group_id` in `tenant_id`, one row per
     /// invite, in one query. Holds taken before `live_since` have lapsed and
@@ -106,7 +105,7 @@ pub trait SignupCodeRepository: Send + Sync {
         &self,
         group_id: Uuid,
         tenant_id: &str,
-        live_since: DateTime<Utc>,
+        live_since: Timestamp,
     ) -> AppResult<Vec<GroupInviteFunnelRow>>;
 }
 
@@ -263,7 +262,7 @@ where
     for<'a> &'a str: sqlx::ColumnIndex<R>,
     String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     i32: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    DateTime<Utc>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Timestamp: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
     let column = |name: &str| AppError::database(format!("signup_codes {name}"));
     Ok(SignupCode {
@@ -300,7 +299,7 @@ where
     R: sqlx::Row,
     for<'a> &'a str: sqlx::ColumnIndex<R>,
     String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    DateTime<Utc>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Timestamp: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
     let column = |name: &str| AppError::database(format!("signup_code_redemptions {name}"));
     let source = match (text_uuid_opt(row, "signup_code_id")?, group_invite_id) {
@@ -344,11 +343,11 @@ macro_rules! impl_signup_code_repository {
                 code_hint: &str,
                 note: Option<&str>,
                 created_by: Option<Uuid>,
-                expires_at: Option<DateTime<Utc>>,
+                expires_at: Option<Timestamp>,
                 max_uses: Option<i32>,
             ) -> AppResult<SignupCode> {
                 let id = Uuid::new_v4();
-                let now = Utc::now();
+                let now = Timestamp::now();
                 sqlx::query(INSERT_SIGNUP_CODE_SQL)
                     .bind(id.to_string())
                     .bind(code_hash)
@@ -377,7 +376,7 @@ macro_rules! impl_signup_code_repository {
             async fn find_live(
                 &self,
                 code_hash: &str,
-                now: DateTime<Utc>,
+                now: Timestamp,
             ) -> AppResult<Option<SignupCode>> {
                 let row = sqlx::query(FIND_LIVE_SIGNUP_CODE_SQL)
                     .bind(code_hash)
@@ -393,7 +392,7 @@ macro_rules! impl_signup_code_repository {
             async fn claim(
                 &self,
                 code_hash: &str,
-                now: DateTime<Utc>,
+                now: Timestamp,
             ) -> AppResult<Option<SignupCode>> {
                 let row = sqlx::query(CLAIM_SIGNUP_CODE_SQL)
                     .bind(code_hash)
@@ -427,7 +426,7 @@ macro_rules! impl_signup_code_repository {
                     .collect()
             }
 
-            async fn revoke(&self, code_id: Uuid, now: DateTime<Utc>) -> AppResult<bool> {
+            async fn revoke(&self, code_id: Uuid, now: Timestamp) -> AppResult<bool> {
                 let result = sqlx::query(REVOKE_SIGNUP_CODE_SQL)
                     .bind(now)
                     .bind(code_id.to_string())
@@ -444,7 +443,7 @@ macro_rules! impl_signup_code_repository {
                 user_id: Uuid,
                 source: SignupCodeSource,
                 granted_by: Option<Uuid>,
-                now: DateTime<Utc>,
+                now: Timestamp,
             ) -> AppResult<bool> {
                 let (code_id, invite_id) = source_columns(source);
                 let result = sqlx::query(INSERT_REDEMPTION_SQL)
@@ -484,7 +483,7 @@ macro_rules! impl_signup_code_repository {
                     .transpose()
             }
 
-            async fn mark_activated(&self, user_id: Uuid, now: DateTime<Utc>) -> AppResult<bool> {
+            async fn mark_activated(&self, user_id: Uuid, now: Timestamp) -> AppResult<bool> {
                 let result = sqlx::query(MARK_REDEMPTION_ACTIVATED_SQL)
                     .bind(now)
                     .bind($ids::bind(user_id))
@@ -519,7 +518,7 @@ macro_rules! impl_signup_code_repository {
                 &self,
                 user_id: Uuid,
                 invite_id: Uuid,
-                now: DateTime<Utc>,
+                now: Timestamp,
             ) -> AppResult<()> {
                 sqlx::query(HOLD_GROUP_INVITE_SQL)
                     .bind($ids::bind(user_id))
@@ -579,7 +578,7 @@ macro_rules! impl_signup_code_repository {
                 &self,
                 user_id: Uuid,
                 invite_id: Uuid,
-                now: DateTime<Utc>,
+                now: Timestamp,
             ) -> AppResult<bool> {
                 let result = sqlx::query(MARK_GROUP_INVITE_HOLD_FULL_SQL)
                     .bind(now)
@@ -597,7 +596,7 @@ macro_rules! impl_signup_code_repository {
                 &self,
                 invite_id: Uuid,
                 tenant_id: &str,
-                now: DateTime<Utc>,
+                now: Timestamp,
             ) -> AppResult<bool> {
                 let result = sqlx::query(RECORD_GROUP_INVITE_OPEN_SQL)
                     .bind(now)
@@ -615,7 +614,7 @@ macro_rules! impl_signup_code_repository {
                 &self,
                 group_id: Uuid,
                 tenant_id: &str,
-                live_since: DateTime<Utc>,
+                live_since: Timestamp,
             ) -> AppResult<Vec<GroupInviteFunnelRow>> {
                 use sqlx::Row;
 

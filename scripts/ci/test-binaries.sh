@@ -16,6 +16,12 @@
 #                            named `it` and `--test it` builds each selected one;
 #                            a kept package with no test binary fails the build
 #         workspace          the workspace path the binaries were built in
+#         spawned-binaries.tsv  "<bin>\t<package dir>\t<executable>" per binary a
+#                            packed package's tests spawn through
+#                            `env!("CARGO_BIN_EXE_<bin>")`: that path is baked in
+#                            at compile time, so the bin travels with the tests
+#                            (a bin the tests name and the build did not produce
+#                            fails the build)
 #         binaries.tar.zst   every executable, relative to that workspace
 #         cargo-git.tar.zst  $CARGO_HOME/git/checkouts, relative to $CARGO_HOME
 #       It samples /proc/meminfo while cargo runs and reports the runner's peak
@@ -146,6 +152,27 @@ build() {
     fi
     [ -s "$map" ] || die "the build produced no test binary — refusing to pack an empty lane"
 
+    # A test that spawns one of its package's binaries finds it through
+    # `env!("CARGO_BIN_EXE_<bin>")`, the absolute path cargo built it at: on a
+    # shard that path names nothing unless the bin is packed too (carnet#1544,
+    # the lab PDF child every upload test runs).
+    local spawned="$dir/spawned-binaries.tsv" package name exe
+    : >"$spawned"
+    while IFS= read -r package; do
+        [ -d "$package/tests" ] || continue
+        for name in $(grep -rhoE 'CARGO_BIN_EXE_[A-Za-z0-9_-]+' "$package/tests" | sed 's/^CARGO_BIN_EXE_//' | LC_ALL=C sort -u); do
+            exe="$(jq -R -r --arg n "$name" --arg p "$package" '
+                fromjson?
+                | select(.reason == "compiler-artifact" and .executable != null)
+                | select(.target.kind | index("bin") != null)
+                | select(.target.name == $n and (.manifest_path | rtrimstr("/Cargo.toml")) == $p)
+                | .executable
+            ' <"$json" | tail -1)"
+            [ -n "$exe" ] || die "${package#"$workspace"/}'s tests spawn $name (CARGO_BIN_EXE_$name), which the build did not produce"
+            printf '%s\t%s\t%s\n' "$name" "$package" "$exe" >>"$spawned"
+        done
+    done < <(cut -f2 "$map" | LC_ALL=C sort -u)
+
     local target executable
     : >"$list"
     while IFS=$'\t' read -r target _ executable; do
@@ -153,7 +180,7 @@ build() {
             "$workspace"/*) echo "${executable#"$workspace"/}" >>"$list" ;;
             *) die "$target's binary $executable is outside the workspace $workspace" ;;
         esac
-    done <"$map"
+    done < <(cat "$map" "$spawned")
     LC_ALL=C sort -u -o "$list" "$list"
     echo "$workspace" >"$dir/workspace"
 
@@ -190,28 +217,53 @@ unpack() {
         [ -x "$executable" ] || die "unpack: $target's binary $executable is missing or not executable"
         count=$((count + 1))
     done <"$dir/test-binaries.tsv"
-    echo "Unpacked $count test binaries built at $built"
+    local spawned=0
+    if [ -f "$dir/spawned-binaries.tsv" ]; then
+        while IFS=$'\t' read -r target _ executable; do
+            [ -x "$executable" ] || die "unpack: the bin $target the tests spawn, $executable, is missing or not executable"
+            spawned=$((spawned + 1))
+        done <"$dir/spawned-binaries.tsv"
+    fi
+    echo "Unpacked $count test binaries and $spawned bin(s) they spawn, built at $built"
 }
 
 # Runs one test binary from <dir> with the remaining arguments, stopping it
-# once <deadline> seconds pass. Its output streams through unchanged and is
-# kept, so a stopped run can name the tests libtest saw hang. The exit status
-# is the binary's, or 124 when the deadline stopped it.
+# once it prints nothing for <idle> seconds (it hung) or once <deadline>
+# seconds pass (a backstop below the step's own bound). libtest prints a line
+# as each test completes and flags a test past 60 s, so a binary still
+# completing tests is never taken for a hung one. Its output streams through
+# unchanged and is kept, so a stopped run can name the tests libtest saw hang.
+# The exit status is the binary's, or 124 when the watchdog stopped it.
 run_with_deadline() {
-    local deadline="$1" target="$2" dir="$3" exe="$4"
-    shift 4
-    local log expired pid watchdog status=0
+    local deadline="$1" idle="$2" target="$3" dir="$4" exe="$5"
+    shift 5
+    local log stopped pid watchdog status=0
     log="$(mktemp)"
-    expired="$log.expired"
+    stopped="$log.stopped"
     # exec, so the background job's pid is the test binary itself.
     (cd "$dir" && CARGO_HOME="${CARGO_HOME:-$HOME/.cargo}" exec "$exe" "$@") > >(tee "$log") 2>&1 &
     pid=$!
     (
-        trap 'kill "$nap" 2>/dev/null; exit 0' TERM
-        sleep "$deadline" &
-        nap=$!
-        wait "$nap"
-        : >"$expired"
+        trap 'exit 0' TERM
+        started=$SECONDS
+        quiet_since=$SECONDS
+        size=0
+        while :; do
+            sleep 1
+            now_size=$(wc -c <"$log")
+            if [ "$now_size" -ne "$size" ]; then
+                size=$now_size
+                quiet_since=$SECONDS
+            fi
+            if [ $((SECONDS - quiet_since)) -ge "$idle" ]; then
+                echo "idle $((SECONDS - started))" >"$stopped"
+                break
+            fi
+            if [ $((SECONDS - started)) -ge "$deadline" ]; then
+                echo "deadline $((SECONDS - quiet_since))" >"$stopped"
+                break
+            fi
+        done
         kill -TERM "$pid" 2>/dev/null || exit 0
         sleep 10
         kill -KILL "$pid" 2>/dev/null || true
@@ -222,27 +274,39 @@ run_with_deadline() {
     wait "$watchdog" 2>/dev/null || true
     # tee drains after the binary exits; let it finish before reading the log.
     wait 2>/dev/null || true
-    if [ -f "$expired" ]; then
+    if [ -f "$stopped" ]; then
         status=124
-        report_hung "$target" "$deadline" "$log"
+        report_stopped "$target" "$deadline" "$idle" "$log" "$(cat "$stopped")"
     fi
-    rm -f "$log" "$expired"
+    rm -f "$log" "$stopped"
     return "$status"
 }
 
-# Names the tests libtest flagged with "has been running for over 60 seconds"
-# that never printed a result line: the ones still running when the deadline hit.
-report_hung() {
-    local target="$1" deadline="$2" log="$3" slow hung=""
+# Says why the watchdog stopped <target>: "idle <elapsed>" when it printed
+# nothing for <idle> seconds, "deadline <quiet>" when it ran past <deadline>
+# with its last output <quiet> seconds before the stop. Either names the
+# tests libtest flagged with "has been running for over 60 seconds" that never
+# printed a result line: the ones still running when it was stopped.
+report_stopped() {
+    local target="$1" deadline="$2" idle="$3" log="$4" why="$5" slow hung=""
     while IFS= read -r slow; do
         grep -qE "^test $(printf '%s' "$slow" | sed 's/[][\.*^$/]/\\&/g') \.\.\. " "$log" || hung="$hung $slow"
     done < <(sed -nE 's/^test (.+) has been running for over 60 seconds$/\1/p' "$log" | sort -u)
-    local message="test binary $target ran past its ${deadline}s deadline and was stopped"
-    if [ -n "$hung" ]; then
-        message="$message; still running:$hung"
-    else
-        message="$message; no test had run for over 60 seconds, so the binary itself hung"
-    fi
+    local message
+    case "$why" in
+        idle\ *)
+            message="test binary $target printed nothing for ${idle}s and was stopped ${why#idle }s in"
+            if [ -n "$hung" ]; then
+                message="$message; still running:$hung"
+            else
+                message="$message; no test had run for over 60 seconds, so the binary itself hung"
+            fi
+            ;;
+        *)
+            message="test binary $target ran past its ${deadline}s deadline and was stopped while still completing tests (its last output ${why#deadline }s before the stop): it is slow, not hung"
+            [ -z "$hung" ] || message="$message; still running:$hung"
+            ;;
+    esac
     if [ -n "${GITHUB_ACTIONS:-}" ]; then echo "::error::$message"; else echo "test-binaries.sh: $message" >&2; fi
 }
 
@@ -255,26 +319,32 @@ report_hung() {
 # root this runs from, which refresh-pg-shard-weights.sh reads a suite's start
 # from.
 #
-# Each binary runs under a deadline, TEST_BINARY_DEADLINE_SECS (1200 s by
-# default; a PostgreSQL shard's `it` binary takes about 680 s, and the step
-# that runs it allows 30 minutes). Without it a hung test holds its binary
+# Each binary runs under a watchdog. Without it a hung test holds its binary
 # until the job's step timeout, which ends the run `cancelled` and names
-# nothing. Past the deadline the binary is stopped, the run fails, and the
-# error names every test libtest flagged as running for over 60 seconds that
-# never reported a result: the hung ones.
+# nothing. A binary that prints nothing for TEST_BINARY_IDLE_SECS (300 s by
+# default; libtest prints a line per completed test, and the slowest suite's
+# test takes about 120 s) hung, and is stopped. TEST_BINARY_DEADLINE_SECS
+# (1500 s by default) is the backstop under the 30-minute step that runs a
+# PostgreSQL shard: its `it` binary takes 650 s on a fast runner and over
+# 1200 s on a slow one (the same pierre-database suite runs 32 s on one and
+# 62 s on the other), so a deadline near 1200 s stops binaries still
+# completing tests. Either way the run fails, and the error says which bound
+# stopped it and names every test libtest flagged as running for over 60
+# seconds that never reported a result: the hung ones.
 run() {
     local map="$1" package_dir="$2" target="$3"
     shift 3
     [ -s "$map" ] || die "run: $map is missing or empty"
-    local deadline="${TEST_BINARY_DEADLINE_SECS:-1200}"
+    local deadline="${TEST_BINARY_DEADLINE_SECS:-1500}" idle="${TEST_BINARY_IDLE_SECS:-300}"
     case "$deadline" in '' | *[!0-9]* | 0) die "run: TEST_BINARY_DEADLINE_SECS must be a positive whole number of seconds, got '$deadline'" ;; esac
+    case "$idle" in '' | *[!0-9]* | 0) die "run: TEST_BINARY_IDLE_SECS must be a positive whole number of seconds, got '$idle'" ;; esac
     local source="tests/$target.rs" ran=0 failed=0 name dir exe
     if [ -f "$package_dir/tests/$target/main.rs" ]; then source="tests/$target/main.rs"; fi
     while IFS=$'\t' read -r name dir exe; do
         [ "$name" = "$target" ] && [ "$dir" = "$package_dir" ] || continue
         ran=1
         echo "     Running ${dir#"$PWD"/}/$source (${exe#"$PWD"/})"
-        if ! run_with_deadline "$deadline" "$target" "$dir" "$exe" "$@" </dev/null; then
+        if ! run_with_deadline "$deadline" "$idle" "$target" "$dir" "$exe" "$@" </dev/null; then
             failed=1
         fi
     done <"$map"

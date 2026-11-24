@@ -65,8 +65,8 @@ export const BOREAL_LIGHT = {
   /**
    * The ladder still separates on FILL where it has to: adjacent tiers clear
    * 1.06:1 (measured 1.11 / 1.11 / 1.09 / 1.08) and a raised surface clears
-   * 1.18:1 over the canvas under it (`lowest` on `low`: 1.21) — DESIGN.md §2
-   * "Light tier separation" carries the table and the token test measures it.
+   * 1.18:1 over the canvas under it (`lowest` on `low`: 1.21) — DESIGN.md "The Fill-Step-First Rule"
+   * carries the rule and the token test measures it.
    * `surface` against `surface-container-lowest` stays the one near-pair
    * (1.08:1): a card on the page is lifted by its hairline, not by its fill.
    */
@@ -271,8 +271,8 @@ export const PRIMARY_PALETTE = {
 // ========== SURFACE HIERARCHY ==========
 
 /**
- * Maps the MD3 layering principle to the three surfaces DESIGN.md §4 calls
- * out. Components should select from here instead of hardcoding surface tokens.
+ * Maps the MD3 layering principle to the three surfaces DESIGN.md "Neutral"
+ * calls out. Components should select from here instead of hardcoding surface tokens.
  */
 export const SURFACE_HIERARCHY = {
   base: BOREAL_LIGHT.surface,
@@ -290,7 +290,7 @@ export const BACKGROUND_COLORS = {
   elevated: BOREAL_LIGHT.surfaceContainerLowest, // #FFFFFF — floating cards
 } as const;
 
-/** Ink-style text palette. Never pure black (DESIGN.md §6). */
+/** Ink-style text palette. Never pure black. */
 export const TEXT_COLORS = {
   primary: BOREAL_LIGHT.onSurface,         // #1A1C1B — default body copy
   secondary: BOREAL_LIGHT.onSurfaceVariant,// #414845 — muted body copy
@@ -309,14 +309,14 @@ export const BORDER_COLORS = {
   strong: 'rgba(155, 165, 159, 0.55)',
 } as const;
 
-/** The three hairline strengths every client draws (DESIGN.md §4). */
+/** The three hairline strengths every client draws (DESIGN.md "Neutral"). */
 export type HairlineStrength = 'faint' | 'default' | 'strong';
 
 /** One scheme's hairline: its ink as an `r, g, b` list and the alpha of each strength. */
 export type HairlineInk = { readonly rgb: string } & Readonly<Record<HairlineStrength, number>>;
 
 /**
- * Ghost-border recipes, per scheme (DESIGN.md §2 "Outline / borders"): the
+ * Ghost-border recipes, per scheme (DESIGN.md "Neutral"): the
  * `--ghost-border-faint` / `--ghost-border` / `--ghost-border-strong` of both
  * client stylesheets, the phone's inline `useThemeColors().border.*`, and the
  * hosted pages' `--ghost-border`, so a divider measures the same everywhere.
@@ -325,7 +325,7 @@ export type HairlineInk = { readonly rgb: string } & Readonly<Record<HairlineStr
  * hold a card on the light canvas without becoming a hard rule, where the
  * 0.15 marketing-tier value left cards floating without anchor. `faint` is
  * for the dividers INSIDE a list or table, where a default rule between every
- * row reads as a stack of boxes (DESIGN.md §4). Two strengths, so a visible
+ * row reads as a stack of boxes (DESIGN.md "The Hairlines-Lift Rule"). Two strengths, so a visible
  * line is a decision.
  *
  * A hairline only reads when it contrasts with what it sits on, and the two
@@ -359,7 +359,7 @@ export const FLOATING_SHADOW: Record<ColorScheme, string> = {
 };
 
 /**
- * The hover fill of a filled `primary` (DESIGN.md §2 `primary-hover`): a step
+ * The hover fill of a filled `primary` (DESIGN.md "Primary"): a step
  * darker in both schemes, so the label keeps its contrast while the fill moves.
  * In light that is one step down the forest (white on it: 9.2:1). In dark the
  * button is light mint with near-black `on-primary` text, so the hover has to
@@ -386,16 +386,16 @@ export const MARK_INK: Record<ColorScheme, string> = {
 /** Feedback states, tuned to read correctly on the light surface. */
 export const SEMANTIC_COLORS = {
   success: '#2e7d5b',  // forest-leaning green (on light)
-  warning: '#b08326',  // warm bronze, Product Tier lift (DESIGN.md §2)
+  warning: '#b08326',  // warm bronze, Product Tier lift (DESIGN.md "Feedback and pillars")
   error: BOREAL_LIGHT.error,  // #BA1A1A from MD3 token set
-  info: '#3e7283',     // slate (DESIGN.md §2)
+  info: '#3e7283',     // slate (DESIGN.md "Feedback and pillars")
 } as const;
 
 /**
  * The ink each pillar and feedback hue binds when it is used as a TINT.
  *
  * A hue drawn as text on a tint of itself does not clear AA: the web measured
- * that pairing at 2.79:1 at worst before these existed (DESIGN.md §8). Each
+ * that pairing at 2.79:1 at worst before these existed (DESIGN.md "The Bound Ink Rule"). Each
  * value is the same hue carried along its own lightness axis until it clears
  * 4.5:1 as a label on a tint of its partner hue. The measured envelope, both
  * schemes, all seven hues:
@@ -442,7 +442,7 @@ export const CONTAINER_INKS_DARK = {
 } as const;
 
 /**
- * Dark-theme counterparts. DESIGN.md §2 gives every feedback token a light and
+ * Dark-theme counterparts. DESIGN.md "Feedback and pillars" gives every feedback token a light and
  * a dark value; only the light half was ever exported here, so native surfaces
  * that could not read a CSS variable had nothing to switch to.
  */
@@ -555,7 +555,7 @@ export function providerGlyphInk(providerId: string, scheme: ColorScheme): strin
 // ========== GRADIENTS ==========
 
 /**
- * The signature hero gradient from DESIGN.md §2 — 145° primary → primary_container.
+ * The 145° primary → primary_container hero gradient.
  * Older export names are preserved but repointed at Boreal semantics.
  */
 export const GRADIENT_COLORS = {
@@ -587,18 +587,13 @@ export const GRADIENT_COLORS = {
   },
 } as const;
 
-// ========== AMBIENT SHADOW / AI GLOW ==========
+// ========== AMBIENT SHADOW ==========
 
-/**
- * DESIGN.md §4: ambient shadow uses 6% on_surface alpha at 24px blur, -4px
- * spread. Replaces the old violet glow stack. We expose the single spec plus
- * a `card` variant with larger offset for modals/FABs.
- */
 /**
  * Product Tier elevation — replaces the marketing-tier 24px-blur ambient with a
  * crisp two-layer recipe. React Native takes only one shadow per view, so we
  * collapse the two-layer recipe to its stronger spread + tune opacity to read
- * on the lighter mobile canvas. See DESIGN.md §4 (Boreal Product Tier).
+ * on the lighter mobile canvas. See DESIGN.md "Shadow Vocabulary".
  */
 export const AMBIENT_SHADOW = {
   /** Resting card elevation. */
@@ -622,26 +617,6 @@ export const AMBIENT_SHADOW = {
     shadowRadius: 24,
     shadowOffset: { width: 0, height: 12 },
   },
-  /** Legacy name retained for drop-in compatibility. */
-  ambient: {
-    shadowColor: BOREAL_LIGHT.onSurface,
-    shadowOpacity: 0.10,
-    shadowRadius: 3,
-    shadowOffset: { width: 0, height: 1 },
-  },
-} as const;
-
-/**
- * Legacy export name retained for drop-in compatibility. All entries now point
- * at the ambient-shadow spec (no violet glow). Consumers should migrate to
- * AMBIENT_SHADOW over time.
- */
-export const AI_GLOW = {
-  ambient: AMBIENT_SHADOW.ambient,
-  strong: AMBIENT_SHADOW.hover,
-  avatar: AMBIENT_SHADOW.ambient,
-  thinking: AMBIENT_SHADOW.ambient,
-  response: AMBIENT_SHADOW.ambient,
 } as const;
 
 /** Button elevation — flat by default, ambient shadow only on floating CTAs. */
@@ -654,7 +629,7 @@ export const BUTTON_GLOW = {
 // ========== TYPOGRAPHY ==========
 
 /**
- * Typography roles from DESIGN.md §3. Schibsted Grotesk carries display,
+ * Typography roles from DESIGN.md "Typography". Schibsted Grotesk carries display,
  * headline and the DRAVR wordmark; Plus Jakarta Sans handles body and labels
  * alike (there is no separate label face); Newsreader italic is the one
  * editorial serif line on the auth pages.
@@ -668,7 +643,7 @@ export const TYPOGRAPHY = {
   mono: 'JetBrains Mono',
 } as const;
 
-/** Letter-spacing for the DRAVR wordmark (DESIGN.md §3). */
+/** Letter-spacing for the DRAVR wordmark (DESIGN.md "The Sentence-Case Rule"). */
 export const BRAND_TRACKING = '0.15em' as const;
 
 // ========== SPACING / RADIUS / TYPE SCALE ==========
@@ -685,7 +660,7 @@ export const SPACING = {
 
 /**
  * Boreal radii — matches the website scale. `full` is kept for chips/tags
- * (DESIGN.md §6 "don't use 9999 except for small tags").
+ * (9999 is for small tags only).
  */
 export const BORDER_RADIUS = {
   sm: 2,
@@ -722,7 +697,6 @@ export const DESIGN_SYSTEM = {
   gradients: GRADIENT_COLORS,
   effects: {
     ambientShadow: AMBIENT_SHADOW,
-    aiGlow: AI_GLOW,
     buttonGlow: BUTTON_GLOW,
   },
   typography: TYPOGRAPHY,

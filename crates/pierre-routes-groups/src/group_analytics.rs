@@ -26,13 +26,14 @@ use axum::{
     routing::get,
     Json, Router,
 };
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::groups::{GroupMember, MemberFitnessSnapshot};
 use pierre_core::models::TenantId;
 use pierre_database::repositories::CoachReadSurface;
 use pierre_groups::GroupService;
 use pierre_middleware::AuthenticatedUser;
+use pierre_runtime_context::require_tenant;
 use pierre_runtime_context::{GroupsCtx, MiddlewareCtx};
 use pierre_tool_runtime::coach_group_view::gate_group_view;
 use pierre_tool_runtime::group_fitness::fetch_member_snapshots_in;
@@ -43,16 +44,15 @@ use uuid::Uuid;
 use crate::groups::{
     AnalyticsScope, GroupMetadata, HealthFlagsResponse, StatsResponse, WeeklyReportResponse,
 };
-use pierre_auth::auth::AuthResult;
 
 /// Optional query parameters for stats/report endpoints (currently unused
 /// but reserved for `from` / `to` filtering once historical aggregates land).
 #[derive(Debug, Deserialize, Default)]
 pub struct PeriodQuery {
     /// Period start (ISO 8601). Defaults to 7 days ago.
-    pub from: Option<DateTime<Utc>>,
+    pub from: Option<Timestamp>,
     /// Period end (ISO 8601). Defaults to now.
-    pub to: Option<DateTime<Utc>>,
+    pub to: Option<Timestamp>,
 }
 
 /// Group analytics route registry.
@@ -82,16 +82,9 @@ impl GroupAnalyticsRoutes {
     /// Build response metadata.
     fn build_metadata() -> GroupMetadata {
         GroupMetadata {
-            timestamp: Utc::now().to_rfc3339(),
+            timestamp: Timestamp::now().to_rfc3339(),
             api_version: "1.0".to_owned(),
         }
-    }
-
-    /// Extract tenant ID from auth claims.
-    fn get_tenant_id(auth: &AuthResult) -> Result<TenantId, AppError> {
-        auth.active_tenant_id
-            .map(TenantId::from_uuid)
-            .ok_or_else(|| AppError::auth_invalid("No active tenant in session"))
     }
 
     /// Upcast a concrete state `Arc<C>` to a trait-object
@@ -193,7 +186,7 @@ impl GroupAnalyticsRoutes {
         Query(_period): Query<PeriodQuery>,
     ) -> Result<Response, AppError> {
         let auth = auth.into_inner();
-        let tenant_id = Self::get_tenant_id(&auth)?;
+        let tenant_id = require_tenant(&resources, &auth).await?;
 
         Self::require_member(&resources, &group_id, auth.user_id).await?;
 
@@ -227,7 +220,7 @@ impl GroupAnalyticsRoutes {
         Query(_period): Query<PeriodQuery>,
     ) -> Result<Response, AppError> {
         let auth = auth.into_inner();
-        let tenant_id = Self::get_tenant_id(&auth)?;
+        let tenant_id = require_tenant(&resources, &auth).await?;
 
         Self::require_admin(&resources, &group_id, auth.user_id).await?;
 
@@ -260,7 +253,7 @@ impl GroupAnalyticsRoutes {
         Path(group_id): Path<String>,
     ) -> Result<Response, AppError> {
         let auth = auth.into_inner();
-        let tenant_id = Self::get_tenant_id(&auth)?;
+        let tenant_id = require_tenant(&resources, &auth).await?;
 
         Self::require_admin(&resources, &group_id, auth.user_id).await?;
 

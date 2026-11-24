@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::AppResult;
 use uuid::Uuid;
 
@@ -45,7 +45,7 @@ pub trait PasswordResetRepository: Send + Sync {
     ///
     /// Returns the number of tokens created for the user since the given timestamp,
     /// regardless of whether they have been used or expired.
-    async fn count_recent_tokens(&self, user_id: Uuid, since: DateTime<Utc>) -> AppResult<i64>;
+    async fn count_recent_tokens(&self, user_id: Uuid, since: Timestamp) -> AppResult<i64>;
 }
 
 /// Email-verification token lifecycle — proving an address belongs to whoever typed it.
@@ -84,7 +84,7 @@ pub trait EmailVerificationRepository: Send + Sync {
     /// one to its owner without asking them to type the address again.
     async fn token_owner(&self, selector: &str, verifier_hash: &str) -> AppResult<Option<Uuid>>;
     /// Count tokens issued for a user since `since`, for rate limiting.
-    async fn count_recent_tokens(&self, user_id: Uuid, since: DateTime<Utc>) -> AppResult<i64>;
+    async fn count_recent_tokens(&self, user_id: Uuid, since: Timestamp) -> AppResult<i64>;
     /// Stamp `users.email_verified_at`. Idempotent — a second call leaves the
     /// original timestamp in place, so re-verifying never rewrites history.
     /// Returns `true` only when this call made the first proof.

@@ -12,6 +12,9 @@
 //! it as a reply still on its way for as long as the turn watchdog allows.
 //! The localized `messaging.turn_interrupted` notice, stored as the
 //! assistant's reply with finish reason `interrupted`, closes it instead.
+//! A turn refused because no LLM tier answers gets
+//! `messaging.turn_unavailable`: "send it again" is the wrong advice for a
+//! turn that would be refused the same way (carnet#1709).
 //!
 //! The thread may be the athlete's personal one, which the app and their
 //! messaging DM both write into (carnet#840), so both surfaces close their
@@ -21,7 +24,8 @@
 use pierre_chat_pipeline::stages::persistence::persist_assistant_response;
 use pierre_chat_pipeline::turn_stop::TurnStop;
 use pierre_chat_pipeline::TurnOrigin;
-use pierre_contremaitre::messaging_strings::KEY_TURN_INTERRUPTED;
+use pierre_contremaitre::messaging_strings::{KEY_TURN_INTERRUPTED, KEY_TURN_UNAVAILABLE};
+use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::{AddMessageParams, TenantId};
 use pierre_core::transport::TransportPolicy;
 use tracing::warn;
@@ -40,16 +44,59 @@ pub(crate) struct TurnThread<'a> {
     pub(crate) tenant_id: TenantId,
 }
 
+/// Why a turn ended without a reply, as the notice that closes it says it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum FailedTurn {
+    /// Cut short or failed mid-turn: sending the question again may work.
+    Interrupted,
+    /// Refused because the service behind the reply is unavailable: the LLM
+    /// health gate while no tier answers, a provider that timed out, a chain
+    /// whose last tier is out of quota or credit. Sending the question again
+    /// at once would end the same way.
+    Unavailable,
+}
+
+impl FailedTurn {
+    /// The failure `error` is: `Unavailable` for the codes the health gate and
+    /// an unavailable provider answer with — a chain whose every tier is out
+    /// of quota or credit comes back as its last tier's `ExternalRateLimited`
+    /// while the health status still reads `Healthy` — and `Interrupted` for
+    /// anything else.
+    pub(crate) fn of(error: &AppError) -> Self {
+        if matches!(
+            error.code,
+            ErrorCode::ResourceUnavailable | ErrorCode::ExternalRateLimited
+        ) {
+            Self::Unavailable
+        } else {
+            Self::Interrupted
+        }
+    }
+
+    /// The messaging string that words this failure.
+    const fn notice_key(self) -> &'static str {
+        match self {
+            Self::Interrupted => KEY_TURN_INTERRUPTED,
+            Self::Unavailable => KEY_TURN_UNAVAILABLE,
+        }
+    }
+}
+
 /// Close a failed turn whose question is on file.
 ///
 /// A turn refused before it stored anything — a quota, a thread that could
 /// not be reopened — has nothing on file to close, which `stop` says by
 /// holding no question.
-pub(crate) async fn close_failed_turn(thread: &TurnThread<'_>, stop: &TurnStop, locale: &str) {
+pub(crate) async fn close_failed_turn(
+    thread: &TurnThread<'_>,
+    stop: &TurnStop,
+    why: FailedTurn,
+    locale: &str,
+) {
     if stop.question().is_none() {
         return;
     }
-    close_unanswered_turn(thread, locale).await;
+    close_turn_unless_answered(thread, why, locale).await;
 }
 
 /// Write the interrupted notice unless the thread's latest message is already
@@ -58,10 +105,14 @@ pub(crate) async fn close_failed_turn(thread: &TurnThread<'_>, stop: &TurnStop, 
 /// When an answer already landed (the turn ended inside its post-persist
 /// stages), nothing is written: the answer is there.
 pub(crate) async fn close_unanswered_turn(thread: &TurnThread<'_>, locale: &str) {
+    close_turn_unless_answered(thread, FailedTurn::Interrupted, locale).await;
+}
+
+async fn close_turn_unless_answered(thread: &TurnThread<'_>, why: FailedTurn, locale: &str) {
     if turn_already_answered(thread).await {
         return;
     }
-    write_interrupted_notice(thread, locale).await;
+    write_notice(thread, why, locale).await;
 }
 
 /// Whether the conversation's latest message is already an assistant reply.
@@ -92,14 +143,16 @@ async fn turn_already_answered(thread: &TurnThread<'_>) -> bool {
     }
 }
 
-/// Persist the localized interrupted notice as the assistant's reply.
-async fn write_interrupted_notice(thread: &TurnThread<'_>, locale: &str) {
+/// Persist the localized notice for `why` as the assistant's reply. The
+/// finish reason is `interrupted` either way: it says the row is a notice,
+/// not an answer, which is all a reader of the thread acts on.
+async fn write_notice(thread: &TurnThread<'_>, why: FailedTurn, locale: &str) {
     let repos = &thread.resources.common.repos;
     let notice = thread
         .resources
         .mcp
         .messaging_strings_registry
-        .get(KEY_TURN_INTERRUPTED, locale);
+        .get(why.notice_key(), locale);
     let params = AddMessageParams {
         tenant_id: thread.tenant_id,
         conversation_id: thread.conversation_id,
@@ -116,6 +169,7 @@ async fn write_interrupted_notice(thread: &TurnThread<'_>, locale: &str) {
         channel_type: None,
         about_user_id: None,
         turn_attempted_write: None,
+        ai_consent_sources: &[],
     };
     if let Err(e) = persist_assistant_response(
         repos.chat.as_ref(),
@@ -128,5 +182,39 @@ async fn write_interrupted_notice(thread: &TurnThread<'_>, locale: &str) {
     .await
     {
         warn!(error = %e, conversation_id = thread.conversation_id, "the interrupted-turn notice could not be written; the question stays unanswered on file");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use pierre_core::errors::{AppError, ErrorCode};
+
+    use super::FailedTurn;
+
+    /// The health gate's refusal and a provider that is unavailable are
+    /// worded as unavailable; every other failure keeps the interrupted
+    /// notice, whose "send it again" is then the right advice.
+    #[test]
+    fn only_an_unavailable_service_is_worded_as_unavailable() {
+        let refused = AppError::new(
+            ErrorCode::ResourceUnavailable,
+            "Our AI provider (anthropic) is temporarily unavailable.",
+        );
+        assert_eq!(FailedTurn::of(&refused), FailedTurn::Unavailable);
+
+        // A chain whose every tier is out of quota or credit fails the turn
+        // with its last tier's code while the health status reads `Healthy`.
+        let exhausted = AppError::new(
+            ErrorCode::ExternalRateLimited,
+            "LLM provider rate limited or out of quota: credit balance exhausted",
+        );
+        assert_eq!(FailedTurn::of(&exhausted), FailedTurn::Unavailable);
+
+        for error in [
+            AppError::internal("a stage panicked"),
+            AppError::invalid_input("malformed request"),
+        ] {
+            assert_eq!(FailedTurn::of(&error), FailedTurn::Interrupted);
+        }
     }
 }

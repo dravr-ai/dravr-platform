@@ -31,14 +31,21 @@
 //! answer is a state word ([`HomeState`]). No function here returns a
 //! centroid or the seed.
 //!
+//! **Rides from home** (carnet#1723). A workout that starts inside the home
+//! exclusion is placed by the area its trimmed track rode through ([`cluster`]
+//! reads the evenly spaced sample of the track each start carries). Such an
+//! area is a place with no automatic name; the athlete names it once with
+//! [`name_place`], by the place or by any ride into it, and the name sticks.
+//!
 //! **Names.** The athlete's own name wins, and only [`name_place`] writes
 //! one. Otherwise a place is named for the most frequent city among its
 //! workouts, else the most frequent segment they ride, else nothing; a tie
-//! goes to the name of the most recent workout.
+//! goes to the name of the most recent workout. An area of rides from home
+//! is never named automatically.
 
 use std::collections::{HashMap, HashSet};
 
-use chrono::{DateTime, Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::errors::AppResult;
 use pierre_core::models::{Activity, CachedRowKey, HomeDeclaration, TenantId};
 use pierre_core::untrusted::display_line;
@@ -64,6 +71,12 @@ pub const MAX_PLACE_NAME_CHARS: usize = 60;
 /// The radius a place the athlete creates on one visit is given, in metres:
 /// the clustering distance, so later starts nearby join it.
 const SINGLE_VISIT_RADIUS_METERS: f64 = 300.0;
+
+/// The most points of a track a start carries to the clustering, to find
+/// the area a ride from home went to: an evenly spaced sample, so the
+/// stretches the ride spent longest on weigh most, at a bounded cost per
+/// workout.
+const AREA_TRACK_MAX_POINTS: usize = 256;
 
 /// Cached rows read per page of a recompute's read.
 const ROWS_PER_PAGE: i64 = 500;
@@ -107,8 +120,9 @@ pub struct NamedPlace {
 /// Why `name_place` named nothing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PlaceRefusal {
-    /// The athlete holds no such place, or the activity has no place to
-    /// clear.
+    /// The athlete holds no such place, the activity has no place to clear,
+    /// or the activity starts at home and rode to no area: home is never a
+    /// place to name.
     PlaceNotFound,
     /// The athlete holds no activity with that id.
     ActivityNotFound,
@@ -168,7 +182,7 @@ pub enum HomeState {
 /// Returns the repository error when the due athletes cannot be listed.
 pub async fn places_pass(
     repos: &RepositoryRegistry,
-    now: DateTime<Utc>,
+    now: Timestamp,
     max_users: u32,
 ) -> AppResult<PlacesPassReport> {
     let due = repos
@@ -178,9 +192,9 @@ pub async fn places_pass(
     let mut report = PlacesPassReport::default();
     for (tenant_id, user_id) in due {
         match recompute(repos, &tenant_id, user_id, now).await {
-            Ok(places) => {
+            Ok(recomputed) => {
                 report.users += 1;
-                report.places += u32::try_from(places.len()).unwrap_or(u32::MAX);
+                report.places += u32::try_from(recomputed.places.len()).unwrap_or(u32::MAX);
             }
             Err(e) => {
                 report.failed += 1;
@@ -211,12 +225,17 @@ pub async fn places_pass(
 /// Name a place as the athlete asked (`Some`), or clear the athlete's name
 /// (`None`) so the place goes back to its automatic name.
 ///
-/// By activity: the activity's place is named; an activity with a recorded
-/// route and no place (a first visit, or a start inside the home exclusion)
-/// becomes the only member of a new place at its trimmed start, named as
-/// asked. After a clear or a new place, the athlete's places are recomputed
-/// at once, best-effort, so the automatic name comes back and the activity's
-/// other copies join the new place without waiting for the worker.
+/// By activity: the activity's place is named. A ride from home carries the
+/// place of the area it rode through (carnet#1723), so naming it names that
+/// area. An activity with no place is first placed by a recompute, which a
+/// row the worker has not reached yet needs; still unplaced, a first visit
+/// with a recorded route becomes the only member of a new place at its
+/// trimmed start, named as asked, and a start inside the home exclusion is
+/// refused as having no place ([`PlaceRefusal::PlaceNotFound`]): home is
+/// never a place. After a clear or a new place, the athlete's places are
+/// recomputed at once, best-effort, so the automatic name comes back and the
+/// activity's other copies join the new place without waiting for the
+/// worker.
 ///
 /// # Errors
 ///
@@ -248,7 +267,17 @@ pub async fn name_place(
                 (Some(id), _) => id,
                 (None, None) => return Ok(Err(PlaceRefusal::PlaceNotFound)),
                 (None, Some(name)) => {
-                    return create_single_visit_place(repos, tenant_id, user_id, &rows, name).await;
+                    match place_unplaced(repos, tenant_id, user_id, &activity_id, &rows).await? {
+                        Unplaced::NoRoute => return Ok(Err(PlaceRefusal::ActivityHasNoRoute)),
+                        Unplaced::Placed(id) => id,
+                        Unplaced::Home => return Ok(Err(PlaceRefusal::PlaceNotFound)),
+                        Unplaced::Free(rows) => {
+                            return create_single_visit_place(
+                                repos, tenant_id, user_id, &rows, name,
+                            )
+                            .await;
+                        }
+                    }
                 }
             }
         }
@@ -264,7 +293,8 @@ pub async fn name_place(
     if !cleared {
         return Ok(Ok(named(&place)));
     }
-    let Some(places) = recompute_after_change(repos, tenant_id, user_id).await else {
+    let Some(Recomputed { places, .. }) = recompute_after_change(repos, tenant_id, user_id).await
+    else {
         return Ok(Ok(named(&place)));
     };
     // A place that held only the athlete's single visit is gone once its
@@ -320,7 +350,7 @@ pub async fn declare_home(
     };
     repos
         .athlete_places
-        .store_home_declaration(tenant_id, user_id, home, Utc::now())
+        .store_home_declaration(tenant_id, user_id, home, Timestamp::now())
         .await?;
     recompute_after_change(repos, tenant_id, user_id).await;
     Ok(Ok(state))
@@ -385,8 +415,8 @@ async fn activity_rows(
 ) -> AppResult<Vec<CachedActivityRow>> {
     let ids = [activity_id];
     let query = CachedRowsQuery::window(
-        DateTime::UNIX_EPOCH,
-        Utc::now() + Duration::days(1),
+        Timestamp::UNIX_EPOCH,
+        Timestamp::now() + Elapsed::days(1),
         COPIES_PER_ACTIVITY,
     )
     .with_ids(&ids);
@@ -415,8 +445,58 @@ async fn trimmed_start<'rows>(
     Ok(None)
 }
 
+/// What a recompute made of an activity that carried no place.
+enum Unplaced {
+    /// No copy has a recorded route: nothing could place it, and nothing
+    /// was recomputed.
+    NoRoute,
+    /// It now has this place: a row the worker had not reached yet.
+    Placed(String),
+    /// Its start lies inside the home exclusion and its track reached no
+    /// area: it is placed nowhere, and no place is made there.
+    Home,
+    /// It is still placed nowhere and not home: its copies, read again.
+    Free(Vec<CachedActivityRow>),
+}
+
+/// When a copy of the activity (`rows`) has a recorded route, recompute the
+/// athlete's places, then read the activity again. The recompute is not
+/// best-effort here: only the clustering knows whether the activity starts
+/// at home, so its failure is the caller's error and no place is made.
+async fn place_unplaced(
+    repos: &RepositoryRegistry,
+    tenant_id: &TenantId,
+    user_id: Uuid,
+    activity_id: &str,
+    rows: &[CachedActivityRow],
+) -> AppResult<Unplaced> {
+    if trimmed_start(repos, tenant_id, user_id, rows)
+        .await?
+        .is_none()
+    {
+        return Ok(Unplaced::NoRoute);
+    }
+    let recomputed = recompute(repos, tenant_id, user_id, Timestamp::now()).await?;
+    let rows = activity_rows(repos, tenant_id, user_id, activity_id).await?;
+    if let Some(id) = rows
+        .iter()
+        .find_map(|row| row.place.as_ref().map(|place| place.id.clone()))
+    {
+        return Ok(Unplaced::Placed(id));
+    }
+    if rows
+        .iter()
+        .any(|row| recomputed.excluded.contains(&row_key(row)))
+    {
+        return Ok(Unplaced::Home);
+    }
+    Ok(Unplaced::Free(rows))
+}
+
 /// Create the athlete's place at the trimmed start of the first copy of the
-/// activity with a recorded route, with that copy as its only member.
+/// activity with a recorded route, with that copy as its only member. Reached
+/// only for an activity a recompute left unplaced and outside the home
+/// exclusion ([`place_unplaced`]), so no place is ever made at home.
 async fn create_single_visit_place(
     repos: &RepositoryRegistry,
     tenant_id: &TenantId,
@@ -427,7 +507,7 @@ async fn create_single_visit_place(
     let Some(((lat, lon), row)) = trimmed_start(repos, tenant_id, user_id, rows).await? else {
         return Ok(Err(PlaceRefusal::ActivityHasNoRoute));
     };
-    let now = Utc::now();
+    let now = Timestamp::now();
     let place = AthletePlace {
         id: Uuid::new_v4().to_string(),
         centroid_lat: lat,
@@ -456,9 +536,9 @@ async fn recompute_after_change(
     repos: &RepositoryRegistry,
     tenant_id: &TenantId,
     user_id: Uuid,
-) -> Option<Vec<AthletePlace>> {
-    match recompute(repos, tenant_id, user_id, Utc::now()).await {
-        Ok(places) => Some(places),
+) -> Option<Recomputed> {
+    match recompute(repos, tenant_id, user_id, Timestamp::now()).await {
+        Ok(recomputed) => Some(recomputed),
         Err(e) => {
             warn!(
                 %tenant_id,
@@ -476,15 +556,24 @@ pub(crate) struct Workout {
     pub(crate) rows: Vec<usize>,
 }
 
+/// What one recompute stored, and the rows it left at home.
+struct Recomputed {
+    /// The places written.
+    places: Vec<AthletePlace>,
+    /// Every copy of each workout whose start lies inside the home exclusion
+    /// and whose track reached no area. Never stored, never answered.
+    excluded: HashSet<CachedRowKey>,
+}
+
 /// Recompute one athlete's places from every cached row they hold and store
 /// them, with each row's place and what this clustering saw, in one
-/// transaction. Returns the places written.
+/// transaction.
 async fn recompute(
     repos: &RepositoryRegistry,
     tenant_id: &TenantId,
     user_id: Uuid,
-    now: DateTime<Utc>,
-) -> AppResult<Vec<AthletePlace>> {
+    now: Timestamp,
+) -> AppResult<Recomputed> {
     // Read before the rows: a row synced, or a track drawn, while this runs
     // makes the athlete due again rather than being taken as seen.
     let stamp = repos
@@ -571,7 +660,13 @@ async fn recompute(
         .athlete_places
         .replace_clustering(tenant_id, user_id, &places, &assignments, &run)
         .await?;
-    Ok(places)
+    let excluded: HashSet<CachedRowKey> = clustering
+        .excluded
+        .iter()
+        .filter_map(|key| point_workout.get(key))
+        .flat_map(|&index| workouts[index].rows.iter().map(|&row| row_key(&rows[row])))
+        .collect();
+    Ok(Recomputed { places, excluded })
 }
 
 /// Every cached row the athlete holds in the tenant, newest first.
@@ -579,10 +674,10 @@ pub(crate) async fn all_rows(
     repos: &RepositoryRegistry,
     tenant_id: &TenantId,
     user_id: Uuid,
-    now: DateTime<Utc>,
+    now: Timestamp,
 ) -> AppResult<Vec<CachedActivityRow>> {
     let window =
-        CachedRowsQuery::window(DateTime::UNIX_EPOCH, now + Duration::days(1), ROWS_PER_PAGE);
+        CachedRowsQuery::window(Timestamp::UNIX_EPOCH, now + Elapsed::days(1), ROWS_PER_PAGE);
     let mut rows: Vec<CachedActivityRow> = Vec::new();
     loop {
         let query = rows.last().map_or_else(
@@ -680,6 +775,7 @@ async fn workout_start(
             lat: first.0,
             lon: first.1,
             kind: StartKind::Trimmed,
+            track: evenly_sampled(&track.coordinates, AREA_TRACK_MAX_POINTS),
         }));
     }
     Ok(workout.rows.iter().find_map(|&index| {
@@ -692,8 +788,18 @@ async fn workout_start(
             lat,
             lon,
             kind: StartKind::RawAssignOnly,
+            track: Vec::new(),
         })
     }))
+}
+
+/// At most `max` of `points`, evenly spaced along them, in order.
+fn evenly_sampled(points: &[(f64, f64)], max: usize) -> Vec<(f64, f64)> {
+    if points.len() <= max {
+        return points.to_vec();
+    }
+    let stride = points.len().div_ceil(max.max(1));
+    points.iter().step_by(stride).copied().collect()
 }
 
 /// A stored place as the clustering sees it.
@@ -709,18 +815,23 @@ fn anchor(place: &AthletePlace) -> PlaceAnchor {
 }
 
 /// The row a clustered place is stored as: the athlete's name kept, else its
-/// automatic name; its creation kept across re-clustering.
+/// automatic name; its creation kept across re-clustering. An area of rides
+/// from home has no automatic name: the city and the segments those rides
+/// cross are the door's as much as the area's, and do not name the trail
+/// network, so it waits for the athlete's (carnet#1723).
 fn stored_place(
     place: &ClusteredPlace,
     previous: Option<&AthletePlace>,
     members: &[&Workout],
     rows: &[CachedActivityRow],
-    now: DateTime<Utc>,
+    now: Timestamp,
 ) -> AthletePlace {
     let athlete_named = previous.filter(|p| p.name_source == Some(PlaceNameSource::Athlete));
     let (name, name_source) = athlete_named.map_or_else(
         || {
-            automatic_name(members, rows)
+            (!place.area)
+                .then(|| automatic_name(members, rows))
+                .flatten()
                 .map_or((None, None), |(name, source)| (Some(name), Some(source)))
         },
         |previous| (previous.name.clone(), Some(PlaceNameSource::Athlete)),
@@ -780,10 +891,10 @@ fn non_blank(raw: &str) -> Option<String> {
 
 /// How many workouts carry each name, and when the latest of them started.
 #[derive(Default)]
-struct Tally(HashMap<String, (u32, DateTime<Utc>)>);
+struct Tally(HashMap<String, (u32, Timestamp)>);
 
 impl Tally {
-    fn count(&mut self, name: String, started: DateTime<Utc>) {
+    fn count(&mut self, name: String, started: Timestamp) {
         let entry = self.0.entry(name).or_insert((0, started));
         entry.0 += 1;
         entry.1 = entry.1.max(started);
@@ -815,12 +926,11 @@ fn row_key(row: &CachedActivityRow) -> CachedRowKey {
 
 #[cfg(test)]
 mod tests {
-    use chrono::TimeZone;
     use pierre_core::models::{ActivityBuilder, SportType};
 
     use super::*;
 
-    fn row(provider: &str, id: &str, start: DateTime<Utc>) -> CachedActivityRow {
+    fn row(provider: &str, id: &str, start: Timestamp) -> CachedActivityRow {
         CachedActivityRow {
             provider: provider.to_owned(),
             activity: ActivityBuilder::new(id, "Ride", SportType::Ride, start, 3_600, provider)
@@ -846,8 +956,8 @@ mod tests {
 
     #[test]
     fn a_merged_workout_never_takes_another_providers_activity_that_shares_its_id() {
-        let ride = Utc.with_ymd_and_hms(2025, 6, 1, 8, 0, 0).unwrap();
-        let year_later = Utc.with_ymd_and_hms(2026, 6, 1, 8, 0, 0).unwrap();
+        let ride = Timestamp::parse_from_rfc3339("2025-06-01T08:00:00Z").unwrap();
+        let year_later = Timestamp::parse_from_rfc3339("2026-06-01T08:00:00Z").unwrap();
         // Newest first, as the window read returns them: the unrelated
         // Garmin activity holding id 123 comes before the Strava one.
         let rows = vec![
@@ -875,8 +985,8 @@ mod tests {
 
     #[test]
     fn every_row_takes_exactly_one_workout_its_canonical_copy_first() {
-        let ride = Utc.with_ymd_and_hms(2025, 6, 1, 8, 0, 0).unwrap();
-        let run = Utc.with_ymd_and_hms(2025, 6, 3, 8, 0, 0).unwrap();
+        let ride = Timestamp::parse_from_rfc3339("2025-06-01T08:00:00Z").unwrap();
+        let run = Timestamp::parse_from_rfc3339("2025-06-03T08:00:00Z").unwrap();
         let rows = vec![
             row("strava", "r-1", run),
             row("wahoo", "w-1", ride),

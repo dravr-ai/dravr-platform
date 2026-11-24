@@ -6,7 +6,7 @@
 //
 // file-size-ok: parameter catalog, not logic — `ParameterDefinition` entries
 // across the `register_*` builders, each a flat literal of key, display name,
-// description, category, data type, default, and range. Every knob an operator
+// description, category, data type, default, and range. Every knob an admin
 // can turn costs its fixed block of lines here, so the length measures how much
 // of the platform is admin-configurable, not how complex this module is. A
 // domain whose knobs have a consumer-side reader registers them in its own
@@ -35,13 +35,13 @@ use crate::tid_cuts;
 /// the service that consumes it stays in `pierre-server`.
 #[derive(Debug, Clone)]
 pub struct ParameterDefinition {
-    /// Unique identifier for the parameter (e.g., `feature.auto_approval_enabled`)
+    /// Unique identifier for the parameter (e.g., `usage_quotas.daily_message_cap`)
     pub key: String,
     /// Human-readable name for display in UI
     pub display_name: String,
     /// Detailed description of what this parameter controls
     pub description: String,
-    /// Category grouping for organization (e.g., `feature_flags`, `algorithms`)
+    /// Category grouping for organization (e.g., `usage_quotas`, `algorithms`)
     pub category: String,
     /// Data type for validation and UI rendering
     pub data_type: ConfigDataType,
@@ -351,30 +351,6 @@ pub fn register_llm_pricing<S: BuildHasher>(defs: &mut HashMap<String, Parameter
     );
 }
 
-/// Register the `Feature Flags` catalog entries.
-pub fn register_feature_flags<S: BuildHasher>(defs: &mut HashMap<String, ParameterDefinition, S>) {
-    // Feature Flags
-    add_definition(
-        defs,
-        ParameterDefinition {
-            key: "feature.auto_approval_enabled".to_owned(),
-            display_name: "Auto-Approve New Users".to_owned(),
-            description: "Automatically approve new user registrations without admin intervention"
-                .to_owned(),
-            category: "feature_flags".to_owned(),
-            data_type: ConfigDataType::Boolean,
-            default_value: serde_json::json!(false),
-            valid_range: None,
-            enum_options: None,
-            units: None,
-            scientific_basis: None,
-            env: None,
-            is_runtime_configurable: true,
-            requires_restart: false,
-        },
-    );
-}
-
 /// Register the `LLM Provider Configuration` catalog entries.
 pub fn register_llm_provider_config<S: BuildHasher>(
     defs: &mut HashMap<String, ParameterDefinition, S>,
@@ -439,6 +415,46 @@ pub fn register_llm_provider_config<S: BuildHasher>(
             requires_restart: true,
         },
     );
+
+    add_definition(defs,
+        ParameterDefinition {
+            key: "llm.lab_reader_model".to_owned(),
+            display_name: "Lab Reader Model".to_owned(),
+            description:
+                "The model that reads uploaded lab reports: none (the rules read), or an HTTP API provider or Ollama (gemini, groq, cohere, openrouter, anthropic, openai_api, local). Never a CLI runner, Copilot or the router: the reader runs with no tools"
+                    .to_owned(),
+            category: "llm_provider".to_owned(),
+            data_type: ConfigDataType::String,
+            default_value: serde_json::json!("none"),
+            valid_range: None,
+            enum_options: None,
+            units: None,
+            scientific_basis: None,
+            env: boot_env("LAB_READER_MODEL"),
+            is_runtime_configurable: false,
+            requires_restart: true,
+        },
+    );
+
+    add_definition(defs,
+        ParameterDefinition {
+            key: "llm.lab_reader_model_name".to_owned(),
+            display_name: "Lab Reader Model Name".to_owned(),
+            description:
+                "The model name the lab reader's provider uses, overriding that provider's default; unset keeps it"
+                    .to_owned(),
+            category: "llm_provider".to_owned(),
+            data_type: ConfigDataType::String,
+            default_value: serde_json::json!(""),
+            valid_range: None,
+            enum_options: None,
+            units: None,
+            scientific_basis: None,
+            env: boot_env("LAB_READER_MODEL_NAME"),
+            is_runtime_configurable: false,
+            requires_restart: true,
+        },
+    );
 }
 
 /// Register the `Algorithm Selection` catalog entries.
@@ -446,29 +462,6 @@ pub fn register_algorithm_selection<S: BuildHasher>(
     defs: &mut HashMap<String, ParameterDefinition, S>,
 ) {
     // Algorithm Selection
-    add_definition(
-        defs,
-        ParameterDefinition {
-            key: "algorithm.tss".to_owned(),
-            display_name: "TSS Calculation Method".to_owned(),
-            description: "Algorithm for Training Stress Score calculation".to_owned(),
-            category: "algorithms".to_owned(),
-            data_type: ConfigDataType::Enum,
-            default_value: serde_json::json!("avg_power"),
-            valid_range: None,
-            enum_options: Some(vec![
-                "avg_power".to_owned(),
-                "normalized_power".to_owned(),
-                "hybrid".to_owned(),
-            ]),
-            units: None,
-            scientific_basis: Some("Coggan's TSS methodology".to_owned()),
-            env: config_env("PIERRE_TSS_ALGORITHM"),
-            is_runtime_configurable: true,
-            requires_restart: false,
-        },
-    );
-
     add_definition(
         defs,
         ParameterDefinition {
@@ -488,185 +481,6 @@ pub fn register_algorithm_selection<S: BuildHasher>(
             units: None,
             scientific_basis: Some("Tanaka et al. 2001: 208 - 0.7 × age".to_owned()),
             env: config_env("PIERRE_MAXHR_ALGORITHM"),
-            is_runtime_configurable: true,
-            requires_restart: false,
-        },
-    );
-}
-
-/// Register the `Recommendation Engine` catalog entries.
-pub fn register_recommendation_engine<S: BuildHasher>(
-    defs: &mut HashMap<String, ParameterDefinition, S>,
-) {
-    // Recommendation Engine
-    add_definition(
-        defs,
-        ParameterDefinition {
-            key: "recommendation.low_weekly_distance_km".to_owned(),
-            display_name: "Low Weekly Distance".to_owned(),
-            description: "Distance threshold below which a low volume warning is triggered"
-                .to_owned(),
-            category: "recommendation_engine".to_owned(),
-            data_type: ConfigDataType::Float,
-            default_value: serde_json::json!(20.0),
-            valid_range: Some(ParameterRange {
-                min: serde_json::json!(5.0),
-                max: serde_json::json!(50.0),
-                step: Some(1.0),
-            }),
-            enum_options: None,
-            units: Some("km".to_owned()),
-            scientific_basis: None,
-            env: None,
-            is_runtime_configurable: true,
-            requires_restart: false,
-        },
-    );
-
-    add_definition(
-        defs,
-        ParameterDefinition {
-            key: "recommendation.high_weekly_distance_km".to_owned(),
-            display_name: "High Weekly Distance".to_owned(),
-            description: "Distance threshold above which overtraining warnings are triggered"
-                .to_owned(),
-            category: "recommendation_engine".to_owned(),
-            data_type: ConfigDataType::Float,
-            default_value: serde_json::json!(80.0),
-            valid_range: Some(ParameterRange {
-                min: serde_json::json!(30.0),
-                max: serde_json::json!(200.0),
-                step: Some(5.0),
-            }),
-            enum_options: None,
-            units: Some("km".to_owned()),
-            scientific_basis: None,
-            env: None,
-            is_runtime_configurable: true,
-            requires_restart: false,
-        },
-    );
-
-    add_definition(
-        defs,
-        ParameterDefinition {
-            key: "recommendation.max_per_category".to_owned(),
-            display_name: "Max Recommendations Per Category".to_owned(),
-            description: "Maximum number of recommendations to show per category".to_owned(),
-            category: "recommendation_engine".to_owned(),
-            data_type: ConfigDataType::Integer,
-            default_value: serde_json::json!(3),
-            valid_range: Some(ParameterRange {
-                min: serde_json::json!(1),
-                max: serde_json::json!(10),
-                step: Some(1.0),
-            }),
-            enum_options: None,
-            units: None,
-            scientific_basis: None,
-            env: None,
-            is_runtime_configurable: true,
-            requires_restart: false,
-        },
-    );
-}
-
-/// Register the `Sleep & Recovery` catalog entries.
-pub fn register_sleep_recovery<S: BuildHasher>(defs: &mut HashMap<String, ParameterDefinition, S>) {
-    // Sleep & Recovery
-    add_definition(
-        defs,
-        ParameterDefinition {
-            key: "sleep.adult_min_hours".to_owned(),
-            display_name: "Minimum Sleep Hours".to_owned(),
-            description: "Minimum recommended sleep hours for adults".to_owned(),
-            category: "sleep_recovery".to_owned(),
-            data_type: ConfigDataType::Float,
-            default_value: serde_json::json!(7.0),
-            valid_range: Some(ParameterRange {
-                min: serde_json::json!(5.0),
-                max: serde_json::json!(8.0),
-                step: Some(0.5),
-            }),
-            enum_options: None,
-            units: Some("hours".to_owned()),
-            scientific_basis: Some("National Sleep Foundation Guidelines".to_owned()),
-            env: None,
-            is_runtime_configurable: true,
-            requires_restart: false,
-        },
-    );
-
-    add_definition(
-        defs,
-        ParameterDefinition {
-            key: "sleep.deep_sleep_min_percent".to_owned(),
-            display_name: "Minimum Deep Sleep".to_owned(),
-            description: "Minimum percentage of deep sleep for quality rest".to_owned(),
-            category: "sleep_recovery".to_owned(),
-            data_type: ConfigDataType::Float,
-            default_value: serde_json::json!(15.0),
-            valid_range: Some(ParameterRange {
-                min: serde_json::json!(10.0),
-                max: serde_json::json!(20.0),
-                step: Some(1.0),
-            }),
-            enum_options: None,
-            units: Some("%".to_owned()),
-            scientific_basis: Some("AASM Sleep Guidelines".to_owned()),
-            env: None,
-            is_runtime_configurable: true,
-            requires_restart: false,
-        },
-    );
-}
-
-/// Register the `Weather Analysis` catalog entries.
-pub fn register_weather_analysis<S: BuildHasher>(
-    defs: &mut HashMap<String, ParameterDefinition, S>,
-) {
-    // Weather Analysis
-    add_definition(
-        defs,
-        ParameterDefinition {
-            key: "weather.ideal_min_celsius".to_owned(),
-            display_name: "Ideal Min Temperature".to_owned(),
-            description: "Minimum temperature for ideal training conditions".to_owned(),
-            category: "weather_analysis".to_owned(),
-            data_type: ConfigDataType::Float,
-            default_value: serde_json::json!(10.0),
-            valid_range: Some(ParameterRange {
-                min: serde_json::json!(0.0),
-                max: serde_json::json!(15.0),
-                step: Some(1.0),
-            }),
-            enum_options: None,
-            units: Some("°C".to_owned()),
-            scientific_basis: None,
-            env: None,
-            is_runtime_configurable: true,
-            requires_restart: false,
-        },
-    );
-
-    add_definition(
-        defs,
-        ParameterDefinition {
-            key: "weather.ideal_max_celsius".to_owned(),
-            display_name: "Ideal Max Temperature".to_owned(),
-            description: "Maximum temperature for ideal training conditions".to_owned(),
-            category: "weather_analysis".to_owned(),
-            data_type: ConfigDataType::Float,
-            default_value: serde_json::json!(20.0),
-            valid_range: Some(ParameterRange {
-                min: serde_json::json!(15.0),
-                max: serde_json::json!(30.0),
-                step: Some(1.0),
-            }),
-            enum_options: None,
-            units: Some("°C".to_owned()),
-            scientific_basis: None,
-            env: None,
             is_runtime_configurable: true,
             requires_restart: false,
         },
@@ -947,52 +761,6 @@ pub fn register_garmin_provider<S: BuildHasher>(
     add_definition(
         defs,
         ParameterDefinition {
-            key: "provider.garmin_rate_limit_hourly".to_owned(),
-            display_name: "Garmin Hourly Rate Limit".to_owned(),
-            description: "Maximum Garmin API requests per hour".to_owned(),
-            category: "provider_garmin".to_owned(),
-            data_type: ConfigDataType::Integer,
-            default_value: serde_json::json!(100),
-            valid_range: Some(ParameterRange {
-                min: serde_json::json!(10),
-                max: serde_json::json!(500),
-                step: Some(10.0),
-            }),
-            enum_options: None,
-            units: Some("requests".to_owned()),
-            scientific_basis: Some("Garmin API documentation".to_owned()),
-            env: config_env("GARMIN_RATE_LIMIT_HOURLY"),
-            is_runtime_configurable: true,
-            requires_restart: false,
-        },
-    );
-
-    add_definition(
-        defs,
-        ParameterDefinition {
-            key: "provider.garmin_rate_limit_daily".to_owned(),
-            display_name: "Garmin Daily Rate Limit".to_owned(),
-            description: "Maximum Garmin API requests per day".to_owned(),
-            category: "provider_garmin".to_owned(),
-            data_type: ConfigDataType::Integer,
-            default_value: serde_json::json!(1000),
-            valid_range: Some(ParameterRange {
-                min: serde_json::json!(100),
-                max: serde_json::json!(5000),
-                step: Some(100.0),
-            }),
-            enum_options: None,
-            units: Some("requests".to_owned()),
-            scientific_basis: Some("Garmin API documentation".to_owned()),
-            env: config_env("GARMIN_RATE_LIMIT_DAILY"),
-            is_runtime_configurable: true,
-            requires_restart: false,
-        },
-    );
-
-    add_definition(
-        defs,
-        ParameterDefinition {
             key: "provider.garmin_default_activities_per_page".to_owned(),
             display_name: "Garmin Default Page Size".to_owned(),
             description: "Default number of activities per API page request".to_owned(),
@@ -1031,29 +799,6 @@ pub fn register_garmin_provider<S: BuildHasher>(
             units: Some("activities".to_owned()),
             scientific_basis: None,
             env: boot_env("GARMIN_MAX_ACTIVITIES_PER_REQUEST"),
-            is_runtime_configurable: true,
-            requires_restart: false,
-        },
-    );
-
-    add_definition(
-        defs,
-        ParameterDefinition {
-            key: "provider.garmin_rate_limit_block_secs".to_owned(),
-            display_name: "Garmin Rate Limit Block Duration".to_owned(),
-            description: "Estimated block duration when rate limited".to_owned(),
-            category: "provider_garmin".to_owned(),
-            data_type: ConfigDataType::Integer,
-            default_value: serde_json::json!(3600),
-            valid_range: Some(ParameterRange {
-                min: serde_json::json!(60),
-                max: serde_json::json!(86400),
-                step: Some(60.0),
-            }),
-            enum_options: None,
-            units: Some("seconds".to_owned()),
-            scientific_basis: None,
-            env: config_env("GARMIN_RATE_LIMIT_BLOCK_SECS"),
             is_runtime_configurable: true,
             requires_restart: false,
         },
@@ -1152,242 +897,6 @@ pub fn register_mcp_network<S: BuildHasher>(defs: &mut HashMap<String, Parameter
             env: config_env("MCP_TCP_KEEP_ALIVE_SECS"),
             is_runtime_configurable: false,
             requires_restart: true,
-        },
-    );
-}
-
-/// Register the `Monitoring Thresholds` catalog entries.
-pub fn register_monitoring<S: BuildHasher>(defs: &mut HashMap<String, ParameterDefinition, S>) {
-    // Monitoring Thresholds
-    add_definition(
-        defs,
-        ParameterDefinition {
-            key: "monitoring.memory_warn_mb".to_owned(),
-            display_name: "Memory Warning Threshold".to_owned(),
-            description: "Memory usage threshold for warning alerts".to_owned(),
-            category: "monitoring".to_owned(),
-            data_type: ConfigDataType::Integer,
-            default_value: serde_json::json!(512),
-            valid_range: Some(ParameterRange {
-                min: serde_json::json!(128),
-                max: serde_json::json!(4096),
-                step: Some(64.0),
-            }),
-            enum_options: None,
-            units: Some("MB".to_owned()),
-            scientific_basis: None,
-            env: config_env("MONITORING_MEMORY_WARN_MB"),
-            is_runtime_configurable: true,
-            requires_restart: false,
-        },
-    );
-
-    add_definition(
-        defs,
-        ParameterDefinition {
-            key: "monitoring.memory_critical_mb".to_owned(),
-            display_name: "Memory Critical Threshold".to_owned(),
-            description: "Memory usage threshold for critical alerts".to_owned(),
-            category: "monitoring".to_owned(),
-            data_type: ConfigDataType::Integer,
-            default_value: serde_json::json!(1024),
-            valid_range: Some(ParameterRange {
-                min: serde_json::json!(256),
-                max: serde_json::json!(8192),
-                step: Some(128.0),
-            }),
-            enum_options: None,
-            units: Some("MB".to_owned()),
-            scientific_basis: None,
-            env: config_env("MONITORING_MEMORY_CRITICAL_MB"),
-            is_runtime_configurable: true,
-            requires_restart: false,
-        },
-    );
-
-    add_definition(
-        defs,
-        ParameterDefinition {
-            key: "monitoring.latency_warn_ms".to_owned(),
-            display_name: "Latency Warning Threshold".to_owned(),
-            description: "Request latency threshold for warning alerts".to_owned(),
-            category: "monitoring".to_owned(),
-            data_type: ConfigDataType::Integer,
-            default_value: serde_json::json!(500),
-            valid_range: Some(ParameterRange {
-                min: serde_json::json!(100),
-                max: serde_json::json!(5000),
-                step: Some(100.0),
-            }),
-            enum_options: None,
-            units: Some("ms".to_owned()),
-            scientific_basis: None,
-            env: config_env("MONITORING_LATENCY_WARN_MS"),
-            is_runtime_configurable: true,
-            requires_restart: false,
-        },
-    );
-
-    add_definition(
-        defs,
-        ParameterDefinition {
-            key: "monitoring.latency_critical_ms".to_owned(),
-            display_name: "Latency Critical Threshold".to_owned(),
-            description: "Request latency threshold for critical alerts".to_owned(),
-            category: "monitoring".to_owned(),
-            data_type: ConfigDataType::Integer,
-            default_value: serde_json::json!(2000),
-            valid_range: Some(ParameterRange {
-                min: serde_json::json!(500),
-                max: serde_json::json!(30000),
-                step: Some(500.0),
-            }),
-            enum_options: None,
-            units: Some("ms".to_owned()),
-            scientific_basis: None,
-            env: config_env("MONITORING_LATENCY_CRITICAL_MS"),
-            is_runtime_configurable: true,
-            requires_restart: false,
-        },
-    );
-
-    add_definition(
-        defs,
-        ParameterDefinition {
-            key: "monitoring.error_rate_warn_pct".to_owned(),
-            display_name: "Error Rate Warning Threshold".to_owned(),
-            description: "Error rate percentage for warning alerts".to_owned(),
-            category: "monitoring".to_owned(),
-            data_type: ConfigDataType::Float,
-            default_value: serde_json::json!(1.0),
-            valid_range: Some(ParameterRange {
-                min: serde_json::json!(0.1),
-                max: serde_json::json!(10.0),
-                step: Some(0.1),
-            }),
-            enum_options: None,
-            units: Some("%".to_owned()),
-            scientific_basis: None,
-            env: config_env("MONITORING_ERROR_RATE_WARN_PCT"),
-            is_runtime_configurable: true,
-            requires_restart: false,
-        },
-    );
-
-    add_definition(
-        defs,
-        ParameterDefinition {
-            key: "monitoring.error_rate_critical_pct".to_owned(),
-            display_name: "Error Rate Critical Threshold".to_owned(),
-            description: "Error rate percentage for critical alerts".to_owned(),
-            category: "monitoring".to_owned(),
-            data_type: ConfigDataType::Float,
-            default_value: serde_json::json!(5.0),
-            valid_range: Some(ParameterRange {
-                min: serde_json::json!(1.0),
-                max: serde_json::json!(25.0),
-                step: Some(0.5),
-            }),
-            enum_options: None,
-            units: Some("%".to_owned()),
-            scientific_basis: None,
-            env: config_env("MONITORING_ERROR_RATE_CRITICAL_PCT"),
-            is_runtime_configurable: true,
-            requires_restart: false,
-        },
-    );
-
-    add_definition(
-        defs,
-        ParameterDefinition {
-            key: "monitoring.pool_usage_warn_pct".to_owned(),
-            display_name: "Connection Pool Warning Threshold".to_owned(),
-            description: "Connection pool usage percentage for warning alerts".to_owned(),
-            category: "monitoring".to_owned(),
-            data_type: ConfigDataType::Float,
-            default_value: serde_json::json!(70.0),
-            valid_range: Some(ParameterRange {
-                min: serde_json::json!(50.0),
-                max: serde_json::json!(90.0),
-                step: Some(5.0),
-            }),
-            enum_options: None,
-            units: Some("%".to_owned()),
-            scientific_basis: None,
-            env: config_env("MONITORING_POOL_USAGE_WARN_PCT"),
-            is_runtime_configurable: true,
-            requires_restart: false,
-        },
-    );
-
-    add_definition(
-        defs,
-        ParameterDefinition {
-            key: "monitoring.pool_usage_critical_pct".to_owned(),
-            display_name: "Connection Pool Critical Threshold".to_owned(),
-            description: "Connection pool usage percentage for critical alerts".to_owned(),
-            category: "monitoring".to_owned(),
-            data_type: ConfigDataType::Float,
-            default_value: serde_json::json!(90.0),
-            valid_range: Some(ParameterRange {
-                min: serde_json::json!(70.0),
-                max: serde_json::json!(99.0),
-                step: Some(5.0),
-            }),
-            enum_options: None,
-            units: Some("%".to_owned()),
-            scientific_basis: None,
-            env: config_env("MONITORING_POOL_USAGE_CRITICAL_PCT"),
-            is_runtime_configurable: true,
-            requires_restart: false,
-        },
-    );
-
-    add_definition(
-        defs,
-        ParameterDefinition {
-            key: "monitoring.cache_hit_rate_warn_pct".to_owned(),
-            display_name: "Cache Hit Rate Warning Threshold".to_owned(),
-            description: "Cache hit rate percentage below which warning alerts are triggered"
-                .to_owned(),
-            category: "monitoring".to_owned(),
-            data_type: ConfigDataType::Float,
-            default_value: serde_json::json!(80.0),
-            valid_range: Some(ParameterRange {
-                min: serde_json::json!(50.0),
-                max: serde_json::json!(95.0),
-                step: Some(5.0),
-            }),
-            enum_options: None,
-            units: Some("%".to_owned()),
-            scientific_basis: None,
-            env: config_env("MONITORING_CACHE_HIT_RATE_WARN_PCT"),
-            is_runtime_configurable: true,
-            requires_restart: false,
-        },
-    );
-
-    add_definition(
-        defs,
-        ParameterDefinition {
-            key: "monitoring.cache_miss_rate_critical_pct".to_owned(),
-            display_name: "Cache Miss Rate Critical Threshold".to_owned(),
-            description: "Cache miss rate percentage above which critical alerts are triggered"
-                .to_owned(),
-            category: "monitoring".to_owned(),
-            data_type: ConfigDataType::Float,
-            default_value: serde_json::json!(50.0),
-            valid_range: Some(ParameterRange {
-                min: serde_json::json!(20.0),
-                max: serde_json::json!(80.0),
-                step: Some(5.0),
-            }),
-            enum_options: None,
-            units: Some("%".to_owned()),
-            scientific_basis: None,
-            env: config_env("MONITORING_CACHE_MISS_RATE_CRITICAL_PCT"),
-            is_runtime_configurable: true,
-            requires_restart: false,
         },
     );
 }

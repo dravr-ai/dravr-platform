@@ -188,6 +188,23 @@ impl LlmProviderType {
         }
     }
 
+    /// Whether this provider answers over an HTTP API that runs no tool of
+    /// its own: one of embacle's HTTP API providers (Ollama among them, as
+    /// `local`) or the `OpenAI` API runner — never a CLI runner, a Copilot
+    /// runtime or the quota router, which drive agents that carry tools.
+    ///
+    /// The lab reader's model is admitted only where this holds: barrage's
+    /// reader hands it a lab report's text and nothing else, so nothing the
+    /// document says can make it act (design row 53, "an isolated job with
+    /// no tools"; carnet#1544).
+    #[must_use]
+    pub const fn reads_without_tools(self) -> bool {
+        matches!(
+            self.construction(),
+            ProviderConstruction::HttpApi(_) | ProviderConstruction::OpenAiApi
+        )
+    }
+
     /// How [`EmbacleProvider`](crate::EmbacleProvider) builds this provider.
     ///
     /// The CLI subprocess runners share one construction path keyed on their
@@ -423,7 +440,7 @@ fn split_account_name(name: &str) -> Option<(&str, Option<usize>)> {
 ///
 /// The server reads it once, at boot, into its config; every consumer after
 /// that is handed the chain rather than reading the environment again. It
-/// serializes as the value an operator would write — `None` for the platform
+/// serializes as the value an admin would write — `None` for the platform
 /// default — so a round trip keeps whether it was configured.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LlmChain {
@@ -445,7 +462,7 @@ impl LlmChain {
         non_empty_env(Self::ENV_VAR).map_or_else(Self::default, |raw| Self::parse(&raw))
     }
 
-    /// Whether the operator chose this chain — `PIERRE_LLM_CHAIN` was set to
+    /// Whether the admin chose this chain — `PIERRE_LLM_CHAIN` was set to
     /// a non-blank value — rather than the platform default applying.
     #[must_use]
     pub const fn is_configured(&self) -> bool {
@@ -726,7 +743,40 @@ mod tests {
         for live in [LlmChain::ENV_VAR, LlmModelConfig::DEFAULT_MODEL_ENV_VAR] {
             assert!(
                 !RETIRED_CHAIN_ENV_VARS.contains(&live),
-                "{live} is still read; reporting it as retired would tell an operator to remove it"
+                "{live} is still read; reporting it as retired would tell an admin to remove it"
+            );
+        }
+    }
+
+    #[test]
+    fn only_the_http_apis_read_without_tools() {
+        for name in [
+            "gemini",
+            "groq",
+            "cohere",
+            "openrouter",
+            "anthropic",
+            "ollama",
+            "openai_api",
+        ] {
+            let provider = LlmProviderType::parse(name).unwrap();
+            assert!(
+                provider.reads_without_tools(),
+                "bug: {name} is an HTTP API with no tool of its own"
+            );
+        }
+        for name in [
+            "claude_code",
+            "copilot",
+            "copilot_headless",
+            "copilot_sdk",
+            "router",
+            "gemini_cli",
+        ] {
+            let provider = LlmProviderType::parse(name).unwrap();
+            assert!(
+                !provider.reads_without_tools(),
+                "bug: {name} drives an agent that carries tools"
             );
         }
     }

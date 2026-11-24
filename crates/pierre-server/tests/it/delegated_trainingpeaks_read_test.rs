@@ -46,11 +46,11 @@ use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use chrono::{Days, Duration as ChronoDuration, Utc};
 use common::{
     create_test_server_resources_with_sciotte, create_test_user_with_plan, generate_test_token,
 };
 use dravr_sciotte::wire::ATHLETE_NOT_ACCESSIBLE;
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use dravr_tronc::mcp::schema::ToolResponse;
 use dravr_tronc::mcp::tool::{McpTool, ToolContext};
 use helpers::axum_test::AxumTestRequest;
@@ -187,7 +187,7 @@ fn workout_row(id: &str) -> Value {
         "id": id,
         "name": INJECTED_NAME,
         "sport_type": "ride",
-        "start_date": (Utc::now() - ChronoDuration::days(2)).to_rfc3339(),
+        "start_date": (Timestamp::now() - Elapsed::days(2)).to_rfc3339(),
         "duration_seconds": 5_400,
         "provider": "trainingpeaks",
     })
@@ -353,7 +353,7 @@ async fn person(res: &Arc<ServerContext>, email: &str, name: &str) -> Person {
 }
 
 fn session_token(user: Uuid, tenant: TenantId, session_id: &str) -> UserOAuthToken {
-    let now = Utc::now();
+    let now = Timestamp::now();
     UserOAuthToken {
         id: Uuid::new_v4().to_string(),
         user_id: user,
@@ -410,7 +410,7 @@ async fn world(scraper: Scraper, url: &str) -> World {
         .unwrap()
         .id
         .to_string();
-    let now = Utc::now();
+    let now = Timestamp::now();
     let group = repos
         .groups
         .create_group(
@@ -430,6 +430,7 @@ async fn world(scraper: Scraper, url: &str) -> World {
                 is_active: true,
                 channel_type: None,
                 channel_chat_id: None,
+                chat_connection: None,
                 created_at: now,
                 updated_at: now,
             },
@@ -617,8 +618,8 @@ impl World {
                 who.id,
                 &who.tenant,
                 Some(PROVIDER),
-                Utc::now() - ChronoDuration::days(30),
-                Utc::now() + ChronoDuration::days(1),
+                Timestamp::now() - Elapsed::days(30),
+                Timestamp::now() + Elapsed::days(1),
                 100,
             )
             .await
@@ -720,15 +721,15 @@ async fn get_activities_reads_through_the_coach(w: &World) {
 /// coach's session.
 async fn get_planned_workouts_reads_through_the_coach(w: &World) {
     w.scraper.clear();
-    let today = Utc::now().date_naive();
-    let end = today.checked_add_days(Days::new(14)).unwrap();
+    let today = Timestamp::now().utc_date();
+    let end = today.checked_add_days(14).unwrap();
     let response = GetPlannedWorkoutsTool
         .execute(
             &w.runtime,
             &ctx(&w.m1),
             json!({
-                "start_date": today.format("%Y-%m-%d").to_string(),
-                "end_date": end.format("%Y-%m-%d").to_string(),
+                "start_date": today.to_string(),
+                "end_date": end.to_string(),
             }),
         )
         .await;
@@ -751,12 +752,12 @@ async fn get_planned_workouts_reads_through_the_coach(w: &World) {
 /// member shares with them: the link alone does not carry it (carnet#1066).
 async fn the_coach_reads_the_members_plan_once_they_share(w: &World) {
     w.scraper.clear();
-    let today = Utc::now().date_naive();
-    let end = today.checked_add_days(Days::new(14)).unwrap();
+    let today = Timestamp::now().utc_date();
+    let end = today.checked_add_days(14).unwrap();
     let args = json!({
         "athlete": "Alex",
-        "start_date": today.format("%Y-%m-%d").to_string(),
-        "end_date": end.format("%Y-%m-%d").to_string(),
+        "start_date": today.to_string(),
+        "end_date": end.to_string(),
     });
 
     // In Dravr's own app the coach is told the member stopped sharing; a call

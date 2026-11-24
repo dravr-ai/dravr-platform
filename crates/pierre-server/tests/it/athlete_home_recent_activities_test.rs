@@ -33,7 +33,7 @@ use axum::extract::Query;
 use axum::http::{Request, StatusCode};
 use axum::routing::get;
 use axum::{Json, Router};
-use chrono::{DateTime, Duration, TimeZone, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use futures_util::future::join_all;
 use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::models::{
@@ -105,8 +105,8 @@ async fn second_tenant(resources: &Arc<ServerContext>, athlete: &Athlete) -> (Te
             domain: None,
             plan: "starter".to_owned(),
             owner_user_id: athlete.user_id,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         })
         .await
         .unwrap();
@@ -163,16 +163,17 @@ fn ids(body: &Value) -> Vec<String> {
 }
 
 /// `days` days before a fixed hour today.
-fn days_ago(days: i64) -> DateTime<Utc> {
-    Utc::now()
-        .date_naive()
-        .and_hms_opt(6, 0, 0)
+fn days_ago(days: i64) -> Timestamp {
+    Timestamp::now()
+        .utc_date()
+        .and_hms(6, 0, 0)
         .unwrap()
         .and_utc()
-        - Duration::days(days)
+        .unwrap()
+        - Elapsed::days(days)
 }
 
-fn run(id: &str, provider: &str, started: DateTime<Utc>) -> Activity {
+fn run(id: &str, provider: &str, started: Timestamp) -> Activity {
     ActivityBuilder::new(
         id,
         format!("Run {id}"),
@@ -348,7 +349,7 @@ async fn a_row_carries_every_contract_field_with_nulls_where_nothing_was_recorde
     let athlete = seed_athlete(&resources, "recent-fields").await;
     let track = weaving_track(300);
     let raw = encode_polyline(&track);
-    let started = Utc.with_ymd_and_hms(2026, 9, 20, 7, 30, 0).unwrap();
+    let started = Timestamp::parse_from_rfc3339("2026-09-20T07:30:00Z").unwrap();
     let outdoor = ActivityBuilder::new("o1", "Hill loop", SportType::Run, started, 3_000, "strava")
         .distance_meters(9_500.0)
         .elevation_gain(212.0)
@@ -360,7 +361,7 @@ async fn a_row_carries_every_contract_field_with_nulls_where_nothing_was_recorde
         "i1",
         "Zwift",
         SportType::VirtualRide,
-        started - Duration::days(1),
+        started - Elapsed::days(1),
         3_600,
         "strava",
     )
@@ -369,7 +370,7 @@ async fn a_row_carries_every_contract_field_with_nulls_where_nothing_was_recorde
         "g1",
         "Gravel grind",
         SportType::Other("GravelGrind".to_owned()),
-        started - Duration::days(2),
+        started - Elapsed::days(2),
         7_200,
         "strava",
     )
@@ -398,7 +399,7 @@ async fn a_row_carries_every_contract_field_with_nulls_where_nothing_was_recorde
     assert_eq!(outdoor["name"], "Hill loop");
     assert_eq!(outdoor["sport_type"], "run");
     assert_eq!(
-        DateTime::parse_from_rfc3339(outdoor["start_date"].as_str().unwrap()).unwrap(),
+        Timestamp::parse_from_rfc3339(outdoor["start_date"].as_str().unwrap()).unwrap(),
         started
     );
     assert_eq!(outdoor["duration_seconds"], 3_000);
@@ -595,7 +596,7 @@ async fn a_merged_workout_with_a_garmin_sourced_copy_carries_the_garmin_attribut
         "coros-run",
         "Morning Run",
         SportType::Run,
-        started + Duration::seconds(20),
+        started + Elapsed::seconds(20),
         3_660,
         oauth_providers::STRAVA,
     )
@@ -661,7 +662,7 @@ async fn a_merged_workout_with_a_garmin_sourced_copy_carries_the_garmin_attribut
 /// distances sit within a percent. The Garmin copy is the recording's own,
 /// so it is the one the session merger keeps; it alone carries the route
 /// overview and lacks the elevation the Strava copy recorded.
-fn synced_ride(tag: &str, started: DateTime<Utc>) -> [(&'static str, Activity); 3] {
+fn synced_ride(tag: &str, started: Timestamp) -> [(&'static str, Activity); 3] {
     let overview = encode_polyline(&weaving_track(300));
     [
         (
@@ -700,7 +701,7 @@ fn synced_ride(tag: &str, started: DateTime<Utc>) -> [(&'static str, Activity); 
                 format!("c-{tag}"),
                 format!("Sortie {tag}"),
                 SportType::Ride,
-                started + Duration::seconds(50),
+                started + Elapsed::seconds(50),
                 5_430,
                 oauth_providers::SCIOTTE,
             )
@@ -801,7 +802,7 @@ async fn two_different_workouts_the_same_morning_both_appear() {
                 "commute",
                 "Commute",
                 SportType::Ride,
-                dawn + Duration::minutes(60),
+                dawn + Elapsed::minutes(60),
                 1_800,
                 oauth_providers::STRAVA,
             )
@@ -810,7 +811,7 @@ async fn two_different_workouts_the_same_morning_both_appear() {
             run(
                 "evening-run",
                 oauth_providers::STRAVA,
-                dawn + Duration::hours(12),
+                dawn + Elapsed::hours(12),
             ),
         ],
     )
@@ -859,7 +860,7 @@ async fn a_limit_of_five_is_filled_when_copies_hold_the_newest_rows() {
             athlete.user_id,
             &athlete.tenant,
             oauth_providers::STRAVA,
-            Utc::now(),
+            Timestamp::now(),
         )
         .await
         .unwrap();
@@ -908,20 +909,20 @@ async fn a_limit_of_five_is_filled_when_one_connection_split_the_newest_workout(
             athlete.user_id,
             &athlete.tenant,
             oauth_providers::STRAVA,
-            Utc::now(),
+            Timestamp::now(),
         )
         .await
         .unwrap();
     // One connection, so the read makes room for one copy per workout; the
     // newest workout was auto-split into two rows three minutes apart, the
     // two merge into one, and five older runs sit behind them.
-    let split_start = Utc::now() - Duration::hours(3);
+    let split_start = Timestamp::now() - Elapsed::hours(3);
     let mut rows = vec![
         run("split-a", oauth_providers::STRAVA, split_start),
         run(
             "split-b",
             oauth_providers::STRAVA,
-            split_start + Duration::minutes(43),
+            split_start + Elapsed::minutes(43),
         ),
     ];
     rows.extend((1..=5).map(|d| run(&format!("o{d}"), oauth_providers::STRAVA, days_ago(d))));
@@ -972,16 +973,16 @@ async fn a_split_workout_whose_later_piece_stands_for_it_keeps_its_home_row() {
             athlete.user_id,
             &athlete.tenant,
             oauth_providers::STRAVA,
-            Utc::now(),
+            Timestamp::now(),
         )
         .await
         .unwrap();
-    let split_start = Utc::now() - Duration::hours(3);
+    let split_start = Timestamp::now() - Elapsed::hours(3);
     let later = ActivityBuilder::new(
         "split-later",
         "Run split-later",
         SportType::Run,
-        split_start + Duration::minutes(43),
+        split_start + Elapsed::minutes(43),
         2_400,
         oauth_providers::STRAVA,
     )
@@ -1007,7 +1008,7 @@ async fn a_split_workout_whose_later_piece_stands_for_it_keeps_its_home_row() {
 
 /// A ride as a mirror backend's list caches it: the numbers of the ride, no
 /// start position and no route overview, whether or not it recorded GPS.
-fn mirror_ride(id: &str, started: DateTime<Utc>) -> Activity {
+fn mirror_ride(id: &str, started: Timestamp) -> Activity {
     ActivityBuilder::new(
         id,
         format!("Sortie {id}"),
@@ -1080,7 +1081,7 @@ async fn store_route_read(
 async fn store_unproven_no_gps(
     resources: &Arc<ServerContext>,
     key: RouteKey<'_>,
-    expires_at: DateTime<Utc>,
+    expires_at: Timestamp,
 ) {
     resources
         .common
@@ -1284,7 +1285,7 @@ async fn an_unproven_no_gps_read_says_so_only_until_it_expires() {
     store_unproven_no_gps(
         &resources,
         RouteKey::of(&athlete, backend, "scraped"),
-        Utc::now() + Duration::hours(1),
+        Timestamp::now() + Elapsed::hours(1),
     )
     .await;
     assert_eq!(
@@ -1296,7 +1297,7 @@ async fn an_unproven_no_gps_read_says_so_only_until_it_expires() {
     store_unproven_no_gps(
         &resources,
         RouteKey::of(&athlete, backend, "scraped"),
-        Utc::now() - Duration::minutes(1),
+        Timestamp::now() - Elapsed::minutes(1),
     )
     .await;
     assert_eq!(
@@ -1383,8 +1384,8 @@ async fn a_route_read_stored_for_another_tenant_or_user_never_reaches_the_row() 
 /// entry typed in at 11:45:00 sharp with the run's 12.83 km and no sensor,
 /// and the watch's recording of the same run started at 12:43:54. The manual
 /// entry is the longer, so the session merger keeps it for the numbers.
-fn manual_and_recorded_run(day: DateTime<Utc>) -> [Activity; 2] {
-    let at = |h, m, s| day.date_naive().and_hms_opt(h, m, s).unwrap().and_utc();
+fn manual_and_recorded_run(day: Timestamp) -> [Activity; 2] {
+    let at = |h, m, s| day.utc_date().and_hms(h, m, s).unwrap().and_utc().unwrap();
     [
         ActivityBuilder::new(
             "bug-de-fougeres",
@@ -1551,7 +1552,7 @@ async fn freshness_follows_the_last_successful_fetch() {
     assert_eq!(body["activities"], json!([]));
 
     // A fetch a moment ago is fresh, and `as_of` is when it happened.
-    let fetched_at = Utc::now() - Duration::minutes(5);
+    let fetched_at = Timestamp::now() - Elapsed::minutes(5);
     resources
         .common
         .repos
@@ -1574,8 +1575,8 @@ async fn freshness_follows_the_last_successful_fetch() {
         .unwrap();
     let body = recent(&resources, &athlete.token, "").await;
     assert_eq!(body["stale"], false);
-    let as_of = DateTime::parse_from_rfc3339(body["as_of"].as_str().unwrap()).unwrap();
-    assert!((as_of.with_timezone(&Utc) - fetched_at).num_seconds().abs() < 1);
+    let as_of = Timestamp::parse_from_rfc3339(body["as_of"].as_str().unwrap()).unwrap();
+    assert!((as_of - fetched_at).num_seconds().abs() < 1);
 }
 
 #[tokio::test]
@@ -1628,7 +1629,7 @@ async fn mock_strava_list() -> (String, Arc<AtomicUsize>) {
                     "name": "Morning loop",
                     "type": "Run",
                     "sport_type": "Run",
-                    "start_date": (Utc::now() - Duration::hours(2)).to_rfc3339(),
+                    "start_date": (Timestamp::now() - Elapsed::hours(2)).to_rfc3339(),
                     "distance": 10_200.0,
                     "elapsed_time": 3_100,
                     "total_elevation_gain": 95.0,
@@ -1659,7 +1660,7 @@ async fn link_strava(resources: &Arc<ServerContext>, athlete: &Athlete) {
         )
         .await
         .unwrap();
-    let now = Utc::now();
+    let now = Timestamp::now();
     repos
         .oauth_tokens
         .upsert_token(&UserOAuthToken {
@@ -1671,7 +1672,7 @@ async fn link_strava(resources: &Arc<ServerContext>, athlete: &Athlete) {
             access_token: SecretString::from("strava_access_token_0123456789abcdef0123456789"),
             refresh_token: Some(SecretString::from("strava_refresh")),
             token_type: "Bearer".to_owned(),
-            expires_at: Some(now + Duration::hours(6)),
+            expires_at: Some(now + Elapsed::hours(6)),
             scope: Some("activity:read_all".to_owned()),
             provider_user_id: Some("4242".to_owned()),
             oauth_app_client_id: None,
@@ -1685,7 +1686,7 @@ async fn link_strava(resources: &Arc<ServerContext>, athlete: &Athlete) {
 /// Move every cached row's `synced_at` back to `at`, as if the write-through
 /// that stored them happened then. No repository writes an old `synced_at`
 /// (an upsert stamps now), so the fixture writes it in SQL.
-async fn backdate_cached_rows(resources: &ServerContext, user_id: Uuid, at: DateTime<Utc>) {
+async fn backdate_cached_rows(resources: &ServerContext, user_id: Uuid, at: Timestamp) {
     const SQL: &str = "UPDATE cached_activities SET synced_at = $1 WHERE user_id = $2";
     match resources.agent.database.backend() {
         DatabaseBackend::SQLite(sqlite) => {
@@ -1746,7 +1747,7 @@ async fn a_stale_cache_answers_at_once_and_refreshes_once_in_the_background() {
         &[run("old-1", "strava", days_ago(3))],
     )
     .await;
-    let two_days_ago = Utc::now() - Duration::days(2);
+    let two_days_ago = Timestamp::now() - Elapsed::days(2);
     backdate_cached_rows(&resources, athlete.user_id, two_days_ago).await;
     resources
         .common
@@ -1780,8 +1781,8 @@ async fn a_stale_cache_answers_at_once_and_refreshes_once_in_the_background() {
     assert!(fresh["summary_polyline"]
         .as_str()
         .is_some_and(|p| !p.is_empty()));
-    let as_of = DateTime::parse_from_rfc3339(body["as_of"].as_str().unwrap()).unwrap();
-    assert!(as_of.with_timezone(&Utc) > two_days_ago + Duration::days(1));
+    let as_of = Timestamp::parse_from_rfc3339(body["as_of"].as_str().unwrap()).unwrap();
+    assert!(as_of > two_days_ago + Elapsed::days(1));
     await_background(&resources).await;
     assert_eq!(
         hits.load(Ordering::SeqCst),
@@ -1824,8 +1825,8 @@ async fn a_fresh_provider_does_not_hide_a_stale_one() {
         )
         .await
         .unwrap();
-    let strava_fetched = Utc::now() - Duration::days(2);
-    let whoop_fetched = Utc::now() - Duration::minutes(5);
+    let strava_fetched = Timestamp::now() - Elapsed::days(2);
+    let whoop_fetched = Timestamp::now() - Elapsed::minutes(5);
     repos
         .activity_cache
         .record_activity_fetch(athlete.user_id, &athlete.tenant, "strava", strava_fetched)
@@ -1839,12 +1840,9 @@ async fn a_fresh_provider_does_not_hide_a_stale_one() {
 
     let body = recent(&resources, &athlete.token, "").await;
     assert_eq!(body["stale"], true, "the stale Strava makes the page stale");
-    let as_of = DateTime::parse_from_rfc3339(body["as_of"].as_str().unwrap()).unwrap();
+    let as_of = Timestamp::parse_from_rfc3339(body["as_of"].as_str().unwrap()).unwrap();
     assert!(
-        (as_of.with_timezone(&Utc) - whoop_fetched)
-            .num_seconds()
-            .abs()
-            < 1,
+        (as_of - whoop_fetched).num_seconds().abs() < 1,
         "as_of is the newest fetch of any provider"
     );
     await_background(&resources).await;

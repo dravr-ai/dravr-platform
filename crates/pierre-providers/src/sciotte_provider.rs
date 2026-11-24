@@ -1,5 +1,5 @@
-// ABOUTME: Sciotte provider — forwards every scrape to the dedicated dravr-sciotte service over HTTP
-// ABOUTME: Holds the platform's AuthSession and calls the remote scraper; no in-process Chrome (ADR-021)
+// ABOUTME: Sciotte provider — reads the athlete's own data from their signed-in provider session, with their consent
+// ABOUTME: Holds the platform's AuthSession and forwards each read to the dravr-sciotte service over HTTP (ADR-021)
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -7,19 +7,19 @@
 //! # Sciotte Provider
 //!
 //! Implements `FitnessProvider` by delegating to the dedicated `dravr-sciotte`
-//! scraper service over HTTP (ADR-021). Since the Phase 4 cutover the platform
-//! runs no headless Chrome: this provider holds the platform-held [`AuthSession`]
-//! and forwards it to the service on each fetch, which scrapes the fitness
-//! platform (Strava, Garmin Connect, etc.) and returns activities.
+//! service over HTTP (ADR-021). This provider holds the platform-held
+//! [`AuthSession`] and forwards it to the service on each fetch, which reads
+//! the athlete's own data from their signed-in provider session (Strava,
+//! Garmin Connect, etc.), with their consent, and returns activities.
 
 use async_trait::async_trait;
-use chrono::{DateTime, NaiveDate, Utc};
 use dravr_sciotte::client::{ClientError, SciotteClient};
 use dravr_sciotte::models::{
     Activity as SciotteActivity, ActivityComment as SciotteComment, ActivityParams, AthleteId,
     AthleteProfile, AuthSession, DetailPass, DetailScope, Lap as SciotteLap, Split as SciotteSplit,
     SportType as SciotteSportType,
 };
+use dravr_tronc::dates::{CivilDate, Timestamp};
 use pierre_core::models::provider_context::{
     ProviderActivitySearch, ProviderActivitySearchPage, ProviderActivityZones, ProviderBestEffort,
     ProviderGear, ProviderPersonalRecord, ProviderWeight,
@@ -382,7 +382,7 @@ impl SciotteProvider {
             to_app_error_as(error, brand)
         } else {
             // The agent-facing words leave out the service and request id;
-            // an operator reads them here.
+            // an admin reads them here.
             if matches!(
                 error,
                 ClientError::AthleteNotAccessible { .. } | ClientError::Unexpected { .. }
@@ -508,10 +508,10 @@ fn own_athlete(profile: AthleteProfile, target: SciotteTarget) -> Athlete {
 /// [`ErrorCode::InvalidInput`] for an epoch no calendar instant has: the
 /// bound is refused, never dropped, so a read is never widened past the
 /// window its caller asked for.
-fn window_bound(epoch_secs: Option<i64>, bound: &str) -> AppResult<Option<DateTime<Utc>>> {
+fn window_bound(epoch_secs: Option<i64>, bound: &str) -> AppResult<Option<Timestamp>> {
     epoch_secs
         .map(|secs| {
-            DateTime::from_timestamp(secs, 0).ok_or_else(|| {
+            Timestamp::from_epoch_seconds(secs).ok().ok_or_else(|| {
                 AppError::invalid_input(format!(
                     "`{bound}` is not a date the activity window can start or end on"
                 ))
@@ -792,7 +792,7 @@ impl FitnessProvider for SciotteProvider {
             .read()
             .await
             .as_ref()
-            .is_some_and(|s| s.expires_at.is_none_or(|exp| exp > Utc::now()))
+            .is_some_and(|s| s.expires_at.is_none_or(|exp| exp > Timestamp::now()))
     }
 
     async fn refresh_token_if_needed(&self) -> AppResult<()> {
@@ -883,8 +883,8 @@ impl FitnessProvider for SciotteProvider {
         } else {
             warn!(
                 count = activities.len(),
-                "Sciotte scrape completed without the list head: the fresh-head fetch failed, \
-                 so the newest activities may be missing from this capture"
+                "Sciotte scrape fell short of its window: the fresh-head fetch or a later page \
+                 or month failed, so activities the request covers may be missing from this capture"
             );
         }
         Ok(activities)
@@ -972,8 +972,8 @@ impl FitnessProvider for SciotteProvider {
     /// every provider without the capability does.
     async fn list_planned_workouts(
         &self,
-        after: NaiveDate,
-        before: NaiveDate,
+        after: CivilDate,
+        before: CivilDate,
     ) -> AppResult<Vec<PlannedWorkout>> {
         let target = SciotteTarget::from_backend_name(self.provider_name);
         if !matches!(target, SciotteTarget::TrainingPeaks) {
@@ -1171,7 +1171,7 @@ mod tests {
         let bound = window_bound(Some(1_790_000_000), "after")
             .ok()
             .flatten()
-            .map(|instant| instant.timestamp());
+            .map(Timestamp::epoch_seconds);
         assert_eq!(bound, Some(1_790_000_000));
     }
 

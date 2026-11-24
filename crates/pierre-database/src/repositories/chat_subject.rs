@@ -123,7 +123,7 @@ macro_rules! impl_chat_subject_open {
                 let athlete = $ids::bind(new.subject.athlete_user_id);
                 let group = $ids::bind(new.subject.group_id);
                 let mut tx = self.pool().begin_with($begin).await.map_err(failed)?;
-                let now = Utc::now();
+                let now = Timestamp::now();
 
                 let reopened = sqlx::query(REOPEN_SUBJECT_CONVERSATION_SQL)
                     .bind(&group)

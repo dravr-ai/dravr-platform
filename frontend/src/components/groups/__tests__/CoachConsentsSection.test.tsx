@@ -1,5 +1,5 @@
 // ABOUTME: Tests for the member's "what your human coach can do" block — the calendar and wellness consents on the coach relationship
-// ABOUTME: One change at a time, a wellness revoke asks first, the widening notice's two answers, refusals worded from their reason
+// ABOUTME: One change at a time, a wellness revoke asks first, the widening notice's answers, the health-records flag and its window
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -34,6 +34,13 @@ function consents(overrides: Partial<CoachConsentsResponse> = {}): CoachConsents
     wellness_read_supported: true,
     wellness_read_skipped: null,
     wellness_notice_due: false,
+    assistant_read: false,
+    assistant_read_at: null,
+    assistant_read_supported: false,
+    sensitive_t2_read: false,
+    sensitive_t2_read_at: null,
+    sensitive_t2_read_until: null,
+    sensitive_t2_read_supported: true,
     ...overrides,
   };
 }
@@ -241,5 +248,46 @@ describe('CoachConsentsSection', () => {
     expect(screen.queryByText('English for an API caller')).toBeNull();
     // Refused, the consent reads as it stands on the server again.
     await waitFor(() => expect(screen.getByTestId('coach-consent-calendar_write')).not.toBeChecked());
+  });
+
+  it('offers the health-records flag only while the member shares their wellness', async () => {
+    vi.mocked(groupsApi.getCoachConsents).mockResolvedValue(consents());
+    renderBlock();
+
+    await screen.findByTestId('coach-consent-wellness_read');
+    expect(screen.queryByTestId('coach-consent-sensitive-t2')).toBeNull();
+  });
+
+  it('grants the health-records flag for 30 days, then revokes it', async () => {
+    vi.mocked(groupsApi.getCoachConsents).mockResolvedValue(consents({ wellness_read: true }));
+    vi.mocked(groupsApi.updateCoachConsents).mockResolvedValue(
+      consents({ wellness_read: true, sensitive_t2_read: true, sensitive_t2_read_until: '2026-12-20T12:00:00Z' }),
+    );
+    const user = userEvent.setup();
+    renderBlock();
+
+    const flag = await screen.findByRole('checkbox', {
+      name: /Let Casey Coach read your health records \(lab results, clinical records, blood glucose\)/,
+    });
+    expect(flag).not.toBeChecked();
+    await user.selectOptions(screen.getByTestId('coach-consent-sensitive-window'), 'thirty');
+    expect(groupsApi.updateCoachConsents).not.toHaveBeenCalled();
+    await user.click(flag);
+
+    await waitFor(() =>
+      expect(groupsApi.updateCoachConsents).toHaveBeenCalledWith(GROUP_ID, {
+        sensitive_t2_read: true,
+        sensitive_days: 30,
+      }),
+    );
+    expect(await screen.findByText('Casey Coach can now read your health records.')).toBeInTheDocument();
+    expect(await screen.findByTestId('coach-consent-sensitive-until')).toHaveTextContent(/2026/);
+
+    vi.mocked(groupsApi.updateCoachConsents).mockResolvedValue(consents({ wellness_read: true }));
+    await user.click(screen.getByTestId('coach-consent-sensitive-t2'));
+    await waitFor(() =>
+      expect(groupsApi.updateCoachConsents).toHaveBeenLastCalledWith(GROUP_ID, { sensitive_t2_read: false }),
+    );
+    await waitFor(() => expect(screen.getByTestId('coach-consent-sensitive-t2')).not.toBeChecked());
   });
 });

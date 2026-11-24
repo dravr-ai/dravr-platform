@@ -17,13 +17,13 @@
 //! [`list_columns`](super::list_columns) codec. A [`TenantId`] binds and
 //! reads natively on both drivers, so it needs neither.
 //!
-//! `$n` placeholders throughout; timestamps bind as [`DateTime<Utc>`] on
+//! `$n` placeholders throughout; timestamps bind as [`Timestamp`] on
 //! both; `is_active` binds and reads as `bool`. `list_for_user` selects
 //! `tu.joined_at` beside the tenant columns because Postgres requires an
 //! `ORDER BY` expression to appear in a `SELECT DISTINCT` list.
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use secrecy::SecretString;
 
@@ -66,7 +66,7 @@ pub trait TenantRepository: Send + Sync {
     ///
     /// [`Self::list_for_user`] names only active tenants that have an owner,
     /// which is what a session may act in. This is how far a user's rows
-    /// reach, which is what an operator acting on the whole user must be
+    /// reach, which is what an admin acting on the whole user must be
     /// allowed to touch, and what the athlete's own export reads: the one
     /// definition of "the athlete's tenants" ([`member_tenant_ids_sql`]).
     async fn list_membership_tenant_ids(&self, user_id: Uuid) -> AppResult<Vec<TenantId>>;
@@ -100,11 +100,6 @@ pub trait TenantRepository: Send + Sync {
     ) -> AppResult<()>;
     /// Store tenant OAuth credentials
     async fn store_oauth_credentials(&self, credentials: &TenantOAuthCredentials) -> AppResult<()>;
-    /// Get tenant OAuth providers
-    async fn get_oauth_providers(
-        &self,
-        tenant_id: TenantId,
-    ) -> AppResult<Vec<TenantOAuthCredentials>>;
     /// Get tenant OAuth credentials for specific provider
     async fn get_oauth_credentials(
         &self,
@@ -221,15 +216,6 @@ pub(crate) const STORE_TENANT_OAUTH_CREDENTIALS_SQL: &str = r"
                 updated_at = EXCLUDED.updated_at
             ";
 
-/// Every provider the tenant has live credentials for.
-pub(crate) const GET_TENANT_OAUTH_PROVIDERS_SQL: &str = r"
-            SELECT provider, client_id, client_secret_encrypted,
-                   redirect_uri, scopes, rate_limit_per_day
-            FROM tenant_oauth_credentials
-            WHERE tenant_id = $1 AND is_active = true
-            ORDER BY provider
-            ";
-
 /// The tenant's live credentials for one provider.
 pub(crate) const GET_TENANT_OAUTH_CREDENTIALS_SQL: &str = r"
             SELECT provider, client_id, client_secret_encrypted,
@@ -272,7 +258,7 @@ where
     TenantId: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     Option<String>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    DateTime<Utc>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Timestamp: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
     let column =
         |col: &str, e: sqlx::Error| AppError::database(format!("Failed to get tenants.{col}: {e}"));
@@ -414,7 +400,7 @@ macro_rules! impl_tenant_repository {
                     .bind($ids::bind(Uuid::new_v4()))
                     .bind(tenant.id)
                     .bind($ids::bind(tenant.owner_user_id))
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .execute(&mut *tx)
                     .await
                     .map_err(|e| {
@@ -511,7 +497,7 @@ macro_rules! impl_tenant_repository {
                     .bind(&credentials.redirect_uri)
                     .bind($lists::bind_json(&credentials.scopes))
                     .bind(i32::try_from(credentials.rate_limit_per_day).unwrap_or(i32::MAX))
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .execute(self.pool())
                     .await
                     .map_err(|e| {
@@ -519,37 +505,6 @@ macro_rules! impl_tenant_repository {
                     })?;
 
                 Ok(())
-            }
-
-            async fn get_oauth_providers(
-                &self,
-                tenant_id: TenantId,
-            ) -> AppResult<Vec<TenantOAuthCredentials>> {
-                let rows = sqlx::query(GET_TENANT_OAUTH_PROVIDERS_SQL)
-                    .bind(tenant_id)
-                    .fetch_all(self.pool())
-                    .await
-                    .map_err(|e| {
-                        AppError::database(format!("Failed to list OAuth providers: {e}"))
-                    })?;
-
-                rows.iter()
-                    .map(|row| {
-                        tenant_oauth_credentials_from_row(
-                            row,
-                            tenant_id,
-                            $lists::read_json(row, "scopes")?,
-                            |encrypted, aad| {
-                                decrypt_stored_secret(
-                                    self,
-                                    StoredSecretKind::TenantOAuthClientSecret,
-                                    encrypted,
-                                    aad,
-                                )
-                            },
-                        )
-                    })
-                    .collect()
             }
 
             async fn get_oauth_credentials(

@@ -15,8 +15,8 @@
 
 use crate::common;
 
-use chrono::Utc;
 use common::{create_test_database, create_test_user_with_email, create_test_user_with_plan};
+use dravr_tronc::dates::Timestamp;
 use pierre_chat_pipeline::stages::persona_conformance::coach_roster_scope;
 use pierre_core::models::groups::{
     CoachConsents, CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
@@ -73,7 +73,7 @@ async fn create_group(
     name: &str,
     coach: Uuid,
 ) -> Uuid {
-    let now = Utc::now();
+    let now = Timestamp::now();
     let group = repos
         .groups
         .create_group(
@@ -93,6 +93,7 @@ async fn create_group(
                 is_active: true,
                 channel_type: None,
                 channel_chat_id: None,
+                chat_connection: None,
                 created_at: now,
                 updated_at: now,
             },
@@ -108,7 +109,7 @@ async fn create_group(
 }
 
 async fn add_member(repos: &RepositoryRegistry, group: Uuid, user: Uuid, tenant: TenantId) {
-    let now = Utc::now();
+    let now = Timestamp::now();
     repos
         .groups
         .add_member(&GroupMember {

@@ -8,7 +8,7 @@ use std::fmt;
 use std::sync::Arc;
 use std::time::Duration;
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{Activity, TenantId};
 use pierre_database::repositories::BackfillJobKind;
@@ -45,7 +45,7 @@ pub struct OwnedLiveRead {
     /// The window asked for.
     pub params: ActivityQueryParams,
     /// When the attempt began, before the credential was read.
-    pub attempt_started_at: DateTime<Utc>,
+    pub attempt_started_at: Timestamp,
     /// The conversation that asked, when a chat turn did: a read the turn
     /// stops waiting for posts its answer there once it lands.
     pub conversation_id: Option<String>,
@@ -466,7 +466,7 @@ pub async fn refresh_head_within_budget(
     tenant_id: TenantId,
     budget: Duration,
 ) -> Result<Vec<Activity>, StaleReason> {
-    let attempt_started_at = Utc::now();
+    let attempt_started_at = Timestamp::now();
     let provider_slug = &serving_slug(runtime, provider_slug, user_id, Some(tenant_id)).await;
     let params = stale_head_params();
     if let Some(served) =

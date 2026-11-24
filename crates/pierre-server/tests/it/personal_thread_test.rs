@@ -21,6 +21,7 @@ use std::time::Duration;
 
 use axum::http::StatusCode;
 use common::create_test_server_resources;
+use dravr_tronc::dates::Timestamp;
 use helpers::axum_test::AxumTestRequest;
 use pierre_chat_pipeline::stages::persistence::get_conversation_history;
 use pierre_core::models::agents::{Agent, AgentCategory, CreateAgentRequest};
@@ -50,7 +51,7 @@ async fn seed_athlete(resources: &Arc<ServerContext>, email: &str) -> (Uuid, Ten
     let mut user = User::new(email.to_owned(), password_hash, Some("Personal".to_owned()));
     user.user_status = UserStatus::Active;
     user.approved_by = Some(user.id);
-    user.approved_at = Some(chrono::Utc::now());
+    user.approved_at = Some(Timestamp::now());
     let user_id = user.id;
     resources.common.repos.users.create(&user).await.unwrap();
 
@@ -62,8 +63,8 @@ async fn seed_athlete(resources: &Arc<ServerContext>, email: &str) -> (Uuid, Ten
         domain: None,
         plan: "professional".to_owned(),
         owner_user_id: user_id,
-        created_at: chrono::Utc::now(),
-        updated_at: chrono::Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
     };
     resources
         .common
@@ -205,6 +206,7 @@ async fn say(
             channel_type: None,
             about_user_id: None,
             turn_attempted_write: None,
+            ai_consent_sources: &[],
         })
         .await
         .unwrap();

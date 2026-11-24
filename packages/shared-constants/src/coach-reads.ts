@@ -15,6 +15,8 @@ export const COACH_READ_LOG_KEYS = {
   loadFailed: 'humanCoach.readLog.loadFailed',
   /** Beside a read the server marked as served to an AI tool the coach connects to Dravr. */
   servedToAssistant: 'humanCoach.readLog.servedToAssistant',
+  /** Beside a read Dravr support made acting as the coach, in place of the line above. */
+  supportRead: 'humanCoach.readLog.supportRead',
 } as const;
 
 /**

@@ -9,7 +9,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_auth::key_management::KeyManager;
 use pierre_auth::keyset::KeysetController;
 use pierre_database::backends::factory::Database;
@@ -51,7 +51,7 @@ async fn rotate_and_promote(key_manager: &KeyManager, database: &Database) -> u3
     controller
         .tick(
             database.as_security_repository(),
-            Utc::now() + Duration::minutes(16),
+            Timestamp::now() + Elapsed::minutes(16),
         )
         .await
         .unwrap();
@@ -96,7 +96,7 @@ async fn dek_rotation_preserves_old_data_and_blind_index() {
         0,
     );
     controller
-        .tick(security, Utc::now() + Duration::minutes(16))
+        .tick(security, Timestamp::now() + Elapsed::minutes(16))
         .await
         .unwrap();
     assert_eq!(database.keyring().current().data_primary(), 2);
@@ -151,7 +151,7 @@ async fn dek_survives_reload_after_rotation() {
     // not in it, so only the reload can make the ciphertext open.
     database
         .keyring()
-        .install(Keyring::single(bootstrap_key.to_vec()), Utc::now());
+        .install(Keyring::single(bootstrap_key.to_vec()), Timestamp::now());
     assert!(
         database
             .as_security_repository()

@@ -10,7 +10,7 @@
 //! an athlete has connected. `user_id` is `TEXT` on both backends (the
 //! orphan-reconcile migrations cast around that on Postgres), so a uuid binds
 //! as its hyphenated text and is parsed on the way back on both drivers, and
-//! no uuid codec is needed. Timestamps bind as [`DateTime<Utc>`] on both:
+//! no uuid codec is needed. Timestamps bind as [`Timestamp`] on both:
 //! `TIMESTAMPTZ` on Postgres, RFC 3339 text on `SQLite`, which orders
 //! correctly for the recency election because every value shares one offset
 //! and width.
@@ -21,7 +21,7 @@
 
 use std::fmt::Display;
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{
     ConnectionStatus, ConnectionType, ProviderAccountRole, ProviderConnection, ReauthMark,
@@ -290,7 +290,7 @@ pub(crate) const CLAIM_REAUTH_RETRY_SQL: &str = r"
 
 /// Every connection flagged `needs_reauth` whose retry is due at `$1` (the
 /// condition [`CLAIM_REAUTH_RETRY_SQL`] claims under), longest-flagged first,
-/// at most `$2` of them — across users and tenants, for the operator sweep.
+/// at most `$2` of them — across users and tenants, for the admin sweep.
 pub(crate) const LIST_REAUTH_RETRY_DUE_SQL: &str = r"
             SELECT id, user_id, tenant_id, provider, connection_type, connected_at, last_used_at, status, metadata,
                    account_role, status_changed_at
@@ -363,7 +363,7 @@ fn column_error(col: &str, e: impl Display) -> AppError {
 
 /// Decode one `provider_connections` row. `try_get` throughout, never
 /// `Row::get`, and no defaulted timestamp: a stored value that will not
-/// decode is a database error on both drivers, never `Utc::now()`.
+/// decode is a database error on both drivers, never `Timestamp::now()`.
 /// `connection_type` outside the model's vocabulary reads as `Manual`, as
 /// both backends always did. `account_role` outside its vocabulary is an
 /// error: the column's CHECK admits only the two roles.
@@ -377,8 +377,8 @@ where
     for<'a> &'a str: sqlx::ColumnIndex<R>,
     String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     Option<String>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    DateTime<Utc>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    Option<DateTime<Utc>>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Timestamp: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Option<Timestamp>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
     let user_id: String = row
         .try_get("user_id")
@@ -455,7 +455,7 @@ macro_rules! impl_provider_connection_repository {
                     .bind(tenant_id.to_string())
                     .bind(provider)
                     .bind(connection_type.as_str())
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .bind(metadata)
                     .execute(self.pool())
                     .await?;
@@ -586,7 +586,7 @@ macro_rules! impl_provider_connection_repository {
                 provider: &str,
             ) -> AppResult<()> {
                 sqlx::query(TOUCH_LAST_USED_SQL)
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .bind(user_id.to_string())
                     .bind(tenant_id.to_string())
                     .bind(provider)
@@ -626,10 +626,10 @@ macro_rules! impl_provider_connection_repository {
                 tenant_id: TenantId,
                 provider: &str,
                 error_code: Option<&str>,
-                attempt_started_at: DateTime<Utc>,
+                attempt_started_at: Timestamp,
             ) -> AppResult<ReauthMark> {
                 let flipped = sqlx::query(MARK_NEEDS_REAUTH_SQL)
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .bind(error_code)
                     .bind(user_id.to_string())
                     .bind(tenant_id.to_string())
@@ -658,7 +658,7 @@ macro_rules! impl_provider_connection_repository {
                 error_code: &str,
             ) -> AppResult<bool> {
                 let result = sqlx::query(MARK_NEEDS_REAUTH_IF_TOKEN_CURRENT_SQL)
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .bind(error_code)
                     .bind(token.user_id.to_string())
                     .bind(&token.tenant_id)
@@ -678,7 +678,7 @@ macro_rules! impl_provider_connection_repository {
                 provider: &str,
             ) -> AppResult<()> {
                 sqlx::query(MARK_ACTIVE_SQL)
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .bind(user_id.to_string())
                     .bind(tenant_id.to_string())
                     .bind(provider)
@@ -695,7 +695,7 @@ macro_rules! impl_provider_connection_repository {
                 provider: &str,
             ) -> AppResult<bool> {
                 let result = sqlx::query(MARK_ACTIVE_IF_NEEDS_REAUTH_SQL)
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .bind(user_id.to_string())
                     .bind(tenant_id.to_string())
                     .bind(provider)
@@ -713,7 +713,7 @@ macro_rules! impl_provider_connection_repository {
                 reason: &str,
             ) -> AppResult<bool> {
                 let result = sqlx::query(MARK_ACTIVE_IF_FLAGGED_FOR_SQL)
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .bind(user_id.to_string())
                     .bind(tenant_id.to_string())
                     .bind(provider)
@@ -732,7 +732,7 @@ macro_rules! impl_provider_connection_repository {
                 reason: &str,
             ) -> AppResult<bool> {
                 let result = sqlx::query(MARK_ACTIVE_UNLESS_FLAGGED_FOR_SQL)
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .bind(user_id.to_string())
                     .bind(tenant_id.to_string())
                     .bind(provider)
@@ -750,7 +750,7 @@ macro_rules! impl_provider_connection_repository {
                 provider: &str,
             ) -> AppResult<bool> {
                 let result = sqlx::query(CLAIM_REAUTH_NOTIFICATION_SQL)
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .bind(user_id.to_string())
                     .bind(tenant_id.to_string())
                     .bind(provider)
@@ -765,10 +765,10 @@ macro_rules! impl_provider_connection_repository {
                 user_id: Uuid,
                 tenant_id: TenantId,
                 provider: &str,
-                due_before: DateTime<Utc>,
+                due_before: Timestamp,
             ) -> AppResult<bool> {
                 let result = sqlx::query(CLAIM_REAUTH_RETRY_SQL)
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .bind(user_id.to_string())
                     .bind(tenant_id.to_string())
                     .bind(provider)
@@ -781,7 +781,7 @@ macro_rules! impl_provider_connection_repository {
 
             async fn list_reauth_retry_due(
                 &self,
-                due_before: DateTime<Utc>,
+                due_before: Timestamp,
                 limit: i64,
             ) -> AppResult<Vec<ProviderConnection>> {
                 let rows = sqlx::query(LIST_REAUTH_RETRY_DUE_SQL)
@@ -800,7 +800,7 @@ macro_rules! impl_provider_connection_repository {
                 provider: &str,
             ) -> AppResult<bool> {
                 let result = sqlx::query(CLAIM_SYNC_FAILURE_NOTIFICATION_SQL)
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .bind(user_id.to_string())
                     .bind(tenant_id.to_string())
                     .bind(provider)

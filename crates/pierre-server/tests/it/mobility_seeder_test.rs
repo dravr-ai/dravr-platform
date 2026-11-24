@@ -14,7 +14,7 @@
 
 use crate::common;
 
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::models::mobility::{
     DifficultyLevel, ListStretchingFilter, ListYogaFilter, StretchingCategory, StretchingExercise,
 };
@@ -38,7 +38,7 @@ async fn all_stretches(repos: &RepositoryRegistry) -> Vec<StretchingExercise> {
 /// The IT band roll as an earlier seed wrote it, under the random id that
 /// run minted: the row a production database holds before the correction.
 fn earlier_it_band_roll() -> StretchingExercise {
-    let earlier = Utc::now() - Duration::days(30);
+    let earlier = Timestamp::now() - Elapsed::days(30);
     StretchingExercise {
         id: "it-band-roll-from-an-earlier-seed".to_owned(),
         name: IT_BAND_ROLL.to_owned(),
@@ -111,8 +111,8 @@ async fn reseeding_corrects_the_row_an_earlier_seed_wrote() {
         "the seed run replaces the text an earlier run wrote"
     );
     assert_eq!(
-        corrected.created_at.timestamp(),
-        earlier.created_at.timestamp(),
+        corrected.created_at.epoch_seconds(),
+        earlier.created_at.epoch_seconds(),
         "the row is refreshed in place, not re-created"
     );
     let stretches = all_stretches(repos).await;

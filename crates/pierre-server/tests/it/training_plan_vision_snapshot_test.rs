@@ -15,73 +15,21 @@
 use anyhow::Result;
 use pierre_core::models::periodization::{FlavourInputs, FlavourVerdict};
 use pierre_core::permissions::scopes::OAuthScope;
+use pierre_test_support::log_capture::{self, CapturedEvent, CapturedLog};
 use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
 use serde_json::{json, Value};
-use std::collections::HashMap;
-use std::fmt::Debug as FmtDebug;
-use std::sync::{Arc, Mutex};
-use tracing::field::{Field, Visit};
-use tracing::subscriber::DefaultGuard;
-use tracing::Subscriber;
-use tracing_subscriber::layer::{Context, SubscriberExt};
-use tracing_subscriber::registry::LookupSpan;
-use tracing_subscriber::util::SubscriberInitExt;
-use tracing_subscriber::Layer;
+use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::common;
 
-/// One tracing event with its recorded fields, captured off the notify
-/// target so the test can assert what the save reported.
-#[derive(Clone, Debug)]
-struct CapturedEvent {
-    fields: HashMap<String, String>,
-}
-
-#[derive(Clone, Default)]
-struct CaptureLayer {
-    events: Arc<Mutex<Vec<CapturedEvent>>>,
-}
-
-#[derive(Default)]
-struct FieldVisitor {
-    fields: HashMap<String, String>,
-}
-
-impl Visit for FieldVisitor {
-    fn record_debug(&mut self, field: &Field, value: &dyn FmtDebug) {
-        self.fields
-            .insert(field.name().to_owned(), format!("{value:?}"));
-    }
-    fn record_str(&mut self, field: &Field, value: &str) {
-        self.fields
-            .insert(field.name().to_owned(), value.to_owned());
-    }
-}
-
-impl<S> Layer<S> for CaptureLayer
-where
-    S: Subscriber + for<'a> LookupSpan<'a>,
-{
-    fn on_event(&self, event: &tracing::Event<'_>, _ctx: Context<'_, S>) {
-        if event.metadata().target() != "notify" {
-            return;
-        }
-        let mut visitor = FieldVisitor::default();
-        event.record(&mut visitor);
-        if let Ok(mut events) = self.events.lock() {
-            events.push(CapturedEvent {
-                fields: visitor.fields,
-            });
-        }
-    }
-}
-
-fn setup_capture() -> (Arc<Mutex<Vec<CapturedEvent>>>, DefaultGuard) {
-    let capture = CaptureLayer::default();
-    let events = Arc::clone(&capture.events);
-    let guard = tracing_subscriber::registry().with(capture).set_default();
-    (events, guard)
+/// The `notify` events the capture saw, so the test can assert what the save
+/// reported.
+fn notify_events(log: &CapturedLog) -> Vec<CapturedEvent> {
+    log.events()
+        .into_iter()
+        .filter(|e| e.target == "notify")
+        .collect()
 }
 
 fn events_named<'a>(events: &'a [CapturedEvent], name: &str) -> Vec<&'a CapturedEvent> {
@@ -219,7 +167,7 @@ async fn a_rule_selection_stores_the_verdict_it_came_from_and_reports_it() -> Re
         .expect("a top flavour")
         .to_owned();
 
-    let (events, guard) = setup_capture();
+    let (events, guard) = log_capture::capture_events();
     let saved = executor
         .execute_tool(request(
             "save_training_plan",
@@ -233,7 +181,7 @@ async fn a_rule_selection_stores_the_verdict_it_came_from_and_reports_it() -> Re
             &tenant_id,
         ))
         .await?;
-    let captured = events.lock().expect("capture lock").clone();
+    let captured = notify_events(&events);
     drop(guard);
     assert!(saved.success, "save failed: {:?}", saved.error);
 
@@ -303,7 +251,7 @@ async fn an_override_reports_the_rules_pick_beside_the_humans() -> Result<()> {
         .expect("a second eligible flavour to choose instead");
 
     let reason = "she thrives on the structure she already knows";
-    let (events, guard) = setup_capture();
+    let (events, guard) = log_capture::capture_events();
     let saved = executor
         .execute_tool(request(
             "save_training_plan",
@@ -318,7 +266,7 @@ async fn an_override_reports_the_rules_pick_beside_the_humans() -> Result<()> {
             &tenant_id,
         ))
         .await?;
-    let captured = events.lock().expect("capture lock").clone();
+    let captured = notify_events(&events);
     drop(guard);
     assert!(saved.success, "save failed: {:?}", saved.error);
 
@@ -410,7 +358,7 @@ async fn an_override_wearing_the_rules_name_is_refused() -> Result<()> {
 async fn a_plan_saved_without_running_the_rule_still_reports_its_flavour() -> Result<()> {
     let executor = create_executor().await?;
     let (user_id, tenant_id) = create_test_user(&executor).await?;
-    let (events, guard) = setup_capture();
+    let (events, guard) = log_capture::capture_events();
     let saved = executor
         .execute_tool(request(
             "save_training_plan",
@@ -423,7 +371,7 @@ async fn a_plan_saved_without_running_the_rule_still_reports_its_flavour() -> Re
             &tenant_id,
         ))
         .await?;
-    let captured = events.lock().expect("capture lock").clone();
+    let captured = notify_events(&events);
     drop(guard);
     assert!(saved.success, "save failed: {:?}", saved.error);
 

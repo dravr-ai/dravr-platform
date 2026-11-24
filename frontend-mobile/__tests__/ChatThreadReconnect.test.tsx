@@ -32,12 +32,14 @@ jest.mock('../src/components/SciotteLoginModal', () => {
       consentRequired,
       onConnected,
       onFallBackToOAuth,
+      consents,
     }: {
       visible: boolean;
       target: string;
       consentRequired?: boolean;
       onConnected: () => void;
       onFallBackToOAuth?: () => void;
+      consents?: readonly string[];
     }) =>
       visible
         ? React.createElement(
@@ -48,6 +50,8 @@ jest.mock('../src/components/SciotteLoginModal', () => {
               { onPress: onConnected, testID: 'sciotte-modal' },
               `sciotte-modal:${target}${consentRequired ? ':consent' : ''}`,
             ),
+            // The consents the connect's sheet handed to the sign-in.
+            React.createElement(Text, { testID: 'sciotte-modal-consents' }, consents ? consents.join(',') || 'none-ticked' : 'not-asked'),
             // A sign-in that could not complete, offered only with a fallback.
             onFallBackToOAuth
               ? React.createElement(
@@ -149,6 +153,8 @@ describe('ChatThread — a reply reconnects the way its card connects', () => {
     renderThread(status);
 
     fireEvent.press(screen.getByText('reply:reconnect'));
+    // Garmin's connect asks for its consents first; neither ticked, it goes on.
+    fireEvent.press(screen.getByTestId('connect-consent-continue'));
 
     expect(screen.getByText('sciotte-modal:garmin')).toBeTruthy();
     expect(status.handleConnectProvider).not.toHaveBeenCalled();
@@ -160,9 +166,49 @@ describe('ChatThread — a reply reconnects the way its card connects', () => {
     renderThread(status);
 
     fireEvent.press(screen.getByText('reply:reconnect'));
+    // Garmin's connect asks for its consents first; neither ticked, it goes on.
+    fireEvent.press(screen.getByTestId('connect-consent-continue'));
 
     expect(screen.getByText('sciotte-modal:garmin')).toBeTruthy();
     expect(status.handleConnectProvider).not.toHaveBeenCalled();
+  });
+
+  it('hands the consents ticked on the Garmin sheet to the sign-in, and to the OAuth it falls back to (carnet#1157)', () => {
+    mockSlug = 'garmin';
+    const status = providerStatus([{ ...garmin('mirror', 'sciotte_garmin'), seats_left: 3 }]);
+    renderThread(status);
+
+    fireEvent.press(screen.getByText('reply:reconnect'));
+    expect(screen.queryByText(/sciotte-modal:/)).toBeNull();
+    fireEvent.press(screen.getByTestId('connect-consent-box-garmin_workout_transfer'));
+    fireEvent.press(screen.getByTestId('connect-consent-continue'));
+
+    expect(screen.getByTestId('sciotte-modal-consents')).toHaveTextContent('garmin_workout_transfer');
+    fireEvent.press(screen.getByTestId('sciotte-modal-unavailable'));
+    expect(status.handleConnectProvider).toHaveBeenCalledWith('garmin', undefined, false, true, ['garmin_workout_transfer']);
+  });
+
+  it('starts the Garmin OAuth with the ticked consents before any card is read', () => {
+    mockSlug = 'garmin';
+    const status = providerStatus([]);
+    renderThread(status);
+
+    fireEvent.press(screen.getByText('reply:reconnect'));
+    fireEvent.press(screen.getByTestId('connect-consent-box-garmin'));
+    fireEvent.press(screen.getByTestId('connect-consent-continue'));
+
+    expect(status.handleConnectProvider).toHaveBeenCalledWith('garmin', undefined, false, false, ['garmin']);
+  });
+
+  it('asks a Strava reconnect for no consent', () => {
+    mockSlug = 'sciotte';
+    const status = providerStatus([strava('sciotte', 'mirror')]);
+    renderThread(status);
+
+    fireEvent.press(screen.getByText('reply:reconnect'));
+
+    expect(screen.queryByTestId('connect-consent-continue')).toBeNull();
+    expect(screen.getByTestId('sciotte-modal-consents')).toHaveTextContent('not-asked');
   });
 
   it('signs in to Strava for a dead Strava grant, never its OAuth (carnet#1494)', () => {
@@ -189,7 +235,7 @@ describe('ChatThread — a reply reconnects the way its card connects', () => {
     fireEvent.press(screen.getByTestId('sciotte-modal-unavailable'));
 
     // Marked as a fallback from a blocked sign-in (carnet#1667).
-    expect(status.handleConnectProvider).toHaveBeenCalledWith('strava', undefined, false, true);
+    expect(status.handleConnectProvider).toHaveBeenCalledWith('strava', undefined, false, true, undefined);
     expect(screen.queryByTestId('sciotte-modal')).toBeNull();
   });
 

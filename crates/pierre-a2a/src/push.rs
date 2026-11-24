@@ -140,7 +140,7 @@ fn log_delivery_result(
 
 #[cfg(test)]
 mod tests {
-    use chrono::Utc;
+    use dravr_tronc::dates::Timestamp;
     use serde_json::json;
 
     use super::*;
@@ -183,8 +183,8 @@ mod tests {
             token: None,
             auth_scheme: Some("Bearer".to_owned()),
             auth_credentials: Some("webhook-secret".to_owned()),
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         };
         let event: StreamResponse = serde_json::from_value(json!({
             "statusUpdate": {

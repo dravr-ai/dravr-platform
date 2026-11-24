@@ -1,20 +1,35 @@
 // ABOUTME: Connected apps pane — one Section of 52 rows, the external MCP OAuth clients (e.g. Claude Desktop) approved on the consent screen
-// ABOUTME: Each row names the client with its scope and grant date under it and an ink Revoke on the trailing side (Boreal v2.2 Phase 4)
+// ABOUTME: Each row names the client with its preset (else scope), grant date and expiry under it and an ink Revoke on the trailing side
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
 import React from 'react';
 import { View, Text, ActivityIndicator, Alert, RefreshControl } from 'react-native';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { OAuthGrant } from '@pierre/shared-types';
 import { spacing, useThemeColors } from '../../constants/theme';
 import { EmptyState, PaneScrollView, Row, Section } from '../../components/ui';
-import { oauthApi } from '../../services/api';
+import { useConnectedApps, useRevokeConnectedApps } from '../../hooks/useAccessFeed';
 import { useTranslation } from '@pierre/i18n';
 import { describeApiError } from '@pierre/ui-logic';
 import { formatDate } from '@pierre/chat-utils';
 
-const CONNECTED_APPS_QUERY_KEY = ['oauth', 'connected-apps'] as const;
+/**
+ * The name of the preset a grant was approved for, or `null` for a plain grant and for a preset
+ * this build does not know yet. Each key is a literal so the catalogue gate sees it.
+ */
+const presetLabel = (preset: string | null, t: (key: string) => string): string | null => {
+  switch (preset) {
+    case 'training_coach':
+      return t('tokens.connectedAppsPresetTrainingCoach');
+    case 'sleep_coach':
+      return t('tokens.connectedAppsPresetSleepCoach');
+    default:
+      return null;
+  }
+};
+
+/** Whether a grant ending at `expiresAt` has already ended. */
+const grantHasExpired = (expiresAt: string): boolean => Date.parse(expiresAt) <= Date.now();
 
 /** The app's registered name, else the id it was approved under. */
 const connectedAppName = (grant: OAuthGrant): string => grant.client_name || grant.client_id;
@@ -22,23 +37,10 @@ const connectedAppName = (grant: OAuthGrant): string => grant.client_name || gra
 export function ConnectedAppsScreen(): React.JSX.Element {
   const { t, language } = useTranslation();
   const colors = useThemeColors();
-  const queryClient = useQueryClient();
 
-  const { data, isLoading, isError, error, refetch, isFetching } = useQuery({
-    queryKey: CONNECTED_APPS_QUERY_KEY,
-    queryFn: () => oauthApi.listConnectedApps(),
-  });
-
-  const revokeMutation = useMutation({
-    mutationFn: (grantId: string) => oauthApi.revokeConnectedApp(grantId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: CONNECTED_APPS_QUERY_KEY });
-    },
-    onError: (err: unknown) => {
-      const msg = describeApiError(err, { t, fallbackKey: 'errors.unknown' });
-      Alert.alert(t('app.couldNotRevokeApp'), msg);
-    },
-  });
+  const { data, isLoading, isError, error, refetch, isFetching } = useConnectedApps();
+  // The shared revoke rereads this list and the privacy screen's access feed alike.
+  const revokeMutation = useRevokeConnectedApps();
 
   const grants = data ?? [];
 
@@ -53,7 +55,13 @@ export function ConnectedAppsScreen(): React.JSX.Element {
         {
           text: t('app.revoke'),
           style: 'destructive',
-          onPress: () => revokeMutation.mutate(grant.id),
+          onPress: () =>
+            revokeMutation.mutate([grant.id], {
+              onError: (err: unknown) => {
+                const msg = describeApiError(err, { t, fallbackKey: 'errors.unknown' });
+                Alert.alert(t('app.couldNotRevokeApp'), msg);
+              },
+            }),
         },
       ],
     );
@@ -105,7 +113,8 @@ export function ConnectedAppsScreen(): React.JSX.Element {
               <EmptyState testID="connected-apps-empty">{t('tokens.connectedAppsEmpty')}</EmptyState>
             ) : (
               grants.map((grant, index) => {
-                const revoking = revokeMutation.isPending && revokeMutation.variables === grant.id;
+                const revoking = revokeMutation.isPending && (revokeMutation.variables?.includes(grant.id) ?? false);
+                const expired = grant.expires_at !== null && grantHasExpired(grant.expires_at);
                 return (
                   <Row
                     key={grant.id}
@@ -113,11 +122,16 @@ export function ConnectedAppsScreen(): React.JSX.Element {
                     title={connectedAppName(grant)}
                     subtitle={[
                       grant.client_host,
-                      grant.scope,
+                      presetLabel(grant.preset, t) ?? grant.scope,
                       t('app.connectedOn', { date: formatDate(grant.granted_at, language) }),
+                      grant.expires_at && !expired
+                        ? t('apiKeys.expiresOn', { date: formatDate(grant.expires_at, language) })
+                        : null,
                     ]
                       .filter(Boolean)
                       .join(' · ')}
+                    hint={expired ? t('providers.expired') : undefined}
+                    hintTestID={`connected-app-expired-${grant.id}`}
                     last={index === grants.length - 1}
                     trailing={
                       revoking ? (

@@ -16,11 +16,11 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_auth::auth::AuthResult;
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::User;
-use pierre_core::permissions::impersonation::ImpersonationSession;
+use pierre_core::permissions::impersonation::{self, ImpersonationSession};
 use pierre_database::repositories::SessionCursor;
 use pierre_middleware::extract_auth_from_headers;
 use pierre_runtime_context::MiddlewareCtx;
@@ -41,7 +41,7 @@ struct ListSessionsQuery {
     /// At most this many sessions, capped at [`MAX_SESSIONS_PAGE`].
     limit: Option<u32>,
     /// Resume after this start: the previous page's `next_before`.
-    before: Option<DateTime<Utc>>,
+    before: Option<Timestamp>,
     /// The id of the session the previous page ended on: its `next_before_id`.
     before_id: Option<String>,
 }
@@ -180,11 +180,6 @@ impl ImpersonationRoutes {
         let target_user_id = Uuid::parse_str(&request.target_user_id)
             .map_err(|e| AppError::invalid_input(format!("Invalid target user ID: {e}")))?;
 
-        // Cannot impersonate yourself
-        if target_user_id == auth.user_id {
-            return Err(AppError::invalid_input("Cannot impersonate yourself"));
-        }
-
         // Get target user
         let target_user = resources
             .repos()
@@ -195,14 +190,7 @@ impl ImpersonationRoutes {
             .map_err(|e| AppError::internal(format!("Failed to get target user: {e}")))?
             .ok_or_else(|| AppError::not_found("Target user not found"))?;
 
-        // An admin is never impersonated: acting as one would lend its every
-        // power to a session the audit trail attributes to someone else.
-        if target_user.role.is_admin() {
-            return Err(AppError::new(
-                ErrorCode::PermissionDenied,
-                "Cannot impersonate another admin",
-            ));
-        }
+        impersonation::check_target(auth.user_id, &target_user)?;
 
         // End any existing active impersonation sessions for this impersonator
         resources
@@ -403,7 +391,7 @@ impl ImpersonationRoutes {
                 target_user_email: target_email,
                 reason: session.reason.clone(),
                 started_at: session.started_at.to_rfc3339(),
-                ended_at: session.ended_at.map(|dt| dt.to_rfc3339()),
+                ended_at: session.ended_at.map(Timestamp::to_rfc3339),
                 is_active: session.is_active,
                 duration_seconds: session.duration_seconds(),
             });
@@ -467,7 +455,7 @@ impl ImpersonationRoutes {
             target_user_email: target_email,
             reason: session.reason.clone(),
             started_at: session.started_at.to_rfc3339(),
-            ended_at: session.ended_at.map(|dt| dt.to_rfc3339()),
+            ended_at: session.ended_at.map(Timestamp::to_rfc3339),
             is_active: session.is_active,
             duration_seconds: session.duration_seconds(),
         };

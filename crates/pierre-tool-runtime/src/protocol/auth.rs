@@ -12,7 +12,7 @@ use crate::protocol::types::{
 };
 use crate::read_subject;
 use crate::runtime::ToolRuntime;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use futures_util::future::BoxFuture;
 use pierre_auth::tenant::oauth_manager::{issuing_client, IssuingClient, IssuingLookup};
 use pierre_core::constants::oauth_providers::{self, USER_PROVIDED_PROVIDERS};
@@ -46,7 +46,7 @@ pub(crate) struct SigningClient {
     pub(crate) client_id: String,
     /// The client's secret, which a refresh presents.
     pub(crate) client_secret: SecretString,
-    /// The daily request budget the app's operator registered (a tenant's own
+    /// The daily request budget the app's admin registered (a tenant's own
     /// app); `None` takes the provider's.
     pub(crate) daily_limit: Option<u32>,
 }
@@ -60,7 +60,7 @@ pub struct TokenData {
     pub refresh_token: SecretString,
     /// When the access token expires; `None` for a token issued without an
     /// expiry (an Intervals.icu OAuth token never expires)
-    pub expires_at: Option<DateTime<Utc>>,
+    pub expires_at: Option<Timestamp>,
     /// OAuth scopes as comma-separated string
     pub scopes: String,
     /// Provider name (e.g., "strava", "whoop")
@@ -263,7 +263,7 @@ impl AuthService {
     }
 
     /// Check if token is expired or due for refresh ([`refresh_due`])
-    fn is_token_expired(expires_at: DateTime<Utc>) -> bool {
+    fn is_token_expired(expires_at: Timestamp) -> bool {
         refresh_due(expires_at)
     }
 
@@ -778,7 +778,7 @@ impl AuthService {
                     }
                     // The model reads the tool-facing message, which names the
                     // provider the athlete knows and never the backend; the
-                    // whole error is the operator's.
+                    // whole error is the admin's.
                     Err(e) => {
                         warn!(provider = provider_name, error = %e, "provider credentials were refused");
                         Err(Box::new(UniversalResponse {
@@ -834,7 +834,7 @@ impl AuthService {
         )
         .await
         .map_err(|e| e.to_string())?;
-        // A tenant's own app carries the daily budget its operator registered.
+        // A tenant's own app carries the daily budget its admin registered.
         let daily_limit = match &client {
             IssuingClient::Tenant(credentials) => Some(credentials.rate_limit_per_day),
             _ => None,

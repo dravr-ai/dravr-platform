@@ -46,11 +46,11 @@ use pierre_core::transport::TransportPolicy;
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use chrono::{Duration, NaiveDate, Utc};
+use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{
-    CalendarEventRef, CalendarEventSource, CalendarKey, PlannedSession, PlannedSessionKind,
-    PrescribedWorkout, RelativeIntensity, SportType, TenantId, WorkoutStep,
+    resolve_sport_type, CalendarEventRef, CalendarEventSource, CalendarKey, PlannedSession,
+    PlannedSessionKind, PrescribedWorkout, RelativeIntensity, SportType, TenantId, WorkoutStep,
 };
 use pierre_database::RepositoryRegistry;
 use pierre_memory::training_plans::{parse_plan_date, PlanWeek, PlannedDay, TrainingPlan};
@@ -94,33 +94,17 @@ const MAX_TITLE_CHARS: usize = 60;
 
 /// Sport for a plan day's free-text sport label.
 ///
-/// Coaches write sports the way they say them, in French or English; the
-/// aliases here are the ones the alpha plans used, on top of the canonical
-/// snake-case names [`SportType::from_internal_string`] already reads. An
-/// unknown label is kept as [`SportType::Other`] so the provider files it as
-/// a generic workout rather than guessing a discipline.
+/// Coaches write sports the way they say them, in French or English. The
+/// words are read by the one alias table the activity filters read too
+/// ([`resolve_sport_type`]), then the canonical snake-case names
+/// [`SportType::from_internal_string`] knows. An unknown label is kept as
+/// [`SportType::Other`] so the provider files it as a generic workout
+/// rather than guessing a discipline.
 #[must_use]
 pub fn plan_sport(label: &str) -> SportType {
-    let lowered = label.trim().to_lowercase();
-    match lowered.as_str() {
-        "bike" | "ride" | "cycling" | "vélo" | "velo" | "road" | "route" | "bike_ride" => {
-            SportType::Ride
-        }
-        "mtb" | "mountain bike" | "vtt" | "xco" => SportType::MountainBike,
-        "gravel" => SportType::GravelRide,
-        "trainer" | "indoor" | "zwift" | "home trainer" | "virtual ride" => SportType::VirtualRide,
-        "run" | "running" | "course" | "course à pied" | "jog" | "jogging" => SportType::Run,
-        "trail" | "trail run" | "trail running" => SportType::TrailRunning,
-        "swim" | "swimming" | "natation" | "piscine" => SportType::Swim,
-        "walk" | "walking" | "marche" => SportType::Walk,
-        "hike" | "hiking" | "rando" | "randonnée" => SportType::Hike,
-        "strength" | "gym" | "muscu" | "musculation" | "weights" | "force" | "renfo" => {
-            SportType::StrengthTraining
-        }
-        "ski" | "xc ski" | "ski de fond" | "nordic" | "nordic ski" => SportType::CrossCountrySkiing,
-        "row" | "rowing" | "aviron" => SportType::Rowing,
-        other => SportType::from_internal_string(&other.replace(' ', "_")),
-    }
+    resolve_sport_type(label).unwrap_or_else(|| {
+        SportType::from_internal_string(&label.trim().to_lowercase().replace(' ', "_"))
+    })
 }
 
 /// Truncate to `max` characters, marking the cut with an ellipsis.
@@ -235,7 +219,7 @@ pub fn plan_day_session(
 pub fn week_note_session(
     user_id: Uuid,
     week: &PlanWeek,
-    week_start: NaiveDate,
+    week_start: CivilDate,
 ) -> Option<PlannedSession> {
     let focus = week.focus.trim();
     if focus.is_empty() {
@@ -281,7 +265,7 @@ pub struct DesiredEntry {
 pub fn desired_entries(
     user_id: Uuid,
     weeks: &[PlanWeek],
-    from: NaiveDate,
+    from: CivilDate,
     fueling: &FuelingDisclosure,
 ) -> Vec<DesiredEntry> {
     let mut out = Vec::new();
@@ -298,7 +282,7 @@ pub fn desired_entries(
                 });
             }
         }
-        let mut ordinals: HashMap<NaiveDate, usize> = HashMap::new();
+        let mut ordinals: HashMap<CivilDate, usize> = HashMap::new();
         for day in &week.days {
             if day.is_rest() {
                 continue;
@@ -404,7 +388,7 @@ pub struct SkippedEntry {
     /// The entry's key.
     pub external_id: String,
     /// The entry's date.
-    pub date: NaiveDate,
+    pub date: CivilDate,
     /// The entry's title.
     pub name: String,
     /// Why it was skipped.
@@ -417,7 +401,7 @@ pub struct FailedEntry {
     /// The entry's key.
     pub external_id: String,
     /// The entry's date.
-    pub date: NaiveDate,
+    pub date: CivilDate,
     /// The entry's title.
     pub name: String,
     /// What went wrong, in the provider's or the database's words.
@@ -432,9 +416,9 @@ pub struct PushReport {
     /// The active plan that was pushed.
     pub plan_id: String,
     /// First date the push considered.
-    pub from: NaiveDate,
+    pub from: CivilDate,
     /// Last date the push considered, when there was anything to consider.
-    pub to: Option<NaiveDate>,
+    pub to: Option<CivilDate>,
     /// Entries created on the provider.
     pub created: usize,
     /// Entries updated in place.
@@ -475,7 +459,7 @@ pub struct PushPlanParams<'a> {
     pub provider: &'a str,
     /// First date to consider — today in the athlete's calendar. Nothing
     /// before it is created, updated, or removed.
-    pub from: NaiveDate,
+    pub from: CivilDate,
     /// Whether the provider's calendar holds week notes
     /// ([`calendar_holds_week_notes`]); without them only sessions are pushed.
     pub week_notes: bool,
@@ -587,13 +571,16 @@ pub async fn push_active_plan(
     // What the calendar actually holds in the window, by provider id — and,
     // among those, the entries carrying this athlete's plan keys that the
     // ledger has no live row for (a write that landed while its ledger row
-    // did not). Those are adopted, never duplicated.
-    let observed: HashMap<String, CalendarEventRef> = calendar
-        .list_calendar_events(params.from, window_end)
-        .await?
-        .into_iter()
-        .map(|event| (event.provider_event_id.clone(), event))
-        .collect();
+    // did not). Those are adopted, never duplicated. The reconcile's own
+    // reads of its entries (ids, dates, stamps) reach no model, so they run
+    // outside the AI rules: an athlete who lets Dravr send a calendar their
+    // workouts, but keeps its data from AI, still gets them (carnet#1390).
+    let observed: HashMap<String, CalendarEventRef> =
+        ai_scope::for_display(calendar.list_calendar_events(params.from, window_end))
+            .await?
+            .into_iter()
+            .map(|event| (event.provider_event_id.clone(), event))
+            .collect();
     let live_by_key: HashMap<String, PrescribedWorkout> = live_rows
         .iter()
         .filter_map(|row| row.external_id.clone().map(|key| (key, row.clone())))
@@ -749,7 +736,7 @@ async fn known_entry(
     seen: &CalendarEventRef,
     hash: &str,
 ) -> KnownEntry {
-    let slack = Duration::seconds(PROVIDER_EDIT_SLACK_SECONDS);
+    let slack = Elapsed::seconds(PROVIDER_EDIT_SLACK_SECONDS);
     let edited = |event: &CalendarEventRef| {
         event
             .updated_at
@@ -762,7 +749,7 @@ async fn known_entry(
         return KnownEntry::Unchanged;
     }
     if seen.updated_at.is_none() {
-        match calendar.calendar_event_detail(seen.clone()).await {
+        match ai_scope::for_display(calendar.calendar_event_detail(seen.clone())).await {
             Ok(detail) if edited(&detail) => return KnownEntry::EditedOnProvider,
             Ok(_) => {}
             Err(e) => warn!(
@@ -791,7 +778,7 @@ fn edited_on_provider(entry: &DesiredEntry) -> SkippedEntry {
 /// key the calendar stores for them ([`FitnessProvider::calendar_key`]), each
 /// with its date.
 struct LostKeys<'plan> {
-    by_calendar_key: HashMap<String, Vec<(&'plan str, NaiveDate)>>,
+    by_calendar_key: HashMap<String, Vec<(&'plan str, CivilDate)>>,
 }
 
 impl<'plan> LostKeys<'plan> {
@@ -802,7 +789,7 @@ impl<'plan> LostKeys<'plan> {
         live_by_key: &HashMap<String, PrescribedWorkout>,
     ) -> Self {
         let plan_prefix = CalendarKey::plan_prefix(user_id);
-        let mut by_calendar_key: HashMap<String, Vec<(&str, NaiveDate)>> = HashMap::new();
+        let mut by_calendar_key: HashMap<String, Vec<(&str, CivilDate)>> = HashMap::new();
         for entry in desired {
             let key = entry.session.external_id.as_str();
             if key.starts_with(&plan_prefix) && !live_by_key.contains_key(key) {
@@ -815,7 +802,7 @@ impl<'plan> LostKeys<'plan> {
         Self { by_calendar_key }
     }
 
-    fn wants_date(&self, date: NaiveDate) -> bool {
+    fn wants_date(&self, date: CivilDate) -> bool {
         self.by_calendar_key
             .values()
             .flatten()
@@ -850,7 +837,7 @@ impl<'plan> LostKeys<'plan> {
             let event = if event.external_id.is_some() {
                 event.clone()
             } else if self.wants_date(event.date) {
-                match calendar.calendar_event_detail(event.clone()).await {
+                match ai_scope::for_display(calendar.calendar_event_detail(event.clone())).await {
                     Ok(detail) => detail,
                     Err(e) => {
                         warn!(
@@ -1039,7 +1026,7 @@ impl LedgerWrite<'_> {
         status: &str,
         replaces_id: Option<Uuid>,
     ) -> AppResult<()> {
-        let now = Utc::now();
+        let now = Timestamp::now();
         let payload_json = serde_json::to_string(&self.entry.session)
             .map_err(|e| AppError::internal(format!("serialize planned session: {e}")))?;
         let row = PrescribedWorkout {
@@ -1067,5 +1054,106 @@ impl LedgerWrite<'_> {
             .prescribed_workouts
             .upsert_prescribed_workout(&row)
             .await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::slice;
+
+    #[test]
+    fn the_coach_editors_one_tap_sports_file_as_their_discipline() {
+        assert_eq!(
+            plan_sport("strength"),
+            SportType::StrengthTraining,
+            "bug: the Strength chip's word files as strength training"
+        );
+        assert_eq!(
+            plan_sport("crossfit"),
+            SportType::Crossfit,
+            "bug: the CrossFit chip's word files as CrossFit"
+        );
+        assert_eq!(
+            plan_sport("yoga"),
+            SportType::Yoga,
+            "bug: the Yoga chip's word files as yoga"
+        );
+        // Mobility has no discipline of its own on any calendar.
+        assert_eq!(
+            plan_sport("mobility"),
+            SportType::Workout,
+            "bug: the Mobility chip's word files as a generic workout"
+        );
+        assert_eq!(
+            plan_sport("Étirements"),
+            SportType::Workout,
+            "bug: the French word for stretching, capitalised, files as a generic workout"
+        );
+        assert_eq!(
+            plan_sport("stretching"),
+            SportType::Workout,
+            "bug: stretching files as a generic workout"
+        );
+    }
+
+    fn week_of(days: &serde_json::Value) -> PlanWeek {
+        serde_json::from_value(serde_json::json!({
+            "id": "w", "tenant_id": "t", "user_id": "u", "plan_id": "p",
+            "week_start": "2026-11-16", "focus": "", "status": "active",
+            "supersedes_id": null, "adjustment_reason": "",
+            "created_at": "2026-11-01T00:00:00Z", "updated_at": "2026-11-01T00:00:00Z",
+            "days": days,
+        }))
+        .expect("a stored week")
+    }
+
+    /// The key and session of each plan day the push wants.
+    fn keyed(user_id: Uuid, week: &PlanWeek) -> Vec<(String, String)> {
+        let from = parse_plan_date("2026-11-16").expect("a plan date");
+        desired_entries(
+            user_id,
+            slice::from_ref(week),
+            from,
+            &FuelingDisclosure::from_gate(None),
+        )
+        .into_iter()
+        .filter(|entry| entry.source == CalendarEventSource::PlanDay)
+        .map(|entry| (entry.session.external_id, entry.session.notes))
+        .collect()
+    }
+
+    /// The push keys a date's sessions by their ordinal among its non-rest
+    /// entries, so a rest entry beside them shifts no key, and reordering a
+    /// date's sessions keeps its two keys and swaps what each carries: the
+    /// provider entries are rewritten in place, never re-keyed or doubled
+    /// (carnet#1716).
+    #[test]
+    fn a_reorder_keeps_the_dates_keys_and_swaps_their_sessions() {
+        let user_id = Uuid::new_v4();
+        let date = parse_plan_date("2026-11-16").expect("a plan date");
+        let first = CalendarKey::plan_day(user_id, date, 0);
+        let second = CalendarKey::plan_day(user_id, date, 1);
+        let bike = serde_json::json!({ "date": "2026-11-16", "sport": "ride", "workout": "bike" });
+        let rest = serde_json::json!({ "date": "2026-11-16", "sport": "rest", "workout": "Rest" });
+        let core =
+            serde_json::json!({ "date": "2026-11-16", "sport": "strength", "workout": "core" });
+
+        let written = keyed(user_id, &week_of(&serde_json::json!([bike, rest, core])));
+        assert_eq!(
+            written,
+            [
+                (first.clone(), "bike".to_owned()),
+                (second.clone(), "core".to_owned())
+            ],
+            "bug: a rest entry beside the sessions takes no ordinal"
+        );
+
+        let reordered = keyed(user_id, &week_of(&serde_json::json!([core, rest, bike])));
+        assert_eq!(
+            reordered,
+            [(first, "core".to_owned()), (second, "bike".to_owned())],
+            "bug: a reorder keeps the date's two keys and swaps the sessions they carry"
+        );
     }
 }

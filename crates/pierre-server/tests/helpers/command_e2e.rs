@@ -28,7 +28,7 @@ use std::time::Duration;
 use super::offline_channel::{name_fixture_bot, OfflineSendAdapters};
 use async_trait::async_trait;
 use axum::http::StatusCode;
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use futures_util::stream;
 use pierre_core::errors::AppError;
 use pierre_core::llm::{
@@ -287,7 +287,7 @@ async fn create_user_with_own_tenant(resources: &ServerContext, email: &str) -> 
     );
     user.user_status = UserStatus::Active;
     user.approved_by = Some(user.id);
-    user.approved_at = Some(Utc::now());
+    user.approved_at = Some(Timestamp::now());
     let user_id = user.id;
     resources.common.repos.users.create(&user).await.unwrap();
 
@@ -299,8 +299,8 @@ async fn create_user_with_own_tenant(resources: &ServerContext, email: &str) -> 
         domain: None,
         plan: "starter".to_owned(),
         owner_user_id: user_id,
-        created_at: Utc::now(),
-        updated_at: Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
     };
     resources
         .common
@@ -332,6 +332,17 @@ impl CommandE2e {
     /// itself: `helpers/` compiles into every test binary, and `common` only
     /// exists in the binaries that declare it.
     pub(crate) async fn start(resources: Arc<ServerContext>, llm: Arc<RouterLlm>) -> Arc<Self> {
+        Self::start_on(resources, llm, Arc::new(OfflineSendAdapters::default())).await
+    }
+
+    /// [`Self::start`] whose webhook route sends through `adapters` — pass the
+    /// factory `resources` was built on, and [`Self::adapters`] then also holds
+    /// what the platform posted into a chat on its own (the group chat poster).
+    pub(crate) async fn start_on(
+        resources: Arc<ServerContext>,
+        llm: Arc<RouterLlm>,
+        adapters: Arc<OfflineSendAdapters>,
+    ) -> Arc<Self> {
         name_fixture_bot(BOT_ID, BOT_USERNAME);
 
         let (bot_owner, bot_tenant) = create_user_with_own_tenant(
@@ -360,7 +371,7 @@ impl CommandE2e {
         Arc::new(Self {
             resources,
             llm,
-            adapters: Arc::new(OfflineSendAdapters::default()),
+            adapters,
             bot_owner,
             bot_tenant,
             update_id: AtomicI64::new(1_000),
@@ -933,7 +944,7 @@ impl RoomE2e {
             .await;
 
         let group_id = Uuid::new_v4();
-        let now = Utc::now();
+        let now = Timestamp::now();
         let group = CoachingGroup {
             id: group_id,
             tenant_id: base.bot_tenant.to_string(),
@@ -949,6 +960,7 @@ impl RoomE2e {
             is_active: true,
             channel_type: Some("telegram".to_owned()),
             channel_chat_id: Some(chat_id.to_string()),
+            chat_connection: None,
             created_at: now,
             updated_at: now,
         };
@@ -970,7 +982,7 @@ impl RoomE2e {
     }
 
     pub(crate) async fn add_member(&self, m: &Member, role: GroupRole) {
-        let now = Utc::now();
+        let now = Timestamp::now();
         self.base
             .resources
             .common

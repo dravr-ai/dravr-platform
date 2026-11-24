@@ -37,8 +37,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration as StdDuration, Instant};
 
 use async_trait::async_trait;
-use chrono::{Duration, Utc};
 use common::{create_test_server_resources, create_test_user_with_plan};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use dravr_tronc::mcp::tool::{McpTool, ToolContext};
 use pierre_cache::CacheResource;
 use pierre_core::constants::oauth::providers::provider_terms_version;
@@ -278,7 +278,7 @@ impl World {
     /// An active group `coach` coaches and `owner` owns.
     async fn group(&self, name: &str, coach: Person) -> CoachingGroup {
         let repos = &self.res.common.repos;
-        let now = Utc::now();
+        let now = Timestamp::now();
         let group = repos
             .groups
             .create_group(
@@ -298,6 +298,7 @@ impl World {
                     is_active: true,
                     channel_type: None,
                     channel_chat_id: None,
+                    chat_connection: None,
                     created_at: now,
                     updated_at: now,
                 },
@@ -319,7 +320,7 @@ impl World {
 
     /// `who` joins `group`, sharing with its coach or not.
     async fn join(&self, group: &CoachingGroup, who: Person, shares: bool) {
-        let now = Utc::now();
+        let now = Timestamp::now();
         self.res
             .common
             .repos
@@ -345,7 +346,7 @@ impl World {
 
     /// `coach`'s own Intervals.icu API key.
     async fn connect_intervals(&self, coach: Person) {
-        let now = Utc::now();
+        let now = Timestamp::now();
         let repos = &self.res.common.repos;
         repos
             .oauth_tokens
@@ -383,7 +384,7 @@ impl World {
     /// cached as the roster it last read: a coach account's roster is served
     /// from the cache, so no scraper is reached.
     async fn connect_trainingpeaks(&self, coach: Person, athletes: Vec<RosterAthlete>) {
-        let now = Utc::now();
+        let now = Timestamp::now();
         let repos = &self.res.common.repos;
         repos
             .oauth_tokens
@@ -397,7 +398,7 @@ impl World {
                 ),
                 refresh_token: None,
                 token_type: TOKEN_TYPE_SESSION.to_owned(),
-                expires_at: Some(now + Duration::hours(6)),
+                expires_at: Some(now + Elapsed::hours(6)),
                 scope: None,
                 provider_user_id: None,
                 oauth_app_client_id: None,
@@ -490,7 +491,7 @@ impl World {
             .common
             .repos
             .delegated_connections
-            .confirm(link.id, member.id, member.tenant, Utc::now())
+            .confirm(link.id, member.id, member.tenant, Timestamp::now())
             .await
             .unwrap()
             .expect("the proposal names the member")

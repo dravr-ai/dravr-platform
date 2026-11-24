@@ -32,6 +32,7 @@
                 <p>{{CONSENT_NOTICE}}</p>
                 <label class="check"><input type="checkbox" id="tos-consent"> <span>{{CONSENT_LABEL}}</span></label>
             </div>
+            {{GARMIN_CONSENTS}}
             <form id="login-form" novalidate>
                 <div class="field">
                     <label for="email">{{ID_LABEL}}</label>
@@ -361,6 +362,11 @@
                         method: 'email',
                         target: CONFIG.target,
                         tos_consent: CONFIG.consentRequired && consent.checked,
+                        // The offered boxes the athlete ticked (Garmin's AI use
+                        // and workout transfer); the sign-in goes on with none.
+                        consents: Array.from(
+                            document.querySelectorAll('#connect-consents:not([hidden]) [data-consent-key]:checked'),
+                        ).map((box) => box.dataset.consentKey),
                     });
                     handleLoginResponse(data);
                 } catch (err) {

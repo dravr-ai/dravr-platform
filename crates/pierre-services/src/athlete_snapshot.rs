@@ -14,8 +14,13 @@
 //! Three reads (physiology profile, recent activities, synced nights) plus
 //! pure cageux compute:
 //!
-//! - The `UserPhysiologicalProfile` supplies VO2max/VDOT, max HR, and FTP, and
-//!   feeds a [`VO2MaxCalculator`] for the Daniels training-pace ranges.
+//! - The `UserPhysiologicalProfile` supplies `VO2max`, max HR, and FTP.
+//! - The athlete's VDOT comes from a performance only
+//!   ([`resolve_athlete_vdot`]): a VDOT they stated while under 12 weeks old,
+//!   else their best run of the last 6 weeks in the activity cache, else their
+//!   saved threshold pace. It feeds a [`VO2MaxCalculator`] for the Daniels
+//!   training-pace ranges; with none, the VDOT and the pace ranges stay `None`
+//!   and claims about them go unchecked. A `VO2max` is never read as a VDOT.
 //! - The activity cache supplies `data_days` (the stale-estimate guard) and,
 //!   via [`compute_training_history`], today's form reading: CTL, TSB, TSB as a
 //!   share of CTL, and its band.
@@ -32,11 +37,9 @@
 
 use std::collections::BTreeMap;
 
-use chrono::{DateTime, Duration, NaiveDate, Utc};
-use chrono_tz::Tz;
 use dravr_cageux::config::intelligence::AlgorithmConfig;
 use dravr_cageux::config::intelligence::{TrainingZonesConfig, VO2MaxCalculator};
-use dravr_cageux::physiological_constants::physiological_defaults::DEFAULT_LACTATE_THRESHOLD;
+use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp, Zone};
 use pierre_core::ai_policy::ProviderTerms;
 use pierre_core::civil_time::{clock_date, local_date, resolve_zone};
 use pierre_core::constants::time_constants::SECONDS_PER_HOUR_F64;
@@ -53,6 +56,7 @@ use pierre_providers::ai_scope;
 use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
 use uuid::Uuid;
 
+use crate::athlete_vdot::{self, resolve_athlete_vdot};
 use crate::effective_physiology::{effective_physiology, EffectivePhysiology};
 use crate::stored_health::{self, Anchors, SourceFilter};
 
@@ -121,28 +125,9 @@ pub async fn build_athlete_metrics(
     };
     let profile = effective.profile.clone();
 
-    // cageux treats VDOT as the VO2max-equivalent feeding the Daniels tables.
+    // The VO2max, and only the VO2max: a VDOT is read from a performance
+    // below, once the activities are loaded.
     metrics.vo2max = effective.vo2_max();
-    metrics.vdot = effective.vo2_max();
-    if let Some(vo2) = effective.vo2_max() {
-        // Pace zones read only VO2max and the lactate threshold (cageux's
-        // pace-zone default when the profile omits it); the calculator's
-        // heart-rate fields are not read by them.
-        let calculator = VO2MaxCalculator::new(
-            vo2,
-            0,
-            0,
-            profile
-                .as_ref()
-                .and_then(|p| p.lactate_threshold_percentage)
-                .unwrap_or(DEFAULT_LACTATE_THRESHOLD),
-        );
-        let paces = calculator.calculate_pace_zones(training_zones);
-        metrics.easy_pace_range = Some(paces.easy_pace_range);
-        metrics.marathon_pace_range = Some(paces.marathon_pace_range);
-        metrics.threshold_pace_range = Some(paces.threshold_pace_range);
-        metrics.interval_pace_range = Some(paces.vo2max_pace_range);
-    }
 
     if let Some(p) = &profile {
         metrics.ftp_watts = p.ftp_watts.map(f64::from);
@@ -167,14 +152,14 @@ pub async fn build_athlete_metrics(
     // trained (registre#200).
     let user_timezone = load_user_timezone(repos, user_id).await;
 
-    let now = Utc::now();
+    let now = Timestamp::now();
     let activities = match repos
         .activity_cache
         .get_cached_activities(
             user_id,
             &tenant_id,
             None,
-            now - Duration::days(ACTIVITY_LOOKBACK_DAYS),
+            now - Elapsed::days(ACTIVITY_LOOKBACK_DAYS),
             now,
             ACTIVITY_READ_LIMIT,
         )
@@ -200,20 +185,30 @@ pub async fn build_athlete_metrics(
     let zone = resolve_zone(user_timezone.as_deref());
     let mut activity_days: Vec<_> = activities
         .iter()
-        .map(|a| local_date(a.start_date(), zone))
+        .map(|a| local_date(a.start_date(), &zone))
         .collect();
     activity_days.sort_unstable();
     activity_days.dedup();
     metrics.data_days = u32::try_from(activity_days.len()).unwrap_or(u32::MAX);
 
-    metrics.recovery = load_recovery_readings(repos, policies, tenant_id, user_id, zone, now).await;
+    fill_vdot_and_paces(
+        &mut metrics,
+        profile.as_ref(),
+        &activities,
+        now,
+        algorithm_config,
+        training_zones,
+    );
+
+    metrics.recovery =
+        load_recovery_readings(repos, policies, tenant_id, user_id, &zone, now).await;
 
     if !activities.is_empty() {
         metrics.form = form_today(
             &activities,
             profile.as_ref(),
             algorithm_config,
-            clock_date(now, zone),
+            clock_date(now, &zone),
             user_timezone.as_deref(),
         );
     }
@@ -228,10 +223,10 @@ async fn load_recovery_readings(
     policies: &dyn ProviderTerms,
     tenant_id: TenantId,
     user_id: Uuid,
-    zone: Tz,
-    now: DateTime<Utc>,
+    zone: &Zone,
+    now: Timestamp,
 ) -> RecoveryReadings {
-    let start = now - Duration::days(BASELINE_DAYS + NIGHTS_READ_MARGIN_DAYS);
+    let start = now - Elapsed::days(BASELINE_DAYS + NIGHTS_READ_MARGIN_DAYS);
     let window = (start, now);
     let nights = match stored_health::merged_sleep(
         repos,
@@ -285,18 +280,18 @@ async fn load_recovery_readings(
 fn recovery_readings(
     nights: Vec<Merged<StoredSleepSession>>,
     mornings: Vec<Merged<StoredRecoveryMetrics>>,
-    zone: Tz,
-    today: NaiveDate,
+    zone: &Zone,
+    today: CivilDate,
 ) -> RecoveryReadings {
-    let mut sleep: BTreeMap<NaiveDate, f64> = BTreeMap::new();
-    let mut night_hrv: BTreeMap<NaiveDate, f64> = BTreeMap::new();
-    let mut night_min_hr: BTreeMap<NaiveDate, f64> = BTreeMap::new();
+    let mut sleep: BTreeMap<CivilDate, f64> = BTreeMap::new();
+    let mut night_hrv: BTreeMap<CivilDate, f64> = BTreeMap::new();
+    let mut night_min_hr: BTreeMap<CivilDate, f64> = BTreeMap::new();
     for night in nights {
         let session = night.record;
         if session.is_nap {
             continue;
         }
-        let day = session.night_date(&zone);
+        let day = session.night_date(zone);
         *sleep.entry(day).or_insert(0.0) += hours_asleep(&session);
         if let Some(value) = session.avg_hrv {
             night_hrv.entry(day).or_insert(value);
@@ -305,8 +300,8 @@ fn recovery_readings(
             night_min_hr.entry(day).or_insert_with(|| f64::from(value));
         }
     }
-    let mut morning_hrv: BTreeMap<NaiveDate, f64> = BTreeMap::new();
-    let mut morning_resting_hr: BTreeMap<NaiveDate, f64> = BTreeMap::new();
+    let mut morning_hrv: BTreeMap<CivilDate, f64> = BTreeMap::new();
+    let mut morning_resting_hr: BTreeMap<CivilDate, f64> = BTreeMap::new();
     for morning in mornings {
         let reading = morning.record;
         if let Some(value) = reading.daily_hrv() {
@@ -316,7 +311,7 @@ fn recovery_readings(
             morning_resting_hr.insert(reading.date, f64::from(value));
         }
     }
-    let metric = |daily: BTreeMap<NaiveDate, f64>| {
+    let metric = |daily: BTreeMap<CivilDate, f64>| {
         NightlyMetric::from_daily(&daily.into_iter().collect::<Vec<_>>(), today)
     };
     RecoveryReadings {
@@ -330,9 +325,9 @@ fn recovery_readings(
 
 /// One value per day from either series, `first`'s on a day both carry.
 fn preferring(
-    first: &BTreeMap<NaiveDate, f64>,
-    second: &BTreeMap<NaiveDate, f64>,
-) -> BTreeMap<NaiveDate, f64> {
+    first: &BTreeMap<CivilDate, f64>,
+    second: &BTreeMap<CivilDate, f64>,
+) -> BTreeMap<CivilDate, f64> {
     let mut merged = second.clone();
     merged.extend(first);
     merged
@@ -352,6 +347,39 @@ fn hours_asleep(session: &StoredSleepSession) -> f64 {
     seconds / SECONDS_PER_HOUR_F64
 }
 
+/// Set the athlete's one VDOT, from a performance only, and the Daniels pace
+/// ranges it cuts.
+///
+/// No VDOT leaves both empty, and the verifier silent on them.
+fn fill_vdot_and_paces(
+    metrics: &mut AthleteMetrics,
+    profile: Option<&UserPhysiologicalProfile>,
+    activities: &[Activity],
+    now: Timestamp,
+    algorithm_config: &AlgorithmConfig,
+    training_zones: &TrainingZonesConfig,
+) {
+    let Some(reading) = resolve_athlete_vdot(profile, activities, now, algorithm_config) else {
+        return;
+    };
+    metrics.vdot = Some(reading.vdot);
+    // Pace zones read only the VDOT and the threshold share; the calculator's
+    // heart-rate fields are not read by them.
+    let calculator =
+        VO2MaxCalculator::new(reading.vdot, 0, 0, athlete_vdot::lactate_threshold(profile));
+    match calculator.calculate_pace_zones(training_zones) {
+        Ok(paces) => {
+            metrics.easy_pace_range = Some(paces.easy_pace_range);
+            metrics.marathon_pace_range = Some(paces.marathon_pace_range);
+            metrics.threshold_pace_range = Some(paces.threshold_pace_range);
+            metrics.interval_pace_range = Some(paces.vo2max_pace_range);
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, "personalized verification: no pace zones for this VDOT");
+        }
+    }
+}
+
 /// The athlete's form on `today`, their civil day: CTL minus ATL at the end of
 /// yesterday, so a session today does not move it, read as the share of
 /// yesterday's CTL the tools render.
@@ -367,7 +395,7 @@ fn form_today(
     activities: &[Activity],
     profile: Option<&UserPhysiologicalProfile>,
     algorithm_config: &AlgorithmConfig,
-    today: NaiveDate,
+    today: CivilDate,
     user_timezone: Option<&str>,
 ) -> Option<FormReading> {
     let inputs = AthleteInputs::from_profile(profile);
@@ -378,7 +406,7 @@ fn form_today(
     match compute_training_history(
         activities,
         inputs,
-        today - Duration::days(TSB_COMPUTE_DAYS),
+        today - Elapsed::days(TSB_COMPUTE_DAYS),
         today,
         algorithm_config,
         user_timezone,
@@ -397,16 +425,16 @@ fn form_today(
 #[cfg(test)]
 mod tests {
     use pierre_database::repositories::WellnessWriteMode;
+    use std::collections::BTreeSet;
     use std::sync::Arc;
 
     use super::*;
-    use chrono::TimeZone;
     use dravr_equilibre_sync::{merge_recovery_metrics, merge_sleep_sessions, Sourced};
     use pierre_core::ai_policy::{AiUse, SourcePolicy};
     use pierre_core::models::{DataSource, DeviceType};
     use pierre_core::transport::TransportPolicy;
-    use pierre_providers::ai_scope::ai_read;
     use pierre_providers::ai_scope::StoredHealthRecord;
+    use pierre_providers::ai_scope::{ai_read, with_ai_consent};
     use pierre_providers::precedence::wellness_source;
     use pierre_test_support::db::create_test_db;
     use pierre_test_support::server::create_test_user;
@@ -423,19 +451,14 @@ mod tests {
 
     use crate::training_history_read::tests::athlete;
 
-    fn night(
-        source: &str,
-        start: DateTime<Utc>,
-        hours: u32,
-        hrv: Option<f64>,
-    ) -> StoredSleepSession {
+    fn night(source: &str, start: Timestamp, hours: u32, hrv: Option<f64>) -> StoredSleepSession {
         StoredSleepSession {
             id: Uuid::new_v4().to_string(),
             user_id: Uuid::new_v4().to_string(),
             data_source_id: format!("{source}-device"),
             is_nap: false,
             start_datetime: start,
-            end_datetime: start + Duration::hours(i64::from(hours)),
+            end_datetime: start + Elapsed::hours(i64::from(hours)),
             total_sleep_seconds: Some(hours * 3600),
             deep_sleep_seconds: None,
             light_sleep_seconds: None,
@@ -452,7 +475,7 @@ mod tests {
         }
     }
 
-    fn morning(source: &str, date: NaiveDate, hrv: f64, resting_hr: u32) -> StoredRecoveryMetrics {
+    fn morning(source: &str, date: CivilDate, hrv: f64, resting_hr: u32) -> StoredRecoveryMetrics {
         StoredRecoveryMetrics {
             id: Uuid::new_v4().to_string(),
             user_id: Uuid::new_v4().to_string(),
@@ -471,23 +494,24 @@ mod tests {
             daily_strain: None,
             athlete_note: None,
             source_name: source.to_owned(),
-            recorded_at: date.and_hms_opt(8, 0, 0).unwrap().and_utc(),
+            recorded_at: date.and_hms(8, 0, 0).unwrap().and_utc().unwrap(),
         }
     }
 
     /// 23:00 UTC on the evening before `day`.
-    fn bedtime(day: NaiveDate) -> DateTime<Utc> {
-        (day - Duration::days(1))
-            .and_hms_opt(23, 0, 0)
+    fn bedtime(day: CivilDate) -> Timestamp {
+        (day - Elapsed::days(1))
+            .and_hms(23, 0, 0)
             .unwrap()
             .and_utc()
+            .unwrap()
     }
 
     #[test]
     fn a_night_two_devices_recorded_counts_once_on_the_day_it_ended() {
-        let today = NaiveDate::from_ymd_opt(2026, 10, 9).unwrap();
+        let today = CivilDate::from_ymd(2026, 10, 9).unwrap();
         let mut nights: Vec<StoredSleepSession> = (1..=4)
-            .map(|back| night("garmin", bedtime(today - Duration::days(back)), 8, None))
+            .map(|back| night("garmin", bedtime(today - Elapsed::days(back)), 8, None))
             .collect();
         // Last night, from a strap and a watch at once: one night, not 14 h.
         nights.push(night("whoop", bedtime(today), 7, None));
@@ -495,21 +519,21 @@ mod tests {
         // An afternoon nap is not a night.
         let mut nap = night(
             "garmin",
-            today.and_hms_opt(14, 0, 0).unwrap().and_utc(),
+            today.and_hms(14, 0, 0).unwrap().and_utc().unwrap(),
             1,
             None,
         );
         nap.is_nap = true;
         nights.push(nap);
         let mornings = vec![
-            morning("garmin", today - Duration::days(2), 60.0, 47),
-            morning("garmin", today - Duration::days(1), 58.0, 48),
+            morning("garmin", today - Elapsed::days(2), 60.0, 47),
+            morning("garmin", today - Elapsed::days(1), 58.0, 48),
         ];
 
         let readings = recovery_readings(
-            merge_sleep_sessions(sourced(nights), &Utc),
+            merge_sleep_sessions(sourced(nights), &Zone::utc()),
             merge_recovery_metrics(sourced(mornings)),
-            Tz::UTC,
+            &Zone::utc(),
             today,
         );
 
@@ -540,29 +564,29 @@ mod tests {
 
     #[test]
     fn a_night_belongs_to_the_day_it_ended_on_in_the_athletes_zone() {
-        let today = NaiveDate::from_ymd_opt(2026, 10, 9).unwrap();
+        let today = CivilDate::from_ymd(2026, 10, 9).unwrap();
         let nights = || {
             vec![
                 // Ends 03:00 UTC on the 9th: 23:00 on the 8th in Toronto.
                 night(
                     "garmin",
-                    Utc.with_ymd_and_hms(2026, 10, 8, 21, 0, 0).unwrap(),
+                    Timestamp::parse_from_rfc3339("2026-10-08T21:00:00Z").unwrap(),
                     6,
                     None,
                 ),
                 // Ends 11:00 UTC on the 9th: 07:00 on the 9th in Toronto.
                 night(
                     "garmin",
-                    Utc.with_ymd_and_hms(2026, 10, 9, 4, 0, 0).unwrap(),
+                    Timestamp::parse_from_rfc3339("2026-10-09T04:00:00Z").unwrap(),
                     7,
                     None,
                 ),
             ]
         };
         let toronto = recovery_readings(
-            merge_sleep_sessions(sourced(nights()), &Utc),
+            merge_sleep_sessions(sourced(nights()), &Zone::utc()),
             Vec::new(),
-            Tz::America__Toronto,
+            &Zone::from_name("America/Toronto").unwrap(),
             today,
         );
         assert_eq!(
@@ -572,9 +596,9 @@ mod tests {
         );
         // Bucketed on UTC days both land on the 9th, as one 13-hour day.
         let utc = recovery_readings(
-            merge_sleep_sessions(sourced(nights()), &Utc),
+            merge_sleep_sessions(sourced(nights()), &Zone::utc()),
             Vec::new(),
-            Tz::UTC,
+            &Zone::utc(),
             today,
         );
         assert_eq!(utc.sleep_hours.unwrap().last, Some(13.0));
@@ -615,7 +639,7 @@ mod tests {
         let user = create_test_user(&format!("nights-{}@example.com", Uuid::new_v4()), None);
         let user_id = repos.users.create(&user).await.unwrap();
         let tenant = TenantId::generate();
-        let today = Utc::now().date_naive();
+        let today = Timestamp::now().utc_date();
         for provider in ["garmin", "whoop"] {
             let data_source_id = repos
                 .data_sources
@@ -635,7 +659,7 @@ mod tests {
                 .await
                 .unwrap();
             for back in 0..7 {
-                let day = today - Duration::days(back);
+                let day = today - Elapsed::days(back);
                 let (hours, hrv) = match (provider, back) {
                     ("whoop", _) => (9, 80.0),
                     ("garmin", 0) => (6, 50.0),
@@ -646,7 +670,7 @@ mod tests {
                 session.data_source_id.clone_from(&data_source_id);
                 repos
                     .sleep
-                    .upsert_sleep_session(&tenant, &session, Utc::now())
+                    .upsert_sleep_session(&tenant, &session, Timestamp::now())
                     .await
                     .unwrap();
                 let mut reading = morning(provider, day, hrv, 48);
@@ -658,7 +682,7 @@ mod tests {
                         &tenant,
                         &reading,
                         WellnessWriteMode::FullDay,
-                        Utc::now(),
+                        Timestamp::now(),
                     )
                     .await
                     .unwrap();
@@ -699,7 +723,14 @@ mod tests {
     async fn the_snapshot_reads_the_synced_nights_a_model_may_see() {
         let (repos, tenant, user_id) = athlete_with_two_sources().await;
 
-        let (metrics, withheld) = ai_read(snapshot(&repos, tenant, user_id)).await;
+        // An athlete who gave Garmin's AI consent and not WHOOP's: a model
+        // read declares its consents, and one that declares none withholds
+        // Garmin too (carnet#1157).
+        let (metrics, withheld) = ai_read(with_ai_consent(
+            BTreeSet::from(["whoop".to_owned()]),
+            Box::pin(snapshot(&repos, tenant, user_id)),
+        ))
+        .await;
 
         assert!(
             metrics.is_usable(),

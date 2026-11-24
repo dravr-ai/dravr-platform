@@ -1,5 +1,5 @@
-// ABOUTME: Key-rotation operator commands for pierre-cli — adopt, rotate a family, status, enable, destroy, re-wrap under a new KEK
-// ABOUTME: Wires the keyset operator steps (pierre_auth::keyset) to the CLI (ADR-017 Phase 4, carnet#1347)
+// ABOUTME: Key-rotation admin commands for pierre-cli — adopt, rotate a family, status, enable, destroy, re-wrap under a new KEK
+// ABOUTME: Wires the keyset admin steps (pierre_auth::keyset) to the CLI (ADR-017 Phase 4, carnet#1347)
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -34,7 +34,7 @@ use std::sync::Arc;
 
 use clap::{Subcommand, ValueEnum};
 use pierre_auth::key_management::{DatabaseEncryptionKey, KeyManager, LocalKekProvider};
-use pierre_auth::keyset::operator::KeysetStatus;
+use pierre_auth::keyset::admin::KeysetStatus;
 use pierre_auth::keyset::{KeyState, RELOAD_PERIOD};
 #[cfg(feature = "postgresql")]
 use pierre_core::config::database::PostgresPoolConfig;
@@ -195,14 +195,19 @@ async fn open(database_url: &str) -> AppResult<(KeyManager, Database)> {
 pub(crate) fn keep_keyring_current(key_manager: &KeyManager, database: &Database) {
     if let Some(loader) = key_manager.keyset_loader() {
         let database = Arc::new(database.clone());
-        spawn_supervised_loop("keyset reload", RELOAD_PERIOD, move || {
-            let (loader, database) = (Arc::clone(&loader), Arc::clone(&database));
-            async move {
-                loader
-                    .refresh_or_report(database.as_security_repository())
-                    .await;
-            }
-        });
+        spawn_supervised_loop(
+            "keyset reload",
+            RELOAD_PERIOD,
+            move || {
+                let (loader, database) = (Arc::clone(&loader), Arc::clone(&database));
+                async move {
+                    loader
+                        .refresh_or_report(database.as_security_repository())
+                        .await;
+                }
+            },
+            || {},
+        );
     }
 }
 

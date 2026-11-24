@@ -10,9 +10,10 @@
 #![allow(missing_docs)]
 #![allow(clippy::cast_possible_wrap)] // Test helper uses small indices
 
-use chrono::Utc;
 use dravr_cageux::statistical_analysis::StatisticalAnalyzer;
 use dravr_cageux::types::{TrendDataPoint, TrendDirection};
+use dravr_tronc::dates::Elapsed;
+use dravr_tronc::dates::Timestamp;
 
 /// Slope threshold the `analyze_performance_trends` tool passes to `determine_trend_direction`.
 const SLOPE_THRESHOLD: f64 = 0.01;
@@ -22,7 +23,7 @@ fn create_test_data_points(values: Vec<f64>) -> Vec<TrendDataPoint> {
         .into_iter()
         .enumerate()
         .map(|(i, value)| TrendDataPoint {
-            date: Utc::now() + chrono::Duration::days(i as i64),
+            date: Timestamp::now() + Elapsed::days(i as i64),
             value,
             smoothed_value: None,
         })

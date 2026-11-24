@@ -7,8 +7,9 @@
 import { useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminApi } from '../services/api';
-import type { FeatureFlagRow, KnownFeatureFlag } from '../services/api/admin';
-import { QUERY_KEYS } from '../constants/queryKeys';
+import type { KnownFeatureFlag } from '@pierre/shared-types';
+import type { FeatureFlagRow } from '../services/api/admin';
+import { QUERY_KEYS } from '@pierre/shared-constants';
 import { BADGE_TONE, Card } from './ui';
 import { featureFlagsQuery, type FeatureFlagScope } from './featureFlagsQuery';
 import { ADMIN_LOCALE, describeAdminError } from '../utils/adminLocale';

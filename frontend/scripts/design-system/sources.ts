@@ -41,7 +41,7 @@ const require = createRequire(import.meta.url);
 const SCHEMES: readonly ColorScheme[] = ['light', 'dark'];
 /** The web scale is written in rem against the browser's 16px root. */
 const ROOT_FONT_PX = 16;
-/** Headings carry this tracking (DESIGN.md §3); it lives in index.css, not in the Tailwind theme. */
+/** Headings carry this tracking (DESIGN.md "Typography"); it lives in index.css, not in the Tailwind theme. */
 const HEADING_TRACKING = '-0.01em';
 
 type Scheme = Record<ColorScheme, string>;

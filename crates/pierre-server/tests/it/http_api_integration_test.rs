@@ -14,6 +14,7 @@ use secrecy::{ExposeSecret, SecretString};
 use anyhow::Result;
 use axum::body::{to_bytes, Body};
 use axum::http::{Request, StatusCode};
+use dravr_tronc::dates::Timestamp;
 use pierre_auth::{
     api_keys::{ApiKeyManager, ApiKeyTier, CreateApiKeyRequest},
     auth::AuthManager,
@@ -26,7 +27,7 @@ use pierre_config::environment::{
     GoalManagementConfig, HttpClientConfig, LogLevel, LoggingConfig, McpConfig, MonitoringConfig,
     OAuth2ServerConfig, OAuthConfig, OAuthProviderConfig, PostgresPoolConfig, ProtocolConfig,
     RateLimitConfig, SciotteServiceConfig, SecurityConfig, SecurityHeadersConfig, ServerConfig,
-    SleepToolParamsConfig, SseConfig, StravaApiConfig, TlsConfig, TokioRuntimeConfig,
+    SessionCookieConfig, SleepToolParamsConfig, StravaApiConfig, TlsConfig, TokioRuntimeConfig,
     TrainingZonesConfig,
 };
 use pierre_core::models::CoachingPersona;
@@ -81,9 +82,8 @@ async fn setup_test_context() -> Result<(Arc<Database>, Arc<ServerContext>, Tena
         display_name: Some("Admin".to_owned()),
         password_hash: "hash".to_owned(),
         tier: UserTier::Starter,
-        strava_token: None,
-        created_at: chrono::Utc::now(),
-        last_active: chrono::Utc::now(),
+        created_at: Timestamp::now(),
+        last_active: Timestamp::now(),
         is_active: true,
         user_status: UserStatus::Active,
         role: UserRole::User,
@@ -110,8 +110,8 @@ async fn setup_test_context() -> Result<(Arc<Database>, Arc<ServerContext>, Tena
         domain: None,
         plan: "starter".to_owned(),
         owner_user_id: admin_id,
-        created_at: chrono::Utc::now(),
-        updated_at: chrono::Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
     };
     database.repositories().tenants.create(&tenant).await?;
 
@@ -197,23 +197,11 @@ async fn setup_test_context() -> Result<(Arc<Database>, Arc<ServerContext>, Tena
             },
         },
         external_services: ExternalServicesConfig {
-            strava_api: StravaApiConfig {
-                base_url: "https://www.strava.com/api/v3".to_owned(),
-                auth_url: "https://www.strava.com/oauth/authorize".to_owned(),
-                token_url: "https://www.strava.com/oauth/token".to_owned(),
-                revoke_url: "https://www.strava.com/oauth/revoke".to_owned(),
-                ..Default::default()
-            },
-            garmin_api: GarminApiConfig {
-                base_url: "https://apis.garmin.com/wellness-api/rest".to_owned(),
-                auth_url: "https://connect.garmin.com/oauth2Confirm".to_owned(),
-                token_url: "https://diauth.garmin.com/di-oauth2-service/oauth/token".to_owned(),
-                revoke_url: "https://apis.garmin.com/wellness-api/rest/user/registration"
-                    .to_owned(),
-                ..Default::default()
-            },
+            strava_api: StravaApiConfig::default(),
+            garmin_api: GarminApiConfig::default(),
             sciotte: SciotteServiceConfig::default(),
             meta_graph_api_base: None,
+            overpass_api_base: None,
         },
         app_behavior: AppBehaviorConfig {
             max_activities_fetch: 200,
@@ -228,7 +216,7 @@ async fn setup_test_context() -> Result<(Arc<Database>, Arc<ServerContext>, Tena
                 server_version: env!("CARGO_PKG_VERSION").to_owned(),
             },
         },
-        sse: SseConfig::default(),
+        session_cookie: SessionCookieConfig::default(),
         oauth2_server: OAuth2ServerConfig::default(),
         host: "localhost".to_owned(),
         base_url: "http://localhost:8081".to_owned(),
@@ -291,6 +279,8 @@ async fn setup_test_context() -> Result<(Arc<Database>, Arc<ServerContext>, Tena
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                lab_reader: None,
+                pdf_text_bin: None,
                 #[cfg(feature = "client-messaging")]
                 channel_adapters: common::offline_adapters(),
             },
@@ -318,7 +308,7 @@ async fn create_approved_test_user(
     // Create user with active status
     let mut active_user = user;
     active_user.user_status = UserStatus::Active;
-    active_user.approved_at = Some(chrono::Utc::now());
+    active_user.approved_at = Some(Timestamp::now());
 
     database.repositories().users.create(&active_user).await?;
     Ok(user_id.to_string())

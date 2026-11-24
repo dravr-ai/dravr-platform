@@ -7,7 +7,7 @@
 use secrecy::{ExposeSecret, SecretString};
 use std::sync::Arc;
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use tokio::task;
 use tracing::{debug, error, info, warn};
 
@@ -34,19 +34,21 @@ use pierre_core::models::{
 use pierre_database::repositories::user_invitations::invalid_invitation;
 use pierre_runtime_context::DataContext;
 
+use crate::admin_mail::PendingSignupMail;
+use crate::admin_settings::get_auto_approval_settings;
 use crate::analytics::{analytics, cache_user_email, hash_id};
 use crate::default_agent::first_athlete_facing;
 use crate::import_tombstones::{email_held, pending_email_tombstone};
 use crate::invitation::settle_coach_seat;
 use crate::link_token::split_link_token;
-use crate::operator_mail::PendingSignupMail;
+use dravr_tronc::dates::Elapsed;
 
 /// Sign-in through an external identity (Firebase, Google) and the account rules both follow
 mod federated;
 
 /// The first-party session a redeemed code (or the CLI's seeded session) opens, and its user.login event
 mod code_sign_in;
-/// The operator's bounds on a stranger's sign-up, and activation on a proven address
+/// The admin's bounds on a stranger's sign-up, and activation on a proven address
 mod self_signup;
 /// Signup codes: register with one, redeem one from the pending page, activate on a proven address
 mod signup_code;
@@ -167,7 +169,7 @@ impl AuthService {
     /// for the first time and that still waits for approval (carnet#1056).
     ///
     /// Waiting for the proof keeps a burst of throwaway sign-ups out of the
-    /// operators' inboxes and off the shared Resend quota: an address nobody
+    /// admins' inboxes and off the shared Resend quota: an address nobody
     /// confirmed never reaches them. Callers pass only a first proof (the
     /// confirmation link, the chat OTP, a provider vouching for the address),
     /// so each account is mailed once. Sent off the request path, and only
@@ -193,9 +195,8 @@ impl AuthService {
     /// with appropriate approval status, provisions a personal tenant, and
     /// raises the `user.signed_up` notify event.
     ///
-    /// This is the operator's door too (the admin register route), so it
-    /// applies no sign-up bound; a stranger's door goes through
-    /// [`Self::self_register`].
+    /// It applies no sign-up bound, and no HTTP route reaches it: a
+    /// stranger's door goes through [`Self::self_register`].
     ///
     /// # Errors
     /// Returns error if user validation fails or database operation fails
@@ -206,8 +207,8 @@ impl AuthService {
 
     /// Register `request`'s account. `self_serve` says a stranger's door
     /// created it: only such an account activates itself by proving its
-    /// address, so only it skips the operators' review and is told to confirm
-    /// its email. An operator's door sends no confirmation link, so its
+    /// address, so only it skips the admins' review and is told to confirm
+    /// its email. An admin's door sends no confirmation link, so its
     /// Pending account stays in review whatever the sign-up settings say.
     /// `code_vouched` says a signup code will activate it once the address is
     /// proven (carnet#1128), so it is not announced for review either.
@@ -240,8 +241,8 @@ impl AuthService {
         }
 
         // Check if user should be auto-approved (global setting, domain
-        // allow-list, or a per-email pre-approval carrying its operator)
-        let approval = self.determine_approval_status(&email).await;
+        // allow-list, or a per-email pre-approval carrying its admin)
+        let approval = self.determine_approval_status(&email).await?;
         let self_activates = self_serve
             && ((code_vouched && !email_held(self.data.repos(), &email).await)
                 || self.activates_on_verified(&email).await);
@@ -281,8 +282,8 @@ impl AuthService {
     /// invitee chose.
     ///
     /// The invitation is redeemed first, single-use: the account lands
-    /// [`UserStatus::Active`] with `approved_by` set to the operator who sent
-    /// it (none when that operator's account has since been deleted), and its
+    /// [`UserStatus::Active`] with `approved_by` set to the admin who sent
+    /// it (none when that admin's account has since been deleted), and its
     /// address is recorded as verified, since following the link
     /// is the proof of the inbox that a verification mail would ask for. The
     /// account gets its personal tenant exactly as a registration does.
@@ -302,7 +303,7 @@ impl AuthService {
     ///
     /// A coach-seat invitation also settles coach access and the coach role
     /// for the new account ([`crate::invitation::settle_coach_seat`]), with
-    /// the inviter as the operator of the grant. The answer carries the kind
+    /// the inviter as the admin of the grant. The answer carries the kind
     /// redeemed, so the caller can attribute the sign-up.
     #[tracing::instrument(skip_all, fields(route = "accept_invitation"))]
     pub async fn accept_invitation(
@@ -329,10 +330,10 @@ impl AuthService {
             return Err(user_state_error(error_messages::USER_ALREADY_EXISTS));
         }
 
-        // The link is spent by now: an operator who cannot be attributed
+        // The link is spent by now: an admin who cannot be attributed
         // leaves the account unattributed rather than failing it.
-        let approved_by = self.existing_operator(invitation.invited_by).await;
-        let approval = (UserStatus::Active, Some(Utc::now()), approved_by);
+        let approved_by = self.existing_admin(invitation.invited_by).await;
+        let approval = (UserStatus::Active, Some(Timestamp::now()), approved_by);
         let (user_id, user, tenant_id) = self
             .create_account(
                 &invitation.email,
@@ -394,11 +395,7 @@ impl AuthService {
         email: &str,
         password: SecretString,
         display_name: Option<String>,
-        (status, approved_at, approved_by): (
-            UserStatus,
-            Option<chrono::DateTime<Utc>>,
-            Option<uuid::Uuid>,
-        ),
+        (status, approved_at, approved_by): (UserStatus, Option<Timestamp>, Option<uuid::Uuid>),
         self_activates: bool,
         analytics_consent: Option<bool>,
     ) -> AppResult<(uuid::Uuid, User, TenantId)> {
@@ -412,7 +409,7 @@ impl AuthService {
         // so the answer is never lost to a second write failing.
         if let Some(enabled) = analytics_consent {
             user.analytics_consent = enabled;
-            user.analytics_consent_at = Some(Utc::now());
+            user.analytics_consent_at = Some(Timestamp::now());
         }
 
         // Propagated, not re-wrapped: `create` is insert-only now and reports a
@@ -542,7 +539,7 @@ impl AuthService {
             .auth_manager
             .generate_token_with_tenant(&user, &self.jwks_manager, active_tenant_id)
             .map_err(|e| AppError::internal(format!("Failed to generate token: {e}")))?;
-        let expires_at = Utc::now() + chrono::Duration::hours(limits::DEFAULT_SESSION_HOURS); // Default 24h expiry
+        let expires_at = Timestamp::now() + Elapsed::hours(limits::DEFAULT_SESSION_HOURS); // Default 24h expiry
 
         info!(user_id = %user.id, "User logged in successfully");
 
@@ -611,7 +608,7 @@ impl AuthService {
         let tenant_id = TenantId::generate();
         let tenant_name = format!("{display_name}'s Workspace");
         let tenant_slug = format!("user-{}", user_id.as_simple());
-        let now = Utc::now();
+        let now = Timestamp::now();
 
         let tenant = Tenant {
             id: tenant_id,
@@ -752,29 +749,15 @@ impl AuthService {
         Ok(Some(tenant_id.to_string()))
     }
 
-    /// Check if global auto-approval is enabled (ignores domain allow-list).
+    /// Whether global auto-approval is on (ignores the domain allow-list).
     ///
-    /// Precedence order:
-    /// 1. Environment variable (if explicitly set via `AUTO_APPROVE_USERS`)
-    /// 2. Database setting (if present in `system_settings` table)
-    /// 3. Default value (false)
-    async fn is_auto_approval_enabled(&self) -> bool {
-        // Environment variable takes precedence when explicitly set
-        if self.config.app_behavior.auto_approve_users_from_env {
-            return self.config.app_behavior.auto_approve_users;
-        }
-
-        // Fall back to database setting if present
-        match self.data.database().is_auto_approval_enabled().await {
-            Ok(Some(db_setting)) => db_setting,
-            Ok(None) => self.config.app_behavior.auto_approve_users,
-            Err(e) => {
-                tracing::warn!(
-                    "Failed to check auto-approval setting, falling back to config: {e}"
-                );
-                self.config.app_behavior.auto_approve_users
-            }
-        }
+    /// [`get_auto_approval_settings`] owns the env > database > default
+    /// precedence; a failed read of the stored row is the caller's error, so
+    /// no account is created under a posture nobody chose.
+    async fn is_auto_approval_enabled(&self) -> AppResult<bool> {
+        let settings =
+            get_auto_approval_settings(self.data.database(), &self.config.app_behavior).await?;
+        Ok(settings.enabled)
     }
 
     /// Fetch the standing per-email pre-approval for `email`, if any.
@@ -792,20 +775,20 @@ impl AuthService {
         }
     }
 
-    /// `operator`, while that operator's account still exists.
+    /// `admin`, while that admin's account still exists.
     ///
-    /// An allow and an invitation both outlive the account of the operator
+    /// An allow and an invitation both outlive the account of the admin
     /// who recorded them (neither carries a foreign key onto `users`), but
     /// `users.approved_by` references `users(id)` on Postgres: attributing a
-    /// new or promoted account to a deleted operator would fail the very
+    /// new or promoted account to a deleted admin would fail the very
     /// approval the allow or invitation grants. A lookup failure degrades the
     /// same way, to an unattributed approval, never to a refused account.
-    async fn existing_operator(&self, operator: Option<uuid::Uuid>) -> Option<uuid::Uuid> {
-        let id = operator?;
+    async fn existing_admin(&self, admin: Option<uuid::Uuid>) -> Option<uuid::Uuid> {
+        let id = admin?;
         match self.data.repos().users.get_global(id).await {
             Ok(user) => user.map(|_| id),
             Err(e) => {
-                warn!(operator = %id, "Approving operator lookup failed, approval left unattributed: {e}");
+                warn!(admin = %id, "Approving admin lookup failed, approval left unattributed: {e}");
                 None
             }
         }
@@ -818,64 +801,66 @@ impl AuthService {
     /// - The address is on the per-email pre-approval list (`pierre-cli user
     ///   allow --email X`), OR
     /// - The email domain is in the `AUTO_APPROVE_DOMAINS` allow-list
-    async fn should_auto_approve_email(&self, email: &str) -> bool {
-        if self.is_auto_approval_enabled().await {
-            return true;
+    ///
+    /// # Errors
+    /// Returns an error if the stored auto-approval setting cannot be read.
+    async fn should_auto_approve_email(&self, email: &str) -> AppResult<bool> {
+        if self.is_auto_approval_enabled().await? {
+            return Ok(true);
         }
 
         if self.pre_approval_for(email).await.is_some() {
             tracing::debug!("Auto-approving pre-approved email");
-            return true;
+            return Ok(true);
         }
 
         let domains = &self.config.app_behavior.auto_approve_domains;
         if domains.is_empty() {
-            return false;
+            return Ok(false);
         }
 
         // Extract domain from email (lowercase for case-insensitive comparison)
         let email_domain = match email.rsplit_once('@') {
             Some((_, domain)) => domain.to_lowercase(),
-            None => return false,
+            None => return Ok(false),
         };
 
         let approved = domains.iter().any(|d| d == &email_domain);
         if approved {
             tracing::debug!(email_domain = %email_domain, "Auto-approving user from allowed domain");
         }
-        approved
+        Ok(approved)
     }
 
     /// Determine user approval status from the per-email pre-approval list,
     /// the global auto-approval setting, and the email-domain allow-list.
     ///
-    /// A per-email pre-approval also carries the operator who recorded it, so
+    /// A per-email pre-approval also carries the admin who recorded it, so
     /// the new account's `approved_by` attributes the decision to a person;
     /// the global switch and domain list are policy, not a person, and leave
     /// it `None`. An email a deleted account's tombstone holds is admitted by
-    /// no rule: it waits Pending for an operator or an explicit clear.
+    /// no rule: it waits Pending for an admin or an explicit clear.
+    ///
+    /// # Errors
+    /// Returns an error if the stored auto-approval setting cannot be read.
     async fn determine_approval_status(
         &self,
         email: &str,
-    ) -> (
-        UserStatus,
-        Option<chrono::DateTime<Utc>>,
-        Option<uuid::Uuid>,
-    ) {
-        let now = Utc::now();
+    ) -> AppResult<(UserStatus, Option<Timestamp>, Option<uuid::Uuid>)> {
+        let now = Timestamp::now();
         if email_held(self.data.repos(), email).await {
-            return (UserStatus::Pending, None, None);
+            return Ok((UserStatus::Pending, None, None));
         }
         if let Some(entry) = self.pre_approval_for(email).await {
             tracing::debug!("Auto-approval granted via pre-approved email");
-            let approved_by = self.existing_operator(entry.allowed_by).await;
-            return (UserStatus::Active, Some(now), approved_by);
+            let approved_by = self.existing_admin(entry.allowed_by).await;
+            return Ok((UserStatus::Active, Some(now), approved_by));
         }
-        if self.should_auto_approve_email(email).await {
+        if self.should_auto_approve_email(email).await? {
             tracing::debug!("Auto-approval granted for new user");
-            (UserStatus::Active, Some(now), None)
+            Ok((UserStatus::Active, Some(now), None))
         } else {
-            (UserStatus::Pending, None, None)
+            Ok((UserStatus::Pending, None, None))
         }
     }
 
@@ -909,7 +894,7 @@ impl AuthService {
         tenant_id: Option<String>,
         client_id: String,
     ) -> AppResult<String> {
-        let now = Utc::now();
+        let now = Timestamp::now();
         let record = SessionRefreshToken {
             family_id: uuid::Uuid::new_v4().to_string(),
             user_id,
@@ -936,7 +921,7 @@ impl AuthService {
     /// token, `AccountSuspended` for a suspended user, and a database error
     /// when the exchange cannot be recorded.
     pub async fn refresh_session(&self, presented: &str) -> AppResult<RefreshedSession> {
-        let now = Utc::now();
+        let now = Timestamp::now();
         let repos = self.data.repos();
         let Some(record) = consume_or_revoke_family(
             repos.session_refresh_tokens.consume_token(presented, now),
@@ -983,7 +968,7 @@ impl AuthService {
                 record.client_id.as_deref(),
             )
             .map_err(|e| AppError::internal(format!("Failed to generate token: {e}")))?;
-        let expires_at = now + chrono::Duration::hours(limits::DEFAULT_SESSION_HOURS);
+        let expires_at = now + Elapsed::hours(limits::DEFAULT_SESSION_HOURS);
 
         let successor = SessionRefreshToken {
             family_id: record.family_id,
@@ -1016,7 +1001,7 @@ impl AuthService {
     }
 
     /// How long a freshly issued refresh token stays exchangeable.
-    fn refresh_token_lifetime(&self) -> chrono::Duration {
+    fn refresh_token_lifetime(&self) -> Elapsed {
         refresh_token_lifetime(self.config.auth.refresh_token_expiry_days)
     }
 
@@ -1090,7 +1075,7 @@ impl AuthService {
     ///
     /// Whitespace and `<` `>` are refused outright: no deliverable unquoted
     /// address carries them, and Slack renders `<!channel>` or `<url|text>`
-    /// in an operator ping as a room-wide mention or a disguised link, so an
+    /// in an admin ping as a room-wide mention or a disguised link, so an
     /// address an applicant typed must never hold them (carnet#1056).
     #[must_use]
     pub fn is_valid_email(email: &str) -> bool {

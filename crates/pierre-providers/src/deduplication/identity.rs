@@ -28,14 +28,14 @@ pub fn one_activity_key(activity: &Activity) -> (String, String) {
 
 #[cfg(test)]
 mod tests {
-    use chrono::{TimeZone, Utc};
+    use dravr_tronc::dates::Timestamp;
     use pierre_core::constants::oauth::providers as oauth_providers;
     use pierre_core::models::{Activity, ActivityBuilder, SportType};
 
     use super::one_activity_key;
 
     fn row(id: &str, provider: &str, source: Option<&str>) -> Activity {
-        let start = Utc.with_ymd_and_hms(2026, 11, 7, 13, 0, 0).unwrap();
+        let start = Timestamp::parse_from_rfc3339("2026-11-07T13:00:00Z").unwrap();
         let builder = ActivityBuilder::new(id, "Ride", SportType::Ride, start, 3_600, provider);
         match source {
             Some(source) => builder.source(source).build(),

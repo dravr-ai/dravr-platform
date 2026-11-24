@@ -21,7 +21,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::mobility::{
     muscles_in_group, DifficultyLevel, ListStretchingFilter, ListYogaFilter, StretchingCategory,
     YogaCategory, YogaPose, YogaPoseType,
@@ -492,7 +492,7 @@ impl McpTool<dyn ToolRuntime> for ListStretchingExercisesTool {
                 ListStretchingExercisesResult {
                     count: summaries.len(),
                     exercises: summaries,
-                    timestamp: Utc::now().to_rfc3339(),
+                    timestamp: Timestamp::now().to_rfc3339(),
                 },
             )
         }
@@ -712,7 +712,7 @@ impl McpTool<dyn ToolRuntime> for SuggestStretchesForActivityTool {
                     count: suggestions.len(),
                     exercises: suggestions,
                     total_duration_seconds,
-                    suggested_at: Utc::now().to_rfc3339(),
+                    suggested_at: Timestamp::now().to_rfc3339(),
                 },
             )
         }
@@ -876,7 +876,7 @@ impl McpTool<dyn ToolRuntime> for ListYogaPosesTool {
                 ListYogaPosesResult {
                     count: summaries.len(),
                     poses: summaries,
-                    timestamp: Utc::now().to_rfc3339(),
+                    timestamp: Timestamp::now().to_rfc3339(),
                 },
             )
         }
@@ -1128,7 +1128,7 @@ impl McpTool<dyn ToolRuntime> for SuggestYogaSequenceTool {
                     total_duration_seconds: total_seconds,
                     target_duration_minutes: duration_minutes,
                     guidance,
-                    suggested_at: Utc::now().to_rfc3339(),
+                    suggested_at: Timestamp::now().to_rfc3339(),
                 },
             )
         }

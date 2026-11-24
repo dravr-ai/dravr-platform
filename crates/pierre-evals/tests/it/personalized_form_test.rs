@@ -17,7 +17,7 @@
 //! and wrong for another. Their readings come from the daily row's own
 //! `form_reading`, the constructor every tool renders through.
 
-use chrono::NaiveDate;
+use dravr_tronc::dates::CivilDate;
 use pierre_core::models::{DailyTrainingState, FormBand, FormReading};
 use pierre_evals::personalized::check as personalized_check;
 use pierre_evals::{
@@ -81,7 +81,7 @@ fn reading(ctl: f64, atl: f64) -> FormReading {
         atl,
         tsb: ctl - atl,
         form_ctl: ctl,
-        ..DailyTrainingState::zero(NaiveDate::from_ymd_opt(2026, 10, 9).unwrap())
+        ..DailyTrainingState::zero(CivilDate::from_ymd(2026, 10, 9).unwrap())
     }
     .form_reading()
 }

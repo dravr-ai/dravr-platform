@@ -22,7 +22,7 @@
 ///
 /// The struct carried `create_default_tenant`, `tenant_name` and `tenant_slug` until
 /// registre#407: no client ever sent them, and whether an approved user needs a
-/// default tenant is a property of the user rather than an operator's choice —
+/// default tenant is a property of the user rather than an admin's choice —
 /// the Slack approval path already decides it that way, provisioning only
 /// `if !has_tenants`. They were deleted rather than mirrored onto the cookie
 /// surface.

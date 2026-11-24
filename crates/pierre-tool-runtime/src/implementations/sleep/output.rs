@@ -13,13 +13,13 @@
 //! carry the derivation through rather than mirroring the fields, which would
 //! be two structs describing one thing.
 
-use chrono::{DateTime, Utc};
 use dravr_cageux::{
     recovery_calculator::{
         DataCompleteness, RecoveryCategory, RecoveryScore, RestDayRecommendation, TrainingReadiness,
     },
     sleep_analysis::{HrvRecoveryStatus, HrvTrendAnalysis, SleepQualityScore},
 };
+use dravr_tronc::dates::Timestamp;
 use pierre_core::json_value::to_value_as_written;
 use serde::Serialize;
 use serde_json::Value;
@@ -36,7 +36,7 @@ pub struct SleepQualityResult {
     /// measure it, so its absence is not a fault.
     pub hrv_analysis: Option<HrvTrendAnalysis>,
     /// The night this describes, as the provider dated it.
-    pub analysis_date: DateTime<Utc>,
+    pub analysis_date: Timestamp,
     /// The provider's own sleep score, when it publishes one. Kept beside
     /// ours so an athlete can see the two differ rather than wondering which
     /// number their watch showed.
@@ -147,7 +147,7 @@ pub struct SleepTrendSummary {
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct SleepNight {
     /// The night, as the provider dated it.
-    pub date: DateTime<Utc>,
+    pub date: Timestamp,
     /// Its quality score.
     pub score: f64,
 }

@@ -22,6 +22,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use dravr_tronc::error::SERVER_ERROR_START;
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::TenantId;
 use pierre_mcp_transport::tenant_isolation::{extract_tenant_context_internal, log_tenant_failure};
@@ -55,6 +56,16 @@ const QUOTA_RETRY_AFTER_SECS: u64 = 60;
 
 /// How often a running turn re-reads its task for a cancel.
 const CANCEL_POLL_INTERVAL: Duration = Duration::from_secs(5);
+
+/// The refusal of a text message while an admin's support session through
+/// this agent is live (carnet#1511): the session acts as the user through
+/// tool calls only, so a conversation in the user's name never runs.
+const SUPPORT_SESSION_TEXT_MESSAGE: &str = "This agent is in a support session acting as a \
+     user, which serves tool calls only. Call admin_impersonate_end to talk as yourself again.";
+
+/// What a caller under a preset grant reads: its grant reaches tools alone.
+const PRESET_GRANT_TEXT_MESSAGE: &str = "The athlete gave this agent access to part of their \
+     data, which serves tool calls only. Address a tool with a data part.";
 
 /// What a client-credentials caller reads: it acts for no athlete.
 const NO_ATHLETE_MESSAGE: &str =
@@ -130,6 +141,21 @@ impl A2AServer {
                 NO_ATHLETE_MESSAGE.to_owned(),
             ));
         }
+        // The coach's turn reads the athlete's whole record into its prompt,
+        // past any stream, tier or window a preset grant narrows to: a grant
+        // with a ceiling calls tools, never the coach (plan slice 3).
+        if principal.ceiling.is_some() {
+            return Err(refuse(
+                A2ASpecError::UnsupportedOperation,
+                PRESET_GRANT_TEXT_MESSAGE.to_owned(),
+            ));
+        }
+        if Self::support_session_live(resources.ctx.as_ref(), principal).await {
+            return Err(refuse(
+                A2ASpecError::UnsupportedOperation,
+                SUPPORT_SESSION_TEXT_MESSAGE.to_owned(),
+            ));
+        }
         if let Some(missing) = COACHING_SKILL_SCOPES
             .iter()
             .find(|scope| !principal.scopes.contains(scope))
@@ -179,6 +205,7 @@ impl A2AServer {
                 conversation_id,
                 content,
                 grant: principal.scopes.clone(),
+                credential: principal.credential.clone(),
             },
             slot,
             coaching: Arc::clone(coaching),
@@ -204,7 +231,7 @@ impl A2AServer {
             Err(e) => {
                 log_tenant_failure(principal.user_id, &e);
                 Err(Box::new(Self::a2a_error(
-                    -32000,
+                    SERVER_ERROR_START,
                     "Failed to resolve tenant context",
                     request_id.cloned(),
                 )))
@@ -228,7 +255,7 @@ impl A2AServer {
             _ => {
                 error!("A2A text turn could not be admitted: {error}");
                 Self::a2a_error(
-                    -32000,
+                    SERVER_ERROR_START,
                     "The coach could not take this message",
                     request_id.cloned(),
                 )

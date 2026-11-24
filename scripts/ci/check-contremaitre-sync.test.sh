@@ -38,14 +38,9 @@ mkdir -p "$TMP/bin"
 printf '#!/bin/sh\nexit 1\n' > "$TMP/bin/cargo"
 chmod +x "$TMP/bin/cargo"
 
-# served <root> <json> — the admin tools/list fixture: what /mcp serves.
+# served <root> <json> — the coach tools/list fixture: what /mcp serves a coach.
 served() {
-    printf '%s\n' "$2" > "$1/crates/pierre-server/tests/fixtures/mcp_surface/tools_list_admin.json"
-}
-
-# public <root> <json> — the public profile's tool names: what the SDK types describe.
-public() {
-    printf '%s\n' "$2" > "$1/crates/pierre-server/tests/fixtures/mcp_surface/tools_list_public_names.json"
+    printf '%s\n' "$2" > "$1/crates/pierre-server/tests/fixtures/mcp_surface/tools_list_coach.json"
 }
 
 # tree <name> — two tools, and the three mirrors Check 3 compares them with.
@@ -77,7 +72,6 @@ RS
     printf '// Tool count: 2\nexport type ToolName = "alpha_tool" | "beta_tool";\n' \
         > "$root/packages/mcp-types/src/tools.ts"
     served "$root" '{"tools":[{"name":"alpha_tool"},{"name":"beta_tool"}]}'
-    public "$root" '["alpha_tool","beta_tool"]'
     echo "$root"
 }
 
@@ -116,30 +110,25 @@ root="$(tree baseline)"
 run "$root"
 expect_output "two registered tools match their mirrors" "MCP tool list: 2 tools match EXPECTED_TOOLS"
 
-# 1b. The SDK types mirror what /mcp serves, not every registered tool: a tool
-#     kept to Dravr's own surfaces is registered, unserved and absent from them.
+# 1b. The SDK types mirror what /mcp serves a human coach, not every registered
+#     tool: a tool kept to Dravr's own surfaces is registered, unserved and
+#     absent from them.
 root="$(tree first_party)"
 served "$root" '{"tools":[{"name":"alpha_tool"}]}'
-public "$root" '["alpha_tool"]'
 printf '// Tool count: 1\nexport type ToolName = "alpha_tool";\n' > "$root/packages/mcp-types/src/tools.ts"
 run "$root"
-expect_output "SDK types may leave out a registered tool /mcp does not serve" "the SDK types match the 1 tools of the public profile"
+expect_output "SDK types may leave out a registered tool /mcp does not serve" "the SDK types match the 1 tools a human coach is offered"
 
-# 1c. A coach-only tool is served to a coach but not to the public profile the
-#     SDK types describe (carnet#1426): types without it pass, types with it fail.
-root="$(tree coach_only)"
-public "$root" '["alpha_tool"]'
+# 1c. A tool served to a coach is one the SDK types must name (carnet#1511):
+#     types that leave a served tool out fail.
+root="$(tree served_missing_from_types)"
 printf '// Tool count: 1\nexport type ToolName = "alpha_tool";\n' > "$root/packages/mcp-types/src/tools.ts"
 run "$root"
-expect_output "SDK types may leave out a tool only a coach is offered" "the SDK types match the 1 tools of the public profile"
-root="$(tree coach_only_in_types)"
-public "$root" '["alpha_tool"]'
-run "$root"
-expect_output "SDK types naming a coach-only tool fail Check 3" "SDK type drift"
+expect_output "SDK types leaving out a served tool fail Check 3" "SDK type drift"
+expect_absent "no clean tool list over SDK types missing a served tool" "MCP tool list: 2 tools match"
 
 root="$(tree sdk_lists_unserved)"
 served "$root" '{"tools":[{"name":"alpha_tool"}]}'
-public "$root" '["alpha_tool"]'
 run "$root"
 expect_output "SDK types naming an unserved tool fail Check 3" "SDK type drift"
 expect_absent "no clean tool list over SDK types naming an unserved tool" "MCP tool list: 2 tools match"
@@ -150,9 +139,9 @@ run "$root"
 expect_output "a served tool src does not register fails Check 3" "serves tools src does not register"
 
 root="$(tree no_fixture)"
-rm "$root/crates/pierre-server/tests/fixtures/mcp_surface/tools_list_admin.json"
+rm "$root/crates/pierre-server/tests/fixtures/mcp_surface/tools_list_coach.json"
 run "$root"
-expect_output "a missing served fixture fails Check 3" "tools_list_admin.json not found"
+expect_output "a missing served fixture fails Check 3" "tools_list_coach.json not found"
 
 root="$(tree bad_fixture)"
 served "$root" 'not json'
@@ -164,20 +153,6 @@ root="$(tree empty_fixture)"
 served "$root" '{"tools":[]}'
 run "$root"
 expect_output "an empty served fixture fails Check 3 closed" "lists no tools"
-
-# The public profile's names fail closed the same way: a fixture that cannot be
-# read, or names nothing, never reads as SDK types in sync.
-root="$(tree bad_public_fixture)"
-public "$root" 'not json'
-run "$root"
-expect_output "an unreadable public fixture fails Check 3 closed" "Could not read the public profile's tool names"
-expect_absent "no clean tool list over an unreadable public fixture" "MCP tool list: 2 tools match"
-
-root="$(tree empty_public_fixture)"
-public "$root" '[]'
-run "$root"
-expect_output "an empty public fixture fails Check 3 closed" "Could not read the public profile's tool names"
-expect_absent "no clean tool list over an empty public fixture" "MCP tool list: 2 tools match"
 
 # 2. A property declared after the final tool_definition. The shared scan
 #    refuses it (its attribution would read the schema as empty), and Check 3

@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: The 8px state dot that sits before a status word — success, warning, error, a quiet neutral — never the only signal
-// ABOUTME: One component, so every connected/pending line draws the same mark in both themes (DESIGN.md §10)
+// ABOUTME: One component, so every connected/pending line draws the same mark in both themes (DESIGN.md "Status")
 
 import React from 'react';
 import { View } from 'react-native';

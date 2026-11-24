@@ -13,12 +13,14 @@
 //! Frameworks:
 //!
 //! - `ctl` / `atl` / `tsb` / `form_ctl` / `daily_load` — the configured
-//!   training-load smoothing (EMA/SMA/WMA/Kalman, default EMA 42-day chronic /
+//!   training-load smoothing (EMA/SMA/WMA, default EMA 42-day chronic /
 //!   7-day acute) read off cageux's per-day series,
-//!   [`TrainingLoadAlgorithm::daily_series`], over each civil day's summed
-//!   TSS; per-activity TSS honors the configured TSS algorithm. It is the same
-//!   series `TrainingLoadCalculator` reads its as-of day from, so a history row
-//!   and the current training load cannot disagree. `ctl` and `atl` are the
+//!   [`TrainingLoadAlgorithm::daily_series`], over cageux's daily split of
+//!   the athlete's civil days ([`TrainingLoadCalculator::daily_tss`]);
+//!   per-activity TSS honors the configured TSS algorithm. It is the same
+//!   split and series a `TrainingLoadCalculator` in the athlete's zone reads
+//!   its as-of day from, so a history row, the roster and the current
+//!   training load cannot disagree. `ctl` and `atl` are the
 //!   day's end-of-day values; `tsb` and `form_ctl` come from the end of the day
 //!   before (the Coggan/TrainingPeaks form convention cageux applies).
 //! - `acwr` — Gabbett 7d / 28d ratio. `None` until 28+ days of data.
@@ -32,16 +34,16 @@
 //! history".
 
 use std::collections::BTreeMap;
+use std::iter;
 
-use chrono::{Duration, NaiveDate};
 use dravr_cageux::algorithms::training_load::{DailyTrainingLoad, TrainingLoadAlgorithm};
 use dravr_cageux::config::intelligence::AlgorithmConfig;
 use dravr_cageux::constants::limits::MAX_TIMEFRAME_DAYS;
 use dravr_cageux::error::IntelligenceResult;
-use dravr_cageux::metrics::MetricsCalculator;
 use dravr_cageux::models::activity::Activity;
 use dravr_cageux::training_load::{TrainingLoad, TrainingLoadCalculator};
-use pierre_core::civil_time::{local_date, resolve_zone};
+use dravr_tronc::dates::{CivilDate, Elapsed};
+use pierre_core::civil_time::resolve_zone;
 use pierre_core::models::{DailyTrainingState, UserPhysiologicalProfile};
 
 /// Default chronic window (Coggan).
@@ -92,7 +94,8 @@ pub const fn warmup_days(ctl_window_days: i64) -> i64 {
 pub struct AthleteInputs {
     /// Functional Threshold Power (watts) for power-based TSS.
     pub ftp_watts: Option<f64>,
-    /// Lactate Threshold Heart Rate (bpm) for HR-based TSS (Banister TRIMP).
+    /// Lactate Threshold Heart Rate (bpm) for heart-rate TSS, read on the
+    /// heart-rate reserve with [`Self::resting_hr`].
     pub lthr: Option<f64>,
     /// Maximum heart rate (bpm).
     pub max_hr: Option<f64>,
@@ -100,6 +103,12 @@ pub struct AthleteInputs {
     pub resting_hr: Option<f64>,
     /// Body weight (kg).
     pub weight_kg: Option<f64>,
+    /// Critical power (watts): a ride's FTP stand-in when the profile has no
+    /// FTP and the provider recorded none.
+    pub critical_power_watts: Option<f64>,
+    /// Threshold pace (seconds per km): what a run's pace is scored against.
+    /// Without it, a run is scored by its session RPE or not at all.
+    pub threshold_pace_s_per_km: Option<f64>,
 }
 
 impl AthleteInputs {
@@ -114,8 +123,9 @@ impl AthleteInputs {
     /// The LTHR is [`UserPhysiologicalProfile::lactate_threshold_hr`]: the
     /// measured `threshold_hr` first, else the estimate from the lactate
     /// threshold (a fraction of `VO2max`) and max HR. No profile gives
-    /// [`Self::default`], and the engine falls back to pace- or
-    /// duration-based stress, which it reports as such.
+    /// [`Self::default`]: a session is then scored by what it carries alone
+    /// (the provider's TSS, a run's session RPE, another session's duration),
+    /// or left out.
     #[must_use]
     pub fn from_profile(profile: Option<&UserPhysiologicalProfile>) -> Self {
         profile.map_or_else(Self::default, |p| Self {
@@ -124,7 +134,21 @@ impl AthleteInputs {
             max_hr: p.max_hr.map(f64::from),
             resting_hr: p.resting_hr.map(f64::from),
             weight_kg: p.weight,
+            critical_power_watts: p
+                .critical_power_watts
+                .as_ref()
+                .map(|cp| f64::from(cp.value)),
+            threshold_pace_s_per_km: p.threshold_pace_sec_per_km,
         })
+    }
+
+    /// `calculator` scoring against these thresholds' critical power and
+    /// threshold pace, which cageux reads off the calculator rather than the
+    /// per-call arguments.
+    fn calibrated(&self, calculator: TrainingLoadCalculator) -> TrainingLoadCalculator {
+        calculator
+            .with_critical_power(self.critical_power_watts)
+            .with_threshold_pace(self.threshold_pace_s_per_km)
     }
 
     /// CTL, ATL and TSB of `activities` by `calculator`, each session's stress
@@ -135,10 +159,10 @@ impl AthleteInputs {
     /// algorithm refuses its parameters.
     pub fn training_load(
         &self,
-        calculator: &TrainingLoadCalculator,
+        calculator: TrainingLoadCalculator,
         activities: &[Activity],
     ) -> IntelligenceResult<TrainingLoad> {
-        calculator.calculate_training_load(
+        self.calibrated(calculator).calculate_training_load(
             activities,
             self.ftp_watts,
             self.lthr,
@@ -148,18 +172,20 @@ impl AthleteInputs {
         )
     }
 
-    /// One session's training stress by `calculator`, scored against these
-    /// thresholds.
-    ///
-    /// # Errors
-    /// Returns the calculator's error when no estimator can score the session.
-    pub fn tss(
+    /// Each civil day's summed training stress of `activities`, the daily
+    /// split cageux smooths: every session scored by `calculator` against
+    /// these thresholds and counted on the day it started on in the
+    /// calculator's zone ([`TrainingLoadCalculator::daily_tss`]). A session
+    /// no estimator can score is left out, and a day whose sessions carry no
+    /// stress is absent.
+    #[must_use]
+    pub fn daily_tss(
         &self,
-        calculator: &TrainingLoadCalculator,
-        activity: &Activity,
-    ) -> IntelligenceResult<f64> {
-        calculator.calculate_tss(
-            activity,
+        calculator: TrainingLoadCalculator,
+        activities: &[Activity],
+    ) -> BTreeMap<CivilDate, f64> {
+        self.calibrated(calculator).daily_tss(
+            activities,
             self.ftp_watts,
             self.lthr,
             self.max_hr,
@@ -172,9 +198,10 @@ impl AthleteInputs {
 /// Build a dense series of [`DailyTrainingState`] rows for `[from, to]`.
 ///
 /// `activities` may extend before `from` — this is required, not merely
-/// desirable, because the CTL window needs warm-up data to converge. Activities
-/// outside `[from - warmup_days(ctl_window_days), to]` are dropped to bound
-/// compute; at the default 42-day chronic window that lower bound is 72 days
+/// desirable, because the CTL window needs warm-up data to converge. Days of
+/// the athlete's calendar outside `[from - warmup_days(ctl_window_days), to]`
+/// do not enter the series; at the default 42-day chronic window that lower
+/// bound is 72 days
 /// before `from`. A caller supplying less than that gets a series warmed from a
 /// zero seed, which reads as a real chronic load and is wrong low — see
 /// [`warmup_days`].
@@ -187,12 +214,12 @@ impl AthleteInputs {
 ///
 /// Returns the `IntelligenceError` cageux raises when the configured
 /// training-load algorithm refuses its parameters (a CTL/ATL window outside
-/// 1 to 365 days, non-positive Kalman noise).
+/// 1 to 365 days).
 pub fn compute_training_history(
     activities: &[Activity],
     inputs: AthleteInputs,
-    from: NaiveDate,
-    to: NaiveDate,
+    from: CivilDate,
+    to: CivilDate,
     algorithm_config: &AlgorithmConfig,
     user_timezone: Option<&str>,
 ) -> IntelligenceResult<Vec<DailyTrainingState>> {
@@ -207,44 +234,29 @@ pub fn compute_training_history(
 
     // Anchor the warm-up window on the configured chronic window so CTL/ATL
     // converge before `from`.
-    let warmup = from - Duration::days(warmup_days(algorithm_config.params.training_load_ctl_days));
+    let warmup = from - Elapsed::days(warmup_days(algorithm_config.params.training_load_ctl_days));
     // Bucket on the athlete's civil day, not the server's. A 21:00
     // America/Toronto session lands on the next UTC date, which shifted the
     // whole per-day series one day against the athlete's own calendar and made
     // every "what did I do Tuesday" answer disagree with them (registre#200).
-    let zone = resolve_zone(user_timezone);
-    let activity_dates: Vec<(NaiveDate, f64)> = activities
-        .iter()
-        .filter(|a| {
-            let d = local_date(a.start_date(), zone);
-            d >= warmup && d <= to
-        })
-        .map(|a| {
-            (
-                local_date(a.start_date(), zone),
-                tss_for(a, inputs, algorithm_config),
-            )
-        })
+    // cageux owns the split: scoring, the civil day, and which sessions carry
+    // stress.
+    let calculator = TrainingLoadCalculator::from_config(algorithm_config.clone(), to)
+        .in_zone(resolve_zone(user_timezone));
+    let algorithm = calculator.algorithm();
+    let daily_tss: BTreeMap<CivilDate, f64> = inputs
+        .daily_tss(calculator, activities)
+        .range(warmup..=to)
+        .map(|(day, tss)| (*day, *tss))
         .collect();
 
-    // Build daily load map across [warmup, to].
-    let total_days_with_warmup = (to - warmup).num_days();
-    let cap = usize::try_from(total_days_with_warmup)
-        .unwrap_or(0)
-        .saturating_add(1);
-    let mut daily_load: Vec<(NaiveDate, f64)> = Vec::with_capacity(cap);
-    let mut cursor = warmup;
-    while cursor <= to {
-        let load: f64 = activity_dates
-            .iter()
-            .filter(|(d, _)| *d == cursor)
-            .map(|(_, t)| *t)
-            .sum();
-        daily_load.push((cursor, load));
-        cursor += Duration::days(1);
-    }
+    // Every day across [warmup, to], a rest day at zero.
+    let daily_load: Vec<(CivilDate, f64)> = iter::successors(Some(warmup), |day| day.succ())
+        .take_while(|day| *day <= to)
+        .map(|day| (day, daily_tss.get(&day).copied().unwrap_or(0.0)))
+        .collect();
 
-    let load = load_series(algorithm_config, &daily_load, from, to)?;
+    let load = load_series(&algorithm, &daily_tss, from, to)?;
 
     // Track the index of the first day with non-zero load so derived
     // metrics (ACWR, monotony, strain, ramp_rate) only fire once we have
@@ -287,7 +299,7 @@ pub fn compute_training_history(
 /// CTL/ATL/TSB for every day from `RAMP_RATE_LOOKBACK_DAYS` before `from`
 /// through `to`, smoothed by the configured training-load algorithm.
 ///
-/// Days before `from` in `daily_load` warm the smoothing up. The lookback days
+/// Days before `from` in `daily_tss` warm the smoothing up. The lookback days
 /// are asked for separately from `[from, to]` so the ramp rate of `from`
 /// itself has a prior value without widening one call past cageux's 365-day
 /// series cap, which `[from, to]` alone can already reach.
@@ -301,44 +313,24 @@ pub fn compute_training_history(
 /// short the history spans more than a chronic window by then, where the
 /// seed no longer moves.
 fn load_series(
-    algorithm_config: &AlgorithmConfig,
-    daily_load: &[(NaiveDate, f64)],
-    from: NaiveDate,
-    to: NaiveDate,
+    algorithm: &TrainingLoadAlgorithm,
+    daily_tss: &BTreeMap<CivilDate, f64>,
+    from: CivilDate,
+    to: CivilDate,
 ) -> IntelligenceResult<Vec<DailyTrainingLoad>> {
-    let algorithm: TrainingLoadAlgorithm = algorithm_config.training_load_algorithm();
-    let daily_tss: BTreeMap<NaiveDate, f64> = daily_load
-        .iter()
-        .filter(|(_, load)| *load > 0.0)
-        .copied()
-        .collect();
-    let lookback_from = from - Duration::days(RAMP_RATE_LOOKBACK_DAYS);
+    let lookback_from = from - Elapsed::days(RAMP_RATE_LOOKBACK_DAYS);
     let lookback_as_of = to
-        .min(lookback_from + Duration::days(i64::from(MAX_TIMEFRAME_DAYS)))
-        .max(from - Duration::days(1));
-    let mut series = algorithm.daily_series(&daily_tss, lookback_from, lookback_as_of)?;
+        .min(lookback_from + Elapsed::days(i64::from(MAX_TIMEFRAME_DAYS)))
+        .max(from - Elapsed::days(1));
+    let mut series = algorithm.daily_series(daily_tss, lookback_from, lookback_as_of)?;
     series.truncate(usize::try_from(RAMP_RATE_LOOKBACK_DAYS).unwrap_or(7));
-    series.extend(algorithm.daily_series(&daily_tss, from, to)?);
+    series.extend(algorithm.daily_series(daily_tss, from, to)?);
     Ok(series)
-}
-
-fn tss_for(activity: &Activity, inputs: AthleteInputs, algorithm_config: &AlgorithmConfig) -> f64 {
-    let calc = MetricsCalculator::new()
-        .with_user_data(
-            inputs.ftp_watts,
-            inputs.lthr,
-            inputs.max_hr,
-            inputs.resting_hr,
-            inputs.weight_kg,
-        )
-        .with_algorithm_config(algorithm_config.clone());
-    calc.calculate_metrics(activity)
-        .map_or(0.0, |m| m.training_stress_score.unwrap_or(0.0))
 }
 
 #[allow(clippy::cast_precision_loss)]
 fn compute_acwr(
-    daily_load: &[(NaiveDate, f64)],
+    daily_load: &[(CivilDate, f64)],
     idx: usize,
     days_of_history: usize,
 ) -> Option<f64> {
@@ -365,7 +357,7 @@ fn compute_acwr(
 
 #[allow(clippy::cast_precision_loss)]
 fn compute_monotony_strain(
-    daily_load: &[(NaiveDate, f64)],
+    daily_load: &[(CivilDate, f64)],
     idx: usize,
     days_of_history: usize,
 ) -> (Option<f64>, Option<f64>) {

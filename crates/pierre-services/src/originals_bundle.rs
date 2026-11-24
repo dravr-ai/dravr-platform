@@ -15,7 +15,8 @@
 //!   in each tenant their rows reach (never a live record's, so no
 //!   provider-API data), every recording they uploaded
 //!   (`uploaded_activity_files`) and every screenshot they attached to
-//!   feedback (`feedback_messages.image_sha256`), read through the export's
+//!   feedback (`feedback_messages.image_sha256`) and every lab report they
+//!   uploaded (`lab_documents`), read through the export's
 //!   own table walk;
 //! - **where it is tracked**: a `user_export_bundles` row, `building` while a
 //!   task writes it (its heartbeat moving forward), `ready` for
@@ -41,13 +42,14 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use chrono::{DateTime, TimeDelta, Utc};
 use dravr_barrage::blob::{BlobKey, BlobStore, DownloadTarget};
+use dravr_barrage::digest::Sha256;
 use dravr_barrage::export::{
     self, BundleFile, BundleFileKind, BundleOwner, BundleReport, BundleSeal,
 };
 use dravr_barrage::store::ActivityRecordStore;
 use dravr_barrage::{BarrageError, Scope, UserId};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use futures_util::stream::{self, BoxStream};
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::TenantId;
@@ -60,11 +62,11 @@ use serde::Serialize;
 use serde_json::Value;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tokio::task::AbortHandle;
-use tokio::time;
 use tokio_util::bytes::Bytes;
 use tracing::{info, warn};
 use uuid::Uuid;
 
+use crate::lease_guard::{keep_lease, LeaseGuard};
 use crate::originals_seal::ExportSeal;
 use crate::periodic::spawn_periodic;
 
@@ -72,19 +74,19 @@ use crate::periodic::spawn_periodic;
 const MAX_CONCURRENT_BUNDLES: usize = 2;
 
 /// How long a ready bundle stays downloadable.
-const BUNDLE_TTL: TimeDelta = TimeDelta::days(7);
+const BUNDLE_TTL: Elapsed = Elapsed::days(7);
 
 /// How long an unsealed ready bundle is handed back rather than built again.
-const REUSE_WINDOW: TimeDelta = TimeDelta::hours(1);
+const REUSE_WINDOW: Elapsed = Elapsed::hours(1);
 
 /// How long a signed download URL works.
-pub const DOWNLOAD_TTL: TimeDelta = TimeDelta::minutes(15);
+pub const DOWNLOAD_TTL: Elapsed = Elapsed::minutes(15);
 
 /// How often a building bundle's heartbeat moves.
 const HEARTBEAT_EVERY: Duration = Duration::from_secs(60);
 
 /// How long a build may go without a heartbeat before the sweep fails it.
-const STALE_AFTER: TimeDelta = TimeDelta::minutes(10);
+const STALE_AFTER: Elapsed = Elapsed::minutes(10);
 
 /// How often the sweep runs.
 const SWEEP_EVERY: Duration = Duration::from_hours(1);
@@ -105,9 +107,9 @@ pub struct BundleView {
     /// Whether it was sealed with a passphrase.
     pub sealed: bool,
     /// When it was asked for.
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
     /// When it stops being downloadable.
-    pub expires_at: DateTime<Utc>,
+    pub expires_at: Timestamp,
     /// Files it holds, once ready.
     pub files: Option<u64>,
     /// Files the store no longer held, once ready.
@@ -148,7 +150,7 @@ pub enum BundleDownload {
         /// The URL: a bearer credential, handed only to the bundle's owner.
         url: String,
         /// When it stops working.
-        expires_at: DateTime<Utc>,
+        expires_at: Timestamp,
     },
     /// Through the API: the bundle's bytes.
     Stream {
@@ -223,16 +225,6 @@ fn in_flight(bundle: &ExportBundle, sealed: bool) -> BundleRequest {
     }
 }
 
-/// Aborts its task when dropped: a build that ends, fails or panics stops
-/// its heartbeat, so a dead build's row goes stale and the sweep fails it.
-struct AbortOnDrop(AbortHandle);
-
-impl Drop for AbortOnDrop {
-    fn drop(&mut self) {
-        self.0.abort();
-    }
-}
-
 /// What the sweep did.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct BundleSweep {
@@ -243,12 +235,9 @@ pub struct BundleSweep {
 }
 
 /// The file name a download is saved as.
-fn download_filename(created_at: DateTime<Utc>, sealed: bool) -> String {
+fn download_filename(created_at: Timestamp, sealed: bool) -> String {
     let extension = if sealed { "zip.age" } else { "zip" };
-    format!(
-        "dravr-originals-{}.{extension}",
-        created_at.format("%Y-%m-%d")
-    )
+    format!("dravr-originals-{}.{extension}", created_at.utc_date())
 }
 
 /// Builds, tracks and hands out the athletes' originals bundles.
@@ -286,11 +275,28 @@ fn text<'row>(row: &'row Value, column: &str) -> Option<&'row str> {
     row.get(column).and_then(Value::as_str)
 }
 
-/// The upload key `row` names: its tenant, the athlete and a digest, keyed
-/// as the originals store keys every upload.
-fn upload_key(row: &Value, user_id: Uuid, digest_column: &str) -> Option<BlobKey> {
+/// The uploaded file `row` names: its tenant, the athlete and a digest, keyed
+/// as the originals store keys every upload. The bundle checks the bytes
+/// against the row's digest column, the digest of the bytes whatever the
+/// key's name.
+fn upload_file(
+    row: &Value,
+    user_id: Uuid,
+    digest_column: &str,
+    kind: BundleFileKind,
+    media_type: Option<String>,
+) -> Option<BundleFile> {
     let tenant = TenantId::parse_str(text(row, "tenant_id")?).ok()?;
-    originals::upload_key(&tenant, user_id, text(row, digest_column)?).ok()
+    let digest = text(row, digest_column)?;
+    let key = originals::upload_key(&tenant, user_id, digest).ok()?;
+    let sha256 = Sha256::parse_hex(digest).ok()?;
+    Some(BundleFile {
+        key,
+        sha256,
+        kind,
+        media_type,
+        records: Vec::new(),
+    })
 }
 
 impl OriginalsBundleService {
@@ -401,7 +407,8 @@ impl OriginalsBundleService {
             let fresh_plain = latest.status == BundleStatus::Ready
                 && !latest.sealed
                 && !sealed
-                && latest.finished_at.unwrap_or(latest.created_at) > Utc::now() - REUSE_WINDOW;
+                && latest.finished_at.unwrap_or(latest.created_at)
+                    > Timestamp::now() - REUSE_WINDOW;
             if fresh_plain {
                 return Ok(Admission::Answered(BundleRequest::Bundle(BundleView::of(
                     &latest,
@@ -430,7 +437,7 @@ impl OriginalsBundleService {
         let BuildSlot(permit) = slot;
         let sealed = seal.is_some();
         let bundles = &self.repos.user_export_bundles;
-        let now = Utc::now();
+        let now = Timestamp::now();
         let asked = ExportBundle {
             id: Uuid::new_v4(),
             tenant_id,
@@ -490,14 +497,7 @@ impl OriginalsBundleService {
         self.walk(
             user_id,
             "uploaded_activity_files",
-            |row| {
-                upload_key(row, user_id, "file_sha256").map(|key| BundleFile {
-                    key,
-                    kind: BundleFileKind::Upload,
-                    media_type: None,
-                    records: Vec::new(),
-                })
-            },
+            |row| upload_file(row, user_id, "file_sha256", BundleFileKind::Upload, None),
             &mut files,
         )
         .await?;
@@ -505,12 +505,28 @@ impl OriginalsBundleService {
             user_id,
             "feedback_messages",
             |row| {
-                upload_key(row, user_id, "image_sha256").map(|key| BundleFile {
-                    key,
-                    kind: BundleFileKind::FeedbackImage,
-                    media_type: text(row, "image_media_type").map(str::to_owned),
-                    records: Vec::new(),
-                })
+                upload_file(
+                    row,
+                    user_id,
+                    "image_sha256",
+                    BundleFileKind::FeedbackImage,
+                    text(row, "image_media_type").map(str::to_owned),
+                )
+            },
+            &mut files,
+        )
+        .await?;
+        self.walk(
+            user_id,
+            "lab_documents",
+            |row| {
+                upload_file(
+                    row,
+                    user_id,
+                    "file_sha256",
+                    BundleFileKind::Upload,
+                    Some(originals::LAB_DOCUMENT_MEDIA_TYPE.to_owned()),
+                )
             },
             &mut files,
         )
@@ -561,7 +577,7 @@ impl OriginalsBundleService {
             bundle.id,
         );
         let written = Arc::new(AtomicU64::new(0));
-        let heartbeat = AbortOnDrop(self.heartbeat(&bundle, Arc::clone(&written)));
+        let heartbeat = self.heartbeat(&bundle, Arc::clone(&written));
         let outcome = self.write(&bundle, &key, seal, &written).await;
         drop(heartbeat);
         let kept = self.settle(&bundle, &outcome).await;
@@ -601,7 +617,7 @@ impl OriginalsBundleService {
                     sha256: report.stat.sha256.to_hex(),
                 };
                 bundles
-                    .finish_ready(tenant, user, id, &contents, Utc::now() + BUNDLE_TTL)
+                    .finish_ready(tenant, user, id, &contents, Timestamp::now() + BUNDLE_TTL)
                     .await
             }
             Err(error) => {
@@ -642,30 +658,32 @@ impl OriginalsBundleService {
         .map_err(|e| AppError::internal(format!("bundle write: {e}")))
     }
 
-    /// Move the bundle's heartbeat every [`HEARTBEAT_EVERY`] until aborted.
-    fn heartbeat(&self, bundle: &ExportBundle, written: Arc<AtomicU64>) -> AbortHandle {
+    /// Move the bundle's heartbeat every [`HEARTBEAT_EVERY`] until the guard
+    /// drops: a build that ends, fails or panics stops its heartbeat, so a
+    /// dead build's row goes stale and the sweep fails it.
+    fn heartbeat(&self, bundle: &ExportBundle, written: Arc<AtomicU64>) -> LeaseGuard {
         let repos = Arc::clone(&self.repos);
         let (tenant, user, id) = (bundle.tenant_id, bundle.user_id, bundle.id);
-        tokio::spawn(async move {
-            let mut ticks = time::interval(HEARTBEAT_EVERY);
-            ticks.tick().await;
-            loop {
-                ticks.tick().await;
-                let files = written.load(Ordering::Relaxed);
-                match repos
+        let renew = move || {
+            let repos = Arc::clone(&repos);
+            let files = written.load(Ordering::Relaxed);
+            async move {
+                let building = repos
                     .user_export_bundles
-                    .heartbeat(tenant, user, id, Utc::now())
-                    .await
-                {
-                    Ok(true) => info!(bundle_id = %id, files, "Originals bundle still building"),
-                    Ok(false) => return,
-                    Err(error) => {
-                        warn!(bundle_id = %id, error = %error, "Originals bundle heartbeat failed");
-                    }
+                    .heartbeat(tenant, user, id, Timestamp::now())
+                    .await;
+                if matches!(building, Ok(true)) {
+                    info!(bundle_id = %id, files, "Originals bundle still building");
                 }
+                building
             }
-        })
-        .abort_handle()
+        };
+        keep_lease(
+            "originals bundle build",
+            id.to_string(),
+            HEARTBEAT_EVERY,
+            renew,
+        )
     }
 
     /// Say how the athlete downloads their ready bundle `id`.
@@ -724,7 +742,7 @@ impl OriginalsBundleService {
     /// # Errors
     /// A database or store failure; the next pass picks up what this one did
     /// not reach, every step being idempotent.
-    pub async fn sweep(&self, now: DateTime<Utc>) -> AppResult<BundleSweep> {
+    pub async fn sweep(&self, now: Timestamp) -> AppResult<BundleSweep> {
         let bundles = &self.repos.user_export_bundles;
         let mut done = BundleSweep::default();
         for stalled in bundles.stale_building(now - STALE_AFTER).await? {
@@ -797,7 +815,7 @@ pub fn start_originals_bundle_sweep(
         move || {
             let service = Arc::clone(&service);
             async move {
-                let done = service.sweep(Utc::now()).await?;
+                let done = service.sweep(Timestamp::now()).await?;
                 if done != BundleSweep::default() {
                     info!(
                         stalled = done.stalled,
@@ -813,35 +831,12 @@ pub fn start_originals_bundle_sweep(
 
 #[cfg(test)]
 mod tests {
-    use std::future;
-
     use dravr_barrage::blob::memory::MemoryBlobStore;
     use pierre_core::models::{Tenant, User};
     use pierre_test_support::db::create_test_db;
 
     use super::*;
     use crate::barrage_keys::memory_records;
-
-    #[tokio::test]
-    async fn a_build_that_panics_stops_its_heartbeat() {
-        let beating = tokio::spawn(future::pending::<()>());
-        let heartbeat = AbortOnDrop(beating.abort_handle());
-        let build = tokio::spawn(async move {
-            let _heartbeat = heartbeat;
-            panic!("the build died");
-        });
-        assert!(
-            build.await.unwrap_err().is_panic(),
-            "bug: the test build was meant to panic"
-        );
-        let stopped = time::timeout(Duration::from_secs(5), beating)
-            .await
-            .expect("bug: a dead build's heartbeat kept its row fresh");
-        assert!(
-            stopped.unwrap_err().is_cancelled(),
-            "bug: a dead build's heartbeat ended some other way than aborted"
-        );
-    }
 
     #[tokio::test]
     async fn an_athletes_own_build_answers_even_when_no_slot_is_free() {
@@ -857,7 +852,7 @@ mod tests {
             user.id,
         );
         repos.tenants.create(&tenant).await.unwrap();
-        let now = Utc::now();
+        let now = Timestamp::now();
         let building = repos
             .user_export_bundles
             .insert_building(&ExportBundle {

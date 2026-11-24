@@ -1,19 +1,19 @@
-// ABOUTME: carnet#1035 — a Garmin sign-in stopped at a captcha is the athlete's to retry, never an operator page
+// ABOUTME: carnet#1035 — a Garmin sign-in stopped at a captcha is the athlete's to retry, never an admin page
 // ABOUTME: Pins the challenge copy and reason, and a re-login sending only the caller's own dead session as prior
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! Garmin's SSO puts a captcha in front of a sign-in it does not trust, and
-//! the scraper service stops there without answering it: `403
+//! Garmin's SSO may ask for a human check (a captcha) at a sign-in, and
+//! the sciotte service stops there without answering it: `403
 //! {"error":"login_challenge"}`. Read as an unrecognised login answer, that
-//! paged an operator for a provider's bot check and told the athlete nothing
-//! useful. The platform now answers it with its own copy and the reason the
-//! hosted pages select on, and goes around the system-failure path.
+//! paged an admin for a check only the athlete can answer and told the
+//! athlete nothing useful. The platform now answers it with its own copy and
+//! the reason the hosted pages select on, and raises no system-failure alert.
 //!
 //! A re-login also sends the athlete's previous session as `prior_session`, so
-//! the provider sees the device it trusted last time instead of a stranger —
-//! but only once the platform has observed that session dead: its expiry is
+//! the sign-in continues from the athlete's own earlier session on that
+//! device — but only once the platform has observed that session dead: its expiry is
 //! past, or a read the provider refused flagged the athlete's connection
 //! `needs_reauth`. Sciotte sessions carry no expiry in practice, so the flag
 //! is what makes the case reachable. One not observed dead (no past expiry,
@@ -34,9 +34,6 @@ use crate::common;
 use crate::helpers;
 
 use secrecy::ExposeSecret;
-use std::collections::HashMap;
-use std::fmt::Debug as FmtDebug;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{mpsc, Arc, Mutex, OnceLock};
 use std::thread;
 
@@ -45,8 +42,9 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use chrono::Utc;
 use common::{create_test_user_with_email, generate_test_token};
+use dravr_tronc::dates::Elapsed;
+use dravr_tronc::dates::Timestamp;
 use helpers::axum_test::AxumTestRequest;
 use pierre_core::constants::oauth::providers::provider_terms_version;
 use pierre_core::constants::oauth_providers::{SCIOTTE_GARMIN, TOKEN_TYPE_SESSION};
@@ -56,13 +54,10 @@ use pierre_middleware::provider_link_token::{mint_link_token, MintProviderLinkTo
 use pierre_routes_auth::{
     friendly_login_challenge_message, require_remote_flow, AuthRoutes, LOGIN_CHALLENGE_REASON,
 };
+use pierre_test_support::log_capture::{self, CapturedLog};
 use serde_json::{json, Value};
 use tokio::net::TcpListener;
 use tokio::runtime::Builder;
-use tracing::field::{Field, Visit};
-use tracing::span::{Attributes, Id, Record};
-use tracing::subscriber::{set_default, DefaultGuard};
-use tracing::{Event, Metadata, Subscriber};
 use uuid::Uuid;
 
 /// Logins whose email starts with this are stopped at a challenge.
@@ -331,14 +326,14 @@ impl Athlete {
     /// Store a Garmin session for this athlete under `tenant_id`, as a login
     /// stores one, whose expiry has already passed: the re-login case.
     async fn store_expired_session_under(&self, tenant_id: TenantId, session_id: &str) {
-        let blob = session_blob(session_id, Some(Utc::now() - chrono::Duration::hours(1)));
+        let blob = session_blob(session_id, Some(Timestamp::now() - Elapsed::hours(1)));
         self.store_blob_under(tenant_id, blob).await;
     }
 
     /// Store a Garmin session for this athlete, written an hour ago (past the
     /// reuse window) and expiring tomorrow: still live at the provider.
     async fn store_old_live_session(&self, session_id: &str) {
-        let blob = session_blob(session_id, Some(Utc::now() + chrono::Duration::days(1)));
+        let blob = session_blob(session_id, Some(Timestamp::now() + Elapsed::days(1)));
         self.store_old_blob(blob).await;
     }
 
@@ -350,7 +345,7 @@ impl Athlete {
 
     async fn store_old_blob(&self, blob: String) {
         let mut token = self.session_token(self.tenant_id, blob);
-        token.updated_at = Utc::now() - chrono::Duration::hours(1);
+        token.updated_at = Timestamp::now() - Elapsed::hours(1);
         self.upsert(&token).await;
     }
 
@@ -400,7 +395,7 @@ impl Athlete {
                 self.tenant_id,
                 SCIOTTE_GARMIN,
                 Some("session_expired"),
-                Utc::now(),
+                Timestamp::now(),
             )
             .await
             .unwrap();
@@ -439,7 +434,7 @@ impl Athlete {
 
 /// A stored Garmin session blob carrying one device-trust cookie and
 /// `expires_at`, `null` when `None`.
-fn session_blob(session_id: &str, expires_at: Option<chrono::DateTime<Utc>>) -> String {
+fn session_blob(session_id: &str, expires_at: Option<Timestamp>) -> String {
     json!({
         "session_id": session_id,
         "cookies": [{
@@ -450,103 +445,33 @@ fn session_blob(session_id: &str, expires_at: Option<chrono::DateTime<Utc>>) -> 
             "secure": true,
             "http_only": true
         }],
-        "created_at": (Utc::now() - chrono::Duration::days(30)).to_rfc3339(),
-        "expires_at": expires_at.map(|expires_at| expires_at.to_rfc3339()),
+        "created_at": (Timestamp::now() - Elapsed::days(30)).to_rfc3339(),
+        "expires_at": expires_at.map(Timestamp::to_rfc3339),
     })
     .to_string()
 }
 
 // ── Capture of what the platform logs ──
 
-#[derive(Clone, Debug)]
-struct CapturedEvent {
-    level: tracing::Level,
-    fields: HashMap<String, String>,
-}
-
-#[derive(Default)]
-struct FieldVisitor {
-    fields: HashMap<String, String>,
-}
-
-impl Visit for FieldVisitor {
-    fn record_debug(&mut self, field: &Field, value: &dyn FmtDebug) {
-        self.fields
-            .insert(field.name().to_owned(), format!("{value:?}"));
-    }
-
-    fn record_str(&mut self, field: &Field, value: &str) {
-        self.fields
-            .insert(field.name().to_owned(), value.to_owned());
-    }
-}
-
-/// Records every event and keeps no span state.
-///
-/// A login here runs through sqlx, whose SQLite worker threads drop spans
-/// created on the test thread. Under a `tracing_subscriber::Registry`
-/// installed with `set_default`, that drop can reach a registry that no
-/// longer holds the span and panic the worker ("tried to drop a ref to
-/// Id(1), but no such span exists"), failing the login before the handler
-/// logs. Handing out span ids without tracking them leaves nothing to drop.
-#[derive(Default)]
-struct CaptureSubscriber {
-    events: Arc<Mutex<Vec<CapturedEvent>>>,
-    next_span: AtomicU64,
-}
-
-impl Subscriber for CaptureSubscriber {
-    fn enabled(&self, _metadata: &Metadata<'_>) -> bool {
-        true
-    }
-
-    fn new_span(&self, _span: &Attributes<'_>) -> Id {
-        Id::from_u64(self.next_span.fetch_add(1, Ordering::Relaxed) + 1)
-    }
-
-    fn record(&self, _span: &Id, _values: &Record<'_>) {}
-
-    fn record_follows_from(&self, _span: &Id, _follows: &Id) {}
-
-    fn event(&self, event: &Event<'_>) {
-        let mut visitor = FieldVisitor::default();
-        event.record(&mut visitor);
-        self.events.lock().unwrap().push(CapturedEvent {
-            level: *event.metadata().level(),
-            fields: visitor.fields,
-        });
-    }
-
-    fn enter(&self, _span: &Id) {}
-
-    fn exit(&self, _span: &Id) {}
-}
-
-fn setup_capture() -> (Arc<Mutex<Vec<CapturedEvent>>>, DefaultGuard) {
-    let capture = CaptureSubscriber::default();
-    let events = Arc::clone(&capture.events);
-    let guard = set_default(capture);
-    (events, guard)
-}
-
 /// Whether the capture saw the handler's own challenge `WARN` for `stage`,
 /// which proves it was listening while the handler ran.
-fn saw_challenge_warning(events: &Arc<Mutex<Vec<CapturedEvent>>>, stage: &str) -> bool {
-    events.lock().unwrap().iter().any(|e| {
-        e.level == tracing::Level::WARN && e.fields.get("stage").map(String::as_str) == Some(stage)
-    })
+fn saw_challenge_warning(events: &CapturedLog, stage: &str) -> bool {
+    events
+        .events()
+        .iter()
+        .any(|e| e.level == tracing::Level::WARN && e.field("stage") == Some(stage))
 }
 
 /// The `ERROR` events and `sync.failed` business events among `events`.
-fn system_failure_signals(events: &Arc<Mutex<Vec<CapturedEvent>>>) -> (usize, usize) {
-    let events = events.lock().unwrap();
+fn system_failure_signals(events: &CapturedLog) -> (usize, usize) {
+    let events = events.events();
     let errors = events
         .iter()
         .filter(|e| e.level == tracing::Level::ERROR)
         .count();
     let sync_failed = events
         .iter()
-        .filter(|e| e.fields.get("event").map(String::as_str) == Some("sync.failed"))
+        .filter(|e| e.field("event") == Some("sync.failed"))
         .count();
     (errors, sync_failed)
 }
@@ -576,10 +501,10 @@ fn assert_is_the_challenge_refusal(status: u16, body: &Value) {
 }
 
 /// A challenged sign-in answers the challenge refusal, stores nothing, holds
-/// no flow, and emits neither the operator alert nor `sync.failed`.
+/// no flow, and emits neither the admin alert nor `sync.failed`.
 async fn a_challenge_is_the_athletes_to_retry(athlete: &Athlete) {
     let from = email(CHALLENGED);
-    let (events, guard) = setup_capture();
+    let (events, guard) = log_capture::capture_events();
     let (status, body) = athlete.login(&from).await;
     let (errors, sync_failed) = system_failure_signals(&events);
     let warned = saw_challenge_warning(&events, "credential_login");
@@ -667,7 +592,7 @@ async fn a_challenge_at_the_code_step_ends_the_sign_in() {
     assert_eq!(status, 200, "{login}");
     assert_eq!(login, json!({ "status": "otp_required" }));
 
-    let (events, guard) = setup_capture();
+    let (events, guard) = log_capture::capture_events();
     let (status, body) = athlete
         .post(
             "/api/providers/sciotte/submit-otp",

@@ -6,7 +6,7 @@
 
 #![allow(missing_docs, clippy::unwrap_used)]
 
-use chrono::{TimeZone, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_chat_pipeline::stages::prompt_builder::{
     build_llm_messages, build_llm_messages_with_blocks,
 };
@@ -35,6 +35,7 @@ fn record(role: &str, content: &str) -> MessageRecord {
         channel_type: None,
         about_user_id: None,
         turn_attempted_write: None,
+        ai_consent_sources: Vec::new(),
     }
 }
 
@@ -211,6 +212,7 @@ fn record_id(id: &str, role: &str, content: &str) -> MessageRecord {
         channel_type: None,
         about_user_id: None,
         turn_attempted_write: None,
+        ai_consent_sources: Vec::new(),
     }
 }
 
@@ -225,9 +227,10 @@ fn block(id: &str, first_id: &str, last_id: &str, summary: &str) -> CompactionBl
         original_tokens: 100,
         first_message_id: first_id.to_owned(),
         last_message_id: last_id.to_owned(),
-        created_at: Utc.with_ymd_and_hms(2026, 5, 15, 12, 0, 0).unwrap(),
+        created_at: Timestamp::parse_from_rfc3339("2026-05-15T12:00:00Z").unwrap(),
         transport_policy: TransportPolicy::AnyTransport,
         about_user_id: None,
+        ai_consent_sources: Vec::new(),
     }
 }
 

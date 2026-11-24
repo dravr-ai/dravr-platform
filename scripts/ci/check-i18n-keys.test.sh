@@ -51,7 +51,26 @@ else
     fail "false positive on a resolving key (status $STATUS): $OUT"
 fi
 
-# 3. No false positive: a comment naming a retired key is prose, not a render.
+# 3. Plural stems: a key the catalogue carries only as _one/_other resolves;
+#    a stem with no plural forms still fails.
+scaffold
+printf '%s\n' '{ "providers": { "countDays_one": "{{count}} day", "countDays_other": "{{count}} days" } }' > "$WORK/probe/catalogue.json"
+printf 'export const H = ({ n }: { n: number }) => <Text>{t(%s, { count: n })}</Text>;\n' "'providers.countDays'" > "$WORK/probe/src/Plural.tsx"
+OUT="$(run_check)"; STATUS=$?
+if [ "$STATUS" -eq 0 ]; then
+    pass "resolves a key the catalogue carries only in plural forms"
+else
+    fail "flagged a plural stem (status $STATUS): $OUT"
+fi
+printf 'export const H = () => <Text>{t(%s)}</Text>;\n' "'providers.countWeeks'" > "$WORK/probe/src/Plural.tsx"
+OUT="$(run_check)"; STATUS=$?
+if [ "$STATUS" -ne 0 ] && echo "$OUT" | grep -q "UNRESOLVED providers.countWeeks"; then
+    pass "still fails on a stem with no plural forms"
+else
+    fail "a missing plural stem passed (status $STATUS)"
+fi
+
+# 4. No false positive: a comment naming a retired key is prose, not a render.
 scaffold
 {
     printf '// the hint used to read t(%s) before the move\n' "'app.weeklyReport'"
@@ -64,7 +83,7 @@ else
     fail "flagged a commented-out key (status $STATUS)"
 fi
 
-# 4. No false positive: a dynamic key cannot be resolved statically.
+# 5. No false positive: a dynamic key cannot be resolved statically.
 scaffold
 {
     printf 'export const H = ({ id }: { id: string }) => <Text>{t(`groups.${id}`)}</Text>;\n'
@@ -77,7 +96,7 @@ else
     fail "mishandled a dynamic key (status $STATUS)"
 fi
 
-# 5. Catch: a classifier fallback key is translated like a t() call.
+# 6. Catch: a classifier fallback key is translated like a t() call.
 scaffold
 printf 'export const m = (err: unknown) => describeApiError(err, { t, fallbackKey: %s });\n' "'app.weeklyReport'" > "$WORK/probe/src/Fallback.tsx"
 OUT="$(run_check)"; STATUS=$?
@@ -87,7 +106,7 @@ else
     fail "did not catch the unresolved fallback key (status $STATUS)"
 fi
 
-# 6. Fail closed: a scan that found no call sites has verified nothing.
+# 7. Fail closed: a scan that found no call sites has verified nothing.
 scaffold
 printf 'export const H = () => <Text>nothing translated here</Text>;\n' > "$WORK/probe/src/Empty.tsx"
 OUT="$(run_check)"; STATUS=$?

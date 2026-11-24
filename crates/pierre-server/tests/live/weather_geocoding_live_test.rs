@@ -16,8 +16,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use chrono::{TimeZone, Utc};
 use dravr_meteo::{WeatherError, WeatherProvider, WeatherQuery, WeatherSample};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::{Activity, ActivityBuilder, SportType};
 use pierre_fitness_compute::weather_clients::WeatherClients;
 use pierre_services::weather_backfill::WeatherBackfill;
@@ -68,7 +68,7 @@ fn build_activity_city_only(id: &str, city: &str, region: &str) -> Activity {
         id.to_owned(),
         "City-only Activity".to_owned(),
         SportType::Run,
-        Utc.with_ymd_and_hms(2026, 4, 30, 8, 0, 0).unwrap(),
+        Timestamp::parse_from_rfc3339("2026-04-30T08:00:00Z").unwrap(),
         3600,
         "test",
     )

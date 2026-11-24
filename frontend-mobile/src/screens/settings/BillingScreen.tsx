@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Phase 5E mobile billing surface — current plan, upgrade CTA, manage portal, invoices
+// ABOUTME: The mobile billing screen — current plan, upgrade CTA, manage portal, invoices, drawn on the theme tokens
 // ABOUTME: Reads the shared api-client billing domain; the dravr:// return links are mobile's own
 
 import React, { useState } from 'react';
@@ -29,6 +29,8 @@ import {
   subscriptionStatusLabelKey,
 } from '@pierre/shared-constants';
 import { formatCompactNumber, formatCount, formatDate, formatMajorCurrency, formatMinorCurrency } from '@pierre/chat-utils';
+import { ALERT_TONE, Badge, Button, Section } from '../../components/ui';
+import { useThemeColors } from '../../constants/theme';
 import { useAuth } from '../../contexts/AuthContext';
 import { billingApi } from '../../services/api';
 import { trackMobile } from '../../services/analytics';
@@ -37,8 +39,21 @@ import { openExternal } from '../../utils/openExternal';
 import { useTranslation } from '@pierre/i18n';
 import { describeApiError } from '@pierre/ui-logic';
 
+// The page's recurring lines, as whole class strings so NativeWind generates
+// each one; every colour is a theme token, so the page follows the athlete's
+// appearance setting.
+const HEADER_ROW_CLASS = 'flex-row items-center justify-between';
+const PAIR_ROW_CLASS = 'flex-row justify-between';
+/** A section pays no inset for its content; plain text, bars and buttons pay the pane's 16 themselves. */
+const SECTION_BODY_CLASS = 'px-4 gap-3';
+const PLAN_TITLE_CLASS = 'text-base font-semibold text-text-primary';
+const LABEL_CLASS = 'text-sm text-text-secondary';
+const VALUE_CLASS = 'text-sm text-text-primary';
+const MUTED_CLASS = 'text-sm text-text-secondary';
+
 export function BillingScreen(): React.ReactElement {
   const { t, language } = useTranslation();
+  const colors = useThemeColors();
   const { user } = useAuth();
   const { flags: featureFlags } = useFeatureFlags();
   const showBillingHeader = featureFlags[FEATURE_KEYS.billingHeader];
@@ -104,89 +119,74 @@ export function BillingScreen(): React.ReactElement {
   const statusLabel = sub ? billingLabel(sub.status, subscriptionStatusLabelKey, t) : '';
 
   return (
-    <ScrollView style={styles.scroll} contentContainerStyle={styles.container}>
+    <ScrollView className="flex-1 bg-background-primary" contentContainerClassName="py-4 gap-8">
       {paymentProblem && (
-        <View style={[styles.card, styles.dunningCard]}>
-          <Text className="text-sm font-semibold" style={styles.dunningTitle}>{t('app.paymentProblem')}</Text>
-          <Text className="text-sm" style={styles.muted}>
+        <View className={`mx-4 rounded-xl border p-4 gap-3 ${ALERT_TONE.error.edge} ${ALERT_TONE.error.fill}`}>
+          <Text className={`text-sm font-semibold ${ALERT_TONE.error.ink}`}>{t('app.paymentProblem')}</Text>
+          <Text className={`text-sm ${ALERT_TONE.error.ink}`}>
             {t('app.lastPaymentFailed', {
               plan: tierLabel,
               status: statusLabel,
             })}
           </Text>
-          <TouchableOpacity
-            style={[styles.button, styles.buttonDanger]}
+          <Button
+            variant="danger"
+            title={portalMutation.isPending ? t('app.opening') : t('app.updatePayment')}
             disabled={portalMutation.isPending}
             onPress={() => portalMutation.mutate()}
-          >
-            <Text style={styles.buttonText}>
-              {portalMutation.isPending ? t('app.opening') : t('app.updatePayment')}
-            </Text>
-          </TouchableOpacity>
+          />
         </View>
       )}
       {showBillingHeader && (
-      <View style={styles.card}>
-        <View style={styles.cardHeader}>
-          <Text className="text-base font-semibold" style={styles.cardTitle}>{t('app.currentPlan')}</Text>
-          <Text style={styles.tierBadge}>{tierLabel}</Text>
-        </View>
+      <Section title={t('app.currentPlan')} actions={<Badge variant="primary" label={tierLabel} />}>
+        <View className={SECTION_BODY_CLASS}>
         {subscriptionQuery.isLoading ? (
-          <ActivityIndicator />
+          <ActivityIndicator color={colors.tokens.primary} />
         ) : sub ? (
-          <View style={styles.row}>
-            <Text style={styles.label}>{t('app.status')}</Text>
-            <Text style={styles.value}>{statusLabel}</Text>
+          <View className={PAIR_ROW_CLASS}>
+            <Text className={LABEL_CLASS}>{t('app.status')}</Text>
+            <Text className={VALUE_CLASS}>{statusLabel}</Text>
           </View>
         ) : (
-          <Text className="text-sm" style={styles.muted}>
+          <Text className={MUTED_CLASS}>
             {t('app.onStarterUpgrade')}
           </Text>
         )}
 
         {tier !== 'professional' && (
-          <TouchableOpacity
-            style={[styles.button, styles.buttonPrimary]}
+          <Button
+            title={checkoutMutation.isPending ? t('app.openingCheckout') : t('app.upgradeToProfessional')}
             disabled={checkoutMutation.isPending}
             onPress={() => checkoutMutation.mutate('professional')}
-          >
-            <Text style={styles.buttonText}>
-              {checkoutMutation.isPending ? t('app.openingCheckout') : t('app.upgradeToProfessional')}
-            </Text>
-          </TouchableOpacity>
+          />
         )}
 
         {sub != null && (
-          <TouchableOpacity
-            style={[styles.button, styles.buttonSecondary]}
+          <Button
+            variant="secondary"
+            title={portalMutation.isPending ? t('app.opening') : t('app.manageSubscription')}
             disabled={portalMutation.isPending}
             onPress={() => portalMutation.mutate()}
-          >
-            <Text style={styles.buttonText}>
-              {portalMutation.isPending ? t('app.opening') : t('app.manageSubscription')}
-            </Text>
-          </TouchableOpacity>
+          />
         )}
 
         {sub != null && (
-          <Text className="text-xs" style={styles.fineprint}>
+          <Text className="text-xs text-text-secondary">
             {sub.cancel_at_period_end
               ? t('app.planCancelScheduled')
               : t('app.useManageSubscription')}
           </Text>
         )}
 
-        {error != null && <Text className="text-sm" style={styles.error}>{t('app.errorWithReason', { reason: error })}</Text>}
-      </View>
+        {error != null && <Text className="text-sm text-error">{t('app.errorWithReason', { reason: error })}</Text>}
+        </View>
+      </Section>
       )}
 
-      <View style={styles.card}>
-        <Text className="text-base font-semibold" style={styles.cardTitle}>{t('app.plans')}</Text>
-        <Text className="text-sm" style={styles.muted}>
-          {t('app.planCompareBlurb')}
-        </Text>
+      <Section title={t('app.plans')} description={t('app.planCompareBlurb')}>
+        <View className={SECTION_BODY_CLASS}>
         {plansQuery.isLoading ? (
-          <ActivityIndicator />
+          <ActivityIndicator color={colors.tokens.primary} />
         ) : plansQuery.data ? (
           plansQuery.data.plans.map((plan) => {
             const cap = (v: number): string =>
@@ -201,100 +201,97 @@ export function BillingScreen(): React.ReactElement {
             return (
               <View
                 key={plan.tier}
-                style={[styles.planCard, isCurrent && styles.planCardCurrent]}
+                className={`rounded-lg border p-3 gap-2 ${isCurrent ? 'border-primary bg-primary/5' : 'border-border'}`}
               >
-                <View style={styles.cardHeader}>
-                  <Text className="text-base font-semibold" style={styles.planTitle}>{plan.label}</Text>
-                  {isCurrent && <Text style={styles.tierBadge}>{t('app.current')}</Text>}
+                <View className={HEADER_ROW_CLASS}>
+                  <Text className={PLAN_TITLE_CLASS}>{plan.label}</Text>
+                  {isCurrent && <Badge variant="primary" label={t('app.current')} />}
                 </View>
                 {[
                   ...PLAN_LIMIT_ROWS.map((row): [string, string] => [t(row.labelKey), cap(plan[row.field])]),
                   [t(PLAN_INCLUDED_USAGE_LABEL_KEY), includedUsage] as [string, string],
                 ].map(([planLabel, planValue]) => (
-                  <View key={planLabel} style={styles.row}>
-                    <Text style={styles.label}>{planLabel}</Text>
-                    <Text style={styles.value}>{planValue}</Text>
+                  <View key={planLabel} className={PAIR_ROW_CLASS}>
+                    <Text className={LABEL_CLASS}>{planLabel}</Text>
+                    <Text className={VALUE_CLASS}>{planValue}</Text>
                   </View>
                 ))}
                 {!isCurrent && plan.tier === 'professional' && (
-                  <TouchableOpacity
-                    style={[styles.button, styles.buttonPrimary]}
+                  <Button
+                    title={checkoutMutation.isPending ? t('app.openingCheckout') : t('app.upgrade')}
                     disabled={checkoutMutation.isPending}
                     onPress={() => checkoutMutation.mutate('professional')}
-                  >
-                    <Text style={styles.buttonText}>
-                      {checkoutMutation.isPending ? t('app.openingCheckout') : t('app.upgrade')}
-                    </Text>
-                  </TouchableOpacity>
+                  />
                 )}
                 {!isCurrent && plan.tier === 'enterprise' && (
-                  <TouchableOpacity
-                    style={[styles.button, styles.buttonSecondary]}
+                  <Button
+                    variant="secondary"
+                    title={t('app.talkToSales')}
                     disabled={checkoutMutation.isPending}
                     onPress={() => checkoutMutation.mutate('enterprise')}
-                  >
-                    <Text style={styles.buttonText}>{t('app.talkToSales')}</Text>
-                  </TouchableOpacity>
+                  />
                 )}
               </View>
             );
           })
         ) : (
-          <Text className="text-sm" style={styles.muted}>{t('app.planInfoUnavailable')}</Text>
+          <Text className={MUTED_CLASS}>{t('app.planInfoUnavailable')}</Text>
         )}
-      </View>
+        </View>
+      </Section>
 
-      <View style={styles.card}>
-        <Text className="text-base font-semibold" style={styles.cardTitle}>{t('app.usageQuota')}</Text>
+      <Section title={t('app.usageQuota')}>
+        <View className={SECTION_BODY_CLASS}>
         {quotaQuery.isLoading ? (
-          <ActivityIndicator />
+          <ActivityIndicator color={colors.tokens.primary} />
         ) : quotaQuery.data ? (
           quotaQuery.data.counters.map((c) => {
             const ratio = c.limit > 0 ? Math.min(1, c.current / c.limit) : 0;
-            const barColor = c.burst_zone ? '#ef4444' : c.warning ? '#f59e0b' : '#10b981';
+            const barClass = c.burst_zone ? 'bg-error' : c.warning ? 'bg-warning' : 'bg-success';
             return (
-              <View key={c.counter_type} style={styles.quotaRow}>
-                <View style={styles.quotaTopRow}>
-                  <Text style={styles.label}>{billingLabel(c.counter_type, quotaCounterLabelKey, t)}</Text>
-                  <Text style={styles.value}>
+              <View key={c.counter_type} className="gap-1.5">
+                <View className={PAIR_ROW_CLASS}>
+                  <Text className={LABEL_CLASS}>{billingLabel(c.counter_type, quotaCounterLabelKey, t)}</Text>
+                  <Text className={VALUE_CLASS}>
                     {formatCount(c.current, language)} / {c.limit === Number.MAX_SAFE_INTEGER ? '∞' : formatCount(c.limit, language)}
                   </Text>
                 </View>
-                <View style={styles.barTrack}>
+                <View className="h-1.5 overflow-hidden rounded bg-surface-container-high">
                   <View
-                    style={[
-                      styles.barFill,
-                      { width: `${Math.round(ratio * 100)}%`, backgroundColor: barColor },
-                    ]}
+                    className={`h-1.5 ${barClass}`}
+                    style={{ width: `${Math.round(ratio * 100)}%` }}
+                    testID={`quota-bar-${c.counter_type}`}
                   />
                 </View>
               </View>
             );
           })
         ) : (
-          <Text className="text-sm" style={styles.muted}>{t('app.quotaInfoUnavailable')}</Text>
+          <Text className={MUTED_CLASS}>{t('app.quotaInfoUnavailable')}</Text>
         )}
-      </View>
+        </View>
+      </Section>
 
-      <View style={styles.card}>
-        <Text className="text-base font-semibold" style={styles.cardTitle}>{t('app.invoices')}</Text>
+      <Section title={t('app.invoices')}>
+        <View className={SECTION_BODY_CLASS}>
         {invoicesQuery.isLoading ? (
-          <ActivityIndicator />
+          <ActivityIndicator color={colors.tokens.primary} />
         ) : invoicesQuery.data && invoicesQuery.data.invoices.length > 0 ? (
           invoicesQuery.data.invoices.map((inv, idx) => (
             <TouchableOpacity
               key={inv.id ?? idx}
-              style={styles.invoiceRow}
+              className="flex-row justify-between border-b border-border-faint py-2"
+              style={{ borderBottomWidth: StyleSheet.hairlineWidth }}
               onPress={() => {
                 if (inv.hosted_invoice_url) void openExternal(inv.hosted_invoice_url, t);
               }}
               disabled={!inv.hosted_invoice_url}
             >
-              <Text style={styles.value}>
+              <Text className={VALUE_CLASS}>
                 {inv.created ? formatDate(new Date(inv.created * 1000).toISOString(), language) : '—'}
               </Text>
-              <Text style={styles.label}>{inv.number ?? '—'}</Text>
-              <Text style={styles.value}>
+              <Text className={LABEL_CLASS}>{inv.number ?? '—'}</Text>
+              <Text className={VALUE_CLASS}>
                 {inv.amount_paid != null
                   ? formatMinorCurrency(inv.amount_paid, inv.currency ?? 'usd', language)
                   : '—'}
@@ -302,64 +299,12 @@ export function BillingScreen(): React.ReactElement {
             </TouchableOpacity>
           ))
         ) : (
-          <Text className="text-sm" style={styles.muted}>
+          <Text className={MUTED_CLASS}>
             {sub ? t('app.noInvoicesYet') : t('app.invoicesAppearAfter')}
           </Text>
         )}
-      </View>
+        </View>
+      </Section>
     </ScrollView>
   );
 }
-
-const styles = StyleSheet.create({
-  scroll: { flex: 1, backgroundColor: '#0a0a0a' },
-  container: { padding: 16, gap: 16 },
-  card: {
-    backgroundColor: '#1c1c1c',
-    borderRadius: 12,
-    padding: 16,
-    gap: 12,
-    borderWidth: 1,
-    borderColor: '#2a2a2a',
-  },
-  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  cardTitle: { color: '#f5f5f5' },
-  tierBadge: { color: '#10b981', fontWeight: '600' },
-  row: { flexDirection: 'row', justifyContent: 'space-between' },
-  label: { color: '#a1a1aa' },
-  value: { color: '#f5f5f5' },
-  muted: { color: '#a1a1aa' },
-  fineprint: { color: '#a1a1aa' },
-  error: { color: '#ef4444' },
-  dunningCard: { borderColor: 'rgba(239,68,68,0.6)', backgroundColor: 'rgba(239,68,68,0.1)' },
-  dunningTitle: { color: '#ef4444' },
-  planCard: {
-    borderWidth: 1,
-    borderColor: '#2a2a2a',
-    borderRadius: 10,
-    padding: 12,
-    gap: 8,
-  },
-  planCardCurrent: { borderColor: '#10b981', backgroundColor: 'rgba(16,185,129,0.05)' },
-  planTitle: { color: '#f5f5f5' },
-  button: {
-    paddingVertical: 12,
-    borderRadius: 10,
-    alignItems: 'center',
-  },
-  buttonPrimary: { backgroundColor: '#10b981' },
-  buttonSecondary: { backgroundColor: '#2a2a2a' },
-  buttonDanger: { backgroundColor: '#ef4444' },
-  buttonText: { color: '#f5f5f5', fontWeight: '600' },
-  quotaRow: { gap: 6 },
-  quotaTopRow: { flexDirection: 'row', justifyContent: 'space-between' },
-  barTrack: { backgroundColor: '#2a2a2a', height: 6, borderRadius: 4, overflow: 'hidden' },
-  barFill: { height: 6 },
-  invoiceRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingVertical: 8,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#2a2a2a',
-  },
-});

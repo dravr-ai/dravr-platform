@@ -58,8 +58,11 @@ use serde::Serialize;
 use serde_json::Value;
 use tracing::info;
 
+use dravr_tronc::date_pattern;
+use dravr_tronc::dates::{CivilDate, Pattern};
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
+use pierre_core::ai_policy::ProviderTerms;
 use pierre_core::civil_time::{local_date, resolve_zone};
 use pierre_core::errors::AppResult;
 use pierre_core::models::groups::{CoachingGroup, MemberFitnessSnapshot};
@@ -74,6 +77,7 @@ use pierre_tools_core::ToolResult;
 
 use super::call_room::{call_room, CallRoom};
 use super::coach_scope::refusal;
+use crate::coach_assistant;
 use crate::coach_roster::{fetch_page_snapshots, gate_page_reads, read_snapshot};
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
@@ -82,8 +86,19 @@ use crate::conversions::{
 use crate::read_subject::COACH_ACCESS_OFF;
 use crate::runtime::ToolRuntime;
 
+/// `Tuesday`: the weekday the roster overview names.
+const WEEKDAY_NAME: Pattern<CivilDate> = date_pattern!(CivilDate, "%A");
+
 /// The tool's name, as a refusal words it.
 const TOOL_NAME: &str = "get_roster_overview";
+
+/// `not_read` of a sharer whose every service keeps its data in Dravr.
+///
+/// Served to an assistant outside Dravr (carnet#1511): present, their data
+/// withheld, and nothing said about whether they trained.
+pub const KEPT_IN_DRAVR: &str = "Their training comes only from services whose data stays \
+     inside Dravr, so none of it is shown to an assistant outside Dravr. This says nothing \
+     about whether they trained; never infer it.";
 
 /// Most athletes one call fetches training for, and most it names without.
 /// Each snapshot is a provider read, so the cap bounds both the turn's latency
@@ -181,6 +196,21 @@ pub struct RosterOverviewResult {
     pub athletes: Vec<RosterOverviewAthlete>,
     /// True when the roster held more athletes than one call lists.
     pub truncated: bool,
+    /// What the caller should know about who is not shown: for an AI
+    /// assistant, how many members have not allowed it; for an admin who
+    /// leads no group, why there is no roster. Relay it; never infer the
+    /// members left out.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+}
+
+/// Which groups a call covers, and for an admin with no group of their own
+/// the empty answer.
+enum Covered {
+    /// The groups the call covers.
+    Groups(Vec<CoachingGroup>),
+    /// An admin who leads no active group (carnet#1511, Q24).
+    AdminWithoutGroup,
 }
 
 /// The groups the call covers, or the refusal that explains why it covers none.
@@ -195,11 +225,13 @@ pub struct RosterOverviewResult {
 async fn covered_groups(
     context: &ToolExecutionContext,
     arg_group: Option<&str>,
-) -> AppResult<Result<Vec<CoachingGroup>, ToolResult>> {
+    is_admin: bool,
+) -> AppResult<Result<Covered, ToolResult>> {
     let access = roster_access(context.resources.repos(), context.user_id).await?;
     let (mut groups, holds_coach_access) = match access {
         RosterAccess::Granted(groups) => (groups, true),
         RosterAccess::NoCoachAccess(groups) => (groups, false),
+        RosterAccess::NotACoach if is_admin => return Ok(Ok(Covered::AdminWithoutGroup)),
         RosterAccess::NotACoach => {
             return Ok(Err(refusal(
                 "not_a_coach",
@@ -247,7 +279,7 @@ async fn covered_groups(
             )));
         }
     }
-    Ok(Ok(groups))
+    Ok(Ok(Covered::Groups(groups)))
 }
 
 /// Project a snapshot to the training the overview lists.
@@ -265,10 +297,10 @@ pub fn project_training(snapshot: &MemberFitnessSnapshot) -> RosterTraining {
         .iter()
         .take(RECENT_ACTIVITIES_PER_ATHLETE)
         .map(|a| {
-            let day = local_date(a.start, zone);
+            let day = local_date(a.start, &zone);
             RosterOverviewActivity {
-                date: day.format("%Y-%m-%d").to_string(),
-                weekday: day.format("%A").to_string(),
+                date: day.to_string(),
+                weekday: day.format_with(&WEEKDAY_NAME),
                 sport: a.sport.clone(),
                 name: display_line(&a.name, ACTIVITY_NAME_MAX_CHARS),
                 duration_seconds: a.duration_seconds,
@@ -289,11 +321,28 @@ pub fn project_training(snapshot: &MemberFitnessSnapshot) -> RosterTraining {
         last_activity_per_source: reading
             .last_activity_per_source
             .into_iter()
-            .map(|(source, day)| (source, day.format("%Y-%m-%d").to_string()))
+            .map(|(source, day)| (source, day.to_string()))
             .collect(),
         needs_reconnect: reading.needs_reconnect,
         stale: reading.stale,
     }
+}
+
+/// `training` with the service names its terms keep in Dravr dropped from
+/// the per-source dates and the reconnect list, over an external transport
+/// (carnet#1511): the AI assistant a coach connects is never told which of
+/// those services a member uses. Unchanged in Dravr's own app.
+fn served_sources(terms: &dyn ProviderTerms, mut training: RosterTraining) -> RosterTraining {
+    let per_source: Vec<(String, String)> = training.last_activity_per_source.into_iter().collect();
+    training.last_activity_per_source =
+        ai_scope::retain_served_here(terms, per_source, |(source, _)| (source.as_str(), None))
+            .into_iter()
+            .collect();
+    training.needs_reconnect =
+        ai_scope::retain_served_here(terms, training.needs_reconnect, |source| {
+            (source.as_str(), None)
+        });
+    training
 }
 
 /// Order shared athletes for a "who needs attention" read: no session in the
@@ -356,7 +405,18 @@ async fn build_overview(
     let runtime = &context.resources;
     let repos = runtime.repos();
     let gathered = gather_roster(repos, context.user_id, groups).await?;
+    // The coach's assistant is shown the members who allowed it, before the
+    // order and the cut at 40 see anyone, and before any read is recorded.
+    let (gathered, left_out) = if coach_assistant::serving_coach_assistant() {
+        gathered.included_by_coach_assistant()
+    } else {
+        (gathered, 0)
+    };
     let total = gathered.roster_members();
+    // Served outside Dravr, the order reads only what may reach the caller.
+    let terms = runtime.provider_registry();
+    let outside: Option<&dyn ProviderTerms> =
+        coach_assistant::serving_coach_assistant().then_some(terms.as_ref());
     let summaries = gathered
         .groups
         .iter()
@@ -366,12 +426,20 @@ async fn build_overview(
         })
         .collect();
 
-    let (mut readable, mut others): (Vec<_>, Vec<_>) = order_roster(repos, gathered.members)
+    let (mut readable, rest): (Vec<_>, Vec<_>) = order_roster(repos, gathered.members, outside)
         .await?
         .into_iter()
+        .partition(OrderedMember::readable);
+    // A sharer whose data stays in Dravr is listed as present, after the
+    // readable sharers: never first as if they had gone quiet.
+    let (mut kept, mut others): (Vec<_>, Vec<_>) = rest
+        .into_iter()
         .partition(|m| m.member.status == RosterAthleteStatus::Shared);
-    let truncated = readable.len() > MAX_ROSTER_ATHLETES || others.len() > MAX_ROSTER_ATHLETES;
+    let truncated = readable.len() > MAX_ROSTER_ATHLETES
+        || kept.len() > MAX_ROSTER_ATHLETES
+        || others.len() > MAX_ROSTER_ATHLETES;
     readable.truncate(MAX_ROSTER_ATHLETES);
+    kept.truncate(MAX_ROSTER_ATHLETES);
     others.truncate(MAX_ROSTER_ATHLETES);
     let (readable, unread) = gate_reads(context, readable).await?;
 
@@ -385,7 +453,9 @@ async fn build_overview(
     let mut shared: Vec<RosterOverviewAthlete> = readable
         .iter()
         .map(|m| RosterOverviewAthlete {
-            training: snapshots.get(&m.member.user_id).map(project_training),
+            training: snapshots
+                .get(&m.member.user_id)
+                .map(|snapshot| served_sources(terms.as_ref(), project_training(snapshot))),
             name: m.name.clone(),
             groups: group_names(m),
             status: RosterAthleteStatus::Shared,
@@ -402,6 +472,13 @@ async fn build_overview(
         truncated,
         "get_roster_overview: consent-gated roster read"
     );
+    shared.extend(kept.iter().map(|m| RosterOverviewAthlete {
+        name: m.name.clone(),
+        groups: group_names(m),
+        status: RosterAthleteStatus::Shared,
+        training: None,
+        not_read: Some(KEPT_IN_DRAVR.to_owned()),
+    }));
     shared.extend(unread.iter().map(|(m, why)| RosterOverviewAthlete {
         name: m.name.clone(),
         groups: group_names(m),
@@ -420,6 +497,7 @@ async fn build_overview(
         groups: summaries,
         athletes: shared,
         truncated,
+        note: (left_out > 0).then(|| coach_assistant::left_out_note(left_out)),
     })
 }
 
@@ -456,8 +534,9 @@ impl McpTool<dyn ToolRuntime> for GetRosterOverviewTool {
              sources. Only athletes whose `status` is `shared` carry `training`; \
              `no_coach_consent` means they stopped sharing with you (they can share again with \
              `/group consent coach yes`) — never infer their numbers. In a group's room it \
-             covers that group only. Use `get_group_member_activities` for one athlete's full \
-             session history, and `get_provider_roster` for your coaching platform's roster.",
+             covers that group only. Outside AI tools see opted-in members; `note` counts \
+             the rest. Use `get_group_member_activities` for one athlete's full session \
+             history, and `get_provider_roster` for your coaching platform's roster.",
             schema,
             annotations(
                 "Get roster overview",
@@ -484,8 +563,19 @@ impl McpTool<dyn ToolRuntime> for GetRosterOverviewTool {
                 .and_then(Value::as_str)
                 .map(str::trim)
                 .filter(|s| !s.is_empty());
-            let groups = match covered_groups(&context, arg_group).await? {
-                Ok(groups) => groups,
+            let groups = match covered_groups(&context, arg_group, ctx.is_admin).await? {
+                Ok(Covered::Groups(groups)) => groups,
+                Ok(Covered::AdminWithoutGroup) => {
+                    return ok_typed(
+                        "get_roster_overview",
+                        RosterOverviewResult {
+                            groups: Vec::new(),
+                            athletes: Vec::new(),
+                            truncated: false,
+                            note: Some(coach_assistant::ADMIN_NO_GROUP_NOTE.to_owned()),
+                        },
+                    );
+                }
                 Err(refused) => return Ok(refused),
             };
             ok_typed(
@@ -498,13 +588,15 @@ impl McpTool<dyn ToolRuntime> for GetRosterOverviewTool {
     }
 }
 
-// A coach's tool over other athletes' data: Dravr's own surfaces list and run
-// it, an MCP client or an A2A agent never sees it (`crate::first_party_tools`).
-crate::declare_security!(GetRosterOverviewTool => empty; first_party_only);
+// A coach's tool over other members' data: listed and run over every
+// transport for a human coach or an admin (`crate::tool_access`), and
+// externally it shows only the members who allowed their coach's assistant
+// (`crate::coach_assistant`).
+crate::declare_security!(GetRosterOverviewTool => empty; coach);
 
 #[cfg(test)]
 mod tests {
-    use chrono::{TimeZone, Utc};
+    use dravr_tronc::dates::Timestamp;
     use pierre_core::models::groups::{OvertrainingRiskLevel, RosterActivity};
 
     use super::*;
@@ -539,7 +631,7 @@ mod tests {
     fn the_overview_keeps_durations_to_the_second() {
         // 53:59 truncated to whole minutes reads as 53, about 10 s/km slow on
         // 6.1 km (carnet#1015).
-        let start = Utc.with_ymd_and_hms(2026, 10, 13, 17, 0, 0).unwrap();
+        let start = Timestamp::parse_from_rfc3339("2026-10-13T17:00:00Z").unwrap();
         let snapshot = MemberFitnessSnapshot {
             user_id: Uuid::nil(),
             display_name: "Philippe".to_owned(),

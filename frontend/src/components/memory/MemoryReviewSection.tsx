@@ -6,14 +6,12 @@
 
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { QUERY_KEYS } from '@pierre/shared-constants';
 import { isSupersededDraftError, type MemoryFactRow } from '@pierre/api-client';
 import { formatDateTime } from '@pierre/chat-utils';
 import { useTranslation } from '@pierre/i18n';
 import { userApi } from '../../services/api';
 import { Section, Button } from '../ui';
-
-/** Shares the panel's key prefix, so keeping or discarding refreshes both lists. */
-export const MEMORY_DRAFTS_QUERY_KEY = ['memory', 'facts', 'drafts'] as const;
 
 export default function MemoryReviewSection() {
   const { t, language } = useTranslation();
@@ -22,12 +20,12 @@ export default function MemoryReviewSection() {
   const [superseded, setSuperseded] = useState<ReadonlySet<string>>(new Set());
 
   const { data } = useQuery({
-    queryKey: MEMORY_DRAFTS_QUERY_KEY,
+    queryKey: QUERY_KEYS.memory.drafts(),
     queryFn: () => userApi.listMemoryFacts({ status: 'draft', limit: 100 }),
   });
   const drafts = data?.facts ?? [];
 
-  const refresh = () => queryClient.invalidateQueries({ queryKey: ['memory', 'facts'] });
+  const refresh = () => queryClient.invalidateQueries({ queryKey: QUERY_KEYS.memory.facts() });
 
   const keep = useMutation({
     mutationFn: (factId: string) => userApi.approveMemoryFact(factId),

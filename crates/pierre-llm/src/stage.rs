@@ -379,46 +379,19 @@ impl PublishedHead<'_> {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::{BTreeMap, HashMap};
-    use std::fmt::Debug;
-    use std::sync::{Arc, Mutex, PoisonError};
+    use std::collections::HashMap;
 
-    use tracing::callsite::rebuild_interest_cache;
-    use tracing::field::{Field, Visit};
-    use tracing::subscriber::with_default;
-    use tracing::{Event, Level, Subscriber};
-    use tracing_subscriber::layer::{Context, Layer, SubscriberExt};
-    use tracing_subscriber::Registry;
+    use pierre_test_support::log_capture::{capture_events_while, CapturedEvent};
+    use tracing::Level;
 
     use super::*;
 
-    /// The fields of every WARN event logged while the layer is installed.
-    #[derive(Clone, Default)]
-    struct Warnings(Arc<Mutex<Vec<BTreeMap<String, String>>>>);
-
-    struct FieldText<'a>(&'a mut BTreeMap<String, String>);
-
-    impl Visit for FieldText<'_> {
-        fn record_debug(&mut self, field: &Field, value: &dyn Debug) {
-            self.0.insert(field.name().to_owned(), format!("{value:?}"));
-        }
-
-        fn record_str(&mut self, field: &Field, value: &str) {
-            self.0.insert(field.name().to_owned(), value.to_owned());
-        }
-    }
-
-    impl<S: Subscriber> Layer<S> for Warnings {
-        fn on_event(&self, event: &Event<'_>, _ctx: Context<'_, S>) {
-            if *event.metadata().level() == Level::WARN {
-                let mut fields = BTreeMap::new();
-                event.record(&mut FieldText(&mut fields));
-                self.0
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .push(fields);
-            }
-        }
+    /// The WARN events among `events`.
+    fn warnings(events: Vec<CapturedEvent>) -> Vec<CapturedEvent> {
+        events
+            .into_iter()
+            .filter(|event| event.level == Level::WARN)
+            .collect()
     }
 
     fn lookup(vars: &[(&str, &str)]) -> impl Fn(&str) -> Option<String> {
@@ -499,30 +472,13 @@ mod tests {
         ids.iter().map(|id| (*id).to_owned()).collect()
     }
 
-    /// Held by every test that reaches `keep_published`'s log lines: tracing
-    /// caches each callsite's interest, and a test reaching one with no
-    /// subscriber while another installs its own can cache it as never
-    /// interested, so the capturing test would see no warning.
-    static LOG_CALLSITES: Mutex<()> = Mutex::new(());
-
-    /// `stages` held to a head, with the log callsites to itself.
-    fn held(
-        stages: StageModels,
-        provider: &str,
-        head_model: &str,
-        available: &[String],
-    ) -> StageModels {
-        let _callsites = LOG_CALLSITES.lock().unwrap_or_else(PoisonError::into_inner);
-        stages.keep_published(provider, head_model, available)
-    }
-
     #[test]
     fn a_stage_model_the_head_does_not_publish_runs_on_the_head_model() {
-        let stages = held(
-            StageModels::resolve(
-                Some(LlmProviderType::CopilotSdk),
-                lookup(&[("PIERRE_LLM_MODEL_CLAIM_JUDGE", "gpt-5-mini")]),
-            ),
+        let stages = StageModels::resolve(
+            Some(LlmProviderType::CopilotSdk),
+            lookup(&[("PIERRE_LLM_MODEL_CLAIM_JUDGE", "gpt-5-mini")]),
+        )
+        .keep_published(
             "copilot_sdk",
             "claude-sonnet-5.5",
             &published(&["claude-sonnet-5.5", "gpt-5-mini"]),
@@ -545,18 +501,12 @@ mod tests {
         }
     }
 
-    /// The boot log is the only place an operator learns a stage was held to
+    /// The boot log is the only place an admin learns a stage was held to
     /// the head: one warning per dropped stage, naming its variable and the
     /// model it stays on until the provider publishes the id.
     #[test]
     fn each_dropped_stage_warns_once_naming_its_variable_and_the_head_model() {
-        let warnings = Warnings::default();
-        let callsites = LOG_CALLSITES.lock().unwrap_or_else(PoisonError::into_inner);
-        let stages = with_default(Registry::default().with(warnings.clone()), || {
-            // An earlier test may have reached the warning with no subscriber,
-            // caching the callsite as never interested; rebuild the cache now
-            // that this thread's subscriber is installed.
-            rebuild_interest_cache();
+        let (stages, events) = capture_events_while(|| {
             StageModels::resolve(
                 Some(LlmProviderType::CopilotSdk),
                 lookup(&[("PIERRE_LLM_MODEL_CLAIM_JUDGE", "gpt-5-mini")]),
@@ -567,17 +517,16 @@ mod tests {
                 &published(&["claude-sonnet-5.5", "gpt-5-mini"]),
             )
         });
-        drop(callsites);
+        let logged = warnings(events);
 
         assert_eq!(stages.model_for(LlmStage::ClaimJudge), Some("gpt-5-mini"));
-        let logged = warnings.0.lock().unwrap_or_else(PoisonError::into_inner);
         let dropped: Vec<LlmStage> = LlmStage::ALL
             .into_iter()
             .filter(|stage| *stage != LlmStage::ClaimJudge)
             .collect();
         assert_eq!(logged.len(), dropped.len(), "{logged:?}");
         for (stage, fields) in dropped.into_iter().zip(logged.iter()) {
-            let field = |name: &str| fields.get(name).map(String::as_str);
+            let field = |name: &str| fields.field(name);
             assert_eq!(field("stage"), Some(stage.call_type()), "{fields:?}");
             assert_eq!(field("env_var"), Some(stage.env_var()), "{fields:?}");
             assert_eq!(field("model"), Some(COPILOT_SDK_BACKGROUND_MODEL));
@@ -596,12 +545,8 @@ mod tests {
             published(&["claude-sonnet-5.5", COPILOT_SDK_BACKGROUND_MODEL]),
             Vec::new(),
         ] {
-            let stages = held(
-                StageModels::resolve(Some(LlmProviderType::CopilotSdk), lookup(&[])),
-                "copilot_sdk",
-                "claude-sonnet-5.5",
-                &available,
-            );
+            let stages = StageModels::resolve(Some(LlmProviderType::CopilotSdk), lookup(&[]))
+                .keep_published("copilot_sdk", "claude-sonnet-5.5", &available);
             for stage in LlmStage::ALL {
                 assert_eq!(
                     stages.model_for(stage),
@@ -669,27 +614,21 @@ mod tests {
         );
         assert_eq!(inherit.tool_iteration_model(), None);
 
-        let warnings = Warnings::default();
-        let callsites = LOG_CALLSITES.lock().unwrap_or_else(PoisonError::into_inner);
-        let unpublished = with_default(Registry::default().with(warnings.clone()), || {
-            // As in the stage warning test: rebuild the callsite cache under
-            // this thread's subscriber.
-            rebuild_interest_cache();
+        let (unpublished, events) = capture_events_while(|| {
             StageModels::resolve(Some(LlmProviderType::Anthropic), lookup(&[])).keep_published(
                 "anthropic",
                 "claude-sonnet-5-5",
                 &published(&["claude-sonnet-5-5"]),
             )
         });
-        drop(callsites);
+        let logged = warnings(events);
         assert_eq!(
             unpublished.tool_iteration_model(),
             None,
             "an iteration model the head does not publish stays on the turn's model"
         );
-        let logged = warnings.0.lock().unwrap_or_else(PoisonError::into_inner);
         assert_eq!(logged.len(), 1, "{logged:?}");
-        let field = |name: &str| logged[0].get(name).map(String::as_str);
+        let field = |name: &str| logged[0].field(name);
         assert_eq!(field("stage"), Some(TOOL_ITERATION_STAGE));
         assert_eq!(field("env_var"), Some(TOOL_ITERATION_ENV));
         assert_eq!(field("model"), Some(ANTHROPIC_TOOL_ITERATION_MODEL));

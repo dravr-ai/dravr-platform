@@ -299,7 +299,7 @@ fn no_credentials(provider: &str) -> AppError {
 }
 
 /// The daily request budget a tenant's OAuth app for `provider` is registered
-/// with when its operator names none (`pierre-cli tenant set-oauth-app`).
+/// with when its admin names none (`pierre-cli tenant set-oauth-app`).
 #[must_use]
 pub fn default_rate_limit_for_provider(provider: &str) -> u32 {
     match provider.to_lowercase().as_str() {

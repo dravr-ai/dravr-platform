@@ -12,7 +12,7 @@
 #![allow(missing_docs)]
 
 use anyhow::Result;
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_auth::api_keys::{ApiKey, ApiKeyTier, ApiKeyUsage};
 use pierre_core::models::JwtUsage;
 use pierre_core::models::{TenantId, User, UserOAuthToken, UserTier};
@@ -168,7 +168,7 @@ async fn test_strava_token_operations() -> Result<()> {
     assert!(initial_token.is_none());
 
     // Update token
-    let expires_at = Utc::now() + Duration::hours(6);
+    let expires_at = Timestamp::now() + Elapsed::hours(6);
     let oauth_token = UserOAuthToken::new(
         user_id,
         "00000000-0000-0000-0000-000000000000".to_owned(),
@@ -253,7 +253,7 @@ async fn test_whoop_token_operations() -> Result<()> {
     assert!(initial_token.is_none());
 
     // Update token
-    let expires_at = Utc::now() + Duration::hours(8);
+    let expires_at = Timestamp::now() + Elapsed::hours(8);
     let oauth_token = UserOAuthToken::new(
         user_id,
         "00000000-0000-0000-0000-000000000000".to_owned(),
@@ -339,7 +339,7 @@ async fn test_api_key_operations() -> Result<()> {
         is_active: true,
         last_used_at: None,
         expires_at: None,
-        created_at: Utc::now(),
+        created_at: Timestamp::now(),
     };
 
     db.repositories().api_keys.create(&api_key).await?;
@@ -401,7 +401,7 @@ async fn test_api_key_usage_tracking() -> Result<()> {
         is_active: true,
         last_used_at: None,
         expires_at: None,
-        created_at: Utc::now(),
+        created_at: Timestamp::now(),
     };
 
     db.repositories().api_keys.create(&api_key).await?;
@@ -411,7 +411,7 @@ async fn test_api_key_usage_tracking() -> Result<()> {
         id: None,
         api_key_id: api_key.id.clone(),
         tool_name: "get_activities".to_owned(),
-        timestamp: Utc::now(),
+        timestamp: Timestamp::now(),
         status_code: 200,
         response_time_ms: Some(150),
         error_message: None,
@@ -427,7 +427,7 @@ async fn test_api_key_usage_tracking() -> Result<()> {
     let window_usage = db
         .repositories()
         .usage
-        .get_api_key_window_usage(&api_key.id, Utc::now() - Duration::days(30))
+        .get_api_key_window_usage(&api_key.id, Timestamp::now() - Elapsed::days(30))
         .await?;
     assert_eq!(window_usage.count, 1);
 
@@ -462,7 +462,8 @@ async fn test_jwt_usage_tracking() -> Result<()> {
         response_size_bytes: Some(200),
         ip_address: Some("127.0.0.1".to_owned()),
         user_agent: Some("test-client".to_owned()),
-        timestamp: Utc::now(),
+        client_grant_id: None,
+        timestamp: Timestamp::now(),
     };
 
     db.repositories().usage.record_jwt_usage(&jwt_usage).await?;
@@ -488,7 +489,8 @@ async fn test_jwt_usage_tracking() -> Result<()> {
         response_size_bytes: Some(1000),
         ip_address: Some("127.0.0.1".to_owned()),
         user_agent: Some("test-client".to_owned()),
-        timestamp: Utc::now(),
+        client_grant_id: None,
+        timestamp: Timestamp::now(),
     };
 
     db.repositories()
@@ -564,7 +566,7 @@ async fn test_token_encryption_roundtrip() -> Result<()> {
     ];
 
     for (access_token, refresh_token) in special_tokens {
-        let expires_at = Utc::now() + Duration::hours(1);
+        let expires_at = Timestamp::now() + Elapsed::hours(1);
 
         // Store Strava token
         let oauth_token = UserOAuthToken::new(
@@ -696,7 +698,7 @@ async fn test_api_key_usage_aggregation() -> Result<()> {
         is_active: true,
         last_used_at: None,
         expires_at: None,
-        created_at: Utc::now(),
+        created_at: Timestamp::now(),
     };
 
     db.repositories().api_keys.create(&api_key).await?;
@@ -711,7 +713,7 @@ async fn test_api_key_usage_aggregation() -> Result<()> {
             tool_name: format!("tool_{i}"),
             status_code: 200,
             response_time_ms: Some(*response_time),
-            timestamp: Utc::now(),
+            timestamp: Timestamp::now(),
             error_message: None,
             request_size_bytes: Some(100),
             response_size_bytes: Some(200),
@@ -726,7 +728,7 @@ async fn test_api_key_usage_aggregation() -> Result<()> {
     let window_usage = db
         .repositories()
         .usage
-        .get_api_key_window_usage(&api_key.id, Utc::now() - Duration::days(30))
+        .get_api_key_window_usage(&api_key.id, Timestamp::now() - Elapsed::days(30))
         .await?;
     assert_eq!(window_usage.count, 5);
 
@@ -778,7 +780,7 @@ async fn test_user_tier_handling() -> Result<()> {
             is_active: true,
             last_used_at: None,
             expires_at: None,
-            created_at: Utc::now(),
+            created_at: Timestamp::now(),
         };
 
         db.repositories().api_keys.create(&api_key).await?;
@@ -818,7 +820,7 @@ async fn test_database_connection_reuse() -> Result<()> {
         // Each operation should work with the same connection
         db.repositories().users.update_last_active(user_id).await?;
 
-        let token_expires = Utc::now() + Duration::hours(i);
+        let token_expires = Timestamp::now() + Elapsed::hours(i);
         let oauth_token = UserOAuthToken::new(
             user_id,
             "00000000-0000-0000-0000-000000000000".to_owned(),
@@ -982,7 +984,7 @@ mod postgres_tests {
                 is_active: true,
                 last_used_at: None,
                 expires_at: None,
-                created_at: Utc::now(),
+                created_at: Timestamp::now(),
             };
 
             // Create API key
@@ -1008,7 +1010,7 @@ mod postgres_tests {
                 tool_name: "postgres_test_tool".to_owned(),
                 status_code: 200,
                 response_time_ms: Some(150),
-                timestamp: Utc::now(),
+                timestamp: Timestamp::now(),
                 error_message: None,
                 request_size_bytes: Some(512),
                 response_size_bytes: Some(1024),
@@ -1049,7 +1051,7 @@ mod postgres_tests {
         );
         let user_id = db.repositories().users.create(&user).await?;
 
-        let expires_at = Utc::now() + Duration::hours(2);
+        let expires_at = Timestamp::now() + Elapsed::hours(2);
 
         // Test Strava token operations
         let strava_oauth_token = UserOAuthToken::new(
@@ -1198,7 +1200,7 @@ mod postgres_tests {
                     is_active: true,
                     last_used_at: None,
                     expires_at: None,
-                    created_at: Utc::now(),
+                    created_at: Timestamp::now(),
                 };
 
                 db_clone.repositories().api_keys.create(&api_key).await?;
@@ -1246,11 +1248,12 @@ mod postgres_tests {
                 method: "GET".to_owned(),
                 status_code: 200,
                 response_time_ms: Some(100 + u32::try_from(i).unwrap_or(0) * 10),
-                timestamp: Utc::now(),
+                timestamp: Timestamp::now(),
                 request_size_bytes: Some(512),
                 response_size_bytes: Some(1024),
                 ip_address: Some("10.0.0.1".to_owned()),
                 user_agent: Some("postgres-jwt-client/1.0".to_owned()),
+                client_grant_id: None,
             };
 
             db.repositories().usage.record_jwt_usage(&jwt_usage).await?;

@@ -20,7 +20,7 @@ import {
   type InviteFunnelStep,
 } from '@pierre/ui-logic';
 import { groupsApi } from '../../services/api';
-import { QUERY_KEYS } from '../../constants/queryKeys';
+import { QUERY_KEYS } from '@pierre/shared-constants';
 import { useOpenGroupRoom } from '../../hooks/useCoachPlan';
 import { Button, EmptyState, useErrorToast } from '../ui';
 import { AthleteAvatar } from './parts';

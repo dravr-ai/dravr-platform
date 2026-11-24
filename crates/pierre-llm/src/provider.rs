@@ -30,6 +30,7 @@
 //! chained in order by [`EmbacleProvider::chain`].
 
 use embacle::QuotaCooldowns;
+use pierre_core::llm::is_llm_provider_fault;
 use std::fmt;
 use std::sync::Arc;
 use tracing::{error, info, warn};
@@ -42,12 +43,14 @@ use crate::config::{LlmChain, LlmProviderType};
 use crate::errors::AppError;
 use crate::health::TierProbe;
 use crate::model_check::validate_model_for_provider;
+use crate::served_tier::observe_reached_tier;
 use crate::stage::{LlmStage, StageModels};
+use crate::tier_bench::{probe_request, TierBench, BENCH_WINDOW};
 use crate::tool_bridge::with_tool_defs;
 
 /// Name every retired chain variable the environment still sets.
 ///
-/// With `PIERRE_LLM_CHAIN` unset they are an operator's chain the process is
+/// With `PIERRE_LLM_CHAIN` unset they are an admin's chain the process is
 /// ignoring — a binary deployed before its environment moved to the chain, or
 /// a stale `.envrc` — and the platform default (Gemini alone) serves every
 /// turn, so it is an error. With the chain set they are only inert.
@@ -246,7 +249,7 @@ impl ChatProvider {
     ///
     /// A missing tier is never fatal while another built: the tiers behind it
     /// move up. Only every tier failing is an error. The warnings are the
-    /// operator's only signal that a configured tier is absent.
+    /// admin's only signal that a configured tier is absent.
     ///
     /// Public so the assembly can be driven with scripted tiers; production
     /// reaches it through [`Self::from_env`].
@@ -415,15 +418,209 @@ impl ChatProvider {
     pub async fn probe_chain_tiers(&self, request: &ChatRequest) -> Vec<TierProbe> {
         let mut probes = Vec::new();
         for (position, tier) in self.chain_tiers().iter().enumerate() {
-            let outcome = match tier.complete(request).await {
-                Ok(response) if response.content.trim().is_empty() => {
-                    Err("empty completion".to_owned())
-                }
-                Ok(response) => Ok(response.model),
-                Err(e) => Err(e.to_string()),
-            };
             probes.push(TierProbe {
                 provider: tier.name(),
+                position,
+                outcome: tier.answer_alone(request).await.into_outcome(),
+            });
+        }
+        probes
+    }
+
+    /// [`Self::probe_chain_tiers`] with the probe request, benching each tier
+    /// the probe finds dead ([`Self::is_tier_benched`] then says which).
+    ///
+    /// Dead means the tier rejected "ping" with an error the chain does not
+    /// fall through on. A tier that failed the probe with a provider fault —
+    /// a timeout on a cold start, an overloaded vendor, a signed-out CLI — is
+    /// reported and left in the chain: every call falls through it on that
+    /// same fault, so the bench would add nothing but a window during which a
+    /// tier that recovered is not asked.
+    pub async fn probe_and_bench_chain_tiers(&self) -> Vec<TierProbe> {
+        let mut probes = Vec::new();
+        for (position, tier) in self.chain_tiers().iter().enumerate() {
+            let answer = tier.answer_alone(&probe_request()).await;
+            if let Some(reason) = answer.death() {
+                self.bench_tier(tier.name(), &reason);
+            }
+            probes.push(TierProbe {
+                provider: tier.name(),
+                position,
+                outcome: answer.into_outcome(),
+            });
+        }
+        probes
+    }
+
+    /// One completion from this provider's own runner.
+    ///
+    /// Asked of a tier taken alone ([`Self::chain_tiers`]), so the failure is
+    /// that tier's and no other tier answers for it. Goes to the runner
+    /// directly, past [`LlmProvider::complete`]'s own dead-tier check: the
+    /// probe is that check.
+    async fn answer_alone(&self, request: &ChatRequest) -> ProbeAnswer {
+        match self.inner().complete(request).await {
+            Ok(response) if response.content.trim().is_empty() => ProbeAnswer::Empty,
+            Ok(response) => ProbeAnswer::Answered(response.model),
+            Err(error) => ProbeAnswer::Failed(error),
+        }
+    }
+
+    /// The bench the runtime-fallback chain shares, when this is one (see
+    /// [`crate::tier_bench`]).
+    const fn tier_bench(&self) -> Option<&TierBench> {
+        match self {
+            Self::Embacle(p) => p.tier_bench(),
+            Self::Custom(_) => None,
+        }
+    }
+
+    /// Whether `tier` of this chain is benched: found unable to answer the
+    /// probe request, and passed over until it answers it again.
+    #[must_use]
+    pub fn is_tier_benched(&self, tier: &str) -> bool {
+        self.tier_bench()
+            .is_some_and(|bench| bench.is_benched(tier))
+    }
+
+    /// Bench `tier` of this chain: every route passes it over for
+    /// [`BENCH_WINDOW`], and [`Self::reprobe_benched_tiers`] keeps it there
+    /// until it answers the probe. Returns whether it was not benched
+    /// already: the first bench is the one worth reporting. A provider that
+    /// is not a chain has no bench and nothing to move to.
+    fn bench_tier(&self, tier: &'static str, reason: &str) -> bool {
+        let Some(bench) = self.tier_bench() else {
+            return false;
+        };
+        if let Some(book) = self.quota_cooldowns() {
+            book.start_for(tier, BENCH_WINDOW);
+        }
+        bench.bench(tier, reason)
+    }
+
+    /// Take `tier` off the bench and end its window: the next call asks it.
+    fn reinstate_tier(&self, tier: &str) {
+        if let Some(bench) = self.tier_bench() {
+            bench.reinstate(tier);
+        }
+        if let Some(book) = self.quota_cooldowns() {
+            book.end(tier);
+        }
+    }
+
+    /// Whether `tier` of this chain is dead: asked alone for the probe
+    /// completion, it rejects that too. A dead tier is benched, so the call
+    /// that just failed on it is worth making on the tiers behind it.
+    ///
+    /// This is the second opinion on an error the chain does not fall through
+    /// on. A tier that rejects a request and then answers "ping" rejected
+    /// that request: the error stands. A tier that rejects "ping" as well is
+    /// dead whatever kind its error carries. A probe that fails with a
+    /// provider fault — a timeout, an overloaded vendor — says nothing about
+    /// the request either way, so the error stands and nothing is benched on
+    /// one blip. It costs one probe on `tier` and never spends another
+    /// provider's quota on a request that is wrong.
+    async fn bench_if_dead(&self, tier: &Self) -> bool {
+        let Some(reason) = tier.answer_alone(&probe_request()).await.death() else {
+            return false;
+        };
+        let name = tier.name();
+        if self.bench_tier(name, &reason) {
+            error!(
+                tier = name,
+                error = %reason,
+                "LLM chain tier cannot answer the probe request; benched, the tiers behind it serve until it answers"
+            );
+        }
+        true
+    }
+
+    /// Whether `tier` was found dead already and is being passed over: on the
+    /// bench and inside its window. A call that failed on it while another
+    /// call in flight was benching it needs no probe of its own.
+    fn is_benched_and_passed_over(&self, tier: &str) -> bool {
+        self.is_tier_benched(tier)
+            && self
+                .quota_cooldowns()
+                .is_some_and(|book| book.is_cooling(tier))
+    }
+
+    /// The second opinion on the chain's head, which is the tier a tool loop
+    /// converses with: whether the head that just failed a turn cannot answer
+    /// the probe completion either and is benched, so the turn goes to
+    /// [`Self::fallback_tail`]. A head that answers the probe rejected that
+    /// turn, and its error stands. A head another turn benched meanwhile is
+    /// not probed again. `false` when this is not a chain, there being no
+    /// tail to take the turn.
+    pub async fn bench_head_if_dead(&self) -> bool {
+        let Some(head) = self.chain_head() else {
+            return false;
+        };
+        self.is_benched_and_passed_over(head.name()) || self.bench_if_dead(&head).await
+    }
+
+    /// The chain behind the tier at `position`: what is left to ask once that
+    /// tier is out. `None` when it is the last tier, or this is not a chain.
+    fn tail_behind(&self, position: usize) -> Option<&Self> {
+        let mut tail = self.fallback_tail()?;
+        for _ in 0..position {
+            tail = tail.fallback_tail()?;
+        }
+        Some(tail)
+    }
+
+    /// The tiers left to ask when `error` came from a tier that is dead
+    /// rather than from the request: that tier is benched, and the call is
+    /// worth making on the chain behind it. `None` when the error stands.
+    /// Only an error the chain does not already fall through on is checked.
+    ///
+    /// `reached` is the position of the last tier the chain moved to during
+    /// the call ([`observe_reached_tier`]), `None` when it never moved: the
+    /// tier that rejected is that one, or the head. The last tier is never
+    /// probed — nothing behind it could serve instead. A tier another call in
+    /// flight benched meanwhile is not probed again.
+    ///
+    /// The call resumes behind the dead tier, not at the head: a tier ahead
+    /// of it that this call already fell through (a head that timed out) is
+    /// not made to fail a second time.
+    async fn tail_past_a_dead_tier(
+        &self,
+        reached: Option<usize>,
+        error: &AppError,
+    ) -> Option<&Self> {
+        if is_llm_provider_fault(error) {
+            return None;
+        }
+        let position = reached.unwrap_or(0);
+        let tail = self.tail_behind(position)?;
+        let tier = self.chain_tiers().into_iter().nth(position)?;
+        let dead = self.is_benched_and_passed_over(tier.name()) || self.bench_if_dead(&tier).await;
+        dead.then_some(tail)
+    }
+
+    /// Ask every benched tier, alone, for the probe completion again. A tier
+    /// that answers is reinstated; one that does not, for any reason, has its
+    /// window renewed. Empty when nothing is benched, so a healthy chain
+    /// costs no call.
+    pub async fn reprobe_benched_tiers(&self) -> Vec<TierProbe> {
+        let mut probes = Vec::new();
+        if self.tier_bench().is_none_or(TierBench::is_empty) {
+            return probes;
+        }
+        for (position, tier) in self.chain_tiers().iter().enumerate() {
+            let name = tier.name();
+            if !self.is_tier_benched(name) {
+                continue;
+            }
+            let outcome = tier.answer_alone(&probe_request()).await.into_outcome();
+            match &outcome {
+                Ok(_) => self.reinstate_tier(name),
+                Err(reason) => {
+                    self.bench_tier(name, reason);
+                }
+            }
+            probes.push(TierProbe {
+                provider: name,
                 position,
                 outcome,
             });
@@ -451,7 +648,7 @@ impl ChatProvider {
         tools: Option<Vec<Tool>>,
     ) -> Result<ChatResponseWithTools, AppError> {
         let forwarded = with_tool_defs(request, tools);
-        let response = self.inner().complete(&forwarded).await?;
+        let response = LlmProvider::complete(self, &forwarded).await?;
         Ok(ChatResponseWithTools::from_chat_response(response))
     }
 
@@ -574,6 +771,46 @@ impl ChatProvider {
     }
 }
 
+/// `request` as a tier behind the head is asked it: without the model the
+/// caller named, which is the head's and means nothing to another provider.
+fn on_the_tier_own_model(request: &ChatRequest) -> ChatRequest {
+    let mut forwarded = request.clone();
+    forwarded.model = None;
+    forwarded
+}
+
+/// What a tier did with a completion it was asked for alone.
+enum ProbeAnswer {
+    /// It answered; the model it answered under.
+    Answered(String),
+    /// It answered with nothing deliverable.
+    Empty,
+    /// It failed.
+    Failed(AppError),
+}
+
+impl ProbeAnswer {
+    /// Why the tier is dead, when it is: it rejected the request with an
+    /// error the chain does not fall through on. An empty answer and a
+    /// provider fault are failures the chain already moves past by itself.
+    fn death(&self) -> Option<String> {
+        match self {
+            Self::Failed(error) if !is_llm_provider_fault(error) => Some(error.to_string()),
+            Self::Answered(_) | Self::Empty | Self::Failed(_) => None,
+        }
+    }
+
+    /// The answer as a [`TierProbe`] reports it: the model, or the reason
+    /// nothing deliverable came back.
+    fn into_outcome(self) -> Result<String, String> {
+        match self {
+            Self::Answered(model) => Ok(model),
+            Self::Empty => Err("empty completion".to_owned()),
+            Self::Failed(error) => Err(error.to_string()),
+        }
+    }
+}
+
 impl fmt::Debug for ChatProvider {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -612,12 +849,35 @@ impl LlmProvider for ChatProvider {
         self.inner().available_models()
     }
 
+    /// A call through a chain that a dead tier rejected is made on the chain
+    /// behind that tier: one that rejects the probe request too (see
+    /// [`crate::tier_bench`]). The tail gets the request without the model
+    /// the caller named, as every tier behind the first does inside the
+    /// chain: that model is the head's. Each hop drops at least one tier, so
+    /// the hops end with the chain.
     async fn complete(&self, request: &ChatRequest) -> Result<ChatResponse, AppError> {
-        self.inner().complete(request).await
+        let (outcome, reached) = observe_reached_tier(self.inner().complete(request)).await;
+        let Err(error) = &outcome else {
+            return outcome;
+        };
+        match self.tail_past_a_dead_tier(reached, error).await {
+            Some(tail) => tail.complete(&on_the_tier_own_model(request)).await,
+            None => outcome,
+        }
     }
 
+    /// As [`Self::complete`], for a stream that could not be opened. A stream
+    /// that opened and then failed has already delivered text and is not
+    /// made again.
     async fn complete_stream(&self, request: &ChatRequest) -> Result<ChatStream, AppError> {
-        self.inner().complete_stream(request).await
+        let (outcome, reached) = observe_reached_tier(self.inner().complete_stream(request)).await;
+        let Err(error) = &outcome else {
+            return outcome;
+        };
+        match self.tail_past_a_dead_tier(reached, error).await {
+            Some(tail) => tail.complete_stream(&on_the_tier_own_model(request)).await,
+            None => outcome,
+        }
     }
 
     async fn complete_stream_with_tools(

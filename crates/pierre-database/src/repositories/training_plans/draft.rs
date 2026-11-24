@@ -569,7 +569,8 @@ macro_rules! impl_training_plan_draft_helpers {
         /// draft whose season is gone) supersedes the live season, any author's,
         /// and carries its weeks; otherwise the weeks go on the live season as it
         /// stands. Each drafted week then supersedes the live week of its
-        /// `week_start`, authored by whoever wrote it into the draft.
+        /// `week_start`, authored by whoever wrote it into the draft, its days
+        /// without the coach's pre-edit snapshots.
         async fn replay_draft(
             conn: &mut <$db as sqlx::Database>::Connection,
             params: &PublishDraftParams<'_>,
@@ -605,9 +606,13 @@ macro_rules! impl_training_plan_draft_helpers {
                 })?;
                 (plan, None)
             };
-            let drafted = draft_weeks(&mut *conn, owner, &draft_plan.id).await?;
+            let mut drafted = draft_weeks(&mut *conn, owner, &draft_plan.id).await?;
             let mut weeks = Vec::with_capacity(drafted.len());
-            for week in &drafted {
+            for week in &mut drafted {
+                // The coach's editor marks are the draft's own: what goes
+                // live carries no snapshot (carnet#1714) and no added-session
+                // flag (carnet#1716).
+                week.drop_coach_marks();
                 let target = WeekTarget {
                     tenant_id: owner.tenant_id,
                     user_id: owner.user_id,
@@ -627,7 +632,7 @@ macro_rules! impl_training_plan_draft_helpers {
                 .bind(&draft_plan.id)
                 .bind(owner.tenant_id)
                 .bind(owner.user_id)
-                .bind(Utc::now().timestamp())
+                .bind(Timestamp::now().epoch_seconds())
                 .execute(&mut *conn)
                 .await
                 .map_err(|e| AppError::database(format!("mark draft published: {e}")))?;
@@ -645,7 +650,7 @@ macro_rules! impl_training_plan_draft_helpers {
             pool: &sqlx::Pool<$db>,
             params: &SaveDraftParams<'_>,
         ) -> AppResult<SavedDraftBundle> {
-            let now = Utc::now().timestamp();
+            let now = Timestamp::now().epoch_seconds();
             let mut tx = pool
                 .begin()
                 .await

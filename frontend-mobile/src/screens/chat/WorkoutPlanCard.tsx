@@ -2,10 +2,18 @@
 // ABOUTME: Reads the projection the platform built from the rows save_training_plan wrote; the agent's prose never feeds it.
 
 import React from 'react';
-import { View, Text } from 'react-native';
+import { Pressable, View, Text } from 'react-native';
 import { countKey, fuelParts, stepDuration } from '@pierre/chat-utils';
 import { PLAN_HARD_PER_WEEK_KEYS, PLAN_MORE_WEEKS_KEYS } from '@pierre/shared-constants';
-import { civilDayMonth, formatCivilDate, ROW_DATE, sportLabel } from '@pierre/ui-logic';
+import {
+  canAddSession,
+  civilDayMonth,
+  dayIsUncheckedEdit,
+  formatCivilDate,
+  ROW_DATE,
+  SESSION_EDITOR_KEYS,
+  sportLabel,
+} from '@pierre/ui-logic';
 import type {
   PlanDay,
   PlanPhase,
@@ -18,10 +26,30 @@ import { useTranslation } from '@pierre/i18n';
 import { Badge } from '../../components/ui';
 import { EvidenceChip } from './EvidenceChip';
 
+/**
+ * What the coach's day editor opens on (carnet#1716): one entry of a date to
+ * edit, or the date to add a session to. A date may hold several entries, so
+ * the editor is handed all of them, in order — whether one may be removed or
+ * another added depends on how many there are.
+ */
+export interface SessionEditorTarget {
+  /** In `edit`, the entry edited; in `add`, the date's last entry, whose date the new session joins. */
+  day: PlanDay;
+  /** Every entry on the day's date, in order, a rest entry included. */
+  entries: PlanDay[];
+  mode: 'edit' | 'add';
+}
+
 interface WorkoutPlanCardProps {
   plan: WorkoutPlan;
   /** Drawn under the plan, inside the card — a coach's draft controls. */
   children?: React.ReactNode;
+  /**
+   * Opens the coach's day editor on one of a date's entries, or on the date
+   * to add a session to it (carnet#1515, #1714, #1716). Handed only in the
+   * coach's own plan thread on an athlete; without it no entry offers it.
+   */
+  onBuildDay?: (target: SessionEditorTarget) => void;
 }
 
 /** A figure inside a sentence: dates, durations, counts, set in the mono face so columns of them line up. */
@@ -67,9 +95,10 @@ function Sentence({ text, figure }: { text: string; figure: string | number }) {
 
 /**
  * "label · Nm · zone", with "×repeat" appended when the step is repeated.
- * The duration and the repeat count are the step's two figures.
+ * The duration and the repeat count are the step's two figures. The family
+ * editor's preview draws its steps with this same line.
  */
-function StepText({ step }: { step: PlanStep }) {
+export function StepText({ step }: { step: PlanStep }) {
   return (
     <Text>
       {step.label}
@@ -188,20 +217,48 @@ function Season({ plan }: { plan: WorkoutPlan }) {
 }
 
 /**
- * One day of the fortnight: the date, the sport, and the session — its text,
- * duration and intensity, then the steps, the template and the fuel it
+ * One entry of the fortnight: the date, the sport, and the session — its
+ * text, duration and intensity, then the steps, the template and the fuel it
  * carries. A rest day is the one word. Rows are separated by space, not by a
  * rule; the card's one hairline sits under its header. The Home tab draws its
  * selected and next-week days with this same row, so a day reads alike there.
+ *
+ * A date may hold several entries, in the order they are done (carnet#1716):
+ * each is its own row, and only the first leads with the date, so the column
+ * reads as one date with its sessions under it. `position` keys the row's
+ * test ids, which a date's second session would otherwise share.
+ *
+ * A session the coach added to a date in their draft carries the "Added"
+ * mark, one they edited the "Edited" mark, and one they wrote by hand —
+ * naming no family — says it is not checked against a family's evidence.
+ * Only a draft carries either, so the athlete's card and Home never show
+ * them. `children` end the row: the coach's actions on it.
  */
-export function DayRow({ day }: { day: PlanDay }) {
+export function DayRow({
+  day,
+  position = 0,
+  showDate = true,
+  children,
+}: {
+  day: PlanDay;
+  /** Where the entry sits among its date's entries, from 0. */
+  position?: number;
+  /** Whether the row leads with the date: a date's first entry does, the ones after it do not. */
+  showDate?: boolean;
+  children?: React.ReactNode;
+}) {
   const { t, language } = useTranslation();
   const steps = day.steps ?? [];
+  const id = `${day.date}-${position}`;
   return (
-    <View className="flex-row mt-2" testID={`workout-plan-day-${day.date}`}>
-      <Text className={`w-24 text-sm text-text-secondary ${FIGURE}`}>
-        {formatCivilDate(day.date, language, ROW_DATE)}
-      </Text>
+    <View className="flex-row mt-2" testID={`workout-plan-day-${id}`}>
+      {showDate ? (
+        <Text className={`w-24 text-sm text-text-secondary ${FIGURE}`}>
+          {formatCivilDate(day.date, language, ROW_DATE)}
+        </Text>
+      ) : (
+        <View className="w-24" />
+      )}
       <View className="flex-1">
         {day.rest ? (
           <Text className="text-sm text-text-secondary">{t('chat.restDay')}</Text>
@@ -221,6 +278,26 @@ export function DayRow({ day }: { day: PlanDay }) {
             </Text>
           </Text>
         )}
+        {day.added ? (
+          <Badge
+            variant="neutral"
+            label={t(SESSION_EDITOR_KEYS.added)}
+            className="mt-1 self-start"
+            testID={`workout-plan-day-added-${id}`}
+          />
+        ) : day.edited ? (
+          <Badge
+            variant="neutral"
+            label={t(SESSION_EDITOR_KEYS.edited)}
+            className="mt-1 self-start"
+            testID={`workout-plan-day-edited-${id}`}
+          />
+        ) : null}
+        {dayIsUncheckedEdit(day) ? (
+          <Text className="text-sm text-text-secondary mt-0.5" testID={`workout-plan-day-unchecked-${id}`}>
+            {t(SESSION_EDITOR_KEYS.unchecked)}
+          </Text>
+        ) : null}
         {day.outside_evidence ? (
           <Badge variant="warning" label={day.outside_evidence} className="mt-1 self-start" />
         ) : null}
@@ -262,7 +339,62 @@ export function DayRow({ day }: { day: PlanDay }) {
             {t('chat.fuelWithheld')}
           </Text>
         ) : null}
+        {children}
       </View>
+    </View>
+  );
+}
+
+/**
+ * The coach's links under one entry: "Edit day" — "Edit session" once the
+ * date holds more than one — and, on the date's last entry while it has
+ * room, "Add a session". Each hint names the date, and the session too when
+ * the date holds several, so a screen reader moving from link to link tells
+ * every one apart.
+ */
+function EntryActions({
+  day,
+  position,
+  entries,
+  onBuild,
+}: {
+  day: PlanDay;
+  position: number;
+  entries: PlanDay[];
+  onBuild: (target: SessionEditorTarget) => void;
+}) {
+  const { t, language } = useTranslation();
+  const date = formatCivilDate(day.date, language, ROW_DATE);
+  const several = entries.length > 1;
+  const editLabel = t(several ? SESSION_EDITOR_KEYS.editSession : SESSION_EDITOR_KEYS.edit);
+  const named = day.rest ? t('chat.restDay') : day.workout;
+  const adds = position === entries.length - 1 && canAddSession(entries);
+  return (
+    <View className="mt-1 flex-row flex-wrap gap-x-5">
+      <Pressable
+        className="self-start py-0.5"
+        accessibilityRole="button"
+        accessibilityLabel={editLabel}
+        accessibilityHint={t(SESSION_EDITOR_KEYS.editTitle, { date: several ? `${date} · ${named}` : date })}
+        hitSlop={10}
+        onPress={() => onBuild({ day, entries, mode: 'edit' })}
+        testID={`workout-plan-day-edit-${day.date}-${position}`}
+      >
+        <Text className="text-sm font-medium text-primary">{editLabel}</Text>
+      </Pressable>
+      {adds ? (
+        <Pressable
+          className="self-start py-0.5"
+          accessibilityRole="button"
+          accessibilityLabel={t(SESSION_EDITOR_KEYS.addSession)}
+          accessibilityHint={t(SESSION_EDITOR_KEYS.addTitle, { date })}
+          hitSlop={10}
+          onPress={() => onBuild({ day, entries, mode: 'add' })}
+          testID={`workout-plan-day-add-${day.date}`}
+        >
+          <Text className="text-sm font-medium text-primary">{t(SESSION_EDITOR_KEYS.addSession)}</Text>
+        </Pressable>
+      ) : null}
     </View>
   );
 }
@@ -309,7 +441,7 @@ export function WeekHeading({
  * a single hairline under the header block. Everything under it is separated
  * by spacing alone.
  */
-export default function WorkoutPlanCard({ plan, children }: WorkoutPlanCardProps) {
+export default function WorkoutPlanCard({ plan, children, onBuildDay }: WorkoutPlanCardProps) {
   const { t, language } = useTranslation();
   const currentIndex = plan.weeks.findIndex((week) => week.current);
 
@@ -348,9 +480,19 @@ export default function WorkoutPlanCard({ plan, children }: WorkoutPlanCardProps
               testID={`workout-plan-week-${index + 1}`}
             >
               <WeekHeading week={week} index={index} currentIndex={currentIndex} />
-              {week.days.map((day) => (
-                <DayRow key={day.date} day={day} />
-              ))}
+              {week.days.map((day) => {
+                // A date's entries, in order: the week holds every entry a
+                // date has, so an entry's place among them is its position.
+                const entries = week.days.filter((entry) => entry.date === day.date);
+                const position = entries.indexOf(day);
+                return (
+                  <DayRow key={`${day.date}-${position}`} day={day} position={position} showDate={position === 0}>
+                    {onBuildDay ? (
+                      <EntryActions day={day} position={position} entries={entries} onBuild={onBuildDay} />
+                    ) : null}
+                  </DayRow>
+                );
+              })}
             </View>
           ))}
         </View>

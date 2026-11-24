@@ -28,13 +28,13 @@
 //! Everything is wired through [`AuthRoutesContext`] — a concrete state
 //! struct collecting the Arc handles every auth handler needs (auth manager,
 //! JWKS, CSRF, repos, config, email + Firebase services, provider registry,
-//! tenant OAuth client, sync notifier, optional sync orchestrator, Cache,
+//! tenant OAuth client, optional sync orchestrator, Cache,
 //! plus the `provider-sciotte`-gated link-token nonce store). The composition root in `pierre-server` builds the context once
 //! from its `ServerContext` and passes it as Axum state.
 //!
 //! The context-struct pattern (rather than a 13-method `AuthRoutesCtx`
 //! trait) matches the precedent set by [`pierre_routes_identity::oauth2`]
-//! (`OAuth2Context`) and [`pierre_routes_admin::AdminApiContext`] — fields
+//! (`OAuth2Context`) and `pierre_routes_admin::AdminApiContext` — fields
 //! pulled from disparate optional crates (Firebase, Resend, Sciotte) where
 //! growing the trait would force `pierre-runtime-context` to depend on the
 //! union of all of them.
@@ -69,7 +69,6 @@ use pierre_middleware::McpAuthMiddleware;
 use pierre_providers::ProviderRegistry;
 use pierre_runtime_context::DataContext;
 use pierre_services::originals_bundle::OriginalsBundleService;
-use pierre_services::provider_refresh::SyncNotifier;
 #[cfg(feature = "health-sync")]
 use pierre_services::sync_failure_notice::SyncFailureNotices;
 
@@ -107,6 +106,8 @@ mod login;
 mod oauth;
 /// What a provider's OAuth callback starts once its grant is stored.
 mod oauth_connect;
+/// What an OAuth start carries, and the notice precondition it passes
+mod oauth_start;
 mod originals_export;
 mod password_attempts;
 mod pending_session;
@@ -132,6 +133,8 @@ mod sciotte_prefetch;
 mod sciotte_session_reuse;
 #[cfg(feature = "provider-sciotte")]
 mod sciotte_takeover;
+/// The notice precondition a provider sign-in passes
+mod sciotte_terms;
 mod short_link;
 #[cfg(feature = "provider-sciotte")]
 mod sign_in_grant;
@@ -164,7 +167,7 @@ pub use sciotte::{
 // that a continuation without a live flow of the caller's own is refused, that
 // the entry is reachable from any pod sharing the cache, that it is scoped to
 // the tenant that parked it, and that a scraper load-shed answers with a
-// retryable 503 instead of an operator alert. Doc-hidden — internal-only.
+// retryable 503 instead of an admin alert. Doc-hidden — internal-only.
 #[cfg(feature = "provider-sciotte")]
 #[doc(hidden)]
 pub use sciotte::{
@@ -188,9 +191,9 @@ pub use pierre_auth::dto::auth::{
 
 pub use first_sync::{FirstSyncHook, FirstSyncSlot, CONNECT_RECENT_DAYS};
 pub use pierre_mcp_transport::OAuthCallbackResponse;
+use pierre_services::admin_mail::PendingSignupMail;
 pub use pierre_services::auth::AuthService;
 pub use pierre_services::oauth_flow::OAuthService;
-use pierre_services::operator_mail::PendingSignupMail;
 
 /// Shared state for every auth route handler in this crate.
 ///
@@ -223,8 +226,6 @@ pub struct AuthRoutesContext {
     pub email_service: Option<Arc<ResendEmailService>>,
     /// Provider registry — descriptor lookups (PKCE capability, OAuth params).
     pub provider_registry: Arc<ProviderRegistry>,
-    /// Background sync notifier (the SSE manager in production).
-    pub sync_notifier: Arc<dyn SyncNotifier>,
     /// Health-data sync orchestrator (enforme). `None` when health-sync
     /// feature is disabled or orchestrator init failed.
     #[cfg(feature = "health-sync")]
@@ -363,7 +364,6 @@ impl AuthRoutes {
                 "/api/auth/resend-verification",
                 post(email_verification::handle_resend_verification),
             )
-            .route("/api/auth/admin/register", post(login::handle_register))
             .route("/api/auth/firebase", post(login::handle_firebase_login))
             .route("/api/auth/logout", post(login::handle_logout))
             .route("/api/auth/session", get(login::handle_session))
@@ -506,17 +506,21 @@ impl AuthRoutes {
                 "/api/oauth/providers/{provider}/disconnect",
                 delete(oauth::handle_disconnect_provider_rest),
             )
-            // Trigger provider data sync (requires auth)
-            .route(
-                "/api/providers/{provider}/sync",
-                post(oauth::handle_sync_provider),
-            )
-            // Give or withdraw the consent to AI use of a provider's data
-            // (requires auth; carnet#726)
+            // Read, give or withdraw the consent to AI use of a provider's
+            // data or of a consent class (requires auth; carnet#726, J2)
             .route(
                 "/api/providers/{provider}/ai-consent",
-                put(provider_ai_consent::handle_grant_ai_consent)
+                get(provider_ai_consent::handle_get_ai_consent)
+                    .put(provider_ai_consent::handle_grant_ai_consent)
                     .delete(provider_ai_consent::handle_withdraw_ai_consent),
+            )
+            // Give or withdraw the consent to Dravr sending a provider the
+            // athlete's data: Garmin's workout transfer (carnet#1390). The
+            // provider card's `transfer_consent` reads the answer back.
+            .route(
+                "/api/providers/{provider}/transfer-consent",
+                put(provider_ai_consent::handle_grant_transfer_consent)
+                    .delete(provider_ai_consent::handle_withdraw_transfer_consent),
             )
             // Intervals.icu API-key linking (non-OAuth; validates the key live
             // before persisting). Always registered — the handler degrades to a

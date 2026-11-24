@@ -28,6 +28,7 @@ use super::types::{AdminResponse, AllowEmailRequest};
 use super::users::{announce_approval, deny_without_manage_users};
 use crate::audit::AuditDetail;
 use crate::context::AdminApiContext;
+use dravr_tronc::dates::Timestamp;
 
 /// `GET /admin/pre-approved-emails` — the standing allow-list.
 ///
@@ -159,7 +160,7 @@ fn allow_data(result: &pre_approval::AllowResult, invite: &invitations::InviteRe
         "outcome": result.outcome,
         "approved_user_id": result.approved_user.as_ref().map(|u| u.id.to_string()),
         "invited": invite.invited(),
-        "invitation_expires_at": invite.expires_at().map(|t| t.to_rfc3339()),
+        "invitation_expires_at": invite.expires_at().map(Timestamp::to_rfc3339),
     });
     if let (Some(url), Some(fields)) = (invite.invite_url(), data.as_object_mut()) {
         fields.insert("invite_url".to_owned(), Value::String(url.to_owned()));
@@ -195,7 +196,7 @@ pub(crate) async fn handle_disallow_email(
     );
 
     // Said plainly: removing a pre-approval never deletes an account, and an
-    // operator once read this action as a user delete (carnet#1391).
+    // admin once read this action as a user delete (carnet#1391).
     let audit = AuditDetail::new(
         "pre_approval.remove",
         format!(

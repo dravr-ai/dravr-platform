@@ -27,7 +27,7 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::routing::post;
 use axum::{Json, Router};
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::models::{ConnectionStatus, ConnectionType, TenantId, UserOAuthToken};
 use pierre_database::RepositoryRegistry;
 use pierre_mcp_server::mcp::resources::ServerContext;
@@ -143,7 +143,7 @@ impl Athlete {
                 &row,
                 WINNER_ACCESS,
                 Some(WINNER_REFRESH),
-                Some(Utc::now() + Duration::hours(6)),
+                Some(Timestamp::now() + Elapsed::hours(6)),
             )
             .await
             .unwrap();
@@ -352,7 +352,7 @@ async fn connected_as(
         provider.to_owned(),
         FIRST_ACCESS.to_owned(),
         Some(FIRST_REFRESH.to_owned()),
-        Some(Utc::now() - Duration::hours(1)),
+        Some(Timestamp::now() - Elapsed::hours(1)),
         Some("read".to_owned()),
     );
     token.provider_user_id = owner_id.map(str::to_owned);
@@ -757,7 +757,7 @@ async fn garmin_refreshes_with_the_spec_form_and_keeps_the_rotated_token() {
                 .refresh_token
                 .as_ref()
                 .map(ExposeSecret::expose_secret),
-            Some(Utc::now() - Duration::hours(1)),
+            Some(Timestamp::now() - Elapsed::hours(1)),
         )
         .await
         .unwrap();
@@ -794,7 +794,7 @@ async fn a_token_is_refreshed_within_ten_minutes_of_its_expiry() {
                     &row,
                     row.access_token.expose_secret(),
                     row.refresh_token.as_ref().map(ExposeSecret::expose_secret),
-                    Some(Utc::now() + Duration::minutes(minutes)),
+                    Some(Timestamp::now() + Elapsed::minutes(minutes)),
                 )
                 .await
                 .unwrap();

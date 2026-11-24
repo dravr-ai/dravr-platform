@@ -23,6 +23,11 @@ use super::{ContractViolation, FRAMEWORK_BOUND_ACRONYMS, VAGUE_MODIFIERS};
 /// `power_athlete` alert). That repair carries the contract's allowlist, the
 /// metrics that oblige one, and that the name goes in the number's own
 /// sentence — the check reads one sentence at a time.
+///
+/// Softeners carry the contract's whole forbidden list for the same reason:
+/// told only that one softener was present, the editor removed it and kept —
+/// or swapped in — `roughly`, shipping the same violation (2026-11-23
+/// `power_athlete` alert).
 pub(super) fn repair_instruction(v: &ContractViolation, contract: &PersonaContract) -> String {
     match v.rule {
         "require_exact_numbers" => format!(
@@ -38,8 +43,23 @@ pub(super) fn repair_instruction(v: &ContractViolation, contract: &PersonaContra
             FRAMEWORK_BOUND_ACRONYMS.join(", "),
             contract.framework_allowlist.join(", ")
         ),
+        "forbid_softeners" => format!(
+            "{}; remove every softener without substituting another, and use none of these \
+             words or phrases anywhere in the reply: {}",
+            v.detail,
+            quoted_list(contract.forbid_softeners.iter().map(String::as_str))
+        ),
         _ => v.detail.clone(),
     }
+}
+
+/// `'a', 'b', 'c'` — each entry single-quoted, so a multi-word phrase reads as
+/// one item.
+pub(super) fn quoted_list<'a>(items: impl Iterator<Item = &'a str>) -> String {
+    items
+        .map(|item| format!("'{item}'"))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 #[cfg(test)]
@@ -85,6 +105,36 @@ mod tests {
             line, detail,
             "bug: a rule without a repair override must hand the editor its detail unchanged"
         );
+    }
+
+    /// The 2026-11-23 alert: the editor was told about one softener and the
+    /// rewrite kept `roughly`. The repair line must forbid the whole list.
+    #[test]
+    fn softener_repair_names_every_forbidden_softener() {
+        let contract = PersonaContract {
+            forbid_softeners: ["I think", "around", "roughly", "un peu"]
+                .map(str::to_owned)
+                .to_vec(),
+            ..PersonaContract::default()
+        };
+        let detail = "softener 'around' detected".to_owned();
+        let line = repair_instruction(
+            &ContractViolation {
+                rule: "forbid_softeners",
+                detail: detail.clone(),
+            },
+            &contract,
+        );
+        assert!(
+            line.starts_with(&detail),
+            "bug: the diagnosis must lead the repair line: {line}"
+        );
+        for softener in &contract.forbid_softeners {
+            assert!(
+                line.contains(&format!("'{softener}'")),
+                "bug: softener {softener} missing from the repair line: {line}"
+            );
+        }
     }
 
     fn citing_contract() -> PersonaContract {

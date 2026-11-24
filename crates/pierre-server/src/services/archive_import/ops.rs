@@ -22,12 +22,12 @@
 
 use std::sync::Arc;
 
-use chrono::{DateTime, Duration, Utc};
 use dravr_barrage::store::{ImportIssue, ImportJob, NewImportJob, PageReq};
 use dravr_barrage::{
     ActivityId, ActivityRecord, BarrageError, FailureCode, ImportId, Importer, JobStatus, Scope,
     SourceKey, StepOutcome,
 };
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use futures_util::stream;
 use pierre_core::constants::oauth_providers::UPLOAD;
 use pierre_core::errors::{AppError, AppResult};
@@ -94,17 +94,17 @@ pub struct ImportView {
     /// Why it failed, as a stable code.
     pub error_code: Option<&'static str>,
     /// The earliest activity start imported.
-    pub earliest_start: Option<DateTime<Utc>>,
+    pub earliest_start: Option<Timestamp>,
     /// The latest activity start imported.
-    pub latest_start: Option<DateTime<Utc>>,
+    pub latest_start: Option<Timestamp>,
     /// When it was created.
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
     /// When it last changed.
-    pub updated_at: DateTime<Utc>,
+    pub updated_at: Timestamp,
     /// When it reached a final state.
-    pub finished_at: Option<DateTime<Utc>>,
+    pub finished_at: Option<Timestamp>,
     /// When a job waiting for its link is cancelled.
-    pub expires_at: Option<DateTime<Utc>>,
+    pub expires_at: Option<Timestamp>,
     /// Whether the athlete still holds activities imported from the source:
     /// `false` once they deleted the history a completed import brought in.
     pub history_held: bool,
@@ -204,12 +204,18 @@ pub(super) fn wiring(resources: &ServerContext) -> AppResult<&Arc<ImportWiring>>
 
 /// An importer over the wiring's stores, projecting into `resources`, each
 /// recording it decodes admitted by the process's FIT decode permits.
+///
+/// Armed for the T2–T3 records an export holds (glucose, cycle tracking,
+/// clinical records), whoever imports: every import keeps them for the
+/// athlete, and the tier consent decides only who else reads them (JF
+/// 2026-11-20, "Store, gate reads"; carnet#1544).
 pub(super) fn importer(resources: &Arc<ServerContext>, wiring: &ImportWiring) -> Importer {
     Importer::new(
         wiring.stores.clone(),
         Arc::new(CachedActivitiesSink::new(Arc::clone(resources))),
     )
     .with_decode_gate(Arc::new(ImportDecodeGate))
+    .with_sensitive_reads()
 }
 
 /// Barrage's error as the platform's.
@@ -275,7 +281,7 @@ pub async fn start(
                     url_sha256: None,
                     url_ciphertext: None,
                     spool: None,
-                    expires_at: Some(Utc::now() + Duration::days(AWAITING_LINK_DAYS)),
+                    expires_at: Some(Timestamp::now() + Elapsed::days(AWAITING_LINK_DAYS)),
                 },
             )
             .await
@@ -545,7 +551,7 @@ async fn live_twins(
     record: &ActivityRecord,
 ) -> AppResult<Vec<ActivityGearKey>> {
     let start = record.activity.start_date();
-    let window = Duration::hours(WORKOUT_WINDOW_HOURS);
+    let window = Elapsed::hours(WORKOUT_WINDOW_HOURS);
     let mut rows = resources
         .common
         .repos

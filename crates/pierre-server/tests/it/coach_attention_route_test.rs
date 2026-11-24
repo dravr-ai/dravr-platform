@@ -19,7 +19,7 @@ mod coach_attention_route_tests {
     use std::slice;
     use std::sync::Arc;
 
-    use chrono::{DateTime, Duration, NaiveDate, NaiveTime, Utc};
+    use dravr_tronc::dates::{CivilDate, CivilTime, Elapsed, Timestamp};
     use pierre_core::models::periodization::PhaseKind;
     use pierre_core::models::{Activity, TenantId};
     use pierre_core::transport::TransportPolicy;
@@ -66,7 +66,7 @@ mod coach_attention_route_tests {
                 athlete.id,
                 athlete.tenant,
                 shares,
-                Utc::now() - Duration::days(days_ago),
+                Timestamp::now() - Elapsed::days(days_ago),
             )
             .await;
             athlete
@@ -237,7 +237,7 @@ mod coach_attention_route_tests {
                 julien.tenant,
                 "strava",
                 Some("invalid_grant"),
-                Utc::now(),
+                Timestamp::now(),
             )
             .await
             .unwrap();
@@ -289,7 +289,7 @@ mod coach_attention_route_tests {
             "the connection recorded when Strava started refusing: {refused:#}"
         );
         assert_eq!(refused["params"]["provider"], "strava");
-        assert_eq!(refused["params"]["date"], ymd(Utc::now().date_naive()));
+        assert_eq!(refused["params"]["date"], ymd(Timestamp::now().utc_date()));
         assert_eq!(
             refused["params"]["date"],
             refused["at"].as_str().unwrap()[..10]
@@ -330,9 +330,10 @@ mod coach_attention_route_tests {
     }
 
     /// `day` on the UTC calendar, at `hour`:00.
-    fn utc_at(day: NaiveDate, hour: u32) -> DateTime<Utc> {
-        day.and_time(NaiveTime::from_hms_opt(hour, 0, 0).unwrap())
+    fn utc_at(day: CivilDate, hour: u32) -> Timestamp {
+        day.and_time(CivilTime::from_hms(hour, 0, 0).unwrap())
             .and_utc()
+            .unwrap()
     }
 
     /// The day the athlete's quiet reason says the source last delivered a
@@ -356,8 +357,8 @@ mod coach_attention_route_tests {
     async fn evidence_names_the_athletes_own_civil_day() {
         let s = squad("civilday").await;
         let repos = &s.res.common.repos;
-        let utc_today = Utc::now().date_naive();
-        let ride_day = utc_today - Duration::days(8);
+        let utc_today = Timestamp::now().utc_date();
+        let ride_day = utc_today - Elapsed::days(8);
         let cases = [
             ("West", Some("America/Montreal"), 1),
             ("East", Some("Australia/Sydney"), 22),
@@ -375,7 +376,7 @@ mod coach_attention_route_tests {
             athletes.push(athlete);
         }
 
-        let joined_day = utc_today - Duration::days(3);
+        let joined_day = utc_today - Elapsed::days(3);
         let email = format!("joiner@{}.test", s.coach.id.simple());
         let joiner = person(&s.res, &email, "Joiner").await;
         repos
@@ -390,12 +391,12 @@ mod coach_attention_route_tests {
         let page = s.roster().await;
         assert_eq!(
             last_received_day(&page, &athletes[0]),
-            ymd(ride_day - Duration::days(1)),
+            ymd(ride_day - Elapsed::days(1)),
             "an evening west of Greenwich is the day ridden, not the next UTC day"
         );
         assert_eq!(
             last_received_day(&page, &athletes[1]),
-            ymd(ride_day + Duration::days(1)),
+            ymd(ride_day + Elapsed::days(1)),
             "a morning east of Greenwich is the day ridden, not the previous UTC day"
         );
         assert_eq!(
@@ -411,7 +412,7 @@ mod coach_attention_route_tests {
 
         let list = reasons(&page, joiner.id);
         let new_member = reason(&list, "new_member_no_plan");
-        let join_line = ymd(joined_day - Duration::days(1));
+        let join_line = ymd(joined_day - Elapsed::days(1));
         assert_eq!(
             new_member["params"]["date"], join_line,
             "the summary names the day they joined on their own calendar"
@@ -487,14 +488,14 @@ mod coach_attention_route_tests {
             seed_ride(&s.res, athlete, 1).await;
         }
         // The coach drafts a season for Mathieu, who has none live.
-        let today = Utc::now().date_naive();
+        let today = Timestamp::now().utc_date();
         let goal = GoalRace {
             name: "Gran Fondo".to_owned(),
-            date: ymd(today + Duration::days(120)),
+            date: ymd(today + Elapsed::days(120)),
             discipline: "road".to_owned(),
             priority: RacePriority::A,
         };
-        let phases = [phase(PhaseKind::Base, today + Duration::days(3), 4)];
+        let phases = [phase(PhaseKind::Base, today + Elapsed::days(3), 4)];
         let (tenant_key, athlete_key, coach_key) = (
             mathieu.tenant.to_string(),
             mathieu.id.to_string(),
@@ -580,9 +581,9 @@ mod coach_attention_route_tests {
         let s = squad("ended").await;
         let olivier = s.athlete("Olivier", true, 200).await;
         seed_ride(&s.res, &olivier, 1).await;
-        let today = Utc::now().date_naive();
-        let start = today - Duration::days(7 * 12);
-        let race_day = start + Duration::days(7 * 10 - 1);
+        let today = Timestamp::now().utc_date();
+        let start = today - Elapsed::days(7 * 12);
+        let race_day = start + Elapsed::days(7 * 10 - 1);
         let goal = GoalRace {
             name: "Gran Fondo Mont-Tremblant".to_owned(),
             date: ymd(race_day),
@@ -596,7 +597,7 @@ mod coach_attention_route_tests {
             &[],
             &[
                 phase(PhaseKind::Base, start, 6),
-                phase(PhaseKind::Build, start + Duration::days(42), 4),
+                phase(PhaseKind::Build, start + Elapsed::days(42), 4),
             ],
         )
         .await;
@@ -628,17 +629,17 @@ mod coach_attention_route_tests {
         let s = squad("season").await;
         let felix = s.athlete("Felix", true, 60).await;
         seed_ride(&s.res, &felix, 1).await;
-        let today = Utc::now().date_naive();
-        let start = today - Duration::days(14);
+        let today = Timestamp::now().utc_date();
+        let start = today - Elapsed::days(14);
         let goal = GoalRace {
             name: "Ironman Cozumel".to_owned(),
-            date: ymd(start + Duration::days(7 * 10 - 1)),
+            date: ymd(start + Elapsed::days(7 * 10 - 1)),
             discipline: "triathlon".to_owned(),
             priority: RacePriority::A,
         };
         let tune_up = GoalRace {
             name: "Half".to_owned(),
-            date: ymd(start + Duration::days(7 * 6)),
+            date: ymd(start + Elapsed::days(7 * 6)),
             discipline: "triathlon".to_owned(),
             priority: RacePriority::B,
         };
@@ -649,8 +650,8 @@ mod coach_attention_route_tests {
             slice::from_ref(&tune_up),
             &[
                 phase(PhaseKind::Build, start, 4),
-                phase(PhaseKind::Specialty, start + Duration::days(28), 4),
-                phase(PhaseKind::Taper, start + Duration::days(56), 2),
+                phase(PhaseKind::Specialty, start + Elapsed::days(28), 4),
+                phase(PhaseKind::Taper, start + Elapsed::days(56), 2),
             ],
         )
         .await;
@@ -661,9 +662,9 @@ mod coach_attention_route_tests {
         assert_eq!(
             plan["phases"],
             json!([
-                {"kind": "build", "start": ymd(start), "end": ymd(start + Duration::days(28)), "weeks": 4},
-                {"kind": "specialty", "start": ymd(start + Duration::days(28)), "end": ymd(start + Duration::days(56)), "weeks": 4},
-                {"kind": "taper", "start": ymd(start + Duration::days(56)), "end": ymd(start + Duration::days(70)), "weeks": 2},
+                {"kind": "build", "start": ymd(start), "end": ymd(start + Elapsed::days(28)), "weeks": 4},
+                {"kind": "specialty", "start": ymd(start + Elapsed::days(28)), "end": ymd(start + Elapsed::days(56)), "weeks": 4},
+                {"kind": "taper", "start": ymd(start + Elapsed::days(56)), "end": ymd(start + Elapsed::days(70)), "weeks": 2},
             ]),
             "{plan:#}"
         );
@@ -675,13 +676,13 @@ mod coach_attention_route_tests {
             plan["races"],
             json!([{"name": "Half", "date": tune_up.date, "priority": "B"}])
         );
-        assert_eq!(plan["ends"], ymd(start + Duration::days(70)));
+        assert_eq!(plan["ends"], ymd(start + Elapsed::days(70)));
         assert_eq!(
             felix_row["season"],
             json!({
                 "state": "a_race_ahead",
                 "race": {"name": "Ironman Cozumel", "date": goal.date, "a_race": true},
-                "ends": ymd(start + Duration::days(70)),
+                "ends": ymd(start + Elapsed::days(70)),
             })
         );
         assert_eq!(kinds(&page, felix.id), Vec::<(String, String)>::new());
@@ -718,7 +719,7 @@ mod coach_attention_route_tests {
         .await;
         repos
             .provider_connections
-            .mark_needs_reauth(dead.id, dead.tenant, "strava", None, Utc::now())
+            .mark_needs_reauth(dead.id, dead.tenant, "strava", None, Timestamp::now())
             .await
             .unwrap();
         for athlete in [&figure, &dead, &fatigue, &quiet] {
@@ -727,14 +728,14 @@ mod coach_attention_route_tests {
                 athlete,
                 &GoalRace {
                     name: "Race".to_owned(),
-                    date: ymd(Utc::now().date_naive() + Duration::days(60)),
+                    date: ymd(Timestamp::now().utc_date() + Elapsed::days(60)),
                     discipline: "road".to_owned(),
                     priority: RacePriority::A,
                 },
                 &[],
                 &[phase(
                     PhaseKind::Base,
-                    Utc::now().date_naive() - Duration::days(7),
+                    Timestamp::now().utc_date() - Elapsed::days(7),
                     10,
                 )],
             )

@@ -37,6 +37,9 @@ import type {
   CoachSharingState,
   CoachReads,
   ClaimGroupCoachResponse,
+  CreateGroupChatConnectionRequest,
+  GroupChatConnectCode,
+  GroupChatConnection,
   HeldGroupInviteResponse,
   HoldGroupInviteResponse,
   JoinHeldInviteResponse,
@@ -75,6 +78,9 @@ export type {
   CoachSharing,
   CoachSharingState,
   CoachReads,
+  CreateGroupChatConnectionRequest,
+  GroupChatConnectCode,
+  GroupChatConnection,
 };
 
 /**
@@ -238,6 +244,38 @@ export function createGroupsApi(axios: AxiosInstance) {
     async getCoachReads(groupId: string): Promise<CoachReads> {
       const response = await axios.get<CoachReads>(ENDPOINTS.GROUPS.MY_COACH_READS(groupId));
       return response.data;
+    },
+
+    // ==================== CHAT APP CONNECTION ====================
+
+    /**
+     * Whether the group's room is connected to a chat app's group chat, and
+     * whether the caller may change it (carnet#1683). Every member reads it.
+     */
+    async getChatConnection(groupId: string): Promise<GroupChatConnection> {
+      const response = await axios.get<GroupChatConnection>(ENDPOINTS.GROUPS.CHAT_CONNECTION(groupId));
+      return response.data;
+    },
+
+    /**
+     * Mint a one-time code that connects the room to the group chat the agent's
+     * bot is added to (owner or human coach only). A 409 means the room is
+     * already connected; a 400 names a chat app the server does not connect.
+     */
+    async createChatConnection(
+      groupId: string,
+      request: CreateGroupChatConnectionRequest,
+    ): Promise<GroupChatConnectCode> {
+      const response = await axios.post<GroupChatConnectCode>(
+        ENDPOINTS.GROUPS.CHAT_CONNECTION(groupId),
+        request,
+      );
+      return response.data;
+    },
+
+    /** Disconnect the room from its group chat (owner or human coach only); a 404 means it was not connected. */
+    async deleteChatConnection(groupId: string): Promise<void> {
+      await axios.delete(ENDPOINTS.GROUPS.CHAT_CONNECTION(groupId));
     },
 
     // ==================== INVITES ====================

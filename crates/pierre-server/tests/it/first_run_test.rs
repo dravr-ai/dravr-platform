@@ -21,7 +21,7 @@ use std::sync::Arc;
 use std::time::Duration as WallDuration;
 
 use axum::http::StatusCode;
-use chrono::{Duration, NaiveDate, Utc};
+use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp};
 use serde_json::{json, Value};
 use tokio::time::sleep;
 use uuid::Uuid;
@@ -104,17 +104,17 @@ async fn setup() -> Fixture {
     }
 }
 
-fn day(n: u32) -> NaiveDate {
-    NaiveDate::from_ymd_opt(2026, 10, n).unwrap()
+fn day(n: u32) -> CivilDate {
+    CivilDate::from_ymd(2026, 10, n).unwrap()
 }
 
-fn today() -> NaiveDate {
-    Utc::now().date_naive()
+fn today() -> CivilDate {
+    Timestamp::now().utc_date()
 }
 
 /// Mark the agent's check-in posted at `at`, as the worker does once its
 /// reply is stored.
-async fn check_in_posted(fx: &Fixture, at: chrono::DateTime<Utc>) {
+async fn check_in_posted(fx: &Fixture, at: Timestamp) {
     let claims = &fx.repos().platform_post_claims;
     let lease_token = claims
         .claim_platform_post_since(
@@ -122,7 +122,7 @@ async fn check_in_posted(fx: &Fixture, at: chrono::DateTime<Utc>) {
             fx.user_id,
             "check_in",
             PostPurpose::NO_SUBJECT,
-            at - Duration::hours(1),
+            at - Elapsed::hours(1),
             at,
         )
         .await
@@ -166,6 +166,7 @@ async fn complete_the_dossier(fx: &Fixture) {
                 valid_until: None,
                 source_msg_id: None,
                 transport_policy: TransportPolicy::AnyTransport,
+                ai_consent_sources: &[],
             })
             .await
             .unwrap();
@@ -275,14 +276,14 @@ async fn a_reply_counts_toward_the_check_in_only_on_a_day_it_was_posted() {
         "no check-in yet"
     );
 
-    check_in_posted(&fx, Utc::now() - Duration::days(2)).await;
+    check_in_posted(&fx, Timestamp::now() - Elapsed::days(2)).await;
     after_athlete_turn(fx.repos(), fx.turn(true, false)).await;
     assert!(
         !fx.first_run().await.met_on(CHECK_IN, today()),
         "a check-in two days ago is not today's"
     );
 
-    check_in_posted(&fx, Utc::now() - Duration::seconds(5)).await;
+    check_in_posted(&fx, Timestamp::now() - Elapsed::seconds(5)).await;
     after_athlete_turn(fx.repos(), fx.turn(false, false)).await;
     assert!(
         !fx.first_run().await.met_on(CHECK_IN, today()),

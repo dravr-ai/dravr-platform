@@ -7,14 +7,14 @@
 use std::fmt::Display;
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 /// Per-user admin tool override.
 ///
-/// Records that an operator explicitly enabled or disabled a single MCP tool
+/// Records that an admin explicitly enabled or disabled a single MCP tool
 /// for one user, independent of the user's tenant plan or any tenant-level
 /// tool override. `ToolSelectionService` consults it as a per-request overlay
 /// above the (cached) tenant computation: a user override wins over plan
@@ -31,12 +31,12 @@ pub struct UserToolOverride {
     /// Admin user who set the override (audit trail). `None` for service
     /// tokens that do not map to a user UUID.
     pub set_by: Option<Uuid>,
-    /// Operator-facing note explaining why the override exists.
+    /// Admin-facing note explaining why the override exists.
     pub reason: Option<String>,
     /// First-set timestamp.
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
     /// Most-recent update timestamp.
-    pub updated_at: DateTime<Utc>,
+    pub updated_at: Timestamp,
 }
 
 /// CRUD for `user_tool_overrides` — the per-user tool allow/deny layer applied
@@ -77,7 +77,7 @@ macro_rules! tool_override_columns {
 /// Postgres, so one statement serves both backends and cannot drift between
 /// them. The ids bind through the backend's uuid codec (see
 /// [`super::uuid_columns`]); every other bind is a plain `&str`,
-/// `Option<&str>`, `bool` or `DateTime<Utc>` both drivers encode alike —
+/// `Option<&str>`, `bool` or `Timestamp` both drivers encode alike —
 /// `is_enabled` is `BOOLEAN` on Postgres and a 0/1 `INTEGER` on `SQLite`,
 /// and a `bool` binds and decodes as both.
 pub(crate) const GET_TOOL_OVERRIDE_SQL: &str = concat!(
@@ -192,7 +192,7 @@ macro_rules! impl_user_tool_override_repository {
                     .bind(row.is_enabled)
                     .bind($ids::bind_opt(row.set_by))
                     .bind(row.reason.as_deref())
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .execute(self.pool())
                     .await
                     .map_err(|e| {

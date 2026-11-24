@@ -11,8 +11,16 @@ import { useTranslation } from '@pierre/i18n';
 import type { TFunction } from '@pierre/i18n';
 import { garminContributionLine } from '@pierre/shared-constants';
 import type { CalendarDay, PlanDayLookup, WorkoutPlan } from '@pierre/shared-types';
-import { activityMinutes, addCivilDays, calendarDay, lastMonday, mondayOf, weekDays } from '@pierre/shared-types';
-import { calendarDayLabel, DRAFT_DATE, formatCivilDate, sportLabel } from '@pierre/ui-logic';
+import {
+  activityMinutes,
+  addCivilDays,
+  calendarDay,
+  lastMonday,
+  mondayOf,
+  planSessionsOf,
+  weekDays,
+} from '@pierre/shared-types';
+import { calendarDayLabel, DRAFT_DATE, formatCivilDate, planDayMinutes, sportLabel } from '@pierre/ui-logic';
 import { Section } from '../ui/Section';
 import { EmptyState } from '../ui/EmptyState';
 import { WeekHeading } from '../chat/WorkoutPlanCard';
@@ -30,13 +38,19 @@ interface HomeWeekProps {
 const DETAIL_ID = 'home-week-detail';
 const DAYS_PER_WEEK = 7;
 
-/** The few characters the plan's day leaves in a cell: the minutes, else the sport; rest is the word. */
+/**
+ * The few characters the plan's day leaves in a cell: the minutes its
+ * sessions add up to, else the first session's sport; a rest-only day is the
+ * word (carnet#1716: a date may hold several sessions).
+ */
 function planHint(t: TFunction, lookup: PlanDayLookup | null): string {
   if (lookup === null) return '';
   if (lookup.kind === 'rest') return t('chat.restDay');
   if (lookup.kind === 'uncovered') return '—';
-  if (lookup.day.duration_min !== undefined) return `${lookup.day.duration_min} min`;
-  return typeof lookup.day.sport === 'string' ? sportLabel(t, lookup.day.sport) : '';
+  const minutes = planDayMinutes(lookup);
+  if (minutes !== null) return `${minutes} min`;
+  const first = planSessionsOf(lookup)[0];
+  return first !== undefined && typeof first.sport === 'string' ? sportLabel(t, first.sport) : '';
 }
 
 /** One day of the strip: weekday, date, and what was done on it or what the plan holds. */

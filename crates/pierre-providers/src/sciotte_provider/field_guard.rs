@@ -4,10 +4,10 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! The fixtures name only keys the pinned scraper's page extracts write
+//! The fixtures name only keys the pinned sciotte client's page extracts write
 //! (`providers/<target>.toml` at the pinned tag), a list row's apart from a
-//! detail page's, so a declaration cannot claim a field the scrape never
-//! reads.
+//! detail page's, so a declaration cannot claim a field the session read
+//! never carries.
 
 #[cfg(test)]
 mod tests {

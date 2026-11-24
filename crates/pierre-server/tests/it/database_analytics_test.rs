@@ -7,7 +7,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::User;
 use pierre_core::models::{JwtUsage, MonthlyLimitOverride};
 use pierre_database::backends::factory::Database;
@@ -37,7 +37,7 @@ async fn test_jwt_usage_tracking() {
     let usage = JwtUsage {
         id: None,
         user_id: user.id,
-        timestamp: Utc::now(),
+        timestamp: Timestamp::now(),
         endpoint: "/api/v1/profile".into(),
         method: "GET".into(),
         status_code: 200,
@@ -46,6 +46,7 @@ async fn test_jwt_usage_tracking() {
         response_size_bytes: Some(512),
         ip_address: Some("192.168.1.1".into()),
         user_agent: Some("TestClient/1.0".into()),
+        client_grant_id: None,
     };
 
     let repos = db.repositories();

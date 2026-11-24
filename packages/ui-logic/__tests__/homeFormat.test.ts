@@ -25,6 +25,7 @@ import {
   formatSyncTime,
   planDayDraft,
   planDayRouteDraft,
+  planDayMinutes,
   ROW_DATE,
   sportLabel,
   volumeMetricText,
@@ -184,51 +185,60 @@ describe('the chat drafts a plan day opens', () => {
       { label: 'Cool-down', duration_seconds: 600, distance_meters: 2000, target_zone: 'Z1' },
     ],
   };
-  const session = (day: PlanDay): PlanDayLookup => ({ kind: 'session', day, week });
+  const session = (...days: PlanDay[]): PlanDayLookup => ({ kind: 'session', days, week });
 
   it('asks about a session with its date and workout, and why a rest day is one', () => {
-    expect(planDayDraft(t, 'en', '2026-09-24', session(intervals))).toBe(
-      'Walk me through my session on Thursday, September 24: 8 × 1 km',
-    );
-    expect(planDayDraft(t, 'en', '2026-09-22', { kind: 'rest', day: { ...intervals, rest: true }, week })).toBe(
+    expect(planDayDraft(t, 'en', intervals)).toBe('Walk me through my session on Thursday, September 24: 8 × 1 km');
+    expect(planDayDraft(t, 'en', { ...intervals, date: '2026-09-22', rest: true })).toBe(
       'Why is Tuesday, September 22 a rest day in my plan?',
     );
   });
 
-  it('has no draft for a day the plan does not cover', () => {
-    expect(planDayDraft(t, 'en', '2026-09-24', { kind: 'uncovered' })).toBeNull();
+  it('adds up the minutes of every session on a date, and has none to add for a rest or uncovered day', () => {
+    const strength = { ...intervals, workout: 'Strength', sport: 'strength', duration_min: 30, position: 1 };
+    expect(planDayMinutes(session(intervals, strength))).toBe(85);
+    expect(planDayMinutes(session({ ...intervals, duration_min: undefined }))).toBeNull();
+    expect(planDayMinutes({ kind: 'rest', days: [{ ...intervals, rest: true }], week })).toBeNull();
+    expect(planDayMinutes({ kind: 'uncovered' })).toBeNull();
   });
 
   it('carries the session distance in the route draft when every step has one', () => {
-    expect(planDayRouteDraft(t, 'en', '2026-09-24', session(intervals), 'metric')).toBe(
+    expect(planDayRouteDraft(t, 'en', intervals, 'metric')).toBe(
       'Suggest a 15 km route close to where I am for my session on Thursday, September 24: 8 × 1 km',
     );
-    expect(planDayRouteDraft(t, 'en', '2026-09-24', session(intervals), 'imperial')).toBe(
+    expect(planDayRouteDraft(t, 'en', intervals, 'imperial')).toBe(
       'Suggest a 9.3 mi route close to where I am for my session on Thursday, September 24: 8 × 1 km',
     );
   });
 
   it('writes a fractional route distance in the notation of the language', () => {
     const day = { ...intervals, steps: [{ label: 'Run', duration_seconds: 3600, distance_meters: 12_540, target_zone: 'Z2' }] };
-    expect(planDayRouteDraft(translator('fr'), 'fr', '2026-09-24', session(day), 'metric')).toBe(
+    expect(planDayRouteDraft(translator('fr'), 'fr', day, 'metric')).toBe(
       "Propose-moi un parcours de 12,5 km près d'où je suis pour ma séance du jeudi 24 septembre : 8 × 1 km",
     );
   });
 
   it('names no distance for a session set by time, and has no route draft where there is no route', () => {
     const timed = { ...intervals, steps: [{ label: 'Tempo', duration_seconds: 1500, target_zone: 'Z3' }] };
-    expect(planDayRouteDraft(t, 'en', '2026-09-24', session(timed), 'metric')).toBe(
+    expect(planDayRouteDraft(t, 'en', timed, 'metric')).toBe(
       'Suggest a route close to where I am for my session on Thursday, September 24: 8 × 1 km',
     );
-    expect(planDayRouteDraft(t, 'en', '2026-09-24', { kind: 'uncovered' }, 'metric')).toBeNull();
-    expect(planDayRouteDraft(t, 'en', '2026-09-24', { kind: 'rest', day: { ...intervals, rest: true }, week }, 'metric')).toBeNull();
-    expect(planDayRouteDraft(t, 'en', '2026-09-24', session({ ...intervals, sport: 'swim' }), 'metric')).toBeNull();
+    expect(planDayRouteDraft(t, 'en', { ...intervals, rest: true }, 'metric')).toBeNull();
+    expect(planDayRouteDraft(t, 'en', { ...intervals, sport: 'swim' }, 'metric')).toBeNull();
   });
 
   it('calendarDayLabel says the session with its sport, minutes and intensity', () => {
     const day: CalendarDay = { date: '2026-09-24', activities: [], plan: session(intervals), beforeHistory: false };
     const label = calendarDayLabel(t, 'Thursday 24', day, '2026-09-21');
     expect(label).toBe('Thursday 24 — 8 × 1 km · Run · 55 min · Z4');
+  });
+
+  it('calendarDayLabel names each of a date’s sessions in order (carnet#1716)', () => {
+    const swim = { ...intervals, workout: 'Easy swim', sport: 'swim', duration_min: 30, intensity: '', steps: [] };
+    const day: CalendarDay = { date: '2026-09-24', activities: [], plan: session(intervals, swim), beforeHistory: false };
+    expect(calendarDayLabel(t, 'Thursday 24', day, '2026-09-21')).toBe(
+      'Thursday 24 — 8 × 1 km · Run · 55 min · Z4; Easy swim · Swim · 30 min',
+    );
   });
 
   it('names an activity by its title and day, and by its sport when it has no title', () => {

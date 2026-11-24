@@ -12,7 +12,7 @@
 #![allow(missing_docs)]
 
 use anyhow::Result;
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_auth::{
     api_keys::{ApiKeyManager, ApiKeyTier, CreateApiKeyRequest},
     auth::AuthManager,
@@ -21,7 +21,8 @@ use pierre_config::environment::{
     AppBehaviorConfig, AuthConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment,
     ExternalServicesConfig, HttpClientConfig, LogLevel, LoggingConfig, MonitoringConfig,
     OAuth2ServerConfig, OAuthConfig, OAuthProviderConfig, PostgresPoolConfig, ProtocolConfig,
-    SecurityConfig, SecurityHeadersConfig, ServerConfig, SseConfig, StravaApiConfig, TlsConfig,
+    SecurityConfig, SecurityHeadersConfig, ServerConfig, SessionCookieConfig, StravaApiConfig,
+    TlsConfig,
 };
 use pierre_core::models::CoachingPersona;
 use pierre_core::models::{User, UserStatus, UserTier};
@@ -90,13 +91,7 @@ fn create_test_server_config() -> Arc<ServerConfig> {
             },
         },
         external_services: ExternalServicesConfig {
-            strava_api: StravaApiConfig {
-                base_url: "https://www.strava.com/api/v3".to_owned(),
-                auth_url: "https://www.strava.com/oauth/authorize".to_owned(),
-                token_url: "https://www.strava.com/oauth/token".to_owned(),
-                revoke_url: "https://www.strava.com/oauth/revoke".to_owned(),
-                ..Default::default()
-            },
+            strava_api: StravaApiConfig::default(),
             ..Default::default()
         },
         app_behavior: AppBehaviorConfig {
@@ -112,7 +107,7 @@ fn create_test_server_config() -> Arc<ServerConfig> {
                 server_version: env!("CARGO_PKG_VERSION").to_owned(),
             },
         },
-        sse: SseConfig::default(),
+        session_cookie: SessionCookieConfig::default(),
         oauth2_server: OAuth2ServerConfig::default(),
         monitoring: MonitoringConfig::default(),
         ..Default::default()
@@ -135,14 +130,13 @@ async fn create_test_tenant_user(database: &Database, email: &str, tier: UserTie
         display_name: Some(format!("Test User ({email})")),
         password_hash: "test_hash".to_owned(),
         tier,
-        strava_token: None,
         is_active: true,
         user_status: UserStatus::Active,
         role: UserRole::User,
         approved_by: None,
-        approved_at: Some(Utc::now()),
-        created_at: Utc::now(),
-        last_active: Utc::now(),
+        approved_at: Some(Timestamp::now()),
+        created_at: Timestamp::now(),
+        last_active: Timestamp::now(),
         firebase_uid: None,
         auth_provider: String::new(),
         analytics_consent: false,
@@ -480,6 +474,8 @@ async fn test_mcp_server_tenant_isolation() -> Result<()> {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                lab_reader: None,
+                pdf_text_bin: None,
                 #[cfg(feature = "client-messaging")]
                 channel_adapters: common::offline_adapters(),
             },

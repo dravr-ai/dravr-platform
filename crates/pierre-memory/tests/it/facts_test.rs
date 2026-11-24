@@ -6,7 +6,7 @@
 
 #![allow(missing_docs)]
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::transport::TransportPolicy;
 use pierre_memory::facts::{FactKind, FactSource, PredicateCode, UserFact};
 use pierre_memory::review::FactStatus;
@@ -53,7 +53,7 @@ fn unknown_kind_falls_back_to_other() {
 
 #[test]
 fn is_confident_threshold() {
-    let now = Utc::now();
+    let now = Timestamp::now();
     let fact = UserFact {
         id: "f1".into(),
         tenant_id: "t1".into(),
@@ -73,6 +73,7 @@ fn is_confident_threshold() {
         transport_policy: TransportPolicy::AnyTransport,
         status: FactStatus::Approved,
         evidence: None,
+        ai_consent_sources: Vec::new(),
     };
     assert!(fact.is_confident(0.7));
     assert!(!fact.is_confident(0.8));

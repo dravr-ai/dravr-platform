@@ -17,7 +17,7 @@
 //! the same vocabulary can be matched at retrieval time, hashed for the upsert
 //! conflict key, and rendered into a prompt without re-parsing prose.
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::transport::TransportPolicy;
 use serde::{Deserialize, Serialize};
 
@@ -290,7 +290,7 @@ impl OutcomeMetric {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MetricBaseline {
     /// When the baseline was captured.
-    pub captured_at: DateTime<Utc>,
+    pub captured_at: Timestamp,
 }
 
 /// The verdict the labeler assigns to a piece of advice.
@@ -484,15 +484,23 @@ pub struct Playbook {
     /// Penalizes small samples so a 1/1 playbook never outranks an 18/20 one.
     pub confidence: f32,
     /// When the most recent outcome landed, or `None` if never labeled.
-    pub last_outcome_at: Option<DateTime<Utc>>,
+    pub last_outcome_at: Option<Timestamp>,
     /// When the playbook was first created.
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
     /// When the playbook was last updated (counter increment / recompute).
-    pub updated_at: DateTime<Utc>,
+    pub updated_at: Timestamp,
     /// Where this row may be served (carnet#769): first-party-only when what it
     /// was derived from was. Rows written before the stamp read as unstamped.
     #[serde(default, skip_serializing)]
     pub transport_policy: TransportPolicy,
+    /// The AI-consent keys of the provider data the playbook was learned from
+    /// — its advice's turn and every window an outcome was judged over
+    /// (carnet#1157): once the athlete withdraws one, no prompt reads the
+    /// playbook, and no prompt ever reads one naming a key kept out of the
+    /// agent's memory (carnet#1158). Empty for playbooks written before the
+    /// column.
+    #[serde(default, skip_serializing)]
+    pub ai_consent_sources: Vec<String>,
 }
 
 impl Playbook {
@@ -533,7 +541,7 @@ impl Playbook {
 
     /// Apply a freshly-observed outcome: increment the matching counter,
     /// recompute [`Self::confidence`], and stamp `last_outcome_at`/`updated_at`.
-    pub fn record_outcome(&mut self, label: OutcomeLabel, at: DateTime<Utc>) {
+    pub fn record_outcome(&mut self, label: OutcomeLabel, at: Timestamp) {
         match label {
             OutcomeLabel::Success => self.success_count += 1,
             OutcomeLabel::Failure => self.failure_count += 1,
@@ -572,7 +580,7 @@ pub struct PendingAdvice {
     /// Metric baseline captured at advice time.
     pub baseline: MetricBaseline,
     /// When the observation window closes and the evaluator may label it.
-    pub due_by: DateTime<Utc>,
+    pub due_by: Timestamp,
     /// Lifecycle state.
     pub status: AdviceStatus,
     /// The assigned label once observed; `None` while pending.
@@ -582,11 +590,16 @@ pub struct PendingAdvice {
     /// The assistant message the advice was extracted from, for provenance.
     pub source_msg_id: Option<String>,
     /// When the advice was captured.
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
     /// Where this row may be served (carnet#769): first-party-only when what it
     /// was derived from was. Rows written before the stamp read as unstamped.
     #[serde(default, skip_serializing)]
     pub transport_policy: TransportPolicy,
+    /// The AI-consent keys of the provider data the reply the advice was taken
+    /// from was drawn from (carnet#1157), carried into the playbook its outcome
+    /// reinforces. Empty for advice written before the column.
+    #[serde(default, skip_serializing)]
+    pub ai_consent_sources: Vec<String>,
 }
 
 /// A k-anonymous, non-tenant aggregate: how an intervention has worked across

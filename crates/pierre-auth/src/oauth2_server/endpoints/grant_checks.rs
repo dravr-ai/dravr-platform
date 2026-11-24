@@ -1,14 +1,16 @@
-// ABOUTME: What a grant must still hold before it mints: its resource server, and its tenant membership
+// ABOUTME: What a grant must still hold before it mints: its resource server, its tenant membership, its live consent grant
 // ABOUTME: A grant bound to one resource server never mints for another; a tenant the user left ends the grant; each user's redemptions are metered before one is spent
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use tracing::{error, warn};
 use uuid::Uuid;
 
+use super::details::granted_details;
 use super::OAuth2AuthorizationServer;
+use crate::oauth2_server::authorization_details::ResolvedDetails;
 use crate::oauth2_server::models::{OAuth2Error, OAuth2RefreshToken};
 use crate::oauth2_server::resource::{token_audience, ResourceServers};
 use crate::rate_limiting::OAuth2Endpoint;
@@ -111,23 +113,26 @@ impl OAuth2AuthorizationServer {
     }
 
     /// Check a refresh before its token is rotated away: the requested
-    /// resource must be the grant's resource server, and the grant's tenant
-    /// must still be the user's. A tenant the user left revokes the token's
-    /// whole family, so the grant cannot be retried.
+    /// resource must be the grant's resource server, the grant's tenant
+    /// must still be the user's, and the consent grant it names must still
+    /// stand ([`Self::require_live_client_grant`]). A tenant the user left
+    /// revokes the token's whole family, so the grant cannot be retried.
     ///
     /// A token that is unknown, spent or expired passes here and is refused by
     /// the rotation, which reads it under the client's id. The grant it read
-    /// comes back, `None` when the token is unknown or spent.
+    /// comes back, `None` when the token is unknown or spent, with the
+    /// details its consent grant was approved for.
     ///
     /// # Errors
     /// `invalid_target` for a resource outside the grant's resource server,
-    /// `invalid_grant` for a tenant the user left, `server_error` when the
-    /// token, the membership or the revocation cannot be read or written.
+    /// `invalid_grant` for a tenant the user left or a consent grant revoked
+    /// or expired, `server_error` when the token, the membership, the consent
+    /// grant or the revocation cannot be read or written.
     pub(super) async fn check_refresh_grant(
         &self,
         presented: &str,
         requested: Option<&str>,
-    ) -> Result<Option<OAuth2RefreshToken>, OAuth2Error> {
+    ) -> Result<(Option<OAuth2RefreshToken>, Option<ResolvedDetails>), OAuth2Error> {
         let grant = self
             .oauth2_server
             .get_refresh_token_by_value(presented)
@@ -137,11 +142,19 @@ impl OAuth2AuthorizationServer {
                 OAuth2Error::server_error("Failed to read the refresh token")
             })?;
         let Some(grant) = grant.filter(|grant| !grant.revoked) else {
-            return Ok(None);
+            return Ok((None, None));
         };
         self.audience(requested, grant.resource.as_deref())?;
         if self.still_member(grant.user_id, &grant.tenant_id).await? {
-            return Ok(Some(grant));
+            let details = self
+                .require_live_client_grant(
+                    grant.user_id,
+                    &grant.tenant_id,
+                    &grant.client_id,
+                    grant.client_grant_id.as_deref(),
+                )
+                .await?;
+            return Ok((Some(grant), details));
         }
         self.oauth2_server
             .revoke_refresh_token_family(presented)
@@ -151,6 +164,49 @@ impl OAuth2AuthorizationServer {
                 OAuth2Error::server_error("Failed to revoke the refresh token")
             })?;
         Err(left_tenant(grant.user_id))
+    }
+
+    /// Refuse to mint under a consent grant that no longer stands: revoked,
+    /// past its expiry, or not the athlete's grant to `client_id` in
+    /// `tenant_id`. A code or refresh token that names no grant (one minted
+    /// before grants were named, or one no consent governs) mints as before.
+    ///
+    /// Read from the repository, never the resource servers' cached standing:
+    /// a mint happens once an hour per connection, and a token it mints lives
+    /// an hour. The details the grant was approved for come back, which the
+    /// token response echoes (RFC 9396 §7); `None` for a plain grant.
+    ///
+    /// # Errors
+    /// `invalid_grant` for a grant that no longer stands, so the client sends
+    /// the athlete through consent again; `server_error` when it, or the
+    /// details it stored, cannot be read.
+    pub(super) async fn require_live_client_grant(
+        &self,
+        user_id: Uuid,
+        tenant_id: &str,
+        client_id: &str,
+        client_grant_id: Option<&str>,
+    ) -> Result<Option<ResolvedDetails>, OAuth2Error> {
+        let Some(client_grant_id) = client_grant_id else {
+            return Ok(None);
+        };
+        let grant = self
+            .oauth2_server
+            .get_client_grant(client_grant_id, &user_id.to_string(), tenant_id)
+            .await
+            .map_err(|e| {
+                error!(%user_id, client_id, error = %e, "Could not read the consent grant a token is minted under");
+                OAuth2Error::server_error("Failed to read the consent grant")
+            })?;
+        if let Some(grant) =
+            grant.filter(|grant| grant.client_id == client_id && grant.is_live_at(Timestamp::now()))
+        {
+            return granted_details(Some(&grant));
+        }
+        warn!(%user_id, client_id, client_grant_id, "Grant refused: its consent was revoked or has expired");
+        Err(OAuth2Error::invalid_grant(
+            "The athlete's consent to this application was revoked or has expired; authorize it again",
+        ))
     }
 
     /// Count a refresh in its user's window, before the token is rotated away.
@@ -166,8 +222,8 @@ impl OAuth2AuthorizationServer {
         grant: Option<&OAuth2RefreshToken>,
         client_id: &str,
     ) -> Result<(), OAuth2Error> {
-        let live =
-            grant.filter(|grant| grant.client_id == client_id && grant.expires_at > Utc::now());
+        let live = grant
+            .filter(|grant| grant.client_id == client_id && grant.expires_at > Timestamp::now());
         match live {
             Some(grant) => {
                 self.admit_grant_user(grant.user_id, client_id, "refresh_token")
@@ -195,7 +251,7 @@ impl OAuth2AuthorizationServer {
         }
         let live = self
             .oauth2_server
-            .peek_auth_code(code, client_id, redirect_uri, Utc::now())
+            .peek_auth_code(code, client_id, redirect_uri, Timestamp::now())
             .await
             .map_err(|e| {
                 error!(client_id, error = %e, "Could not read the authorization code's user");

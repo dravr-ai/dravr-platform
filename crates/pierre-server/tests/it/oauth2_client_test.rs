@@ -7,7 +7,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_auth::oauth2_client::{OAuth2Client, OAuth2Config, OAuth2Token, PkceParams};
 use secrecy::{ExposeSecret, SecretString};
 
@@ -78,7 +78,7 @@ fn test_oauth2_token_is_expired_when_past() {
     let token = OAuth2Token {
         access_token: SecretString::from("test_access_token"),
         token_type: "Bearer".to_owned(),
-        expires_at: Some(Utc::now() - Duration::hours(1)),
+        expires_at: Some(Timestamp::now() - Elapsed::hours(1)),
         refresh_token: Some(SecretString::from("test_refresh_token")),
         scope: Some("read write".to_owned()),
         provider_user_id: None,
@@ -92,7 +92,7 @@ fn test_oauth2_token_not_expired_when_future() {
     let token = OAuth2Token {
         access_token: SecretString::from("test_access_token"),
         token_type: "Bearer".to_owned(),
-        expires_at: Some(Utc::now() + Duration::hours(1)),
+        expires_at: Some(Timestamp::now() + Elapsed::hours(1)),
         refresh_token: Some(SecretString::from("test_refresh_token")),
         scope: Some("read write".to_owned()),
         provider_user_id: None,
@@ -201,7 +201,7 @@ fn test_oauth2_client_creation() {
 }
 
 #[test]
-fn test_oauth2_client_get_authorization_url() {
+fn test_oauth2_client_authorization_url_without_pkce() {
     let config = OAuth2Config {
         client_id: "my_client_id".to_owned(),
         client_secret: SecretString::from("my_client_secret"),
@@ -215,7 +215,10 @@ fn test_oauth2_client_get_authorization_url() {
     let client = OAuth2Client::new(config).unwrap();
     let state = "random_state_value";
 
-    let url = client.get_authorization_url(state).unwrap();
+    let url = client
+        .config()
+        .authorization_url(state, &PkceParams::generate(), &[])
+        .unwrap();
 
     assert!(url.starts_with("https://provider.com/oauth/authorize?"));
     assert!(url.contains("client_id=my_client_id"));
@@ -223,6 +226,8 @@ fn test_oauth2_client_get_authorization_url() {
     assert!(url.contains("response_type=code"));
     assert!(url.contains("scope=read+write") || url.contains("scope=read%20write"));
     assert!(url.contains("state=random_state_value"));
+    // A configuration that does not use PKCE sends no challenge.
+    assert!(!url.contains("code_challenge"));
 }
 
 #[test]
@@ -242,7 +247,8 @@ fn test_oauth2_client_get_authorization_url_with_pkce() {
     let pkce = PkceParams::generate();
 
     let url = client
-        .get_authorization_url_with_pkce(state, &pkce)
+        .config()
+        .authorization_url(state, &pkce, &[])
         .unwrap();
 
     assert!(url.starts_with("https://provider.com/oauth/authorize?"));
@@ -265,7 +271,9 @@ fn test_oauth2_client_authorization_url_invalid_base_url() {
     };
 
     let client = OAuth2Client::new(config).unwrap();
-    let result = client.get_authorization_url("state");
+    let result = client
+        .config()
+        .authorization_url("state", &PkceParams::generate(), &[]);
 
     assert!(result.is_err());
 }
@@ -298,7 +306,7 @@ fn test_oauth2_token_serialization() {
     let token = OAuth2Token {
         access_token: SecretString::from("access123"),
         token_type: "Bearer".to_owned(),
-        expires_at: Some(Utc::now() + Duration::hours(1)),
+        expires_at: Some(Timestamp::now() + Elapsed::hours(1)),
         refresh_token: Some(SecretString::from("refresh456")),
         scope: Some("read write".to_owned()),
         provider_user_id: None,
@@ -357,7 +365,7 @@ fn test_oauth2_token_boundary_expiration() {
     let token = OAuth2Token {
         access_token: SecretString::from("test"),
         token_type: "Bearer".to_owned(),
-        expires_at: Some(Utc::now()),
+        expires_at: Some(Timestamp::now()),
         refresh_token: None,
         scope: None,
         provider_user_id: None,
@@ -380,7 +388,10 @@ fn test_oauth2_config_empty_scopes() {
     };
 
     let client = OAuth2Client::new(config).unwrap();
-    let url = client.get_authorization_url("state").unwrap();
+    let url = client
+        .config()
+        .authorization_url("state", &PkceParams::generate(), &[])
+        .unwrap();
 
     // No scope to request: the parameter is left out, not sent empty (a
     // provider whose scope is fixed server-side, like Garmin, defines none).
@@ -401,7 +412,10 @@ fn test_oauth2_config_special_characters_in_redirect_uri() {
     };
 
     let client = OAuth2Client::new(config).unwrap();
-    let url = client.get_authorization_url("state").unwrap();
+    let url = client
+        .config()
+        .authorization_url("state", &PkceParams::generate(), &[])
+        .unwrap();
 
     // URL should properly encode the redirect URI
     assert!(url.contains("redirect_uri="));

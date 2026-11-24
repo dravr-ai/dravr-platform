@@ -37,7 +37,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::env;
 use std::sync::Arc;
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_contremaitre::messaging_strings::{MessagingStringsRegistry, KEY_TURN_LANGUAGE};
 use pierre_core::errors::AppError;
 use pierre_core::models::TenantId;
@@ -807,7 +807,12 @@ fn build_system_prompt(locale: &str, frozen_date: Option<&str>) -> String {
     // Wall-clock now is the default, and is correct only where no turn uses
     // relative-time language.
     let current_date = frozen_date.map_or_else(
-        || format!("{} (UTC)", Utc::now().format("%Y-%m-%d %H:%M")),
+        || {
+            format!(
+                "{} (UTC)",
+                Timestamp::now().format("%Y-%m-%d %H:%M").unwrap()
+            )
+        },
         |frozen| format!("{frozen} (UTC)"),
     );
     let dated_contract = PLATFORM_CONTRACT_PROMPT.replace("{{CURRENT_DATE}}", &current_date);

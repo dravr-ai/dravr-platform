@@ -11,6 +11,9 @@ export { CHAT_APP_OFFER_STEP_ID, chatAppOfferAnswered, offeredChatApp } from './
 // The team-issued coach-seat invitation's settled steps on the progress bar
 export { settledByInviteLine, settledByInviteSegments } from './coach-invite';
 
+// The group invite link: the link a code is shared as, and the code its path names
+export { groupInviteCodeFromPath, groupInviteLink } from './invite-link';
+
 // Agent tuning bounds (mirrors the server-side range checks)
 export {
   MIN_MAX_TOOL_ITERATIONS,
@@ -18,11 +21,13 @@ export {
   DEFAULT_MAX_TOOL_ITERATIONS,
   COACH_CATEGORY_LABEL_KEY,
   coachCategoryLabelKey,
+  coachCategoryPillar,
   COACH_TOOL_TAG,
   isCoachFacing,
   groupAgentChoices,
   defaultGroupAgent,
 } from './coaches';
+export type { CategoryPillar } from './coaches';
 
 // Design system (Boreal Editorial colors, typography, spacing, effects)
 export {
@@ -48,7 +53,6 @@ export {
   providerGlyphInk,
   GRADIENT_COLORS,
   AMBIENT_SHADOW,
-  AI_GLOW,
   BUTTON_GLOW,
   TYPOGRAPHY,
   BRAND_TRACKING,
@@ -179,6 +183,11 @@ export {
 // catalogue key naming each one)
 export {
   AI_CONSENT_KEYS,
+  CONNECT_CONSENTS,
+  GARMIN_AI_CONSENT,
+  GARMIN_CONSENT_KEYS,
+  GARMIN_PRIVACY_URL,
+  GARMIN_WORKOUT_TRANSFER_CONSENT,
   HISTORY_ACTION_KEYS,
   HISTORY_LINE_KEYS,
   PROVIDER_NOTICES,
@@ -191,17 +200,24 @@ export {
   SCIOTTE_LOGIN_PRESETS,
   SCIOTTE_TAKEOVER_ENDED,
   SCIOTTE_TAKEOVER_MAX_TEXT_BYTES,
+  SENSITIVE_CONSENT_KEYS,
+  SENSITIVE_T2_CONSENT,
+  SENSITIVE_T3_CONSENT,
+  TRANSFER_CONSENT_KEYS,
   aiConsentCards,
   cardHistoryState,
+  connectConsentsFor,
   intervalsConnectPath,
   loginIdentifierField,
   noticeRequired,
   providerScopeLabelKey,
   sciotteTargetForBackend,
   syncAuthorizationOwed,
+  transferConsentCards,
 } from './providers';
 export type {
   AiConsentCard,
+  ConnectConsent,
   IntervalsConnectCard,
   IntervalsConnectPath,
   LoginIdentifier,
@@ -209,6 +225,7 @@ export type {
   ProviderNoticeKeys,
   ProviderScope,
   SciotteLoginPreset,
+  TransferConsentCard,
 } from './providers';
 
 // What a provider card offers — its connect or reconnect, the sign-in its
@@ -225,6 +242,7 @@ export {
   refusalReloadsCards,
   refusalReturnsToCard,
   signInFallsBackToOAuth,
+  signInStartsWithExtension,
 } from './connect-plan';
 export type { CardStatus, ConnectPlanCard } from './connect-plan';
 
@@ -299,6 +317,9 @@ export {
   weeklyReportRecommendations,
   weeklyVolume,
   weeklyVolumeFigure,
+  DIGEST_MODES,
+  DIGEST_MODE_ORDER,
+  canManageGroup,
 } from './groups';
 
 // Coaching-platform link vocabulary: each refusal the group's link routes
@@ -324,6 +345,8 @@ export {
   DELEGATION_REVOKE_CONFIRM_KEYS,
   consentChangeConfirm,
   COACH_CONSENTS_KEYS,
+  SENSITIVE_T2_FLAG_KEYS,
+  SENSITIVE_WINDOW_DAYS,
 } from './delegation';
 export type { DelegationConsent, ConsentChangeConfirmKeys } from './delegation';
 export {
@@ -333,6 +356,19 @@ export {
   coachReadClassKey,
   coachReadSourceKey,
 } from './coach-reads';
+
+// The athlete's "Who read your data" card: its words, credential labels, the coach's day counts (carnet#1543)
+export {
+  ACCESS_FEED_ALL_KEYS,
+  ACCESS_FEED_API_KEY_DAY_REQUESTS_KEYS,
+  ACCESS_FEED_COACH_KEYS,
+  ACCESS_FEED_DAY_READS_KEYS,
+  ACCESS_FEED_DAY_VIEWS_KEYS,
+  ACCESS_FEED_KEYS,
+  ACCESS_FEED_PEER_DAY_READS_KEYS,
+  ACCESS_FEED_PEER_DAY_VIEWS_KEYS,
+  accessFeedCredentialKey,
+} from './access-feed';
 
 // The map layers both route cards draw over, and the ink the track is drawn in
 export {

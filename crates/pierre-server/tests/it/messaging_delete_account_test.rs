@@ -12,7 +12,7 @@ mod delete_account {
     use std::sync::Arc;
     use std::time::Duration;
 
-    use chrono::{TimeDelta, Utc};
+    use dravr_tronc::dates::{Elapsed, Timestamp};
     use pierre_contremaitre::messaging_strings::{
         DEFAULT_LOCALE, KEY_DELETE_ACCOUNT_DM_ONLY, KEY_DELETE_ACCOUNT_DONE,
         KEY_DELETE_ACCOUNT_EMAIL_MISMATCH,
@@ -345,7 +345,7 @@ mod delete_account {
         assert_eq!(cascaded, 0);
         let queued = repos
             .firebase_identity_deletions
-            .due(Utc::now() + TimeDelta::days(365), 10)
+            .due(Timestamp::now() + Elapsed::days(365), 10)
             .await
             .unwrap();
         assert_eq!(queued.len(), 1, "the identity stays queued: {queued:?}");
@@ -379,7 +379,7 @@ mod delete_account {
             .unwrap()
             .id
             .to_string();
-        let now = Utc::now();
+        let now = Timestamp::now();
         repos
             .groups
             .create_group(
@@ -399,6 +399,7 @@ mod delete_account {
                     is_active: true,
                     channel_type: None,
                     channel_chat_id: None,
+                    chat_connection: None,
                     created_at: now,
                     updated_at: now,
                 },

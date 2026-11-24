@@ -73,9 +73,10 @@ pub(super) async fn resolve_user_and_tenant(
 /// hosted connect URL, or `None` if signing fails.
 ///
 /// The URL is shortened to a dot-free `<base>/r/<code>` so it stays fully
-/// tappable on `WhatsApp` (where the Card degrades to a raw link and the
-/// link-token's dots would otherwise truncate linkification mid-token). Degrades
-/// to the full URL if the shortener store write fails.
+/// tappable when `WhatsApp` shows it as text (a card past a `cta_url` cap falls
+/// back to a text body, and the link-token's dots would otherwise truncate
+/// linkification mid-token). Degrades to the full URL if the shortener store
+/// write fails.
 async fn mint_connect_url(
     resources: &ServerContext,
     user_id: Uuid,
@@ -122,11 +123,11 @@ async fn mint_connect_url(
 /// [`super::card_or_rich_text`] shapes the reply at build time as rich text
 /// with the link as an autolinked `label: url` line. `WhatsApp` has the
 /// capability, so it receives a `Card`; canot renders a card whose only action
-/// is one short `url` as a `cta_url` link button, and that is what the prompt's
-/// "tap the button" wording relies on. Before canot ships that renderer, the
-/// card arrives as text with the link under it.
-///
-/// LIMITATION(registre#1671): `build_connect_card_direct` on `WhatsApp` reaches canot as a `Card`, whose renderer prints a `url` action as text under a body that promises a button.
+/// is one `url` as a `cta_url` link button, and that is what the prompt's "tap
+/// the button" wording relies on. The renderer keeps the card as text instead
+/// when the button label passes 20 characters or the body passes 1024, so
+/// every locale's [`KEY_CONNECT_BUTTON`] stays within 20 characters (pinned by
+/// `connect_card_strings_fit_a_whatsapp_cta_url_in_every_locale`).
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn build_connect_card_direct(
     resources: &ServerContext,
@@ -209,4 +210,36 @@ pub(super) async fn try_build_connect_card(
         locale,
     )
     .await
+}
+
+#[cfg(test)]
+mod tests {
+    use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
+    use pierre_core::models::SUPPORTED_LOCALES;
+
+    use super::*;
+
+    /// `WhatsApp`'s `cta_url` caps, which canot's renderer enforces by falling
+    /// back to text: a 20-character button label and a 1024-character body.
+    const CTA_LABEL_MAX: usize = 20;
+    const CTA_BODY_MAX: usize = 1024;
+
+    #[test]
+    fn connect_card_strings_fit_a_whatsapp_cta_url_in_every_locale() {
+        let registry = MessagingStringsRegistry::new();
+        for locale in SUPPORTED_LOCALES {
+            let label = registry.get(KEY_CONNECT_BUTTON, locale);
+            assert!(!label.trim().is_empty(), "{locale} button label is empty");
+            assert!(
+                label.chars().count() <= CTA_LABEL_MAX,
+                "{locale} {KEY_CONNECT_BUTTON} is {label:?}, past the cta_url label cap"
+            );
+            let body = registry.get(KEY_CONNECT_PROMPT, locale);
+            assert!(
+                body.chars().count() <= CTA_BODY_MAX,
+                "{locale} {KEY_CONNECT_PROMPT} is {} characters, past the cta_url body cap",
+                body.chars().count()
+            );
+        }
+    }
 }

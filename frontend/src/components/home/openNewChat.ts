@@ -7,7 +7,7 @@
 import type { QueryClient } from '@tanstack/react-query';
 import type { Conversation } from '@pierre/shared-types';
 import { chatApi } from '../../services/api';
-import { QUERY_KEYS } from '../../constants/queryKeys';
+import { QUERY_KEYS } from '@pierre/shared-constants';
 
 /** What a "new chat" asks for. */
 export interface NewChatRequest {

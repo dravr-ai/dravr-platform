@@ -7,7 +7,7 @@
 //! Decoding the rows [`super`]'s statements read. sqlx decodes on both
 //! drivers; every reader goes through [`column`].
 
-use chrono::{DateTime, NaiveDate, Utc};
+use dravr_tronc::dates::{CivilDate, Timestamp};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{
     DataSource, StoredDailyActivity, StoredHealthMetrics, StoredRecoveryMetrics,
@@ -71,7 +71,7 @@ where
     Option<i32>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     Option<i64>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     Option<f64>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    DateTime<Utc>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Timestamp: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
     let stages_json_str: String = column(row, "stages_json")?;
     let is_nap_int: i32 = column(row, "is_nap")?;
@@ -126,8 +126,8 @@ where
     Option<String>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     Option<i32>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     Option<f64>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    NaiveDate: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    DateTime<Utc>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    CivilDate: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Timestamp: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
     let recovery_score: Option<f64> = column(row, "recovery_score")?;
     let readiness_score: Option<f64> = column(row, "readiness_score")?;
@@ -173,8 +173,8 @@ where
     Option<String>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     Option<i32>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     Option<f64>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    NaiveDate: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    DateTime<Utc>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    CivilDate: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Timestamp: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
     let bp_systolic: Option<i32> = column(row, "bp_systolic")?;
     let bp_diastolic: Option<i32> = column(row, "bp_diastolic")?;
@@ -213,8 +213,8 @@ where
     Option<String>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     Option<i32>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     Option<f64>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    NaiveDate: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    DateTime<Utc>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    CivilDate: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Timestamp: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
     let steps: Option<i32> = column(row, "steps")?;
     let intensity_minutes: Option<i32> = column(row, "intensity_minutes")?;

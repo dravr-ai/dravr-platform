@@ -21,11 +21,11 @@ use crate::protocols::ProtocolError;
 use crate::read_subject::{self, WellnessInput};
 #[cfg(feature = "client-notifications")]
 use crate::runtime::ToolRuntime;
-use chrono::{DateTime, Utc};
 use dravr_cageux::config::intelligence::AlgorithmConfig;
 use dravr_cageux::physiological_constants::api_limits::DEFAULT_ACTIVITY_LIMIT;
 use dravr_cageux::sleep_analysis::SleepAnalyzer;
 use dravr_cageux::training_load::TrainingLoadCalculator;
+use dravr_tronc::dates::{Timestamp, Zone};
 use pierre_core::models::{Activity, FormReading};
 use pierre_core::uuid_utils::parse_user_id_for_protocol;
 use pierre_fitness_compute::AthleteInputs;
@@ -34,6 +34,7 @@ use pierre_notifications::triggers as notification_triggers;
 #[cfg(feature = "client-notifications")]
 use pierre_notifications::TenantId;
 use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
+use pierre_services::athlete_clock::athlete_zone;
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
@@ -124,17 +125,20 @@ async fn fetch_and_calculate_recovery_adjustment(
     })
 }
 
-/// Calculate fitness metrics using the 3-component formula with
-/// `TrainingLoadCalculator`, each session's stress scored against `athlete`,
-/// the thresholds saved with `set_physiology`.
+/// Calculate fitness metrics using the 3-component formula with `TrainingLoadCalculator`.
+///
+/// Each session's stress is scored against `athlete`, the thresholds saved
+/// with `set_physiology`, and the load is read as of the athlete's today in
+/// `zone`.
 pub fn calculate_fitness_metrics(
     activities: &[Activity],
     timeframe: &str,
     athlete: &AthleteInputs,
     algorithm_config: &AlgorithmConfig,
+    zone: &Zone,
     providers_used: ProvidersUsed,
 ) -> FitnessScoreResult {
-    use chrono::{Duration, Utc};
+    use dravr_tronc::dates::{Elapsed, Timestamp};
     use TrainingLoadCalculator;
 
     if activities.is_empty() {
@@ -162,7 +166,7 @@ pub fn calculate_fitness_metrics(
     let mut chronological = activities.to_vec();
     chronological.sort_by_key(Activity::start_date);
 
-    let now = Utc::now();
+    let now = Timestamp::now();
     let window_days = window_days_for(timeframe);
 
     // The window scopes the two genuine aggregates — consistency and pace
@@ -170,7 +174,7 @@ pub fn calculate_fitness_metrics(
     let scored: Vec<_> = window_days.map_or_else(
         || chronological.clone(),
         |days| {
-            let cutoff = now - Duration::days(i64::from(days));
+            let cutoff = now - Elapsed::days(i64::from(days));
             chronological
                 .iter()
                 .filter(|a| a.start_date() >= cutoff)
@@ -207,8 +211,8 @@ pub fn calculate_fitness_metrics(
     // truncating its input does not narrow the answer, it misstates it
     // (registre#415).
     let calculator =
-        TrainingLoadCalculator::from_config(algorithm_config.clone(), Utc::now().date_naive());
-    let training_load = athlete.training_load(&calculator, &chronological).ok();
+        TrainingLoadCalculator::as_of_today(algorithm_config.clone(), zone.clone(), now);
+    let training_load = athlete.training_load(calculator, &chronological).ok();
 
     let ctl = training_load.as_ref().map_or(0.0, |l| l.ctl);
     let atl = training_load.as_ref().map_or(0.0, |l| l.atl);
@@ -382,7 +386,7 @@ const fn window_days_for(timeframe: &str) -> Option<u32> {
 /// Reported alongside the window so a reply states the period it analysed
 /// instead of inferring one from a smoothing constant that happened to sit
 /// nearby in the payload (registre#415).
-fn history_span_days(chronological: &[Activity], now: DateTime<Utc>) -> u32 {
+fn history_span_days(chronological: &[Activity], now: Timestamp) -> u32 {
     chronological.first().map_or(0, |oldest| {
         u32::try_from((now - oldest.start_date()).num_days().max(0)).unwrap_or(u32::MAX)
     })
@@ -549,6 +553,7 @@ pub(crate) fn handle_calculate_fitness_score(
                             timeframe,
                             &athlete,
                             &executor.cageux_config().algorithms,
+                            &athlete_zone(executor.resources.repos(), user_uuid).await,
                             ProvidersUsed {
                                 activity_provider: provider_name.clone(),
                                 sleep_provider: sleep_provider.map(str::to_owned),

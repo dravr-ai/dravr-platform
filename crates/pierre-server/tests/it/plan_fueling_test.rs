@@ -14,7 +14,7 @@
 //! failure mode being guarded against is silence: a shape that parses, stores
 //! and displays nothing looks exactly like success.
 
-use chrono::{NaiveDate, Utc};
+use dravr_tronc::dates::{CivilDate, Timestamp};
 use pierre_contremaitre::TrainingCatalogueRegistry;
 use pierre_core::models::FuelingProtocol;
 use pierre_core::transport::TransportPolicy;
@@ -27,8 +27,8 @@ use pierre_services::plan_fueling::FuelingDisclosure;
 use pierre_services::training_plan_render::render_training_plan_block;
 use uuid::Uuid;
 
-fn date(s: &str) -> NaiveDate {
-    NaiveDate::parse_from_str(s, "%Y-%m-%d").unwrap()
+fn date(s: &str) -> CivilDate {
+    CivilDate::parse_from_str(s, "%Y-%m-%d").unwrap()
 }
 
 /// A ride the ultra agent would attach a full protocol to.
@@ -51,6 +51,8 @@ fn fuelled_day() -> PlannedDay {
         template_source: None,
         template_preset: None,
         envelope: None,
+        coach_original: None,
+        coach_added: false,
     }
 }
 
@@ -76,8 +78,8 @@ fn plan() -> TrainingPlan {
         status: PlanStatus::Active,
         supersedes_id: None,
         source_conversation_id: None,
-        created_at: Utc::now(),
-        updated_at: Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
         transport_policy: TransportPolicy::AnyTransport,
     }
 }
@@ -95,8 +97,8 @@ fn week_with(days: Vec<PlannedDay>) -> PlanWeek {
         supersedes_id: None,
         adjustment_reason: String::new(),
         author_agent_id: None,
-        created_at: Utc::now(),
-        updated_at: Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
         phase_index: None,
     }
 }
@@ -204,6 +206,8 @@ fn a_rest_day_produces_no_session_to_fuel() {
         template_source: None,
         template_preset: None,
         envelope: None,
+        coach_original: None,
+        coach_added: false,
     };
     assert!(plan_day_session(Uuid::new_v4(), &rest, 0, &FuelingDisclosure::Shown).is_none());
 }

@@ -1,10 +1,10 @@
-# ABOUTME: Daily probe of the dev Copilot account — token validity, seat, and premium-request quota left
+# ABOUTME: Daily probe of dev's copilot_sdk tier credential — token validity, seat, and premium-request quota left
 # ABOUTME: Reads GitHub's entitlement endpoint; spends NO model call. Opens an issue naming which of the three failed
 #
 # WHY THIS PROBE SENDS NO PROMPT
 #
-# The token it checks belongs to the account that serves athletes, so a probe
-# that completes a prompt spends that account's premium requests — and can only
+# The token it checks is the one the deployed copilot_sdk tier runs on, so a probe
+# that completes a prompt spends that tier's premium requests — and can only
 # report that a call WORKS, which stays true until the very call that exhausts
 # the budget. On 2026-09-21 the quota ran out with no warning from anywhere and
 # every athlete turn dead-ended (carnet#497).

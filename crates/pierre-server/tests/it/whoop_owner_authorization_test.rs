@@ -34,8 +34,8 @@ use secrecy::SecretString;
 use std::sync::Arc;
 
 use axum::Router;
-use chrono::{Duration, Utc};
 use common::{create_test_server_resources, create_test_user, create_test_user_with_email};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use dravr_tronc::mcp::schema::ToolResponse;
 use dravr_tronc::mcp::tool::{McpTool, ToolContext};
 use helpers::axum_test::AxumTestRequest;
@@ -447,12 +447,12 @@ async fn connect_whoop(resources: &Arc<ServerContext>, user_id: Uuid, tenant_id:
             access_token: SecretString::from("whoop-access-do-not-log"),
             refresh_token: None,
             token_type: "Bearer".to_owned(),
-            expires_at: Some(Utc::now() + Duration::hours(1)),
+            expires_at: Some(Timestamp::now() + Elapsed::hours(1)),
             scope: Some("read:recovery".to_owned()),
             provider_user_id: None,
             oauth_app_client_id: None,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         })
         .await
         .unwrap();
@@ -588,7 +588,7 @@ async fn seed_cursor(
             provider: provider.to_owned(),
             data_type: data_type.to_owned(),
             cursor_value: Some("page-7-token".to_owned()),
-            last_sync_at: Some(Utc::now()),
+            last_sync_at: Some(Timestamp::now()),
             last_sync_status: "completed".to_owned(),
             records_synced: 25,
             error_message: None,

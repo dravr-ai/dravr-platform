@@ -1,5 +1,5 @@
 // ABOUTME: The settings row — 52 tall (44 compact), a 16 title on the left, a 13 hint inline on the right, an 18 chevron when it navigates
-// ABOUTME: The faint hairline sits on the inner column so it insets to the text; the last row of a group carries none (DESIGN.md §10)
+// ABOUTME: The faint hairline sits on the inner column so it insets to the text; the last row of a group carries none (DESIGN.md "Phone")
 
 import React, { type ReactNode } from 'react';
 import {

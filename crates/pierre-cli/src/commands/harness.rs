@@ -4,13 +4,13 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! Harness operator commands.
+//! Harness admin commands.
 //!
 //! The Sprint C17 claim-verdict backfill, the memory dedup backfill, and the
 //! blind grading of production claims that measures the claim checker's
 //! silent-miss rate (carnet#854): `grading-sheet` draws the sample from the
 //! database, `grading-score` scores the graded sheets from files alone.
-//! Further harness operator utilities (re-extraction, evidence registry sync,
+//! Further harness admin utilities (re-extraction, evidence registry sync,
 //! eval runs) land alongside them under `pierre-cli harness <subcommand>`.
 
 #![cfg(feature = "tools-verification")]
@@ -20,8 +20,8 @@ use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use chrono::Utc;
 use clap::Subcommand;
+use dravr_tronc::dates::Timestamp;
 use tracing::info;
 
 use pierre_core::errors::{AppError, AppResult};
@@ -56,7 +56,7 @@ const DEFAULT_GRADING_OVERLAP: usize = 50;
 /// were.
 const GRADING_POOL_LIMIT: i64 = 50_000;
 
-/// The operator's key, as `grading-sheet` writes it.
+/// The admin's key, as `grading-sheet` writes it.
 const GRADING_KEY_FILE: &str = "grading-key.json";
 
 /// `pierre-cli harness <subcommand>` dispatch.
@@ -126,7 +126,7 @@ pub(crate) enum HarnessCommand {
     /// withhold sharing with their coach, and the reply was not built from
     /// first-party-only data — and draws a sample stratified by layer,
     /// category, locale and agent. Writes two grader sheets carrying the claims
-    /// and no verdict, and the operator's key holding the verdicts. Refuses to
+    /// and no verdict, and the admin's key holding the verdicts. Refuses to
     /// overwrite a key or sheet already in the directory. Score the graded
     /// sheets with `harness grading-score`.
     ///
@@ -313,7 +313,7 @@ pub(crate) async fn dispatch(
             };
             let stats = run_backfill(repos, database, &params, &config).await?;
 
-            // Emit a human-readable summary on stdout so operators
+            // Emit a human-readable summary on stdout so admins
             // piping the CLI output to a log file see the totals
             // without digging through trace lines.
             info!(
@@ -382,7 +382,7 @@ pub(crate) async fn dispatch(
                 .grading_pool(parsed_tenant, window_days, GRADING_POOL_LIMIT)
                 .await?;
             // The clock's milliseconds are never negative after 1970.
-            let seed = seed.unwrap_or_else(|| Utc::now().timestamp_millis().unsigned_abs());
+            let seed = seed.unwrap_or_else(|| Timestamp::now().epoch_millis().unsigned_abs());
             let export = build_export(
                 pool,
                 &ExportSpec {

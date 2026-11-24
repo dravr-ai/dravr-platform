@@ -8,6 +8,7 @@
 #![allow(missing_docs)]
 
 use anyhow::Result;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppResult, ErrorCode};
 use pierre_core::models::periodization::PhaseKind;
 use pierre_core::models::WorkoutStep;
@@ -98,6 +99,8 @@ fn week_days(monday: &str) -> Vec<PlannedDay> {
             template_source: None,
             template_preset: None,
             envelope: None,
+            coach_original: None,
+            coach_added: false,
         },
         PlannedDay {
             date: "2026-07-14".to_owned(),
@@ -112,6 +115,8 @@ fn week_days(monday: &str) -> Vec<PlannedDay> {
             template_source: None,
             template_preset: None,
             envelope: None,
+            coach_original: None,
+            coach_added: false,
         },
         PlannedDay {
             date: "2026-07-15".to_owned(),
@@ -126,6 +131,8 @@ fn week_days(monday: &str) -> Vec<PlannedDay> {
             template_source: None,
             template_preset: None,
             envelope: None,
+            coach_original: None,
+            coach_added: false,
         },
     ]
 }
@@ -981,7 +988,7 @@ async fn a_weeks_only_save_waiting_on_an_outline_supersede_lands_on_the_new_outl
                   SELECT $1, tenant_id, user_id, author_agent_id, goal_race_json, races_json, \
                   'the re-laid season', phases_json, 'active', id, created_at, updated_at \
                   FROM training_plans WHERE id = $2";
-    let now = chrono::Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     let days = week_days("2026-07-13");
     let week = [week_input(
         "2026-07-13",
@@ -1497,6 +1504,8 @@ async fn two_consecutive_outline_resaves_strand_no_week() -> Result<()> {
             template_source: None,
             template_preset: None,
             envelope: None,
+            coach_original: None,
+            coach_added: false,
         },
         PlannedDay {
             date: "2026-08-26".to_owned(),
@@ -1511,6 +1520,8 @@ async fn two_consecutive_outline_resaves_strand_no_week() -> Result<()> {
             template_source: None,
             template_preset: None,
             envelope: None,
+            coach_original: None,
+            coach_added: false,
         },
         PlannedDay {
             date: "2026-08-29".to_owned(),
@@ -1525,6 +1536,8 @@ async fn two_consecutive_outline_resaves_strand_no_week() -> Result<()> {
             template_source: None,
             template_preset: None,
             envelope: None,
+            coach_original: None,
+            coach_added: false,
         },
     ];
     let race_b = GoalRace {
@@ -2192,6 +2205,62 @@ async fn publishing_puts_the_drafted_weeks_live_and_keeps_the_athletes_other_sav
         publish(plans, world.owner(), false).await?,
         DraftPublish::NoDraft
     ));
+    Ok(())
+}
+
+/// A day the coach edited carries the day it replaced in the draft, and
+/// publishing puts the week live without it (carnet#1714).
+#[tokio::test]
+async fn publishing_drops_the_coachs_pre_edit_snapshots() -> Result<()> {
+    let db = open_test_db().await?;
+    let plans = db.repositories().training_plans.clone();
+    let plans = plans.as_ref();
+    let world = draft_world(plans, &[("2026-07-13", "athlete one")]).await;
+
+    let mut days = week_days("2026-07-13");
+    let original = days[1].clone();
+    days[1].workout = "coach's own session".to_owned();
+    days[1].coach_original = Some(Box::new(original.clone()));
+    let week = [week_input("2026-07-13", "coach one", &days)];
+    let saved = plans
+        .save_draft_bundle(&SaveDraftParams {
+            owner: world.owner(),
+            author: PlanAuthor::agent(COACH_AGENT),
+            goal_fact_id: None,
+            outline: None,
+            weeks: &week,
+            transport_policy: TransportPolicy::AnyTransport,
+        })
+        .await?;
+    let drafted = plans
+        .list_draft_weeks(world.owner(), &saved.draft.plan.id)
+        .await?;
+    assert_eq!(
+        drafted[0].days[1].coach_original.as_deref(),
+        Some(&original),
+        "bug: the draft keeps the day the coach's edit replaced"
+    );
+
+    let DraftPublish::Published(published) = publish(plans, world.owner(), false).await? else {
+        panic!("an untouched week is never a conflict");
+    };
+    let live = plans
+        .list_plan_weeks(&world.tenant, &world.athlete, &world.season, false)
+        .await?;
+    for (what, weeks) in [("published", &published.weeks), ("live", &live)] {
+        let day = &weeks[0].days[1];
+        assert_eq!(
+            day.workout, "coach's own session",
+            "bug: the {what} week carries the coach's edit"
+        );
+        assert!(
+            weeks
+                .iter()
+                .flat_map(|week| &week.days)
+                .all(|day| day.coach_original.is_none()),
+            "bug: the {what} week keeps a coach's snapshot: {weeks:?}"
+        );
+    }
     Ok(())
 }
 

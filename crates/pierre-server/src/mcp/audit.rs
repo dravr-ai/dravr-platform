@@ -21,7 +21,7 @@ use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
 use tracing::Span;
 
-use pierre_tool_runtime::schema_canonical::to_canonical_value;
+use dravr_tronc::mcp::canonical::to_canonical_value;
 
 /// Fingerprint a tool call's arguments for the audit trail.
 ///

@@ -234,6 +234,29 @@ pub const KEY_INTERVALS_COACH_KEY_ACTION: &str = "shell.intervalsCoachKeyAction"
 /// Key: "That code wasn't accepted. Check it and enter it again." No format placeholders.
 pub const KEY_SCIOTTE_CODE_REJECTED: &str = "shell.sciotteCodeRejected";
 
+// ── Garmin's connect consents, shared with the app's connect dialog (carnet#1157, carnet#1390) ──
+//
+// Two boxes a Garmin connect offers, both unticked, and the connect goes
+// through with neither: AI use of the athlete's Garmin data, and sending the
+// workouts their agent plans to the Garmin Connect calendar.
+
+/// Key: "Before you connect Garmin" No format placeholders.
+pub const KEY_GARMIN_CONSENT_TITLE: &str = "providers.garminConsent.title";
+/// Key: "Choose what Dravr may do with your Garmin data. You can connect without ticking either box and change both at any time in Privacy & Data." No format placeholders.
+pub const KEY_GARMIN_CONSENT_INTRO: &str = "providers.garminConsent.intro";
+/// Key: "Let my AI agent read my Garmin data" No format placeholders.
+pub const KEY_GARMIN_CONSENT_AI_LABEL: &str = "providers.garminConsent.aiLabel";
+/// Key: "Without it, you still see your Garmin data in Dravr, and no AI agent reads it." No format placeholders.
+pub const KEY_GARMIN_CONSENT_AI_HINT: &str = "providers.garminConsent.aiHint";
+/// Key: "Send the workouts my agent plans to my Garmin Connect calendar" No format placeholders.
+pub const KEY_GARMIN_CONSENT_TRANSFER_LABEL: &str = "providers.garminConsent.transferLabel";
+/// Key: "Dravr then sends each workout's name, date, steps and targets to Garmin, which uses them under its own privacy policy. Don't ask Dravr to send anything you aren't allowed to upload to Garmin." No format placeholders.
+pub const KEY_GARMIN_CONSENT_TRANSFER_HINT: &str = "providers.garminConsent.transferHint";
+/// Key: "Garmin's privacy policy" No format placeholders.
+pub const KEY_GARMIN_CONSENT_PRIVACY_LINK: &str = "providers.garminConsent.privacyLink";
+/// Key: "Continue" No format placeholders.
+pub const KEY_GARMIN_CONSENT_CONTINUE: &str = "providers.garminConsent.continue";
+
 // ── The hosted import page (carnet#1221) ──
 //
 // The page the connect picker opens to import the athlete's own history
@@ -447,7 +470,7 @@ pub const IMPORT_GARMIN_FAILURES: [(&str, &str); 7] = [
 
 /// Every slot-less key above: the set a hosted template may name as
 /// `{{t:<key>}}` and a renderer substitutes.
-pub const TEMPLATE_KEYS: [&str; 93] = [
+pub const TEMPLATE_KEYS: [&str; 101] = [
     KEY_HOSTED_COMMON_SUBTITLE,
     KEY_HOSTED_COMMON_YOUR_CHAT_APP,
     KEY_HOSTED_COMMON_BACK,
@@ -541,4 +564,12 @@ pub const TEMPLATE_KEYS: [&str; 93] = [
     KEY_IMPORT_STRAVA_GENERIC_ERROR,
     KEY_IMPORT_STRAVA_RETRY,
     KEY_HOSTED_IMPORT_DETAILS_IN_APP,
+    KEY_GARMIN_CONSENT_TITLE,
+    KEY_GARMIN_CONSENT_INTRO,
+    KEY_GARMIN_CONSENT_AI_LABEL,
+    KEY_GARMIN_CONSENT_AI_HINT,
+    KEY_GARMIN_CONSENT_TRANSFER_LABEL,
+    KEY_GARMIN_CONSENT_TRANSFER_HINT,
+    KEY_GARMIN_CONSENT_PRIVACY_LINK,
+    KEY_GARMIN_CONSENT_CONTINUE,
 ];

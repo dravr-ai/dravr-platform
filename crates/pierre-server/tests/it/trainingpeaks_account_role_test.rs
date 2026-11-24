@@ -34,13 +34,14 @@ use axum::extract::{Path, RawQuery, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use chrono::{DateTime, Utc};
 use common::{
     create_test_server_resources, create_test_server_resources_with_sciotte,
     create_test_user_with_email, generate_test_token,
 };
 use dravr_sciotte::models::{AthleteProfile, AuthSession};
 use dravr_sciotte::wire::ATHLETE_REQUIRED;
+use dravr_tronc::dates::Elapsed;
+use dravr_tronc::dates::Timestamp;
 use helpers::axum_test::AxumTestRequest;
 use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::constants::oauth::providers::provider_terms_version;
@@ -93,7 +94,7 @@ const ROAMING_SESSION: &str = "roaming-athlete-session";
 
 /// How long before a login the stale session was stored: well past the window
 /// in which a login reuses the stored session instead of signing in.
-const STALE_SESSION_AGE: chrono::Duration = chrono::Duration::hours(1);
+const STALE_SESSION_AGE: Elapsed = Elapsed::hours(1);
 
 /// How long the stand-in takes to read a coach account's profile: longer than
 /// a login may take, so a login that waited on the probe would show.
@@ -407,7 +408,7 @@ async fn store_legacy_session(
     user_id: Uuid,
     tenant: TenantId,
     session_id: &str,
-    written_at: DateTime<Utc>,
+    written_at: Timestamp,
 ) {
     let repos = &resources.common.repos;
     repos
@@ -455,8 +456,8 @@ async fn cached_trainingpeaks_rows(
             user_id,
             &tenant,
             Some(oauth_providers::SCIOTTE_TRAININGPEAKS),
-            Utc::now() - chrono::Duration::days(365),
-            Utc::now(),
+            Timestamp::now() - Elapsed::days(365),
+            Timestamp::now(),
             100,
         )
         .await
@@ -478,7 +479,7 @@ async fn a_coach_login_is_granted_the_roster_off_the_request(
         "900001:4001".to_owned(),
         "Someone else's long run".to_owned(),
         SportType::Run,
-        Utc::now() - chrono::Duration::days(2),
+        Timestamp::now() - Elapsed::days(2),
         3_600,
         "sciotte".to_owned(),
     )
@@ -676,7 +677,14 @@ async fn a_legacy_coach_read_is_discovered_from_the_refusal(
     calls: &Calls,
 ) {
     let (coach, tenant, _token) = account(resources, "coach-c@example.test").await;
-    store_legacy_session(resources, coach, tenant, LEGACY_READ_SESSION, Utc::now()).await;
+    store_legacy_session(
+        resources,
+        coach,
+        tenant,
+        LEGACY_READ_SESSION,
+        Timestamp::now(),
+    )
+    .await;
     let runtime: Arc<dyn ToolRuntime> = resources.clone();
     let tenant_str = tenant.to_string();
     let params = ActivityQueryParams::with_pagination(Some(5), None);
@@ -716,7 +724,14 @@ async fn a_legacy_coach_read_is_discovered_from_the_refusal(
 /// without signing in to the scraper again.
 async fn a_reused_legacy_session_is_probed(resources: &Arc<ServerContext>, calls: &Calls) {
     let (coach, tenant, token) = account(resources, "coach-d@example.test").await;
-    store_legacy_session(resources, coach, tenant, LEGACY_LOGIN_SESSION, Utc::now()).await;
+    store_legacy_session(
+        resources,
+        coach,
+        tenant,
+        LEGACY_LOGIN_SESSION,
+        Timestamp::now(),
+    )
+    .await;
     let (status, body) = login(resources, &token, "coach-d@example.test").await;
     assert_eq!(status, 200, "{body}");
     assert_eq!(body["short_circuit"], json!(true), "{body}");
@@ -758,7 +773,7 @@ async fn a_stale_session_signs_in_again(resources: &Arc<ServerContext>, calls: &
         athlete,
         tenant,
         STALE_SESSION,
-        Utc::now() - STALE_SESSION_AGE,
+        Timestamp::now() - STALE_SESSION_AGE,
     )
     .await;
 
@@ -999,8 +1014,8 @@ async fn a_coach_connection_turned_athlete_gives_the_grant_back() {
             domain: None,
             plan: "starter".to_owned(),
             owner_user_id: coach,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         })
         .await
         .unwrap();

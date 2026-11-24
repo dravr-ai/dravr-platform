@@ -155,7 +155,6 @@ fn grant(resources: &ServerContext, rider: &Rider, scopes: &[&str]) -> String {
                 audience: None,
             },
             &rider.user_id,
-            &[],
             Some(rider.tenant.to_string()),
         )
         .unwrap();
@@ -266,6 +265,7 @@ async fn first_party_turn(fx: &Fixture, rider: &Rider) {
             sender_id: None,
             transport: Transport::WebApp,
             grant: OAuthScope::self_grant(),
+            caller: None,
             hooks: PipelineHooks::none(),
         },
         &profile,
@@ -442,6 +442,7 @@ async fn a_follow_up_replays_nothing_a_first_party_row_derived_from() {
             channel_type: None,
             about_user_id: None,
             turn_attempted_write: None,
+            ai_consent_sources: &[],
         })
         .await
         .unwrap();
@@ -660,13 +661,13 @@ async fn the_coach_family_stays_off_a_text_turn() {
     let requests = fx.model.requests_since(0);
     assert!(
         !requests[0].system.contains("get_roster_overview"),
-        "D4: the turn's tool index must not name a coach tool"
+        "a text turn's tool index names no coach tool (carnet#1511)"
     );
     assert!(
         requests[1]
             .conversation
-            .contains("not available over this interface"),
-        "D4: the executor must refuse the coach tool: {}",
+            .contains("is for a human coach who leads an active group"),
+        "a text turn is decided for no role (carnet#1511): the executor refuses the coach tool: {}",
         requests[1].conversation
     );
 }

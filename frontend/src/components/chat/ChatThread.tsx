@@ -221,16 +221,16 @@ export default function ChatThread({
   // A row read back carries no block list on the wire: its blocks are decoded
   // from the row, as its bubble decodes them.
   const planDraft = usePlanThreadDraft(thread.conversationId, planSubjectName !== null);
-  const openDraftId = planDraft.open?.draft.draft_id ?? null;
+  const openDraftState = planDraft.open?.draft ?? null;
   const { messageBlocks } = thread;
   const draftCarried = useMemo(
     () =>
-      openDraftId !== null &&
+      openDraftState !== null &&
       threadCarriesDraft(
         threadMessages.map((message) => messageBlocks.get(message.id) ?? transcriptBlocks(message)),
-        openDraftId,
+        openDraftState,
       ),
-    [openDraftId, threadMessages, messageBlocks],
+    [openDraftState, threadMessages, messageBlocks],
   );
   const openDraft = draftCarried ? null : planDraft.open;
   const draftCard =
@@ -297,6 +297,7 @@ export default function ChatThread({
           ) : null}
           <MessageList
             conversationId={thread.conversationId}
+            editsPlanDays={planSubjectName !== null && (planDraft.open !== null || planDraft.noDraft)}
             messages={threadMessages}
             messageMetadata={thread.messageMetadata}
             messageFeedback={thread.messageFeedback}

@@ -21,13 +21,13 @@
 //! intervals.icu series owes (carnet#521). Series from different sources are
 //! never merged: two devices' samples at the same instant are two readings.
 
-use chrono::{DateTime, Utc};
 use dravr_riviere::{AggregatedPoint, Aggregation, DataPoint, RiviereError, SeriesType, TimeRange};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::ai_policy::ProviderTerms;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
 use pierre_database::RepositoryRegistry;
-use pierre_providers::ai_scope::StoredHealthRecord;
+use pierre_providers::ai_scope::{self, Dated, StoredHealthRecord};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -102,6 +102,12 @@ impl StoredHealthRecord for SourceSeries {
     fn source_name(&self) -> &str {
         &self.provider
     }
+
+    /// A series is read inside the window already: its range is clamped to
+    /// it ([`continuous_series`]).
+    fn dated(&self) -> Option<Dated> {
+        None
+    }
 }
 
 /// The store's error as a database error naming the read.
@@ -123,13 +129,18 @@ pub async fn continuous_series(
     user_id: Uuid,
     tenant: &TenantId,
     series: SeriesType,
-    (start, end): (DateTime<Utc>, DateTime<Utc>),
+    (start, end): (Timestamp, Timestamp),
     read: SeriesRead,
 ) -> AppResult<StoredHealth<SourceSeries>> {
     let sources = repos
         .data_sources
         .list_data_sources(user_id, tenant)
         .await?;
+    // Under a grant's window no sample before it is read (plan slice 3).
+    let start = ai_scope::window_since().map_or(start, |since| start.max(since));
+    if start >= end {
+        return governed_by_sources(repos, terms, user_id, tenant, Vec::new(), &sources).await;
+    }
     let range = TimeRange::new(start, end);
     let store = &repos.time_series_points;
 
@@ -165,7 +176,10 @@ pub async fn continuous_series(
         }
     }
 
-    governed_by_sources(repos, terms, user_id, tenant, found, &sources).await
+    let served = governed_by_sources(repos, terms, user_id, tenant, found, &sources).await?;
+    // Each sample, or window of samples, is a raw row of a grant's budget.
+    ai_scope::note_raw_rows(served.records.iter().map(SourceSeries::len).sum());
+    Ok(served)
 }
 
 #[cfg(test)]
@@ -173,7 +187,7 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
-    use chrono::{Duration, TimeZone};
+    use dravr_tronc::dates::Elapsed;
     use pierre_core::ai_policy::SourcePolicy;
     use pierre_core::constants::oauth_providers::INTERVALS_ICU;
     use pierre_core::models::{ActivityBuilder, DataSource, DeviceType, SportType};
@@ -199,13 +213,13 @@ mod tests {
     /// with one intervals.icu ride recorded on `device`.
     async fn intervals_series(
         device: &str,
-    ) -> (Arc<RepositoryRegistry>, Uuid, TenantId, DateTime<Utc>) {
+    ) -> (Arc<RepositoryRegistry>, Uuid, TenantId, Timestamp) {
         let db = create_test_db().await.unwrap();
         let repos = Arc::clone(db.repositories());
         let user = create_test_user(&format!("series-{}@example.com", Uuid::new_v4()), None);
         let user_id = repos.users.create(&user).await.unwrap();
         let tenant = TenantId::generate();
-        let morning = Utc.with_ymd_and_hms(2026, 10, 12, 6, 0, 0).unwrap();
+        let morning = Timestamp::parse_from_rfc3339("2026-10-12T06:00:00Z").unwrap();
         let source_id = repos
             .data_sources
             .upsert_data_source(
@@ -230,7 +244,7 @@ mod tests {
                 SeriesType::HeartRate.id(),
                 vec![
                     DataPoint::new(morning, 52.0),
-                    DataPoint::new(morning + Duration::minutes(30), 58.0),
+                    DataPoint::new(morning + Elapsed::minutes(30), 58.0),
                 ],
             )
             .await
@@ -239,7 +253,7 @@ mod tests {
             "ride",
             "Ride",
             SportType::Ride,
-            morning - Duration::days(1),
+            morning - Elapsed::days(1),
             3_600,
             INTERVALS_ICU,
         )
@@ -261,7 +275,7 @@ mod tests {
             user_id,
             &tenant,
             SeriesType::HeartRate,
-            (morning, morning + Duration::hours(1)),
+            (morning, morning + Elapsed::hours(1)),
             SeriesRead::Points,
         )
         .await

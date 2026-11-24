@@ -50,8 +50,8 @@ static MIGRATOR: Migrator = sqlx::migrate!("../../migrations");
 #[cfg(feature = "postgresql")]
 static PG_MIGRATOR: Migrator = sqlx::migrate!("../../migrations_pg");
 
-/// The operator who owns the catalogue agents.
-const OPERATOR: &str = "aaaaaaaa-0000-4000-8000-000000000001";
+/// The admin who owns the catalogue agents.
+const ADMIN: &str = "aaaaaaaa-0000-4000-8000-000000000001";
 /// Installed a copy of `ORIGIN` and had also used `ORIGIN` itself.
 const ATHLETE_A: &str = "aaaaaaaa-0000-4000-8000-000000000002";
 /// Holds the copies that must stay: an edited one, a touched one, a foreign one.
@@ -212,7 +212,7 @@ INSERT INTO agent_assignments (id, agent_id, user_id, assigned_by, created_at, i
     -- B owns the listed copy.
     ('as-16', 'c0000000-0000-4000-8000-000000000009', 'aaaaaaaa-0000-4000-8000-000000000003', 'aaaaaaaa-0000-4000-8000-000000000003',
      '2026-02-01T00:00:00+00:00', FALSE, 0, NULL),
-    -- The operator only used a catalogue agent it owns: not a member.
+    -- The admin only used a catalogue agent it owns: not a member.
     ('as-17', 'a0000000-0000-4000-8000-000000000001', 'aaaaaaaa-0000-4000-8000-000000000001', NULL,
      '2026-01-03T00:00:00+00:00', FALSE, 2, '2026-01-04T00:00:00+00:00');
 
@@ -306,7 +306,7 @@ fn expected_assignments() -> Vec<String> {
         ("as-14", ORIGIN, AUTHOR, "usage", 1, "-", "2026-02-10"),
         ("as-15", COPY_OF_COPY, ATHLETE_B, "member", 0, "-", "-"),
         ("as-16", ORIGIN3, ATHLETE_B, "member", 0, "-", "-"),
-        ("as-17", ORIGIN, OPERATOR, "usage", 2, "-", "2026-01-04"),
+        ("as-17", ORIGIN, ADMIN, "usage", 2, "-", "2026-01-04"),
     ]
     .iter()
     .map(|(id, agent, user, member, uses, fav, last)| {
@@ -410,7 +410,7 @@ async fn unedited_copies_fold_onto_their_catalogue_agent_and_only_real_choices_b
 
 /// The users every fixture row hangs off.
 const USERS: [&str; 7] = [
-    OPERATOR, ATHLETE_A, ATHLETE_B, ATHLETE_C, USER_D, USER_E, AUTHOR,
+    ADMIN, ATHLETE_A, ATHLETE_B, ATHLETE_C, USER_D, USER_E, AUTHOR,
 ];
 
 /// The reference rows, one text column `r` each; the two lanes differ only in

@@ -300,7 +300,7 @@ async fn the_coach_only_answer_resolves_the_roster_agent_until_they_train() {
         "their own thread resolves the roster agent"
     );
 
-    // An operator reset, then the person says they train.
+    // An admin reset, then the person says they train.
     repos
         .user_onboarding
         .reset_onboarding(&user_id.to_string(), OnboardingResetScope::OnboardingOnly)

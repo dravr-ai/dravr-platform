@@ -29,7 +29,7 @@ use axum::extract::State;
 use axum::http::HeaderMap;
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use chrono::{Duration as ChronoDuration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::models::{ConnectionType, TenantId};
 use pierre_database::backends::factory::{Database, DatabaseBackend};
@@ -70,7 +70,7 @@ type Reads = Arc<Mutex<Vec<String>>>;
 /// over it stays partial and the provider holds nothing older.
 async fn spawn_scraper() -> (String, Reads) {
     let reads: Reads = Arc::new(Mutex::new(Vec::new()));
-    let ride_start = (Utc::now() - ChronoDuration::days(5)).to_rfc3339();
+    let ride_start = (Timestamp::now() - Elapsed::days(5)).to_rfc3339();
     let app = Router::new()
         .route(
             "/auth/import-session",
@@ -201,7 +201,7 @@ async fn a_finished_backfills_warm_starts_no_capture_on_another_provider() {
 
     // The depth the training-history capture asks for: the default window and
     // a generous warm-up, which a five-day-old ride never reaches.
-    let after = (Utc::now() - ChronoDuration::days(DEFAULT_BACKFILL_DAYS + 90)).timestamp();
+    let after = (Timestamp::now() - Elapsed::days(DEFAULT_BACKFILL_DAYS + 90)).epoch_seconds();
     let started = spawn_activity_backfill(ActivityBackfillJob {
         resources: Arc::clone(&runtime),
         user_id,
@@ -238,8 +238,8 @@ async fn a_finished_backfills_warm_starts_no_capture_on_another_provider() {
             user_id,
             &tenant,
             Some(PROVIDER_A),
-            Utc::now() - ChronoDuration::days(30),
-            Utc::now() + ChronoDuration::days(1),
+            Timestamp::now() - Elapsed::days(30),
+            Timestamp::now() + Elapsed::days(1),
             50,
         )
         .await

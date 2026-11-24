@@ -27,16 +27,15 @@
 use secrecy::SecretString;
 use std::sync::{Arc, Mutex};
 
-use chrono::{NaiveDate, TimeZone, Utc};
 use dravr_sciotte::models::AuthSession;
 use dravr_sciotte::wire::ATHLETE_REQUIRED;
+use dravr_tronc::dates::{CivilDate, Timestamp};
 use pierre_providers::core::{
     planned_workouts_unsupported, CredentialKind, FitnessProvider, OAuth2Credentials,
     ProviderConfig, ProviderFactory,
 };
 use pierre_providers::errors::ErrorCode;
 use pierre_providers::models::{SportType, WorkoutStep};
-use pierre_providers::registry::global_registry;
 use pierre_providers::sciotte_error::sciotte_refusal;
 use pierre_providers::sciotte_provider::{
     startup_reads, SciotteGarminProviderFactory, SciotteProviderFactory, SciotteReads,
@@ -46,6 +45,7 @@ use pierre_providers::spi::{
     ProviderCapabilities, ProviderDescriptor, SciotteDescriptor, SciotteGarminDescriptor,
     SciotteTrainingPeaksDescriptor,
 };
+use pierre_test_support::providers::offline_provider_registry;
 use serde_json::{json, Value};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
@@ -221,7 +221,7 @@ async fn connected(
     let session = AuthSession {
         session_id: session_id.to_owned(),
         cookies: vec![],
-        created_at: Utc.with_ymd_and_hms(2026, 9, 23, 8, 0, 0).unwrap(), // Safe: literal instant
+        created_at: Timestamp::parse_from_rfc3339("2026-09-23T08:00:00Z").unwrap(), // Safe: literal instant
         expires_at: None,
     };
     provider
@@ -242,8 +242,8 @@ async fn connected(
     provider
 }
 
-fn day(y: i32, m: u32, d: u32) -> NaiveDate {
-    NaiveDate::from_ymd_opt(y, m, d).expect("valid date literal") // Safe: literal calendar date
+fn day(y: i32, m: u32, d: u32) -> CivilDate {
+    CivilDate::from_ymd(y, m, d).expect("valid date literal") // Safe: literal calendar date
 }
 
 /// The request line of every recorded request to `path` from `session`.
@@ -459,7 +459,7 @@ fn the_trainingpeaks_mirror_is_the_one_scraped_target_with_a_planned_calendar() 
         expected.insert(0, "intervals_icu");
     }
     assert_eq!(
-        global_registry().planned_workout_providers(),
+        offline_provider_registry().planned_workout_providers(),
         expected,
         "the registry lists exactly the providers that declare the capability"
     );

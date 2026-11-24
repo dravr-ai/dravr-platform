@@ -14,6 +14,7 @@ use axum::{
     routing::get,
     Extension, Router,
 };
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::CoachingPersona;
 use pierre_core::models::{User, UserStatus, UserTier};
 use pierre_core::permissions::UserRole;
@@ -207,14 +208,13 @@ async fn test_database_operation_instrumentation() -> Result<(), Box<dyn Error>>
         display_name: Some("Test User".to_owned()),
         password_hash: "hash".to_owned(),
         tier: UserTier::Starter,
-        strava_token: None,
         is_active: true,
         user_status: UserStatus::Active,
         role: UserRole::User,
         approved_by: None,
         approved_at: None,
-        created_at: chrono::Utc::now(),
-        last_active: chrono::Utc::now(),
+        created_at: Timestamp::now(),
+        last_active: Timestamp::now(),
         firebase_uid: None,
         auth_provider: String::new(),
         analytics_consent: false,

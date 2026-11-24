@@ -10,7 +10,7 @@
 //! ("Saturday vs Sunday", "longest ride this week") **without inventing
 //! per-day numbers** — the comment above them says exactly that.
 //!
-//! They rendered `act.start`, a `DateTime<Utc>`, through `%a` with no
+//! They rendered `act.start`, a `Timestamp`, through `%a` with no
 //! conversion. For an `America/Toronto` athlete every session starting at or
 //! after 20:00 local printed the *following* day and the following weekday
 //! name. The one question the block was built to answer was the one it got
@@ -22,7 +22,7 @@
 //! *"date ride etait lundi. Ca va pas les dates"* — and left the conversation
 //! telling the bot to go rest.
 
-use chrono::{TimeZone, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::groups::{MemberFitnessSnapshot, OvertrainingRiskLevel, RosterActivity};
 use pierre_groups::strategies::summarization::{
     GroupSummarizationStrategy, WeeklyDigestSummarizer,
@@ -36,7 +36,7 @@ use uuid::Uuid;
 /// server's. Any surface that skips the conversion reports `mer`/`Wed` here.
 fn tuesday_evening_ride() -> RosterActivity {
     RosterActivity {
-        start: Utc.with_ymd_and_hms(2026, 9, 2, 1, 30, 0).unwrap(),
+        start: Timestamp::parse_from_rfc3339("2026-09-02T01:30:00Z").unwrap(),
         sport: "Ride".to_owned(),
         distance_km: Some(161.0),
         duration_seconds: 372 * 60,
@@ -70,7 +70,7 @@ fn snapshot_in(timezone: Option<&str>) -> MemberFitnessSnapshot {
         served_stale: false,
         timezone: timezone.map(str::to_owned),
         deep_fatigue_mornings: Vec::new(),
-        computed_at: Utc::now(),
+        computed_at: Timestamp::now(),
     }
 }
 
@@ -115,7 +115,7 @@ fn each_member_is_read_on_their_own_clock() {
     let mut snapshot = snapshot_in(Some("Australia/Sydney"));
     snapshot.recent_activities = vec![RosterActivity {
         // 23:00 UTC Tuesday the 1st — 09:00 Wednesday the 2nd in Sydney.
-        start: Utc.with_ymd_and_hms(2026, 9, 1, 23, 0, 0).unwrap(),
+        start: Timestamp::parse_from_rfc3339("2026-09-01T23:00:00Z").unwrap(),
         sport: "Ride".to_owned(),
         distance_km: Some(40.0),
         duration_seconds: 75 * 60,
@@ -170,7 +170,7 @@ fn a_date_only_row_is_not_shifted_back_a_day() {
     let mut snapshot = snapshot_in(Some("America/Toronto"));
     snapshot.recent_activities = vec![RosterActivity {
         // Midnight UTC on Tuesday the 1st — the date-only sentinel.
-        start: Utc.with_ymd_and_hms(2026, 9, 1, 0, 0, 0).unwrap(),
+        start: Timestamp::parse_from_rfc3339("2026-09-01T00:00:00Z").unwrap(),
         sport: "Ride".to_owned(),
         distance_km: Some(161.0),
         duration_seconds: 372 * 60,

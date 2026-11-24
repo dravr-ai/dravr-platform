@@ -175,7 +175,7 @@ pub use check_in::CheckInCadence;
 
 // Physiology provenance domain
 pub use measurement::{
-    AnchorOrigin, AnchorProvenance, AnchorStamp, MeasurementKind, MetricProvenance,
+    AnchorOrigin, AnchorProvenance, AnchorStamp, MeasurementKind, MetricProvenance, ProfileVdot,
     ProvenancedValue, ThresholdProvenance, ThresholdStatedOn, ATHLETE_REPORTED_ORIGIN,
     COACH_STATED_ORIGIN,
 };
@@ -189,7 +189,7 @@ pub use invitation::{InvitationKind, PreApprovedEmail, UserInvitation};
 pub use sender_locale::{locale_from_language_tag, whatsapp_sender_locale};
 pub use user::{
     default_locale, locale_from_accept_language, normalize_email, page_locale, roster_display_name,
-    supported_ui_locale, CoachingPersona, ColorScheme, OperatorRosterGrant, PhysiologicalSex, User,
+    supported_ui_locale, AdminRosterGrant, CoachingPersona, ColorScheme, PhysiologicalSex, User,
     UserId, UserPhysiologicalProfile, UserReference, UserReferenceKind, UserStatus, UserTier,
     FEDERATED_ONLY_PASSWORD_HASH, SUPPORTED_LOCALES,
 };
@@ -237,10 +237,10 @@ pub use dravr_cageux::periodization::{
 // OAuth domain
 pub use oauth::{
     connection_needs_reauth, refresh_due, AuthRequest, AuthResponse, ConnectionStatus,
-    ConnectionType, DecryptedToken, EncryptedToken, OAuthAppCredentials, OAuthNotification,
-    ProviderAccountRole, ProviderConnection, ReauthMark, StravaPoolApp, StravaSeatHolder,
-    StravaSeatReclaimWarning, StravaTokenApp, UserOAuthApp, UserOAuthToken, UserSession,
-    API_KEY_TOKEN_TYPE, PERMISSION_WITHDRAWN,
+    ConnectionType, OAuthAppCredentials, OAuthNotification, ProviderAccountRole,
+    ProviderConnection, ReauthMark, StravaPoolApp, StravaSeatHolder, StravaSeatReclaimWarning,
+    StravaTokenApp, UserOAuthApp, UserOAuthToken, UserSession, API_KEY_TOKEN_TYPE,
+    PERMISSION_WITHDRAWN,
 };
 
 // OAuth client state for provider authorization flows
@@ -249,8 +249,8 @@ pub use oauth_client::OAuthClientState;
 
 // Tenant domain
 pub use tenant::{
-    ClientGrantStanding, LlmCredentialRecord, LlmCredentialSummary, OAuthClientGrant, Tenant,
-    TenantId, TenantOAuthCredentials,
+    ClientGrantStanding, LlmCredentialRecord, LlmCredentialSummary, OAuthClientGrant,
+    StandingGrant, Tenant, TenantId, TenantOAuthCredentials,
 };
 
 // Tool selection domain
@@ -262,8 +262,8 @@ pub use tool_selection::{
 // OAuth 2.0 server persistence models
 mod oauth2_server;
 pub use oauth2_server::{
-    DeviceAuthorization, OAuth2AuthCode, OAuth2Client, OAuth2ClientSweep, OAuth2RefreshToken,
-    OAuth2State,
+    DeviceAuthorization, OAuth2AuthCode, OAuth2Client, OAuth2ClientSweep, OAuth2PushedRequest,
+    OAuth2RefreshToken, OAuth2State,
 };
 
 // First-party refresh tokens — the credential a device holds between JWTs
@@ -322,8 +322,8 @@ pub use room_quote::{RoomQuote, ROOM_QUOTE_BLOCK_TYPE};
 // API key types for authentication and rate limiting
 mod api_key;
 pub use api_key::{
-    ApiKey, ApiKeyData, ApiKeyResponse, ApiKeyTier, ApiKeyUsage, ApiKeyUsageStats,
-    CreateApiKeyRequest, CreateApiKeyRequestSimple,
+    ApiKey, ApiKeyData, ApiKeyRequestDay, ApiKeyResponse, ApiKeyTier, ApiKeyUsage,
+    ApiKeyUsageStats, CreateApiKeyRequest, CreateApiKeyRequestSimple, AGENT_TURN_ROUTE,
 };
 
 // A2A protocol data types
@@ -345,9 +345,10 @@ pub use tier_quota::{
 pub mod subscription;
 pub use subscription::{Subscription, SubscriptionStatus};
 pub use usage::{
-    ConversationTurnLlmCall, ConversationTurnSummary, InsertLlmUsage, JwtMonthlyUsage, JwtUsage,
-    LlmUsageAggregateRow, LlmUsageDailyRow, LlmUsageRecord, MonthlyLimitOverride, RequestLog,
-    ToolUsage, UsageCounterRecord, WindowUsage, DIRECT_TOOL_CALL_TYPE, TURN_SUMMARY_CALL_TYPE,
+    CallOutcome, ConversationTurnLlmCall, ConversationTurnSummary, DelegatedRead, InsertLlmUsage,
+    JwtMonthlyUsage, JwtUsage, LlmUsageAggregateRow, LlmUsageDailyRow, LlmUsageRecord,
+    MonthlyLimitOverride, OutsideRead, OutsideReadKind, RequestLog, ToolUsage, UsageCounterRecord,
+    WindowUsage, DIRECT_TOOL_CALL_TYPE, TURN_SUMMARY_CALL_TYPE,
 };
 
 /// An agent package's training artefacts — flavour, skeleton, workouts — beside its prompt
@@ -378,6 +379,8 @@ pub use recipes::{
 /// Multi-channel messaging gateway types
 pub mod messaging;
 
+/// A coaching group's chat connected from the web app (carnet#1683), re-exported from [`groups`].
+mod group_chat;
 /// Coaching group models for multi-person AI coaching
 pub mod groups;
 /// Notification screen vocabulary — the app-side destinations a push notification names

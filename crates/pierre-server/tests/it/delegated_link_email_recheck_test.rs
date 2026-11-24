@@ -33,10 +33,10 @@ use axum::extract::{Query, State};
 use axum::http::StatusCode;
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use chrono::{Duration as ChronoDuration, Utc};
 use common::{
     create_test_server_resources_with_sciotte, create_test_user_with_plan, generate_test_token,
 };
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use dravr_tronc::mcp::tool::{McpTool, ToolContext};
 use helpers::axum_test::AxumTestRequest;
 use pierre_core::constants::oauth::providers::provider_terms_version;
@@ -127,7 +127,7 @@ async fn activities_route(
         "id": format!("{athlete}:5001"),
         "name": "Tempo",
         "sport_type": "run",
-        "start_date": (Utc::now() - ChronoDuration::days(1)).to_rfc3339(),
+        "start_date": (Timestamp::now() - Elapsed::days(1)).to_rfc3339(),
         "duration_seconds": 3_600,
         "provider": "trainingpeaks",
     });
@@ -228,7 +228,7 @@ async fn world(scraper: Scraper, url: &str) -> World {
         .unwrap()
         .id
         .to_string();
-    let now = Utc::now();
+    let now = Timestamp::now();
     let group = repos
         .groups
         .create_group(
@@ -248,6 +248,7 @@ async fn world(scraper: Scraper, url: &str) -> World {
                 is_active: true,
                 channel_type: None,
                 channel_chat_id: None,
+                chat_connection: None,
                 created_at: now,
                 updated_at: now,
             },
@@ -384,7 +385,7 @@ impl World {
             .expect("no live link holds this member or athlete yet");
         repos
             .delegated_connections
-            .confirm(proposed.id, member.id, member.tenant, Utc::now())
+            .confirm(proposed.id, member.id, member.tenant, Timestamp::now())
             .await
             .unwrap()
             .expect("the proposal names the member");

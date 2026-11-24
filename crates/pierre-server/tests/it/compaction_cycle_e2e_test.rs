@@ -12,7 +12,7 @@ use std::slice::from_ref;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use futures_util::stream;
 
 use pierre_core::config::CompactionConfig;
@@ -143,7 +143,7 @@ async fn seed_user_and_tenant(db: &Database) -> (String, TenantId) {
     db.repositories().users.create(&user).await.unwrap();
 
     let tenant_id = TenantId::generate();
-    let now = Utc::now();
+    let now = Timestamp::now();
     let tenant = Tenant {
         id: tenant_id,
         name: format!("Test Tenant {tenant_id}"),
@@ -226,6 +226,7 @@ async fn compaction_cycle_summarizes_persists_and_reconstructs() {
                 channel_type: None,
                 about_user_id: None,
                 turn_attempted_write: None,
+                ai_consent_sources: &[],
             })
             .await
             .expect("message should be added");
@@ -281,6 +282,7 @@ async fn compaction_cycle_summarizes_persists_and_reconstructs() {
         conversation_id: &conversation.id,
         source_ids: &source_ids,
         source_members: &vec![None; source_ids.len()],
+        source_consents: &vec![Vec::new(); source_ids.len()],
         llm_messages: &mut llm_messages,
         summary_for_prompt: mark_for_prompt,
     };
@@ -535,6 +537,7 @@ async fn the_jammed_shape_summarizes_instead_of_raw_dropping() {
                 channel_type: None,
                 about_user_id: None,
                 turn_attempted_write: None,
+                ai_consent_sources: &[],
             })
             .await
             .expect("message should be added");
@@ -561,6 +564,7 @@ async fn the_jammed_shape_summarizes_instead_of_raw_dropping() {
                 last_message_id: &history[last].id,
                 transport_policy: TransportPolicy::AnyTransport,
                 about_user_id: None,
+                ai_consent_sources: &[],
             })
             .await
             .expect("block should insert");
@@ -590,6 +594,7 @@ async fn the_jammed_shape_summarizes_instead_of_raw_dropping() {
             conversation_id: &conversation.id,
             source_ids: &source_ids,
             source_members: &vec![None; source_ids.len()],
+            source_consents: &vec![Vec::new(); source_ids.len()],
             llm_messages: &mut llm_messages,
             summary_for_prompt: str::to_owned,
         })
@@ -662,6 +667,7 @@ async fn a_block_whose_first_row_scrolled_out_is_clamped_not_dropped() {
                 channel_type: None,
                 about_user_id: None,
                 turn_attempted_write: None,
+                ai_consent_sources: &[],
             })
             .await
             .expect("message should be added");
@@ -686,6 +692,7 @@ async fn a_block_whose_first_row_scrolled_out_is_clamped_not_dropped() {
             last_message_id: &history[3].id,
             transport_policy: TransportPolicy::AnyTransport,
             about_user_id: None,
+            ai_consent_sources: &[],
         })
         .await
         .expect("block should insert");

@@ -6,7 +6,7 @@
 
 #![allow(missing_docs)]
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::transport::TransportPolicy;
 use pierre_memory::compaction::CompactionBlock;
 
@@ -20,9 +20,10 @@ fn block(original: i32, summary: i32) -> CompactionBlock {
         original_tokens: original,
         first_message_id: "m1".into(),
         last_message_id: "m5".into(),
-        created_at: Utc::now(),
+        created_at: Timestamp::now(),
         transport_policy: TransportPolicy::AnyTransport,
         about_user_id: None,
+        ai_consent_sources: Vec::new(),
     }
 }
 

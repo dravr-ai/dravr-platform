@@ -49,7 +49,6 @@ import {
   lineKey,
   mergeRosterPages,
   nextPhase,
-  providerName,
   queueCount,
   reasonTitle,
   sourceChips,
@@ -253,10 +252,6 @@ describe('the words of a line', () => {
     expect(describeSource(echo, 'en', { kind: 'provider', providers: [] }, null)).toBe('coachHome.source.provider');
   });
 
-  it('names providers', () => {
-    expect(providerName('trainingpeaks')).toBe('TrainingPeaks');
-    expect(providerName('zwift')).toBe('Zwift');
-  });
 });
 
 describe('dates', () => {

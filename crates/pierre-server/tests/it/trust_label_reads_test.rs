@@ -25,7 +25,7 @@ use std::slice;
 use std::sync::Arc;
 use std::time::Duration as StdDuration;
 
-use chrono::{Duration, TimeZone, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_cache::{CacheKey, CacheResource};
 use pierre_core::constants::oauth::providers::STRAVA_ARCHIVE;
 use pierre_core::models::{ActivityBuilder, Athlete, DailyTrainingState, SegmentEffort, SportType};
@@ -56,6 +56,11 @@ enum Probe {
     /// It runs only on Dravr's own surfaces, so an MCP caller is never served
     /// it (carnet#1565).
     DravrOnly,
+    /// It declares a tier an outside client never reads until grants carry
+    /// authorization details, so the dispatch tier gate refuses every MCP
+    /// call (carnet#1544); called with these arguments, nothing is served to
+    /// label.
+    OutsideRefused(Value),
     /// A write naming whose plan, calendar or link it changes; it reads
     /// nothing to label.
     Writes,
@@ -73,8 +78,8 @@ fn probes(goal: &str) -> BTreeMap<&'static str, Probe> {
         (
             "get_training_history",
             json!({
-                "from": (Utc::now() - Duration::days(3)).date_naive().to_string(),
-                "to": Utc::now().date_naive().to_string(),
+                "from": (Timestamp::now() - Elapsed::days(3)).utc_date().to_string(),
+                "to": Timestamp::now().utc_date().to_string(),
             }),
         ),
         ("analyze_training_load", json!({ "provider": UPLOAD })),
@@ -134,6 +139,10 @@ fn probes(goal: &str) -> BTreeMap<&'static str, Probe> {
     ] {
         probes.insert(tool, Probe::DravrOnly);
     }
+    probes.insert(
+        "get_health_records",
+        Probe::OutsideRefused(json!({ "kind": "labs" })),
+    );
     for tool in [
         "save_training_plan",
         "publish_training_plan",
@@ -156,16 +165,15 @@ async fn world() -> (Fixture, String) {
     let (f, goal) = training_world().await;
     file_wellness(&f, f.athlete, ATHLETE_WELLNESS).await;
     let repos = f.repos();
-    let mut day = DailyTrainingState::zero(Utc::now().date_naive() - Duration::days(1));
+    let mut day = DailyTrainingState::zero(Timestamp::now().utc_date() - Elapsed::days(1));
     day.daily_load = 111.0;
     repos
         .training_history
         .upsert_training_history_batch(f.athlete.tenant, f.athlete.id, &[day])
         .await
         .unwrap();
-    let start = Utc
-        .timestamp_opt(Utc::now().timestamp() - 5 * 86_400, 0)
-        .unwrap();
+    let start =
+        Timestamp::from_epoch_seconds(Timestamp::now().epoch_seconds() - 5 * 86_400).unwrap();
     let ridden = ActivityBuilder::new(
         "athlete-segment-ride",
         "Hill repeats",
@@ -181,7 +189,7 @@ async fn world() -> (Fixture, String) {
         name: "Mont Royal".to_owned(),
         elapsed_time: 412,
         moving_time: Some(412),
-        start_date: start + Duration::minutes(10),
+        start_date: start + Elapsed::minutes(10),
         distance: 1_820.5,
         average_heart_rate: Some(161),
         max_heart_rate: None,
@@ -301,6 +309,15 @@ async fn every_read_of_the_athletes_data_over_mcp_labels_what_it_served() {
                 }
                 continue;
             }
+            Probe::OutsideRefused(params) => {
+                let refused = f.try_call(&f.mcp_executor(), f.athlete, tool, params).await;
+                if refused.as_ref().is_ok_and(|response| response.success) {
+                    defects.push(format!(
+                        "{tool}: served over MCP though its tier is refused to outside clients"
+                    ));
+                }
+                continue;
+            }
             Probe::LiveOnly(reason) => {
                 let answered = f
                     .try_call(&f.mcp_executor(), f.athlete, tool, json!({}))
@@ -347,9 +364,8 @@ async fn every_read_of_the_athletes_data_over_mcp_labels_what_it_served() {
     );
 }
 
-#[tokio::test]
-async fn the_athletes_own_physiology_is_labelled_as_theirs() {
-    let (f, _) = world().await;
+/// The athlete's zones, and the trust label they were served under.
+async fn zones_and_label(f: &Fixture) -> (Value, Value) {
     let response = f
         .call(
             &f.mcp_executor(),
@@ -359,13 +375,109 @@ async fn the_athletes_own_physiology_is_labelled_as_theirs() {
         )
         .await;
     assert!(response.success, "{:?}", response.error);
-    let label = labels_of(&response).expect("the stored physiology was served");
+    let label = labels_of(&response)
+        .expect("the stored physiology was served")
+        .clone();
+    (response.result.unwrap_or_default(), label)
+}
+
+#[tokio::test]
+async fn the_athletes_own_physiology_is_labelled_as_theirs() {
+    let (f, _) = world().await;
+    // A fresh stated VDOT outranks the athlete's runs, so the zones read the
+    // profile alone and leave the cached runs unread.
+    let saved = f
+        .call(
+            &f.mcp_executor(),
+            f.athlete,
+            "set_physiology",
+            json!({ "vdot": 50.0 }),
+        )
+        .await;
+    assert!(
+        saved.success,
+        "fixture: the VDOT is saved: {:?}",
+        saved.error
+    );
+    let (zones, label) = zones_and_label(&f).await;
+    assert_eq!(
+        zones["input_sources"]["vdot"], "stated",
+        "bug: the zones must read the fresh stated VDOT: {zones}"
+    );
     assert_eq!(
         label["source_class"],
         json!(["patient_entered"]),
-        "the athlete stated every number of their profile: {label}"
+        "bug: the athlete stated every number the zones read; a run read and \
+         not used was labelled as served: {label}"
     );
-    assert_eq!(label["tier"], "T1", "{label}");
+    assert_eq!(
+        label["tier"], "T1",
+        "bug: a stated profile is tier T1: {label}"
+    );
+}
+
+#[tokio::test]
+async fn a_vdot_read_from_a_run_labels_the_run_it_came_from() {
+    let (f, _) = world().await;
+    // No VDOT stated: the athlete's uploaded 10 km runs give the zones theirs.
+    let (zones, label) = zones_and_label(&f).await;
+    assert_eq!(
+        zones["input_sources"]["vdot"], "recent_run_estimate",
+        "bug: the athlete's recent runs must give the zones a VDOT: {zones}"
+    );
+    assert_eq!(
+        label["source_class"],
+        json!(["device", "patient_entered"]),
+        "bug: the VDOT came from an uploaded run, the device's record, beside \
+         the profile the athlete stated: {label}"
+    );
+}
+
+#[tokio::test]
+async fn a_run_withheld_from_mcp_gives_way_and_a_run_not_used_is_not_labelled() {
+    let (f, _) = world().await;
+    let (before, _) = zones_and_label(&f).await;
+    assert!(
+        before["user_profile"]["vdot"].is_number(),
+        "fixture: the uploaded runs give the zones a VDOT: {before}"
+    );
+    // Beside the uploaded 10 km runs of an hour: a 10 km in 40 minutes on
+    // Strava, whose terms keep it off MCP, and one in 70 minutes on
+    // Intervals.icu, which any transport may carry.
+    for (provider, seconds) in [("strava", 2_400), ("intervals_icu", 4_200)] {
+        let run = ActivityBuilder::new(
+            format!("{provider}-10k"),
+            "10 km",
+            SportType::Run,
+            Timestamp::now() - Elapsed::days(2),
+            seconds,
+            provider,
+        )
+        .distance_meters(10_000.0)
+        .build();
+        f.repos()
+            .activity_cache
+            .upsert_activities(
+                f.athlete.id,
+                &f.athlete.tenant,
+                provider,
+                slice::from_ref(&run),
+            )
+            .await
+            .unwrap();
+    }
+    let (after, label) = zones_and_label(&f).await;
+    assert_eq!(
+        after["user_profile"]["vdot"], before["user_profile"]["vdot"],
+        "bug: the faster Strava run is withheld from MCP, so it must give way to \
+         the uploaded runs, which the slower Intervals.icu run does not outrank: {after}"
+    );
+    assert_eq!(
+        label["source_class"],
+        json!(["device", "patient_entered"]),
+        "bug: the Intervals.icu run was read and not used, so it must not be \
+         labelled as served: {label}"
+    );
 }
 
 #[tokio::test]

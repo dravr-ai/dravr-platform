@@ -7,7 +7,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_auth::oauth2_server::models::{
     AuthorizeRequest, AuthorizeResponse, ClientRegistrationRequest, ClientRegistrationResponse,
     OAuth2AccessToken, OAuth2AuthCode, OAuth2Client, OAuth2Error, OAuth2RefreshToken, OAuth2State,
@@ -131,6 +131,8 @@ fn test_authorize_request_clone() {
         code_challenge: None,
         code_challenge_method: None,
         resource: None,
+        request_uri: None,
+        authorization_details: None,
     };
 
     let cloned = request.clone();
@@ -240,6 +242,7 @@ fn test_token_response_serialization() {
         expires_in: 3600,
         scope: Some("read write".to_owned()),
         refresh_token: Some(SecretString::from("refresh_token_xyz")),
+        authorization_details: None,
     };
 
     let json = serde_json::to_string(&response).unwrap();
@@ -256,6 +259,7 @@ fn test_token_response_without_refresh() {
         expires_in: 1800,
         scope: None,
         refresh_token: None,
+        authorization_details: None,
     };
 
     let json = serde_json::to_string(&response).unwrap();
@@ -344,7 +348,7 @@ fn test_oauth2_client_creation() {
         client_name: Some("Test Application".to_owned()),
         client_uri: Some("https://app.com".to_owned()),
         scope: Some("read write".to_owned()),
-        created_at: Utc::now(),
+        created_at: Timestamp::now(),
         expires_at: None,
     };
 
@@ -365,8 +369,8 @@ fn test_oauth2_client_clone() {
         client_name: None,
         client_uri: None,
         scope: None,
-        created_at: Utc::now(),
-        expires_at: Some(Utc::now() + Duration::days(365)),
+        created_at: Timestamp::now(),
+        expires_at: Some(Timestamp::now() + Elapsed::days(365)),
     };
 
     let cloned = client.clone();
@@ -388,12 +392,13 @@ fn test_oauth2_auth_code_creation() {
         tenant_id: "tenant_456".to_owned(),
         redirect_uri: "https://app.com/callback".to_owned(),
         scope: Some("read write".to_owned()),
-        expires_at: Utc::now() + Duration::minutes(10),
+        expires_at: Timestamp::now() + Elapsed::minutes(10),
         used: false,
         state: Some("csrf_state".to_owned()),
         code_challenge: Some("E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM".to_owned()),
         code_challenge_method: Some("S256".to_owned()),
         resource: None,
+        client_grant_id: None,
     };
 
     assert_eq!(auth_code.code, "auth_code_abc123");
@@ -411,12 +416,13 @@ fn test_oauth2_auth_code_clone() {
         tenant_id: "tenant".to_owned(),
         redirect_uri: "https://example.com".to_owned(),
         scope: None,
-        expires_at: Utc::now(),
+        expires_at: Timestamp::now(),
         used: false,
         state: None,
         code_challenge: None,
         code_challenge_method: None,
         resource: None,
+        client_grant_id: None,
     };
 
     let cloned = auth_code.clone();
@@ -436,8 +442,8 @@ fn test_oauth2_access_token_creation() {
         client_id: "client_123".to_owned(),
         user_id: Some(user_id),
         scope: Some("read".to_owned()),
-        expires_at: Utc::now() + Duration::hours(1),
-        created_at: Utc::now(),
+        expires_at: Timestamp::now() + Elapsed::hours(1),
+        created_at: Timestamp::now(),
     };
 
     assert_eq!(token.token.expose_secret(), "access_token_xyz");
@@ -452,8 +458,8 @@ fn test_oauth2_access_token_client_credentials() {
         client_id: "service_client".to_owned(),
         user_id: None,
         scope: Some("admin".to_owned()),
-        expires_at: Utc::now() + Duration::hours(2),
-        created_at: Utc::now(),
+        expires_at: Timestamp::now() + Elapsed::hours(2),
+        created_at: Timestamp::now(),
     };
 
     assert!(token.user_id.is_none());
@@ -472,12 +478,13 @@ fn test_oauth2_refresh_token_creation() {
         user_id,
         tenant_id: "tenant".to_owned(),
         scope: Some("read write".to_owned()),
-        expires_at: Utc::now() + Duration::days(30),
-        created_at: Utc::now(),
+        expires_at: Timestamp::now() + Elapsed::days(30),
+        created_at: Timestamp::now(),
         revoked: false,
         family_id: "test-family".to_owned(),
         family_created_at: None,
         resource: None,
+        client_grant_id: None,
     };
 
     assert_eq!(refresh_token.token.expose_secret(), "refresh_token_abc");
@@ -492,12 +499,13 @@ fn test_oauth2_refresh_token_revoked() {
         user_id: Uuid::new_v4(),
         tenant_id: "tenant".to_owned(),
         scope: None,
-        expires_at: Utc::now() + Duration::days(30),
-        created_at: Utc::now(),
+        expires_at: Timestamp::now() + Elapsed::days(30),
+        created_at: Timestamp::now(),
         revoked: true,
         family_id: "test-family".to_owned(),
         family_created_at: None,
         resource: None,
+        client_grant_id: None,
     };
 
     assert!(refresh_token.revoked);
@@ -519,8 +527,8 @@ fn test_oauth2_state_creation() {
         scope: Some("read".to_owned()),
         code_challenge: Some("challenge".to_owned()),
         code_challenge_method: Some("S256".to_owned()),
-        created_at: Utc::now(),
-        expires_at: Utc::now() + Duration::minutes(10),
+        created_at: Timestamp::now(),
+        expires_at: Timestamp::now() + Elapsed::minutes(10),
         used: false,
     };
 
@@ -540,8 +548,8 @@ fn test_oauth2_state_clone() {
         scope: None,
         code_challenge: None,
         code_challenge_method: None,
-        created_at: Utc::now(),
-        expires_at: Utc::now(),
+        created_at: Timestamp::now(),
+        expires_at: Timestamp::now(),
         used: false,
     };
 
@@ -684,6 +692,7 @@ fn test_token_response_long_expiry() {
         expires_in: 31_536_000, // 1 year in seconds
         scope: None,
         refresh_token: None,
+        authorization_details: None,
     };
 
     assert_eq!(response.expires_in, 31_536_000);
@@ -718,7 +727,7 @@ fn test_multiple_redirect_uris() {
         client_name: None,
         client_uri: None,
         scope: None,
-        created_at: Utc::now(),
+        created_at: Timestamp::now(),
         expires_at: None,
     };
 

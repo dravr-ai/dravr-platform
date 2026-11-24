@@ -34,7 +34,10 @@ export interface AdminToken {
   token_prefix: string;
   /** Tenant the token is bound to; null for a platform-wide token */
   tenant_id?: string | null;
-  /** The operator a device-login token acts as; null for a service token */
+  /**
+   * The admin a device-login token acts as; null for a service token. Named
+   * after the admin_tokens.operator_user_id column, which is never renamed.
+   */
   operator_user_id?: string | null;
   /**
    * The token a rotation replaced this one with; null for a live token, a

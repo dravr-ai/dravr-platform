@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use chrono::NaiveDate;
+use dravr_tronc::dates::CivilDate;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::periodization::{AnchorConfidence, AnchorValue, SportFamily};
 use pierre_core::models::{MeasurementKind, SportAnchor, SportAnchorName};
@@ -60,7 +60,7 @@ where
     for<'a> &'a str: sqlx::ColumnIndex<R>,
     String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     f64: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    NaiveDate: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    CivilDate: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
     let read = |e: sqlx::Error, which: &str| AppError::database(format!("read {which}: {e}"));
     let sport: String = row.try_get("sport").map_err(|e| read(e, "sport"))?;
@@ -85,7 +85,7 @@ where
     let high: Option<f64> = row.try_get("high").map_err(|e| read(e, "high"))?;
     let kind: String = row.try_get("kind").map_err(|e| read(e, "kind"))?;
     let origin: String = row.try_get("origin").map_err(|e| read(e, "origin"))?;
-    let as_of: NaiveDate = row.try_get("as_of").map_err(|e| read(e, "as_of"))?;
+    let as_of: CivilDate = row.try_get("as_of").map_err(|e| read(e, "as_of"))?;
     let method: Option<String> = row.try_get("method").map_err(|e| read(e, "method"))?;
     let confidence: String = row
         .try_get("confidence")
@@ -124,7 +124,7 @@ where
 ///
 /// # Errors
 /// Returns an invalid-input error when either is missing.
-pub(crate) fn sport_anchor_stamp(anchor: &SportAnchor) -> AppResult<(&str, NaiveDate)> {
+pub(crate) fn sport_anchor_stamp(anchor: &SportAnchor) -> AppResult<(&str, CivilDate)> {
     match (anchor.value.origin.as_deref(), anchor.value.as_of) {
         (Some(origin), Some(as_of)) => Ok((origin, as_of)),
         _ => Err(AppError::invalid_input(format!(

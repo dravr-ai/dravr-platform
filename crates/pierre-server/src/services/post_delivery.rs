@@ -27,8 +27,7 @@
 //! history. A DM that writes into the personal thread (carnet#840) is one
 //! destination, not two: the post made there is the one the app shows.
 
-use chrono::{DateTime, Duration, Utc};
-use chrono_tz::Tz;
+use dravr_tronc::dates::{Elapsed, Timestamp, Zone};
 use pierre_core::models::messaging::ChannelType;
 use pierre_core::models::{PostPurpose, TenantId};
 use pierre_services::locale::{resolve_channel_locale, resolve_user_locale};
@@ -44,8 +43,8 @@ use crate::mcp::resources::ServerContext;
 use crate::services::adapter_resolver::AdapterResolver;
 use crate::services::backfill_delivery::{ChannelDelivery, ResolvedRoute};
 use crate::services::commitment_reporter::{channel_allows_proactive, session_last_inbound};
+use crate::services::conversation_title::fresh_title_fallback;
 use crate::services::messaging_ingress::block_render::render_reply;
-use crate::services::messaging_ingress::fresh_title_fallback;
 use crate::services::messaging_ingress::surface::messaging_render_profile;
 use crate::services::platform_post::{PlatformPost, PlatformPostRequest, PostSurface};
 
@@ -54,7 +53,7 @@ use crate::services::platform_post::{PlatformPost, PlatformPostRequest, PostSurf
 /// Past it, the instance holding the claim is presumed gone and the next
 /// trigger retakes it: a post is a turn or two, minutes at the very most, so
 /// an athlete still hears from the coach within the quarter hour.
-pub(crate) const POST_CLAIM_LEASE: Duration = Duration::minutes(15);
+pub(crate) const POST_CLAIM_LEASE: Elapsed = Elapsed::minutes(15);
 
 /// Why a post on a DM whose window closed was not sent there, as
 /// `messaging.proactive_held` reports it.
@@ -82,7 +81,7 @@ pub(crate) struct OpenDm {
     /// The tenant whose bot holds the link, and so the channel config.
     channel_tenant_id: TenantId,
     /// When the athlete last wrote on the DM.
-    last_inbound: Option<DateTime<Utc>>,
+    last_inbound: Option<Timestamp>,
 }
 
 impl OpenDm {
@@ -306,7 +305,7 @@ async fn personal_thread(resources: &ServerContext, athlete: PostAthlete) -> Opt
 pub(crate) async fn linked_dms(
     resources: &ServerContext,
     athlete: PostAthlete,
-    now: DateTime<Utc>,
+    now: Timestamp,
 ) -> LinkedDms {
     let messaging = resources.common.repos.messaging.as_ref();
     let mut open: Vec<OpenDm> = Vec::new();
@@ -425,8 +424,8 @@ pub(crate) async fn coach_quiet_hours(
     resources: &ServerContext,
     user_id: Uuid,
     tenant_id: TenantId,
-    now: DateTime<Utc>,
-    zone: Tz,
+    now: Timestamp,
+    zone: &Zone,
 ) -> bool {
     use pierre_core::models::check_in::within_quiet_hours;
     use pierre_notifications::models::NotificationCategory;
@@ -457,9 +456,9 @@ pub(crate) async fn coach_quiet_hours(
     let clock = coach
         .timezone
         .as_deref()
-        .and_then(|name| name.parse::<Tz>().ok())
-        .unwrap_or(zone);
-    within_quiet_hours(start, end, now.with_timezone(&clock).time())
+        .and_then(|name| name.parse::<Zone>().ok())
+        .unwrap_or_else(|| zone.clone());
+    within_quiet_hours(start, end, clock.civil_at(now).time())
 }
 
 /// Notification preferences are compiled out of this build, so no quiet
@@ -469,8 +468,8 @@ pub(crate) async fn coach_quiet_hours(
     _resources: &ServerContext,
     _user_id: Uuid,
     _tenant_id: TenantId,
-    _now: DateTime<Utc>,
-    _zone: Tz,
+    _now: Timestamp,
+    _zone: &Zone,
 ) -> bool {
     false
 }

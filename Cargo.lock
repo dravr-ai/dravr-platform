@@ -18,6 +18,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
+name = "adobe-cmap-parser"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ae8abfa9a4688de8fc9f42b3f013b6fffec18ed8a554f5f113577e0b9b3212a3"
+dependencies = [
+ "pom",
+]
+
+[[package]]
 name = "aead"
 version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -492,6 +501,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "block-padding"
+version = "0.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a8894febbff9f758034a5b8e12d87918f56dfc64a8e1fe757d65e29041538d93"
+dependencies = [
+ "generic-array",
+]
+
+[[package]]
 name = "blowfish"
 version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -579,10 +597,25 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fc652a48c352aef3ea3aed32080501cf3ef6ed5da78602a020c991775b0aff04"
 
 [[package]]
+name = "cap"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6f125eb85b84a24c36b02ed1d22c9dd8632f53b3cde6e4d23512f94021030003"
+
+[[package]]
 name = "cast"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "37b2a672a2cb129a2e41c10b1224bb368f9f37a2b16b612598138befd7b37eb5"
+
+[[package]]
+name = "cbc"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "26b52a9543ae338f279b96b0b9fed9c8093744685043739079ce85cd58f289a6"
+dependencies = [
+ "cipher",
+]
 
 [[package]]
 name = "cc"
@@ -593,6 +626,12 @@ dependencies = [
  "find-msvc-tools",
  "shlex",
 ]
+
+[[package]]
+name = "cff-parser"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c5810ca1a2b5870df2aab1c03e11c40c361ba51d6e3e361e56310f1cb3b4e087"
 
 [[package]]
 name = "cfg-if"
@@ -629,16 +668,6 @@ dependencies = [
  "serde",
  "wasm-bindgen",
  "windows-link",
-]
-
-[[package]]
-name = "chrono-tz"
-version = "0.10.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a6139a8597ed92cf816dfb33f5dd6cf0bb93a6adc938f11039f371bc5bcd26c3"
-dependencies = [
- "chrono",
- "phf",
 ]
 
 [[package]]
@@ -913,14 +942,14 @@ dependencies = [
 ]
 
 [[package]]
-name = "cron"
-version = "0.15.0"
+name = "croner"
+version = "4.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5877d3fbf742507b66bc2a1945106bd30dd8504019d596901ddd012a4dd01740"
+checksum = "0097e28936e948e8f759478e1b5ec2e5ca70ab62cf38aaa9bd3aa660023e3fca"
 dependencies = [
- "chrono",
- "once_cell",
- "winnow 0.6.26",
+ "derive_builder",
+ "jiff 0.2.46",
+ "strum 0.27.2",
 ]
 
 [[package]]
@@ -1068,12 +1097,36 @@ dependencies = [
 
 [[package]]
 name = "darling"
+version = "0.20.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fc7f46116c46ff9ab3eb1597a45688b6715c6e628b5c133e288e709a29bcb4ee"
+dependencies = [
+ "darling_core 0.20.11",
+ "darling_macro 0.20.11",
+]
+
+[[package]]
+name = "darling"
 version = "0.24.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ed17f5901b6630b993ca003def43f2f8ef4014fc13b047b57aad617ff32bc2ec"
 dependencies = [
- "darling_core",
- "darling_macro",
+ "darling_core 0.24.1",
+ "darling_macro 0.24.1",
+]
+
+[[package]]
+name = "darling_core"
+version = "0.20.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0d00b9596d185e565c2207a0b01f8bd1a135483d02d9b7b0a54b11da8d53412e"
+dependencies = [
+ "fnv",
+ "ident_case",
+ "proc-macro2",
+ "quote",
+ "strsim",
+ "syn 2.0.119",
 ]
 
 [[package]]
@@ -1091,26 +1144,24 @@ dependencies = [
 
 [[package]]
 name = "darling_macro"
+version = "0.20.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fc34b93ccb385b40dc71c6fceac4b2ad23662c7eeb248cf10d529b7e055b6ead"
+dependencies = [
+ "darling_core 0.20.11",
+ "quote",
+ "syn 2.0.119",
+]
+
+[[package]]
+name = "darling_macro"
 version = "0.24.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2ac7135c3ef02b2f7833bbeb1be5ba7f966dcde8a87c6b87f65a778d71a02785"
 dependencies = [
- "darling_core",
+ "darling_core 0.24.1",
  "quote",
  "syn 3.0.9",
-]
-
-[[package]]
-name = "dashmap"
-version = "5.5.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "978747c1d849a7d2ee5e8adc0159961c48fb7e5db2f06af6723b80123bb53856"
-dependencies = [
- "cfg-if",
- "hashbrown 0.14.5",
- "lock_api",
- "once_cell",
- "parking_lot_core",
 ]
 
 [[package]]
@@ -1140,37 +1191,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bef552e6f588e446098f6ba40d89ac146c8c7b64aade83c051ee00bb5d2bc18d"
 dependencies = [
  "uuid",
-]
-
-[[package]]
-name = "defmt"
-version = "1.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e4a0795ac740cb54d7b3775c9c17345f6aaecf884c01733b39d6017738e0e3e1"
-dependencies = [
- "bitflags 1.3.2",
- "defmt-macros",
-]
-
-[[package]]
-name = "defmt-macros"
-version = "1.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "840bb056bd99c495c9188198a258ab787c79f306d864db3e6e8451442d6d8366"
-dependencies = [
- "defmt-parser",
- "proc-macro2",
- "quote",
- "syn 3.0.9",
-]
-
-[[package]]
-name = "defmt-parser"
-version = "1.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "71958f69fb2de856c5dd51ac9377e986ca1aa5919f931bf5395a807277f889a0"
-dependencies = [
- "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -1217,6 +1237,37 @@ dependencies = [
 ]
 
 [[package]]
+name = "derive_builder"
+version = "0.20.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "507dfb09ea8b7fa618fcf76e953f4f5e192547945816d5358edffe39f6f94947"
+dependencies = [
+ "derive_builder_macro",
+]
+
+[[package]]
+name = "derive_builder_core"
+version = "0.20.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2d5bcf7b024d6835cfb3d473887cd966994907effbe9227e8c8219824d06c4e8"
+dependencies = [
+ "darling 0.20.11",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
+]
+
+[[package]]
+name = "derive_builder_macro"
+version = "0.20.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ab63b0e2bf4d5928aff72e83a7dace85d7bba5fe12dcc3c5a572d78caffd3f3c"
+dependencies = [
+ "derive_builder_core",
+ "syn 2.0.119",
+]
+
+[[package]]
 name = "derive_more"
 version = "2.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1253,20 +1304,11 @@ dependencies = [
 
 [[package]]
 name = "dirs"
-version = "5.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "44c45a9d03d6676652bcb5e724c7e988de1acad23a711b5217ab9cbecbec2225"
-dependencies = [
- "dirs-sys 0.4.1",
-]
-
-[[package]]
-name = "dirs"
 version = "6.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c3e8aa94d75141228480295a7d0e7feb620b1a5ad9f12bc40be62411e38cce4e"
 dependencies = [
- "dirs-sys 0.5.0",
+ "dirs-sys",
 ]
 
 [[package]]
@@ -1275,19 +1317,7 @@ version = "7.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8d57d423b3c82e89b9a24ca3091fee61f456a26edbd28d26c65906f4bc1dcd8f"
 dependencies = [
- "dirs-sys 0.5.0",
-]
-
-[[package]]
-name = "dirs-sys"
-version = "0.4.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "520f05a5cbd335fae5a99ff7a6ab8627577660ee5cfd6a94a6a929b52ff0321c"
-dependencies = [
- "libc",
- "option-ext",
- "redox_users 0.4.6",
- "windows-sys 0.48.0",
+ "dirs-sys",
 ]
 
 [[package]]
@@ -1298,7 +1328,7 @@ checksum = "e01a3366d27ee9890022452ee61b2b63a67e6f13f58900b651ff5665f0bb1fab"
 dependencies = [
  "libc",
  "option-ext",
- "redox_users 0.5.3",
+ "redox_users",
  "windows-sys 0.61.2",
 ]
 
@@ -1330,8 +1360,8 @@ checksum = "1aaf95b3e5c8f23aa320147307562d361db0ae0d51242340f558153b4eb2439b"
 
 [[package]]
 name = "dravr-barrage"
-version = "0.26.0"
-source = "git+https://github.com/dravr-ai/dravr-barrage.git?tag=v0.26.0#b9e0b3f82d914b95acd99f78038ef8309fe58674"
+version = "0.31.2"
+source = "git+https://github.com/dravr-ai/dravr-barrage.git?tag=v0.31.2#1bc57035d52329132af7f9860cadf535113b4e80"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -1341,12 +1371,13 @@ dependencies = [
  "csv",
  "dravr-cageux",
  "dravr-equilibre",
+ "dravr-tronc",
  "fitparser",
  "flate2",
  "futures-util",
  "hex",
  "quick-xml 0.42.0",
- "reqwest 0.12.28",
+ "reqwest",
  "serde",
  "serde_json",
  "sha2",
@@ -1359,12 +1390,12 @@ dependencies = [
 
 [[package]]
 name = "dravr-browser"
-version = "1.0.0"
+version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d28dc46d1d19e83f981e67894e65b3cf87fafcfda923563ad71b23dfe34b83ab"
+checksum = "88c191e18db36471ec4b0b1f644f63e9e3f78ccc915cb722631877aabfb99a81"
 dependencies = [
  "async-trait",
- "chrono",
+ "dravr-tronc",
  "getrandom 0.3.4",
  "serde",
  "serde_json",
@@ -1375,12 +1406,11 @@ dependencies = [
 
 [[package]]
 name = "dravr-cageux"
-version = "0.53.0"
-source = "git+https://github.com/dravr-ai/dravr-cageux.git?tag=v0.53.0#fc7d24641aae091077c0302eb2ade2849447e242"
+version = "0.57.1"
+source = "git+https://github.com/dravr-ai/dravr-cageux.git?tag=v0.57.1#1a51ab3ea2532745363136201145deb196315f92"
 dependencies = [
  "async-trait",
- "chrono",
- "chrono-tz",
+ "dravr-tronc",
  "schemars 1.2.3",
  "serde",
  "serde-saphyr",
@@ -1395,18 +1425,18 @@ dependencies = [
 
 [[package]]
 name = "dravr-canot"
-version = "0.12.0"
-source = "git+https://github.com/dravr-ai/dravr-canot.git?tag=v0.12.0#b6a0d198bc0f6a4ebaa9d04d5084d2f1bcc3893a"
+version = "0.14.0"
+source = "git+https://github.com/dravr-ai/dravr-canot.git?tag=v0.14.0#a327e20106eebc31d0415c4ccf88259d40fa00f4"
 dependencies = [
  "async-trait",
- "chrono",
+ "dravr-tronc",
  "ed25519-dalek",
  "futures-util",
  "hex",
  "hmac",
  "html-escape",
  "http",
- "reqwest 0.12.28",
+ "reqwest",
  "serde",
  "serde_json",
  "sha2",
@@ -1420,14 +1450,14 @@ dependencies = [
 
 [[package]]
 name = "dravr-commere"
-version = "0.10.0"
-source = "git+https://github.com/dravr-ai/dravr-commere.git?tag=v0.10.0#c13ee227f8c38418a54d5ac7976adb73cef1f2c3"
+version = "0.11.0"
+source = "git+https://github.com/dravr-ai/dravr-commere.git?tag=v0.11.0#2bfd6672b3d0c5ec887368e804693e248c0675c5"
 dependencies = [
  "async-trait",
- "chrono",
- "chrono-tz",
- "cron",
- "reqwest 0.12.28",
+ "croner",
+ "dravr-tronc",
+ "jiff 0.2.46",
+ "reqwest",
  "serde",
  "serde_json",
  "sqlx",
@@ -1440,20 +1470,20 @@ dependencies = [
 [[package]]
 name = "dravr-contremaitre"
 version = "0.1.0"
-source = "git+https://github.com/dravr-ai/dravr-contremaitre.git?rev=bd0b285affa0c332060369e9767c7e6b063525d4#bd0b285affa0c332060369e9767c7e6b063525d4"
+source = "git+https://github.com/dravr-ai/dravr-contremaitre.git?rev=54f7ced3a08c585ea405d475c47272d82f61a014#54f7ced3a08c585ea405d475c47272d82f61a014"
 
 [[package]]
 name = "dravr-enforme"
-version = "0.21.5"
-source = "git+https://github.com/dravr-ai/dravr-enforme.git?tag=v0.21.5#5c13e3623e0afe364e93c29879f436bd83632539"
+version = "0.22.0"
+source = "git+https://github.com/dravr-ai/dravr-enforme.git?tag=v0.22.0#5ada052e51f189d163536a0d8c06bf296592cd71"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
- "chrono",
  "dravr-equilibre",
  "dravr-sciotte",
+ "dravr-tronc",
  "http",
- "reqwest 0.12.28",
+ "reqwest",
  "ring",
  "schemars 1.2.3",
  "serde",
@@ -1465,10 +1495,10 @@ dependencies = [
 
 [[package]]
 name = "dravr-equilibre"
-version = "0.9.0"
-source = "git+https://github.com/dravr-ai/dravr-equilibre.git?tag=v0.9.0#f6ace98bed707d5dd8612e557b13eafe1318cb00"
+version = "0.11.0"
+source = "git+https://github.com/dravr-ai/dravr-equilibre.git?tag=v0.11.0#3c65596efe501baa810060bc22a3f3d246bc3d9c"
 dependencies = [
- "chrono",
+ "dravr-tronc",
  "schemars 1.2.3",
  "serde",
  "serde_json",
@@ -1478,12 +1508,12 @@ dependencies = [
 
 [[package]]
 name = "dravr-meteo"
-version = "0.10.0"
-source = "git+https://github.com/dravr-ai/dravr-meteo.git?tag=v0.10.0#55e79a5f81006d945ea458eb28516e701f97189d"
+version = "0.11.0"
+source = "git+https://github.com/dravr-ai/dravr-meteo.git?tag=v0.11.0#fe5ba7e58211dfc886535d804899c20d6719ac53"
 dependencies = [
  "async-trait",
- "chrono",
- "reqwest 0.12.28",
+ "dravr-tronc",
+ "reqwest",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
@@ -1493,11 +1523,11 @@ dependencies = [
 
 [[package]]
 name = "dravr-riviere"
-version = "0.5.0"
-source = "git+https://github.com/dravr-ai/dravr-riviere.git?tag=v0.5.0#8b057b4f492a609509871fa7d9952dcfc6b313d7"
+version = "0.6.0"
+source = "git+https://github.com/dravr-ai/dravr-riviere.git?tag=v0.6.0#0da3ab072ea5c4d7eacd55b66cc2fcd327d7dbe3"
 dependencies = [
  "async-trait",
- "chrono",
+ "dravr-tronc",
  "schemars 1.2.3",
  "serde",
  "serde_json",
@@ -1508,16 +1538,15 @@ dependencies = [
 
 [[package]]
 name = "dravr-sciotte"
-version = "3.0.3"
-source = "git+https://github.com/dravr-ai/dravr-sciotte.git?tag=v3.0.3#f82f6071c089a8d3522feafe88c041d8ad2cdeb9"
+version = "4.0.0"
+source = "git+https://github.com/dravr-ai/dravr-sciotte.git?tag=v4.0.0#0649dd56a6913df8ea554218a88954a1f074cea6"
 dependencies = [
  "async-trait",
- "chrono",
  "dirs 6.0.0",
  "dravr-browser",
  "dravr-tronc",
  "futures",
- "reqwest 0.12.28",
+ "reqwest",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
@@ -1528,14 +1557,13 @@ dependencies = [
 
 [[package]]
 name = "dravr-stripe"
-version = "0.11.0"
-source = "git+https://github.com/dravr-ai/dravr-stripe.git?tag=v0.11.0#4d52cccfb1f38dea55f387b3db72c144c995b466"
+version = "0.12.0"
+source = "git+https://github.com/dravr-ai/dravr-stripe.git?tag=v0.12.0#da2aed7dcf0a07704786b9fd64b370c674484763"
 dependencies = [
- "chrono",
  "dravr-tronc",
  "hex",
  "hmac",
- "reqwest 0.12.28",
+ "reqwest",
  "serde",
  "serde_json",
  "sha2",
@@ -1546,29 +1574,33 @@ dependencies = [
 
 [[package]]
 name = "dravr-tronc"
-version = "7.0.0"
+version = "7.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "acd41bb7abfa3220261075bd06fd5efc95a7173b0ac960406feb190bce0e2c8d"
+checksum = "e0bfb3b0868a4398919c2a72116274e085fc54a1ac44f916966a5d2fcf92d989"
 dependencies = [
  "async-trait",
  "axum",
  "base64 0.22.1",
  "bitflags 2.13.2",
  "bytes",
- "chrono",
  "clap",
  "futures",
  "getrandom 0.3.4",
  "hex",
  "http-body-util",
  "hyper",
+ "jiff 1.0.1",
+ "jiff-tzdb 1.0.0",
  "jsonwebtoken",
  "percent-encoding",
- "reqwest 0.12.28",
+ "reqwest",
  "ring",
  "rustls",
+ "schemars 1.2.3",
  "serde",
  "serde_json",
+ "sha2",
+ "sqlx",
  "subtle",
  "tokio",
  "tokio-tungstenite",
@@ -1586,6 +1618,15 @@ name = "dyn-clone"
 version = "1.0.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d0881ea181b1df73ff77ffaaf9c7544ecc11e82fba9b5f27b262a3c73a332555"
+
+[[package]]
+name = "ecb"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1a8bfa975b1aec2145850fcaa1c6fe269a16578c44705a532ae3edc92b8881c7"
+dependencies = [
+ "cipher",
+]
 
 [[package]]
 name = "ecdsa"
@@ -1666,9 +1707,9 @@ dependencies = [
 
 [[package]]
 name = "embacle"
-version = "0.47.0"
+version = "0.47.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0edf15301055aa88b62cfc9a400e123fe9977b88310ae3aeb48d8b4be687687f"
+checksum = "4023885a1d9b35d9284acb19132221dbd7d98f0c94910952df286ad6db830532"
 dependencies = [
  "agent-client-protocol-schema",
  "async-trait",
@@ -1676,7 +1717,7 @@ dependencies = [
  "bitflags 2.13.2",
  "github-copilot-sdk",
  "redis",
- "reqwest 0.12.28",
+ "reqwest",
  "serde",
  "serde_json",
  "tempfile",
@@ -1689,9 +1730,9 @@ dependencies = [
 
 [[package]]
 name = "embacle-tool-host"
-version = "0.47.0"
+version = "0.47.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3aeb0cdb7e53bb3c2aea15dadd344068235dc537e9ac8d777ace7118181b7389"
+checksum = "25784b97418167c4fa543c2d496505edb6d2597cf8850f50965cdb37d1e3e7fc"
 dependencies = [
  "async-trait",
  "axum",
@@ -1773,6 +1814,15 @@ dependencies = [
  "cfg-if",
  "home",
  "windows-sys 0.48.0",
+]
+
+[[package]]
+name = "euclid"
+version = "0.20.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2bb7ef65b3777a325d1eeefefab5b6d4959da54747e33bd6258e789640f307ad"
+dependencies = [
+ "num-traits",
 ]
 
 [[package]]
@@ -1945,9 +1995,9 @@ checksum = "00b0228411908ca8685dba7fc2cdd70ec9990a6e753e89b6ac91a84c40fbaf4b"
 
 [[package]]
 name = "form_urlencoded"
-version = "1.2.2"
+version = "1.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cb4cb245038516f5f85277875cdaa4f7d2c9a0fa0468de06ed190163b1581fcf"
+checksum = "afa489199eaffb1211795df1c6236ce1ad0d41a6fa45250add73e3b02420f06e"
 dependencies = [
  "percent-encoding",
 ]
@@ -2668,6 +2718,7 @@ version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "879f10e63c20629ecabbb64a8010319738c66a5cd0c29b02d63d272b03751d01"
 dependencies = [
+ "block-padding",
  "generic-array",
 ]
 
@@ -2739,13 +2790,13 @@ checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
 
 [[package]]
 name = "jiff"
-version = "0.2.38"
+version = "0.2.46"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b2b005715dcbeb0089a3c0dab99f2ff1cc3b2525323552703d648585d342a383"
+checksum = "175dc66334db3b9ab9985bf8b61cfed50dc16d20964bb47f9e479adcae984a7f"
 dependencies = [
- "defmt",
- "jiff-core",
- "jiff-static",
+ "jiff-core 0.1.8",
+ "jiff-static 0.2.46",
+ "jiff-tzdb 0.1.10",
  "jiff-tzdb-platform",
  "log",
  "portable-atomic",
@@ -2755,32 +2806,73 @@ dependencies = [
 ]
 
 [[package]]
-name = "jiff-core"
-version = "0.1.1"
+name = "jiff"
+version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5e52fe76043ccecc9005d2305ebaadf7d7fc0cc89ca6baa10a94d6bc68c7128c"
+checksum = "ed5d126d72eb017f10b302e73bdeca446bea405ee449af4d9e7866d6b082d83e"
 dependencies = [
- "defmt",
+ "jiff-core 1.0.1",
+ "jiff-static 1.0.1",
+ "jiff-tzdb 1.0.0",
+ "log",
+ "portable-atomic",
+ "portable-atomic-util",
+ "serde_core",
+]
+
+[[package]]
+name = "jiff-core"
+version = "0.1.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e599b80292e597019b8b3e392de3f4bea2959ddfb8c7dff60e035e9e311a2c1b"
+dependencies = [
+ "log",
+]
+
+[[package]]
+name = "jiff-core"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b6b46a105a9874634dd96231021526bf24ca04955a5998c59a9c7666e634b7b8"
+dependencies = [
  "log",
 ]
 
 [[package]]
 name = "jiff-static"
-version = "0.2.38"
+version = "0.2.46"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2cc9817253cf7c7ee4684451bd327e88d6f3658014e54a29198625590650695c"
+checksum = "c7b1af7547d47354bc438d797e3854601bde8f8d185780c5ba4ab27afa54f1ba"
 dependencies = [
- "jiff-core",
+ "jiff-core 0.1.8",
  "proc-macro2",
  "quote",
  "syn 2.0.119",
 ]
 
 [[package]]
-name = "jiff-tzdb"
-version = "0.1.9"
+name = "jiff-static"
+version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fa8377070c6bae868759445e5a77f66d84f0b72f3a054bfb00e6d038b8282da7"
+checksum = "c0127e9bde3c6130d6169e7d8d68676e4be69c4bf7573c308b6f960a5089c428"
+dependencies = [
+ "jiff-core 1.0.1",
+ "proc-macro2",
+ "quote",
+ "syn 3.0.9",
+]
+
+[[package]]
+name = "jiff-tzdb"
+version = "0.1.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0980fca2cc272465bd60e82397607ba9f33add9e48defd77923301bbd03808f2"
+
+[[package]]
+name = "jiff-tzdb"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "12e71a1b68a875a44a33bb7a1dd84392cb77145a3367a552a3cfe6a4f5cf3afc"
 
 [[package]]
 name = "jiff-tzdb-platform"
@@ -2788,56 +2880,7 @@ version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "875a5a69ac2bab1a891711cf5eccbec1ce0341ea805560dcd90b7a2e925132e8"
 dependencies = [
- "jiff-tzdb",
-]
-
-[[package]]
-name = "jni"
-version = "0.22.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5efd9a482cf3a427f00d6b35f14332adc7902ce91efb778580e180ff90fa3498"
-dependencies = [
- "cfg-if",
- "combine",
- "jni-macros",
- "jni-sys",
- "log",
- "simd_cesu8",
- "thiserror 2.0.21",
- "walkdir",
- "windows-link",
-]
-
-[[package]]
-name = "jni-macros"
-version = "0.22.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a00109accc170f0bdb141fed3e393c565b6f5e072365c3bd58f5b062591560a3"
-dependencies = [
- "proc-macro2",
- "quote",
- "rustc_version",
- "simd_cesu8",
- "syn 2.0.119",
-]
-
-[[package]]
-name = "jni-sys"
-version = "0.4.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c6377a88cb3910bee9b0fa88d4f42e1d2da8e79915598f65fb0c7ee14c878af2"
-dependencies = [
- "jni-sys-macros",
-]
-
-[[package]]
-name = "jni-sys-macros"
-version = "0.4.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "38c0b942f458fe50cdac086d2f946512305e5631e720728f2a61aabcd47a6264"
-dependencies = [
- "quote",
- "syn 2.0.119",
+ "jiff-tzdb 0.1.10",
 ]
 
 [[package]]
@@ -2962,7 +3005,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f40d9129bb9fe42c95d1bd420d6891607eaff17df16ee15674aed2d05b0ec8f4"
 dependencies = [
  "counter",
- "dashmap 6.2.1",
+ "dashmap",
  "fastrand",
  "fst",
  "include_dir",
@@ -3059,6 +3102,33 @@ name = "log"
 version = "0.4.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f9f8bd3e56ce4dfc153cf470fffbfa98c7620958b312ca5c3a4b8d5181fd13c6"
+
+[[package]]
+name = "lopdf"
+version = "0.42.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "25aab26d99567469098e64a02f42679f8965c6401263eefa31d8f2dcc37a221c"
+dependencies = [
+ "aes",
+ "bitflags 2.13.2",
+ "cbc",
+ "ecb",
+ "encoding_rs",
+ "flate2",
+ "getrandom 0.4.3",
+ "indexmap 2.14.2",
+ "itoa",
+ "log",
+ "md-5",
+ "nom",
+ "rand 0.10.3",
+ "rangemap",
+ "sha2",
+ "stringprep",
+ "thiserror 2.0.21",
+ "ttf-parser",
+ "weezl",
+]
 
 [[package]]
 name = "lru"
@@ -3464,7 +3534,6 @@ dependencies = [
  "bytes",
  "http",
  "opentelemetry",
- "reqwest 0.13.5",
 ]
 
 [[package]]
@@ -3479,7 +3548,6 @@ dependencies = [
  "opentelemetry-proto",
  "opentelemetry_sdk",
  "prost",
- "reqwest 0.13.5",
  "thiserror 2.0.21",
 ]
 
@@ -3598,6 +3666,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "pdf-extract"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e5c4820f5811e424ce037d08493ac87752ecc54339e0f1e40c3d17da93278861"
+dependencies = [
+ "adobe-cmap-parser",
+ "cff-parser",
+ "encoding_rs",
+ "euclid",
+ "log",
+ "lopdf",
+ "postscript",
+ "type1-encoding-parser",
+ "unicode-normalization",
+]
+
+[[package]]
 name = "pem"
 version = "3.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3632,29 +3717,11 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
 
 [[package]]
-name = "phf"
-version = "0.12.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "913273894cec178f401a31ec4b656318d95473527be05c0752cc41cdc32be8b7"
-dependencies = [
- "phf_shared",
-]
-
-[[package]]
-name = "phf_shared"
-version = "0.12.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "06005508882fb681fd97892ecff4b7fd0fee13ef1aa569f8695dae7ab9099981"
-dependencies = [
- "siphasher",
-]
-
-[[package]]
 name = "photograveur"
-version = "0.7.0"
-source = "git+https://github.com/dravr-ai/dravr-photograveur.git?tag=v0.7.0#6b4a899b771e0d35c8b6a96f73cfcddbeb219621"
+version = "0.8.0"
+source = "git+https://github.com/dravr-ai/dravr-photograveur.git?tag=v0.8.0#2f3a9e74ffadc13b40ea1893736d4f53c89e8ab0"
 dependencies = [
- "chrono",
+ "dravr-tronc",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
@@ -3665,7 +3732,6 @@ name = "pierre-a2a"
 version = "0.3.0"
 dependencies = [
  "async-trait",
- "chrono",
  "dravr-tronc",
  "pierre-auth",
  "pierre-core",
@@ -3675,7 +3741,7 @@ dependencies = [
  "pierre-middleware",
  "pierre-runtime-context",
  "pierre-tool-runtime",
- "reqwest 0.12.28",
+ "reqwest",
  "secrecy",
  "serde",
  "serde_json",
@@ -3699,7 +3765,7 @@ name = "pierre-agui"
 version = "0.3.0"
 dependencies = [
  "async-trait",
- "dashmap 5.5.3",
+ "dashmap",
  "pierre-core",
  "serde",
  "serde_json",
@@ -3717,9 +3783,9 @@ dependencies = [
  "axum",
  "base64 0.22.1",
  "bcrypt",
- "chrono",
  "ciborium",
  "der 0.7.10",
+ "dravr-barrage",
  "dravr-tronc",
  "http",
  "jsonwebtoken",
@@ -3727,7 +3793,7 @@ dependencies = [
  "pierre-core",
  "pierre-database",
  "rand 0.9.5",
- "reqwest 0.12.28",
+ "reqwest",
  "ring",
  "rsa",
  "rustls-pki-types",
@@ -3766,7 +3832,6 @@ name = "pierre-chat-pipeline"
 version = "0.3.0"
 dependencies = [
  "async-trait",
- "chrono",
  "dravr-canot",
  "dravr-contremaitre",
  "dravr-enforme",
@@ -3777,6 +3842,7 @@ dependencies = [
  "jsonschema",
  "lingua",
  "photograveur",
+ "pierre-agent-parser",
  "pierre-agui",
  "pierre-cache",
  "pierre-commands",
@@ -3794,7 +3860,7 @@ dependencies = [
  "pierre-providers",
  "pierre-runtime-context",
  "pierre-services",
- "pierre-sse",
+ "pierre-test-support",
  "pierre-tool-runtime",
  "serde_json",
  "tokio",
@@ -3810,10 +3876,10 @@ name = "pierre-cli"
 version = "0.3.0"
 dependencies = [
  "bcrypt",
- "chrono",
  "clap",
- "dirs 5.0.1",
+ "dirs 7.0.0",
  "dravr-sciotte",
+ "dravr-tronc",
  "glob",
  "open",
  "pierre-agent-parser",
@@ -3830,8 +3896,9 @@ dependencies = [
  "pierre-runtime-context",
  "pierre-seeders",
  "pierre-services",
+ "pierre-test-support",
  "pierre-tool-runtime",
- "reqwest 0.12.28",
+ "reqwest",
  "secrecy",
  "serde",
  "serde_json",
@@ -3847,9 +3914,8 @@ name = "pierre-commands"
 version = "0.3.0"
 dependencies = [
  "async-trait",
- "chrono",
- "chrono-tz",
  "dravr-canot",
+ "dravr-tronc",
  "pierre-auth",
  "pierre-contremaitre",
  "pierre-core",
@@ -3871,7 +3937,6 @@ dependencies = [
 name = "pierre-config"
 version = "0.3.0"
 dependencies = [
- "chrono",
  "dravr-cageux",
  "dravr-tronc",
  "pierre-auth",
@@ -3879,7 +3944,6 @@ dependencies = [
  "pierre-core",
  "pierre-llm",
  "pierre-middleware",
- "reqwest 0.12.28",
  "schemars 1.2.3",
  "secrecy",
  "serde",
@@ -3894,7 +3958,8 @@ dependencies = [
  "arc-swap",
  "async-trait",
  "base64 0.22.1",
- "chrono",
+ "brotli",
+ "brotli-decompressor",
  "dravr-cageux",
  "dravr-contremaitre",
  "dravr-tronc",
@@ -3905,7 +3970,7 @@ dependencies = [
  "pierre-llm",
  "pierre-memory",
  "regex",
- "reqwest 0.12.28",
+ "reqwest",
  "serde",
  "serde-saphyr",
  "serde_json",
@@ -3924,12 +3989,11 @@ dependencies = [
  "axum",
  "base64 0.22.1",
  "bcrypt",
- "chrono",
- "chrono-tz",
  "dravr-cageux",
  "dravr-canot",
  "dravr-equilibre",
  "dravr-stripe",
+ "dravr-tronc",
  "embacle",
  "hex",
  "hmac",
@@ -3939,7 +4003,7 @@ dependencies = [
  "percent-encoding",
  "proptest",
  "rand 0.9.5",
- "reqwest 0.12.28",
+ "reqwest",
  "reqwest-middleware",
  "ring",
  "schemars 1.2.3",
@@ -3966,8 +4030,8 @@ dependencies = [
  "arc-swap",
  "async-trait",
  "base64 0.22.1",
- "chrono",
  "dravr-riviere",
+ "dravr-tronc",
  "hex",
  "pierre-core",
  "pierre-memory",
@@ -3989,12 +4053,12 @@ name = "pierre-dev-fixture"
 version = "0.3.0"
 dependencies = [
  "axum",
- "chrono",
+ "dravr-tronc",
  "pierre-config",
  "pierre-core",
  "pierre-fitness-compute",
  "pierre-providers",
- "reqwest 0.12.28",
+ "reqwest",
  "secrecy",
  "serde_json",
  "sqlx",
@@ -4011,7 +4075,7 @@ dependencies = [
  "dravr-tronc",
  "html-escape",
  "pierre-core",
- "reqwest 0.12.28",
+ "reqwest",
  "tracing",
 ]
 
@@ -4020,8 +4084,8 @@ name = "pierre-evals"
 version = "0.3.0"
 dependencies = [
  "async-trait",
- "chrono",
  "dravr-contremaitre",
+ "dravr-tronc",
  "futures-util",
  "pierre-core",
  "pierre-llm",
@@ -4051,14 +4115,14 @@ name = "pierre-fitness-compute"
 version = "0.3.0"
 dependencies = [
  "async-trait",
- "chrono",
  "dravr-cageux",
  "dravr-meteo",
+ "dravr-tronc",
  "hex",
  "pierre-core",
  "pierre-database",
  "proptest",
- "reqwest 0.12.28",
+ "reqwest",
  "schemars 1.2.3",
  "serde",
  "serde_json",
@@ -4083,7 +4147,7 @@ name = "pierre-groups"
 version = "0.3.0"
 dependencies = [
  "async-trait",
- "chrono",
+ "dravr-tronc",
  "pierre-core",
  "pierre-database",
  "pierre-providers",
@@ -4099,11 +4163,12 @@ name = "pierre-llm"
 version = "0.3.0"
 dependencies = [
  "async-trait",
- "chrono",
  "dravr-contremaitre",
+ "dravr-tronc",
  "embacle",
  "futures-util",
  "pierre-core",
+ "pierre-test-support",
  "serde",
  "serde_json",
  "tokio",
@@ -4115,16 +4180,16 @@ dependencies = [
 name = "pierre-logging"
 version = "0.3.0"
 dependencies = [
- "chrono",
+ "async-trait",
  "dravr-tronc",
  "gethostname",
  "opentelemetry",
+ "opentelemetry-http",
  "opentelemetry-otlp",
  "opentelemetry_sdk",
  "pierre-contremaitre",
  "pierre-core",
- "reqwest 0.13.5",
- "rustls",
+ "reqwest",
  "serde_json",
  "tokio",
  "tracing",
@@ -4159,7 +4224,7 @@ dependencies = [
 name = "pierre-memory"
 version = "0.3.0"
 dependencies = [
- "chrono",
+ "dravr-tronc",
  "pierre-core",
  "schemars 1.2.3",
  "serde",
@@ -4173,12 +4238,11 @@ version = "0.3.0"
 dependencies = [
  "axum",
  "bitflags 2.13.2",
- "chrono",
+ "dravr-tronc",
  "futures-util",
  "http",
  "jsonwebtoken",
  "opentelemetry",
- "percent-encoding",
  "pierre-auth",
  "pierre-cache",
  "pierre-core",
@@ -4202,8 +4266,8 @@ name = "pierre-notifications"
 version = "0.3.0"
 dependencies = [
  "async-trait",
- "chrono",
  "dravr-commere",
+ "dravr-tronc",
  "pierre-core",
  "pierre-test-support",
  "serde_json",
@@ -4215,6 +4279,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "pierre-pdf-text"
+version = "0.3.0"
+dependencies = [
+ "pdf-extract",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "pierre-providers"
 version = "0.3.0"
 dependencies = [
@@ -4222,8 +4295,7 @@ dependencies = [
  "base64 0.22.1",
  "bitflags 2.13.2",
  "bytes",
- "chrono",
- "dashmap 5.5.3",
+ "dashmap",
  "dravr-barrage",
  "dravr-cageux",
  "dravr-enforme",
@@ -4236,14 +4308,13 @@ dependencies = [
  "pierre-core",
  "pierre-database",
  "pierre-test-support",
- "reqwest 0.12.28",
+ "reqwest",
  "ring",
  "secrecy",
  "serde",
  "serde_json",
  "tokio",
  "tracing",
- "tracing-subscriber",
  "uuid",
 ]
 
@@ -4272,7 +4343,6 @@ version = "0.3.0"
 dependencies = [
  "axum",
  "bcrypt",
- "chrono",
  "dravr-tronc",
  "pierre-auth",
  "pierre-cache",
@@ -4306,7 +4376,7 @@ name = "pierre-routes-agents"
 version = "0.3.0"
 dependencies = [
  "axum",
- "chrono",
+ "dravr-tronc",
  "pierre-auth",
  "pierre-cache",
  "pierre-config",
@@ -4331,7 +4401,6 @@ version = "0.3.0"
 dependencies = [
  "async-trait",
  "axum",
- "chrono",
  "dravr-barrage",
  "dravr-enforme",
  "dravr-sciotte",
@@ -4352,11 +4421,10 @@ dependencies = [
  "pierre-mcp-transport",
  "pierre-middleware",
  "pierre-providers",
- "pierre-routes-admin",
  "pierre-runtime-context",
  "pierre-services",
  "pierre-test-support",
- "reqwest 0.12.28",
+ "reqwest",
  "ring",
  "secrecy",
  "serde",
@@ -4374,7 +4442,7 @@ name = "pierre-routes-billing"
 version = "0.3.0"
 dependencies = [
  "axum",
- "chrono",
+ "dravr-tronc",
  "pierre-core",
  "pierre-database",
  "pierre-middleware",
@@ -4389,7 +4457,7 @@ name = "pierre-routes-dashboard"
 version = "0.3.0"
 dependencies = [
  "axum",
- "chrono",
+ "dravr-tronc",
  "pierre-auth",
  "pierre-core",
  "pierre-middleware",
@@ -4403,8 +4471,7 @@ name = "pierre-routes-groups"
 version = "0.3.0"
 dependencies = [
  "axum",
- "chrono",
- "chrono-tz",
+ "dravr-tronc",
  "pierre-auth",
  "pierre-core",
  "pierre-database",
@@ -4429,7 +4496,7 @@ version = "0.3.0"
 dependencies = [
  "axum",
  "base64 0.22.1",
- "chrono",
+ "dravr-tronc",
  "hex",
  "pierre-auth",
  "pierre-contremaitre",
@@ -4455,7 +4522,6 @@ version = "0.3.0"
 dependencies = [
  "async-trait",
  "axum",
- "chrono",
  "dravr-tronc",
  "pierre-auth",
  "pierre-config",
@@ -4488,6 +4554,7 @@ dependencies = [
  "pierre-notifications",
  "pierre-providers",
  "serde_json",
+ "uuid",
 ]
 
 [[package]]
@@ -4506,9 +4573,9 @@ name = "pierre-seeders"
 version = "0.3.0"
 dependencies = [
  "bcrypt",
- "chrono",
  "clap",
  "dravr-cageux",
+ "dravr-tronc",
  "glob",
  "pierre-agent-parser",
  "pierre-contremaitre",
@@ -4532,9 +4599,7 @@ dependencies = [
  "async-trait",
  "base64 0.22.1",
  "bcrypt",
- "chrono",
- "chrono-tz",
- "dashmap 5.5.3",
+ "dashmap",
  "dravr-barrage",
  "dravr-cageux",
  "dravr-canot",
@@ -4543,6 +4608,7 @@ dependencies = [
  "dravr-meteo",
  "dravr-riviere",
  "dravr-sciotte",
+ "dravr-tronc",
  "embacle",
  "futures-util",
  "hex",
@@ -4570,7 +4636,7 @@ dependencies = [
  "pierre-test-support",
  "proptest",
  "rand 0.9.5",
- "reqwest 0.12.28",
+ "reqwest",
  "ring",
  "schemars 1.2.3",
  "scrypt",
@@ -4591,40 +4657,26 @@ dependencies = [
 ]
 
 [[package]]
-name = "pierre-sse"
-version = "0.3.0"
-dependencies = [
- "async-stream",
- "async-trait",
- "axum",
- "chrono",
- "dashmap 5.5.3",
- "futures-util",
- "pierre-config",
- "pierre-core",
- "pierre-runtime-context",
- "pierre-services",
- "serde_json",
- "tokio",
- "tracing",
- "uuid",
-]
-
-[[package]]
 name = "pierre-test-support"
 version = "0.3.0"
 dependencies = [
- "chrono",
+ "dravr-tronc",
  "futures-util",
+ "log",
+ "pierre-config",
  "pierre-core",
  "pierre-database",
  "pierre-groups",
- "reqwest 0.12.28",
+ "pierre-providers",
+ "reqwest",
  "secrecy",
  "serde_json",
  "sqlx",
  "tokio",
  "tracing",
+ "tracing-core",
+ "tracing-log",
+ "url",
  "uuid",
 ]
 
@@ -4635,8 +4687,6 @@ dependencies = [
  "arc-swap",
  "async-trait",
  "bitflags 2.13.2",
- "chrono",
- "chrono-tz",
  "dravr-barrage",
  "dravr-cageux",
  "dravr-enforme",
@@ -4667,6 +4717,7 @@ dependencies = [
  "pierre-providers",
  "pierre-runtime-context",
  "pierre-services",
+ "pierre-test-support",
  "pierre-tools-core",
  "regex",
  "schemars 1.2.3",
@@ -4703,11 +4754,10 @@ dependencies = [
  "base64 0.22.1",
  "bcrypt",
  "bytes",
- "chrono",
- "chrono-tz",
+ "cap",
  "clap",
  "criterion",
- "dashmap 5.5.3",
+ "dashmap",
  "dravr-barrage",
  "dravr-cageux",
  "dravr-canot",
@@ -4754,6 +4804,7 @@ dependencies = [
  "pierre-memory",
  "pierre-middleware",
  "pierre-notifications",
+ "pierre-pdf-text",
  "pierre-providers",
  "pierre-routes-a2a",
  "pierre-routes-admin",
@@ -4767,7 +4818,6 @@ dependencies = [
  "pierre-runtime-context",
  "pierre-seeders",
  "pierre-services",
- "pierre-sse",
  "pierre-test-support",
  "pierre-tool-runtime",
  "pierre-tools-core",
@@ -4777,7 +4827,7 @@ dependencies = [
  "rand 0.9.5",
  "rand_chacha 0.9.0",
  "regex",
- "reqwest 0.12.28",
+ "reqwest",
  "ring",
  "schemars 1.2.3",
  "secrecy",
@@ -4797,7 +4847,6 @@ dependencies = [
  "tower",
  "tower-http",
  "tracing",
- "tracing-core",
  "tracing-subscriber",
  "url",
  "urlencoding",
@@ -4885,6 +4934,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "pom"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "60f6ce597ecdcc9a098e7fddacb1065093a3d66446fa16c675e7e71d1b5c28e6"
+
+[[package]]
 name = "portable-atomic"
 version = "1.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4898,6 +4953,12 @@ checksum = "10ab3eb7f3becc3a1cbc4f2c6f20267996cfc1a6467a873763411b136a122715"
 dependencies = [
  "portable-atomic",
 ]
+
+[[package]]
+name = "postscript"
+version = "0.14.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "78451badbdaebaf17f053fd9152b3ffb33b516104eacb45e7864aaa9c712f306"
 
 [[package]]
 name = "potential_utf"
@@ -5040,7 +5101,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash 2.1.3",
  "rustls",
- "socket2 0.6.5",
+ "socket2 0.5.10",
  "thiserror 2.0.21",
  "tokio",
  "tracing",
@@ -5078,7 +5139,7 @@ dependencies = [
  "cfg_aliases",
  "libc",
  "once_cell",
- "socket2 0.6.5",
+ "socket2 0.5.10",
  "tracing",
  "windows-sys 0.61.2",
 ]
@@ -5199,6 +5260,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "rangemap"
+version = "1.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a611d15b50743feb4c76b7d03edcb0e64f399c26961e4efe6975bc398be6aa3d"
+
+[[package]]
 name = "rayon"
 version = "1.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5258,17 +5325,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "580c875845b41ecb1564ad1ae4703044cef774145e3d7a94dc2b3fa7c97868fd"
 dependencies = [
  "bitflags 2.13.2",
-]
-
-[[package]]
-name = "redox_users"
-version = "0.4.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ba009ff324d1fc1b900bd1fdb31564febe58a8ccc8a6fdbb93b543d33b13ca43"
-dependencies = [
- "getrandom 0.2.17",
- "libredox",
- "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -5356,6 +5412,7 @@ dependencies = [
  "base64 0.22.1",
  "bytes",
  "encoding_rs",
+ "futures-channel",
  "futures-core",
  "futures-util",
  "h2",
@@ -5395,42 +5452,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "reqwest"
-version = "0.13.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "16a1cfa75cc186dd73d5818e510e042e40927bccc9c236b061cea97e1eb08029"
-dependencies = [
- "base64 0.23.1",
- "bytes",
- "futures-channel",
- "futures-core",
- "futures-util",
- "http",
- "http-body",
- "http-body-util",
- "hyper",
- "hyper-rustls",
- "hyper-util",
- "js-sys",
- "log",
- "percent-encoding",
- "pin-project-lite",
- "rustls",
- "rustls-pki-types",
- "rustls-platform-verifier",
- "sync_wrapper",
- "tokio",
- "tokio-rustls",
- "tower",
- "tower-http",
- "tower-service",
- "url",
- "wasm-bindgen",
- "wasm-bindgen-futures",
- "web-sys",
-]
-
-[[package]]
 name = "reqwest-middleware"
 version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5439,7 +5460,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "http",
- "reqwest 0.12.28",
+ "reqwest",
  "serde",
  "thiserror 1.0.69",
  "tower-service",
@@ -5553,18 +5574,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rustls-native-certs"
-version = "0.8.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4a073f5dc7469f984c52ad2752b63b0807745133b6de880b7b64c1ac4c48aec4"
-dependencies = [
- "openssl-probe",
- "rustls-pki-types",
- "schannel",
- "security-framework",
-]
-
-[[package]]
 name = "rustls-pki-types"
 version = "1.15.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5573,33 +5582,6 @@ dependencies = [
  "web-time",
  "zeroize",
 ]
-
-[[package]]
-name = "rustls-platform-verifier"
-version = "0.7.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1167586491e2b18b8bfbb293e8180ec17c201c4f076d7cb3070ca964e7598f98"
-dependencies = [
- "core-foundation 0.10.1",
- "core-foundation-sys",
- "jni",
- "log",
- "once_cell",
- "rustls",
- "rustls-native-certs",
- "rustls-platform-verifier-android",
- "rustls-webpki",
- "security-framework",
- "security-framework-sys",
- "webpki-root-certs",
- "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "rustls-platform-verifier-android"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eec689c0bc40ff2458a5977b6619cb718087084a18e02a131c599b62d05e1a5f"
 
 [[package]]
 name = "rustls-webpki"
@@ -5669,7 +5651,6 @@ version = "1.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ab508826f74a77ca9d5aba6ff19b522583ee3eaf28a19384ff3d0e5835fadf6e"
 dependencies = [
- "chrono",
  "dyn-clone",
  "ref-cast",
  "schemars_derive",
@@ -5888,7 +5869,7 @@ dependencies = [
  "hex",
  "indexmap 1.9.3",
  "indexmap 2.14.2",
- "jiff",
+ "jiff 0.2.46",
  "schemars 0.9.0",
  "schemars 1.2.3",
  "serde_core",
@@ -5903,7 +5884,7 @@ version = "3.24.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3e17bbc68e28663bbbb90df47e058aa7eda4fb445b89fe70457bb94fbccf6e49"
 dependencies = [
- "darling",
+ "darling 0.24.1",
  "proc-macro2",
  "quote",
  "syn 3.0.9",
@@ -6004,16 +5985,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3a219298ac11a56ea9a6d2120044824d6f01aeb034955e7af7bc16858527deea"
 
 [[package]]
-name = "simd_cesu8"
-version = "1.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "11031e251abf8611c80f460e19dbdeb54a66db918e49c65a7065b46ac7aec520"
-dependencies = [
- "rustc_version",
- "simdutf8",
-]
-
-[[package]]
 name = "simdutf8"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6030,12 +6001,6 @@ dependencies = [
  "thiserror 2.0.21",
  "time",
 ]
-
-[[package]]
-name = "siphasher"
-version = "1.0.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "33f4fe9184a62d842c9ef383018f3306d8ba224fd9d836f56d7288308847c256"
 
 [[package]]
 name = "slab"
@@ -6121,7 +6086,6 @@ checksum = "ee6798b1838b6a0f69c007c133b8df5866302197e404e8b6ee8ed3e3a5e68dc6"
 dependencies = [
  "base64 0.22.1",
  "bytes",
- "chrono",
  "crc",
  "crossbeam-queue",
  "either",
@@ -6200,7 +6164,6 @@ dependencies = [
  "bitflags 2.13.2",
  "byteorder",
  "bytes",
- "chrono",
  "crc",
  "digest",
  "dotenvy",
@@ -6243,7 +6206,6 @@ dependencies = [
  "base64 0.22.1",
  "bitflags 2.13.2",
  "byteorder",
- "chrono",
  "crc",
  "dotenvy",
  "etcetera",
@@ -6279,7 +6241,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2d12fe70b2c1b4401038055f90f151b78208de1f9f89a7dbfd41587a10c3eea"
 dependencies = [
  "atoi",
- "chrono",
  "flume",
  "futures-channel",
  "futures-core",
@@ -6332,6 +6293,9 @@ name = "strum"
 version = "0.27.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "af23d6f6c1a224baef9d3f61e287d2761385a5b88fdab4eb4c6f11aeb54c4bcf"
+dependencies = [
+ "strum_macros 0.27.2",
+]
 
 [[package]]
 name = "strum"
@@ -6724,7 +6688,7 @@ dependencies = [
  "serde_spanned",
  "toml_datetime",
  "toml_write",
- "winnow 0.7.15",
+ "winnow",
 ]
 
 [[package]]
@@ -6905,6 +6869,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b"
 
 [[package]]
+name = "ttf-parser"
+version = "0.25.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d2df906b07856748fa3f6e0ad0cbaa047052d4a7dd609e231c4f72cee8c36f31"
+
+[[package]]
 name = "tungstenite"
 version = "0.29.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6920,6 +6890,15 @@ dependencies = [
  "rustls-pki-types",
  "sha1",
  "thiserror 2.0.21",
+]
+
+[[package]]
+name = "type1-encoding-parser"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fa10c302f5a53b7ad27fd42a3996e23d096ba39b5b8dd6d9e683a05b01bee749"
+dependencies = [
+ "pom",
 ]
 
 [[package]]
@@ -7044,9 +7023,9 @@ dependencies = [
 
 [[package]]
 name = "url"
-version = "2.5.8"
+version = "2.5.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ff67a8a4397373c3ef660812acab3268222035010ab8680ec4215f38ba3d0eed"
+checksum = "f00cd2407bb42c0ef17be88d4cf020f5cceffd121665bac9b8b9493a369b3b1a"
 dependencies = [
  "form_urlencoded",
  "idna",
@@ -7280,6 +7259,12 @@ checksum = "f5f280bbb2b287bc8e7de7e3852945a0ff50d1bbcb5ed42b6c7a568c546df171"
 dependencies = [
  "rustls-pki-types",
 ]
+
+[[package]]
+name = "weezl"
+version = "0.1.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a28ac98ddc8b9274cb41bb4d9d4d5c425b6020c50c46f25559911905610b4a88"
 
 [[package]]
 name = "which"
@@ -7548,15 +7533,6 @@ name = "windows_x86_64_msvc"
 version = "0.52.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "589f6da84c646204747d1270a2a5661ea66ed1cced2631d546fdfb155959f9ec"
-
-[[package]]
-name = "winnow"
-version = "0.6.26"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1e90edd2ac1aa278a5c4599b1d89cf03074b610800f866d4026dc199d7929a28"
-dependencies = [
- "memchr",
-]
 
 [[package]]
 name = "winnow"

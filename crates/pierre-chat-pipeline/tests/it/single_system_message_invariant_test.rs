@@ -33,7 +33,7 @@
 //! whether a reply looks good. A behavioural assertion cannot tell the two
 //! mechanisms apart; this can.
 
-use chrono::{TimeZone, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_chat_pipeline::stages::capability_recovery::REPAIR_EVIDENCE_FRAME;
 use pierre_chat_pipeline::stages::peer_grounding::PEER_GROUNDING_LEAD;
 use pierre_chat_pipeline::stages::prefetch::{
@@ -173,6 +173,7 @@ fn row(id: &str, role: &str, content: &str) -> MessageRecord {
         channel_type: None,
         about_user_id: None,
         turn_attempted_write: None,
+        ai_consent_sources: Vec::new(),
     }
 }
 
@@ -285,9 +286,10 @@ fn the_platforms_own_replayed_summary_keeps_its_framing() {
         original_tokens: 90,
         first_message_id: "m1".to_owned(),
         last_message_id: "m2".to_owned(),
-        created_at: Utc.with_ymd_and_hms(2026, 7, 30, 8, 0, 0).unwrap(),
+        created_at: Timestamp::parse_from_rfc3339("2026-07-30T08:00:00Z").unwrap(),
         transport_policy: TransportPolicy::AnyTransport,
         about_user_id: None,
+        ai_consent_sources: Vec::new(),
     }];
 
     let (messages, _) = build_llm_messages_with_blocks(None, &history, &blocks);

@@ -13,7 +13,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![cfg(feature = "postgresql")]
 
-use chrono::{NaiveTime, Utc};
+use dravr_tronc::dates::{CivilTime, Timestamp};
 use pierre_notifications::models::TransportPolicy as PushTransportPolicy;
 use pierre_notifications::models::{
     CreateNotificationParams, CreateScheduledNotificationParams, DevicePlatform, DeviceRegistrar,
@@ -282,9 +282,9 @@ async fn test_pg_notification_service_round_trips_every_table() {
     );
     assert_eq!(
         prefs[0].quiet_hours_start,
-        NaiveTime::from_hms_opt(22, 0, 0)
+        CivilTime::from_hms(22, 0, 0).ok()
     );
-    assert_eq!(prefs[0].quiet_hours_end, NaiveTime::from_hms_opt(7, 0, 0));
+    assert_eq!(prefs[0].quiet_hours_end, CivilTime::from_hms(7, 0, 0).ok());
     assert_eq!(prefs[0].timezone.as_deref(), Some("America/Montreal"));
     assert_eq!(prefs[0].max_per_day, Some(3));
 
@@ -330,7 +330,7 @@ async fn test_pg_notification_service_round_trips_every_table() {
             notification_type: "weekly_training_summary".to_owned(),
             schedule_cron: "0 8 * * 1".to_owned(),
             timezone: "America/Montreal".to_owned(),
-            next_fire_at: Utc::now(),
+            next_fire_at: Timestamp::now(),
         })
         .await
         .unwrap();

@@ -57,8 +57,8 @@ export function StoreCoachDetailScreen() {
   const { t, language } = useTranslation();
   const colors = useThemeColors();
   // Still used by the action bar's Edit/Installed buttons below — the two
-  // stacked prompt/system-prompt/metadata blocks lost their card fill per
-  // Boreal v2.2 Phase 5 (P5.3), but the action bar itself is out of that scope.
+  // stacked prompt/system-prompt/metadata blocks carry no card fill, but
+  // the action bar keeps its own.
   const cardStyle = useCardStyle();
   const router = useRouter();
   const findPersonalThread = useFindPersonalThread();
@@ -247,7 +247,7 @@ export function StoreCoachDetailScreen() {
         {/* Category & Stats */}
         <View className="flex-row justify-between items-center px-4 pt-4 pb-2">
           {/* An agent's pillar is a dot beside its category word — meaning, not
-              a coloured chip (DESIGN.md §2), the web's StoreScreen recipe. The
+              a coloured chip (DESIGN.md "Status"), the web's StoreScreen recipe. The
               dot is a fill, so it takes `categoryDotClass`; the word stays
               in the muted body ink, which reads on any ground. */}
           <View testID="category-badge" className="flex-row items-center gap-2">

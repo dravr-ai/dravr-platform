@@ -11,6 +11,7 @@ use crate::common;
 use crate::helpers;
 
 use anyhow::Result;
+use dravr_tronc::dates::Timestamp;
 use helpers::axum_test::AxumTestRequest;
 use pierre_auth::auth::AuthManager;
 use pierre_config::mcp::AppBehaviorConfig;
@@ -102,14 +103,13 @@ async fn test_complete_admin_user_approval_workflow() -> Result<()> {
         display_name: Some("Test User".to_owned()),
         password_hash: "hashed_password".to_owned(),
         tier: UserTier::Starter,
-        strava_token: None,
         is_active: true,
         user_status: UserStatus::Pending, // Start as pending
         role: UserRole::User,
         approved_by: None,
         approved_at: None,
-        created_at: chrono::Utc::now(),
-        last_active: chrono::Utc::now(),
+        created_at: Timestamp::now(),
+        last_active: Timestamp::now(),
         firebase_uid: None,
         auth_provider: String::new(),
         analytics_consent: false,

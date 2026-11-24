@@ -43,6 +43,7 @@ use pierre_services::import_tombstones::clear_for_account;
 
 use crate::pending_session::session_account;
 use crate::AuthRoutesContext;
+use dravr_tronc::dates::Timestamp;
 
 /// Body of `POST /api/user/import-tombstones/clear`.
 #[derive(Debug, Default, Deserialize)]
@@ -126,7 +127,7 @@ pub(crate) async fn handle_clear_import_tombstone(
                 "kind": t.kind,
                 "provider": t.provider,
                 "deleted_at": t.created_at.to_rfc3339(),
-                "cleared_at": t.cleared_at.map(|at| at.to_rfc3339()),
+                "cleared_at": t.cleared_at.map(Timestamp::to_rfc3339),
             }))
             .collect::<Vec<_>>(),
         "user_status": status,

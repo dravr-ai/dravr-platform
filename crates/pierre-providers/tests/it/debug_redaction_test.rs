@@ -74,8 +74,8 @@ fn a_terra_signature_validator_never_prints_its_signing_secret() {
 async fn a_sciotte_provider_never_prints_the_session_it_holds() {
     use std::str::FromStr;
 
-    use chrono::Utc;
     use dravr_sciotte::models::{AthleteId, AuthSession};
+    use dravr_tronc::dates::Timestamp;
     use pierre_providers::core::{
         CredentialKind, FitnessProvider, OAuth2Credentials, ProviderConfig,
     };
@@ -94,7 +94,7 @@ async fn a_sciotte_provider_never_prints_the_session_it_holds() {
     let session = AuthSession {
         session_id: "sentinel-session-7f3a".to_owned(),
         cookies: vec![],
-        created_at: Utc::now(),
+        created_at: Timestamp::now(),
         expires_at: None,
     };
     provider

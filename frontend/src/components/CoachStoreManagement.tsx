@@ -9,7 +9,7 @@ import { useQuery } from '@tanstack/react-query';
 import { adminApi } from '../services/api';
 import { clsx } from 'clsx';
 import { BADGE_TONE } from './ui';
-import { QUERY_KEYS } from '../constants/queryKeys';
+import { QUERY_KEYS } from '@pierre/shared-constants';
 import { ADMIN_LOCALE } from '../utils/adminLocale';
 
 // Lazy load tab content components

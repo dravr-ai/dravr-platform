@@ -4,25 +4,28 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-import { useState, useEffect, useRef } from 'react';
+import { lazy, Suspense, useState, useEffect, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { providersApi, oauthApi } from '../services/api';
 import type { ProviderStatus } from '../services/api';
 import { track } from '../services/analytics';
-import { QUERY_KEYS } from '../constants/queryKeys';
 import {
   HISTORY_ACTION_KEYS,
   PROVIDER_LINK_POLL_INTERVAL_MS,
+  cardForSlug,
   cardStatus,
+  connectConsentsFor,
   connectPlan,
   noticeRequired,
   oauthFallbackTarget,
   providerGlyphInk,
   refusalReturnsToCard,
+  signInStartsWithExtension,
   type CardStatus,
+  QUERY_KEYS,
 } from '@pierre/shared-constants';
 import type { SciotteTarget } from '@pierre/shared-types';
-import SciotteLoginModal from './SciotteLoginModal';
+import { followConnectPlan } from '@pierre/ui-logic';
 import IntervalsIcuLinkModal from './IntervalsIcuLinkModal';
 import OAuthAppSetupModal from './OAuthAppSetupModal';
 import { ownAppDevPortal } from '@pierre/domain-utils';
@@ -34,6 +37,7 @@ import {
   OAUTH_RESULT_FRESH_MS,
   OAUTH_RESULT_KEY,
   historySignInAfterGrant,
+  offeredConsents,
   refusalAnswer,
   startOAuthInNewTab,
   startOAuthInThisTab,
@@ -41,6 +45,13 @@ import {
 } from '../utils/oauthReturn';
 import { useTranslation } from '@pierre/i18n';
 import { useTheme } from '../hooks/useTheme';
+
+// The provider's own account sign-in, and Garmin's offered consents asked
+// before its connect: neither is on screen at first paint, so both load
+// outside the entry bundle — the sign-in once the cards mount, the consents
+// on the first connect that offers them.
+const SciotteLoginModal = lazy(() => import('./SciotteLoginModal'));
+const ConnectConsentDialog = lazy(() => import('./ConnectConsentDialog'));
 
 // One row, whichever provider: a 24px glyph, the name with its one line
 // beside it, the status or action on the right, a faint hairline above.
@@ -77,11 +88,13 @@ interface SignInWindow {
   consentRequired: boolean;
   historyMode: boolean;
   fallback: SciotteTarget | null;
+  /** The offered consents the athlete ticked before this connect (`ConnectConsentDialog`). */
+  consents: readonly string[];
 }
 
 // SVG icons for each provider - clean and professional. `sciotte` reuses the
-// Strava chevron (it's the Strava data path); `sciotte_garmin` reuses the Garmin
-// dial; `sciotte_trainingpeaks` is a pair of peaks; `sciotte_coros` is COROS'
+// Strava chevron (it's the Strava data path); `garmin` and `sciotte_garmin` draw
+// Garmin's delta; `sciotte_trainingpeaks` is a pair of peaks; `sciotte_coros` is COROS'
 // official mark (coros.com/public/images/COROS.svg) at its own 1024 scale.
 // Default falls back to a neutral disc.
 export const ProviderIcon = ({ providerId, className }: { providerId: string; className?: string }) => {
@@ -94,10 +107,12 @@ export const ProviderIcon = ({ providerId, className }: { providerId: string; cl
           <path d="M15.387 17.944l-2.089-4.116h-3.065L15.387 24l5.15-10.172h-3.066m-7.008-5.599l2.836 5.598h4.172L10.463 0l-7 13.828h4.169" />
         </svg>
       );
+    case 'garmin':
     case 'sciotte_garmin':
+      // Garmin's delta: the triangle its wordmark stands under.
       return (
         <svg className={baseClass} viewBox="0 0 24 24" fill="currentColor">
-          <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-1-13h2v6h-2zm0 8h2v2h-2z" />
+          <path d="M12 4 21 20H3z" />
         </svg>
       );
     case 'sciotte_trainingpeaks':
@@ -185,7 +200,11 @@ export default function ProviderConnectionCards({
     provider: ProviderStatus;
     devPortalUrl: string;
     tosConsent: boolean;
+    consents: readonly string[];
   } | null>(null);
+  // The card whose offered consents (Garmin's AI use and workout transfer)
+  // are on screen before its connect starts; Continue starts it either way.
+  const [consentCard, setConsentCard] = useState<ProviderStatus | null>(null);
   const queryClient = useQueryClient();
   // The grant (by its result's timestamp) whose history sign-in was already
   // opened, so a later focus does not reopen it while the result stays fresh.
@@ -211,13 +230,20 @@ export default function ProviderConnectionCards({
   // Only the sign-in a card's own plan opens may fall back to its OAuth
   // (`fromPlan`): one opened because the provider refused its grant would
   // bounce the athlete between the two, and a history copy has its grant.
-  const openSignIn = (card: ProviderStatus | undefined, target: SciotteTarget, historyMode = false, fromPlan = false) => {
+  const openSignIn = (
+    card: ProviderStatus | undefined,
+    target: SciotteTarget,
+    historyMode = false,
+    fromPlan = false,
+    consents: readonly string[] = [],
+  ) => {
     const oauth = card && fromPlan && !historyMode ? oauthFallbackTarget(card) : null;
     setSignIn({
       target,
       consentRequired: card?.consent_required ?? false,
       historyMode,
       fallback: oauth,
+      consents,
     });
   };
 
@@ -291,28 +317,35 @@ export default function ProviderConnectionCards({
   // (carnet#1477), a reconnect's too (carnet#1667): the window closes and the
   // authorization opens in a new tab, so this one stays where it was; the
   // grant comes back through the storage event above.
-  const fallBackToOAuth = (provider: SciotteTarget) => () => {
+  // The consents ticked before the sign-in travel on to the authorization.
+  const fallBackToOAuth = (provider: SciotteTarget, consents: readonly string[]) => () => {
     setSignIn(null);
     track({ name: 'feature_engaged', props: { feature: 'provider_connect_started' } });
-    startOAuthInNewTab(oauthApi.authorizeUrl(provider, { signInBlocked: true }));
+    startOAuthInNewTab(oauthApi.authorizeUrl(provider, { signInBlocked: true, ...offeredConsents(consents) }));
   };
 
   // Launch the OAuth authorization flow for a provider: go, in this tab, to
   // the server's launch route, which 302s to the provider and returns here
   // (`startOAuthInThisTab`). `card` is the card tapped, whose own-app setup
-  // comes first when no app of the server's can authorize it.
-  const connectViaOAuth = (providerName: string, card?: ProviderStatus, tosConsent = false) => {
+  // comes first when no app of the server's can authorize it. `consents` are
+  // the offered consents the athlete ticked (`ConnectConsentDialog`).
+  const connectViaOAuth = (
+    providerName: string,
+    card?: ProviderStatus,
+    tosConsent = false,
+    consents: readonly string[] = [],
+  ) => {
     const devPortalUrl = ownAppDevPortal(providerName);
     if (card?.own_app_required && devPortalUrl) {
-      setOwnAppSetup({ provider: card, devPortalUrl, tosConsent });
+      setOwnAppSetup({ provider: card, devPortalUrl, tosConsent, consents });
       return;
     }
-    launchOAuth(providerName, tosConsent);
+    launchOAuth(providerName, tosConsent, consents);
   };
 
-  const launchOAuth = (providerName: string, tosConsent: boolean) => {
+  const launchOAuth = (providerName: string, tosConsent: boolean, consents: readonly string[] = []) => {
     track({ name: 'feature_engaged', props: { feature: 'provider_connect_started' } });
-    startOAuthInThisTab(oauthApi.authorizeUrl(providerName, { tosConsent }));
+    startOAuthInThisTab(oauthApi.authorizeUrl(providerName, { tosConsent, ...offeredConsents(consents) }));
   };
 
   // A tap follows what the card shows (`cardStatus`) and how it connects
@@ -333,30 +366,38 @@ export default function ProviderConnectionCards({
     }
     if (!ACTIONABLE.has(status)) return;
     setRefusedCard(null);
-    const primary = connectPlan(provider).primary;
-    switch (primary.kind) {
-      case 'oauth':
+    // A card whose connect offers consents (Garmin's two) asks them first;
+    // its Continue starts the connect with the boxes ticked, or none.
+    if (connectConsentsFor(provider.provider).length > 0) {
+      setConsentCard(provider);
+      return;
+    }
+    startConnect(provider, []);
+  };
+
+  // The card's connect by its plan's primary way in, carrying the offered
+  // consents the athlete ticked.
+  const startConnect = (provider: ProviderStatus, consents: readonly string[]) => {
+    followConnectPlan(provider, {
+      authorize: (name) => {
         // A provider whose notice the account has not accepted (WHOOP's owner
         // authorization) shows it first; its Continue starts the flow.
-        if (primary.provider === provider.provider && noticeRequired(provider.provider, provider.consent_required)) {
+        if (name === provider.provider && noticeRequired(provider.provider, provider.consent_required)) {
           setNoticeProvider(provider.provider);
           return;
         }
-        connectViaOAuth(primary.provider, provider);
-        return;
-      case 'sign_in':
-        // The provider's own account sign-in, after its notice when it has one.
-        openSignIn(provider, primary.target, false, true);
-        return;
-      case 'intervals':
-        // The authorization first while the server offers it, with the
-        // coach's API-key form one tap away; the key form alone otherwise.
-        setIntervalsModal({ offersAuthorize: primary.path === 'choose' });
-        return;
-      case 'none':
-        // Non-OAuth providers (like synthetic) skip directly to chat.
-        if (onSkip) onSkip();
-    }
+        connectViaOAuth(name, provider, false, consents);
+      },
+      // The provider's own account sign-in, after its notice when it has one.
+      signIn: (target) => openSignIn(provider, target, false, true, consents),
+      // Intervals.icu's dialog for a new link or a key-linked card: the
+      // authorization first while the server offers it, with the coach's
+      // API-key form one tap away; the key form alone otherwise. A card the
+      // athlete authorized never comes here: it reconnects through `authorize`.
+      intervalsDialog: (offersAuthorize) => setIntervalsModal({ offersAuthorize }),
+      // Non-OAuth providers (like synthetic) skip directly to chat.
+      none: () => onSkip?.(),
+    });
   };
 
   if (isLoading) {
@@ -393,10 +434,10 @@ export default function ProviderConnectionCards({
   const showMore = moreOpen || more.some((p) => p.connected);
 
   const renderRow = (provider: ProviderStatus) => {
-        // The brand colour is carried by the glyph, not by a tile (DESIGN.md
-        // §5), and only in a scheme where it clears the 3:1 icon floor on the
-        // canvas; elsewhere — and for a provider with no brand colour — the
-        // glyph takes the body ink. `PROVIDER_GLYPH_INK` holds both halves.
+        // The brand colour is carried by the glyph, not by a tile (DESIGN.md "Brand colour"),
+        // and only in a scheme where it clears the 3:1 icon floor on the canvas;
+        // elsewhere — and for a provider with no brand colour — the glyph takes
+        // the body ink. `PROVIDER_GLYPH_INK` holds both halves.
         const glyphInk = providerGlyphInk(provider.provider, scheme);
         const status = cardStatus(provider);
         const isNonOAuth = connectPlan(provider).primary.kind === 'none';
@@ -540,23 +581,41 @@ export default function ProviderConnectionCards({
       )}
 
       {/* The provider's own account sign-in */}
-      <SciotteLoginModal
-        isOpen={signIn !== null}
-        onClose={() => setSignIn(null)}
-        onConnected={() => {
-          refetch();
-          // The sign-in completes in-process (no OAuth callback URL), so we have to
-          // explicitly bust the onboarding-status cache here. Without this, the
-          // App-level route guard stays on OnboardingConnectProvider until the
-          // next poll tick (5s), stranding the user on the connected card.
-          queryClient.invalidateQueries({ queryKey: QUERY_KEYS.user.onboardingStatus() });
-          setSignIn(null);
-        }}
-        target={signIn?.target ?? 'strava'}
-        consentRequired={signIn?.consentRequired ?? false}
-        historyMode={signIn?.historyMode ?? false}
-        onFallBackToOAuth={signIn?.fallback ? fallBackToOAuth(signIn.fallback) : undefined}
-      />
+      <Suspense fallback={null}>
+        <SciotteLoginModal
+          isOpen={signIn !== null}
+          onClose={() => setSignIn(null)}
+          onConnected={() => {
+            refetch();
+            // The sign-in completes in-process (no OAuth callback URL), so we have to
+            // explicitly bust the onboarding-status cache here. Without this, the
+            // App-level route guard stays on OnboardingConnectProvider until the
+            // next poll tick (5s), stranding the user on the connected card.
+            queryClient.invalidateQueries({ queryKey: QUERY_KEYS.user.onboardingStatus() });
+            setSignIn(null);
+          }}
+          target={signIn?.target ?? 'strava'}
+          consentRequired={signIn?.consentRequired ?? false}
+          historyMode={signIn?.historyMode ?? false}
+          onFallBackToOAuth={signIn?.fallback ? fallBackToOAuth(signIn.fallback, signIn.consents) : undefined}
+          consents={signIn?.consents}
+          extensionFirst={signIn ? signInStartsWithExtension(cardForSlug(signIn.target, served)) : true}
+        />
+      </Suspense>
+
+      {consentCard && (
+        <Suspense fallback={null}>
+          <ConnectConsentDialog
+            open
+            consents={connectConsentsFor(consentCard.provider)}
+            onCancel={() => setConsentCard(null)}
+            onContinue={(keys) => {
+              setConsentCard(null);
+              startConnect(consentCard, keys);
+            }}
+          />
+        </Suspense>
+      )}
 
       <ProviderNoticeDialog
         provider={noticeProvider}
@@ -574,7 +633,7 @@ export default function ProviderConnectionCards({
           onClose={() => setOwnAppSetup(null)}
           onSaved={() => {
             setOwnAppSetup(null);
-            launchOAuth(ownAppSetup.provider.provider, ownAppSetup.tosConsent);
+            launchOAuth(ownAppSetup.provider.provider, ownAppSetup.tosConsent, ownAppSetup.consents);
           }}
           provider={ownAppSetup.provider.provider}
           displayName={ownAppSetup.provider.display_name}

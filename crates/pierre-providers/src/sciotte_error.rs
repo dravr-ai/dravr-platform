@@ -4,10 +4,10 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! What a failed call to the sciotte scraper service is, in the platform's
+//! What a failed call to the sciotte service is, in the platform's
 //! error vocabulary.
 //!
-//! The scraper service is called through `dravr-sciotte`'s own client, whose
+//! The sciotte service is called through `dravr-sciotte`'s own client, whose
 //! [`ClientError`] names what the service answered. [`to_app_error`] is the
 //! only place that names it in the platform's [`ErrorCode`]s:
 //!
@@ -38,7 +38,7 @@
 //! - a login the provider stopped at a challenge (a captcha) is
 //!   [`ErrorCode::ExternalAuthFailed`] carrying the [`LOGIN_CHALLENGE`]
 //!   marker, read back by [`is_login_challenge`]. It is neither a refused
-//!   password nor a session to renew, and no operator can answer it;
+//!   password nor a session to renew, and no admin can answer it;
 //! - everything else is an internal fault.
 //!
 //! No message carries a response body. A message under a code a tool reply
@@ -46,7 +46,7 @@
 //! names only the provider the athlete signed in to, never the service or a
 //! request id, since the model reads it and can repeat it; [`to_app_error_as`]
 //! takes that brand. Those arms log the service's own words at WARN, the only
-//! place an operator reads them.
+//! place an admin reads them.
 
 use dravr_sciotte::client::{
     ClientError, Operation, SciotteClient, ServiceError, TransportFailure,
@@ -218,7 +218,7 @@ fn service_error(error: ServiceError, operation: Option<Operation>, brand: &str)
 }
 
 /// An error under `code` worded for the athlete, the service's own words
-/// (`said`, naming the service and the request id) logged for an operator.
+/// (`said`, naming the service and the request id) logged for an admin.
 fn reworded(code: ErrorCode, said: &str, message: String) -> AppError {
     warn!(error = %said, "sciotte call failed; reported under the provider's name");
     AppError::new(code, message)
@@ -234,7 +234,7 @@ const fn is_session_transfer(operation: Option<Operation>) -> bool {
 /// gate's nested error.
 ///
 /// The marker tells a rejected identity token from an unknown provider or an
-/// unknown flow, which is what an operator reads the failure for. The rest of
+/// unknown flow, which is what an admin reads the failure for. The rest of
 /// the body is left out: it is logged and sent in a business event.
 fn answer_marker(body: &Value) -> &str {
     let error = body.get("error");
@@ -377,7 +377,7 @@ pub fn require_client(client: Option<&SciotteClient>) -> AppResult<&SciotteClien
 /// Callers branch on this to tell the athlete the provider asked for a check
 /// the service could not complete, instead of routing it through the
 /// system-failure path: retrying at once meets the same challenge, and no
-/// operator can answer it.
+/// admin can answer it.
 #[must_use]
 pub fn is_login_challenge(error: &AppError) -> bool {
     matches!(error.code, ErrorCode::ExternalAuthFailed)
@@ -388,7 +388,7 @@ pub fn is_login_challenge(error: &AppError) -> bool {
 ///
 /// Callers branch on this to answer it without the system-failure path: the
 /// window that started the step was closed and asked for it to stop, so
-/// nobody reads the answer and no operator has anything to do.
+/// nobody reads the answer and no admin has anything to do.
 #[must_use]
 pub fn is_login_cancelled(error: &AppError) -> bool {
     matches!(error.code, ErrorCode::ResourceLocked)
@@ -791,7 +791,7 @@ mod tests {
         );
         assert!(!error.message.contains("roster"), "bug: {}", error.message);
         // The read's WARN line logs the error's Display: the provider's reason
-        // must be in it for an operator to see.
+        // must be in it for an admin to see.
         assert!(
             error.to_string().contains("the provider answered HTTP 403"),
             "bug: the logged line drops the provider's reason: {error}"

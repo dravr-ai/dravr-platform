@@ -22,7 +22,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use axum::http::StatusCode;
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::models::TenantId;
 use pierre_database::repositories::UpsertUserFactParams;
 use pierre_mcp_server::mcp::resources::ServerContext;
@@ -99,7 +99,7 @@ impl Athlete {
                 self.tenant,
                 self.user_id,
                 TransportPolicy::FirstPartyOnly,
-                &|_| true,
+                &|_, _| true,
             )
             .await?;
         let mut facts: Vec<_> = dossier
@@ -158,9 +158,10 @@ impl Athlete {
                 object,
                 confidence: 0.9,
                 source: FactSource::Coach,
-                valid_until: Some(Utc::now() + Duration::days(90)),
+                valid_until: Some(Timestamp::now() + Elapsed::days(90)),
                 source_msg_id: None,
                 transport_policy: TransportPolicy::AnyTransport,
+                ai_consent_sources: &[],
             })
             .await?;
         Ok(())

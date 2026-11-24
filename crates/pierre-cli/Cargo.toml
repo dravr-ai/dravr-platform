@@ -57,9 +57,9 @@ pierre-tool-runtime = { version = "0.3.0", path = "../pierre-tool-runtime" }
 bcrypt = "0.16"
 # The sciotte service client the credential-login canary signs in through.
 dravr-sciotte = { workspace = true, features = ["client"] }
-chrono = { version = "0.4", features = ["serde"] }
+dravr-tronc = { workspace = true }
 clap = { version = "4.6", features = ["derive", "std", "env"], default-features = false }
-dirs = "5.0"
+dirs = "7.0"
 glob = "0.3"
 # Cross-platform "open this URL in the default browser" for `auth login` (gcloud-style);
 # std has no equivalent and it wraps the per-OS opener (open/xdg-open/start) + WSL.
@@ -80,6 +80,8 @@ uuid = { version = "1.29", features = ["v4", "serde"] }
 [dev-dependencies]
 # The claim-verdict types the grading-sheet test seeds its database with.
 pierre-memory = { version = "0.3.0", path = "../pierre-memory" }
+# The offline provider registry the session-mint test's auth service holds.
+pierre-test-support = { version = "0.3.0", path = "../pierre-test-support", features = ["providers"] }
 
 [lints]
 workspace = true

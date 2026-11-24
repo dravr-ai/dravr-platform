@@ -1,5 +1,5 @@
 // ABOUTME: Unit tests for the LLM provider abstraction layer
-// ABOUTME: Tests capabilities, message handling, provider registry, and provider-type parsing
+// ABOUTME: Tests capabilities, message handling, and provider-type parsing
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -9,7 +9,7 @@
 
 use pierre_config::environment::LlmProviderType;
 use pierre_llm::config::LlmChain;
-use pierre_llm::{ChatMessage, ChatRequest, LlmCapabilities, LlmProviderRegistry, MessageRole};
+use pierre_llm::{ChatMessage, ChatRequest, LlmCapabilities, MessageRole};
 
 // ============================================================================
 // LlmCapabilities Tests
@@ -78,17 +78,6 @@ fn test_chat_request_builder() {
     assert_eq!(request.temperature, Some(0.7));
     assert_eq!(request.max_tokens, Some(1000));
     assert!(request.stream);
-}
-
-// ============================================================================
-// LlmProviderRegistry Tests
-// ============================================================================
-
-#[test]
-fn test_registry_operations() {
-    let registry = LlmProviderRegistry::new();
-    assert!(registry.list().is_empty());
-    assert!(registry.default_provider().is_none());
 }
 
 // ============================================================================

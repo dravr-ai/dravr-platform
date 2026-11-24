@@ -134,6 +134,7 @@ async fn a_conversation_and_its_messages_answer_the_instants_their_rows_hold() {
                 channel_type: None,
                 about_user_id: None,
                 turn_attempted_write: None,
+                ai_consent_sources: &[],
             })
             .await
             .unwrap();

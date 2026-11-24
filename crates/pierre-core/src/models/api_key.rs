@@ -18,7 +18,7 @@ use crate::constants::{
 };
 use crate::errors::AppError;
 use crate::models::{ToolUsage, UserTier};
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::{CivilDate, Timestamp};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -145,11 +145,38 @@ pub struct ApiKey {
     /// Whether the key is currently active
     pub is_active: bool,
     /// When the key was last used
-    pub last_used_at: Option<DateTime<Utc>>,
+    pub last_used_at: Option<Timestamp>,
     /// When the key expires (if set)
-    pub expires_at: Option<DateTime<Utc>>,
+    pub expires_at: Option<Timestamp>,
     /// When the key was created
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
+}
+
+/// The REST route whose request starts a turn of Dravr's agent: a chat message.
+///
+/// As the chat router registers it (a string literal there: the route scan
+/// reads literals) and the request-budget layer names its `api_key_usage` row
+/// (`POST <route>`); `access_feed_turn_test` posts through the router and
+/// fails if the two drift apart. A key's message there is listed
+/// in the athlete's feed as the turn's own row, so the key's request days
+/// leave it out (carnet#1543).
+pub const AGENT_TURN_ROUTE: &str = "/api/chat/conversations/{conversation_id}/messages";
+
+/// One UTC day of the REST requests one of a user's API keys made that
+/// answered with a result, as their "who read my data" feed lists them
+/// (carnet#1543).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ApiKeyRequestDay {
+    /// The UTC day.
+    pub day: CivilDate,
+    /// The key.
+    pub key_id: String,
+    /// The name its owner gave it.
+    pub key_name: String,
+    /// The visible prefix the key is recognised by.
+    pub key_prefix: String,
+    /// The requests it made that day that answered with a 2xx.
+    pub requests: u32,
 }
 
 /// API Key creation request with rate limit
@@ -196,9 +223,9 @@ pub struct ApiKeyResponse {
     /// Visible prefix for identification
     pub key_prefix: String,
     /// When the key was created
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
     /// When the key expires (if set)
-    pub expires_at: Option<DateTime<Utc>>,
+    pub expires_at: Option<Timestamp>,
     /// The actual API key (only included on creation, never shown again)
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(serialize_with = "crate::secret::serialize_exposed_option")]
@@ -213,7 +240,7 @@ pub struct ApiKeyUsage {
     /// ID of the API key that was used
     pub api_key_id: String,
     /// When the request was made
-    pub timestamp: DateTime<Utc>,
+    pub timestamp: Timestamp,
     /// Name of the tool/endpoint that was called
     pub tool_name: String,
     /// Response time in milliseconds
@@ -238,9 +265,9 @@ pub struct ApiKeyUsageStats {
     /// ID of the API key
     pub api_key_id: String,
     /// Start of the statistics period
-    pub period_start: DateTime<Utc>,
+    pub period_start: Timestamp,
     /// End of the statistics period
-    pub period_end: DateTime<Utc>,
+    pub period_end: Timestamp,
     /// Total number of requests made
     pub total_requests: u32,
     /// Number of successful requests (2xx status)

@@ -25,7 +25,7 @@ use std::cmp::Reverse;
 use std::collections::HashMap;
 use std::fmt;
 
-use chrono::{DateTime, Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::groups::{GroupInvite, GroupInviteKind};
 use pierre_core::models::{SignupCode, SignupCodeSource};
@@ -165,7 +165,7 @@ pub async fn mint(
     let hint = normalized[normalized.len() - 4..].to_owned();
     let expires_at = request
         .expires_in_days
-        .map(|days| Utc::now() + Duration::days(days));
+        .map(|days| Timestamp::now() + Elapsed::days(days));
     let note = request
         .note
         .as_deref()
@@ -193,7 +193,7 @@ fn random_code() -> String {
 }
 
 /// Whether a coach's approving invite can be redeemed at `now`.
-fn coach_invite_live(invite: &GroupInvite, now: DateTime<Utc>) -> bool {
+fn coach_invite_live(invite: &GroupInvite, now: Timestamp) -> bool {
     invite.approves_signup
         && invite.kind == GroupInviteKind::Member
         && invite.is_active
@@ -215,7 +215,7 @@ pub async fn is_live(repos: &RepositoryRegistry, raw: &str) -> AppResult<bool> {
     if normalized.is_empty() {
         return Ok(false);
     }
-    let now = Utc::now();
+    let now = Timestamp::now();
     if repos
         .signup_codes
         .find_live(&hash_code(&normalized), now)
@@ -253,7 +253,7 @@ pub async fn claim(repos: &RepositoryRegistry, raw: &str) -> AppResult<Option<Cl
     if normalized.is_empty() {
         return Ok(None);
     }
-    let now = Utc::now();
+    let now = Timestamp::now();
     if let Some(code) = repos
         .signup_codes
         .claim(&hash_code(&normalized), now)
@@ -307,9 +307,9 @@ pub struct CodeRedeemer {
     /// The account's status now
     pub status: String,
     /// When it entered the code
-    pub redeemed_at: DateTime<Utc>,
+    pub redeemed_at: Timestamp,
     /// When the code activated it; `None` while it waits on its address
-    pub activated_at: Option<DateTime<Utc>>,
+    pub activated_at: Option<Timestamp>,
 }
 
 /// One code as an admin reads it.
@@ -330,7 +330,7 @@ pub struct CodeListing {
     /// The coach's group, for a coach's code
     pub group_id: Option<Uuid>,
     /// When it stops working
-    pub expires_at: Option<DateTime<Utc>>,
+    pub expires_at: Option<Timestamp>,
     /// Its use limit
     pub max_uses: Option<i32>,
     /// Its uses so far
@@ -338,7 +338,7 @@ pub struct CodeListing {
     /// Whether it can still be redeemed
     pub live: bool,
     /// When it was minted
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
     /// The accounts that came in on it
     pub redeemed_by: Vec<CodeRedeemer>,
 }
@@ -351,7 +351,7 @@ pub struct CodeListing {
 /// Returns the repository's error when a listing fails. A failed lookup of
 /// one minter or one redeemer degrades that field rather than failing it.
 pub async fn list(repos: &RepositoryRegistry) -> AppResult<Vec<CodeListing>> {
-    let now = Utc::now();
+    let now = Timestamp::now();
     let mut redeemers: HashMap<SignupCodeSource, Vec<CodeRedeemer>> = HashMap::new();
     for redemption in repos.signup_codes.list_redemptions().await? {
         let Some(source) = redemption.source else {
@@ -451,7 +451,7 @@ async fn minter_email(
 pub async fn revoke(repos: &RepositoryRegistry, kind: CodeKind, id: Uuid) -> AppResult<bool> {
     let revoked = match kind {
         CodeKind::Admin => {
-            let revoked = repos.signup_codes.revoke(id, Utc::now()).await?;
+            let revoked = repos.signup_codes.revoke(id, Timestamp::now()).await?;
             // Nothing changed: an already-revoked code, or no code at all.
             if !revoked && !repos.signup_codes.list().await?.iter().any(|c| c.id == id) {
                 return Err(AppError::not_found("No signup code with that id"));

@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use serde::{Deserialize, Serialize};
 
 use super::coverage::Coverage;
@@ -57,7 +57,7 @@ pub struct Athlete {
     /// provider reports it (Strava's athlete `created_at`): no activity is
     /// recorded before it, so a history walk stops there.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub created_at: Option<DateTime<Utc>>,
+    pub created_at: Option<Timestamp>,
     /// The athlete's current activity streak, as Strava itself reports it
     /// on the profile (the scraped Strava session only, the athlete's own
     /// account). It is Strava's own figure, never a

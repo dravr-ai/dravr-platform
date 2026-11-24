@@ -11,7 +11,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use chrono::{TimeZone, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::{Activity, ActivityBuilder, GearRef, SportType};
 use pierre_core::transport::Transport;
 use pierre_providers::ai_scope;
@@ -25,7 +25,7 @@ fn outing() -> Activity {
         "16001",
         "Bûcheronner !",
         SportType::Workout,
-        Utc.with_ymd_and_hms(2026, 11, 7, 13, 0, 0).unwrap(),
+        Timestamp::parse_from_rfc3339("2026-11-07T13:00:00Z").unwrap(),
         13_320,
         "strava",
     )
@@ -88,7 +88,7 @@ fn a_summary_row_says_the_athlete_wrote_something() {
         "1",
         "Run",
         SportType::Run,
-        Utc.with_ymd_and_hms(2026, 10, 1, 13, 0, 0).unwrap(),
+        Timestamp::parse_from_rfc3339("2026-10-01T13:00:00Z").unwrap(),
         1_800,
         "strava",
     )

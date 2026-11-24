@@ -51,14 +51,14 @@ jest.mock('../src/services/analytics', () => ({ trackMobile: jest.fn() }));
 // The thread on screen: none (the new thread) or an open one.
 let mockCurrentConversation: { id: string; title: string; agent_id: string | null } | null = null;
 const mockCreateConversation = jest.fn();
-jest.mock('../src/screens/chat/useConversations', () => ({
-  useConversations: () => ({
+jest.mock('../src/screens/chat/useOpenConversation', () => ({
+  useOpenConversation: () => ({
     conversations: [],
+    openId: mockCurrentConversation?.id ?? null,
     currentConversation: mockCurrentConversation,
     isLoading: false,
-    error: null,
-    loadConversations: jest.fn(),
-    setCurrentConversation: jest.fn(),
+    refresh: jest.fn(),
+    openConversation: jest.fn(),
     createConversation: (...args: unknown[]) => mockCreateConversation(...args),
     switchToConversation: jest.fn(),
     deleteConversation: jest.fn(),

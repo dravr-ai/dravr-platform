@@ -6,7 +6,7 @@
 
 use std::sync::Arc;
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::TenantId;
 use pierre_database::repositories::{BackfillJobKind, BackfillJobState, JobProgress};
 use pierre_providers::core::ActivityQueryParams;
@@ -48,8 +48,10 @@ pub enum TrackWalkAsked {
 /// overview already. A connection whose walk is owed or walked is left
 /// alone; one that ended short (its session died, its budget left no call,
 /// its last attempt failed) is recorded again from the cursor it stopped at,
-/// so no ride it walked past is read again. Asked by the capture sweep once a
-/// connection's head refresh succeeds, so the session is live.
+/// so no ride it walked past is read again. Asked once a connection's head
+/// refresh succeeds, so the session is live: by the capture sweep, and by a
+/// chat turn's live read of the session's list head, both through
+/// `activity_backfill::after_refresh`.
 pub async fn ask_track_walk(
     runtime: &Arc<dyn ToolRuntime>,
     user_id: Uuid,
@@ -82,7 +84,7 @@ pub async fn ask_track_walk(
         provider_name: backend.to_owned(),
         query_params: ActivityQueryParams {
             after: None,
-            before: Some(stopped_at.unwrap_or_else(|| Utc::now().timestamp())),
+            before: Some(stopped_at.unwrap_or_else(|| Timestamp::now().epoch_seconds())),
             limit: None,
             offset: None,
         },

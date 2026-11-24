@@ -51,6 +51,7 @@ See `.envrc.example` for the complete variable reference.
 | `start-frontend.sh` | Start web frontend only (Vite's default port 5173) |
 | `start-tunnel.sh` | Start Cloudflare tunnel for mobile testing; rewrites the `BASE_URL` line in `.envrc` and the `EXPO_PUBLIC_API_URL` line in `frontend-mobile/.env` |
 | `stop-tunnel.sh` | Stop the tunnel and point `BASE_URL` back at the local server |
+| `rotate-llm-head.sh` | Ops, not dev: show which Anthropic organization heads the deployed LLM chain, or move one to the head (`--head <org>`, edits `infra/environments/dev/main.tf`; `--live` also updates the running API service) |
 
 ## What `setup-db-with-seeds-and-oauth-and-start-servers.sh` Does
 

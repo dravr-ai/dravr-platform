@@ -12,8 +12,11 @@ pub enum BackfillJobState {
     /// A job is owed: recorded, running or waiting for the resume sweep.
     Owed,
     /// The job ended before what it was asked for landed, and its row was
-    /// kept to say so ([`super::ActivityBackfillJobRepository::end_backfill_job_incomplete`]):
-    /// a history walk whose session expired mid-copy.
+    /// kept to say so ([`super::ActivityBackfillJobRepository::end_backfill_job_incomplete`],
+    /// [`super::ActivityBackfillJobRepository::fail_history_walk`]): a history
+    /// walk whose session expired mid-copy, or whose step failed on every
+    /// attempt. An ask resumes a history walk in place
+    /// ([`super::ActivityBackfillJobRepository::resume_incomplete_history_walk`]).
     Incomplete,
     /// A walk reached the end of what it walks, and its row was kept to say
     /// so: a history walk the end of the athlete's history

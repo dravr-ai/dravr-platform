@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Contract tests for the Boreal Editorial form fields (DESIGN.md §5)
+// ABOUTME: Contract tests for the Boreal Editorial form fields (DESIGN.md "Inputs / Fields")
 // ABOUTME: Asserts Input/Textarea/Select share one label, chrome and error language
 
 import { render, screen } from '@testing-library/react';

@@ -28,7 +28,7 @@ use crate::activity_query_test::{
 
 use std::sync::Arc;
 
-use chrono::{Datelike, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::models::SportType;
 use pierre_core::transport::Transport;
@@ -36,6 +36,7 @@ use pierre_mcp_server::mcp::resources::ServerContext;
 use serde_json::{json, Value};
 
 use crate::activity_query_test::call_tool;
+use dravr_tronc::dates::Elapsed;
 
 /// `get_stats` from the athlete's own web app.
 async fn stats(resources: &Arc<ServerContext>, athlete: Athlete, params: Value) -> Value {
@@ -47,8 +48,8 @@ async fn stats(resources: &Arc<ServerContext>, athlete: Athlete, params: Value) 
 async fn three_years(resources: &Arc<ServerContext>) -> Athlete {
     let athlete = strava_athlete(resources).await;
     walked_to_its_end(resources, athlete, oauth_providers::STRAVA).await;
-    let year = Utc::now().year();
-    let this_year = Utc::now() - chrono::Duration::hours(2);
+    let year = Timestamp::now().utc_date().year();
+    let this_year = Timestamp::now() - Elapsed::hours(2);
     let rows = [
         ride(oauth_providers::STRAVA, this_year),
         ride(oauth_providers::STRAVA, noon(year - 1, 6, 1)),
@@ -65,7 +66,7 @@ async fn the_totals_are_the_counts_query_activities_gives() {
 
     let view = stats(&resources, athlete, json!({})).await;
     let all_time = query(&resources, athlete, json!({})).await;
-    let jan_first = format!("{}-01-01", Utc::now().year());
+    let jan_first = format!("{}-01-01", Timestamp::now().utc_date().year());
     let this_year = query(&resources, athlete, json!({ "from": jan_first })).await;
 
     assert_eq!(

@@ -23,7 +23,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use axum::Router;
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::ai_policy::SourcePolicy;
 use pierre_core::constants::oauth::providers::WHOOP;
 use pierre_core::errors::{AppError, AppResult};
@@ -115,7 +115,7 @@ fn workouts() -> Vec<Activity> {
         "w1",
         WORKOUT,
         SportType::Ride,
-        Utc::now() - Duration::days(1),
+        Timestamp::now() - Elapsed::days(1),
         3_600,
         WHOOP,
     )
@@ -250,7 +250,7 @@ async fn coached_group(res: &Arc<ServerContext>, coach: &Person) -> Uuid {
         .unwrap()
         .id
         .to_string();
-    let now = Utc::now();
+    let now = Timestamp::now();
     res.common
         .repos
         .groups
@@ -271,6 +271,7 @@ async fn coached_group(res: &Arc<ServerContext>, coach: &Person) -> Uuid {
                 is_active: true,
                 channel_type: None,
                 channel_chat_id: None,
+                chat_connection: None,
                 created_at: now,
                 updated_at: now,
             },
@@ -282,7 +283,7 @@ async fn coached_group(res: &Arc<ServerContext>, coach: &Person) -> Uuid {
 
 /// `athlete` joins `group` sharing their training with its coach.
 async fn join_sharing(res: &Arc<ServerContext>, group: Uuid, athlete: &Person) {
-    let now = Utc::now();
+    let now = Timestamp::now();
     res.common
         .repos
         .groups
@@ -314,7 +315,7 @@ async fn connect_whoop(res: &Arc<ServerContext>, athlete: &Person) {
         WHOOP.to_owned(),
         "whoop-access".to_owned(),
         Some("whoop-refresh".to_owned()),
-        Some(Utc::now() + Duration::hours(6)),
+        Some(Timestamp::now() + Elapsed::hours(6)),
         None,
     );
     repos.oauth_tokens.upsert_token(&token).await.unwrap();
@@ -538,7 +539,7 @@ async fn a_withdrawn_ai_consent_no_longer_places_the_athlete_in_the_roster_order
         "b1",
         "Ben's ride",
         SportType::Ride,
-        Utc::now() - Duration::days(3),
+        Timestamp::now() - Elapsed::days(3),
         3_600,
         "strava",
     )
@@ -600,7 +601,7 @@ async fn a_withheld_session_a_relay_cached_does_not_place_the_athlete() {
         "r1",
         "Relayed WHOOP session",
         SportType::Ride,
-        Utc::now() - Duration::days(1),
+        Timestamp::now() - Elapsed::days(1),
         3_600,
         "intervals_icu",
     )
@@ -611,7 +612,7 @@ async fn a_withheld_session_a_relay_cached_does_not_place_the_athlete() {
         "a5",
         "Alex's run",
         SportType::Run,
-        Utc::now() - Duration::days(5),
+        Timestamp::now() - Elapsed::days(5),
         1_800,
         "strava",
     )
@@ -621,7 +622,7 @@ async fn a_withheld_session_a_relay_cached_does_not_place_the_athlete() {
         "b3",
         "Ben's ride",
         SportType::Ride,
-        Utc::now() - Duration::days(3),
+        Timestamp::now() - Elapsed::days(3),
         3_600,
         "strava",
     )
@@ -664,7 +665,7 @@ async fn the_order_reads_past_a_page_of_withheld_sessions_and_its_last_instant()
     // same instant and 98 since — with `connect_whoop`'s ride, 99 newer than
     // it, so the first page of 100 ends on that instant with its other
     // sessions still unread — and then by Strava, at that instant too.
-    let shared_start = Utc::now() - Duration::days(2);
+    let shared_start = Timestamp::now() - Elapsed::days(2);
     for user in [&alex, &ben] {
         repos
             .provider_connections
@@ -674,7 +675,7 @@ async fn the_order_reads_past_a_page_of_withheld_sessions_and_its_last_instant()
     }
     let whoop: Vec<Activity> = (0..3)
         .map(|i| ride(&format!("t{i}"), shared_start, WHOOP))
-        .chain((1..=98).map(|i| ride(&format!("n{i}"), shared_start + Duration::minutes(i), WHOOP)))
+        .chain((1..=98).map(|i| ride(&format!("n{i}"), shared_start + Elapsed::minutes(i), WHOOP)))
         .collect();
     repos
         .activity_cache
@@ -698,7 +699,7 @@ async fn the_order_reads_past_a_page_of_withheld_sessions_and_its_last_instant()
             ben.id,
             &ben.tenant,
             "strava",
-            &[ride("b6", Utc::now() - Duration::days(6), "strava")],
+            &[ride("b6", Timestamp::now() - Elapsed::days(6), "strava")],
         )
         .await
         .unwrap();

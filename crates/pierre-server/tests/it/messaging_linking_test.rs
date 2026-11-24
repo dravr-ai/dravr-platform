@@ -20,7 +20,7 @@
 use crate::db_fixtures;
 use db_fixtures::{create_test_db, seed_tenant, seed_user};
 
-use chrono::{DateTime, Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::errors::ErrorCode;
 use pierre_core::models::User;
 use pierre_database::backends::{CreateChannelLinkParams, CreateLinkStateParams};
@@ -36,7 +36,7 @@ async fn test_create_and_consume_link_state() {
     let (user_uuid, tenant_id) = seed_user(&db).await;
     let user_id = user_uuid.to_string();
     let code = Uuid::new_v4().to_string();
-    let expires_at = (Utc::now() + Duration::minutes(10)).to_rfc3339();
+    let expires_at = (Timestamp::now() + Elapsed::minutes(10)).to_rfc3339();
 
     let params = CreateLinkStateParams {
         id: &Uuid::new_v4().to_string(),
@@ -74,7 +74,7 @@ async fn test_consume_link_state_already_used() {
     let (user_uuid, tenant_id) = seed_user(&db).await;
     let user_id = user_uuid.to_string();
     let code = Uuid::new_v4().to_string();
-    let expires_at = (Utc::now() + Duration::minutes(10)).to_rfc3339();
+    let expires_at = (Timestamp::now() + Elapsed::minutes(10)).to_rfc3339();
 
     let params = CreateLinkStateParams {
         id: &Uuid::new_v4().to_string(),
@@ -121,7 +121,7 @@ async fn test_consume_link_state_expired() {
     let user_id = user_uuid.to_string();
     let code = Uuid::new_v4().to_string();
     // Already expired
-    let expires_at = (Utc::now() - Duration::minutes(1)).to_rfc3339();
+    let expires_at = (Timestamp::now() - Elapsed::minutes(1)).to_rfc3339();
 
     let params = CreateLinkStateParams {
         id: &Uuid::new_v4().to_string(),
@@ -220,8 +220,8 @@ async fn test_link_state_reads_back_every_column() {
     let user_id = user_uuid.to_string();
     let id = Uuid::new_v4().to_string();
     let code = Uuid::new_v4().to_string();
-    let expires_at = Utc::now() + Duration::minutes(10);
-    let before = Utc::now();
+    let expires_at = Timestamp::now() + Elapsed::minutes(10);
+    let before = Timestamp::now();
 
     let params = CreateLinkStateParams {
         id: &id,
@@ -250,19 +250,17 @@ async fn test_link_state_reads_back_every_column() {
         assert_eq!(state["method"].as_str().unwrap(), "deep_link");
         assert_eq!(state["channel_user_id"].as_str().unwrap(), "tg-user-42");
         assert_eq!(state["sender_name"].as_str().unwrap(), "Alice");
-        let read_expires_at = DateTime::parse_from_rfc3339(state["expires_at"].as_str().unwrap())
-            .unwrap()
-            .with_timezone(&Utc);
+        let read_expires_at =
+            Timestamp::parse_from_rfc3339(state["expires_at"].as_str().unwrap()).unwrap();
         assert_eq!(
-            read_expires_at.timestamp_micros(),
-            expires_at.timestamp_micros(),
+            read_expires_at.epoch_micros(),
+            expires_at.epoch_micros(),
             "expires_at is the instant the caller set"
         );
-        let created_at = DateTime::parse_from_rfc3339(state["created_at"].as_str().unwrap())
-            .unwrap()
-            .with_timezone(&Utc);
+        let created_at =
+            Timestamp::parse_from_rfc3339(state["created_at"].as_str().unwrap()).unwrap();
         assert!(
-            created_at >= before - Duration::seconds(1) && created_at <= Utc::now(),
+            created_at >= before - Elapsed::seconds(1) && created_at <= Timestamp::now(),
             "created_at is stamped at creation, got {created_at}"
         );
     };
@@ -659,7 +657,7 @@ async fn test_full_linking_flow() {
     let (user_uuid, tenant_id) = seed_user(&db).await;
     let seeded_user_id = user_uuid.to_string();
     let code = Uuid::new_v4().to_string();
-    let expires_at = (Utc::now() + Duration::minutes(10)).to_rfc3339();
+    let expires_at = (Timestamp::now() + Elapsed::minutes(10)).to_rfc3339();
 
     // Step 1: Create link state
     let state_params = CreateLinkStateParams {
@@ -753,7 +751,7 @@ async fn test_create_link_state_without_user_id() {
     let db = create_test_db().await;
     let tenant_id = seed_tenant(&db).await;
     let code = Uuid::new_v4().to_string();
-    let expires_at = (Utc::now() + Duration::minutes(10)).to_rfc3339();
+    let expires_at = (Timestamp::now() + Elapsed::minutes(10)).to_rfc3339();
 
     let params = CreateLinkStateParams {
         id: &Uuid::new_v4().to_string(),
@@ -793,7 +791,7 @@ async fn test_get_link_state_valid() {
     let db = create_test_db().await;
     let tenant_id = seed_tenant(&db).await;
     let code = Uuid::new_v4().to_string();
-    let expires_at = (Utc::now() + Duration::minutes(10)).to_rfc3339();
+    let expires_at = (Timestamp::now() + Elapsed::minutes(10)).to_rfc3339();
 
     let params = CreateLinkStateParams {
         id: &Uuid::new_v4().to_string(),
@@ -827,7 +825,7 @@ async fn test_get_link_state_expired() {
     let db = create_test_db().await;
     let tenant_id = seed_tenant(&db).await;
     let code = Uuid::new_v4().to_string();
-    let expires_at = (Utc::now() - Duration::minutes(1)).to_rfc3339();
+    let expires_at = (Timestamp::now() - Elapsed::minutes(1)).to_rfc3339();
 
     let params = CreateLinkStateParams {
         id: &Uuid::new_v4().to_string(),
@@ -862,7 +860,7 @@ async fn test_get_link_state_used() {
     let (user_uuid, tenant_id) = seed_user(&db).await;
     let user_id = user_uuid.to_string();
     let code = Uuid::new_v4().to_string();
-    let expires_at = (Utc::now() + Duration::minutes(10)).to_rfc3339();
+    let expires_at = (Timestamp::now() + Elapsed::minutes(10)).to_rfc3339();
 
     let params = CreateLinkStateParams {
         id: &Uuid::new_v4().to_string(),
@@ -905,7 +903,7 @@ async fn test_complete_link_state_success() {
     let (user_uuid, tenant_id) = seed_user(&db).await;
     let user_id = user_uuid.to_string();
     let code = Uuid::new_v4().to_string();
-    let expires_at = (Utc::now() + Duration::minutes(10)).to_rfc3339();
+    let expires_at = (Timestamp::now() + Elapsed::minutes(10)).to_rfc3339();
 
     let params = CreateLinkStateParams {
         id: &Uuid::new_v4().to_string(),
@@ -954,7 +952,7 @@ async fn test_complete_link_state_already_used() {
     let (user_uuid_2, _) = seed_user(&db).await;
     let user_id_2 = user_uuid_2.to_string();
     let code = Uuid::new_v4().to_string();
-    let expires_at = (Utc::now() + Duration::minutes(10)).to_rfc3339();
+    let expires_at = (Timestamp::now() + Elapsed::minutes(10)).to_rfc3339();
 
     let params = CreateLinkStateParams {
         id: &Uuid::new_v4().to_string(),
@@ -1000,7 +998,7 @@ async fn test_complete_link_state_expired() {
     let (user_uuid, tenant_id) = seed_user(&db).await;
     let user_id = user_uuid.to_string();
     let code = Uuid::new_v4().to_string();
-    let expires_at = (Utc::now() - Duration::minutes(1)).to_rfc3339();
+    let expires_at = (Timestamp::now() - Elapsed::minutes(1)).to_rfc3339();
 
     let params = CreateLinkStateParams {
         id: &Uuid::new_v4().to_string(),
@@ -1040,7 +1038,7 @@ async fn test_complete_link_state_already_has_user() {
     let (another_uuid, _) = seed_user(&db).await;
     let another_user = another_uuid.to_string();
     let code = Uuid::new_v4().to_string();
-    let expires_at = (Utc::now() + Duration::minutes(10)).to_rfc3339();
+    let expires_at = (Timestamp::now() + Elapsed::minutes(10)).to_rfc3339();
 
     // Create a link state WITH a user_id (web-initiated)
     let params = CreateLinkStateParams {
@@ -1085,7 +1083,7 @@ async fn test_consume_link_state_requires_tenant_id() {
     let tenant_b = seed_tenant(&db).await;
     let user_id_a = user_uuid_a.to_string();
     let code = Uuid::new_v4().to_string();
-    let expires_at = (Utc::now() + Duration::minutes(10)).to_rfc3339();
+    let expires_at = (Timestamp::now() + Elapsed::minutes(10)).to_rfc3339();
 
     // Create link state for tenant A
     let params = CreateLinkStateParams {

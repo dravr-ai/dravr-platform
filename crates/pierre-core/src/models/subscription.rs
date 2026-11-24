@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 use uuid::Uuid;
@@ -101,26 +101,26 @@ pub struct Subscription {
     /// Plan tier this subscription entitles when active/trialing.
     pub plan_tier: UserTier,
     /// Start of the current billing period (provider-supplied).
-    pub current_period_start: Option<DateTime<Utc>>,
+    pub current_period_start: Option<Timestamp>,
     /// End of the current billing period (provider-supplied).
-    pub current_period_end: Option<DateTime<Utc>>,
+    pub current_period_end: Option<Timestamp>,
     /// Whether the subscription will not auto-renew at period end.
     pub cancel_at_period_end: bool,
     /// Timestamp of the cancellation event, if any.
-    pub canceled_at: Option<DateTime<Utc>>,
+    pub canceled_at: Option<Timestamp>,
     /// End of the free trial, if the subscription is in trial.
-    pub trial_end: Option<DateTime<Utc>>,
+    pub trial_end: Option<Timestamp>,
     /// JSON blob carrying any non-canonical provider metadata.
     pub metadata: Option<serde_json::Value>,
     /// Row creation timestamp (server local).
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
     /// Last-touched timestamp; bumped on every webhook upsert.
-    pub updated_at: DateTime<Utc>,
+    pub updated_at: Timestamp,
     /// When the provider event last applied to this row happened, by the
     /// provider's clock; `None` before any event carried a time. An upsert
     /// carrying an older event is refused, so a late or retried delivery
     /// never overwrites what a newer one wrote.
-    pub last_event_at: Option<DateTime<Utc>>,
+    pub last_event_at: Option<Timestamp>,
 }
 
 impl Subscription {

@@ -26,7 +26,7 @@ use std::time::Duration as StdDuration;
 use std::time::Instant;
 
 use async_trait::async_trait;
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{Activity, ActivityBuilder, Athlete, SportType, TenantId};
 use pierre_core::pagination::{CursorPage, PaginationParams};
@@ -125,7 +125,7 @@ pub(crate) fn activity(id: &str, days_ago: i64) -> Activity {
         id,
         "Tempo run",
         SportType::Run,
-        Utc::now() - Duration::days(days_ago),
+        Timestamp::now() - Elapsed::days(days_ago),
         3_000,
         PROVIDER,
     )
@@ -157,12 +157,12 @@ pub(crate) fn window(user_id: Uuid, tenant_id: TenantId) -> OwnedLiveRead {
         user_id,
         tenant_id,
         params: ActivityQueryParams {
-            after: Some((Utc::now() - Duration::days(30)).timestamp()),
+            after: Some((Timestamp::now() - Elapsed::days(30)).epoch_seconds()),
             before: None,
             limit: Some(50),
             offset: None,
         },
-        attempt_started_at: Utc::now(),
+        attempt_started_at: Timestamp::now(),
         conversation_id: None,
         ask: None,
     }
@@ -278,8 +278,8 @@ async fn a_read_past_the_budget_answers_from_the_cache_and_still_lands() {
                     user_id,
                     &tenant_id,
                     Some(PROVIDER),
-                    Utc::now() - Duration::days(30),
-                    Utc::now() + Duration::days(1),
+                    Timestamp::now() - Elapsed::days(30),
+                    Timestamp::now() + Elapsed::days(1),
                     50,
                 )
                 .await
@@ -355,7 +355,7 @@ async fn a_read_inside_the_budget_answers_live() {
 async fn a_stale_head_held_back_by_its_failures_is_reported_behind() {
     let (runtime, user_id, tenant_id) = runtime_and_user().await;
     let cache = &runtime.repos().activity_cache;
-    let last_sync = Utc::now() - Duration::days(2);
+    let last_sync = Timestamp::now() - Elapsed::days(2);
     cache
         .upsert_activities_synced_at(
             user_id,
@@ -366,7 +366,7 @@ async fn a_stale_head_held_back_by_its_failures_is_reported_behind() {
         )
         .await
         .unwrap();
-    let failed = Utc::now() - Duration::minutes(1);
+    let failed = Timestamp::now() - Elapsed::minutes(1);
     cache
         .record_activity_fetch_failure(
             user_id,
@@ -394,7 +394,7 @@ async fn a_stale_head_held_back_by_its_failures_is_reported_behind() {
     assert_eq!(ids(&served), ["cached"], "the cached head is served as is");
 
     // A closed window has no head to be behind.
-    let closed = Some((Utc::now() - Duration::days(10)).timestamp());
+    let closed = Some((Timestamp::now() - Elapsed::days(10)).epoch_seconds());
     let behind =
         refresh_stale_head(&runtime, PROVIDER, user_id, tenant_id, closed, &mut served).await;
     assert_eq!(behind, None, "a closed window is never behind");
@@ -633,14 +633,14 @@ async fn the_sweep_resumes_a_live_read_whose_instance_died() {
     const TOKENLESS: &str = "strava";
     const SIGN_IN: &str = "sciotte";
     let (runtime, notifier, user_id, tenant_id) = notified_runtime().await;
-    let long_ago = Utc::now().timestamp_millis() - 600_000;
+    let long_ago = Timestamp::now().epoch_millis() - 600_000;
     let row = ActivityBackfillJobRow {
         id: Uuid::new_v4().to_string(),
         tenant_id,
         user_id,
         provider: TOKENLESS.to_owned(),
         kind: BackfillJobKind::LiveRead,
-        after_ts: Some((Utc::now() - Duration::days(30)).timestamp()),
+        after_ts: Some((Timestamp::now() - Elapsed::days(30)).epoch_seconds()),
         before_ts: None,
         fetch_limit: Some(50),
         conversation_id: Some("conv-dead".to_owned()),
@@ -1059,7 +1059,7 @@ async fn an_ask_beside_a_read_owed_elsewhere_waits_for_its_rows() {
     use pierre_database::repositories::{ActivityBackfillJobRow, JobLease, JobProgress};
 
     let (runtime, user_id, tenant_id) = runtime_and_user().await;
-    let now_ms = Utc::now().timestamp_millis();
+    let now_ms = Timestamp::now().epoch_millis();
     let lease = JobLease {
         id: Uuid::new_v4().to_string(),
         token: Uuid::new_v4().to_string(),
@@ -1070,7 +1070,7 @@ async fn an_ask_beside_a_read_owed_elsewhere_waits_for_its_rows() {
         user_id,
         provider: PROVIDER.to_owned(),
         kind: BackfillJobKind::LiveRead,
-        after_ts: Some((Utc::now() - Duration::days(30)).timestamp()),
+        after_ts: Some((Timestamp::now() - Elapsed::days(30)).epoch_seconds()),
         before_ts: None,
         fetch_limit: Some(50),
         conversation_id: Some("conv-1".to_owned()),

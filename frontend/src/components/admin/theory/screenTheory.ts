@@ -36,7 +36,7 @@ export interface TheoryCommit {
 }
 
 export interface ScreenTheory {
-  /** The question an operator opens this screen to answer. */
+  /** The question an admin opens this screen to answer. */
   question: string;
   /** Why the screen exists and the idea its numbers rest on. */
   theory: string;
@@ -272,17 +272,17 @@ const BEFORE_IMPORT = "before 2026-05-05";
 const SCOPE_BAR =
   "Scope: an admin sees all tenants by default and can pick one tenant in the scope bar.";
 
-/** Keyed by dashboard tab id: every tab in ADMIN_ONLY_TABS, plus `settings` as an operator sees it. */
+/** Keyed by dashboard tab id: every tab in ADMIN_ONLY_TABS, plus `settings` as an admin sees it. */
 export const SCREEN_THEORY: Readonly<Record<string, ScreenTheory>> = {
   users: {
     question:
       "Who is waiting to get in, who is active or suspended, and who do I approve?",
     theory:
-      "Dravr gates sign-up behind approval, so an operator needs one queue of who is waiting and one list of every account with its status. Approving an account is what lets it use the product.",
+      "Dravr gates sign-up behind approval, so an admin needs one queue of who is waiting and one list of every account with its status. Approving an account is what lets it use the product.",
     computation: [
       "Pending: every user with status pending, newest first, no limit, re-read every 30 seconds.",
       "Active, Suspended and All: the full user list, read 100 per page through the cursor and filtered by status in the browser. Search runs in the browser on email and name.",
-      "Neither list filters by tenant: every operator with user-management rights sees every tenant's users.",
+      "Neither list filters by tenant: every admin with user-management rights sees every tenant's users.",
       "Approve sets the status, who approved and when, moves the user into the approver's active tenant when there is one, creates an MCP token, and sends the approval email and event. Suspend changes the status; for an admin it also withdraws their device logins and ends the impersonations they opened.",
       "New users, Pre-approved, Signup codes and Coach access are separate lists on their own sub-tabs.",
     ],
@@ -319,7 +319,7 @@ export const SCREEN_THEORY: Readonly<Record<string, ScreenTheory>> = {
     question:
       "What is waiting for store review, and what is published or rejected?",
     theory:
-      "An agent reaches the store only through moderation. Each listing moves pending, then published or rejected, and every transition checks the status it starts from so two operators cannot both decide one listing.",
+      "An agent reaches the store only through moderation. Each listing moves pending, then published or rejected, and every transition checks the status it starts from so two admins cannot both decide one listing.",
     computation: [
       "Pending, Published and Rejected counts and total installs: one query on store_listings in the active tenant. Installs sum install_count over published listings.",
       "Rejection rate: rejected / (published + rejected) × 100, computed by the server; 0 when nothing has been decided.",
@@ -344,7 +344,7 @@ export const SCREEN_THEORY: Readonly<Record<string, ScreenTheory>> = {
       "Status per tool: disabled by PIERRE_DISABLED_TOOLS, else disabled when the plan is below the tool's minimum plan, else the tenant override, else the catalogue default. An unknown tenant is treated as Enterprise.",
       "Summary counts are counted from that same list.",
       "Tenant plan: a change writes the tenant's plan and clears its tool cache.",
-      "An override is stored with the operator who made it and clears the cache on the instance that served it. The cache lives five minutes, so other instances can serve the old answer until theirs expires.",
+      "An override is stored with the admin who made it and clears the cache on the instance that served it. The cache lives five minutes, so other instances can serve the old answer until theirs expires.",
     ],
     since: BEFORE_IMPORT,
     commits: [COMMIT["46ae96122"], COMMIT["a74eebf81"], COMMIT["304c4ca17"]],
@@ -397,7 +397,7 @@ export const SCREEN_THEORY: Readonly<Record<string, ScreenTheory>> = {
       "Auto-approval: the AUTO_APPROVE_USERS environment variable wins, then the stored setting, then the default. It is global, and the toggle is locked while the environment variable is set.",
       "Sign-up: open or closed, a daily limit (default 100, 0 to 100,000) and verified-email activation (default off). An unreadable setting falls back to open.",
       "Counted: users created since the later of 24 hours ago and the last reset, whatever created them. Reset stores the current time.",
-      "Feature flags: the operator's own tenant. Group creation is written at global scope; when it is read, a tenant-level override and then an environment pin come before that global value.",
+      "Feature flags: the admin's own tenant. Group creation is written at global scope; when it is read, a tenant-level override and then an environment pin come before that global value.",
       "Auto-approval and sign-up changes are recorded in the audit trail.",
     ],
     since: BEFORE_IMPORT,
@@ -412,7 +412,7 @@ export const SCREEN_THEORY: Readonly<Record<string, ScreenTheory>> = {
     question:
       "What did the claim checker flag in agent replies, and how much of it was noise?",
     theory:
-      "After every agent reply, sentences that make a factual claim are judged in stages: rhetoric, population bounds, the athlete's own data, the evidence corpus, consistency, then an LLM judge. This screen lists those verdicts and is where an operator records whether a flag was right.",
+      "After every agent reply, sentences that make a factual claim are judged in stages: rhetoric, population bounds, the athlete's own data, the evidence corpus, consistency, then an LLM judge. This screen lists those verdicts and is where an admin records whether a flag was right.",
     computation: [
       SCOPE_BAR,
       "Verdict list: claim_verdicts filtered by status, category, agent, layer and disposition, newest first, 50 by default and at most 200. The five status counts are counted by the server over every verdict the filters select, the status filter included, not over the page shown.",
@@ -479,7 +479,7 @@ export const SCREEN_THEORY: Readonly<Record<string, ScreenTheory>> = {
   activity: {
     question: "What is happening on the platform right now?",
     theory:
-      "A live operator feed, re-read every 10 seconds, of LLM calls and conversations as they happen. A failed read is shown as an error, never as a quiet platform.",
+      "A live admin feed, re-read every 10 seconds, of LLM calls and conversations as they happen. A failed read is shown as an error, never as a quiet platform.",
     computation: [
       SCOPE_BAR,
       "Recent LLM calls: the newest 20 llm_usage rows, leaving out turn summaries and MCP tool rows. Recent conversations: the newest 20 by last update. The two lists fill independently, so they can cover different spans.",
@@ -525,7 +525,7 @@ export const SCREEN_THEORY: Readonly<Record<string, ScreenTheory>> = {
       "Requests and Last used: every request the token authenticates adds one to its row and stamps the time and address, so they count from the token's creation.",
       "Create: an admin can create a super-admin token; a service token without that flag cannot, and grants only permissions it holds. 0 days means no expiry.",
       "Revoke deactivates the token, effective on its next request. Rotate deactivates it and issues a new one with the same name, scope and super-admin flag, valid 365 days by default.",
-      "Connected Apps lists the A2A clients the signed-in operator registered.",
+      "Connected Apps lists the A2A clients the signed-in admin registered.",
     ],
     since: BEFORE_IMPORT,
     commits: [COMMIT["c888b8d2f"], COMMIT["304c4ca17"]],
@@ -580,26 +580,26 @@ export const SCREEN_THEORY: Readonly<Record<string, ScreenTheory>> = {
   },
   audit: {
     question:
-      "What did operators change, through the console, pierre-cli or a service token, and what was refused?",
+      "What did admins change, through the console, pierre-cli or a service token, and what was refused?",
     theory:
-      'Every operator write is recorded, so "who deleted that account?" has an answer that is not someone\'s memory. Request bodies are never read, because they carry secrets.',
+      'Every admin write is recorded, so "who deleted that account?" has an answer that is not someone\'s memory. Request bodies are never read, because they carry secrets.',
     computation: [
       "A layer around every admin router records each non-GET request. Outcome from the HTTP status: 2xx and 3xx succeeded, 4xx refused, 5xx failed. Source from the token: console, pierre-cli or a service token.",
       "Scope: an admin sees every tenant. Needs user-management rights.",
       "Newest first by time then id, 50 per page (at most 200). Load older resumes after the last event shown by its time and id, so events recorded in the same instant across a page boundary are all shown.",
-      "Filters: outcome and action prefix. A deleted operator's events stay, without who did them.",
+      "Filters: outcome and action prefix. A deleted admin's events stay, without who did them.",
     ],
     since: "2026-11-04",
     commits: [COMMIT["19c01f6c0"], COMMIT["304c4ca17"]],
   },
   settings: {
-    question: "What can I change about my own operator account?",
+    question: "What can I change about my own admin account?",
     theory:
-      "An operator's settings are their own account, not an athlete's, so the athlete panes (providers, gear, messaging, coaching, notifications, memory, privacy, about) are hidden for operators.",
+      "An admin's settings are their own account, not an athlete's, so the athlete panes (providers, gear, messaging, coaching, notifications, memory, privacy, about) are hidden for admins.",
     computation: [
       "Profile: display name, theme and language. The email is shown and cannot be changed here.",
       "Account: status, role and member since; change password; the MCP apps connected to the account, each revocable; sign out.",
-      "Tokens and API keys appear only when the api_tokens feature flag is on for the operator or their tenant, and manage the operator's own.",
+      "Tokens and API keys appear only when the api_tokens feature flag is on for the admin or their tenant, and manage the admin's own.",
     ],
     since: BEFORE_IMPORT,
     commits: [

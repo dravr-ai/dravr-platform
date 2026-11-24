@@ -21,7 +21,7 @@
 //! account the answer says so and names it, so the console offers the direct
 //! grant (`POST /admin/users/{id}/manages-roster`) instead of a link that
 //! could never be redeemed. Sending again replaces the earlier link, which is
-//! how an operator re-sends an expired one.
+//! how an admin re-sends an expired one.
 
 use std::sync::Arc;
 
@@ -36,6 +36,7 @@ use serde_json::{json, to_value, Value};
 use tracing::info;
 
 use pierre_core::admin::models::ValidatedAdminToken;
+use pierre_core::civil_time::UTC_MINUTE;
 use pierre_core::errors::AppResult;
 use pierre_core::models::{normalize_email, InvitationKind};
 use pierre_middleware::redaction::mask_email;
@@ -54,7 +55,7 @@ use crate::context::AdminApiContext;
 pub(crate) struct CoachSeatInviteRequest {
     /// The coach's address; normalized server-side.
     pub email: String,
-    /// Answer the invitation's link instead of mailing it, for operator-driven
+    /// Answer the invitation's link instead of mailing it, for admin-driven
     /// testing on an environment whose test addresses have no mailbox, as the
     /// pre-approval allow's `return_link` does.
     #[serde(default)]
@@ -117,7 +118,7 @@ pub(crate) async fn handle_issue_coach_seat_invitation(
                 None,
             ));
         };
-        Carrier::Operator { frontend_url }
+        Carrier::Admin { frontend_url }
     } else {
         let Some(notifier) = ctx.approval_notifier.as_ref() else {
             return Ok(refusal(
@@ -158,12 +159,12 @@ pub(crate) async fn handle_issue_coach_seat_invitation(
             let message = if report.invite_url().is_some() {
                 format!(
                     "Coach-seat invitation link issued, not mailed: it works once, until {}",
-                    expires_at.format("%Y-%m-%d %H:%M UTC")
+                    expires_at.format_with(&UTC_MINUTE)
                 )
             } else {
                 format!(
                     "Coach-seat invitation sent to {email}: its link works once, until {}",
-                    expires_at.format("%Y-%m-%d %H:%M UTC")
+                    expires_at.format_with(&UTC_MINUTE)
                 )
             };
             // The address is in the body, which the audit recorder never reads.

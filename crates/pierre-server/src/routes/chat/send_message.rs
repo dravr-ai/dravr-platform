@@ -25,7 +25,7 @@ use axum::http::{header::ACCEPT, HeaderMap, StatusCode};
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::{ConversationTurnId, RoomQuote, COMMAND_FINISH_REASON};
 use pierre_services::locale::resolve_user_locale;
 use serde_json::Value;
@@ -35,7 +35,9 @@ use uuid::Uuid;
 
 use crate::mcp::resources::ServerContext;
 use crate::services::conversation_turn_lock::{acquire_turn_lock, evict_idle_turn_lock};
-use crate::services::failed_turn_notice::{close_failed_turn, close_unanswered_turn, TurnThread};
+use crate::services::failed_turn_notice::{
+    close_failed_turn, close_unanswered_turn, FailedTurn, TurnThread,
+};
 use pierre_auth::auth::{AuthMethod, AuthResult, ImpersonationGrant};
 use pierre_chat_pipeline::suggestions::is_postback;
 use pierre_chat_pipeline::turn_stop::TurnStop;
@@ -43,6 +45,7 @@ use pierre_chat_pipeline::{self as pipeline, ServedTurn};
 use pierre_commands::dispatch::command_outliving_support_session;
 use pierre_core::errors::AppError;
 use pierre_core::models::TenantId;
+use pierre_core::permissions::impersonation::CallerCredential;
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::{Transport, CLIENT_PLATFORM_HEADER};
 use pierre_database::database::ConversationRecord;
@@ -158,7 +161,7 @@ async fn refuse_outliving_command(
 /// Send a message and get a response with MCP tool execution.
 ///
 /// The `#[instrument]` span is the root span for every web/mobile chat
-/// turn — same shape as the messaging webhook root span — so an operator
+/// turn — same shape as the messaging webhook root span — so an admin
 /// can grep a single `turn_id` across web, mobile, and Telegram/Messenger
 /// traffic uniformly.
 #[instrument(
@@ -288,6 +291,7 @@ pub(super) async fn send_message(
         transport: turn_transport(&auth.auth_method, surface),
         quote,
         support_session: auth.auth_method.impersonation().cloned(),
+        caller: auth.caller_credential(),
     };
 
     if wants_sse {
@@ -318,8 +322,14 @@ pub(super) async fn send_message(
         .await;
     // Closed under the thread's lock, so a messaging turn on the same thread
     // cannot slip its question in between and take the notice instead.
-    if served.is_err() {
-        close_failed_turn(&egress.thread(), &stop, &profile.locale).await;
+    if let Err(error) = &served {
+        close_failed_turn(
+            &egress.thread(),
+            &stop,
+            FailedTurn::of(error),
+            &profile.locale,
+        )
+        .await;
     }
     drop(held);
     evict_idle_turn_lock(&egress.conversation.id, &lock);
@@ -349,6 +359,9 @@ struct TurnEgress {
     /// the turn as [`SUPPORT_SESSION`]: what the turn would leave behind for
     /// the athlete, such as a connection link, it refuses (carnet#1634).
     support_session: Option<ImpersonationGrant>,
+    /// The credential the message came through, which the turn's row names
+    /// when it is an outside caller's (the athlete's API key, carnet#1543).
+    caller: CallerCredential,
 }
 
 impl TurnEgress {
@@ -404,6 +417,8 @@ impl TurnEgress {
             // No channel link on this surface, so nothing for `/logout` to
             // unlink.
             sender_id: None,
+            // Only a turn an outside caller drives writes it (an API key's).
+            caller: Some(self.caller.clone()),
             hooks,
         }
     }
@@ -482,7 +497,7 @@ impl TurnEgress {
                     rows.conversation.updated_at,
                 )
             } else {
-                let now = Utc::now().to_rfc3339();
+                let now = Timestamp::now().to_rfc3339();
                 // A suggestion's postback that no longer resolves means nothing
                 // to the athlete: the line is echoed empty, and the client keeps
                 // the label it showed for the tap (carnet#828).
@@ -634,8 +649,14 @@ fn send_message_sse(inputs: SseInputs) -> Response {
             // Closed under the thread's lock, and before the `failed` frame
             // goes out, so a client that re-reads the thread on it already
             // finds the notice and a messaging turn cannot take it instead.
-            if served.is_err() {
-                close_failed_turn(&egress.thread(), &stop, &profile.locale).await;
+            if let Err(error) = &served {
+                close_failed_turn(
+                    &egress.thread(),
+                    &stop,
+                    FailedTurn::of(error),
+                    &profile.locale,
+                )
+                .await;
             }
             drop(held);
             served

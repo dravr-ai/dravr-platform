@@ -18,6 +18,7 @@ import {
   SIGN_IN_UNAVAILABLE,
   oauthFallbackTarget,
   signInFallsBackToOAuth,
+  signInStartsWithExtension,
 } from '../src/connect-plan';
 
 const card = (overrides: Partial<ConnectPlanCard> & Pick<ConnectPlanCard, 'provider'>): ConnectPlanCard => ({
@@ -309,5 +310,21 @@ describe('the OAuth a failed sign-in falls back to (carnet#1477)', () => {
     for (const reason of ['login_flow_expired', 'login_cancelled', 'no_seat', null, undefined]) {
       expect(signInFallsBackToOAuth(reason)).toBe(false);
     }
+  });
+});
+
+describe('signInStartsWithExtension — the extension, then the credentials, then the OAuth (carnet#1617)', () => {
+  it('puts the extension first under the default order, and under the OAuth kill switch once it signs in', () => {
+    expect(signInStartsWithExtension({ connect_order: 'extension_first' })).toBe(true);
+    expect(signInStartsWithExtension({ connect_order: 'oauth_first' })).toBe(true);
+  });
+
+  it('shows the credentials first only when the admin chose it', () => {
+    expect(signInStartsWithExtension({ connect_order: 'sign_in_first' })).toBe(false);
+  });
+
+  it('reads a card that names no order, or no card, as the default', () => {
+    expect(signInStartsWithExtension({})).toBe(true);
+    expect(signInStartsWithExtension(undefined)).toBe(true);
   });
 });

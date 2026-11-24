@@ -7,7 +7,7 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import UsageWarningBanner from '../chat/UsageWarningBanner';
-import { computeWarningState } from '../../hooks/useUsageStatus';
+import { computeWarningState } from '@pierre/chat-utils';
 import type { UsageStatusResponse } from '@pierre/shared-types';
 import { i18n } from '@pierre/i18n';
 

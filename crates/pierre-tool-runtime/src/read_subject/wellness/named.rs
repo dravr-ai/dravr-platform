@@ -24,6 +24,7 @@
 //! carry something named, so the merged record's id, source and time never
 //! belong to a source that recorded only what the grant leaves out.
 
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::{
     StoredDailyActivity, StoredHealthMetrics, StoredRecoveryMetrics, StoredSleepSession,
 };
@@ -38,10 +39,34 @@ use crate::read_subject::READ_SUBJECT_ERROR_CODE;
 /// The `reason` of a refusal of a read of what the grant does not name.
 const UNNAMED_REASON: &str = "wellness_not_named";
 
-/// What the athlete's sources may record that the grant does not name, as
-/// a coach's read says it is left out.
-const NOT_NAMED: &str = "blood pressure, glucose, body composition, blood oxygen, breathing \
+/// What the athlete's sources may record that the wellness grant does not
+/// name, as a coach's read says it is left out, glucose aside
+/// ([`not_named`]).
+const NOT_NAMED_BUT_GLUCOSE: &str = "blood pressure, body composition, blood oxygen, breathing \
      rate, skin temperature, stress, daily activity totals and intraday heart rate";
+
+/// What a coach's read says it leaves out: [`NOT_NAMED_BUT_GLUCOSE`], and
+/// glucose too unless the athlete's health-records grant names it
+/// (`health_records`).
+fn not_named(health_records: bool) -> String {
+    if health_records {
+        NOT_NAMED_BUT_GLUCOSE.to_owned()
+    } else {
+        format!("glucose, {NOT_NAMED_BUT_GLUCOSE}")
+    }
+}
+
+/// Whether the in-flight coach's read may keep the athlete's health records
+/// (T2): their `coach_sensitive_t2_read` stands and has not lapsed. Their own
+/// consent to AI use of those records is applied apart, by the tier gate.
+pub(crate) fn health_records_named() -> bool {
+    scoped_read_subject().is_some_and(|subject| {
+        subject
+            .access
+            .consents
+            .sensitive_t2_standing(Timestamp::now())
+    })
+}
 
 /// `value`, a metric the grant names as `_entry`: kept on a coach's read.
 ///
@@ -54,21 +79,23 @@ const fn named<T>(_entry: GrantNamed, value: Option<T>) -> Option<T> {
 
 /// A stored wellness record a coach's read shows only the named part of.
 pub(crate) trait GrantedOnly: Sized {
-    /// The record with only the metrics [`GrantNamed`] lists; `None` when it
-    /// carries none of them.
-    fn granted_only(self) -> Option<Self>;
+    /// The record with only the metrics [`GrantNamed`] lists, health records
+    /// among them while `health_records` (the athlete's health-records grant
+    /// stands); `None` when it carries none of them.
+    fn granted_only(self, health_records: bool) -> Option<Self>;
 }
 
 impl GrantedOnly for StoredHealthMetrics {
-    fn granted_only(self) -> Option<Self> {
+    fn granted_only(self, health_records: bool) -> Option<Self> {
         let Self {
             id,
             user_id,
             data_source_id,
             date,
             weight_kg,
-            // Body composition, blood pressure, glucose and the watch's VO2max
-            // estimate: none is named.
+            // Body composition, blood pressure and the watch's VO2max
+            // estimate: none is named. Glucose only under the health-records
+            // grant.
             body_fat_pct: _,
             muscle_mass_kg: _,
             bmi: _,
@@ -76,13 +103,17 @@ impl GrantedOnly for StoredHealthMetrics {
             water_pct: _,
             systolic_bp: _,
             diastolic_bp: _,
-            blood_glucose: _,
+            blood_glucose,
             vo2_max: _,
             source_name,
             recorded_at,
         } = self;
         let weight_kg = named(GrantNamed::Weight, weight_kg);
-        weight_kg.is_some().then_some(Self {
+        let blood_glucose = named(
+            GrantNamed::HealthRecords,
+            blood_glucose.filter(|_| health_records),
+        );
+        (weight_kg.is_some() || blood_glucose.is_some()).then_some(Self {
             id,
             user_id,
             data_source_id,
@@ -95,7 +126,7 @@ impl GrantedOnly for StoredHealthMetrics {
             water_pct: None,
             systolic_bp: None,
             diastolic_bp: None,
-            blood_glucose: None,
+            blood_glucose,
             vo2_max: None,
             source_name,
             recorded_at,
@@ -104,7 +135,7 @@ impl GrantedOnly for StoredHealthMetrics {
 }
 
 impl GrantedOnly for StoredRecoveryMetrics {
-    fn granted_only(self) -> Option<Self> {
+    fn granted_only(self, _health_records: bool) -> Option<Self> {
         let Self {
             id,
             user_id,
@@ -157,7 +188,7 @@ impl GrantedOnly for StoredRecoveryMetrics {
 }
 
 impl GrantedOnly for StoredSleepSession {
-    fn granted_only(self) -> Option<Self> {
+    fn granted_only(self, _health_records: bool) -> Option<Self> {
         let Self {
             id,
             user_id,
@@ -210,39 +241,49 @@ impl GrantedOnly for StoredSleepSession {
 impl GrantedOnly for StoredDailyActivity {
     /// A day's steps, energy and intensity minutes: the grant names none of
     /// a day's activity totals.
-    fn granted_only(self) -> Option<Self> {
+    fn granted_only(self, _health_records: bool) -> Option<Self> {
         None
     }
 }
 
 /// What the in-flight read may show of each of the athlete's stored rows,
 /// for the merge to run on: each row whole on a caller's own read; on a
-/// coach's read, each with only what the grant names ([`GrantNamed`]), a row
-/// left with none of it dropped before it can stand for its day.
+/// coach's read, each with only what the grant names ([`GrantNamed`]), and
+/// their health records only while that grant of its own stands
+/// ([`health_records_named`]), a row left with none of it dropped before it
+/// can stand for its day.
 pub(crate) fn readable_wellness<T: GrantedOnly>() -> RowProjection<T> {
     if scoped_read_subject().is_none() {
         stored_health::as_stored
+    } else if health_records_named() {
+        |row: T| row.granted_only(true)
     } else {
-        T::granted_only
+        |row: T| row.granted_only(false)
     }
 }
 
 /// What a coach's read of `athlete`'s stored wellness says of the rest of
 /// their health: what the grant names, and that nothing else is read here,
 /// never whether anything else exists.
-fn not_named_note(athlete: &str) -> String {
-    format!(
-        "{athlete} shares their {} with you, and nothing else of their health: their \
-         {NOT_NAMED} are not read here, whether or not their sources record them. Say so rather \
-         than estimating them.",
+fn not_named_note(athlete: &str, health_records: bool) -> String {
+    let shared = if health_records {
+        format!("{} and their health records", wellness_data())
+    } else {
         wellness_data()
+    };
+    format!(
+        "{athlete} shares their {shared} with you, and nothing else of their health: their {} \
+         are not read here, whether or not their sources record them. Say so rather than \
+         estimating them.",
+        not_named(health_records)
     )
 }
 
 /// What the in-flight read says of the athlete's health the grant does not
 /// name: the note on a coach's read, `None` on the caller's own.
 pub(crate) fn unnamed_wellness_note() -> Option<String> {
-    scoped_read_subject().map(|subject| not_named_note(&subject.access.display_name))
+    scoped_read_subject()
+        .map(|subject| not_named_note(&subject.access.display_name, health_records_named()))
 }
 
 /// The refusal, on a coach's read, of `tool_name` asked for `asked` (an
@@ -257,7 +298,7 @@ pub(crate) fn unnamed_refusal(
     instead: &str,
 ) -> Option<ToolResult> {
     let subject = scoped_read_subject()?;
-    let note = not_named_note(&subject.access.display_name);
+    let note = not_named_note(&subject.access.display_name, health_records_named());
     Some(ToolResult::error(json!({
         "error_code": READ_SUBJECT_ERROR_CODE,
         "reason": UNNAMED_REASON,
@@ -267,13 +308,13 @@ pub(crate) fn unnamed_refusal(
 
 #[cfg(test)]
 mod tests {
-    use chrono::{NaiveDate, Utc};
+    use dravr_tronc::dates::CivilDate;
 
     use super::*;
 
     #[test]
     fn the_note_names_what_is_shared_and_never_that_anything_is_missing() {
-        let note = not_named_note("Mira").to_lowercase();
+        let note = not_named_note("Mira", false).to_lowercase();
         assert!(
             note.starts_with("mira shares their sleep, hrv")
                 && note.contains("blood pressure")
@@ -293,7 +334,7 @@ mod tests {
             id: "day".to_owned(),
             user_id: "athlete".to_owned(),
             data_source_id: "ds".to_owned(),
-            date: NaiveDate::from_ymd_opt(2026, 11, 6).unwrap(),
+            date: CivilDate::from_ymd(2026, 11, 6).unwrap(),
             weight_kg: Some(61.5),
             body_fat_pct: Some(17.0),
             muscle_mass_kg: Some(48.0),
@@ -305,13 +346,13 @@ mod tests {
             blood_glucose: Some(92.0),
             vo2_max: Some(55.0),
             source_name: "withings".to_owned(),
-            recorded_at: Utc::now(),
+            recorded_at: Timestamp::now(),
         }
     }
 
     #[test]
     fn a_body_day_keeps_its_weight_alone() {
-        let kept = body().granted_only().unwrap();
+        let kept = body().granted_only(false).unwrap();
         let shown = serde_json::to_value(&kept).unwrap();
         assert_eq!(shown["weight_kg"], 61.5, "weight is named: {shown}");
         for unnamed in [
@@ -335,8 +376,45 @@ mod tests {
             ..body()
         };
         assert!(
-            no_weight.granted_only().is_none(),
+            no_weight.granted_only(false).is_none(),
             "bug: a day with only unnamed metrics is left out, not shown empty"
+        );
+    }
+
+    #[test]
+    fn the_health_records_grant_keeps_glucose_and_no_other_unnamed_metric() {
+        let kept = body().granted_only(true).unwrap();
+        assert_eq!(
+            (kept.blood_glucose, kept.weight_kg),
+            (Some(92.0), Some(61.5)),
+            "bug: the health-records grant keeps glucose beside the named weight"
+        );
+        assert_eq!(
+            (kept.systolic_bp, kept.body_fat_pct, kept.vo2_max),
+            (None, None, None),
+            "bug: the health-records grant names glucose alone among the body metrics"
+        );
+        let glucose_only = StoredHealthMetrics {
+            weight_kg: None,
+            ..body()
+        };
+        assert!(
+            glucose_only.clone().granted_only(true).is_some(),
+            "a day with only glucose stands under the health-records grant"
+        );
+        assert!(
+            glucose_only.granted_only(false).is_none(),
+            "bug: without the grant a glucose-only day is left out"
+        );
+
+        let with_records = not_named_note("Mira", true).to_lowercase();
+        assert!(
+            with_records.contains("and their health records") && !with_records.contains("glucose"),
+            "bug: under the grant glucose is shared, not listed as left out: {with_records}"
+        );
+        assert!(
+            not_named_note("Mira", false).contains("glucose"),
+            "without the grant glucose is left out"
         );
     }
 
@@ -346,7 +424,7 @@ mod tests {
             id: "day".to_owned(),
             user_id: "athlete".to_owned(),
             data_source_id: "ds".to_owned(),
-            date: NaiveDate::from_ymd_opt(2026, 11, 6).unwrap(),
+            date: CivilDate::from_ymd(2026, 11, 6).unwrap(),
             recovery_score: Some(71),
             readiness_score: Some(68),
             hrv_ms: None,
@@ -360,9 +438,9 @@ mod tests {
             daily_strain: Some(12.0),
             athlete_note: Some("legs heavy".to_owned()),
             source_name: "garmin".to_owned(),
-            recorded_at: Utc::now(),
+            recorded_at: Timestamp::now(),
         };
-        let shown = serde_json::to_value(day.clone().granted_only().unwrap()).unwrap();
+        let shown = serde_json::to_value(day.clone().granted_only(false).unwrap()).unwrap();
         for named in [
             "recovery_score",
             "readiness_score",
@@ -394,7 +472,7 @@ mod tests {
             ..day
         };
         assert!(
-            unnamed_only.granted_only().is_none(),
+            unnamed_only.granted_only(false).is_none(),
             "bug: a day with only unnamed metrics is left out"
         );
     }
@@ -406,8 +484,8 @@ mod tests {
             user_id: "athlete".to_owned(),
             data_source_id: "ds".to_owned(),
             is_nap: false,
-            start_datetime: Utc::now(),
-            end_datetime: Utc::now(),
+            start_datetime: Timestamp::now(),
+            end_datetime: Timestamp::now(),
             total_sleep_seconds: Some(25_200),
             deep_sleep_seconds: Some(5_400),
             light_sleep_seconds: Some(12_600),
@@ -422,7 +500,7 @@ mod tests {
             stages: Vec::new(),
             source_name: "garmin".to_owned(),
         };
-        let shown = serde_json::to_value(night.granted_only().unwrap()).unwrap();
+        let shown = serde_json::to_value(night.granted_only(false).unwrap()).unwrap();
         assert_eq!(shown["total_sleep_seconds"], 25_200, "{shown}");
         assert_eq!(shown["min_heart_rate"], 46, "{shown}");
         assert_eq!(shown["avg_hrv"], 71.0, "{shown}");
@@ -438,15 +516,18 @@ mod tests {
             id: "day".to_owned(),
             user_id: "athlete".to_owned(),
             data_source_id: "ds".to_owned(),
-            date: NaiveDate::from_ymd_opt(2026, 11, 6).unwrap(),
+            date: CivilDate::from_ymd(2026, 11, 6).unwrap(),
             steps: Some(12_000),
             active_kcal: Some(640.0),
             total_kcal: Some(2_300.0),
             intensity_minutes: Some(55),
             source_name: "garmin".to_owned(),
-            recorded_at: Utc::now(),
+            recorded_at: Timestamp::now(),
         };
-        assert!(day.granted_only().is_none(), "bug: steps are not named");
+        assert!(
+            day.granted_only(false).is_none(),
+            "bug: steps are not named"
+        );
     }
 
     #[test]

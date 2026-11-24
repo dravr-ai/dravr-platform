@@ -6,9 +6,9 @@
 
 use std::collections::BTreeMap;
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::admin::models::{
-    DELETED_ACCOUNT_LABEL, DELETED_ACCOUNT_OPERATOR, DEVICE_CLI_DELETED_ACCOUNT_SERVICE,
+    DELETED_ACCOUNT_ADMIN, DELETED_ACCOUNT_LABEL, DEVICE_CLI_DELETED_ACCOUNT_SERVICE,
 };
 use pierre_core::errors::{AppError, AppResult};
 use sqlx::Row;
@@ -36,7 +36,7 @@ use crate::repositories::user_references::{
     clear_user_in_transaction, delete_user_error, LIVE_DEVICE_LOGINS_SQL,
     POSTGRES_SCRUB_ACTOR_AUDIT_EVENTS_SQL as SCRUB_ACTOR_AUDIT_EVENTS_SQL, POSTGRES_USER_PURGE,
     RETIRE_DEVICE_LOGINS_SQL, SCRUB_DEVICE_LOGIN_REQUESTS_SQL, SCRUB_PROVISIONED_BY_NAME_SQL,
-    SCRUB_TOKEN_NAME_SQL,
+    SCRUB_SUBJECT_LLM_USAGE_SQL, SCRUB_TOKEN_NAME_SQL,
 };
 use crate::repositories::user_sql::DELETE_USER_SQL;
 use crate::repositories::uuid_columns::NativeUuid;

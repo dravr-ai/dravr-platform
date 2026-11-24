@@ -31,7 +31,7 @@
 //! the service recorded in their name) and what is excluded with the reason:
 //! credentials (password hash, OAuth and API tokens, key and session hashes,
 //! one-time codes, push tokens, the athlete's own LLM and OAuth-app secrets),
-//! operational queues and cursors, operator
+//! operational queues and cursors, admin
 //! configuration, other people's records (a coach's notes about the athlete, a
 //! shared room), and security logs. The document's own `withheld` list repeats
 //! the excluded tables, so the athlete sees what was left out. A catalog test
@@ -58,7 +58,7 @@
 //! reachable from this route. A credential that is not the athlete's own
 //! session is refused: an API key, a messaging channel link, a token an
 //! integration holds on the athlete's behalf (a marketplace client can read
-//! what its scopes allow, never carry the whole file away), and an operator's
+//! what its scopes allow, never carry the whole file away), and an admin's
 //! impersonation token (support may see what it needs to help, never carry the
 //! whole file away either).
 //!
@@ -97,8 +97,8 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
-use chrono::Utc;
 use dravr_barrage::export::EXPORT_WITHHELD;
+use dravr_tronc::dates::Timestamp;
 use serde_json::{json, Value};
 use tokio::sync::{mpsc, OwnedSemaphorePermit, Semaphore};
 use tokio_stream::wrappers::ReceiverStream;
@@ -113,6 +113,7 @@ use pierre_core::models::TenantId;
 use pierre_database::repositories::{
     UserExportRepository, UserExportTable, USER_EXPORT_EXCLUDED_TABLES,
 };
+use pierre_runtime_context::{resolve_tenant_in, TenantMode};
 use pierre_services::barrage_keys::published_checkpoint_key;
 
 use self::barrage::{write_barrage, ExportSources, Section};
@@ -295,7 +296,7 @@ async fn write_export<S: ChunkSink>(
     let head = json!({
         "format": "dravr-user-export",
         "format_version": 1,
-        "generated_at": Utc::now().to_rfc3339(),
+        "generated_at": Timestamp::now().to_rfc3339(),
         "user_id": user_id,
         "withheld": withheld,
         "originals": sources.originals,
@@ -426,8 +427,9 @@ async fn write_row<S: ChunkSink>(
 pub(crate) struct OwnSession {
     /// The athlete.
     pub(crate) user_id: Uuid,
-    /// The session's active tenant, or the athlete's first when it names
-    /// none; `None` for an account in no tenant, which still exports its data.
+    /// The tenant the session names while the athlete belongs to it, or their
+    /// first when it names none; `None` for an account in no tenant, which
+    /// still exports its data.
     pub(crate) tenant_id: Option<TenantId>,
 }
 
@@ -456,10 +458,8 @@ pub(crate) async fn own_session(
         ));
     }
     Span::current().record("user_id", auth.user_id.to_string());
-    let tenant_id = match auth.active_tenant_id {
-        Some(tenant) => Some(TenantId::from_uuid(tenant)),
-        None => resources.repos.tenants.first_for_user(auth.user_id).await?,
-    };
+    let tenants = resources.repos.tenants.as_ref();
+    let tenant_id = resolve_tenant_in(tenants, &auth, TenantMode::Optional).await?;
     Ok(OwnSession {
         user_id: auth.user_id,
         tenant_id,
@@ -658,7 +658,7 @@ pub(crate) async fn handle_user_export(
 
     let filename = format!(
         "attachment; filename=\"dravr-export-{}.json\"",
-        Utc::now().format("%Y-%m-%d")
+        Timestamp::now().utc_date()
     );
     let mut response = Response::new(Body::from_stream(ReceiverStream::new(receiver)));
     let response_headers = response.headers_mut();

@@ -11,11 +11,12 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { CalendarResponse, TrainingPlanResponse, WorkoutPlan } from '@pierre/shared-types';
 import { HomeWeek } from '../HomeWeek';
 import { activityViewRoute } from '../../activity/activityRoute';
-import { homePlan, TODAY } from './homeFixtures';
+import { homePlan, TODAY, twoSessionPlan } from './homeFixtures';
 import { calendarActivities, calendarAnswer, HISTORY_START } from './calendarFixtures';
 import {
   DRAFT_DATE,
   formatCivilDate,
+  ROW_DATE,
 } from '@pierre/ui-logic';
 
 const api = vi.hoisted(() => ({
@@ -165,6 +166,31 @@ describe('HomeWeek — this week', () => {
     expect(onOpenChatDraft).toHaveBeenCalledExactlyOnceWith(draft);
   });
 
+  it("sums a date's sessions in its cell, names each in its label, and opens to a row and a draft per entry", async () => {
+    const { onOpenChatDraft } = renderWeek(twoSessionPlan());
+    await loadedStrip();
+
+    // 20 minutes of swimming and the 50-minute tempo run (carnet#1716).
+    const cell = screen.getByTestId(`home-week-day-${TODAY}`);
+    expect(cell).toHaveTextContent('70 min');
+    expect(cell).toHaveAccessibleName(/— Technique swim · Swim · 20 min · easy; Tempo run · Run · 50 min · threshold$/);
+    // A rest day with an optional spin beside it reads as a day with a session, not as rest.
+    expect(screen.getByTestId('home-week-day-2026-09-25')).toHaveTextContent('30 min');
+
+    await userEvent.click(cell);
+    const detail = screen.getByTestId('home-week-detail');
+    const rows = within(detail).getAllByRole('row');
+    expect(rows.map((row) => row.getAttribute('data-testid'))).toEqual([`plan-day-${TODAY}-0`, `plan-day-${TODAY}-1`]);
+    expect(within(detail).getAllByText(formatCivilDate(TODAY, 'en', ROW_DATE))).toHaveLength(1);
+
+    const named = formatCivilDate(TODAY, 'en', DRAFT_DATE);
+    expect(within(detail).getByTestId('home-week-detail-draft-0')).toHaveTextContent(
+      `Walk me through my session on ${named}: Technique swim`,
+    );
+    await userEvent.click(within(detail).getByTestId('home-week-detail-draft-1'));
+    expect(onOpenChatDraft).toHaveBeenCalledExactlyOnceWith(`Walk me through my session on ${named}: Tempo run`);
+  });
+
   it('closes the open day on a second tap', async () => {
     renderWeek();
     await loadedStrip();
@@ -291,6 +317,17 @@ describe('HomeWeek — month sheet', () => {
     await userEvent.click(within(sheet).getByTestId('calendar-activity-strava-cal-2'));
     expect(onNavigate).toHaveBeenCalledExactlyOnceWith(activityViewRoute('strava', 'cal-2'));
     expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('marks a planned session on a rest day that holds an optional one beside it, and none on a rest-only day', async () => {
+    renderWeek(twoSessionPlan());
+    await loadedStrip();
+
+    await userEvent.click(screen.getByTestId('home-week-month'));
+    const sheet = await screen.findByRole('dialog', { name: 'September 2026' });
+    await waitFor(() => expect(within(sheet).getByTestId('home-month-grid')).toHaveAttribute('aria-busy', 'false'));
+    expect(within(sheet).getByTestId('home-month-planned-2026-09-25')).toBeInTheDocument();
+    expect(within(sheet).queryByTestId('home-month-planned-2026-09-23')).toBeNull();
   });
 
   it.each(GARMIN_LINES)(

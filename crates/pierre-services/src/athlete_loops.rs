@@ -10,10 +10,13 @@
 //! answer is often one they already rode. [`own_loops`] finds them in what
 //! the store keeps, with no provider asked and no external call:
 //!
-//! - **Where.** Only workouts whose start belongs to one of the athlete's
-//!   places (slice 6, [`crate::athlete_places`]), and only places near the
-//!   asked point. A start inside the home exclusion carries no place, so a
-//!   loop from home is never offered.
+//! - **Where.** Only workouts that belong to one of the athlete's places
+//!   (slice 6, [`crate::athlete_places`]), and only places near the asked
+//!   point. A loop from home belongs to the area its track rode through
+//!   (carnet#1723), so it is offered there, carrying that area's place and
+//!   never home: home is no place, and its point is never read here. A ride
+//!   from home that never left the block carries no place and is never
+//!   offered.
 //! - **What counts as a loop.** A workout of the asked sport with a stored
 //!   track ([`local_track`]) whose two trimmed ends lie within
 //!   [`ONE_SPOT_REACH_METERS`]: it started and ended at one spot. The track
@@ -30,7 +33,7 @@
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::ai_policy::ProviderTerms;
 use pierre_core::errors::AppResult;
 use pierre_core::models::{PlaceRef, SportType, TenantId};
@@ -143,7 +146,7 @@ pub struct OwnLoop {
     /// The place it started at, as a row carries it.
     pub place: PlaceRef,
     /// When it started.
-    pub started_at: DateTime<Utc>,
+    pub started_at: Timestamp,
     /// Its recorded distance, in metres.
     pub distance_meters: f64,
     /// Its recorded climb, in metres; `None` when none was recorded.
@@ -184,7 +187,7 @@ pub async fn own_loops(
     tenant_id: &TenantId,
     user_id: Uuid,
     search: &LoopSearch,
-    now: DateTime<Utc>,
+    now: Timestamp,
 ) -> AppResult<Vec<OwnLoop>> {
     let near: HashSet<String> = repos
         .athlete_places

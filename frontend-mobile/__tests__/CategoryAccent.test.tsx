@@ -152,7 +152,7 @@ describe('the category pair follows the appearance setting', () => {
 
     // One concrete hex per scheme, so a rebase that repoints `colors.pierre.*`
     // at the wrong half of the token set is caught here rather than by eye.
-    // These are the Product-tier pillar values DESIGN.md §2 carries.
+    // These are the Product-tier pillar values DESIGN.md "Feedback and pillars" carries.
     expect(categoryAccent(light, 'training')).toBe('#0f7d68');
     expect(categoryInk(light, 'training')).toBe('#0b5748');
     expect(categoryAccent(dark, 'training')).toBe('#79a694');
@@ -184,7 +184,7 @@ describe('the category pair follows the appearance setting', () => {
         resolved.map(() => [colors.tokens.primary, colors.tokens.onPrimaryContainer]),
       );
 
-      // The match folds case, as the web's coachCategoryPillar does, so a
+      // The match folds case, as the shared coachCategoryPillar does, so a
       // catalogue that stored `Training` still reads as training.
       expect(categoryAccent(colors, 'Training')).toBe(categoryAccent(colors, 'training'));
     }

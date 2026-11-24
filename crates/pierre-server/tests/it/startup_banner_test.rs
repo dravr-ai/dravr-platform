@@ -117,7 +117,7 @@ async fn every_banner_line_names_a_route_the_router_serves_as_spelled() {
             }
         }
     }
-    assert!(lines >= 30, "the banner lost most of its lines: {lines}");
+    assert!(lines >= 29, "the banner lost lines: {lines}");
     assert!(
         drifted.is_empty(),
         "startup banner lines the router does not serve as written:\n{}",

@@ -4,14 +4,14 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use serde::{Deserialize, Serialize};
 
 /// Daily recovery and readiness metrics
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RecoveryMetrics {
     /// Date for these recovery metrics
-    pub date: DateTime<Utc>,
+    pub date: Timestamp,
     /// Overall recovery score (0-100)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub recovery_score: Option<f32>,
@@ -79,7 +79,7 @@ impl RecoveryMetrics {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HealthMetrics {
     /// Date for these health metrics
-    pub date: DateTime<Utc>,
+    pub date: Timestamp,
     /// Weight in kilograms
     #[serde(skip_serializing_if = "Option::is_none")]
     pub weight: Option<f64>,

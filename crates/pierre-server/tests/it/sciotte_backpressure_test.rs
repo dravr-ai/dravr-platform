@@ -1,5 +1,5 @@
 // ABOUTME: Regression tests pinning that a sciotte scraper load-shed is backpressure, not a system failure
-// ABOUTME: Asserts the 503 + Retry-After answer and that no operator alert or sync.failed event is emitted
+// ABOUTME: Asserts the 503 + Retry-After answer and that no admin alert or sync.failed event is emitted
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -19,13 +19,10 @@
 //! The sciotte client names the shed (pinned in dravr-sciotte's own client
 //! tests) and `sciotte_error` maps it (pinned in that module's unit tests).
 //! These tests pin the route layer: the login routes answer a mapped shed with
-//! the service's own `503` + `Retry-After` while emitting neither the operator
+//! the service's own `503` + `Retry-After` while emitting neither the admin
 //! alert nor the business-failure event. A genuine failure still does both,
 //! and what it logs names the answer's marker without its body.
 
-use std::collections::HashMap;
-use std::fmt::Debug as FmtDebug;
-use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use axum::body::to_bytes;
@@ -36,14 +33,9 @@ use pierre_providers::sciotte_error::to_app_error;
 use pierre_routes_auth::{
     friendly_login_failure_message, login_failure_response, SIGN_IN_UNAVAILABLE_REASON,
 };
+use pierre_test_support::log_capture::{self, CapturedLog};
 use serde_json::{json, Value};
-use tracing::field::{Field, Visit};
-use tracing::subscriber::DefaultGuard;
-use tracing::Subscriber;
-use tracing_subscriber::layer::{Context, SubscriberExt};
-use tracing_subscriber::registry::LookupSpan;
-use tracing_subscriber::util::SubscriberInitExt;
-use tracing_subscriber::Layer;
+use tracing::Level;
 use uuid::Uuid;
 
 /// One attempt of `operation`, as the sciotte client reports it.
@@ -68,81 +60,19 @@ fn login_shed(retry_after_secs: u64) -> AppError {
     }))
 }
 
-// ── Capture harness (same shape as `response_failure_log_test`) ─────────────
+// ── Capture ─────────────────────────────────────────────────────────────────
 
-#[derive(Clone, Debug)]
-struct CapturedEvent {
-    level: tracing::Level,
-    fields: HashMap<String, String>,
-}
-
-impl CapturedEvent {
-    fn field(&self, name: &str) -> Option<&str> {
-        self.fields.get(name).map(String::as_str)
-    }
-}
-
-#[derive(Clone, Default)]
-struct CaptureLayer {
-    events: Arc<Mutex<Vec<CapturedEvent>>>,
-}
-
-#[derive(Default)]
-struct FieldVisitor {
-    fields: HashMap<String, String>,
-}
-
-impl Visit for FieldVisitor {
-    fn record_debug(&mut self, field: &Field, value: &dyn FmtDebug) {
-        self.fields
-            .insert(field.name().to_owned(), format!("{value:?}"));
-    }
-
-    fn record_str(&mut self, field: &Field, value: &str) {
-        self.fields
-            .insert(field.name().to_owned(), value.to_owned());
-    }
-
-    fn record_u64(&mut self, field: &Field, value: u64) {
-        self.fields
-            .insert(field.name().to_owned(), value.to_string());
-    }
-}
-
-impl<S> Layer<S> for CaptureLayer
-where
-    S: Subscriber + for<'a> LookupSpan<'a>,
-{
-    fn on_event(&self, event: &tracing::Event<'_>, _ctx: Context<'_, S>) {
-        let mut visitor = FieldVisitor::default();
-        event.record(&mut visitor);
-        self.events.lock().unwrap().push(CapturedEvent {
-            level: *event.metadata().level(),
-            fields: visitor.fields,
-        });
-    }
-}
-
-fn setup_capture() -> (Arc<Mutex<Vec<CapturedEvent>>>, DefaultGuard) {
-    let capture = CaptureLayer::default();
-    let events = Arc::clone(&capture.events);
-    let guard = tracing_subscriber::registry().with(capture).set_default();
-    (events, guard)
-}
-
-fn error_count(events: &Arc<Mutex<Vec<CapturedEvent>>>) -> usize {
+fn error_count(events: &CapturedLog) -> usize {
     events
-        .lock()
-        .unwrap()
+        .events()
         .iter()
-        .filter(|e| e.level == tracing::Level::ERROR)
+        .filter(|e| e.level == Level::ERROR)
         .count()
 }
 
-fn sync_failed_count(events: &Arc<Mutex<Vec<CapturedEvent>>>) -> usize {
+fn sync_failed_count(events: &CapturedLog) -> usize {
     events
-        .lock()
-        .unwrap()
+        .events()
         .iter()
         .filter(|e| e.field("event") == Some("sync.failed"))
         .count()
@@ -154,7 +84,7 @@ fn sync_failed_count(events: &Arc<Mutex<Vec<CapturedEvent>>>) -> usize {
 async fn a_login_shed_answers_503_with_retry_after_and_pages_nobody() {
     let shed = login_shed(45);
 
-    let (events, guard) = setup_capture();
+    let (events, guard) = log_capture::capture_events();
     let response = login_failure_response(
         Uuid::new_v4(),
         Uuid::new_v4(),
@@ -214,10 +144,10 @@ async fn a_login_shed_answers_503_with_retry_after_and_pages_nobody() {
 }
 
 #[tokio::test]
-async fn a_login_system_failure_still_alerts_operators() {
+async fn a_login_system_failure_still_alerts_admins() {
     let failure = AppError::internal("browser error: Failed to launch browser");
 
-    let (events, guard) = setup_capture();
+    let (events, guard) = log_capture::capture_events();
     let error = login_failure_response(
         Uuid::new_v4(),
         Uuid::new_v4(),
@@ -230,7 +160,7 @@ async fn a_login_system_failure_still_alerts_operators() {
     assert_eq!(
         error_count(&events),
         1,
-        "a genuine fault must still page operators exactly once"
+        "a genuine fault must still page admins exactly once"
     );
     assert_eq!(
         sync_failed_count(&events),
@@ -249,7 +179,7 @@ async fn a_login_system_failure_still_alerts_operators() {
 
 #[tokio::test]
 async fn a_login_answer_with_no_status_alerts_with_its_marker_and_not_its_body() {
-    // The identity-token gate's 401: no login status, and a body an operator
+    // The identity-token gate's 401: no login status, and a body an admin
     // log must not carry beyond the marker that says what refused the call.
     let failure = to_app_error(ClientError::Unexpected {
         exchange: exchange(Operation::Login).into(),
@@ -259,7 +189,7 @@ async fn a_login_answer_with_no_status_alerts_with_its_marker_and_not_its_body()
         }),
     });
 
-    let (events, guard) = setup_capture();
+    let (events, guard) = log_capture::capture_events();
     login_failure_response(
         Uuid::new_v4(),
         Uuid::new_v4(),
@@ -270,8 +200,7 @@ async fn a_login_answer_with_no_status_alerts_with_its_marker_and_not_its_body()
     .expect_err("an answer with no login status is a system failure");
 
     let reasons: Vec<String> = events
-        .lock()
-        .unwrap()
+        .events()
         .iter()
         .filter_map(|event| event.field("reason").map(str::to_owned))
         .collect();
@@ -280,7 +209,7 @@ async fn a_login_answer_with_no_status_alerts_with_its_marker_and_not_its_body()
     assert_eq!(
         reasons.len(),
         2,
-        "the operator alert and the sync.failed event each carry the reason: {reasons:?}"
+        "the admin alert and the sync.failed event each carry the reason: {reasons:?}"
     );
     for reason in &reasons {
         assert!(

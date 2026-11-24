@@ -28,6 +28,7 @@
 mod common;
 
 use common::{create_test_server_resources, create_test_tenant, create_test_tenant_with_provider};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::models::UserOAuthToken;
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_tool_runtime::protocol::{
@@ -179,7 +180,7 @@ async fn a_token_without_a_connection_row_is_not_refused() {
             "strava".to_owned(),
             "drift_access_token".to_owned(),
             Some("drift_refresh_token".to_owned()),
-            Some(chrono::Utc::now() + chrono::Duration::hours(6)),
+            Some(Timestamp::now() + Elapsed::hours(6)),
             Some("activity:read_all".to_owned()),
         ))
         .await

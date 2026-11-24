@@ -25,7 +25,8 @@ use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use axum::routing::get;
 use axum::{Json, Router};
-use chrono::Utc;
+use dravr_tronc::dates::Elapsed;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::{TenantId, UserOAuthToken};
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::webhooks::WebhookRoutes;
@@ -50,7 +51,7 @@ const WORKOUT_ID: i64 = 56_519;
 async fn mock_wahoo() -> (String, Arc<AtomicUsize>) {
     let hits = Arc::new(AtomicUsize::new(0));
     let counter = Arc::clone(&hits);
-    let starts = (Utc::now() - chrono::Duration::hours(2)).to_rfc3339();
+    let starts = (Timestamp::now() - Elapsed::hours(2)).to_rfc3339();
     let app = Router::new().route(
         "/v1/workouts",
         get(move || {
@@ -110,7 +111,7 @@ async fn seed_linked_athlete(resources: &ServerContext) -> (Uuid, TenantId) {
     )
     .await
     .unwrap();
-    let now = Utc::now();
+    let now = Timestamp::now();
     let token = UserOAuthToken {
         id: Uuid::new_v4().to_string(),
         user_id,
@@ -119,7 +120,7 @@ async fn seed_linked_athlete(resources: &ServerContext) -> (Uuid, TenantId) {
         access_token: SecretString::from("wahoo_access_token_0123456789abcdef"),
         refresh_token: Some(SecretString::from("wahoo_refresh")),
         token_type: "Bearer".to_owned(),
-        expires_at: Some(now + chrono::Duration::hours(2)),
+        expires_at: Some(now + Elapsed::hours(2)),
         scope: Some("user_read workouts_read offline_data".to_owned()),
         provider_user_id: Some(WAHOO_USER_ID.to_string()),
         oauth_app_client_id: None,
@@ -146,7 +147,7 @@ fn summary_event(token: &str) -> Value {
             "power_avg": "210.00",
             "workout": {
                 "id": WORKOUT_ID,
-                "starts": (Utc::now() - chrono::Duration::hours(2)).to_rfc3339(),
+                "starts": (Timestamp::now() - Elapsed::hours(2)).to_rfc3339(),
                 "minutes": 62
             }
         }
@@ -194,8 +195,8 @@ async fn cached_wahoo_ids(
             user_id,
             tenant_id,
             Some("wahoo"),
-            Utc::now() - chrono::Duration::days(30),
-            Utc::now() + chrono::Duration::days(1),
+            Timestamp::now() - Elapsed::days(30),
+            Timestamp::now() + Elapsed::days(1),
             100,
         )
         .await
@@ -206,19 +207,13 @@ async fn cached_wahoo_ids(
 }
 
 /// A workout summary for a linked athlete fetches through the OAuth provider
-/// into the cache, keyed by the Wahoo workout id, stamps `last_sync`, and
-/// tells the athlete's live stream.
+/// into the cache, keyed by the Wahoo workout id, and stamps `last_sync`.
 #[tokio::test]
 #[serial]
 async fn a_workout_summary_fetches_the_owners_workouts_into_the_cache() {
     let (api_base, hits) = mock_wahoo().await;
     let resources = context_pointed_at(&api_base, Some(PORTAL_TOKEN)).await;
     let (user_id, tenant_id) = seed_linked_athlete(&resources).await;
-    let mut sse = resources
-        .sse
-        .sse_manager
-        .register_notification_stream(user_id)
-        .await;
 
     let status = post_body(&resources, summary_event(PORTAL_TOKEN).to_string()).await;
     assert_eq!(status, StatusCode::OK, "Wahoo is acknowledged at once");
@@ -238,10 +233,7 @@ async fn a_workout_summary_fetches_the_owners_workouts_into_the_cache() {
         .await
         .unwrap()
         .expect("last_sync is stamped after the fetch");
-    assert!(Utc::now() - last_sync < chrono::Duration::minutes(1));
-    let message = sse.try_recv().expect("the athlete's stream hears of it");
-    let payload: Value = serde_json::from_str(message.trim_start_matches("data: ").trim()).unwrap();
-    assert_eq!(payload["provider"], "wahoo");
+    assert!(Timestamp::now() - last_sync < Elapsed::minutes(1));
 }
 
 /// A body whose token is not the portal's is refused and nothing is fetched.

@@ -17,7 +17,7 @@ interface PresentNotificationMenuOptions {
  * Reading a notification, and any action it carries, already happens from the
  * row's own tap, which opens the detail modal — so the only thing this menu
  * offers is deleting it: one destructive row and cancel, mirroring
- * `presentMemoryFactMenu`'s shape exactly (Boreal v2.2 Phase 5, P5.8).
+ * `presentMemoryFactMenu`'s shape exactly.
  */
 export function presentNotificationMenu({ onDelete }: PresentNotificationMenuOptions, t: TFunction): void {
   presentMenu([{ label: t('common.delete'), onPress: onDelete }], {

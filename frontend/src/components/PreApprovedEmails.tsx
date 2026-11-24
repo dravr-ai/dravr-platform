@@ -9,13 +9,13 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { adminApi } from '../services/api';
 import type { PreApprovedEmail } from '../services/api/admin';
 import { Button, Card, Badge, Checkbox, Input } from './ui';
-import { QUERY_KEYS } from '../constants/queryKeys';
+import { QUERY_KEYS } from '@pierre/shared-constants';
 import { formatDate } from '@pierre/chat-utils';
 import { ADMIN_LOCALE } from '../utils/adminLocale';
 
 /**
- * Pre-approving an address is how an operator adds someone who has not
- * registered yet: their registration lands active, attributed to the operator,
+ * Pre-approving an address is how an admin adds someone who has not
+ * registered yet: their registration lands active, attributed to the admin,
  * instead of queueing. An address that already has a pending account is
  * approved on the spot by the same action.
  */
@@ -192,7 +192,7 @@ export default function PreApprovedEmails() {
                   size="sm"
                   variant="danger-outline"
                   className="ml-4"
-                  // An operator read the old "Remove" as deleting the user: it only
+                  // An admin read the old "Remove" as deleting the user: it only
                   // withdraws the standing allow, never the account (carnet#1391).
                   title="Removes this address from the pre-approved list. An account already registered with it is not deleted."
                 >
@@ -220,7 +220,7 @@ function statusVariant(status: 'pending' | 'active' | 'suspended') {
 
 /**
  * Surface the server's own rejection (a malformed address, a permission
- * failure) rather than a generic line — the operator needs to know which of
+ * failure) rather than a generic line — the admin needs to know which of
  * the two it was.
  */
 function errorMessage(err: unknown, fallback: string): string {

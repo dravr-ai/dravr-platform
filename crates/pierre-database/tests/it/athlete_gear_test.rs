@@ -12,7 +12,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use chrono::{DateTime, Duration, TimeZone, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::models::{
     ActivityGearKey, AthleteGear, AttributionSource, GearAttribution, GearDeclaration, GearKind,
     SportType, TenantId, User, DEFAULT_SHOE_WARN_DISTANCE_METERS, MAX_GEAR_PER_ATHLETE,
@@ -43,8 +43,8 @@ fn shoe(name: &str, sport: SportType) -> GearDeclaration {
     }
 }
 
-fn day(n: i64) -> DateTime<Utc> {
-    Utc.with_ymd_and_hms(2026, 9, 1, 7, 0, 0).unwrap() + Duration::days(n)
+fn day(n: i64) -> Timestamp {
+    Timestamp::parse_from_rfc3339("2026-09-01T07:00:00Z").unwrap() + Elapsed::days(n)
 }
 
 fn key(provider: &str, id: &str) -> ActivityGearKey {

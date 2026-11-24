@@ -36,7 +36,7 @@ use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use glob::glob;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
@@ -562,7 +562,7 @@ fn log_publish_result(slug: &str, result: AppResult<bool>, stats: &mut SeedStats
 /// absorbed it. Without a successor the conversations are detached and drop
 /// to the default prompt; a group still bound to such an agent blocks the
 /// delete, the error is counted, and the seed job exits non-zero so an
-/// operator picks an agent for it.
+/// admin picks an agent for it.
 ///
 /// The pass is skipped when any agent file failed to parse: an agent that is
 /// still in the checkout would otherwise read as retired.
@@ -761,7 +761,7 @@ async fn publish_single_agent(
         agent_id: agent_id.to_owned(),
         tenant_id: admin.tenant_id,
         author_id: admin.agent_author_id.clone(),
-        created_at: Utc::now(),
+        created_at: Timestamp::now(),
     };
 
     repos
@@ -975,7 +975,7 @@ async fn find_admin_user(repos: &RepositoryRegistry) -> AppResult<AdminUser> {
         .map_err(|e| AppError::internal(format!("Failed to parse tenant_id: {e}")))?;
 
     // Ensure an agent_authors row exists for the admin (required by store_listings FK)
-    let now = Utc::now();
+    let now = Timestamp::now();
     let agent_author = SeedAgentAuthor {
         id: Uuid::new_v4().to_string(),
         user_id: user.id,
@@ -1009,7 +1009,7 @@ async fn upsert_agent(
     admin: &AdminUser,
     dry_run: bool,
 ) -> AppResult<(String, UpsertAction)> {
-    let now = Utc::now();
+    let now = Timestamp::now();
     let slug = &agent.frontmatter.name;
 
     // Check if agent exists by slug
@@ -1075,7 +1075,7 @@ fn build_seed_agent(
     id: &str,
     agent: &AgentDefinition,
     admin: &AdminUser,
-    now: DateTime<Utc>,
+    now: Timestamp,
 ) -> AppResult<SeedAgent> {
     let prerequisites_json = serde_json::to_string(&agent.frontmatter.prerequisites)
         .map_err(|e| AppError::internal(format!("JSON error: {e}")))?;
@@ -1137,7 +1137,7 @@ async fn create_relation(
         agent_id: agent_id.to_owned(),
         related_agent_id: related_id.to_owned(),
         relation_type: relation_str.to_owned(),
-        created_at: Utc::now(),
+        created_at: Timestamp::now(),
     };
 
     repos

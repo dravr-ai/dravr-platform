@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use serde::{Deserialize, Serialize};
 
 /// Type of meal
@@ -75,7 +75,7 @@ pub struct MealEntry {
     pub meal_type: MealType,
     /// Timestamp when meal was logged
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub timestamp: Option<DateTime<Utc>>,
+    pub timestamp: Option<Timestamp>,
     /// Meal description or name
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
@@ -104,7 +104,7 @@ pub struct NutritionLog {
     /// Unique identifier for this nutrition log entry
     pub id: String,
     /// Date of the nutrition log
-    pub date: DateTime<Utc>,
+    pub date: Timestamp,
     /// Total calories consumed
     #[serde(skip_serializing_if = "Option::is_none")]
     pub total_calories: Option<f64>,

@@ -296,7 +296,7 @@ TOTAL_CLONES=$(rg "\.clone\(\)" crates/pierre-server/src/ | grep -v 'crates/pier
 # - Intelligence outputs (pattern, insight, warning, slug, permissions, address, cache, nutrition, algorithm)
 # - Protocol/config fields (placeholder, version, logging, mcp, grant, oauth)
 # - Documented safe clones (// Safe, // NOTE)
-LEGITIMATE_CLONES=$(rg "\.clone\(\)" crates/pierre-server/src/ | grep -v 'crates/pierre-server/src/bin/' | rg "Arc::|resources\.|database\.|auth_manager\.|sse_manager\.|websocket_manager\.|\.to_string\(\)|format!|String::from|token|url|name|path|message|error|Error|client_id|client_secret|redirect_uri|access_token|refresh_token|user_id|tenant_id|request\.|response\.|context\.|config\.|profile\.|email|password|hash|key|plan|tier|args|params|value|data|manager|pool|conn|sender|tx|client|id\.|header|description|weather|// Safe|// NOTE|\.id\b|_id\b|scope|stdout|store|session|jwks|plugin|service|host|target|goal|sport|provider|result|validation|overrides|town|village|suburb|state|county|road|country|amenity|natural|tourism|leisure|pattern|insight|warning|slug|permissions|address|placeholder|version|logging|mcp|city|location|region|display|cache|nutrition|algorithm|grant|oauth" | wc -l 2>/dev/null | tr -d ' ' || echo 0)
+LEGITIMATE_CLONES=$(rg "\.clone\(\)" crates/pierre-server/src/ | grep -v 'crates/pierre-server/src/bin/' | rg "Arc::|resources\.|database\.|auth_manager\.|websocket_manager\.|\.to_string\(\)|format!|String::from|token|url|name|path|message|error|Error|client_id|client_secret|redirect_uri|access_token|refresh_token|user_id|tenant_id|request\.|response\.|context\.|config\.|profile\.|email|password|hash|key|plan|tier|args|params|value|data|manager|pool|conn|sender|tx|client|id\.|header|description|weather|// Safe|// NOTE|\.id\b|_id\b|scope|stdout|store|session|jwks|plugin|service|host|target|goal|sport|provider|result|validation|overrides|town|village|suburb|state|county|road|country|amenity|natural|tourism|leisure|pattern|insight|warning|slug|permissions|address|placeholder|version|logging|mcp|city|location|region|display|cache|nutrition|algorithm|grant|oauth" | wc -l 2>/dev/null | tr -d ' ' || echo 0)
 PROBLEMATIC_CLONES=$((TOTAL_CLONES - LEGITIMATE_CLONES))
 TOTAL_ARCS=$(rg "Arc::" crates/pierre-server/src/ | wc -l 2>/dev/null | tr -d ' ' || echo 0)
 # Magic number detection - must use positive glob first to avoid ripgrep negative-glob-only bug
@@ -957,14 +957,18 @@ CANOT_MANIFEST="$(cargo metadata --format-version 1 --offline 2>/dev/null \
 if [ -n "$CANOT_MANIFEST" ] && [ -f "$CANOT_MANIFEST" ]; then
     CANOT_SRC="$(dirname "$CANOT_MANIFEST")/src"
 else
-    CANOT_TAG="$(rg -o 'dravr-canot = \{ git = "[^"]+", tag = "([^"]+)"' -r '$1' \
+    # The pin is a release tag or, while a satellite is held on a branch
+    # commit (satellites.toml `source = "git-rev"`), a full commit SHA.
+    CANOT_REF="$(rg -o 'dravr-canot = \{ git = "[^"]+", (tag|rev) = "([^"]+)"' -r '$2' \
         Cargo.toml 2>/dev/null | head -1)"
-    if [ -n "$CANOT_TAG" ]; then
-        CANOT_CACHE="${TMPDIR:-/tmp}/dravr-canot-$CANOT_TAG"
+    if [ -n "$CANOT_REF" ]; then
+        CANOT_CACHE="${TMPDIR:-/tmp}/dravr-canot-$CANOT_REF"
         if [ ! -d "$CANOT_CACHE/src" ]; then
             rm -rf "$CANOT_CACHE"
-            git clone --depth 1 --branch "$CANOT_TAG" -q \
-                https://github.com/dravr-ai/dravr-canot.git "$CANOT_CACHE" 2>/dev/null || true
+            git init -q "$CANOT_CACHE" 2>/dev/null \
+                && git -C "$CANOT_CACHE" fetch --depth 1 -q \
+                    https://github.com/dravr-ai/dravr-canot.git "$CANOT_REF" 2>/dev/null \
+                && git -C "$CANOT_CACHE" checkout -q FETCH_HEAD 2>/dev/null || true
         fi
         [ -d "$CANOT_CACHE/src" ] && CANOT_SRC="$CANOT_CACHE/src"
     fi

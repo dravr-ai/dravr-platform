@@ -8,7 +8,7 @@
 //! code the hosted login page issued or by `pierre-cli user mint-session`,
 //! and the `user.login` notify event that names how it was opened.
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use secrecy::SecretString;
 use tracing::info;
 
@@ -18,6 +18,7 @@ use pierre_core::errors::{AppError, AppResult};
 
 use super::AuthService;
 use crate::analytics::cache_user_email;
+use dravr_tronc::dates::Elapsed;
 
 /// How a first-party session was opened for an account already identified:
 /// what [`AuthService::sign_in_with_code`]'s log line says and the `source`
@@ -107,7 +108,7 @@ impl AuthService {
                 Some(client_id),
             )
             .map_err(|e| AppError::internal(format!("Failed to generate token: {e}")))?;
-        let expires_at = Utc::now() + chrono::Duration::hours(limits::DEFAULT_SESSION_HOURS);
+        let expires_at = Timestamp::now() + Elapsed::hours(limits::DEFAULT_SESSION_HOURS);
 
         repos
             .users

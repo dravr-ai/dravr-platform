@@ -17,23 +17,16 @@
 use crate::common;
 
 use std::collections::HashMap;
-use std::fmt::Debug as FmtDebug;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use dravr_tronc::mcp::protocol::JsonRpcRequest;
 use pierre_auth::auth::DelegatedGrant;
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_mcp_server::mcp::host_seams::build_mcp_server;
 use pierre_mcp_server::mcp::resources::ServerContext;
+use pierre_test_support::log_capture::{self, CapturedLog};
 use serde_json::{json, Value};
-use tracing::field::{Field, Visit};
-use tracing::span::{Attributes, Id, Record};
 use tracing::subscriber::DefaultGuard;
-use tracing::Subscriber;
-use tracing_subscriber::layer::{Context, SubscriberExt};
-use tracing_subscriber::registry::LookupSpan;
-use tracing_subscriber::util::SubscriberInitExt;
-use tracing_subscriber::Layer;
 use uuid::Uuid;
 
 /// The client the authorization server registered and issued the token to.
@@ -46,80 +39,27 @@ const TOOL: &str = "get_connection_status";
 
 // ── Span capture ─────────────────────────────────────────────────────────────
 
-/// A span's name and the fields it was opened and recorded with.
-struct CapturedSpan {
-    name: String,
-    fields: HashMap<String, String>,
-}
-
-/// Every span opened while the capture is installed, by span id.
-#[derive(Clone, Default)]
-struct SpanCapture {
-    spans: Arc<Mutex<HashMap<u64, CapturedSpan>>>,
-}
-
-#[derive(Default)]
-struct FieldVisitor(HashMap<String, String>);
-
-impl Visit for FieldVisitor {
-    fn record_debug(&mut self, field: &Field, value: &dyn FmtDebug) {
-        self.0.insert(field.name().to_owned(), format!("{value:?}"));
-    }
-
-    fn record_str(&mut self, field: &Field, value: &str) {
-        self.0.insert(field.name().to_owned(), value.to_owned());
-    }
-}
-
-impl<S> Layer<S> for SpanCapture
-where
-    S: Subscriber + for<'a> LookupSpan<'a>,
-{
-    fn on_new_span(&self, attrs: &Attributes<'_>, id: &Id, _: Context<'_, S>) {
-        let mut visitor = FieldVisitor::default();
-        attrs.record(&mut visitor);
-        let span = CapturedSpan {
-            name: attrs.metadata().name().to_owned(),
-            fields: visitor.0,
-        };
-        self.spans.lock().unwrap().insert(id.into_u64(), span);
-    }
-
-    fn on_record(&self, id: &Id, values: &Record<'_>, _: Context<'_, S>) {
-        let mut visitor = FieldVisitor::default();
-        values.record(&mut visitor);
-        let mut spans = self.spans.lock().unwrap();
-        if let Some(span) = spans.get_mut(&id.into_u64()) {
-            span.fields.extend(visitor.0);
-        }
-    }
-}
-
 /// Every span opened on this thread while the guard lives. The tests run on
 /// tokio's current-thread runtime, so the inline dispatch stays on it.
 struct Captured {
-    spans: Arc<Mutex<HashMap<u64, CapturedSpan>>>,
+    log: CapturedLog,
     _guard: DefaultGuard,
 }
 
 impl Captured {
     fn start() -> Self {
-        let layer = SpanCapture::default();
-        let spans = Arc::clone(&layer.spans);
-        let guard = tracing_subscriber::registry().with(layer).set_default();
-        Self {
-            spans,
-            _guard: guard,
-        }
+        let (log, guard) = log_capture::capture_events_and_spans();
+        Self { log, _guard: guard }
     }
 
     /// The fields of the one `dispatch_tool_call` span: the audit event.
     fn audit_span(&self) -> HashMap<String, String> {
-        let spans = self.spans.lock().unwrap();
-        let mut audit = spans
-            .values()
+        let mut audit = self
+            .log
+            .spans()
+            .into_iter()
             .filter(|span| span.name == "dispatch_tool_call")
-            .map(|span| span.fields.clone());
+            .map(|span| span.fields);
         let fields = audit.next().expect("the tool call opened its audit span");
         assert!(audit.next().is_none(), "one tool call, one audit span");
         fields
@@ -127,10 +67,9 @@ impl Captured {
 
     /// Whether any field of any span holds `needle`.
     fn any_field_holds(&self, needle: &str) -> bool {
-        self.spans
-            .lock()
-            .unwrap()
-            .values()
+        self.log
+            .spans()
+            .iter()
             .flat_map(|span| span.fields.values())
             .any(|value| value.contains(needle))
     }
@@ -202,7 +141,6 @@ async fn member_with_oauth_token(resources: &Arc<ServerContext>) -> (Uuid, Strin
                 audience: None,
             },
             &user.id,
-            &[],
             tenants.first().map(|tenant| tenant.id.to_string()),
         )
         .unwrap();

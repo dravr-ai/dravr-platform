@@ -38,7 +38,7 @@ use pierre_runtime_context::ConfigLookupScope;
 use pierre_services::agent_package::{load_agent_package, PackagedCatalogue};
 use pierre_services::plan_calendar_push::plan_sport;
 use serde_json::Value;
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
 use tracing::{info, warn};
 use uuid::Uuid;
@@ -362,11 +362,12 @@ async fn resolve_templates(
             templates.insert(slug.to_owned(), template);
         }
     }
-    // A family day is measured against its preset's own ranges, not the
-    // family's outer axes, so this rail and the envelope check agree. A day
-    // the envelope check relabelled is classified by the purpose it now
-    // trains, so the hard-session and intensity counts describe the session
-    // the athlete will do rather than the template it started from.
+    // A family day is measured against the ranges its preset's shape reads,
+    // not the family's outer axes nor a value its steps never read, so this
+    // rail and the envelope check agree (carnet#1710). A day the envelope
+    // check relabelled is classified by the purpose it now trains, so the
+    // hard-session and intensity counts describe the session the athlete
+    // will do rather than the template it started from.
     for day in weeks.iter().flat_map(|w| w.days.iter()) {
         let Some(slug) = day.template_slug.as_deref() else {
             continue;
@@ -382,9 +383,9 @@ async fn resolve_templates(
     templates
 }
 
-/// The day's template as compliance measures it: narrowed to the day's
-/// preset in the day's sport, and filed under the purpose a relabel moved
-/// it to.
+/// The day's template as compliance measures it: narrowed to the values the
+/// day's preset reads in the day's sport, and filed under the purpose a
+/// relabel moved it to.
 fn day_template(base: &WorkoutTemplate, day: &PlannedDay) -> WorkoutTemplate {
     let mut variant = base.clone();
     let preset = day
@@ -394,7 +395,7 @@ fn day_template(base: &WorkoutTemplate, day: &PlannedDay) -> WorkoutTemplate {
         .map(|(preset, _)| preset);
     let family = SportFamily::of(&plan_sport(&day.sport)).or_else(|| SportFamily::of(&base.sport));
     if let (Some(preset), Some(family)) = (preset, family) {
-        variant.params = base.effective_ranges(preset, family);
+        variant.params = base.read_ranges(preset, family);
     }
     if let Some(purpose) = day.envelope.as_ref().and_then(|e| e.relabelled_purpose) {
         variant.purpose = purpose;
@@ -437,7 +438,9 @@ fn emit_week_assessed(plan_id: &str, week_start: &str, verdict: &WeekVerdict) {
         volume = verdict.volume_outcome().as_str(),
         week_loading = verdict.week_loading.as_str(),
         unclassified_days = verdict.unclassified_days,
-        hard_days = verdict.hard_days.len(),
+        // The verdict lists a date once per hard session (a date may hold
+        // two, carnet#1716); the event counts the hard days themselves.
+        hard_days = verdict.hard_days.iter().collect::<BTreeSet<_>>().len(),
         detail = %detail,
         "saved week measured against its phase and flavour"
     );
@@ -446,7 +449,7 @@ fn emit_week_assessed(plan_id: &str, week_start: &str, verdict: &WeekVerdict) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::implementations::tests::family;
+    use crate::implementations::tests::{family, shapes};
     use serde_json::json;
 
     #[test]
@@ -467,6 +470,32 @@ mod tests {
         assert_eq!(
             template_key(&base.slug, &day),
             format!("{}@fx_30_15", base.slug)
+        );
+    }
+
+    #[test]
+    fn a_family_day_is_measured_only_on_the_values_its_shape_reads() {
+        let base = shapes();
+        let day = |preset: &str| -> PlannedDay {
+            serde_json::from_value(json!({
+                "date": "2026-11-16", "sport": "ride", "workout": "Steady",
+                "template_slug": base.slug, "template_preset": preset,
+            }))
+            .unwrap()
+        };
+        let steady = day_template(&base, &day("steady")).params;
+        assert!(
+            steady.duration_minutes.is_some(),
+            "bug: a continuous day is measured on its duration: {steady:?}"
+        );
+        assert!(
+            steady.reps.is_none() && steady.work_seconds.is_none() && steady.rest_seconds.is_none(),
+            "bug: a continuous day is not measured on the axes' reps, work and rest: {steady:?}"
+        );
+        let openers = day_template(&base, &day("openers")).params;
+        assert!(
+            openers.duration_minutes.is_none() && openers.reps.is_none(),
+            "bug: literal steps are measured on nothing, not even a ranged duration: {openers:?}"
         );
     }
 }

@@ -12,6 +12,7 @@ import { useTranslation } from '@pierre/i18n';
 import { QUERY_KEYS } from '@pierre/shared-constants';
 import type { Agent } from '@pierre/shared-types';
 import { avatarSlot, formatList, initialsFor } from '@pierre/chat-utils';
+import { orderTeam } from '@pierre/ui-logic';
 import { coachesApi, userApi } from '../../services/api';
 import { usePersonalConversation } from '../../hooks/useConversationList';
 import { avatarShapeClass, avatarSlotClass } from '../chat/avatarSlots';
@@ -35,23 +36,6 @@ interface YourTeamProps {
   onNavigate: (route: string) => void;
   /** Open the team picker over the page, for an athlete with no team. */
   onPickTeam: () => void;
-}
-
-/**
- * The athlete's team, lead first, then the others by title.
- *
- * The team is `is_assigned` on the agent list — the one membership rule the
- * mention palette and Discover read (carnet#1096). The lead is the agent the
- * personal thread is bound to (carnet#1101); a lead that is not on the team
- * marks nobody.
- */
-function orderTeam(agents: readonly Agent[], leadId: string | null): { lead: Agent | null; members: Agent[] } {
-  const team = agents.filter((agent) => agent.is_assigned === true);
-  const lead = leadId === null ? null : (team.find((agent) => agent.id === leadId) ?? null);
-  const members = team
-    .filter((agent) => agent !== lead)
-    .sort((a, b) => a.title.localeCompare(b.title));
-  return { lead, members };
 }
 
 function AgentAvatar({ agent, className = 'h-8 w-8' }: { agent: Agent; className?: string }) {

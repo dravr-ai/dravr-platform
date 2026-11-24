@@ -18,7 +18,7 @@
 use std::fmt::Display;
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
 use uuid::Uuid;
@@ -33,7 +33,7 @@ pub struct AttentionDismissal {
     /// The signal it was dismissed on.
     pub fingerprint: String,
     /// When the coach dismissed it.
-    pub dismissed_at: DateTime<Utc>,
+    pub dismissed_at: Timestamp,
 }
 
 /// Which reason a dismissal names.
@@ -58,7 +58,7 @@ pub trait CoachAttentionDismissalRepository: Send + Sync {
         &self,
         key: AttentionDismissalKey<'_>,
         fingerprint: &str,
-        dismissed_at: DateTime<Utc>,
+        dismissed_at: Timestamp,
     ) -> AppResult<()>;
 
     /// Undo a dismissal. Returns whether there was one.
@@ -116,7 +116,7 @@ macro_rules! impl_coach_attention_dismissal_repository {
                 &self,
                 key: AttentionDismissalKey<'_>,
                 fingerprint: &str,
-                dismissed_at: DateTime<Utc>,
+                dismissed_at: Timestamp,
             ) -> AppResult<()> {
                 sqlx::query(DISMISS_ATTENTION_SQL)
                     .bind($ids::bind(Uuid::new_v4()))

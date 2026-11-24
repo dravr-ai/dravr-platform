@@ -71,6 +71,44 @@ fn handles_separator_and_casing_variation() {
 }
 
 #[test]
+fn resolves_the_words_plan_days_are_written_in() {
+    // The words plan days are written in: the calendar push, plan cards and
+    // compliance read a plan day's sport through this one table (carnet#1727).
+    for (word, sport) in [
+        ("jog", SportType::Run),
+        ("route", SportType::Ride),
+        ("bike_ride", SportType::Ride),
+        ("xco", SportType::MountainBike),
+        ("Zwift", SportType::VirtualRide),
+        ("home trainer", SportType::VirtualRide),
+        ("piscine", SportType::Swim),
+        ("strength", SportType::StrengthTraining),
+        ("renfo", SportType::StrengthTraining),
+        ("gym", SportType::StrengthTraining),
+        ("mobility", SportType::Workout),
+        ("Étirements", SportType::Workout),
+        ("stretching", SportType::Workout),
+    ] {
+        assert_eq!(
+            resolve_sport_type(word),
+            Some(sport),
+            "bug: {word} must resolve as a plan day writes it"
+        );
+    }
+    // "ski" alone is downhill; a cross-country plan day says so.
+    assert_eq!(
+        resolve_sport_type("ski"),
+        Some(SportType::AlpineSkiing),
+        "bug: ski alone resolves as downhill"
+    );
+    assert_eq!(
+        resolve_sport_type("ski de fond"),
+        Some(SportType::CrossCountrySkiing),
+        "bug: ski de fond resolves as cross-country"
+    );
+}
+
+#[test]
 fn returns_none_for_unknown() {
     assert_eq!(resolve_sport_type("quidditch"), None);
     assert_eq!(resolve_sport_type(""), None);

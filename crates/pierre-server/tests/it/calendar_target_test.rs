@@ -17,7 +17,7 @@ use std::sync::{Arc, Mutex};
 
 use anyhow::Result;
 use async_trait::async_trait;
-use chrono::{Datelike, Duration, NaiveDate, Utc, Weekday};
+use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp, Weekday};
 use pierre_core::ai_policy::SourceClass;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::periodization::PhaseKind;
@@ -165,8 +165,8 @@ impl FitnessProvider for MockCalendar {
     }
     async fn list_calendar_events(
         &self,
-        from: NaiveDate,
-        to: NaiveDate,
+        from: CivilDate,
+        to: CivilDate,
     ) -> AppResult<Vec<CalendarEventRef>> {
         Ok(CALENDARS
             .lock()
@@ -282,7 +282,7 @@ async fn fixture(connected: &[&str]) -> Result<Fixture> {
                 (*provider).to_owned(),
                 "access".to_owned(),
                 Some("refresh".to_owned()),
-                Some(Utc::now() + Duration::hours(6)),
+                Some(Timestamp::now() + Elapsed::hours(6)),
                 None,
             ))
             .await?;
@@ -358,17 +358,13 @@ impl Fixture {
     /// a calendar that holds them).
     async fn save_plan_with_focus(&self, focus: &str) {
         let monday = {
-            let mut day = Utc::now().date_naive() + Duration::days(7);
+            let mut day = Timestamp::now().utc_date() + Elapsed::days(7);
             while day.weekday() != Weekday::Mon {
-                day += Duration::days(1);
+                day += Elapsed::days(1);
             }
             day
         };
-        let iso = |offset: i64| {
-            (monday + Duration::days(offset))
-                .format("%Y-%m-%d")
-                .to_string()
-        };
+        let iso = |offset: i64| (monday + Elapsed::days(offset)).to_string();
         let day = |offset: i64, sport: &str, workout: &str| PlannedDay {
             date: iso(offset),
             sport: sport.to_owned(),
@@ -382,6 +378,8 @@ impl Fixture {
             template_source: None,
             template_preset: None,
             envelope: None,
+            coach_original: None,
+            coach_added: false,
         };
         let days = vec![
             day(0, "run", "Easy run"),
@@ -454,9 +452,7 @@ fn session() -> Value {
 }
 
 fn prescription_date() -> String {
-    (Utc::now().date_naive() + Duration::days(10))
-        .format("%Y-%m-%d")
-        .to_string()
+    (Timestamp::now().utc_date() + Elapsed::days(10)).to_string()
 }
 
 #[tokio::test]

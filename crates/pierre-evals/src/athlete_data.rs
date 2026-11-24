@@ -43,7 +43,7 @@
 //! when that session averaged something else; the `heart_rate` module states
 //! the pinning.
 
-use chrono::{Datelike, NaiveDate};
+use dravr_tronc::dates::{CivilDate, Weekday};
 use pierre_core::civil_time::{
     relative_day, relative_day_forms, relative_day_label, weekday_forms, RelativeDay, ALL_WEEKDAYS,
 };
@@ -69,7 +69,7 @@ pub use period::{
 #[derive(Debug, Clone)]
 pub struct RecordedActivity {
     /// Calendar date on the athlete's civil clock.
-    pub date: NaiveDate,
+    pub date: CivilDate,
     /// Canonical sport for the activity.
     pub sport: SportType,
     /// The provider's name for it — "Road 2 AUS", "Passion rando". This is how
@@ -103,7 +103,7 @@ pub struct AthleteRecord {
     /// The athlete's current civil day, on the same clock every `date` above is
     /// on. "Hier" and "ce matin" are claims about a day, and this is the day
     /// they are measured from.
-    pub today: NaiveDate,
+    pub today: CivilDate,
     /// The locale the reply is resolved in. Selects which relative-day
     /// vocabulary is *read*: French `hier` is German `hier` (here), so the
     /// forms cannot be scanned across locales the way weekday names are.
@@ -120,7 +120,7 @@ pub struct AthleteRecord {
 impl AthleteRecord {
     /// An athlete with nothing connected — the providerless case.
     #[must_use]
-    pub fn providerless(today: NaiveDate, locale: &str) -> Self {
+    pub fn providerless(today: CivilDate, locale: &str) -> Self {
         Self {
             has_provider: false,
             activities: Vec::new(),
@@ -592,7 +592,7 @@ fn check_named_activity(text: &str, record: &AthleteRecord) -> Option<VerdictOut
         if actual != Some(claimed) && labels_the_name(&residual, span, name_span) {
             let claimed_date = match claimed {
                 RelativeDay::Today => record.today,
-                RelativeDay::Yesterday => record.today.pred_opt().unwrap_or(record.today),
+                RelativeDay::Yesterday => record.today.pred().unwrap_or(record.today),
             };
             return Some(contradicted(format!(
                 "Places \"{}\" {} ({}), but it is on record for {}.",
@@ -701,7 +701,7 @@ fn blank_span(text: &str, span: (usize, usize)) -> String {
 
 /// The one weekday the text names and where it says it, or `None` when it
 /// names none or several.
-fn sole_weekday(lower: &str) -> Option<(chrono::Weekday, (usize, usize))> {
+fn sole_weekday(lower: &str) -> Option<(Weekday, (usize, usize))> {
     let mut found = None;
     for day in ALL_WEEKDAYS {
         let Some(span) = weekday_forms(day)
@@ -867,7 +867,7 @@ fn describe(figures: &[AssertedFigure]) -> String {
         .map(|f| match f.unit {
             Unit::Kilometres => format!("{} km", trim_float(f.value)),
             Unit::Minutes => format!("{} min", trim_float(f.value)),
-            // The operator reading this in the admin console needs to know
+            // The admin reading this in the admin console needs to know
             // which quantity the layer adjudicated, because the two share a
             // symbol and are checked against different fields.
             Unit::ElevationMetres => format!("{} m D+", trim_float(f.value)),
@@ -913,7 +913,7 @@ fn extract_figures(text: &str) -> Vec<AssertedFigure> {
         // every French reply writes distance ("21,4 km"). Scanning digits alone
         // would end the number at the comma, then re-enter the loop at `4` and
         // record a 4 km figure — a value the athlete never said, matched against
-        // the wrong activity and printed back in the operator explanation.
+        // the wrong activity and printed back in the admin explanation.
         while i < bytes.len()
             && (bytes[i].is_ascii_digit()
                 || bytes[i] == b'.'

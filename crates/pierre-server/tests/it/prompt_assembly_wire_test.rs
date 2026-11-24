@@ -33,7 +33,7 @@ use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::Transport;
 use std::sync::Arc;
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use uuid::Uuid;
 
 use common::{create_test_server_resources_with_chat_provider, create_test_user_with_plan};
@@ -215,6 +215,7 @@ impl Fixture {
                 ambient_group_fallback: false,
                 command_persistence: CommandPersistence::Always,
                 sender_id: None,
+                caller: None,
                 hooks: PipelineHooks::none(),
                 grant: OAuthScope::self_grant(),
             },
@@ -403,7 +404,7 @@ async fn an_interview_turn_carries_its_directive_last_and_no_competing_block() {
 
     let probe = directive(&OnboardingTurn {
         target: Some(GuidedTarget::Coverage(CoverageTarget::NorthStar)),
-        state: OnboardingState::start(Utc::now().to_rfc3339(), GuidedFlow::Pillars),
+        state: OnboardingState::start(Timestamp::now().to_rfc3339(), GuidedFlow::Pillars),
     });
     assert_closes_with(
         &prompt,
@@ -495,7 +496,7 @@ async fn a_flow_that_writes_a_plan_keeps_the_visual_contract() {
 async fn the_turn_after_an_interview_carries_the_release_in_the_same_slot_once() {
     let fx = setup("wire-release@test.com").await;
     let conv = fx.conversation(None).await;
-    let now = Utc::now().to_rfc3339();
+    let now = Timestamp::now().to_rfc3339();
     let retired = OnboardingState::start(now.clone(), GuidedFlow::Calibration)
         .completed(now)
         .to_column()
@@ -540,7 +541,7 @@ async fn the_release_carries_the_introduction_like_every_other_directive() {
         .agent("Coach Trail Laurentides", AgentCategory::Nutrition)
         .await;
     let conv = fx.conversation(Some(&agent)).await;
-    let now = Utc::now().to_rfc3339();
+    let now = Timestamp::now().to_rfc3339();
     let retired = OnboardingState::start(now.clone(), GuidedFlow::Pillars)
         .completed(now)
         .to_column()
@@ -571,7 +572,7 @@ async fn the_release_carries_the_introduction_like_every_other_directive() {
 async fn a_retired_flow_that_ran_no_interview_gets_no_release() {
     let fx = setup("wire-no-release@test.com").await;
     let conv = fx.conversation(None).await;
-    let now = Utc::now().to_rfc3339();
+    let now = Timestamp::now().to_rfc3339();
     let retired = OnboardingState::start(now.clone(), GuidedFlow::Fortnight)
         .completed(now)
         .to_column()
@@ -747,7 +748,7 @@ async fn the_tool_index_names_exactly_what_the_chat_surface_serves() {
         .map(|schema| schema.name)
         .collect();
     let visible_only: Vec<String> = registry
-        .user_visible_schemas()
+        .athlete_audience_schemas()
         .into_iter()
         .map(|schema| schema.name)
         .filter(|name| !callable.contains(name))
@@ -759,7 +760,7 @@ async fn the_tool_index_names_exactly_what_the_chat_surface_serves() {
 
     let conv = fx.conversation(None).await;
     let prompt = fx.turn(&conv, OPENER, "fr").await;
-    // The pipeline's own decision: the operator's switch and the turn's model.
+    // The pipeline's own decision: the admin's switch and the turn's model.
     let on_demand = fx.ctx.config.chat_tools.defer_tools
         && chat_catalogue::defers_on(&fx.ctx.config.llm_chain.head_model().unwrap_or_default());
 

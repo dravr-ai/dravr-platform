@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: One row of the Discover catalogue — a category-tinted initials glyph, name, one-line description, install count and an ink action
-// ABOUTME: 64 tall, full-bleed hairline, no card: replaces the boxed coach card per Boreal v2.2 Phase 5 (D7)
+// ABOUTME: 64 tall, full-bleed hairline, no card: never a boxed coach card
 
 import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';

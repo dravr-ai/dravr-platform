@@ -19,7 +19,7 @@ use crate::common;
 use std::sync::Arc;
 
 use anyhow::Result;
-use chrono::NaiveDate;
+use dravr_tronc::dates::CivilDate;
 use pierre_chat_pipeline::stages::memory::{inject_training_plan, PlanPromptSources};
 use pierre_contremaitre::TrainingCatalogueRegistry;
 use pierre_core::models::TenantId;
@@ -41,8 +41,8 @@ const FUELLED_DATE: &str = "2026-07-15";
 
 /// The athlete's civil date for the card and the prompt: inside the fuelled
 /// day's week, so both render it.
-fn today() -> NaiveDate {
-    NaiveDate::from_ymd_opt(2026, 7, 14).expect("a valid date")
+fn today() -> CivilDate {
+    CivilDate::from_ymd(2026, 7, 14).expect("a valid date")
 }
 
 struct Athlete {
@@ -469,11 +469,11 @@ async fn the_calendar_note_carries_rates_unflagged_and_the_clause_flagged() -> R
             false,
         )
         .await?;
-    let from = NaiveDate::from_ymd_opt(2026, 7, 13).expect("a valid date");
+    let from = CivilDate::from_ymd(2026, 7, 13).expect("a valid date");
     let ride_note = |disclosure: &FuelingDisclosure| {
         desired_entries(athlete.user_id, &weeks, from, disclosure)
             .into_iter()
-            .find(|entry| entry.session.date.format("%Y-%m-%d").to_string() == FUELLED_DATE)
+            .find(|entry| entry.session.date.to_string() == FUELLED_DATE)
             .expect("the ride is a calendar entry")
             .session
             .notes

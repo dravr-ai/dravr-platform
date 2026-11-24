@@ -10,7 +10,6 @@ import {
   dismissInviteCard,
   inviteCardIsOpen,
   dropCarriedGroupInvite,
-  groupInviteCodeFromPath,
   readCarriedGroupInvite,
 } from '../groupInvite';
 
@@ -22,14 +21,6 @@ describe('group invite carry', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
-  });
-
-  it('reads the code a /groups/join/<code> path names, decoded', () => {
-    expect(groupInviteCodeFromPath('/groups/join/MRT2026X')).toBe('MRT2026X');
-    expect(groupInviteCodeFromPath('/groups/join/AB%20CD')).toBe('AB CD');
-    expect(groupInviteCodeFromPath('/groups/join/%E0%A4%A')).toBeNull();
-    expect(groupInviteCodeFromPath('/groups/join/MRT2026X/extra')).toBeNull();
-    expect(groupInviteCodeFromPath('/')).toBeNull();
   });
 
   it('carries the link code for the tab and takes the link out of the address bar', () => {

@@ -11,7 +11,7 @@
 //! `push_subscriptions` API. The platform's `/webhooks/strava` route answers
 //! the subscription's verification challenge and the events, but nothing
 //! registered the subscription — so no event ever arrived. These verbs are
-//! that registration, run by an operator with the app's credentials:
+//! that registration, run by an admin with the app's credentials:
 //!
 //! - `subscribe` POSTs `client_id`, `client_secret`, `callback_url` and
 //!   `verify_token`; Strava immediately GETs the callback with a challenge,

@@ -11,7 +11,7 @@
 //! The rows that matter are not the catalogue's. `tenant_tool_overrides` and
 //! `user_tool_overrides` reference `tool_catalog(tool_name)`
 //! `ON DELETE CASCADE` with no `ON UPDATE`, so a catalogue row deleted ahead of
-//! its children takes every operator's decision with it, and
+//! its children takes every admin's decision with it, and
 //! `guardian::tenant_tool_enabled` reads the resulting absence as "no override
 //! applies" — a tool someone turned off comes back on. A test that read only
 //! the catalogue would pass while that happened, so this one plants a tenant
@@ -91,7 +91,7 @@ const KEEPS_ITS_NAME: &str = "list_coaching_playbooks";
 /// What an override row says, so the assertions read the row that was planted
 /// rather than one the migration could have recreated with defaults.
 fn reason_for(tool_name: &str) -> String {
-    format!("operator turned off {tool_name}")
+    format!("admin turned off {tool_name}")
 }
 
 /// The catalogue columns that must survive the move unchanged. `id` is the
@@ -257,7 +257,7 @@ async fn assert_renamed_sqlite(
         };
         assert_eq!(&now, was, "`{new}` did not carry `{old}`'s columns across");
 
-        // The point of the migration: the operator's decision survived the
+        // The point of the migration: the admin's decision survived the
         // move, as the same row, and now names the new tool.
         let tenant = sqlx::query(
             "SELECT is_enabled, reason FROM tenant_tool_overrides

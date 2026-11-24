@@ -15,7 +15,7 @@
 //! with the athlete's whole authority, so a `fitness:read` token accepted
 //! there could mint a full-grant API key that outlives the grant, drive a
 //! chat turn that runs under the self grant, and reach the admin console
-//! when the athlete is an operator.
+//! when the athlete is an admin.
 //!
 //! Each refusal below is paired with the same request under the athlete's
 //! own session, answered as before: a gate that refused everything would
@@ -29,6 +29,7 @@ use std::sync::Arc;
 
 use axum::extract::connect_info::MockConnectInfo;
 use common::{create_test_server_resources, generate_test_token};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use helpers::axum_test::{AxumTestRequest, AxumTestResponse};
 use helpers::first_party_sign_in::{
     authorize_uri, first_party_router, fresh_state, location, FirstPartyClient, Pkce, DEFAULT_PEER,
@@ -89,7 +90,7 @@ async fn athlete(resources: &Arc<ServerContext>, email: &str, role: UserRole) ->
     user.role = role;
     user.user_status = UserStatus::Active;
     user.approved_by = Some(user.id);
-    user.approved_at = Some(chrono::Utc::now());
+    user.approved_at = Some(Timestamp::now());
     let user_id = user.id;
     let repos = &resources.common.repos;
     repos.users.create(&user).await.unwrap();
@@ -104,8 +105,8 @@ async fn athlete(resources: &Arc<ServerContext>, email: &str, role: UserRole) ->
             domain: None,
             plan: "starter".to_owned(),
             owner_user_id: user_id,
-            created_at: chrono::Utc::now(),
-            updated_at: chrono::Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         })
         .await
         .unwrap();
@@ -146,7 +147,6 @@ fn delegated_token(
                 audience: None,
             },
             &athlete.user_id,
-            &[],
             None,
         )
         .unwrap()
@@ -355,15 +355,10 @@ fn console_admin(resources: &Arc<ServerContext>) -> axum::Router {
 
 #[tokio::test]
 #[serial]
-async fn a_delegated_grant_from_an_operator_cannot_reach_admin_routes() {
+async fn a_delegated_grant_from_an_admin_cannot_reach_admin_routes() {
     let resources = create_test_server_resources().await.unwrap();
-    let operator = athlete(
-        &resources,
-        "delegation-operator@example.com",
-        UserRole::Admin,
-    )
-    .await;
-    let token = delegated(&resources, &operator, &widest_delegation());
+    let admin = athlete(&resources, "delegation-admin@example.com", UserRole::Admin).await;
+    let token = delegated(&resources, &admin, &widest_delegation());
 
     let response = AxumTestRequest::get("/api/admin/tokens")
         .header("authorization", &token)
@@ -378,23 +373,23 @@ async fn a_delegated_grant_from_an_operator_cannot_reach_admin_routes() {
     assert_refused(response, "GET /api/admin/config");
 
     let response = AxumTestRequest::get("/api/admin/tokens")
-        .header("authorization", &operator.session)
+        .header("authorization", &admin.session)
         .send(console_admin(&resources))
         .await;
     assert_eq!(
         response.status(),
         200,
-        "the operator's session still reaches the console"
+        "the admin's session still reaches the console"
     );
 
     let response = AxumTestRequest::get("/api/admin/config")
-        .header("authorization", &operator.session)
+        .header("authorization", &admin.session)
         .send(admin_config(&resources))
         .await;
     assert_eq!(
         response.status(),
         200,
-        "the operator's session still reads the configuration"
+        "the admin's session still reads the configuration"
     );
 }
 
@@ -532,6 +527,7 @@ fn oauth2_routes(resources: &Arc<ServerContext>) -> axum::Router {
         jwks_manager: resources.auth.jwks_manager.clone(),
         config: Arc::new(resources.common.config.oauth2_server.clone()),
         refresh_token_expiry_days: 30,
+        session_cookie_max_age_secs: 86_400,
         csrf_manager: resources.auth.csrf_manager.clone(),
         accounts: resources.account_service(),
         google_sign_in: None,
@@ -785,6 +781,7 @@ async fn no_rest_route_takes_a_delegation_holding_every_scope_for_a_session() {
 enum Ask {
     Get,
     Post(Value),
+    Put(Value),
     Delete,
 }
 
@@ -808,6 +805,7 @@ impl Reached {
         let request = match &self.ask {
             Ask::Get => AxumTestRequest::get(&self.path),
             Ask::Post(body) => AxumTestRequest::post(&self.path).json(body),
+            Ask::Put(body) => AxumTestRequest::put(&self.path).json(body),
             Ask::Delete => AxumTestRequest::delete(&self.path),
         };
         request
@@ -928,6 +926,47 @@ async fn no_route_an_admins_session_reaches_takes_a_delegation_holding_every_sco
             router: |resources| ChatRoutes::routes(Arc::clone(resources)),
             path: format!("{plan_card}/draft"),
             ask: Ask::Delete,
+            session_status: 404,
+        },
+        Reached {
+            what: "PUT …/subject-plan/draft/days/{date}/{n}",
+            router: |resources| ChatRoutes::routes(Arc::clone(resources)),
+            path: format!("{plan_card}/draft/days/2026-11-18/0"),
+            ask: Ask::Put(json!({
+                "build": { "family": "vo2max_short", "sport": "ride" },
+                "expect": { "sport": "run", "workout": "Easy" }
+            })),
+            session_status: 404,
+        },
+        Reached {
+            what: "PUT …/subject-plan/draft/days/{date}/{n}/session",
+            router: |resources| ChatRoutes::routes(Arc::clone(resources)),
+            path: format!("{plan_card}/draft/days/2026-11-18/0/session"),
+            ask: Ask::Put(json!({
+                "day": { "rest": true },
+                "expect": { "sport": "run", "workout": "Easy" }
+            })),
+            session_status: 404,
+        },
+        Reached {
+            what: "POST …/subject-plan/draft/days/{date}/{n}/restore",
+            router: |resources| ChatRoutes::routes(Arc::clone(resources)),
+            path: format!("{plan_card}/draft/days/2026-11-18/0/restore"),
+            ask: Ask::Post(json!({ "expect": { "sport": "run", "workout": "Easy" } })),
+            session_status: 404,
+        },
+        Reached {
+            what: "POST …/subject-plan/draft/days/{date}/{n}/remove",
+            router: |resources| ChatRoutes::routes(Arc::clone(resources)),
+            path: format!("{plan_card}/draft/days/2026-11-18/0/remove"),
+            ask: Ask::Post(json!({ "expect": { "sport": "run", "workout": "Easy" } })),
+            session_status: 404,
+        },
+        Reached {
+            what: "POST …/subject-plan/draft/days/{date}/sessions",
+            router: |resources| ChatRoutes::routes(Arc::clone(resources)),
+            path: format!("{plan_card}/draft/days/2026-11-18/sessions"),
+            ask: Ask::Post(json!({ "day": { "rest": true } })),
             session_status: 404,
         },
     ];
@@ -1163,7 +1202,7 @@ async fn a_refresh_family_naming_no_client_still_mints_a_session() {
     let resources = create_test_server_resources().await.unwrap();
     let athlete = athlete(&resources, "family-no-client@example.com", UserRole::User).await;
     let presented = "a-family-opened-before-the-claim";
-    let now = chrono::Utc::now();
+    let now = Timestamp::now();
     resources
         .common
         .repos
@@ -1176,7 +1215,7 @@ async fn a_refresh_family_naming_no_client_still_mints_a_session() {
                 tenant_id: None,
                 client_id: None,
                 created_at: now,
-                expires_at: now + chrono::Duration::days(30),
+                expires_at: now + Elapsed::days(30),
             },
         )
         .await

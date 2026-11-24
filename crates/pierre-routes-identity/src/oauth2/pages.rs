@@ -12,24 +12,26 @@ use axum::{
     response::{Html, IntoResponse, Response},
 };
 use pierre_auth::oauth2_server::{
-    endpoints::OAuth2AuthorizationServer,
+    endpoints::{without_admin, OAuth2AuthorizationServer},
     models::{AuthorizeRequest, OAuth2Error},
 };
 use pierre_contremaitre::consent_strings::{
     KEY_CONSENT_ALLOW, KEY_CONSENT_DENY, KEY_CONSENT_FIRST_PARTY_ONLY, KEY_CONSENT_LEAD,
     KEY_CONSENT_LIST_PAIR, KEY_CONSENT_PRIVACY_POLICY, KEY_CONSENT_RETURNS_TO,
-    KEY_CONSENT_REVOKE_ANYTIME, KEY_CONSENT_SCOPES_TITLE, KEY_CONSENT_SIGNED_IN_AS,
-    KEY_CONSENT_TERMS, KEY_CONSENT_TITLE, KEY_CONSENT_USE_ANOTHER_ACCOUNT, KEY_ERROR_TITLE,
-    KEY_ERROR_TRY_AGAIN,
+    KEY_CONSENT_REVOKE_ANYTIME, KEY_CONSENT_ROLE_COACH, KEY_CONSENT_SCOPES_TITLE,
+    KEY_CONSENT_SIGNED_IN_AS, KEY_CONSENT_TERMS, KEY_CONSENT_TITLE,
+    KEY_CONSENT_USE_ANOTHER_ACCOUNT, KEY_ERROR_TITLE, KEY_ERROR_TRY_AGAIN,
 };
 use pierre_core::html::{escape_html_attribute, oauth_error_page, with_hosted_page_css};
 use url::Url;
 
+use super::admin_access::admin_access_box;
 use super::consent_copy::{
     client_span, express_consent_line, health_line, outside_quebec_line, trust_line, ClientTrust,
 };
 use super::consent_text::ConsentText;
 use super::login_text::{LoginPageLabels, LoginText};
+use super::picker::GrantChoice;
 use super::OAuth2Routes;
 
 /// Parameters for generating OAuth login HTML
@@ -51,6 +53,12 @@ pub struct LoginHtmlParams<'a> {
     pub code_challenge_method: &'a str,
     /// RFC 8707 resource the authorization is for (empty when none was named)
     pub resource: &'a str,
+    /// RFC 9126 `request_uri` of a pushed request, carried in place of the
+    /// parameters (empty for a request sent in the query)
+    pub request_uri: &'a str,
+    /// RFC 9396 `authorization_details` of a request sent in the query
+    /// (empty for none, and for a pushed request)
+    pub authorization_details: &'a str,
     /// Default email to pre-fill in login form (dev/test only)
     pub default_email: &'a str,
     /// Default password to pre-fill in login form (dev/test only)
@@ -74,6 +82,8 @@ impl fmt::Debug for LoginHtmlParams<'_> {
             .field("code_challenge", &self.code_challenge)
             .field("code_challenge_method", &self.code_challenge_method)
             .field("resource", &self.resource)
+            .field("request_uri", &"[REDACTED]")
+            .field("authorization_details", &self.authorization_details)
             .field("default_email", &self.default_email)
             .field("default_password", &"[REDACTED]")
             .field(
@@ -104,6 +114,9 @@ pub struct ConsentHtmlParams<'a> {
     pub code_challenge_method: &'a str,
     /// RFC 8707 resource the authorization is for (empty when none was named)
     pub resource: &'a str,
+    /// RFC 9126 `request_uri` of a pushed request, which the submission
+    /// resolves again (empty for a request sent in the query)
+    pub request_uri: &'a str,
     /// Synchronizer token the consent submission is checked against
     pub csrf_token: &'a str,
     /// The name the client registered, else its client id
@@ -118,6 +131,35 @@ pub struct ConsentHtmlParams<'a> {
     pub first_party_only_sources: &'a [&'a str],
     /// The page's text in the reader's language
     pub text: &'a ConsentText<'a>,
+    /// The role lines the signed-in user is shown (carnet#1511)
+    pub role: ConsentRole,
+    /// What the screen offers to grant, with the review digest of each
+    /// choice; `None` renders neither a choice nor a digest
+    pub grant_choice: Option<&'a GrantChoice>,
+}
+
+/// Who a consent screen is rendered for, and what it offers them to grant.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct ConsentReader<'a> {
+    /// The account the athlete is signed in as
+    pub(super) account_email: &'a str,
+    /// The role lines they are shown
+    pub(super) role: ConsentRole,
+    /// What the screen offers them to grant
+    pub(super) grant_choice: &'a GrantChoice,
+}
+
+/// Which role lines the consent screen shows the signed-in user: what their
+/// role adds to what the client is offered (carnet#1511). An athlete is shown
+/// none.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ConsentRole {
+    /// A human coach who leads an active group, by the one coach rule.
+    pub coach: bool,
+    /// An admin, on a request Admin access may be granted on (bound to the
+    /// platform's own resource): offered the unticked Admin access box, with
+    /// the admin line inside it.
+    pub admin: bool,
 }
 
 impl fmt::Debug for ConsentHtmlParams<'_> {
@@ -131,12 +173,14 @@ impl fmt::Debug for ConsentHtmlParams<'_> {
             .field("code_challenge", &self.code_challenge)
             .field("code_challenge_method", &self.code_challenge_method)
             .field("resource", &self.resource)
+            .field("request_uri", &"[REDACTED]")
             .field("csrf_token", &"[REDACTED]")
             .field("client_label", &self.client_label)
             .field("account_email", &self.account_email)
             .field("switch_account_url", &"[REDACTED]")
             .field("first_party_only_sources", &self.first_party_only_sources)
             .field("text", &self.text)
+            .field("grant_choice", &self.grant_choice)
             .finish()
     }
 }
@@ -191,10 +235,15 @@ impl OAuth2Routes {
         request: &AuthorizeRequest,
         csrf_token: &str,
         client_name: Option<&str>,
-        account_email: &str,
         first_party_only_sources: &[&str],
         text: &ConsentText<'_>,
+        reader: ConsentReader<'_>,
     ) -> Response {
+        let ConsentReader {
+            account_email,
+            role,
+            grant_choice,
+        } = reader;
         let client_label = client_name
             .map(str::trim)
             .filter(|name| !name.is_empty())
@@ -209,12 +258,15 @@ impl OAuth2Routes {
             code_challenge: request.code_challenge.as_deref().unwrap_or_default(),
             code_challenge_method: request.code_challenge_method.as_deref().unwrap_or_default(),
             resource: request.resource.as_deref().unwrap_or_default(),
+            request_uri: request.request_uri.as_deref().unwrap_or_default(),
             csrf_token,
             client_label,
             account_email,
             switch_account_url: &switch_account_url,
             first_party_only_sources,
             text,
+            role,
+            grant_choice: Some(grant_choice),
         });
         Html(html).into_response()
     }
@@ -265,6 +317,10 @@ impl OAuth2Routes {
             )
             .replace("{{RESOURCE}}", &escape_html_attribute(params.resource))
             .replace(
+                "{{REQUEST_URI}}",
+                &escape_html_attribute(params.request_uri),
+            )
+            .replace(
                 "{{DEFAULT_EMAIL}}",
                 &escape_html_attribute(params.default_email),
             )
@@ -273,6 +329,11 @@ impl OAuth2Routes {
                 &escape_html_attribute(params.default_password),
             )
             .replace("{{GOOGLE_SIGN_IN}}", &google_sign_in)
+            // Last: the client's own text, so nothing in it is expanded.
+            .replace(
+                "{{AUTHORIZATION_DETAILS}}",
+                &escape_html_attribute(params.authorization_details),
+            )
     }
 
     /// Render the OAuth consent page for a client requesting access.
@@ -284,21 +345,45 @@ impl OAuth2Routes {
     /// Render the consent page `template` lays out for `params`.
     pub(super) fn consent_html_from(template: &str, params: ConsentHtmlParams<'_>) -> String {
         let text = params.text;
-        let displayed_scope = if params.scope.is_empty() {
+        // `admin` is never a scope the screen lists or the form echoes: it is
+        // the Admin access box, offered to an admin alone.
+        let requested = without_admin(Some(params.scope)).unwrap_or_default();
+        let displayed_scope = if requested.is_empty() {
             OAuth2AuthorizationServer::default_scope_display()
         } else {
-            params.scope.to_owned()
+            requested
         };
         // Each scope becomes a list item; its text is HTML-escaped before the
         // (literal) <li> markup is substituted into the template.
+        // A preset grant's screen lists the data it shares, so its lines
+        // name no injuries and no activity places the preset never reads.
+        let preset = params.grant_choice.is_some_and(GrantChoice::is_preset);
         let scope_items: String = displayed_scope
             .split_whitespace()
-            .map(|scope| text.scope_item(scope))
+            .map(|scope| text.scope_item(scope, preset))
             .collect();
 
         let trust = ClientTrust::of(params.client_id, params.redirect_uri);
 
         let client = client_span(params.client_label);
+        let admin_box = if params.role.admin {
+            admin_access_box(&client, params.client_id, params.redirect_uri, text)
+        } else {
+            String::new()
+        };
+        // The picker places the Admin access box beside Everything; a
+        // request's own details never show it.
+        let grant_choice = params.grant_choice.map_or_else(String::new, |choice| {
+            choice.render(&admin_box, &client, text)
+        });
+        let admin_box = if params
+            .grant_choice
+            .is_some_and(GrantChoice::places_admin_box)
+        {
+            String::new()
+        } else {
+            admin_box
+        };
 
         // The catalogue's lines go in first, so a request value that spells a
         // placeholder is never expanded into one of them.
@@ -340,15 +425,19 @@ impl OAuth2Routes {
                 ),
             )
             .replace("{{TRUST_LINE}}", &trust_line(&trust, text))
-            .replace("{{HEALTH_LINE}}", &health_line(params.client_label, text))
+            .replace(
+                "{{HEALTH_LINE}}",
+                &health_line(params.client_label, preset, text),
+            )
             .replace(
                 "{{OUTSIDE_QUEBEC_LINE}}",
                 &outside_quebec_line(&trust, params.client_label, text),
             )
             .replace(
                 "{{EXPRESS_CONSENT_LINE}}",
-                &express_consent_line(params.client_label, text),
+                &express_consent_line(params.client_label, preset, text),
             )
+            .replace("{{ADMIN_ACCESS}}", &admin_box)
             .replace("{{CLIENT_ID}}", &escape_html_attribute(params.client_id))
             .replace(
                 "{{REDIRECT_URI}}",
@@ -369,6 +458,10 @@ impl OAuth2Routes {
                 &escape_html_attribute(params.code_challenge_method),
             )
             .replace("{{RESOURCE}}", &escape_html_attribute(params.resource))
+            .replace(
+                "{{REQUEST_URI}}",
+                &escape_html_attribute(params.request_uri),
+            )
             .replace("{{CSRF_TOKEN}}", &escape_html_attribute(params.csrf_token))
             .replace(
                 "{{SWITCH_ACCOUNT_URL}}",
@@ -377,8 +470,15 @@ impl OAuth2Routes {
             .replace("{{SCOPE_ITEMS}}", &scope_items)
             .replace(
                 "{{FIRST_PARTY_ONLY_LINE}}",
-                &first_party_only_line(params.first_party_only_sources, &client, text),
+                &format!(
+                    "{}{}",
+                    role_lines(params.role, &client, text),
+                    first_party_only_line(params.first_party_only_sources, &client, text)
+                ),
             )
+            // Last: it quotes the client's own words, so no placeholder they
+            // spell is expanded.
+            .replace("{{GRANT_CHOICE}}", &grant_choice)
     }
 
     /// Render the page a refused hosted sign-in answers with, in the
@@ -447,10 +547,34 @@ impl OAuth2Routes {
                 &escape_html_attribute(
                     urlencoding::encode(form.get("resource").map_or("", |v| v)).as_ref(),
                 ),
+            )
+            // A pushed request's retry carries its request_uri (RFC 9126);
+            // a request sent in the query carries none.
+            .replace(
+                "{{REQUEST_URI_PARAM}}",
+                &form
+                    .get("request_uri")
+                    .filter(|v| !v.is_empty())
+                    .map_or_else(String::new, |v| {
+                        escape_html_attribute(&format!("&request_uri={}", urlencoding::encode(v)))
+                    }),
             );
 
         (status, Html(error_html)).into_response()
     }
+}
+
+/// The line `role` adds to the disclosures, naming `client`, which is already
+/// markup: the coach line. The admin line is inside the Admin access box,
+/// since it says what ticking the box gives.
+fn role_lines(role: ConsentRole, client: &str, text: &ConsentText<'_>) -> String {
+    if !role.coach {
+        return String::new();
+    }
+    format!(
+        r#"<p class="disclosure">{}</p>"#,
+        text.html(KEY_CONSENT_ROLE_COACH, &[client])
+    )
 }
 
 /// The consent screen's line naming the services whose data stays inside
@@ -484,7 +608,7 @@ pub(super) fn first_party_only_line(
 /// by the same WHATWG URL rules browsers apply, so a `\` or a user-info
 /// part cannot make the screen name one host while the browser goes to
 /// another. A URI with no host (`urn:ietf:wg:oauth:2.0:oob`) is shown whole.
-fn redirect_host(redirect_uri: &str) -> String {
+pub(super) fn redirect_host(redirect_uri: &str) -> String {
     Url::parse(redirect_uri)
         .ok()
         .and_then(|url| {

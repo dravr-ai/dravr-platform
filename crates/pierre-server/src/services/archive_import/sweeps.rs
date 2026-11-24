@@ -33,12 +33,13 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use chrono::{DateTime, TimeDelta, Utc};
 use dravr_barrage::{Importer, UserId};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_database::repositories::{ArchiveErasureRepository, PendingArchiveErasure};
 use pierre_providers::originals::OriginalsStore;
 use pierre_services::account_reset::{AccountArchiveEraser, ArchiveErasure};
+use pierre_services::backoff::doubling_backoff;
 use pierre_services::live_activities::LiveActivityStore;
 use pierre_services::periodic::spawn_periodic;
 use tracing::{info, warn};
@@ -59,13 +60,13 @@ const EXPIRY_INTERVAL: Duration = Duration::from_hours(1);
 /// How far back an upload's end still has its store swept: past the week a
 /// resumable session lives per GCS's documentation, so a session that
 /// completes after its job ended is still caught.
-const UPLOAD_SESSION_LIFETIME: TimeDelta = TimeDelta::days(8);
+const UPLOAD_SESSION_LIFETIME: Elapsed = Elapsed::days(8);
 
 /// How long an import that holds its link or session may stand unchanged
 /// before it counts as stopped: past the six hours Cloud Tasks retries a step
 /// (`archive_imports.tf`), with room for a queue that dispatches one step at a
 /// time.
-const STUCK_AFTER: TimeDelta = TimeDelta::hours(24);
+const STUCK_AFTER: Elapsed = Elapsed::hours(24);
 
 /// How often deleted accounts' imported history is erased.
 const ERASURE_INTERVAL: Duration = Duration::from_mins(5);
@@ -116,7 +117,7 @@ pub fn start_archive_import_sweeps(resources: &Arc<ServerContext>) {
 /// picks up what this one did not reach, each step being idempotent.
 pub async fn expire_awaiting_links(resources: &Arc<ServerContext>) -> AppResult<u64> {
     let wiring = resources.common.archive_imports.wiring()?;
-    let now = Utc::now();
+    let now = Timestamp::now();
     let expired = wiring
         .stores
         .jobs
@@ -132,7 +133,7 @@ pub async fn expire_awaiting_links(resources: &Arc<ServerContext>) -> AppResult<
 
 /// End every import that stopped holding its link or session, and delete what
 /// abandoned uploads left in the store.
-async fn sweep_stopped_imports(importer: &Importer, now: DateTime<Utc>) -> AppResult<()> {
+async fn sweep_stopped_imports(importer: &Importer, now: Timestamp) -> AppResult<()> {
     let stuck = importer
         .fail_stuck_holding_link(now - STUCK_AFTER)
         .await
@@ -167,7 +168,7 @@ pub async fn erase_deleted_accounts(resources: &Arc<ServerContext>) -> AppResult
     let originals = resources.common.originals.as_ref();
     let live = resources.common.live_activities.as_ref();
     let outbox = resources.common.repos.archive_erasures.as_ref();
-    let now = Utc::now();
+    let now = Timestamp::now();
     let mut erased = 0;
     let due = outbox.due(now, ERASURES_PER_PASS).await?;
     for pending in due {
@@ -186,7 +187,7 @@ async fn erase_one(
     originals: &OriginalsStore,
     outbox: &dyn ArchiveErasureRepository,
     pending: &PendingArchiveErasure,
-    now: DateTime<Utc>,
+    now: Timestamp,
 ) -> AppResult<bool> {
     let Ok(account) = Uuid::parse_str(&pending.erased_account_id) else {
         warn!("an archive erasure names no account id; it is dropped");
@@ -294,10 +295,10 @@ async fn record_failure(
     outbox: &dyn ArchiveErasureRepository,
     pending: &PendingArchiveErasure,
     error: &str,
-    now: DateTime<Utc>,
+    now: Timestamp,
 ) -> AppResult<()> {
     let wait = backoff(pending.attempts);
-    let next = now + TimeDelta::from_std(wait).unwrap_or_else(|_| TimeDelta::hours(6));
+    let next = now + Elapsed::from_std(wait).unwrap_or_else(|_| Elapsed::hours(6));
     warn!(
         attempts = pending.attempts + 1,
         error, "a deleted account's imported history could not be erased yet"
@@ -310,10 +311,7 @@ async fn record_failure(
 /// The wait after `attempts` failures: doubling from [`FIRST_BACKOFF`],
 /// never past [`MAX_BACKOFF`].
 fn backoff(attempts: i64) -> Duration {
-    let doublings = u32::try_from(attempts.clamp(0, 16)).unwrap_or(16);
-    FIRST_BACKOFF
-        .saturating_mul(2_u32.saturating_pow(doublings))
-        .min(MAX_BACKOFF)
+    doubling_backoff(FIRST_BACKOFF, MAX_BACKOFF, attempts)
 }
 
 #[cfg(test)]

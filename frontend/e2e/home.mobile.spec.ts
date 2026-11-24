@@ -256,7 +256,7 @@ test.describe('Athlete Home — mobile viewport', () => {
     expect(names).toEqual(['Home', 'Groups', 'Discover', 'Open menu']);
     await expect(nav.getByRole('button', { name: 'Home' })).toHaveAttribute('aria-current', 'page');
     await openToday(page);
-    await expect(page.getByTestId('home-today-session')).toContainText('Tempo run');
+    await expect(page.getByTestId('home-today-session-0')).toContainText('Tempo run');
   });
 
   test('fits the phone: no sideways scroll, the week strip inside the viewport, 44px day targets', async ({ page }) => {
@@ -539,7 +539,7 @@ test.describe('Athlete Home — mobile viewport, a connection to reconnect', () 
   });
 });
 
-test.describe('Operator shell — mobile viewport', () => {
+test.describe('Admin shell — mobile viewport', () => {
   test('on an installed iOS PWA the admin header is topmost, so it takes the inset and the band under it does not', async ({ page }) => {
     await setupAndLoginAsAdmin(page);
     const header = page.locator('main > header');

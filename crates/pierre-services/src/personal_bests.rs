@@ -89,8 +89,8 @@ use std::fmt;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use chrono::{DateTime, Utc};
 use dravr_cageux::best_efforts::{best_efforts, STANDARD_RUNNING_DISTANCES_METERS};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::{Activity, SportType, TenantId, TimeSeriesData};
 use pierre_database::repositories::{
@@ -351,7 +351,7 @@ impl PersonalBests {
         let name = athlete_lease_name(user_id, tenant_id);
         let deadline = Instant::now() + patience;
         loop {
-            let now_ms = Utc::now().timestamp_millis();
+            let now_ms = Timestamp::now().epoch_millis();
             if let Some(token) = self
                 .leases
                 .claim_worker_run(&name, 0, now_ms, millis(ATHLETE_LEASE))
@@ -372,7 +372,7 @@ impl PersonalBests {
         let name = athlete_lease_name(user_id, tenant_id);
         if let Err(e) = self
             .leases
-            .finish_worker_run(&name, Utc::now().timestamp_millis(), Some(lease))
+            .finish_worker_run(&name, Timestamp::now().epoch_millis(), Some(lease))
             .await
         {
             warn!(%user_id, error = %e, "athlete lease could not be released; it runs out on its own");
@@ -545,7 +545,7 @@ impl PersonalBests {
             match self.next_page(&mut batch, &keys, &mut seed, walk).await? {
                 PageOutcome::Stop(pause) => break SeedProgress::Paused(pause),
                 PageOutcome::End => {
-                    seed.completed_at = Some(Utc::now());
+                    seed.completed_at = Some(Timestamp::now());
                     break SeedProgress::Complete;
                 }
                 PageOutcome::Page(page) => {
@@ -642,8 +642,8 @@ impl PersonalBests {
         walk: Option<i64>,
     ) -> AppResult<Vec<Activity>> {
         let end = walk
-            .and_then(|ts| DateTime::from_timestamp(ts, 0))
-            .unwrap_or_else(Utc::now);
+            .and_then(|ts| Timestamp::from_epoch_seconds(ts).ok())
+            .unwrap_or_else(Timestamp::now);
         let limit = i64::try_from(SEED_PAGE_SIZE).unwrap_or(i64::MAX);
         let mut seen = HashSet::new();
         let mut page = Vec::new();
@@ -654,7 +654,7 @@ impl PersonalBests {
                     user_id,
                     &tenant_id,
                     Some(key),
-                    DateTime::UNIX_EPOCH,
+                    Timestamp::UNIX_EPOCH,
                     end,
                     limit,
                 )
@@ -666,7 +666,9 @@ impl PersonalBests {
             }
         }
         // The store's bound is inclusive; the walk has handled `walk` itself.
-        page.retain(|activity| walk.is_none_or(|bound| activity.start_date().timestamp() < bound));
+        page.retain(|activity| {
+            walk.is_none_or(|bound| activity.start_date().epoch_seconds() < bound)
+        });
         page.sort_by_key(|activity| Reverse(activity.start_date()));
         page.truncate(SEED_PAGE_SIZE);
         Ok(page)
@@ -699,7 +701,7 @@ impl PersonalBests {
                     return Ok(Some(pause));
                 }
             }
-            let start = activity.start_date().timestamp();
+            let start = activity.start_date().epoch_seconds();
             *walk = Some(start);
             if batch.suspect.is_none() {
                 seed.cursor_before = Some(start);
@@ -762,7 +764,13 @@ impl PersonalBests {
             }
         }
         self.repo
-            .record_activity_scan(user_id, tenant_id, scan_key(run), run.id(), Utc::now())
+            .record_activity_scan(
+                user_id,
+                tenant_id,
+                scan_key(run),
+                run.id(),
+                Timestamp::now(),
+            )
             .await?;
         Ok(results)
     }

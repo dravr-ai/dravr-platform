@@ -5,8 +5,8 @@
 // Copyright (c) 2026 dravr.ai
 
 use async_trait::async_trait;
-use chrono::Utc;
 use dravr_canot::commands::CommandResponse;
+use dravr_tronc::dates::Timestamp;
 use pierre_contremaitre::messaging_strings::{
     KEY_PILLARS_ARG_DM_ONLY, KEY_PILLARS_OPENER, KEY_PILLARS_OPENER_ROOM, KEY_PILLARS_START_FAILED,
 };
@@ -174,7 +174,7 @@ impl CommandHandler for PillarsHandler {
         // `start_now_column` so the subject binding and audience are never
         // dropped — a room activation that lost them would let any member's
         // message advance the walk.
-        let state = OnboardingState::start(Utc::now().to_rfc3339(), GuidedFlow::Pillars)
+        let state = OnboardingState::start(Timestamp::now().to_rfc3339(), GuidedFlow::Pillars)
             .with_subject(user.clone())
             .with_audience(audience);
         let json = state
@@ -238,6 +238,7 @@ impl CommandHandler for PillarsHandler {
             channel_type: None,
             about_user_id: None,
             turn_attempted_write: None,
+            ai_consent_sources: &ai_scope::derived_consent_sources(),
         };
         if let Err(e) = repos.chat.add_message(&opener).await {
             // The walk is already active and re-derives coverage from the

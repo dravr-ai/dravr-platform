@@ -15,6 +15,11 @@ import type {
   Conversation,
   ConversationParticipant,
   ConversationParticipantsResponse,
+  AddedSession,
+  DraftDayRequest,
+  HandDayRequest,
+  SessionExpect,
+  FamilyCatalogueResponse,
   Message,
   MessageFeedbackEntry,
   MessageOrigin,
@@ -23,6 +28,8 @@ import type {
   PublishSubjectPlanRequest,
   PublishSubjectPlanResult,
   SendMessageRequest,
+  SessionPreview,
+  SessionPreviewRequest,
   SportAnchorName,
   SportFamily,
   StartersResponse,
@@ -32,9 +39,11 @@ import type {
 } from '@pierre/shared-types';
 import {
   parseAthletePlanResponse,
+  parseFamilyCatalogueResponse,
   parsePhysiologyResponse,
   parsePlanPublishConflict,
   parsePublishedSubjectPlan,
+  parseSessionPreview,
   parseSubjectPlanResponse,
 } from '@pierre/shared-types';
 import type { PlatformAdapter } from '../types/platform';
@@ -502,6 +511,125 @@ export function createChatApi(axios: AxiosInstance, adapter: PlatformAdapter) {
      */
     async discardSubjectPlanDraft(conversationId: string): Promise<void> {
       await axios.delete(ENDPOINTS.CHAT.SUBJECT_PLAN_DRAFT(conversationId));
+    },
+
+    /**
+     * The workout families the plan thread's athlete's agent offers, with
+     * each preset's evidence ranges, for the coach's "build from family"
+     * editor (carnet#1515). Names and purpose labels in the coach's locale.
+     */
+    async getSubjectFamilies(conversationId: string, locale?: string): Promise<FamilyCatalogueResponse> {
+      const endpoint = ENDPOINTS.CHAT.SUBJECT_FAMILIES(conversationId);
+      const response = await axios.get<unknown>(endpoint, { params: locale ? { locale } : undefined });
+      return requireShape(parseFamilyCatalogueResponse(response.data), endpoint);
+    },
+
+    /**
+     * The session a build makes for one of the athlete's days: its steps on
+     * the athlete's stored anchors, what the kernel derives, and the
+     * warn-only envelope findings. Nothing is saved; a value outside the
+     * preset's range is measured, never refused (D3).
+     */
+    async previewSubjectSession(
+      conversationId: string,
+      request: SessionPreviewRequest,
+      locale?: string,
+    ): Promise<SessionPreview> {
+      const endpoint = ENDPOINTS.CHAT.SUBJECT_SESSION_PREVIEW(conversationId);
+      const response = await axios.post<unknown>(endpoint, request, {
+        params: locale ? { locale } : undefined,
+      });
+      return requireShape(parseSessionPreview(response.data), endpoint);
+    },
+
+    /**
+     * Save a build over session `position` of a date in the coach's draft of
+     * the athlete's plan, opening the draft from the live plan when the coach
+     * holds none. `expect` is the session as the card showed it; a position
+     * that now holds another session is refused (409 `session_moved`). The
+     * athlete sees nothing until the coach publishes. Answers the subject plan
+     * as `getSubjectPlan` reads it after the write.
+     */
+    async saveSubjectDraftDay(
+      conversationId: string,
+      date: string,
+      position: number,
+      build: DraftDayRequest,
+      expect: SessionExpect,
+      locale?: string,
+    ): Promise<SubjectPlanResponse> {
+      const endpoint = ENDPOINTS.CHAT.SUBJECT_DRAFT_DAY(conversationId, date, position);
+      const response = await axios.put<unknown>(endpoint, { build, expect }, {
+        params: locale ? { locale } : undefined,
+      });
+      return requireShape(parseSubjectPlanResponse(response.data), endpoint);
+    },
+
+    /**
+     * Save a session the coach wrote by hand, or a rest day, over session
+     * `position` of a date in the coach's draft (carnet#1714, #1716). The
+     * draft keeps the session as it stood before the coach's first edit.
+     */
+    async saveSubjectDraftHandDay(
+      conversationId: string,
+      date: string,
+      position: number,
+      day: HandDayRequest,
+      expect: SessionExpect,
+      locale?: string,
+    ): Promise<SubjectPlanResponse> {
+      const endpoint = ENDPOINTS.CHAT.SUBJECT_DRAFT_HAND_DAY(conversationId, date, position);
+      const response = await axios.put<unknown>(endpoint, { day, expect }, {
+        params: locale ? { locale } : undefined,
+      });
+      return requireShape(parseSubjectPlanResponse(response.data), endpoint);
+    },
+
+    /**
+     * Put session `position` back as it stood before the coach's first edit,
+     * or remove it when the coach added it (carnet#1714, #1716).
+     */
+    async restoreSubjectDraftDay(
+      conversationId: string,
+      date: string,
+      position: number,
+      expect: SessionExpect,
+      locale?: string,
+    ): Promise<SubjectPlanResponse> {
+      const endpoint = ENDPOINTS.CHAT.SUBJECT_DRAFT_DAY_RESTORE(conversationId, date, position);
+      const response = await axios.post<unknown>(endpoint, { expect }, {
+        params: locale ? { locale } : undefined,
+      });
+      return requireShape(parseSubjectPlanResponse(response.data), endpoint);
+    },
+
+    /** Remove session `position` from a date that holds more than one, in the coach's draft (carnet#1716). */
+    async removeSubjectDraftDay(
+      conversationId: string,
+      date: string,
+      position: number,
+      expect: SessionExpect,
+      locale?: string,
+    ): Promise<SubjectPlanResponse> {
+      const endpoint = ENDPOINTS.CHAT.SUBJECT_DRAFT_DAY_REMOVE(conversationId, date, position);
+      const response = await axios.post<unknown>(endpoint, { expect }, {
+        params: locale ? { locale } : undefined,
+      });
+      return requireShape(parseSubjectPlanResponse(response.data), endpoint);
+    },
+
+    /** Add a session at the end of a date's entries in the coach's draft, marked as the coach's (carnet#1716). */
+    async addSubjectDraftSession(
+      conversationId: string,
+      date: string,
+      session: AddedSession,
+      locale?: string,
+    ): Promise<SubjectPlanResponse> {
+      const endpoint = ENDPOINTS.CHAT.SUBJECT_DRAFT_SESSIONS(conversationId, date);
+      const response = await axios.post<unknown>(endpoint, session, {
+        params: locale ? { locale } : undefined,
+      });
+      return requireShape(parseSubjectPlanResponse(response.data), endpoint);
     },
 
     /**

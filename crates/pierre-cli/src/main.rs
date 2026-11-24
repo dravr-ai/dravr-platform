@@ -37,6 +37,9 @@
 //! # Show token statistics
 //! pierre-cli token stats
 //!
+//! # Create the confidential client a resource server introspects tokens with
+//! pierre-cli oauth2-client create --name barrage-mcp
+//!
 //! # Register the Strava push subscription (webhook) for the app
 //! STRAVA_WEBHOOK_VERIFY_TOKEN=... pierre-cli strava-webhook subscribe --base-url https://dev.dravr.ai
 //! pierre-cli strava-webhook list
@@ -160,13 +163,13 @@ enum Command {
         action: commands::key::KeyCommand,
     },
 
-    /// Physiological zone operator commands (re-cut stored zones)
+    /// Physiological zone admin commands (re-cut stored zones)
     Zones {
         #[command(subcommand)]
         action: commands::zones::ZonesCommand,
     },
 
-    /// Coaching harness operator commands (claim verdict backfill, etc.)
+    /// Coaching harness admin commands (claim verdict backfill, etc.)
     #[cfg(feature = "tools-verification")]
     Harness {
         #[command(subcommand)]
@@ -213,13 +216,19 @@ enum Command {
     /// Per-user MCP tool allow/deny
     Tool {
         #[command(subcommand)]
-        action: ToolCommand,
+        action: commands::tool::ToolCommand,
+    },
+
+    /// OAuth clients the admin provisions (a resource server's introspection client)
+    Oauth2Client {
+        #[command(subcommand)]
+        action: commands::oauth2_client::Oauth2ClientCommand,
     },
 
     /// A user's API keys, and the tools one key called
     ApiKey {
         #[command(subcommand)]
-        action: ApiKeyCommand,
+        action: commands::api_key::ApiKeyCommand,
     },
 
     /// The activity store on a remote server (adopting the activity cache)
@@ -240,7 +249,7 @@ enum Command {
         action: commands::deletion::DeletionCommand,
     },
 
-    /// The admin audit trail on a remote server: what operators did, newest first
+    /// The admin audit trail on a remote server: what admins did, newest first
     Audit {
         #[command(subcommand)]
         action: commands::audit::AuditCommand,
@@ -273,7 +282,7 @@ enum AuthCommand {
 
     /// Approve a pending device login (super-admin)
     Approve {
-        /// The user code shown by the operator's `auth login`
+        /// The user code shown by the admin's `auth login`
         user_code: String,
 
         /// Server override (defaults to the cached login's server)
@@ -287,7 +296,7 @@ enum AuthCommand {
 
     /// Deny a pending device login (super-admin)
     Deny {
-        /// The user code shown by the operator's `auth login`
+        /// The user code shown by the admin's `auth login`
         user_code: String,
 
         /// Server override (defaults to the cached login's server)
@@ -460,7 +469,7 @@ enum UserCommand {
         #[arg(long, value_name = "admin|user")]
         role: Option<String>,
 
-        /// Operator note recorded on the tier override marker
+        /// Admin note recorded on the tier override marker
         #[arg(long)]
         note: Option<String>,
 
@@ -483,7 +492,7 @@ enum UserCommand {
         #[arg(long)]
         tier: String,
 
-        /// Operator note recorded on the override marker
+        /// Admin note recorded on the override marker
         #[arg(long)]
         note: Option<String>,
     },
@@ -515,7 +524,7 @@ enum UserCommand {
         #[arg(long)]
         email: String,
 
-        /// Operator note recorded on the allow (cohort, reason)
+        /// Admin note recorded on the allow (cohort, reason)
         #[arg(long)]
         note: Option<String>,
 
@@ -531,7 +540,7 @@ enum UserCommand {
 
         /// Print the invitation link instead of mailing it (super-admin only)
         ///
-        /// For operator-driven end-to-end testing on a deployed environment,
+        /// For admin-driven end-to-end testing on a deployed environment,
         /// where the test addresses have no mailbox anyone reads. The link is
         /// printed alone on its own line; nothing is mailed.
         #[arg(long, requires = "send_invite")]
@@ -639,7 +648,7 @@ enum UserCommand {
         #[arg(long)]
         monthly: Option<u32>,
 
-        /// Operator note recorded on the override
+        /// Admin note recorded on the override
         #[arg(long)]
         note: Option<String>,
     },
@@ -680,83 +689,6 @@ enum UserCommand {
 
     /// List a user's per-user feature-flag overrides
     ListFeatures {
-        /// Email of the user
-        #[arg(long)]
-        email: String,
-    },
-}
-
-#[non_exhaustive]
-#[derive(Subcommand)]
-enum ApiKeyCommand {
-    /// List a user's API keys, revoked ones marked
-    List {
-        /// Email of the key owner
-        #[arg(long)]
-        email: String,
-    },
-
-    /// Show one key's requests and the tools it called, most-called first
-    Usage {
-        /// Email of the key owner; the key must be theirs
-        #[arg(long)]
-        email: String,
-
-        /// API key id (from `api-key list`)
-        key_id: String,
-
-        /// Window in days, ending now
-        #[arg(long, default_value_t = 30)]
-        days: u32,
-    },
-}
-
-#[non_exhaustive]
-#[derive(Subcommand)]
-enum ToolCommand {
-    /// Force-enable an MCP tool for a user (overrides plan + tenant gating)
-    Enable {
-        /// Email of the user
-        #[arg(long)]
-        email: String,
-
-        /// MCP tool name (must exist in the tool catalog)
-        #[arg(long)]
-        tool: String,
-
-        /// Operator note recorded on the override
-        #[arg(long)]
-        reason: Option<String>,
-    },
-
-    /// Force-disable an MCP tool for a user
-    Disable {
-        /// Email of the user
-        #[arg(long)]
-        email: String,
-
-        /// MCP tool name (must exist in the tool catalog)
-        #[arg(long)]
-        tool: String,
-
-        /// Operator note recorded on the override
-        #[arg(long)]
-        reason: Option<String>,
-    },
-
-    /// Remove a per-user tool override (revert to plan/tenant/default)
-    Reset {
-        /// Email of the user
-        #[arg(long)]
-        email: String,
-
-        /// MCP tool name
-        #[arg(long)]
-        tool: String,
-    },
-
-    /// List a user's per-user tool overrides
-    List {
         /// Email of the user
         #[arg(long)]
         email: String,
@@ -1113,36 +1045,11 @@ async fn main() -> Result<()> {
                 }
             },
             Command::Tenant { action } => commands::tenant::dispatch(&repos, action).await?,
-            Command::ApiKey { action } => match action {
-                ApiKeyCommand::List { email } => commands::api_key::list(&repos, email).await?,
-                ApiKeyCommand::Usage {
-                    email,
-                    key_id,
-                    days,
-                } => commands::api_key::usage(&repos, email, key_id, days).await?,
-            },
-            Command::Tool { action } => match action {
-                ToolCommand::Enable {
-                    email,
-                    tool,
-                    reason,
-                } => {
-                    commands::tool::enable(&repos, email, tool, reason).await?;
-                }
-                ToolCommand::Disable {
-                    email,
-                    tool,
-                    reason,
-                } => {
-                    commands::tool::disable(&repos, email, tool, reason).await?;
-                }
-                ToolCommand::Reset { email, tool } => {
-                    commands::tool::reset(&repos, email, tool).await?;
-                }
-                ToolCommand::List { email } => {
-                    commands::tool::list(&repos, email).await?;
-                }
-            },
+            Command::ApiKey { action } => commands::api_key::dispatch(&repos, action).await?,
+            Command::Tool { action } => commands::tool::dispatch(&repos, action).await?,
+            Command::Oauth2Client { action } => {
+                commands::oauth2_client::dispatch(&repos, action).await?;
+            }
             Command::Token { action } => match action {
                 TokenCommand::Generate {
                     service,

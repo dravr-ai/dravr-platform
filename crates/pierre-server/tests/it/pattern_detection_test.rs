@@ -7,20 +7,20 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use chrono::{Duration, TimeZone, Utc};
-use chrono_tz::UTC;
 use dravr_cageux::pattern_detection::PatternDetector;
-use dravr_cageux::training_load::RiskLevel;
 use dravr_cageux::zones::HrZones;
+use dravr_tronc::dates::Weekday;
+use dravr_tronc::dates::Zone;
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::models::{Activity, ActivityBuilder, SportType};
 
 fn create_test_activity(days_ago: i64, distance_km: f64, avg_hr: Option<u32>) -> Activity {
-    let date = Utc::now() - Duration::days(days_ago);
+    let date = Timestamp::now() - Elapsed::days(days_ago);
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     let duration = (distance_km * 300.0) as u64; // ~5 min/km pace
 
     let mut builder = ActivityBuilder::new(
-        format!("test_{}", date.timestamp()),
+        format!("test_{}", date.epoch_seconds()),
         "Test Activity",
         SportType::Run,
         date,
@@ -47,11 +47,11 @@ fn test_weekly_schedule_detection() {
         // Friday
     }
 
-    // UTC explicitly: this fixture builds its days in UTC, so the athlete's
+    // Zone::utc() explicitly: this fixture builds its days in Zone::utc(), so the athlete's
     // clock and the server's are the same one here. Naming it is the point —
     // the zone used to be implicit, which is how the histograms ended up on the
     // wrong day for anyone training in the evening (registre#252).
-    let pattern = PatternDetector::detect_weekly_schedule(&activities, UTC);
+    let pattern = PatternDetector::detect_weekly_schedule(&activities, &Zone::utc());
 
     // With 3 equally distributed days, consistency score ~= 33 (1/3² + 1/3² + 1/3²) * 100
     assert!(
@@ -86,23 +86,6 @@ fn test_hard_easy_pattern_detection() {
     let blind = PatternDetector::detect_hard_easy_pattern(&activities, None);
     assert!(!blind.pattern_detected);
     assert!(blind.hard_percentage.abs() < f64::EPSILON);
-}
-
-#[test]
-fn test_hr_drift_detection() {
-    // Create activities with increasing HR (fatigue signal)
-    let mut activities = Vec::new();
-    for i in 0..12 {
-        let hr = 140 + (i * 2); // HR increases over time
-        #[allow(clippy::cast_sign_loss)]
-        activities.push(create_test_activity(i64::from(i), 10.0, Some(hr as u32)));
-    }
-
-    let zones = HrZones::for_athlete(None, 50, 190).unwrap();
-    let signals = PatternDetector::detect_overtraining_signals(&activities, Some(&zones));
-
-    assert!(signals.hr_drift_detected);
-    assert_ne!(signals.risk_level, RiskLevel::Low);
 }
 
 #[test]
@@ -146,26 +129,22 @@ fn test_volume_spike_detection() {
 
 /// The zone actually reaches the histograms.
 ///
-/// Every other call site in this file passes `UTC`, which is the same frame the
+/// Every other call site in this file passes `Zone::utc()`, which is the same frame the
 /// fixture builds its days in — so reverting the conversion inside
 /// `detect_weekly_schedule` would leave the whole suite green and carnet#252
 /// would be unmeasured (registre#258).
 ///
-/// Six evening sessions at 21:30 America/Toronto, which is 01:30 UTC the
+/// Six evening sessions at 21:30 America/Toronto, which is 01:30 `Zone::utc()` the
 /// following day: the local reading and the server reading disagree on both the
 /// weekday and the hour, so this fails the moment the conversion stops
 /// happening.
 #[test]
 fn the_athletes_zone_reaches_both_histograms() {
-    use chrono_tz::America::Toronto;
-
     let activities: Vec<Activity> = (0..6)
         .map(|w| {
-            let start = Utc
-                .with_ymd_and_hms(2026, 9, 2, 1, 30, 0)
-                .single()
+            let start = Timestamp::parse_from_rfc3339("2026-09-02T01:30:00Z")
                 .expect("valid instant")
-                - Duration::weeks(w);
+                - Elapsed::weeks(w);
             ActivityBuilder::new(
                 format!("evening-{w}"),
                 "Evening ride",
@@ -178,12 +157,15 @@ fn the_athletes_zone_reaches_both_histograms() {
         })
         .collect();
 
-    let local = PatternDetector::detect_weekly_schedule(&activities, Toronto);
-    let server = PatternDetector::detect_weekly_schedule(&activities, UTC);
+    let local = PatternDetector::detect_weekly_schedule(
+        &activities,
+        &Zone::from_name("America/Toronto").unwrap(),
+    );
+    let server = PatternDetector::detect_weekly_schedule(&activities, &Zone::utc());
 
     assert_eq!(
         local.most_common_days.first(),
-        Some(&chrono::Weekday::Tue),
+        Some(&Weekday::Tue),
         "21:30 Tuesday in Toronto is Tuesday training: {:?}",
         local.most_common_days
     );

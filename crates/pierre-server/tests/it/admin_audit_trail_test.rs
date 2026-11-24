@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! On 2026-11-04 an operator removed three pre-approved emails from the
+//! On 2026-11-04 an admin removed three pre-approved emails from the
 //! console and believed he had deleted users. Nothing the server kept could
 //! say which: its log lines named neither the admin nor the address, and the
 //! `audit_events` table had no writer. These tests drive the app the
@@ -35,6 +35,7 @@ use uuid::Uuid;
 
 use crate::common::{create_test_server_resources, generate_test_token};
 use crate::helpers::axum_test::AxumTestRequest;
+use dravr_tronc::dates::Timestamp;
 
 /// A signed-in admin: the bearer header and the account id.
 struct Admin {
@@ -65,8 +66,8 @@ async fn admin(resources: &Arc<ServerContext>, email: &str, role: UserRole) -> R
             domain: None,
             plan: "starter".to_owned(),
             owner_user_id: user_id,
-            created_at: chrono::Utc::now(),
-            updated_at: chrono::Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         })
         .await?;
     resources
@@ -91,8 +92,8 @@ async fn athlete(resources: &Arc<ServerContext>, email: &str) -> Result<Uuid> {
     Ok(user_id)
 }
 
-/// An admin `pierre-cli` device-login token acting as `operator`.
-async fn cli_token(resources: &Arc<ServerContext>, operator: &Admin) -> Result<String> {
+/// An admin `pierre-cli` device-login token acting as `admin`.
+async fn cli_token(resources: &Arc<ServerContext>, admin: &Admin) -> Result<String> {
     let generated = resources
         .common
         .repos
@@ -105,7 +106,7 @@ async fn cli_token(resources: &Arc<ServerContext>, operator: &Admin) -> Result<S
                 expires_in_days: Some(1),
                 is_super_admin: true,
                 tenant_id: None,
-                operator_user_id: Some(operator.user_id),
+                operator_user_id: Some(admin.user_id),
             },
             resources.auth.admin_jwt_secret.as_ref(),
             &resources.auth.jwks_manager,
@@ -170,17 +171,17 @@ async fn trail(resources: &Arc<ServerContext>) -> Result<Vec<AuditEventRecord>> 
 async fn a_console_write_is_recorded_with_its_actor_route_and_target() -> Result<()> {
     let resources = create_test_server_resources().await?;
     let app = ProviderToolRouter::build_http_app(&resources);
-    let operator = admin(&resources, "audit-console@example.com", UserRole::Admin).await?;
+    let admin = admin(&resources, "audit-console@example.com", UserRole::Admin).await?;
     let target = "invited-athlete@example.com";
 
     let allowed = AxumTestRequest::post("/api/admin/pre-approved-emails")
-        .header("Authorization", &operator.auth)
+        .header("Authorization", &admin.auth)
         .json(&json!({ "email": target }))
         .send(app.clone())
         .await;
     assert_eq!(allowed.status(), 200);
     let listed = AxumTestRequest::get("/api/admin/pre-approved-emails")
-        .header("Authorization", &operator.auth)
+        .header("Authorization", &admin.auth)
         .send(app.clone())
         .await;
     assert_eq!(listed.status(), 200);
@@ -188,7 +189,7 @@ async fn a_console_write_is_recorded_with_its_actor_route_and_target() -> Result
         "/api/admin/pre-approved-emails/{}",
         urlencoding::encode(target)
     ))
-    .header("Authorization", &operator.auth)
+    .header("Authorization", &admin.auth)
     .send(app.clone())
     .await;
     assert_eq!(removed.status(), 200);
@@ -214,7 +215,7 @@ async fn a_console_write_is_recorded_with_its_actor_route_and_target() -> Result
     assert_eq!(removal.source, "console");
     assert_eq!(
         removal.actor_user_id.as_deref(),
-        Some(operator.user_id.to_string().as_str())
+        Some(admin.user_id.to_string().as_str())
     );
     assert_eq!(
         removal.actor_email.as_deref(),
@@ -234,7 +235,7 @@ async fn a_console_write_is_recorded_with_its_actor_route_and_target() -> Result
 
     // An action key holding `_` filters by its own text, not as a wildcard.
     let filtered = AxumTestRequest::get("/api/admin/audit-events?action=pre_approval.")
-        .header("Authorization", &operator.auth)
+        .header("Authorization", &admin.auth)
         .send(app.clone())
         .await;
     assert_eq!(filtered.status(), 200, "{}", filtered.body_text());
@@ -320,10 +321,10 @@ async fn a_minted_and_a_rotated_token_are_on_the_trail_with_their_maker() -> Res
 async fn a_sign_up_settings_change_records_what_it_was_and_what_it_became() -> Result<()> {
     let resources = create_test_server_resources().await?;
     let app = ProviderToolRouter::build_http_app(&resources);
-    let operator = admin(&resources, "audit-settings@example.com", UserRole::Admin).await?;
+    let admin = admin(&resources, "audit-settings@example.com", UserRole::Admin).await?;
 
     let response = AxumTestRequest::put("/api/admin/settings/signup")
-        .header("Authorization", &operator.auth)
+        .header("Authorization", &admin.auth)
         .json(&json!({ "daily_limit": 1000 }))
         .send(app.clone())
         .await;
@@ -363,7 +364,7 @@ async fn a_refused_write_is_recorded_and_a_stranger_writes_nothing() -> Result<(
         .await;
     assert_eq!(refused.status(), 403);
 
-    // No credential at all is not an operator's action.
+    // No credential at all is not an admin's action.
     let stranger = AxumTestRequest::post(&format!("/api/admin/suspend-user/{coach}"))
         .json(&json!({ "reason": "probe" }))
         .send(app.clone())
@@ -397,19 +398,19 @@ async fn a_refused_write_is_recorded_and_a_stranger_writes_nothing() -> Result<(
 async fn a_deleted_account_leaves_no_trace_in_the_trail() -> Result<()> {
     let resources = create_test_server_resources().await?;
     let app = ProviderToolRouter::build_http_app(&resources);
-    let operator = admin(&resources, "audit-super@example.com", UserRole::Admin).await?;
+    let admin = admin(&resources, "audit-super@example.com", UserRole::Admin).await?;
     let email = "leaving-athlete@example.com";
     let leaving = athlete(&resources, email).await?;
 
     // An earlier action that names the account, by id and by email.
     let suspended = AxumTestRequest::post(&format!("/api/admin/suspend-user/{leaving}"))
-        .header("Authorization", &operator.auth)
+        .header("Authorization", &admin.auth)
         .json(&json!({ "reason": "asked to leave" }))
         .send(app.clone())
         .await;
     assert_eq!(suspended.status(), 200);
     let allowed = AxumTestRequest::post("/api/admin/pre-approved-emails")
-        .header("Authorization", &operator.auth)
+        .header("Authorization", &admin.auth)
         .json(&json!({ "email": email }))
         .send(app.clone())
         .await;
@@ -418,7 +419,7 @@ async fn a_deleted_account_leaves_no_trace_in_the_trail() -> Result<()> {
     // the deleted account and must survive the deletion.
     let bystander = "also-leaving-athlete@example.com";
     let allowed = AxumTestRequest::post("/api/admin/pre-approved-emails")
-        .header("Authorization", &operator.auth)
+        .header("Authorization", &admin.auth)
         .json(&json!({ "email": bystander }))
         .send(app.clone())
         .await;
@@ -426,7 +427,7 @@ async fn a_deleted_account_leaves_no_trace_in_the_trail() -> Result<()> {
     assert_eq!(trail(&resources).await?.len(), 3);
 
     let deleted = AxumTestRequest::delete(&format!("/admin/users/{leaving}"))
-        .header("Authorization", &cli_token(&resources, &operator).await?)
+        .header("Authorization", &cli_token(&resources, &admin).await?)
         .json(&json!({ "reason": "account closure" }))
         .send(app.clone())
         .await;
@@ -540,10 +541,10 @@ async fn a_scoped_token_reads_only_its_own_tenant_and_an_admin_reads_all() -> Re
 async fn the_console_reads_the_trail_newest_first() -> Result<()> {
     let resources = create_test_server_resources().await?;
     let app = ProviderToolRouter::build_http_app(&resources);
-    let operator = admin(&resources, "audit-reader@example.com", UserRole::Admin).await?;
+    let admin = admin(&resources, "audit-reader@example.com", UserRole::Admin).await?;
     for email in ["first@example.com", "second@example.com"] {
         let response = AxumTestRequest::post("/api/admin/pre-approved-emails")
-            .header("Authorization", &operator.auth)
+            .header("Authorization", &admin.auth)
             .json(&json!({ "email": email }))
             .send(app.clone())
             .await;
@@ -551,7 +552,7 @@ async fn the_console_reads_the_trail_newest_first() -> Result<()> {
     }
 
     let response = AxumTestRequest::get("/api/admin/audit-events?limit=1")
-        .header("Authorization", &operator.auth)
+        .header("Authorization", &admin.auth)
         .send(app.clone())
         .await;
     assert_eq!(response.status(), 200);
@@ -567,7 +568,7 @@ async fn the_console_reads_the_trail_newest_first() -> Result<()> {
         "/api/admin/audit-events?limit=5&before={}",
         urlencoding::encode(next)
     ))
-    .header("Authorization", &operator.auth)
+    .header("Authorization", &admin.auth)
     .send(app.clone())
     .await;
     let body: Value = older.json();
@@ -585,14 +586,14 @@ async fn the_console_reads_the_trail_newest_first() -> Result<()> {
 /// not in a layer: the recorder resolves that token itself.
 #[tokio::test]
 #[serial]
-async fn a_cli_config_write_is_recorded_as_its_operator() -> Result<()> {
+async fn a_cli_config_write_is_recorded_as_its_admin() -> Result<()> {
     let resources = create_test_server_resources().await?;
     let app = ProviderToolRouter::build_http_app(&resources);
-    let operator = admin(&resources, "audit-config@example.com", UserRole::Admin).await?;
+    let admin = admin(&resources, "audit-config@example.com", UserRole::Admin).await?;
     let athlete_id = athlete(&resources, "config-target@example.com").await?;
 
     let response = AxumTestRequest::put(&format!("/api/admin/config?user_id={athlete_id}"))
-        .header("authorization", &cli_token(&resources, &operator).await?)
+        .header("authorization", &cli_token(&resources, &admin).await?)
         .json(&json!({
             "parameters": { "usage_quotas.max_active_conversations": 0 },
             "reason": "admin_audit_trail_test",
@@ -607,7 +608,7 @@ async fn a_cli_config_write_is_recorded_as_its_operator() -> Result<()> {
     assert_eq!(rows[0].source, "cli");
     assert_eq!(
         rows[0].actor_user_id.as_deref(),
-        Some(operator.user_id.to_string().as_str())
+        Some(admin.user_id.to_string().as_str())
     );
     Ok(())
 }
@@ -657,8 +658,8 @@ async fn service_token(resources: &Arc<ServerContext>) -> Result<String> {
 async fn a_guardian_save_and_its_refusal_are_each_one_row_of_the_one_trail() -> Result<()> {
     let resources = create_test_server_resources().await?;
     let app = ProviderToolRouter::build_http_app(&resources);
-    let operator = admin(&resources, "audit-guardian@example.com", UserRole::Admin).await?;
-    let device_login = cli_token(&resources, &operator).await?;
+    let admin = admin(&resources, "audit-guardian@example.com", UserRole::Admin).await?;
+    let device_login = cli_token(&resources, &admin).await?;
 
     let saved = AxumTestRequest::put("/admin/settings/guardian")
         .header("Authorization", &device_login)
@@ -674,7 +675,7 @@ async fn a_guardian_save_and_its_refusal_are_each_one_row_of_the_one_trail() -> 
     assert_eq!(rows[0].outcome, "success");
     assert_eq!(
         rows[0].actor_user_id.as_deref(),
-        Some(operator.user_id.to_string().as_str())
+        Some(admin.user_id.to_string().as_str())
     );
     assert_eq!(rows[0].metadata["before"], Value::Null);
     assert_eq!(rows[0].metadata["after"]["max_writes_per_turn"], 12);
@@ -736,7 +737,7 @@ async fn a_guardian_save_and_its_refusal_are_each_one_row_of_the_one_trail() -> 
 
     // Both clients read it here, with the prefix each one filters on.
     let read = AxumTestRequest::get("/api/admin/audit-events?action=guardian.config&limit=3")
-        .header("Authorization", &operator.auth)
+        .header("Authorization", &admin.auth)
         .send(app.clone())
         .await;
     assert_eq!(read.status(), 200);
@@ -751,7 +752,7 @@ async fn a_guardian_save_and_its_refusal_are_each_one_row_of_the_one_trail() -> 
     Ok(())
 }
 
-/// A token with no operator acts again, and its row says which token it was.
+/// A token with no admin acts again, and its row says which token it was.
 #[tokio::test]
 #[serial]
 async fn a_service_token_guardian_write_names_the_token() -> Result<()> {

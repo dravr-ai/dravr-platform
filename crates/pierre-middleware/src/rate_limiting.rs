@@ -64,12 +64,14 @@ use std::time::Instant;
 use axum::extract::{MatchedPath, Request, State};
 use axum::middleware::Next;
 use axum::response::Response;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use futures_util::FutureExt;
 use http::{HeaderMap, HeaderValue, StatusCode};
+use pierre_auth::oauth2_server::grant_ceiling::GrantCeiling;
 use pierre_auth::rate_limiting::RequestBudget;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{A2AUsage, ApiKeyUsage};
+use pierre_core::permissions::impersonation::CallerCredential;
 use pierre_core::usage_log::{self, LimitHit};
 use pierre_database::backends::{A2ARepository, UsageRepository};
 use pierre_database::RepositoryRegistry;
@@ -131,6 +133,13 @@ struct RequestReport {
     caller: Option<MeteredCaller>,
     /// The operation the request performed, when its route serves many.
     operation: Option<String>,
+    /// The credential that admitted the request, as the audit trail names it
+    /// and a support session binds it, for the handler to read back
+    /// ([`request_credential`]).
+    credential: Option<CallerCredential>,
+    /// The ceiling of the detailed consent grant that credential was admitted
+    /// under, for the handler to read back ([`request_ceiling`]).
+    ceiling: Option<GrantCeiling>,
 }
 
 /// One request's report. `Arc` because two owners need it: the task-local
@@ -177,7 +186,7 @@ pub fn create_rate_limit_headers(budget: RequestBudget) -> HeaderMap {
     );
     map.insert(
         headers::X_RATE_LIMIT_RESET,
-        HeaderValue::from(resets_at.timestamp()),
+        HeaderValue::from(resets_at.epoch_seconds()),
     );
     map
 }
@@ -214,6 +223,62 @@ pub fn report_a2a_client_request(call: A2AClientCall) {
     report(|slot| slot.caller = Some(caller));
 }
 
+/// Record the credential that admitted this request (carnet#1511).
+///
+/// Its kind and client are what the admin audit trail names; its binding (the
+/// API key, or the OAuth grant its token was minted under) is what a support
+/// session binds to.
+///
+/// For a door whose handler cannot be handed it directly: `/mcp` serves
+/// every call through the MCP engine's context, which has no slot for it.
+/// Outside a request scope it is dropped, and [`request_credential`] then
+/// answers `None`, which starts or serves no support session and names no
+/// credential on the trail.
+pub fn report_request_credential(credential: CallerCredential) {
+    report(|slot| slot.credential = Some(credential));
+}
+
+/// The credential [`report_request_credential`] recorded for this request;
+/// `None` outside a request scope or when none was recorded.
+#[must_use]
+pub fn request_credential() -> Option<CallerCredential> {
+    REQUEST_REPORT
+        .try_with(|slot| {
+            slot.lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .credential
+                .clone()
+        })
+        .ok()
+        .flatten()
+}
+
+/// Record the ceiling of the consent grant that admitted this request
+/// (plan slice 3 item 6), beside its credential.
+///
+/// For the door [`report_request_credential`] serves: `/mcp` lists and calls
+/// through the MCP engine's context, which has no slot for it. Outside a
+/// request scope it is dropped; the door then has no request to serve.
+pub fn report_request_ceiling(ceiling: Option<GrantCeiling>) {
+    report(|slot| slot.ceiling = ceiling);
+}
+
+/// The ceiling [`report_request_ceiling`] recorded for this request; `None`
+/// under a plain grant, for every other credential, and outside a request
+/// scope.
+#[must_use]
+pub fn request_ceiling() -> Option<GrantCeiling> {
+    REQUEST_REPORT
+        .try_with(|slot| {
+            slot.lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .ceiling
+                .clone()
+        })
+        .ok()
+        .flatten()
+}
+
 /// Name the operation this request performed, for a route that serves many.
 ///
 /// The usage row otherwise names the route (`GET /api/usage/status`); the MCP
@@ -233,7 +298,7 @@ pub fn report_request_operation(operation: &str) {
 /// Returns [`AppError::rate_limit_exceeded`] (429) when a metered budget has
 /// already admitted its limit, with the seconds until `resets_at` as its
 /// retry window (at least one). An unlimited budget is never exceeded.
-pub fn enforce_request_budget(budget: RequestBudget, now: DateTime<Utc>) -> AppResult<()> {
+pub fn enforce_request_budget(budget: RequestBudget, now: Timestamp) -> AppResult<()> {
     match budget {
         RequestBudget::Metered {
             limit,
@@ -356,7 +421,7 @@ struct UsageRecorder {
     /// `METHOD /matched/route`, the endpoint a row names unless the request
     /// reported its operation.
     route: String,
-    received_at: DateTime<Utc>,
+    received_at: Timestamp,
     started: Instant,
     recorded: bool,
 }
@@ -471,7 +536,7 @@ pub async fn request_budget_middleware(
         ledgers,
         slot: Arc::clone(&slot),
         route: route_label(&request),
-        received_at: Utc::now(),
+        received_at: Timestamp::now(),
         started: Instant::now(),
         recorded: false,
     };
@@ -503,7 +568,7 @@ pub async fn request_budget_middleware(
 
 #[cfg(test)]
 mod tests {
-    use chrono::Utc;
+    use dravr_tronc::dates::Timestamp;
     use pierre_auth::rate_limiting::RequestBudget;
     use pierre_core::usage_log;
     use pierre_test_support::log_capture::{capture_target, drain};
@@ -518,7 +583,7 @@ mod tests {
         let budget = RequestBudget::Metered {
             limit: 1_000,
             used: 1_000,
-            resets_at: Utc::now(),
+            resets_at: Timestamp::now(),
         };
         log_budget_refusal(budget, "athlete-1", "monthly_requests", "mcp");
         let lines = drain(&events);

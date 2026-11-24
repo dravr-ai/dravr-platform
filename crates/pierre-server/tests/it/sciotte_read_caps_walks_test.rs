@@ -45,8 +45,8 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration as StdDuration, Instant};
 
-use chrono::{Duration, NaiveDate, Utc};
 use dravr_enforme::traits::cursor_store::SyncCursorStore;
+use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp};
 use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::models::{SessionReadCap, TenantId, UserTier};
 use pierre_database::backends::factory::DatabaseBackend;
@@ -85,7 +85,7 @@ async fn reads(
             PLATFORM_SCOPE,
             PLATFORM_SCOPE,
             &session_read_counter_key(oauth_providers::SCIOTTE_GARMIN, counter, user_id),
-            &budget_period(Utc::now(), window),
+            &budget_period(Timestamp::now(), window),
         )
         .await
         .unwrap()
@@ -109,7 +109,7 @@ async fn spend(
             PLATFORM_SCOPE,
             PLATFORM_SCOPE,
             &session_read_counter_key(oauth_providers::SCIOTTE_GARMIN, counter, user_id),
-            &budget_period(Utc::now(), window),
+            &budget_period(Timestamp::now(), window),
             i64::from(n),
         )
         .await
@@ -152,7 +152,7 @@ struct WalkRow {
 impl WalkRow {
     /// Released by its step and waiting for a window that has not opened.
     fn paused(&self) -> bool {
-        self.leased_until_ms == 0 && self.next_attempt_ms > Utc::now().timestamp_millis()
+        self.leased_until_ms == 0 && self.next_attempt_ms > Timestamp::now().epoch_millis()
     }
 }
 
@@ -214,7 +214,7 @@ async fn refused_again(resources: &Arc<ServerContext>, user_id: Uuid) -> WalkRow
 }
 
 /// The days the stand-in served the session's daily summary, in call order.
-fn summary_days(calls: &Calls, session: &str) -> Vec<NaiveDate> {
+fn summary_days(calls: &Calls, session: &str) -> Vec<CivilDate> {
     calls_matching(calls, &format!("summary {session} "))
         .iter()
         .map(|call| {
@@ -252,7 +252,7 @@ async fn a_resume_sweep_rerun_of_an_asked_read_spends_background_reads() {
         user_id,
         provider: oauth_providers::SCIOTTE_GARMIN.to_owned(),
         kind: BackfillJobKind::LiveRead,
-        after_ts: Some((Utc::now() - Duration::days(30)).timestamp()),
+        after_ts: Some((Timestamp::now() - Elapsed::days(30)).epoch_seconds()),
         before_ts: None,
         fetch_limit: Some(50),
         conversation_id: Some("conversation-that-asked".to_owned()),
@@ -344,7 +344,7 @@ async fn a_capped_health_sync_keeps_its_days_and_resumes_at_the_refused_one() {
         .clone();
     let storage = PierreSyncStorage::new(&resources.common.repos);
     let user = user_id.to_string();
-    let today = Utc::now().date_naive();
+    let today = Timestamp::now().utc_date();
 
     // Nobody waits on a scheduled sync.
     drop(in_background(orchestrator.sync_user(&user, "garmin")).await);
@@ -366,7 +366,7 @@ async fn a_capped_health_sync_keeps_its_days_and_resumes_at_the_refused_one() {
         .expect("the recovery read keeps a cursor");
     assert_eq!(
         cursor.value,
-        (today - Duration::days(5)).to_string(),
+        (today - Elapsed::days(5)).to_string(),
         "bug: the next sync does not resume at the day the cap refused"
     );
     assert_eq!(
@@ -403,8 +403,8 @@ async fn recovery_days(resources: &Arc<ServerContext>, user_id: Uuid, tenant: Te
         .get_recovery_metrics(
             user_id,
             &tenant,
-            Utc::now() - Duration::days(20),
-            Utc::now() + Duration::days(1),
+            Timestamp::now() - Elapsed::days(20),
+            Timestamp::now() + Elapsed::days(1),
         )
         .await
         .unwrap()
@@ -443,12 +443,10 @@ async fn a_capped_first_wellness_fill_pauses_at_its_day_and_resumes_from_it() {
     let start = days[0];
     assert_eq!(
         days,
-        (0..5)
-            .map(|n| start + Duration::days(n))
-            .collect::<Vec<_>>(),
+        (0..5).map(|n| start + Elapsed::days(n)).collect::<Vec<_>>(),
         "the copy reads oldest first"
     );
-    let resume_day = start + Duration::days(5);
+    let resume_day = start + Elapsed::days(5);
     assert_eq!(
         paused.wellness_resume_day,
         Some(resume_day.to_string()),
@@ -509,7 +507,7 @@ async fn a_capped_first_wellness_fill_pauses_at_its_day_and_resumes_from_it() {
 /// Record the athlete's Garmin session walk anew over its ended row, due to
 /// the next sweep, as a reopen of the walk does.
 async fn walk_again(resources: &Arc<ServerContext>, user_id: Uuid, tenant: TenantId) {
-    let now = Utc::now().timestamp_millis();
+    let now = Timestamp::now().epoch_millis();
     let recorded = resources
         .common
         .repos

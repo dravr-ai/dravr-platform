@@ -33,7 +33,7 @@
 
 use std::collections::{BTreeMap, HashMap};
 
-use chrono::{DateTime, Duration, NaiveDate, NaiveTime, Utc};
+use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp};
 use pierre_contremaitre::EvidenceRegistry;
 use pierre_core::civil_time::monday_of;
 use pierre_core::errors::{AppError, AppResult};
@@ -352,11 +352,11 @@ pub async fn weekly_counts(
     repos: &RepositoryRegistry,
     coach_user_id: Uuid,
     weeks: Option<u32>,
-    now: DateTime<Utc>,
+    now: Timestamp,
 ) -> AppResult<Vec<CoachReviewWeek>> {
     let weeks = weeks.unwrap_or(DEFAULT_WEEKS).clamp(1, MAX_WEEKS);
-    let first_monday = monday_of(now.date_naive()) - Duration::weeks(i64::from(weeks) - 1);
-    let since = first_monday.and_time(NaiveTime::MIN).and_utc();
+    let first_monday = monday_of(now.utc_date()) - Elapsed::weeks(i64::from(weeks) - 1);
+    let since = first_monday.at_midnight().and_utc()?;
     let stamps = repos
         .coach_reply_reviews
         .list_review_stamps(coach_user_id, since)
@@ -368,12 +368,12 @@ pub async fn weekly_counts(
 /// A stamp before the first week or after the last is not counted.
 fn bucket_weeks(
     stamps: &[ReplyReviewStamp],
-    first_monday: NaiveDate,
+    first_monday: CivilDate,
     weeks: u32,
 ) -> Vec<CoachReviewWeek> {
-    let mut buckets: BTreeMap<NaiveDate, CoachReviewWeek> = (0..weeks)
+    let mut buckets: BTreeMap<CivilDate, CoachReviewWeek> = (0..weeks)
         .map(|offset| {
-            let week_start = first_monday + Duration::weeks(i64::from(offset));
+            let week_start = first_monday + Elapsed::weeks(i64::from(offset));
             (
                 week_start,
                 CoachReviewWeek {
@@ -385,7 +385,7 @@ fn bucket_weeks(
         })
         .collect();
     for stamp in stamps {
-        if let Some(bucket) = buckets.get_mut(&monday_of(stamp.created_at.date_naive())) {
+        if let Some(bucket) = buckets.get_mut(&monday_of(stamp.created_at.utc_date())) {
             match stamp.kind {
                 ReplyReviewKind::Flag => bucket.flags += 1,
                 ReplyReviewKind::Correction => bucket.corrections += 1,
@@ -559,7 +559,7 @@ mod tests {
             layer_fired: layer,
             explanation: None,
             evidence_refs: None,
-            created_at: Utc::now(),
+            created_at: Timestamp::now(),
             disposition: None,
             disposition_reason: None,
             disposition_note: None,
@@ -609,16 +609,14 @@ mod tests {
     fn stamp(kind: ReplyReviewKind, at: &str) -> ReplyReviewStamp {
         ReplyReviewStamp {
             kind,
-            created_at: DateTime::parse_from_rfc3339(at)
-                .unwrap()
-                .with_timezone(&Utc),
+            created_at: Timestamp::parse_from_rfc3339(at).unwrap(),
         }
     }
 
     #[test]
     fn weeks_run_monday_to_sunday_and_empty_weeks_are_listed() {
         // Monday 2026-09-28 starts the first of three weeks.
-        let first = NaiveDate::from_ymd_opt(2026, 9, 28).unwrap();
+        let first = CivilDate::from_ymd(2026, 9, 28).unwrap();
         let stamps = [
             // Before the first week: not counted.
             stamp(ReplyReviewKind::Flag, "2026-09-27T23:59:59Z"),
@@ -639,12 +637,12 @@ mod tests {
                     corrections: 1
                 },
                 CoachReviewWeek {
-                    week_start: NaiveDate::from_ymd_opt(2026, 10, 5).unwrap(),
+                    week_start: CivilDate::from_ymd(2026, 10, 5).unwrap(),
                     flags: 0,
                     corrections: 0
                 },
                 CoachReviewWeek {
-                    week_start: NaiveDate::from_ymd_opt(2026, 10, 12).unwrap(),
+                    week_start: CivilDate::from_ymd(2026, 10, 12).unwrap(),
                     flags: 2,
                     corrections: 1
                 },

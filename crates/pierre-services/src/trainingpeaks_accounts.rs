@@ -12,7 +12,7 @@
 //! by [`record_trainingpeaks_role`]:
 //!
 //! - a read of a coach account's own workouts has nothing to return, so the read
-//!   path refuses it in words before any scrape once the role is recorded on the
+//!   path refuses it in words before any read once the role is recorded on the
 //!   connection;
 //! - a `TrainingPeaks` coach is a coach, so the account is granted
 //!   `manages_roster`, the permission to coach a group — but only when the
@@ -24,7 +24,7 @@
 //!   signs in again as an athlete or as a coach account that is not the
 //!   user's, or is disconnected ([`revoke_roster_for_coach_connection`]), the
 //!   grant goes unless another `TrainingPeaks` coach connection still holds it
-//!   or an operator made it;
+//!   or an admin made it;
 //! - before sciotte 0.14 a coach account's list read fell through to whichever
 //!   athlete TrainingPeaks served, and the platform filed those workouts as the
 //!   coach's own. They are deleted when the account is found to be a coach's.
@@ -316,7 +316,7 @@ async fn recorded_role(
 ///
 /// The grant stays while the user holds a `TrainingPeaks` coach connection in
 /// any other tenant, since that connection earns it too, and whenever an
-/// operator made it: a grant the connection did not earn is not the
+/// admin made it: a grant the connection did not earn is not the
 /// connection's to take back.
 ///
 /// # Errors

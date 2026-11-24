@@ -8,7 +8,7 @@ import type { UserRole } from '@pierre/shared-types';
 
 /**
  * The corpus key naming each account role. The Account pane on web and mobile
- * and the web sidebar's operator badge read this one table; the pane used to
+ * and the web sidebar's admin badge read this one table; the pane used to
  * print the wire value capitalised, which read "User" under French chrome.
  */
 export const ACCOUNT_ROLE_LABEL_KEY: Record<UserRole, string> = {

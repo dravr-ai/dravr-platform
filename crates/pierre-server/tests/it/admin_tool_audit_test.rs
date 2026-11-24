@@ -17,10 +17,11 @@ use std::sync::Arc;
 
 use axum::body::{to_bytes, Body};
 use axum::http::Request;
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use dravr_tronc::mcp::schema::ToolResponse;
 use dravr_tronc::mcp::tool::ToolContext;
 use pierre_core::models::{Tenant, TenantId, User, UserStatus};
+use pierre_core::permissions::impersonation::{CallerCredential, CredentialKind};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::permissions::UserRole;
 use pierre_core::transport::Transport;
@@ -33,6 +34,7 @@ use pierre_tool_runtime::protocols::{
     ProtocolError, UniversalRequest, UniversalResponse, UniversalToolExecutor,
 };
 use pierre_tool_runtime::runtime::ToolRuntime;
+use pierre_tool_runtime::support_session::CALLER_CREDENTIAL;
 use serde_json::{json, Value};
 use tower::ServiceExt;
 use uuid::Uuid;
@@ -54,7 +56,7 @@ fn executor(resources: &Arc<ServerContext>, transport: Transport) -> UniversalTo
 }
 
 /// An admin with a tenant of their own.
-async fn admin(resources: &Arc<ServerContext>) -> (Uuid, String) {
+pub(crate) async fn admin(resources: &Arc<ServerContext>) -> (Uuid, String) {
     let email = format!("audit_admin_{}@example.com", Uuid::new_v4());
     let mut user = User::new(
         email.clone(),
@@ -64,7 +66,7 @@ async fn admin(resources: &Arc<ServerContext>) -> (Uuid, String) {
     user.role = UserRole::Admin;
     user.user_status = UserStatus::Active;
     user.approved_by = Some(user.id);
-    user.approved_at = Some(Utc::now());
+    user.approved_at = Some(Timestamp::now());
     let repos = &resources.common.repos;
     repos.users.create(&user).await.unwrap();
     let tenant_id = TenantId::generate();
@@ -77,8 +79,8 @@ async fn admin(resources: &Arc<ServerContext>) -> (Uuid, String) {
             domain: None,
             plan: "starter".to_owned(),
             owner_user_id: user.id,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         })
         .await
         .unwrap();
@@ -121,7 +123,7 @@ async fn call(
 }
 
 /// `actor`'s rows on the trail, newest first.
-async fn trail(resources: &Arc<ServerContext>, actor: Uuid) -> Vec<AuditEventRecord> {
+pub(crate) async fn trail(resources: &Arc<ServerContext>, actor: Uuid) -> Vec<AuditEventRecord> {
     resources
         .common
         .repos
@@ -408,14 +410,25 @@ async fn an_admin_tool_call_mcp_refuses_before_the_executor_is_one_refused_row()
         }
     }
 
-    let refused = mcp_dispatch(
-        &resources,
-        admin,
-        TenantId::parse_str(&tenant).unwrap(),
-        "admin_create_system_agent",
-        new_agent("Door-refused Coach"),
-    )
-    .await;
+    // The `/mcp` dispatcher declares the call's credential around the
+    // dispatch; this one is an API key.
+    let key = CallerCredential {
+        kind: CredentialKind::ApiKey,
+        client_id: None,
+        binding: None,
+    };
+    let refused = CALLER_CREDENTIAL
+        .scope(
+            Some(key),
+            mcp_dispatch(
+                &resources,
+                admin,
+                TenantId::parse_str(&tenant).unwrap(),
+                "admin_create_system_agent",
+                new_agent("Door-refused Coach"),
+            ),
+        )
+        .await;
     assert!(refused.is_error, "{refused:?}");
 
     let rows = trail(&resources, admin).await;
@@ -444,6 +457,10 @@ async fn an_admin_tool_call_mcp_refuses_before_the_executor_is_one_refused_row()
     assert_eq!(
         rows[0].metadata["protocol"], "mcp",
         "bug: the row's metadata names the protocol the call came in on"
+    );
+    assert_eq!(
+        rows[0].metadata["credential_kind"], "api_key",
+        "bug: a call refused before the executor names its credential's kind"
     );
 
     // Any other tool refused at the same door writes nothing.
@@ -541,7 +558,7 @@ async fn untenanted_admin(resources: &Arc<ServerContext>) -> User {
     user.role = UserRole::Admin;
     user.user_status = UserStatus::Active;
     user.approved_by = Some(user.id);
-    user.approved_at = Some(Utc::now());
+    user.approved_at = Some(Timestamp::now());
     resources.common.repos.users.create(&user).await.unwrap();
     user
 }
@@ -605,6 +622,14 @@ async fn an_admin_tool_call_the_mcp_auth_hook_refuses_is_one_refused_row() {
         rows[0].metadata["transport"], "mcp_http",
         "bug: the row's metadata names the transport the call came over"
     );
+    assert_eq!(
+        rows[0].metadata["credential_kind"], "oauth_grant",
+        "bug: a call the hook refused after admitting its credential names its kind"
+    );
+    assert_eq!(
+        rows[0].metadata["client_id"], "mcp_client_test",
+        "bug: a call the hook refused after admitting its credential names its client"
+    );
 
     // A delegated grant never carries `admin`: the hook answers 403
     // insufficient_scope, and the attempt is on the trail in its tenant.
@@ -630,6 +655,14 @@ async fn an_admin_tool_call_the_mcp_auth_hook_refuses_is_one_refused_row() {
     assert_eq!(
         rows[0].metadata["protocol"], "mcp",
         "bug: the row's metadata names the protocol the call came in on"
+    );
+    assert_eq!(
+        rows[0].metadata["credential_kind"], "oauth_grant",
+        "bug: a call refused for want of scope names its credential's kind"
+    );
+    assert_eq!(
+        rows[0].metadata["client_id"], "mcp_client_test",
+        "bug: a call refused for want of scope names its credential's client"
     );
 
     // A request that names no admin-only tool writes nothing.

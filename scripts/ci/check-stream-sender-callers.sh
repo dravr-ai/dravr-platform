@@ -34,8 +34,6 @@ echo -e "${BLUE}==== Stream-sender caller detection (advisory) ====${NC}"
 
 # Crates/dirs that own SSE / WebSocket / A2A streaming managers.
 SCAN_DIRS=(
-    crates/pierre-sse/src
-    crates/pierre-server/src/sse
     crates/pierre-a2a/src
     crates/pierre-routes-a2a/src
 )

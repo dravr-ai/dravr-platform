@@ -14,6 +14,7 @@ use dravr_cageux::metrics_extractor::{MetricType, SafeMetricExtractor};
 use dravr_cageux::physiological_constants::api_limits::MAX_ACTIVITY_LIMIT;
 use dravr_cageux::statistical_analysis::StatisticalAnalyzer;
 use dravr_cageux::types::{TrendDataPoint, TrendDirection};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::Activity;
 use pierre_core::uuid_utils::parse_user_id_for_protocol;
 use pierre_formatters::OutputFormat;
@@ -185,7 +186,7 @@ fn compute_trend_statistics(
     metric: &str,
     timeframe: &str,
     metric_type: MetricType,
-    data_points_with_timestamp: &[(chrono::DateTime<chrono::Utc>, f64)],
+    data_points_with_timestamp: &[(Timestamp, f64)],
 ) -> PerformanceTrendsResult {
     // Convert to TrendDataPoint format
     let trend_data_points: Vec<TrendDataPoint> = data_points_with_timestamp
@@ -275,20 +276,20 @@ fn parse_metric_type(metric: &str) -> Result<MetricType, String> {
 }
 
 /// Calculate cutoff date based on timeframe
-fn calculate_cutoff_date(timeframe: &str) -> chrono::DateTime<chrono::Utc> {
-    use chrono::{Duration, Utc};
+fn calculate_cutoff_date(timeframe: &str) -> Timestamp {
+    use dravr_tronc::dates::Elapsed;
 
-    let now = Utc::now();
+    let now = Timestamp::now();
     match timeframe {
-        "week" => now - Duration::days(7),
-        "quarter" => now - Duration::days(90),
-        "year" => now - Duration::days(365),
-        _ => now - Duration::days(30), // default to month
+        "week" => now - Elapsed::days(7),
+        "quarter" => now - Elapsed::days(90),
+        "year" => now - Elapsed::days(365),
+        _ => now - Elapsed::days(30), // default to month
     }
 }
 
 /// Calculate percent change between first and last data point
-fn calculate_percent_change(data: &[(chrono::DateTime<chrono::Utc>, f64)]) -> Option<f64> {
+fn calculate_percent_change(data: &[(Timestamp, f64)]) -> Option<f64> {
     if data.len() < 2 {
         return None;
     }
@@ -309,7 +310,7 @@ fn generate_trend_insights(
     trend: &str,
     slope: f64,
     r_squared: f64,
-    data: &[(chrono::DateTime<chrono::Utc>, f64)],
+    data: &[(Timestamp, f64)],
 ) -> Vec<String> {
     let mut insights = Vec::new();
 

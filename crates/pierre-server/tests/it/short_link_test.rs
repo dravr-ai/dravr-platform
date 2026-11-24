@@ -10,7 +10,7 @@
 
 use std::sync::Arc;
 
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_database::repositories::shorten_url;
 use pierre_database::RepositoryRegistry;
 
@@ -84,7 +84,7 @@ async fn resolve_expired_code_returns_none() {
             DOTTY_TARGET,
             "tenant-1",
             "user-1",
-            Utc::now() - Duration::hours(1),
+            Timestamp::now() - Elapsed::hours(1),
         )
         .await
         .expect("insert succeeds");
@@ -112,7 +112,7 @@ async fn create_then_resolve_within_ttl_succeeds() {
             DOTTY_TARGET,
             "tenant-1",
             "user-1",
-            Utc::now() + Duration::hours(1),
+            Timestamp::now() + Elapsed::hours(1),
         )
         .await
         .expect("insert succeeds");
@@ -139,7 +139,7 @@ async fn sweep_deletes_only_expired_rows() {
             DOTTY_TARGET,
             "tenant-1",
             "user-1",
-            Utc::now() - Duration::hours(1),
+            Timestamp::now() - Elapsed::hours(1),
         )
         .await
         .expect("insert stale succeeds");
@@ -150,7 +150,7 @@ async fn sweep_deletes_only_expired_rows() {
             DOTTY_TARGET,
             "tenant-1",
             "user-1",
-            Utc::now() + Duration::hours(1),
+            Timestamp::now() + Elapsed::hours(1),
         )
         .await
         .expect("insert fresh succeeds");

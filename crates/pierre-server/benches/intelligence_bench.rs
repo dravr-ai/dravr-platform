@@ -13,12 +13,12 @@
 
 mod common;
 
-use chrono::{Duration, Utc};
 use common::fixtures::{generate_activities, ActivityBatchSize};
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use dravr_cageux::metrics::MetricsCalculator;
 use dravr_cageux::sleep_analysis::SleepData;
 use dravr_cageux::training_load::TrainingLoadCalculator;
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::models::{Activity, ActivityBuilder, SportType};
 
 /// Large dataset size for stress testing (500 activities)
@@ -32,7 +32,7 @@ const LARGE_DATASET_SIZE: usize = 500;
     clippy::cast_possible_wrap
 )]
 fn generate_activities_custom(count: usize) -> Vec<Activity> {
-    let base_date = Utc::now();
+    let base_date = Timestamp::now();
     (0..count)
         .map(|index| {
             let sport_type = match index % 4 {
@@ -45,7 +45,7 @@ fn generate_activities_custom(count: usize) -> Vec<Activity> {
             let distance_meters = 5000.0 + ((index * 251) % 10000) as f64;
             let avg_hr = 130_u32 + ((index * 17) % 40) as u32;
             let days_ago = (index * 2) as i64;
-            let start_date = base_date - Duration::days(days_ago);
+            let start_date = base_date - Elapsed::days(days_ago);
             let is_run = sport_type == SportType::Run;
             let is_walk = sport_type == SportType::Walk;
             let is_ride = sport_type == SportType::Ride;
@@ -118,11 +118,11 @@ fn generate_activities_custom(count: usize) -> Vec<Activity> {
     clippy::cast_possible_wrap
 )]
 fn generate_sleep_data(count: usize) -> Vec<SleepData> {
-    let base_date = Utc::now();
+    let base_date = Timestamp::now();
     (0..count)
         .map(|index| {
             let days_ago = index as i64;
-            let sleep_date = base_date - Duration::days(days_ago);
+            let sleep_date = base_date - Elapsed::days(days_ago);
             let duration_hours = 6.0 + ((index * 17) % 180) as f64 / 60.0;
 
             SleepData {
@@ -165,7 +165,7 @@ fn bench_training_load_calculation(c: &mut Criterion) {
             BenchmarkId::new("calculate_training_load", count),
             &activities,
             |b, activities| {
-                let calculator = TrainingLoadCalculator::new(Utc::now().date_naive());
+                let calculator = TrainingLoadCalculator::new(Timestamp::now().utc_date());
                 b.iter(|| {
                     calculator.calculate_training_load(
                         black_box(activities),
@@ -191,7 +191,7 @@ fn bench_tss_calculation(c: &mut Criterion) {
     let activities = generate_activities(ActivityBatchSize::Medium);
 
     group.bench_function("single_activity_tss", |b| {
-        let calculator = TrainingLoadCalculator::new(Utc::now().date_naive());
+        let calculator = TrainingLoadCalculator::new(Timestamp::now().utc_date());
         let activity = &activities[0];
         b.iter(|| {
             calculator.calculate_tss(
@@ -207,7 +207,7 @@ fn bench_tss_calculation(c: &mut Criterion) {
 
     group.throughput(Throughput::Elements(activities.len() as u64));
     group.bench_function("batch_tss_100_activities", |b| {
-        let calculator = TrainingLoadCalculator::new(Utc::now().date_naive());
+        let calculator = TrainingLoadCalculator::new(Timestamp::now().utc_date());
         b.iter(|| {
             for activity in black_box(&activities) {
                 // Only the timing matters; the result is discarded.
@@ -322,7 +322,7 @@ fn bench_training_pipeline(c: &mut Criterion) {
     group.bench_function("full_training_analysis", |b| {
         b.iter(|| {
             // 1. Calculate training load
-            let tl_calc = TrainingLoadCalculator::new(Utc::now().date_naive());
+            let tl_calc = TrainingLoadCalculator::new(Timestamp::now().utc_date());
             let _training_load = tl_calc.calculate_training_load(
                 black_box(&activities),
                 Some(250.0),

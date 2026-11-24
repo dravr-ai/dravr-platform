@@ -107,7 +107,7 @@ impl AgUiSink for BroadcastSink {
                 // means the channel adapter forgot to call
                 // `register` (or unregistered too early), or the
                 // producer typoed the `run_id`. Loud warning so
-                // operators can spot the bug.
+                // admins can spot the bug.
                 PublishOutcome::NoSlot => {
                     warn!(
                         run_id = %event.run_id(),

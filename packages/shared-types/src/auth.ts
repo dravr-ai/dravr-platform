@@ -336,7 +336,7 @@ export interface RegisterResponse {
 /**
  * Response from `GET /api/auth/signup-config`, read before the register form renders.
  *
- * `open` is false while an operator has paused sign-up (the kill switch, or the
+ * `open` is false while an admin has paused sign-up (the kill switch, or the
  * daily ceiling reached). A non-null `turnstile_site_key` means the server checks
  * a Cloudflare Turnstile token on every registration, so the form must render
  * the widget and send its token as `turnstile_token`.
@@ -389,6 +389,9 @@ export interface ResetPasswordResponse {
 
 // ========== OAUTH TYPES ==========
 
+/** Which way a provider with an account sign-in connects first (the card's `connect_order`). */
+export type ConnectOrder = 'extension_first' | 'sign_in_first' | 'oauth_first';
+
 /** Extended provider status from /api/providers endpoint */
 export interface ExtendedProviderStatus {
   provider: string;
@@ -440,6 +443,16 @@ export interface ExtendedProviderStatus {
    */
   seats_left?: number;
   /**
+   * The admin's connect order for a provider with an account sign-in
+   * (Strava, Garmin, COROS, TrainingPeaks — their `sciotte*` cards):
+   * `extension_first` (the default) starts the Dravr sign-in extension where
+   * it is installed, then the credentials, then the OAuth; `sign_in_first`
+   * shows the credentials first, the extension beside them; `oauth_first`
+   * sends a new connection to the OAuth while a seat is free. Absent on every
+   * other card.
+   */
+  connect_order?: ConnectOrder;
+  /**
    * Connecting this provider first needs the account to accept its notice —
    * TrainingPeaks' and COROS' exposure notice, WHOOP's owner authorization —
    * until the current notice version is accepted. The client shows the notice
@@ -475,6 +488,16 @@ export interface ExtendedProviderStatus {
    * for every provider that asks no such consent.
    */
   ai_consent?: boolean;
+  /**
+   * The account's consent to Dravr sending this provider its data, for a
+   * provider that asks one (Garmin's workout transfer, carnet#1390): `true`
+   * while given, `false` while not given or withdrawn — then Dravr writes
+   * nothing to this provider. Withdraw it with
+   * `oauthApi.withdrawTransferConsent`, give it back with
+   * `grantTransferConsent`. Absent for every provider that asks no such
+   * consent.
+   */
+  transfer_consent?: boolean;
   /**
    * What kind of account the user's own connection signed in with, once the
    * provider has reported it: `"coach"` for a TrainingPeaks coach account,
@@ -712,6 +735,17 @@ export interface ProvidersStatusResponse {
   providers: ExtendedProviderStatus[];
 }
 
+/**
+ * `GET /api/providers/{provider}/ai-consent`: the account's answer to one
+ * consent to AI use, a provider's or a consent class's (`sensitive_t2`).
+ * `ai_consent` is `true` while given in the current version, `false` while
+ * not, `null` for a key that asks no such consent of this account.
+ */
+export interface AiConsentStateResponse {
+  provider: string;
+  ai_consent: boolean | null;
+}
+
 /** OAuth app credentials (user-provided) */
 export interface OAuthApp {
   provider: string;
@@ -761,6 +795,15 @@ export interface OAuthGrant {
   scope: string;
   /** When the grant was made (RFC 3339). */
   granted_at: string;
+  /**
+   * The preset a detailed grant was approved for (`training_coach`, `sleep_coach`); `null` for a plain
+   * grant, which reaches what it always did. A preset this client does not know yet is shown unlabelled.
+   */
+  preset: string | null;
+  /** The highest sensitivity tier a detailed grant reads; `null` for a plain grant. */
+  max_tier: 'T0' | 'T1' | 'T2' | 'T3' | null;
+  /** When the grant stops admitting a token (RFC 3339); `null` never expires. A past value is an expired grant. */
+  expires_at: string | null;
 }
 
 // ========== MCP TOKEN TYPES ==========

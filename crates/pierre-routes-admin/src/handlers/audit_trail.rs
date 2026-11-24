@@ -6,7 +6,7 @@
 
 //! Reading the admin audit trail (carnet#1391).
 //!
-//! What operators did through the console and `pierre-cli`, as the recorder
+//! What admins did through the console and `pierre-cli`, as the recorder
 //! in [`crate::audit`] wrote it. The console's Audit page and
 //! `pierre-cli audit list` read it here.
 
@@ -18,7 +18,7 @@ use axum::{
     response::{IntoResponse, Response},
     Extension,
 };
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use serde::Deserialize;
 use serde_json::{json, to_value};
 use uuid::Uuid;
@@ -41,7 +41,7 @@ pub struct AuditTrailQuery {
     /// At most this many rows (capped at the trail's page maximum).
     pub limit: Option<u32>,
     /// Resume after this instant: the previous page's `next_before`.
-    pub before: Option<DateTime<Utc>>,
+    pub before: Option<Timestamp>,
     /// Resume after this row among those of that instant: the previous page's
     /// `next_before_id`. Without it the read starts strictly older.
     pub before_id: Option<String>,
@@ -50,7 +50,7 @@ pub struct AuditTrailQuery {
     /// Only `success`, `refused`, `failed` or `started` (an admin-only tool
     /// call whose outcome could not be written after it ran).
     pub outcome: Option<String>,
-    /// Only this operator's actions.
+    /// Only this admin's actions.
     pub actor_user_id: Option<Uuid>,
 }
 

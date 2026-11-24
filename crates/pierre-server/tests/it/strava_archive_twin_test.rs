@@ -27,7 +27,7 @@
 
 use std::sync::Arc;
 
-use chrono::{DateTime, Duration, NaiveDate, TimeZone, Utc};
+use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp};
 use pierre_core::config::profiles::FitnessLevel;
 use pierre_core::constants::oauth_providers::{
     GARMIN, GARMIN_ARCHIVE, SCIOTTE, SCIOTTE_GARMIN, STRAVA, STRAVA_ARCHIVE, UPLOAD,
@@ -76,15 +76,15 @@ const RIDE_DAYS_AGO: i64 = 4;
 
 /// The athlete's day of the ride, at midnight UTC: what a date-only capture
 /// records as its start.
-fn ride_day() -> DateTime<Utc> {
-    let day = Utc::now().date_naive() - Duration::days(RIDE_DAYS_AGO);
-    Utc.from_utc_datetime(&day.and_hms_opt(0, 0, 0).unwrap())
+fn ride_day() -> Timestamp {
+    let day = Timestamp::now().utc_date() - Elapsed::days(RIDE_DAYS_AGO);
+    (day.at_midnight()).and_utc().unwrap()
 }
 
 /// The ride's real start: 21:30 in Montreal on [`ride_day`], 01:30 UTC the
 /// next day, as the export records it.
-fn evening_start() -> DateTime<Utc> {
-    ride_day() + Duration::hours(25) + Duration::minutes(30)
+fn evening_start() -> Timestamp {
+    ride_day() + Elapsed::hours(25) + Elapsed::minutes(30)
 }
 
 /// The capture's JSON as the scraper serves it: date-only, and the sport the
@@ -213,6 +213,8 @@ async fn give_physiology(resources: &Arc<ServerContext>, athlete: &Athlete) {
         d_prime_meters: None,
         threshold_provenance: ThresholdProvenance::default(),
         threshold_stated_on: ThresholdStatedOn::default(),
+        vo2_max_method: None,
+        vdot: None,
         anchor_provenance: AnchorProvenance::default(),
         transport_policy: TransportPolicy::AnyTransport,
         sex: None,
@@ -227,7 +229,7 @@ async fn give_physiology(resources: &Arc<ServerContext>, athlete: &Athlete) {
 }
 
 /// A ride the usr/pwd connection captured from Strava.
-fn captured(id: String, sport: SportType, start: DateTime<Utc>) -> Activity {
+fn captured(id: String, sport: SportType, start: Timestamp) -> Activity {
     ActivityBuilder::new(
         id,
         "Captured Ride".to_owned(),
@@ -247,8 +249,8 @@ fn history() -> Vec<Activity> {
     (RIDE_DAYS_AGO + 2..=DEEP_DAYS)
         .filter(|d| d % 2 == 0)
         .map(|d| {
-            let day = Utc::now().date_naive() - Duration::days(d);
-            let start = Utc.from_utc_datetime(&day.and_hms_opt(7, 0, 0).unwrap());
+            let day = Timestamp::now().utc_date() - Elapsed::days(d);
+            let start = (day.and_hms(7, 0, 0).unwrap()).and_utc().unwrap();
             captured(format!("1500000{d:04}"), SportType::Ride, start)
         })
         .collect()
@@ -287,8 +289,8 @@ async fn store_capture(resources: &Arc<ServerContext>, athlete: &Athlete, with_r
 /// The persisted rollup over the chronic window ending today.
 async fn rollup(resources: &Arc<ServerContext>, athlete: &Athlete) -> Vec<DailyTrainingState> {
     let runtime: Arc<dyn ToolRuntime> = resources.clone();
-    let to = Utc::now().date_naive();
-    let from = to - Duration::days(CTL_WINDOW_DAYS);
+    let to = Timestamp::now().utc_date();
+    let from = to - Elapsed::days(CTL_WINDOW_DAYS);
     compute_and_persist_history(&runtime, athlete.tenant, athlete.user_id, from, to)
         .await
         .expect("the history computes");
@@ -297,7 +299,7 @@ async fn rollup(resources: &Arc<ServerContext>, athlete: &Athlete) -> Vec<DailyT
         .unwrap()
 }
 
-fn load_on(rollup: &[DailyTrainingState], day: NaiveDate) -> f64 {
+fn load_on(rollup: &[DailyTrainingState], day: CivilDate) -> f64 {
     rollup
         .iter()
         .find(|row| row.date == day)
@@ -307,8 +309,8 @@ fn load_on(rollup: &[DailyTrainingState], day: NaiveDate) -> f64 {
 
 #[tokio::test]
 async fn a_ride_captured_and_imported_scores_once() {
-    let capture_day = ride_day().date_naive();
-    let export_day = evening_start().date_naive();
+    let capture_day = ride_day().utc_date();
+    let export_day = evening_start().utc_date();
 
     // The date-only capture alone scores on the athlete's day.
     let capture_resources = create_test_server_resources_with_archive_imports(
@@ -404,7 +406,7 @@ async fn hold_with_samples(
             origin,
             source_ref: None,
             streams: &export_samples(),
-            synced_at: Utc::now(),
+            synced_at: Timestamp::now(),
         })
         .await
         .unwrap();
@@ -416,7 +418,7 @@ async fn hold_with_samples(
 }
 
 /// The export's copy of the ride: its real start.
-fn exported(start: DateTime<Utc>) -> Activity {
+fn exported(start: Timestamp) -> Activity {
     ActivityBuilder::new(
         RIDE_ID.to_owned(),
         "Sortie du soir".to_owned(),
@@ -577,7 +579,7 @@ async fn an_old_ride_the_export_holds_alone_still_reads_from_the_strava_api() {
         STRAVA.to_owned(),
         "acc".to_owned(),
         Some("ref".to_owned()),
-        Some(Utc::now() + Duration::hours(6)),
+        Some(Timestamp::now() + Elapsed::hours(6)),
         Some("read".to_owned()),
     );
     resources
@@ -641,7 +643,7 @@ async fn an_activity_only_the_garmin_export_holds_reads_from_the_export() {
         GARMIN.to_owned(),
         "acc".to_owned(),
         Some("ref".to_owned()),
-        Some(Utc::now() + Duration::hours(6)),
+        Some(Timestamp::now() + Elapsed::hours(6)),
         Some("read".to_owned()),
     );
     resources
@@ -701,7 +703,7 @@ async fn the_per_activity_tools_read_an_uploaded_workout_by_its_id() {
         upload_id.to_owned(),
         "Uploaded Ride".to_owned(),
         SportType::Ride,
-        evening_start() - Duration::days(1),
+        evening_start() - Elapsed::days(1),
         u64::from(RIDE_SECONDS),
         UPLOAD.to_owned(),
     )

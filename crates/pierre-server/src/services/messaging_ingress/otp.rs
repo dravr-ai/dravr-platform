@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::models::messaging::{
     channel_label, ChannelType, IncomingMessage, MessageContent, OutgoingMessage, MAX_OTP_ATTEMPTS,
     OTP_TTL_MINUTES,
@@ -726,7 +726,6 @@ async fn handle_otp_verification_step(params: &OtpFlowStep<'_>, text: &str) -> O
         &user.id.to_string(),
         params.tenant_id,
         params.channel,
-        params.sender_id,
         "otp",
     );
 
@@ -770,7 +769,7 @@ pub async fn start_otp_flow(
     invalidate_otp_flows(db, tenant_id, &channel_str, sender_id, "before a new flow").await;
 
     let code = generate_link_code();
-    let expires_at = Utc::now() + Duration::minutes(OTP_TTL_MINUTES);
+    let expires_at = Timestamp::now() + Elapsed::minutes(OTP_TTL_MINUTES);
     let id = Uuid::new_v4().to_string();
 
     let params = CreateLinkStateParams {
@@ -849,7 +848,6 @@ async fn offer_signup(
         );
     }
 
-    // LIMITATION(registre#1673): `KEY_LINK_SIGNUP_OFFER` (and the signup created / failed keys) read in French without their accents.
     let template = resources
         .mcp
         .messaging_strings_registry
@@ -948,7 +946,7 @@ async fn handle_signup_confirm_step(params: &OtpFlowStep<'_>, text: &str) -> Out
 ///
 /// The account is created Active or Pending by the same
 /// [`pierre_services::auth::AuthService::self_register`] rules every other
-/// self-serve signup uses, so the approval posture and the operator's sign-up
+/// self-serve signup uses, so the approval posture and the admin's sign-up
 /// bounds stay in one place rather than being special-cased per surface.
 ///
 /// The account reads `locale`, the language the sign-up conversation was held

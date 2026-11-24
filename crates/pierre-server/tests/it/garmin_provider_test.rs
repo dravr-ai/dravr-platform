@@ -16,12 +16,12 @@ use crate::common;
 use axum::http::HeaderMap;
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use chrono::Utc;
+use dravr_tronc::dates::Elapsed;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::ErrorCode;
 use pierre_mcp_server::constants::oauth_providers;
 use pierre_providers::core::{CredentialKind, FitnessProvider, OAuth2Credentials, ProviderConfig};
 use pierre_providers::garmin_provider::GarminProvider;
-use pierre_providers::registry::{get_supported_providers, global_registry};
 use pierre_providers::request_budget::{ProviderRateLimiter, RequestBudget, ONE_DAY};
 use pierre_test_support::db::create_test_db;
 use secrecy::{ExposeSecret, SecretString};
@@ -95,7 +95,7 @@ async fn test_garmin_provider_authentication_lifecycle() {
         client_secret: SecretString::from("test_client_secret"),
         access_token: Some(SecretString::from("test_access_token")),
         refresh_token: Some(SecretString::from("test_refresh_token")),
-        expires_at: Some(Utc::now() + chrono::Duration::hours(1)),
+        expires_at: Some(Timestamp::now() + Elapsed::hours(1)),
         scopes: vec!["wellness:read".to_owned(), "activities:read".to_owned()],
         kind: CredentialKind::OAuthBearer,
         request_budget: None,
@@ -121,7 +121,7 @@ async fn test_garmin_provider_expired_token() {
         client_secret: SecretString::from("test_client_secret"),
         access_token: Some(SecretString::from("expired_token")),
         refresh_token: Some(SecretString::from("test_refresh_token")),
-        expires_at: Some(Utc::now() - chrono::Duration::hours(1)), // Already expired
+        expires_at: Some(Timestamp::now() - Elapsed::hours(1)), // Already expired
         scopes: vec!["wellness:read".to_owned()],
         kind: CredentialKind::OAuthBearer,
         request_budget: None,
@@ -252,7 +252,7 @@ async fn test_garmin_provider_refresh_token_not_needed() {
         client_secret: SecretString::from("test_client_secret"),
         access_token: Some(SecretString::from("test_access_token")),
         refresh_token: Some(SecretString::from("test_refresh_token")),
-        expires_at: Some(Utc::now() + chrono::Duration::hours(2)),
+        expires_at: Some(Timestamp::now() + Elapsed::hours(2)),
         scopes: vec!["wellness:read".to_owned()],
         kind: CredentialKind::OAuthBearer,
         request_budget: None,
@@ -271,7 +271,7 @@ async fn test_garmin_provider_refresh_token_not_needed() {
 #[test]
 fn test_garmin_in_provider_registry() {
     ensure_http_clients_initialized();
-    let registry = global_registry();
+    let registry = common::offline_provider_registry();
     // Verify Garmin is in the list of all providers using the registry
     let all_providers = registry.supported_providers();
     assert!(all_providers.contains(&oauth_providers::GARMIN));
@@ -281,7 +281,7 @@ fn test_garmin_in_provider_registry() {
 #[test]
 fn test_garmin_provider_factory() {
     ensure_http_clients_initialized();
-    let registry = global_registry();
+    let registry = common::offline_provider_registry();
 
     // Verify Garmin is supported
     assert!(registry.is_supported(oauth_providers::GARMIN));
@@ -296,7 +296,7 @@ fn test_garmin_provider_factory() {
 
 #[test]
 fn test_garmin_in_supported_providers_list() {
-    let supported = get_supported_providers();
+    let supported = common::offline_provider_registry().supported_providers();
     assert!(supported.contains(&oauth_providers::GARMIN));
 }
 
@@ -313,7 +313,7 @@ async fn test_garmin_credentials_without_access_token() {
         client_secret: SecretString::from("test_client_secret"),
         access_token: None, // No access token
         refresh_token: Some(SecretString::from("test_refresh_token")),
-        expires_at: Some(Utc::now() + chrono::Duration::hours(1)),
+        expires_at: Some(Timestamp::now() + Elapsed::hours(1)),
         scopes: vec!["wellness:read".to_owned()],
         kind: CredentialKind::OAuthBearer,
         request_budget: None,
@@ -417,7 +417,7 @@ async fn test_garmin_api_call_refreshes_a_token_inside_the_window() {
             client_secret: SecretString::from("garmin_secret"),
             access_token: Some(SecretString::from("garmin_old_access")),
             refresh_token: Some(SecretString::from("garmin_old_refresh")),
-            expires_at: Some(Utc::now() + chrono::Duration::minutes(5)),
+            expires_at: Some(Timestamp::now() + Elapsed::minutes(5)),
             scopes: Vec::new(),
             kind: CredentialKind::OAuthBearer,
             request_budget: None,
@@ -499,7 +499,7 @@ async fn test_garmin_api_call_is_admitted_against_the_garmin_budget() {
             client_secret: SecretString::from("garmin_secret"),
             access_token: Some(SecretString::from("garmin_access")),
             refresh_token: Some(SecretString::from("garmin_refresh")),
-            expires_at: Some(Utc::now() + chrono::Duration::hours(6)),
+            expires_at: Some(Timestamp::now() + Elapsed::hours(6)),
             scopes: Vec::new(),
             kind: CredentialKind::OAuthBearer,
             request_budget: Some(RequestBudget::new(

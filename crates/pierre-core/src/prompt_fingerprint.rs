@@ -178,7 +178,7 @@ pub fn fingerprint_prompt(prompt: &str) -> PromptFingerprint {
 ///
 /// The scan runs the whole response before deciding, so the reported
 /// `overlap` is the true match count rather than the threshold that was
-/// crossed. That is what lets an operator tell a one-line reply brushing
+/// crossed. That is what lets an admin tell a one-line reply brushing
 /// three overlapping windows apart from a reply reciting the prompt
 /// wholesale — the two are indistinguishable when the count stops at the
 /// threshold. Cost is unchanged in the common case: a clean response

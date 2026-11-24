@@ -1,17 +1,19 @@
 // ABOUTME: Super-admin endpoints for the Strava shared-app OAuth credential pool
-// ABOUTME: The server KMS-encrypts client_secret at rest; the operator only sends it over TLS, never touching the DEK
+// ABOUTME: The server KMS-encrypts client_secret at rest; the admin only sends it over TLS, never touching the DEK
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
 //! Admin CRUD over the `strava_oauth_app_pool` table.
 //!
-//! The pool holds extra platform-owned Strava OAuth apps that grow the
-//! athlete-seat cap beside the env `STRAVA_CLIENT_ID` app.
+//! The pool holds the platform-owned Strava OAuth applications registered
+//! beside the env `STRAVA_CLIENT_ID` app. Each serves a bounded number of
+//! athletes; the pool records which application an athlete authorized under
+//! and frees a seat when an athlete disconnects.
 //!
 //! These are the step-A endpoints of the authenticated admin CLI (ADR-022):
 //! super-admin-gated, and the **server** encrypts the `client_secret` with its
-//! KMS DEK (via the repository), so the secret never lives on an operator's
+//! KMS DEK (via the repository), so the secret never lives on an admin's
 //! machine. Usable today via `curl` with a super-admin token; the gcloud-style
 //! `pierre-cli auth login` + `pierre-cli strava-pool` client layers on later.
 

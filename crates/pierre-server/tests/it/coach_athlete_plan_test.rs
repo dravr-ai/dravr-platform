@@ -26,8 +26,9 @@ use pierre_providers::ai_scope::{self, Provenance};
 use std::sync::Arc;
 
 use axum::http::StatusCode;
-use chrono::{Days, NaiveDate, Utc};
 use common::{create_test_server_resources, create_test_user_with_plan, generate_test_token};
+use dravr_tronc::dates::Elapsed;
+use dravr_tronc::dates::{CivilDate, Timestamp};
 use dravr_tronc::mcp::tool::{McpTool, ToolContext};
 use helpers::axum_test::AxumTestRequest;
 use pierre_commands::plan::PlanShowHandler;
@@ -88,23 +89,21 @@ async fn person(res: &Arc<ServerContext>, label: &str, name: &str) -> Person {
     }
 }
 
-fn monday(weeks: u64) -> NaiveDate {
-    use chrono::Datelike;
-
-    let today = Utc::now().date_naive();
-    let this = today - Days::new(u64::from(today.weekday().num_days_from_monday()));
-    this + Days::new(7 * weeks)
+fn monday(weeks: i64) -> CivilDate {
+    let today = Timestamp::now().utc_date();
+    let this = today - Elapsed::days(i64::from(today.weekday().num_days_from_monday()));
+    this + Elapsed::days(7 * weeks)
 }
 
-fn ymd(date: NaiveDate) -> String {
-    date.format("%Y-%m-%d").to_string()
+fn ymd(date: CivilDate) -> String {
+    date.to_string()
 }
 
-fn week(start: NaiveDate) -> Value {
+fn week(start: CivilDate) -> Value {
     let days: Vec<Value> = (0..7)
         .map(|offset| {
             json!({
-                "date": ymd(start + Days::new(offset)),
+                "date": ymd(start + Elapsed::days(offset)),
                 "sport": "run",
                 "workout": "easy aerobic run",
                 "duration_min": 40,
@@ -124,7 +123,7 @@ async fn create_group(
     let agent_id = create_group_agent(repos, owner.id, owner.tenant)
         .await
         .unwrap();
-    let now = Utc::now();
+    let now = Timestamp::now();
     let group = repos
         .groups
         .create_group(
@@ -144,6 +143,7 @@ async fn create_group(
                 is_active: true,
                 channel_type: None,
                 channel_chat_id: None,
+                chat_connection: None,
                 created_at: now,
                 updated_at: now,
             },
@@ -163,7 +163,7 @@ async fn create_group(
 }
 
 async fn join(repos: &RepositoryRegistry, group: &CoachingGroup, who: &Person) {
-    let now = Utc::now();
+    let now = Timestamp::now();
     repos
         .groups
         .add_member(&GroupMember {
@@ -365,7 +365,7 @@ async fn the_view_shows_the_coach_the_live_plan_in_the_home_shape() {
     );
     assert_eq!(
         body["today"],
-        ymd(Utc::now().date_naive()),
+        ymd(Timestamp::now().utc_date()),
         "the plan is projected on the athlete's today: {body}"
     );
     assert_eq!(

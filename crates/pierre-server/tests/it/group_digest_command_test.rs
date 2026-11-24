@@ -10,7 +10,7 @@ use crate::common;
 
 use std::sync::Arc;
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_commands::group::{GroupDigestHandler, GroupStatusHandler};
 use pierre_commands::{
     caller_group_standing, CommandHandler, ConversationRotation, PlatformCommandContext,
@@ -78,8 +78,8 @@ impl Room {
                 domain: None,
                 plan: plan.to_owned(),
                 owner_user_id: owner_id,
-                created_at: Utc::now(),
-                updated_at: Utc::now(),
+                created_at: Timestamp::now(),
+                updated_at: Timestamp::now(),
             })
             .await
             .unwrap();
@@ -213,7 +213,7 @@ async fn seed_group(
         .await
         .unwrap();
     let id = Uuid::new_v4();
-    let now = Utc::now();
+    let now = Timestamp::now();
     repos
         .groups
         .create_group(
@@ -233,6 +233,7 @@ async fn seed_group(
                 is_active: true,
                 channel_type: Some("telegram".to_owned()),
                 channel_chat_id: Some("-100424242".to_owned()),
+                chat_connection: None,
                 created_at: now,
                 updated_at: now,
             },

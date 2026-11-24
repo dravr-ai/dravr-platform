@@ -19,8 +19,6 @@
 //! Postgres, so one statement serves both drivers and cannot drift between
 //! them.
 
-/// Record the consent decision and the moment it was taken.
-/// `CURRENT_TIMESTAMP` is the spelling both engines accept.
 pub(crate) const SET_ANALYTICS_CONSENT_SQL: &str = r"
         UPDATE users SET
             analytics_consent = $1,
@@ -54,6 +52,14 @@ pub(crate) const GET_PROVIDER_TERMS_SQL: &str = r"
 pub(crate) const WITHDRAW_PROVIDER_TERMS_SQL: &str = r"
         UPDATE provider_terms_consents SET withdrawn_at = CURRENT_TIMESTAMP
         WHERE user_id = $1 AND provider = $2 AND withdrawn_at IS NULL
+        RETURNING version
+        ";
+
+/// Append one answer to the account's consent history: `$4` is `granted` or
+/// `withdrawn`, `$3` the version granted or the one standing when withdrawn.
+pub(crate) const APPEND_CONSENT_EVENT_SQL: &str = r"
+        INSERT INTO provider_consent_events (user_id, provider, version, event, occurred_at)
+        VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
         ";
 
 /// Set the user's preferred locale.
@@ -74,9 +80,9 @@ pub(crate) const GET_COACHES_OTHERS_SQL: &str = "SELECT coaches_others FROM user
 pub(crate) const SET_MANAGES_ROSTER_SQL: &str =
     "UPDATE users SET manages_roster = $1 WHERE id = $2";
 
-/// Set `manages_roster` as an operator decision, with who made it and when:
+/// Set `manages_roster` as an admin decision, with who made it and when:
 /// a grant stamps both, a revoke clears both.
-pub(crate) const SET_ROSTER_BY_OPERATOR_SQL: &str = r"
+pub(crate) const SET_ROSTER_BY_ADMIN_SQL: &str = r"
         UPDATE users SET
             manages_roster = $1,
             manages_roster_granted_at = $2,
@@ -84,7 +90,7 @@ pub(crate) const SET_ROSTER_BY_OPERATOR_SQL: &str = r"
         WHERE id = $4
         ";
 
-/// Take back a `manages_roster` grant only when no operator made it. The flag
+/// Take back a `manages_roster` grant only when no admin made it. The flag
 /// values are bound rather than written as literals: `SQLite` stores them as
 /// integers and Postgres as booleans, and a bound `bool` is either.
 pub(crate) const REVOKE_EARNED_ROSTER_SQL: &str = r"
@@ -92,8 +98,8 @@ pub(crate) const REVOKE_EARNED_ROSTER_SQL: &str = r"
         WHERE id = $2 AND manages_roster = $3 AND manages_roster_granted_at IS NULL
         ";
 
-/// Read who granted the user's `manages_roster` as an operator, and when.
-pub(crate) const GET_ROSTER_OPERATOR_GRANT_SQL: &str =
+/// Read who granted the user's `manages_roster` as an admin, and when.
+pub(crate) const GET_ROSTER_ADMIN_GRANT_SQL: &str =
     "SELECT manages_roster_granted_at, manages_roster_granted_by FROM users WHERE id = $1";
 
 /// Set the user's IANA timezone.
@@ -143,8 +149,9 @@ macro_rules! impl_user_preferences {
             ensure_updated(result.rows_affected(), user_id)
         }
 
-        /// Record that the user accepted `provider`'s exposure notice
-        /// `version`, stamping the time.
+        /// Record that the user accepted `provider`'s notice `version`,
+        /// stamping the time, and append the grant to the account's consent
+        /// history, in one transaction.
         ///
         /// The record belongs to the account, not to a provider session: it is
         /// the account's answer to the notice, so a disconnect leaves it and a
@@ -160,18 +167,28 @@ macro_rules! impl_user_preferences {
             provider: &str,
             version: &str,
         ) -> AppResult<()> {
+            let failed = |e: sqlx::Error| {
+                AppError::database(format!(
+                    "Failed to record the {provider} notice consent: {e}"
+                ))
+            };
+            let mut tx = pool.begin().await.map_err(failed)?;
             sqlx::query(SET_PROVIDER_TERMS_SQL)
                 .bind($ids::bind(user_id))
                 .bind(provider)
                 .bind(version)
-                .execute(pool)
+                .execute(&mut *tx)
                 .await
-                .map_err(|e| {
-                    AppError::database(format!(
-                        "Failed to record the {provider} notice consent: {e}"
-                    ))
-                })?;
-            Ok(())
+                .map_err(failed)?;
+            sqlx::query(APPEND_CONSENT_EVENT_SQL)
+                .bind($ids::bind(user_id))
+                .bind(provider)
+                .bind(version)
+                .bind("granted")
+                .execute(&mut *tx)
+                .await
+                .map_err(failed)?;
+            tx.commit().await.map_err(failed)
         }
 
         /// Withdraw the user's standing acceptance of `provider`'s notice.
@@ -180,7 +197,9 @@ macro_rules! impl_user_preferences {
         /// withdrawal; the acceptance reads as none from then on, until the
         /// user accepts again.
         ///
-        /// Returns whether an acceptance was standing.
+        /// Returns whether an acceptance was standing; only a standing one
+        /// appends a withdrawal to the account's consent history, in the same
+        /// transaction.
         ///
         /// # Errors
         ///
@@ -190,17 +209,32 @@ macro_rules! impl_user_preferences {
             user_id: Uuid,
             provider: &str,
         ) -> AppResult<bool> {
-            let result = sqlx::query(WITHDRAW_PROVIDER_TERMS_SQL)
+            let failed = |e: sqlx::Error| {
+                AppError::database(format!(
+                    "Failed to withdraw the {provider} notice consent: {e}"
+                ))
+            };
+            let mut tx = pool.begin().await.map_err(failed)?;
+            let standing: Option<String> = sqlx::query_scalar(WITHDRAW_PROVIDER_TERMS_SQL)
                 .bind($ids::bind(user_id))
                 .bind(provider)
-                .execute(pool)
+                .fetch_optional(&mut *tx)
                 .await
-                .map_err(|e| {
-                    AppError::database(format!(
-                        "Failed to withdraw the {provider} notice consent: {e}"
-                    ))
-                })?;
-            Ok(result.rows_affected() > 0)
+                .map_err(failed)?;
+            let Some(version) = standing else {
+                tx.commit().await.map_err(failed)?;
+                return Ok(false);
+            };
+            sqlx::query(APPEND_CONSENT_EVENT_SQL)
+                .bind($ids::bind(user_id))
+                .bind(provider)
+                .bind(version)
+                .bind("withdrawn")
+                .execute(&mut *tx)
+                .await
+                .map_err(failed)?;
+            tx.commit().await.map_err(failed)?;
+            Ok(true)
         }
 
         /// The notice version the user accepted for `provider` and has not
@@ -329,23 +363,23 @@ macro_rules! impl_user_preferences {
             ensure_updated(result.rows_affected(), user_id)
         }
 
-        /// Grant or revoke `manages_roster` as an operator. A grant records
-        /// `operator` and the time, which the `TrainingPeaks` reconciler reads
+        /// Grant or revoke `manages_roster` as an admin. A grant records
+        /// `admin` and the time, which the `TrainingPeaks` reconciler reads
         /// as a grant it must leave alone; a revoke clears both.
         ///
         /// # Errors
         ///
         /// Returns an error if the user is not found or the database update
         /// fails.
-        pub async fn set_manages_roster_by_operator(
+        pub async fn set_manages_roster_by_admin(
             pool: &Pool<$db>,
             user_id: Uuid,
             manages_roster: bool,
-            operator: Option<Uuid>,
+            admin: Option<Uuid>,
         ) -> AppResult<()> {
-            let granted_at = manages_roster.then(Utc::now);
-            let granted_by = operator.filter(|_| manages_roster);
-            let result = sqlx::query(SET_ROSTER_BY_OPERATOR_SQL)
+            let granted_at = manages_roster.then(Timestamp::now);
+            let granted_by = admin.filter(|_| manages_roster);
+            let result = sqlx::query(SET_ROSTER_BY_ADMIN_SQL)
                 .bind(manages_roster)
                 .bind(granted_at)
                 .bind($ids::bind_opt(granted_by))
@@ -353,15 +387,15 @@ macro_rules! impl_user_preferences {
                 .execute(pool)
                 .await
                 .map_err(|e| {
-                    AppError::database(format!("Failed to set manages_roster by operator: {e}"))
+                    AppError::database(format!("Failed to set manages_roster by admin: {e}"))
                 })?;
 
             ensure_updated(result.rows_affected(), user_id)
         }
 
-        /// Take back a `manages_roster` grant no operator made. Returns whether
+        /// Take back a `manages_roster` grant no admin made. Returns whether
         /// a grant was taken back: `false` for a user without one, one an
-        /// operator made, or no user at all.
+        /// admin made, or no user at all.
         ///
         /// # Errors
         ///
@@ -380,29 +414,29 @@ macro_rules! impl_user_preferences {
             Ok(result.rows_affected() > 0)
         }
 
-        /// The operator grant behind the user's `manages_roster`, `None` when
-        /// no operator made one.
+        /// The admin grant behind the user's `manages_roster`, `None` when
+        /// no admin made one.
         ///
         /// # Errors
         ///
         /// Returns an error if the user is not found or the database query
         /// fails.
-        pub async fn manages_roster_operator_grant(
+        pub async fn manages_roster_admin_grant(
             pool: &Pool<$db>,
             user_id: Uuid,
-        ) -> AppResult<Option<OperatorRosterGrant>> {
-            let row = sqlx::query(GET_ROSTER_OPERATOR_GRANT_SQL)
+        ) -> AppResult<Option<AdminRosterGrant>> {
+            let row = sqlx::query(GET_ROSTER_ADMIN_GRANT_SQL)
                 .bind($ids::bind(user_id))
                 .fetch_optional(pool)
                 .await
                 .map_err(|e| AppError::database(format!("Failed to read the roster grant: {e}")))?
                 .ok_or_else(|| AppError::not_found(format!("User with ID: {user_id}")))?;
-            let granted_at: Option<DateTime<Utc>> =
+            let granted_at: Option<Timestamp> =
                 row.try_get("manages_roster_granted_at").map_err(|e| {
                     AppError::database(format!("Failed to read manages_roster_granted_at: {e}"))
                 })?;
             let granted_by = $ids::read_opt(&row, "manages_roster_granted_by")?;
-            Ok(granted_at.map(|granted_at| OperatorRosterGrant {
+            Ok(granted_at.map(|granted_at| AdminRosterGrant {
                 granted_at,
                 granted_by,
             }))

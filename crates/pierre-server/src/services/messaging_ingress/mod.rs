@@ -31,6 +31,8 @@ pub use agent_choice::parse_choice;
 pub use viz_delivery::card_or_rich_text;
 /// LLM dispatch + outbound delivery + retry queue for messaging turns.
 mod dispatch;
+/// A group chat connected to a web coaching group: the connect code and the members-only room (carnet#1683).
+mod group_connect;
 /// Channel-linking commands (`/start <code>`, `LINK <code>`) + analytics-consent hydration.
 mod linking;
 /// In-chat OTP linking flow + logout + supporting helpers.
@@ -52,15 +54,15 @@ pub mod resume;
 pub(crate) mod window_failure;
 /// The messaging background workers started once per process.
 pub mod workers;
-pub use dispatch::turn_watchdog;
 pub use dispatch::{classify_channel_config, ChannelConfigLookup};
 pub(crate) use dispatch::{dispatch_and_respond, TurnClose};
 pub(crate) use resume::start_turn;
 /// What a shared room is left seeing once a slash command is answered privately.
 pub mod room_echo;
 /// Which channel identity a message is routed on: placeholders refused,
-/// `WhatsApp` phone-number links moved onto the business-scoped user id.
+/// `WhatsApp` links moved onto the business-scoped user id Meta names them by.
 mod sender_identity;
+pub(crate) use sender_identity::apply_identity_changes;
 /// Session resolution for linked channel users + unlinked-user link-and-prompt.
 mod session;
 /// Channel framing around the turn service's slash dispatch: channel-link
@@ -106,7 +108,6 @@ use otp::{apply_conversation_recipient, handle_logout, handle_otp_flow, is_logou
 use prelink::prelink_locale;
 /// Re-exported alongside [`start_otp_flow`], and for the same reason.
 pub use session::create_link_and_prompt;
-pub(crate) use session::fresh_title_fallback;
 use session::{resolve_linked_session, ChannelChatRef};
 #[cfg(feature = "client-messaging")]
 pub use slash::{room_reply_thread_anchor, slash_reply_should_be_private};
@@ -339,9 +340,7 @@ pub(crate) async fn persist_inbound(
 /// on Telegram. The hash correlates one sender's events in Cloud Logging; it is
 /// unkeyed, so it is reversible over the phone-number space and must not leave
 /// the logs. Consent is keyed on a Pierre user and the analytics sink hashes
-/// `user_id` again, so a pre-link event is never captured in `PostHog`, and
-/// `messaging.identity_alias` carries it as `channel_identity`, a key the sink
-/// strips (carnet#1680).
+/// `user_id` again, so a pre-link event is never captured in `PostHog`.
 pub(super) fn pre_link_identity(channel: &str, sender_id: &str) -> String {
     hash_id(&format!("{channel}:{sender_id}"))
 }
@@ -350,7 +349,8 @@ pub(super) fn pre_link_identity(channel: &str, sender_id: &str) -> String {
 ///
 /// `user_id` is the raw (un-hashed) Pierre user id, or, for pre-link intents
 /// that have no resolved user yet, the [`pre_link_identity`] hash.
-/// `intent_type` is one of `link_code`, `otp_flow`, `logout`, `normal_chat`.
+/// `intent_type` is one of `link_code`, `otp_flow`, `group_connect`, `logout`,
+/// `normal_chat`.
 fn emit_messaging_intent(user_id: &str, tenant_id: TenantId, channel: &str, intent_type: &str) {
     info!(
         target: "notify",
@@ -631,6 +631,22 @@ async fn persist_single_message(
     // `pre_link_identity`). It reaches Cloud Logging only.
     let pre_link_identity = pre_link_identity(channel, &message.sender_id);
 
+    // A connect code redeemed in a group chat (carnet#1683) is answered first,
+    // like a linking code: it may be what makes the chat a group's room.
+    if group_connect::answered_connect_code(
+        resources,
+        tenant_id,
+        channel,
+        channel_type,
+        adapter,
+        message,
+        &pre_link_identity,
+    )
+    .await
+    {
+        return Ok(PersistOutcome::HandledNotStored);
+    }
+
     if let Some(outcome) = handle_pre_session_commands(
         resources,
         channel,
@@ -643,6 +659,21 @@ async fn persist_single_message(
     .await
     {
         return Ok(outcome);
+    }
+
+    // A chat connected from the web app admits its group's members only,
+    // ahead of the ambient gate that would capture a stranger's chatter.
+    if group_connect::kept_out_of_connected_room(
+        resources,
+        tenant_id,
+        channel,
+        channel_type,
+        adapter,
+        message,
+    )
+    .await
+    {
+        return Ok(PersistOutcome::HandledNotStored);
     }
 
     // Group respond-mode gate. Placed BEFORE the logout keyword check so
@@ -1061,7 +1092,7 @@ async fn send_unlinked_user_prompt(
 /// row on success. Returns `Ok(Some((auth_result, session)))` for authorized
 /// linked users, `Ok(None)` after surfacing the right reply (no link → prompt;
 /// pending / suspended / rate-limited → translated denial), or `Err(())` on
-/// operator-category failure.
+/// admin-category failure.
 async fn resolve_or_prompt(
     resources: &ServerContext,
     db: &dyn MessagingRepository,
@@ -1129,7 +1160,7 @@ async fn resolve_or_prompt(
         Ok(Some(session)) => Ok(Some((auth_result, session))),
         Ok(None) => {
             // authenticate_channel succeeded but channel link disappeared
-            // between calls — race or operator action. Treat as unlinked.
+            // between calls — race or admin action. Treat as unlinked.
             send_unlinked_user_prompt(
                 resources,
                 db,
@@ -1145,7 +1176,7 @@ async fn resolve_or_prompt(
         Err(e) => {
             // Error-level: the user sent a message and got no reply — this is a
             // production incident, not a warning. Triggers the dravr-tronc
-            // Slack notifier so operators see the outage within seconds.
+            // Slack notifier so admins see the outage within seconds.
             error!(
                 error = %e,
                 sender_id = %mask_recipient(&message.sender_id),

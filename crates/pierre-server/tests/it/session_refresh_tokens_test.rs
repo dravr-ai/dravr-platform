@@ -7,7 +7,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::models::SessionRefreshToken;
 use pierre_database::backends::factory::Database;
 use pierre_database::RepositoryRegistry;
@@ -18,14 +18,14 @@ use crate::common;
 
 /// A record in a fresh family for `user_id`, expiring 30 days out.
 fn record(user_id: Uuid, family_id: &str) -> SessionRefreshToken {
-    let now = Utc::now();
+    let now = Timestamp::now();
     SessionRefreshToken {
         family_id: family_id.to_owned(),
         user_id,
         tenant_id: Some("tenant-a".to_owned()),
         client_id: Some("dravr-mobile".to_owned()),
         created_at: now,
-        expires_at: now + Duration::days(30),
+        expires_at: now + Elapsed::days(30),
     }
 }
 
@@ -48,7 +48,7 @@ async fn exchange_returns_the_record_once() {
 
     let consumed = repos
         .session_refresh_tokens
-        .consume_token("token-1", Utc::now())
+        .consume_token("token-1", Timestamp::now())
         .await
         .unwrap()
         .expect("a live token exchanges");
@@ -61,7 +61,7 @@ async fn exchange_returns_the_record_once() {
     // a revoked row.
     let again = repos
         .session_refresh_tokens
-        .consume_token("token-1", Utc::now())
+        .consume_token("token-1", Timestamp::now())
         .await
         .unwrap();
     assert!(again.is_none(), "a token exchanges exactly once");
@@ -73,13 +73,13 @@ async fn an_unknown_or_expired_token_does_not_exchange() {
 
     let unknown = repos
         .session_refresh_tokens
-        .consume_token("never-stored", Utc::now())
+        .consume_token("never-stored", Timestamp::now())
         .await
         .unwrap();
     assert!(unknown.is_none());
 
     let mut lapsed = record(user_id, "family-lapsed");
-    lapsed.expires_at = Utc::now() - Duration::minutes(1);
+    lapsed.expires_at = Timestamp::now() - Elapsed::minutes(1);
     repos
         .session_refresh_tokens
         .store_token("token-lapsed", &lapsed)
@@ -87,7 +87,7 @@ async fn an_unknown_or_expired_token_does_not_exchange() {
         .unwrap();
     let expired = repos
         .session_refresh_tokens
-        .consume_token("token-lapsed", Utc::now())
+        .consume_token("token-lapsed", Timestamp::now())
         .await
         .unwrap();
     assert!(expired.is_none(), "an expired token does not exchange");
@@ -104,7 +104,7 @@ async fn revoking_a_token_family_kills_its_live_successor_only() {
         .unwrap();
     repos
         .session_refresh_tokens
-        .consume_token("token-a1", Utc::now())
+        .consume_token("token-a1", Timestamp::now())
         .await
         .unwrap()
         .expect("token-a1 exchanges");
@@ -123,14 +123,14 @@ async fn revoking_a_token_family_kills_its_live_successor_only() {
     // one live member of its family, and reports that it did.
     let revoked = repos
         .session_refresh_tokens
-        .revoke_token_family("token-a1", Utc::now())
+        .revoke_token_family("token-a1", Timestamp::now())
         .await
         .unwrap();
     assert_eq!(revoked, 1, "only the live successor was left to revoke");
 
     let successor = repos
         .session_refresh_tokens
-        .consume_token("token-a2", Utc::now())
+        .consume_token("token-a2", Timestamp::now())
         .await
         .unwrap();
     assert!(
@@ -142,7 +142,7 @@ async fn revoking_a_token_family_kills_its_live_successor_only() {
     // replay from a token it simply never issued.
     let again = repos
         .session_refresh_tokens
-        .revoke_token_family("token-a1", Utc::now())
+        .revoke_token_family("token-a1", Timestamp::now())
         .await
         .unwrap();
     assert_eq!(again, 0);
@@ -150,7 +150,7 @@ async fn revoking_a_token_family_kills_its_live_successor_only() {
     // The other device's family was never touched.
     let other = repos
         .session_refresh_tokens
-        .consume_token("token-b1", Utc::now())
+        .consume_token("token-b1", Timestamp::now())
         .await
         .unwrap();
     assert!(other.is_some(), "an unrelated family still exchanges");
@@ -158,7 +158,7 @@ async fn revoking_a_token_family_kills_its_live_successor_only() {
     // A token nobody issued revokes nothing.
     let unknown = repos
         .session_refresh_tokens
-        .revoke_token_family("never-stored", Utc::now())
+        .revoke_token_family("never-stored", Timestamp::now())
         .await
         .unwrap();
     assert_eq!(unknown, 0);
@@ -189,7 +189,7 @@ async fn revoking_a_user_ends_every_device_session_and_nobody_elses() {
 
     let revoked = repos
         .session_refresh_tokens
-        .revoke_user_tokens(user_id, Utc::now())
+        .revoke_user_tokens(user_id, Timestamp::now())
         .await
         .unwrap();
     assert_eq!(revoked, 2, "both of the user's devices, nobody else's");
@@ -197,14 +197,14 @@ async fn revoking_a_user_ends_every_device_session_and_nobody_elses() {
     for token in ["phone", "tablet"] {
         let consumed = repos
             .session_refresh_tokens
-            .consume_token(token, Utc::now())
+            .consume_token(token, Timestamp::now())
             .await
             .unwrap();
         assert!(consumed.is_none(), "{token} was revoked with its user");
     }
     let untouched = repos
         .session_refresh_tokens
-        .consume_token("someone-else", Utc::now())
+        .consume_token("someone-else", Timestamp::now())
         .await
         .unwrap();
     assert_eq!(

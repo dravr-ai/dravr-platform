@@ -47,6 +47,8 @@ export const gearApi = pierreApi.gear;
 // Importing the athlete's own history from a service's export.
 export const importsApi = pierreApi.imports;
 export const originalsApi = pierreApi.dataExport;
+// The athlete's "Who read your data" feed: outside apps' reads and the coach's reads per day.
+export const accessFeedApi = pierreApi.accessFeed;
 // The athlete's statutory access requests to a company: the letter they send and its legal deadline.
 export const dataAccessRequestsApi = pierreApi.dataAccessRequests;
 

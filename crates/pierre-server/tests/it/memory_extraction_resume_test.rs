@@ -25,7 +25,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use futures_util::stream;
 use pierre_core::admin::scope::AdminScope;
 use pierre_core::errors::{AppError, AppResult};
@@ -259,6 +259,8 @@ fn payload_for(user: &str, user_message: &str) -> ExtractionJobPayload {
         transport_policy: TransportPolicy::AnyTransport,
         conversation_id: None,
         turn_id: None,
+        ai_consent_sources: Vec::new(),
+        consent_withheld: None,
     }
 }
 
@@ -311,7 +313,7 @@ async fn claimable_now(repos: &RepositoryRegistry, now: i64) -> Vec<MemoryExtrac
 }
 
 fn now_ms() -> i64 {
-    Utc::now().timestamp_millis()
+    Timestamp::now().epoch_millis()
 }
 
 // ---------------------------------------------------------------------------

@@ -14,7 +14,7 @@ use std::sync::{Arc, Mutex};
 
 use crate::claim_extractor_test::LOOK_AHEAD_LAST_SESSIONS;
 use async_trait::async_trait;
-use chrono::NaiveDate;
+use dravr_tronc::dates::CivilDate;
 use pierre_core::errors::AppError;
 use pierre_core::models::SportType;
 use pierre_evals::athlete_data::{AthleteRecord, RecordedActivity};
@@ -810,7 +810,7 @@ fn record_2026_10_26() -> AthleteRecord {
     AthleteRecord {
         has_provider: true,
         activities: vec![RecordedActivity {
-            date: NaiveDate::from_ymd_opt(2026, 10, 24).expect("valid date"),
+            date: CivilDate::from_ymd(2026, 10, 24).expect("valid date"),
             sport: SportType::Run,
             name: "Morning Run".to_owned(),
             distance_km: Some(6.74),
@@ -818,7 +818,7 @@ fn record_2026_10_26() -> AthleteRecord {
             elevation_m: Some(173.0),
             average_hr_bpm: Some(133.0),
         }],
-        today: NaiveDate::from_ymd_opt(2026, 10, 26).expect("valid date"),
+        today: CivilDate::from_ymd(2026, 10, 26).expect("valid date"),
         locale: "fr".to_owned(),
         named_subsets: Vec::new(),
         history: None,
@@ -1064,7 +1064,7 @@ async fn a_heart_rate_without_a_recorded_one_is_unverifiable_and_without_a_provi
 #[tokio::test]
 async fn a_providerless_last_session_still_to_come_is_never_contradicted() {
     let record =
-        AthleteRecord::providerless(NaiveDate::from_ymd_opt(2026, 10, 26).expect("date"), "fr");
+        AthleteRecord::providerless(CivilDate::from_ymd(2026, 10, 26).expect("date"), "fr");
     for sentence in LOOK_AHEAD_LAST_SESSIONS {
         let verdicts = verify_reply(
             sentence,
@@ -1097,7 +1097,7 @@ async fn a_providerless_last_session_still_to_come_is_never_contradicted() {
 #[tokio::test]
 async fn a_providerless_weekly_plan_is_never_contradicted() {
     let record =
-        AthleteRecord::providerless(NaiveDate::from_ymd_opt(2026, 10, 26).expect("date"), "fr");
+        AthleteRecord::providerless(CivilDate::from_ymd(2026, 10, 26).expect("date"), "fr");
     let plan = "Samedi : ta sortie longue, 18 km en endurance fondamentale.\n\
                 Dimanche : 8 km faciles avec 150 m de dénivelé.\n\
                 Ta prochaine séance : 10 km avec 5 x 1000 m au seuil.\n\

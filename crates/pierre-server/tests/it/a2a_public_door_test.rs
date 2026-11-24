@@ -102,6 +102,7 @@ fn oauth2_routes(resources: &Arc<ServerContext>) -> Router {
             &resources.common.config.rate_limiting,
         )),
         refresh_token_expiry_days: 30,
+        session_cookie_max_age_secs: 86_400,
         csrf_manager: resources.auth.csrf_manager.clone(),
         accounts: resources.account_service(),
         google_sign_in: None,
@@ -567,7 +568,6 @@ async fn delegated_token(
                 audience,
             },
             &user.id,
-            &[],
             tenants.first().map(|tenant| tenant.id.to_string()),
         )
         .unwrap()

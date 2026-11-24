@@ -17,7 +17,7 @@
 use std::collections::{BTreeSet, HashSet};
 use std::time::Instant;
 
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use serde_json::Value;
 use uuid::Uuid;
 
@@ -39,6 +39,7 @@ use pierre_services::playbook_render::{render_archetype_block, render_playbooks_
 use pierre_services::training_plan_render::render_training_plan_block;
 
 use crate::ChatPipelineContext;
+use dravr_tronc::dates::CivilDate;
 
 /// What the plan block is rendered from: the stored plan, the agent's
 /// package, and the catalogue whose templates the phase header names.
@@ -78,7 +79,7 @@ pub async fn inject_okf_bundle(
             tenant_id,
             user_id,
             ai_scope::readable_policy(),
-            &ai_scope::admit_derived,
+            &ai_scope::admit_memory,
         )
         .await
     {
@@ -123,7 +124,7 @@ pub async fn inject_training_plan(
     tenant_id: &str,
     user_id: &str,
     turn_agent_id: Option<&str>,
-    today: chrono::NaiveDate,
+    today: CivilDate,
     withheld: bool,
     base_prompt: String,
 ) -> String {
@@ -178,7 +179,7 @@ pub(crate) async fn append_plan_block(
     sources: PlanPromptSources<'_>,
     shown: PlanShown<'_>,
     turn_agent_id: Option<&str>,
-    today: chrono::NaiveDate,
+    today: CivilDate,
     base_prompt: String,
 ) -> String {
     let PlanPromptSources { repos, catalogue } = sources;
@@ -274,9 +275,12 @@ pub async fn inject_playbooks(
         .await
     {
         // A playbook learned from first-party-only data stays out of an
-        // external turn (carnet#769).
+        // external turn (carnet#769). A playbook is the agent's memory of
+        // what worked: none naming a withdrawn consent, or data kept out of
+        // AI memory, reaches the prompt (carnet#1157, #1158).
         Ok(mut p) => {
             ai_scope::retain_admitted(&mut p, |playbook| playbook.transport_policy);
+            ai_scope::retain_consented(&mut p, |playbook| &playbook.ai_consent_sources, true);
             p
         }
         Err(e) => {
@@ -359,8 +363,8 @@ async fn recent_activity_sports(
     else {
         return HashSet::new();
     };
-    let end = Utc::now();
-    let start = end - Duration::days(COLD_START_SPORT_LOOKBACK_DAYS);
+    let end = Timestamp::now();
+    let start = end - Elapsed::days(COLD_START_SPORT_LOOKBACK_DAYS);
     let Ok(activities) = activity_cache
         .get_cached_activities(
             user_uuid,

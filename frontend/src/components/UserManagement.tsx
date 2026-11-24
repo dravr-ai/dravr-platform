@@ -13,7 +13,7 @@ import CoachAccessRequests from './CoachAccessRequests';
 import NewUsersView from './NewUsersView';
 import UserApprovalModal from './UserApprovalModal';
 import UserDetailDrawer from './UserDetailDrawer';
-import { QUERY_KEYS } from '../constants/queryKeys';
+import { QUERY_KEYS } from '@pierre/shared-constants';
 import { formatDateTime } from '@pierre/chat-utils';
 import { ADMIN_LOCALE } from '../utils/adminLocale';
 import { offersSuspend } from '../utils/suspendOffer';
@@ -200,7 +200,7 @@ export default function UserManagement() {
       default: return 'secondary';
     }
   };
-  // Status is a dot and a word (DESIGN.md §8), never a tinted chip.
+  // Status is a dot and a word (DESIGN.md "Status"), never a tinted chip.
   const STATUS_DOT: Record<ReturnType<typeof getStatusBadgeVariant>, string> = {
     warning: 'bg-warning',
     success: 'bg-success',

@@ -60,9 +60,8 @@ use std::str::FromStr;
 use std::sync::{Arc, OnceLock};
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
-use chrono_tz::Tz;
 use dravr_canot::channel::MessagingChannel;
+use dravr_tronc::dates::{Timestamp, Zone};
 use pierre_contremaitre::messaging_strings::{
     MessagingStringsRegistry, KEY_BACKFILL_LIST_HEADER, KEY_BACKFILL_LIST_MORE, KEY_BACKFILL_READY,
 };
@@ -287,7 +286,7 @@ impl ServerBackfillNotifier {
         target: &LinkedChannelTarget,
         user_id: Uuid,
         guard: Option<OutboundReauthGuard<'_>>,
-        send_by: Option<DateTime<Utc>>,
+        send_by: Option<Timestamp>,
     ) {
         let channel_str = target.channel_type.to_string();
         let queued_user_id = user_id.to_string();
@@ -438,7 +437,7 @@ impl ServerBackfillNotifier {
             .channel_route(user_id, tenant_id, pierre_conversation_id)
             .await
         {
-            if route.window_open(Utc::now()) {
+            if route.window_open(Timestamp::now()) {
                 return Some(Destination::Channel(Box::new(route)));
             }
             report_answered_in_app(tenant_id, &route);
@@ -576,7 +575,7 @@ impl ServerBackfillNotifier {
     /// The header and footer are catalogue phrases; each activity line (name ·
     /// day · sport · distance) is dated on the athlete's calendar (`zone`) and
     /// names the sport in `locale`.
-    fn render_list_body(&self, locale: &str, zone: Tz, activities: &[Activity]) -> String {
+    fn render_list_body(&self, locale: &str, zone: &Zone, activities: &[Activity]) -> String {
         let total = activities.len();
         let count = total.to_string();
         let mut body = self
@@ -788,7 +787,7 @@ impl BackfillNotifier for ServerBackfillNotifier {
                             return;
                         }
                         None => (
-                            RenderedReply::plain(self.render_list_body(&locale, zone, &warmed)),
+                            RenderedReply::plain(self.render_list_body(&locale, &zone, &warmed)),
                             None,
                         ),
                     }
@@ -861,7 +860,7 @@ impl BackfillNotifier for ServerBackfillNotifier {
                             tenant_id,
                             pierre_conversation_id,
                             &locale,
-                            self.render_list_body(&locale, zone, &warmed),
+                            self.render_list_body(&locale, &zone, &warmed),
                             count,
                         )
                         .await;
@@ -904,7 +903,7 @@ impl BackfillNotifier for ServerBackfillNotifier {
         else {
             return;
         };
-        if !route.window_open(Utc::now()) {
+        if !route.window_open(Timestamp::now()) {
             self.reauth_in_app(user_id, tenant_id, pierre_conversation_id, provider, &route)
                 .await;
             return;
@@ -923,7 +922,7 @@ impl BackfillNotifier for ServerBackfillNotifier {
         // The historical backfill only ever runs on the scrape-backed mirrors,
         // so this is always a hosted-login path. A slug with no hosted login
         // means that gate widened: a wrong-brand link is worse than none, so
-        // nothing is sent and the operator hears of it.
+        // nothing is sent and the admin hears of it.
         if backend_resolver::reconnect_target(provider).is_none() {
             error!(
                 provider = %provider,
@@ -1030,7 +1029,7 @@ impl BackfillNotifier for ServerBackfillNotifier {
             if !channel_allows_proactive(
                 target.channel_type,
                 session.as_ref().and_then(session_last_inbound),
-                Utc::now(),
+                Timestamp::now(),
             ) {
                 info!(channel = %channel_str, provider = %provider, "Reconnect notice: the linked chat's window is closed; not sent there");
                 report_held(

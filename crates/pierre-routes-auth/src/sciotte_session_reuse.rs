@@ -4,8 +4,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use chrono::{Duration as ChronoDuration, Utc};
 use dravr_sciotte::models::AuthSession;
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::constants::oauth_providers::SCIOTTE_TRAININGPEAKS;
 use pierre_core::errors::AppError;
 use pierre_core::models::{connection_needs_reauth, TenantId, UserOAuthToken};
@@ -29,7 +29,7 @@ use crate::AuthRoutesContext;
 /// never announce through an expiry) or wants a different account, and in both
 /// cases the credentials just submitted must be honoured, not the stored
 /// session.
-const SESSION_REUSE_WINDOW: ChronoDuration = ChronoDuration::minutes(2);
+const SESSION_REUSE_WINDOW: Elapsed = Elapsed::minutes(2);
 
 /// What a credential login does with the session stored for its provider.
 pub(crate) enum StoredSessionUse {
@@ -39,15 +39,14 @@ pub(crate) enum StoredSessionUse {
     Reused,
     /// The login signs in with the credentials submitted.
     SignIn {
-        /// The caller's own stored session, sent to seed the login browser,
-        /// and only when the platform has observed it dead: its `expires_at`
-        /// is in the past, or the caller's connection to the same provider is
-        /// flagged `needs_reauth` or `revoked` because a read through it
-        /// failed at the provider. A session the provider refused has dead
-        /// sign-in cookies, so seeding them cannot sign the browser in to
-        /// the old account, while its device-trust cookies still let the
-        /// provider see the device it trusted at that sign-in rather than a
-        /// stranger it challenges.
+        /// The caller's own stored session, sent to seed the login browser, and only when the
+        /// platform has observed it dead.
+        ///
+        /// That is: its `expires_at` is in the past, or the caller's connection to the same provider is flagged
+        /// `needs_reauth` or `revoked` because a read through it failed at the provider. A session
+        /// the provider refused has dead sign-in cookies, so seeding them cannot sign the browser
+        /// in to the old account, while the re-login still continues from the athlete's own earlier
+        /// session on that device.
         ///
         /// A stored session not observed dead — no past `expires_at` and an
         /// `active` connection — is never sent, however old it is. Its
@@ -80,7 +79,7 @@ enum SessionHealth {
 fn has_expired(session: &AuthSession) -> bool {
     session
         .expires_at
-        .is_some_and(|expires_at| expires_at <= Utc::now())
+        .is_some_and(|expires_at| expires_at <= Timestamp::now())
 }
 
 /// Read what the platform has observed about `session`: its own expiry, and
@@ -127,7 +126,7 @@ fn answers_login(
 ) -> bool {
     // Only a session written moments ago answers the login; an older one is
     // exactly what a reconnect is replacing.
-    if Utc::now() - token.updated_at > SESSION_REUSE_WINDOW {
+    if Timestamp::now() - token.updated_at > SESSION_REUSE_WINDOW {
         info!(
             %user_id,
             provider = %provider_name,
@@ -165,8 +164,8 @@ fn answers_login(
 /// sign-in carries the old session as its prior session only when the
 /// platform has observed the old session dead — its `expires_at` is past, or
 /// the caller's connection to the provider is `needs_reauth` or `revoked` —
-/// so the provider sees the device it trusted last time rather than a
-/// stranger it challenges. A session not observed dead is never sent: its
+/// so the re-login continues from the athlete's own earlier session on that
+/// device. A session not observed dead is never sent: its
 /// cookies may still sign the browser in to the old account, which on a
 /// coach's account switch would store account A's session under account B's
 /// credentials.

@@ -19,7 +19,7 @@ use std::sync::Arc;
 
 use axum::body::{to_bytes, Body};
 use axum::http::{Method, Request, StatusCode};
-use chrono::NaiveDate;
+use dravr_tronc::dates::CivilDate;
 use dravr_tronc::mcp::tool::{McpTool, ToolContext};
 use pierre_core::models::periodization::{AnchorConfidence, AnchorValue, SportFamily};
 use pierre_core::models::{
@@ -102,8 +102,8 @@ async fn get(
     )
 }
 
-fn day(year: i32, month: u32, date: u32) -> NaiveDate {
-    NaiveDate::from_ymd_opt(year, month, date).expect("fixture date")
+fn day(year: i32, month: u32, date: u32) -> CivilDate {
+    CivilDate::from_ymd(year, month, date).expect("fixture date")
 }
 
 /// A cyclist whose profile row holds an FTP stated on 20 October, and who

@@ -6,13 +6,13 @@
 
 //! Garmin training-calendar tests.
 
-use chrono::{Duration, NaiveDate, Utc};
+use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp};
 use pierre_providers::core::{CredentialKind, FitnessProvider, OAuth2Credentials, ProviderConfig};
 use pierre_providers::garmin_provider::GarminProvider;
 use pierre_providers::models::{
     CalendarEventRef, PlannedSession, PlannedSessionKind, SportType, WorkoutStep,
 };
-use pierre_providers::ProviderRegistry;
+use pierre_test_support::providers::offline_provider_config;
 use secrecy::SecretString;
 use serde_json::Value;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -113,11 +113,7 @@ const TOKEN: &str = "garmin-access-token";
 const GRANTED: (&str, &str) = ("200 OK", r#"["ACTIVITY_EXPORT","WORKOUT_IMPORT"]"#);
 
 async fn provider(base_url: &str) -> GarminProvider {
-    let registry = ProviderRegistry::new();
-    let mut config: ProviderConfig = registry
-        .default_config("garmin")
-        .cloned()
-        .expect("garmin is registered");
+    let mut config: ProviderConfig = offline_provider_config("garmin").unwrap();
     config.api_base_url = base_url.to_owned();
     let provider = GarminProvider::with_config(config);
     provider
@@ -126,7 +122,7 @@ async fn provider(base_url: &str) -> GarminProvider {
             client_secret: SecretString::from("secret"),
             access_token: Some(SecretString::from(TOKEN.to_owned())),
             refresh_token: Some(SecretString::from("refresh")),
-            expires_at: Some(Utc::now() + Duration::hours(20)),
+            expires_at: Some(Timestamp::now() + Elapsed::hours(20)),
             scopes: vec![],
             kind: CredentialKind::OAuthBearer,
             request_budget: None,
@@ -148,8 +144,8 @@ fn step(label: &str, minutes: u32, zone: &str, repeat: u32) -> WorkoutStep {
     }
 }
 
-fn date() -> NaiveDate {
-    NaiveDate::from_ymd_opt(2026, 11, 12).unwrap()
+fn date() -> CivilDate {
+    CivilDate::from_ymd(2026, 11, 12).unwrap()
 }
 
 fn session() -> PlannedSession {
@@ -423,7 +419,7 @@ async fn the_listing_names_each_schedule_in_the_window_by_its_pair() {
     ])
     .await;
     let provider = provider(&base).await;
-    let to = NaiveDate::from_ymd_opt(2026, 11, 20).unwrap();
+    let to = CivilDate::from_ymd(2026, 11, 20).unwrap();
     let events = provider.list_calendar_events(date(), to).await.unwrap();
     let ids: Vec<&str> = events
         .iter()
@@ -434,10 +430,7 @@ async fn the_listing_names_each_schedule_in_the_window_by_its_pair() {
         ["41:77", "42:78"],
         "a schedule outside the window is left out"
     );
-    assert_eq!(
-        events[1].date,
-        NaiveDate::from_ymd_opt(2026, 11, 14).unwrap()
-    );
+    assert_eq!(events[1].date, CivilDate::from_ymd(2026, 11, 14).unwrap());
     assert!(events
         .iter()
         .all(|e| e.external_id.is_none() && e.updated_at.is_none()));

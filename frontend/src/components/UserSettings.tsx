@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
+import { lazy, Suspense, useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../hooks/useAuth';
 import { useTheme } from '../hooks/useTheme';
@@ -17,6 +17,7 @@ import {
   OAUTH_RESULT_FRESH_MS,
   OAUTH_RESULT_KEY,
   historySignInAfterGrant,
+  offeredConsents,
   refusalAnswer,
   startOAuthInNewTab,
   startOAuthInThisTab,
@@ -24,7 +25,14 @@ import {
 } from '../utils/oauthReturn';
 import type { ProviderStatus } from '../services/api';
 import { actsAsAdmin } from '@pierre/shared-types';
-import type { LimitCheckResult, OAuthGrant, SciotteTarget, ThemePreference } from '@pierre/shared-types';
+import type {
+  LimitCheckResult,
+  McpToken,
+  OAuthApp,
+  OAuthGrant,
+  SciotteTarget,
+  ThemePreference,
+} from '@pierre/shared-types';
 import {
   ACCOUNT_ROLE_LABEL_KEY,
   ACTIVE_TOKEN_COUNT_KEYS,
@@ -36,6 +44,7 @@ import {
   LEGAL_URL,
   providerGlyphInk,
   settingsPaneSections,
+  QUERY_KEYS,
 } from '@pierre/shared-constants';
 import { Button, Badge, ConfirmDialog, Input, Modal, ModalActions, Select, useErrorToast, Section, EmptyState, Alert, ALERT_TONE } from './ui';
 import { clsx } from 'clsx';
@@ -52,17 +61,21 @@ import MessagingSettingsTab from './MessagingSettingsTab';
 import NotificationSettingsTab from './NotificationSettingsTab';
 import PrivacySettingsTab from './PrivacySettingsTab';
 import MemoryPanel from './memory/MemoryPanel';
-import { QUERY_KEYS } from '../constants/queryKeys';
 import {
+  PROVIDER_BRAND,
+  cardForSlug,
   cardStatus,
+  connectConsentsFor,
   connectPlan,
   oauthFallbackTarget,
-  intervalsConnectPath,
   noticeRequired,
+  providerName,
+  signInStartsWithExtension,
 } from '@pierre/shared-constants';
 import { formatCompactNumber, formatCount, formatDate, formatResetTime } from '@pierre/chat-utils';
 import { useUsageStatus } from '../hooks/useUsageStatus';
 import { useAiConsent } from '../hooks/useAiConsent';
+import { useConnectedApps, useRevokeConnectedApps } from '../hooks/useAccessFeed';
 import { useFeatureFlags, FEATURE_KEYS } from '../hooks/useFeatureFlags';
 import SciotteLoginModal from './SciotteLoginModal';
 import { ProviderNoticeDialog } from './ProviderNotice';
@@ -73,37 +86,36 @@ import PreferredCalendarSettings from './settings/PreferredCalendarSettings';
 import IntervalsIcuLinkModal from './IntervalsIcuLinkModal';
 import OAuthAppSetupModal from './OAuthAppSetupModal';
 import { ownAppDevPortal } from '@pierre/domain-utils';
-import { describeApiError } from '@pierre/ui-logic';
+import { describeApiError, followConnectPlan, MIN_PASSWORD_LENGTH, isPasswordLongEnough } from '@pierre/ui-logic';
 
-interface OAuthApp {
-  provider: string;
-  client_id: string;
-  redirect_uri: string;
-  created_at: string;
-}
-
-interface McpToken {
-  id: string;
-  name: string;
-  token_prefix: string;
-  expires_at: string | null;
-  last_used_at: string | null;
-  usage_count: number;
-  is_revoked: boolean;
-  created_at: string;
-}
+// Garmin's offered consents, asked before its connect: loaded on the first
+// connect that offers them, so the dialog stays out of the entry bundle.
+const ConnectConsentDialog = lazy(() => import('./ConnectConsentDialog'));
 
 // BYO-OAuth-app credentials are only collected for WHOOP. Strava and Garmin
 // use the Sciotte hosted-login flow (credentials handled in SciotteLoginModal)
 // and have no developer-app registration step the user controls.
-const PROVIDERS = [{ id: 'whoop', name: 'WHOOP' }];
+const PROVIDERS = [{ id: 'whoop', name: PROVIDER_BRAND.whoop }];
 
-const MIN_PASSWORD_LENGTH = 8;
+/**
+ * The name of the preset a connected app's grant was approved for, or `null` for a plain grant
+ * and for a preset this build does not know yet. Each key is a literal so the catalogue gate sees it.
+ */
+function connectedAppPresetLabel(preset: string | null, t: (key: string) => string): string | null {
+  switch (preset) {
+    case 'training_coach':
+      return t('tokens.connectedAppsPresetTrainingCoach');
+    case 'sleep_coach':
+      return t('tokens.connectedAppsPresetSleepCoach');
+    default:
+      return null;
+  }
+}
 
-// Query key for the caller's connected OAuth apps (external MCP clients they
-// approved on the consent screen). Kept local rather than in the shared
-// QUERY_KEYS catalogue since this surface is web-only.
-const CONNECTED_APPS_QUERY_KEY = ['user-connected-apps'] as const;
+/** Whether a connected app's grant, ending at `expiresAt`, has already ended. */
+function grantHasExpired(expiresAt: string): boolean {
+  return Date.parse(expiresAt) <= Date.now();
+}
 
 /** Return Tailwind color class based on usage percentage: green < 70%, amber 70-90%, red > 90% */
 function getUsageBarColor(current: number, limit: number): string {
@@ -208,13 +220,22 @@ export default function UserSettings({
     consentRequired: boolean;
     historyMode: boolean;
     fallback: SciotteTarget | null;
+    /** The offered consents the athlete ticked before this connect (`ConnectConsentDialog`). */
+    consents?: readonly string[];
   } | null>(null);
   // The OAuth provider whose notice is on screen before its authorization
   // page opens (WHOOP, until the account accepts its owner authorization).
   const [noticeProvider, setNoticeProvider] = useState<string | null>(null);
   // The provider whose own-app setup is on screen: no app of the server's can
   // authorize it for this athlete (`own_app_required`).
-  const [ownAppSetup, setOwnAppSetup] = useState<{ provider: ProviderStatus; devPortalUrl: string } | null>(null);
+  const [ownAppSetup, setOwnAppSetup] = useState<{
+    provider: ProviderStatus;
+    devPortalUrl: string;
+    consents: readonly string[];
+  } | null>(null);
+  // The card whose offered consents (Garmin's AI use and workout transfer)
+  // are on screen before its connect starts; Continue starts it either way.
+  const [consentCard, setConsentCard] = useState<ProviderStatus | null>(null);
   // The Intervals.icu dialog, and whether it leads with the authorization
   // (`intervalsConnectPath` answered `'choose'`) or is the key form alone.
   const [intervalsModal, setIntervalsModal] = useState<{ offersAuthorize: boolean } | null>(null);
@@ -231,12 +252,12 @@ export default function UserSettings({
 
   // Fetch fitness provider connection status
   const { data: providersResponse, isLoading: isLoadingProviders, refetch: refetchProviders } = useQuery({
-    queryKey: QUERY_KEYS.user.providerConnections(),
+    queryKey: QUERY_KEYS.providers.status(),
     queryFn: () => oauthApi.getProvidersStatus(),
     enabled: isAuthenticated,
     // Always refetch when the Data Providers tab is opened — a provider connected
-    // elsewhere (onboarding/chat OAuth, which uses a different query key) would
-    // otherwise show stale t('app.connect') here until a manual reconnect.
+    // in another tab or by the OAuth popup would otherwise show a stale
+    // t('app.connect') here until a manual reconnect.
     refetchOnMount: 'always',
   });
 
@@ -287,11 +308,7 @@ export default function UserSettings({
     data: connectedApps,
     isLoading: isLoadingConnectedApps,
     error: connectedAppsError,
-  } = useQuery({
-    queryKey: CONNECTED_APPS_QUERY_KEY,
-    queryFn: () => oauthApi.listConnectedApps(),
-    enabled: isAuthenticated,
-  });
+  } = useConnectedApps(isAuthenticated);
 
   // Fetch usage quota status
   const { data: usageData, isLoading: usageLoading } = useUsageStatus();
@@ -308,7 +325,7 @@ export default function UserSettings({
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.user.oauthApps() });
       // The provider card's `own_app_required` follows the app just saved.
-      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.user.providerConnections() });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.providers.status() });
       setCredentialMessage({ type: 'success', text: data.message });
       setShowAddCredentials(false);
       setSelectedProvider('');
@@ -326,7 +343,7 @@ export default function UserSettings({
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.user.oauthApps() });
       // Without the app, the provider card may ask for one again.
-      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.user.providerConnections() });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.providers.status() });
       setCredentialMessage({ type: 'success', text: t('settingsErr.credentialsRemoved') });
       setProviderToDelete(null);
     },
@@ -372,14 +389,9 @@ export default function UserSettings({
     },
   });
 
-  // Revoke a connected OAuth app (external MCP client)
-  const revokeConnectedAppMutation = useMutation({
-    mutationFn: (id: string) => oauthApi.revokeConnectedApp(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: CONNECTED_APPS_QUERY_KEY });
-      setAppToRevoke(null);
-    },
-  });
+  // Revoke a connected OAuth app (external MCP client): the shared revoke
+  // rereads this list and the privacy pane's access feed alike.
+  const revokeConnectedAppMutation = useRevokeConnectedApps();
 
   // Change password mutation
   const changePasswordMutation = useMutation({
@@ -433,7 +445,7 @@ export default function UserSettings({
       setPasswordMessage({ type: 'error', text: t('settingsUi.allFieldsRequired') });
       return;
     }
-    if (newPassword.length < MIN_PASSWORD_LENGTH) {
+    if (!isPasswordLongEnough(newPassword)) {
       setPasswordMessage({ type: 'error', text: t('frag.passwordMinError', { n: MIN_PASSWORD_LENGTH }) });
       return;
     }
@@ -449,32 +461,19 @@ export default function UserSettings({
 
   // The Connect button's start: an app of the athlete's own first when no app
   // of the server's can authorize the provider for them, then the provider's
-  // notice while it is owed, then the OAuth flow.
-  const startOAuthConnect = (provider: ProviderStatus) => {
+  // notice while it is owed, then the OAuth flow, carrying the offered
+  // consents the athlete ticked (`ConnectConsentDialog`).
+  const startOAuthConnect = (provider: ProviderStatus, consents: readonly string[] = []) => {
     const devPortalUrl = ownAppDevPortal(provider.provider);
     if (provider.own_app_required && devPortalUrl) {
-      setOwnAppSetup({ provider, devPortalUrl });
+      setOwnAppSetup({ provider, devPortalUrl, consents });
       return;
     }
     if (noticeRequired(provider.provider, provider.consent_required)) {
       setNoticeProvider(provider.provider);
       return;
     }
-    handleConnectProvider(provider.provider);
-  };
-
-  // Intervals.icu connects, or reconnects, the way its card says: an
-  // authorized card goes straight back to the authorization, a key-linked
-  // card (a coach's: only the key reads the athletes they coach) reopens the
-  // key form, and a new link offers the authorization first with the key
-  // form beside it.
-  const startIntervalsConnect = (provider: ProviderStatus) => {
-    const path = intervalsConnectPath(provider);
-    if (path === 'authorize') {
-      handleConnectProvider(provider.provider);
-      return;
-    }
-    setIntervalsModal({ offersAuthorize: path === 'choose' });
+    handleConnectProvider(provider.provider, false, consents);
   };
 
   // A card's Connect follows what it shows (`cardStatus`) and how it connects
@@ -488,46 +487,59 @@ export default function UserSettings({
       startOAuthConnect(provider);
       return;
     }
-    const primary = connectPlan(provider).primary;
-    switch (primary.kind) {
-      case 'intervals':
-        startIntervalsConnect(provider);
-        return;
-      case 'oauth':
-        if (primary.provider === provider.provider) startOAuthConnect(provider);
-        else handleConnectProvider(primary.provider);
-        return;
-      case 'sign_in':
+    // A card whose connect offers consents (Garmin's two) asks them first;
+    // its Continue starts the connect with the boxes ticked, or none.
+    if (connectConsentsFor(provider.provider).length > 0) {
+      setConsentCard(provider);
+      return;
+    }
+    startCardConnect(provider, []);
+  };
+
+  // The card's connect by its plan's primary way in, carrying the offered
+  // consents the athlete ticked.
+  const startCardConnect = (provider: ProviderStatus, consents: readonly string[]) => {
+    followConnectPlan(provider, {
+      // Intervals.icu's dialog: a key-linked card (a coach's: only the key
+      // reads the athletes they coach) reopens the key form, and a new link
+      // offers the authorization first with the key form beside it. A card
+      // the athlete authorized goes straight back through `authorize`.
+      intervalsDialog: (offersAuthorize) => setIntervalsModal({ offersAuthorize }),
+      authorize: (name) => {
+        if (name === provider.provider) startOAuthConnect(provider, consents);
+        else handleConnectProvider(name, false, consents);
+      },
+      signIn: (target) =>
         setSignIn({
-          target: primary.target,
+          target,
           consentRequired: provider.consent_required,
           historyMode: false,
           fallback: oauthFallbackTarget(provider),
-        });
-        return;
-      case 'none':
-        return;
-    }
+          consents,
+        }),
+    });
   };
 
   // A sign-in that could not complete hands over to its provider's OAuth
   // (carnet#1477), a reconnect's too (carnet#1667): the window closes and the
   // authorization opens in a new tab, so this one stays on Settings, which
   // reads the grant the other tab leaves (`answerOAuthResult`).
-  const fallBackToOAuth = (provider: SciotteTarget) => () => {
+  // The consents ticked before the sign-in travel on to the authorization.
+  const fallBackToOAuth = (provider: SciotteTarget, consents: readonly string[] = []) => () => {
     setSignIn(null);
     setProviderMessage(null);
-    startOAuthInNewTab(oauthApi.authorizeUrl(provider, { signInBlocked: true }));
+    startOAuthInNewTab(oauthApi.authorizeUrl(provider, { signInBlocked: true, ...offeredConsents(consents) }));
   };
 
-  const handleConnectProvider = (providerId: string, tosConsent = false) => {
+  const handleConnectProvider = (providerId: string, tosConsent = false, consents: readonly string[] = []) => {
     // Go, in this tab, to the server's launch route, which 302s to the
     // provider and returns here; the result is read when Settings mounts
     // again (below). `tosConsent` carries the provider notice the athlete just
-    // accepted (WHOOP's owner authorization).
+    // accepted (WHOOP's owner authorization), `consents` the offered consents
+    // ticked (Garmin's, `ConnectConsentDialog`).
     setConnectingProvider(providerId);
     setProviderMessage(null);
-    startOAuthInThisTab(oauthApi.authorizeUrl(providerId, { tosConsent }));
+    startOAuthInThisTab(oauthApi.authorizeUrl(providerId, { tosConsent, ...offeredConsents(consents) }));
   };
 
   // The result a connect started here came back with (`settleOAuthReturn`).
@@ -553,14 +565,14 @@ export default function UserSettings({
       // server withholds the raw card of a backend with a scrape mirror (native
       // `garmin`), so that backend is matched to the card it serves through the
       // card's `connected_backend`. Native `strava` reads as the Strava card's
-      // label, and a backend no card serves by its capitalised id.
+      // label, and a backend no card serves by the brand table's name for its id.
       const card = providers.find(
         (p) => p.provider === result.provider || p.connected_backend === result.provider,
       );
       const name =
         result.provider === 'strava'
           ? t('shell.sciotteTargetStrava')
-          : (card?.display_name ?? result.provider.charAt(0).toUpperCase() + result.provider.slice(1));
+          : (card?.display_name ?? providerName(result.provider));
       localStorage.removeItem(OAUTH_RESULT_KEY);
       if (result.success) {
         setProviderMessage({ type: 'success', text: t('app.providerConnected', { provider: name }) });
@@ -1387,7 +1399,7 @@ Authorization: Bearer <your-token-here>`}
                       </div>
                   );
                 case 'usage':
-                  // Usage quotas are user-facing; an operator has none of their own.
+                  // Usage quotas are user-facing; an admin has none of their own.
                   return isAdminUser ? null : (
                       <div key={section} data-testid="account-section-usage">
                         <Section title={t('settingsUi.usage')} description={t('account.quotaHint')}>
@@ -1513,14 +1525,39 @@ Authorization: Bearer <your-token-here>`}
                                 className="flex items-start justify-between gap-3 border-t ghost-border-faint py-3 first:border-t-0"
                               >
                                 <div className="min-w-0">
-                                  <p className="font-medium text-on-surface break-all">{app.client_name || app.client_id}</p>
+                                  <p
+                                    className={`font-medium break-all ${
+                                      app.expires_at && grantHasExpired(app.expires_at)
+                                        ? 'text-on-surface-variant'
+                                        : 'text-on-surface'
+                                    }`}
+                                  >
+                                    {app.client_name || app.client_id}
+                                  </p>
                                   {app.client_host && (
                                     <p className="text-sm text-on-surface-variant break-all">{app.client_host}</p>
                                   )}
-                                  <p className="text-sm text-on-surface-variant break-words">{app.scope}</p>
+                                  <p className="text-sm text-on-surface-variant break-words">
+                                    {connectedAppPresetLabel(app.preset, t) ?? app.scope}
+                                  </p>
                                   <p className="text-xs text-outline mt-1">
                                     {t('app.connectedOn', { date: formatDate(app.granted_at, language) })}
                                   </p>
+                                  {app.expires_at && (
+                                    grantHasExpired(app.expires_at) ? (
+                                      <p
+                                        className="text-xs font-medium text-outline"
+                                        data-testid={`connected-app-expiry-${app.id}`}
+                                        data-expired="true"
+                                      >
+                                        {t('providers.expired')}
+                                      </p>
+                                    ) : (
+                                      <p className="text-xs text-outline" data-testid={`connected-app-expiry-${app.id}`}>
+                                        {t('apiKeys.expiresOn', { date: formatDate(app.expires_at, language) })}
+                                      </p>
+                                    )
+                                  )}
                                 </div>
                                 <Button
                                   variant="danger-outline"
@@ -1665,7 +1702,10 @@ Authorization: Bearer <your-token-here>`}
       <ConfirmDialog
         isOpen={appToRevoke !== null}
         onClose={() => setAppToRevoke(null)}
-        onConfirm={() => appToRevoke && revokeConnectedAppMutation.mutate(appToRevoke.id)}
+        onConfirm={() =>
+          appToRevoke &&
+          revokeConnectedAppMutation.mutate([appToRevoke.id], { onSuccess: () => setAppToRevoke(null) })
+        }
         title={t('tokens.revokeAccess')}
         message={t('app.confirmRevokeAppAccess', { app: appToRevoke?.client_name || appToRevoke?.client_id || '' })}
         confirmLabel={t('app.revoke')}
@@ -1700,7 +1740,7 @@ Authorization: Bearer <your-token-here>`}
           onClose={() => setOwnAppSetup(null)}
           onSaved={() => {
             setOwnAppSetup(null);
-            startOAuthConnect({ ...ownAppSetup.provider, own_app_required: false });
+            startOAuthConnect({ ...ownAppSetup.provider, own_app_required: false }, ownAppSetup.consents);
           }}
           provider={ownAppSetup.provider.provider}
           displayName={ownAppSetup.provider.display_name}
@@ -1720,8 +1760,24 @@ Authorization: Bearer <your-token-here>`}
         target={signIn?.target ?? 'strava'}
         consentRequired={signIn?.consentRequired ?? false}
         historyMode={signIn?.historyMode ?? false}
-        onFallBackToOAuth={signIn?.fallback ? fallBackToOAuth(signIn.fallback) : undefined}
+        onFallBackToOAuth={signIn?.fallback ? fallBackToOAuth(signIn.fallback, signIn.consents) : undefined}
+        consents={signIn?.consents}
+        extensionFirst={signIn ? signInStartsWithExtension(cardForSlug(signIn.target, fitnessProviders)) : true}
       />
+
+      {consentCard && (
+        <Suspense fallback={null}>
+          <ConnectConsentDialog
+            open
+            consents={connectConsentsFor(consentCard.provider)}
+            onCancel={() => setConsentCard(null)}
+            onContinue={(keys) => {
+              setConsentCard(null);
+              startCardConnect(consentCard, keys);
+            }}
+          />
+        </Suspense>
+      )}
 
       {/* Intervals.icu: the authorization when offered, and the API-key form */}
       <IntervalsIcuLinkModal

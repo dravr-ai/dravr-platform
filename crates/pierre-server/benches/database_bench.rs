@@ -16,6 +16,7 @@
 )]
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::CoachingPersona;
 use pierre_core::models::{User, UserStatus, UserTier};
 use pierre_core::pagination::{PaginationDirection, PaginationParams};
@@ -42,14 +43,13 @@ fn generate_test_user() -> User {
         password_hash: "benchmark_hash_value".to_owned(),
         display_name: Some(format!("Bench User {counter}")),
         tier: UserTier::Starter,
-        strava_token: None,
-        created_at: chrono::Utc::now(),
-        last_active: chrono::Utc::now(),
+        created_at: Timestamp::now(),
+        last_active: Timestamp::now(),
         is_active: true,
         user_status: UserStatus::Active,
         role: UserRole::User,
         approved_by: Some(admin_id),
-        approved_at: Some(chrono::Utc::now()),
+        approved_at: Some(Timestamp::now()),
         firebase_uid: None,
         auth_provider: "email".to_owned(),
         analytics_consent: false,

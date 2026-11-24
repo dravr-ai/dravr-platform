@@ -28,7 +28,7 @@ mod guided_turn {
     use std::sync::{Arc, Mutex};
 
     use async_trait::async_trait;
-    use chrono::Utc;
+    use dravr_tronc::dates::Timestamp;
     use futures_util::stream;
     use serial_test::serial;
     use std::time::Duration;
@@ -262,6 +262,7 @@ mod guided_turn {
                 ambient_group_fallback: false,
                 command_persistence: CommandPersistence::Always,
                 sender_id: None,
+                caller: None,
                 hooks: PipelineHooks::none(),
                 grant: OAuthScope::self_grant(),
             },
@@ -284,7 +285,7 @@ mod guided_turn {
     /// the walk questions that already reached the athlete — empty on the
     /// walk's first answer, which replies to the platform's opener.
     async fn start_season_walk(fx: &Fixture, probed: &[SeasonTopic]) {
-        let mut state = OnboardingState::start(Utc::now().to_rfc3339(), GuidedFlow::Season);
+        let mut state = OnboardingState::start(Timestamp::now().to_rfc3339(), GuidedFlow::Season);
         state.probed = probed.iter().map(|topic| topic.slug()).collect();
         let walk = state.to_column().unwrap();
         assert!(fx
@@ -325,6 +326,7 @@ mod guided_turn {
                     channel_type: None,
                     about_user_id: None,
                     turn_attempted_write: None,
+                    ai_consent_sources: &[],
                 })
                 .await
                 .unwrap();
@@ -439,6 +441,7 @@ mod guided_turn {
                 valid_until: None,
                 source_msg_id: None,
                 transport_policy: TransportPolicy::AnyTransport,
+                ai_consent_sources: &[],
             })
             .await
             .unwrap();
@@ -482,10 +485,10 @@ mod guided_turn {
     async fn small_invented_figures_matching_the_prompt_clock_are_regrounded() {
         let fx = setup("guided-recovery-clock@test.com", SEASON_PROBE).await;
         start_season_walk(&fx, &[SeasonTopic::RaceCalendar]).await;
-        let today = Utc::now().date_naive();
+        let today = Timestamp::now().utc_date();
         let question = format!(
             "Tu fais déjà 30 km, 9 sorties, et ta course est le {}. Laquelle vises-tu ?",
-            today.format("%-d/%-m/%Y")
+            today.format("%-d/%-m/%Y").unwrap()
         );
         seed_history(
             &fx,

@@ -21,19 +21,19 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_chat_pipeline::stages::onboarding::{just_completed_interview, release_directive};
 use pierre_core::models::{GuidedFlow, OnboardingState, COMPLETION_RELEASE_WINDOW_MINUTES};
 
 fn active_column(flow: GuidedFlow) -> String {
-    OnboardingState::start(Utc::now().to_rfc3339(), flow)
+    OnboardingState::start(Timestamp::now().to_rfc3339(), flow)
         .to_column()
         .expect("serialize active state")
 }
 
 fn completed_column(flow: GuidedFlow, minutes_ago: i64) -> String {
-    let at = Utc::now() - Duration::minutes(minutes_ago);
-    OnboardingState::start(Utc::now().to_rfc3339(), flow)
+    let at = Timestamp::now() - Elapsed::minutes(minutes_ago);
+    OnboardingState::start(Timestamp::now().to_rfc3339(), flow)
         .completed(at.to_rfc3339())
         .to_column()
         .expect("serialize completed state")
@@ -50,7 +50,7 @@ fn a_running_interview_is_not_a_completed_one() {
             "{flow:?}: an active flow must still resolve as active"
         );
         assert!(
-            !OnboardingState::just_completed(Some(&column), Utc::now()),
+            !OnboardingState::just_completed(Some(&column), Timestamp::now()),
             "{flow:?}: an active flow has not just completed"
         );
     }
@@ -65,7 +65,7 @@ fn a_freshly_retired_interview_is_completed_but_no_longer_active() {
         "a retired marker must not put the turn back into guided mode"
     );
     assert!(
-        OnboardingState::just_completed(Some(&column), Utc::now()),
+        OnboardingState::just_completed(Some(&column), Timestamp::now()),
         "the turn right after the wrap-up must see the interview as just completed"
     );
 }
@@ -80,20 +80,23 @@ fn a_stale_marker_stops_claiming_the_interview_just_ended() {
         COMPLETION_RELEASE_WINDOW_MINUTES + 1,
     );
     assert!(
-        !OnboardingState::just_completed(Some(&column), Utc::now()),
+        !OnboardingState::just_completed(Some(&column), Timestamp::now()),
         "a completion older than the release window must not fire the directive"
     );
 }
 
 #[test]
 fn an_absent_or_unreadable_marker_is_not_a_completion() {
-    assert!(!OnboardingState::just_completed(None, Utc::now()));
-    assert!(!OnboardingState::just_completed(Some("{"), Utc::now()));
+    assert!(!OnboardingState::just_completed(None, Timestamp::now()));
+    assert!(!OnboardingState::just_completed(
+        Some("{"),
+        Timestamp::now()
+    ));
     // Rows written before `completed_at` existed parse fine and carry no
     // stamp; they must not be read as a completion that just happened.
     let legacy = r#"{"active":false,"started_at":"","probed":[],"flow":"calibration"}"#;
     assert!(
-        !OnboardingState::just_completed(Some(legacy), Utc::now()),
+        !OnboardingState::just_completed(Some(legacy), Timestamp::now()),
         "an un-stamped legacy row must not fire the directive"
     );
     // ...and a row from before the field existed must still parse at all.
@@ -202,7 +205,7 @@ fn a_retired_fortnight_marker_never_claims_an_interview_ran() {
     assert!(
         !just_completed_interview(
             Some(&completed_column(GuidedFlow::Fortnight, 1)),
-            Utc::now()
+            Timestamp::now()
         ),
         "a fortnight has no no-writing rule to revoke, so it takes the \
          ordinary turn directive"
@@ -214,7 +217,7 @@ fn a_retired_fortnight_marker_never_claims_an_interview_ran() {
         GuidedFlow::Intake,
     ] {
         assert!(
-            just_completed_interview(Some(&completed_column(interview, 1)), Utc::now()),
+            just_completed_interview(Some(&completed_column(interview, 1)), Timestamp::now()),
             "{interview:?} still gets its revocation"
         );
     }
@@ -227,6 +230,6 @@ fn a_stale_fortnight_brief_stops_claiming_the_turn() {
     // hijack an unrelated turn into drafting a fortnight nobody asked for.
     assert!(!OnboardingState::just_completed(
         Some(&completed_column(GuidedFlow::Fortnight, 31)),
-        Utc::now()
+        Timestamp::now()
     ));
 }

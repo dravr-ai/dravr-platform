@@ -1,10 +1,10 @@
-// ABOUTME: Operator reset of one user's onboarding, so the wizard and the guided walks run again from the start
+// ABOUTME: Admin reset of one user's onboarding, so the wizard and the guided walks run again from the start
 // ABOUTME: Disconnects providers through the chokepoint, keeps coaching platforms (groups ride on them), clears only the user's own rows
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! Returning a user to the start of onboarding, from an operator surface.
+//! Returning a user to the start of onboarding, from an admin surface.
 //!
 //! Whether onboarding runs is derived, not flagged: the wizard's provider
 //! steps show while the user holds no real provider connection, each step
@@ -46,7 +46,7 @@ use crate::user_removal::{
     ProviderDisconnector,
 };
 
-/// Everything an onboarding reset did, for the operator's response.
+/// Everything an onboarding reset did, for the admin's response.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct OnboardingResetReport {
     /// Providers disconnected through the chokepoint, each with what the
@@ -82,7 +82,7 @@ pub enum OnboardingResetOutcome {
     Interrupted(Interruption),
 }
 
-/// What an interrupted reset already did and what it did not, as an operator
+/// What an interrupted reset already did and what it did not, as an admin
 /// reads it; `cause` is the failure as the caller may show it.
 #[must_use]
 pub fn describe_interruption(interruption: &Interruption, cause: &str) -> String {
@@ -159,13 +159,17 @@ pub async fn reset_onboarding(
             .into_iter()
             .partition(|target| disconnector.supports(&target.provider));
         report.not_revocable = not_revocable;
-        report.disconnected =
-            match disconnect_each(disconnector, user_id, revocable, DisconnectReason::Operator)
-                .await
-            {
-                Ok(disconnected) => disconnected,
-                Err(interruption) => return Ok(OnboardingResetOutcome::Interrupted(*interruption)),
-            };
+        report.disconnected = match disconnect_each(
+            disconnector,
+            user_id,
+            revocable,
+            DisconnectReason::Admin,
+        )
+        .await
+        {
+            Ok(disconnected) => disconnected,
+            Err(interruption) => return Ok(OnboardingResetOutcome::Interrupted(*interruption)),
+        };
     }
 
     let reset = match repos
@@ -191,7 +195,7 @@ pub async fn reset_onboarding(
         kept_for_groups = report.kept_for_groups.len(),
         not_revocable = report.not_revocable.len(),
         tables_changed = report.rows_changed.len(),
-        "Onboarding reset by operator"
+        "Onboarding reset by admin"
     );
     Ok(OnboardingResetOutcome::Reset(report))
 }

@@ -15,8 +15,8 @@ mod discover_over_messaging {
     use crate::helpers::messaging_webhooks::{telegram_webhook, ChannelSecrets};
     use crate::helpers::notify_capture::{capture_notify, named, only};
     use axum::http::StatusCode;
-    use chrono::Utc;
     use dravr_canot::commands::CommandResponse;
+    use dravr_tronc::dates::Timestamp;
     use pierre_commands::dispatch::{try_dispatch, DispatchOutcome, DispatchRequest};
     use pierre_commands::load_command_catalog;
     use pierre_contremaitre::messaging_strings::{
@@ -75,7 +75,7 @@ mod discover_over_messaging {
         );
         user.user_status = UserStatus::Active;
         user.approved_by = Some(user.id);
-        user.approved_at = Some(Utc::now());
+        user.approved_at = Some(Timestamp::now());
         LOCALE.clone_into(&mut user.locale);
         user
     }
@@ -97,8 +97,8 @@ mod discover_over_messaging {
                 domain: None,
                 plan: "professional".to_owned(),
                 owner_user_id: user_id,
-                created_at: Utc::now(),
-                updated_at: Utc::now(),
+                created_at: Timestamp::now(),
+                updated_at: Timestamp::now(),
             })
             .await
             .unwrap();

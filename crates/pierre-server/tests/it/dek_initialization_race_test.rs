@@ -17,7 +17,7 @@
 
 use base64::engine::general_purpose::STANDARD as Base64Standard;
 use base64::Engine as Base64Engine;
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_auth::key_management::{
     DatabaseEncryptionKey, KekProvider, KeyManager, LocalKekProvider, MasterEncryptionKey,
 };
@@ -128,7 +128,7 @@ async fn rotate_and_promote(manager: &KeyManager, database: &Database) {
     )
     .tick(
         database.as_security_repository(),
-        Utc::now() + Duration::minutes(16),
+        Timestamp::now() + Elapsed::minutes(16),
     )
     .await
     .unwrap();
@@ -538,7 +538,7 @@ async fn concurrent_rotations_of_one_family_stage_exactly_one() {
     )
     .tick(
         database_a.as_security_repository(),
-        Utc::now() + Duration::minutes(16),
+        Timestamp::now() + Elapsed::minutes(16),
     )
     .await
     .unwrap();

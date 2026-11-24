@@ -25,8 +25,8 @@ use axum::{
 use serde::Deserialize;
 
 use crate::mcp::resources::ServerContext;
-use crate::services::messaging_ingress::turn_watchdog;
-use chrono::Utc;
+use crate::services::turn_runner::turn_watchdog;
+use dravr_tronc::dates::Timestamp;
 use pierre_chat_pipeline::turn_stop::{awaiting_question, recent_rows};
 use pierre_core::errors::AppError;
 use pierre_core::models::TenantId;
@@ -241,9 +241,11 @@ async fn awaiting_reply(
     let rows = recent_rows(chat, conversation_id, user_id, tenant_id).await?;
     let ceiling = turn_watchdog(&resources.common.config.timeouts);
     Ok(
-        awaiting_question(&rows, user_id, Utc::now(), ceiling).map(|question| AwaitingReply {
-            question_id: question.id.clone(),
-            asked_at: question.created_at.clone(),
+        awaiting_question(&rows, user_id, Timestamp::now(), ceiling).map(|question| {
+            AwaitingReply {
+                question_id: question.id.clone(),
+                asked_at: question.created_at.clone(),
+            }
         }),
     )
 }

@@ -1,15 +1,16 @@
-// ABOUTME: Hook for managing OAuth provider connection status
-// ABOUTME: Handles provider loading, connection checks, and OAuth flow initiation
+// ABOUTME: The chat's provider connect flow over the shared provider cards: which are connected, and the OAuth session a reply starts
+// ABOUTME: The cards are the provider-status query's, the one the reconnect banner and the thread header read; nothing is copied here
 
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
-import { QUERY_KEYS, cardForSlug } from '@pierre/shared-constants';
+import { cardForSlug } from '@pierre/shared-constants';
 import { Alert, AppState } from 'react-native';
 import * as Linking from 'expo-linking';
 import * as WebBrowser from 'expo-web-browser';
 import { getOAuthCallbackUrl } from '../../utils/oauth';
 import { promptImportTombstoneClear } from '../../utils/importTombstone';
 import { oauthApi } from '../../services/api';
+import { useAuth } from '../../contexts/AuthContext';
+import { useProviderCards } from '../../hooks/useProviderCards';
 import { trackMobile } from '../../services/analytics';
 import type { ExtendedProviderStatus } from '../../types';
 import { useTranslation } from '@pierre/i18n';
@@ -41,47 +42,52 @@ export interface ProviderStatusActions {
    * carries the provider notice the athlete just accepted (WHOOP's owner
    * authorization); `signInBlocked` that this start falls back from a
    * sign-in that could not complete, so the server never turns it back into
-   * that sign-in (carnet#1667).
+   * that sign-in (carnet#1667). `consents` are the keys the athlete ticked
+   * on the connect's consent sheet (Garmin, carnet#1157 / carnet#1390).
    */
   handleConnectProvider: (
     provider: string,
     onSuccess?: () => Promise<void>,
     tosConsent?: boolean,
-    signInBlocked?: boolean
+    signInBlocked?: boolean,
+    consents?: readonly string[]
   ) => Promise<void>;
   getCachedConnectedProvider: () => ExtendedProviderStatus | undefined;
   /**
-   * Re-read the statuses once a provider is linked: this hook's list, and
-   * the shared status the reconnect banner and the thread header read. The
-   * OAuth flow runs it on success; a link made outside it (an Intervals.icu
-   * API key) runs it too.
+   * Re-read the cards once a provider is linked, replacing any read in
+   * flight, which may predate the link. The reconnect banner and the thread
+   * header read the same cards, so a reconnect made from a reply clears
+   * both. The OAuth flow runs it on success; a link made outside it (an
+   * Intervals.icu API key) runs it too.
    */
   refreshAfterLink: () => Promise<void>;
 }
 
 export function useProviderStatus(): ProviderStatusState & ProviderStatusActions {
   const { t, language } = useTranslation();
-  const queryClient = useQueryClient();
-  const [connectedProviders, setConnectedProviders] = useState<ExtendedProviderStatus[]>([]);
-  const [providersLoaded, setProvidersLoaded] = useState(false);
+  const { isAuthenticated } = useAuth();
+  const {
+    providers: connectedProviders,
+    loaded: providersLoaded,
+    loadError,
+    reload,
+    revalidate,
+  } = useProviderCards({ enabled: isAuthenticated });
   const [selectedProvider, setSelectedProvider] = useState<string | null>(null);
   const [connectingProvider, setConnectingProvider] = useState<string | null>(null);
   const [needsCredentialsProvider, setNeedsCredentialsProvider] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  // What the connect flow last failed with; a read that failed with no cards
+  // to show is said in its place.
+  const [connectError, setError] = useState<string | null>(null);
+  const error =
+    connectError ??
+    (loadError ? describeApiError(loadError, { t, fallbackKey: 'providers.failedLoadProviderStatus' }) : null);
 
+  // The screen came up or came back: bring the cards up to date.
   const loadProviderStatus = useCallback(async () => {
-    try {
-      setError(null);
-      const response = await oauthApi.getProvidersStatus();
-      setConnectedProviders(response.providers || []);
-      setProvidersLoaded(true);
-    } catch (err) {
-      const errorMessage =
-        describeApiError(err, { t, fallbackKey: 'providers.failedLoadProviderStatus' });
-      setError(errorMessage);
-      console.error('Failed to load provider status:', err);
-    }
-  }, [t]);
+    setError(null);
+    await revalidate();
+  }, [revalidate]);
 
   // Refresh provider status when app returns from OAuth flow
   useEffect(() => {
@@ -91,7 +97,7 @@ export function useProviderStatus(): ProviderStatusState & ProviderStatusActions
       }
     });
     return () => subscription.remove();
-  }, [loadProviderStatus, t]);
+  }, [loadProviderStatus]);
 
   const hasConnectedProvider = useCallback((): boolean => {
     return connectedProviders.some(p => p.connected);
@@ -108,20 +114,15 @@ export function useProviderStatus(): ProviderStatusState & ProviderStatusActions
   }, [connectedProviders, selectedProvider]);
 
   const refreshAfterLink = useCallback(async () => {
-    // The shared status the reconnect banner and the thread header read is
-    // asked again too, so a reconnect made from a reply clears both.
-    // Invalidated rather than written from this read: a slower read of this
-    // hook's, started before the reconnect, could land after it and put the
-    // flag back.
-    void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.providers.status() });
-    await loadProviderStatus();
-  }, [loadProviderStatus, queryClient]);
+    await reload();
+  }, [reload]);
 
   const handleConnectProvider = useCallback(async (
     provider: string,
     onSuccess?: () => Promise<void>,
     tosConsent = false,
-    signInBlocked = false
+    signInBlocked = false,
+    consents?: readonly string[]
   ) => {
     // No app of the server's can authorize the provider for this athlete:
     // their own app's credentials come first.
@@ -134,7 +135,7 @@ export function useProviderStatus(): ProviderStatusState & ProviderStatusActions
     setError(null);
     try {
       const returnUrl = getOAuthCallbackUrl();
-      const oauthResponse = await oauthApi.initMobileOAuth(provider, returnUrl, { tosConsent, signInBlocked });
+      const oauthResponse = await oauthApi.initMobileOAuth(provider, returnUrl, { tosConsent, signInBlocked, consents });
 
       // The connecting state ends once the OAuth URL is ready and the browser is about to open
       setConnectingProvider(null);
@@ -164,7 +165,7 @@ export function useProviderStatus(): ProviderStatusState & ProviderStatusActions
             providerName: card?.display_name ?? provider,
             language,
             t,
-            onCleared: () => void connectRef.current(provider, onSuccess, tosConsent),
+            onCleared: () => void connectRef.current(provider, onSuccess, tosConsent, false, consents),
           });
           return;
         }

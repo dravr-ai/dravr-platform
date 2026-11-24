@@ -13,7 +13,7 @@ mod group_weekly_digest_tests {
     use std::sync::Arc;
 
     use axum::http::StatusCode;
-    use chrono::Utc;
+    use dravr_tronc::dates::Timestamp;
     use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
     use pierre_core::models::groups::{
         GroupAggregateStats, GroupTrend, MemberFitnessSnapshot, OvertrainingRiskLevel,
@@ -70,7 +70,7 @@ mod group_weekly_digest_tests {
             served_stale: false,
             timezone: None,
             deep_fatigue_mornings: Vec::new(),
-            computed_at: Utc::now(),
+            computed_at: Timestamp::now(),
         }
     }
 

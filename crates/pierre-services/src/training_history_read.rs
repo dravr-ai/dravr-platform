@@ -37,8 +37,8 @@
 
 use std::collections::HashSet;
 
-use chrono::{Duration, NaiveDate, TimeZone, Utc};
 use dravr_cageux::config::intelligence::AlgorithmConfig;
+use dravr_tronc::dates::{CivilDate, Elapsed};
 use pierre_config::environment::default_provider;
 use pierre_core::ai_policy::ProviderTerms;
 use pierre_core::civil_time::{local_date, resolve_zone};
@@ -55,6 +55,7 @@ use pierre_fitness_compute::training_history_compute::{
     compute_training_history, warmup_days, AthleteInputs, MAX_BACKFILL_DAYS,
 };
 use pierre_providers::activity_source::ActivitySourceRank;
+use pierre_providers::ai_scope::Dated;
 use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
 use pierre_providers::registry::global_registry;
 use pierre_providers::{ai_scope, backend_resolver};
@@ -122,9 +123,9 @@ impl fmt::Debug for HistoryHandles<'_> {
 /// owed for the missing depth is the tool runtime's to read and ask for.
 #[must_use]
 pub fn series_coverage(
-    from: NaiveDate,
-    to: NaiveDate,
-    stored: Option<(NaiveDate, NaiveDate)>,
+    from: CivilDate,
+    to: CivilDate,
+    stored: Option<(CivilDate, CivilDate)>,
     returned: usize,
 ) -> Coverage {
     let window = CoverageWindow {
@@ -204,8 +205,8 @@ pub async fn read_history_from_cache(
     sources: HistoryHandles<'_>,
     tenant_id: TenantId,
     user_id: Uuid,
-    from: NaiveDate,
-    to: NaiveDate,
+    from: CivilDate,
+    to: CivilDate,
 ) -> AppResult<TrainingHistoryRead> {
     validate_window(from, to)?;
     let nothing_stored = TrainingHistoryRead {
@@ -249,16 +250,21 @@ pub async fn fetch_history_rows(
     repos: &RepositoryRegistry,
     tenant_id: TenantId,
     user_id: Uuid,
-    from: NaiveDate,
-    to: NaiveDate,
+    from: CivilDate,
+    to: CivilDate,
 ) -> AppResult<Vec<DailyTrainingState>> {
     if to < from {
         return Err(AppError::invalid_input("from > to"));
     }
-    repos
+    let mut rows = repos
         .training_history
         .get_training_history(tenant_id, user_id, from, to)
-        .await
+        .await?;
+    // Under a grant's window, the days before it are not served; a day's
+    // derived row inside it is, though computed from earlier days.
+    ai_scope::retain_in_window(&mut rows, |row| Some(Dated::Day(row.date)));
+    ai_scope::note_rows(rows.len());
+    Ok(rows)
 }
 
 /// The history rows a model, or a caller over an external transport, may read
@@ -278,8 +284,8 @@ pub async fn history_rows_for_model(
     sources: HistoryHandles<'_>,
     tenant_id: TenantId,
     user_id: Uuid,
-    from: NaiveDate,
-    to: NaiveDate,
+    from: CivilDate,
+    to: CivilDate,
 ) -> AppResult<Vec<DailyTrainingState>> {
     if ai_scope::policies_apply() {
         // Boxed: the compute's future is large, and every caller of this read
@@ -290,7 +296,10 @@ pub async fn history_rows_for_model(
         .await;
         if !withheld.is_empty() {
             ai_scope::record_withheld(withheld);
-            return Ok(computed?.states);
+            let mut states = computed?.states;
+            ai_scope::retain_in_window(&mut states, |row| Some(Dated::Day(row.date)));
+            ai_scope::note_rows(states.len());
+            return Ok(states);
         }
     }
     fetch_history_rows(sources.repos, tenant_id, user_id, from, to).await
@@ -301,7 +310,7 @@ pub async fn history_rows_for_model(
 /// # Errors
 ///
 /// Returns [`AppError::invalid_input`] for an inverted or oversized window.
-pub fn validate_window(from: NaiveDate, to: NaiveDate) -> AppResult<()> {
+pub fn validate_window(from: CivilDate, to: CivilDate) -> AppResult<()> {
     if to < from {
         return Err(AppError::invalid_input("from > to"));
     }
@@ -329,7 +338,7 @@ pub struct StoredWindow {
     pub activities: Vec<Activity>,
     /// The athlete's civil date of the oldest of them; `None` when the read
     /// held nothing.
-    pub oldest_stored: Option<NaiveDate>,
+    pub oldest_stored: Option<CivilDate>,
     /// What Garmin-sourced data contributed to them: a session counts as
     /// Garmin's when it, or any copy merged into it, carries such data.
     pub garmin: Option<GarminContribution>,
@@ -355,8 +364,8 @@ pub async fn load_stored_window(
     tenant_id: TenantId,
     user_id: Uuid,
     backends: Vec<ComputeBackend>,
-    from: NaiveDate,
-    to: NaiveDate,
+    from: CivilDate,
+    to: CivilDate,
 ) -> AppResult<StoredWindow> {
     // The rollup buckets on the athlete's civil day. Persisting UTC-day buckets
     // shifted the whole CTL/ATL/TSB series against their own calendar for
@@ -377,7 +386,7 @@ pub async fn load_stored_window(
         tenant_id,
         user_id,
         stored_keys,
-        from - Duration::days(warmup),
+        from - Elapsed::days(warmup),
         to,
     )
     .await?;
@@ -385,10 +394,10 @@ pub async fn load_stored_window(
     if read.filled_cap {
         if let Some(cut_day) = recordings
             .iter()
-            .map(|a| local_date(a.start_date(), zone))
+            .map(|a| local_date(a.start_date(), &zone))
             .min()
         {
-            recordings.retain(|a| local_date(a.start_date(), zone) > cut_day);
+            recordings.retain(|a| local_date(a.start_date(), &zone) > cut_day);
         }
     }
     // Gate first, then merge: a copy the reader may not see never lends its
@@ -416,7 +425,7 @@ pub async fn load_stored_window(
     }));
     let oldest_stored = activities
         .iter()
-        .map(|a: &Activity| local_date(a.start_date(), zone))
+        .map(|a: &Activity| local_date(a.start_date(), &zone))
         .min();
     Ok(StoredWindow {
         backends,
@@ -431,8 +440,8 @@ pub async fn load_stored_window(
 /// The first day the stored history can stand behind: anything earlier would
 /// be computed against a partly-empty warm-up and read as a real, low CTL.
 #[must_use]
-pub fn first_vouched_day(from: NaiveDate, oldest_stored: NaiveDate, warmup: i64) -> NaiveDate {
-    from.max(oldest_stored + Duration::days(warmup))
+pub fn first_vouched_day(from: CivilDate, oldest_stored: CivilDate, warmup: i64) -> CivilDate {
+    from.max(oldest_stored + Elapsed::days(warmup))
 }
 
 /// The daily rows of `[from, to]` from a stored window, each session scored
@@ -446,8 +455,8 @@ pub async fn compute_states(
     tenant_id: TenantId,
     user_id: Uuid,
     window: &StoredWindow,
-    from: NaiveDate,
-    to: NaiveDate,
+    from: CivilDate,
+    to: CivilDate,
 ) -> AppResult<Vec<DailyTrainingState>> {
     let inputs = athlete_inputs(sources.repos, tenant_id, user_id).await?;
     compute_training_history(
@@ -576,12 +585,12 @@ async fn read_cached_window(
     tenant_id: TenantId,
     user_id: Uuid,
     connections: usize,
-    start: NaiveDate,
-    to: NaiveDate,
+    start: CivilDate,
+    to: CivilDate,
 ) -> AppResult<CachedRead> {
-    let slack = Duration::days(CACHE_READ_EDGE_SLACK_DAYS);
-    let start_ts = Utc.from_utc_datetime(&(start - slack).and_hms_opt(0, 0, 0).unwrap_or_default());
-    let end_ts = Utc.from_utc_datetime(&(to + slack).and_hms_opt(0, 0, 0).unwrap_or_default());
+    let slack = Elapsed::days(CACHE_READ_EDGE_SLACK_DAYS);
+    let start_ts = (start - slack).at_midnight().and_utc()?;
+    let end_ts = (to + slack).at_midnight().and_utc()?;
     let cap =
         HISTORICAL_WINDOW_READ_LIMIT.saturating_mul(connections.clamp(1, MAX_COPIES_PER_WORKOUT));
     let rows = sources
@@ -620,10 +629,13 @@ async fn athlete_inputs(
 
 #[cfg(test)]
 pub(crate) mod tests {
+    use std::collections::BTreeSet;
     use std::future::Future;
+    use std::iter;
 
     use super::*;
-    use chrono::{DateTime, NaiveTime};
+    use crate::provider_notice;
+    use dravr_tronc::dates::{CivilTime, Timestamp};
     use pierre_core::ai_policy::SourcePolicy;
     use pierre_core::config::profiles::FitnessLevel;
     use pierre_core::constants::oauth_providers;
@@ -654,9 +666,16 @@ pub(crate) mod tests {
         }
     }
 
-    /// Run `fut` the way a model reads on one of Dravr's own surfaces.
+    /// Run `fut` the way a model reads on one of Dravr's own surfaces, for
+    /// an athlete who withheld no provider from AI (a real read declares the
+    /// athlete's consents; one that declares none withholds every
+    /// AI-consent provider, Garmin included).
     pub(crate) async fn as_model_read<F: Future>(fut: F) -> F::Output {
-        ai_scope::serve_over(Transport::PlatformJob, ai_scope::for_model(fut)).await
+        ai_scope::serve_over(
+            Transport::PlatformJob,
+            ai_scope::for_model(ai_scope::with_ai_consent(BTreeSet::new(), fut)),
+        )
+        .await
     }
 
     /// An athlete with a database, a tenant and the relay connected.
@@ -677,6 +696,18 @@ pub(crate) mod tests {
             .register_connection(user_id, tenant, RELAY, &ConnectionType::OAuth, None)
             .await
             .unwrap();
+        // The relay carries Garmin sessions, which no model reads until the
+        // athlete gives Garmin's AI consent (carnet#1157).
+        provider_notice::grant_consent(
+            repos,
+            tenant.as_uuid(),
+            user_id,
+            oauth_providers::GARMIN,
+            oauth_providers::NoticeKind::AiConsent,
+            "Garmin",
+        )
+        .await
+        .unwrap();
         // Thresholds, so every session scores a real, non-zero load.
         let profile = UserPhysiologicalProfile {
             user_id,
@@ -700,6 +731,8 @@ pub(crate) mod tests {
             d_prime_meters: None,
             threshold_provenance: ThresholdProvenance::default(),
             threshold_stated_on: ThresholdStatedOn::default(),
+            vo2_max_method: None,
+            vdot: None,
             anchor_provenance: AnchorProvenance::default(),
             transport_policy: TransportPolicy::AnyTransport,
             sex: None,
@@ -717,13 +750,15 @@ pub(crate) mod tests {
     }
 
     /// Noon UTC `days_ago` days before today.
-    pub(crate) fn noon(days_ago: i64) -> DateTime<Utc> {
-        let day = Utc::now().date_naive() - Duration::days(days_ago);
-        Utc.from_utc_datetime(&day.and_time(NaiveTime::from_hms_opt(12, 0, 0).unwrap()))
+    pub(crate) fn noon(days_ago: i64) -> Timestamp {
+        let day = Timestamp::now().utc_date() - Elapsed::days(days_ago);
+        (day.and_time(CivilTime::from_hms(12, 0, 0).unwrap()))
+            .and_utc()
+            .unwrap()
     }
 
     /// A relayed session recorded by `source`.
-    pub(crate) fn relayed(id: &str, name: &str, source: &str, start: DateTime<Utc>) -> Activity {
+    pub(crate) fn relayed(id: &str, name: &str, source: &str, start: Timestamp) -> Activity {
         ActivityBuilder::new(id, name, SportType::Run, start, 3_600, RELAY)
             .distance_meters(12_000.0)
             .average_heart_rate(160)
@@ -739,8 +774,8 @@ pub(crate) mod tests {
     /// imported export holds at its real evening start, 01:30 UTC the next
     /// day: two copies of one workout, keyed by one Strava activity id.
     pub(crate) fn strava_twins(days_ago: i64) -> [(&'static str, Activity); 2] {
-        let day = Utc::now().date_naive() - Duration::days(days_ago);
-        let midnight = Utc.from_utc_datetime(&day.and_time(NaiveTime::MIN));
+        let day = Timestamp::now().utc_date() - Elapsed::days(days_ago);
+        let midnight = (day.and_time(CivilTime::MIDNIGHT)).and_utc().unwrap();
         let capture = ActivityBuilder::new(
             TWIN_RIDE_ID,
             "Evening Ride",
@@ -756,7 +791,7 @@ pub(crate) mod tests {
             TWIN_RIDE_ID,
             "Evening Ride",
             SportType::Ride,
-            midnight + Duration::hours(25) + Duration::minutes(30),
+            midnight + Elapsed::hours(25) + Elapsed::minutes(30),
             2_700,
             oauth_providers::STRAVA_ARCHIVE,
         )
@@ -802,9 +837,8 @@ pub(crate) mod tests {
         }
 
         /// A persisted rollup row for each day of `[from, to]` carrying `tsb`.
-        pub(crate) async fn persist_rollup(&self, from: NaiveDate, to: NaiveDate, tsb: f64) {
-            let states: Vec<DailyTrainingState> = from
-                .iter_days()
+        pub(crate) async fn persist_rollup(&self, from: CivilDate, to: CivilDate, tsb: f64) {
+            let states: Vec<DailyTrainingState> = iter::successors(Some(from), |day| day.succ())
                 .take_while(|d| *d <= to)
                 .map(|date| DailyTrainingState {
                     tsb,
@@ -837,8 +871,8 @@ pub(crate) mod tests {
     async fn a_model_reads_a_series_computed_without_the_withheld_session() {
         let fx = athlete().await;
         let algorithms = AlgorithmConfig::default();
-        let to = Utc::now().date_naive();
-        let from = to - Duration::days(14);
+        let to = Timestamp::now().utc_date();
+        let from = to - Elapsed::days(14);
         fx.persist_rollup(from, to, PERSISTED_TSB).await;
         fx.cache_garmin_history(200).await;
         // A zepp session on a day no garmin run falls on: Nolio denies zepp.
@@ -874,7 +908,7 @@ pub(crate) mod tests {
         );
         let zepp_day = model_view
             .iter()
-            .find(|row| row.date == noon(1).date_naive())
+            .find(|row| row.date == noon(1).utc_date())
             .expect("the zepp day is in the window");
         assert!(
             zepp_day.daily_load.abs() < f64::EPSILON,
@@ -889,7 +923,7 @@ pub(crate) mod tests {
         let athlete_zepp_day = unfiltered
             .states
             .iter()
-            .find(|row| row.date == noon(1).date_naive())
+            .find(|row| row.date == noon(1).utc_date())
             .unwrap();
         assert!(
             athlete_zepp_day.daily_load > 0.0,
@@ -901,8 +935,8 @@ pub(crate) mod tests {
     async fn with_nothing_withheld_a_model_reads_the_stored_rollup() {
         let fx = athlete().await;
         let algorithms = AlgorithmConfig::default();
-        let to = Utc::now().date_naive();
-        let from = to - Duration::days(14);
+        let to = Timestamp::now().utc_date();
+        let from = to - Elapsed::days(14);
         fx.persist_rollup(from, to, PERSISTED_TSB).await;
         fx.cache_garmin_history(200).await;
 

@@ -154,7 +154,7 @@ async fn claim_for_delivery(
     }
 }
 
-/// The status Cloud Tasks reads and the word an operator reads.
+/// The status Cloud Tasks reads and the word an admin reads.
 fn answer(status: StatusCode, outcome: &str) -> (StatusCode, Json<serde_json::Value>) {
     (status, Json(json!({ "status": outcome })))
 }

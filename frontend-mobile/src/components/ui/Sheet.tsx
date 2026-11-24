@@ -1,5 +1,5 @@
 // ABOUTME: The one bottom sheet: a slide-up Modal over the scrim, a 20-radius panel on the secondary ground
-// ABOUTME: A tap on the scrim closes it; the panel claims the responder so a tap inside never does (Boreal v2.2 P3.6)
+// ABOUTME: A tap on the scrim closes it; the panel claims the responder so a tap inside never does
 
 import React, { type ReactNode } from 'react';
 import { Modal, TouchableOpacity, View } from 'react-native';

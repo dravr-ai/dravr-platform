@@ -446,8 +446,6 @@ impl McpTool<dyn ToolRuntime> for GetStatsTool {
         ctx: &ToolContext,
         args: Value,
     ) -> ToolResponse {
-        use chrono::Datelike;
-
         let context = ToolExecutionContext::from_tronc(state, ctx);
         let result: AppResult<ToolResult> = async move {
             let athlete = QueriedAthlete {

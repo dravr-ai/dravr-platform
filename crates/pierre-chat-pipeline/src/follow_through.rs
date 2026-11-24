@@ -14,7 +14,8 @@
 
 use std::sync::Arc;
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
+use pierre_core::constants::oauth_providers::names_kept_out_source;
 use pierre_core::models::{OnboardingState, TenantId};
 use pierre_database::database::ConversationRecord;
 use pierre_llm::stage::LlmStage;
@@ -47,6 +48,9 @@ use crate::{stages, ChatPipelineContext, TurnInput};
 /// playbooks. That holds during a walk the coach runs on themselves too: the
 /// walk's answers are theirs, but the agent's replies in the room are not
 /// advice for them.
+///
+/// Nor from a turn drawn from data kept out of the agent's memory: a playbook
+/// is the agent's memory of what worked (Garmin v9 §15.11(c), carnet#1158).
 fn spawn_turn_advice_capture(
     inputs: &FinishTurnInputs<'_>,
     assistant_reply: &str,
@@ -65,6 +69,11 @@ fn spawn_turn_advice_capture(
     }
     if !input.may_learn() {
         debug!("the turn's grant does not write fitness data: no advice is captured");
+        return;
+    }
+    let ai_consent_sources = ai_scope::derived_consent_sources();
+    if names_kept_out_source(&ai_consent_sources) {
+        debug!("the turn served data kept out of AI memory: no advice is captured");
         return;
     }
     let strategy: Arc<dyn AdviceCaptureStrategy> = Arc::new(HeuristicGatedLlmExtraction::new(
@@ -86,6 +95,7 @@ fn spawn_turn_advice_capture(
             assistant_reply: assistant_reply.to_owned(),
             source_msg_id: Some(assistant_message_id.to_owned()),
             transport_policy: ai_scope::derived_policy(),
+            ai_consent_sources,
         },
         Some(turn_call_recorder(
             ctx,
@@ -272,7 +282,7 @@ async fn retire_completed_interview_marker(
     if onboarding.is_some() {
         return;
     }
-    if !OnboardingState::just_completed(conv.onboarding_state.as_deref(), Utc::now()) {
+    if !OnboardingState::just_completed(conv.onboarding_state.as_deref(), Timestamp::now()) {
         return;
     }
     stages::onboarding::clear_completed_marker(ctx, conv, tenant_id).await;

@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Pins the athlete's bubble to the sage tint and its paired ink, in both schemes
-// ABOUTME: DESIGN.md §5 — the phone wore a neutral grey tier here while the web bubble already wore the tint
+// ABOUTME: DESIGN.md "Chat surfaces" — the phone wore a neutral grey tier here while the web bubble already wore the tint
 
 import React from 'react';
 import { render, waitFor } from '@testing-library/react-native';

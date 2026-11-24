@@ -140,11 +140,14 @@ pub struct WeekStructure {
 /// Predicted times, when history supports a prediction.
 #[derive(Debug, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct RacePredictionSummary {
-    /// The performance the prediction was derived from, in words.
+    /// What the VDOT was read from, in words: a stated VDOT and its day, or
+    /// an estimate from the best recent run or the saved threshold pace.
     pub based_on: String,
-    /// The athlete's VDOT, the number the paces come from.
+    /// The athlete's VDOT, the number the paces come from: read from a
+    /// performance, never from a `VO2max`. `based_on` says when it is an
+    /// estimate.
     pub vdot: f64,
-    /// Predicted times in minutes, keyed by the distance's name.
+    /// Predicted times in seconds, keyed by the distance's name.
     // A BTreeMap so the same prediction serializes the same way every call.
     pub race_times: BTreeMap<String, f64>,
 }
@@ -227,7 +230,7 @@ pub struct TrainingSummary {
     pub volume_spike_detected: bool,
     /// Whether a hard/easy pattern was found at all.
     pub intensity_pattern_detected: bool,
-    /// Whether either overtraining signal fired.
+    /// Whether hard efforts came too close together.
     pub overtraining_signals: bool,
 }
 
@@ -270,9 +273,6 @@ pub struct RecommendationMetrics {
     /// Training stress balance. `recovery`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tsb: Option<f64>,
-    /// Whether heart rate drifted upward at a fixed effort. `recovery`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub hr_drift_detected: Option<bool>,
     /// `low`, `moderate` or `high` — descriptive, never an injury
     /// prediction. `recovery`.
     #[serde(default, skip_serializing_if = "Option::is_none")]

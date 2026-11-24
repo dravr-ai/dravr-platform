@@ -1,5 +1,5 @@
 // ABOUTME: Auto-bind a messaging group chat (Telegram/Slack/Discord) to a coaching_groups row
-// ABOUTME: First sender becomes Owner; subsequent senders auto-enroll as Member with no peer-sharing consent
+// ABOUTME: First sender becomes Owner and later senders auto-enroll; a chat connected from the web app admits members only
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -35,6 +35,11 @@
 //!   enrolment carries `coach_sharing_consent = true`, as every join does
 //!   (ADR-002: membership is consent to share with the group's coach); a
 //!   member revokes it with `/group consent coach no`.
+//!
+//! - A chat connected to an existing group from the web app (carnet#1683)
+//!   is different: it enrols nobody. A sender who is a member, or the
+//!   group's coach, gets the group; anyone else stays ungrouped. Once such a
+//!   chat is disconnected it creates no group of its own either.
 //!
 //! - DMs (`is_direct_message == true`) skip the helper entirely — the
 //!   caller doesn't invoke this path.
@@ -105,7 +110,12 @@ pub fn fallback_group_name(channel_type: &str, channel_chat_id: &str) -> String 
 /// Returns `Ok(Some(group_id_string))` when a binding exists or was
 /// created and the sender is enrolled in it; `Ok(None)` when the chat must
 /// stay ungrouped — no agent available to bootstrap, the tenant's plan does
-/// not include group coaching, or the group is already at its member cap.
+/// not include group coaching, the group is already at its member cap, or the
+/// chat was disconnected from its group in the web app.
+///
+/// A chat connected to a group from the web app is answered for its members
+/// (and the group's coach) only: anyone else gets `Ok(None)`, never an
+/// enrolment.
 ///
 /// The `Ok(None)` on a failed enrolment is a privacy requirement, not a
 /// convenience: `GroupService::inject_group_context` builds peer context from
@@ -137,6 +147,14 @@ pub async fn resolve_or_create_channel_group(
         )
         .await?
     {
+        // A chat connected from the web app enrols nobody: its members came
+        // in through invites and their own consent (carnet#1167, #1683).
+        if group.chat_connection.is_some() {
+            return Ok(groups
+                .admits_to_connected_chat(&group, user_uuid)
+                .await?
+                .then(|| group.id.to_string()));
+        }
         adopt_chat_title(groups, &group, binding).await;
         if groups.enroll_channel_member(&group, user_uuid).await? {
             return Ok(Some(group.id.to_string()));
@@ -147,6 +165,20 @@ pub async fn resolve_or_create_channel_group(
             channel_chat_id = binding.channel_chat_id,
             "Channel-bound group is full; sender's conversation stays ungrouped"
         );
+        return Ok(None);
+    }
+
+    // A chat whose connected group was disconnected stays ungrouped: the
+    // disconnect would otherwise be undone by the next message.
+    if groups
+        .repo()
+        .is_group_chat_released(
+            binding.tenant_id,
+            binding.channel_type,
+            binding.channel_chat_id,
+        )
+        .await?
+    {
         return Ok(None);
     }
 
@@ -179,7 +211,7 @@ pub async fn resolve_or_create_channel_group(
 
     // First sender = Owner. (We can't reliably detect Telegram/Slack/Discord
     // chat-admin status across all three platforms without per-channel API
-    // calls; first-sender = Owner is the channel-agnostic baseline. Operators
+    // calls; first-sender = Owner is the channel-agnostic baseline. Admins
     // can transfer ownership via REST PUT /api/groups/{id}/members/{user}/role.)
     let fallback_name = fallback_group_name(binding.channel_type, binding.channel_chat_id);
     let spec = ChannelGroupSpec {

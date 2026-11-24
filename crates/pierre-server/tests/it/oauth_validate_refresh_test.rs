@@ -9,7 +9,7 @@
 
 use crate::common;
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_auth::auth::{AuthManager, DelegatedGrant};
 use std::sync::Arc;
 use uuid::Uuid;
@@ -39,7 +39,6 @@ async fn test_validate_jwt_token_structure() {
                 audience: None,
             },
             &user_id,
-            &[],
             None,
         )
         .expect("Failed to generate access token");
@@ -50,7 +49,7 @@ async fn test_validate_jwt_token_structure() {
     assert!(validation_result.is_ok());
     let claims = validation_result.expect("Token should be valid");
     assert_eq!(claims.sub, user_id.to_string());
-    assert!(claims.exp > Utc::now().timestamp());
+    assert!(claims.exp > Timestamp::now().epoch_seconds());
 }
 
 /// Test Scenario 2: Invalid signature returns error

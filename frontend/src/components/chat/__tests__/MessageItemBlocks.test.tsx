@@ -271,7 +271,7 @@ describe('MessageItem reply-block switch', () => {
   });
 
   it('gives each starter chip the coarse-pointer touch target', () => {
-    // DESIGN.md §8: 44×44 px under a coarse pointer, which the `touch-target`
+    // DESIGN.md "Layout": 44×44 px under a coarse pointer, which the `touch-target`
     // class supplies; the plain chip was ~32 px tall on a phone browser.
     render(
       <MessageItem

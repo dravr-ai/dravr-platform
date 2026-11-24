@@ -15,7 +15,7 @@ use std::cmp::{Ordering, Reverse};
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use chrono::{DateTime, Duration, TimeZone, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::constants::oauth_providers;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{Activity, TenantId};
@@ -342,7 +342,7 @@ pub async fn refresh_head(
 /// [`STALE_HEAD_REFRESH_DAYS`], up to [`STALE_HEAD_REFRESH_LIMIT`] rows.
 pub(crate) fn stale_head_params() -> ActivityQueryParams {
     ActivityQueryParams {
-        after: Some(Utc::now().timestamp() - STALE_HEAD_REFRESH_DAYS * 86_400),
+        after: Some(Timestamp::now().epoch_seconds() - STALE_HEAD_REFRESH_DAYS * 86_400),
         before: None,
         limit: Some(STALE_HEAD_REFRESH_LIMIT),
         offset: None,
@@ -446,7 +446,7 @@ pub async fn fetch_provider_activities(
     tenant_id: &str,
     params: &ActivityQueryParams,
 ) -> Option<Vec<Activity>> {
-    let attempt_started_at = Utc::now();
+    let attempt_started_at = Timestamp::now();
     let tenant = TenantId::parse_str(tenant_id).ok();
     let provider_slug = &serving_slug(runtime, provider_slug, user_id, tenant).await;
     if let Some(served) =
@@ -511,7 +511,7 @@ pub(crate) struct FailedRead<'read> {
     pub(crate) user_id: Uuid,
     pub(crate) tenant: Option<TenantId>,
     pub(crate) params: &'read ActivityQueryParams,
-    pub(crate) attempt_started_at: DateTime<Utc>,
+    pub(crate) attempt_started_at: Timestamp,
 }
 
 /// Answer a live read that failed with `e` from the cache: the connection
@@ -737,7 +737,7 @@ async fn fetch_and_persist_head(
         user_id,
         tenant_id: Some(tenant_id),
         params,
-        attempt_started_at: Utc::now(),
+        attempt_started_at: Timestamp::now(),
     };
     let read = read_provider_head(runtime, live, routing).await;
     // A session read that falls back is answered by its grant (carnet#1494).
@@ -804,16 +804,16 @@ async fn fetch_and_persist_head(
 /// the open window and mask whether the deep history is actually cached.
 pub(crate) fn cached_window_bounds(
     params: &ActivityQueryParams,
-    now: DateTime<Utc>,
-) -> (DateTime<Utc>, DateTime<Utc>) {
+    now: Timestamp,
+) -> (Timestamp, Timestamp) {
     let end = params
         .before
-        .and_then(|ts| Utc.timestamp_opt(ts, 0).single())
+        .and_then(|ts| Timestamp::from_epoch_seconds(ts).ok())
         .unwrap_or(now);
     let start = params
         .after
-        .and_then(|ts| Utc.timestamp_opt(ts, 0).single())
-        .unwrap_or_else(|| now - Duration::days(STALE_FALLBACK_WINDOW_DAYS));
+        .and_then(|ts| Timestamp::from_epoch_seconds(ts).ok())
+        .unwrap_or_else(|| now - Elapsed::days(STALE_FALLBACK_WINDOW_DAYS));
     (start, end)
 }
 
@@ -831,7 +831,7 @@ pub(crate) async fn read_cached_window(
     tenant: TenantId,
     params: &ActivityQueryParams,
 ) -> Option<Vec<Activity>> {
-    let (start, end) = cached_window_bounds(params, Utc::now());
+    let (start, end) = cached_window_bounds(params, Timestamp::now());
     let limit = params
         .limit
         .and_then(|l| i64::try_from(l).ok())
@@ -871,7 +871,7 @@ pub(super) async fn cached_history(
     provider_slug: &str,
     user_id: Uuid,
     tenant: TenantId,
-    (start, end): (DateTime<Utc>, DateTime<Utc>),
+    (start, end): (Timestamp, Timestamp),
     limit: i64,
 ) -> AppResult<Vec<Activity>> {
     let cache = &runtime.repos().activity_cache;

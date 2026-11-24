@@ -1,4 +1,4 @@
-// ABOUTME: carnet#502 — an operator disconnects a user's provider, removes the user, or resets their onboarding
+// ABOUTME: carnet#502 — an admin disconnects a user's provider, removes the user, or resets their onboarding
 // ABOUTME: Grants revoked upstream under their own app, no row survives, partial failures named, groups left standing
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -8,7 +8,7 @@
 //! the tokens: our seat count dropped, the grant at Strava did not, and the
 //! athlete kept counting against Strava's athlete cap. A user who owned a
 //! coaching group could not be deleted at all — the foreign key failed the
-//! delete as a 500. And there was no way for an operator to disconnect one
+//! delete as a 500. And there was no way for an admin to disconnect one
 //! provider for someone else.
 //!
 //! Every test drives the real handlers against a real database and points the
@@ -33,7 +33,7 @@ use axum::response::{IntoResponse, Response};
 use axum::{Extension, Json};
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine;
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_contremaitre::cageux_config::CageuxConfigRegistry;
 use pierre_contremaitre::harness_config_registry::HarnessConfigRegistry;
 use pierre_contremaitre::persona_contracts::PersonaContractRegistry;
@@ -92,9 +92,12 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
-use crate::common::{create_test_server_resources_with_config, test_server_config_with_app};
+use crate::common::{
+    create_test_server_resources_with_config, set_provider_endpoints, test_server_config_with_app,
+};
 use crate::helpers::identity_toolkit_stub::{Answer, IdentityToolkitStub};
 use pierre_auth::firebase_identity::FirebaseIdentityDeleter;
+use pierre_config::environment::ProviderEndpointOverride;
 use pierre_test_support::account::delete_account;
 
 /// The refresh token every seeded Strava grant carries; a revocation spends it.
@@ -186,7 +189,8 @@ async fn read_request(stream: &mut TcpStream) -> String {
 }
 
 /// A server context whose own Strava app, the one the revocation's
-/// server-level fallback resolves, holds these client credentials.
+/// server-level fallback resolves, holds these client credentials; a Strava
+/// revocation goes to the refused origin.
 pub(crate) async fn resources() -> Arc<ServerContext> {
     create_test_server_resources_with_config(test_server_config_with_app(
         "strava",
@@ -197,24 +201,36 @@ pub(crate) async fn resources() -> Arc<ServerContext> {
     .unwrap()
 }
 
-/// The disconnect chokepoint as the composition root builds it, with Strava's
-/// revocation endpoint pointed at `revoke_url`.
-pub(crate) fn chokepoint(
-    resources: &Arc<ServerContext>,
-    revoke_url: &str,
-) -> Arc<dyn ProviderDisconnector> {
-    let mut config = (*resources.common.config).clone();
-    revoke_url.clone_into(&mut config.external_services.strava_api.revoke_url);
-    Arc::new(OAuthService::new(resources.data(), Arc::new(config)))
+/// [`resources`], its provider registry revoking Strava grants at
+/// `revoke_url`, where every disconnect it makes sends them.
+pub(crate) async fn resources_revoking_at(revoke_url: &str) -> Arc<ServerContext> {
+    let mut config = test_server_config_with_app("strava", ENV_CLIENT_ID, ENV_CLIENT_SECRET);
+    set_provider_endpoints(
+        &mut config,
+        "strava",
+        ProviderEndpointOverride {
+            revoke_url: Some(revoke_url.to_owned()),
+            ..ProviderEndpointOverride::default()
+        },
+    );
+    create_test_server_resources_with_config(config)
+        .await
+        .unwrap()
+}
+
+/// The disconnect chokepoint as the composition root builds it, revoking at
+/// the endpoints the context's provider registry holds.
+pub(crate) fn chokepoint(resources: &Arc<ServerContext>) -> Arc<dyn ProviderDisconnector> {
+    Arc::new(OAuthService::new(
+        resources.data(),
+        Arc::clone(&resources.common.config),
+    ))
 }
 
 /// The admin context the composition root builds, with the disconnect
-/// chokepoint wired and Strava's revocation endpoint pointed at `revoke_url`.
-pub(crate) fn admin_context(
-    resources: &Arc<ServerContext>,
-    revoke_url: &str,
-) -> Arc<AdminApiContext> {
-    admin_context_with(resources, chokepoint(resources, revoke_url))
+/// chokepoint wired.
+pub(crate) fn admin_context(resources: &Arc<ServerContext>) -> Arc<AdminApiContext> {
+    admin_context_with(resources, chokepoint(resources))
 }
 
 /// The admin context with `disconnector` standing in for the chokepoint.
@@ -309,8 +325,8 @@ pub(crate) async fn seed_user(repos: &RepositoryRegistry, label: &str) -> (Uuid,
             domain: None,
             plan: "starter".to_owned(),
             owner_user_id: user_id,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         })
         .await
         .unwrap();
@@ -347,12 +363,12 @@ pub(crate) fn strava_token(
         access_token: SecretString::from("access-material-do-not-log"),
         refresh_token: Some(SecretString::from(REFRESH_TOKEN.to_owned())),
         token_type: "Bearer".to_owned(),
-        expires_at: Some(Utc::now() + Duration::hours(6)),
+        expires_at: Some(Timestamp::now() + Elapsed::hours(6)),
         scope: Some("read,activity:read_all".to_owned()),
         provider_user_id: None,
         oauth_app_client_id: app.map(str::to_owned),
-        created_at: Utc::now(),
-        updated_at: Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
     }
 }
 
@@ -381,8 +397,8 @@ async fn extra_tenant(repos: &RepositoryRegistry, owner: Uuid) -> TenantId {
             domain: None,
             plan: "starter".to_owned(),
             owner_user_id: owner,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         })
         .await
         .unwrap();
@@ -415,7 +431,7 @@ pub(crate) async fn seed_group(
         .unwrap()
         .id
         .to_string();
-    let now = Utc::now();
+    let now = Timestamp::now();
     repos
         .groups
         .create_group(
@@ -435,6 +451,7 @@ pub(crate) async fn seed_group(
                 is_active: true,
                 channel_type: None,
                 channel_chat_id: None,
+                chat_connection: None,
                 created_at: now,
                 updated_at: now,
             },
@@ -450,7 +467,7 @@ pub(crate) async fn join_group(
     user_id: Uuid,
     tenant_id: TenantId,
 ) {
-    let now = Utc::now();
+    let now = Timestamp::now();
     repos
         .groups
         .add_member(&GroupMember {
@@ -515,10 +532,10 @@ pub(crate) fn assert_one_strava_revocation(
 
 #[tokio::test]
 async fn admin_disconnect_revokes_upstream_and_removes_the_rows() {
-    let resources = resources().await;
-    let repos = &resources.common.repos;
     let mut stub = RevokeStub::start().await;
-    let context = admin_context(&resources, &stub.url);
+    let resources = resources_revoking_at(&stub.url).await;
+    let repos = &resources.common.repos;
+    let context = admin_context(&resources);
     let (user_id, tenant_id, email) = seed_user(repos, "disconnect").await;
     connect_strava(repos, user_id, tenant_id, None).await;
 
@@ -565,10 +582,10 @@ async fn admin_disconnect_revokes_upstream_and_removes_the_rows() {
 
 #[tokio::test]
 async fn admin_disconnect_without_manage_users_is_forbidden_and_touches_nothing() {
-    let resources = resources().await;
-    let repos = &resources.common.repos;
     let mut stub = RevokeStub::start().await;
-    let context = admin_context(&resources, &stub.url);
+    let resources = resources_revoking_at(&stub.url).await;
+    let repos = &resources.common.repos;
+    let context = admin_context(&resources);
     let (user_id, tenant_id, _) = seed_user(repos, "forbidden").await;
     connect_strava(repos, user_id, tenant_id, None).await;
 
@@ -610,10 +627,10 @@ async fn admin_disconnect_without_manage_users_is_forbidden_and_touches_nothing(
 
 #[tokio::test]
 async fn admin_disconnect_404s_for_an_unheld_provider_and_an_unknown_user() {
-    let resources = resources().await;
-    let repos = &resources.common.repos;
     let mut stub = RevokeStub::start().await;
-    let context = admin_context(&resources, &stub.url);
+    let resources = resources_revoking_at(&stub.url).await;
+    let repos = &resources.common.repos;
+    let context = admin_context(&resources);
     let (user_id, _, _) = seed_user(repos, "unheld").await;
 
     let response = handle_disconnect_user_provider(
@@ -643,10 +660,10 @@ async fn admin_disconnect_404s_for_an_unheld_provider_and_an_unknown_user() {
 
 #[tokio::test]
 async fn get_user_lists_the_providers_a_delete_would_disconnect() {
-    let resources = resources().await;
-    let repos = &resources.common.repos;
     let stub = RevokeStub::start().await;
-    let context = admin_context(&resources, &stub.url);
+    let resources = resources_revoking_at(&stub.url).await;
+    let repos = &resources.common.repos;
+    let context = admin_context(&resources);
     let (user_id, tenant_id, email) = seed_user(repos, "preview").await;
     connect_strava(repos, user_id, tenant_id, None).await;
 
@@ -669,10 +686,10 @@ async fn get_user_lists_the_providers_a_delete_would_disconnect() {
 /// server's provider descriptors, so the CLI's preview needs no copy of them.
 #[tokio::test]
 async fn get_user_names_the_coaching_platforms_a_reset_keeps() {
-    let resources = resources().await;
-    let repos = &resources.common.repos;
     let stub = RevokeStub::start().await;
-    let context = admin_context(&resources, &stub.url);
+    let resources = resources_revoking_at(&stub.url).await;
+    let repos = &resources.common.repos;
+    let context = admin_context(&resources);
     let (user_id, tenant_id, _) = seed_user(repos, "kept-preview").await;
     connect_strava(repos, user_id, tenant_id, None).await;
     repos
@@ -715,10 +732,10 @@ async fn get_user_names_the_coaching_platforms_a_reset_keeps() {
 /// (carnet#1576), and leaves the link's row id and tenant out.
 #[tokio::test]
 async fn get_user_lists_the_messaging_identities_linked_to_the_account() {
-    let resources = resources().await;
-    let repos = &resources.common.repos;
     let stub = RevokeStub::start().await;
-    let context = admin_context(&resources, &stub.url);
+    let resources = resources_revoking_at(&stub.url).await;
+    let repos = &resources.common.repos;
+    let context = admin_context(&resources);
     let (user_id, tenant_id, _) = seed_user(repos, "linked-read").await;
     repos
         .messaging
@@ -759,10 +776,10 @@ async fn get_user_lists_the_messaging_identities_linked_to_the_account() {
 /// tenant, the read succeeds.
 #[tokio::test]
 async fn get_user_with_a_tenant_scoped_token_reads_only_its_tenants_users() {
-    let resources = resources().await;
-    let repos = &resources.common.repos;
     let stub = RevokeStub::start().await;
-    let context = admin_context(&resources, &stub.url);
+    let resources = resources_revoking_at(&stub.url).await;
+    let repos = &resources.common.repos;
+    let context = admin_context(&resources);
     let (_, foreign_tenant, _) = seed_user(repos, "read-other-club").await;
     let (user_id, tenant_id, email) = seed_user(repos, "read-scoped").await;
 
@@ -789,10 +806,10 @@ async fn get_user_with_a_tenant_scoped_token_reads_only_its_tenants_users() {
 
 #[tokio::test]
 async fn delete_revokes_every_grant_then_removes_the_user_and_its_tokens() {
-    let resources = resources().await;
-    let repos = &resources.common.repos;
     let mut stub = RevokeStub::start().await;
-    let context = admin_context(&resources, &stub.url);
+    let resources = resources_revoking_at(&stub.url).await;
+    let repos = &resources.common.repos;
+    let context = admin_context(&resources);
     let (user_id, tenant_id, email) = seed_user(repos, "deleted").await;
     repos
         .oauth_tokens
@@ -848,10 +865,10 @@ async fn delete_revokes_every_grant_then_removes_the_user_and_its_tokens() {
 
 #[tokio::test]
 async fn delete_of_a_group_owner_is_refused_naming_the_group_and_deletes_nothing() {
-    let resources = resources().await;
-    let repos = &resources.common.repos;
     let mut stub = RevokeStub::start().await;
-    let context = admin_context(&resources, &stub.url);
+    let resources = resources_revoking_at(&stub.url).await;
+    let repos = &resources.common.repos;
+    let context = admin_context(&resources);
     let (owner_id, tenant_id, _) = seed_user(repos, "owner").await;
     connect_strava(repos, owner_id, tenant_id, None).await;
     let group_id = seed_group(repos, owner_id, tenant_id, "Tuesday Intervals").await;
@@ -912,10 +929,10 @@ async fn delete_of_a_group_owner_is_refused_naming_the_group_and_deletes_nothing
 
 #[tokio::test]
 async fn delete_of_a_plain_member_removes_the_membership_and_the_user() {
-    let resources = resources().await;
-    let repos = &resources.common.repos;
     let stub = RevokeStub::start().await;
-    let context = admin_context(&resources, &stub.url);
+    let resources = resources_revoking_at(&stub.url).await;
+    let repos = &resources.common.repos;
+    let context = admin_context(&resources);
     let (owner_id, owner_tenant, _) = seed_user(repos, "keeper").await;
     let (member_id, member_tenant, _) = seed_user(repos, "member").await;
     let group_id = seed_group(repos, owner_id, owner_tenant, "Long Run Crew").await;
@@ -963,13 +980,13 @@ async fn delete_of_a_plain_member_removes_the_membership_and_the_user() {
 }
 
 #[tokio::test]
-async fn an_operator_delete_removes_the_firebase_identity_and_reports_it() {
-    let resources = resources().await;
-    let repos = &resources.common.repos;
+async fn an_admin_delete_removes_the_firebase_identity_and_reports_it() {
     let stub = RevokeStub::start().await;
+    let resources = resources_revoking_at(&stub.url).await;
+    let repos = &resources.common.repos;
     let firebase = IdentityToolkitStub::answering(Answer::Deleted);
     let firebase_config = firebase.serve().await;
-    let mut context = AdminApiContext::clone(&admin_context(&resources, &stub.url));
+    let mut context = AdminApiContext::clone(&admin_context(&resources));
     context.firebase_identity =
         FirebaseIdentityDeleter::from_config(&firebase_config).map(Arc::new);
     let (user_id, _, _) = seed_user(repos, "google").await;
@@ -1012,10 +1029,10 @@ async fn a_residual_foreign_key_on_delete_is_a_conflict_not_a_database_error() {
 
 #[tokio::test]
 async fn seats_listing_names_each_holder_and_whether_it_counts() {
-    let resources = resources().await;
-    let repos = &resources.common.repos;
     let stub = RevokeStub::start().await;
-    let context = admin_context(&resources, &stub.url);
+    let resources = resources_revoking_at(&stub.url).await;
+    let repos = &resources.common.repos;
+    let context = admin_context(&resources);
 
     // Live on the env app, live on a pool app, dead (needs_reauth over a
     // dead grant), BYO app, a token with no connection row (legacy), live on
@@ -1034,7 +1051,7 @@ async fn seats_listing_names_each_holder_and_whether_it_counts() {
     connect_strava(repos, dead, t3, None).await;
     repos
         .provider_connections
-        .mark_needs_reauth(dead, t3, "strava", Some("invalid_grant"), Utc::now())
+        .mark_needs_reauth(dead, t3, "strava", Some("invalid_grant"), Timestamp::now())
         .await
         .unwrap();
     let (byo, t4, byo_email) = seed_user(repos, "byo").await;
@@ -1067,7 +1084,7 @@ async fn seats_listing_names_each_holder_and_whether_it_counts() {
             t7,
             "strava",
             Some("invalid_client"),
-            Utc::now(),
+            Timestamp::now(),
         )
         .await
         .unwrap();
@@ -1075,7 +1092,13 @@ async fn seats_listing_names_each_holder_and_whether_it_counts() {
     connect_strava(repos, expired, t8, None).await;
     repos
         .provider_connections
-        .mark_needs_reauth(expired, t8, "strava", Some("session_expired"), Utc::now())
+        .mark_needs_reauth(
+            expired,
+            t8,
+            "strava",
+            Some("session_expired"),
+            Timestamp::now(),
+        )
         .await
         .unwrap();
 
@@ -1187,10 +1210,10 @@ async fn seats_listing_names_each_holder_and_whether_it_counts() {
 /// grant may still be authorized instead of reporting it revoked.
 #[tokio::test]
 async fn an_unconfirmed_revocation_is_reported_as_such_not_as_revoked() {
-    let resources = resources().await;
-    let repos = &resources.common.repos;
     let mut stub = RevokeStub::answering("401 Unauthorized").await;
-    let context = admin_context(&resources, &stub.url);
+    let resources = resources_revoking_at(&stub.url).await;
+    let repos = &resources.common.repos;
+    let context = admin_context(&resources);
     let (user_id, tenant_id, _) = seed_user(repos, "unconfirmed").await;
     connect_strava(repos, user_id, tenant_id, None).await;
 
@@ -1228,10 +1251,10 @@ async fn an_unconfirmed_revocation_is_reported_as_such_not_as_revoked() {
 /// each table it cleared.
 #[tokio::test]
 async fn delete_clears_every_row_no_foreign_key_cascades_to() {
-    let resources = resources().await;
-    let repos = &resources.common.repos;
     let mut stub = RevokeStub::start().await;
-    let context = admin_context(&resources, &stub.url);
+    let resources = resources_revoking_at(&stub.url).await;
+    let repos = &resources.common.repos;
+    let context = admin_context(&resources);
     let (owner_id, owner_tenant, _) = seed_user(repos, "keeper-of-rows").await;
     let group_id = seed_group(repos, owner_id, owner_tenant, "Track Tuesdays").await;
     let (user_id, tenant_id, _) = seed_user(repos, "orphan-maker").await;
@@ -1273,7 +1296,7 @@ async fn delete_clears_every_row_no_foreign_key_cascades_to() {
             "https://example.com/plan",
             &tenant,
             &user,
-            Utc::now() + Duration::days(1),
+            Timestamp::now() + Elapsed::days(1),
         )
         .await
         .unwrap();
@@ -1356,10 +1379,10 @@ async fn delete_clears_every_row_no_foreign_key_cascades_to() {
 /// `drafted_by_user_id`, with its weeks, and the athlete's season stays whole.
 #[tokio::test]
 async fn delete_of_a_coach_clears_their_plan_drafts_and_keeps_the_athletes_season() {
-    let resources = resources().await;
-    let repos = &resources.common.repos;
     let stub = RevokeStub::start().await;
-    let context = admin_context(&resources, &stub.url);
+    let resources = resources_revoking_at(&stub.url).await;
+    let repos = &resources.common.repos;
+    let context = admin_context(&resources);
     let (coach_id, _, _) = seed_user(repos, "drafting-coach").await;
     let (athlete_id, athlete_tenant, _) = seed_user(repos, "drafted-athlete").await;
     let (tenant, athlete, coach) = (
@@ -1386,6 +1409,8 @@ async fn delete_of_a_coach_clears_their_plan_drafts_and_keeps_the_athletes_seaso
         template_source: None,
         template_preset: None,
         envelope: None,
+        coach_original: None,
+        coach_added: false,
     }];
     let week = |focus: &'static str| PlanWeekInput {
         week_start: "2026-11-02",
@@ -1504,10 +1529,10 @@ async fn delete_clears_the_users_quarantined_agents() {
         body_json(response).await
     }
 
-    let resources = resources().await;
-    let repos = &resources.common.repos;
     let stub = RevokeStub::start().await;
-    let context = admin_context(&resources, &stub.url);
+    let resources = resources_revoking_at(&stub.url).await;
+    let repos = &resources.common.repos;
+    let context = admin_context(&resources);
     let (user_id, ..) = seed_user(repos, "quarantined-author").await;
 
     match resources.agent.database.backend() {
@@ -1546,7 +1571,7 @@ async fn delete_clears_the_users_quarantined_agents() {
             .bind(QUARANTINED_TENANT)
             .bind("Hill repeats")
             .bind("Coach the athlete through hill repeats.")
-            .bind(Utc::now())
+            .bind(Timestamp::now())
             .execute(db.pool())
             .await
             .unwrap();
@@ -1765,7 +1790,7 @@ async fn a_reference_written_mid_removal_is_a_409_naming_what_was_done() {
             .is_none(),
         "a rolled-back deletion leaves no tombstone"
     );
-    for (token_id, operator) in [(&own_login, Some(user_id)), (&rotated_away, None)] {
+    for (token_id, admin) in [(&own_login, Some(user_id)), (&rotated_away, None)] {
         let row = repos
             .admin
             .get_token_by_id(token_id)
@@ -1773,7 +1798,7 @@ async fn a_reference_written_mid_removal_is_a_409_naming_what_was_done() {
             .unwrap()
             .expect("the token row is there");
         assert_eq!(row.service_name, label, "the rename rolled back");
-        assert_eq!(row.operator_user_id, operator, "and so did the retirement");
+        assert_eq!(row.operator_user_id, admin, "and so did the retirement");
         assert!(row.is_active, "the login is still live");
     }
 }
@@ -1783,10 +1808,10 @@ async fn a_reference_written_mid_removal_is_a_409_naming_what_was_done() {
 async fn device_login_row(
     resources: &Arc<ServerContext>,
     service_name: &str,
-    operator: Option<Uuid>,
+    admin: Option<Uuid>,
 ) -> String {
     let mut request = CreateAdminTokenRequest::super_admin(service_name.to_owned());
-    request.operator_user_id = operator;
+    request.operator_user_id = admin;
     resources
         .common
         .repos
@@ -1892,10 +1917,10 @@ async fn an_unconfirmed_withdrawal_still_deletes_and_is_named_on_the_receipt() {
 /// learns nothing of it). Scoped to the user's own tenant, it can.
 #[tokio::test]
 async fn a_tenant_scoped_token_acts_only_inside_its_tenant() {
-    let resources = resources().await;
-    let repos = &resources.common.repos;
     let mut stub = RevokeStub::start().await;
-    let context = admin_context(&resources, &stub.url);
+    let resources = resources_revoking_at(&stub.url).await;
+    let repos = &resources.common.repos;
+    let context = admin_context(&resources);
     let (_, foreign_tenant, _) = seed_user(repos, "other-club").await;
     let (user_id, tenant_id, _) = seed_user(repos, "scoped").await;
     connect_strava(repos, user_id, tenant_id, None).await;
@@ -1953,12 +1978,11 @@ async fn a_tenant_scoped_token_acts_only_inside_its_tenant() {
     assert_one_strava_revocation(&stub.received(), ENV_CLIENT_ID, ENV_CLIENT_SECRET);
 }
 
-/// Delete one user through the handler with a chokepoint that confirms every
-/// revocation, and return the response.
+/// Delete one user through the handler with the disconnect chokepoint
+/// wired, and return the response.
 async fn delete_user(resources: &Arc<ServerContext>, user_id: Uuid) -> Response {
-    let stub = RevokeStub::start().await;
     handle_delete_user(
-        State(admin_context(resources, &stub.url)),
+        State(admin_context(resources)),
         Extension(super_admin_token()),
         Path(user_id.to_string()),
         delete_request(),
@@ -2220,7 +2244,7 @@ async fn a_live_subscription_blocks_the_delete_and_a_canceled_one_is_cleared() {
     let resources = resources().await;
     let repos = &resources.common.repos;
     let (user_id, tenant_id, _) = seed_user(repos, "subscriber").await;
-    let now = Utc::now();
+    let now = Timestamp::now();
     let mut subscription = Subscription {
         id: Uuid::new_v4(),
         tenant_id,
@@ -2258,7 +2282,7 @@ async fn a_live_subscription_blocks_the_delete_and_a_canceled_one_is_cleared() {
     );
 
     subscription.status = SubscriptionStatus::Canceled;
-    subscription.canceled_at = Some(Utc::now());
+    subscription.canceled_at = Some(Timestamp::now());
     repos
         .subscriptions
         .upsert_subscription(&subscription)
@@ -2301,10 +2325,10 @@ async fn deactivate_tenant(resources: &ServerContext, tenant_id: TenantId) {
 /// scoped to their other tenant: the delete would clear their rows there too.
 #[tokio::test]
 async fn a_scoped_token_cannot_reach_a_user_who_also_belongs_to_an_inactive_tenant() {
-    let resources = resources().await;
-    let repos = &resources.common.repos;
     let stub = RevokeStub::start().await;
-    let context = admin_context(&resources, &stub.url);
+    let resources = resources_revoking_at(&stub.url).await;
+    let repos = &resources.common.repos;
+    let context = admin_context(&resources);
     let (user_id, home, _) = seed_user(repos, "two-homes").await;
     let (_, dormant, _) = seed_user(repos, "dormant-club").await;
     repos
@@ -2458,10 +2482,10 @@ async fn delete_removes_the_oauth_registration_of_an_a2a_client_the_user_registe
 /// cannot withdraw another application's grant.
 #[tokio::test]
 async fn a_pool_grant_is_revoked_under_its_app_after_the_tenant_configured_its_own() {
-    let resources = resources().await;
-    let repos = &resources.common.repos;
     let mut stub = RevokeStub::start().await;
-    let context = admin_context(&resources, &stub.url);
+    let resources = resources_revoking_at(&stub.url).await;
+    let repos = &resources.common.repos;
+    let context = admin_context(&resources);
     let (user_id, tenant_id, _) = seed_user(repos, "pool-then-club-app").await;
     repos
         .oauth_tokens
@@ -2498,9 +2522,9 @@ async fn a_pool_grant_is_revoked_under_its_app_after_the_tenant_configured_its_o
 /// one application read as two.
 #[tokio::test]
 async fn the_env_app_cannot_be_registered_as_a_pool_app() {
-    let resources = resources().await;
     let stub = RevokeStub::start().await;
-    let context = admin_context(&resources, &stub.url);
+    let resources = resources_revoking_at(&stub.url).await;
+    let context = admin_context(&resources);
 
     let error = handle_upsert_strava_pool_app(
         State(context),
@@ -2846,9 +2870,9 @@ pub(crate) async fn promote(repos: &RepositoryRegistry, user_id: Uuid, role: Use
 /// and may not act on an admin one.
 #[tokio::test]
 async fn a_manage_users_token_cannot_remove_or_disconnect_an_admin() {
-    let resources = resources().await;
-    let repos = &resources.common.repos;
     let mut stub = RevokeStub::start().await;
+    let resources = resources_revoking_at(&stub.url).await;
+    let repos = &resources.common.repos;
     let (first_admin_id, tenant_id, _) = seed_user(repos, "first-admin").await;
     connect_strava(repos, first_admin_id, tenant_id, None).await;
     promote(repos, first_admin_id, UserRole::Admin).await;
@@ -2857,7 +2881,7 @@ async fn a_manage_users_token_cannot_remove_or_disconnect_an_admin() {
 
     for (target, tenant) in [(first_admin_id, tenant_id), (admin_id, admin_tenant)] {
         let refused = handle_delete_user(
-            State(admin_context(&resources, &stub.url)),
+            State(admin_context(&resources)),
             Extension(scoped_manage_users_token(tenant)),
             Path(target.to_string()),
             delete_request(),
@@ -2874,7 +2898,7 @@ async fn a_manage_users_token_cannot_remove_or_disconnect_an_admin() {
     }
 
     let refused = handle_disconnect_user_provider(
-        State(admin_context(&resources, &stub.url)),
+        State(admin_context(&resources)),
         Extension(scoped_manage_users_token(tenant_id)),
         Path((first_admin_id.to_string(), "strava".to_owned())),
     )
@@ -2895,7 +2919,7 @@ async fn a_manage_users_token_cannot_remove_or_disconnect_an_admin() {
 
     // A super-admin token still can.
     let removed = handle_delete_user(
-        State(admin_context(&resources, &stub.url)),
+        State(admin_context(&resources)),
         Extension(super_admin_token()),
         Path(admin_id.to_string()),
         delete_request(),
@@ -2909,7 +2933,7 @@ async fn a_manage_users_token_cannot_remove_or_disconnect_an_admin() {
     // removed by no one: the platform always keeps an account that can
     // manage it. Nothing is withdrawn upstream for a delete that is refused.
     let refused = handle_delete_user(
-        State(admin_context(&resources, &stub.url)),
+        State(admin_context(&resources)),
         Extension(super_admin_token()),
         Path(first_admin_id.to_string()),
         delete_request(),
@@ -2978,6 +3002,7 @@ async fn seed_onboarding_facts(repos: &RepositoryRegistry, user_id: Uuid, tenant
                 valid_until: None,
                 source_msg_id: None,
                 transport_policy: TransportPolicy::AnyTransport,
+                ai_consent_sources: &[],
             })
             .await
             .unwrap();
@@ -3090,9 +3115,9 @@ fn rows_changed(body: &Value) -> BTreeMap<String, u64> {
 
 #[tokio::test]
 async fn reset_onboarding_clears_what_onboarding_wrote_and_leaves_groups_alone() {
-    let resources = resources().await;
-    let repos = &resources.common.repos;
     let mut stub = RevokeStub::start().await;
+    let resources = resources_revoking_at(&stub.url).await;
+    let repos = &resources.common.repos;
     let (user_id, tenant_id) = seed_onboarded_user(repos, "reset-coach").await;
     let owned = seed_group(repos, user_id, tenant_id, "Tuesday riders").await;
     let (peer_id, peer_tenant, _) = seed_user(repos, "reset-peer").await;
@@ -3102,7 +3127,7 @@ async fn reset_onboarding_clears_what_onboarding_wrote_and_leaves_groups_alone()
     let room = conversation_mid_walk(repos, user_id, tenant_id, Some(owned)).await;
 
     let response = reset_onboarding(
-        admin_context(&resources, &stub.url),
+        admin_context(&resources),
         super_admin_token(),
         user_id,
         false,
@@ -3186,9 +3211,9 @@ async fn reset_onboarding_clears_what_onboarding_wrote_and_leaves_groups_alone()
 
 #[tokio::test]
 async fn reset_with_memory_deletes_every_fact_and_only_the_users_own_threads() {
-    let resources = resources().await;
-    let repos = &resources.common.repos;
     let stub = RevokeStub::start().await;
+    let resources = resources_revoking_at(&stub.url).await;
+    let repos = &resources.common.repos;
     let (user_id, tenant_id) = seed_onboarded_user(repos, "reset-memory").await;
     let owned = seed_group(repos, user_id, tenant_id, "Hill repeats").await;
     let (peer_id, _, _) = seed_user(repos, "reset-thread-peer").await;
@@ -3221,7 +3246,7 @@ async fn reset_with_memory_deletes_every_fact_and_only_the_users_own_threads() {
         .unwrap());
 
     let response = reset_onboarding(
-        admin_context(&resources, &stub.url),
+        admin_context(&resources),
         super_admin_token(),
         user_id,
         true,
@@ -3272,9 +3297,9 @@ async fn reset_with_memory_deletes_every_fact_and_only_the_users_own_threads() {
 
 #[tokio::test]
 async fn reset_keeps_trainingpeaks_because_groups_ride_on_it() {
-    let resources = resources().await;
-    let repos = &resources.common.repos;
     let mut stub = RevokeStub::start().await;
+    let resources = resources_revoking_at(&stub.url).await;
+    let repos = &resources.common.repos;
     let (user_id, tenant_id) = seed_onboarded_user(repos, "reset-tp-coach").await;
     repos
         .provider_connections
@@ -3289,7 +3314,7 @@ async fn reset_keeps_trainingpeaks_because_groups_ride_on_it() {
         .unwrap();
 
     let response = reset_onboarding(
-        admin_context(&resources, &stub.url),
+        admin_context(&resources),
         super_admin_token(),
         user_id,
         false,
@@ -3327,9 +3352,9 @@ async fn reset_keeps_trainingpeaks_because_groups_ride_on_it() {
 /// group's linked athletes are read through, so a reset keeps it.
 #[tokio::test]
 async fn reset_keeps_intervals_icu_because_groups_ride_on_it() {
-    let resources = resources().await;
-    let repos = &resources.common.repos;
     let mut stub = RevokeStub::start().await;
+    let resources = resources_revoking_at(&stub.url).await;
+    let repos = &resources.common.repos;
     let (user_id, tenant_id) = seed_onboarded_user(repos, "reset-icu-coach").await;
     repos
         .provider_connections
@@ -3344,7 +3369,7 @@ async fn reset_keeps_intervals_icu_because_groups_ride_on_it() {
         .unwrap();
 
     let response = reset_onboarding(
-        admin_context(&resources, &stub.url),
+        admin_context(&resources),
         super_admin_token(),
         user_id,
         false,
@@ -3371,21 +3396,21 @@ async fn reset_keeps_intervals_icu_because_groups_ride_on_it() {
 }
 
 #[tokio::test]
-async fn a_manage_users_token_cannot_reset_an_operators_onboarding() {
-    let resources = resources().await;
-    let repos = &resources.common.repos;
+async fn a_manage_users_token_cannot_reset_an_admins_onboarding() {
     let mut stub = RevokeStub::start().await;
-    let (user_id, tenant_id) = seed_onboarded_user(repos, "reset-operator").await;
+    let resources = resources_revoking_at(&stub.url).await;
+    let repos = &resources.common.repos;
+    let (user_id, tenant_id) = seed_onboarded_user(repos, "reset-admin").await;
     promote(repos, user_id, UserRole::Admin).await;
 
     let refused = reset_onboarding(
-        admin_context(&resources, &stub.url),
+        admin_context(&resources),
         scoped_manage_users_token(tenant_id),
         user_id,
         true,
     )
     .await
-    .expect_err("a ManageUsers token must not reset an operator");
+    .expect_err("a ManageUsers token must not reset an admin");
     assert_eq!(refused.code, ErrorCode::PermissionDenied);
     assert_eq!(refused.message, RANK_REFUSAL);
     assert!(stub.received().is_empty(), "nothing may reach Strava");

@@ -8,7 +8,7 @@
 //!
 //! [`offered_schemas`] is the set one turn offers: the registry's
 //! chat-callable tools, less what the turn's seat withholds and what an
-//! operator switched off for the caller ([`SwitchedOff`]). The declarations,
+//! admin switched off for the caller ([`SwitchedOff`]). The declarations,
 //! the prompt's names index and the loopback listing all read it, so none of
 //! them names a tool another leaves out. [`declarations`] turns a set into the
 //! function declarations a turn sends, [`build_mcp_tools`] does so for the
@@ -65,10 +65,10 @@ use uuid::Uuid;
 
 use crate::coach_seat::TurnSeat;
 use crate::deployment_tools;
-use crate::first_party_tools;
-use crate::scopes::missing_scope;
+use crate::registry::ToolRegistry;
+use crate::tool_access::{self, Caller, CallerRole};
 use crate::tool_selection::ToolSelectionService;
-use crate::{registry::ToolRegistry, schema_canonical::to_canonical_value};
+use dravr_tronc::mcp::canonical::to_canonical_value;
 
 /// Hex characters of the SHA-256 kept as the catalogue digest
 const DIGEST_HEX_LEN: usize = 16;
@@ -216,7 +216,7 @@ pub fn all_loaded(tools: &Tool) -> Tool {
 /// Mark every declaration outside [`LOADED_CORE`] deferred.
 ///
 /// Nothing is deferred when none of the core is in `tools`: a provider needs
-/// one loaded tool besides its search, and a turn whose seat or operator left
+/// one loaded tool besides its search, and a turn whose seat or admin left
 /// out the whole core is better served by the narrower set sent loaded.
 pub fn defer_beyond_core(tools: &mut Tool) {
     let in_core = |name: &str| LOADED_CORE.contains(&name);
@@ -232,7 +232,7 @@ pub fn defer_beyond_core(tools: &mut Tool) {
     }
 }
 
-/// The tools an operator switched off for one caller, by name
+/// The tools an admin switched off for one caller, by name
 /// ([`EffectiveTool::is_switched_off`]): globally, for the tenant, for this
 /// user, or off by catalogue default.
 ///
@@ -303,12 +303,19 @@ impl SwitchedOff {
 
 /// The chat-callable tools one turn offers, in registry order.
 ///
-/// Less those `seat` withholds, those switched off for the caller, those
-/// kept on Dravr's own surfaces when the turn is served over `transport`
-/// outside them ([`first_party_tools::withholds`]; `None` is external, as at
-/// dispatch), and those the deployment can only fail
-/// ([`deployment_tools::answers_with`]: a food-database tool with no USDA key),
-/// the same predicate the MCP and A2A listings read.
+/// Less those `seat` withholds, those switched off for the caller, those the
+/// one access predicate withholds over `transport` under `grant`
+/// ([`tool_access::withheld`]; `None` is external, as at dispatch), and those
+/// the deployment can only fail ([`deployment_tools::answers_with`]: a
+/// food-database tool with no USDA key), the same predicates the MCP and A2A
+/// listings read.
+///
+/// A chat turn is decided for a caller with no role: on Dravr's own surfaces
+/// the role changes nothing a chat turn offers (chat never offers an admin
+/// tool, and the coach tools' own gates decide there), and a turn served over
+/// an API key or the A2A text turn offers neither the coach tools nor the
+/// tools kept in the app, as the dispatch of such a turn's agent was built
+/// to expect. The coach and admin lists are the MCP and A2A tool listings'.
 ///
 /// The one set a turn's declarations, its names index and its loopback listing
 /// are built from, so the three cannot disagree, and none offers a tool the
@@ -330,11 +337,22 @@ pub fn offered_schemas(
         .filter(|schema| {
             !switched_off.contains(&schema.name)
                 && !seat.withholds(registry, &schema.name)
-                && !first_party_tools::withholds(registry, &schema.name, transport)
                 && deployment_tools::answers_with(registry, &schema.name, deployment)
-                && registry
-                    .get(&schema.name)
-                    .is_none_or(|tool| missing_scope(grant, tool.capabilities()).is_none())
+                && registry.get(&schema.name).is_none_or(|tool| {
+                    tool_access::withheld(
+                        registry,
+                        &schema.name,
+                        tool.as_ref(),
+                        &Caller {
+                            role: CallerRole::default(),
+                            grant,
+                            transport,
+                            support_session: false,
+                            ceiling: None,
+                        },
+                    )
+                    .is_none()
+                })
         })
         .collect()
 }
@@ -472,7 +490,7 @@ mod tests {
     }
 
     #[test]
-    fn what_an_operator_switched_off_is_off_and_a_plan_gap_is_not() {
+    fn what_an_admin_switched_off_is_off_and_a_plan_gap_is_not() {
         let switched_off = SwitchedOff::from_effective(&[
             effective("on", true, ToolEnablementSource::Default),
             effective("catalogue_off", false, ToolEnablementSource::Default),
@@ -492,7 +510,7 @@ mod tests {
         assert_eq!(
             switched_off.len(),
             4,
-            "exactly the four operator-switched-off tools are off"
+            "exactly the four admin-switched-off tools are off"
         );
     }
 

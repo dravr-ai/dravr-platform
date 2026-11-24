@@ -18,7 +18,7 @@
 #![allow(missing_docs)]
 
 use crate::common;
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::models::zones::HrZonesUnavailable;
 use pierre_core::models::{Activity, ActivityBuilder, SportType, TenantId};
 use pierre_fitness_compute::latest_snapshot::build_latest_snapshot;
@@ -36,7 +36,7 @@ fn pushed_ride() -> Activity {
         RIDE_ID,
         "Tempo ride",
         SportType::Ride,
-        Utc::now() - Duration::days(1),
+        Timestamp::now() - Elapsed::days(1),
         5_400,
         oauth_providers::GARMIN,
     )

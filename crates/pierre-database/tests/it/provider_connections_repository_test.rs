@@ -12,7 +12,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::{
     ConnectionType, Tenant, TenantId, TenantOAuthCredentials, User, UserOAuthToken,
     API_KEY_TOKEN_TYPE,
@@ -43,7 +43,7 @@ async fn link(
     athlete: Option<&str>,
     token_type: &str,
 ) {
-    let now = Utc::now();
+    let now = Timestamp::now();
     repos
         .oauth_tokens
         .upsert_token(&UserOAuthToken {
@@ -116,7 +116,13 @@ async fn the_server_level_app_counts_each_live_grant_athlete_once() {
     link(repos, refused, &tenant, provider, Some("i4"), bearer).await;
     repos
         .provider_connections
-        .mark_needs_reauth(refused, tenant, provider, Some("invalid_grant"), Utc::now())
+        .mark_needs_reauth(
+            refused,
+            tenant,
+            provider,
+            Some("invalid_grant"),
+            Timestamp::now(),
+        )
         .await
         .unwrap();
     let our_client = fresh_user(repos).await;
@@ -128,7 +134,7 @@ async fn the_server_level_app_counts_each_live_grant_athlete_once() {
             tenant,
             provider,
             Some("invalid_client"),
-            Utc::now(),
+            Timestamp::now(),
         )
         .await
         .unwrap();

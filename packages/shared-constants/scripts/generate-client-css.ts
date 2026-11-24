@@ -44,7 +44,7 @@ export const CLIENT_CSS_PATHS: Record<Client, string> = {
 
 const SCHEMES: readonly ColorScheme[] = ['light', 'dark'];
 
-/** The pillar and feedback hues that bind an ink when drawn as a tint (DESIGN.md §2 "Bound ink"). */
+/** The pillar and feedback hues that bind an ink when drawn as a tint (DESIGN.md "The Bound Ink Rule"). */
 type TintHue = keyof typeof CONTAINER_INKS;
 
 /** Everything one scheme of the client stylesheets declares, each value read from the shared tokens. */
@@ -171,7 +171,8 @@ export interface Measurement {
 }
 
 /**
- * The tint a bound ink is measured on. DESIGN.md §2 gives the envelope as
+ * The tint a bound ink is measured on. The envelope, per `CONTAINER_INKS` in
+ * `design-system.ts`, is
  * /10 through /15 over the whole ladder, and the denser tint is the binding
  * case in both schemes: it pulls the ground toward the hue and away from the
  * ink.

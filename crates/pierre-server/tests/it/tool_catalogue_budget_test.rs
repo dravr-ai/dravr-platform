@@ -109,7 +109,14 @@ use crate::common;
 /// `osm_unavailable` and on reading the forecast, plus the forecast's own
 /// nudge to be read for every planned outdoor session; the route description
 /// was cut by about 200 bytes before measuring. Measured 98,183.
-const CATALOGUE_BUDGET_BYTES: usize = 98_250;
+///
+/// 2026-11-21: 98,250 → 98,850 for `get_health_records` (carnet#1544), the
+/// athlete's lab results, clinical records, glucose and cycle tracking, each
+/// row read by its own tier: a one-line description and `kind` and `limit`
+/// arguments of a few words each, cut by 233 bytes before measuring. The
+/// tool measures 615 bytes; the catalogue 98,770, over the coach tools' text
+/// that landed the same day.
+const CATALOGUE_BUDGET_BYTES: usize = 98_850;
 
 /// Bytes the loaded core may take when the rest is deferred: what the model
 /// holds in context on a provider with tool search before it loads anything.

@@ -47,7 +47,7 @@ struct CacheEntry {
 ///
 /// Rungs 1, 3, 4, 5 are computed per tenant and cached (5-minute TTL); the
 /// User Override rung is applied as a per-request overlay by the `*_for_user`
-/// methods, so operator changes to a user's tools take effect immediately.
+/// methods, so admin changes to a user's tools take effect immediately.
 pub struct ToolSelectionService {
     /// Auth-domain view used by the plan-restriction layer to look up the
     /// tenant's subscription plan via `repos.tenants.get_by_id`.
@@ -193,7 +193,7 @@ impl ToolSelectionService {
     /// and overlays the user's per-user overrides on top: a user override wins
     /// over plan restriction, tenant override, and catalog default, but a
     /// globally-disabled tool stays off. The overlay is fetched fresh per call
-    /// (a small indexed query) so operator changes take effect immediately.
+    /// (a small indexed query) so admin changes take effect immediately.
     ///
     /// # Errors
     ///

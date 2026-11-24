@@ -188,6 +188,7 @@ async fn setup() -> Fixture {
                 channel_type: None,
                 about_user_id: None,
                 turn_attempted_write: None,
+                ai_consent_sources: &[],
             })
             .await
             .unwrap();
@@ -229,6 +230,7 @@ fn request(fx: &Fixture, origin: TurnOrigin, content: &str) -> TurnRequest<'stat
         ambient_group_fallback: false,
         command_persistence: CommandPersistence::Always,
         sender_id: None,
+        caller: None,
         hooks: PipelineHooks::none(),
         grant: OAuthScope::self_grant(),
     }

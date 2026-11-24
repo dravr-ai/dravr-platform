@@ -19,7 +19,7 @@
 //! pierre-cli seed llm-usage --admin-email admin@example.com --days 60
 //! ```
 
-use chrono::{Datelike, Duration, Timelike, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_database::seed_models::SeedLlmUsageRecord;
 use pierre_database::RepositoryRegistry;
@@ -232,8 +232,8 @@ async fn seed_llm_usage(
     let mut total_records: u64 = 0;
 
     for day_offset in 0..days {
-        let day = Utc::now() - Duration::days(i64::from(day_offset));
-        let weekday = day.weekday().num_days_from_monday();
+        let day = Timestamp::now() - Elapsed::days(i64::from(day_offset));
+        let weekday = day.utc_date().weekday().num_days_from_monday();
 
         // Weekends have fewer calls (40-60% of weekday volume)
         let is_weekend = weekday >= 5;
@@ -279,12 +279,14 @@ async fn seed_llm_usage(
             let second: u32 = rng.random_range(0..60);
 
             let timestamp = day
-                .with_hour(hour)
-                .unwrap_or(day)
-                .with_minute(minute)
-                .unwrap_or(day)
-                .with_second(second)
-                .unwrap_or(day);
+                .utc_date()
+                .and_hms(hour, minute, second)
+                .ok()
+                .and_then(|at| at.and_utc().ok())
+                // The time of day changes; the fraction of a second stays.
+                .map_or(day, |at| {
+                    at + Elapsed::nanoseconds(i64::from(day.subsec_nanos()))
+                });
 
             // Some chat calls have a conversation_id
             let conversation_id: Option<String> = if call_type == "chat" && rng.random_bool(0.7) {

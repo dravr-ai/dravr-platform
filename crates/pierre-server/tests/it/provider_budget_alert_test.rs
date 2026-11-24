@@ -13,66 +13,17 @@
 //! limiter log the line: a foreground refusal must match it, and a
 //! background one, the share doing its job, must not.
 
-use std::fmt::Debug;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use pierre_providers::request_budget::{
     in_background, ProviderRateLimiter, RequestBudget, ONE_DAY,
 };
 use pierre_test_support::db::create_test_db;
+use pierre_test_support::log_capture::{self, CapturedEvent};
 use regex::Regex;
-use tracing::field::{Field, Visit};
-use tracing::{Event, Subscriber};
-use tracing_subscriber::layer::{Context, SubscriberExt};
-use tracing_subscriber::util::SubscriberInitExt;
-use tracing_subscriber::Layer;
 
 /// The app the refused requests are signed by.
 const APP: &str = "alert-test-app";
-
-/// One captured log line: its target, message and the names of its fields.
-#[derive(Debug, Clone)]
-struct Line {
-    target: String,
-    message: String,
-    fields: Vec<String>,
-}
-
-#[derive(Default)]
-struct LineCapture {
-    lines: Arc<Mutex<Vec<Line>>>,
-}
-
-struct LineVisitor<'a> {
-    message: &'a mut String,
-    fields: &'a mut Vec<String>,
-}
-
-impl Visit for LineVisitor<'_> {
-    fn record_debug(&mut self, field: &Field, value: &dyn Debug) {
-        if field.name() == "message" {
-            *self.message = format!("{value:?}");
-        } else {
-            self.fields.push(field.name().to_owned());
-        }
-    }
-}
-
-impl<S: Subscriber> Layer<S> for LineCapture {
-    fn on_event(&self, event: &Event<'_>, _ctx: Context<'_, S>) {
-        let mut message = String::new();
-        let mut fields = Vec::new();
-        event.record(&mut LineVisitor {
-            message: &mut message,
-            fields: &mut fields,
-        });
-        self.lines.lock().unwrap().push(Line {
-            target: event.metadata().target().to_owned(),
-            message,
-            fields,
-        });
-    }
-}
 
 /// What the `provider_budget_spent` metric matches: the `rust.target` label,
 /// the exact message, and the payload fields its labels are extracted from.
@@ -83,8 +34,8 @@ struct AlertFilter {
 }
 
 impl AlertFilter {
-    fn matches(&self, line: &Line) -> bool {
-        line.target == self.target && line.message == self.message
+    fn matches(&self, line: &CapturedEvent) -> bool {
+        line.target == self.target && line.message() == Some(self.message.as_str())
     }
 }
 
@@ -126,9 +77,7 @@ async fn the_alert_counts_the_foreground_refusal_the_limiter_logs_and_only_that(
         !filter.fields.is_empty(),
         "the provider_budget_spent metric extracts no label from the payload"
     );
-    let capture = LineCapture::default();
-    let lines = Arc::clone(&capture.lines);
-    let _guard = tracing_subscriber::registry().with(capture).set_default();
+    let (lines, _guard) = log_capture::capture_events();
 
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
@@ -148,13 +97,9 @@ async fn the_alert_counts_the_foreground_refusal_the_limiter_logs_and_only_that(
         .await
         .expect_err("a background request past its share is refused");
     assert!(
-        !lines
-            .lock()
-            .unwrap()
-            .iter()
-            .any(|line| filter.matches(line)),
+        !lines.events().iter().any(|line| filter.matches(line)),
         "bug: a background refusal, the share doing its job, would page: {:?}",
-        lines.lock().unwrap()
+        lines.events()
     );
 
     for _ in 0..3 {
@@ -168,12 +113,10 @@ async fn the_alert_counts_the_foreground_refusal_the_limiter_logs_and_only_that(
         .await
         .expect_err("a foreground request past the day is refused");
 
-    let paged: Vec<Line> = lines
-        .lock()
-        .unwrap()
-        .iter()
+    let paged: Vec<CapturedEvent> = lines
+        .events()
+        .into_iter()
         .filter(|line| filter.matches(line))
-        .cloned()
         .collect();
     assert_eq!(
         paged.len(),
@@ -182,11 +125,12 @@ async fn the_alert_counts_the_foreground_refusal_the_limiter_logs_and_only_that(
          alerts on ({} / {:?}): {:?}",
         filter.target,
         filter.message,
-        lines.lock().unwrap()
+        lines.events()
     );
     for field in &filter.fields {
         assert!(
-            paged[0].fields.contains(field),
+            // The message is the filter's own match, never a payload label.
+            field != "message" && paged[0].fields.contains_key(field),
             "bug: the refusal line carries no `{field}`, which the alert extracts as a label: {:?}",
             paged[0]
         );

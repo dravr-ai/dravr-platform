@@ -21,7 +21,7 @@
 //! ## A guided walk does not change the listing
 //!
 //! Each `tools/list` is built from the registry, the turn's seat and what an
-//! operator switched off for the caller, and nothing else. A guided walk is
+//! admin switched off for the caller, and nothing else. A guided walk is
 //! deliberately not an input — the listing is the same whether or not one is
 //! running, so the agent's cached prefix survives a walk starting and ending
 //! (carnet#1256), and
@@ -36,6 +36,7 @@ use tokio::sync::OnceCell;
 use tokio::time::timeout;
 
 use async_trait::async_trait;
+use dravr_tronc::mcp::canonical::to_canonical_value;
 use embacle::types::RunnerError;
 use embacle::McpToolDefinition;
 use embacle_tool_host::{ToolHost, ToolHostConfig, ToolOutcome, ToolSession, ToolSurface};
@@ -46,7 +47,6 @@ use pierre_tool_runtime::chat_catalogue::{self, SwitchedOff};
 use pierre_tool_runtime::coach_seat::TurnSeat;
 use pierre_tool_runtime::protocol::{UniversalRequest, UniversalToolExecutor};
 use pierre_tool_runtime::runtime::ToolRuntime;
-use pierre_tool_runtime::schema_canonical::to_canonical_value;
 use pierre_tool_runtime::tool_execution;
 use pierre_tool_runtime::tool_loop_io::PLATFORM_MCP_SERVER_NAME;
 use pierre_tool_runtime::tool_results;
@@ -119,7 +119,7 @@ pub struct TurnToolSurface {
     /// (carnet#1070) — are left out of the listing, and the executor this
     /// surface calls through refuses them as well.
     seat: TurnSeat,
-    /// What an operator switched off for the caller, left out of the listing
+    /// What an admin switched off for the caller, left out of the listing
     /// as the turn's declarations leave it out.
     switched_off: SwitchedOff,
 }
@@ -216,7 +216,7 @@ impl ToolSurface for TurnToolSurface {
     /// distinguishes it. Before that, a turn whose coach answered from data it
     /// could not refresh was indistinguishable in the notify lane from a turn
     /// that asked for no data at all, and the budget this surface enforces had
-    /// no operator signal that it fires.
+    /// no admin signal that it fires.
     async fn call(&self, tool_name: &str, arguments: &Value) -> ToolOutcome {
         // The agent's loop lives in its own subprocess and nothing bounded it:
         // `max_iterations` stopped at the platform-run loop, so a native turn
@@ -255,7 +255,7 @@ impl ToolSurface for TurnToolSurface {
             parameters: chat_catalogue::chat_arguments(arguments.clone()),
             user_id: self.user_id.clone(),
             // The agent reached us over MCP, and this is what the charge and the
-            // operator event are attributed to.
+            // admin event are attributed to.
             protocol: NATIVE_PROTOCOL.to_owned(),
             tenant_id: Some(self.tenant_id.to_string()),
         };

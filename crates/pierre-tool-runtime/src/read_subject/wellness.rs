@@ -54,7 +54,9 @@ use crate::protocols::ProtocolError;
 #[cfg(feature = "tools-data")]
 mod named;
 #[cfg(feature = "tools-data")]
-pub(crate) use named::{readable_wellness, unnamed_refusal, unnamed_wellness_note};
+pub(crate) use named::{
+    health_records_named, readable_wellness, unnamed_refusal, unnamed_wellness_note,
+};
 
 /// What an athlete's wellness grant shares with their coach, as the consent
 /// they agreed to names it, in its order.
@@ -79,10 +81,19 @@ pub(crate) enum GrantNamed {
     Readiness,
     /// The notes they write in their source's daily log.
     DailyNotes,
+    /// Their health records (owl tier T2: labs, clinical records,
+    /// self-measured glucose). Not an entry of the wellness grant, so not in
+    /// [`Self::ALL`] nor in [`wellness_data`]: its own grant,
+    /// `coach_sensitive_t2_read`, which the athlete gives beside the wellness
+    /// one (`delegation.sensitiveT2Label`), names it while it stands and
+    /// has not lapsed. It never widens a wellness grant already given. Only
+    /// the stored-record projection (`tools-data`) names it.
+    #[cfg(feature = "tools-data")]
+    HealthRecords,
 }
 
 impl GrantNamed {
-    /// Every entry, in the consent's order.
+    /// Every entry of the wellness grant, in the consent's order.
     const ALL: [Self; 6] = [
         Self::Sleep,
         Self::Hrv,
@@ -101,6 +112,8 @@ impl GrantNamed {
             Self::Weight => "weight",
             Self::Readiness => "readiness",
             Self::DailyNotes => "daily notes",
+            #[cfg(feature = "tools-data")]
+            Self::HealthRecords => "health records",
         }
     }
 }
@@ -489,7 +502,7 @@ mod tests {
 
     #[cfg(feature = "tools-config")]
     mod physiology {
-        use chrono::NaiveDate;
+        use dravr_tronc::dates::CivilDate;
         use pierre_core::models::{
             AnchorOrigin, AnchorProvenance, AnchorStamp, PhysiologicalSex, SportType,
         };
@@ -500,7 +513,7 @@ mod tests {
         fn stamp() -> AnchorStamp {
             AnchorStamp {
                 origin: AnchorOrigin::Promoted,
-                as_of: NaiveDate::from_ymd_opt(2026, 11, 1),
+                as_of: CivilDate::from_ymd(2026, 11, 1).ok(),
             }
         }
 

@@ -181,7 +181,7 @@ fn probe_fabricated_tool_flagged_by_empty_tools_called() {
 /// extraction and categorisation steps are exactly where it used to be lost.
 #[test]
 fn probe_providerless_fabrication_contradicted_by_athlete_data_layer() {
-    use chrono::NaiveDate;
+    use dravr_tronc::dates::CivilDate;
     use pierre_evals::athlete_data::{check as athlete_check, AthleteRecord};
     use pierre_evals::claim_extractor::extract_heuristic;
     use pierre_memory::{ClaimCategory, ClaimStatus};
@@ -203,10 +203,8 @@ fn probe_providerless_fabrication_contradicted_by_athlete_data_layer() {
 
     // Step 2 — with nothing connected, the layer must call it invented rather
     // than merely unconfirmed.
-    let providerless = AthleteRecord::providerless(
-        NaiveDate::from_ymd_opt(2026, 9, 2).expect("valid date"),
-        "en",
-    );
+    let providerless =
+        AthleteRecord::providerless(CivilDate::from_ymd(2026, 9, 2).expect("valid date"), "en");
     let verdicts: Vec<_> = personal
         .iter()
         .filter_map(|c| athlete_check(c, &providerless))
@@ -229,7 +227,7 @@ fn probe_providerless_fabrication_contradicted_by_athlete_data_layer() {
 /// mention a run the athlete actually did.
 #[test]
 fn probe_providerless_check_does_not_flag_a_real_ride() {
-    use chrono::NaiveDate;
+    use dravr_tronc::dates::CivilDate;
     use pierre_core::models::SportType;
     use pierre_evals::athlete_data::{check as athlete_check, AthleteRecord, RecordedActivity};
     use pierre_evals::claim_extractor::extract_heuristic;
@@ -237,7 +235,7 @@ fn probe_providerless_check_does_not_flag_a_real_ride() {
 
     let truthful_reply = "Nice 12 km ride yesterday, that was a solid effort! Keep it going.";
     let ride = |km: f64, min: f64| RecordedActivity {
-        date: NaiveDate::from_ymd_opt(2026, 9, 1).expect("valid date"),
+        date: CivilDate::from_ymd(2026, 9, 1).expect("valid date"),
         sport: SportType::Ride,
         name: String::new(),
         distance_km: Some(km),
@@ -247,7 +245,7 @@ fn probe_providerless_check_does_not_flag_a_real_ride() {
     };
     let record = AthleteRecord {
         has_provider: true,
-        today: NaiveDate::from_ymd_opt(2026, 9, 2).expect("valid date"),
+        today: CivilDate::from_ymd(2026, 9, 2).expect("valid date"),
         locale: "en".to_owned(),
         named_subsets: Vec::new(),
         history: None,

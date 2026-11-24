@@ -84,7 +84,6 @@ impl Caller {
                     audience: None,
                 },
                 &owner.user_id,
-                &[],
                 Some(owner.tenant.to_string()),
             )
             .unwrap();

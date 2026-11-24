@@ -12,6 +12,7 @@ use crate::common;
 use crate::helpers;
 
 use anyhow::Result;
+use dravr_tronc::dates::Timestamp;
 use dravr_tronc::testkit::McpTestClient;
 use helpers::first_party_sign_in::{
     authorize_uri, callback_param, fresh_state, FirstPartyClient, Pkce,
@@ -24,7 +25,7 @@ use pierre_config::environment::{
     AppBehaviorConfig, AuthConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment,
     ExternalServicesConfig, GarminApiConfig, HttpClientConfig, LogLevel, LoggingConfig,
     OAuth2ServerConfig, OAuthConfig, OAuthProviderConfig, PostgresPoolConfig, ProtocolConfig,
-    SciotteServiceConfig, SecurityConfig, SecurityHeadersConfig, ServerConfig, SseConfig,
+    SciotteServiceConfig, SecurityConfig, SecurityHeadersConfig, ServerConfig, SessionCookieConfig,
     StravaApiConfig, TlsConfig,
 };
 use pierre_core::models::CoachingPersona;
@@ -132,23 +133,11 @@ fn create_test_config(port: u16) -> Arc<ServerConfig> {
             },
         },
         external_services: ExternalServicesConfig {
-            strava_api: StravaApiConfig {
-                base_url: "https://www.strava.com/api/v3".to_owned(),
-                auth_url: "https://www.strava.com/oauth/authorize".to_owned(),
-                token_url: "https://www.strava.com/oauth/token".to_owned(),
-                revoke_url: "https://www.strava.com/oauth/revoke".to_owned(),
-                ..Default::default()
-            },
-            garmin_api: GarminApiConfig {
-                base_url: "https://apis.garmin.com/wellness-api/rest".to_owned(),
-                auth_url: "https://connect.garmin.com/oauth2Confirm".to_owned(),
-                token_url: "https://diauth.garmin.com/di-oauth2-service/oauth/token".to_owned(),
-                revoke_url: "https://apis.garmin.com/wellness-api/rest/user/registration"
-                    .to_owned(),
-                ..Default::default()
-            },
+            strava_api: StravaApiConfig::default(),
+            garmin_api: GarminApiConfig::default(),
             sciotte: SciotteServiceConfig::default(),
             meta_graph_api_base: None,
+            overpass_api_base: None,
         },
         app_behavior: AppBehaviorConfig {
             max_activities_fetch: 100,
@@ -163,7 +152,7 @@ fn create_test_config(port: u16) -> Arc<ServerConfig> {
                 server_version: env!("CARGO_PKG_VERSION").to_owned(),
             },
         },
-        sse: SseConfig::default(),
+        session_cookie: SessionCookieConfig::default(),
         oauth2_server: OAuth2ServerConfig::default(),
         ..Default::default()
     })
@@ -211,14 +200,13 @@ impl MultiTenantMcpClient {
             display_name: Some(display_name.to_owned()),
             password_hash,
             tier: UserTier::Starter,
-            strava_token: None,
             is_active: true,
             user_status: UserStatus::Active, // Already active
             role: UserRole::User,
             approved_by: Some(user_id), // Self-approved for test
-            approved_at: Some(chrono::Utc::now()),
-            created_at: chrono::Utc::now(),
-            last_active: chrono::Utc::now(),
+            approved_at: Some(Timestamp::now()),
+            created_at: Timestamp::now(),
+            last_active: Timestamp::now(),
             firebase_uid: None,
             auth_provider: String::new(),
             analytics_consent: false,
@@ -240,8 +228,8 @@ impl MultiTenantMcpClient {
             domain: None,
             plan: "starter".to_owned(),
             owner_user_id: user_id, // Test user is the owner
-            created_at: chrono::Utc::now(),
-            updated_at: chrono::Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         };
         repos.tenants.create(&test_tenant).await?;
 
@@ -593,6 +581,8 @@ async fn test_complete_multitenant_workflow() -> Result<()> {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                lab_reader: None,
+                pdf_text_bin: None,
                 #[cfg(feature = "client-messaging")]
                 channel_adapters: common::offline_adapters(),
             },
@@ -600,7 +590,7 @@ async fn test_complete_multitenant_workflow() -> Result<()> {
         .await
         .unwrap(),
     );
-    // The workflow connects Strava through its authorization: the operator's
+    // The workflow connects Strava through its authorization: the admin's
     // kill switch puts the OAuth first (the default signs in, carnet#1494).
     set_connect_order(
         resources.common.repos.system_settings.as_ref(),
@@ -835,6 +825,8 @@ async fn test_mcp_authentication_required() -> Result<()> {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                lab_reader: None,
+                pdf_text_bin: None,
                 #[cfg(feature = "client-messaging")]
                 channel_adapters: common::offline_adapters(),
             },
@@ -942,6 +934,8 @@ async fn test_mcp_initialization_no_auth_is_rejected() -> Result<()> {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                lab_reader: None,
+                pdf_text_bin: None,
                 #[cfg(feature = "client-messaging")]
                 channel_adapters: common::offline_adapters(),
             },
@@ -1037,6 +1031,8 @@ async fn test_oauth_protected_resource_metadata_endpoint() -> Result<()> {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                lab_reader: None,
+                pdf_text_bin: None,
                 #[cfg(feature = "client-messaging")]
                 channel_adapters: common::offline_adapters(),
             },
@@ -1138,6 +1134,8 @@ async fn test_mcp_concurrent_requests() -> Result<()> {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                lab_reader: None,
+                pdf_text_bin: None,
                 #[cfg(feature = "client-messaging")]
                 channel_adapters: common::offline_adapters(),
             },
@@ -1262,6 +1260,8 @@ async fn test_multitenant_server_config() -> Result<()> {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                lab_reader: None,
+                pdf_text_bin: None,
                 #[cfg(feature = "client-messaging")]
                 channel_adapters: common::offline_adapters(),
             },

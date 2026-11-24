@@ -7,7 +7,7 @@
 use std::collections::HashMap;
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::AppResult;
 use pierre_core::models::agents::{
     Agent, AgentAssignment, AgentCategory, AgentHandle, AgentListItem, AgentUserState,
@@ -18,6 +18,9 @@ use pierre_core::models::groups::{
     CoachingGroup, GroupInvite, GroupMember, GroupRole, GroupSetupTimeline, GroupSummary,
     GroupTranscriptEntry, NewGroupTranscriptEntry, RoomTranscriptEntry, UpdateGroupRequest,
 };
+
+use super::coach_assistant::CoachAssistantRepository;
+use super::group_chat_connect::GroupChatConnectRepository;
 
 use pierre_core::models::AgentRuntimeContext;
 use pierre_core::models::TenantId;
@@ -81,7 +84,7 @@ pub trait AgentsRepository: Send + Sync {
     /// Fast-path: `locale == "en"` returns immediately without touching the
     /// database. English lives on the canonical `agents` row itself; a
     /// `agent_translations` row with `locale = "en"` is only interesting when
-    /// an operator wants to override the canonical, which is out of scope for
+    /// an admin wants to override the canonical, which is out of scope for
     /// Phase 1.
     async fn apply_translations(&self, agents: &mut [AgentListItem], locale: &str)
         -> AppResult<()>;
@@ -321,8 +324,14 @@ pub trait AgentsRepository: Send + Sync {
 }
 
 /// Coaching group storage, membership management, and invite tracking
+///
+/// Connecting a group to a messaging chat from the web app (carnet#1683) is
+/// [`GroupChatConnectRepository`]'s, a supertrait, so the same repository
+/// object answers both.
 #[async_trait]
-pub trait CoachingGroupRepository: Send + Sync {
+pub trait CoachingGroupRepository:
+    GroupChatConnectRepository + CoachAssistantRepository + Send + Sync
+{
     // -- Group CRUD --
 
     /// Create a new coaching group
@@ -348,12 +357,17 @@ pub trait CoachingGroupRepository: Send + Sync {
         tenant_id: TenantId,
     ) -> AppResult<Option<CoachingGroup>>;
 
-    /// Look up the active group bound to a specific messaging chat.
+    /// Look up the active group bound to a specific messaging chat, served
+    /// by the bot of `tenant_id`.
     ///
-    /// Returns `Some(group)` if a `coaching_groups` row was created from
-    /// this chat (Telegram group, Slack channel, Discord channel) and is
-    /// still active. Returns `None` for unknown chats or REST-created
-    /// (web/mobile) groups that have no channel binding.
+    /// Returns `Some(group)` if a `coaching_groups` row is bound to this chat
+    /// (Telegram group, Slack channel, Discord channel) and is still active:
+    /// one the chat created, which lives under its bot's tenant, or one
+    /// connected to it from the web app, which records that tenant as
+    /// [`GroupChatConnection::channel_tenant_id`]. Returns `None` for unknown
+    /// chats.
+    ///
+    /// [`GroupChatConnection::channel_tenant_id`]: pierre_core::models::groups::GroupChatConnection::channel_tenant_id
     async fn get_group_by_channel(
         &self,
         tenant_id: TenantId,
@@ -488,27 +502,6 @@ pub trait CoachingGroupRepository: Send + Sync {
         consent: bool,
     ) -> AppResult<bool>;
 
-    /// When the live member `user_id` of `group_id` answered the one-time
-    /// notice of their coach's AI tools; `None` while they have not, or when
-    /// they are not a live member. No tenant filter, as
-    /// [`Self::update_coach_sharing_consent`].
-    async fn assistant_notice_answered_at(
-        &self,
-        group_id: &str,
-        user_id: Uuid,
-    ) -> AppResult<Option<DateTime<Utc>>>;
-
-    /// Record that the live member `user_id` of `group_id` answered the
-    /// one-time notice of their coach's AI tools at `at`. Returns `false`
-    /// when `user_id` is not a live member. No tenant filter, as
-    /// [`Self::update_coach_sharing_consent`].
-    async fn answer_assistant_notice(
-        &self,
-        group_id: &str,
-        user_id: Uuid,
-        at: DateTime<Utc>,
-    ) -> AppResult<bool>;
-
     /// The live member `user_id` of `group_id` grants or revokes what their
     /// coach may do beyond reading their training: each `Some` sets that
     /// consent, each `None` leaves it as it stands, and a consent whose value
@@ -524,7 +517,28 @@ pub trait CoachingGroupRepository: Send + Sync {
         user_id: Uuid,
         calendar_write: Option<bool>,
         wellness_read: Option<bool>,
-        now: DateTime<Utc>,
+        now: Timestamp,
+    ) -> AppResult<Option<GroupMember>> {
+        self.set_coach_sensitive_reads(group_id, user_id, calendar_write, wellness_read, None, now)
+            .await
+    }
+
+    /// [`Self::set_coach_consents`], in the same statement as the live
+    /// member sharing (`Some((true, until))`) or no longer sharing
+    /// (`Some((false, _))`) their health records (T2) with their coach,
+    /// stamped `now`, so the change lands whole or not at all; `None` leaves
+    /// the flag as it stands. A grant lapses at `until` (`None`: until
+    /// revoked), a renewed one included; a revoke clears it. Scoped to the
+    /// member's own row and cross-tenant. Returns the membership as it now
+    /// stands, or `None` when `user_id` is not a live member.
+    async fn set_coach_sensitive_reads(
+        &self,
+        group_id: &str,
+        user_id: Uuid,
+        calendar_write: Option<bool>,
+        wellness_read: Option<bool>,
+        t2_read: Option<(bool, Option<Timestamp>)>,
+        now: Timestamp,
     ) -> AppResult<Option<GroupMember>>;
 
     /// Count active members in a group.
@@ -562,7 +576,7 @@ pub trait CoachingGroupRepository: Send + Sync {
     async fn claim_signup_invite(
         &self,
         code: &str,
-        now: DateTime<Utc>,
+        now: Timestamp,
     ) -> AppResult<Option<GroupInvite>>;
 
     /// Look up an invite by id (cross-tenant, for signup-code activation)
@@ -708,7 +722,7 @@ pub trait CoachingGroupRepository: Send + Sync {
 // `$n` placeholders throughout: sqlx accepts them on `SQLite` as well as
 // Postgres. Booleans bind as `bool` and are spelled `TRUE`/`FALSE`: Postgres
 // has the type, `SQLite` stores 1/0 and reads them back as `bool`. Timestamps
-// bind as `DateTime<Utc>` on both; sqlx-sqlite writes the RFC 3339 text the
+// bind as `Timestamp` on both; sqlx-sqlite writes the RFC 3339 text the
 // `SQLite` TEXT columns always held. `agents.user_id` and every other
 // `users(id)` reference are `uuid` on Postgres and TEXT on `SQLite`, so the
 // shared body binds them through a [`super::uuid_columns`] codec.

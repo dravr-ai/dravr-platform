@@ -29,6 +29,8 @@ use helpers::impersonation::{assert_refusal_audited, assert_support_refused, imp
 
 use axum::http::StatusCode;
 use axum::Router;
+use dravr_barrage::record_log::entry::EntryKind;
+use dravr_barrage::{LiveSource, Scope, SourceKey};
 use pierre_core::constants::oauth::INTERVALS_ICU;
 use pierre_core::models::{PhysiologicalSex, SportType, TenantId, UserPhysiologicalProfile};
 use pierre_mcp_server::mcp::resources::ServerContext;
@@ -91,8 +93,8 @@ struct LinkedUser {
 async fn setup_linked_user(base_url: String) -> LinkedUser {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, user) = create_test_user(&resources.agent.database).await.unwrap();
-    // The handler resolves the active tenant from the token; a tenant-less token
-    // fails earlier, on "No active tenant", and would never reach the provider.
+    // The handler acts in the tenant the token names, once the membership
+    // table confirms it; the link is stored and read back under that tenant.
     let tenant_id = resources
         .common
         .repos
@@ -113,7 +115,7 @@ async fn setup_linked_user(base_url: String) -> LinkedUser {
         )
         .unwrap();
 
-    let mut config = offline_provider_config(INTERVALS_ICU);
+    let mut config = offline_provider_config(INTERVALS_ICU).unwrap();
     config.api_base_url = base_url;
     let mut registry = offline_provider_registry();
     registry.set_default_config(INTERVALS_ICU, config);
@@ -218,6 +220,53 @@ async fn accepted_api_key_links_the_account_and_echoes_the_athlete() {
     assert!(
         !head.contains("i123456:good-key"),
         "the athlete id must never appear in the credential pair"
+    );
+}
+
+/// An accepted key is a connect: one `connect` entry in the athlete's log,
+/// under the intervals.icu source (carnet#1542).
+#[tokio::test]
+async fn an_accepted_api_key_logs_the_connect_under_its_source() {
+    let (base_url, stub) = stub_once(
+        "HTTP/1.1 200 OK",
+        r#"{"id":"i123456","name":"Test Athlete"}"#,
+    )
+    .await;
+    let linked = setup_linked_user(base_url).await;
+
+    let response = AxumTestRequest::post("/api/providers/intervals_icu/link-credentials")
+        .header("authorization", &linked.auth)
+        .json(&json!({ "athlete_id": "i123456", "api_key": "good-key" }))
+        .send(linked.router)
+        .await;
+    assert_eq!(
+        response.status_code(),
+        StatusCode::OK,
+        "bug: the stubbed provider accepted the key"
+    );
+    stub.await.expect("stub task joins");
+
+    let connects: Vec<_> = linked
+        .resources
+        .common
+        .activity_records
+        .log_entries(
+            &Scope::new(linked.tenant_id.as_uuid(), linked.user_id),
+            0,
+            10,
+        )
+        .await
+        .expect("the log reads")
+        .into_iter()
+        .filter(|entry| entry.kind == EntryKind::Connect)
+        .collect();
+    let [connect] = connects.as_slice() else {
+        panic!("bug: the link did not log exactly one connect: {connects:?}");
+    };
+    assert_eq!(
+        connect.source,
+        SourceKey::Live(LiveSource::IntervalsIcu),
+        "bug: the connect was logged under the wrong source"
     );
 }
 

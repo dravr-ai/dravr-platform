@@ -4,7 +4,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-/// Archive a conversation the caller owns, when it is still active.
 pub(crate) const ARCHIVE_CONVERSATION_SQL: &str = r"
     UPDATE chat_conversations
     SET archived_at = $1
@@ -55,7 +54,7 @@ macro_rules! impl_chat_archive {
                 tenant_id: TenantId,
             ) -> AppResult<bool> {
                 let result = sqlx::query(ARCHIVE_CONVERSATION_SQL)
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .bind(conversation_id)
                     .bind($ids::bind_text(user_id)?)
                     .bind(tenant_id.to_string())

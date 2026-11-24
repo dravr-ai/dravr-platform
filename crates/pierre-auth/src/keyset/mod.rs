@@ -11,20 +11,20 @@
 //!   [`RELOAD_PERIOD`] on every process.
 //! - [`controller`]: the background job that promotes, sweeps, disables and
 //!   schedules, every [`CONTROLLER_PERIOD`] on one instance.
-//! - [`operator`]: the `pierre-cli key` steps: adopt, rotate, enable,
+//! - [`admin`]: the `pierre-cli key` steps: adopt, rotate, enable,
 //!   destroy, status.
 //! - [`secrets`]: where each version's wrapped key is stored.
 
 use std::time::Duration;
 
+/// The admin steps behind `pierre-cli key`
+pub mod admin;
 /// The rotation controller and its sweep
 pub mod controller;
 /// The keyset document, its states and transitions
 pub mod document;
 /// The per-process keyring loader
 pub mod loader;
-/// The operator steps behind `pierre-cli key`
-pub mod operator;
 /// Where each key version's wrapped bytes are stored
 pub mod secrets;
 
@@ -52,7 +52,7 @@ pub mod events {
     pub const DEMOTED: &str = "key_lifecycle.demoted";
     /// A drained key was disabled.
     pub const DISABLED: &str = "key_lifecycle.disabled";
-    /// An operator destroyed a key.
+    /// An admin destroyed a key.
     pub const DESTROYED: &str = "key_lifecycle.destroyed";
     /// A process installed a new keyring.
     pub const KEYRING_RELOADED: &str = "key_lifecycle.keyring_reloaded";

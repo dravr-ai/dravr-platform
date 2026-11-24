@@ -43,7 +43,7 @@ use std::sync::Arc;
 
 use axum::extract::{Query, State};
 use axum::Json;
-use chrono::NaiveDate;
+use dravr_tronc::dates::CivilDate;
 use pierre_contremaitre::anchor_strings::{
     anchor_range_text, anchor_source_text, anchor_value_text, AnchorReader,
 };
@@ -52,6 +52,7 @@ use pierre_core::errors::AppResult;
 use pierre_core::models::periodization::{AnchorConfidence, AnchorValue, SportFamily};
 use pierre_core::models::{AnchorUnit, HeldAnchors, SportAnchorName, TenantId, UnitSystem};
 use pierre_middleware::extractors::AuthenticatedUser;
+use pierre_runtime_context::require_tenant;
 use pierre_services::athlete_anchors::stored_athlete_anchors;
 use pierre_services::locale::user_locale;
 use pierre_services::personas::resolve_persona_locale;
@@ -59,7 +60,6 @@ use pierre_services::units::resolve_user_units;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use super::active_tenant;
 use crate::mcp::resources::ServerContext;
 
 /// Query parameters for `GET` and `PUT /api/me/physiology`.
@@ -182,7 +182,7 @@ struct PhysiologyAnchor {
     /// Who set it, as stored: `athlete`, a provider, a test.
     origin: Option<String>,
     /// The day it was measured, stated or imported, when known.
-    as_of: Option<NaiveDate>,
+    as_of: Option<CivilDate>,
     /// How it was measured, as stored; for MAP, its definition.
     method: Option<String>,
     /// How far to trust it, as stored.
@@ -207,7 +207,7 @@ pub(super) async fn get_physiology(
     auth: AuthenticatedUser,
     Query(query): Query<PhysiologyQuery>,
 ) -> AppResult<Json<PhysiologyResponse>> {
-    let tenant_id = active_tenant(&auth)?;
+    let tenant_id = require_tenant(&resources, &auth).await?;
     let body = physiology_response(
         &resources,
         tenant_id,
@@ -302,7 +302,7 @@ mod tests {
             low: range.map(|(low, _)| low),
             high: range.map(|(_, high)| high),
             origin: Some("intervals.icu".to_owned()),
-            as_of: NaiveDate::from_ymd_opt(2026, 10, 1),
+            as_of: CivilDate::from_ymd(2026, 10, 1).ok(),
             method: None,
             confidence,
         }

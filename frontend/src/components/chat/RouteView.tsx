@@ -395,7 +395,7 @@ export default function RouteView({
       )}
       {/* The map's own controls come from MapLibre's stylesheet — third-party
           chrome, deliberately left as it ships, like the provider brand colours
-          DESIGN.md §2 exempts. The frame around them is the thread's one card
+          DESIGN.md "Brand colour" exempts. The frame around them is the thread's one card
           recipe: white sheet, hairline, radius 10, no shadow. */}
       <div
         ref={stage}
@@ -476,7 +476,7 @@ export default function RouteView({
         <>
           {/* The one line the map draws differently gets named. The track needs
               no legend entry — it is the whole picture — and a legend that
-              names both reads as chrome (DESIGN.md §9, Boreal v2.1). */}
+              names both reads as chrome (Boreal v2.1). */}
           <p className="mt-2 flex items-center gap-1.5 text-xs text-on-surface-variant">
             <ClimbSwatch />
             {t('chat.routeClimbs')}

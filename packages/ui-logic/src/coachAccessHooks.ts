@@ -85,12 +85,6 @@ export interface SeatProbeOptions {
    * since one connected before it opened has already settled the seat.
    */
   fromFirstRead?: boolean;
-  /**
-   * Called on every read of the window, for a surface that holds a read of
-   * its own the probe cannot reach — the phone's connect screen keeps its
-   * provider cards outside the query cache.
-   */
-  onRead?: () => void;
 }
 
 /** Where the seat probe stands. */
@@ -133,7 +127,7 @@ export function seatLineDay(iso: string, language: string): string {
  *   user still held without coach access, re-reads the session once and
  *   patches the user: coach Home appears on the next navigation, and every
  *   group read is refreshed. A user who holds coach access reads nothing; an
- *   access an operator later took back does not loop.
+ *   access an admin later took back does not loop.
  * - `useGroupSeatLines`: while the viewer's seat moves, a room they own reads
  *   « Accès coach en attente · demandé le 12 nov. » while the request waits,
  *   and « Tu es le coach · depuis 11:10 » once a grant attached it, until the
@@ -252,7 +246,7 @@ export function createCoachAccessHooks(deps: CoachAccessHooksDeps): CoachAccessH
     connected: readonly string[] | undefined,
     options: SeatProbeOptions = {},
   ): SeatProbe {
-    const { fromFirstRead = false, onRead } = options;
+    const { fromFirstRead = false } = options;
     const { user, updateUser } = deps.useSession();
     const queryClient = useQueryClient();
     const managesRoster = user?.manages_roster === true;
@@ -276,12 +270,6 @@ export function createCoachAccessHooks(deps: CoachAccessHooksDeps): CoachAccessH
             .join(',');
     const seen = useRef<string | null>(null);
     const [phase, setPhase] = useState<'idle' | 'open' | 'ended'>('idle');
-    // The surface's own read, held so a new callback each render neither
-    // restarts the window nor drops a tick.
-    const onReadRef = useRef(onRead);
-    useEffect(() => {
-      onReadRef.current = onRead;
-    });
 
     // A platform that connects while the surface is open opens the window;
     // one there on the first read does only when the surface says so.
@@ -307,7 +295,6 @@ export function createCoachAccessHooks(deps: CoachAccessHooksDeps): CoachAccessH
       if (!reading) return;
       let cancelled = false;
       const read = () => {
-        onReadRef.current?.();
         void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.user.coachAccessRequest() });
         void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.providers.status() });
         void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.home.coachSetup() });

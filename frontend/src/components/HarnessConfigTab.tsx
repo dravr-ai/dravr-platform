@@ -12,6 +12,7 @@ import {
   type ReactNode,
 } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { LANGUAGE_NAMES, SUPPORTED_LANGUAGES, isSupportedLanguage } from "@pierre/i18n";
 import {
   adminApi,
   HARNESS_CONFIG_STALE,
@@ -25,18 +26,12 @@ import { ADMIN_LOCALE, describeAdminError } from "../utils/adminLocale";
 
 const HARNESS_CONFIG_QUERY_KEY = ["admin", "harness-config"] as const;
 
-/// BCP-47 short codes editable from this tab. Server defaults ship the same
-/// five; operators can add more by extending the locales map manually but
-/// the UI surfaces the supported set.
-const SUPPORTED_LOCALES: readonly string[] = ["en", "fr", "es", "de", "pt"];
-
-const LOCALE_LABELS: Record<string, string> = {
-  en: "English",
-  fr: "Français",
-  es: "Español",
-  de: "Deutsch",
-  pt: "Português",
-};
+/// The endonym of a locale tab: the platform's five locales name themselves
+/// (`@pierre/i18n`, the list every language menu reads); a locale an admin
+/// added to the map by hand shows its code.
+function localeLabel(locale: string): string {
+  return isSupportedLanguage(locale) ? LANGUAGE_NAMES[locale] : locale;
+}
 
 function emptyLocaleGuardrails(): LocaleGuardrails {
   return { disclaimer_triggers: [] };
@@ -478,7 +473,7 @@ export default function HarnessConfigTab() {
               string catalogue, in the locale whose triggers matched.
             </p>
             <div className="mb-3 flex gap-1" role="tablist" aria-label="Locale">
-              {SUPPORTED_LOCALES.map((loc) => (
+              {SUPPORTED_LANGUAGES.map((loc) => (
                 <button
                   key={loc}
                   type="button"
@@ -491,14 +486,14 @@ export default function HarnessConfigTab() {
                       : "bg-surface-container text-on-surface-variant hover:bg-surface-container-high"
                   }`}
                 >
-                  {LOCALE_LABELS[loc] ?? loc}
+                  {LANGUAGE_NAMES[loc]}
                 </button>
               ))}
             </div>
 
             <CsvField
               label={`Triggers (${activeLocale})`}
-              help={`Single words in ${LOCALE_LABELS[activeLocale] ?? activeLocale} that prepend the disclaimer when matched.`}
+              help={`Single words in ${localeLabel(activeLocale)} that prepend the disclaimer when matched.`}
               value={joinCsv(activeLocaleRules.disclaimer_triggers)}
               onChange={(v) =>
                 updateActiveLocale(draft, {

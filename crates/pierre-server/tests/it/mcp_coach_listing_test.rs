@@ -1,4 +1,4 @@
-// ABOUTME: An external tools listing offers athlete= and the coach-only tools to a group's human coach alone
+// ABOUTME: An external tools listing offers athlete= on reads and the coach tools to a group's human coach alone
 // ABOUTME: /mcp tools/list and the A2A extended card, per caller; the list is uncached and private; execution keeps its own gate
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -25,6 +25,7 @@ mod mcp_coach_listing_tests {
     use crate::helpers::coach_roster_fixtures::{
         coach, coached_group, group_agent, person, Person,
     };
+    use crate::helpers::tool_def_hash::without_def_hashes;
 
     use std::collections::BTreeSet;
     use std::sync::Arc;
@@ -41,8 +42,17 @@ mod mcp_coach_listing_tests {
     use serde_json::{json, Value};
     use tower::ServiceExt;
 
-    /// The one tool that declares itself coach-only.
-    const COACH_ONLY_TOOL: &str = "publish_training_plan";
+    /// A coach tool (carnet#1511): listed to a group's human coach alone.
+    const COACH_ONLY_TOOL: &str = "get_roster_overview";
+    /// The three coach tools.
+    const COACH_TOOLS: [&str; 3] = [
+        "get_group_member_activities",
+        "get_group_member_plan_status",
+        "get_roster_overview",
+    ];
+    /// A write tool that names a coached athlete in Dravr's own app; never
+    /// offered `athlete` externally (carnet#1533).
+    const PLAN_WRITE: &str = "save_training_plan";
     /// A read tool that lists `athlete` for a coach.
     const SCOPED_READ: &str = "get_activities";
 
@@ -154,7 +164,15 @@ mod mcp_coach_listing_tests {
         let scoped = with_athlete(&listed);
         assert!(
             scoped.contains(SCOPED_READ) && scoped.len() > 20,
-            "a coach is offered athlete= on the scoped reads and the plan tools: {scoped:?}"
+            "a coach is offered athlete= on the scoped reads: {scoped:?}"
+        );
+        assert!(
+            !scoped.contains(PLAN_WRITE),
+            "no write tool is offered athlete= externally (carnet#1533): {scoped:?}"
+        );
+        assert!(
+            !names(&listed).contains("publish_training_plan"),
+            "publish_training_plan stays in the app for everyone"
         );
         assert!(
             names(&listed).contains(COACH_ONLY_TOOL),
@@ -183,12 +201,18 @@ mod mcp_coach_listing_tests {
         let sam = person(&res, "sam2@coach-listing.test", "Sam Athlete").await;
         let app = ProviderToolRouter::build_http_app(&res);
 
-        let for_coach = tools(&app, &grant(&res, &casey)).await;
-        let for_sam = tools(&app, &grant(&res, &sam)).await;
+        // Each served hash is checked against its own definition and set aside:
+        // removing `athlete` makes a different definition, so a different hash.
+        let for_coach = without_def_hashes(&tools(&app, &grant(&res, &casey)).await);
+        let for_sam = without_def_hashes(&tools(&app, &grant(&res, &sam)).await);
 
         let mut stripped: Vec<Value> = for_coach
             .into_iter()
-            .filter(|tool| tool["name"] != COACH_ONLY_TOOL)
+            .filter(|tool| {
+                !COACH_TOOLS
+                    .iter()
+                    .any(|coach_tool| tool["name"] == *coach_tool)
+            })
             .collect();
         for tool in &mut stripped {
             if let Some(properties) = tool["inputSchema"]["properties"].as_object_mut() {

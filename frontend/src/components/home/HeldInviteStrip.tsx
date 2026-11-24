@@ -10,7 +10,7 @@ import { inviteShares, joinStripFull, joinStripJoin, joinStripTitle } from '@pie
 import { useTranslation } from '@pierre/i18n';
 import type { JoinHeldInviteResponse } from '@pierre/shared-types';
 import { groupsApi } from '../../services/api';
-import { QUERY_KEYS } from '../../constants/queryKeys';
+import { QUERY_KEYS } from '@pierre/shared-constants';
 import { useAuth } from '../../hooks/useAuth';
 import { useServerHeldInvite } from '../../hooks/useInviteJourney';
 import { useInviteCardOpen, useInviteSettling } from '../../utils/groupInvite';

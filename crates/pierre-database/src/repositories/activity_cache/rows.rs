@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::Activity;
 use serde_json::{Map, Value};
@@ -17,7 +17,7 @@ use super::{
 };
 
 /// Later of the row-derived sync signal and the fetch-freshness mark.
-pub(crate) fn later(a: Option<DateTime<Utc>>, b: Option<DateTime<Utc>>) -> Option<DateTime<Utc>> {
+pub(crate) fn later(a: Option<Timestamp>, b: Option<Timestamp>) -> Option<Timestamp> {
     match (a, b) {
         (Some(x), Some(y)) => Some(x.max(y)),
         (x, None) => x,
@@ -32,11 +32,11 @@ pub(crate) fn later(a: Option<DateTime<Utc>>, b: Option<DateTime<Utc>>) -> Optio
 ///
 /// # Errors
 /// Returns a database error naming the column when it cannot be decoded.
-pub(crate) fn timestamp_column<R>(row: &R, column: &str) -> AppResult<DateTime<Utc>>
+pub(crate) fn timestamp_column<R>(row: &R, column: &str) -> AppResult<Timestamp>
 where
     R: sqlx::Row,
     for<'a> &'a str: sqlx::ColumnIndex<R>,
-    DateTime<Utc>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Timestamp: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
     row.try_get(column)
         .map_err(|e| AppError::database(format!("activity col {column}: {e}")))
@@ -50,7 +50,7 @@ pub(crate) fn fetch_failure_from_row<R>(row: &R) -> AppResult<ActivityFetchFailu
 where
     R: sqlx::Row,
     for<'a> &'a str: sqlx::ColumnIndex<R>,
-    DateTime<Utc>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Timestamp: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     i32: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
@@ -139,7 +139,7 @@ where
     R: sqlx::Row,
     for<'a> &'a str: sqlx::ColumnIndex<R>,
     String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    DateTime<Utc>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Timestamp: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
     let data_json: String = row
         .try_get("data_json")
@@ -189,7 +189,7 @@ where
     String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     Option<String>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     bool: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    DateTime<Utc>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Timestamp: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
     let provider: String = row
         .try_get("provider")
@@ -255,7 +255,7 @@ where
 }
 
 /// Extract a [`CaptureFreshness`] from a row of either backend. The two
-/// nullable timestamps decode as `Option<DateTime<Utc>>`: a NULL is `None`
+/// nullable timestamps decode as `Option<Timestamp>`: a NULL is `None`
 /// on both engines, and a value is RFC3339 text on `SQLite` — the only form
 /// `provider_connections.last_used_at` is ever written in — or a
 /// TIMESTAMPTZ on Postgres.
@@ -267,13 +267,13 @@ where
     R: sqlx::Row,
     for<'a> &'a str: sqlx::ColumnIndex<R>,
     String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    Option<DateTime<Utc>>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Option<Timestamp>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
     let col = |name: &str| -> AppResult<String> {
         row.try_get(name)
             .map_err(|e| AppError::database(format!("capture col {name}: {e}")))
     };
-    let stamp = |name: &str| -> AppResult<Option<DateTime<Utc>>> {
+    let stamp = |name: &str| -> AppResult<Option<Timestamp>> {
         row.try_get(name)
             .map_err(|e| AppError::database(format!("capture col {name}: {e}")))
     };

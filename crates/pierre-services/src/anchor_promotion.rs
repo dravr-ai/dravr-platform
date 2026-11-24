@@ -29,7 +29,7 @@
 //! The rule decides which number fills the profile; the training science that
 //! scores against it stays in dravr-cageux and pierre-fitness-compute.
 
-use chrono::{Duration, NaiveDate, Utc};
+use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp};
 use pierre_core::ai_policy::ProviderTerms;
 use pierre_core::civil_time::clock_date;
 use pierre_core::errors::AppResult;
@@ -57,7 +57,7 @@ pub struct Measured<T> {
     /// The value the anchor would take.
     pub value: T,
     /// The day it stands for.
-    pub as_of: NaiveDate,
+    pub as_of: CivilDate,
     /// What the rows read for this anchor alone allow (carnet#769): a profile
     /// is stamped with it only when this anchor is the one that moves.
     pub policy: TransportPolicy,
@@ -221,10 +221,10 @@ async fn week_median_resting_hr(
     terms: &dyn ProviderTerms,
     tenant: TenantId,
     user_id: Uuid,
-) -> AppResult<Option<(u16, NaiveDate)>> {
-    let now = Utc::now();
-    let today = clock_date(now, athlete_zone(repos, user_id).await);
-    let first_day = today - Duration::days(RESTING_HR_WINDOW_DAYS - 1);
+) -> AppResult<Option<(u16, CivilDate)>> {
+    let now = Timestamp::now();
+    let today = clock_date(now, &athlete_zone(repos, user_id).await);
+    let first_day = today - Elapsed::days(RESTING_HR_WINDOW_DAYS - 1);
     // The read bounds on the UTC date; a day of margin keeps every local
     // morning of the window inside it, and the dates are narrowed below.
     let mornings = stored_health::merged_recovery(
@@ -232,13 +232,13 @@ async fn week_median_resting_hr(
         terms,
         user_id,
         &tenant,
-        (now - Duration::days(RESTING_HR_WINDOW_DAYS + 1), now),
+        (now - Elapsed::days(RESTING_HR_WINDOW_DAYS + 1), now),
         SourceFilter::All,
         stored_health::as_stored,
     )
     .await?
     .records;
-    let in_window: Vec<(u32, NaiveDate)> = mornings
+    let in_window: Vec<(u32, CivilDate)> = mornings
         .iter()
         .filter(|morning| (first_day..=today).contains(&morning.record.date))
         .filter_map(|morning| {
@@ -281,6 +281,11 @@ pub fn apply_promotion(profile: &mut UserPhysiologicalProfile, promotion: &Promo
             &mut profile.anchor_provenance.vo2_max,
             m,
         );
+        // A recorded method described the value just replaced; the promoted
+        // one is a device's reading, which its stamp already says.
+        if moved.vo2_max {
+            profile.vo2_max_method = None;
+        }
     }
     if let Some(m) = promotion.weight.filter(|_| promotable.weight) {
         moved.weight = promote(
@@ -319,8 +324,8 @@ mod tests {
 
     use super::*;
 
-    fn day(d: u32) -> NaiveDate {
-        NaiveDate::from_ymd_opt(2026, 10, d).unwrap_or_default()
+    fn day(d: u32) -> CivilDate {
+        CivilDate::from_ymd(2026, 10, d).ok().unwrap_or_default()
     }
 
     fn profile() -> UserPhysiologicalProfile {
@@ -388,12 +393,41 @@ mod tests {
         );
     }
 
-    const fn measured<T>(value: T, as_of: NaiveDate) -> Measured<T> {
+    const fn measured<T>(value: T, as_of: CivilDate) -> Measured<T> {
         Measured {
             value,
             as_of,
             policy: TransportPolicy::AnyTransport,
         }
+    }
+
+    #[test]
+    fn a_promoted_vo2max_drops_the_method_of_the_estimate_it_replaces() {
+        let mut estimated = profile();
+        estimated.vo2_max = Some(48.0);
+        estimated.vo2_max_method = Some("cooper_test".to_owned());
+        estimated.anchor_provenance.vo2_max = Some(AnchorStamp {
+            origin: AnchorOrigin::Estimated,
+            as_of: Some(day(2)),
+        });
+        let promotion = Promotion {
+            resting_hr: None,
+            vo2_max: Some(measured(53.0, day(28))),
+            weight: None,
+        };
+        assert!(
+            apply_promotion(&mut estimated, &promotion).vo2_max,
+            "an estimate is refreshed from the device"
+        );
+        assert_eq!(
+            estimated.vo2_max,
+            Some(53.0),
+            "bug: the device's reading must replace the estimate"
+        );
+        assert_eq!(
+            estimated.vo2_max_method, None,
+            "the Cooper method described the replaced estimate, not the device's reading"
+        );
     }
 
     #[test]

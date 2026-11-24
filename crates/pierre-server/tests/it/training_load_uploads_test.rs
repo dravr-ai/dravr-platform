@@ -24,7 +24,8 @@ use std::sync::Arc;
 
 use axum::body::{to_bytes, Body};
 use axum::http::Request;
-use chrono::{DateTime, Duration, NaiveTime, TimeZone, Utc};
+use dravr_tronc::dates::CivilDate;
+use dravr_tronc::dates::{CivilTime, Elapsed, Timestamp};
 use pierre_core::config::profiles::FitnessLevel;
 use pierre_core::models::{
     Activity, ActivityBuilder, AnchorProvenance, ConnectionType, DailyTrainingState, SportType,
@@ -87,6 +88,8 @@ async fn athlete(resources: &Arc<ServerContext>) -> Athlete {
         d_prime_meters: None,
         threshold_provenance: ThresholdProvenance::default(),
         threshold_stated_on: ThresholdStatedOn::default(),
+        vo2_max_method: None,
+        vdot: None,
         anchor_provenance: AnchorProvenance::default(),
         transport_policy: TransportPolicy::AnyTransport,
         sex: None,
@@ -107,9 +110,11 @@ async fn athlete(resources: &Arc<ServerContext>) -> Athlete {
 }
 
 /// 07:00 UTC `days_ago` days before today.
-fn morning(days_ago: i64) -> DateTime<Utc> {
-    let day = Utc::now().date_naive() - Duration::days(days_ago);
-    Utc.from_utc_datetime(&day.and_time(NaiveTime::from_hms_opt(7, 0, 0).unwrap()))
+fn morning(days_ago: i64) -> Timestamp {
+    let day = Timestamp::now().utc_date() - Elapsed::days(days_ago);
+    (day.and_time(CivilTime::from_hms(7, 0, 0).unwrap()))
+        .and_utc()
+        .unwrap()
 }
 
 /// Strava's copy of the ride uploaded `days_ago`: the same workout, its start
@@ -120,7 +125,7 @@ fn strava_copy(days_ago: i64) -> Activity {
         format!("strava-{days_ago}"),
         "Morning Ride".to_owned(),
         SportType::Ride,
-        morning(days_ago) + Duration::seconds(20),
+        morning(days_ago) + Elapsed::seconds(20),
         u64::from(RIDE_SECONDS),
         STRAVA.to_owned(),
     )
@@ -234,13 +239,13 @@ impl Athlete {
     }
 }
 
-fn window() -> (chrono::NaiveDate, chrono::NaiveDate) {
-    let to = Utc::now().date_naive();
-    (to - Duration::days(CTL_WINDOW_DAYS), to)
+fn window() -> (CivilDate, CivilDate) {
+    let to = Timestamp::now().utc_date();
+    (to - Elapsed::days(CTL_WINDOW_DAYS), to)
 }
 
 fn load_on(rollup: &[DailyTrainingState], days_ago: i64) -> f64 {
-    let day = Utc::now().date_naive() - Duration::days(days_ago);
+    let day = Timestamp::now().utc_date() - Elapsed::days(days_ago);
     rollup
         .iter()
         .find(|row| row.date == day)

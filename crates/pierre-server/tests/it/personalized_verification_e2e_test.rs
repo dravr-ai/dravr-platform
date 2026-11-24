@@ -12,15 +12,16 @@ use crate::common;
 use std::collections::BTreeSet;
 
 use anyhow::Result;
-use chrono::{Duration, NaiveDate, Utc};
 use dravr_cageux::config::intelligence::AlgorithmConfig;
 use dravr_cageux::config::intelligence::TrainingZonesConfig;
+use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp};
 use pierre_core::ai_policy::Withheld;
 use pierre_core::config::profiles::FitnessLevel;
 use pierre_core::models::activity::ActivityBuilder;
 use pierre_core::models::{
-    Activity, AnchorProvenance, DataSource, DeviceType, SportType, StoredRecoveryMetrics,
-    StoredSleepSession, TenantId, ThresholdProvenance, ThresholdStatedOn, UserPhysiologicalProfile,
+    Activity, AnchorProvenance, DataSource, DeviceType, ProfileVdot, SportType,
+    StoredRecoveryMetrics, StoredSleepSession, TenantId, ThresholdProvenance, ThresholdStatedOn,
+    UserPhysiologicalProfile,
 };
 use pierre_core::transport::{Transport, TransportPolicy};
 use pierre_database::repositories::InsertClaimVerdictParams;
@@ -33,7 +34,6 @@ use pierre_evals::{
 };
 use pierre_memory::claims::{ClaimCategory, ClaimStatus, EvidenceStrength, VerdictLayer};
 use pierre_providers::ai_scope::{ai_read, serve_over, with_ai_consent};
-use pierre_providers::registry::global_registry;
 use pierre_services::athlete_snapshot::build_athlete_metrics;
 use uuid::Uuid;
 
@@ -46,7 +46,7 @@ fn synthetic_run(id: &str, days_ago: i64) -> Activity {
         id.to_owned(),
         format!("synthetic {id}"),
         SportType::Run,
-        Utc::now() - Duration::days(days_ago),
+        Timestamp::now() - Elapsed::days(days_ago),
         3600,
         "synthetic".to_owned(),
     )
@@ -80,6 +80,14 @@ fn profile(user_id: Uuid) -> UserPhysiologicalProfile {
         d_prime_meters: None,
         threshold_provenance: ThresholdProvenance::default(),
         threshold_stated_on: ThresholdStatedOn::default(),
+        vo2_max_method: None,
+        // A 10 km raced last week: the snapshot's VDOT, which the synthetic
+        // training runs (VDOT 32) do not replace while it is fresh.
+        vdot: Some(ProfileVdot {
+            value: 50.0,
+            as_of: (Timestamp::now() - Elapsed::days(7)).utc_date(),
+            method: Some("race: 10 km in 41:21".to_owned()),
+        }),
         anchor_provenance: AnchorProvenance::default(),
         transport_policy: TransportPolicy::AnyTransport,
         sex: None,
@@ -119,7 +127,7 @@ async fn physiology_and_activities_drive_a_personalized_contradiction() -> Resul
     // Build the snapshot through the real service path.
     let metrics = build_athlete_metrics(
         repos,
-        global_registry().as_ref(),
+        &common::offline_provider_registry(),
         &AlgorithmConfig::default(),
         &TrainingZonesConfig::default(),
         tenant_id,
@@ -140,7 +148,7 @@ async fn physiology_and_activities_drive_a_personalized_contradiction() -> Resul
     assert!(metrics.data_days >= 14, "data_days={}", metrics.data_days);
 
     // Run the verdict pipeline: a 2:30/km threshold prescription is absurdly
-    // fast for VO2max 50 → the personalized layer fires Contradicted before evidence.
+    // fast for VDOT 50 → the personalized layer fires Contradicted before evidence.
     let strategy = ConservativeStrategy::default();
     let ctx = PersonalizedContext {
         metrics: &metrics,
@@ -196,7 +204,7 @@ async fn missing_physiology_yields_unusable_snapshot() -> Result<()> {
 
     let metrics = build_athlete_metrics(
         repos,
-        global_registry().as_ref(),
+        &common::offline_provider_registry(),
         &AlgorithmConfig::default(),
         &TrainingZonesConfig::default(),
         tenant(),
@@ -214,20 +222,21 @@ async fn missing_physiology_yields_unusable_snapshot() -> Result<()> {
 fn whoop_night(
     user_id: Uuid,
     data_source_id: &str,
-    day: NaiveDate,
+    day: CivilDate,
     hours: u32,
 ) -> StoredSleepSession {
-    let start = (day - Duration::days(1))
-        .and_hms_opt(23, 0, 0)
+    let start = (day - Elapsed::days(1))
+        .and_hms(23, 0, 0)
         .unwrap()
-        .and_utc();
+        .and_utc()
+        .unwrap();
     StoredSleepSession {
         id: Uuid::new_v4().to_string(),
         user_id: user_id.to_string(),
         data_source_id: data_source_id.to_owned(),
         is_nap: false,
         start_datetime: start,
-        end_datetime: start + Duration::hours(i64::from(hours)),
+        end_datetime: start + Elapsed::hours(i64::from(hours)),
         total_sleep_seconds: Some(hours * 3600),
         deep_sleep_seconds: None,
         light_sleep_seconds: None,
@@ -248,7 +257,7 @@ fn whoop_night(
 fn whoop_morning(
     user_id: Uuid,
     data_source_id: &str,
-    day: NaiveDate,
+    day: CivilDate,
     hrv: f64,
 ) -> StoredRecoveryMetrics {
     StoredRecoveryMetrics {
@@ -269,7 +278,7 @@ fn whoop_morning(
         daily_strain: None,
         athlete_note: None,
         source_name: "whoop".to_owned(),
-        recorded_at: day.and_hms_opt(8, 0, 0).unwrap().and_utc(),
+        recorded_at: day.and_hms(8, 0, 0).unwrap().and_utc().unwrap(),
     }
 }
 
@@ -296,16 +305,16 @@ async fn seed_whoop_week(
             },
         )
         .await?;
-    let today = Utc::now().date_naive();
+    let today = Timestamp::now().utc_date();
     for back in 0..7 {
-        let day = today - Duration::days(back);
+        let day = today - Elapsed::days(back);
         let (hours, hrv) = if back == 0 { (5, 51.0) } else { (8, 60.0) };
         repos
             .sleep
             .upsert_sleep_session(
                 &tenant_id,
                 &whoop_night(user_id, &data_source_id, day, hours),
-                Utc::now(),
+                Timestamp::now(),
             )
             .await?;
         repos
@@ -314,7 +323,7 @@ async fn seed_whoop_week(
                 &tenant_id,
                 &whoop_morning(user_id, &data_source_id, day, hrv),
                 WellnessWriteMode::FullDay,
-                Utc::now(),
+                Timestamp::now(),
             )
             .await?;
     }
@@ -336,7 +345,7 @@ async fn turn_snapshot(
             consent_withheld,
             ai_read(Box::pin(build_athlete_metrics(
                 repos,
-                global_registry().as_ref(),
+                &common::offline_provider_registry(),
                 &AlgorithmConfig::default(),
                 &TrainingZonesConfig::default(),
                 tenant_id,

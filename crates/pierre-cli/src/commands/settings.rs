@@ -14,8 +14,8 @@
 
 use std::io::{self, Read};
 
-use chrono::Utc;
 use clap::Subcommand;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use serde_json::Value;
 
@@ -33,8 +33,8 @@ const SIGNUP_PATH: &str = "/admin/settings/signup";
 #[non_exhaustive]
 #[derive(Subcommand)]
 pub(crate) enum SettingsCommand {
-    /// Which way a new connection of a provider goes first: the account
-    /// sign-in or its OAuth (super-admin)
+    /// Which way a new connection of a provider goes first: the sign-in
+    /// extension, the account sign-in or its OAuth (super-admin)
     ConnectOrder {
         /// Verb to run against the connect order
         #[command(subcommand)]
@@ -102,7 +102,7 @@ pub(crate) enum HarnessAction {
 }
 
 pub(super) fn client() -> AppResult<RemoteClient> {
-    let creds = CachedCredentials::require(Utc::now().timestamp())?;
+    let creds = CachedCredentials::require(Timestamp::now().epoch_seconds())?;
     RemoteClient::from_cached(&creds)
 }
 
@@ -166,7 +166,7 @@ async fn harness_show() -> AppResult<()> {
         println!("  Degraded: {reason}. A save replaces the stored row.");
     }
     let config = response.get("config").cloned().unwrap_or(Value::Null);
-    // The harness document is nested and operator-edited as a whole; pretty
+    // The harness document is nested and admin-edited as a whole; pretty
     // JSON is the faithful view (and pipes cleanly into `settings harness set -`).
     println!(
         "{}",

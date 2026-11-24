@@ -22,7 +22,7 @@ use pierre_core::permissions::scopes::OAuthScope;
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
-use chrono::{Datelike, Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use embacle::types::ToolCallRequest;
 use futures_util::stream;
 use pierre_chat_pipeline::{
@@ -37,6 +37,7 @@ use pierre_llm::{
 use serde_json::{json, Value};
 
 use crate::common::{create_test_server_resources_with_chat_provider, create_test_user};
+use dravr_tronc::dates::CivilDate;
 
 const MODEL: &str = "plan-card-model";
 const SAVE_ASK: &str = "Pose-moi la première quinzaine.";
@@ -174,15 +175,15 @@ fn web_profile() -> SurfaceProfile {
 /// and fail Friday, Saturday and Sunday. It first went red on Friday
 /// 2026-09-11 against a tree whose last green run was the Thursday.
 fn dates() -> (String, String, String, String, String) {
-    let today = Utc::now().date_naive();
-    let monday = today - Duration::days(i64::from(today.weekday().num_days_from_monday()));
-    let f = |d: chrono::NaiveDate| d.format("%Y-%m-%d").to_string();
+    let today = Timestamp::now().utc_date();
+    let monday = today - Elapsed::days(i64::from(today.weekday().num_days_from_monday()));
+    let f = |d: CivilDate| d.to_string();
     (
         f(monday),
-        f(monday + Duration::days(1)),
-        f(monday + Duration::days(3)),
-        f(monday + Duration::weeks(4)),
-        f(monday + Duration::weeks(10)),
+        f(monday + Elapsed::days(1)),
+        f(monday + Elapsed::days(3)),
+        f(monday + Elapsed::weeks(4)),
+        f(monday + Elapsed::weeks(10)),
     )
 }
 

@@ -18,7 +18,7 @@ use secrecy::{ExposeSecret, SecretString};
 use std::sync::Arc;
 
 use axum::Router;
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use helpers::axum_test::{AxumTestRequest, AxumTestResponse};
 use pierre_auth::api_keys::{ApiKeyManager, ApiKeyTier, CreateApiKeyRequest};
 use pierre_core::constants::oauth_rate_limiting::PASSWORD_CONFIRM_RPM;
@@ -44,13 +44,16 @@ use tokio::net::TcpListener;
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
-use crate::common::{create_test_server_resources_with_config, test_server_config_with_app};
+use crate::common::{
+    create_test_server_resources_with_config, set_provider_endpoints, test_server_config_with_app,
+};
 use crate::helpers::identity_toolkit_stub::{
     Answer, IdentityToolkitStub, ACCESS_TOKEN, PROJECT as FIREBASE_PROJECT,
 };
 use crate::helpers::notify_capture::{capture_logs, named};
 use pierre_auth::config::oauth::FirebaseConfig;
 use pierre_auth::firebase_identity::FirebaseIdentityDeleter;
+use pierre_config::environment::ProviderEndpointOverride;
 use pierre_database::repositories::PendingFirebaseDeletion;
 use pierre_services::firebase_identity_outbox::{
     sweep_firebase_identity_deletions, ALERT_AFTER_ATTEMPTS,
@@ -133,19 +136,22 @@ impl Setup {
 
     /// A server whose Identity Toolkit answers every delete with `answer`.
     async fn with_firebase(answer: Answer) -> Self {
-        let resources = create_test_server_resources_with_config(test_server_config_with_app(
-            "strava",
-            CLIENT_ID,
-            CLIENT_SECRET,
-        ))
-        .await
-        .unwrap();
         let stub = RevokeStub::start().await;
+        let mut config = test_server_config_with_app("strava", CLIENT_ID, CLIENT_SECRET);
+        set_provider_endpoints(
+            &mut config,
+            "strava",
+            ProviderEndpointOverride {
+                revoke_url: Some(stub.url.clone()),
+                ..ProviderEndpointOverride::default()
+            },
+        );
+        let resources = create_test_server_resources_with_config(config)
+            .await
+            .unwrap();
         let firebase = IdentityToolkitStub::answering(answer);
         let mut context = resources.auth_routes_context();
         let mut config = (*context.config).clone();
-        stub.url
-            .clone_into(&mut config.external_services.strava_api.revoke_url);
         let firebase_config = firebase.serve().await;
         config.firebase = firebase_config.clone();
         context.config = Arc::new(config);
@@ -169,7 +175,7 @@ impl Setup {
             .common
             .repos
             .firebase_identity_deletions
-            .due(Utc::now() + Duration::days(365), 100)
+            .due(Timestamp::now() + Elapsed::days(365), 100)
             .await
             .unwrap()
     }
@@ -256,8 +262,8 @@ async fn seed_account(repos: &RepositoryRegistry, password_hash: String) -> (Use
             domain: None,
             plan: "starter".to_owned(),
             owner_user_id: user.id,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         })
         .await
         .unwrap();
@@ -295,12 +301,12 @@ async fn connect_strava(repos: &RepositoryRegistry, user_id: Uuid, tenant_id: Te
             access_token: SecretString::from("access-material-do-not-log"),
             refresh_token: Some(SecretString::from(REFRESH_TOKEN.to_owned())),
             token_type: "Bearer".to_owned(),
-            expires_at: Some(Utc::now() + Duration::hours(6)),
+            expires_at: Some(Timestamp::now() + Elapsed::hours(6)),
             scope: Some("read,activity:read_all".to_owned()),
             provider_user_id: None,
             oauth_app_client_id: None,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         })
         .await
         .unwrap();
@@ -327,7 +333,7 @@ async fn seed_group(repos: &RepositoryRegistry, owner: Uuid, tenant_id: TenantId
         .unwrap()
         .id
         .to_string();
-    let now = Utc::now();
+    let now = Timestamp::now();
     repos
         .groups
         .create_group(
@@ -347,6 +353,7 @@ async fn seed_group(repos: &RepositoryRegistry, owner: Uuid, tenant_id: TenantId
                 is_active: true,
                 channel_type: None,
                 channel_chat_id: None,
+                chat_connection: None,
                 created_at: now,
                 updated_at: now,
             },
@@ -357,7 +364,7 @@ async fn seed_group(repos: &RepositoryRegistry, owner: Uuid, tenant_id: TenantId
 }
 
 async fn join_group(repos: &RepositoryRegistry, group_id: Uuid, user_id: Uuid, tenant: TenantId) {
-    let now = Utc::now();
+    let now = Timestamp::now();
     repos
         .groups
         .add_member(&GroupMember {
@@ -394,8 +401,8 @@ async fn seed_owned_rows(repos: &RepositoryRegistry, user_id: Uuid, tenant_id: T
                 user_id,
                 tenant_id: Some(tenant.clone()),
                 client_id: None,
-                created_at: Utc::now(),
-                expires_at: Utc::now() + Duration::days(30),
+                created_at: Timestamp::now(),
+                expires_at: Timestamp::now() + Elapsed::days(30),
             },
         )
         .await
@@ -425,7 +432,7 @@ async fn seed_owned_rows(repos: &RepositoryRegistry, user_id: Uuid, tenant_id: T
             "https://example.com/plan",
             &tenant,
             &user,
-            Utc::now() + Duration::days(1),
+            Timestamp::now() + Elapsed::days(1),
         )
         .await
         .unwrap();
@@ -661,7 +668,10 @@ async fn a_firebase_outage_retries_then_leaves_the_account_deleted() {
     assert_eq!(queued[0].firebase_uid, uid);
     assert_eq!(queued[0].firebase_project, FIREBASE_PROJECT);
     assert_eq!(queued[0].attempts, 1);
-    assert!(queued[0].next_attempt_at > Utc::now(), "held for a backoff");
+    assert!(
+        queued[0].next_attempt_at > Timestamp::now(),
+        "held for a backoff"
+    );
     assert!(queued[0]
         .last_error
         .as_deref()
@@ -671,7 +681,7 @@ async fn a_firebase_outage_retries_then_leaves_the_account_deleted() {
     let outbox = repos.firebase_identity_deletions.as_ref();
     let deleter = setup.deleter();
     assert_eq!(
-        sweep_firebase_identity_deletions(outbox, &deleter, Utc::now())
+        sweep_firebase_identity_deletions(outbox, &deleter, Timestamp::now())
             .await
             .unwrap(),
         0
@@ -681,7 +691,7 @@ async fn a_firebase_outage_retries_then_leaves_the_account_deleted() {
     // Firebase recovers; the sweep after the backoff deletes the identity
     // and empties the outbox.
     setup.firebase.set_answer(Answer::Deleted);
-    let later = queued[0].next_attempt_at + Duration::seconds(1);
+    let later = queued[0].next_attempt_at + Elapsed::seconds(1);
     assert_eq!(
         sweep_firebase_identity_deletions(outbox, &deleter, later)
             .await

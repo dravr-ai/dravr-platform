@@ -24,7 +24,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use chrono::{DateTime, Datelike, FixedOffset, Utc};
+use dravr_tronc::dates::Timestamp;
 use num_traits::ToPrimitive;
 use pierre_database::database::repositories::ProfileRepository;
 use serde_json::{from_value, json, Value};
@@ -65,12 +65,11 @@ use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use pierre_config::constants::defaults::DEFAULT_GOAL_TIMEFRAME_DAYS;
 use pierre_config::constants::goal_management::MIN_ACTIVITIES_FOR_TRAINING_HISTORY;
-use pierre_config::constants::limits::{
-    MAX_TIMEFRAME_DAYS, METERS_PER_KILOMETER, PERCENTAGE_MULTIPLIER,
-};
+use pierre_config::constants::limits::{MAX_TIMEFRAME_DAYS, PERCENTAGE_MULTIPLIER};
 use pierre_config::constants::time_constants::{
     DAYS_PER_MONTH, DAYS_PER_QUARTER, DAYS_PER_WEEK, DAYS_PER_YEAR, SECONDS_PER_HOUR_F64,
 };
+use pierre_config::constants::units::METERS_PER_KM;
 use pierre_core::errors::{AppError, AppResult, JsonResultExt};
 use pierre_core::intelligence::{
     FitnessLevel, TimeAvailability, UserFitnessProfile, UserPreferences,
@@ -179,7 +178,7 @@ fn generate_feasibility_recommendations(
 ) -> Vec<String> {
     if !feasible && improvement_required > safe_improvement_capacity {
         let suggested_days_f64 = (improvement_required / SAFE_MONTHLY_IMPROVEMENT_RATE_PERCENT)
-            .mul_add(f64::from(DAYS_PER_MONTH), 0.0)
+            .mul_add(DAYS_PER_MONTH_APPROX, 0.0)
             .ceil();
         let suggested_timeframe = safe_f64_to_u32(suggested_days_f64);
         recommendations.push(format!(
@@ -250,12 +249,12 @@ fn calculate_training_history_weeks(activities: &[Activity], min_activities: usi
         return ASSUMED_TRAINING_HISTORY_WEEKS;
     }
 
-    let mut dates: Vec<DateTime<Utc>> = activities.iter().map(Activity::start_date).collect();
+    let mut dates: Vec<Timestamp> = activities.iter().map(Activity::start_date).collect();
     dates.sort();
 
     if let (Some(first), Some(last)) = (dates.first(), dates.last()) {
         let days = (*last - *first).num_days();
-        let weeks = safe_i64_to_f64(days.max(1)) / 7.0;
+        let weeks = safe_i64_to_f64(days.max(1)) / f64::from(DAYS_PER_WEEK);
         weeks.max(1.0)
     } else {
         ASSUMED_TRAINING_HISTORY_WEEKS
@@ -281,7 +280,7 @@ fn analyze_distance_goal_feasibility(
         .iter()
         .filter_map(Activity::distance_meters)
         .sum::<f64>()
-        / METERS_PER_KILOMETER;
+        / METERS_PER_KM;
 
     let activity_count = safe_usize_to_f64(activities.len());
     let avg_distance_per_activity = if activity_count > 0.0 {
@@ -292,7 +291,7 @@ fn analyze_distance_goal_feasibility(
 
     let training_weeks =
         calculate_training_history_weeks(activities, MIN_ACTIVITIES_FOR_TRAINING_HISTORY).max(1.0);
-    let weeks_in_timeframe = f64::from(timeframe_days) / 7.0;
+    let weeks_in_timeframe = f64::from(timeframe_days) / f64::from(DAYS_PER_WEEK);
     let estimated_activities = (activity_count / training_weeks) * weeks_in_timeframe;
 
     let projected_distance = avg_distance_per_activity * estimated_activities;
@@ -355,7 +354,7 @@ fn analyze_duration_goal_feasibility(
 
     let training_weeks =
         calculate_training_history_weeks(activities, MIN_ACTIVITIES_FOR_TRAINING_HISTORY).max(1.0);
-    let weeks_in_timeframe = f64::from(timeframe_days) / 7.0;
+    let weeks_in_timeframe = f64::from(timeframe_days) / f64::from(DAYS_PER_WEEK);
     let projected_hours = (current_hours / training_weeks) * weeks_in_timeframe;
 
     let confidence = if activities.len() >= EXCELLENT_DATA_QUALITY_THRESHOLD {
@@ -381,7 +380,7 @@ fn analyze_frequency_goal_feasibility(
     let current_count = safe_usize_to_f64(activities.len());
     let training_weeks =
         calculate_training_history_weeks(activities, MIN_ACTIVITIES_FOR_TRAINING_HISTORY).max(1.0);
-    let weeks_in_timeframe = f64::from(timeframe_days) / 7.0;
+    let weeks_in_timeframe = f64::from(timeframe_days) / f64::from(DAYS_PER_WEEK);
     let current_weekly_frequency = current_count / training_weeks;
     let projected_count = current_weekly_frequency * weeks_in_timeframe;
 
@@ -410,7 +409,7 @@ fn calculate_training_history_months(activities: &[Activity]) -> i32 {
         return 0;
     };
 
-    let now = Utc::now();
+    let now = Timestamp::now();
     let duration = now.signed_duration_since(earliest_date);
     let days = duration.num_days();
 
@@ -466,7 +465,7 @@ fn create_fallback_profile(user_id: String, activities: &[Activity]) -> UserFitn
     let seasonal_context = activities
         .iter()
         .find_map(Activity::start_latitude)
-        .map(|lat| build_seasonal_context(lat, Utc::now().month()));
+        .map(|lat| build_seasonal_context(lat, Timestamp::now().utc_date().month()));
 
     UserFitnessProfile {
         user_id,
@@ -492,7 +491,7 @@ fn create_fallback_profile(user_id: String, activities: &[Activity]) -> UserFitn
 }
 
 /// Calculate days remaining in goal timeframe.
-fn calculate_days_remaining(created_at: Option<DateTime<FixedOffset>>, timeframe: &str) -> u32 {
+fn calculate_days_remaining(created_at: Option<Timestamp>, timeframe: &str) -> u32 {
     created_at.map_or(DEFAULT_GOAL_TIMEFRAME_DAYS, |created| {
         let timeframe_days = match timeframe {
             "week" => DAYS_PER_WEEK,
@@ -501,7 +500,7 @@ fn calculate_days_remaining(created_at: Option<DateTime<FixedOffset>>, timeframe
             "year" => DAYS_PER_YEAR,
             _ => DEFAULT_GOAL_TIMEFRAME_DAYS,
         };
-        let elapsed = (Utc::now() - created.with_timezone(&Utc)).num_days();
+        let elapsed = (Timestamp::now() - created).num_days();
         let elapsed_u32 = match u32::try_from(elapsed.max(0)) {
             Ok(val) => val,
             Err(e) => {
@@ -525,7 +524,7 @@ fn calculate_current_progress(goal_type: &str, activities: &[&Activity]) -> (f64
                 .iter()
                 .filter_map(|a| a.distance_meters())
                 .sum::<f64>()
-                / METERS_PER_KILOMETER;
+                / METERS_PER_KM;
             (total_distance, "km")
         }
         "duration" => {
@@ -555,12 +554,10 @@ fn calculate_current_progress(goal_type: &str, activities: &[&Activity]) -> (f64
 fn calculate_projected_completion(
     current_value: f64,
     goal_target: f64,
-    created_at: Option<DateTime<FixedOffset>>,
+    created_at: Option<Timestamp>,
 ) -> Option<f64> {
     if current_value > 0.0 {
-        let days_elapsed = created_at.map_or(1, |c| {
-            (Utc::now() - c.with_timezone(&Utc)).num_days().max(1)
-        });
+        let days_elapsed = created_at.map_or(1, |c| (Timestamp::now() - c).num_days().max(1));
         let days_elapsed_f64 = safe_i64_to_f64(days_elapsed);
         let daily_rate = current_value / days_elapsed_f64;
         let remaining_value = goal_target - current_value;
@@ -713,7 +710,7 @@ impl McpTool<dyn ToolRuntime> for SetGoalTool {
             let params = &goal.params;
             let user_uuid = context.user_id;
 
-            let created_at = Utc::now();
+            let created_at = Timestamp::now();
             let goal_data = json!({
                 "goal_type": params.goal_type,
                 "target_value": params.target_value,

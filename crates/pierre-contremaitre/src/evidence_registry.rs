@@ -25,7 +25,7 @@
 use std::collections::HashMap;
 use std::sync::{OnceLock, PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_evals::evidence_retriever::EvidenceCorpus;
 use pierre_memory::{ClaimCategory, EvidenceCitation};
 use tracing::error;
@@ -67,7 +67,7 @@ pub struct EvidenceEntry {
     /// Where this entry was loaded from.
     pub source: PromptSource,
     /// When this entry was loaded or last updated.
-    pub loaded_at: DateTime<Utc>,
+    pub loaded_at: Timestamp,
 }
 
 /// Thread-safe registry for externalized sports-science evidence.
@@ -124,7 +124,7 @@ impl EvidenceRegistry {
                 corpus,
                 sha256,
                 source: PromptSource::Contremaitre,
-                loaded_at: Utc::now(),
+                loaded_at: Timestamp::now(),
             },
         );
     }

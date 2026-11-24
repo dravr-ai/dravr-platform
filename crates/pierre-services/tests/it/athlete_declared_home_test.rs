@@ -16,7 +16,7 @@ use pierre_services::athlete_places::{
 };
 use uuid::Uuid;
 
-use crate::athlete_places_test::{meters, out_and_back, World, DOOR, OKA, SUTTON};
+use crate::athlete_places_test::{block_from, meters, out_and_back, World, DOOR, OKA, SUTTON};
 
 impl World {
     async fn declare(&self, choice: HomeChoice) -> Result<HomeState, PlaceRefusal> {
@@ -88,7 +88,7 @@ async fn here_on_a_home_start_moves_the_exclusion_and_forget_restores_the_guess(
     }
     let mut home = Vec::new();
     for _ in 0..3 {
-        home.push(world.ride(DOOR, 0).await);
+        home.push(world.ride_along(&block_from(DOOR, 0), |b| b).await);
     }
     world.pass().await;
     let guessed = world.places().await;
@@ -178,11 +178,18 @@ async fn home_declared_on_a_named_place_keeps_its_name_and_forget_returns_its_ri
             (named.id.as_str(), Some("Club"), 0),
             "bug: home declared on {target:?} must keep the place and its name, empty"
         );
-        assert_eq!(
-            world.placed(&club).await,
-            vec![false; 3],
-            "bug: home declared on {target:?} must exclude the club's starts"
-        );
+        // The club's loops ride out 1 km from the declared home: each is
+        // placed by the area it rode through (carnet#1723), never by the
+        // club's starts.
+        for id in &club {
+            let carried = world.places_of(id).await;
+            assert!(
+                carried
+                    .iter()
+                    .all(|place| place.as_ref().is_some_and(|place| *place != named.id)),
+                "bug: home declared on {target:?} must keep the club's rides out of its place: {carried:?}"
+            );
+        }
 
         world.declare(HomeChoice::Forget).await.unwrap();
         let back = world.place_at(SUTTON).await;
@@ -195,7 +202,7 @@ async fn home_declared_on_a_named_place_keeps_its_name_and_forget_returns_its_ri
 }
 
 #[tokio::test]
-async fn naming_a_home_start_after_declaring_never_brings_the_door_back() {
+async fn naming_a_home_start_after_declaring_never_makes_the_door_a_place() {
     let world = World::new().await;
     let home = world.home_rides().await;
     world.pass().await;
@@ -204,20 +211,18 @@ async fn naming_a_home_start_after_declaring_never_brings_the_door_back() {
         .await
         .unwrap();
 
-    let porch = world
-        .name(PlaceTarget::Activity(home[1].clone()), Some("Porch"))
-        .await
-        .expect("bug: a home start with a route can be named");
-    let kept = world
-        .places()
-        .await
-        .into_iter()
-        .find(|p| p.id == porch.id)
-        .expect("bug: the named place exists");
+    // Home is never a place (carnet#1723): a loop around the block from the
+    // declared door has no place to name, and naming it makes none.
     assert_eq!(
-        (kept.name.as_deref(), kept.activity_count),
-        (Some("Porch"), 0),
-        "bug: a place named at a home start holds no ride while home is declared"
+        world
+            .name(PlaceTarget::Activity(home[1].clone()), Some("Porch"))
+            .await,
+        Err(PlaceRefusal::PlaceNotFound),
+        "bug: naming a home start made the door a place"
+    );
+    assert!(
+        world.places().await.is_empty(),
+        "bug: a refused name stored a place"
     );
     assert_eq!(
         world.placed(&home).await,

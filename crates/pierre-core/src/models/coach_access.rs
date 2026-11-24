@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -66,11 +66,11 @@ pub struct CoachAccessRequest {
     /// Where the request stands.
     pub status: CoachAccessStatus,
     /// When the coach asked.
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
     /// When an admin decided; `None` while pending.
-    pub decided_at: Option<DateTime<Utc>>,
+    pub decided_at: Option<Timestamp>,
     /// The admin who decided; `None` while pending, for a service token,
-    /// and once that operator's account is deleted.
+    /// and once that admin's account is deleted.
     pub decided_by: Option<Uuid>,
     /// The reason an admin gave with a decline, shown to the coach in
     /// the notice, the email and the declined state (carnet#1521). `None`
@@ -82,14 +82,14 @@ pub struct CoachAccessRequest {
     /// the coach reads skips it. `None` for every request not superseded; the
     /// console's history keeps the row and its reason either way.
     #[serde(default)]
-    pub superseded_at: Option<DateTime<Utc>>,
+    pub superseded_at: Option<Timestamp>,
 }
 
 impl CoachAccessRequest {
     /// A new pending request from `user_id`, naming `group` (its id and
     /// tenant) when the coach asked from a group of theirs.
     #[must_use]
-    pub fn pending(user_id: Uuid, group: Option<(Uuid, String)>, now: DateTime<Utc>) -> Self {
+    pub fn pending(user_id: Uuid, group: Option<(Uuid, String)>, now: Timestamp) -> Self {
         let (group_id, group_tenant_id) =
             group.map_or((None, None), |(id, tenant)| (Some(id), Some(tenant)));
         Self {
@@ -142,7 +142,8 @@ mod tests {
     fn a_new_request_is_pending_and_undecided() {
         let user = Uuid::new_v4();
         let group = Uuid::new_v4();
-        let request = CoachAccessRequest::pending(user, Some((group, "t1".to_owned())), Utc::now());
+        let request =
+            CoachAccessRequest::pending(user, Some((group, "t1".to_owned())), Timestamp::now());
         assert_eq!(request.status, CoachAccessStatus::Pending);
         assert_eq!(request.group_id, Some(group));
         assert_eq!(request.group_tenant_id.as_deref(), Some("t1"));

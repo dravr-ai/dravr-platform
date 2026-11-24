@@ -130,7 +130,7 @@ export function ReplyCard({ reply }: { reply: CoachReply }) {
       {status !== null && (
         <View className="gap-1.5" testID="coach-reply-verdicts">
           {/* The human coach's surfaces state a verdict as a dot beside the
-              words, never as red or green text (DESIGN.md, Coach Home); the
+              words, never as red or green text (DESIGN.md "Status"); the
               chat's tinted chip is a button that opens the sheet, and this line
               opens nothing. */}
           <View

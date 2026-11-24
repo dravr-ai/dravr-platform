@@ -10,7 +10,7 @@
 //! problems that manifest only at model-request time) as plain-text streamed
 //! content rather than JSON-RPC protocol errors. embacle therefore captures
 //! them as a successful assistant response, bypassing the normal error path
-//! in `messaging_ingress`. The result is the raw operator-facing error text
+//! in `messaging_ingress`. The result is the raw admin-facing error text
 //! (e.g. `Error: Authorization error, you may need to run /login`) reaching
 //! the end user on Telegram / Messenger / WhatsApp.
 //!

@@ -5,12 +5,13 @@
 // ABOUTME: Shared by onboarding's Santé screen and Home's « Bilan de santé » sheet (carnet#1530)
 
 import { useQuery } from '@tanstack/react-query';
+import { QUERY_KEYS } from '@pierre/shared-constants';
 import { userApi } from '../services/api';
 
 /** `GET /api/me/parq`: the set never varies per athlete, so it is read once. */
 export function useParqQuestions() {
   return useQuery({
-    queryKey: ['parq-questions'],
+    queryKey: QUERY_KEYS.parq.questions(),
     queryFn: () => userApi.getParqQuestions(),
     staleTime: Infinity,
   });

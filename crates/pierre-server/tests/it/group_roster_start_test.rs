@@ -16,7 +16,7 @@
 #[cfg(feature = "tools-groups")]
 mod roster_start_tests {
     use crate::common::create_test_server_resources;
-    use chrono::{Duration, Utc};
+    use dravr_tronc::dates::{Elapsed, Timestamp};
     use pierre_core::models::groups::RosterActivity;
     use pierre_core::models::{
         Activity, ActivityBuilder, ConnectionType, SportType, Tenant, TenantId, User, UserStatus,
@@ -51,7 +51,7 @@ mod roster_start_tests {
         resources.common.repos.users.create(&user).await.unwrap();
 
         let tenant_id = TenantId::generate();
-        let now = Utc::now();
+        let now = Timestamp::now();
         let tenant = Tenant {
             id: tenant_id,
             name: "Roster Start".to_owned(),
@@ -97,7 +97,7 @@ mod roster_start_tests {
             id.to_owned(),
             format!("ride {id}"),
             SportType::Ride,
-            Utc::now() - Duration::days(days_ago),
+            Timestamp::now() - Elapsed::days(days_ago),
             3_600,
             "strava".to_owned(),
         )

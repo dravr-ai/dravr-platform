@@ -1,1077 +1,340 @@
-# Design System: Dravr Boreal — Product Tier
-
-> **Source of truth.** Every token value lives once, in
-> `packages/shared-constants/src/design-system.ts`. The `--color-*` blocks the
-> two client stylesheets import (`frontend/src/boreal-tokens.generated.css`,
-> `frontend-mobile/boreal-tokens.generated.css`) and the hosted page sheet are
-> generated from it (`bun run generate:client-css` / `generate:hosted-css` in
-> that package), and `frontend/tailwind.config.cjs` and
-> `frontend-mobile/tailwind.config.js` map those variables to classes. This
-> document states the values and the rules; a change to the tokens must be
-> reflected here. The brand's own name lives in
-> `packages/shared-constants/src/brands.ts` as `PRODUCT_WORDMARK`. A browsable
-> copy of the system, with live previews of the `ui/` primitives, is generated
-> from these sources by `frontend/design-system/` (`bun run design-system`).
-
-Dravr ships two related design systems that share a brand identity but differ
-in tone:
-
-| Tier | Surface | Tone | Density |
-|---|---|---|---|
-| **Editorial** | `dravr.ai` marketing site | Quiet, photographic, single-column long-form | Sparse |
-| **Product** | `web` + `mobile` app | Dense, scannable, data-first | Compact |
-
-Both tiers share colors, type, radius, and motion. **The Product Tier adds the
-affordances a dense data UI needs** that an editorial marketing surface does
-not: visible hairline borders, lifted pillar saturation, mandatory on-color
-text pairings.
-
-**Boreal v2 (2026-09).** One paper ground, hairlines instead of fill steps,
-one green that reads as green, Schibsted Grotesk headings, and the Boreal
-Ripple mark on every surface. The direction, the decisions behind it and the
-phased plan live in the team vault under `Design/`; this file is the spec.
-
+---
+name: Dravr Boreal
+description: Calm, premium boreal-forest-on-paper system for a dense, data-first coaching app; one green accent, hairlines instead of shadows.
+colors:
+  primary: "#255f4d"
+  primary-hover: "#1e5040"
+  primary-container: "#e1eae5"
+  on-primary: "#ffffff"
+  on-primary-container: "#143d30"
+  surface: "#f7f6f2"
+  surface-container-lowest: "#ffffff"
+  surface-container-low: "#ebeae5"
+  surface-container: "#e0dfda"
+  surface-container-high: "#d7d6d1"
+  surface-container-highest: "#cfcec9"
+  on-surface: "#1a1c1b"
+  on-surface-variant: "#414845"
+  outline: "#525a55"
+  outline-variant: "#c0c8c3"
+  error: "#ba1a1a"
+  on-error-container: "#93000a"
+  success: "#2e7d5b"
+  warning: "#b08326"
+  info: "#3e7283"
+  activity: "#0f7d68"
+  nutrition: "#b08326"
+  recovery: "#3e7283"
+  mobility: "#9b4666"
+  scrim: "#1a1c1b"
+typography:
+  headline:
+    fontFamily: "Schibsted Grotesk, system-ui, sans-serif"
+    fontSize: "18px"
+    fontWeight: 600
+    lineHeight: "24px"
+    letterSpacing: "-0.01em"
+  headline-auth:
+    fontFamily: "Schibsted Grotesk, system-ui, sans-serif"
+    fontSize: "26px"
+    fontWeight: 600
+    lineHeight: "30px"
+    letterSpacing: "-0.01em"
+  body:
+    fontFamily: "Plus Jakarta Sans, system-ui, sans-serif"
+    fontSize: "15px"
+    fontWeight: 400
+    lineHeight: "23px"
+  interface:
+    fontFamily: "Plus Jakarta Sans, system-ui, sans-serif"
+    fontSize: "13px"
+    fontWeight: 500
+    lineHeight: "18px"
+  caption:
+    fontFamily: "Plus Jakarta Sans, system-ui, sans-serif"
+    fontSize: "12px"
+    fontWeight: 400
+    lineHeight: "16px"
+  numeric:
+    fontFamily: "JetBrains Mono, ui-monospace, monospace"
+    fontSize: "13px"
+    fontWeight: 400
+    lineHeight: "18px"
+  wordmark:
+    fontFamily: "Schibsted Grotesk, system-ui, sans-serif"
+    fontWeight: 600
+    letterSpacing: "0.15em"
+rounded:
+  sm: "2px"
+  md: "4px"
+  lg: "8px"
+  xl: "12px"
+  full: "9999px"
+spacing:
+  xs: "4px"
+  sm: "8px"
+  md: "16px"
+  lg: "24px"
+  xl: "32px"
+  2xl: "48px"
+components:
+  button-primary:
+    backgroundColor: "{colors.primary}"
+    textColor: "{colors.on-primary}"
+    rounded: "{rounded.lg}"
+    height: "32px"
+  button-primary-hover:
+    backgroundColor: "{colors.primary-hover}"
+  card:
+    backgroundColor: "{colors.surface-container-lowest}"
+    rounded: "{rounded.xl}"
+    padding: "{spacing.lg}"
+  athlete-bubble:
+    backgroundColor: "{colors.primary-container}"
+    textColor: "{colors.on-primary-container}"
+    rounded: "14px"
+  badge:
+    rounded: "{rounded.full}"
 ---
 
-## 1. Brand identity
+# Design System: Dravr Boreal
 
-| Property | Value |
-|---|---|
-| Brand name (lockup) | DRAVR — Schibsted Grotesk 600, `letter-spacing: 0.15em`, `primary` ink |
-| Mark | Boreal Ripple — a boreal treeline reflected into ripple arcs; forest ink on light, mint on dark, no badge (`DravrLogo`, see `BRAND.md`) |
-| Tone | Calm, premium, editorial — never glossy or hype |
-| Motif | Boreal forest on paper — sage-forest green, warm paper, hairlines |
+> **The one maintained design spec.** Code, tests and CI cite it by heading
+> (`DESIGN.md "The Bound Ink Rule"`), never by section number. The long-form
+> spec it replaced (sections §1–§10) is history: `git show d12fed7d4:frontend/DESIGN.md`.
+> Nothing cites it. Tokens live once, in
+> `../packages/shared-constants/src/design-system.ts`; the client CSS blocks
+> (`src/boreal-tokens.generated.css`,
+> `../frontend-mobile/boreal-tokens.generated.css`) and both Tailwind configs
+> (`tailwind.config.cjs`, `../frontend-mobile/tailwind.config.js`) are
+> generated or mapped from it. Paths are relative to this file. A
+> browsable copy with live previews: `bun run design-system` from the web app directory.
 
-The brand does not change between tiers. The Product Tier inherits the
-identity and adds discipline for high-density screens.
+## Overview
 
----
+**Creative North Star: "Boreal Forest on Paper"**
 
-## 2. Color tokens
+Dravr reads like a quiet field notebook for training: one warm paper ground,
+one sage-forest green, and hairlines instead of shadows and of fill steps between panes. The
+product is dense and data-first, because athletes scan a thread, a plan and a
+set of numbers in short sessions, but it never looks busy: depth comes from a
+1px ghost-border hairline and a half-step fill, and the single accent is saved
+for the one action that matters.
+
+The same identity carries to the phone (iOS and Android) and to the editorial
+marketing site; the product tier adds visible hairlines, lifted pillar
+saturation and mandatory on-colour text pairings for high-density screens.
+
+**Key Characteristics:**
+- One accent, green: `primary` is the fill, the ink and the link colour.
+- Hairlines lift, shadows float: the only shadow belongs to what hovers over the page.
+- Warm paper (`#f7f6f2`) as the one ground for rail, list and thread.
+- Tone is calm, premium, editorial; never glossy, never hype.
+- Every text/surface pairing is measured, not assumed (WCAG AA, 4.5:1).
+
+## Colors
+
+A restrained sage-forest and warm-paper palette; the pillar hues are earthy and used only as category markers.
 
 ### Primary
+- **Sage Forest** (`#255f4d` light, `#a3d0be` dark): `primary`. Filled CTAs (the one call to action per view, the send button, the unread pill), links and the wordmark. White text on it is 7.4:1. Hover fill is `#1e5040` / `#8cbaa8`.
+- **Forest Tint** (`#e1eae5` light, `#234e40` dark): `primary-container`. A tint, never a dense fill: the athlete's bubble, the active rail item, a selected tile, an avatar ground. Its text is `on-primary-container` (`#143d30` / `#beedd9`).
 
 | Token | Light | Dark | Role |
 |---|---|---|---|
-| `primary` | `#255f4d` | `#a3d0be` | The one accent: filled CTAs, the send button, the unread pill, links, the wordmark |
-| `primary-hover` | `#1e5040` | `#8cbaa8` | Hover fill of a filled primary (white text 9.2:1) |
-| `primary-container` | `#e1eae5` | `#234e40` | A tint, never a dense fill: athlete bubble, active rail item, selected tile, avatar ground |
-| `on-primary` | `#ffffff` | `#002117` | **Mandatory** text color on `primary` surfaces |
-| `on-primary-container` | `#143d30` | `#beedd9` | Text on `primary-container` (9.8:1 light, 7.5:1 dark) |
+| `primary` | `#255f4d` | `#a3d0be` | The one accent |
+| `primary-container` | `#e1eae5` | `#234e40` | Tint for bubbles, active items |
+| `on-primary-container` | `#143d30` | `#beedd9` | Text on the tint |
+| `on-primary` | `#ffffff` | `#002117` | **Mandatory** text on `primary` fills |
 
-**Dark-on-dark is a bug, never a style choice.** Any element with `bg-primary`
-or any inline `backgroundColor` ≤ `#234e40` MUST use `text-on-primary`
-(`#ffffff` in light, `#002117` in dark). The `.btn-primary` class enforces this
-with `!text-on-primary` so inherited text colors cannot bleed through.
-
-**`primary` is green, and it is the only accent.** The v1 primary (`#00241a`)
-was a forest so deep it read as black at every size, so the green had to live
-in a separate `brand` ink token and every CTA looked black. Sage-forest
-`#255f4d` is that ink promoted: one token carries the fill role (white text
-7.4:1) and the ink role (4.7:1 as text on the darkest light tier, 7.4:1 on
-white). There is no `brand` token any more. Filled primary is for the one call
-to action per view, the send button and the unread pill; everything else that
-is green is the `primary-container` tint or `primary` ink.
-
-### Surface stack (light)
-
-| Token | Hex | Role |
-|---|---|---|
-| `surface` | `#f7f6f2` | **The one ground**: rail, list column, thread canvas, every page |
-| `surface-container-lowest` | `#ffffff` | Cards, agent bubbles, popovers, table bodies |
-| `surface-container-low` | `#ebeae5` | Composer and search fields, row hover, the day pill, the login aside **in dark** (§5 gives light the tint) |
-| `surface-container` | `#e0dfda` | Pressed states |
-| `surface-container-high` | `#d7d6d1` | Reserved |
-| `surface-container-highest` | `#cfcec9` | Reserved |
-
-Cards sit on `surface-container-lowest` (pure white) with a 1px ghost-border
-hairline and **no shadow**. The page canvas (`surface`) is warm paper, a
-half-step off white, so a card reads as a sheet on it. The rail, the list
-column and the thread canvas all sit on `surface`, separated by hairlines —
-a fill step between panes is the "four greys at once" look v2 retires.
-
-### Light tier separation
-
-**The light ladder has to separate on fill, because fill is all it has.** Dark
-gets a second channel for free: a pale hairline (`ghost-border`, `#c0c8c3` at
-22%) is visible on a near-black ground, so its tiers can sit a few percent
-apart and still read. Turn the same hairline onto a white card and it is gone,
-and a `#ffffff` surface on the old `#f4f4f1` canvas measured **1.05:1** — which
-is not a faint edge, it is no edge. That is why light mode read as unstyled
-while dark read as a system.
-
-| Pair | Minimum | Measured |
-|---|---|---|
-| Adjacent tiers — `surface`→`…-low`→`…`→`…-high`→`…-highest` | **1.06:1** | 1.11 / 1.11 / 1.09 / 1.08 |
-| A raised surface over the canvas under it — `…-lowest` on `…-low` | **1.18:1** | **1.21:1** |
-| `surface` vs `surface-container-lowest` | — (exempt) | 1.08:1 |
-
-The 1.18:1 floor is not invented: it is the separation the **dark** scheme
-already carried for the same pair (`surface-container-high` on
-`surface-container-low`, 1.20:1), and it is where the messengers this layout
-follows sit — WhatsApp's light thread runs a white bubble on `#efeae2`
-(1.20:1), Telegram's on `#e6ebee` (1.24:1).
-
-The last row is the one deliberate exemption. A card on the page canvas is
-lifted by the ghost border — the card recipe above — not by its fill, so those
-two tones stay a half-step apart on purpose. Everything that has no border
-under it (the composer field, a bubble, a hovered row) answers to the table.
-
-Body ink (`on-surface`, `#1a1c1b`) clears WCAG AA on every tier of the stack,
-17.3:1 at the top and 10.9:1 at the bottom; `on-surface-variant` clears it at
-5.95:1 in the worst case, and `primary` as text at 4.7:1. `outline` — a *text* role — is what the deeper tiers
-bind, which is why its value tracks this ladder (see below).
-
-### Pillar accents — Product Tier
-
-| Pillar | Hex (light) | Hex (dark) | Role |
-|---|---|---|---|
-| Activity | `#0f7d68` | `#79a694` | Movement, fitness, training load |
-| Nutrition | `#b08326` | `#d6b87a` | Food, fuel, calories |
-| Recovery | `#3e7283` | `#9bb6bd` | Sleep, HRV, rest |
-| Mobility | `#9b4666` | `#c4929e` | Flexibility, range of motion |
-
-These values are **lifted ~15% in chroma** from the Editorial Tier (sage
-`#3c6658`, bronze `#8f6a2e`, slate `#5e7a82`, rose `#7a4d5e`). The editorial
-muting was too subtle to function as a semantic indicator in dense data UIs.
-Product Tier values remain earthy and on-brand but are unambiguously readable
-as semantic categories.
-
-### Feedback
+### Neutral
+Surfaces step by fill in light because a pale hairline vanishes on white; dark gets a second channel from the hairline.
 
 | Token | Light | Dark | Role |
 |---|---|---|---|
-| `success` | `#2e7d5b` | `#79a694` | Connected, completed, healthy |
-| `warning` | `#b08326` | `#d6b87a` | Pending, attention, advisory |
-| `error` | `#ba1a1a` | `#ffb4ab` | Failed, destructive, blocking |
-| `info` | `#3e7283` | `#9bb6bd` | Informational, processing |
+| `surface` | `#f7f6f2` | `#11130f` | **The one ground**: rail, list column, thread canvas, every page |
+| `surface-container-lowest` | `#ffffff` | `#0b0e0b` | Light: cards, agent data, popovers, table bodies. Do not use to raise a card in dark: it sinks below the canvas |
+| `surface-container-low` | `#ebeae5` | `#191c19` | Composer and search fields, row hover, the day pill |
+| `surface-container` | `#e0dfda` | `#1d201d` | Pressed states |
+| `surface-container-high` | `#d7d6d1` | `#272b27` | Reserved in light; raised cards in dark |
+| `surface-container-highest` | `#cfcec9` | `#323532` | Reserved |
+| `outline` | `#525a55` | `#b0b6af` | A **text** role: helper lines, timestamps, counts (4.5:1 on every light tier) |
+| `outline-variant` | `#c0c8c3` | `#414845` | Inactive icons, separator hints |
+| `on-surface` | `#1a1c1b` | `#e1e3de` | Body ink (17.13:1 at the top of the light stack) |
+| `on-surface-variant` | `#414845` | `#c0c8c3` | Secondary ink |
 
-Use these for anything that carries status meaning. Never reach for a stock
-Tailwind shade (`text-amber-400`, `bg-red-500`): those are fixed in both themes,
-so they fight the surface in one of them, and they land ~30% more saturated than
-Boreal — a stock amber on a status chip outshouts the page's only CTA.
+Hairlines: `ghost-border` is `rgba(155, 165, 159, 0.40)` in light and `rgba(192, 200, 195, 0.22)` in dark; faint is .26 / .14, strong is .55 / .34. The hairline changes **ink** between schemes, not just opacity.
 
-Both clients' `--color-success` … `--color-info` are generated from
-`SEMANTIC_COLORS` / `SEMANTIC_COLORS_DARK`, so there is no second copy to
-drift. There used to be three: "mirrored" was a claim nothing verified, and
-mobile carried the Editorial-tier `warning` (`#8f6a2e`) for months while this
-table said `#b08326`.
+### Feedback and pillars
+- **Feedback:** `success` `#2e7d5b`, `warning` `#b08326`, `error` `#ba1a1a`, `info` `#3e7283` (dark: `#79a694`, `#d6b87a`, `#ffb4ab`, `#9bb6bd`). Status meaning only; never a stock Tailwind shade.
+- **Pillars (category markers only):** Activity `#0f7d68`, Nutrition `#b08326`, Recovery `#3e7283`, Mobility `#9b4666` (dark: `#79a694`, `#d6b87a`, `#9bb6bd`, `#c4929e`). A pillar hue is a dot, a tint, a rule or an avatar ground, never a button fill or a state.
 
-**Opacity works, and it must.** Every `--color-*` variable holds a bare RGB
-triplet (`--color-warning: 176 131 38`) and both Tailwind configs map it as
-`rgb(var(--color-warning) / <alpha-value>)`. That is what makes `bg-warning/15`
-emit real CSS. Mapping a token as a plain `var(--color-x)` silently drops the
-modifier — Tailwind emits *no rule at all*, so the element renders with no
-background and nothing errors. 91 call sites were sitting in exactly that state.
-Raw CSS reading a token must therefore wrap it: `rgb(var(--color-error))`.
-
-Third-party brand colors are not design-system violations — Strava's orange in
-`SciotteLoginModal` stays as it is. Mark them with a comment so they read as
-deliberate rather than as drift.
-
-**A provider glyph still answers to the 3:1 icon floor, in both schemes.** The
-brand hex is exempt from the token rule, not from contrast. `PROVIDER_GLYPH_INK`
-in `@pierre/shared-constants` is the one table every client reads for a glyph's
-colour: per provider and per scheme, the brand hex where it clears 3:1 on
-`surface`, and `null` — the body ink, `on-surface` — where it does not.
-TrainingPeaks' `#005695` measures 7.02:1 on light paper and 2.46:1 on the dark
-canvas, so it is blue in light and body ink in dark; WHOOP's `#00D46A` is the
-reverse (1.83:1 light, 9.45:1 dark). Strava, Garmin and intervals.icu clear
-both. A client never keeps its own glyph-colour table: the web applies the
-table's ink as an inline colour for the current scheme over a `text-on-surface`
-class, the phone passes it to the brand glyph. `PROVIDER_COLORS` beside it
-names where each hex comes from.
-
-### Bound ink — what a hue may be drawn as
-
-**A hue may be a fill, a tint, a dot, a rule or a border. When text sits on
-it, that text takes the bound ink — never the hue itself.** Each of the four
-pillars and the three non-`error` feedback tokens carries one:
-
-| Ink token | Light | Dark | Bound to |
+| Bound ink | Light | Dark | Bound to |
 |---|---|---|---|
-| `on-activity-container` | `#0b5748` | `#9abcae` | `activity` |
-| `on-nutrition-container` | `#664c16` | `#d8bc81` | `nutrition` |
-| `on-recovery-container` | `#2d525e` | `#a9c0c6` | `recovery` |
-| `on-mobility-container` | `#77354e` | `#d1abb4` | `mobility` |
-| `on-info-container` | `#2d525e` | `#a9c0c6` | `info` |
-| `on-success-container` | `#20573f` | `#9abcae` | `success` |
-| `on-warning-container` | `#664c16` | `#d8bc81` | `warning` |
+| `on-activity-container` | `#0b5748` | `#9abcae` | activity |
+| `on-nutrition-container` | `#664c16` | `#d8bc81` | nutrition |
+| `on-recovery-container` | `#2d525e` | `#a9c0c6` | recovery |
+| `on-mobility-container` | `#77354e` | `#d1abb4` | mobility |
+| `on-info-container` | `#2d525e` | `#a9c0c6` | info |
+| `on-success-container` | `#20573f` | `#9abcae` | success |
+| `on-warning-container` | `#664c16` | `#d8bc81` | warning |
 
-`error` binds `on-error-container`, which the MD3 token set above already
-gives it.
+`error` binds `on-error-container` (`#93000a` light, `#ffdad6` dark). `scrim` is `#1a1c1b` in light and `#000000` in dark, used once, at 60% opacity, behind sheets and dialogs.
 
-Measured at the `/15` tint over the six tiers of the ladder above, the hue
-drawn as its own label runs 1.95:1 (`nutrition`, `warning` on
-`surface-container-highest`) to 4.87:1 (`mobility` on
-`surface-container-lowest`) in light, and 3.58:1 to 7.77:1 in dark. Its bound
-ink on the same tint runs 4.58:1 to 7.01:1 in light and 4.73:1 to 8.08:1 in
-dark. So the light scheme is where the pairing fails outright and dark is
-where it fails quietly on the upper tiers — one rule covers both.
+### Brand colour
+A third-party brand hex (a provider's orange, a provider glyph) is exempt from the token rule, not from contrast. `PROVIDER_GLYPH_INK` in the shared-constants package is the one table every client reads for a glyph's ink: per provider and per scheme, the brand hex where it clears 3:1 on `surface`, else `null` (the body ink, `on-surface`). A client never keeps its own glyph-colour table. Mark a deliberate brand colour with a comment so it reads as intent, not drift.
 
-**Both platforms carry the same seven, byte for byte.** Both generated token
-blocks declare the triples from `CONTAINER_INKS`; `frontend/tailwind.config.cjs`
-and `frontend-mobile/tailwind.config.js` both map them as
-`rgb(var(--color-on-*-container) / <alpha-value>)`, so `text-on-activity-container`
-and `bg-on-warning-container/40` are real classes on either canvas. The phone's
-runtime path is `useThemeColors().ink.*`, reading `CONTAINER_INKS` /
-`CONTAINER_INKS_DARK` from `@pierre/shared-constants`; `categoryAccent` and
-`categoryInk` in `frontend-mobile/src/constants/theme.ts` hand a coach category's
-fill and its ink out as a pair, which is how a caller is kept from taking one
-without the other. The generator that writes both token blocks measures the
-pairing over the ladder in both schemes and refuses to write one below 4.5:1;
-`frontend-mobile/__tests__/CategoryAccent.test.tsx` measures the phone's pairs.
+### Named Rules
+**The One Voice Rule.** `primary` is the only accent. Filled primary appears once per view; everything else green is the container tint or primary ink. There is no separate `brand` token.
 
-The envelope has an edge, and `CONTAINER_INKS` documents it: these inks clear
-AA on tints from `/10` to `/15` over the whole ladder, and to `/20` over
-`surface` through `surface-container-high` — the tiers a chip, badge or avatar
-ground actually sits on. A denser tint on the top tier needs a darker ink, not
-this one.
+**The Bound Ink Rule.** A hue may be a fill, tint, dot, rule or border. Text that sits on it takes the hue's bound `on-*-container` ink, never the hue itself (for example `on-warning-container` `#664c16`).
 
-### Outline / borders
+**The No Dark-on-Dark Rule.** Any `bg-primary` or inline background at or below `#234e40` takes `text-on-primary`. Dark-on-dark is a bug, not a style.
 
-| Token | Hex (light) | Role |
-|---|---|---|
-| `outline` | `#525a55` | Helper text, label tertiary |
-| `outline-variant` | `#c0c8c3` | Inactive icons, separator hints |
-| `ghost-border` (CSS var) | `rgba(155, 165, 159, 0.40)` | **Card and chip border baseline** |
-| `ghost-border-strong` (CSS var) | `rgba(155, 165, 159, 0.55)` | Focus rings, active separators |
+**The Alpha Rule.** Every `--color-*` holds a bare `r g b` triplet and Tailwind maps it as `rgb(var(--color-x) / <alpha-value>)`. A bare `var(--color-x)` silently drops `/NN` modifiers.
 
-The 0.40 opacity is load-bearing. The editorial-tier value (0.15) made cards
-invisible on the light canvas. Anything denser than 0.55 becomes a hard
-rule and breaks the Boreal "quiet separator" tone.
+## Typography
 
-**The ghost border changes ink between schemes, not just opacity.** Light draws
-it in `155 165 159`, dark in `192 200 195`, because a hairline has to contrast
-with what it sits on and the two grounds are opposite. Mobile shipped the dark
-ink in both schemes, which is how the light theme's last remaining separation
-channel disappeared along with its fill steps.
+**Display / headline:** Schibsted Grotesk (500–600), tracking -0.01em.
+**Body and labels:** Plus Jakarta Sans (400–500).
+**Numbers and code:** JetBrains Mono, `tabular-nums`.
+**Editorial accent:** Newsreader italic, one line on the login and onboarding pages only.
 
-`outline` is used as a **text** colour (helper lines, timestamps, counts,
-section headers), so it answers to WCAG 1.4.3's 4.5:1, not to the 3:1 a border
-needs. `#525a55` clears that against every tier of the light stack, 7.1:1 on
-white down to 4.6:1 on `surface-container-highest`. Its MD3 value (`#717974`)
-measured 4.25:1 on the canvas and 2.9:1 on the darkest tier.
+**Character:** a confident grotesque for titles over a warm humanist body, with mono for anything compared. On the phone only the wordmark and auth headline are Schibsted and numbers are mono; all other text uses the platform face (SF / Roboto) so Dynamic Type works.
 
----
+### Hierarchy (web)
+- **Caption** (`text-xs`, 400, 12/16): timestamps, counts, section labels. The floor.
+- **Interface** (`text-sm`, 500, 13/18): nav, tabs, rows, tables, buttons, labels. The body default; anything navigable is `font-medium`.
+- **Body** (`text-base`, 400, 15/23): reading text such as messages and descriptions.
+- **Lead** (`text-lg`, 16/22) and **Title** (`text-xl`, 600, 18/24): page and column titles.
+- **Hero number** (`text-2xl`, 22/28) and **Auth headline** (`text-3xl`, 600, 26/30); the login aside line (`text-4xl`) is 32/36.
+- **Phone:** reading text is 16/22, interface 13/18, auth headline 26/32.
 
-## 3. Typography
+### Named Rules
+**The Sentence-Case Rule.** Labels are sentence case with no tracking. The DRAVR wordmark (Schibsted 600, `letter-spacing: 0.15em`, `primary` ink) is the only letter-spaced label (headlines carry a slight -0.01em tightening, nothing more); uppercase tracked labels are retired.
 
-| Role | Family | Weight | Notes |
-|---|---|---|---|
-| Display, headlines | Schibsted Grotesk | 500–600 | Page titles, auth headlines, row and card titles, the DRAVR wordmark (600); `letter-spacing: -0.01em` |
-| Body | Plus Jakarta Sans | 400–500 | All running text |
-| Labels | Plus Jakarta Sans | 500 | Field labels, tabs, buttons, table headers — **sentence case, no tracking**. There is no separate label face. |
-| Serif accent | Newsreader italic | 400 | The one editorial line on the login and onboarding pages, nowhere else |
-| Mono | JetBrains Mono | 400 | Numbers that get compared (TSS, CTL, dates in tables), code, IDs |
+## Layout
 
-The wordmark is the only tracked text in the product (`tracking-brand`,
-0.15em). Uppercase tracked labels — the Inter 11px caps of v1 — are retired.
+Compact, data-first density. Spacing steps 4 / 8 / 16 / 24 / 32 / 48 px (card padding 24, section gap 24, major separation 32). Content max width 1280px; the reading column (thread and composer) is 720px.
 
-**Mobile** loads two of these — Schibsted Grotesk 600 for the wordmark and
-the auth and onboarding headline, JetBrains Mono for compared numbers — and
-renders every other string in the platform face (SF on iOS, Roboto on
-Android), which is what Dynamic Type and the native chrome already use. Plus
-Jakarta Sans is a web choice: on a phone a third family fights the system
-ladder for no gain. §10 carries the phone's scale.
+- **Athlete shell:** 72px icon rail; Home is the thread plus a Today panel (320px at `lg`, 360px at `xl`); Groups is a list column (320 / 340px) plus the thread, one column at a time below `lg` (1024px).
+- **Admin shell:** 232px sidebar, 72px collapsed.
+- **Sheets:** 360px from a side, full height from the bottom. Rows: chat list 60, settings 48, tables 44; headers 52.
+- **Touch targets:** at least 44×44px on a coarse pointer and under `lg`; 32–36px with a fine pointer at desktop widths.
+- **Long tables** scroll inside their own frame under a sticky header, and the next action comes before them; no CSS `order`, so focus order is document order.
+- **Mobile-web** follows the same rules: bottom bar on `surface`, a hairline above, the active tab in `primary` ink, no indicator bar. The web app is also an installable, responsive PWA surface and must feel native on a phone.
 
-**The label rule is shared.** The retired 11px caps at 0.08em were a *label*
-rule, not a family choice, so the phone's `Input` primitive renders the same
-sentence-case label the web one does; leaving one client in tracked caps meant
-the same sign-in form read as two products depending on which one an athlete
-opened.
+### Motion
+Hover 200ms `ease-out`, press 100ms `ease-in`, modal 300ms `cubic-bezier(.4, 0, .2, 1)`, page 400ms `ease-in-out`, fade-rise entrance 500ms `cubic-bezier(.22, 1, .36, 1)`. All of it respects `prefers-reduced-motion: reduce`.
 
-### Scale
+## Elevation & Depth
 
-| Token | Size / line | Use |
-|---|---|---|
-| `text-xs` | 12 / 16 | Captions, timestamps, section labels, counts — **the floor** |
-| `text-sm` | 13 / 18 | **Interface text**: nav, tabs, rows, tables, buttons, labels, helper lines. The body default. |
-| `text-base` | 15 / 23 | **Reading text**: messages, descriptions, anything read as a paragraph |
-| `text-lg` | 16 / 22 | Lead lines |
-| `text-xl` | 18 / 24 | Page and column titles (Schibsted 600) |
-| `text-2xl` | 22 / 28 | Hero numbers |
-| `text-3xl` | 26 / 30 | Auth and onboarding headlines |
-| `text-4xl` | 32 / 36 | The login aside line |
+Hybrid, hairline-led. A resting card, bubble, table or popover is a white sheet with a 1px ghost-border and **no shadow**. The one shadow, `--shadow-floating`, belongs to what floats over the page: menus, popovers, drawers, modals.
 
-**Boreal v2.1 (2026-09).** Interface text stepped from 14 to 13, titles from
-22 to 18, headlines from 30 to 26; reading text stayed at 15 (Phil, 2026-09-05
-— the measured chat products run 16 for prose and get their density from the
-chrome, not the body). Legibility at 13px comes from weight, not size:
-anything navigable is `font-medium`. Every step carries its own line-height,
-so a bare `text-sm` needs no `leading-*`. Numbers that get compared use
-`font-mono`, which sets `tabular-nums`.
+### Shadow Vocabulary
+- **Floating** (light: `0 12px 24px -6px rgba(26,28,27,.12), 0 6px 12px -3px rgba(26,28,27,.08)`; dark: `0 12px 24px -6px rgba(0,0,0,.55), 0 6px 12px -3px rgba(0,0,0,.45)`): menus, popovers, drawers, modals. The Tailwind config replaces the default shadow scale, so a stock `shadow-md` is a no-op.
 
-Mobile-first responsive variants: `text-h1-mobile`, `text-h2-mobile`,
-`text-h3-mobile`, `text-body-mobile`. Step up at `md:` for desktop.
+### Named Rules
+**The Hairlines-Lift Rule.** Resting surfaces are lifted by hairline and fill step, never by shadow. In dark, a black shadow is inert on a black ground, so the fill step and the pale hairline do the work.
 
----
+**The Fill-Step-First Rule.** The fill step is the only channel that survives a screenshot or reduced transparency. Adjacent light tiers must separate by at least 1.06:1; a raised surface over the canvas under it by at least 1.18:1. The one exemption: `surface` against `surface-container-lowest` is 1.08:1, because a card on the page canvas is lifted by its hairline, not its fill.
 
-## 4. Elevation
+No glow, no violet ring, no backdrop blur on standard cards (blur is only for the `boreal-overlay` callout over photography).
 
-**Hairlines lift; shadows float.** A resting card, an agent bubble, a table, a
-popover at rest — every one of them is a white sheet with a 1px ghost-border
-hairline and no shadow. The one shadow in the system belongs to what floats
-over the page:
+## Shapes
 
-| CSS var | Light | Dark | Use |
-|---|---|---|---|
-| `--shadow-floating` | `0 12px 24px -6px rgba(26,28,27,.12), 0 6px 12px -3px rgba(26,28,27,.08)` | `0 12px 24px -6px rgba(0,0,0,.55), 0 6px 12px -3px rgba(0,0,0,.45)` | Menus, popovers, drawers, modals |
+Quiet, slightly rounded geometry. Radii: 2 / 4 / **8 (buttons, fields)** / **12 (cards)** / full (badges, avatars). Cards are 12px, buttons 8px; pills (`rounded-full`) are reserved for chips and inline shortcuts. On the phone: 4 chips, 8 buttons, 12 floating cards, 20 sheet top and composer field. A circle is one counterpart (a person or agent), a square is many. Phone fields are not rounded at all (a bottom stroke only), as on the web. Hairlines are 1px (`StyleSheet.hairlineWidth` on the phone); the edge of an otherwise invisible control (checkbox, radio) is the `outline` token to meet 3:1.
 
-`shadow-floating` is the only shadow utility Tailwind emits: the config
-replaces the default `sm/md/lg/xl` scale rather than extending it, so a stock
-shadow class is a no-op rather than a regression.
+## Components
 
-React Native collapses to a single shadow per view. The mobile tokens in
-`packages/shared-constants/src/design-system.ts` export `AMBIENT_SHADOW.card`,
-`.hover`, `.floating`; only `.floating` has a web counterpart.
-
-**The phone's resting card is `useCardStyle()`**
-(`frontend-mobile/src/constants/theme.ts`): a fill, a 1px hairline in
-`colors.border.default`, and no `shadow*` or `elevation` key at all — the same
-rule the web `.card` follows. It is a hook, not a const, because the fill has
-to follow the athlete's appearance setting, and the two schemes do not lift
-from the same tier. Light goes up to `surface-container-lowest` (`#ffffff`,
-1.08:1 over the paper canvas — the exempt row in §2's table, where the hairline
-is what separates the sheet). Dark goes up to `surface-container-high`
-(`#272b27`, 1.30:1 over the `#11130f` canvas). Reaching for
-`surface-container-lowest` in dark *sinks* the card: it is `#0b0e0b`, below the
-canvas, so the "lowest means elevated" reflex from the light ladder inverts.
-
-Two React Native traps sit under that recipe, and both are silent:
-
-- **There is no `background` property.** The fill is `backgroundColor`. A style
-  object naming the former is dropped with nothing logged, and the view renders
-  transparent — which reads as "the card lost its fill", not as a typo.
-- **A fill-less view still casts a shadow on iOS**, taken from the alpha of its
-  *children* rather than from its own box. A transparent card carrying
-  `shadowOffset: { height: 24 }` therefore draws a soft duplicate of its own
-  text 24pt below itself.
-
-Fill and shadow are not independent settings on the phone, and a resting card
-takes the first and none of the second.
-
-No glow. No violet ring. No backdrop-blur on standard cards (reserved for the
-`boreal-overlay` callout pattern used over photographic backgrounds only).
-
-### Which channel does the lifting
-
-The floating shadow is cast in `on-surface` ink — near-black. That is a
-**light**-scheme instrument: on the near-black dark canvas a black shadow is
-inert, and no opacity rescues it. So the two schemes lift a surface with
-different tools, and a component that reaches for the wrong one ships flat:
-
-| Scheme | What separates a raised surface | What is inert |
-|---|---|---|
-| Light | the **fill step** (§2 "Light tier separation") + the `ghost-border` hairline in `155 165 159` | a pale hairline — invisible on white |
-| Dark | the **fill step** + the `ghost-border` hairline in `192 200 195` | the shadow — a black halo on a black ground |
-
-The fill step is the half both schemes share, and it is the half that has to be
-right first: it is the only channel that survives a screenshot, a reduced-
-transparency setting and a printer. Border and shadow reinforce it; neither
-substitutes for it. `aiGlow` is a legacy alias for `AMBIENT_SHADOW` and is not
-a third channel — there is no glow in this system.
-
----
-
-## 5. Components
+Components are small and flat; every tinted element reads a shared tone function so contrast is measured once.
 
 ### Buttons
+- **Shape:** 8px radius, 32px tall (`btn-sm` 28, `btn-lg` 44 for the auth CTA only). 44px on coarse pointers and under `lg`. Phone buttons are 44 tall.
+- **Primary:** `bg-primary` with `text-on-primary`; the one call to action per view.
+- **Secondary / Tertiary / Outline:** ghost with centre-expanding underline; text-only in `primary` ink; inverse for tinted backgrounds.
+- **Danger:** `btn-danger` behind a confirmation; `btn-danger-outline` for a quiet destructive row action, label in `on-error-container`. **Success** is `success` under `on-primary`.
+- **Never:** a pillar hue as a button fill, a hand-written tinted button, or hard-coded inline backgrounds.
 
-| Variant | Class | Use |
-|---|---|---|
-| Primary | `.btn-primary` | Sole CTA per view. `bg-primary !text-on-primary`. |
-| Secondary | `.btn-secondary` | Confirmation, ghost-style with center-expanding underline. |
-| Tertiary | `.btn-tertiary` | Text-only action in `primary` ink, sentence case, no tracking. |
-| Danger | `.btn-danger` | Destructive — paired with confirmation pattern. |
-| Danger outline | `.btn-danger-outline` | A quiet destructive action in a row — revoke, suspend, reject, remove. Outline shape edged in `error`/30, label in `on-error-container` at rest and on its `error`/10 hover tint (≥ 5.11:1 over every ground); bare `error` reads 4.13:1 on that hover. |
-| Success | `.btn-success` | An affirmative state action — approve, reactivate. `success` under `on-primary` (5.0:1 light, 6.26:1 dark); hover moves to `on-success-container`, deeper in light and lighter in dark, so the label only gains contrast. |
-| Outline | `.btn-outline` | Inverse of primary for primary-tinted backgrounds. |
-| Size | `.btn-sm`, `.btn-lg` | Override default size. |
+### Cards / Containers
+- **Corner:** 12px. **Background:** `surface-container-lowest` (light) / `surface-container-high` (dark phone card). **Border:** 1px ghost-border. **Shadow:** none at rest or on hover.
+- Pillar variants are 8% tonal washes, used sparingly. A group is a Section (13/600 title, no fill, no border), not a Card. The server-rendered hosted pages are a third renderer of the same tokens (`../crates/pierre-core/src/hosted_page.css`, generated from `design-system.ts`). On the web the card stays on `surface-container-lowest` in both schemes; the phone card takes `surface-container-high` in dark, because the lowest tier would sink below the dark canvas.
+- On a hosted page, information grouped in a box (the consent scope list, the grant picker, a request's own details) sits in the neutral `.scopes` frame: ghost border, 8px corner, left-aligned. The warning-tint `.callout` is kept for what the reader must weigh (Admin access). A radio there is drawn like the checkbox: `outline` edge on the `field` fill, a `primary` dot when chosen, its label on the same line and its hint indented under the label.
 
-Buttons are **32px** tall (`h-8`, 13px label), `.btn-sm` 28px, `.btn-lg` 44px
-— the auth call to action only. Icon buttons (`ui/IconButton`) are 32px
-square. On a coarse pointer, or any viewport under `lg`, the `touch-target`
-rule in `index.css` lifts every button back to 44px (§8). Filled `primary` is
-rare: auth, the one page action, the composer's send when there is text;
-the list's `+` and every row action are ink.
-
-Buttons are `rounded-lg` (8px). Pills (`rounded-full`) are reserved for inline
-action shortcuts within cards — see the Agent card "Chat" button.
-
-**Forbidden:**
-- `bg-pierre-violet` (or any dark surface) paired with `text-on-surface` /
-  `text-pierre-dark`. Use `.btn-primary` or pair explicitly with
-  `text-on-primary`.
-- A pillar hue as a button's fill or state (`bg-activity text-on-primary` on
-  an approve button). Approve is `variant="success"`; save, upgrade and export
-  are the plain primary button. A `hover:bg-<hue>/80` under white ink falls to
-  3.5:1 in light.
-- A tinted button written by hand (`bg-primary/15 text-primary`). It reads
-  `BADGE_TONE` — tone and hover — like a pressable chip.
-- `text-error hover:bg-error/10` on a secondary or outline button. That is
-  `variant="danger-outline"`.
-- Hard-coded inline `style={{ backgroundColor: '#00241a' }}`. Use the class.
-
-### Cards
-
-```html
-<div class="card">…</div>
-```
-
-`.card` = `surface-container-lowest` background, 12px border-radius, 1px
-ghost-border, no shadow at rest or on hover. A card that has to float over the
-page (a menu, a popover) adds `shadow-floating` itself.
-
-**Variants** (`.card-activity`, `.card-nutrition`, `.card-recovery`,
-`.card-mobility`): tonal washes at 8% opacity over the same card surface. Use
-sparingly — pillar cards should be obvious without needing a label.
-
-**`.card-boreal-overlay`** is the only glass-blur card. Reserved for data
-callouts over photographic boreal imagery. Do not use over flat surfaces.
-
-### Badges
-
-`.badge` is the shape — a 12px rounded-full chip — and a tone class colours it:
-`.badge-neutral` (`surface-container-high` under `on-surface`), the feedback
-states `.badge-success`, `.badge-warning`, `.badge-error`, `.badge-info`,
-`.badge-primary` for a recommendation rather than a state (a chat app's
-"Recommended"), `.badge-accent` (solid `primary-container`) for a primary-family
-pill that must read apart from a `primary` one or mark the current moment
-(an admin activity row's conversation beside its LLM call; the plan card's
-"now"), the pillar tints `.badge-activity`, `.badge-nutrition`,
-`.badge-recovery` and `.badge-mobility`, and the muted `.badge-secondary`.
-**A pillar hue marks a category and nothing else — on a badge, an alert, a
-button, a toast, a progress bar or a number**: a state — verified, active,
-synced, configured, connected, approved, over a limit — takes the feedback
-tone that fits it, normally `success`, and a plain descriptor (an A2A
-capability) is `neutral`. A count that is neither a state nor a category is
-body ink. One
-function, `coachCategoryPillar` in `frontend/src/components/coachCategory.ts`,
-places a category under its pillar — the same keys as the phone's
-`categoryPillar`, with case folded where the phone matches the key exactly;
-the admin pill, the store's dot and the team picker's avatar each derive their
-class from it and keep their own fallback. Each tint is its hue at /15 under
-the ink the token tree binds to it — error and primary included, on `on-error-container` and
-`on-primary-container`, because the bare hue falls under AA on its own tint
-(4.2:1 and 4.17:1 in light). The tone classes carry colour only, so a
-pill with its own shape — the verdict chip and drawer, the admin status, role
-and category pills — takes the same pair: every tinted pill picks its class
-through `BADGE_TONE` in `frontend/src/components/ui/badgeTone.ts` (an agent
-category through `coachCategoryTone`), and
-`components/ui/__tests__/badgeTone.test.ts` measures every pair over every
-ground in both schemes.
-On the phone six of them (`neutral`, `primary` and the four feedback states;
-no `accent`, pillar or `secondary` tone) are
-`frontend-mobile/src/components/ui/Badge.tsx`'s `BADGE_TONE`, which the verdict
-chip reads too; each tint names its bound ink explicitly, since React Native
-inherits no text colour from a fill.
+### Badges and chips
+- 12px rounded-full chip; tint tones (the four feedback tones, `primary`, and the pillar tints) pick a hue at /15 under its bound ink; `neutral` is `surface-container-high` under `on-surface`, and `accent` is solid `primary-container`. Every tinted pill picks its class through `BADGE_TONE` (`src/components/ui/badgeTone.ts`). A pillar hue marks a category only.
 
 ### Alerts
+- Tinted blocks read `ALERT_TONE`, never a hue paired with its own tint by hand. A /10 tint of the hue with a /30 edge, text in its bound ink. The bare hue never labels its own tint. Escalate to the edge or the next tone, not a denser fill.
 
-A tinted message block — an inline error, a success confirmation, a warning,
-an informational note, a header strip like the reconnect banner, a status
-medallion's disc — takes its colour from **one table**:
-`ALERT_TONE` in `frontend/src/components/ui/alertTone.ts` on the web
-(`.alert-success`, `.alert-warning`, `.alert-error`, `.alert-info` in
-index.css) and `frontend-mobile/src/components/ui/alertTone.ts` on the phone.
-Each tone is the feedback hue at **/10**, its edge at **/30** (drawn only where
-the block sets a border), and the ink the token tree binds to the hue —
-`on-error-container`, `on-warning-container`, `on-success-container`,
-`on-info-container`. The bare hue never labels its own tint: `bg-error/20
-text-error` reads 4.25:1 on the canvas, a `text-warning` glyph on
-`bg-warning/10` 2.60:1 over a sheet, `bg-success/10 text-success` 2.87:1 on
-the top tier.
-The bound ink clears 4.76:1 at worst (warning, light,
-`surface-container-highest`) over every ground in both schemes, so it serves
-the body, the title and the icon alike; a body already in `on-surface` may
-stay there. A denser tint is not a stronger alert: the inks fall under AA at
-/20 on the top tier, so escalation goes to the edge (the usage banner's burst
-level draws `border-warning/60`) or to the next tone.
+**A wash is not an alert.** An alert's words are the message, so they take the tone's ink. A wash only marks where something sits (a replaced value, the private lane of a room, your plan) under content that stays ordinary text: body ink, or the hue's bound ink for a label. It is fainter (/5 or /10, no edge). The web's washes are one table, `WASH_TONE` in `src/components/ui/washTone.ts`.
 
-`ui/Alert` is the standard block on the web — `.alert`, `rounded-lg p-3
-text-sm`, plus a `border` utility for the edge — and its `role` is the
-caller's. A banner with its own shape (a header strip, a notice with a title
-and an icon) puts `ALERT_TONE[tone].tone` on its own element and lets the
-title and icon inherit the ink. React Native inherits no ink, so on the phone
-every `Text` names `ALERT_TONE[tone].ink` and a glyph takes `alertInkColor`.
-A pillar never colours an alert. `components/ui/__tests__/alertTone.test.tsx`
-and the phone's `alertTone.test.ts` measure every tone over all six grounds in
-both schemes; the design-system gate counts what is still hand-written
-(`bg-<feedback>/NN` outside the tone tables) so it can only fall.
+### Inputs / Fields
+- The editorial underline is the one form-field language: radius 0, a 1px bottom border in `rgba(192, 200, 195, 0.45)`, sentence-case labels. Focus grows the underline to 2px `primary`, and `:focus-visible` adds a 2px `primary` outline offset 3px. Error text is `error`. The phone `Input` is the same underline, radius 0.
 
-**A wash is not an alert.** An alert says something: its words are the
-message, so they take the tone's ink. A wash marks where something sits —
-which value a version replaced and which it became, that the composer is
-writing to the private lane, which plan is yours — under content that stays
-ordinary text: body ink, or for the private lane's quote label the hue's bound
-ink. It is fainter than an alert (/5 or /10, no edge), because the content on
-it is not about the hue. The web's four washes are one table, `WASH_TONE` in
-`frontend/src/components/ui/washTone.ts`, which the version history, the
-composer and the plan card draw from and `alertTone.test.tsx` reads, measuring
-each ink on its wash over every ground in both schemes. The phone's —
-the same version cells and private-lane washes, plus the season bars' phase
-fills, which carry no text at all — are counted by the gate; their version
-cells and private-lane washes draw the same fill and ink tokens as the web's,
-so the table's measurements are theirs too. A Coach Home
-phase band carries its label, so it reads the badge tones (peak and taper at
-`warning`/15; at /20 their ink reads 4.41:1 on the top tier); the phone's season
-bars keep their dark lift because they carry no label, and a labelled band
-there reads `phaseBand`, which never lifts.
+### Segmented controls and radio groups
+A **segmented control** switches one surface between two to four modes: Coach Home's athletes / training switch and the day editor's "Write / From an evidence-backed family". On the web it is `ui/SegmentedControl`, pressed buttons on a `surface-container` track with the chosen one lifted onto `surface-container-lowest`. A **short open set** the coach picks from in an editor (a session's sport, a step's target) is a row of **choice chips**: pressed buttons with `aria-pressed`, the chosen one on `primary-container` with a `primary` edge and semibold, every target 44pt, and an "Other…" chip with a dashed edge that opens a field for a word the set does not carry. On the web it is `ui/Chip`, wrapping; on the phone `ui/Chip`, one horizontal row at the phone chip radius (see "Shapes"). Chips never stand in for a fixed mode (that is a segmented control) or a long list. A **form choice** from a longer list (a workout family, a format) is a radio group: the web's `Radio`, and on the phone `ui/RadioGroup` with radiogroup / radio roles, a segmented layout for a few short words and a list layout, one row per option with its summary under the chosen one, for names that run long. A radio's ring is the `outline` token with a `primary` dot, and every target is 44pt. A text tab is a filter, never a form choice.
 
-### Switches
+### Status
+A status is an 8px dot beside the word that says it, never a tinted chip and never red or green text. The dot takes a feedback tone; a category dot takes its pillar hue.
 
-One on/off control: `ui/Switch` on the web, a `role="switch"` button (Space
-and Enter toggle it natively) named by `label` or `aria-labelledby`, with the
-`.focus-ring-visible` ring and a dimmed disabled state. Its colours are
-`SWITCH_TONE`: on, a `primary` track under an `on-primary` thumb; off, a
-`surface-container-highest` track edged in `outline` under an `outline` thumb.
-The edge is what separates the off control from its ground — the tier alone
-reads under 1.6:1 against every ground — and the thumb takes the track's own
-ink, because a white thumb on the dark scheme's light `primary` reads 1.7:1.
-`Switch.test.tsx` holds both states at 3:1 (WCAG 1.4.11) against every ground
-in both schemes. A switch never takes a feedback hue: an enabled tool is
-`primary` like every other switch. The phone keeps React Native's `Switch` and
-spreads `switchColors(colors.tokens, value)` onto it: on, the same `primary`
-track under an `on-primary` thumb; off, an `outline` track under a
-`surface-container-lowest` thumb, since the native track draws no edge.
-`switchTone.test.ts` measures both at 3:1, so no screen chooses its own accent.
+### Page header and text tabs
+Every athlete destination opens with one 52px row (`TabHeader`): the page's name in Schibsted Grotesk (18px, 600), an optional caption-size count, the page's own controls on the right, a hairline below. No icon square, no gradient, no second line. Filters under it are **text tabs**: sentence-case words with a 2px `primary` underline on the active one, a mono count beside a word, a 44px minimum target. Pill chips are retired from athlete surfaces.
 
-### Form fields
-
-Editorial underline by default — no enclosing box, single bottom rule that
-grows on focus. Class: `.input-field`. Glass variant `.input-glass` reserved
-for inputs floating over photographic backgrounds (rare in product).
-
-**One language, three primitives.** `<Input>`, `<Textarea>` and `<Select>` in
-`frontend/src/components/ui/` are the only form fields. All three render the
-same label (Plus Jakarta Sans 500, 14px, sentence case, no tracking), the same transparent
-field with a 1px bottom rule at radius 0, and the same 12px help/error line.
-Stacking a boxed field beside an underlined one is the drift this system exists
-to prevent — it reads as two products in one card.
-
-The underline chrome lives in `.boreal-underline-input`, whose `!important`
-declarations are what beat `@tailwindcss/forms`' full-border reset. That also
-beats inline styles, so state variants must be classes:
-`.boreal-underline-input--error` paints the error rule.
-
-**Enforced, not advised:**
-
-| Rule | Where |
-|---|---|
-| No raw `<select>`/`<textarea>` outside `components/ui/` | `frontend/eslint.config.js` (`no-restricted-syntax`) — hard fail |
-| No retired `.input-dark`/`.select-dark` classes | `scripts/ci/design-system-validation.sh` — hard fail |
-| Raw `<input>` outside `components/ui/` | same script — ratcheted count, may only fall |
-| Stock Tailwind palette instead of §2 tokens | same script — ratcheted count, web + mobile |
-| `bg-white`/`border-white`/`divide-white` instead of a surface or hairline token | same script — ratcheted count, web |
-
-The one carve-out is the chat composer (`chat/MessageInput.tsx`): a chat
-surface, not a form field, and it needs an enclosing box to host its embedded
-send button. It carries a local `eslint-disable` naming the reason.
-
-A checkbox is `ui/Checkbox`; radio, number, file and range have no primitive
-yet — that is why the raw-`<input>` rule is a ratchet rather than a hard zero.
-
-### Page header
-
-Every athlete destination opens the same way (`ui/TabHeader`): one **52px**
-row with the page's name in Schibsted Grotesk (`text-xl`, 18px, 600), an
-optional caption-size line beside it (a count, never a sentence that restates
-the title), the page's own controls on the right (a search, a primary action,
-a filter), a hairline below. No icon square, no gradient, no second line.
-Filters under it are **text tabs**: sentence-case words in a row with a 2px
-`primary` underline on the active one, a mono count beside a word when there
-is one, and a 44px minimum target. Pill chips are retired from athlete
-surfaces.
+### Empty states
+One sentence at the interface size, left-aligned in the content column where the rows would have been, and, when there is something to do, one inline `primary` link. No icon, no card, no filled button.
 
 ### Auth and onboarding
-
-Login is two sheets side by side. The aside carries the lockup top-left, the
-mark at 220px and the one serif line in the product (Newsreader italic); the
-form column carries the heading, the underlined fields and the one filled
-button. In **light** the aside sits on the `primary-container` tint and the
-form on `surface-container-lowest` (white): the sage wash is the brand moment,
-and the white sheet lifts the form off it. In **dark** the aside sits on
-`surface-container-low` and the form on `surface`, because the tint is a dense
-green there and the mint mark already carries the brand. Be precise about what
-separates them: that pair measures **1.09:1**, a smaller fill step than the
-1.11:1 the light scheme was just moved off. It works in dark and only in dark,
-because dark has the second channel §4 describes — the pale `ghost-border`
-hairline reads on a near-black ground, and it is the hairline carrying the
-edge, not the fill. Turn the same pairing onto paper and there is nothing left.
-Below `lg` the aside is gone and the form stands on `surface` alone.
-
-The pairing is not decoration. The first Boreal v2 login put the aside on
-`surface-container-low` beside a form on `surface`, two warm paper tones a
-half-step apart (1.11:1), and the page read as one muddy field with a form
-floating in it — the "light mode looks unfinished" complaint of 2026-09-05.
-A tint beside white is the light scheme's version of what the dark scheme
-gets from a grey step: two surfaces that are *different things*, not two
-greys.
-
-**The aside's ink is bound to its ground, in both schemes.** §2 pairs
-`primary-container` with `on-primary-container`, so in light the headline is
-`on-primary-container` (9.8:1), the pillar row is that same ink at 85% (6.6:1
-composited) and the separators between the pillar words are it at 50% (2.7:1
-— `aria-hidden` punctuation, not text). In dark the aside is
-`surface-container-low` and those three roles are `on-surface`,
-`on-surface-variant` and `outline`. The one foreground the aside does not bind
-is the lockup's wordmark: it is `primary` ink, the way §1 and §3 set the lockup
-everywhere, and measures 6.1:1 on the tint.
-
-The rule is worth what it costs here. Body ink on the tint measures 13.9:1
-against the bound role's 9.8:1, so this is not a legibility fix — it is that a
-token which carries its own foreground and is paired with someone else's is how
-a system stops being one. Anywhere the tint is a *component* fill — the athlete
-bubble, a badge, the avatar ground — the bound ink is not optional.
-
-The other auth pages are one white card with a hairline on `surface`, and
-every onboarding step is a bare column on `surface` under a row of small
-dots and sentence-case step labels. There is no gradient strip anywhere.
-
-The row's segments are the journey's, decided by the role answer, so its
-count never moves mid-flow. A dot is filled `primary` once done, filled with
-a `primary/25` ring while current, a 1.5px `outline` ring ahead, and the same
-ring dashed for a step the user put off — a skipped step keeps its place.
-Labels name the screens (Profile · Training · Health · Check-ins · Your
-data · Your team; a coach's Connect is "Coach seat"). Every label but the
-current one is full-strength `on-surface-variant` (8.7:1 light, 10.9:1 dark;
-the old 60% ink measured 3.1:1); the current one is `on-surface` 500. Under
-the row, a caption says the position — "Step 3 of 6" under the labels at
-`lg`, "Step 3 of 6: Health" where the labels do not fit — and the landmark's
-name carries the same sentence.
-The phone draws the same journey as a hairline cut into one segment per
-step (`primary` when reached, a dashed `outline` segment when put off, the
-`outline-variant` track ahead) with the same caption under it.
-
-The login aside carries one serif line, the same hero the dravr.ai landing
-page uses: "It reads your training the way a draveur reads the river." Under
-it sit only the four pillars the athlete can ask about. There is no blurb,
-and no provider is named: Strava's brand guidelines govern how its name and
-mark appear, and a list of providers dates itself faster than the rest of the
-copy. It never describes the design ("rendered in ink") or the company. The AI is an **agent**; a human professional is a **coach** — ADR-026
-in the vault.
-
-### Server-rendered hosted pages
-
-The pages the server renders itself — the OAuth login, consent and error pages
-an MCP client opens, the Sciotte login and connect picker a chat link opens,
-the messaging link pages, the expired short-link page and the CLI device
-approval — have no React and no Tailwind to read a token through. They draw
-from one stylesheet generated from `design-system.ts`:
-`crates/pierre-core/src/hosted_page.css`, written by
-`packages/shared-constants/scripts/generate-hosted-css.ts`
-(`bun run generate:hosted-css`). A template embeds it through
-`pierre_core::html::with_hosted_page_css`; none carries a palette of its own.
-
-The sheet follows the auth-page recipe above in both schemes, picked by
-`prefers-color-scheme` because a hosted page has no appearance setting to read:
-one card with a hairline on `surface` — white in light, `surface-container-high`
-in dark (§4) — the lockup at the top, underlined fields, one 44px filled
-`primary` action. The TrainingPeaks notice is the `warning` tint under its
-`on-warning-container` ink, with its title and a checkbox whose edge is
-`outline`, as on web and mobile. An error takes the same shape in its own hue:
-an `error` tint under `on-error-container`, never the dense `error-container`
-fill, which on the dark card outshouts the page's one action.
-
-The generator measures every pairing it draws from the token values and refuses
-to write a sheet below 4.5:1 for text or 3:1 for a graphic, per scheme; the
-measured table is the sheet's header. `scripts/ci/check-hosted-css.sh` (pre-push
-Tier 1l) regenerates the sheet and fails a push that left it stale, or a hosted
-template that draws outside it.
+Login is two sheets. The aside carries the lockup top-left, the mark at 220px and the product's one serif line; the form column carries the heading, underlined fields and the one filled button. In light the aside sits on `primary-container` and the form on `surface-container-lowest`; in dark the aside is `surface-container-low` and the form `surface` (1.09:1, carried by the hairline). The aside's ink is bound to its ground: `on-primary-container` in light, `on-surface` / `on-surface-variant` / `outline` in dark; only the wordmark stays `primary`. Below `lg` the aside is gone. Other auth pages are one hairline card on `surface`; every onboarding step is a bare column under a row of small dots with sentence-case labels (filled `primary` done, ringed current, `outline` ring ahead, dashed when put off). The aside names no provider and never describes the design.
 
 ### Chat surfaces — Home's conversation and the Groups messenger
+The athlete's own conversation with Dravr is Home; the Groups tab is the messenger for rooms with other people. The agent's turn is **prose on the canvas** (24px avatar, name and time, words to 620px, no fill, no border); the athlete's is the one bubble, on `primary-container`, on the right. The composer is the one white shape on the paper (40px, radius 12, ghost-border). Plan cards are the one hairline card in the thread.
 
-**Web (2026-10-05, concept B of the Personal Home canvas):** the athlete's own
-conversation with Dravr is Home. Everything that is only the athlete and
-Dravr — a plain thread, a specialist agent's, a Telegram or WhatsApp DM — is
-personal and lives there; `scopeOfKind` in `@pierre/chat-utils` is the one
-rule. Home puts that conversation in the middle with **Today** — the plan,
-the week, the form and the latest activity on its map — docked to its right
-from `lg` (320px, 360px at `xl`, folded away by a header toggle the browser
-remembers). Below `lg` Today is one line above the thread that opens it as a
-360px drawer (tablet) or a full-height bottom sheet (phone); the line steps
-aside while the athlete reads back up the thread or types, and returns at the
-latest message. The other personal threads sit behind **History**, a sheet
-from the left — full screen on a phone. A Today tap drafts into the open
-thread's composer; it never opens another tab.
-
-The **Groups** tab (id and route still `chat`, so every `#chat/<id>` link
-lands — a link to a personal thread moves to Home) is the messenger for
-rooms with other people, and reads like one: WhatsApp Web is the reference
-for the layout, Boreal for every tone. Three columns on a wide screen, one at
-a time below `lg` (1024px) — the list until a thread is open, then the
-thread with a back button in its header. A Groups tab with no room says so
-and offers "Create a group"; its `+` offers rooms only. The phone app has not
-followed yet: its Chat tab still holds every thread.
+**The coach's day editor.** In a coach's plan thread every entry of a day carries "Edit day" ("Edit session" when its date holds several), and a date's last entry carries "Add a session". The editor is a sheet that opens on the session as it stands: title, sport, duration, intensity and steps edited in place, a Rest switch, and "From a family" as its second mode, sport first, where the kernel's preview and warn-only findings sit under the values. The footer names what a save replaces; a sheet with changes asks before it closes; an edited or added session is marked on the card and can be undone. A hand-written session says it is not checked against a family's evidence, in body ink, never a warning tone.
 
 | Region | Light | Dark | Notes |
 |---|---|---|---|
-| Icon rail (72px) — **web only** | `surface` | `surface` | Brand mark at 40px — a button to Home with no fill of its own, only the focus ring — then one icon per destination (Home, Groups, Discover, and Replies after Groups for a coach — the agent's group replies they review, carnet#847), gear + avatar at the bottom; Home's badge counts the athlete's own unread threads, Groups' the rooms'; the active item sits on the `primary-container` tint, and a hairline separates the rail from the list. No name or role text — the name lives at the top of Settings. |
-| Home and Chat tab headers — **mobile only** | `surface` | `surface` | The full lockup: the badge mark **and** the DRAVR wordmark, in place of the screen title — on Chat followed by the appearance toggle, the bell and the `+`. The lockup is a button named Home (`nav.home`): from Chat it goes to Home, on Home it scrolls back to the top. It gains a press, not a look — no recolour, no badge, no pressed ink beyond a dimming. Discover and Settings keep their own titles. |
-| List column (320/340px) — Groups | `surface` | `surface` | A 52px title row with the `+` as an ink icon button, a quiet 32px search field (`SearchField`), text tabs (All / Unread) under a primary underline, then rows. A hairline on the right separates it from the thread. History draws the same list in its sheet without the title row, its tabs All / Unread / Agents. |
-| Notification bell — **web** | `surface` | `surface` | The right-most control of the header on Home (beside History and the Today toggle), Groups (the list's title row, after the `+`) and Discover (after the search): an 18px `Bell` ink icon button, the unread count on a `bg-primary text-on-primary` 18px pill at its corner, the count also in its accessible name. It opens the notification centre as a `Sheet` — from the right, from the bottom on a phone — so reading them never leaves the surface; a row that goes somewhere closes the sheet there. Notifications are not a rail destination (carnet#820). |
-| Today panel (320/360px) — **web, ≥`lg`** | `surface` | `surface` | Home's own sections — **Getting started** and **Your team** first, then Today, the week, the training status, the recent activities with the latest on its map in a 192px frame — scrolling on their own behind a hairline on the left. The header's toggle (`PanelRight`) folds it away. Both first-run sections are `ui/Section`s (13/600 headings), never Cards. |
-| Getting started — **web** | `surface`, current row `surface-container-low` | same tokens | `GET /api/me/getting-started`: the first steps in order — five, six when the workspace offers a chat app and the list is still open — a mono `{{done}} of {{total}}` and a quiet **Hide** link in the header. A 20px circle leads each row — filled `primary` with a check when done, a 2px `primary` ring on the current row (`aria-current="step"`, 600), a 1.5px `outline` ring otherwise; a 12px `outline` hint under the title, naming the missing prerequisite when there is one. Done rows and rows waiting on a prerequisite are plain text; open rows are buttons — Connect opens Settings › Connections, the chat-app row (« Écris-moi aussi ailleurs », listed only when the workspace offers an app and a row before it is still to do, so it never reopens a finished list; its hint the apps joined by the reader's "or") opens the chat-app sheet, the others send their starter into the Home thread. After the last step it folds to one line naming Settings, and is gone seven days later; Settings › Home has the switch that brings it back. |
-| Your team — **web** | `surface` | `surface` | The assigned agents (`/api/agents`, `is_assigned`) as 32px-avatar rows: the thread's lead first with "Leads your thread", each member with `@handle` · description on one truncated line; a row opens that agent's personal topic. A quiet **Find more** header link and a dashed-circle **Add an agent** row go to Discover. No team: "No team yet." with **Pick your team**, which opens the onboarding `TeamPicker` in a `Sheet` and re-sends the `coach_proposal` step. |
-| Today line — **web, <`lg`** | `surface-container-low` | same token | One 52px row above the thread, radius 12: "Today", the session, the form as a share of fitness, the latest route's sketch, a chevron — and, while Getting started is open, a mono `{{done}} of {{total}}` at its end (hidden once folded or hidden). Not white: the composer stays the one white shape. |
-| Chat-app offer — **web + phone** | `surface` | `surface` | Linking Telegram, WhatsApp or another app is no wizard screen (carnet#1525). The **chat-app sheet** (`chatApp/ChatAppSheet`, a `ui/Sheet`, right on a wide screen, bottom on a phone) opens on the choice when more than one app is offered — rows with the name, a `Recommended` badge, how it links and an ink **Connect** — else straight on the link: the QR (never on a phone: nobody scans the screen they hold), **Open <app>** as the one filled button, the waiting line, and an ink **Use another app** when there is another. The link landing closes it with a toast. A coach meets it once from their own group's thread: the group agent's **card** at the end of the transcript — continuing the agent's run when its words come last — a 16/500 question, a 14px `on-surface-variant` line, a tonal `primary/15` **Set up <app>** and a quiet **Not now**; nothing filled. The answer is the `messaging_configure` onboarding record, so it holds on every device. |
-| Sheet (`ui/Sheet`) | `surface` over `bg-scrim/60` | same tokens | One component for every slide-over Home and the messenger need: bottom (full height, radius 16 top, a grabber), right (360px, or 440px for the thread's info drawer) or left (360px, full screen on a phone; the 440px drawer covers a phone too). 52px header with the title and a 44px close; Escape and the scrim close it; focus is trapped and returned to what opened it — the thread title for the info drawer. A confirm opened from a sheet owns the keyboard until it closes: only the innermost dialog answers Escape and Tab. |
-| Group info (carnet#1527) | `surface`, rows in `surface-container-lowest` boxes | same tokens | The thread's info drawer on `ui/Sheet`, ordered by who reads it. **Owner waiting on the seat**: the coach-seat block, then « Qui est là » (their own slot, the agent, the others) with the invite link inline. **The group's coach**: one card per athlete (name, role word, sharing dot; the plan thread filled when the group has one athlete, « Voir le plan » in ink, « Voir dans l'Accueil coach » for a coach who has one), the planning connections, then the agent with how it replies. **An athlete**: who is here and, under them, one sentence each on what the coach, the agent and the plan thread see, then « Ton partage », then what the coach may change. Then, for everyone, folded rows — « Cette semaine » (the group's averages only from three members sharing with the reader), « Réglages du groupe » (each field saved as it changes, no Save button), « Historique du salon » (read only once opened) — and « Quitter / Supprimer ce groupe… » as a quiet `error`-ink text row. One person per row: a 36px avatar, the name, a role word and a state, and a `⋯` (`ui/OverflowMenu`) for role and removal; a sort control only above eight people. No filled red outside a confirm; one filled button per viewer at most. |
-| List row (60px) | hover `surface-container-low` at 60 %, selected `surface-container-low` | same tokens | 36px initials avatar, title (13px, 600 when unread) + time on line 1, preview + unread pill on line 2, inset `ghost-border-faint` divider. Unread pill = `bg-primary text-on-primary`, 18px. Rename, mark unread and delete sit behind one tonal `⋯` at the right edge, shown on hover or focus and opened by a right-click too. Every row menu on the web is `ui/OverflowMenu` — this one, Group info's, a verdict card's: the first item takes focus, the arrows move, Escape closes the menu alone and returns focus to its trigger. |
-| Thread header (52px) | `surface` | `surface` | 28px avatar, title (the way into the info drawer) with the subtitle beside it on one line, `+`; a hairline below. A state the viewer acts on (the coach seat's « accès coach à demander » / « en attente ») follows the subtitle in `primary` ink, or `on-warning-container` while it waits on someone; it stays below `md`, as a second line under the title. |
-| Coach seat (carnet#1520) | card on `surface-container-lowest` | same token | `CoachAccessRequest`, one component for every entry point. For the owner of a coachless room who may ask for coach access (`canRequestCoachAccess`, the one rule): `strip` replaces the provider nudge at the top of the room — a 36px glyph on `primary-container` (a clock on `warning/15` once asked), the state as a 15px title, one line, the view's one filled request and an ink link to Group info; `block` is Group info's first block — the title, what is blocked, the drawer's one filled button, then TrainingPeaks and Intervals.icu as identical plain rows (glyph, name, Connect). Once asked: no wait time, ever (D13) — « Demande envoyée le {date}. On te prévient ici et par courriel. », true because the grant and the decline reach the coach in the app and by email; the block shows P1·C's three steps (done, current ring, upcoming ring). It never promises a notification the product does not send. |
-| Thread canvas | `surface` | `surface` | One 720px reading column. The agent's turn is **prose on the canvas** — a 24px avatar, the name and the time on one line, the words under them to 620px, no fill, no border; the athlete's is the one bubble, on `primary-container`, on the right. Day labels are plain 12px text between days. |
-| Composer | `surface` with a field on `surface-container-lowest` | same tokens | No bar and no hairline above it: the field is the one white shape on the paper — 40px, radius 12, a `ghost-border` hairline, the slash inside on the left and the send inside on the right, 720px wide like the column. The field grows with the draft, one line at a time, up to eight lines and then scrolls; the slash and the send stay pinned to its last line. No helper line under it; the placeholder says what `/` does. |
-| Empty thread | `surface` | `surface` | With no thread open: the mark, one 18px line, one sentence, then the `+` and **three use-case links** in `primary` ink — the starters ranked for the athlete (`GET /api/chat/starters`), worded the way they would ask, never pills. A tap opens a thread on its starter: the postback is the first line, the label the athlete's bubble, and the agent posts no welcome over the answer. Under them, in the caption size, what the agent can see and the `/` + `@` hint. The phone's empty thread draws the same three links under its line and hint (carnet#829). |
+| Icon rail (72px) — **web only** | `surface` | `surface` | Brand mark at 40px — a button to Home with no fill of its own, only the focus ring — then one icon per destination, gear + avatar at the bottom; the active item sits on the `primary-container` tint, and a hairline separates the rail from the list. No name or role text — the name lives at the top of Settings. |
+| Home and Chat tab headers — **mobile only** | `surface` | `surface` | The full lockup: the badge mark **and** the DRAVR wordmark, in place of the screen title — on Chat followed by the appearance toggle, the bell and the `+`. The lockup is a button named Home. It gains a press, not a look. Discover and Settings keep their own titles. |
 
 **Mark only on web, mark plus name on the phone — because they are different
 shells.** The rail is a persistent 72px column that never leaves the screen, so
 a wordmark in it is repeated chrome and the mark alone is enough to say whose
 app this is. The phone has no rail: it has four labelled tab glyphs and one
-header per screen, so past the login screen there is nowhere else for identity
-to live. The Home tab's header, where the app lands, and the chat tab's are
-those places, and only those two — the wordmark on every screen would turn
-identity back into chrome. On both clients the mark is also the way Home: the
-rail's mark is a button to it on the web, and the lockup is on the phone. Set
-it the way §1 and §3 define the lockup: Schibsted Grotesk 600,
-`letter-spacing: 0.15em`, `primary` ink.
-The mark carries no badge: `DravrLogo` draws it in forest ink on the paper
-canvas and swaps to mint under `.dark`, so it holds on both grounds without a
-plate of its own.
-
-| Element | Class | Notes |
-|---|---|---|
-| Agent turn | `MessageBubble` (`side="assistant"`), no class | Left side, prose on the canvas: no fill, no border, no radius. A 24px initials avatar in the gutter on the first row of a run, the words to `max-w-[620px]`, reading text at 15px. One container per exchange — the athlete's — is what keeps the thread calm. |
-| Athlete bubble | `.chat-bubble-user` | Right side. `primary-container` / `on-primary-container` in both schemes — a filled `primary` reads as a CTA, not as a message. Radius 14 with a 4px tail corner, `max-w-[85%] lg:max-w-[65%]` of the thread — the bubble's column spans the row, because a percentage bound against a shrink-wrapped column caps a message at a share of its own width and breaks a short word like `/season` mid-word. **Both clients**: the phone wore a neutral `surface-container-high` here until 2026-09-05, which on the paper canvas was a grey blob that said nothing about whose message it was. |
-| Time stamp | `text-xs` | On the agent's author line for the first row of a run and in the hover row for later rows; inside the bubble for the athlete. 24-hour clock in every locale, the same clock the list row shows. |
-| Author line | `text-sm font-semibold text-on-surface` + `text-xs text-outline` time | Agent's name and the time, on the first row of a run only; the athlete's side carries no label (alignment says it). |
-| Actions row | under the content | Copy / share / rate / regenerate and model·latency show on hover, focus, or a coarse pointer — never as a permanent line under every reply. |
-| Turn trail | `LiveTurnIndicator` / `FoldedTurnTrail` (`TurnTrail.tsx`) | A running turn, where its reply will be (carnet#1193): each finished step a `text-sm text-on-surface-variant` line behind a `primary` check, the current one in `on-surface` behind a `.pierre-spinner`, named in the athlete's words — never a tool's own name — and "analysing" between tools, never back to the first line. After 10 s the elapsed time follows it in `on-surface-variant` tabular figures, outside the `role="status"` region so a screen reader hears steps, not seconds; after 45 s a `text-xs` line says the page may be left. Under streaming words it shrinks to one `text-xs` line. When the reply lands the trail folds into one `text-xs` toggle above the reply's words ("Thought for 7 min · 6 steps"), opening into the checked steps under a `ghost-border` rule; a quick answer that called no tool folds into nothing. Rules, labels and thresholds: `turn-trail.ts` in `@pierre/chat-utils`, shared with the phone. |
-| Plan card | `WorkoutPlanCard` | The one hairline card in the thread: a data object inside the agent's turn, white on the paper, radius 10, mono dates, 13px. |
-| Draft footer | `PlanDraftControls` | In a coach's plan thread for one athlete (carnet#1069/#1070), the card showing the coach's draft gains a footer under a faint hairline, for the thread's owner only: the `warning` badge ("Draft · <name> can't see it yet"), then Discard in `primary` ink and Publish filled — the card's one filled action. A refused publish puts its conflict in a `warning/10` notice under its bound ink and turns Publish into "Publish anyway"; a revoked consent is an `error/10` line; a landed publish is one `on-success-container` line with a check. The plan thread's list row carries a clipboard glyph — the same one the Group info row action that opens it carries — and its header line is "Plan · <name>". |
-| Private rows | `.chat-bubble-private`, `.chat-column-private`, `PrivateLane.tsx` | In a room of one coach, one athlete and the agent, the coach's turns with the agent alone (carnet#1249), drawn inline in the room for the coach only. The private accent is `warning` under its bound `on-warning-container` ink — the draft badge's hue. The coach's bubble keeps its shape with a dashed `warning/60` edge over a `warning/6` wash and body ink, its time in the bound ink; the agent's private words sit behind a dashed `warning/60` left rule, "Only you" beside the time on the author line. "Only you and <agent> see what follows" — a lock between two dashed rules, a separator to assistive tech — opens each private stretch. A private row is a named group ("Only you and <agent> can see this message"); it offers copy, never a rating or a retry, which belong to the work thread. A question that quoted the athlete carries the quote above its words under a `warning/60` rule. |
-| Audience switch | `MessageInput` (`privateLane`) | The coach's composer in that room carries Everyone / Only <agent> inside the field on the left, before the slash: a 28px `rounded-lg` button whose accessible name starts with its label and carries the state (WCAG 2.5.3), so it has no `aria-pressed` — `surface-container-low` with a people glyph at Everyone (the default, kept per room), `warning/15` under `on-warning-container` with a lock while private, the label hidden below `sm` where the glyph carries it. While private the field is dashed `warning/60` over `warning/5` and keeps that edge while focused, the slash steps aside and the placeholder says the athlete won't see it. "Adjust plan from this" — a hover/focus action in `primary` ink on the athlete's room message — quotes it, turns the switch private and puts a dashed chip ("From <name>'s message", the words truncated, a remove button) above the field. |
-| Verdict chip | `data-testid="verdict-chip"` | Always a button; the label counts each status the reply carries — a finding first, then the supported claims, then the abstentions (« 2 appuyées · 1 invérifiable ») — from the one `summarizeVerdicts` rollup, and it opens every verdict of that reply. |
-
-Command replies (`finish_reason === "command"`) are agent bubbles too, with
-only the copy action. Prose in bubbles runs through `@tailwindcss/typography`
-with every `--tw-prose-*` variable mapped to Boreal tokens in
-`tailwind.config.cjs`, so headings, bold, code and table borders follow the
-theme instead of Tailwind gray.
-
-**Configuration is not a destination.** A provider connection, a
-notification setting or a privacy choice lives under Settings, reached from
-the gear and the avatar; the rail lists only the places an athlete goes to
-*do* something.
-
-### Coach Home — the human coach's Home (carnet#1250, #1252, #1253)
-
-A coach who holds athletes lands on **Mes athlètes** and finds today's athlete
-Home under **Mon entraînement**, behind a two-button switch (`aria-pressed`,
-36px on a phone) that is the first control of the page. Three views share one
-roster read: **À traiter** (a 340–420px queue beside the athlete's pane; Aujourd'hui
-then Cette semaine, the calm as one line of names, the treated below with an
-undo), **Tableau d'équipe** (a nine-column table in its own horizontal scroller,
-a two-line list on a phone) and **La saison** (phases on a month axis with a
-today line and the A race as a diamond; a countdown list on a phone).
-
-- **Form is a six-step strip lit on the server's band** (fatigue profonde to très
-  frais), `insufficient_history` lights none and says so. No number is printed
-  beside it and no strip is ever compared with another athlete's; CTL is the one
-  absolute figure: its own table column, and the note under the athlete's own
-  strip in À traiter.
-- **Status is an 8px dot beside a word** (`success`, `warning`, `error`, `outline`):
-  never a red or green verdict, never colour alone.
-- **A non-sharer is status only**: avatar on the quiet tint, one sentence, "Lui
-  écrire". No strip, no plan, no figure, in any view.
-- **Phase bands are tokens**: base/prep `surface-container-high`, build and
-  peak/taper the badge's `info` and `warning` tones (`/15`, §5 Alerts),
-  specialty `primary/20`, transition and recovery a dashed `outline`, a draft a
-  dashed `primary` (`phaseStyle.ts`).
-- The page owns its scrolling (a bleed surface): the table and the season never
-  gain a second vertical scroller, and the page never scrolls sideways at 390.
+header per screen, so identity lives in the Home and Chat headers, and only
+those two. On both clients the mark is also the way Home.
 
 ### Focus rings
+Two-layer ring: 2px solid `primary` plus a 2px outer halo in `rgba(255,255,255,.95)` (light) or `rgba(0,0,0,.85)` (dark). Class `.focus-ring` on `:focus`; `.focus-ring-visible` on `:focus-visible` for controls a pointer clicks and leaves. Never `outline: 0` without a replacement.
 
-Two-layer ring: 2px solid `primary` + 2px inset white (`rgba(255,255,255,.95)`
-in light, `rgba(0,0,0,.85)` in dark). Visible on any surface — light card,
-dark card, photographic background. Class: `.focus-ring`. Applied via `:focus`
-pseudo-class so it never renders unless focused. `.focus-ring-visible` is the
-same ring on `:focus-visible` only, for a control a pointer clicks and leaves
-(a view switch, a pressed-state toggle), so the ring does not stay after a click.
+### Phone
+The phone shares every token and differs where a thumb and a system ladder make it differ. Its type ladder is declared once in `../frontend-mobile/src/constants/typeScale.js`.
 
----
-
-## 6. Layout
-
-| Token | Value | Use |
-|---|---|---|
-| `xs` | 4px | Tight inline gaps |
-| `sm` | 8px | Icon gaps, chip padding |
-| `md` | 16px | Standard component padding |
-| `lg` | 24px | Card padding, section gap |
-| `xl` | 32px | Major section separation |
-| `2xl` | 48px | Hero spacing |
-| `section` | 136px | Editorial spreads only |
-
-Radii (Boreal scale): `sm` 2px, `md` 4px, `lg` 8px, `xl` 12px, `full` 9999px
-(chips only). Cards are `xl` (12px). Buttons are `lg` (8px). Tags are `full`.
-
-Content max-width: 1280px main, 720px reading (the thread and its composer). Athlete shell: icon rail 72px; Home: the thread + the Today panel 320px (`lg`) / 360px (`xl`); Groups: list column 320px (`lg`) / 340px (`xl`) + the thread; operator shell: sidebar 260px, rail 72px when collapsed. Sheets: 360px from a side, full height from the bottom. Row heights: chat list 60, settings menu 48, notifications 48, tables 44; headers 52.
-
-A long table never pushes the page's next action below the fold: it scrolls
-inside a frame of its own, under a header row that stays put, and the action
-comes before it. The activity view is the pattern — the chat (suggested
-questions, then the question field) follows the map directly, in the document
-and on screen, and the figures, splits and laps come after it. From `lg` up
-they sit in a 420px panel pinned right of the map behind a hairline, the
-splits taking the height the panel has left and never less than 208px, the
-panel itself scrolling when a short window cannot hold that; below `lg` the view is one
-column, they follow the chat, and each table is capped at 256px. The field
-is on screen on arrival from 390px up. Either way the frame is a named,
-focusable region, and no CSS `order` is used: focus order is document order.
-
-The operator sidebar sits on `surface` behind a hairline, like the athlete
-rail: the lockup at 28px, 12px sentence-case section labels in `outline`,
-the active row on the `primary-container` tint with no side bar, a count
-badge in `primary`, and the collapse control among the footer's icon buttons.
-No accent stripe, no gradient wordmark, no blur. The mobile-web bottom bar
-follows the same rule — `surface`, a hairline above, the active tab in
-`primary` ink with no indicator bar.
-
----
-
-## 7. Motion
-
-| Type | Duration | Easing |
-|---|---|---|
-| Hover | 200ms | `ease-out` |
-| Press | 100ms | `ease-in` |
-| Modal | 300ms | `cubic-bezier(.4, 0, .2, 1)` |
-| Page | 400ms | `ease-in-out` |
-| Fade-rise entrance | 500ms | `cubic-bezier(.22, 1, .36, 1)` |
-
-All motion respects `prefers-reduced-motion: reduce`.
-
----
-
-## 8. Accessibility
-
-| Rule | Target |
+| Piece | Rule |
 |---|---|
-| Body text contrast | ≥ 4.5:1 against bearing surface (WCAG AA) |
-| Large text / icons | ≥ 3:1 |
-| Focus visibility | Two-layer ring (see §5), never `outline: 0` without replacement |
-| Targets | ≥ 44×44px on a coarse pointer and under the `lg` breakpoint (the `touch-target` rule); 32–36px with a fine pointer at desktop widths — WCAG 2.5.8's minimum is 24 |
-| Color encoding | Never the sole channel — pair with icon, label, or position |
+| Chat row | 72 tall, 48 avatar, one count capsule; the hairline insets to the text |
+| Settings `Row` | 52 tall (44 for a fact row); title 16 left, hint 13 inline right, 18 chevron when it navigates; faint hairline on the inner column, none on the last row |
+| `Section` | 13/600 title with a 16px horizontal inset, optional 13 description, no fill, no border, 32 between sections; sections are separated by space, never by a box |
+| `Sheet` | the scrim at 60% behind a `rounded-t-3xl` panel, no drag pill, content as sections |
+| Composer | a bar in the layout, hairline top, field 40 tall radius 20, send circle filled `primary` only while there is text |
+| Choice lists | a radio group read as rows, not a grid of tiles; a message's actions live behind a long-press sheet |
+| Targets | 44pt thumb floor; hairline is `StyleSheet.hairlineWidth` |
 
-Pillar and feedback hues appear as an 8px dot beside a word or as an avatar
-ground; as text they use their `on-*-container` ink, which the token test
-measures over every tier at the /15 tint. A tinted block or chip reads
-`ALERT_TONE` or `BADGE_TONE` and never pairs a hue with its own tint by hand
-(§5 Alerts). Bare `nutrition`/`warning` on
-`surface` is 3.2:1 and is never used as body text.
+## Do's and Don'ts
 
-The avatar ground is one of six slots, and `AVATAR_SLOT_HUES` in
-`@pierre/chat-utils` orders them — primary, activity, nutrition, recovery,
-mobility, tertiary. Each client binds that order to its own tokens through a
-record keyed by hue, so a thread's slot is the same hue on the web and the
-phone, and a hue added to the list without a binding is a type error.
+### Do:
+- **Do** use `primary` for the one call to action per view and `primary-container` for tints (`#e1eae5` / `#234e40`).
+- **Do** pair every fill with its mandatory on-colour (`text-on-primary`, bound `on-*-container` inks).
+- **Do** lift resting surfaces with a 1px ghost-border hairline and a fill step; reserve `shadow-floating` for what floats.
+- **Do** use sentence-case labels, 13px medium interface text and 15px reading text; set compared numbers in `font-mono`.
+- **Do** keep touch targets at 44×44px on coarse pointers and under `lg`, and honour `prefers-reduced-motion`.
+- **Do** route every colour through a token (alpha modifiers on token classes work), including the phone via `useThemeColors()`.
 
-The surface ladder itself is measured, not assumed:
-`frontend/src/__tests__/DesignTokens.test.ts` computes the separation ratios in
-§2 from the token values, asserts their floors, and checks the tables in this
-file against `design-system.ts`. The 4.5:1 text minimums are measured by
-`packages/shared-constants/scripts/generate-client-css.ts`, which refuses to
-write either client's token block below them. The wordmark is
-data (`PRODUCT_WORDMARK` in `@pierre/shared-constants`), not a translated
-string, so it is identical in all five locales by construction.
-
----
-
-## 9. History
-
-**The bell and the quiet plan link (2026-10-07, carnet#820).** David asked
-for notifications where an athlete looks for them — top right — and for
-"Build my plan" to stop sitting on top of everything. Triaged with Phil: the
-Notifications entry left the rail for a bell at the top right of Home, Groups
-and Discover that opens the centre as a sheet, and the plan offer became a
-quiet link the athlete can hide, the choice stored per user. Moving the offer
-into the notification dialog, as filed, was not done.
-
-**Personal Home (2026-10, web).** A single athlete found a list that mixed
-one-to-one threads, agents, channel DMs and group rooms confusing. Concept B
-of the Personal Home canvas (vault `Design/canvas-personal-home/`) moved the
-athlete's own conversation onto Home beside Today and renamed Chat to Groups;
-the mobile-web rules — the Today line, the full-height sheet, the line
-stepping aside on scroll and while typing — are Phil's answers of
-2026-10-05. Step 2 makes the personal conversation one continuous thread on
-the server; the layout does not change.
-
-**Boreal v2.1 "Less" (2026-09).** Phil's read of v2 the day it landed: still
-cluttered — the large hairline boxes ate the free space and the type ran a
-size too big. The pass kept every v2 decision and took one step down in the
-chrome and one step out of the boxes; the measured references (arena.ai,
-Linear, Geist, Notion, ChatGPT, the fitness tools) and the six decisions are
-in the vault under `Design/Boreal v2.1 — Less`.
-
-| | Boreal v2 | Boreal v2.1 (this doc) |
-|---|---|---|
-| Interface text | 14 | **13**, weight 500 on anything navigable |
-| Reading text | 15 | 15 (Phil, 2026-09-05: the chrome shrinks, not the words) |
-| Titles / headlines | 22 / 30 | **18 / 26** |
-| Controls | 40 (44 auth) | **32** (44 auth); 44 everywhere on a coarse pointer or under `lg` |
-| Page header | 72px, title + subtitle | **52px**, one row |
-| Grouping | white hairline card | **`Section`**: title, line, rows, space |
-| Empty state | boxed icon + headline | **one sentence, one ink link**; the empty thread: **one sentence, three use-case links** |
-| Chat list / rows | 400px, 68px rows, 44px avatars | **340px, 60px rows, 36px avatars** |
-| Agent turn | white hairline bubble | **prose on the canvas**, 24px avatar |
-| Composer | grey tint, helper line | **white field with a hairline**, no helper line |
-| Discover | 3-column card grid | **hairline list** |
-| Admin sidebar | 260px, 44px items | **232px, 32px items** |
-| Stat tiles | bordered, coloured numerals | **label over a mono number**, no box |
-| Dividers | one hairline | **two**: `ghost-border` at pane edges, `ghost-border-faint` inside lists |
-
-**Scheme-aware surfaces (2026-09-06).** The pass after the one below, closing
-the two things it left open. The login aside's ink is now bound to its ground
-rather than documented as an exception (§5 "Auth and onboarding"). And the
-phone stopped pinning colours the appearance setting cannot move: seven screens
-drew from `gradients.violetCyan`, a module-level `as const`, so they rendered
-identically in both schemes. Six of those were the 3px gradient strip this
-system retired; the register screen also carried a gradient square holding a
-bold **"P"** — the Pierre-era monogram, on a fixed fill, with body ink over it
-— which is now the shared `BrandLockup`. The three step badges and the context
-meter take tokens instead of a ramp.
-
-The same sweep found a **second source for `warning`**: three screens each
-carried their own hardcoded category map, drifted apart from each other
-(recovery was `#0d3b2e` in the editor and `#5e7a82` in the store), holding
-Editorial-tier values and the retired v1 primary; and `ThemeContext` restated
-the feedback set with light `warning` as `#8f6a2e`, the Editorial value, while
-`global.css` and `shared-constants` both carried Product `#b08326`. The phone
-therefore answered with two different ambers for one token depending on
-whether a component read a NativeWind class or `useThemeColors()`. One
-`categoryAccent` helper on the pillar tokens replaces the three maps, and the
-feedback set is read from `SEMANTIC_COLORS` rather than restated.
-
-That accent needed its other half. A category badge drew the accent as its own
-label on a tint of itself, which measures 2.81:1 in light at the `20`-hex tint
-those badges paint — and the phone had nothing correct to reach for instead,
-because the seven `on-*-container` inks the web has carried since Boreal v2
-existed nowhere native: `shared-constants` exported only the primary, tertiary
-and error inks. They are now in `global.css`, in both Tailwind configs as
-`text-on-*-container`, and in `CONTAINER_INKS`/`CONTAINER_INKS_DARK` behind
-`useThemeColors().ink.*`. `categoryInk` is the ink half of the pair, and the
-same label measures 6.58:1. §2 "Bound ink" states the rule and the envelope.
-
-The phone's card recipe came with it. `glassCard` was a const that passed
-`background:` — a property React Native does not implement — so roughly fifteen
-surfaces rendered with no fill at all, and a fill-less view with
-`shadowOffset: { height: 24 }` casts the alpha of its children on iOS, which
-drew a soft ghost of each screen's own text below itself. `useCardStyle()`
-replaces it with a scheme-aware fill, a hairline and no shadow (§4).
-
-Third-party brand colour stays exempt and is not a violation: `SciotteLoginModal`
-draws a provider's own gradient, and Strava's orange is Strava's orange in both
-schemes. The guard in `SchemeAwareSurfaces.test.tsx` is written against the
-colour's *source* rather than its shape, so that exemption needs no list.
-
-**Light-scheme revision (2026-09-06).** v2.1 shrank the chrome; the light
-scheme still read as unfinished beside dark, and the reason was not scale. It
-was that surfaces which are different things sat a half-step apart. Prototyped
-against the running app before anything was committed: a de-yellowed neutral
-ladder, a denser hairline and a whisper shadow on resting cards each moved the
-page so little that a side-by-side could not separate them, so the tokens are
-untouched. Composition moved it — the login aside on the sage tint beside a
-white form sheet (1.23:1, against 1.11:1 for the two paper tones it replaced).
-
-The phone came with it, because three of its surfaces had never reached v2 at
-all: its login was a hardcoded `#00241a → #0d3b2e` gradient under a card pinned
-to the light palette — the one screen in the app that could not be dark,
-whatever the athlete had chosen; its `Input` label was still the 11px caps at
-0.08em that v2 retired on web; and the athlete's bubble was a neutral grey
-tier rather than the tint §5 specifies. All three read the live palette now,
-and the login draws the shared `BrandLockup` rather than a second copy of the
-lockup spec. The login copy was rewritten in the same pass to say what the
-product does instead of describing its own design, and three claims were cut
-back to what the code actually delivers.
-
-**Boreal v2 (2026-09).** The Product Tier had grown four visible greys, a
-primary that read as black, three header idioms, a gradient-decorated operator
-shell and a second logo on the phone. The refresh, planned in the team vault
-under `Design/` and landed in seven commits on `feature/boreal-v2`, changed:
-
-| | Boreal v1 (Product Tier) | Boreal v2 (this doc) |
-|---|---|---|
-| Ground | rail `surface-container`, thread `…-low`, page `surface`, cards white | **one paper ground** (`surface` `#f7f6f2`), hairlines between panes |
-| Primary | `#00241a` fill + a separate `brand` ink | **`#255f4d`**, one token for fill and ink; `brand` deleted |
-| Athlete bubble | filled `primary` in light | `primary-container` tint in both schemes |
-| Elevation | two-layer shadow on every resting card | **hairline only**; `shadow-floating` for floating layers |
-| Headings | Space Grotesk | **Schibsted Grotesk** |
-| Labels | Inter 11px caps, 0.08em | Plus Jakarta Sans 500, sentence case |
-| Filters | pill chips | **text tabs** with a primary underline |
-| Page header | three idioms | one (`TabHeader`: title, line, actions) |
-| Mark | Momentum ribbon badge (web) vs Boreal Ripple (phone) | **Boreal Ripple everywhere** |
-| Agent avatar | the brand icon | the agent's initials |
-| Status | tinted chips | dot + word |
-| Empty states | emoji and a sad face | one sentence, one action |
-
-**Boreal v1 (2026-06).** Superseded the Pierre Violet/Cyan system (`#7C3AED`
-violet, `#06B6D4` cyan, deep-space backgrounds, backdrop-blur cards), retired
-in commit `cf8c01d8` when the platform rebranded to dravr.ai. It introduced the
-Product Tier over the marketing site's Editorial Tier: 40 % card borders,
-lifted pillar saturation, mandatory on-colour pairings, 12px card radius.
-
----
-
-## 10. Phone
-
-The phone shares every token above and differs where a thumb and a system
-ladder make it differ. The mirrors are `frontend-mobile/tailwind.config.js`
-(the class path) and `frontend-mobile/src/contexts/ThemeContext.tsx` (the
-runtime path, `useThemeColors()`); `__tests__/TypeScaleParity.test.ts` pins
-both to this table and to `index.css`. The scale below is declared once, in
-`frontend-mobile/src/constants/typeScale.js`: the Tailwind config builds the
-`text-*` classes from it, and a style that cannot take a class (the chat's
-markdown) reads the same steps as `typeScale` from `constants/theme`. The
-decisions behind it are in the vault under `Design/Boreal v2.2 — Mobile Less`.
-
-### Scale
-
-| Token | Size / line | Use |
-|---|---|---|
-| `text-xs` | 12 / 16 | Captions, timestamps, badge numbers — **the floor**; only a native badge goes under it |
-| `text-sm` | 13 / 18 | **Interface text**: a row's second line, hints, tabs, section titles, chips — `font-medium` on anything navigable |
-| `text-md` | 15 / 20 | A row's second line when it is read, not scanned: the chat preview, a Discover description |
-| `text-base` | 16 / 22 | **Reading text**: messages, descriptions, row titles, field values, button labels |
-| `text-lg` | 17 / 22 | An inline title in body; the native header's inline title |
-| `text-xl` | 20 / 25 | A hero number inside a screen |
-| `text-2xl` | 22 / 28 | Auth and onboarding only |
-| `text-3xl` | 26 / 32 | The auth and onboarding headline, in Schibsted Grotesk 600 |
-
-Reading text is 16, one step above the web's 15: Apple's body is 17 and
-Material's 16, and the phone is read at arm's length. The page title is the
-native large title (34 → 17 semibold inline), never a class. Numbers that get
-compared — an unread count, a token total, a time in a row — are
-`font-mono tabular-nums`.
-
-### Shape and ground
-
-| | Value |
-|---|---|
-| Radii | 4 chips · 8 buttons and fields · 12 floating cards and a room's avatar · 20 a sheet's top and the composer field · full for a person's or an agent's avatar and for badges (`2xl` = `xl`, so nothing sits between a card and a sheet). A circle is one counterpart, a square is many — the Fluent 2 / GitLab convention; shape reaches no screen reader, so the kind glyph and the row's accessible name carry the same fact in words |
-| Hairlines | the web's three, verbatim: `border-border-faint` (.26 light / .14 dark) inside a list, `border-border` (.40 / .22) at pane edges and fields, `border-border-strong` (.55 / .34) on a separator that must read; `StyleSheet.hairlineWidth`. The edge of a control whose empty state is otherwise invisible (a checkbox, a radio) is the `outline` token, not a hairline: WCAG 1.4.11 asks 3:1 of it, and `border-strong` measures 1.55:1 light / 2.30:1 dark on `surface` while `outline` clears it on every tier (web `ui/Checkbox`, phone `ui/Checkbox`) |
-| Scrim | one, `bg-scrim/60` — `#1a1c1b` in light, black in dark |
-| Shadow | `shadow-floating` only, for what floats; a resting surface is lifted by its hairline |
-| Button | 44 tall, radius 8, no shadow; `primary` · `secondary` (hairline) · `ghost` · `danger`; the spinner takes the label's ink |
-| Colour | every value through a token — the class path or `useThemeColors()`; no hex outside `BrandIcons`, the Sciotte login modal and the flag-gated billing screen; brand colour lives inside a brand glyph |
-| Labels | sentence case, no tracking, no `textTransform`; a section title is 13 / 600 |
-| Gradients | none on a resting surface; `expo-linear-gradient` exists for the Sciotte modal's brand sweeps and the two functional edge fades of `ScrollFadeContainer` |
-| Sheet | one, `ui/Sheet`: `bg-scrim/60` behind a `rounded-t-3xl` panel on the secondary ground, no drag pill, content as sections; a dialog (`PromptDialog`, and the OAuth-credentials add form in `OAuthCredentialsSection`) keeps a centred panel on the secondary ground — `rounded-2xl` under its own 8/16 shadow for the prompt, `rounded-xl` and flat for the form |
-| Composer | a bar in the layout, never an overlay: hairline top, paper ground, the field 40 / radius 20 on `surface-container`, the left slot empty, the mic, a 32 send circle filled in `primary` only while there is text; the keyboard is met through `KeyboardAvoidingView`, so the list pays no clearance for it |
-| Rows | a chat row 72 with a 48 avatar and one count capsule (22, 13 / 600 mono, `@` prefixed for a mention), its hairline inset to the text; the title is the stored one, which the server names after the room, else the agent, else the moment the thread started, so a row reads who it is with and the `@handle` only appears beside a title that is not already the agent; a message's actions live behind a long-press action sheet, and only the time sits under the prose |
-| Empty state | `ui/EmptyState`: one 13 sentence on the secondary ink and, when there is something to do, one inline `primary` link — no icon, no card, no filled button. Home's no-plan state follows the rule: "Build my plan" is a quiet `primary` link beside a secondary "Hide" — not every athlete wants a plan, and a suggestion they cannot dismiss became the page's loudest thing. Hiding it is stored per user on the server (`/api/me/home-preferences`), so web and phone agree; the section keeps its one plain sentence, and Settings › Coaching style brings the suggestion back. The dismissal is not framed as permanent (carnet#820, superseding the filled-button exception of 2026-09-24) |
-| Settings row | `ui/Row`: 52 tall, 44 compact for a fact row; the title 16 on the left, the hint 13 tertiary inline on the right and truncated before the title gives, then an 18 chevron when the row navigates; the value slot `font-mono tabular-nums`; the faint hairline on the inner column so it insets to the text, none on the last row |
-| Section | `ui/Section`: a 13 / 600 title, an optional 13 secondary description, the content 12 below, no fill and no border; 32 between sections, paid by the parent |
-| Text tabs | `ui/TextTabs`: one horizontal row of 13 / 500 labels 20 apart over a hairline, the active one in the primary ink with a 2 px primary underline; the kind filter on Memory, the pickers in Notification preferences, Discover's categories |
+### Don't:
+- **Don't** pair a dark brand fill (`bg-primary`, or an inline background at or below `#234e40`) with `text-on-surface`; dark-on-dark is a bug.
+- **Don't** use a pillar hue as a button fill, a state, a progress bar or text; a state takes a feedback tone.
+- **Don't** use a stock Tailwind shade (`text-amber-400`, `bg-red-500`) or hard-code hex outside brand glyphs.
+- **Don't** add glow, a violet ring, a gradient on a resting surface, or backdrop blur on standard cards.
+- **Don't** use uppercase tracked labels; only the wordmark is tracked.
+- **Don't** let colour be the sole channel of meaning; pair it with an icon, label or position.
+- **Don't** raise a dark card with `surface-container-lowest`; it sinks below the canvas.

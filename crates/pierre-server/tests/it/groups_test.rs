@@ -192,10 +192,11 @@ async fn setup_two_users() -> (axum::Router, String, String, String, String, Str
 /// Like [`setup_two_users`] but also returns a token for user2 that targets
 /// user2's OWN tenant (last tuple element).
 ///
-/// The shared-tenant `a2` token deliberately claims user1's tenant so both users
-/// act inside one org, but user2 is never added to that tenant's `tenant_users`
-/// — so `get_user_role(user2, shared_tenant)` is `None` and, under the default
-/// `group_creation_policy = admins_only`, user2 cannot create a group there.
+/// The shared-tenant `a2` token names user1's tenant so both users act inside
+/// one org. User2 joins that tenant as a plain `member` first: a token that
+/// only claims a tenant is refused before any group check runs. A member is
+/// not a tenant admin, so under the default
+/// `group_creation_policy = admins_only` user2 cannot create a group there.
 /// A test where user2 must *own* a group therefore creates it with `a2_own`, in
 /// user2's own tenant where user2 is the owner (owner bypasses the policy). The
 /// group-scoped invite endpoints exercised afterwards carry no tenant filter, so
@@ -228,10 +229,15 @@ async fn setup_two_users_with_res() -> (
     // User2 needs a token with user1's tenant so both are in the same org.
     let a1 = format!("Bearer {}", generate_test_token(&res, &u1).await);
 
-    // For user2, generate a token with user1's tenant_id
+    // For user2, a membership in user1's tenant and a token naming it
     let repos = res.agent.database.repositories();
     let tenants = repos.tenants.list_for_user(u1id).await.unwrap();
     let shared_tid = tenants.first().unwrap().id;
+    repos
+        .users
+        .update_tenant_id(u2id, shared_tid)
+        .await
+        .unwrap();
     let a2 = format!(
         "Bearer {}",
         res.auth
@@ -1641,8 +1647,9 @@ async fn test_delete_group_releases_its_members() {
 // ============================================================================
 
 /// An owner, a plain member and a human coach attached to the owner's group,
-/// all acting in the owner's tenant. The coach is attached, not enrolled: they
-/// hold no membership row. Returns the router, the three tokens and the group.
+/// all acting in the owner's tenant, which the member and the coach belong to.
+/// The coach is attached, not enrolled: they hold no group membership row.
+/// Returns the router, the three tokens and the group.
 async fn setup_group_with_member_and_coach() -> (axum::Router, String, String, String, String) {
     let res = create_test_server_resources().await.unwrap();
     let db = &res.agent.database;
@@ -1650,15 +1657,19 @@ async fn setup_group_with_member_and_coach() -> (axum::Router, String, String, S
         create_test_user_with_plan(db, "digest-owner@test.com", "professional")
             .await
             .unwrap();
-    let (_, member, _) = create_test_user_with_plan(db, "digest-member@test.com", "professional")
-        .await
-        .unwrap();
+    let (member_id, member, _) =
+        create_test_user_with_plan(db, "digest-member@test.com", "professional")
+            .await
+            .unwrap();
     let (coach_id, coach, _) =
         create_test_user_with_plan(db, "digest-coach@test.com", "professional")
             .await
             .unwrap();
     let repos = db.repositories();
     let shared = repos.tenants.list_for_user(owner_id).await.unwrap()[0].id;
+    for joining in [member_id, coach_id] {
+        repos.users.update_tenant_id(joining, shared).await.unwrap();
+    }
     let in_shared_tenant = |user: &User| {
         format!(
             "Bearer {}",

@@ -16,7 +16,7 @@ use secrecy::ExposeSecret;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::{Tenant, TenantId, User, UserOAuthToken};
 use pierre_database::backends::factory::Database;
 use pierre_database::backends::shared::keyring::Keyring;
@@ -98,7 +98,7 @@ async fn installing_a_keyring_reaches_every_clone_taken_before_or_after() {
         true,
     )
     .expect("a valid keyring");
-    db.keyring().install(ring, Utc::now());
+    db.keyring().install(ring, Timestamp::now());
 
     assert!(
         Arc::ptr_eq(before.repositories(), db.repositories()),

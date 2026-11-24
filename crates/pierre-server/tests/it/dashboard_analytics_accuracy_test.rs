@@ -17,8 +17,8 @@
 use crate::common;
 
 use anyhow::Result;
-use chrono::{Duration, NaiveDate, Utc};
 use common::{create_test_server_resources, create_test_user_with_plan, init_server_config};
+use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp};
 use pierre_auth::auth::{AuthMethod, AuthResult};
 use pierre_core::admin::scope::AdminScope;
 use pierre_core::models::TenantId;
@@ -79,7 +79,7 @@ struct AnalyticsFixture {
     routes: DashboardRoutes<ServerContext>,
     user_id: Uuid,
     tenant_id: Uuid,
-    today: NaiveDate,
+    today: CivilDate,
 }
 
 impl AnalyticsFixture {
@@ -91,15 +91,17 @@ impl AnalyticsFixture {
         let (user_id, _user, tenant) =
             create_test_user_with_plan(&resources.agent.database, email, "starter").await?;
         let tenant_id = tenant.as_uuid();
-        let today = Utc::now().date_naive();
+        let today = Timestamp::now().utc_date();
 
         for day in &SEEDED_DAYS {
             // Midday keeps the row unambiguously inside its calendar day no
             // matter what hour the suite runs at.
-            let created_at = (today - Duration::days(day.days_ago))
-                .and_hms_opt(12, 0, 0)
+            let created_at = (today - Elapsed::days(day.days_ago))
+                .and_hms(12, 0, 0)
+                .ok()
                 .ok_or_else(|| anyhow::Error::msg("failed to build seeded timestamp"))?
-                .and_utc();
+                .and_utc()
+                .unwrap();
 
             for _ in 0..day.calls {
                 let record = SeedLlmUsageRecord {
@@ -138,12 +140,15 @@ impl AnalyticsFixture {
         AuthResult {
             scopes: OAuthScope::self_grant(),
             client_id: None,
+            grant_id: None,
             user_id: self.user_id,
             auth_method: AuthMethod::JwtToken {
                 tier: "premium".to_owned(),
                 impersonation: None,
             },
             active_tenant_id: Some(self.tenant_id),
+            client_grant_id: None,
+            ceiling: None,
         }
     }
 
@@ -154,9 +159,7 @@ impl AnalyticsFixture {
     }
 
     fn day_label(&self, days_ago: i64) -> String {
-        (self.today - Duration::days(days_ago))
-            .format("%Y-%m-%d")
-            .to_string()
+        (self.today - Elapsed::days(days_ago)).to_string()
     }
 }
 
@@ -237,7 +240,7 @@ async fn average_response_time_is_call_weighted() -> Result<()> {
 }
 
 /// Widening the range adds only idle days, so the reported latency must not
-/// move. This is the operator-visible symptom: the same calls read 1012.75 ms
+/// move. This is the admin-visible symptom: the same calls read 1012.75 ms
 /// at 30 days and 337.58 ms at 90 days when idle days are averaged in.
 #[tokio::test]
 async fn average_response_time_is_independent_of_range_width() -> Result<()> {

@@ -93,6 +93,7 @@ fn a_turn_request_prints_the_size_of_the_message_never_its_text_or_sender() {
         command_persistence: CommandPersistence::Always,
         sender_id: Some("+15550007f3a"),
         transport: Transport::WebApp,
+        caller: None,
         hooks: PipelineHooks::none(),
         grant: OAuthScope::self_grant(),
     };
@@ -133,6 +134,7 @@ fn a_persisted_user_message_prints_its_size_never_its_text() {
             channel_type: None,
             about_user_id: None,
             turn_attempted_write: None,
+            ai_consent_sources: Vec::new(),
         },
         conversation: ConversationRecord {
             id: "conv-1".to_owned(),

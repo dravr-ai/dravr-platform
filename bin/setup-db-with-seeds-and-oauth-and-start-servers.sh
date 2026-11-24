@@ -201,9 +201,9 @@ if [ "$START_MAESTRO_CONTROL" = "true" ]; then
     CLI_FEATURES=(--features pierre-cli/e2e-seeded-sessions)
 fi
 if [ "$BUILD_MODE" = "release" ]; then
-    cargo build --release --bin pierre-mcp-server --bin pierre-cli --bin pierre-dev-fixture "${CLI_FEATURES[@]}" 2>&1 | tail -3
+    cargo build --release --bin pierre-mcp-server --bin pierre-pdf-text --bin pierre-cli --bin pierre-dev-fixture "${CLI_FEATURES[@]}" 2>&1 | tail -3
 else
-    cargo build --bin pierre-mcp-server --bin pierre-cli --bin pierre-dev-fixture "${CLI_FEATURES[@]}" 2>&1 | tail -3
+    cargo build --bin pierre-mcp-server --bin pierre-pdf-text --bin pierre-cli --bin pierre-dev-fixture "${CLI_FEATURES[@]}" 2>&1 | tail -3
 fi
 echo "    Build complete"
 
@@ -358,11 +358,10 @@ point_providers_at_fixture() {
     export PIERRE_GARMIN_AUTH_URL="http://127.0.0.1:$FIXTURE_PORT/oauth2Confirm"
     export PIERRE_GARMIN_TOKEN_URL="http://127.0.0.1:$FIXTURE_PORT/di-oauth2-service/oauth/token"
     export PIERRE_GARMIN_REVOKE_URL="http://127.0.0.1:$FIXTURE_PORT/user/registration"
-    export GARMIN_API_BASE="http://127.0.0.1:$FIXTURE_PORT/wellness-api/rest"
 }
 point_providers_at_fixture
 
-# Step 4c: Start the dedicated sciotte scraper service (ADR-021), but ONLY when
+# Step 4c: Start the dedicated sciotte service (ADR-021), but ONLY when
 # the platform is pointed at it. DRAVR_SCIOTTE_REMOTE_URL set => the server
 # routes sciotte login/scrape to this service instead of in-pod Chrome, so it
 # must be up; unset => the in-process path and this block is skipped entirely
@@ -374,7 +373,7 @@ point_providers_at_fixture
 # stack, so stop-all.sh stops it by its `sciotte` record, and only this
 # checkout's.
 if [ -n "${DRAVR_SCIOTTE_REMOTE_URL:-}" ]; then
-    echo -e "${CYAN}    Starting sciotte scraper service (ADR-021 -> $DRAVR_SCIOTTE_REMOTE_URL)...${NC}"
+    echo -e "${CYAN}    Starting sciotte service (ADR-021 -> $DRAVR_SCIOTTE_REMOTE_URL)...${NC}"
     if [ -d "$PROJECT_ROOT/../dravr-sciotte" ]; then
         # No provider arg: one instance serving garmin+strava (ADR-021);
         # set SCIOTTE_PROVIDER to pin a single provider instead.

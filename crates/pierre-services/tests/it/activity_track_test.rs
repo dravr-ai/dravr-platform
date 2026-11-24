@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::models::{TenantId, User};
 use pierre_database::backends::factory::Database;
 use pierre_database::repositories::StoredRouteTrack;
@@ -106,7 +106,7 @@ async fn an_unavailable_row_keeps_its_reason_and_expiry() {
         "bug: a settled absence must keep its reason and stand"
     );
 
-    let expires_at = Utc::now() + Duration::minutes(10);
+    let expires_at = Timestamp::now() + Elapsed::minutes(10);
     world
         .store(
             "unread",
@@ -144,7 +144,7 @@ async fn an_expired_or_undecodable_row_reads_as_no_read() {
             &StoredRouteTrack::Unavailable {
                 source: "streams".to_owned(),
                 reason: "unavailable".to_owned(),
-                expires_at: Some(Utc::now() - Duration::minutes(1)),
+                expires_at: Some(Timestamp::now() - Elapsed::minutes(1)),
             },
         )
         .await;

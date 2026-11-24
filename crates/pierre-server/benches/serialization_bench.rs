@@ -17,11 +17,11 @@
 
 mod common;
 
-use chrono::{Duration, Utc};
 use common::fixtures::{generate_activities, ActivityBatchSize};
 use criterion::{black_box, criterion_group, criterion_main, Criterion, Throughput};
 use dravr_cageux::metrics::AdvancedMetrics;
 use dravr_cageux::training_load::{TrainingLoad, TssDataPoint};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::models::{Activity, SleepSession, SleepStage, SleepStageType};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -66,11 +66,11 @@ struct PaginationInfo {
     clippy::cast_possible_wrap
 )]
 fn generate_sleep_sessions(count: usize) -> Vec<SleepSession> {
-    let base_date = Utc::now();
+    let base_date = Timestamp::now();
     (0..count)
         .map(|index| {
             let days_ago = index as i64;
-            let sleep_start = base_date - Duration::days(days_ago) - Duration::hours(8);
+            let sleep_start = base_date - Elapsed::days(days_ago) - Elapsed::hours(8);
             let total_sleep_time = 360 + ((index * 17) % 180) as u32;
             let time_in_bed = total_sleep_time + 30;
             let stages = generate_sleep_stages(sleep_start, total_sleep_time, index);
@@ -78,7 +78,7 @@ fn generate_sleep_sessions(count: usize) -> Vec<SleepSession> {
             SleepSession {
                 id: format!("bench_sleep_{index}"),
                 start_time: sleep_start,
-                end_time: sleep_start + Duration::minutes(i64::from(time_in_bed)),
+                end_time: sleep_start + Elapsed::minutes(i64::from(time_in_bed)),
                 time_in_bed,
                 total_sleep_time,
                 sleep_efficiency: (total_sleep_time as f32 / time_in_bed as f32) * 100.0,
@@ -93,7 +93,7 @@ fn generate_sleep_sessions(count: usize) -> Vec<SleepSession> {
 
 #[allow(clippy::cast_possible_truncation)]
 fn generate_sleep_stages(
-    start_time: chrono::DateTime<Utc>,
+    start_time: Timestamp,
     total_minutes: u32,
     seed: usize,
 ) -> Vec<SleepStage> {
@@ -125,7 +125,7 @@ fn generate_sleep_stages(
                 duration_minutes: duration,
             });
 
-            current_time += Duration::minutes(i64::from(duration));
+            current_time += Elapsed::minutes(i64::from(duration));
             remaining = remaining.saturating_sub(duration);
         }
         cycle += 1;
@@ -326,7 +326,7 @@ fn bench_intelligence_serialization(c: &mut Criterion) {
         form_ctl: 75.1,
         tss_history: (0..42)
             .map(|i| TssDataPoint {
-                date: Utc::now() - Duration::days(i),
+                date: Timestamp::now() - Elapsed::days(i),
                 tss: (i as f64).mul_add(1.5, 50.0),
             })
             .collect(),

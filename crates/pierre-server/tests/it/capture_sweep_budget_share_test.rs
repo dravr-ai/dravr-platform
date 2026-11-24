@@ -23,7 +23,7 @@ use std::sync::Arc;
 use axum::extract::State;
 use axum::routing::get;
 use axum::{Json, Router};
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::models::{ConnectionType, UserOAuthToken};
 use pierre_providers::core::ActivityQueryParams;
 use pierre_providers::request_budget::{
@@ -100,7 +100,7 @@ async fn the_sweep_takes_only_the_background_share_of_the_app() {
     )
     .await
     .unwrap();
-    let now = Utc::now();
+    let now = Timestamp::now();
     repos
         .oauth_tokens
         .upsert_token(&UserOAuthToken {
@@ -112,7 +112,7 @@ async fn the_sweep_takes_only_the_background_share_of_the_app() {
             access_token: SecretString::from(format!("strava_access_token_{:0>30}", 1)),
             refresh_token: Some(SecretString::from("strava_refresh")),
             token_type: "Bearer".to_owned(),
-            expires_at: Some(now + Duration::hours(6)),
+            expires_at: Some(now + Elapsed::hours(6)),
             scope: Some("activity:read_all".to_owned()),
             provider_user_id: Some("1".to_owned()),
             oauth_app_client_id: None,
@@ -132,7 +132,7 @@ async fn the_sweep_takes_only_the_background_share_of_the_app() {
             PLATFORM_SCOPE,
             PLATFORM_SCOPE,
             &budget_counter_key("strava", APP),
-            &budget_period(Utc::now(), ONE_DAY),
+            &budget_period(Timestamp::now(), ONE_DAY),
             i64::from(DAY_BUDGET * BACKGROUND_SHARE_PERCENT / 100),
         )
         .await
@@ -177,7 +177,7 @@ async fn the_sweep_takes_only_the_background_share_of_the_app() {
         limit: Some(50),
         offset: None,
         before: None,
-        after: Some((now - Duration::days(7)).timestamp()),
+        after: Some((now - Elapsed::days(7)).epoch_seconds()),
     };
     fetch_provider_head(&runtime, "strava", user_id, &tenant.to_string(), &params)
         .await

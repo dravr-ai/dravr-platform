@@ -34,7 +34,7 @@
 
 use std::time::Duration;
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::AppAttestKey;
 use pierre_database::repositories::AppAttestKeyRepository;
 use rustls_pki_types::UnixTime;
@@ -116,7 +116,7 @@ pub async fn verify_play_integrity(
     token: &str,
     code: &str,
     package_name: &str,
-    now: DateTime<Utc>,
+    now: Timestamp,
 ) -> Result<PlayIntegrityOutcome, OAuth2Error> {
     let payload = match decoder.decode(token).await {
         Ok(payload) => payload,
@@ -224,7 +224,7 @@ pub async fn verify_evidence(
     evidence: &AppAttestEvidence,
     code: &str,
     app_id: &str,
-    now: DateTime<Utc>,
+    now: Timestamp,
 ) -> Result<VerifiedEvidence, OAuth2Error> {
     match &evidence.proof {
         AppAttestProof::Attestation(attestation) => verify_attestation(
@@ -274,7 +274,7 @@ pub async fn verify_evidence(
 pub async fn record_evidence(
     keys: &dyn AppAttestKeyRepository,
     verified: VerifiedEvidence,
-    now: DateTime<Utc>,
+    now: Timestamp,
 ) -> Result<(), OAuth2Error> {
     let stored = match verified {
         VerifiedEvidence::NewKey(attested) => {
@@ -329,9 +329,9 @@ fn invalid_client(description: &str) -> OAuth2Error {
 
 /// `now` as the certificate-validity clock webpki reads. A time before the
 /// epoch reads as the epoch, which no certificate in Apple's chain is valid at.
-fn unix_time(now: DateTime<Utc>) -> UnixTime {
+fn unix_time(now: Timestamp) -> UnixTime {
     UnixTime::since_unix_epoch(Duration::from_secs(
-        u64::try_from(now.timestamp()).unwrap_or_default(),
+        u64::try_from(now.epoch_seconds()).unwrap_or_default(),
     ))
 }
 

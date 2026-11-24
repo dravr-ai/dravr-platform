@@ -17,7 +17,7 @@ use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::{Extension, Json};
-use chrono::{DateTime, Duration, SubsecRound, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::admin::models::ValidatedAdminToken;
 use pierre_core::models::{Activity, ActivityBuilder, SportType, TenantId};
 use pierre_mcp_server::mcp::resources::ServerContext;
@@ -36,7 +36,7 @@ fn activity(id: &str, provider: &str, age_days: i64) -> Activity {
         id.to_owned(),
         format!("activity {id}"),
         SportType::Run,
-        Utc::now() - Duration::days(age_days),
+        Timestamp::now() - Elapsed::days(age_days),
         3_600,
         provider.to_owned(),
     )
@@ -46,7 +46,7 @@ fn activity(id: &str, provider: &str, age_days: i64) -> Activity {
 
 /// The admin context the composition root builds, the live store included.
 fn context(resources: &Arc<ServerContext>) -> Arc<AdminApiContext> {
-    let mut context = (*admin_context(resources, "http://127.0.0.1:9")).clone();
+    let mut context = (*admin_context(resources)).clone();
     context.live_activities = Some(Arc::clone(&resources.common.live_activities));
     Arc::new(context)
 }
@@ -75,12 +75,14 @@ fn row_of<'a>(body: &'a Value, user_id: Uuid, provider: &str) -> &'a Value {
 /// An athlete whose cache holds three Strava rows from two syncs, two
 /// Garmin rows and one imported Strava archive row; the stamps each sync
 /// wrote, oldest first.
-async fn seeded_athlete(resources: &Arc<ServerContext>) -> (Uuid, TenantId, Vec<DateTime<Utc>>) {
+async fn seeded_athlete(resources: &Arc<ServerContext>) -> (Uuid, TenantId, Vec<Timestamp>) {
     let repos = &resources.common.repos;
     let (user_id, tenant_id, _) = seed_user(repos, "adopt").await;
     let cache = &repos.activity_cache;
-    let older = (Utc::now() - Duration::days(2)).trunc_subsecs(6);
-    let newer = (Utc::now() - Duration::hours(1)).trunc_subsecs(6);
+    let older =
+        Timestamp::from_epoch_micros((Timestamp::now() - Elapsed::days(2)).epoch_micros()).unwrap();
+    let newer = Timestamp::from_epoch_micros((Timestamp::now() - Elapsed::hours(1)).epoch_micros())
+        .unwrap();
     cache
         .upsert_activities_synced_at(
             user_id,
@@ -130,7 +132,7 @@ async fn stored(
     user_id: Uuid,
     tenant_id: TenantId,
     provider: &str,
-) -> Vec<(String, DateTime<Utc>)> {
+) -> Vec<(String, Timestamp)> {
     resources
         .common
         .repos
@@ -449,7 +451,7 @@ async fn every_key_the_platform_caches_under_is_kept_by_the_store() {
                 tenant_id,
                 key,
                 &[activity(&id, key, 1)],
-                Utc::now(),
+                Timestamp::now(),
                 WriteOrigin::Import,
             )
             .await
@@ -475,8 +477,11 @@ async fn every_key_the_platform_caches_under_is_kept_by_the_store() {
 async fn an_amendment_of_a_row_the_store_never_held_adopts_it() {
     let resources = resources().await;
     let (user_id, tenant_id, _) = seed_user(&resources.common.repos, "amend").await;
-    let received = (Utc::now() - Duration::days(1)).trunc_subsecs(6);
-    let start = (Utc::now() - Duration::days(2)).trunc_subsecs(0);
+    let received =
+        Timestamp::from_epoch_micros((Timestamp::now() - Elapsed::days(1)).epoch_micros()).unwrap();
+    let start =
+        Timestamp::from_epoch_seconds((Timestamp::now() - Elapsed::days(2)).epoch_seconds())
+            .unwrap();
     let ride = |name: &str| {
         ActivityBuilder::new("601", name, SportType::Run, start, 3_600, "garmin")
             .distance_meters(10_000.0)

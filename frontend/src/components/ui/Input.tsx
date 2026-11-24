@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Boreal Editorial Input — bottom-stroke underline, DESIGN.md §5
+// ABOUTME: Boreal Editorial Input — bottom-stroke underline, DESIGN.md "Inputs / Fields"
 // ABOUTME: Supports label, error/help text, left/right icons
 
 import React, { forwardRef, useId } from 'react';
@@ -12,7 +12,11 @@ export interface InputProps extends Omit<React.InputHTMLAttributes<HTMLInputElem
   helpText?: string;
   leftIcon?: React.ReactNode;
   rightIcon?: React.ReactNode;
-  size?: 'sm' | 'md' | 'lg';
+  /**
+   * `title` is a headline written in place: a session's title in the day
+   * editor, in the display face on a dashed underline (carnet#1727).
+   */
+  size?: 'sm' | 'md' | 'lg' | 'title';
   /**
    * Variant is retained for API stability but the Boreal system only ships
    * one editorial underline style. All three values render identically.
@@ -26,13 +30,14 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
     const inputId = id || reactId;
 
     const sizeClasses = {
-      sm: 'py-1.5 text-sm',
-      md: 'py-2 text-sm',
-      lg: 'py-3 text-base',
+      sm: 'py-1.5 font-sans text-sm',
+      md: 'py-2 font-sans text-sm',
+      lg: 'py-3 font-sans text-base',
+      title: 'py-1 font-display text-[1.5rem] font-semibold leading-8 sm:text-[1.625rem] boreal-underline-input--title',
     };
 
     const baseInputClasses =
-      'w-full bg-transparent text-on-surface placeholder:text-outline font-sans ' +
+      'w-full bg-transparent text-on-surface placeholder:text-outline ' +
       'focus:outline-none transition-colors duration-base disabled:cursor-not-allowed disabled:opacity-50';
 
     // The underline chrome lives in .boreal-underline-input, whose !important

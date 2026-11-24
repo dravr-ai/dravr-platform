@@ -10,10 +10,13 @@
 //! acting [`AuthPrincipal`], and the access helpers confine that principal
 //! to the tasks keyed to clients it owns.
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
+use dravr_tronc::error::SERVER_ERROR_START;
+use pierre_auth::oauth2_server::grant_ceiling::GrantCeiling;
 use pierre_auth::rate_limiting::{a2a_client_window_start, calculate_a2a_client_rate_limit};
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::a2a::{user_task_key, A2AClient};
+use pierre_core::permissions::impersonation::{CallerCredential, CredentialKind};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_logging::record_identity;
 use pierre_middleware::rate_limiting::{
@@ -26,7 +29,7 @@ use uuid::Uuid;
 
 use super::{A2AResources, A2AServer, A2ATask};
 use crate::protocol_types::{rate_limit_details, A2ASpecError, Message, A2A_VERSION};
-use crate::{A2AErrorResponse, A2ARequest, A2AResponse};
+use crate::{A2ARequest, A2AResponse};
 
 /// The authenticated caller of a protocol method.
 ///
@@ -34,7 +37,9 @@ use crate::{A2AErrorResponse, A2ARequest, A2AResponse};
 /// the registering owner for client-credentials tokens) — it drives tenant
 /// resolution and tool execution. `client_id` is set when the caller
 /// authenticated with client credentials; tasks are then keyed to and
-/// scoped by that client.
+/// scoped by that client. The OAuth client a user token was issued to is
+/// not that: it is kept on `credential`, which the admin audit trail reads,
+/// so a user token never reads as a machine client's.
 #[derive(Clone)]
 pub(super) struct AuthPrincipal {
     pub(super) user_id: Uuid,
@@ -46,6 +51,17 @@ pub(super) struct AuthPrincipal {
     /// client-credentials token, which acts as its registering user in that
     /// user's own tenant.
     pub(super) active_tenant_id: Option<Uuid>,
+    /// The credential the agent called through (carnet#1511): its kind and
+    /// client, which the admin audit trail names, and what an admin's
+    /// support session through this agent is bound to (the OAuth grant a
+    /// user token was minted under; nothing for a client-credentials token:
+    /// a machine client never holds `admin`).
+    pub(super) credential: CallerCredential,
+    /// The ceiling of the detailed consent grant a user token was minted
+    /// under (plan slice 3): what the extended card offers and every call
+    /// reaches, carried with a detached task. `None` under a plain grant and
+    /// for a client-credentials token, which has no consent grant.
+    pub(super) ceiling: Option<GrantCeiling>,
 }
 
 /// A call refused before it reached its handler, and whom its credential
@@ -113,7 +129,7 @@ impl A2AServer {
             Ok(principal) => Ok(principal),
             Err(refused) => {
                 if let (Some(caller), Some(tool)) = (refused.caller, requested_tool(request)) {
-                    Self::record_refused(&resources.tool_runtime, caller, &tool).await;
+                    Self::record_refused(&resources.tool_runtime, caller, &tool, None).await;
                 }
                 Err(refused.response)
             }
@@ -200,11 +216,15 @@ impl A2AServer {
                     )),
                 });
             };
+            // The token's own client, kept for the audit trail.
+            let credential = admitted.caller_credential();
             return Ok(AuthPrincipal {
                 user_id: admitted.user_id,
                 client_id: None,
                 scopes: admitted.scopes,
                 active_tenant_id: Some(active_tenant_id),
+                credential,
+                ceiling: admitted.ceiling,
             });
         }
 
@@ -243,7 +263,7 @@ impl A2AServer {
             Err(e) => {
                 error!("Failed to resolve A2A client during authentication: {e}");
                 return Err(RefusedCall::from(Box::new(Self::a2a_error(
-                    -32000,
+                    SERVER_ERROR_START,
                     "Failed to resolve A2A client",
                     Some(request_id),
                 ))));
@@ -273,9 +293,15 @@ impl A2AServer {
 
         Ok(AuthPrincipal {
             user_id: client.user_id,
+            credential: CallerCredential {
+                kind: CredentialKind::A2aClientCredentials,
+                client_id: Some(client.id.clone()),
+                binding: None,
+            },
             client_id: Some(client.id),
             scopes,
             active_tenant_id: None,
+            ceiling: None,
         })
     }
 
@@ -294,7 +320,7 @@ impl A2AServer {
         resources: &A2AResources,
         request_id: &Value,
     ) -> Result<(), Box<A2AResponse>> {
-        let now = Utc::now();
+        let now = Timestamp::now();
         let budget = resources
             .ctx
             .repos()
@@ -377,7 +403,7 @@ impl A2AServer {
             .map_err(|e| {
                 error!("Failed to resolve client ownership: {e}");
                 Box::new(Self::a2a_error(
-                    -32000,
+                    SERVER_ERROR_START,
                     "Failed to resolve client ownership",
                     request_id.cloned(),
                 ))
@@ -410,7 +436,7 @@ impl A2AServer {
             Err(e) => {
                 error!("A2A task lookup database error: {e}");
                 return Err(Box::new(Self::a2a_error(
-                    -32000,
+                    SERVER_ERROR_START,
                     "Database error",
                     request_id.cloned(),
                 )));
@@ -442,7 +468,7 @@ impl A2AServer {
         if error.is_server_fault() {
             error!("A2A authentication could not complete: {error}");
             return Self::a2a_error(
-                -32000,
+                SERVER_ERROR_START,
                 "Authentication could not complete",
                 Some(request_id),
             );
@@ -461,15 +487,11 @@ impl A2AServer {
         retry_after_secs: u64,
         request_id: Option<Value>,
     ) -> A2AResponse {
-        A2AResponse {
-            jsonrpc: "2.0".into(),
-            result: None,
-            error: Some(A2AErrorResponse {
-                code: -32000,
-                message: message.into(),
-                data: Some(rate_limit_details(retry_after_secs)),
-            }),
-            id: request_id,
-        }
+        A2AResponse::error_with_data(
+            request_id,
+            SERVER_ERROR_START,
+            message,
+            rate_limit_details(retry_after_secs),
+        )
     }
 }

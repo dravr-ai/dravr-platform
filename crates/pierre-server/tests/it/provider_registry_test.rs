@@ -1,4 +1,4 @@
-// ABOUTME: Tests for provider registry functionality including factory patterns and global registry
+// ABOUTME: Tests for provider registry functionality including factory patterns, on the offline registry
 // ABOUTME: Validates provider creation, tenant provider creation, and registry operations
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -12,7 +12,6 @@ use crate::common::offline_provider_registry;
 
 use pierre_core::models::TenantId;
 use pierre_mcp_server::constants::oauth_providers;
-use pierre_providers::registry::{create_provider, create_tenant_provider, global_registry};
 use uuid::Uuid;
 
 #[test]
@@ -23,15 +22,9 @@ fn test_registry_creation() {
 }
 
 #[test]
-fn test_global_registry() {
-    let registry = global_registry();
-    assert!(registry.is_supported(oauth_providers::STRAVA));
-}
-
-#[test]
 fn test_create_provider() {
     common::init_test_http_clients();
-    let provider = create_provider(oauth_providers::STRAVA);
+    let provider = offline_provider_registry().create_provider(oauth_providers::STRAVA);
     assert!(provider.is_ok());
 
     let provider = provider.unwrap();
@@ -44,7 +37,11 @@ async fn test_create_tenant_provider() {
     let tenant_id = TenantId::generate();
     let user_id = Uuid::new_v4();
 
-    let tenant_provider = create_tenant_provider(oauth_providers::STRAVA, tenant_id, user_id);
+    let tenant_provider = offline_provider_registry().create_tenant_provider(
+        oauth_providers::STRAVA,
+        tenant_id,
+        user_id,
+    );
     assert!(tenant_provider.is_ok());
 
     let tenant_provider = tenant_provider.unwrap();

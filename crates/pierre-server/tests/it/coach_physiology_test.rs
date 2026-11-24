@@ -24,8 +24,8 @@ use std::sync::Arc;
 use std::time::Duration as StdDuration;
 
 use axum::http::StatusCode;
-use chrono::Utc;
 use common::{create_test_server_resources, create_test_user_with_plan, generate_test_token};
+use dravr_tronc::dates::Timestamp;
 use helpers::axum_test::AxumTestRequest;
 use pierre_core::models::groups::{
     CoachConsents, CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
@@ -90,7 +90,7 @@ async fn coached_group(
     let agent_id = create_group_agent(repos, owner.id, owner.tenant)
         .await
         .unwrap();
-    let now = Utc::now();
+    let now = Timestamp::now();
     let group = repos
         .groups
         .create_group(
@@ -110,6 +110,7 @@ async fn coached_group(
                 is_active: true,
                 channel_type: None,
                 channel_chat_id: None,
+                chat_connection: None,
                 created_at: now,
                 updated_at: now,
             },
@@ -129,7 +130,7 @@ async fn coached_group(
 }
 
 async fn join(repos: &RepositoryRegistry, group: &CoachingGroup, who: &Person) {
-    let now = Utc::now();
+    let now = Timestamp::now();
     repos
         .groups
         .add_member(&GroupMember {

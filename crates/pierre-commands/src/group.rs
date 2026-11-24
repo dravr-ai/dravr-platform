@@ -46,7 +46,7 @@ pub(crate) struct TargetGroup {
     /// `list_groups_for_user` path (which reports no tenant), the row's own
     /// when the command named the group by id.
     pub(crate) tenant_id: TenantId,
-    /// How the group was resolved, for the operator log line:
+    /// How the group was resolved, for the admin log line:
     /// `"conversation_group_id"`, `"list_groups_for_user_first"`,
     /// `"list_groups_for_user_all"` for a `/group consent` from a direct
     /// message, or `"named_group_id"` for a group a command named by id.
@@ -591,14 +591,14 @@ impl CommandHandler for GroupMembersHandler {
 /// Owner/admin only, both forms. `<name>` resolves a Dravr agent by
 /// (case-insensitive) title from the agents visible to the caller and points
 /// the group's `agent_id` at it, so that persona answers in the group
-/// thereafter. `detach` clears the group's *human* agent
-/// (`coaching_groups.coach_user_id`) — the attachment `/group invite agent`
+/// thereafter. `detach` clears the group's *human* coach
+/// (`coaching_groups.coach_user_id`) — the attachment `/group invite coach`
 /// creates — leaving the AI persona untouched, and is the only way to undo it
 /// from chat.
 #[derive(Debug)]
-pub struct GroupCoachHandler;
+pub struct GroupAgentHandler;
 
-impl GroupCoachHandler {
+impl GroupAgentHandler {
     /// The single authority on who may change the group's agent, shared by
     /// `execute` and `is_available`.
     fn permits(role: GroupRole) -> bool {
@@ -625,7 +625,7 @@ impl GroupCoachHandler {
 
         info!(
             group_id = %group.id,
-            "Group human coach detached via /group coach detach"
+            "Group human coach detached via /group agent detach"
         );
 
         Ok(CommandResponse::text(
@@ -639,7 +639,7 @@ impl GroupCoachHandler {
 }
 
 #[async_trait]
-impl CommandHandler for GroupCoachHandler {
+impl CommandHandler for GroupAgentHandler {
     async fn execute(&self, ctx: &PlatformCommandContext) -> Result<CommandResponse, AppError> {
         let reg = ctx.ctx.messaging_strings_registry();
         let locale = ctx.locale.as_str();
@@ -650,8 +650,8 @@ impl CommandHandler for GroupCoachHandler {
         let name = name.trim();
         if name.is_empty() {
             return Ok(CommandResponse::text(
-                "Usage: /group coach <name> — set this group's Dravr coach (e.g. /group coach 5K Marathon), \
-                 or /group coach detach to remove the group's human coach."
+                "Usage: /group agent <name> — set this group's Dravr agent (e.g. /group agent 5K Marathon), \
+                 or /group agent detach to remove the group's human coach."
                     .to_owned(),
             ));
         }
@@ -735,7 +735,7 @@ impl CommandHandler for GroupCoachHandler {
         info!(
             group_id = %updated.id,
             agent_id = %found.agent.id,
-            "Group AI coach updated via /group coach"
+            "Group agent updated via /group agent"
         );
 
         Ok(CommandResponse::text(format!(

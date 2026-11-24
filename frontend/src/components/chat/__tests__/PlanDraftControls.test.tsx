@@ -12,7 +12,7 @@ import type { DraftState, ReplyBlock, SubjectPlanResponse, WorkoutPlan } from '@
 import MessageItem from '../MessageItem';
 import MessageList from '../MessageList';
 import { ToastProvider } from '../../ui';
-import { QUERY_KEYS } from '../../../constants/queryKeys';
+import { QUERY_KEYS } from '@pierre/shared-constants';
 import type { Message } from '../types';
 
 const CONVERSATION_ID = 'conv-plan-alice';

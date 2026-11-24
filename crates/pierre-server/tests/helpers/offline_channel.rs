@@ -23,16 +23,16 @@ use std::collections::HashSet;
 use std::sync::{Arc, LazyLock, Mutex};
 
 use async_trait::async_trait;
-use chrono::Utc;
 use dravr_canot::channel::{dm_redirect, MessagingChannel};
 use dravr_canot::channels::telegram::transport::TelegramTransport;
 use dravr_canot::error::{MessagingError, MessagingResult};
 use dravr_canot::factory::create_adapter_from_config_with_api_base;
 use dravr_canot::turn::ConversationTurnId;
+use dravr_tronc::dates::Timestamp;
 use http::HeaderMap;
 use pierre_core::models::messaging::{
     ChannelConfig, ChannelType, DeliveryReceipt, DeliveryStatus, InboundReaction, IncomingMessage,
-    OutgoingMessage,
+    OutgoingMessage, SenderIdentityChange,
 };
 use pierre_services::channel_adapters::ChannelAdapterFactory;
 use serde_json::Value;
@@ -170,7 +170,7 @@ impl OfflineSendChannel {
             message_id: "offline-send".to_owned(),
             channel_message_id: None,
             status: DeliveryStatus::Sent,
-            timestamp: Utc::now(),
+            timestamp: Timestamp::now(),
             turn_id,
         }
     }
@@ -200,6 +200,14 @@ impl MessagingChannel for OfflineSendChannel {
         body: &[u8],
     ) -> MessagingResult<Vec<InboundReaction>> {
         self.inner.receive_reactions(headers, body).await
+    }
+
+    async fn receive_identity_changes(
+        &self,
+        headers: &HeaderMap,
+        body: &[u8],
+    ) -> MessagingResult<Vec<SenderIdentityChange>> {
+        self.inner.receive_identity_changes(headers, body).await
     }
 
     fn render(&self, msg: &OutgoingMessage) -> MessagingResult<Value> {

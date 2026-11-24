@@ -38,7 +38,8 @@ use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::hash::BuildHasher;
 
-use chrono::{DateTime, NaiveDate, Utc};
+use dravr_tronc::dates::{CivilDate, Timestamp};
+use pierre_core::civil_time::LOCAL_MINUTE;
 use pierre_core::civil_time::{
     clock_date, format_civil_day, format_local_stamp, local_date, relative_day, relative_day_label,
     resolve_zone,
@@ -95,7 +96,7 @@ pub fn format_activities_as_list<S: BuildHasher>(
     fragment_report: Option<&FragmentReport>,
     locale: &str,
     user_timezone: Option<&str>,
-    now: DateTime<Utc>,
+    now: Timestamp,
 ) -> String {
     // Resolved once per call, not per row. An absent or unparseable zone falls
     // back to UTC exactly as `format_current_date` does, so the list and the
@@ -105,7 +106,7 @@ pub fn format_activities_as_list<S: BuildHasher>(
     // `clock_date`, not `local_date`: a reading of the wall clock is never a
     // date-only sentinel, and the five-minute floor the prompt anchor applies
     // lands on midnight UTC once a day (see `format_clock_stamp`).
-    let today = clock_date(now, zone);
+    let today = clock_date(now, &zone);
 
     let mut lines = Vec::with_capacity(activities.len() + 6);
     lines.push("Your Activities:".to_owned());
@@ -114,7 +115,7 @@ pub fn format_activities_as_list<S: BuildHasher>(
     // rendered below.
     let newest = activities
         .iter()
-        .map(|a| local_date(a.start_date(), zone))
+        .map(|a| local_date(a.start_date(), &zone))
         .max();
     lines.push(newest.map_or_else(
         || format!("[Today] {}", format_civil_day(today, locale)),
@@ -147,14 +148,10 @@ pub fn format_activities_as_list<S: BuildHasher>(
                     providers = group.providers.join(" + "),
                     filled = filled_note(&group.filled_fields),
                     sport = localized_sport_name(&group.sport_type, locale),
-                    start = group
-                        .window_start
-                        .with_timezone(&zone)
-                        .format("%Y-%m-%d %H:%M"),
-                    end = group
-                        .window_end
-                        .with_timezone(&zone)
-                        .format("%Y-%m-%d %H:%M"),
+                    start = zone
+                        .format_with(group.window_start, &LOCAL_MINUTE),
+                    end = zone
+                        .format_with(group.window_end, &LOCAL_MINUTE),
                 ));
             }
             let unlisted = report.groups.len().saturating_sub(MERGE_NOTE_GROUP_LINES);
@@ -175,10 +172,10 @@ pub fn format_activities_as_list<S: BuildHasher>(
         // date is calendar arithmetic, the same error class the epoch table in
         // `prompt_assembly` exists to remove — and on 2026-09-02 it cost an
         // athlete three rounds of corrections before he left the conversation.
-        let date = format_local_stamp(activity.start_date(), zone, locale);
+        let date = format_local_stamp(activity.start_date(), &zone, locale);
         // Same date the stamp shows (`local_date` keeps a date-only row on the
         // day its provider named), so the tag can never disagree with it.
-        let day_tag = relative_day_tag(local_date(activity.start_date(), zone), today, locale);
+        let day_tag = relative_day_tag(local_date(activity.start_date(), &zone), today, locale);
         // Render the sport with its localized short label (fr "trail"/"rando",
         // not the English "trail run") so the list reads natively in the user's
         // chat language; `Other` keeps its provider-supplied label, unknown
@@ -295,7 +292,7 @@ fn moving_label(locale: &str) -> &'static str {
 /// athlete's calendar, and nothing for any other day — a plain date already
 /// carries its weekday, and "two days ago" is not how anyone refers to a
 /// session.
-fn relative_day_tag(day: NaiveDate, today: NaiveDate, locale: &str) -> String {
+fn relative_day_tag(day: CivilDate, today: CivilDate, locale: &str) -> String {
     relative_day(day, today).map_or_else(String::new, |rel| {
         format!(" ({})", relative_day_label(rel, locale))
     })
@@ -325,7 +322,6 @@ fn filled_note(filled: &[FilledField]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::TimeZone;
     use pierre_core::models::{ActivityBuilder, SportType};
     use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
 
@@ -334,7 +330,7 @@ mod tests {
             id,
             format!("Ride {id}"),
             SportType::Ride,
-            Utc.with_ymd_and_hms(2026, 9, 20, 17, 0, 0).unwrap(),
+            Timestamp::parse_from_rfc3339("2026-09-20T17:00:00Z").unwrap(),
             3_600,
             "intervals_icu",
         )
@@ -347,7 +343,7 @@ mod tests {
         // The list is one calendar, the athlete's stored zone: the 2026-08-28
         // "two calendars in one prompt" failure. The recording's own clock is
         // the activity view's, never this list's, even when it moves the day.
-        let start = Utc.with_ymd_and_hms(2026, 9, 20, 2, 59, 3).unwrap();
+        let start = Timestamp::parse_from_rfc3339("2026-09-20T02:59:03Z").unwrap();
         let rendered = |offset: Option<i32>| {
             format_activities_as_list(
                 &[
@@ -359,7 +355,7 @@ mod tests {
                 None,
                 "en",
                 Some("America/Toronto"),
-                Utc.with_ymd_and_hms(2026, 9, 25, 12, 0, 0).unwrap(),
+                Timestamp::parse_from_rfc3339("2026-09-25T12:00:00Z").unwrap(),
             )
         };
         let without = rendered(None);
@@ -374,7 +370,7 @@ mod tests {
         // The session's offset comes from the recording that covered it, and
         // the merge note lists what a session took: the second calendar must
         // not reach the model through that list either.
-        let start = Utc.with_ymd_and_hms(2026, 9, 20, 14, 0, 0).unwrap();
+        let start = Timestamp::parse_from_rfc3339("2026-09-20T14:00:00Z").unwrap();
         let rendered = |offset: Option<i32>| {
             let (sessions, report) = merge_duplicates(
                 vec![
@@ -395,7 +391,7 @@ mod tests {
                 Some(&report),
                 "en",
                 Some("America/Toronto"),
-                Utc.with_ymd_and_hms(2026, 9, 25, 12, 0, 0).unwrap(),
+                Timestamp::parse_from_rfc3339("2026-09-25T12:00:00Z").unwrap(),
             )
         };
         let without = rendered(None);
@@ -415,7 +411,7 @@ mod tests {
             None,
             "en",
             Some("America/Toronto"),
-            Utc.with_ymd_and_hms(2026, 9, 25, 12, 0, 0).unwrap(),
+            Timestamp::parse_from_rfc3339("2026-09-25T12:00:00Z").unwrap(),
         );
         assert!(
             rendered.contains("] Ride g (Garmin) - 2026-09-20"),
@@ -430,7 +426,7 @@ mod tests {
             "s",
             "Ride s",
             SportType::Ride,
-            Utc.with_ymd_and_hms(2026, 9, 20, 17, 0, 0).unwrap(),
+            Timestamp::parse_from_rfc3339("2026-09-20T17:00:00Z").unwrap(),
             3_600,
             "intervals_icu",
         )
@@ -443,7 +439,7 @@ mod tests {
             None,
             "en",
             Some("America/Toronto"),
-            Utc.with_ymd_and_hms(2026, 9, 25, 12, 0, 0).unwrap(),
+            Timestamp::parse_from_rfc3339("2026-09-25T12:00:00Z").unwrap(),
         );
         assert!(
             rendered.contains("] Ride s (Garmin Edge 840) - 2026-09-20"),
@@ -458,7 +454,7 @@ mod tests {
             "c",
             "Ride c",
             SportType::Ride,
-            Utc.with_ymd_and_hms(2026, 9, 20, 17, 0, 0).unwrap(),
+            Timestamp::parse_from_rfc3339("2026-09-20T17:00:00Z").unwrap(),
             3_600,
             "intervals_icu",
         )
@@ -471,7 +467,7 @@ mod tests {
             None,
             "en",
             Some("America/Toronto"),
-            Utc.with_ymd_and_hms(2026, 9, 25, 12, 0, 0).unwrap(),
+            Timestamp::parse_from_rfc3339("2026-09-25T12:00:00Z").unwrap(),
         );
         assert!(
             rendered.contains("] Ride c (COROS DURA) - 2026-09-20"),
@@ -486,7 +482,7 @@ mod tests {
 
     #[test]
     fn a_long_stop_shows_moving_time_beside_elapsed_time() {
-        let start = Utc.with_ymd_and_hms(2026, 11, 7, 13, 0, 0).unwrap();
+        let start = Timestamp::parse_from_rfc3339("2026-11-07T13:00:00Z").unwrap();
         let outing = ActivityBuilder::new(
             "16001",
             "Bûcheronner !",
@@ -507,7 +503,7 @@ mod tests {
             None,
             "fr",
             Some("America/Toronto"),
-            Utc.with_ymd_and_hms(2026, 11, 9, 12, 0, 0).unwrap(),
+            Timestamp::parse_from_rfc3339("2026-11-09T12:00:00Z").unwrap(),
         );
         assert!(
             rendered.contains("3:42:00 (1:08:00 en mouvement)"),

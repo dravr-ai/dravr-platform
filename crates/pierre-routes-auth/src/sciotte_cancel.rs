@@ -252,7 +252,7 @@ pub(crate) async fn refuse_cancelled_outcome(
 ///
 /// A `409`, which `response_failure_log_middleware` records below `ERROR`, and
 /// routed around the system-failure path: the window that sent the step
-/// closed and asked for exactly this, so there is nothing for an operator to
+/// closed and asked for exactly this, so there is nothing for an admin to
 /// see and no failed sync to count.
 pub(crate) fn login_cancelled_refusal() -> AppError {
     let mut refusal = AppError::new(ErrorCode::ResourceLocked, "This sign-in was cancelled.");
@@ -325,7 +325,7 @@ async fn stop_on_service(
 ///
 /// Best effort: a cache or a service that cannot be reached is logged at
 /// `WARN`, never answered as a failure, since nobody waits on the answer and
-/// no operator has anything to do about a cancel that did not arrive (the
+/// no admin has anything to do about a cancel that did not arrive (the
 /// login ends on its own budget).
 pub(crate) async fn handle_sciotte_cancel(
     State(resources): State<AuthRoutesContext>,

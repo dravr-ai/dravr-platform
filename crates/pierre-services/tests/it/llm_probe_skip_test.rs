@@ -13,7 +13,8 @@
 
 use std::time::Duration;
 
-use pierre_services::chat_provider_factory::{probe_request, should_skip_probe};
+use dravr_tronc::dates::Timestamp;
+use pierre_services::chat_provider_factory::should_skip_probe;
 
 const INTERVAL: Duration = Duration::from_mins(30);
 
@@ -53,7 +54,7 @@ async fn piggyback_stamps_the_real_success_time_not_now() {
     // success time, not `now`, or `/health/llm` overstates freshness.
     let state = LlmHealthState::new();
     let observed_ago = Duration::from_mins(10);
-    let before = chrono::Utc::now();
+    let before = Timestamp::now();
     state
         .record_healthy_observed("copilot_headless", observed_ago)
         .await;
@@ -67,16 +68,4 @@ async fn piggyback_stamps_the_real_success_time_not_now() {
         (590..=610).contains(&age_secs),
         "checked_at must trail now by ~observed_ago (600s), got {age_secs}s"
     );
-}
-
-#[test]
-fn the_probe_request_carries_no_output_cap() {
-    // Claude Code treats an output cap the answer exceeds as an error
-    // ("Claude's response exceeded the 1 output token maximum", is_error,
-    // exit 1), so a one-token cap made the probe fail on Claude at every
-    // instance start while the chain's later tiers answered "ping" for it.
-    let request = probe_request();
-    assert_eq!(request.max_tokens, None, "no cap the answer could exceed");
-    assert_eq!(request.messages.len(), 1);
-    assert_eq!(request.messages[0].content, "ping");
 }

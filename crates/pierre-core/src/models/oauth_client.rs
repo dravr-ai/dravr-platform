@@ -6,7 +6,7 @@
 
 use std::fmt;
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use uuid::Uuid;
 
 /// Server-side OAuth client state for CSRF protection and PKCE verifier storage
@@ -39,9 +39,9 @@ pub struct OAuthClientState {
     /// `None` means the env-default `STRAVA_CLIENT_ID` app.
     pub oauth_app_client_id: Option<String>,
     /// When this state was created
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
     /// When this state expires (typically 10 minutes)
-    pub expires_at: DateTime<Utc>,
+    pub expires_at: Timestamp,
     /// Whether this state has been consumed (one-time use)
     pub used: bool,
 }

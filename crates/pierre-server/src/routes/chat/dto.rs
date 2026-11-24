@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use chrono::NaiveDate;
+use dravr_tronc::dates::CivilDate;
 use photograveur::{resolve_all, Locale};
 use pierre_chat_pipeline::stages::viz_blocks::strip_markers;
 use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
@@ -17,6 +17,9 @@ use pierre_core::models::{
 use pierre_services::coach_plan_draft::DraftState;
 use pierre_services::plan_card::{PlanCard, PlanSubject};
 use pierre_services::plan_card_history::word_stored_outside_evidence;
+use pierre_tool_runtime::implementations::coach_session_editor::{
+    AddedSession, CatalogueFamily, HandDay, SessionBuild, SessionExpect,
+};
 use pierre_tool_runtime::implementations::training_plans_output::CalendarPushOutcome;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -344,7 +347,7 @@ pub(super) struct AthletePlanResponse {
     /// Whose plan it is.
     pub athlete: PlanSubject,
     /// The athlete's civil date the plan is projected on, `YYYY-MM-DD`.
-    pub today: NaiveDate,
+    pub today: CivilDate,
     /// The athlete's live plan, as `GET /api/me/training-plan` shapes it;
     /// `null` when they have none.
     pub live: Option<PlanCard>,
@@ -358,7 +361,7 @@ pub(super) struct SubjectPlanResponse {
     /// Whose plan: the athlete a card in the thread names as its `subject`.
     pub athlete: PlanSubject,
     /// The athlete's civil date both plans are projected on, `YYYY-MM-DD`.
-    pub today: NaiveDate,
+    pub today: CivilDate,
     /// The athlete's live plan, as `GET /api/me/training-plan` shapes it;
     /// `null` when they have none.
     pub live: Option<PlanCard>,
@@ -421,6 +424,57 @@ pub(super) struct PublishConflictDetails {
     /// `plan_publish_conflict`.
     pub reason: &'static str,
 }
+
+/// `GET /api/chat/conversations/{id}/subject-plan/families`: the workout
+/// families the coach's editor builds a day from (carnet#1515).
+#[derive(Debug, Serialize)]
+pub(super) struct FamilyCatalogueResponse {
+    /// The families the thread's agent offers, in the catalogue's order.
+    pub families: Vec<CatalogueFamily>,
+}
+
+/// `POST …/subject-plan/session-preview` body: a build, for one of the
+/// athlete's days.
+#[derive(Debug, Deserialize)]
+pub(super) struct SessionPreviewRequest {
+    /// The day, `YYYY-MM-DD`.
+    pub date: String,
+    /// The family, preset, sport and values.
+    #[serde(flatten)]
+    pub build: SessionBuild,
+}
+
+/// `PUT …/subject-plan/draft/days/{date}/{n}` body: a family build over
+/// session n of the date, as the client last saw it (carnet#1716).
+#[derive(Debug, Deserialize)]
+pub(super) struct DraftSessionRequest {
+    /// The family, preset, sport and values.
+    pub build: SessionBuild,
+    /// Session n as the card showed it.
+    pub expect: SessionExpect,
+}
+
+/// `PUT …/subject-plan/draft/days/{date}/{n}/session` body: session n written
+/// by hand, or made a rest entry (carnet#1714, carnet#1716).
+#[derive(Debug, Deserialize)]
+pub(super) struct HandSessionRequest {
+    /// The session as the coach wrote it.
+    pub day: HandDay,
+    /// Session n as the card showed it.
+    pub expect: SessionExpect,
+}
+
+/// `POST …/subject-plan/draft/days/{date}/{n}/restore` and `…/remove` body:
+/// session n as the client last saw it (carnet#1716).
+#[derive(Debug, Deserialize)]
+pub(super) struct SessionExpectRequest {
+    /// Session n as the card showed it.
+    pub expect: SessionExpect,
+}
+
+/// `POST …/subject-plan/draft/days/{date}/sessions` body: exactly one of
+/// `{ "build": … }` or `{ "day": … }` (carnet#1716).
+pub(super) type AddSessionRequest = AddedSession;
 
 /// The caller's personal thread, as `GET /api/chat/personal` finds it.
 #[derive(Debug, Serialize, Deserialize)]

@@ -11,6 +11,7 @@ import { adminApi } from '../services/api/admin';
 import type { VerdictHealthStats, VerdictKnob } from '../services/api/admin';
 import type { ClaimVerdict } from '@pierre/shared-types';
 import { CLAIM_VERDICT_LAYERS, VERDICT_DISPOSITIONS, VERDICT_STATUS_TONE } from '@pierre/shared-types';
+import { QUERY_KEYS } from '@pierre/shared-constants';
 import { Card, Button, Badge, Select, Input, Section } from './ui';
 import type { BadgeTone } from './ui';
 import VerdictDrawer from './chat/VerdictDrawer';
@@ -240,17 +241,14 @@ export default function ClaimVerdictsTab() {
 
   const queryKey = useMemo(
     () =>
-      [
-        'admin',
-        'claim-verdicts',
-        requested,
-        statusFilter,
-        categoryFilter,
-        coachFilter,
-        layerFilter,
-        dispositionFilter,
+      QUERY_KEYS.adminClaimVerdicts.page(requested, {
+        status: statusFilter,
+        category: categoryFilter,
+        coach: coachFilter,
+        layer: layerFilter,
+        disposition: dispositionFilter,
         limit,
-      ] as const,
+      }),
     [requested, statusFilter, categoryFilter, coachFilter, layerFilter, dispositionFilter, limit],
   );
 
@@ -269,7 +267,7 @@ export default function ClaimVerdictsTab() {
   });
 
   const healthQuery = useQuery({
-    queryKey: ['admin', 'claim-verdicts-health', requested, windowDays] as const,
+    queryKey: QUERY_KEYS.adminClaimVerdicts.health(requested, windowDays),
     queryFn: () => adminApi.getClaimVerdictHealth(requested, windowDays),
   });
 
@@ -284,7 +282,7 @@ export default function ClaimVerdictsTab() {
   }
 
   const lookupQuery = useQuery({
-    queryKey: ['admin', 'claim-verdicts-message', requested, lookupMessageId] as const,
+    queryKey: QUERY_KEYS.adminClaimVerdicts.message(requested, lookupMessageId),
     queryFn: () => adminApi.listVerdictsForMessage(lookupMessageId, requested),
     enabled: Boolean(lookupMessageId),
   });
@@ -295,7 +293,7 @@ export default function ClaimVerdictsTab() {
   // every-tenant read that is the only place to learn which one holds it.
   const knobs = useQueries({
     queries: drawerVerdicts.map((v) => ({
-      queryKey: ['admin', 'claim-verdict', v.tenant_id, v.id] as const,
+      queryKey: QUERY_KEYS.adminClaimVerdicts.detail(v.tenant_id, v.id),
       queryFn: () => adminApi.getClaimVerdict(v.id, tenantHolding(v)),
     })),
     combine: (results): Record<string, VerdictKnob | undefined> =>
@@ -312,11 +310,11 @@ export default function ClaimVerdictsTab() {
       }),
     onSuccess: (detail) => {
       setDrawerVerdicts((rows) => rows.map((r) => (r.id === detail.verdict.id ? detail.verdict : r)));
-      void queryClient.invalidateQueries({ queryKey: ['admin', 'claim-verdicts'] });
-      void queryClient.invalidateQueries({ queryKey: ['admin', 'claim-verdicts-health'] });
-      void queryClient.invalidateQueries({ queryKey: ['admin', 'claim-verdicts-message'] });
+      void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.adminClaimVerdicts.allPages() });
+      void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.adminClaimVerdicts.allHealth() });
+      void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.adminClaimVerdicts.allMessages() });
       void queryClient.invalidateQueries({
-        queryKey: ['admin', 'claim-verdict', detail.verdict.tenant_id, detail.verdict.id],
+        queryKey: QUERY_KEYS.adminClaimVerdicts.detail(detail.verdict.tenant_id, detail.verdict.id),
       });
     },
   });

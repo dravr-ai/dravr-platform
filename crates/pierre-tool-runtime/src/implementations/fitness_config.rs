@@ -19,7 +19,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use serde::Serialize;
 use serde_json::Value;
 
@@ -68,7 +68,7 @@ pub struct SetFitnessConfigResult {
     pub configuration_name: String,
     /// Whether it was saved for one athlete or for the whole tenant.
     pub user_level: bool,
-    /// What to tell the operator, already written.
+    /// What to tell the admin, already written.
     pub message: String,
     /// RFC 3339 timestamp of the write.
     pub saved_at: String,
@@ -104,7 +104,7 @@ pub struct DeleteFitnessConfigResult {
     pub configuration_name: String,
     /// Whether the delete was scoped to one athlete or the whole tenant.
     pub user_level: bool,
-    /// What to tell the operator, already written.
+    /// What to tell the admin, already written.
     pub message: String,
     /// RFC 3339 timestamp of the delete. Absent when nothing was deleted.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -199,7 +199,7 @@ impl McpTool<dyn ToolRuntime> for GetFitnessConfigTool {
                             message: Some(format!(
                                 "No configuration found with name '{configuration_name}'"
                             )),
-                            retrieved_at: Utc::now().to_rfc3339(),
+                            retrieved_at: Timestamp::now().to_rfc3339(),
                         },
                     )
                 },
@@ -211,7 +211,7 @@ impl McpTool<dyn ToolRuntime> for GetFitnessConfigTool {
                             config: Some(fitness_config),
                             source: "database".to_owned(),
                             message: None,
-                            retrieved_at: Utc::now().to_rfc3339(),
+                            retrieved_at: Timestamp::now().to_rfc3339(),
                         },
                     )
                 },
@@ -337,7 +337,7 @@ impl McpTool<dyn ToolRuntime> for SetFitnessConfigTool {
                     configuration_name: configuration_name.to_owned(),
                     user_level,
                     message: format!("Configuration '{configuration_name}' saved successfully"),
-                    saved_at: Utc::now().to_rfc3339(),
+                    saved_at: Timestamp::now().to_rfc3339(),
                 },
             )
         }
@@ -434,7 +434,7 @@ impl McpTool<dyn ToolRuntime> for ListFitnessConfigsTool {
                     configurations: all_configs,
                     user_specific: user_configs,
                     tenant_level: tenant_configs,
-                    retrieved_at: Utc::now().to_rfc3339(),
+                    retrieved_at: Timestamp::now().to_rfc3339(),
                 },
             )
         }
@@ -541,7 +541,7 @@ impl McpTool<dyn ToolRuntime> for DeleteFitnessConfigTool {
                         message: format!(
                             "Configuration '{configuration_name}' deleted successfully"
                         ),
-                        deleted_at: Some(Utc::now().to_rfc3339()),
+                        deleted_at: Some(Timestamp::now().to_rfc3339()),
                     }
                 } else {
                     DeleteFitnessConfigResult {

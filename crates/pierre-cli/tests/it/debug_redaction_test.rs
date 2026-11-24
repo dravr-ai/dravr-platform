@@ -11,11 +11,11 @@ fn a_device_login_never_prints_its_access_token() {
     let login = DeviceLogin {
         access_token: "sentinel-admin-token-7f3a".to_owned(),
         token_type: "Bearer".to_owned(),
-        subject: Some("operator@dravr.ai".to_owned()),
+        subject: Some("admin@dravr.ai".to_owned()),
     };
     for printed in [format!("{login:?}"), format!("{login:#?}")] {
         assert!(!printed.contains("sentinel-admin-token-7f3a"), "{printed}");
         assert!(printed.contains("[REDACTED]"), "{printed}");
-        assert!(printed.contains("operator@dravr.ai"), "{printed}");
+        assert!(printed.contains("admin@dravr.ai"), "{printed}");
     }
 }

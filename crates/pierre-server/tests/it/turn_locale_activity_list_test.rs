@@ -17,10 +17,10 @@ use crate::common;
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
-use chrono::{Duration, Utc};
 use common::{
     create_test_server_resources, create_test_server_resources_with_llm, create_test_user,
 };
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use futures_util::stream;
 use pierre_chat_pipeline::{
     CommandPersistence, InputSource, PipelineHooks, ReplyBlock, ServedTurn, SurfaceProfile,
@@ -78,7 +78,7 @@ async fn french_athlete_with_a_ride(resources: &Arc<ServerContext>) -> (Uuid, Te
         "strava-ride-locale".to_owned(),
         "Sortie longue".to_owned(),
         SportType::Ride,
-        Utc::now() - Duration::days(1),
+        Timestamp::now() - Elapsed::days(1),
         3_600,
         "strava".to_owned(),
     )
@@ -251,6 +251,7 @@ async fn an_english_turn_folds_an_english_list_into_its_reply() {
             ambient_group_fallback: false,
             command_persistence: CommandPersistence::Always,
             sender_id: None,
+            caller: None,
             hooks: PipelineHooks::none(),
             grant: OAuthScope::self_grant(),
         },
@@ -289,7 +290,7 @@ async fn an_english_turn_folds_an_english_list_into_its_reply() {
 async fn an_english_turn_on_a_french_profile_lists_in_english() {
     let resources = create_test_server_resources().await.expect("resources");
     let (user_id, tenant) = french_athlete_with_a_ride(&resources).await;
-    let today = Utc::now().date_naive();
+    let today = Timestamp::now().utc_date();
 
     let english = activity_list_in(&resources, user_id, tenant, Some("en")).await;
     assert!(

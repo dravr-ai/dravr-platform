@@ -1,4 +1,4 @@
-// ABOUTME: Operator-tunable settings for the email-verification flow, read from system_settings
+// ABOUTME: Admin-tunable settings for the email-verification flow, read from system_settings
 // ABOUTME: Clamps every stored value to a documented range so a bad row degrades instead of disabling the gate
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -6,7 +6,7 @@
 
 //! Runtime settings for email-address verification.
 //!
-//! The link lifetime and the per-hour send cap are operator knobs, resolved per
+//! The link lifetime and the per-hour send cap are admin knobs, resolved per
 //! use from `system_settings` with the compiled defaults as the fallback — the
 //! same store `AUTO_APPROVE_USERS` reads, and deliberately **not** the runtime
 //! configuration catalog: that surface is per-user and per-tenant overridable,

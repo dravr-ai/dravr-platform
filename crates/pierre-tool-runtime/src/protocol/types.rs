@@ -151,6 +151,18 @@ pub fn guardian_block_reason(response: &UniversalResponse) -> Option<&str> {
     metadata_str(response, "blocked_reason").filter(|reason| *reason == "guardian")
 }
 
+/// Whether the dispatch chokepoint refused the call on the caller's consent
+/// grant (its ceiling or its daily row budget), read only from the metadata
+/// the chokepoint stamps: a tool cannot claim it.
+#[must_use]
+pub fn grant_block(response: &UniversalResponse) -> bool {
+    !response.success && metadata_str(response, "blocked_reason") == Some(GRANT_BLOCK)
+}
+
+/// The `blocked_reason` the chokepoint stamps on a refusal by the caller's
+/// consent grant ([`grant_block`]).
+pub(crate) const GRANT_BLOCK: &str = "grant";
+
 /// A string `key` of the response's chokepoint-stamped metadata, if one is there.
 #[must_use]
 pub(crate) fn metadata_str<'response>(

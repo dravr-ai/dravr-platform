@@ -8,7 +8,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::fmt;
 use std::sync::{Arc, Mutex, PoisonError};
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_database::backends::shared::key_material::KEYSET_RELOAD_FAILED;
 use pierre_database::backends::shared::keyring::{KeyFamily, Keyring, KeyringCell};
@@ -82,7 +82,7 @@ impl KeysetLoader {
     ///
     /// When the keyset or a key cannot be read or unwrapped.
     pub async fn load(&self, security: &dyn SecurityRepository) -> AppResult<()> {
-        let issued = Utc::now();
+        let issued = Timestamp::now();
         let ring = match read_keyset(security).await? {
             Some((_, doc)) => self.ring_from_document(security, &doc).await?,
             None => self.legacy_ring(security).await?,
@@ -107,7 +107,7 @@ impl KeysetLoader {
     /// When the keyset or a new key cannot be read or unwrapped; the cell
     /// keeps its current keyring.
     pub async fn refresh(&self, security: &dyn SecurityRepository) -> AppResult<bool> {
-        let issued = Utc::now();
+        let issued = Timestamp::now();
         let current = self.cell.current();
         match read_keyset(security).await? {
             Some((_, doc)) if current.adopted() && doc.revision == current.revision() => {

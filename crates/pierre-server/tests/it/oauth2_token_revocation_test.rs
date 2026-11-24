@@ -26,8 +26,9 @@ use axum::extract::connect_info::MockConnectInfo;
 use axum::http::Request;
 use axum::Router;
 use base64::{engine::general_purpose, Engine as _};
-use chrono::{DateTime, Duration, SubsecRound, Utc};
-use pierre_auth::auth::DelegatedGrant;
+use dravr_tronc::dates::{Elapsed, Timestamp};
+use jsonwebtoken::dangerous::insecure_decode;
+use pierre_auth::auth::{Claims, DelegatedGrant};
 use pierre_auth::oauth2_server::client_registration::ClientRegistrationManager;
 use pierre_auth::oauth2_server::endpoints::OAuth2AuthorizationServer;
 use pierre_auth::oauth2_server::first_party::{MOBILE_CLIENT_ID, WEB_CLIENT_ID};
@@ -70,6 +71,7 @@ fn oauth2_routes(resources: &Arc<ServerContext>) -> Router {
         jwks_manager: resources.auth.jwks_manager.clone(),
         config: Arc::new(resources.common.config.oauth2_server.clone()),
         refresh_token_expiry_days: 30,
+        session_cookie_max_age_secs: 86_400,
         csrf_manager: resources.auth.csrf_manager.clone(),
         accounts: resources.account_service(),
         google_sign_in: None,
@@ -177,6 +179,8 @@ async fn connect(world: &World) -> Connection {
                 code_challenge: Some(challenge()),
                 code_challenge_method: Some("S256".to_owned()),
                 resource: None,
+                request_uri: None,
+                authorization_details: None,
             },
             Some(world.user_id),
             Some(world.tenant_id.to_string()),
@@ -211,10 +215,12 @@ async fn connect(world: &World) -> Connection {
             tenant_id: world.tenant_id.to_string(),
             client_id: client.id.clone(),
             scope: SCOPE.to_owned(),
-            granted_at: Utc::now(),
+            granted_at: Timestamp::now(),
             revoked_at: None,
             consent_version: None,
             consent_locale: None,
+            authorization_details: None,
+            expires_at: None,
         })
         .await
         .unwrap();
@@ -251,6 +257,49 @@ fn assert_invalid_grant(response: &AxumTestResponse) {
     assert_eq!(response.status(), 400, "{}", response.body_text());
     let body: Value = serde_json::from_str(&response.body_text()).unwrap();
     assert_eq!(body["error"], "invalid_grant", "{body}");
+}
+
+/// Every access token of one authorization names its refresh family as its
+/// `grant_id`: the grant an admin's support session is bound to, and that
+/// a revocation ends it with (carnet#1511). The code exchange starts the
+/// family, a refresh keeps it, and another authorization is another family.
+#[tokio::test]
+async fn every_access_token_of_one_authorization_names_its_refresh_family() {
+    let world = world().await;
+    let connection = connect(&world).await;
+    let family = world
+        .resources
+        .common
+        .repos
+        .oauth2_server
+        .get_refresh_token_by_value(&connection.refresh_token)
+        .await
+        .unwrap()
+        .expect("the stored refresh token")
+        .family_id;
+    let grant_of = |token: &str| insecure_decode::<Claims>(token).unwrap().claims.grant_id;
+    assert_eq!(
+        grant_of(&connection.access_token).as_deref(),
+        Some(family.as_str()),
+        "bug: the code exchange's token names the family it starts"
+    );
+
+    let response = refresh(&world, &connection.client, &connection.refresh_token).await;
+    assert_eq!(response.status(), 200, "{}", response.body_text());
+    let body: Value = response.json();
+    let rotated = body["access_token"].as_str().unwrap();
+    assert_eq!(
+        grant_of(rotated).as_deref(),
+        Some(family.as_str()),
+        "bug: a refreshed token keeps its family"
+    );
+
+    let other = connect(&world).await;
+    assert_ne!(
+        grant_of(&other.access_token),
+        Some(family),
+        "bug: another authorization is another grant"
+    );
 }
 
 /// O6: the defect. Revoking the grant leaves the refresh token alive.
@@ -304,6 +353,8 @@ async fn a_code_issued_before_its_grant_was_revoked_is_not_redeemed() {
                 code_challenge: Some(challenge()),
                 code_challenge_method: Some("S256".to_owned()),
                 resource: None,
+                request_uri: None,
+                authorization_details: None,
             },
             Some(world.user_id),
             Some(world.tenant_id.to_string()),
@@ -367,12 +418,13 @@ async fn a_token_written_after_its_grant_was_revoked_does_not_survive() {
             user_id: world.user_id,
             tenant_id: tenant_id.clone(),
             scope: Some(SCOPE.to_owned()),
-            expires_at: Utc::now() + Duration::days(1),
-            created_at: Utc::now(),
+            expires_at: Timestamp::now() + Elapsed::days(1),
+            created_at: Timestamp::now(),
             revoked: false,
             family_id: Uuid::new_v4().to_string(),
             resource: None,
-            family_created_at: Some(Utc::now()),
+            family_created_at: Some(Timestamp::now()),
+            client_grant_id: None,
         })
         .await
         .unwrap();
@@ -443,7 +495,7 @@ async fn a_client_revokes_its_refresh_token_at_the_revocation_endpoint() {
 async fn stored_refresh_token(
     world: &World,
     client: &Client,
-    family_created_at: Option<DateTime<Utc>>,
+    family_created_at: Option<Timestamp>,
 ) -> String {
     let raw = format!("rt-{}", Uuid::new_v4());
     world
@@ -457,12 +509,13 @@ async fn stored_refresh_token(
             user_id: world.user_id,
             tenant_id: world.tenant_id.to_string(),
             scope: Some(SCOPE.to_owned()),
-            expires_at: Utc::now() + Duration::days(30),
-            created_at: Utc::now(),
+            expires_at: Timestamp::now() + Elapsed::days(30),
+            created_at: Timestamp::now(),
             revoked: false,
             family_id: Uuid::new_v4().to_string(),
             family_created_at,
             resource: None,
+            client_grant_id: None,
         })
         .await
         .unwrap();
@@ -480,14 +533,17 @@ async fn a_refresh_family_has_an_absolute_lifetime_and_a_legacy_one_has_none() {
     let spent = stored_refresh_token(
         &world,
         &client,
-        Some(Utc::now() - Duration::days(REFRESH_FAMILY_MAX_DAYS + 1)),
+        Some(Timestamp::now() - Elapsed::days(REFRESH_FAMILY_MAX_DAYS + 1)),
     )
     .await;
     assert_invalid_grant(&refresh(&world, &client, &spent).await);
 
     // Close to the end: it still refreshes, but the successor cannot outlive
     // the family.
-    let started = (Utc::now() - Duration::days(REFRESH_FAMILY_MAX_DAYS - 2)).trunc_subsecs(0);
+    let started = Timestamp::from_epoch_seconds(
+        (Timestamp::now() - Elapsed::days(REFRESH_FAMILY_MAX_DAYS - 2)).epoch_seconds(),
+    )
+    .unwrap();
     let aging = stored_refresh_token(&world, &client, Some(started)).await;
     let successor = refresh_ok(&world, &client, &aging).await;
     let stored = repos
@@ -495,9 +551,9 @@ async fn a_refresh_family_has_an_absolute_lifetime_and_a_legacy_one_has_none() {
         .await
         .unwrap()
         .expect("the successor is stored");
-    let deadline = started + Duration::days(REFRESH_FAMILY_MAX_DAYS);
+    let deadline = started + Elapsed::days(REFRESH_FAMILY_MAX_DAYS);
     assert!(
-        stored.expires_at <= deadline + Duration::seconds(1),
+        stored.expires_at <= deadline + Elapsed::seconds(1),
         "the successor expires at {}, past the family deadline {deadline}",
         stored.expires_at
     );
@@ -513,7 +569,7 @@ async fn a_refresh_family_has_an_absolute_lifetime_and_a_legacy_one_has_none() {
         .unwrap()
         .unwrap();
     assert_eq!(stored.family_created_at, None);
-    assert!(stored.expires_at > Utc::now() + Duration::days(29));
+    assert!(stored.expires_at > Timestamp::now() + Elapsed::days(29));
 }
 
 /// A new connection stamps its family so the lifetime has a start.
@@ -531,7 +587,7 @@ async fn a_connection_stamps_when_its_refresh_family_began() {
         .unwrap()
         .unwrap();
     let stamped = stored.family_created_at.expect("a new family is stamped");
-    assert!((Utc::now() - stamped).num_seconds().abs() < 60);
+    assert!((Timestamp::now() - stamped).num_seconds().abs() < 60);
 }
 
 /// Design exit criterion 7: deleting the account ends every token it holds.
@@ -820,10 +876,12 @@ async fn consenting_again_does_not_revive_a_token_from_before_the_revocation() {
             tenant_id: world.tenant_id.to_string(),
             client_id: connection.client.id.clone(),
             scope: SCOPE.to_owned(),
-            granted_at: Utc::now(),
+            granted_at: Timestamp::now(),
             revoked_at: None,
             consent_version: None,
             consent_locale: None,
+            authorization_details: None,
+            expires_at: None,
         })
         .await
         .unwrap();
@@ -855,7 +913,6 @@ async fn consenting_again_does_not_revive_a_token_from_before_the_revocation() {
                 audience: None,
             },
             &world.user_id,
-            &[],
             Some(world.tenant_id.to_string()),
         )
         .unwrap();
@@ -904,10 +961,12 @@ async fn a_standing_is_held_for_its_window_and_forgotten_on_demand() {
             tenant_id: tenant.clone(),
             client_id: client.to_owned(),
             scope: SCOPE.to_owned(),
-            granted_at: Utc::now(),
+            granted_at: Timestamp::now(),
             revoked_at: None,
             consent_version: None,
             consent_locale: None,
+            authorization_details: None,
+            expires_at: None,
         })
         .await
         .unwrap();
@@ -1043,7 +1102,6 @@ fn token_holding_every_scope(world: &World, connection: &Connection) -> String {
                 audience: None,
             },
             &world.user_id,
-            &[],
             Some(world.tenant_id.to_string()),
         )
         .unwrap()

@@ -55,7 +55,7 @@
 use std::sync::Arc;
 use std::time::Duration as StdDuration;
 
-use chrono::{DateTime, Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
 use pierre_cache::{CacheKey, CacheProvider, CacheResource};
 use pierre_core::constants::oauth::providers as oauth_providers;
@@ -239,8 +239,8 @@ fn mint_link_token_with_ttl(
     admin_jwt_secret: &str,
     ttl_minutes: i64,
 ) -> AppResult<String> {
-    let now = Utc::now();
-    let expiry = now + Duration::minutes(ttl_minutes);
+    let now = Timestamp::now();
+    let expiry = now + Elapsed::minutes(ttl_minutes);
 
     let claims = ProviderLinkTokenClaims {
         sub: args.user_id.to_string(),
@@ -252,8 +252,8 @@ fn mint_link_token_with_ttl(
         jti: Uuid::new_v4().to_string(),
         iss: PROVIDER_LINK_TOKEN_ISSUER.to_owned(),
         aud: PROVIDER_LINK_TOKEN_AUDIENCE.to_owned(),
-        iat: now.timestamp(),
-        exp: expiry.timestamp(),
+        iat: now.epoch_seconds(),
+        exp: expiry.epoch_seconds(),
     };
 
     let header = Header::new(Algorithm::HS256);
@@ -320,8 +320,8 @@ pub fn mint_connect_oauth_init_url(
     provider: &str,
     channel: &str,
     admin_jwt_secret: &str,
-) -> AppResult<(String, DateTime<Utc>)> {
-    let expires_at = Utc::now() + Duration::minutes(CONNECT_LINK_TOKEN_TTL_MINUTES);
+) -> AppResult<(String, Timestamp)> {
+    let expires_at = Timestamp::now() + Elapsed::minutes(CONNECT_LINK_TOKEN_TTL_MINUTES);
     let token = mint_connect_link_token(user_id, tenant_id, channel, None, admin_jwt_secret)?;
     Ok((
         format!(
@@ -428,9 +428,9 @@ pub fn mint_import_link_token(
             "Only a connect link-token opens the hosted import page",
         ));
     }
-    let now = Utc::now();
-    let expiry = (now + Duration::minutes(IMPORT_LINK_TOKEN_TTL_MINUTES))
-        .timestamp()
+    let now = Timestamp::now();
+    let expiry = (now + Elapsed::minutes(IMPORT_LINK_TOKEN_TTL_MINUTES))
+        .epoch_seconds()
         .min(connect.exp);
     let claims = ProviderLinkTokenClaims {
         sub: connect.sub.clone(),
@@ -442,7 +442,7 @@ pub fn mint_import_link_token(
         jti: Uuid::new_v4().to_string(),
         iss: PROVIDER_LINK_TOKEN_ISSUER.to_owned(),
         aud: IMPORT_LINK_TOKEN_AUDIENCE.to_owned(),
-        iat: now.timestamp(),
+        iat: now.epoch_seconds(),
         exp: expiry,
     };
     let key = EncodingKey::from_secret(admin_jwt_secret.as_bytes());
@@ -572,7 +572,7 @@ pub fn mint_takeover_link_token(
     args: &MintTakeoverTokenArgs<'_>,
     admin_jwt_secret: &str,
 ) -> AppResult<String> {
-    let now = Utc::now();
+    let now = Timestamp::now();
     let claims = TakeoverTokenClaims {
         sub: args.user_id.to_string(),
         tid: args.tenant_id.to_string(),
@@ -583,8 +583,8 @@ pub fn mint_takeover_link_token(
         jti: Uuid::new_v4().to_string(),
         iss: PROVIDER_LINK_TOKEN_ISSUER.to_owned(),
         aud: TAKEOVER_LINK_TOKEN_AUDIENCE.to_owned(),
-        iat: now.timestamp(),
-        exp: (now + Duration::minutes(TAKEOVER_LINK_TOKEN_TTL_MINUTES)).timestamp(),
+        iat: now.epoch_seconds(),
+        exp: (now + Elapsed::minutes(TAKEOVER_LINK_TOKEN_TTL_MINUTES)).epoch_seconds(),
     };
     let key = EncodingKey::from_secret(admin_jwt_secret.as_bytes());
     encode(&Header::new(Algorithm::HS256), &claims, &key)
@@ -734,7 +734,7 @@ mod tests {
     #[test]
     fn an_import_token_never_outlives_its_connect_token() {
         let mut connect = connect_claims();
-        let soon = Utc::now().timestamp() + 120;
+        let soon = Timestamp::now().epoch_seconds() + 120;
         connect.exp = soon;
         let token = mint_import_link_token(&connect, SOURCE, SECRET).expect("mint");
         let claims = verify_import_link_token(&token, SECRET, SOURCE).expect("verify");
@@ -884,7 +884,7 @@ mod tests {
 
     #[test]
     fn an_expired_takeover_token_is_refused() {
-        let now = Utc::now();
+        let now = Timestamp::now();
         let claims = TakeoverTokenClaims {
             sub: Uuid::nil().to_string(),
             tid: Uuid::nil().to_string(),
@@ -895,8 +895,8 @@ mod tests {
             jti: Uuid::new_v4().to_string(),
             iss: PROVIDER_LINK_TOKEN_ISSUER.to_owned(),
             aud: TAKEOVER_LINK_TOKEN_AUDIENCE.to_owned(),
-            iat: (now - Duration::minutes(20)).timestamp(),
-            exp: (now - Duration::minutes(10)).timestamp(),
+            iat: (now - Elapsed::minutes(20)).epoch_seconds(),
+            exp: (now - Elapsed::minutes(10)).epoch_seconds(),
         };
         let token = encode(
             &Header::new(Algorithm::HS256),

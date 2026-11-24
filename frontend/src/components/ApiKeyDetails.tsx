@@ -8,7 +8,7 @@ import { Button, Card, CardHeader, Badge, Textarea, ALERT_TONE } from './ui';
 import { adminApi } from '../services/api';
 import type { AdminToken } from '../types/api';
 import type { RotateAdminTokenResponse } from '@pierre/shared-types';
-import { QUERY_KEYS } from '../constants/queryKeys';
+import { QUERY_KEYS } from '@pierre/shared-constants';
 import { ADMIN_LOCALE } from '../utils/adminLocale';
 import { isRotated } from '../utils/adminToken';
 import { useDialog } from '../hooks/useDialog';

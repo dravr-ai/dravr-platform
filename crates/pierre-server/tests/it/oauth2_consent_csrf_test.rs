@@ -17,14 +17,14 @@
 use crate::common;
 use crate::helpers;
 
-use std::fmt::Debug;
 use std::net::SocketAddr;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use axum::extract::connect_info::MockConnectInfo;
 use base64::{engine::general_purpose, Engine as _};
 use common::create_test_tenant;
 use helpers::axum_test::{AxumTestRequest, AxumTestResponse};
+use helpers::consent_form::review_digest;
 use pierre_auth::oauth2_server::client_registration::ClientRegistrationManager;
 use pierre_auth::oauth2_server::models::ClientRegistrationRequest;
 use pierre_auth::security::cookies::auth_cookie_name;
@@ -34,13 +34,9 @@ use pierre_core::permissions::scopes::OAuthScope;
 use pierre_database::backends::factory::DatabaseBackend;
 use pierre_mcp_server::mcp::multitenant::ProviderToolRouter;
 use pierre_mcp_server::mcp::resources::ServerContext;
+use pierre_test_support::log_capture;
 use regex::Regex;
 use sha2::{Digest, Sha256};
-use tracing::field::{Field, Visit};
-use tracing::{Event, Subscriber};
-use tracing_subscriber::layer::{Context, SubscriberExt};
-use tracing_subscriber::util::SubscriberInitExt;
-use tracing_subscriber::Layer;
 use url::Url;
 
 const REDIRECT: &str = "https://client.example.test/callback";
@@ -85,8 +81,17 @@ fn authorize_uri(client_id: &str) -> String {
     )
 }
 
-/// The consent page the signed-in athlete is shown, and its form token.
-async fn consent_page(resources: &Arc<ServerContext>, client_id: &str, cookie: &str) -> String {
+/// What a rendered consent form proves it came from: its synchronizer token
+/// and the review digest of the screen.
+struct FormProof {
+    token: String,
+    /// The field the screen carries the digest in, and the digest
+    digest: (&'static str, String),
+}
+
+/// The consent page the signed-in athlete is shown: its form token and the
+/// screen's review digest.
+async fn consent_page(resources: &Arc<ServerContext>, client_id: &str, cookie: &str) -> FormProof {
     let page = AxumTestRequest::get(&authorize_uri(client_id))
         .header("cookie", cookie)
         .send(app(resources))
@@ -99,7 +104,10 @@ async fn consent_page(resources: &Arc<ServerContext>, client_id: &str, cookie: &
         .and_then(|rest| rest.split('"').next())
         .unwrap_or_else(|| panic!("the consent form carries its token: {html}"))
         .to_owned();
-    token
+    FormProof {
+        token,
+        digest: review_digest(&html),
+    }
 }
 
 /// Submit the consent form with `decision`, carrying `token` when given.
@@ -107,7 +115,7 @@ async fn submit(
     resources: &Arc<ServerContext>,
     client_id: &str,
     cookie: &str,
-    token: Option<&str>,
+    proof: Option<&FormProof>,
     decision: &str,
 ) -> AxumTestResponse {
     let challenge = challenge();
@@ -120,8 +128,9 @@ async fn submit(
         ("code_challenge_method", "S256"),
         ("decision", decision),
     ];
-    if let Some(token) = token {
-        form.push(("csrf_token", token));
+    if let Some(proof) = proof {
+        form.push(("csrf_token", proof.token.as_str()));
+        form.push((proof.digest.0, proof.digest.1.as_str()));
     }
     AxumTestRequest::post("/oauth2/consent")
         .header("cookie", cookie)
@@ -380,30 +389,6 @@ async fn a_denial_needs_no_token_and_reaches_the_client() {
     );
 }
 
-/// Keeps the message of every event logged on this thread.
-#[derive(Clone, Default)]
-struct MessageCapture {
-    messages: Arc<Mutex<Vec<String>>>,
-}
-
-struct MessageVisitor<'a>(&'a mut String);
-
-impl Visit for MessageVisitor<'_> {
-    fn record_debug(&mut self, field: &Field, value: &dyn Debug) {
-        if field.name() == "message" {
-            *self.0 = format!("{value:?}");
-        }
-    }
-}
-
-impl<S: Subscriber> Layer<S> for MessageCapture {
-    fn on_event(&self, event: &Event<'_>, _ctx: Context<'_, S>) {
-        let mut message = String::new();
-        event.record(&mut MessageVisitor(&mut message));
-        self.messages.lock().unwrap().push(message);
-    }
-}
-
 /// The page `public_mcp_monitoring.tf` sends when a stranger cannot finish
 /// connecting matches on the words of this refusal. Reworded on one side only,
 /// the page would never fire and nothing else would say so.
@@ -430,9 +415,7 @@ async fn the_refusal_an_alert_pages_on_is_the_one_the_server_logs() {
         .unwrap();
     let cookie = format!("{}={session}", auth_cookie_name());
 
-    let capture = MessageCapture::default();
-    let messages = Arc::clone(&capture.messages);
-    let guard = tracing_subscriber::registry().with(capture).set_default();
+    let (capture, guard) = log_capture::capture_events();
     let page = AxumTestRequest::get(&authorize_uri(&client_id))
         .header("cookie", &cookie)
         .send(app(&resources))
@@ -442,7 +425,11 @@ async fn the_refusal_an_alert_pages_on_is_the_one_the_server_logs() {
     let text = page.text();
     assert!(text.contains("en attente d’approbation"), "{text}");
     let wanted = format!("OAuth authorization refused: {reason}");
-    let logged = messages.lock().unwrap();
+    let logged: Vec<String> = capture
+        .events()
+        .iter()
+        .filter_map(|e| e.message().map(str::to_owned))
+        .collect();
     assert!(
         logged.contains(&wanted),
         "the alert pages on {wanted:?}; the server logged {logged:#?}"

@@ -39,11 +39,12 @@ secrecy = { workspace = true }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 bytes = "1.12"
-chrono = { version = "0.4", features = ["serde"] }
+# The Dravr date types; zones for the offsets providers send (Terra, WHOOP).
+dravr-tronc = { workspace = true, features = ["zones"] }
 uuid = { version = "1.29", features = ["v4", "serde"] }
 tracing = "0.1"
 async-trait = "0.1"
-dashmap = "5.5"
+dashmap = "6.1"
 reqwest = { version = "0.12", features = ["json"] }
 tokio = { version = "1", features = ["rt", "sync", "time"] }
 bitflags = { version = "2.13", features = ["serde"] }
@@ -72,12 +73,10 @@ dravr-sciotte = { workspace = true, optional = true, features = ["client"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time", "net", "io-util"] }
 base64 = "0.22"
 # The request budget suite counts in a real usage_counters table.
-pierre-test-support = { version = "0.3.0", path = "../pierre-test-support" }
+pierre-test-support = { version = "0.3.0", path = "../pierre-test-support", features = ["providers"] }
 # Only `IamError`: the sciotte error mapping's unit test builds the client's
 # identity-token failure, whose cause the sciotte client does not re-export.
 dravr-tronc = { workspace = true, features = ["google-iam"] }
-# The session-read refusal's one `usage` log line is captured and read back.
-tracing-subscriber = { version = "0.3", features = ["fmt", "std"], default-features = false }
 
 [lints]
 workspace = true

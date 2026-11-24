@@ -7,6 +7,7 @@
 use async_trait::async_trait;
 use pierre_core::errors::AppResult;
 
+use dravr_tronc::dates::CivilDate;
 use pierre_core::models::DailyTrainingState;
 use pierre_core::models::TenantId;
 use uuid::Uuid;
@@ -39,8 +40,8 @@ pub trait TrainingHistoryRepository: Send + Sync {
         &self,
         tenant_id: TenantId,
         user_id: Uuid,
-        from: chrono::NaiveDate,
-        to: chrono::NaiveDate,
+        from: CivilDate,
+        to: CivilDate,
     ) -> AppResult<Vec<DailyTrainingState>>;
 
     /// Delete this user's rows in `[from, to]` inclusive, returning the count.
@@ -59,8 +60,8 @@ pub trait TrainingHistoryRepository: Send + Sync {
         &self,
         tenant_id: TenantId,
         user_id: Uuid,
-        from: chrono::NaiveDate,
-        to: chrono::NaiveDate,
+        from: CivilDate,
+        to: CivilDate,
     ) -> AppResult<u64>;
 
     /// Every `(tenant, user)` holding at least one stored day, in tenant then

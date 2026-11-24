@@ -7,18 +7,18 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::pagination::{Cursor, CursorPage, PaginationDirection, PaginationParams};
 
 #[test]
 fn test_cursor_encoding_decoding() {
-    let timestamp = Utc::now();
+    let timestamp = Timestamp::now();
     let id = "12345";
 
     let cursor = Cursor::new(timestamp, id);
     let (decoded_timestamp, decoded_id) = cursor.decode().unwrap();
 
-    assert_eq!(decoded_timestamp.timestamp(), timestamp.timestamp());
+    assert_eq!(decoded_timestamp.epoch_seconds(), timestamp.epoch_seconds());
     assert_eq!(decoded_id, id);
 }
 
@@ -31,7 +31,7 @@ fn test_cursor_invalid_decode() {
 #[test]
 fn test_cursor_page_creation() {
     let items = vec![1, 2, 3];
-    let next_cursor = Some(Cursor::new(Utc::now(), "next_id"));
+    let next_cursor = Some(Cursor::new(Timestamp::now(), "next_id"));
     let page = CursorPage::new(items.clone(), next_cursor, None, true);
 
     assert_eq!(page.items, items);
@@ -54,7 +54,7 @@ fn test_empty_page() {
 
 #[test]
 fn test_pagination_params_forward() {
-    let cursor = Some(Cursor::new(Utc::now(), "test_id"));
+    let cursor = Some(Cursor::new(Timestamp::now(), "test_id"));
     let params = PaginationParams::forward(cursor, 20);
 
     assert_eq!(params.limit, 20);

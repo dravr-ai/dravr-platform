@@ -5,14 +5,18 @@
 // Copyright (c) 2026 dravr.ai
 
 //! Slice 6 (carnet#1484) places. Every athlete here has a home: a door
-//! sixteen loops start and end at, four in each direction. A loop's trimmed
-//! start and end lie on the ring the privacy trim leaves around the door, and
-//! the door's thirty-two endpoints, counted as one spot, outnumber any other
-//! spot's, so every other spot is free to form a place.
+//! sixteen loops around the block start and end at, four in each direction.
+//! A loop's trimmed start and end lie on the ring the privacy trim leaves
+//! around the door, and the door's thirty-two endpoints, counted as one spot,
+//! outnumber any other spot's, so every other spot is free to form a place.
+//! The block loops never leave the door's neighbourhood, so no area takes
+//! them (carnet#1723) and they stay excluded; rides from the door into an
+//! area are their own tests.
 
+use std::f64::consts::TAU;
 use std::sync::atomic::{AtomicI64, Ordering};
 
-use chrono::{DateTime, Duration, TimeZone, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::models::{Activity, ActivityBuilder, SegmentEffort, SportType, TenantId, User};
 use pierre_database::backends::factory::{Database, DatabaseBackend};
 use pierre_database::repositories::{
@@ -22,7 +26,8 @@ use pierre_database::RepositoryRegistry;
 use pierre_fitness_compute::encode_polyline;
 use pierre_fitness_compute::routes::haversine_meters_between;
 use pierre_services::athlete_places::{
-    name_place, places_pass, NamedPlace, PlaceRefusal, PlaceTarget, PlacesPassReport,
+    declare_home, name_place, places_pass, HomeChoice, NamedPlace, PlaceRefusal, PlaceTarget,
+    PlacesPassReport,
 };
 use pierre_test_support::db::create_test_db;
 use uuid::Uuid;
@@ -54,10 +59,30 @@ pub(crate) fn loop_from(origin: (f64, f64), turn: usize) -> Vec<(f64, f64)> {
     points
 }
 
-/// Out 1.5 km north from `origin` and back on the same road: the trimmed
-/// start and end sit on one spot, so the trailhead is one endpoint cluster.
+/// A loop around the block: four 300 m legs from `origin`, its first leg
+/// heading the way `turn` names (0 north, 1 east, 2 south, 3 west). It never
+/// goes farther than about 420 m from `origin`, so a ride of it from home
+/// reaches no area and stays excluded.
+pub(crate) fn block_from(origin: (f64, f64), turn: usize) -> Vec<(f64, f64)> {
+    const HEADINGS: [(f64, f64); 4] = [(1.0, 0.0), (0.0, 1.0), (-1.0, 0.0), (0.0, -1.0)];
+    let mut points = vec![origin];
+    let mut at = origin;
+    for leg in 0..4 {
+        let (dlat, dlon) = HEADINGS[(turn + leg) % 4];
+        for _ in 0..3 {
+            at = (dlat.mul_add(STEP_LAT, at.0), dlon.mul_add(STEP_LON, at.1));
+            points.push(at);
+        }
+    }
+    points
+}
+
+/// Out 600 m north from `origin` and back on the same road: the trimmed
+/// start and end sit on one spot, so the trailhead is one endpoint cluster,
+/// and the ride never goes far enough for an area to take it when the
+/// trailhead is taken for home.
 pub(crate) fn out_and_back(origin: (f64, f64)) -> Vec<(f64, f64)> {
-    let out: Vec<(f64, f64)> = (0..=15)
+    let out: Vec<(f64, f64)> = (0..=6)
         .map(|i| (f64::from(i).mul_add(STEP_LAT, origin.0), origin.1))
         .collect();
     out.iter()
@@ -86,6 +111,38 @@ fn north_out_south_back(origin: (f64, f64)) -> Vec<(f64, f64)> {
         }
     }
     points
+}
+
+/// A ride from `origin` to an area centred `north` and `east` metres off
+/// and back: out in 100 m steps, 48 points around a 150 m circle there
+/// (`phase` turns where it starts), and home the way it went. Most of its
+/// points lie in the area, as a ride that spends its hour on the trails
+/// does.
+pub(crate) fn trip_to(origin: (f64, f64), north: f64, east: f64, phase: f64) -> Vec<(f64, f64)> {
+    let reach = north.hypot(east);
+    let at = |north_m: f64, east_m: f64| {
+        (
+            (north_m / 100.0).mul_add(STEP_LAT, origin.0),
+            (east_m / 100.0).mul_add(STEP_LON, origin.1),
+        )
+    };
+    let steps = (reach / 100.0).floor() as usize;
+    let out: Vec<(f64, f64)> = (0..steps)
+        .map(|step| {
+            let share = step as f64 * 100.0 / reach;
+            at(north * share, east * share)
+        })
+        .collect();
+    let mut path = out.clone();
+    path.extend((0..48).map(|i| {
+        let angle = (f64::from(i) / 48.0).mul_add(TAU, phase);
+        at(
+            angle.cos().mul_add(150.0, north),
+            angle.sin().mul_add(150.0, east),
+        )
+    }));
+    path.extend(out.iter().rev());
+    path
 }
 
 pub(crate) fn meters(a: (f64, f64), b: (f64, f64)) -> f64 {
@@ -130,15 +187,15 @@ impl World {
 
     /// A start on a day no other ride of this world uses, so no two rides
     /// look like copies of one workout.
-    pub(crate) fn next_start(&self) -> DateTime<Utc> {
+    pub(crate) fn next_start(&self) -> Timestamp {
         let day = self.day.fetch_add(1, Ordering::Relaxed);
-        Utc.with_ymd_and_hms(2025, 1, 1, 8, 0, 0).unwrap() + Duration::days(day)
+        Timestamp::parse_from_rfc3339("2025-01-01T08:00:00Z").unwrap() + Elapsed::days(day)
     }
 
     pub(crate) async fn store(&self, tenant: &TenantId, provider: &str, activity: Activity) {
         self.repos()
             .activity_cache
-            .upsert_activities_synced_at(self.user, tenant, provider, &[activity], Utc::now())
+            .upsert_activities_synced_at(self.user, tenant, provider, &[activity], Timestamp::now())
             .await
             .unwrap();
     }
@@ -182,7 +239,7 @@ impl World {
         id
     }
 
-    /// Sixteen loops from the door, four in each direction.
+    /// Sixteen loops around the block from the door, four in each direction.
     async fn home(&self) {
         self.home_rides().await;
     }
@@ -191,16 +248,16 @@ impl World {
     pub(crate) async fn home_rides(&self) -> Vec<String> {
         let mut ids = Vec::new();
         for turn in 0..16 {
-            ids.push(self.ride(DOOR, turn % 4).await);
+            ids.push(self.ride_along(&block_from(DOOR, turn % 4), |b| b).await);
         }
         ids
     }
 
     pub(crate) async fn pass(&self) -> PlacesPassReport {
-        self.pass_at(Utc::now()).await
+        self.pass_at(Timestamp::now()).await
     }
 
-    async fn pass_at(&self, now: DateTime<Utc>) -> PlacesPassReport {
+    async fn pass_at(&self, now: Timestamp) -> PlacesPassReport {
         let report = places_pass(self.repos(), now, 20).await.unwrap();
         assert_eq!(report.failed, 0, "bug: a recompute failed: {report:?}");
         report
@@ -235,7 +292,7 @@ impl World {
     }
 
     async fn rows(&self) -> Vec<CachedActivityRow> {
-        let query = CachedRowsQuery::window(DateTime::UNIX_EPOCH, Utc::now(), 1_000);
+        let query = CachedRowsQuery::window(Timestamp::UNIX_EPOCH, Timestamp::now(), 1_000);
         self.repos()
             .activity_cache
             .get_cached_activity_rows(self.user, &self.tenant, &query)
@@ -309,7 +366,7 @@ fn effort(name: &str) -> SegmentEffort {
         name: name.to_owned(),
         elapsed_time: 300,
         moving_time: None,
-        start_date: Utc::now(),
+        start_date: Timestamp::now(),
         distance: 1_000.0,
         average_heart_rate: None,
         max_heart_rate: None,
@@ -391,7 +448,7 @@ async fn starts_ringing_the_door_form_no_place_and_no_centroid_sits_near_it() {
 }
 
 #[tokio::test]
-async fn an_always_driven_to_trailhead_is_excluded_until_the_athlete_names_it() {
+async fn an_always_driven_to_trailhead_is_excluded_and_named_once_home_is_elsewhere() {
     // No home rides: every ride goes out and back from the trailhead, so
     // the trailhead is the densest endpoint cluster and reads as home.
     let world = World::new().await;
@@ -405,20 +462,42 @@ async fn an_always_driven_to_trailhead_is_excluded_until_the_athlete_names_it() 
         "bug: the only endpoint cluster is taken for home and excluded"
     );
 
+    // What reads as home is never made a place by naming one of its rides
+    // (carnet#1723); the athlete says home is elsewhere instead.
+    assert_eq!(
+        world
+            .name(PlaceTarget::Activity(rides[0].clone()), Some("Gai-Luron"))
+            .await,
+        Err(PlaceRefusal::PlaceNotFound),
+        "bug: naming a ride from what reads as home made home a place"
+    );
+    assert!(
+        world.places().await.is_empty(),
+        "bug: a refused name stored a place"
+    );
+    declare_home(
+        world.repos(),
+        &world.tenant,
+        world.user,
+        HomeChoice::Elsewhere,
+    )
+    .await
+    .unwrap()
+    .unwrap();
     let named = world
         .name(PlaceTarget::Activity(rides[0].clone()), Some("Gai-Luron"))
         .await
-        .expect("bug: an activity with a route and no place can be placed");
+        .expect("bug: with home elsewhere the trailhead's ride has a place to name");
     assert_eq!(
         (named.name.as_deref(), named.athlete_named),
         (Some("Gai-Luron"), true),
-        "bug: the new place carries the athlete's name"
+        "bug: the place carries the athlete's name"
     );
     for id in &rides {
         assert_eq!(
             world.places_of(id).await,
             vec![Some(named.id.clone())],
-            "bug: every ride from the named trailhead joins it once it is named"
+            "bug: every ride from the named trailhead carries it"
         );
     }
 
@@ -458,10 +537,26 @@ async fn a_trailhead_ridden_in_loops_keeps_its_rides_once_the_athlete_names_it()
         "bug: the only spot's loops are taken for home and excluded"
     );
 
+    // The athlete says home is elsewhere, names the trailhead, then asks
+    // for the guess back: the named trailhead is never the guess, and the
+    // loops' far ends never exclude its rides.
+    declare_home(
+        world.repos(),
+        &world.tenant,
+        world.user,
+        HomeChoice::Elsewhere,
+    )
+    .await
+    .unwrap()
+    .unwrap();
     let named = world
         .name(PlaceTarget::Activity(rides[0].clone()), Some("Gai-Luron"))
         .await
-        .expect("bug: an activity with a route and no place can be placed");
+        .expect("bug: with home elsewhere the trailhead's loop has a place to name");
+    declare_home(world.repos(), &world.tenant, world.user, HomeChoice::Forget)
+        .await
+        .unwrap()
+        .unwrap();
     let place = world.place_at(OKA).await;
     assert_eq!(place.id, named.id, "bug: the named place kept its id");
     assert_eq!(
@@ -486,6 +581,236 @@ async fn a_trailhead_ridden_in_loops_keeps_its_rides_once_the_athlete_names_it()
         world.place_at(OKA).await.activity_count,
         6,
         "bug: a later loop from the named trailhead joins it"
+    );
+}
+
+/// Three rides from the door into an area 2.6 km east-north-east of it and
+/// three into one 2.6 km east-south-east, about 1.3 km apart, as jf rides
+/// from his door to Gailuron and to Forêt Héritage (carnet#1723). Every
+/// ride carries a city and a segment, as his do, which name neither area.
+async fn rides_into_two_areas(world: &World) -> (Vec<String>, Vec<String>) {
+    let mut north = Vec::new();
+    let mut south = Vec::new();
+    for i in 0..3 {
+        let phase = f64::from(i);
+        let tagged = |b: ActivityBuilder| {
+            b.city("Prévost".to_owned())
+                .segment_efforts(vec![effort("Warm up")])
+        };
+        north.push(
+            world
+                .ride_along(&trip_to(DOOR, 650.0, 2_500.0, phase), tagged)
+                .await,
+        );
+        south.push(
+            world
+                .ride_along(&trip_to(DOOR, -650.0, 2_500.0, phase), tagged)
+                .await,
+        );
+    }
+    (north, south)
+}
+
+#[tokio::test]
+async fn rides_from_the_door_are_placed_by_the_area_they_ride_through() {
+    let world = World::new().await;
+    let walks = world.home_rides().await;
+    let (north, south) = rides_into_two_areas(&world).await;
+    world.pass().await;
+
+    let places = world.places().await;
+    assert_eq!(
+        places.len(),
+        2,
+        "bug: the door's rides into two areas are two places: {places:?}"
+    );
+    for (area, rides) in [("north", &north), ("south", &south)] {
+        let first = world.places_of(&rides[0]).await;
+        assert!(
+            first[0].is_some(),
+            "bug: a ride into the {area} area has no place"
+        );
+        for id in rides {
+            assert_eq!(
+                world.places_of(id).await,
+                first,
+                "bug: the rides into the {area} area do not share one place"
+            );
+        }
+    }
+    assert_ne!(
+        world.places_of(&north[0]).await,
+        world.places_of(&south[0]).await,
+        "bug: two areas 1.3 km apart are one place"
+    );
+    for place in &places {
+        assert!(
+            meters((place.centroid_lat, place.centroid_lon), DOOR) > 700.0,
+            "bug: an area's centroid lies near the door: {place:?}"
+        );
+        assert_eq!(
+            (place.name.as_deref(), place.name_source),
+            (None, None),
+            "bug: an area of rides from home was named for the door's city or segment: {place:?}"
+        );
+    }
+    for id in &walks {
+        assert_eq!(
+            world.places_of(id).await,
+            vec![None],
+            "bug: a loop around the block took a place"
+        );
+    }
+}
+
+#[tokio::test]
+async fn naming_a_ride_from_the_door_names_its_area_and_the_name_sticks() {
+    let world = World::new().await;
+    world.home_rides().await;
+    let (north, _) = rides_into_two_areas(&world).await;
+    world.pass().await;
+    let area = world.places_of(&north[0]).await[0]
+        .clone()
+        .expect("bug: precondition: the ride must carry its area");
+
+    let named = world
+        .name(PlaceTarget::Activity(north[1].clone()), Some("Gailuron"))
+        .await
+        .expect("bug: a ride from the door into an area can be named");
+    assert_eq!(
+        (
+            named.id.as_str(),
+            named.name.as_deref(),
+            named.athlete_named
+        ),
+        (area.as_str(), Some("Gailuron"), true),
+        "bug: naming a ride from the door did not name its area"
+    );
+
+    let later = world
+        .ride_along(&trip_to(DOOR, 650.0, 2_500.0, 4.0), |b| b)
+        .await;
+    world.pass().await;
+    assert_eq!(
+        world.places_of(&later).await,
+        vec![Some(area.clone())],
+        "bug: a later ride into the named area does not carry its name"
+    );
+    let stored = world
+        .places()
+        .await
+        .into_iter()
+        .find(|place| place.id == area)
+        .expect("bug: the named area is gone");
+    assert_eq!(
+        (stored.name.as_deref(), stored.activity_count),
+        (Some("Gailuron"), 4),
+        "bug: the name did not stick to the area's rides"
+    );
+}
+
+#[tokio::test]
+async fn naming_a_ride_from_the_door_before_any_pass_names_its_area() {
+    // Right after the clustering version changes, rows still carry no
+    // place: naming one places it first, and names its area, never home.
+    let world = World::new().await;
+    world.home_rides().await;
+    let (north, _) = rides_into_two_areas(&world).await;
+    let named = world
+        .name(PlaceTarget::Activity(north[0].clone()), Some("Gailuron"))
+        .await
+        .expect("bug: a ride from the door into an area can be named before a pass");
+    for id in &north {
+        assert_eq!(
+            world.places_of(id).await,
+            vec![Some(named.id.clone())],
+            "bug: the rides into the area do not all carry the named area"
+        );
+    }
+    let place = world
+        .places()
+        .await
+        .into_iter()
+        .find(|place| place.id == named.id)
+        .expect("bug: the named area is not stored");
+    assert!(
+        meters((place.centroid_lat, place.centroid_lon), DOOR) > 700.0,
+        "bug: the named place sits at the door: {place:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_lone_trailhead_ridden_far_is_placed_by_the_area_and_named_through_a_ride() {
+    // Rides 1.5 km out and back from the only spot: it reads as home, and
+    // the rides are placed by where they went, which naming a ride names.
+    let world = World::new().await;
+    let out: Vec<(f64, f64)> = (0..=15)
+        .map(|i| (f64::from(i).mul_add(STEP_LAT, OKA.0), OKA.1))
+        .collect();
+    let path: Vec<(f64, f64)> = out
+        .iter()
+        .chain(out.iter().rev().skip(1))
+        .copied()
+        .collect();
+    let mut rides = Vec::new();
+    for _ in 0..5 {
+        rides.push(world.ride_along(&path, |b| b).await);
+    }
+    world.pass().await;
+    let places = world.places().await;
+    assert_eq!(
+        places.len(),
+        1,
+        "bug: the far rides make one area: {places:?}"
+    );
+    let named = world
+        .name(PlaceTarget::Activity(rides[0].clone()), Some("Gai-Luron"))
+        .await
+        .expect("bug: a ride into the area can be named");
+    assert_eq!(
+        named.id, places[0].id,
+        "bug: naming the ride did not name its area"
+    );
+    for id in &rides {
+        assert_eq!(
+            world.places_of(id).await,
+            vec![Some(named.id.clone())],
+            "bug: a ride lost the named area"
+        );
+    }
+}
+
+#[tokio::test]
+async fn naming_a_ride_that_never_left_the_door_makes_no_place() {
+    let world = World::new().await;
+    let walks = world.home_rides().await;
+    world.ride(SUTTON, 0).await;
+    world.pass().await;
+    let before = world.places().await;
+
+    assert_eq!(
+        world
+            .name(PlaceTarget::Activity(walks[0].clone()), Some("Maison"))
+            .await,
+        Err(PlaceRefusal::PlaceNotFound),
+        "bug: naming a loop around the block made home a place"
+    );
+    let after = world.places().await;
+    assert_eq!(
+        after.len(),
+        before.len(),
+        "bug: a refused name stored a place: {after:?}"
+    );
+    assert!(
+        after
+            .iter()
+            .all(|place| meters((place.centroid_lat, place.centroid_lon), DOOR) > 1_000.0),
+        "bug: a place sits at the door: {after:?}"
+    );
+    assert_eq!(
+        world.places_of(&walks[0]).await,
+        vec![None],
+        "bug: the walk took a place"
     );
 }
 
@@ -716,7 +1041,7 @@ async fn another_tenant_never_sees_or_names_the_athletes_places() {
             "strava",
         )
         .distance_meters(4_000.0)
-        .summary_polyline(encode_polyline(&loop_from(OKA, turn % 4)))
+        .summary_polyline(encode_polyline(&block_from(OKA, turn % 4)))
         .build();
         world.store(&other, "strava", ride).await;
     }
@@ -861,7 +1186,10 @@ async fn an_athlete_is_recomputed_after_an_ingest_an_erasure_or_a_day_and_not_ot
     );
 
     assert_eq!(
-        world.pass_at(Utc::now() + Duration::hours(25)).await.users,
+        world
+            .pass_at(Timestamp::now() + Elapsed::hours(25))
+            .await
+            .users,
         1,
         "bug: a day-old clustering is due"
     );
@@ -967,7 +1295,7 @@ async fn an_athlete_whose_recompute_keeps_failing_never_holds_the_slot_another_i
         world.ride(SUTTON, 0).await;
         other.ride(BROMONT, 0).await;
     }
-    let clustered = Utc::now();
+    let clustered = Timestamp::now();
     assert_eq!(
         world.pass_at(clustered).await.users,
         2,
@@ -987,7 +1315,9 @@ async fn an_athlete_whose_recompute_keeps_failing_never_holds_the_slot_another_i
     world.ride(SUTTON, 0).await;
     let later = other.ride(BROMONT, 0).await;
 
-    let first = places_pass(world.repos(), Utc::now(), 1).await.unwrap();
+    let first = places_pass(world.repos(), Timestamp::now(), 1)
+        .await
+        .unwrap();
     assert_eq!(
         first,
         PlacesPassReport {
@@ -997,7 +1327,9 @@ async fn an_athlete_whose_recompute_keeps_failing_never_holds_the_slot_another_i
         },
         "bug: the failing athlete heads the scan and its failure is counted"
     );
-    let second = places_pass(world.repos(), Utc::now(), 1).await.unwrap();
+    let second = places_pass(world.repos(), Timestamp::now(), 1)
+        .await
+        .unwrap();
     assert_eq!(
         (second.users, second.failed),
         (1, 0),
@@ -1008,7 +1340,9 @@ async fn an_athlete_whose_recompute_keeps_failing_never_holds_the_slot_another_i
         vec![Some(other.place_at(BROMONT).await.id)],
         "bug: the other athlete's new ride was not placed"
     );
-    let third = places_pass(world.repos(), Utc::now(), 1).await.unwrap();
+    let third = places_pass(world.repos(), Timestamp::now(), 1)
+        .await
+        .unwrap();
     assert_eq!(
         third.failed, 1,
         "bug: the failing athlete with a new row is no longer retried"

@@ -1,5 +1,5 @@
 // ABOUTME: Unit tests for LLM provider module functionality
-// ABOUTME: Validates LLM capabilities, message types, chat requests, and provider registry
+// ABOUTME: Validates LLM capabilities, message types, chat requests, and stream chunks
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -8,8 +8,7 @@
 #![allow(missing_docs)]
 
 use pierre_llm::{
-    ChatMessage, ChatRequest, ChatResponse, LlmCapabilities, LlmProviderRegistry, MessageRole,
-    StreamChunk, TokenUsage,
+    ChatMessage, ChatRequest, ChatResponse, LlmCapabilities, MessageRole, StreamChunk, TokenUsage,
 };
 
 // =============================================================================
@@ -386,32 +385,6 @@ fn test_stream_chunk_serialization() {
 
     assert_eq!(deserialized.delta, chunk.delta);
     assert_eq!(deserialized.is_final, chunk.is_final);
-}
-
-// =============================================================================
-// LlmProviderRegistry Tests
-// =============================================================================
-
-#[test]
-fn test_provider_registry_new() {
-    let registry = LlmProviderRegistry::new();
-
-    assert!(registry.list().is_empty());
-    assert!(registry.default_provider().is_none());
-}
-
-#[test]
-fn test_provider_registry_default() {
-    let registry = LlmProviderRegistry::default();
-
-    assert!(registry.list().is_empty());
-}
-
-#[test]
-fn test_provider_registry_get_nonexistent() {
-    let registry = LlmProviderRegistry::new();
-
-    assert!(registry.get("nonexistent").is_none());
 }
 
 // =============================================================================

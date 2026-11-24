@@ -8,7 +8,8 @@
 
 use std::time::Duration;
 
-use chrono::Utc;
+use dravr_tronc::dates::Elapsed;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::refresh::*;
 
 #[test]
@@ -50,7 +51,7 @@ fn freshness_from_none_is_expired() {
 
 #[test]
 fn freshness_from_recent_timestamp() {
-    let two_hours_ago = Utc::now() - chrono::Duration::hours(2);
+    let two_hours_ago = Timestamp::now() - Elapsed::hours(2);
     assert_eq!(
         DataFreshness::from_last_sync(Some(two_hours_ago)),
         DataFreshness::Recent

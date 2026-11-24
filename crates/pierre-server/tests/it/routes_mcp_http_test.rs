@@ -15,8 +15,11 @@
 
 use crate::common;
 use crate::helpers;
+use dravr_tronc::mcp::tool::ToolCapabilities;
 use secrecy::ExposeSecret;
+use std::collections::{HashMap, HashSet};
 
+use dravr_tronc::dates::Timestamp;
 use helpers::axum_test::AxumTestRequest;
 use pierre_auth::api_keys::{ApiKeyManager, ApiKeyTier, CreateApiKeyRequest};
 use pierre_config::environment::{
@@ -108,6 +111,8 @@ impl McpTestSetup {
                     archive_imports: None,
                     live_records: None,
                     blobs: None,
+                    lab_reader: None,
+                    pdf_text_bin: None,
                     #[cfg(feature = "client-messaging")]
                     channel_adapters: common::offline_adapters(),
                 },
@@ -861,10 +866,11 @@ async fn test_tools_list_accepts_every_issued_api_key_format() {
 }
 
 #[tokio::test]
-async fn test_tools_list_global_admin_holds_the_public_profile() {
-    // `/mcp` is an external transport whoever calls it: a genuine global admin
-    // (`User.role`), which the default tenant-owner test user is not, is
-    // offered no operator tool here.
+async fn test_tools_list_global_admin_is_listed_every_tool_its_grant_covers() {
+    // A genuine global admin (`User.role`), which the default tenant-owner test
+    // user is not, is listed every tool its credential's grant covers on
+    // `/mcp`, the admin tools included when that grant holds `admin`
+    // (carnet#1511).
     let (resources, jwt) = setup_with_admin_flag("tools_list_global_admin@example.com", true)
         .await
         .expect("Setup failed");
@@ -892,11 +898,14 @@ async fn test_tools_list_global_admin_holds_the_public_profile() {
 
     let tool_names: Vec<&str> = tools.iter().filter_map(|t| t["name"].as_str()).collect();
 
-    // The operator tools stay on Dravr's own surfaces
     assert!(
-        !tool_names.iter().any(|n| n.starts_with("admin_")),
-        "A global admin must not be offered admin tools on /mcp, got: {:?}",
+        tool_names.iter().any(|n| n.starts_with("admin_")),
+        "A global admin whose grant holds admin is offered the admin tools, got: {:?}",
         tool_names
+    );
+    assert!(
+        !tool_names.contains(&"publish_training_plan"),
+        "an app-only tool is offered to no one on /mcp"
     );
 
     // Admin user should also see all non-admin tools
@@ -1019,6 +1028,8 @@ async fn setup_with_admin_flag(
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                lab_reader: None,
+                pdf_text_bin: None,
                 #[cfg(feature = "client-messaging")]
                 channel_adapters: common::offline_adapters(),
             },
@@ -1035,7 +1046,7 @@ async fn setup_with_admin_flag(
     );
     user.user_status = UserStatus::Active;
     user.approved_by = Some(user.id);
-    user.approved_at = Some(chrono::Utc::now());
+    user.approved_at = Some(Timestamp::now());
     user.role = if global_admin {
         UserRole::Admin
     } else {
@@ -1055,8 +1066,8 @@ async fn setup_with_admin_flag(
         domain: None,
         plan: "starter".to_owned(),
         owner_user_id: user_id,
-        created_at: chrono::Utc::now(),
-        updated_at: chrono::Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
     };
     repos.tenants.create(&tenant).await?;
     repos.users.update_tenant_id(user_id, tenant_id).await?;
@@ -1507,5 +1518,97 @@ async fn test_personal_mcp_token_never_carries_admin() {
     assert!(
         challenge.contains("insufficient_scope") && challenge.contains("admin"),
         "the challenge names the missing scope: {challenge}"
+    );
+}
+
+/// Every definition `GET /mcp/tools` serves carries its hash, and it is the
+/// one the catalog records wherever the caller is offered the full
+/// definition, a tool needing a provider included: both are taken after
+/// `list_tools` widens its output schema (carnet#1543). A coach tool offered
+/// without its `athlete` argument is another definition, hashed apart.
+#[tokio::test]
+async fn test_mcp_tools_carry_the_def_hash_the_catalog_records() {
+    let setup = McpTestSetup::new().await.expect("Setup failed");
+    helpers::tool_def_hash::settle_def_hashes(&setup.resources).await;
+    let response = AxumTestRequest::get("/mcp/tools")
+        .header("authorization", &setup.auth_header())
+        .send(setup.routes())
+        .await;
+    assert_eq!(
+        response.status(),
+        200,
+        "bug: GET /mcp/tools refused its own caller"
+    );
+    let body: serde_json::Value = response.json();
+    let tools = body["tools"].as_array().expect("tools");
+
+    let recorded: HashMap<String, Option<String>> = setup
+        .resources
+        .common
+        .repos
+        .tool_selection
+        .get_tool_catalog()
+        .await
+        .expect("catalog")
+        .into_iter()
+        .map(|entry| (entry.tool_name, entry.def_hash))
+        .collect();
+    // The catalog records the full definition; an athlete is offered a
+    // coach tool without its `athlete` argument, which is another definition
+    // with its own hash.
+    let takes_athlete: HashSet<String> = setup
+        .resources
+        .mcp
+        .tool_registry
+        .all_schemas()
+        .into_iter()
+        .filter(|schema| {
+            schema
+                .input_schema
+                .properties
+                .as_ref()
+                .is_some_and(|properties| properties.contains_key("athlete"))
+        })
+        .map(|schema| schema.name)
+        .collect();
+    let (mut matched, mut narrowed) = (0, 0);
+    let mut needs_provider = false;
+    for tool in tools {
+        let name = tool["name"].as_str().expect("name");
+        let served = tool["_meta"]["ai.dravr.vault/tool"]["def_hash"]
+            .as_str()
+            .unwrap_or_else(|| panic!("{name} carries no def_hash"));
+        let Some(Some(stored)) = recorded.get(name) else {
+            continue;
+        };
+        if takes_athlete.contains(name)
+            && tool["inputSchema"]["properties"].get("athlete").is_none()
+        {
+            assert_ne!(served, stored, "{name}: narrowed, so hashed apart");
+            narrowed += 1;
+        } else {
+            assert_eq!(
+                served, stored,
+                "bug: {name} serves a hash the catalog does not record"
+            );
+            matched += 1;
+            needs_provider |= setup
+                .resources
+                .mcp
+                .tool_registry
+                .get(name)
+                .is_some_and(|tool| {
+                    tool.capabilities()
+                        .contains(ToolCapabilities::REQUIRES_PROVIDER)
+                });
+        }
+    }
+    assert!(
+        matched > 0 && narrowed > 0,
+        "{matched} matched, {narrowed} narrowed"
+    );
+    assert!(
+        needs_provider,
+        "a tool needing a provider is listed and matches"
     );
 }

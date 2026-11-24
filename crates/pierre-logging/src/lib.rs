@@ -123,7 +123,7 @@ pub fn set_notify_actions(actions: Arc<dyn NotifyActions>) {
 /// Host identity for outbound alerts: the Cloud Run revision name when
 /// deployed (`K_REVISION`), else the machine hostname. Resolved once per
 /// process. Alert layers and the notify enricher stamp it on everything
-/// they send so operators can tell a dev laptop from the deployed service
+/// they send so admins can tell a dev laptop from the deployed service
 /// — both report the same `service_name`/`environment` otherwise.
 static HOST_IDENTITY: LazyLock<Option<String>> = LazyLock::new(|| {
     env::var("K_REVISION")
@@ -596,6 +596,7 @@ impl LoggingConfig {
             config.host = host_identity().map(str::to_owned);
         }
 
+        // Slack's own host: no test runs the logging init.
         let slack = config.slack.as_ref().map(SlackClient::new);
         let email = config.email.as_ref().and_then(|c| {
             EmailClient::new(c)
@@ -667,7 +668,7 @@ impl LoggingConfig {
     }
 
     /// The Slack-routed builder: `routing`'s rules, the buttons an event asks
-    /// an operator to press under its immediate post, and the `PostHog` sink
+    /// an admin to press under its immediate post, and the `PostHog` sink
     /// beside Slack when one is configured.
     fn slack_notify_builder(
         environment: &str,
@@ -712,6 +713,7 @@ impl LoggingConfig {
         let signing_secret = env::var("SLACK_SIGNING_SECRET")
             .ok()
             .filter(|s| !s.is_empty());
+        // Slack's own host: no test runs the logging init.
         Some(Arc::new(SlackClient::new(&SlackConfig {
             bot_token,
             error_channel,

@@ -82,6 +82,7 @@ use crate::invites::unambiguous_code;
 use crate::setup_timing::record_member_joined;
 use crate::strategies::context::select_context_strategy;
 use crate::strategies::tier::{GroupTierStrategy, OwnerGroupLimit};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 
 /// The member snapshots a group context is built from, and whose cards it
 /// shows.
@@ -416,8 +417,9 @@ impl GroupService {
             is_active: true,
             channel_type: None,
             channel_chat_id: None,
-            created_at: chrono::Utc::now(),
-            updated_at: chrono::Utc::now(),
+            chat_connection: None,
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         };
 
         self.create_group_with_owner(
@@ -460,7 +462,7 @@ impl GroupService {
         tenant_id: TenantId,
         tier_member_cap: i32,
     ) -> AppResult<CoachingGroup> {
-        let now = chrono::Utc::now();
+        let now = Timestamp::now();
         let group = CoachingGroup {
             id: Uuid::new_v4(),
             tenant_id: tenant_id.to_string(),
@@ -492,6 +494,7 @@ impl GroupService {
             is_active: true,
             channel_type: Some(spec.channel_type.to_owned()),
             channel_chat_id: Some(spec.channel_chat_id.to_owned()),
+            chat_connection: None,
             created_at: now,
             updated_at: now,
         };
@@ -556,10 +559,10 @@ impl GroupService {
             role: GroupRole::Owner,
             peer_sharing_consent: false,
             coach_sharing_consent: true,
-            coach_sharing_consent_at: Some(chrono::Utc::now()),
+            coach_sharing_consent_at: Some(Timestamp::now()),
             coach_consents: CoachConsents::default(),
-            consent_given_at: chrono::Utc::now(),
-            joined_at: chrono::Utc::now(),
+            consent_given_at: Timestamp::now(),
+            joined_at: Timestamp::now(),
             left_at: None,
             display_name: None,
         };
@@ -582,7 +585,7 @@ impl GroupService {
     ///
     /// The group change has already been written, so a billing failure does
     /// not undo it: it is logged at ERROR, which the error digest carries to
-    /// an operator, and the next change or subscription webhook re-applies the
+    /// an admin, and the next change or subscription webhook re-applies the
     /// absolute count, so a missed update converges instead of drifting.
     async fn bill_athletes(&self, owner_id: Uuid, tenant_id: TenantId) {
         match self.athlete_billing.sync(owner_id, tenant_id).await {
@@ -670,7 +673,7 @@ impl GroupService {
             return Ok(false);
         }
 
-        let now = chrono::Utc::now();
+        let now = Timestamp::now();
         let member = GroupMember {
             id: Uuid::new_v4(),
             group_id: group.id,
@@ -917,8 +920,7 @@ impl GroupService {
         kind: GroupInviteKind,
     ) -> AppResult<GroupInvite> {
         let code = generate_invite_code();
-        let expires_at =
-            expires_in_days.map(|days| chrono::Utc::now() + chrono::Duration::days(days));
+        let expires_at = expires_in_days.map(|days| Timestamp::now() + Elapsed::days(days));
 
         let invite = GroupInvite {
             id: Uuid::new_v4(),
@@ -932,7 +934,7 @@ impl GroupService {
             use_count: 0,
             is_active: true,
             approves_signup: false,
-            created_at: chrono::Utc::now(),
+            created_at: Timestamp::now(),
         };
 
         self.repo.create_invite(&invite).await

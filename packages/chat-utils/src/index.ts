@@ -4,10 +4,11 @@
 // The trusted-domain gate a `url` reply action passes before a client opens it
 export { trustedActionUrl } from './action-url';
 
-// A turn's `notice` block -> the usage banner both clients show, and the reset
-// instant and compacted counter every usage surface prints
-export { formatCompactNumber, formatResetTime, quotaNoticeBanner, USAGE_SENTENCE_KEYS } from './quota';
-export type { QuotaBanner, UsageCounter } from './quota';
+// The usage banner both clients show, decided from the status counters or a
+// turn's `notice` block, and the reset instant and compacted counter every
+// usage surface prints
+export { computeWarningState, formatCompactNumber, formatResetTime, warningStateFromNotice } from './quota';
+export type { UsageWarningState, WarningLevel } from './quota';
 
 // Persisted transcript row -> the ReplyBlock list a live turn arrives in.
 // The command-reply normaliser is private to that decoder: the live turn path

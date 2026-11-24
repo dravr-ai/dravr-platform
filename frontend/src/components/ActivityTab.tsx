@@ -8,7 +8,7 @@ import { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { dashboardApi } from '../services/api';
 import type { RecentActivityResponse, RecentLlmCall, RecentConversation } from '../services/api/dashboard';
-import { QUERY_KEYS } from '../constants/queryKeys';
+import { QUERY_KEYS } from '@pierre/shared-constants';
 import { useAdminScope } from '../hooks/useAdminScope';
 import AdminScopeBar from './AdminScopeBar';
 import { BADGE_TONE, Input, ALERT_TONE } from './ui';

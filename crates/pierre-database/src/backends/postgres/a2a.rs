@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use chrono::{DateTime, Duration, NaiveDate, NaiveTime, Utc};
+use dravr_tronc::dates::{CivilDate, Timestamp};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::a2a::{
     A2AClient, A2APushNotificationConfig, A2ASession, A2ATask, A2AUsage, A2AUsageStats, TaskStatus,

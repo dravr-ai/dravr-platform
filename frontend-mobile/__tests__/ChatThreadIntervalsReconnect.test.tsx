@@ -144,7 +144,8 @@ describe('ChatThread — reconnecting Intervals.icu', () => {
 
     fireEvent.press(screen.getByText('reply:reconnect-intervals'));
 
-    expect(status.handleConnectProvider).toHaveBeenCalledWith('intervals_icu');
+    // The one authorize step every card takes; Intervals.icu offers no consents, so none travel.
+    expect(status.handleConnectProvider).toHaveBeenCalledWith('intervals_icu', undefined, false, false, undefined);
     expect(screen.queryByTestId('intervals-sheet')).toBeNull();
   });
 

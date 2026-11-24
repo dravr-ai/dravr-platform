@@ -6,8 +6,8 @@
 
 //! Zone database goldens (carnet#1620, gate 8).
 //!
-//! The zone database compiled into the date engine today is release 2025b.
-//! The engine that replaces it carries 2026f, which gives different answers
+//! The zone database compiled into the date engine is release 2026f. It
+//! answers differently from release 2025b, the one before it,
 //! for nine zones from 2026-09-20 on: `America/Vancouver`, `America/Edmonton`,
 //! `America/Winnipeg`, `America/Inuvik`, `America/Yellowknife`,
 //! `America/Rainy_River`, `America/Havana`, `Africa/Casablanca` and
@@ -20,7 +20,7 @@
 //! - [`AFFECTED_ZONES_BEFORE_THE_CHANGE`]: the nine zones on dates before
 //!   2026-09-20. A database update must not move these.
 //! - [`EXPECTED_TO_CHANGE_REVIEWED`]: the nine zones from 2026-09-20 on, and
-//!   the release name itself, as 2025b answers. A database update is expected
+//!   the release name itself, as 2026f answers. A database update is expected
 //!   to turn rows of this table red, and only this table; whoever updates the
 //!   database edits it row by row and reviews each new answer against the
 //!   release notes. A red row anywhere else is a regression.
@@ -29,22 +29,23 @@
 
 /// Everything in this file that names the date engine.
 mod engine {
-    use chrono::NaiveDateTime;
-    use chrono_tz::Tz;
+    use dravr_tronc::date_pattern;
+    use dravr_tronc::dates::{CivilDateTime, Timestamp, Zone};
 
-    /// The zone database release compiled into the engine.
+    /// The zone database release compiled into the date types.
     pub(super) fn database_release() -> &'static str {
-        chrono_tz::IANA_TZDB_VERSION
+        Zone::database_release()
     }
 
     /// The wall clock and offset a UTC instant shows in a zone.
     pub(super) fn wall_clock(zone: &str, utc: &str) -> String {
-        NaiveDateTime::parse_from_str(utc, "%Y-%m-%dT%H:%M:%S")
+        let instant = CivilDateTime::parse_from_str(utc, "%Y-%m-%dT%H:%M:%S")
             .unwrap()
             .and_utc()
-            .with_timezone(&zone.parse::<Tz>().unwrap())
-            .format("%Y-%m-%d %H:%M:%S %:z")
-            .to_string()
+            .unwrap();
+        zone.parse::<Zone>()
+            .unwrap()
+            .format_with(instant, &date_pattern!(Timestamp, "%Y-%m-%d %H:%M:%S %:z"))
     }
 }
 
@@ -236,8 +237,8 @@ const AFFECTED_ZONES_BEFORE_THE_CHANGE: &ZoneRows = &[
 ];
 
 /// EXPECTED TO CHANGE, REVIEWED: the nine zones from 2026-09-20 on, as
-/// release 2025b answers. Edit this table, and no other, when the zone
-/// database is updated.
+/// release 2026f answers (reviewed and accepted on carnet#1620, 2026-11-18).
+/// Edit this table, and no other, when the zone database is updated.
 const EXPECTED_TO_CHANGE_REVIEWED: &ZoneRows = &[
     (
         "America/Vancouver",
@@ -247,17 +248,17 @@ const EXPECTED_TO_CHANGE_REVIEWED: &ZoneRows = &[
     (
         "America/Vancouver",
         "2026-11-15T12:00:00",
-        "2026-11-15 04:00:00 -08:00",
+        "2026-11-15 05:00:00 -07:00",
     ),
     (
         "America/Vancouver",
         "2027-01-15T12:00:00",
-        "2027-01-15 04:00:00 -08:00",
+        "2027-01-15 05:00:00 -07:00",
     ),
     (
         "America/Vancouver",
         "2027-03-01T12:00:00",
-        "2027-03-01 04:00:00 -08:00",
+        "2027-03-01 05:00:00 -07:00",
     ),
     (
         "America/Vancouver",
@@ -267,7 +268,7 @@ const EXPECTED_TO_CHANGE_REVIEWED: &ZoneRows = &[
     (
         "America/Vancouver",
         "2027-12-15T12:00:00",
-        "2027-12-15 04:00:00 -08:00",
+        "2027-12-15 05:00:00 -07:00",
     ),
     (
         "America/Edmonton",
@@ -277,17 +278,17 @@ const EXPECTED_TO_CHANGE_REVIEWED: &ZoneRows = &[
     (
         "America/Edmonton",
         "2026-11-15T12:00:00",
-        "2026-11-15 05:00:00 -07:00",
+        "2026-11-15 06:00:00 -06:00",
     ),
     (
         "America/Edmonton",
         "2027-01-15T12:00:00",
-        "2027-01-15 05:00:00 -07:00",
+        "2027-01-15 06:00:00 -06:00",
     ),
     (
         "America/Edmonton",
         "2027-03-01T12:00:00",
-        "2027-03-01 05:00:00 -07:00",
+        "2027-03-01 06:00:00 -06:00",
     ),
     (
         "America/Edmonton",
@@ -297,7 +298,7 @@ const EXPECTED_TO_CHANGE_REVIEWED: &ZoneRows = &[
     (
         "America/Edmonton",
         "2027-12-15T12:00:00",
-        "2027-12-15 05:00:00 -07:00",
+        "2027-12-15 06:00:00 -06:00",
     ),
     (
         "America/Winnipeg",
@@ -307,17 +308,17 @@ const EXPECTED_TO_CHANGE_REVIEWED: &ZoneRows = &[
     (
         "America/Winnipeg",
         "2026-11-15T12:00:00",
-        "2026-11-15 06:00:00 -06:00",
+        "2026-11-15 07:00:00 -05:00",
     ),
     (
         "America/Winnipeg",
         "2027-01-15T12:00:00",
-        "2027-01-15 06:00:00 -06:00",
+        "2027-01-15 07:00:00 -05:00",
     ),
     (
         "America/Winnipeg",
         "2027-03-01T12:00:00",
-        "2027-03-01 06:00:00 -06:00",
+        "2027-03-01 07:00:00 -05:00",
     ),
     (
         "America/Winnipeg",
@@ -327,39 +328,39 @@ const EXPECTED_TO_CHANGE_REVIEWED: &ZoneRows = &[
     (
         "America/Winnipeg",
         "2027-12-15T12:00:00",
+        "2027-12-15 07:00:00 -05:00",
+    ),
+    (
+        "America/Inuvik",
+        "2026-09-20T12:00:00",
+        "2026-09-20 06:00:00 -06:00",
+    ),
+    (
+        "America/Inuvik",
+        "2026-11-15T12:00:00",
+        "2026-11-15 06:00:00 -06:00",
+    ),
+    (
+        "America/Inuvik",
+        "2027-01-15T12:00:00",
+        "2027-01-15 06:00:00 -06:00",
+    ),
+    (
+        "America/Inuvik",
+        "2027-03-01T12:00:00",
+        "2027-03-01 06:00:00 -06:00",
+    ),
+    (
+        "America/Inuvik",
+        "2027-07-15T12:00:00",
+        "2027-07-15 06:00:00 -06:00",
+    ),
+    (
+        "America/Inuvik",
+        "2027-12-15T12:00:00",
         "2027-12-15 06:00:00 -06:00",
     ),
     (
-        "America/Inuvik",
-        "2026-09-20T12:00:00",
-        "2026-09-20 06:00:00 -06:00",
-    ),
-    (
-        "America/Inuvik",
-        "2026-11-15T12:00:00",
-        "2026-11-15 05:00:00 -07:00",
-    ),
-    (
-        "America/Inuvik",
-        "2027-01-15T12:00:00",
-        "2027-01-15 05:00:00 -07:00",
-    ),
-    (
-        "America/Inuvik",
-        "2027-03-01T12:00:00",
-        "2027-03-01 05:00:00 -07:00",
-    ),
-    (
-        "America/Inuvik",
-        "2027-07-15T12:00:00",
-        "2027-07-15 06:00:00 -06:00",
-    ),
-    (
-        "America/Inuvik",
-        "2027-12-15T12:00:00",
-        "2027-12-15 05:00:00 -07:00",
-    ),
-    (
         "America/Yellowknife",
         "2026-09-20T12:00:00",
         "2026-09-20 06:00:00 -06:00",
@@ -367,17 +368,17 @@ const EXPECTED_TO_CHANGE_REVIEWED: &ZoneRows = &[
     (
         "America/Yellowknife",
         "2026-11-15T12:00:00",
-        "2026-11-15 05:00:00 -07:00",
+        "2026-11-15 06:00:00 -06:00",
     ),
     (
         "America/Yellowknife",
         "2027-01-15T12:00:00",
-        "2027-01-15 05:00:00 -07:00",
+        "2027-01-15 06:00:00 -06:00",
     ),
     (
         "America/Yellowknife",
         "2027-03-01T12:00:00",
-        "2027-03-01 05:00:00 -07:00",
+        "2027-03-01 06:00:00 -06:00",
     ),
     (
         "America/Yellowknife",
@@ -387,7 +388,7 @@ const EXPECTED_TO_CHANGE_REVIEWED: &ZoneRows = &[
     (
         "America/Yellowknife",
         "2027-12-15T12:00:00",
-        "2027-12-15 05:00:00 -07:00",
+        "2027-12-15 06:00:00 -06:00",
     ),
     (
         "America/Rainy_River",
@@ -397,17 +398,17 @@ const EXPECTED_TO_CHANGE_REVIEWED: &ZoneRows = &[
     (
         "America/Rainy_River",
         "2026-11-15T12:00:00",
-        "2026-11-15 06:00:00 -06:00",
+        "2026-11-15 07:00:00 -05:00",
     ),
     (
         "America/Rainy_River",
         "2027-01-15T12:00:00",
-        "2027-01-15 06:00:00 -06:00",
+        "2027-01-15 07:00:00 -05:00",
     ),
     (
         "America/Rainy_River",
         "2027-03-01T12:00:00",
-        "2027-03-01 06:00:00 -06:00",
+        "2027-03-01 07:00:00 -05:00",
     ),
     (
         "America/Rainy_River",
@@ -417,7 +418,7 @@ const EXPECTED_TO_CHANGE_REVIEWED: &ZoneRows = &[
     (
         "America/Rainy_River",
         "2027-12-15T12:00:00",
-        "2027-12-15 06:00:00 -06:00",
+        "2027-12-15 07:00:00 -05:00",
     ),
     (
         "America/Havana",
@@ -427,17 +428,17 @@ const EXPECTED_TO_CHANGE_REVIEWED: &ZoneRows = &[
     (
         "America/Havana",
         "2026-11-15T12:00:00",
-        "2026-11-15 07:00:00 -05:00",
+        "2026-11-15 08:00:00 -04:00",
     ),
     (
         "America/Havana",
         "2027-01-15T12:00:00",
-        "2027-01-15 07:00:00 -05:00",
+        "2027-01-15 08:00:00 -04:00",
     ),
     (
         "America/Havana",
         "2027-03-01T12:00:00",
-        "2027-03-01 07:00:00 -05:00",
+        "2027-03-01 08:00:00 -04:00",
     ),
     (
         "America/Havana",
@@ -452,17 +453,17 @@ const EXPECTED_TO_CHANGE_REVIEWED: &ZoneRows = &[
     (
         "Africa/Casablanca",
         "2026-09-20T12:00:00",
-        "2026-09-20 13:00:00 +01:00",
+        "2026-09-20 12:00:00 +00:00",
     ),
     (
         "Africa/Casablanca",
         "2026-11-15T12:00:00",
-        "2026-11-15 13:00:00 +01:00",
+        "2026-11-15 12:00:00 +00:00",
     ),
     (
         "Africa/Casablanca",
         "2027-01-15T12:00:00",
-        "2027-01-15 13:00:00 +01:00",
+        "2027-01-15 12:00:00 +00:00",
     ),
     (
         "Africa/Casablanca",
@@ -472,27 +473,27 @@ const EXPECTED_TO_CHANGE_REVIEWED: &ZoneRows = &[
     (
         "Africa/Casablanca",
         "2027-07-15T12:00:00",
-        "2027-07-15 13:00:00 +01:00",
+        "2027-07-15 12:00:00 +00:00",
     ),
     (
         "Africa/Casablanca",
         "2027-12-15T12:00:00",
-        "2027-12-15 13:00:00 +01:00",
+        "2027-12-15 12:00:00 +00:00",
     ),
     (
         "Africa/El_Aaiun",
         "2026-09-20T12:00:00",
-        "2026-09-20 13:00:00 +01:00",
+        "2026-09-20 12:00:00 +00:00",
     ),
     (
         "Africa/El_Aaiun",
         "2026-11-15T12:00:00",
-        "2026-11-15 13:00:00 +01:00",
+        "2026-11-15 12:00:00 +00:00",
     ),
     (
         "Africa/El_Aaiun",
         "2027-01-15T12:00:00",
-        "2027-01-15 13:00:00 +01:00",
+        "2027-01-15 12:00:00 +00:00",
     ),
     (
         "Africa/El_Aaiun",
@@ -502,12 +503,12 @@ const EXPECTED_TO_CHANGE_REVIEWED: &ZoneRows = &[
     (
         "Africa/El_Aaiun",
         "2027-07-15T12:00:00",
-        "2027-07-15 13:00:00 +01:00",
+        "2027-07-15 12:00:00 +00:00",
     ),
     (
         "Africa/El_Aaiun",
         "2027-12-15T12:00:00",
-        "2027-12-15 13:00:00 +01:00",
+        "2027-12-15 12:00:00 +00:00",
     ),
 ];
 
@@ -543,7 +544,7 @@ fn expected_to_change_reviewed_the_affected_zones_after_the_change() {
 fn expected_to_change_reviewed_the_zone_database_release() {
     assert_eq!(
         engine::database_release(),
-        "2025b",
+        "2026f",
         "the zone database release the tables were recorded from"
     );
 }

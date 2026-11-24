@@ -67,6 +67,7 @@ use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::TenantId;
 use pierre_middleware::extractors::AuthenticatedUser;
 use pierre_middleware::provider_link_token;
+use pierre_runtime_context::require_tenant_in;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tracing::warn;
@@ -133,17 +134,15 @@ pub fn internal_import_routes(resources: &ServerContext) -> Router<Arc<ServerCon
 
 /// The caller's scope, refusing every credential but the athlete's own
 /// session.
-fn session_scope(auth: &AuthenticatedUser) -> AppResult<Scope> {
+async fn session_scope(resources: &ServerContext, auth: &AuthenticatedUser) -> AppResult<Scope> {
     if !matches!(auth.auth_method, AuthMethod::JwtToken { .. }) {
         return Err(AppError::new(
             ErrorCode::PermissionDenied,
             "Imports are started and managed only from Dravr's own apps",
         ));
     }
-    let tenant = auth
-        .active_tenant_id
-        .map(TenantId::from_uuid)
-        .ok_or_else(|| AppError::auth_invalid("Imports require an active tenant in the JWT"))?;
+    let tenants = resources.common.repos.tenants.as_ref();
+    let tenant = require_tenant_in(tenants, auth).await?;
     Ok(ops::scope_of(tenant, auth.user_id))
 }
 
@@ -257,7 +256,7 @@ async fn list_imports(
     State(resources): State<Arc<ServerContext>>,
     auth: AuthenticatedUser,
 ) -> AppResult<Json<ImportsOverview>> {
-    let scope = session_scope(&auth)?;
+    let scope = session_scope(&resources, &auth).await?;
     let sources = OFFERED_SOURCES
         .iter()
         .map(|source| source.as_str())
@@ -288,7 +287,7 @@ async fn check_link(
     Path(source): Path<String>,
     Json(body): Json<LinkBody>,
 ) -> AppResult<Json<LinkCheckView>> {
-    session_scope(&auth)?;
+    session_scope(&resources, &auth).await?;
     let source = ops::offered_source(&source)?;
     if upload::takes_upload(source) {
         return Err(ops::takes_no_link(source));
@@ -321,7 +320,7 @@ async fn start_import(
     headers: HeaderMap,
     body: Bytes,
 ) -> AppResult<Response> {
-    let scope = session_scope(&auth)?;
+    let scope = session_scope(&resources, &auth).await?;
     let source = ops::offered_source(&source)?;
     let body = start_body(&body)?;
     if upload::takes_upload(source) {
@@ -388,7 +387,7 @@ async fn upload_session(
     auth: AuthenticatedUser,
     Path((source, id)): Path<(String, Uuid)>,
 ) -> AppResult<Response> {
-    let scope = session_scope(&auth)?;
+    let scope = session_scope(&resources, &auth).await?;
     let source = ops::offered_source(&source)?;
     let view = upload::session_of(&resources, &scope, source, id).await?;
     Ok((no_store(), Json(view)).into_response())
@@ -401,7 +400,7 @@ async fn write_upload(
     headers: HeaderMap,
     body: Body,
 ) -> AppResult<Response> {
-    let scope = session_scope(&auth)?;
+    let scope = session_scope(&resources, &auth).await?;
     let source = ops::offered_source(&source)?;
     let declared = headers
         .get(header::CONTENT_LENGTH)
@@ -426,11 +425,11 @@ async fn finish_upload(
     auth: AuthenticatedUser,
     Path((source, id)): Path<(String, Uuid)>,
 ) -> AppResult<Response> {
-    let scope = session_scope(&auth)?;
+    let scope = session_scope(&resources, &auth).await?;
     let source = ops::offered_source(&source)?;
     Ok(
         match upload::finish_upload(&resources, &scope, source, id).await? {
-            FinishedUpload::Started(view) => (StatusCode::ACCEPTED, Json(view)).into_response(),
+            FinishedUpload::Started(view) => (StatusCode::ACCEPTED, Json(*view)).into_response(),
             FinishedUpload::TooLarge => too_large(),
         },
     )
@@ -441,7 +440,7 @@ async fn current_import(
     auth: AuthenticatedUser,
     Path(source): Path<String>,
 ) -> AppResult<Json<Value>> {
-    let scope = session_scope(&auth)?;
+    let scope = session_scope(&resources, &auth).await?;
     let source = ops::offered_source(&source)?;
     let view = ops::latest(&resources, &scope, source).await?;
     Ok(Json(json!({ "import": view })))
@@ -462,7 +461,7 @@ async fn import_report(
     Path((source, id)): Path<(String, Uuid)>,
     Query(page): Query<PageQuery>,
 ) -> AppResult<Json<ReportPage>> {
-    let scope = session_scope(&auth)?;
+    let scope = session_scope(&resources, &auth).await?;
     let source = ops::offered_source(&source)?;
     let page = PageReq {
         limit: page.limit.unwrap_or(50).min(MAX_REPORT_PAGE),
@@ -478,7 +477,7 @@ async fn cancel_import(
     auth: AuthenticatedUser,
     Path((source, id)): Path<(String, Uuid)>,
 ) -> AppResult<Json<Value>> {
-    let scope = session_scope(&auth)?;
+    let scope = session_scope(&resources, &auth).await?;
     let source = ops::offered_source(&source)?;
     let cancelled = ops::cancel(&resources, &scope, source, id).await?;
     Ok(Json(json!({ "cancelled": cancelled })))
@@ -489,7 +488,7 @@ async fn delete_history(
     auth: AuthenticatedUser,
     Path(source): Path<String>,
 ) -> AppResult<Json<Value>> {
-    let scope = session_scope(&auth)?;
+    let scope = session_scope(&resources, &auth).await?;
     let source: SourceKey = ops::offered_source(&source)?;
     let originals = ops::delete_history(&resources, &scope, source).await?;
     Ok(Json(

@@ -9,7 +9,7 @@
 
 use crate::common;
 
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::admin::models::{AdminPermission, AdminPermissions};
 use pierre_core::admin::{AdminJwtManager, TokenScope};
 
@@ -27,7 +27,7 @@ fn test_jwt_generation_and_validation() {
             &permissions,
             &TokenScope {
                 is_super_admin: false,
-                expires_at: Some(Utc::now() + Duration::hours(1)),
+                expires_at: Some(Timestamp::now() + Elapsed::hours(1)),
                 tenant_id: None,
             },
             &jwks_manager,
@@ -59,7 +59,7 @@ fn test_expired_token_rejection() {
             &permissions,
             &TokenScope {
                 is_super_admin: false,
-                expires_at: Some(Utc::now() - Duration::hours(1)), // Expired 1 hour ago
+                expires_at: Some(Timestamp::now() - Elapsed::hours(1)), // Expired 1 hour ago
                 tenant_id: None,
             },
             &jwks_manager,

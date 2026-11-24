@@ -1,4 +1,4 @@
-// ABOUTME: Operator route that deletes every row one provider contributed, in every tenant
+// ABOUTME: Admin route that deletes every row one provider contributed, in every tenant
 // ABOUTME: Super-admin only and audited: the termination purge, and the attestation rows every purge writes
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -46,7 +46,7 @@ use axum::{
     response::{IntoResponse, Response},
     Extension,
 };
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use serde_json::{json, to_value};
 use tracing::{error, info};
 
@@ -96,7 +96,7 @@ async fn record_purge(
         .record_token_usage(&AdminTokenUsage {
             id: None,
             admin_token_id: admin_token.token_id.clone(),
-            timestamp: Utc::now(),
+            timestamp: Timestamp::now(),
             action: AdminAction::PurgeProviderData,
             target_resource: Some(format!("provider:{provider}")),
             ip_address: None,
@@ -168,7 +168,7 @@ pub async fn handle_purge_provider_data(
         removed = total,
         rows_removed = ?purge.rows_removed,
         connections_remaining,
-        "Operator purged every row a provider contributed, across every tenant"
+        "Admin purged every row a provider contributed, across every tenant"
     );
 
     Ok(json_response(

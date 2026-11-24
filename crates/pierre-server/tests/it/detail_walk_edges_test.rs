@@ -31,13 +31,13 @@ use crate::messaging_fixtures::{strings, CapturingChannel, FakeResolver};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use chrono::{TimeZone, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_contremaitre::messaging_strings::KEY_DETAIL_WALK_COMPLETE;
 use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::models::coverage::Pending;
 use pierre_core::models::{Activity, ActivityBuilder, ConnectionStatus, SportType, TenantId};
 use pierre_database::backends::factory::DatabaseBackend;
-use pierre_database::repositories::BackfillJobState;
+use pierre_database::repositories::{BackfillJobKind, BackfillJobState};
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::services::backfill_notifier::ServerBackfillNotifier;
 use pierre_services::live_activities::WriteOrigin;
@@ -51,23 +51,28 @@ use tokio::time::{sleep, timeout};
 use uuid::Uuid;
 
 /// The trigger, and on `PostgreSQL` the function behind it, that refuses
-/// every detail walk row the ledger is asked to record.
+/// every walk row of one kind the ledger is asked to record.
 const REFUSE_WALK_ROWS: &str = "refuse_detail_walk_rows";
 
 /// Make the ledger refuse to record any detail walk row from now on.
 async fn refuse_walk_rows(resources: &Arc<ServerContext>) {
-    refuse_walk_rows_on(resources, "INSERT").await;
+    refuse_walk_rows_on(resources, BackfillJobKind::DetailWalk, "INSERT").await;
 }
 
-/// Make the ledger refuse every `event` (`INSERT` or `UPDATE`) of a detail
+/// Make the ledger refuse every `event` (`INSERT` or `UPDATE`) of a `kind`
 /// walk row from now on, until [`accept_walk_rows`].
-pub(crate) async fn refuse_walk_rows_on(resources: &Arc<ServerContext>, event: &str) {
+pub(crate) async fn refuse_walk_rows_on(
+    resources: &Arc<ServerContext>,
+    kind: BackfillJobKind,
+    event: &str,
+) {
+    let kind = kind.as_str();
     match resources.agent.database.backend() {
         DatabaseBackend::SQLite(db) => {
             sqlx::query(&format!(
                 "CREATE TRIGGER {REFUSE_WALK_ROWS} BEFORE {event} ON activity_backfill_jobs \
-                 WHEN NEW.kind = 'detail_walk' \
-                 BEGIN SELECT RAISE(ABORT, 'detail walk row refused by the test'); END"
+                 WHEN NEW.kind = '{kind}' \
+                 BEGIN SELECT RAISE(ABORT, 'walk row refused by the test'); END"
             ))
             .execute(db.pool())
             .await
@@ -77,14 +82,14 @@ pub(crate) async fn refuse_walk_rows_on(resources: &Arc<ServerContext>, event: &
         DatabaseBackend::PostgreSQL(db) => {
             sqlx::query(&format!(
                 "CREATE FUNCTION {REFUSE_WALK_ROWS}() RETURNS trigger LANGUAGE plpgsql \
-                 AS $$ BEGIN RAISE EXCEPTION 'detail walk row refused by the test'; END $$"
+                 AS $$ BEGIN RAISE EXCEPTION 'walk row refused by the test'; END $$"
             ))
             .execute(db.pool())
             .await
             .unwrap();
             sqlx::query(&format!(
                 "CREATE TRIGGER {REFUSE_WALK_ROWS} BEFORE {event} ON activity_backfill_jobs \
-                 FOR EACH ROW WHEN (NEW.kind = 'detail_walk') \
+                 FOR EACH ROW WHEN (NEW.kind = '{kind}') \
                  EXECUTE FUNCTION {REFUSE_WALK_ROWS}()"
             ))
             .execute(db.pool())
@@ -124,7 +129,7 @@ async fn a_walk_the_ledger_cannot_record_is_not_started() {
     let (api_base, mock) = mock_strava().await;
     let resources = server(&api_base, 400).await;
     let (user_id, tenant) = strava_athlete(&resources).await;
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     store_rides(&resources, user_id, tenant, SESSION, &[now - 5 * DAY]).await;
     open_window(&resources).await;
     refuse_walk_rows(&resources).await;
@@ -202,7 +207,7 @@ async fn a_read_copy_past_a_thousand_rows_still_stops_its_ride_being_read() {
     let (api_base, mock) = mock_strava().await;
     let resources = server(&api_base, 400).await;
     let (user_id, tenant) = strava_athlete(&resources).await;
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     let real_start = now - 10 * DAY;
     let day_start = real_start - real_start.rem_euclid(DAY);
     let newest = now - 2 * DAY;
@@ -222,7 +227,7 @@ async fn a_read_copy_past_a_thousand_rows_still_stops_its_ride_being_read() {
                 ride_listed_at(SESSION, real_start, day_start),
                 ride_listed_at(SESSION, newest, newest),
             ],
-            Utc::now(),
+            Timestamp::now(),
             WriteOrigin::Walk,
         )
         .await
@@ -262,7 +267,7 @@ async fn one_second_of_three(
     user_id: Uuid,
     tenant: TenantId,
 ) -> (i64, i64, i64) {
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     let day_start = (now - 5 * DAY) - (now - 5 * DAY).rem_euclid(DAY);
     let (unreadable, stored, refused) = (
         day_start + 3 * 3_600,
@@ -282,7 +287,7 @@ async fn one_second_of_three(
             tenant,
             SESSION,
             &listed,
-            Utc::now(),
+            Timestamp::now(),
             WriteOrigin::Walk,
         )
         .await
@@ -294,7 +299,7 @@ async fn one_second_of_three(
 /// of [`one_second_of_three`].
 async fn ask_the_three(resources: &Arc<ServerContext>, user_id: Uuid, tenant: TenantId) {
     let runtime: Arc<dyn ToolRuntime> = resources.clone();
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     assert_eq!(
         ask_detail_walk(
             &runtime,
@@ -387,7 +392,7 @@ async fn the_eta_is_paced_by_the_athletes_real_walk_day() {
     // 40 a day: a background share of 10, half of it, 5, for the walk.
     let resources = server(&api_base, 40).await;
     let (user_id, tenant) = strava_athlete(&resources).await;
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     store_rides(&resources, user_id, tenant, SESSION, &[now - 5 * DAY]).await;
     open_window(&resources).await;
 
@@ -430,7 +435,7 @@ async fn an_app_with_no_room_for_a_walk_records_none() {
     // 7 a day: a background share of 1, half of it rounded down, 0.
     let resources = server(&api_base, 7).await;
     let (user_id, tenant) = strava_athlete(&resources).await;
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     store_rides(&resources, user_id, tenant, SESSION, &[now - 5 * DAY]).await;
     open_window(&resources).await;
 
@@ -463,7 +468,7 @@ async fn an_owed_walk_whose_app_lost_its_room_ends_incomplete() {
     let (api_base, mock) = mock_strava().await;
     let resources = server(&api_base, 400).await;
     let (user_id, tenant) = strava_athlete(&resources).await;
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     // Twelve rides: the first step reads ten, and the walk stays owed.
     let starts: Vec<i64> = (1..=12).map(|day| now - day * DAY).collect();
     store_rides(&resources, user_id, tenant, SESSION, &starts).await;
@@ -511,7 +516,7 @@ fn run_listed(start: i64) -> Activity {
         start.to_string(),
         "Morning run",
         SportType::Run,
-        Utc.timestamp_opt(start, 0).unwrap(),
+        Timestamp::from_epoch_seconds(start).unwrap(),
         1_800,
         SESSION,
     )
@@ -535,7 +540,7 @@ async fn store_runs(
             tenant,
             SESSION,
             &runs,
-            Utc::now(),
+            Timestamp::now(),
             WriteOrigin::Walk,
         )
         .await
@@ -549,7 +554,7 @@ async fn a_walk_of_rides_reads_no_run() {
     let (api_base, mock) = mock_strava().await;
     let resources = server(&api_base, 400).await;
     let (user_id, tenant) = strava_athlete(&resources).await;
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     let rides = [now - 3 * DAY, now - 6 * DAY];
     let runs = [now - 2 * DAY, now - 5 * DAY];
     store_rides(&resources, user_id, tenant, SESSION, &rides).await;
@@ -597,7 +602,7 @@ async fn a_walk_widened_to_every_sport_reads_the_runs_above_its_cursor() {
     let (api_base, mock) = mock_strava().await;
     let resources = server(&api_base, 400).await;
     let (user_id, tenant) = strava_athlete(&resources).await;
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     // Twelve rides, and a run newer than all of them.
     let rides: Vec<i64> = (2..=13).map(|day| now - day * DAY).collect();
     let run = now - DAY;
@@ -665,7 +670,7 @@ async fn rides_stored_by_a_step_a_sport_widen_stopped_are_counted() {
     let (api_base, mock) = mock_strava().await;
     let resources = server(&api_base, 400).await;
     let (user_id, tenant) = strava_athlete(&resources).await;
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     // Twelve rides the grant listed, and a run newer than all of them.
     let rides: Vec<i64> = (2..=13).map(|day| now - day * DAY).collect();
     let run = now - DAY;
@@ -761,7 +766,7 @@ async fn a_purge_while_a_ride_is_read_leaves_no_grant_copy() {
     let (api_base, mock) = mock_strava().await;
     let resources = server(&api_base, 400).await;
     let (user_id, tenant) = strava_athlete(&resources).await;
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     let ride = now - 5 * DAY;
     store_rides(&resources, user_id, tenant, SESSION, &[ride]).await;
     open_window(&resources).await;
@@ -811,7 +816,7 @@ async fn a_purge_landing_while_the_grant_copy_is_written_takes_it_back() {
     let (api_base, _mock) = mock_strava().await;
     let (resources, store) = holding_writes(&server(&api_base, 400).await);
     let (user_id, tenant) = strava_athlete(&resources).await;
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     store_rides(&resources, user_id, tenant, SESSION, &[now - 5 * DAY]).await;
     open_window(&resources).await;
 
@@ -898,7 +903,7 @@ async fn a_walk_whose_credential_is_dead_ends_incomplete() {
     let (api_base, mock) = mock_strava().await;
     let resources = server(&api_base, 400).await;
     let (user_id, tenant) = strava_athlete(&resources).await;
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     store_rides(&resources, user_id, tenant, SESSION, &[now - 5 * DAY]).await;
     open_window(&resources).await;
     drop_grant_token(&resources, user_id).await;
@@ -1000,7 +1005,7 @@ async fn a_second_walk_posts_its_own_end() {
         .await
         .unwrap()
         .id;
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     store_rides(&resources, user_id, tenant, SESSION, &[now - 5 * DAY]).await;
     open_window(&resources).await;
     let runtime: Arc<dyn ToolRuntime> = resources.clone();

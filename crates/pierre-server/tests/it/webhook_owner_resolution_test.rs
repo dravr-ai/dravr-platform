@@ -16,8 +16,8 @@
 
 use crate::common;
 
-use chrono::Utc;
 use common::{create_test_database, create_test_user_with_plan};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::{
     DelegatedConnection, DelegationEndReason, RosterAthlete, TenantId, UserOAuthToken,
 };
@@ -170,7 +170,12 @@ impl Fixture {
     async fn confirm(&self, link: &DelegatedConnection, member_tenant: TenantId) {
         self.repos
             .delegated_connections
-            .confirm(link.id, link.member_user_id, member_tenant, Utc::now())
+            .confirm(
+                link.id,
+                link.member_user_id,
+                member_tenant,
+                Timestamp::now(),
+            )
             .await
             .unwrap()
             .expect("the member confirms their own proposal");
@@ -352,7 +357,7 @@ async fn a_revoked_member_is_dropped() {
             member,
             Some(member),
             DelegationEndReason::RevokedByMember,
-            Utc::now(),
+            Timestamp::now(),
         )
         .await
         .unwrap()

@@ -12,7 +12,7 @@
 //!
 //! ```text
 //! staged ─▶ primary ─▶ decrypt_only ─▶ disabled ─▶ destroyed
-//!                                        ▲   │        (operator only)
+//!                                        ▲   │        (admin only)
 //!                                        └───┘ key enable
 //! ```
 //!
@@ -22,7 +22,7 @@
 use std::collections::BTreeMap;
 use std::time::Duration;
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_database::backends::shared::keyring::{KeyFamily, FLEET_WINDOW};
 use serde::{Deserialize, Serialize};
@@ -84,27 +84,27 @@ pub struct KeyVersion {
     /// Where it is.
     pub state: KeyState,
     /// When it was staged (or, for a key that predates the keyset, adopted).
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
     /// When it became primary.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub promoted_at: Option<DateTime<Utc>>,
+    pub promoted_at: Option<Timestamp>,
     /// When it stopped being primary.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub demoted_at: Option<DateTime<Utc>>,
+    pub demoted_at: Option<Timestamp>,
     /// When the controller first counted it drained; it is disabled on the
     /// next tick that counts zero again.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub drained_at: Option<DateTime<Utc>>,
+    pub drained_at: Option<Timestamp>,
     /// When it was disabled.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub disabled_at: Option<DateTime<Utc>>,
+    pub disabled_at: Option<Timestamp>,
     /// When it was destroyed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub destroyed_at: Option<DateTime<Utc>>,
+    pub destroyed_at: Option<Timestamp>,
 }
 
 impl KeyVersion {
-    fn new(state: KeyState, now: DateTime<Utc>) -> Self {
+    fn new(state: KeyState, now: Timestamp) -> Self {
         Self {
             state,
             created_at: now,
@@ -181,18 +181,18 @@ pub struct KeysetDocument {
 }
 
 /// `L` as a chrono duration.
-fn fleet_window() -> chrono::Duration {
-    chrono::Duration::from_std(FLEET_WINDOW).unwrap_or(chrono::Duration::MAX)
+fn fleet_window() -> Elapsed {
+    Elapsed::from_std(FLEET_WINDOW).unwrap_or(Elapsed::MAX)
 }
 
-fn span(d: Duration) -> chrono::Duration {
-    chrono::Duration::from_std(d).unwrap_or(chrono::Duration::MAX)
+fn span(d: Duration) -> Elapsed {
+    Elapsed::from_std(d).unwrap_or(Elapsed::MAX)
 }
 
 impl KeysetDocument {
     /// A fresh database's keyset: data v1 and index v1, both primary.
     #[must_use]
-    pub fn fresh(now: DateTime<Utc>) -> Self {
+    pub fn fresh(now: Timestamp) -> Self {
         Self {
             revision: 1,
             families: KeyFamily::ALL
@@ -211,7 +211,7 @@ impl KeysetDocument {
     /// the data primary, every older one `decrypt_only`, and index v1 (the
     /// v1 data key's bytes) the index primary. The transitions it records.
     #[must_use]
-    pub fn adopted(active_version: u32, now: DateTime<Utc>) -> (Self, Vec<Transition>) {
+    pub fn adopted(active_version: u32, now: Timestamp) -> (Self, Vec<Transition>) {
         let active = active_version.max(1);
         let data: BTreeMap<u32, KeyVersion> = (1..=active)
             .map(|version| {
@@ -353,7 +353,7 @@ impl KeysetDocument {
         &mut self,
         family: KeyFamily,
         version: u32,
-        now: DateTime<Utc>,
+        now: Timestamp,
     ) -> AppResult<Transition> {
         let next = self.next_version(family)?;
         if version != next {
@@ -376,7 +376,7 @@ impl KeysetDocument {
 
     /// Promote every key staged for at least [`FLEET_WINDOW`]; the old
     /// primary becomes `decrypt_only`. The transitions made.
-    pub fn promote_due(&mut self, now: DateTime<Utc>) -> Vec<Transition> {
+    pub fn promote_due(&mut self, now: Timestamp) -> Vec<Transition> {
         let mut made = Vec::new();
         for family in KeyFamily::ALL {
             let Some(versions) = self.families.get_mut(&family) else {
@@ -427,7 +427,7 @@ impl KeysetDocument {
     /// tombstones that never expire, so a key that was used is never retired
     /// (JF, carnet#1347).
     #[must_use]
-    pub fn disable_candidates(&self, now: DateTime<Utc>) -> Vec<(u32, DateTime<Utc>)> {
+    pub fn disable_candidates(&self, now: Timestamp) -> Vec<(u32, Timestamp)> {
         let wait = fleet_window() + span(SIGN_IN_COOKIE_TTL);
         self.versions(KeyFamily::Data)
             .into_iter()
@@ -446,7 +446,7 @@ impl KeysetDocument {
         &mut self,
         version: u32,
         drained: bool,
-        now: DateTime<Utc>,
+        now: Timestamp,
     ) -> Option<Transition> {
         let family = KeyFamily::Data;
         let key = self.families.get_mut(&family)?.get_mut(&version)?;
@@ -490,7 +490,7 @@ impl KeysetDocument {
         &mut self,
         family: KeyFamily,
         version: u32,
-        now: DateTime<Utc>,
+        now: Timestamp,
     ) -> AppResult<Transition> {
         let key = self.key_mut(family, version)?;
         if key.state != KeyState::Disabled {
@@ -524,7 +524,7 @@ impl KeysetDocument {
         &self,
         family: KeyFamily,
         version: u32,
-        now: DateTime<Utc>,
+        now: Timestamp,
     ) -> AppResult<()> {
         let key = self
             .versions(family)
@@ -571,7 +571,7 @@ impl KeysetDocument {
         &mut self,
         family: KeyFamily,
         version: u32,
-        now: DateTime<Utc>,
+        now: Timestamp,
     ) -> AppResult<Transition> {
         self.check_destroyable(family, version, now)?;
         let key = self.key_mut(family, version)?;
@@ -589,7 +589,7 @@ impl KeysetDocument {
     /// Whether `family`'s primary is older than `days` and the family is
     /// not already rotating: a scheduled rotation is due. `days == 0` never.
     #[must_use]
-    pub fn rotation_due(&self, family: KeyFamily, days: u32, now: DateTime<Utc>) -> bool {
+    pub fn rotation_due(&self, family: KeyFamily, days: u32, now: Timestamp) -> bool {
         if days == 0 || self.next_version(family).is_err() {
             return false;
         }
@@ -598,7 +598,7 @@ impl KeysetDocument {
         };
         self.versions(family).get(&primary).is_some_and(|key| {
             let since = key.promoted_at.unwrap_or(key.created_at);
-            now - since >= chrono::Duration::days(i64::from(days))
+            now - since >= Elapsed::days(i64::from(days))
         })
     }
 
@@ -614,8 +614,8 @@ impl KeysetDocument {
 mod tests {
     use super::*;
 
-    fn at(minutes: i64) -> DateTime<Utc> {
-        DateTime::from_timestamp(1_800_000_000, 0).unwrap() + chrono::Duration::minutes(minutes)
+    fn at(minutes: i64) -> Timestamp {
+        Timestamp::from_epoch_seconds(1_800_000_000).unwrap() + Elapsed::minutes(minutes)
     }
 
     #[test]

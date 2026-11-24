@@ -14,7 +14,7 @@
 
 #![allow(missing_docs, clippy::unwrap_used, clippy::expect_used)]
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::TenantId;
 use pierre_database::backends::factory::{Database, DatabaseBackend};
 use pierre_database::repositories::{
@@ -27,7 +27,7 @@ use uuid::Uuid;
 const PROVIDER: &str = "strava";
 
 fn now_ms() -> i64 {
-    Utc::now().timestamp_millis()
+    Timestamp::now().epoch_millis()
 }
 
 /// A row owed for `user` in `tenant`, recorded ten minutes ago and leased

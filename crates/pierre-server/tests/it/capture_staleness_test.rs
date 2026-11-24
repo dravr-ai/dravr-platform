@@ -34,7 +34,7 @@ use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use chrono::{DateTime, Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use dravr_tronc::mcp::tool::{McpTool, ToolContext};
 use pierre_config::environment::ProviderEndpointOverride;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
@@ -86,7 +86,7 @@ use crate::helpers::sciotte_mock::seed_sciotte_session;
 /// Build one snapshot row with ages expressed relative to `now`.
 fn row(
     provider: &str,
-    now: DateTime<Utc>,
+    now: Timestamp,
     used_hours_ago: Option<i64>,
     fetched_hours_ago: Option<i64>,
 ) -> CaptureFreshness {
@@ -94,8 +94,8 @@ fn row(
         tenant_id: "11111111-1111-1111-1111-111111111111".to_owned(),
         user_id: "22222222-2222-2222-2222-222222222222".to_owned(),
         provider: provider.to_owned(),
-        last_used_at: used_hours_ago.map(|h| now - Duration::hours(h)),
-        last_fetch_at: fetched_hours_ago.map(|h| now - Duration::hours(h)),
+        last_used_at: used_hours_ago.map(|h| now - Elapsed::hours(h)),
+        last_fetch_at: fetched_hours_ago.map(|h| now - Elapsed::hours(h)),
     }
 }
 
@@ -103,11 +103,11 @@ fn row(
 /// back. This is the row that must come out, and it must carry the honest age.
 #[test]
 fn a_connection_served_from_a_frozen_cache_is_reported_with_its_true_age() {
-    let now = Utc::now();
+    let now = Timestamp::now();
     let snapshot = vec![row("sciotte", now, Some(1), Some(72))];
 
     let (judged, stale) =
-        partition_stale_captures(&snapshot, now, Duration::hours(24), Duration::hours(48));
+        partition_stale_captures(&snapshot, now, Elapsed::hours(24), Elapsed::hours(48));
 
     assert_eq!(judged, 1, "a connection served an hour ago must be judged");
     assert_eq!(
@@ -126,14 +126,14 @@ fn a_connection_served_from_a_frozen_cache_is_reported_with_its_true_age() {
 }
 
 /// A healthy connection: served recently, fetched recently. Reporting this
-/// would train an operator to ignore the alert.
+/// would train an admin to ignore the alert.
 #[test]
 fn a_connection_still_reaching_its_provider_is_not_reported() {
-    let now = Utc::now();
+    let now = Timestamp::now();
     let snapshot = vec![row("strava", now, Some(1), Some(2))];
 
     let (judged, stale) =
-        partition_stale_captures(&snapshot, now, Duration::hours(24), Duration::hours(48));
+        partition_stale_captures(&snapshot, now, Elapsed::hours(24), Elapsed::hours(48));
 
     assert_eq!(judged, 1);
     assert!(
@@ -148,11 +148,11 @@ fn a_connection_still_reaching_its_provider_is_not_reported() {
 /// at all, or every dormant account becomes a page.
 #[test]
 fn an_athlete_who_has_not_asked_anything_is_never_judged() {
-    let now = Utc::now();
+    let now = Timestamp::now();
     let snapshot = vec![row("whoop", now, Some(24 * 7), Some(24 * 7))];
 
     let (judged, stale) =
-        partition_stale_captures(&snapshot, now, Duration::hours(24), Duration::hours(48));
+        partition_stale_captures(&snapshot, now, Elapsed::hours(24), Elapsed::hours(48));
 
     assert_eq!(
         judged, 0,
@@ -166,11 +166,11 @@ fn an_athlete_who_has_not_asked_anything_is_never_judged() {
 /// age — flattening the two would hide which one it is.
 #[test]
 fn a_connection_that_never_fetched_is_stale_and_says_so_distinctly() {
-    let now = Utc::now();
+    let now = Timestamp::now();
     let snapshot = vec![row("garmin", now, Some(2), None)];
 
     let (judged, stale) =
-        partition_stale_captures(&snapshot, now, Duration::hours(24), Duration::hours(48));
+        partition_stale_captures(&snapshot, now, Elapsed::hours(24), Elapsed::hours(48));
 
     assert_eq!(judged, 1);
     assert_eq!(stale.len(), 1);
@@ -184,37 +184,37 @@ fn a_connection_that_never_fetched_is_stale_and_says_so_distinctly() {
 /// A connection that has never served anyone is not evidence of anything.
 #[test]
 fn a_connection_that_never_served_is_never_judged() {
-    let now = Utc::now();
+    let now = Timestamp::now();
     let snapshot = vec![row("coros", now, None, None)];
 
     let (judged, stale) =
-        partition_stale_captures(&snapshot, now, Duration::hours(24), Duration::hours(48));
+        partition_stale_captures(&snapshot, now, Elapsed::hours(24), Elapsed::hours(48));
 
     assert_eq!(judged, 0);
     assert!(stale.is_empty());
 }
 
 /// The thresholds are the caller's, and moving them must actually move the
-/// verdict — that is what lets an operator re-ask with a tighter question
+/// verdict — that is what lets an admin re-ask with a tighter question
 /// without a deploy.
 #[test]
 fn the_threshold_decides_the_verdict() {
-    let now = Utc::now();
+    let now = Timestamp::now();
     let snapshot = vec![row("sciotte", now, Some(1), Some(6))];
 
     let (_, lenient) =
-        partition_stale_captures(&snapshot, now, Duration::hours(24), Duration::hours(48));
+        partition_stale_captures(&snapshot, now, Elapsed::hours(24), Elapsed::hours(48));
     assert!(lenient.is_empty(), "6h is inside a 24h threshold");
 
     let (_, strict) =
-        partition_stale_captures(&snapshot, now, Duration::hours(4), Duration::hours(48));
+        partition_stale_captures(&snapshot, now, Elapsed::hours(4), Elapsed::hours(48));
     assert_eq!(strict.len(), 1, "6h is outside a 4h threshold");
 }
 
 /// A mixed population must be counted honestly: three judged, one of them stale.
 #[test]
 fn a_mixed_population_reports_honest_counts() {
-    let now = Utc::now();
+    let now = Timestamp::now();
     let snapshot = vec![
         row("sciotte", now, Some(1), Some(72)), // judged, stale
         row("strava", now, Some(3), Some(3)),   // judged, healthy
@@ -224,7 +224,7 @@ fn a_mixed_population_reports_honest_counts() {
     ];
 
     let (judged, stale) =
-        partition_stale_captures(&snapshot, now, Duration::hours(24), Duration::hours(48));
+        partition_stale_captures(&snapshot, now, Elapsed::hours(24), Elapsed::hours(48));
 
     assert_eq!(judged, 3, "three connections served inside the window");
     assert_eq!(stale.len(), 1);
@@ -262,7 +262,7 @@ async fn the_snapshot_pairs_a_connection_with_its_fetch_mark() {
         .touch_last_used(user_id, tenant, "sciotte")
         .await
         .unwrap();
-    let fetched_at = Utc::now() - Duration::hours(50);
+    let fetched_at = Timestamp::now() - Elapsed::hours(50);
     cache
         .record_activity_fetch(user_id, &tenant, "sciotte", fetched_at)
         .await
@@ -315,9 +315,9 @@ async fn the_snapshot_pairs_a_connection_with_its_fetch_mark() {
     // sciotte row is 50h past its last fetch, the whoop row never fetched at all.
     let (judged, stale) = partition_stale_captures(
         &snapshot,
-        Utc::now(),
-        Duration::hours(24),
-        Duration::hours(48),
+        Timestamp::now(),
+        Elapsed::hours(24),
+        Elapsed::hours(48),
     );
     assert_eq!(judged, 2, "both connections were served just now");
     assert_eq!(stale.len(), 2, "one frozen, one never fetched");
@@ -366,7 +366,13 @@ async fn a_connection_needing_reauth_is_excluded_from_the_snapshot() {
     );
 
     connections
-        .mark_needs_reauth(user_id, tenant, "strava", Some("invalid_grant"), Utc::now())
+        .mark_needs_reauth(
+            user_id,
+            tenant,
+            "strava",
+            Some("invalid_grant"),
+            Timestamp::now(),
+        )
         .await
         .unwrap();
 
@@ -416,7 +422,12 @@ async fn a_push_only_connection_is_never_judged_stale() {
             .await
             .unwrap();
         cache
-            .record_activity_fetch(user_id, &tenant, provider, Utc::now() - Duration::hours(72))
+            .record_activity_fetch(
+                user_id,
+                &tenant,
+                provider,
+                Timestamp::now() - Elapsed::hours(72),
+            )
             .await
             .unwrap();
     }
@@ -432,9 +443,9 @@ async fn a_push_only_connection_is_never_judged_stale() {
     );
     let (_, stale) = partition_stale_captures(
         &judged_rows,
-        Utc::now(),
-        Duration::hours(24),
-        Duration::hours(48),
+        Timestamp::now(),
+        Elapsed::hours(24),
+        Elapsed::hours(48),
     );
     let stale: Vec<&str> = stale
         .iter()
@@ -466,7 +477,7 @@ async fn tenant_of(resources: &Arc<dyn ToolRuntime>, user_id: Uuid) -> TenantId 
 const HEAD_READ_FAILED: &str =
     "Live activity head read failed; the athlete is served from the cache until it recovers";
 
-/// A head read that failed is the one event an operator is paged for: the
+/// A head read that failed is the one event an admin is paged for: the
 /// error layer forwards `error` lines only, and a `warn` is how the 2026-10-30
 /// stale serve went unheard (carnet#1278). An authentication failure is not
 /// one — the reconnect notice is its page — and a complete read records
@@ -480,7 +491,7 @@ async fn a_failed_head_read_pages_and_an_auth_failure_does_not() {
     let runtime: Arc<dyn ToolRuntime> = resources.clone();
     let tenant = tenant_of(&runtime, user_id).await;
     let head = ActivityQueryParams {
-        after: Some((Utc::now() - Duration::days(7)).timestamp()),
+        after: Some((Timestamp::now() - Elapsed::days(7)).epoch_seconds()),
         before: None,
         limit: Some(50),
         offset: None,
@@ -601,7 +612,7 @@ async fn a_spent_budget_pages_once_through_the_limiter_and_a_provider_429_still_
     let runtime: Arc<dyn ToolRuntime> = resources.clone();
     let tenant = tenant_of(&runtime, user_id).await;
     let head = ActivityQueryParams {
-        after: Some((Utc::now() - Duration::days(7)).timestamp()),
+        after: Some((Timestamp::now() - Elapsed::days(7)).epoch_seconds()),
         before: None,
         limit: Some(50),
         offset: None,
@@ -655,7 +666,7 @@ async fn a_spent_budget_pages_once_through_the_limiter_and_a_provider_429_still_
     assert_eq!(
         named(&events, HEAD_READ_FAILED).len(),
         1,
-        "bug: a 429 Strava itself answered is a failed read the operator must hear about"
+        "bug: a 429 Strava itself answered is a failed read the admin must hear about"
     );
 }
 
@@ -714,7 +725,7 @@ async fn a_serve_from_the_elected_providers_own_cache_touches_its_connection() {
         .register_connection(user_id, tenant, "strava", &ConnectionType::OAuth, None)
         .await
         .unwrap();
-    let now = Utc::now();
+    let now = Timestamp::now();
     repos
         .oauth_tokens
         .upsert_token(&UserOAuthToken {
@@ -726,7 +737,7 @@ async fn a_serve_from_the_elected_providers_own_cache_touches_its_connection() {
             access_token: SecretString::from("strava_access_token_0123456789abcdef0123456789"),
             refresh_token: Some(SecretString::from("strava_refresh")),
             token_type: "Bearer".to_owned(),
-            expires_at: Some(now + Duration::hours(6)),
+            expires_at: Some(now + Elapsed::hours(6)),
             scope: Some("activity:read_all".to_owned()),
             provider_user_id: Some("4242".to_owned()),
             oauth_app_client_id: None,
@@ -739,7 +750,7 @@ async fn a_serve_from_the_elected_providers_own_cache_touches_its_connection() {
         "strava-ride-1",
         "Sortie longue",
         SportType::Ride,
-        now - Duration::days(2),
+        now - Elapsed::days(2),
         7_200,
         "strava",
     )
@@ -847,7 +858,7 @@ async fn spawn_scraper(answer: u8) -> (Arc<ScraperStandIn>, String) {
                     "id": SESSION_RIDE,
                     "name": "Sortie du matin",
                     "sport_type": "ride",
-                    "start_date": (Utc::now() - Duration::days(1)).to_rfc3339(),
+                    "start_date": (Timestamp::now() - Elapsed::days(1)).to_rfc3339(),
                     "duration_seconds": 3600,
                     "provider": "strava",
                     "distance_meters": 30000.0
@@ -900,7 +911,7 @@ async fn spawn_scraper(answer: u8) -> (Arc<ScraperStandIn>, String) {
                                     "id": id,
                                     "name": "Sortie longue",
                                     "sport_type": "ride",
-                                    "start_date": (Utc::now() - Duration::days(1)).to_rfc3339(),
+                                    "start_date": (Timestamp::now() - Elapsed::days(1)).to_rfc3339(),
                                     "duration_seconds": 10_800,
                                     "provider": "strava",
                                     "distance_meters": 80_000.0,
@@ -939,7 +950,7 @@ fn grant_ride() -> Value {
         "name": "Sortie longue",
         "type": "Ride",
         "sport_type": "Ride",
-        "start_date": (Utc::now() - Duration::days(1)).to_rfc3339(),
+        "start_date": (Timestamp::now() - Elapsed::days(1)).to_rfc3339(),
         "distance": 80_000.0,
         "elapsed_time": 10_800,
         "moving_time": 10_200,
@@ -1050,7 +1061,7 @@ impl Pair {
             )
             .await
             .unwrap();
-        let now = Utc::now();
+        let now = Timestamp::now();
         repos
             .oauth_tokens
             .upsert_token(&UserOAuthToken {
@@ -1062,7 +1073,7 @@ impl Pair {
                 access_token: SecretString::from("strava_access_token_0123456789abcdef0123456789"),
                 refresh_token: Some(SecretString::from("strava_refresh")),
                 token_type: "Bearer".to_owned(),
-                expires_at: Some(now + Duration::hours(6)),
+                expires_at: Some(now + Elapsed::hours(6)),
                 scope: Some("activity:read_all".to_owned()),
                 provider_user_id: Some("4242".to_owned()),
                 oauth_app_client_id: None,
@@ -1086,7 +1097,7 @@ impl Pair {
 
     fn head() -> ActivityQueryParams {
         ActivityQueryParams {
-            after: Some((Utc::now() - Duration::days(7)).timestamp()),
+            after: Some((Timestamp::now() - Elapsed::days(7)).epoch_seconds()),
             before: None,
             limit: Some(50),
             offset: None,
@@ -1117,7 +1128,7 @@ impl Pair {
                 self.tenant,
                 provider,
                 Some("test_flag"),
-                Utc::now(),
+                Timestamp::now(),
             )
             .await
             .unwrap();
@@ -1134,7 +1145,7 @@ impl Pair {
             .is_some()
     }
 
-    async fn last_sync(&self, provider: &str) -> Option<DateTime<Utc>> {
+    async fn last_sync(&self, provider: &str) -> Option<Timestamp> {
         self.resources
             .common
             .repos
@@ -1160,8 +1171,8 @@ impl Pair {
                 self.user_id,
                 &self.tenant,
                 &CachedRowsQuery::window(
-                    Utc::now() - Duration::days(30),
-                    Utc::now() + Duration::days(1),
+                    Timestamp::now() - Elapsed::days(30),
+                    Timestamp::now() + Elapsed::days(1),
                     100,
                 ),
             )
@@ -1180,7 +1191,7 @@ impl Pair {
             id,
             "Sortie en cache",
             SportType::Ride,
-            Utc::now() - Duration::days(days_ago),
+            Timestamp::now() - Elapsed::days(days_ago),
             3_600,
             provider,
         )
@@ -1656,7 +1667,7 @@ async fn a_turn_past_its_budget_reads_only_one_backend_inline() {
         user_id: pair.user_id,
         tenant_id: pair.tenant,
         params: Pair::head(),
-        attempt_started_at: Utc::now(),
+        attempt_started_at: Timestamp::now(),
         conversation_id: None,
         ask: None,
     };
@@ -1724,7 +1735,7 @@ impl BackfillNotifier for GrantReask {
             user_id: self.user_id,
             tenant_id: self.tenant,
             params: Pair::head(),
-            attempt_started_at: Utc::now(),
+            attempt_started_at: Timestamp::now(),
             conversation_id: Some(completion.pierre_conversation_id.to_owned()),
             ask: None,
         };
@@ -1808,7 +1819,7 @@ async fn a_re_ask_of_a_read_its_grant_answered_reads_the_grants_rows() {
         user_id: pair.user_id,
         tenant_id: pair.tenant,
         params: Pair::head(),
-        attempt_started_at: Utc::now(),
+        attempt_started_at: Timestamp::now(),
         conversation_id: Some("conv-1".to_owned()),
         ask: None,
     };

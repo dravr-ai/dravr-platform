@@ -7,7 +7,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use chrono::{Duration, NaiveDate};
+use dravr_tronc::dates::{CivilDate, Elapsed};
 use pierre_core::models::{DailyTrainingState, TenantId};
 use pierre_database::backends::factory::Database;
 use pierre_database::DatabaseProvider;
@@ -24,13 +24,13 @@ async fn make_test_db() -> Database {
     db
 }
 
-fn anchor() -> NaiveDate {
-    NaiveDate::from_ymd_opt(2026, 4, 1).unwrap()
+fn anchor() -> CivilDate {
+    CivilDate::from_ymd(2026, 4, 1).unwrap()
 }
 
 fn synthetic_state(day_offset: i64, daily_load: f64) -> DailyTrainingState {
     DailyTrainingState {
-        date: anchor() + Duration::days(day_offset),
+        date: anchor() + Elapsed::days(day_offset),
         ctl: (day_offset as f64).mul_add(0.1, 45.0),
         atl: (day_offset as f64).mul_add(0.05, 50.0),
         tsb: -5.0,
@@ -58,7 +58,7 @@ async fn history_rows_serialise_with_endurance_keys() {
         .expect("batch upsert");
 
     let from = anchor();
-    let to = anchor() + Duration::days(6);
+    let to = anchor() + Elapsed::days(6);
     let days = db
         .repositories()
         .training_history

@@ -25,9 +25,9 @@ pub use pierre_core::models;
 
 // Re-export LLM types from pierre-core (canonical definitions live there)
 pub use pierre_core::llm::{
-    ChatMessage, ChatRequest, ChatResponse, ChatStream, LlmCapabilities, LlmProvider,
-    LlmProviderRegistry, McpHeader, McpServerConfig, McpTransport, MessageRole, StreamChunk,
-    TokenUsage, ToolStreamEvent, ToolTurnStream,
+    ChatMessage, ChatRequest, ChatResponse, ChatStream, LlmCapabilities, LlmProvider, McpHeader,
+    McpServerConfig, McpTransport, MessageRole, StreamChunk, TokenUsage, ToolStreamEvent,
+    ToolTurnStream,
 };
 
 /// What one recorded LLM call is, its sink, and the recorded completion
@@ -61,6 +61,8 @@ mod router_store;
 pub mod served_tier;
 /// Which model each background LLM stage runs on
 pub mod stage;
+/// The tiers of a chain that cannot answer the probe request, benched until they can
+pub mod tier_bench;
 mod tool_bridge;
 /// The platform's tool surface and tool-carrying response
 mod tool_types;

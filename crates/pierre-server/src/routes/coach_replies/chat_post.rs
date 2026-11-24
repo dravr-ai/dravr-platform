@@ -219,16 +219,14 @@ async fn post_into_group_chat(
     let Some(channel) = group.channel_type.as_deref() else {
         return false;
     };
-    let Some((channel_type, chat_id)) = proactive_chat(group) else {
+    let Some(chat) = proactive_chat(group) else {
         info!(group_id = %group.id, channel = %channel, "correction: the group's chat takes no post the platform starts; it is in the group thread only");
         return false;
     };
-    let Ok(tenant) = TenantId::parse_str(&group.tenant_id) else {
-        warn!(group_id = %group.id, "correction: the group's tenant is not a uuid; not posted to its chat");
-        return false;
-    };
     let text = correction_text(registry, locale, names, outcome);
-    let parts = poster.post(tenant, channel_type, chat_id, &text).await;
+    let parts = poster
+        .post(chat.tenant_id, chat.channel, chat.chat_id, &text)
+        .await;
     if parts > 0 {
         info!(group_id = %group.id, channel = %channel, parts, "correction: posted into the group's chat");
     }
@@ -240,7 +238,7 @@ mod tests {
     use std::sync::Mutex;
 
     use async_trait::async_trait;
-    use chrono::Utc;
+    use dravr_tronc::dates::Timestamp;
     use pierre_core::models::groups::{GroupDigestMode, GroupRespondMode};
     use pierre_core::models::messaging::ChannelType;
     use pierre_core::models::{CoachReplyCorrection, Tenant};
@@ -294,8 +292,9 @@ mod tests {
             is_active: true,
             channel_type: channel.map(|(c, _)| c.to_owned()),
             channel_chat_id: channel.map(|(_, id)| id.to_owned()),
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            chat_connection: None,
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         }
     }
 
@@ -313,7 +312,7 @@ mod tests {
                 content: "Your **2:41** marathon in May was a big step.".to_owned(),
                 conversation_id: Some("c1".to_owned()),
                 message_id: Some("m1".to_owned()),
-                created_at: Utc::now(),
+                created_at: Timestamp::now(),
                 transport_policy: TransportPolicy::AnyTransport,
             },
             correction: CoachReplyCorrection {
@@ -321,7 +320,7 @@ mod tests {
                 reply_entry_id: entry_id,
                 correction_entry_id: Uuid::new_v4(),
                 content: "Paul has not run a marathon yet; the May race was a half.".to_owned(),
-                created_at: Utc::now(),
+                created_at: Timestamp::now(),
             },
         }
     }
@@ -452,8 +451,8 @@ mod tests {
                 domain: None,
                 plan: "professional".to_owned(),
                 owner_user_id: user_id,
-                created_at: Utc::now(),
-                updated_at: Utc::now(),
+                created_at: Timestamp::now(),
+                updated_at: Timestamp::now(),
             })
             .await
             .expect("tenant");

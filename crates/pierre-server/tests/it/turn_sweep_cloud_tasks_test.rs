@@ -23,7 +23,7 @@ mod swept {
     use std::sync::Arc;
     use std::time::Duration;
 
-    use chrono::Utc;
+    use dravr_tronc::dates::Timestamp;
     use pierre_core::models::TenantId;
     use pierre_database::repositories::{
         ResumableTurnRepository, ResumableTurnRow, TurnClaim, TurnLease,
@@ -96,7 +96,7 @@ mod swept {
                 placeholder_message_id: None,
                 attempts: 0,
                 enqueue_seq: 0,
-                created_at_ms: Utc::now().timestamp_millis() - age_ms,
+                created_at_ms: Timestamp::now().epoch_millis() - age_ms,
             };
             assert!(self.repo().record_resumable_turn(&row).await.unwrap());
             row
@@ -124,8 +124,8 @@ mod swept {
             // A claim that finds nothing reports the row missing.
             let lease = TurnLease {
                 leased_by: "probe",
-                now_ms: Utc::now().timestamp_millis(),
-                lease_until_ms: Utc::now().timestamp_millis() + 1_000,
+                now_ms: Timestamp::now().epoch_millis(),
+                lease_until_ms: Timestamp::now().epoch_millis() + 1_000,
                 max_attempts: MAX_TURN_ATTEMPTS,
             };
             !matches!(
@@ -200,7 +200,7 @@ mod swept {
         let swept = Swept::boot().await;
         let running = swept.record("conv-running", LONG_AGO_MS).await;
         let tenant = TenantId::parse_str(&running.tenant_id).unwrap();
-        let now = Utc::now().timestamp_millis();
+        let now = Timestamp::now().epoch_millis();
         let claimed = swept
             .repo()
             .claim_resumable_turn(
@@ -236,7 +236,7 @@ mod swept {
         let swept = Swept::boot().await;
         let doomed = swept.record("conv-doomed", LONG_AGO_MS).await;
         let tenant = TenantId::parse_str(&doomed.tenant_id).unwrap();
-        let now = Utc::now().timestamp_millis();
+        let now = Timestamp::now().epoch_millis();
 
         // Spend every attempt, then let the last run die: nothing will claim
         // this row again, and the athlete was never told.

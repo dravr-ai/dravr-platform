@@ -20,7 +20,7 @@ SOURCES = Path(__file__).resolve().parent
 MASTER = SOURCES / "boreal-ripple-mark.png"
 TRACE = SOURCES / "boreal-ripple-mark.svg"
 
-# Forest, the mark's ink on light surfaces (DESIGN.md §1). The SVG carries one
+# Forest, the mark's ink on light surfaces (BRAND.md). The SVG carries one
 # fill, so a consumer recolours it to mint or sage by replacing this value.
 INK = "#05331f"
 CANVAS = 1024

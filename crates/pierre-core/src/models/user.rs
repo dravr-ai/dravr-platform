@@ -8,7 +8,7 @@ use crate::transport::TransportPolicy;
 use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
 use std::str::FromStr;
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -22,7 +22,7 @@ use dravr_cageux::nutrition_calculator::Gender;
 
 use super::zones::{HrZoneSet, PowerZoneSet};
 use super::{
-    AnchorProvenance, EncryptedToken, ProvenancedValue, SportType, ThresholdProvenance,
+    AnchorProvenance, ProfileVdot, ProvenancedValue, SportType, ThresholdProvenance,
     ThresholdStatedOn,
 };
 
@@ -410,17 +410,17 @@ impl FromStr for ColorScheme {
     }
 }
 
-/// A `manages_roster` grant an operator made, from the admin console or
+/// A `manages_roster` grant an admin made, from the admin console or
 /// `pierre-cli user set --manages-roster`.
 ///
 /// The `TrainingPeaks` reconciler takes back only a grant a coach connection
 /// earned, never one of these.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub struct OperatorRosterGrant {
-    /// When the operator granted it.
-    pub granted_at: DateTime<Utc>,
-    /// The operator who granted it; `None` for a service token, which names
-    /// no one, and once that operator's account is deleted.
+pub struct AdminRosterGrant {
+    /// When the admin granted it.
+    pub granted_at: Timestamp,
+    /// The admin who granted it; `None` for a service token, which names
+    /// no one, and once that admin's account is deleted.
     pub granted_by: Option<Uuid>,
 }
 
@@ -449,12 +449,10 @@ pub struct User {
     pub password_hash: String,
     /// User tier for rate limiting
     pub tier: UserTier,
-    /// Encrypted Strava tokens
-    pub strava_token: Option<EncryptedToken>,
     /// When the user account was created
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
     /// Last time user accessed the system
-    pub last_active: DateTime<Utc>,
+    pub last_active: Timestamp,
     /// Whether the user account is active
     pub is_active: bool,
     /// User account status for admin approval workflow
@@ -465,7 +463,7 @@ pub struct User {
     /// Admin who approved this user (if approved)
     pub approved_by: Option<Uuid>,
     /// When the user was approved by admin
-    pub approved_at: Option<DateTime<Utc>>,
+    pub approved_at: Option<Timestamp>,
     /// Firebase UID if user authenticated via Firebase (Google, Apple, etc.)
     pub firebase_uid: Option<String>,
     /// Authentication provider: "email", "google.com", "apple.com", "github.com"
@@ -473,7 +471,7 @@ pub struct User {
     /// Whether the user consented to anonymized analytics tracking
     pub analytics_consent: bool,
     /// When the user last updated their analytics consent preference
-    pub analytics_consent_at: Option<DateTime<Utc>>,
+    pub analytics_consent_at: Option<Timestamp>,
     /// BCP-47 short locale code for user-facing messaging output
     /// (`"fr"`, `"en"`, `"es"`, `"de"`, `"pt"`). Defaults to
     /// [`default_locale()`] when not explicitly set. Resolved at messaging
@@ -495,9 +493,9 @@ pub struct User {
     /// TrainingPeaks email is the user's verified email, and revoked when that
     /// connection is disconnected or signs in as an athlete or as a coach
     /// account that is not the user's, unless another TrainingPeaks coach
-    /// connection still holds it. An operator grants or revokes it from the
+    /// connection still holds it. An admin grants or revokes it from the
     /// admin console or `pierre-cli user set --manages-roster`, and an
-    /// operator grant ([`OperatorRosterGrant`]) is never revoked by the
+    /// admin grant ([`AdminRosterGrant`]) is never revoked by the
     /// TrainingPeaks reconciler.
     pub manages_roster: bool,
     /// IANA timezone database name (e.g. `"America/Toronto"`,
@@ -522,9 +520,8 @@ pub struct User {
 }
 
 /// Every field as stored, except `password_hash`, which prints as
-/// `[REDACTED]` whatever it holds. The Strava tokens are `SecretString`s,
-/// which print as redacted themselves. A field prints only once it is
-/// listed here, so a new one is left out until someone decides it may.
+/// `[REDACTED]` whatever it holds. A field prints only once it is listed
+/// here, so a new one is left out until someone decides it may.
 impl Debug for User {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         f.debug_struct("User")
@@ -533,7 +530,6 @@ impl Debug for User {
             .field("display_name", &self.display_name)
             .field("password_hash", &"[REDACTED]")
             .field("tier", &self.tier)
-            .field("strava_token", &self.strava_token)
             .field("created_at", &self.created_at)
             .field("last_active", &self.last_active)
             .field("is_active", &self.is_active)
@@ -658,14 +654,13 @@ impl User {
     /// Tenant membership is managed separately via the `tenant_users` table.
     #[must_use]
     pub fn new(email: String, password_hash: String, display_name: Option<String>) -> Self {
-        let now = Utc::now();
+        let now = Timestamp::now();
         Self {
             id: Uuid::new_v4(),
             email: normalize_email(email),
             display_name,
             password_hash,
             tier: UserTier::Starter, // Default to starter tier
-            strava_token: None,
             created_at: now,
             last_active: now,
             is_active: true,
@@ -685,27 +680,9 @@ impl User {
         }
     }
 
-    /// Check if user has valid Strava token
-    #[must_use]
-    pub fn has_strava_access(&self) -> bool {
-        self.strava_token
-            .as_ref()
-            .is_some_and(|token| token.expires_at > Utc::now())
-    }
-
-    /// Get list of available providers for this user
-    #[must_use]
-    pub fn available_providers(&self) -> Vec<String> {
-        let mut providers = Vec::with_capacity(1);
-        if self.has_strava_access() {
-            providers.push("strava".into());
-        }
-        providers
-    }
-
     /// Update last active timestamp
     pub fn update_last_active(&mut self) {
-        self.last_active = Utc::now();
+        self.last_active = Timestamp::now();
     }
 
     /// Whether this account may take an admin's decisions now: an admin that
@@ -890,6 +867,16 @@ pub struct UserPhysiologicalProfile {
     /// promoted reads exactly as before.
     #[serde(default, skip_serializing_if = "AnchorProvenance::is_empty")]
     pub anchor_provenance: AnchorProvenance,
+    /// How [`Self::vo2_max`] was found (`cooper_test`, "lab test"): cleared
+    /// with every new `VO2max` saved without one, and by a weekly promotion.
+    /// Absent for a value saved before methods were recorded.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vo2_max_method: Option<String>,
+    /// A VDOT the athlete or their coach stated, from a race or as a number
+    /// ([`ProfileVdot`]). Stored apart from [`Self::vo2_max`]: a VDOT is a
+    /// performance index, and neither is ever filled from the other.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vdot: Option<ProfileVdot>,
     /// Physiological sex, for the published equations that take one
     /// ([`PhysiologicalSex`]). Set by the athlete with `set_physiology`, or
     /// filled once from a provider that reports it when none is set; a value
@@ -931,6 +918,8 @@ impl UserPhysiologicalProfile {
             threshold_provenance: ThresholdProvenance::NONE,
             threshold_stated_on: ThresholdStatedOn::NONE,
             anchor_provenance: AnchorProvenance::NONE,
+            vo2_max_method: None,
+            vdot: None,
             sex: None,
             transport_policy: TransportPolicy::AnyTransport,
         }
@@ -1007,7 +996,7 @@ impl UserPhysiologicalProfile {
 /// The rest name something the delete would take from other people or leave
 /// running elsewhere: a tenant only this user owns while others belong to it,
 /// an agent other users rely on, a billing subscription still live at the
-/// provider. An operator reassigns (or removes) the row first; a group owned
+/// provider. An admin reassigns (or removes) the row first; a group owned
 /// out from under its members, or an audit trail rewritten to a deleted
 /// account, is not something a delete does silently.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -1064,7 +1053,7 @@ impl UserReferenceKind {
         }
     }
 
-    /// An operator-facing phrase for one reference of this kind; `detail` is
+    /// An admin-facing phrase for one reference of this kind; `detail` is
     /// what the storage query names the referencing row by.
     #[must_use]
     pub fn describe(self, detail: &str) -> String {
@@ -1126,7 +1115,7 @@ pub struct UserReference {
 }
 
 impl UserReference {
-    /// The operator-facing sentence fragment naming this reference.
+    /// The admin-facing sentence fragment naming this reference.
     #[must_use]
     pub fn describe(&self) -> String {
         self.kind.describe(&self.detail)

@@ -12,7 +12,7 @@
 //! `users.role = 'admin'` via [`pierre_middleware::admin_guard::require_admin`].
 //!
 //! Endpoints covered:
-//! - Admin roles (`users/{id}/promote`, `users/{id}/demote`, `admins`)
+//! - Admin roles (`users/{id}/promote`, `users/{id}/demote`)
 //! - Per-user profile (`users/{id}/admin-profile`)
 //! - Per-user tool overrides (`tools/user/{id}/*`)
 //! - Tenant plan (`tenants/{id}/plan`)
@@ -43,12 +43,13 @@ use axum::{
     routing::{delete, get, post},
     Json, Router,
 };
-use chrono::{DateTime, Datelike, NaiveDate, TimeZone, Utc};
+use dravr_tronc::dates::{CivilDate, Timestamp};
 use dravr_tronc::http_client::guard::FetchPolicy;
 use serde::{Deserialize, Serialize};
 use tracing::info;
 use uuid::Uuid;
 
+use dravr_tronc::dates::{CivilDateTime, Zone};
 use pierre_auth::admin::jwks::JwksManager;
 use pierre_auth::auth::{AuthManager, AuthResult};
 use pierre_auth::security::csrf::CsrfTokenManager;
@@ -178,24 +179,6 @@ struct AdminPrivilegeChangeUser {
     role: String,
 }
 
-/// Admin user entry for the list-admins response
-#[derive(Serialize)]
-struct AdminListEntry {
-    id: String,
-    email: String,
-    display_name: Option<String>,
-    role: String,
-    user_status: String,
-    created_at: String,
-}
-
-/// Response for listing all admins
-#[derive(Serialize)]
-struct AdminListResponse {
-    count: usize,
-    admins: Vec<AdminListEntry>,
-}
-
 /// Query parameters for `GET /api/admin/analytics/recent-activity`.
 #[derive(Debug, Deserialize)]
 pub struct RecentActivityQuery {
@@ -299,7 +282,6 @@ impl WebAdminRoutes {
                 "/api/admin/users/{user_id}/demote",
                 post(Self::handle_demote_user),
             )
-            .route("/api/admin/admins", get(Self::handle_list_admins))
             // Billing / usage routes
             .route(
                 "/api/admin/users/{user_id}/usage",
@@ -664,44 +646,6 @@ impl WebAdminRoutes {
             .into_response())
     }
 
-    /// List all admin users across all tenants
-    async fn handle_list_admins(
-        State(resources): State<WebAdminContext>,
-        headers: HeaderMap,
-    ) -> Result<Response, AppError> {
-        let auth = Self::authenticate_admin(&headers, &resources).await?;
-
-        info!(
-            admin_user_id = %auth.user_id,
-            "Web admin listing all admin users"
-        );
-
-        let admins = admin_ops::list_all_admins(&resources.data, auth.user_id).await?;
-
-        let entries: Vec<AdminListEntry> = admins
-            .into_iter()
-            .map(|a| AdminListEntry {
-                id: a.id,
-                email: a.email,
-                display_name: a.display_name,
-                role: a.role,
-                user_status: a.user_status,
-                created_at: a.created_at,
-            })
-            .collect();
-
-        let count = entries.len();
-
-        Ok((
-            StatusCode::OK,
-            Json(AdminListResponse {
-                count,
-                admins: entries,
-            }),
-        )
-            .into_response())
-    }
-
     /// `GET /api/admin/users/{user_id}/usage?from=<rfc3339>` — per-user
     /// aggregates + daily series. Powers the admin UI Usage tab.
     async fn handle_get_user_usage(
@@ -807,23 +751,24 @@ impl WebAdminRoutes {
     }
 }
 
-fn resolve_start(from: Option<&str>) -> Result<DateTime<Utc>, AppError> {
+fn resolve_start(from: Option<&str>) -> Result<Timestamp, AppError> {
     from.map_or_else(
         || {
-            let now = Utc::now();
-            Utc.with_ymd_and_hms(now.year(), now.month(), 1, 0, 0, 0)
-                .single()
+            let now = Timestamp::now();
+            CivilDate::from_ymd(now.utc_date().year(), now.utc_date().month(), 1)
+                .and_then(|date| date.and_hms(0, 0, 0))
+                .and_then(CivilDateTime::and_utc)
+                .ok()
                 .ok_or_else(|| AppError::internal("failed to construct start-of-month timestamp"))
         },
         |s| {
-            DateTime::parse_from_rfc3339(s)
-                .map(|d| d.with_timezone(&Utc))
+            Timestamp::parse_from_rfc3339(s)
                 .map_err(|e| AppError::invalid_input(format!("invalid 'from' timestamp: {e}")))
         },
     )
 }
 
-fn parse_month_period(period: &str) -> Result<(DateTime<Utc>, DateTime<Utc>), AppError> {
+fn parse_month_period(period: &str) -> Result<(Timestamp, Timestamp), AppError> {
     let parts: Vec<&str> = period.split('-').collect();
     if parts.len() != 2 {
         return Err(AppError::invalid_input("period must be YYYY-MM"));
@@ -837,18 +782,20 @@ fn parse_month_period(period: &str) -> Result<(DateTime<Utc>, DateTime<Utc>), Ap
     if !(1..=12).contains(&month) {
         return Err(AppError::invalid_input("period month must be 1-12"));
     }
-    let start = NaiveDate::from_ymd_opt(year, month, 1)
-        .and_then(|d| d.and_hms_opt(0, 0, 0))
-        .and_then(|dt| Utc.from_local_datetime(&dt).single())
+    let start = CivilDate::from_ymd(year, month, 1)
+        .ok()
+        .map(CivilDate::at_midnight)
+        .and_then(|dt| Zone::utc().resolve(dt).single())
         .ok_or_else(|| AppError::invalid_input("invalid period start"))?;
     let (next_year, next_month) = if month == 12 {
         (year + 1, 1)
     } else {
         (year, month + 1)
     };
-    let end = NaiveDate::from_ymd_opt(next_year, next_month, 1)
-        .and_then(|d| d.and_hms_opt(0, 0, 0))
-        .and_then(|dt| Utc.from_local_datetime(&dt).single())
+    let end = CivilDate::from_ymd(next_year, next_month, 1)
+        .ok()
+        .map(CivilDate::at_midnight)
+        .and_then(|dt| Zone::utc().resolve(dt).single())
         .ok_or_else(|| AppError::invalid_input("invalid period end"))?;
     Ok((start, end))
 }

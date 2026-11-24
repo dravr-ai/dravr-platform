@@ -7,8 +7,8 @@
 #![allow(dead_code)]
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use chrono::Utc;
 use dravr_canot::channels::whatsapp::identity;
+use dravr_tronc::dates::Timestamp;
 use ed25519_dalek::{Signer, SigningKey};
 use hmac::{Hmac, Mac};
 use rand::RngCore;
@@ -184,7 +184,7 @@ pub(crate) fn slack_webhook(
     // match what the router receives, so we use the same serializer (`to_string`)
     // that `AxumTestRequest::json` uses downstream.
     let body_str = serde_json::to_string(&body_value).expect("serialize slack body");
-    let timestamp = Utc::now().timestamp().to_string();
+    let timestamp = Timestamp::now().epoch_seconds().to_string();
     let basestring = format!("v0:{timestamp}:{body_str}");
     let signature = format!(
         "v0={}",
@@ -226,7 +226,7 @@ pub(crate) fn discord_webhook(
         }
     });
     let body_bytes = serde_json::to_vec(&body_value).expect("serialize discord body");
-    let timestamp = Utc::now().timestamp().to_string();
+    let timestamp = Timestamp::now().epoch_seconds().to_string();
     let mut message = Vec::with_capacity(timestamp.len() + body_bytes.len());
     message.extend_from_slice(timestamp.as_bytes());
     message.extend_from_slice(&body_bytes);

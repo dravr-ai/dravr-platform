@@ -1,16 +1,16 @@
-// ABOUTME: Health sync's daily-summary reads, made on the dedicated dravr-sciotte scraper service
+// ABOUTME: Health sync's daily-summary reads of the athlete's signed-in provider session, made on the dravr-sciotte service
 // ABOUTME: Implements dravr-enforme's DailySummaryReader over the sciotte service client (ADR-021)
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! The daily-summary reader the health sync's scrape-backed providers use.
+//! The health sync's daily-summary reader for session-read providers.
 //!
 //! dravr-enforme's Garmin and COROS adapters read one day's summary at a
 //! time through a [`DailySummaryReader`]. Here that read runs on the
-//! dedicated scraper service, exactly as the platform's activity reads do
+//! dedicated sciotte service, exactly as the platform's activity reads do
 //! (ADR-021): the platform-held session is imported first, which re-hydrates
-//! a service that scaled to zero, then the day is scraped over HTTP. A read
+//! a service that scaled to zero, then the day is read over HTTP. A read
 //! that reaches an instance the import did not is imported once more and
 //! re-sent, so that instance holding no session is never reported as the
 //! athlete's credentials having expired. No browser runs in the API pod.
@@ -42,11 +42,11 @@
 //! session's row is handed out to the next sync ([`SessionRows::remember`]).
 
 use async_trait::async_trait;
-use chrono::NaiveDate;
 use dravr_enforme::error::{EnformeError, EnformeResult};
 use dravr_enforme::providers::sciotte_reader::{
     AuthSession, DailySummary, DailySummaryReader, ScraperError, ScraperResult,
 };
+use dravr_tronc::dates::CivilDate;
 use pierre_core::constants::oauth::providers::TOKEN_TYPE_SESSION;
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::{connection_needs_reauth, TenantId, UserOAuthToken};
@@ -78,7 +78,7 @@ tokio::task_local! {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CappedDay {
     /// The day that was not read.
-    pub day: NaiveDate,
+    pub day: CivilDate,
     /// Seconds until the refusing window ends.
     pub retry_after_secs: u64,
 }
@@ -306,7 +306,7 @@ impl DailySummaryReader for RefusedSessionReader {
         &self,
         provider: &str,
         session: &AuthSession,
-        date: NaiveDate,
+        date: CivilDate,
     ) -> ScraperResult<DailySummary> {
         if self.rows.refused(&session.session_id) {
             return Err(ScraperError::SessionExpired {
@@ -376,7 +376,7 @@ impl SciotteServiceReader {
     /// ([`session_read_disabled`]): a copy cannot resume from a day no window
     /// will ever read, so it fails instead. A session no handed-out row
     /// carries has no owner to count it for.
-    async fn admit(&self, session: &AuthSession, day: NaiveDate) -> ScraperResult<()> {
+    async fn admit(&self, session: &AuthSession, day: CivilDate) -> ScraperResult<()> {
         let Some(limiter) = &self.read_budget else {
             return Ok(());
         };
@@ -411,7 +411,7 @@ impl DailySummaryReader for SciotteServiceReader {
         &self,
         provider: &str,
         session: &AuthSession,
-        date: NaiveDate,
+        date: CivilDate,
     ) -> ScraperResult<DailySummary> {
         let remote = require_client(
             self.reads
@@ -479,7 +479,7 @@ pub fn scraper_error(error: AppError) -> ScraperError {
 
 #[cfg(test)]
 mod tests {
-    use chrono::Utc;
+    use dravr_tronc::dates::Timestamp;
     use pierre_core::constants::oauth::providers::SCIOTTE_GARMIN;
     use pierre_core::models::{SessionReadCaps, UserTier};
     use pierre_providers::request_budget::{
@@ -493,8 +493,9 @@ mod tests {
     const SESSION_ID: &str = "sess-1661";
 
     /// The `n`th day of November 2026.
-    fn november(n: u32) -> NaiveDate {
-        NaiveDate::from_ymd_opt(2026, 11, n)
+    fn november(n: u32) -> CivilDate {
+        CivilDate::from_ymd(2026, 11, n)
+            .ok()
             .unwrap_or_else(|| panic!("bug: November 2026 has no day {n}"))
     }
 
@@ -509,7 +510,7 @@ mod tests {
 
     /// `user_id`'s Garmin session row, as the scraper login stores it.
     fn garmin_session_row(user_id: Uuid) -> UserOAuthToken {
-        let now = Utc::now();
+        let now = Timestamp::now();
         UserOAuthToken {
             id: Uuid::new_v4().to_string(),
             user_id,
@@ -551,7 +552,7 @@ mod tests {
             .await
             .unwrap_or_else(|e| panic!("bug: the first day's read was refused: {e}"));
         let key = session_read_counter_key(SCIOTTE_GARMIN, "background", athlete);
-        let period = budget_period(Utc::now(), ONE_DAY);
+        let period = budget_period(Timestamp::now(), ONE_DAY);
         let spent = repos
             .usage_counters
             .get_counter(PLATFORM_SCOPE, PLATFORM_SCOPE, &key, &period)
@@ -597,7 +598,7 @@ mod tests {
         // A first fill's day spent but for one read: day 3 reads, days 4 and
         // 5 are refused, and the scope names day 4, the first.
         let key = session_read_counter_key(SCIOTTE_GARMIN, "wellness_first_fill", athlete);
-        let period = budget_period(Utc::now(), ONE_DAY);
+        let period = budget_period(Timestamp::now(), ONE_DAY);
         let allowance =
             i64::from(SessionReadCaps::for_tier(&UserTier::Starter).wellness_first_fill_daily);
         repos

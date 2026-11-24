@@ -1,5 +1,5 @@
-// ABOUTME: The coach family (roster, group-member reads, athlete link) is listed and run on Dravr's own surfaces only
-// ABOUTME: /mcp tools/list, the A2A card and an API-key chat catalogue leave it out, an external call is refused, the web app runs it
+// ABOUTME: The coach tools reach the AI assistant a human coach connects: listed and run over MCP and A2A for a coach alone
+// ABOUTME: An athlete is offered none; the coach's assistant sees only members who allowed it; the web app runs them as before
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -7,24 +7,26 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-//! # Coach tools stay inside Dravr
+//! # Coach tools over MCP and A2A (carnet#1511)
 //!
-//! The coach tools read other athletes' training for the coach of their group,
-//! under consents those athletes gave inside Dravr. A coach who connects an
-//! MCP client or an A2A agent is outside that agreement, so neither is offered
-//! these tools, and a call that names one anyway is refused before anything
-//! about the athletes is read. The web app's chat keeps them.
+//! Three tool lists, and the role decides: an athlete's MCP client or A2A
+//! agent is offered the athlete tools, a human coach's also the three coach
+//! tools (the roster overview, a member's activities, a member's plan
+//! status). The coach's assistant is shown a member only once that member
+//! allowed it from Dravr's own app; the others are a count, and a withdrawal
+//! takes effect on the next call. The two coaching-platform tools stay in
+//! Dravr's own app for a coach. The web app's chat is unchanged.
 //!
-//! Each case drives the real entry point: `POST /mcp` with the coach's
-//! delegated grant, the A2A extended card, the executor A2A dispatches
-//! through, the chat catalogue and Copilot loopback by the turn's transport,
-//! and the web app's catalogue and executor.
+//! Each case drives the real entry point: `POST /mcp` with a delegated grant,
+//! the A2A extended card, the executor A2A dispatches through, the chat
+//! catalogue and Copilot loopback by the turn's transport, and the web app's
+//! catalogue and executor.
 
 #[cfg(feature = "tools-groups")]
 mod coach_tools_external_surface_tests {
     use crate::common::{self, create_test_server_resources};
     use crate::helpers::coach_roster_fixtures::{
-        coach, coached_group, group_agent, join, person, seed_ride, Person,
+        coach, coached_group, group_agent, join, person, ride, seed_activities, seed_ride, Person,
     };
     use crate::public_tool_surface_test::HIDDEN_TOOLS;
 
@@ -34,42 +36,74 @@ mod coach_tools_external_surface_tests {
     use axum::body::{to_bytes, Body};
     use axum::http::{Request, StatusCode};
     use axum::Router;
+    use dravr_tronc::dates::{Elapsed, Timestamp};
     use embacle_tool_host::ToolSurface;
     use pierre_chat_pipeline::ToolSessionTurn;
-    use pierre_core::models::ConversationTurnId;
+    use pierre_core::ai_policy::ProviderTerms;
+    use pierre_core::constants::oauth::providers::{INTERVALS_ICU, STRAVA};
+    use pierre_core::models::{Activity, ActivityBuilder, ConversationTurnId, SportType};
     use pierre_core::permissions::scopes::OAuthScope;
-    use pierre_core::transport::{Transport, TransportPolicy};
+    use pierre_core::transport::Transport;
     use pierre_mcp_server::mcp::multitenant::ProviderToolRouter;
     use pierre_mcp_server::mcp::resources::tool_surface::{HostedToolBridge, TurnToolSurface};
     use pierre_mcp_server::mcp::resources::ServerContext;
     use pierre_providers::ai_scope;
+    use pierre_services::coach_roster::{
+        gather_roster, order_roster, roster_access, OrderedMember, RosterAccess,
+    };
     use pierre_tool_runtime::chat_catalogue::{offered_schemas, SwitchedOff};
     use pierre_tool_runtime::coach_seat::TurnSeat;
     use pierre_tool_runtime::first_party_tools::FIRST_PARTY_SURFACE_ERROR_CODE;
+    use pierre_tool_runtime::implementations::group_roster::KEPT_IN_DRAVR;
     use pierre_tool_runtime::protocol::{UniversalExecutor, UniversalRequest, UniversalResponse};
     use pierre_tool_runtime::runtime::ToolRuntime;
+    use pierre_tool_runtime::security::{Audience, ToolReach};
+    use pierre_tool_runtime::tool_access::COACH_ROLE_REQUIRED;
     use serde_json::{json, Value};
     use tower::ServiceExt;
     use uuid::Uuid;
 
-    /// The coach family, by name, as design §7 lists it.
-    const COACH_TOOLS: [&str; 5] = [
+    /// The three coach tools (carnet#1511).
+    const COACH_TOOLS: [&str; 3] = [
         "get_group_member_activities",
         "get_group_member_plan_status",
-        "get_provider_roster",
         "get_roster_overview",
-        "propose_athlete_link",
     ];
 
-    /// A coach of one group whose athlete shares with them and has a ride.
-    async fn coach_with_an_athlete(res: &Arc<ServerContext>) -> Person {
+    /// The two coaching-platform tools, kept in Dravr's own app for a coach.
+    const PLATFORM_TOOLS: [&str; 2] = ["get_provider_roster", "propose_athlete_link"];
+
+    /// A coach of one group, its two members sharing with the coach, each
+    /// with a ride: Alex has not allowed the coach's assistant, Bea has.
+    struct Squad {
+        casey: Person,
+        alex: Person,
+        group: Uuid,
+    }
+
+    async fn squad(res: &Arc<ServerContext>) -> Squad {
         let casey = coach(res, "casey@external-surface.test", "Casey Coach").await;
         let alex = person(res, "alex@external-surface.test", "Alex Athlete").await;
+        let bea = person(res, "bea@external-surface.test", "Bea Bright").await;
         let agent = group_agent(res, &casey).await;
         let group = coached_group(res, casey.tenant, casey.id, &agent, "Squad").await;
         join(res, group, alex.id, alex.tenant, true).await;
+        join(res, group, bea.id, bea.tenant, true).await;
+        allow_assistant(res, group, &bea, true).await;
         seed_ride(res, &alex, 2).await;
-        casey
+        seed_ride(res, &bea, 3).await;
+        Squad { casey, alex, group }
+    }
+
+    /// The member turns their coach's assistant on or off.
+    async fn allow_assistant(res: &Arc<ServerContext>, group: Uuid, member: &Person, on: bool) {
+        res.common
+            .repos
+            .groups
+            .set_coach_assistant_read(&group.to_string(), member.id, on, Timestamp::now())
+            .await
+            .unwrap()
+            .expect("a live member");
     }
 
     /// The grant an MCP client or an A2A agent holds for `coach`.
@@ -117,6 +151,26 @@ mod coach_tools_external_surface_tests {
         COACH_TOOLS.iter().map(|name| (*name).to_owned()).collect()
     }
 
+    fn platform_tools() -> BTreeSet<String> {
+        PLATFORM_TOOLS
+            .iter()
+            .map(|name| (*name).to_owned())
+            .collect()
+    }
+
+    async fn mcp_call(app: &Router, grant: &str, name: &str, arguments: Value) -> Value {
+        post_json(
+            app,
+            "/mcp",
+            grant,
+            rpc(
+                "tools/call",
+                &json!({ "name": name, "arguments": arguments }),
+            ),
+        )
+        .await
+    }
+
     async fn call_over(
         res: &Arc<ServerContext>,
         coach: &Person,
@@ -124,9 +178,11 @@ mod coach_tools_external_surface_tests {
         transport: Transport,
     ) -> UniversalResponse {
         let runtime: Arc<dyn ToolRuntime> = res.clone();
+        // Bound as the A2A and MCP entry points bind it.
         UniversalExecutor::new(runtime)
             .with_scopes(OAuthScope::self_grant())
             .with_transport(transport)
+            .with_caller_writing_reply()
             .execute_tool(UniversalRequest {
                 tool_name: tool_name.to_owned(),
                 parameters: json!({}),
@@ -151,99 +207,194 @@ mod coach_tools_external_surface_tests {
     }
 
     #[tokio::test]
-    async fn the_registry_keeps_exactly_the_declared_tools_on_dravrs_own_surfaces() {
+    async fn the_registry_declares_three_coach_tools_and_keeps_the_rest_in_the_app() {
         let res = create_test_server_resources().await.unwrap();
         let registry = &res.mcp.tool_registry;
+        let coach: BTreeSet<String> = registry
+            .tool_names()
+            .into_iter()
+            .filter(|name| registry.get(name).unwrap().audience() == Audience::Coach)
+            .map(ToOwned::to_owned)
+            .collect();
+        assert_eq!(
+            coach,
+            coach_tools(),
+            "bug: the registry declares exactly the three coach tools"
+        );
         let first_party_only: BTreeSet<String> = registry
             .tool_names()
             .into_iter()
-            .filter(|name| registry.transport_policy(name) == Some(TransportPolicy::FirstPartyOnly))
+            .filter(|name| registry.get(name).unwrap().reach() == ToolReach::FirstPartyOnly)
             .map(ToOwned::to_owned)
             .collect();
-        // Design §7's hidden rows: the coach family and the other first-party tools.
-        let mut declared = coach_tools();
+        let mut declared = platform_tools();
         declared.extend(HIDDEN_TOOLS.map(str::to_owned));
-        assert_eq!(first_party_only, declared);
+        assert_eq!(
+            first_party_only, declared,
+            "bug: the first-party tools are the platform and hidden ones"
+        );
+        assert_eq!(
+            registry
+                .get("publish_training_plan")
+                .map(|tool| tool.reach()),
+            Some(ToolReach::AppOnly),
+            "bug: publishing a plan stays in Dravr's own app"
+        );
     }
 
     #[tokio::test]
-    async fn mcp_lists_no_coach_tool_and_refuses_a_call_to_one() {
+    async fn a_coachs_mcp_client_is_listed_the_coach_tools_and_sees_who_allowed_it() {
         let res = create_test_server_resources().await.unwrap();
-        let casey = coach_with_an_athlete(&res).await;
+        let squad = squad(&res).await;
         let app = ProviderToolRouter::build_http_app(&res);
-        let grant = delegated(&res, &casey);
+        let grant = delegated(&res, &squad.casey);
+
+        let listed = post_json(&app, "/mcp", &grant, rpc("tools/list", &json!({}))).await;
+        let listed = names(&listed["result"]["tools"]);
+        assert!(coach_tools().is_subset(&listed), "{listed:?}");
+        assert!(listed.is_disjoint(&platform_tools()), "{listed:?}");
+        assert!(!listed.contains("publish_training_plan"), "{listed:?}");
+
+        let roster = mcp_call(&app, &grant, "get_roster_overview", json!({})).await;
+        let text = roster["result"]["content"].to_string();
+        assert_eq!(roster["result"]["isError"], false, "{roster}");
+        assert!(
+            text.contains("Bea Bright"),
+            "the member who allowed it: {roster}"
+        );
+        assert!(
+            !text.contains("Alex Athlete"),
+            "a member who has not allowed it is a count: {roster}"
+        );
+        assert!(
+            text.contains("1 member has not allowed AI tools"),
+            "{roster}"
+        );
+
+        let alex = mcp_call(
+            &app,
+            &grant,
+            "get_group_member_activities",
+            json!({ "member": "Alex" }),
+        )
+        .await;
+        assert_eq!(alex["result"]["isError"], true, "{alex}");
+        assert!(
+            alex["result"]["content"].to_string().contains("no_match"),
+            "{alex}"
+        );
+        let bea = mcp_call(
+            &app,
+            &grant,
+            "get_group_member_activities",
+            json!({ "member": "Bea" }),
+        )
+        .await;
+        assert_eq!(bea["result"]["isError"], false, "{bea}");
+
+        // Allowing it and withdrawing it take effect on the very next call.
+        allow_assistant(&res, squad.group, &squad.alex, true).await;
+        let roster = mcp_call(&app, &grant, "get_roster_overview", json!({})).await;
+        assert!(
+            roster["result"]["content"]
+                .to_string()
+                .contains("Alex Athlete"),
+            "{roster}"
+        );
+        allow_assistant(&res, squad.group, &squad.alex, false).await;
+        let roster = mcp_call(&app, &grant, "get_roster_overview", json!({})).await;
+        assert!(
+            !roster["result"]["content"]
+                .to_string()
+                .contains("Alex Athlete"),
+            "{roster}"
+        );
+        let plan = mcp_call(
+            &app,
+            &grant,
+            "get_group_member_plan_status",
+            json!({ "member": "Alex" }),
+        )
+        .await;
+        assert_eq!(plan["result"]["isError"], true, "{plan}");
+        assert!(
+            plan["result"]["content"].to_string().contains("no_match"),
+            "{plan}"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_athletes_assistant_is_offered_no_coach_tool_and_is_refused_one() {
+        let res = create_test_server_resources().await.unwrap();
+        let squad = squad(&res).await;
+        let app = ProviderToolRouter::build_http_app(&res);
+        let grant = delegated(&res, &squad.alex);
 
         let listed = post_json(&app, "/mcp", &grant, rpc("tools/list", &json!({}))).await;
         let listed = names(&listed["result"]["tools"]);
         assert!(
             listed.len() > 50,
-            "the rest of the catalogue is listed: {listed:?}"
+            "the athlete tools are listed: {listed:?}"
         );
-        assert!(
-            listed.is_disjoint(&coach_tools()),
-            "{:?}",
-            listed.intersection(&coach_tools()).collect::<Vec<_>>()
-        );
+        assert!(listed.is_disjoint(&coach_tools()), "{listed:?}");
 
-        let called = post_json(
-            &app,
-            "/mcp",
-            &grant,
-            rpc(
-                "tools/call",
-                &json!({ "name": "get_roster_overview", "arguments": {} }),
-            ),
-        )
-        .await;
-        let result = &called["result"];
-        assert_eq!(result["isError"], true, "{called}");
-        let text = result["content"].to_string();
-        assert!(
-            text.contains("not available over this interface"),
-            "{called}"
-        );
-        assert!(text.contains(FIRST_PARTY_SURFACE_ERROR_CODE), "{called}");
-        assert!(
-            !text.contains("Alex Athlete"),
-            "nothing about the athletes is read before the refusal: {called}"
-        );
+        let called = mcp_call(&app, &grant, "get_roster_overview", json!({})).await;
+        assert_eq!(called["result"]["isError"], true, "{called}");
+        let text = called["result"]["content"].to_string();
+        assert!(text.contains(COACH_ROLE_REQUIRED), "{called}");
+        assert!(!text.contains("Bea Bright"), "{called}");
     }
 
     #[tokio::test]
-    async fn the_a2a_card_offers_no_coach_skill_and_an_a2a_call_is_refused() {
+    async fn the_a2a_card_offers_the_coach_skills_to_a_coach_alone() {
         let res = create_test_server_resources().await.unwrap();
-        let casey = coach_with_an_athlete(&res).await;
+        let squad = squad(&res).await;
         let app = ProviderToolRouter::build_http_app(&res);
+        let skills = |card: &Value| -> BTreeSet<String> {
+            card["result"]["skills"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|skill| skill["id"].as_str().unwrap().to_owned())
+                .collect()
+        };
 
-        let card = post_json(
-            &app,
-            "/a2a/jsonrpc",
-            &delegated(&res, &casey),
-            rpc("GetExtendedAgentCard", &json!({})),
-        )
-        .await;
-        assert!(card["error"].is_null(), "{card}");
-        let skills: BTreeSet<String> = card["result"]["skills"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|skill| skill["id"].as_str().unwrap().to_owned())
-            .collect();
-        assert!(skills.contains("get_activities"), "{skills:?}");
-        assert!(skills.is_disjoint(&coach_tools()), "{skills:?}");
-
-        for tool_name in COACH_TOOLS {
-            for transport in [Transport::A2a, Transport::McpHttp, Transport::ApiKey] {
-                let refused = call_over(&res, &casey, tool_name, transport).await;
-                assert_refused_as_first_party(&refused, tool_name);
-            }
+        for (who, coaches) in [(&squad.casey, true), (&squad.alex, false)] {
+            let card = post_json(
+                &app,
+                "/a2a/jsonrpc",
+                &delegated(&res, who),
+                rpc("GetExtendedAgentCard", &json!({})),
+            )
+            .await;
+            assert!(card["error"].is_null(), "{card}");
+            let offered = skills(&card);
+            assert!(offered.contains("get_activities"), "{offered:?}");
+            assert_eq!(coach_tools().is_subset(&offered), coaches, "{offered:?}");
+            assert!(offered.is_disjoint(&platform_tools()), "{offered:?}");
         }
+
+        // The A2A executor answers by the same predicate: a coach's call
+        // runs, a platform tool stays in the app.
+        let roster = call_over(&res, &squad.casey, "get_roster_overview", Transport::A2a).await;
+        assert!(roster.success, "{roster:?}");
+        for tool_name in PLATFORM_TOOLS {
+            let refused = call_over(&res, &squad.casey, tool_name, Transport::A2a).await;
+            assert_refused_as_first_party(&refused, tool_name);
+        }
+        let refused = call_over(&res, &squad.alex, "get_roster_overview", Transport::A2a).await;
+        assert!(!refused.success, "{refused:?}");
+        assert_eq!(
+            refused.result.unwrap()["error_code"],
+            COACH_ROLE_REQUIRED,
+            "bug: an athlete is refused the roster as not a coach"
+        );
     }
 
     #[tokio::test]
     async fn the_web_app_still_offers_and_runs_the_coach_tools() {
         let res = create_test_server_resources().await.unwrap();
-        let casey = coach_with_an_athlete(&res).await;
+        let casey = squad(&res).await.casey;
 
         let offered = |transport| -> BTreeSet<String> {
             offered_schemas(
@@ -270,8 +421,10 @@ mod coach_tools_external_surface_tests {
                 coach_tools().difference(&in_app).collect::<Vec<_>>()
             );
         }
-        // A chat turn served over an API key lists none of them, as its
-        // calls to them are refused; an undeclared transport is external.
+        // A chat turn served over an API key is decided for no role, so it
+        // lists none of them and its calls to them are refused; an
+        // undeclared transport is external. The coach list is the MCP and
+        // A2A listings'.
         for transport in [Some(Transport::ApiKey), None] {
             let external = offered(transport);
             assert!(
@@ -291,7 +444,7 @@ mod coach_tools_external_surface_tests {
             assert!(roster.success, "{transport:?}: {roster:?}");
             assert!(
                 roster.result.unwrap().to_string().contains("Alex Athlete"),
-                "the coach reads their athlete over {transport:?}"
+                "in the app the coach reads every athlete who shares, allowed or not, over {transport:?}"
             );
         }
     }
@@ -311,7 +464,7 @@ mod coach_tools_external_surface_tests {
     #[tokio::test]
     async fn the_loopback_lists_the_coach_tools_only_for_an_in_app_turn() {
         let res = create_test_server_resources().await.unwrap();
-        let casey = coach_with_an_athlete(&res).await;
+        let casey = squad(&res).await.casey;
         let tool_runtime: Arc<dyn ToolRuntime> = res.clone();
         let bridge = HostedToolBridge::new(true, res.mcp.tool_registry.clone(), tool_runtime);
         let user_id = casey.id.to_string();
@@ -344,5 +497,169 @@ mod coach_tools_external_surface_tests {
         assert!(api_key_names.contains("get_activities"));
         let refused = api_key.call("get_roster_overview", &json!({})).await;
         assert!(refused.is_error, "{}", refused.text);
+    }
+
+    /// A ride from Intervals.icu `days_ago`, whose terms let it reach an
+    /// assistant outside Dravr.
+    fn intervals_ride(id: &str, days_ago: i64) -> Activity {
+        ActivityBuilder::new(
+            id.to_owned(),
+            format!("ride {id}"),
+            SportType::Ride,
+            Timestamp::now() - Elapsed::days(days_ago),
+            3_600,
+            INTERVALS_ICU.to_owned(),
+        )
+        .distance_meters(30_000.0)
+        .build()
+    }
+
+    /// A coach of one group with three opted-in members: Kim syncs only
+    /// from Strava, whose data stays in Dravr; Lee trained on Intervals.icu
+    /// five days ago; Mo trained on Intervals.icu twenty days ago and on
+    /// Strava yesterday.
+    struct Provenance {
+        casey: Person,
+        kim: Person,
+        lee: Person,
+        mo: Person,
+    }
+
+    async fn provenance(res: &Arc<ServerContext>) -> Provenance {
+        let casey = coach(res, "casey@provenance.test", "Casey Coach").await;
+        let kim = person(res, "kim@provenance.test", "Kim Kept").await;
+        let lee = person(res, "lee@provenance.test", "Lee Loop").await;
+        let mo = person(res, "mo@provenance.test", "Mo Mixed").await;
+        let agent = group_agent(res, &casey).await;
+        let group = coached_group(res, casey.tenant, casey.id, &agent, "Provenance").await;
+        for member in [&kim, &lee, &mo] {
+            join(res, group, member.id, member.tenant, true).await;
+            allow_assistant(res, group, member, true).await;
+        }
+        seed_ride(res, &kim, 1).await;
+        seed_activities(res, &lee, INTERVALS_ICU, &[intervals_ride("lee-1", 5)]).await;
+        seed_activities(res, &mo, INTERVALS_ICU, &[intervals_ride("mo-1", 20)]).await;
+        seed_activities(res, &mo, STRAVA, &[ride("mo-2", 1)]).await;
+        Provenance {
+            casey,
+            kim,
+            lee,
+            mo,
+        }
+    }
+
+    /// A member whose only sources keep their data in Dravr reads to the
+    /// coach's assistant as present with their data withheld, after the
+    /// members it may read, and never as the quietest athlete (carnet#1511).
+    #[tokio::test]
+    async fn a_member_whose_data_stays_in_dravr_is_present_not_gone_quiet() {
+        let res = create_test_server_resources().await.unwrap();
+        let squad = provenance(&res).await;
+        let app = ProviderToolRouter::build_http_app(&res);
+        let grant = delegated(&res, &squad.casey);
+
+        let roster = mcp_call(&app, &grant, "get_roster_overview", json!({})).await;
+        assert_eq!(roster["result"]["isError"], false, "{roster}");
+        let overview = &roster["result"]["structuredContent"];
+        let athletes = overview["athletes"]
+            .as_array()
+            .unwrap_or_else(|| panic!("the athletes: {roster}"));
+        let names: Vec<&str> = athletes
+            .iter()
+            .map(|a| a["name"].as_str().unwrap())
+            .collect();
+        assert_eq!(
+            names.last(),
+            Some(&"Kim Kept"),
+            "listed after the members whose training is read: {names:?}"
+        );
+        let kim = athletes.last().unwrap();
+        assert_eq!(kim["status"], "shared", "{kim}");
+        assert!(kim.get("training").is_none(), "nothing of theirs: {kim}");
+        assert_eq!(kim["not_read"], KEPT_IN_DRAVR, "{kim}");
+        let text = roster["result"]["content"].to_string();
+        assert!(!text.contains("ride-1"), "no session of theirs: {roster}");
+        for readable in ["Lee Loop", "Mo Mixed"] {
+            let athlete = athletes
+                .iter()
+                .find(|a| a["name"] == readable)
+                .unwrap_or_else(|| panic!("{readable}: {roster}"));
+            assert!(athlete.get("training").is_some(), "{athlete}");
+        }
+
+        // In Dravr's own app the coach reads Kim's ride as before.
+        let in_app = call_over(&res, &squad.casey, "get_roster_overview", Transport::WebApp).await;
+        let in_app = in_app.result.unwrap();
+        let kim_in_app = in_app["athletes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|a| a["name"] == "Kim Kept")
+            .unwrap_or_else(|| panic!("{in_app}"))
+            .clone();
+        assert!(kim_in_app.get("training").is_some(), "{kim_in_app}");
+        assert!(kim_in_app.get("not_read").is_none(), "{kim_in_app}");
+    }
+
+    /// The roster's order, which decides the cut at 40, reads only the
+    /// sessions an outside client may be shown: a Strava ride yesterday
+    /// never places Mo behind a member who trained more recently on a
+    /// service the client may see (carnet#1511).
+    #[tokio::test]
+    async fn the_order_an_outside_client_reads_ignores_sessions_kept_in_dravr() {
+        let res = create_test_server_resources().await.unwrap();
+        let squad = provenance(&res).await;
+        let repos = &res.common.repos;
+        let RosterAccess::Granted(groups) = roster_access(repos, squad.casey.id).await.unwrap()
+        else {
+            panic!("Casey coaches the group");
+        };
+        let gathered = gather_roster(repos, squad.casey.id, &groups).await.unwrap();
+        let place = |ordered: &[OrderedMember], who: Uuid| {
+            ordered
+                .iter()
+                .position(|m| m.member.user_id == who)
+                .unwrap()
+        };
+
+        let in_app = order_roster(repos, gathered.members.clone(), None)
+            .await
+            .unwrap();
+        assert!(
+            place(&in_app, squad.lee.id) < place(&in_app, squad.mo.id),
+            "in the app Mo's Strava ride yesterday makes Lee the quieter"
+        );
+        assert!(
+            in_app.iter().all(|m| !m.kept_in_dravr),
+            "bug: in the app no member reads as kept in Dravr"
+        );
+
+        let registry = res.provider_registry();
+        let terms: &dyn ProviderTerms = registry.as_ref();
+        let outside = order_roster(repos, gathered.members, Some(terms))
+            .await
+            .unwrap();
+        assert!(
+            place(&outside, squad.mo.id) < place(&outside, squad.lee.id),
+            "outside, Mo is placed by the Intervals.icu ride twenty days ago"
+        );
+        let mo = &outside[place(&outside, squad.mo.id)];
+        assert_eq!(
+            mo.last_cached_activity
+                .map(|at| (Timestamp::now() - at).num_days()),
+            Some(20),
+            "never the day of a session kept in Dravr"
+        );
+        let kim = &outside[place(&outside, squad.kim.id)];
+        assert!(kim.kept_in_dravr, "Kim syncs only from Strava");
+        assert_eq!(
+            kim.last_cached_activity, None,
+            "bug: outside, Kim's Strava-only sessions give no last day"
+        );
+        assert_eq!(
+            place(&outside, squad.kim.id),
+            outside.len() - 1,
+            "bug: outside, Kim, with nothing readable, is placed last"
+        );
     }
 }

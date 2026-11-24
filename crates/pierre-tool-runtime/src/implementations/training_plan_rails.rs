@@ -29,7 +29,7 @@
 
 use std::sync::Arc;
 
-use chrono::NaiveDate;
+use dravr_tronc::dates::CivilDate;
 use pierre_core::models::TenantId;
 use pierre_database::repositories::SavedDraftBundle;
 use pierre_database::RepositoryRegistry;
@@ -73,7 +73,7 @@ pub(super) struct LivePlanRails {
     /// The athlete's civil date the rails measured against — read once, so
     /// every rail and the caller's own report describe the same day even
     /// when the write straddles the athlete's midnight.
-    pub(super) today: NaiveDate,
+    pub(super) today: CivilDate,
 }
 
 /// Run every rail over a committed write to the athlete's live season.

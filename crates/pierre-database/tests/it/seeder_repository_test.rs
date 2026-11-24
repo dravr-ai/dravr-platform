@@ -14,7 +14,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use chrono::{DateTime, Duration, Timelike, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::models::mobility::{
     DifficultyLevel, StretchingCategory, StretchingExercise, YogaCategory, YogaPose, YogaPoseType,
 };
@@ -74,7 +74,7 @@ fn seed_api_key(user_id: Uuid, tier: &str, rate_limit: Option<i32>) -> SeedApiKe
         tier: tier.to_owned(),
         rate_limit,
         expires_at: None,
-        created_at: Utc::now(),
+        created_at: Timestamp::now(),
     }
 }
 
@@ -86,8 +86,8 @@ fn seed_a2a_client(user_id: Uuid, capabilities: &str) -> SeedA2AClient {
         name: format!("seed-client-{id}"),
         description: "seeded for the repository test".to_owned(),
         capabilities: capabilities.to_owned(),
-        created_at: Utc::now(),
-        updated_at: Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
     }
 }
 
@@ -114,7 +114,7 @@ async fn usage_rows_land_under_endpoint_on_both_tables() {
         .seed_insert_api_key_usage(&SeedApiKeyUsage {
             id: Uuid::new_v4(),
             api_key_id: key.id,
-            timestamp: Utc::now(),
+            timestamp: Timestamp::now(),
             tool_name: "get_activities".to_owned(),
             status_code: 200,
             response_time_ms: 42,
@@ -153,7 +153,7 @@ async fn usage_rows_land_under_endpoint_on_both_tables() {
         .seed_insert_a2a_usage(&SeedA2AUsage {
             id: Uuid::new_v4(),
             client_id: client.id,
-            timestamp: Utc::now(),
+            timestamp: Timestamp::now(),
             tool_name: "get_athlete".to_owned(),
             status_code: 201,
             response_time_ms: 7,
@@ -192,7 +192,7 @@ fn seed_demo_user(status: &str) -> SeedDemoUser {
         status: status.to_owned(),
         role: UserRole::User,
         locale: "en".to_owned(),
-        created_at: Utc::now(),
+        created_at: Timestamp::now(),
     }
 }
 
@@ -248,7 +248,7 @@ async fn enterprise_key_seeded_without_a_limit_reads_as_unlimited() {
         is_active: true,
         last_used_at: None,
         expires_at: None,
-        created_at: Utc::now(),
+        created_at: Timestamp::now(),
     };
     repos.api_keys.create(&created).await.unwrap();
 
@@ -322,11 +322,11 @@ async fn a2a_client_seeds_the_default_daily_quota() {
 /// A whole-second instant: Postgres keeps microseconds and `SQLite` keeps
 /// what `to_rfc3339` wrote, so a value with no sub-second part round-trips
 /// identically on both.
-fn whole_second(offset: Duration) -> DateTime<Utc> {
-    (Utc::now() + offset).with_nanosecond(0).unwrap()
+fn whole_second(offset: Elapsed) -> Timestamp {
+    Timestamp::from_epoch_seconds((Timestamp::now() + offset).epoch_seconds()).unwrap()
 }
 
-fn stretching_exercise(id: &str, name: &str, at: DateTime<Utc>) -> StretchingExercise {
+fn stretching_exercise(id: &str, name: &str, at: Timestamp) -> StretchingExercise {
     StretchingExercise {
         id: id.to_owned(),
         name: name.to_owned(),
@@ -349,7 +349,7 @@ fn stretching_exercise(id: &str, name: &str, at: DateTime<Utc>) -> StretchingExe
     }
 }
 
-fn yoga_pose(id: &str, name: &str, at: DateTime<Utc>) -> YogaPose {
+fn yoga_pose(id: &str, name: &str, at: Timestamp) -> YogaPose {
     YogaPose {
         id: id.to_owned(),
         english_name: name.to_owned(),
@@ -389,8 +389,8 @@ fn yoga_pose(id: &str, name: &str, at: DateTime<Utc>) -> YogaPose {
 async fn reseeding_reference_rows_keeps_created_at() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
-    let first = whole_second(Duration::zero());
-    let second = whole_second(Duration::hours(1));
+    let first = whole_second(Elapsed::ZERO);
+    let second = whole_second(Elapsed::hours(1));
     let suffix = Uuid::new_v4().simple().to_string();
 
     let stretch_id = format!("stretch-{suffix}");
@@ -451,8 +451,8 @@ async fn reseeding_reference_rows_keeps_created_at() {
 async fn reseeding_under_a_fresh_id_refreshes_the_row_carrying_the_name() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
-    let first = whole_second(Duration::zero());
-    let second = whole_second(Duration::hours(1));
+    let first = whole_second(Elapsed::ZERO);
+    let second = whole_second(Elapsed::hours(1));
     let suffix = Uuid::new_v4().simple().to_string();
     let name = format!("Outer Thigh Roll {suffix}");
 
@@ -592,7 +592,7 @@ fn expected_agent_row(agent: &SeedAgent) -> Vec<Option<String>> {
 /// a bind that lands one column over reads back as the wrong text.
 fn seed_agent(user_id: Uuid, tenant_id: TenantId, mark: &str) -> SeedAgent {
     let id = Uuid::new_v4().to_string();
-    let now = Utc::now();
+    let now = Timestamp::now();
     SeedAgent {
         slug: format!("agent-{id}"),
         id,

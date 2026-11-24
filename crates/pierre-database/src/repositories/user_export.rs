@@ -52,11 +52,11 @@
 //!   its samples land in `activity_streams`, so nothing is kept to hand out.
 //! - **Operational state with no meaning outside the service**: sync cursors,
 //!   backfill jobs and leases, queues, delivery receipts, rate-limit and tier
-//!   overrides an operator set, worker bookkeeping.
+//!   overrides an admin set, worker bookkeeping.
 //! - **Other people's records**: what a human coach wrote about the athlete
 //!   (their thread, flags and dismissals), shared groups and their invites, an
-//!   operator's own audit trail. Law 25 s.27 covers information collected
-//!   from the person; these are the coach's and the operator's records.
+//!   admin's own audit trail. Law 25 s.27 covers information collected
+//!   from the person; these are the coach's and the admin's records.
 //! - **Security and request logs** (`audit_events`, `jwt_usage`,
 //!   `request_logs`): retained for abuse investigation; whether an access
 //!   request must include them is a counsel question, not decided here.
@@ -389,7 +389,8 @@ user_export_tables_sql!(
     "user_check_in_preferences" { rows: [uuid "user_id"], tenant: "tenant_id", except: [], page: 5, key: [uuid "tenant_id", uuid "user_id"] },
     "user_onboarding" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 50, key: [text "user_id", text "step_id"] },
     "calendar_preferences" { rows: [uuid "user_id"], tenant: "tenant_id", except: ["set_by"], page: 5, key: [text "tenant_id", uuid "user_id"] },
-    "coach_data_reads" { rows: [uuid "user_id"], tenant: "tenant_id", except: ["coach_user_id"], page: 200, key: [uuid "id"] },
+    "coach_data_reads" { rows: [uuid "user_id"], tenant: "tenant_id", except: ["coach_user_id", "impersonator_user_id"], page: 200, key: [uuid "id"] },
+    "peer_data_reads" { rows: [uuid "user_id"], tenant: "tenant_id", except: ["peer_user_id", "impersonator_user_id"], page: 200, key: [uuid "id"] },
     "user_physiological_profiles" { rows: [uuid "user_id"], tenant: "tenant_id", except: [], page: 5, key: [uuid "tenant_id", uuid "user_id"] },
     "user_physiology_sport_anchors" { rows: [uuid "user_id"], tenant: "tenant_id", except: [], page: 50, key: [uuid "tenant_id", uuid "user_id", text "sport", text "anchor"] },
     "fitness_configurations" { rows: [uuid "user_id"], tenant: "tenant_id", except: [], page: 20, key: [text "id"] },
@@ -399,12 +400,14 @@ user_export_tables_sql!(
     "use_case_exposures" { rows: [uuid "user_id"], tenant: "tenant_id", except: [], page: 100, key: [uuid "tenant_id", uuid "user_id", text "use_case_id"] },
     "user_federated_identities" { rows: [uuid "user_id"], tenant: none, except: [], page: 20, key: [text "provider", text "subject"] },
     "provider_terms_consents" { rows: [uuid "user_id"], tenant: none, except: [], page: 50, key: [uuid "user_id", text "provider"] },
+    "provider_consent_events" { rows: [uuid "user_id"], tenant: none, except: [], page: 100, key: [bigint "id"] },
     "signup_code_redemptions" { rows: [uuid "user_id"], tenant: none, except: [], page: 20, key: [uuid "user_id"] },
     "group_invite_holds" { rows: [uuid "user_id"], tenant: none, except: [], page: 5, key: [uuid "user_id"] },
     "notification_preferences" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 50, key: [text "id"] },
     "scheduled_notifications" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 50, key: [text "id"] },
     "oauth_client_grants" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 50, key: [text "id"] },
-    "impersonation_sessions" { rows: [uuid "target_user_id"], tenant: none, except: ["impersonator_id"], page: 50, key: [text "id"] },
+    // The admin and the credential they acted through are theirs, not the user's.
+    "impersonation_sessions" { rows: [uuid "target_user_id"], tenant: none, except: ["impersonator_id", "grant_id", "api_key_id"], page: 50, key: [text "id"] },
     "permission_delegations" { rows: [uuid "grantor_id"], tenant: none, except: [], page: 50, key: [text "id"] },
     // What providers delivered.
     "provider_connections" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 50, key: [text "id"] },
@@ -421,6 +424,10 @@ user_export_tables_sql!(
     "recovery_metrics" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 200, key: [text "id"] },
     "health_snapshots" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 200, key: [text "id"] },
     "daily_activity" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 200, key: [text "id"] },
+    // The T2–T3 records imports and lab documents yielded (carnet#1544): the export is their own.
+    "self_reports" { rows: [uuid "user_id"], tenant: "tenant_id", except: [], page: 200, key: [text "id"] },
+    "clinical_records" { rows: [uuid "user_id"], tenant: "tenant_id", except: [], page: 100, key: [text "id"] },
+    "lab_documents" { rows: [uuid "user_id"], tenant: "tenant_id", except: [], page: 100, key: [text "id"] },
     "activity_conversations" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 200, key: [text "tenant_id", text "user_id", text "provider", text "activity_id"] },
     // The places the athlete trains from, centroids included: the export is their own.
     "athlete_places" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 200, key: [text "id"] },
@@ -483,7 +490,7 @@ user_export_tables_sql!(
     "route_summaries" { rows: [uuid "user_id"], tenant: "tenant_id", except: [], page: 25, key: [uuid "tenant_id", uuid "user_id", text "activity_id"] },
     "compaction_blocks" { rows: [conversations], tenant: "tenant_id", except: [], page: 50, key: [text "id"] },
     "messaging_messages" { rows: [sessions], tenant: "tenant_id", except: ["raw_payload"], page: 100, key: [text "id"] },
-    "llm_usage" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 500, key: [text "id"] },
+    "llm_usage" { rows: [text "user_id"], tenant: "tenant_id", except: ["subject_user_id", "impersonator_user_id"], page: 500, key: [text "id"] },
     "a2a_tasks" { rows: [a2a_tasks], tenant: none, except: ["session_token"], page: 25, key: [text "task_id"] },
     "chat_messages" { rows: [conversations], tenant: none, except: [], page: 50, key: [text "id"] },
     "data_point_series" { rows: [sources], tenant: none, except: [], page: 500, key: [text "id"] },
@@ -519,6 +526,10 @@ pub const USER_EXPORT_EXCLUDED_TABLES: &[(&str, &str)] = &[
         "credential: single-use authorization codes",
     ),
     ("oauth2_states", "credential: in-flight OAuth state"),
+    (
+        "oauth2_pushed_requests",
+        "an AS protocol table: written before any user is known, holds no user",
+    ),
     (
         "oauth_client_states",
         "credential: in-flight provider OAuth state and PKCE verifier",
@@ -575,19 +586,19 @@ pub const USER_EXPORT_EXCLUDED_TABLES: &[(&str, &str)] = &[
     ),
     (
         "user_feature_overrides",
-        "operator configuration, not collected from the athlete",
+        "admin configuration, not collected from the athlete",
     ),
     (
         "user_rate_limit_overrides",
-        "operator configuration, not collected from the athlete",
+        "admin configuration, not collected from the athlete",
     ),
     (
         "user_tier_overrides",
-        "operator configuration, not collected from the athlete",
+        "admin configuration, not collected from the athlete",
     ),
     (
         "user_tool_overrides",
-        "operator configuration, not collected from the athlete",
+        "admin configuration, not collected from the athlete",
     ),
     // Logs.
     (
@@ -602,9 +613,9 @@ pub const USER_EXPORT_EXCLUDED_TABLES: &[(&str, &str)] = &[
         "request_logs",
         "request log: counsel decides whether access requests include it",
     ),
-    // Operator records.
-    ("admin_config_audit", "operator audit trail"),
-    ("admin_config_overrides", "operator configuration"),
+    // Admin records.
+    ("admin_config_audit", "admin audit trail"),
+    ("admin_config_overrides", "admin configuration"),
     // Other people's records.
     (
         "coach_reply_reviews",
@@ -619,14 +630,15 @@ pub const USER_EXPORT_EXCLUDED_TABLES: &[(&str, &str)] = &[
         "a shared room; its members are other people",
     ),
     (
+        "group_chat_invite_prompts",
+        "a chat sender told once how to join a connected group: its channel_user_id is the chat platform's sender id, not the athlete's data",
+    ),
+    (
         "agents_orphaned",
         "PostgreSQL only: agents quarantined for naming no tenant",
     ),
-    ("admin_tokens", "credential: operator service tokens"),
-    (
-        "tenant_tool_overrides",
-        "operator configuration of a tenant",
-    ),
+    ("admin_tokens", "credential: admin service tokens"),
+    ("tenant_tool_overrides", "admin configuration of a tenant"),
 ];
 
 /// Column-name fragments that mark a likely credential. The catalog test fails
@@ -671,4 +683,7 @@ pub const NOT_CREDENTIAL_COLUMNS: &[&str] = &[
     "original_tokens",
     "counter_key",
     "credential_id",
+    // The kind of credential a call came through (`oauth_grant`, `api_key`),
+    // a label from a closed list, never the credential itself.
+    "credential_kind",
 ];

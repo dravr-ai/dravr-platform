@@ -5,6 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use crate::routes::haversine_meters_between;
+use pierre_core::constants::units::METERS_PER_KM;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::SportType;
 use serde::{Deserialize, Serialize};
@@ -59,20 +60,13 @@ const MAX_CACHED_ROUTE_POINTS: usize = 1_000_000;
 /// Default search radius in meters for Overpass queries
 const DEFAULT_SEARCH_RADIUS_METERS: u32 = 10_000;
 
-/// Metres in a kilometre — the unit OSM's `distance` tag is written in when
-/// it names none.
-const METERS_PER_KILOMETER: f64 = 1000.0;
-
 /// Metres in a statute mile, for a `distance` tag written in miles.
 const METERS_PER_MILE: f64 = 1609.344;
 
 /// The units a `distance` tag may be written in, with their length in
 /// metres. Ordered so a suffix is tried before any shorter suffix it ends in.
-const DISTANCE_TAG_UNITS: &[(&str, f64)] = &[
-    ("km", METERS_PER_KILOMETER),
-    ("mi", METERS_PER_MILE),
-    ("m", 1.0),
-];
+const DISTANCE_TAG_UNITS: &[(&str, f64)] =
+    &[("km", METERS_PER_KM), ("mi", METERS_PER_MILE), ("m", 1.0)];
 
 /// How far from a target distance a route's usable distance may land, as a
 /// share of the target, and still count as matching it. A tenth: a session
@@ -231,11 +225,17 @@ struct CachedRoutes {
 }
 
 impl RouteDiscoveryService {
-    /// Create a route discovery service over the public Overpass instances.
+    /// A route discovery service over the Overpass instances
+    /// `overpass_origin` names: the public ones, `overpass-api.de` first,
+    /// when it names none, as in a deployment; otherwise the single instance
+    /// at that origin's `/api/interpreter`.
+    ///
+    /// Hand this the origin of the configuration the server read at startup
+    /// (`ExternalServicesConfig::overpass_api_base`).
     #[must_use]
-    pub fn with_defaults() -> Self {
+    pub fn new(overpass_origin: Option<&str>) -> Self {
         Self {
-            overpass: OverpassClient::public(),
+            overpass: OverpassClient::at(overpass_origin),
         }
     }
 
@@ -335,7 +335,7 @@ impl RouteDiscoveryService {
 /// Build the Overpass query for a sport, or `None` when the sport has no
 /// land or snow route surface to search.
 ///
-/// Public so an operator can paste the exact query the agent ran into
+/// Public so an admin can paste the exact query the agent ran into
 /// overpass-turbo and see the same elements come back.
 #[must_use]
 pub fn build_overpass_query(
@@ -590,7 +590,7 @@ fn parse_distance_tag_meters(raw: &str) -> Option<f64> {
     let (figure, unit_meters) = DISTANCE_TAG_UNITS
         .iter()
         .find_map(|(suffix, meters)| Some((normalized.strip_suffix(suffix)?, *meters)))
-        .unwrap_or((normalized.as_str(), METERS_PER_KILOMETER));
+        .unwrap_or((normalized.as_str(), METERS_PER_KM));
     let value = figure.trim().parse::<f64>().ok()?;
     (value.is_finite() && value > 0.0).then_some(value * unit_meters)
 }

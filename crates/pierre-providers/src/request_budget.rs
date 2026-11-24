@@ -13,7 +13,7 @@
 //! counted for the app whose client signed the token it carries: the server's
 //! app, a Strava shared-pool app, a tenant's own app or an athlete's own app
 //! each have their own windows. A tenant's own app carries the daily budget
-//! its operator registered (`rate_limit_per_day`) in place of the provider's.
+//! its admin registered (`rate_limit_per_day`) in place of the provider's.
 //!
 //! Intervals.icu sizes an OAuth app's windows by the athletes who granted
 //! it: one daily pool for the whole app, 100 requests for each of them,
@@ -89,8 +89,8 @@ use std::future::Future;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use chrono::{DateTime, Utc};
 use dashmap::DashMap;
+use dravr_tronc::dates::{SecondsFormat, Timestamp};
 use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::constants::rate_limits;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
@@ -292,12 +292,12 @@ fn budget_refusal(provider: &str, retry_after: Duration) -> AppError {
 /// milliseconds, so two windows starting at the same instant keep separate
 /// buckets and the label sorts by date for the pruning.
 #[must_use]
-pub fn budget_period(now: DateTime<Utc>, window: Duration) -> String {
+pub fn budget_period(now: Timestamp, window: Duration) -> String {
     let (start_ms, _) = bucket_bounds(now, window);
-    let start = DateTime::from_timestamp_millis(start_ms).unwrap_or(now);
+    let start = Timestamp::from_epoch_millis(start_ms).ok().unwrap_or(now);
     format!(
         "{}/{}",
-        start.format("%Y-%m-%dT%H:%M:%S%.3fZ"),
+        start.to_rfc3339_opts(SecondsFormat::Millis, true),
         window_ms(window)
     )
 }
@@ -309,9 +309,9 @@ fn window_ms(window: Duration) -> i64 {
 
 /// The start and the end, in unix milliseconds, of the epoch-aligned
 /// `window` bucket that holds `now`.
-fn bucket_bounds(now: DateTime<Utc>, window: Duration) -> (i64, i64) {
+fn bucket_bounds(now: Timestamp, window: Duration) -> (i64, i64) {
     let length = window_ms(window);
-    let now_ms = now.timestamp_millis();
+    let now_ms = now.epoch_millis();
     let start = now_ms - now_ms.rem_euclid(length);
     (start, start.saturating_add(length))
 }
@@ -404,7 +404,7 @@ impl fmt::Debug for ProviderRateLimiter {
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Holder {
     /// The OAuth app whose client signs the credential, with the daily
-    /// budget its operator registered when it has one.
+    /// budget its admin registered when it has one.
     App {
         app: String,
         daily_limit: Option<u32>,
@@ -596,7 +596,7 @@ impl ProviderRateLimiter {
         } else {
             100
         };
-        let now = Utc::now();
+        let now = Timestamp::now();
         let windows = self
             .task_windows(provider, holder, share, background, now)
             .await?;
@@ -639,7 +639,7 @@ impl ProviderRateLimiter {
         holder: &Holder,
         share: u32,
         background: bool,
-        now: DateTime<Utc>,
+        now: Timestamp,
     ) -> AppResult<Vec<Window>> {
         let windows = self.windows_for(provider, holder, share).await;
         Ok(match detail_walk_athlete() {
@@ -684,11 +684,11 @@ impl ProviderRateLimiter {
     /// The windows of an app at `provider`: sized by the athletes who
     /// granted the app where the provider pools them, else the provider's,
     /// and either way with the day's allowance replaced by `daily_limit`
-    /// when the app's operator registered one.
+    /// when the app's admin registered one.
     ///
     /// At a pooling provider an app with no registered limit is the
     /// server-level app, whose grants are the ones counted: a tenant's own
-    /// app always carries the limit its operator registered, the Strava pool
+    /// app always carries the limit its admin registered, the Strava pool
     /// apps are Strava's, and the `user_oauth_app_credentials` provider CHECK
     /// admits no user's own app for Intervals.icu.
     async fn app_budgets(&self, provider: &str, daily_limit: Option<u32>) -> Vec<Budget> {
@@ -783,7 +783,7 @@ impl ProviderRateLimiter {
     async fn take(
         &self,
         windows: &[Window],
-        now: DateTime<Utc>,
+        now: Timestamp,
     ) -> AppResult<Option<(usize, Duration)>> {
         let mut taken: Vec<(&str, String)> = Vec::with_capacity(windows.len());
         for (index, window) in windows.iter().enumerate() {
@@ -808,7 +808,7 @@ impl ProviderRateLimiter {
                     .await?;
             }
             let (_, end_ms) = bucket_bounds(now, window.budget.window);
-            let retry_ms = u64::try_from(end_ms - now.timestamp_millis()).unwrap_or(0);
+            let retry_ms = u64::try_from(end_ms - now.epoch_millis()).unwrap_or(0);
             return Ok(Some((index, Duration::from_millis(retry_ms))));
         }
         Ok(None)
@@ -876,7 +876,7 @@ mod tests {
                 PLATFORM_SCOPE,
                 PLATFORM_SCOPE,
                 key,
-                &budget_period(Utc::now(), window),
+                &budget_period(Timestamp::now(), window),
             )
             .await
             .map_or(-1, |counter| counter.value)
@@ -890,7 +890,7 @@ mod tests {
                 PLATFORM_SCOPE,
                 PLATFORM_SCOPE,
                 key,
-                &budget_period(Utc::now(), window),
+                &budget_period(Timestamp::now(), window),
                 value,
             )
             .await

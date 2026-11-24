@@ -554,6 +554,7 @@ async fn a_finding_reported_after_the_stop_reaches_the_stopped_row() {
 
     let late = NoticeDay {
         date: "2026-07-16".to_owned(),
+        position: Some(0),
         findings: vec![serde_json::from_value(json!({
             "code": "cycle_mean_floor", "action": "warn", "message": "English, for the model.",
             "measured": 71.6, "bound": 80.0

@@ -21,7 +21,7 @@ mod coverage {
         ChannelSecrets, TestChannel, WebhookRequest,
     };
     use axum::http::StatusCode;
-    use chrono::Utc;
+    use dravr_tronc::dates::Timestamp;
     use pierre_commands::load_command_catalog;
     use pierre_core::models::{Tenant, TenantId, User, UserStatus};
     use pierre_database::backends::{
@@ -86,7 +86,7 @@ mod coverage {
         );
         user.user_status = UserStatus::Active;
         user.approved_by = Some(user.id);
-        user.approved_at = Some(Utc::now());
+        user.approved_at = Some(Timestamp::now());
         let user_id = user.id;
         resources.common.repos.users.create(&user).await.unwrap();
 
@@ -98,8 +98,8 @@ mod coverage {
             domain: None,
             plan: "professional".to_owned(),
             owner_user_id: user_id,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         };
         resources
             .common

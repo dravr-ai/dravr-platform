@@ -24,7 +24,7 @@ use tracing::info;
 const TELEGRAM_API: &str = "https://api.telegram.org";
 
 /// Cache of bot token -> username, so `getMe` is called once per token rather
-/// than once per link request. A bot's username changes only when an operator
+/// than once per link request. A bot's username changes only when an admin
 /// renames it in `BotFather`, and a stale entry would send codes to a handle that
 /// no longer resolves, so the process lifetime is the right bound: a redeploy
 /// re-reads it.
@@ -35,7 +35,7 @@ static TELEGRAM_BOT_USERNAMES: LazyLock<RwLock<HashMap<String, String>>> =
 ///
 /// Asked of Telegram, not configured. `getMe` returns the username belonging to
 /// the bot token we already store, which makes the answer correct by
-/// construction — there is no value for an operator to set, mistype, or leave
+/// construction — there is no value for an admin to set, mistype, or leave
 /// stale, and no second place for it to drift from.
 ///
 /// That matters more here than it usually would. This URL is where the athlete
@@ -130,12 +130,12 @@ fn username_in_get_me(body: &serde_json::Value) -> Result<String, AppError> {
 }
 
 /// Meta's Graph API, at the version dravr-canot's `WhatsApp` transport sends
-/// through. `META_GRAPH_API_BASE` overrides it, the way `STRAVA_API_BASE`
+/// through. `META_GRAPH_API_BASE` overrides it, the way `PIERRE_STRAVA_API_BASE_URL`
 /// overrides Strava's: a server setting, never something a request supplies.
 const DEFAULT_GRAPH_API_BASE: &str = "https://graph.facebook.com/v22.0";
 
 /// Cache of `WhatsApp` phone-number id -> the digits `wa.me` dials. A business
-/// number changes only when an operator moves the `WhatsApp` account, so the
+/// number changes only when an admin moves the `WhatsApp` account, so the
 /// process lifetime is the bound, as for the Telegram username above.
 static WHATSAPP_DISPLAY_NUMBERS: LazyLock<RwLock<HashMap<String, String>>> =
     LazyLock::new(|| RwLock::new(HashMap::new()));
@@ -147,7 +147,7 @@ static WHATSAPP_DISPLAY_NUMBERS: LazyLock<RwLock<HashMap<String, String>>> =
 /// anyone can dial. `wa.me/1323997520799051` is what every athlete was sent,
 /// and `WhatsApp` answered "not a valid phone number" (carnet#871). So the number
 /// is asked of Meta, for the id we already store, with the access token we
-/// already store: correct by construction, nothing for an operator to type,
+/// already store: correct by construction, nothing for an admin to type,
 /// the same reasoning as [`telegram_bot_username`].
 ///
 /// A missing id or token, an unreachable Graph API, and an answer with no
@@ -330,6 +330,25 @@ async fn telegram_linking_url(
     // aimed at someone else's bot.
     let bot_username = telegram_bot_username(config, telegram_api).await?;
     Ok(format!("https://t.me/{bot_username}?start={code}"))
+}
+
+/// The Telegram link that asks the person which group chat to add the bot to,
+/// then delivers `/start <code>` there (`?startgroup=`), for connecting a
+/// group to its chat (carnet#1683).
+///
+/// The bot is the one `config`'s token belongs to, asked of the Bot API at
+/// the origin `adapters` names for Telegram, else [`TELEGRAM_API`], exactly
+/// as [`build_linking_url`] asks it: an absent username fails loudly rather
+/// than point the code at someone else's bot.
+pub(crate) async fn telegram_add_to_group_url(
+    code: &str,
+    config: &serde_json::Value,
+    adapters: &dyn ChannelAdapterFactory,
+) -> Result<String, AppError> {
+    let factory_origin = adapters.destination_api_base(ChannelType::Telegram);
+    let telegram_api = factory_origin.as_deref().unwrap_or(TELEGRAM_API);
+    let bot_username = telegram_bot_username(config, telegram_api).await?;
+    Ok(format!("https://t.me/{bot_username}?startgroup={code}"))
 }
 
 /// Build the linking URL based on channel type and method.

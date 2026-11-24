@@ -16,7 +16,7 @@ use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::{iter, mem};
 
-use chrono::{DateTime, Duration, NaiveTime, Utc};
+use dravr_tronc::dates::{CivilTime, Elapsed, Timestamp};
 use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::models::{Activity, SportType};
 use serde::Serialize;
@@ -26,7 +26,9 @@ use dravr_barrage::strava_edit::{edited_on_strava, StravaFigures};
 
 use super::config::DedupConfig;
 use crate::backend_resolver;
-use crate::precedence::{activity_source, rank, Ingress, Kind, Service, Source};
+use crate::precedence::{
+    activity_source, rank, two_recorders_of_one_relay, Ingress, Kind, Service, Source,
+};
 
 /// Minimum fraction of the shorter activity's duration that must overlap
 /// with the longer one for records of DIFFERENT sports to be one workout.
@@ -89,9 +91,9 @@ pub struct FragmentGroup {
     /// Sport type of the canonical member.
     pub sport_type: SportType,
     /// Earliest start time across all members.
-    pub window_start: DateTime<Utc>,
+    pub window_start: Timestamp,
     /// Latest end time (start + duration) across all members.
-    pub window_end: DateTime<Utc>,
+    pub window_end: Timestamp,
     /// Fields the canonical row took from another recording: those it
     /// lacked, and the title and sport the athlete gave the workout on
     /// Strava's copy (`name`, `sport_type`, `sport_type_detail`). The model
@@ -158,8 +160,9 @@ impl FragmentReport {
 ///   `time_window_minutes` — or on the same calendar day when either side is a
 ///   date-only scrape (`T00:00:00`) — and their distances agree within
 ///   `distance_tolerance_pct` (or either lacks a distance), or
-/// - **different sports, two providers**: their windows overlap by at least
-///   [`CROSS_SPORT_OVERLAP_FRACTION`] of the shorter one.
+/// - **different sports, two providers** (or two recorders' copies under one
+///   relay key, `precedence::two_recorders_of_one_relay`): their windows
+///   overlap by at least [`CROSS_SPORT_OVERLAP_FRACTION`] of the shorter one.
 ///
 /// Rows with no real start time never match on overlap: every midnight row
 /// "overlaps" every other, which would fold distinct sessions together.
@@ -856,8 +859,8 @@ fn group_members(activities: &[Activity], config: &DedupConfig) -> Vec<Vec<usize
     let mut order: Vec<usize> = (0..activities.len()).collect();
     order.sort_by_key(|&i| activities[i].start_date());
 
-    let slack = Duration::seconds(i64::try_from(config.overlap_tolerance_secs).unwrap_or(0))
-        .max(Duration::minutes(config.time_window_minutes));
+    let slack = Elapsed::seconds(i64::try_from(config.overlap_tolerance_secs).unwrap_or(0))
+        .max(Elapsed::minutes(config.time_window_minutes));
     let mut sets = DisjointSets::new(activities.len());
     // One service's activity id is one workout, whatever the times say: a
     // usr/pwd row scraped date-only sits at midnight, beyond the time-sorted
@@ -887,8 +890,7 @@ fn group_members(activities: &[Activity], config: &DedupConfig) -> Vec<Vec<usize
             // Sorted by start: once `b` starts past `a`'s horizon on a later
             // calendar day, no later row can match `a` either. Same-day rows
             // stay in reach for the date-only scrape match.
-            if b.start_date() > horizon && b.start_date().date_naive() > a.start_date().date_naive()
-            {
+            if b.start_date() > horizon && b.start_date().utc_date() > a.start_date().utc_date() {
                 break;
             }
             match workout_match(a, b, config) {
@@ -950,7 +952,7 @@ enum Match {
 
 /// The matching rules documented on [`merge_duplicates`].
 fn workout_match(a: &Activity, b: &Activity, config: &DedupConfig) -> Match {
-    let two_providers = a.provider() != b.provider();
+    let two_providers = a.provider() != b.provider() || two_recorders_of_one_relay(a, b);
     let both_timed = has_known_time(a) && has_known_time(b);
     if sport_key(a.sport_type()) != sport_key(b.sport_type()) {
         return if two_providers && both_timed && overlaps_substantially(a, b) {
@@ -1029,7 +1031,7 @@ fn one_provider(a: &Activity, b: &Activity) -> bool {
 
 /// Same-sport windows intersect within `tolerance_secs` of each other.
 fn windows_touch(a: &Activity, b: &Activity, tolerance_secs: u64) -> bool {
-    let tolerance = Duration::seconds(i64::try_from(tolerance_secs).unwrap_or(0));
+    let tolerance = Elapsed::seconds(i64::try_from(tolerance_secs).unwrap_or(0));
     a.start_date() <= activity_end(b) + tolerance && b.start_date() <= activity_end(a) + tolerance
 }
 
@@ -1040,7 +1042,7 @@ fn starts_and_distances_agree(a: &Activity, b: &Activity, config: &DedupConfig) 
     let starts_agree = if has_known_time(a) && has_known_time(b) {
         (a.start_date() - b.start_date()).num_minutes().abs() <= config.time_window_minutes
     } else {
-        a.start_date().date_naive() == b.start_date().date_naive()
+        a.start_date().utc_date() == b.start_date().utc_date()
     };
     if !starts_agree {
         return false;
@@ -1077,12 +1079,12 @@ fn overlaps_substantially(a: &Activity, b: &Activity) -> bool {
 /// list scraping yields `T00:00:00` (UTC midnight) when the start time is
 /// unknown; such rows never match on temporal overlap.
 fn has_known_time(activity: &Activity) -> bool {
-    activity.start_date().time() != NaiveTime::MIN
+    activity.start_date().utc_time() != CivilTime::MIDNIGHT
 }
 
 /// Stable string key for a [`SportType`]. `SportType::Other("Trail Run")` is
 /// distinguished from `SportType::Run`; coalescing near-cousin sports is the
-/// cross-sport overlap rule's job, which demands two providers.
+/// cross-sport overlap rule's job, which demands two providers (or recorders).
 fn sport_key(sport: &SportType) -> String {
     match sport {
         SportType::Other(label) => format!("other:{label}"),
@@ -1093,9 +1095,8 @@ fn sport_key(sport: &SportType) -> String {
 /// Activity end timestamp = `start_date + duration_seconds`. Saturates on
 /// overflow (impossible for plausible durations but keeps the arithmetic
 /// total).
-fn activity_end(activity: &Activity) -> DateTime<Utc> {
-    let duration =
-        Duration::seconds(i64::try_from(activity.duration_seconds()).unwrap_or(i64::MAX));
+fn activity_end(activity: &Activity) -> Timestamp {
+    let duration = Elapsed::seconds(i64::try_from(activity.duration_seconds()).unwrap_or(i64::MAX));
     activity.start_date() + duration
 }
 
@@ -1136,14 +1137,14 @@ impl DisjointSets {
 
 #[cfg(test)]
 mod tests {
-    use chrono::{TimeZone, Utc};
+    use dravr_tronc::dates::Timestamp;
     use pierre_core::constants::oauth::providers as oauth_providers;
     use pierre_core::models::{Activity, ActivityBuilder, SportType};
 
     use super::native_activity_key;
 
     fn row(id: &str, provider: &str, source: Option<&str>) -> Activity {
-        let start = Utc.with_ymd_and_hms(2026, 11, 7, 13, 0, 0).unwrap();
+        let start = Timestamp::parse_from_rfc3339("2026-11-07T13:00:00Z").unwrap();
         let builder = ActivityBuilder::new(id, "Ride", SportType::Ride, start, 3_600, provider);
         match source {
             Some(source) => builder.source(source).build(),

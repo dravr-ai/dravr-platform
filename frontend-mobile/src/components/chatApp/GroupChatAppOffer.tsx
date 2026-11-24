@@ -21,7 +21,6 @@ import { useAuth } from '../../contexts/AuthContext';
 import { BADGE_TONE } from '../ui';
 import { useOnboardingStatus } from '../../hooks/useOnboardingStatus';
 import { messagingApi, userApi } from '../../services/api';
-import { AVAILABLE_CHANNELS_KEY } from './ChatAppSheet';
 
 /** The onboarding status as the shared query caches it. */
 type OnboardingStatus = Awaited<ReturnType<typeof userApi.getOnboardingStatus>>;
@@ -51,13 +50,13 @@ export function useGroupChatAppOffer(group: CoachingGroup | null): GroupChatAppO
     status.data?.coaches_others === true &&
     !chatAppOfferAnswered(status.data.steps);
   const channels = useQuery({
-    queryKey: AVAILABLE_CHANNELS_KEY,
+    queryKey: QUERY_KEYS.messaging.availableChannels(),
     queryFn: () => messagingApi.getAvailableChannels(),
     enabled: candidate,
     staleTime: 60_000,
   });
   const links = useQuery({
-    queryKey: ['messaging-links'],
+    queryKey: QUERY_KEYS.messaging.links(),
     queryFn: () => messagingApi.listLinks(),
     enabled: candidate,
   });

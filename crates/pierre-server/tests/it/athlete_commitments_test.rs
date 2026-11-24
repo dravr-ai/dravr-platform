@@ -12,7 +12,7 @@
 use pierre_core::transport::TransportPolicy;
 use std::sync::Arc;
 
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_database::repositories::SweptVerdict;
 use pierre_database::RepositoryRegistry;
 use pierre_memory::commitments::{Commitment, CommitmentOutcome, CommitmentStatus};
@@ -28,7 +28,7 @@ fn commitment(
     target: u32,
     days_out: i64,
 ) -> Commitment {
-    let now = Utc::now();
+    let now = Timestamp::now();
     Commitment {
         id: uuid::Uuid::new_v4().to_string(),
         tenant_id: tenant.to_owned(),
@@ -39,7 +39,7 @@ fn commitment(
         sport: sport.map(str::to_owned),
         target_sessions: target,
         window_start: now,
-        window_end: now + Duration::days(days_out),
+        window_end: now + Elapsed::days(days_out),
         status: CommitmentStatus::Open,
         outcome: None,
         completed_sessions: None,
@@ -48,6 +48,7 @@ fn commitment(
         created_at: now,
         updated_at: now,
         transport_policy: TransportPolicy::AnyTransport,
+        ai_consent_sources: Vec::new(),
     }
 }
 
@@ -76,8 +77,8 @@ async fn insert_round_trips_every_field() {
     assert_eq!(got.outcome, None);
     assert_eq!(got.completed_sessions, None);
     assert_eq!(
-        got.window_end.timestamp(),
-        c.window_end.timestamp(),
+        got.window_end.epoch_seconds(),
+        c.window_end.epoch_seconds(),
         "the window survives the epoch-second round trip"
     );
 }
@@ -173,7 +174,7 @@ async fn due_scan_returns_only_closed_windows_oldest_first() {
 
     let due = repos
         .commitments
-        .due_commitments(Utc::now().timestamp(), 50)
+        .due_commitments(Timestamp::now().epoch_seconds(), 50)
         .await
         .unwrap();
     assert_eq!(due.len(), 2, "a future window is not due");
@@ -189,7 +190,7 @@ async fn recording_a_verdict_moves_it_out_of_the_due_scan() {
     let c = commitment("t1", "u1", Some("run"), 3, -1);
     repos.commitments.insert_commitment(&c).await.unwrap();
 
-    let at = Utc::now();
+    let at = Timestamp::now();
     let verdict = SweptVerdict {
         tenant_id: "t1",
         commitment_id: &c.id,
@@ -197,6 +198,7 @@ async fn recording_a_verdict_moves_it_out_of_the_due_scan() {
         completed_sessions: 2,
         at,
         transport_policy: TransportPolicy::AnyTransport,
+        ai_consent_sources: &[],
     };
     assert!(repos
         .commitments
@@ -207,7 +209,7 @@ async fn recording_a_verdict_moves_it_out_of_the_due_scan() {
     assert_eq!(
         repos
             .commitments
-            .due_commitments(Utc::now().timestamp(), 50)
+            .due_commitments(Timestamp::now().epoch_seconds(), 50)
             .await
             .unwrap(),
         []
@@ -219,8 +221,8 @@ async fn recording_a_verdict_moves_it_out_of_the_due_scan() {
     assert_eq!(pending[0].completed_sessions, Some(2));
     assert_eq!(pending[0].status, CommitmentStatus::Labeled);
     assert_eq!(
-        pending[0].swept_at.map(|t| t.timestamp()),
-        Some(at.timestamp())
+        pending[0].swept_at.map(Timestamp::epoch_seconds),
+        Some(at.epoch_seconds())
     );
 }
 
@@ -237,8 +239,9 @@ async fn a_racing_second_sweep_writes_nothing() {
         commitment_id: &c.id,
         outcome: CommitmentOutcome::Met,
         completed_sessions: 3,
-        at: Utc::now(),
+        at: Timestamp::now(),
         transport_policy: TransportPolicy::AnyTransport,
+        ai_consent_sources: &[],
     };
     let missed = SweptVerdict {
         outcome: CommitmentOutcome::Missed,
@@ -278,8 +281,9 @@ async fn reporting_is_single_shot_and_recorded() {
             commitment_id: &c.id,
             outcome: CommitmentOutcome::Met,
             completed_sessions: 3,
-            at: Utc::now(),
+            at: Timestamp::now(),
             transport_policy: TransportPolicy::AnyTransport,
+            ai_consent_sources: &[],
         })
         .await
         .unwrap();
@@ -291,7 +295,7 @@ async fn reporting_is_single_shot_and_recorded() {
         .unwrap()
         .is_none());
 
-    let at = Utc::now();
+    let at = Timestamp::now();
     assert!(repos
         .commitments
         .mark_commitment_reported("t1", &c.id, at)
@@ -316,8 +320,8 @@ async fn reporting_is_single_shot_and_recorded() {
             .last_commitment_report("t1", "u1")
             .await
             .unwrap()
-            .map(|t| t.timestamp()),
-        Some(at.timestamp()),
+            .map(Timestamp::epoch_seconds),
+        Some(at.epoch_seconds()),
         "the cadence cap can see when this athlete last heard from us"
     );
 }
@@ -347,7 +351,7 @@ async fn cancelling_removes_it_from_every_scan() {
     assert_eq!(
         repos
             .commitments
-            .due_commitments(Utc::now().timestamp(), 50)
+            .due_commitments(Timestamp::now().epoch_seconds(), 50)
             .await
             .unwrap(),
         []
@@ -376,8 +380,9 @@ async fn expiring_closes_a_verdict_that_never_landed() {
             commitment_id: &c.id,
             outcome: CommitmentOutcome::Missed,
             completed_sessions: 0,
-            at: Utc::now(),
+            at: Timestamp::now(),
             transport_policy: TransportPolicy::AnyTransport,
+            ai_consent_sources: &[],
         })
         .await
         .unwrap();
@@ -428,8 +433,9 @@ async fn every_write_is_tenant_scoped() {
             commitment_id: &mine.id,
             outcome: CommitmentOutcome::Missed,
             completed_sessions: 0,
-            at: Utc::now(),
+            at: Timestamp::now(),
             transport_policy: TransportPolicy::AnyTransport,
+            ai_consent_sources: &[],
         })
         .await
         .unwrap());
@@ -477,4 +483,42 @@ async fn open_list_is_scoped_to_the_athlete() {
         .unwrap();
     assert_eq!(mine.len(), 1);
     assert_eq!(mine[0].sport.as_deref(), Some("run"));
+}
+
+// carnet#1157: a commitment names the consents it was recorded under, and its
+// verdict adds those of the sessions it counted.
+#[tokio::test]
+async fn consent_sources_round_trip_and_a_verdict_adds_its_own() {
+    let db = create_test_db().await;
+    let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
+
+    let mut c = commitment("t1", "u1", Some("run"), 3, -1);
+    c.ai_consent_sources = vec!["whoop".to_owned()];
+    repos.commitments.insert_commitment(&c).await.unwrap();
+    let due = repos
+        .commitments
+        .due_commitments(Timestamp::now().epoch_seconds(), 50)
+        .await
+        .unwrap();
+    assert_eq!(due[0].ai_consent_sources, vec!["whoop".to_owned()]);
+
+    let garmin = vec!["garmin".to_owned()];
+    assert!(repos
+        .commitments
+        .record_commitment_verdict(&SweptVerdict {
+            tenant_id: "t1",
+            commitment_id: &c.id,
+            outcome: CommitmentOutcome::Met,
+            completed_sessions: 3,
+            at: Timestamp::now(),
+            transport_policy: TransportPolicy::AnyTransport,
+            ai_consent_sources: &garmin,
+        })
+        .await
+        .unwrap());
+    let labeled = repos.commitments.unreported_commitments(50).await.unwrap();
+    assert_eq!(
+        labeled[0].ai_consent_sources,
+        vec!["garmin".to_owned(), "whoop".to_owned()]
+    );
 }

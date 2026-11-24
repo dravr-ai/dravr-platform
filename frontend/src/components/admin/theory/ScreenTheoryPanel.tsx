@@ -13,7 +13,7 @@ interface ScreenTheoryPanelProps {
 }
 
 /**
- * Closed by default: an operator who knows the screen sees one line, and one
+ * Closed by default: an admin who knows the screen sees one line, and one
  * who does not opens it where the numbers are. A native `<details>` keeps it
  * keyboard-operable and announced as a disclosure. The body is mounted only
  * while open, so a closed panel adds one line of text to the screen and no

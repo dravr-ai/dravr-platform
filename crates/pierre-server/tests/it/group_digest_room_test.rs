@@ -12,16 +12,16 @@
 #![allow(missing_docs)]
 
 mod group_digest_room_tests {
+    use dravr_tronc::dates::Zone;
     use std::collections::HashMap;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::{Arc, Mutex};
 
     use async_trait::async_trait;
-    use chrono::{DateTime, Datelike, Days, Duration, NaiveDate, TimeZone, Utc};
-    use chrono_tz::America::Toronto;
     use dravr_canot::channels::discord::renderer::DiscordRenderer;
     use dravr_canot::channels::slack::renderer::SlackRenderer;
     use dravr_canot::renderer::ResponseRenderer;
+    use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp};
     use pierre_core::models::agents::{AgentCategory, AgentVisibility, CreateSystemAgentRequest};
     use pierre_core::models::groups::{
         CoachConsents, CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
@@ -78,25 +78,27 @@ mod group_digest_room_tests {
     /// The first Monday after today. A week is owed only when its Monday slot
     /// comes after the group was created, and every group here is created at
     /// the real clock, so the ticks are anchored on the Monday still ahead.
-    fn next_monday() -> NaiveDate {
-        let today = Utc::now().date_naive();
-        today + Days::new(7 - u64::from(today.weekday().num_days_from_monday()))
+    fn next_monday() -> CivilDate {
+        let today = Timestamp::now().utc_date();
+        today + Elapsed::days(7 - i64::from(today.weekday().num_days_from_monday()))
     }
 
     /// 08:00 in Montreal on [`next_monday`], the slot every zoned group here
     /// is anchored on.
-    fn monday_morning_montreal() -> DateTime<Utc> {
-        let local = next_monday().and_hms_opt(8, 0, 0).unwrap();
-        Toronto
-            .from_local_datetime(&local)
+    fn monday_morning_montreal() -> Timestamp {
+        let local = next_monday().and_hms(8, 0, 0).unwrap();
+        Zone::from_name("America/Toronto")
+            .unwrap()
+            .resolve(local)
             .single()
             .unwrap()
-            .with_timezone(&Utc)
     }
 
     /// `hour:minute` UTC on [`next_monday`], for the no-zone rule.
-    fn next_monday_utc(hour: u32, minute: u32) -> DateTime<Utc> {
-        Utc.from_utc_datetime(&next_monday().and_hms_opt(hour, minute, 0).unwrap())
+    fn next_monday_utc(hour: u32, minute: u32) -> Timestamp {
+        (next_monday().and_hms(hour, minute, 0).unwrap())
+            .and_utc()
+            .unwrap()
     }
 
     // ── Test doubles ────────────────────────────────────────────────────
@@ -206,7 +208,7 @@ mod group_digest_room_tests {
             }
         }
 
-        async fn tick(&self, now: DateTime<Utc>) -> DigestTickOutcome {
+        async fn tick(&self, now: Timestamp) -> DigestTickOutcome {
             tick(
                 &self.resources,
                 &self.runtime,
@@ -247,8 +249,8 @@ mod group_digest_room_tests {
                     domain: None,
                     plan: "professional".to_owned(),
                     owner_user_id: owner,
-                    created_at: Utc::now(),
-                    updated_at: Utc::now(),
+                    created_at: Timestamp::now(),
+                    updated_at: Timestamp::now(),
                 })
                 .await
                 .unwrap();
@@ -321,7 +323,7 @@ mod group_digest_room_tests {
             .await
             .unwrap();
         let id = Uuid::new_v4();
-        let now = Utc::now();
+        let now = Timestamp::now();
         repos
             .groups
             .create_group(
@@ -343,6 +345,7 @@ mod group_digest_room_tests {
                     is_active: true,
                     channel_type: chat.map(|(channel, _)| channel.to_owned()),
                     channel_chat_id: chat.map(|(_, chat_id)| chat_id.to_owned()),
+                    chat_connection: None,
                     created_at: now,
                     updated_at: now,
                 },
@@ -451,7 +454,7 @@ mod group_digest_room_tests {
         );
 
         // Later the same week: the week is closed, nothing goes out again.
-        let tuesday = monday_morning_montreal() + Duration::hours(26);
+        let tuesday = monday_morning_montreal() + Elapsed::hours(26);
         let again = h.tick(tuesday).await;
         assert_eq!(again.groups_reported, 0, "{again:?}");
         assert_eq!(h.poster.posts().len(), 1);
@@ -583,7 +586,7 @@ mod group_digest_room_tests {
 
         let week = week_key(next_monday());
         let groups = &h.resources.common.repos.groups;
-        let now_ms = monday_morning_montreal().timestamp_millis();
+        let now_ms = monday_morning_montreal().epoch_millis();
         assert!(
             groups
                 .claim_group_digest(tenant, quiet, &week, now_ms, 60_000)
@@ -1280,7 +1283,7 @@ mod group_digest_room_tests {
             served_stale: false,
             timezone: None,
             deep_fatigue_mornings: Vec::new(),
-            computed_at: Utc::now(),
+            computed_at: Timestamp::now(),
         }
     }
 
@@ -1295,8 +1298,8 @@ mod group_digest_room_tests {
             coach_sharing_consent: consent,
             coach_sharing_consent_at: None,
             coach_consents: CoachConsents::default(),
-            consent_given_at: Utc::now(),
-            joined_at: Utc::now(),
+            consent_given_at: Timestamp::now(),
+            joined_at: Timestamp::now(),
             left_at: None,
             display_name: None,
         }
@@ -1318,8 +1321,9 @@ mod group_digest_room_tests {
             is_active: true,
             channel_type: Some("telegram".to_owned()),
             channel_chat_id: Some("-1".to_owned()),
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            chat_connection: None,
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         }
     }
 

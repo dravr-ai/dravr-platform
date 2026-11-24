@@ -21,7 +21,7 @@ use std::time::Duration;
 
 use axum::http::StatusCode;
 use axum::Router;
-use chrono::DateTime;
+use dravr_tronc::dates::Timestamp;
 use pierre_chat_pipeline::turn_stop::question_blocks;
 use pierre_core::llm::LlmProvider;
 use pierre_core::models::{AddMessageParams, TenantId, User};
@@ -145,6 +145,7 @@ impl Fixture {
                 channel_type: Some("web"),
                 about_user_id: None,
                 turn_attempted_write: None,
+                ai_consent_sources: &[],
             })
             .await
             .unwrap()
@@ -216,7 +217,7 @@ async fn a_running_turn_is_awaited_until_it_is_stopped() {
     );
     let asked_at = body["awaiting_reply"]["asked_at"].as_str().unwrap();
     assert!(
-        DateTime::parse_from_rfc3339(asked_at).is_ok(),
+        Timestamp::parse_from_rfc3339(asked_at).is_ok(),
         "asked_at is RFC 3339: {asked_at}"
     );
 

@@ -25,7 +25,7 @@ use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::constants::oauth::INTERVALS_ICU;
 use pierre_core::errors::AppError;
 use pierre_core::models::{
@@ -34,11 +34,13 @@ use pierre_core::models::{
 };
 use pierre_database::RepositoryRegistry;
 use pierre_providers::{CredentialKind, OAuth2Credentials};
+use pierre_runtime_context::require_tenant_in;
 use pierre_services::coach_access::email_admins;
 use pierre_services::coach_access_evidence::probe_intervals_icu_roster;
 use pierre_services::delegated_connections::{forget_coach_roster, supersede_delegated_link};
 use pierre_services::import_tombstones::{provider_account_tombstone, refuse_provider_account};
 use pierre_services::oauth_flow::OAuthService;
+use pierre_services::provider_connected::{self, ConnectVia, ProviderConnected};
 use pierre_services::provider_revocation::DisconnectReason;
 use serde::Deserialize;
 use tracing::{info, warn};
@@ -128,10 +130,9 @@ async fn authenticate(
             .refuse_impersonation(resources.repos.admin_audit.as_ref(), action)
             .await?;
     }
-    let tenant_id = auth_result
-        .active_tenant_id
-        .ok_or_else(|| AppError::invalid_input("No active tenant"))?;
-    Ok((auth_result.user_id, tenant_id))
+    let tenants = resources.repos.tenants.as_ref();
+    let tenant = require_tenant_in(tenants, &auth_result).await?;
+    Ok((auth_result.user_id, tenant.as_uuid()))
 }
 
 /// `POST /api/providers/intervals_icu/link-credentials`
@@ -186,7 +187,8 @@ pub(crate) async fn handle_intervals_icu_link(
 /// form ([`crate::connect_hosted_intervals`]): the API key is stored encrypted
 /// in the access-token column, the athlete id plaintext in
 /// `provider_user_id`, and a `Manual` provider connection is registered so the
-/// resolver treats it like any other connected backend.
+/// resolver treats it like any other connected backend. The connect is then
+/// announced like every other ([`provider_connected::announce`]).
 ///
 /// # Errors
 ///
@@ -241,7 +243,7 @@ pub(crate) async fn link_intervals_icu_account(
         return Err(IntervalsLinkError::Tombstoned(refusal.await));
     }
 
-    let now = Utc::now();
+    let now = Timestamp::now();
     let token = UserOAuthToken {
         id: Uuid::new_v4().to_string(),
         user_id,
@@ -291,6 +293,16 @@ pub(crate) async fn link_intervals_icu_account(
         .map_err(|e| AppError::internal(format!("Failed to register connection: {e}")))?;
 
     info!(user_id = %user_id, "Intervals.icu account linked");
+    provider_connected::announce(
+        resources.data.connect_log(),
+        ProviderConnected {
+            user_id,
+            tenant_id: tenant,
+            backend: INTERVALS_ICU,
+            via: ConnectVia::ApiKey,
+        },
+    )
+    .await;
 
     // The athlete profile just read carries the athlete's sex when they
     // state one on Intervals.icu.

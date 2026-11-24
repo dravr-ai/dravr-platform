@@ -16,7 +16,7 @@
 use std::collections::{HashMap, HashSet};
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::AppResult;
 use pierre_core::models::{Activity, TenantId};
 use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
@@ -48,7 +48,7 @@ pub struct LandedSession {
     /// The landed workout's id under that source.
     pub activity_id: String,
     /// When the workout started.
-    pub start: DateTime<Utc>,
+    pub start: Timestamp,
     /// The store held nothing before this write: the athlete's first data.
     pub first_in_store: bool,
 }
@@ -94,7 +94,7 @@ pub trait LiveActivityStore: Send + Sync {
         tenant_id: TenantId,
         provider: &str,
         activities: &[Activity],
-        synced_at: DateTime<Utc>,
+        synced_at: Timestamp,
         origin: WriteOrigin,
     ) -> AppResult<LiveIngest>;
 
@@ -113,7 +113,7 @@ pub trait LiveActivityStore: Send + Sync {
         tenant_id: TenantId,
         provider: &str,
         activity: &Activity,
-        received_at: DateTime<Utc>,
+        received_at: Timestamp,
     ) -> AppResult<LiveIngest>;
 
     /// Rewrite the content of the athlete's standing `activity` of
@@ -189,8 +189,8 @@ pub trait LiveActivityStore: Send + Sync {
         user_id: Uuid,
         tenant_id: TenantId,
         provider: &str,
-        start: DateTime<Utc>,
-        end: DateTime<Utc>,
+        start: Timestamp,
+        end: Timestamp,
     ) -> AppResult<u64>;
 
     /// How many records the store holds of `provider` for the athlete: what
@@ -261,7 +261,7 @@ pub trait LiveActivityStore: Send + Sync {
     fn keeps(&self, provider: &str) -> bool;
 
     /// Delete everything the store holds of `provider`, for every athlete in
-    /// every tenant, as [`Self::delete_source`] does for one: the operator's
+    /// every tenant, as [`Self::delete_source`] does for one: the admin's
     /// termination purge. Returns how many athletes' records were deleted.
     ///
     /// # Errors
@@ -311,12 +311,10 @@ pub fn landed_session(
     provider: &str,
     written: &[Activity],
     newer_session: bool,
-    held_before: Option<DateTime<Utc>>,
+    held_before: Option<Timestamp>,
     kept_around: &[Activity],
     dedup: &DedupConfig,
 ) -> Option<LandedSession> {
-    use chrono::SubsecRound;
-
     if !newer_session {
         return None;
     }
@@ -328,7 +326,7 @@ pub fn landed_session(
     // PostgreSQL keeps to the microsecond; a row's start comes from its
     // record, which keeps the nanosecond. Compared at the store's precision,
     // a held ride is held on every backend.
-    let held = |start: DateTime<Utc>| {
+    let held = |start: Timestamp| {
         held_before.is_some_and(|held| start.trunc_subsecs(STORED_START_DIGITS) <= held)
     };
     let mut candidates: Vec<&Activity> = kept_around
@@ -374,14 +372,14 @@ mod tests {
     use std::slice;
 
     use super::*;
-    use chrono::{Duration, TimeZone};
+    use dravr_tronc::dates::Elapsed;
     use pierre_core::models::{ActivityBuilder, SportType};
 
-    fn noon() -> DateTime<Utc> {
-        Utc.with_ymd_and_hms(2026, 11, 18, 12, 0, 0).unwrap()
+    fn noon() -> Timestamp {
+        Timestamp::parse_from_rfc3339("2026-11-18T12:00:00Z").unwrap()
     }
 
-    fn ride(id: &str, provider: &str, start: DateTime<Utc>) -> Activity {
+    fn ride(id: &str, provider: &str, start: Timestamp) -> Activity {
         ActivityBuilder::new(id, "Ride", SportType::Ride, start, 3_600, provider)
             .distance_meters(30_000.0)
             .build()
@@ -401,7 +399,7 @@ mod tests {
         provider: &str,
         written: &[&Activity],
         newer_session: bool,
-        held_before: Option<DateTime<Utc>>,
+        held_before: Option<Timestamp>,
         kept: &[&Activity],
     ) -> Option<LandedSession> {
         let written: Vec<Activity> = written.iter().map(|&a| a.clone()).collect();
@@ -443,9 +441,9 @@ mod tests {
         // PostgreSQL keeps a start to the microsecond while the row's own
         // record keeps the nanosecond: the newest start held reads back
         // short of the same ride's start.
-        let start = noon() + Duration::nanoseconds(123_456_789);
+        let start = noon() + Elapsed::nanoseconds(123_456_789);
         let served = ride("s1", "strava", start);
-        let held_column = noon() + Duration::microseconds(123_456);
+        let held_column = noon() + Elapsed::microseconds(123_456);
         assert_eq!(
             land("strava", &[&served], true, Some(held_column), &[&served]),
             None,
@@ -456,7 +454,7 @@ mod tests {
     #[test]
     fn a_second_sources_copy_of_a_held_ride_does_not_land() {
         let held = ride("g1", "garmin", noon());
-        let copy = ride("s1", "strava", noon() + Duration::minutes(4));
+        let copy = ride("s1", "strava", noon() + Elapsed::minutes(4));
         assert_eq!(
             land(
                 "strava",
@@ -472,9 +470,9 @@ mod tests {
 
     #[test]
     fn the_timed_copy_of_a_held_date_only_scrape_does_not_land() {
-        let midnight = Utc.with_ymd_and_hms(2026, 11, 18, 0, 0, 0).unwrap();
+        let midnight = Timestamp::parse_from_rfc3339("2026-11-18T00:00:00Z").unwrap();
         let scrape = ride("t1", "sciotte_strava", midnight);
-        let api = ride("s1", "strava", midnight + Duration::hours(10));
+        let api = ride("s1", "strava", midnight + Elapsed::hours(10));
         assert_eq!(
             land("strava", &[&api], true, Some(midnight), &[&scrape, &api]),
             None,
@@ -485,8 +483,8 @@ mod tests {
     #[test]
     fn a_refused_future_row_beside_a_copy_lands_nothing() {
         let held = ride("g1", "garmin", noon());
-        let copy = ride("s1", "strava", noon() + Duration::minutes(3));
-        let future = ride("s2", "strava", noon() + Duration::days(3));
+        let copy = ride("s1", "strava", noon() + Elapsed::minutes(3));
+        let future = ride("s2", "strava", noon() + Elapsed::days(3));
         // Barrage refused the future row, so the read after the write does
         // not hold it.
         assert_eq!(
@@ -505,7 +503,7 @@ mod tests {
     #[test]
     fn an_erased_row_not_kept_does_not_land() {
         let held = ride("g1", "garmin", noon());
-        let erased = ride("s9", "strava", noon() + Duration::hours(5));
+        let erased = ride("s9", "strava", noon() + Elapsed::hours(5));
         assert_eq!(
             land(
                 "strava",
@@ -522,7 +520,7 @@ mod tests {
     #[test]
     fn a_new_ride_after_the_newest_held_lands_under_its_source() {
         let held = ride("g1", "garmin", noon());
-        let next = ride("s2", "strava", noon() + Duration::minutes(80));
+        let next = ride("s2", "strava", noon() + Elapsed::minutes(80));
         assert_eq!(
             land(
                 "strava",
@@ -544,8 +542,8 @@ mod tests {
     #[test]
     fn the_newest_new_ride_of_a_write_lands() {
         let held = ride("g1", "garmin", noon());
-        let first = ride("s2", "strava", noon() + Duration::hours(3));
-        let second = ride("s3", "strava", noon() + Duration::hours(6));
+        let first = ride("s2", "strava", noon() + Elapsed::hours(3));
+        let second = ride("s3", "strava", noon() + Elapsed::hours(6));
         let landed = land(
             "strava",
             &[&first, &second],
@@ -563,7 +561,7 @@ mod tests {
     #[test]
     fn no_newer_session_never_lands() {
         let held = ride("g1", "garmin", noon());
-        let next = ride("s2", "strava", noon() + Duration::hours(2));
+        let next = ride("s2", "strava", noon() + Elapsed::hours(2));
         assert_eq!(
             land(
                 "strava",
@@ -579,10 +577,10 @@ mod tests {
 
     #[test]
     fn an_api_copy_sharing_a_held_scrapes_id_does_not_land() {
-        let midnight = Utc.with_ymd_and_hms(2026, 11, 18, 0, 0, 0).unwrap();
+        let midnight = Timestamp::parse_from_rfc3339("2026-11-18T00:00:00Z").unwrap();
         // A scrape of Strava keeps Strava's own id, under the sciotte key.
         let scrape = ride("1234567", "sciotte", midnight);
-        let api = ride("1234567", "strava", midnight + Duration::hours(10));
+        let api = ride("1234567", "strava", midnight + Elapsed::hours(10));
         assert_eq!(
             land("strava", &[&api], true, Some(midnight), &[&scrape, &api]),
             None,
@@ -592,7 +590,7 @@ mod tests {
             "1234567",
             "Run",
             SportType::Run,
-            midnight + Duration::hours(20),
+            midnight + Elapsed::hours(20),
             1_800,
             "strava",
         )

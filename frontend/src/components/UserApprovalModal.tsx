@@ -7,7 +7,7 @@ import { adminApi } from '../services/api';
 import type { User, UserManagementResponse } from '../types/api';
 import { Button, Card, Textarea, Alert } from './ui';
 import { Badge } from './ui/Badge';
-import { QUERY_KEYS } from '../constants/queryKeys';
+import { QUERY_KEYS } from '@pierre/shared-constants';
 import { ADMIN_LOCALE, describeAdminError } from '../utils/adminLocale';
 import { useDialog } from '../hooks/useDialog';
 

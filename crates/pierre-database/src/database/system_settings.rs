@@ -10,19 +10,19 @@ use crate::repositories::system_settings::{
     INSERT_SYSTEM_SETTING_IF_ABSENT_SQL, SET_SYSTEM_SETTING_SQL,
     UPDATE_SYSTEM_SETTING_IF_UNCHANGED_SQL,
 };
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use serde::{Deserialize, Serialize};
 
 /// System setting key constants
 pub const SETTING_AUTO_APPROVAL_ENABLED: &str = "auto_approval_enabled";
-/// Lifetime, in minutes, of an email-verification link. Operator-scoped:
+/// Lifetime, in minutes, of an email-verification link. Admin-scoped:
 /// clamped on read to the bounds in `pierre_config::constants::email_verification`.
 pub const SETTING_EMAIL_VERIFICATION_TTL_MINUTES: &str = "email_verification_ttl_minutes";
-/// Maximum verification emails a single user can trigger per hour. Operator-scoped
+/// Maximum verification emails a single user can trigger per hour. Admin-scoped
 /// and clamped on read, so a malformed row cannot disable the throttle.
 pub const SETTING_EMAIL_VERIFICATION_MAX_PER_HOUR: &str = "email_verification_max_per_hour";
-/// Whether self-serve sign-up admits new accounts: the operator's kill switch.
+/// Whether self-serve sign-up admits new accounts: the admin's kill switch.
 /// `"false"` refuses every self-serve sign-up; an absent row leaves it open.
 pub const SETTING_SIGNUP_OPEN: &str = "signup_open";
 /// The most accounts self-serve sign-up admits in any 24 hours; `"0"` sets no
@@ -37,8 +37,11 @@ pub const SETTING_SIGNUP_DAILY_LIMIT_RESET_AT: &str = "signup_daily_limit_reset_
 pub const SETTING_SIGNUP_ACTIVATE_ON_VERIFIED_EMAIL: &str = "signup_activate_on_verified_email";
 /// Prefix of the key holding a provider's connect order (`connect_order_strava`).
 ///
-/// The value says which way a new connection goes first: `"sign_in_first"`
-/// (the default, an absent row) or `"oauth_first"` (carnet#1472, carnet#1494).
+/// The value says which way a new connection goes first:
+/// `"extension_first"` (the default, an absent row: the account sign-in,
+/// through the Dravr sign-in extension first where a web client has it),
+/// `"sign_in_first"` (the account sign-in, its credentials form first) or
+/// `"oauth_first"` (carnet#1472, carnet#1494).
 pub const SETTING_CONNECT_ORDER_PREFIX: &str = "connect_order_";
 
 /// A system setting entry
@@ -51,7 +54,7 @@ pub struct SystemSetting {
     /// Human-readable description of what this setting controls
     pub description: Option<String>,
     /// When the setting was last modified
-    pub updated_at: DateTime<Utc>,
+    pub updated_at: Timestamp,
 }
 
 impl_system_settings!(Database);

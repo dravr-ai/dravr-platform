@@ -1,0 +1,5586 @@
+[
+  {
+    "name": "activate_agent",
+    "description": "Activate an agent for personalized training guidance",
+    "inputSchema": {
+      "properties": {
+        "agent_id": {
+          "description": "ID of the agent to activate",
+          "type": "string"
+        }
+      },
+      "required": [
+        "agent_id"
+      ],
+      "type": "object"
+    },
+    "outputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "What `activate_agent` answers with.",
+      "properties": {
+        "category": {
+          "description": "Which shelf it sits on.",
+          "type": "string"
+        },
+        "description": {
+          "description": "What it is for; absent when none was given.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "description": "Identifier of the agent now active.",
+          "type": "string"
+        },
+        "is_active": {
+          "description": "Always true: the tool errors rather than reporting a failed activation.",
+          "type": "boolean"
+        },
+        "system_prompt": {
+          "description": "The instructions it runs on.",
+          "type": "string"
+        },
+        "title": {
+          "description": "Display name.",
+          "type": "string"
+        },
+        "token_count": {
+          "description": "Estimated size of the system prompt, in tokens.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "description",
+        "system_prompt",
+        "category",
+        "is_active",
+        "token_count"
+      ],
+      "title": "ActivateAgentResult",
+      "type": "object"
+    },
+    "annotations": {
+      "title": "Activate agent",
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    },
+    "_meta": {
+      "ai.dravr.vault/tool": {
+        "def_hash": "sha256:1268be5fe592c1b77b96a35398a7b44f60a6f062b71e24ba9cccd6d16265bef8"
+      }
+    }
+  },
+  {
+    "name": "admin_assign_agent",
+    "description": "Assign a system agent to a specific user (admin only)",
+    "inputSchema": {
+      "properties": {
+        "agent_id": {
+          "description": "ID of the system agent to assign",
+          "type": "string"
+        },
+        "user_id": {
+          "description": "ID of the user to assign the agent to",
+          "type": "string"
+        }
+      },
+      "required": [
+        "agent_id",
+        "user_id"
+      ],
+      "type": "object"
+    },
+    "outputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "What `admin_assign_agent` answers with.\n\nEchoes both the admin and the athlete, so an audit reader has the whole\nact from the reply alone.",
+      "properties": {
+        "agent_id": {
+          "description": "The agent that was assigned.",
+          "type": "string"
+        },
+        "agent_title": {
+          "description": "Its display name, so the reply is readable without a second call.",
+          "type": "string"
+        },
+        "assigned": {
+          "description": "Always true: the tool errors rather than reporting a failed assign.",
+          "type": "boolean"
+        },
+        "assigned_by": {
+          "description": "The admin who assigned it.",
+          "type": "string"
+        },
+        "user_id": {
+          "description": "The athlete it was assigned to.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "assigned",
+        "agent_id",
+        "agent_title",
+        "user_id",
+        "assigned_by"
+      ],
+      "title": "AdminAssignAgentResult",
+      "type": "object"
+    },
+    "annotations": {
+      "title": "Assign agent to user (admin)",
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    },
+    "_meta": {
+      "ai.dravr.vault/tool": {
+        "def_hash": "sha256:17fd4b197ab69afbe099e72894e43c094b3a7b3d5e97dad9b89f6a7c0a4129aa"
+      }
+    }
+  },
+  {
+    "name": "admin_create_system_agent",
+    "description": "Create a new system agent visible to all tenant users (admin only)",
+    "inputSchema": {
+      "properties": {
+        "category": {
+          "description": "Category. Default: custom. One of: training, nutrition, recovery, recipes, mobility, analysis, custom; any other name reads as custom.",
+          "type": "string"
+        },
+        "description": {
+          "description": "Description explaining the agent's purpose",
+          "type": "string"
+        },
+        "sample_prompts": {
+          "description": "Example prompts to show users",
+          "items": {
+            "description": "Sample prompt text",
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "system_prompt": {
+          "description": "System prompt that shapes AI responses",
+          "type": "string"
+        },
+        "tags": {
+          "description": "Tags for filtering and organization",
+          "items": {
+            "description": "Tag label",
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "title": {
+          "description": "Display title for the agent",
+          "type": "string"
+        },
+        "visibility": {
+          "description": "Visibility: 'tenant' (default) or 'global'; any other value keeps the agent private to its author",
+          "type": "string"
+        }
+      },
+      "required": [
+        "title",
+        "system_prompt"
+      ],
+      "type": "object"
+    },
+    "outputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "What `admin_create_system_agent` answers with.\n\nNo `system_prompt` and no `updated_at`: the caller just sent the prompt,\nand an agent created this instant has no edit to report.",
+      "properties": {
+        "category": {
+          "description": "Which shelf it sits on.",
+          "type": "string"
+        },
+        "created_at": {
+          "description": "RFC 3339 creation timestamp.",
+          "type": "string"
+        },
+        "description": {
+          "description": "What it is for; absent when none was given.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "description": "Identifier of the new agent.",
+          "type": "string"
+        },
+        "is_system": {
+          "description": "Always true: this tool only creates system agents.",
+          "type": "boolean"
+        },
+        "tags": {
+          "description": "Free-form labels.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "title": {
+          "description": "Display name.",
+          "type": "string"
+        },
+        "token_count": {
+          "description": "Estimated size of the system prompt, in tokens.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "visibility": {
+          "description": "Who can see it.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "description",
+        "category",
+        "tags",
+        "token_count",
+        "visibility",
+        "is_system",
+        "created_at"
+      ],
+      "title": "AdminCreateSystemAgentResult",
+      "type": "object"
+    },
+    "annotations": {
+      "title": "Create system agent (admin)",
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": false
+    },
+    "_meta": {
+      "ai.dravr.vault/tool": {
+        "def_hash": "sha256:8fbf4bd234169c9431b810ebd5b98c706d7a5fa0dfca86760548f688ef6e163a"
+      }
+    }
+  },
+  {
+    "name": "admin_delete_system_agent",
+    "description": "Delete a system agent and remove all assignments (admin only)",
+    "inputSchema": {
+      "properties": {
+        "agent_id": {
+          "description": "ID of the system agent to delete",
+          "type": "string"
+        }
+      },
+      "required": [
+        "agent_id"
+      ],
+      "type": "object"
+    },
+    "outputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "What `admin_delete_system_agent` answers with.",
+      "properties": {
+        "agent_id": {
+          "description": "The agent that was removed, echoed back.",
+          "type": "string"
+        },
+        "deleted": {
+          "description": "Always true: the tool errors rather than reporting a failed delete.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "deleted",
+        "agent_id"
+      ],
+      "title": "AdminDeleteSystemAgentResult",
+      "type": "object"
+    },
+    "annotations": {
+      "title": "Delete system agent (admin)",
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "idempotentHint": true,
+      "openWorldHint": false
+    },
+    "_meta": {
+      "ai.dravr.vault/tool": {
+        "def_hash": "sha256:ed92b192b76895a555371af919a5404046e2409c22544e91efdc3ae660ffc48b"
+      }
+    }
+  },
+  {
+    "name": "admin_get_system_agent",
+    "description": "Get detailed information about a system agent (admin only)",
+    "inputSchema": {
+      "properties": {
+        "agent_id": {
+          "description": "ID of the system agent to retrieve",
+          "type": "string"
+        },
+        "format": {
+          "description": "'json' (default) or 'toon' (compact).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "agent_id"
+      ],
+      "type": "object"
+    },
+    "outputSchema": {
+      "$defs": {
+        "AdminGetSystemAgentResult": {
+          "description": "What `admin_get_system_agent` answers with.",
+          "properties": {
+            "category": {
+              "description": "Which shelf it sits on.",
+              "type": "string"
+            },
+            "created_at": {
+              "description": "RFC 3339 creation timestamp.",
+              "type": "string"
+            },
+            "description": {
+              "description": "What it is for; absent when none was given.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "id": {
+              "description": "Identifier.",
+              "type": "string"
+            },
+            "is_system": {
+              "description": "Whether it ships with the platform.",
+              "type": "boolean"
+            },
+            "system_prompt": {
+              "description": "The instructions the agent runs on.",
+              "type": "string"
+            },
+            "tags": {
+              "description": "Free-form labels.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "title": {
+              "description": "Display name.",
+              "type": "string"
+            },
+            "token_count": {
+              "description": "Estimated size of the system prompt, in tokens.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "updated_at": {
+              "description": "RFC 3339 timestamp of the last edit.",
+              "type": "string"
+            },
+            "visibility": {
+              "description": "Who can see it.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "title",
+            "description",
+            "system_prompt",
+            "category",
+            "tags",
+            "token_count",
+            "visibility",
+            "is_system",
+            "created_at",
+            "updated_at"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/AdminGetSystemAgentResult",
+          "description": "`format=json`, the default: the tool's own shape, unchanged."
+        },
+        {
+          "description": "`format=toon`: the payload rendered as one compact TOON string.",
+          "properties": {
+            "format": {
+              "description": "Always `toon`.",
+              "type": "string"
+            },
+            "toon": {
+              "description": "The rendered payload.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "toon",
+            "format"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "TOON was asked for and could not be produced. The payload still arrives,\nas JSON, and says why it is not what was requested — a caller that\nsilently received JSON would parse it as TOON and fail further away.",
+          "properties": {
+            "format": {
+              "description": "Always `json`.",
+              "type": "string"
+            },
+            "format_error": {
+              "description": "Why TOON rendering failed.",
+              "type": "string"
+            },
+            "format_fallback": {
+              "description": "Always true; present so the fallback is detectable on its own.",
+              "type": "boolean"
+            },
+            "result": {
+              "$ref": "#/$defs/AdminGetSystemAgentResult",
+              "description": "The payload, unformatted."
+            }
+          },
+          "required": [
+            "result",
+            "format",
+            "format_fallback",
+            "format_error"
+          ],
+          "type": "object"
+        }
+      ],
+      "description": "A tool payload after the caller's `format` argument has been applied.\n\nWhich shape arrives depends on the REQUEST rather than the data, which is\nwhy this is a type rather than three call sites deciding for themselves:\n`format=json` sends the tool's own shape, `format=toon` sends a compact\nstring envelope, and a TOON conversion that fails falls back to JSON while\nsaying so. Untagged, so the derived schema is an `anyOf` over exactly\nthose three arms — schemars emits `anyOf` for an untagged enum, not\n`oneOf`, so the schema does not itself assert the arms are mutually\nexclusive. A client tells them apart by the keys: `toon` and `result` are\nthe envelope's, and they are fixed rather than per-tool for that reason.\n\nThe envelope keys are fixed (`toon`, `result`) rather than derived from a\nper-tool `data_key`. A property name that changes per tool cannot be stated\nin a schema, so the old `result_toon` / `recipes_toon` / `recipe_toon` /\n`results_toon` spelling is gone — the key no longer carries information the\ntool name already gives, and the contract is now expressible.",
+      "title": "Formatted",
+      "type": "object"
+    },
+    "annotations": {
+      "title": "Get system agent (admin)",
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    },
+    "_meta": {
+      "ai.dravr.vault/tool": {
+        "def_hash": "sha256:119589abb13e5e58e2ff12e933269c6eef7ac24341287dacfc25a6d48cb33b99"
+      }
+    }
+  },
+  {
+    "name": "admin_impersonate_end",
+    "description": "Admin support: end the support session this connection started, so it acts as you again. List the tools again afterwards. The end is written to the admin audit trail.",
+    "inputSchema": {
+      "properties": {},
+      "type": "object"
+    },
+    "outputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "What `admin_impersonate_end` answers.",
+      "properties": {
+        "ended": {
+          "description": "Whether a live session was ended; `false` when none was.",
+          "type": "boolean"
+        },
+        "note": {
+          "description": "What to do next.",
+          "type": "string"
+        },
+        "session_id": {
+          "description": "The ended session's id.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "ended",
+        "session_id",
+        "note"
+      ],
+      "title": "ImpersonateEndResult",
+      "type": "object"
+    },
+    "annotations": {
+      "title": "End the support session (admin)",
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    },
+    "_meta": {
+      "ai.dravr.vault/tool": {
+        "def_hash": "sha256:cddd178e1169f8a49f9dae6a7d3f74f99710a30182b168fcf0fe853130612558"
+      }
+    }
+  },
+  {
+    "name": "admin_impersonate_start",
+    "description": "Admin support: act as one user, through this connection only, for up to an hour. From the next call on, this connection is offered and served exactly what that user's own assistant is (their data, their tools; for a human coach, the members who allowed it), plus `admin_impersonate_end`. List the tools again after it starts. Nothing that would outlive the session (a token, a key, a connection, a consent) can be created, exports are refused, and every call is on the admin audit trail naming you and the user.",
+    "inputSchema": {
+      "properties": {
+        "reason": {
+          "description": "Why you act as this user (the support request), written to the audit trail.",
+          "type": "string"
+        },
+        "user": {
+          "description": "The email or account id of the user to act as. Never another admin.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "user",
+        "reason"
+      ],
+      "type": "object"
+    },
+    "outputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "What `admin_impersonate_start` answers.",
+      "properties": {
+        "display_name": {
+          "description": "That account's display name, when it has one.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "expires_at": {
+          "description": "When the session stops acting as the user (RFC 3339): an hour after\nit started, never renewed.",
+          "type": "string"
+        },
+        "note": {
+          "description": "What to do next: list the tools again, and end the session with\n`admin_impersonate_end`.",
+          "type": "string"
+        },
+        "session_id": {
+          "description": "The support session's id, as the audit trail names it.",
+          "type": "string"
+        },
+        "user_id": {
+          "description": "The account this connection now acts as.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "session_id",
+        "user_id",
+        "display_name",
+        "expires_at",
+        "note"
+      ],
+      "title": "ImpersonateStartResult",
+      "type": "object"
+    },
+    "annotations": {
+      "title": "Start a support session (admin)",
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": false
+    },
+    "_meta": {
+      "ai.dravr.vault/tool": {
+        "def_hash": "sha256:6c9f6214a046b76fbb833a2d80e7e7d84a2b1fae6e5e8d1fcb4de0265aad2043"
+      }
+    }
+  },
+  {
+    "name": "admin_list_agent_assignments",
+    "description": "List all assignments for a system agent (admin only)",
+    "inputSchema": {
+      "properties": {
+        "agent_id": {
+          "description": "ID of the agent to list assignments for",
+          "type": "string"
+        }
+      },
+      "required": [
+        "agent_id"
+      ],
+      "type": "object"
+    },
+    "outputSchema": {
+      "$defs": {
+        "AgentAssignmentEntry": {
+          "description": "One assignment as `admin_list_agent_assignments` reports it.",
+          "properties": {
+            "assigned_at": {
+              "description": "RFC 3339 timestamp of the assignment.",
+              "type": "string"
+            },
+            "assigned_by": {
+              "description": "The admin who made it. Absent for assignments made before the\ncolumn existed, and for any the system made on nobody's behalf.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "user_email": {
+              "description": "Their email, so the admin can recognise them. Absent when the\njoin could not resolve the account — a deleted user leaves the\nassignment row behind.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "user_id": {
+              "description": "The athlete the agent is assigned to.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "user_id",
+            "user_email",
+            "assigned_at",
+            "assigned_by"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "What `admin_list_agent_assignments` answers with.\n\nThe listing is capped: a popular system agent in a large tenant can carry\nan assignment per athlete. `truncated` states that in the payload rather\nthan letting the admin read a short list as a complete one.",
+      "properties": {
+        "agent_id": {
+          "description": "The agent whose assignments these are.",
+          "type": "string"
+        },
+        "assignments": {
+          "description": "The assignments, up to the cap.",
+          "items": {
+            "$ref": "#/$defs/AgentAssignmentEntry"
+          },
+          "type": "array"
+        },
+        "count": {
+          "description": "How many are in this reply.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "total": {
+          "description": "How many exist, which is larger than `count` when truncated.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "truncated": {
+          "description": "Whether the cap was hit and rows were left out.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "agent_id",
+        "assignments",
+        "count",
+        "total",
+        "truncated"
+      ],
+      "title": "AdminListAgentAssignmentsResult",
+      "type": "object"
+    },
+    "annotations": {
+      "title": "List agent assignments (admin)",
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    },
+    "_meta": {
+      "ai.dravr.vault/tool": {
+        "def_hash": "sha256:8d84ecc7fad69921e8b940f4ed2edd15f876b3e05b80181608a6fe76637e2810"
+      }
+    }
+  },
+  {
+    "name": "admin_list_system_agents",
+    "description": "List all system agents in the tenant (admin only)",
+    "inputSchema": {
+      "properties": {
+        "format": {
+          "description": "'json' (default) or 'toon' (compact).",
+          "type": "string"
+        },
+        "limit": {
+          "description": "Maximum number of agents to return. Default: 50, max: 100",
+          "type": "integer"
+        },
+        "offset": {
+          "description": "Pagination offset. Default: 0",
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "outputSchema": {
+      "$defs": {
+        "AdminListSystemAgentsResult": {
+          "description": "What `admin_list_system_agents` answers with.",
+          "properties": {
+            "agents": {
+              "description": "The agents on this page.",
+              "items": {
+                "$ref": "#/$defs/SystemAgentEntry"
+              },
+              "type": "array"
+            },
+            "count": {
+              "description": "How many came back on this page.",
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "offset": {
+              "description": "The paging offset these start at.",
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "total": {
+              "description": "How many the tenant has in total, ignoring paging.",
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "agents",
+            "count",
+            "total",
+            "offset"
+          ],
+          "type": "object"
+        },
+        "SystemAgentEntry": {
+          "description": "One system agent, as `admin_list_system_agents` reports it.\n\nNo `system_prompt`: a listing of agents is for choosing one, and the\nprompt is long. `admin_get_system_agent` is what returns it.",
+          "properties": {
+            "category": {
+              "description": "Which shelf it sits on.",
+              "type": "string"
+            },
+            "created_at": {
+              "description": "RFC 3339 creation timestamp.",
+              "type": "string"
+            },
+            "description": {
+              "description": "What the agent is for; absent when none was given.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "id": {
+              "description": "Identifier the other admin tools take.",
+              "type": "string"
+            },
+            "tags": {
+              "description": "Free-form labels for filtering and search.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "title": {
+              "description": "Display name.",
+              "type": "string"
+            },
+            "token_count": {
+              "description": "Estimated size of the system prompt, in tokens.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "updated_at": {
+              "description": "RFC 3339 timestamp of the last edit.",
+              "type": "string"
+            },
+            "visibility": {
+              "description": "Who can see it — the admin's decision, which is why every admin\nprojection carries it and no athlete-facing one does.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "title",
+            "description",
+            "category",
+            "tags",
+            "token_count",
+            "visibility",
+            "created_at",
+            "updated_at"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/AdminListSystemAgentsResult",
+          "description": "`format=json`, the default: the tool's own shape, unchanged."
+        },
+        {
+          "description": "`format=toon`: the payload rendered as one compact TOON string.",
+          "properties": {
+            "format": {
+              "description": "Always `toon`.",
+              "type": "string"
+            },
+            "toon": {
+              "description": "The rendered payload.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "toon",
+            "format"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "TOON was asked for and could not be produced. The payload still arrives,\nas JSON, and says why it is not what was requested — a caller that\nsilently received JSON would parse it as TOON and fail further away.",
+          "properties": {
+            "format": {
+              "description": "Always `json`.",
+              "type": "string"
+            },
+            "format_error": {
+              "description": "Why TOON rendering failed.",
+              "type": "string"
+            },
+            "format_fallback": {
+              "description": "Always true; present so the fallback is detectable on its own.",
+              "type": "boolean"
+            },
+            "result": {
+              "$ref": "#/$defs/AdminListSystemAgentsResult",
+              "description": "The payload, unformatted."
+            }
+          },
+          "required": [
+            "result",
+            "format",
+            "format_fallback",
+            "format_error"
+          ],
+          "type": "object"
+        }
+      ],
+      "description": "A tool payload after the caller's `format` argument has been applied.\n\nWhich shape arrives depends on the REQUEST rather than the data, which is\nwhy this is a type rather than three call sites deciding for themselves:\n`format=json` sends the tool's own shape, `format=toon` sends a compact\nstring envelope, and a TOON conversion that fails falls back to JSON while\nsaying so. Untagged, so the derived schema is an `anyOf` over exactly\nthose three arms — schemars emits `anyOf` for an untagged enum, not\n`oneOf`, so the schema does not itself assert the arms are mutually\nexclusive. A client tells them apart by the keys: `toon` and `result` are\nthe envelope's, and they are fixed rather than per-tool for that reason.\n\nThe envelope keys are fixed (`toon`, `result`) rather than derived from a\nper-tool `data_key`. A property name that changes per tool cannot be stated\nin a schema, so the old `result_toon` / `recipes_toon` / `recipe_toon` /\n`results_toon` spelling is gone — the key no longer carries information the\ntool name already gives, and the contract is now expressible.",
+      "title": "Formatted",
+      "type": "object"
+    },
+    "annotations": {
+      "title": "List system agents (admin)",
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    },
+    "_meta": {
+      "ai.dravr.vault/tool": {
+        "def_hash": "sha256:576afce0e6cbba93a126229ae9c49a07f9a14898653e288908f61808e77a9465"
+      }
+    }
+  },
+  {
+    "name": "admin_unassign_agent",
+    "description": "Remove an agent assignment from a user (admin only)",
+    "inputSchema": {
+      "properties": {
+        "agent_id": {
+          "description": "ID of the system agent to unassign",
+          "type": "string"
+        },
+        "user_id": {
+          "description": "ID of the user to remove the assignment from",
+          "type": "string"
+        }
+      },
+      "required": [
+        "agent_id",
+        "user_id"
+      ],
+      "type": "object"
+    },
+    "outputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "What `admin_unassign_agent` answers with.",
+      "properties": {
+        "agent_id": {
+          "description": "The agent that was unassigned.",
+          "type": "string"
+        },
+        "unassigned": {
+          "description": "Always true: an assignment that was not there is an error, not a\nquiet success, because the admin asked to remove something.",
+          "type": "boolean"
+        },
+        "user_id": {
+          "description": "The athlete it was removed from.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "unassigned",
+        "agent_id",
+        "user_id"
+      ],
+      "title": "AdminUnassignAgentResult",
+      "type": "object"
+    },
+    "annotations": {
+      "title": "Unassign agent from user (admin)",
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "idempotentHint": true,
+      "openWorldHint": false
+    },
+    "_meta": {
+      "ai.dravr.vault/tool": {
+        "def_hash": "sha256:cd3875703c9d6994952bdb60e8b4c3bc75b461a82f99e5ea5a95bdf5215cc153"
+      }
+    }
+  },
+  {
+    "name": "admin_update_system_agent",
+    "description": "Update an existing system agent (admin only)",
+    "inputSchema": {
+      "properties": {
+        "agent_id": {
+          "description": "ID of the system agent to update",
+          "type": "string"
+        },
+        "category": {
+          "description": "New category. One of: training, nutrition, recovery, recipes, mobility, analysis, custom; any other name reads as custom.",
+          "type": "string"
+        },
+        "description": {
+          "description": "New description",
+          "type": "string"
+        },
+        "sample_prompts": {
+          "description": "New example prompts, replacing the current ones",
+          "items": {
+            "description": "Sample prompt text",
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "system_prompt": {
+          "description": "New system prompt",
+          "type": "string"
+        },
+        "tags": {
+          "description": "New tags, replacing the current ones",
+          "items": {
+            "description": "Tag label",
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "title": {
+          "description": "New display title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "agent_id"
+      ],
+      "type": "object"
+    },
+    "outputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "What `admin_update_system_agent` answers with.",
+      "properties": {
+        "category": {
+          "description": "Which shelf it sits on.",
+          "type": "string"
+        },
+        "description": {
+          "description": "What it is for; absent when none is set.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "description": "Identifier.",
+          "type": "string"
+        },
+        "is_system": {
+          "description": "Whether it ships with the platform.",
+          "type": "boolean"
+        },
+        "system_prompt": {
+          "description": "The instructions after the edit.",
+          "type": "string"
+        },
+        "tags": {
+          "description": "Free-form labels.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "title": {
+          "description": "Display name after the edit.",
+          "type": "string"
+        },
+        "token_count": {
+          "description": "Estimated size of the system prompt after the edit, in tokens.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "updated_at": {
+          "description": "RFC 3339 timestamp of this edit.",
+          "type": "string"
+        },
+        "visibility": {
+          "description": "Who can see it.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "description",
+        "system_prompt",
+        "category",
+        "tags",
+        "token_count",
+        "visibility",
+        "is_system",
+        "updated_at"
+      ],
+      "title": "AdminUpdateSystemAgentResult",
+      "type": "object"
+    },
+    "annotations": {
+      "title": "Update system agent (admin)",
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    },
+    "_meta": {
+      "ai.dravr.vault/tool": {
+        "def_hash": "sha256:06e1cdbe192925a1c92cdab63811e3600a9e5a0f135ced200b1d9b699145e316"
+      }
+    }
+  },
+  {
+    "name": "browse_agent_store",
+    "description": "Browse the Agent Store — the catalogue of PUBLISHED agents anyone can install. Use this when the athlete asks what agents exist, or for an agent of a kind they do not already have. Distinct from `list_agents`, which lists only the agents ALREADY in their library.",
+    "inputSchema": {
+      "properties": {
+        "category": {
+          "description": "Category filter: training, nutrition, recovery, recipes, mobility, analysis, or custom.",
+          "type": "string"
+        },
+        "cursor": {
+          "description": "A previous call's `next_cursor`, to fetch the next page.",
+          "type": "string"
+        },
+        "format": {
+          "description": "'json' (default) or 'toon' (compact).",
+          "type": "string"
+        },
+        "limit": {
+          "description": "Agents per page (1-100, default 20).",
+          "type": "integer"
+        },
+        "sort_by": {
+          "description": "Ordering: 'newest' (default), 'popular' (most installed), or 'title'.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "outputSchema": {
+      "$defs": {
+        "BrowseAgentStoreResult": {
+          "description": "What `browse_agent_store` answers with.",
+          "properties": {
+            "agents": {
+              "description": "The agents on this page.",
+              "items": {
+                "$ref": "#/$defs/StoreAgentEntry"
+              },
+              "type": "array"
+            },
+            "count": {
+              "description": "How many came back.",
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "has_more": {
+              "description": "Whether another page follows.",
+              "type": "boolean"
+            },
+            "next_cursor": {
+              "description": "The cursor that fetches it; absent on the last page.",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "agents",
+            "count",
+            "has_more",
+            "next_cursor"
+          ],
+          "type": "object"
+        },
+        "StoreAgentEntry": {
+          "description": "One store agent as the browse, search and install tools report it.\n\nThe system prompt is deliberately absent. Browse and search return many\nagents and the prompt is by far the largest field on the row; install\nechoes the same compact shape so a client renders one card either way.",
+          "properties": {
+            "category": {
+              "description": "Which shelf it sits on.",
+              "type": "string"
+            },
+            "description": {
+              "description": "What the agent is for; absent when its author gave none.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "id": {
+              "description": "Identifier `install_agent_from_store` takes.",
+              "type": "string"
+            },
+            "install_count": {
+              "description": "How many athletes have installed it.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "published_at": {
+              "description": "RFC 3339 timestamp of publication; absent while unpublished.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "sample_prompts": {
+              "description": "Openers the author suggests, for a client to offer as chips.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "tags": {
+              "description": "Free-form labels its author set.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "title": {
+              "description": "Display name, as its author wrote it.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "title",
+            "description",
+            "category",
+            "tags",
+            "sample_prompts",
+            "install_count",
+            "published_at"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/BrowseAgentStoreResult",
+          "description": "`format=json`, the default: the tool's own shape, unchanged."
+        },
+        {
+          "description": "`format=toon`: the payload rendered as one compact TOON string.",
+          "properties": {
+            "format": {
+              "description": "Always `toon`.",
+              "type": "string"
+            },
+            "toon": {
+              "description": "The rendered payload.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "toon",
+            "format"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "TOON was asked for and could not be produced. The payload still arrives,\nas JSON, and says why it is not what was requested — a caller that\nsilently received JSON would parse it as TOON and fail further away.",
+          "properties": {
+            "format": {
+              "description": "Always `json`.",
+              "type": "string"
+            },
+            "format_error": {
+              "description": "Why TOON rendering failed.",
+              "type": "string"
+            },
+            "format_fallback": {
+              "description": "Always true; present so the fallback is detectable on its own.",
+              "type": "boolean"
+            },
+            "result": {
+              "$ref": "#/$defs/BrowseAgentStoreResult",
+              "description": "The payload, unformatted."
+            }
+          },
+          "required": [
+            "result",
+            "format",
+            "format_fallback",
+            "format_error"
+          ],
+          "type": "object"
+        }
+      ],
+      "description": "A tool payload after the caller's `format` argument has been applied.\n\nWhich shape arrives depends on the REQUEST rather than the data, which is\nwhy this is a type rather than three call sites deciding for themselves:\n`format=json` sends the tool's own shape, `format=toon` sends a compact\nstring envelope, and a TOON conversion that fails falls back to JSON while\nsaying so. Untagged, so the derived schema is an `anyOf` over exactly\nthose three arms — schemars emits `anyOf` for an untagged enum, not\n`oneOf`, so the schema does not itself assert the arms are mutually\nexclusive. A client tells them apart by the keys: `toon` and `result` are\nthe envelope's, and they are fixed rather than per-tool for that reason.\n\nThe envelope keys are fixed (`toon`, `result`) rather than derived from a\nper-tool `data_key`. A property name that changes per tool cannot be stated\nin a schema, so the old `result_toon` / `recipes_toon` / `recipe_toon` /\n`results_toon` spelling is gone — the key no longer carries information the\ntool name already gives, and the contract is now expressible.",
+      "title": "Formatted",
+      "type": "object"
+    },
+    "annotations": {
+      "title": "Browse agent store",
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    },
+    "_meta": {
+      "ai.dravr.vault/tool": {
+        "def_hash": "sha256:38bb7844164575b132e696f2bb2fedaad2ea53d1c7b8702fd590cfd2e3064937"
+      }
+    }
+  },
+  {
+    "name": "calculate_daily_nutrition",
+    "description": "Calculate daily calorie and macronutrient needs from biometrics and goals, carbohydrate from the day's training. For an athlete with a medical/PAR-Q flag on file it returns qualitative `guidance` and `figures_withheld` instead of any amount: their clinician sets those.",
+    "inputSchema": {
+      "properties": {
+        "activity_level": {
+          "description": "sedentary, lightly_active, moderately_active, very_active or extra_active",
+          "type": "string"
+        },
+        "age": {
+          "description": "Age in years",
+          "type": "integer"
+        },
+        "gender": {
+          "description": "male or female",
+          "type": "string"
+        },
+        "height_cm": {
+          "description": "Height in centimeters",
+          "type": "number"
+        },
+        "training_goal": {
+          "description": "maintenance, weight_loss, muscle_gain or endurance_performance",
+          "type": "string"
+        },
+        "training_intensity": {
+          "description": "easy (HR zones 1-2), moderate (3), hard (4) or very_hard (5+)",
+          "type": "string"
+        },
+        "training_minutes": {
+          "description": "Training minutes that day, planned or done; omit both for a rest day",
+          "type": "number"
+        },
+        "weight_kg": {
+          "description": "Body weight in kilograms",
+          "type": "number"
+        }
+      },
+      "required": [
+        "weight_kg",
+        "height_cm",
+        "age",
+        "gender",
+        "activity_level",
+        "training_goal"
+      ],
+      "type": "object"
+    },
+    "outputSchema": {
+      "$defs": {
+        "DailyNutritionResult": {
+          "description": "What `calculate_daily_nutrition` answers with.",
+          "properties": {
+            "bmr": {
+              "description": "Basal metabolic rate, kcal/day.",
+              "format": "double",
+              "type": "number"
+            },
+            "carbohydrate_load": {
+              "$ref": "#/$defs/TrainingDayLoad",
+              "description": "The table row the day's training was read as."
+            },
+            "carbs_g": {
+              "description": "Daily carbohydrate, grams: the middle of `carbs_g_range`, the figure\nthe fat and percentages are worked from.",
+              "format": "double",
+              "type": "number"
+            },
+            "carbs_g_range": {
+              "description": "The day's carbohydrate range, grams (low, high): the 2016 joint ACSM\ntable row the day's training falls in.",
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "format": "double",
+                  "type": "number"
+                },
+                {
+                  "format": "double",
+                  "type": "number"
+                }
+              ],
+              "type": "array"
+            },
+            "carbs_percent": {
+              "description": "Carbohydrate share of energy, percent.",
+              "format": "double",
+              "type": "number"
+            },
+            "energy_from_macros_kcal": {
+              "description": "Energy the protein, carbohydrate and fat add up to, kcal/day: equal to\n`tdee` unless the day's training calls for more carbohydrate than it\nleaves room for (above) or a light day leaves more than fat's ceiling\n(below).",
+              "format": "double",
+              "type": "number"
+            },
+            "fat_g": {
+              "description": "Daily fat target, grams.",
+              "format": "double",
+              "type": "number"
+            },
+            "fat_percent": {
+              "description": "Fat share of energy, percent.",
+              "format": "double",
+              "type": "number"
+            },
+            "goal": {
+              "description": "The training goal the split was computed for.",
+              "type": "string"
+            },
+            "protein_g": {
+              "description": "Daily protein target, grams.",
+              "format": "double",
+              "type": "number"
+            },
+            "protein_percent": {
+              "description": "Protein share of energy, percent.",
+              "format": "double",
+              "type": "number"
+            },
+            "tdee": {
+              "description": "Total daily energy expenditure, kcal/day.",
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "bmr",
+            "tdee",
+            "protein_g",
+            "carbs_g",
+            "carbs_g_range",
+            "carbohydrate_load",
+            "fat_g",
+            "energy_from_macros_kcal",
+            "protein_percent",
+            "carbs_percent",
+            "fat_percent",
+            "goal"
+          ],
+          "type": "object"
+        },
+        "FigureAuthority": {
+          "description": "Who sets the withheld figures instead of the platform.",
+          "oneOf": [
+            {
+              "const": "clinician",
+              "description": "The athlete's clinician.",
+              "type": "string"
+            },
+            {
+              "const": "not_stated",
+              "description": "Not stated: outside Dravr's own apps and channels the answer says\nnothing about who sets this athlete's amounts.",
+              "type": "string"
+            }
+          ]
+        },
+        "FiguresWithheld": {
+          "description": "The machine-readable statement that figures were withheld, and why.\n\nPresent means the answer carries no amount to eat or drink: no energy,\nmacronutrient, fluid, sodium or caffeine intake. What a finished session\ncost (its calories burned) still describes the session and is not an\nintake. Relay `note` rather than supplying a number of your own.",
+          "properties": {
+            "note": {
+              "description": "What to tell the athlete, in plain words.",
+              "type": "string"
+            },
+            "reason": {
+              "$ref": "#/$defs/WithheldReason",
+              "description": "`medical_flag`: a medical / PAR-Q flag is on file.\n`external_transport`: withheld for every athlete outside Dravr's apps."
+            },
+            "set_by": {
+              "$ref": "#/$defs/FigureAuthority",
+              "description": "`clinician`: who sets these amounts; `not_stated` outside Dravr's apps."
+            }
+          },
+          "required": [
+            "reason",
+            "set_by",
+            "note"
+          ],
+          "type": "object"
+        },
+        "TrainingDayLoad": {
+          "description": "A training day's load, as a row of the daily carbohydrate table\n\nThe table is Thomas, Erdman & Burke (2016), from Burke et al. (2011).",
+          "oneOf": [
+            {
+              "const": "light",
+              "description": "\"Low intensity or skill-based activities\": 3-5 g/kg/d",
+              "type": "string"
+            },
+            {
+              "const": "moderate",
+              "description": "\"Moderate exercise program (e.g., ~1 h/d)\": 5-7 g/kg/d",
+              "type": "string"
+            },
+            {
+              "const": "high",
+              "description": "\"Endurance program (e.g., 1-3 h/d mod-high-intensity exercise)\":\n6-10 g/kg/d",
+              "type": "string"
+            },
+            {
+              "const": "very_high",
+              "description": "\"Extreme commitment (e.g., > 4-5 h/d mod-high intensity exercise)\":\n8-12 g/kg/d",
+              "type": "string"
+            }
+          ]
+        },
+        "WithheldFigures": {
+          "description": "A prescriptive nutrition answer without its figures.",
+          "properties": {
+            "figures_withheld": {
+              "$ref": "#/$defs/FiguresWithheld",
+              "description": "Why the amounts are absent and who sets them."
+            },
+            "guidance": {
+              "description": "What to do instead, qualitatively — foods and timing, no amounts.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "figures_withheld",
+            "guidance"
+          ],
+          "type": "object"
+        },
+        "WithheldReason": {
+          "description": "Why an answer came back without its nutrition figures.",
+          "oneOf": [
+            {
+              "const": "medical_flag",
+              "description": "A medical / PAR-Q flag is on the athlete's dossier.",
+              "type": "string"
+            },
+            {
+              "const": "external_transport",
+              "description": "Served outside Dravr's own apps and channels, where amounts are\nwithheld for every athlete.",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/DailyNutritionResult",
+          "description": "The figures, when the gate withholds none."
+        },
+        {
+          "$ref": "#/$defs/WithheldFigures",
+          "description": "Qualitative guidance only; `figures_withheld` says why."
+        }
+      ],
+      "description": "What a gated tool answers with: its figures, or guidance without them.\n\nUntagged, so an athlete without a flag gets the tool's own shape byte for\nbyte. A client tells the arms apart by `figures_withheld`, which only the\nwithheld arm carries.",
+      "title": "NutritionAnswer",
+      "type": "object"
+    },
+    "annotations": {
+      "title": "Calculate daily nutrition",
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    },
+    "_meta": {
+      "ai.dravr.vault/tool": {
+        "def_hash": "sha256:5dcd5f36f9fd27aa6d940ed97c7393e62c0dd720539374a3a0b53aa1396611a3"
+      }
+    }
+  },
+  {
+    "name": "commitment_cancel",
+    "description": "Retract a commitment the athlete no longer wants to be held to; it is never counted or reported. Use when they drop it or circumstances change (injury, travel, a plan revision). Retracting is not failing: never use it to record that they missed it.",
+    "inputSchema": {
+      "properties": {
+        "commitment_id": {
+          "description": "Id of the commitment to retract, as listed in your open-commitments block.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "commitment_id"
+      ],
+      "type": "object"
+    },
+    "outputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "What `commitment_cancel` answers with.",
+      "properties": {
+        "cancelled": {
+          "description": "Whether one was actually cancelled. False when nothing open matched,\nwhich is a success: the athlete is not committed either way.",
+          "type": "boolean"
+        },
+        "commitment_id": {
+          "description": "The commitment that was asked about, echoed back.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "commitment_id",
+        "cancelled"
+      ],
+      "title": "CommitmentCancelResult",
+      "type": "object"
+    },
+    "annotations": {
+      "title": "Cancel commitment",
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": false
+    },
+    "_meta": {
+      "ai.dravr.vault/tool": {
+        "def_hash": "sha256:1921eefae8bf23d4d399bef60442a1b8426cf8d2b1ea9fb9e1b0117a3bc4a26b"
+      }
+    }
+  },
+  {
+    "name": "commitment_create",
+    "description": "Record a commitment the athlete just made, to be checked against their real activity when the window closes. Call it ONLY once the athlete has agreed to a specific number of sessions by a specific day — if they only said 'ok' to your suggestion, or gave no count or no deadline, ask them to confirm both and call it on their answer. Not for your own plans or reminders.",
+    "inputSchema": {
+      "properties": {
+        "agent_id": {
+          "description": "Agent the athlete made the promise to.",
+          "type": "string"
+        },
+        "due_date": {
+          "description": "Last day that counts, YYYY-MM-DD in the athlete's local calendar; for 'this week', the coming Sunday from the current-date anchor.",
+          "type": "string"
+        },
+        "sessions": {
+          "description": "How many sessions the athlete committed to (1-30).",
+          "type": "integer"
+        },
+        "sport": {
+          "description": "Lowercase sport slug the sessions must match ('run', 'ride', 'swim'); omit to count any activity.",
+          "type": "string"
+        },
+        "statement": {
+          "description": "The promise in the athlete's own terms (≤ 200 characters), e.g. 'three easy runs this week'.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "statement",
+        "sessions",
+        "due_date",
+        "agent_id"
+      ],
+      "type": "object"
+    },
+    "outputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "What `commitment_create` answers with.",
+      "properties": {
+        "commitment_id": {
+          "description": "The commitment the agent can later cancel or check against.",
+          "type": "string"
+        },
+        "duplicate_of_open_commitment": {
+          "description": "Whether an open commitment already covered this. A duplicate is\ndropped rather than stacked, so the agent can say \"already noted\"\ninstead of promising a second check. Always the inverse of `recorded`;\nboth are on the wire because they answer different questions.",
+          "type": "boolean"
+        },
+        "recorded": {
+          "description": "Whether this call created it. False when an identical open commitment\nalready existed, which is a success — see\n`duplicate_of_open_commitment`.",
+          "type": "boolean"
+        },
+        "sessions": {
+          "description": "How many sessions the athlete committed to.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "sport": {
+          "description": "The sport, when the commitment named one.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "window_end": {
+          "description": "RFC 3339 timestamp the window closes at.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "commitment_id",
+        "recorded",
+        "sessions",
+        "sport",
+        "window_end",
+        "duplicate_of_open_commitment"
+      ],
+      "title": "CommitmentCreateResult",
+      "type": "object"
+    },
+    "annotations": {
+      "title": "Record commitment",
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": false
+    },
+    "_meta": {
+      "ai.dravr.vault/tool": {
+        "def_hash": "sha256:1bb85f50523293ea683f34f859fc61922ccc99503b7ef6a6917affe05bb9b50e"
+      }
+    }
+  },
+  {
+    "name": "create_agent",
+    "description": "Create a custom AI agent with personalized training guidance",
+    "inputSchema": {
+      "properties": {
+        "category": {
+          "description": "Category. Default: custom. One of: training, nutrition, recovery, recipes, mobility, analysis, custom; any other name reads as custom.",
+          "type": "string"
+        },
+        "description": {
+          "description": "Description of the agent",
+          "type": "string"
+        },
+        "sample_prompts": {
+          "description": "Example prompts to show users",
+          "items": {
+            "description": "Sample prompt text",
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "system_prompt": {
+          "description": "System prompt that shapes AI responses",
+          "type": "string"
+        },
+        "tags": {
+          "description": "Tags for organization",
+          "items": {
+            "description": "Tag label",
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "title": {
+          "description": "Display title for the agent",
+          "type": "string"
+        }
+      },
+      "required": [
+        "title",
+        "system_prompt"
+      ],
+      "type": "object"
+    },
+    "outputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "What `create_agent` answers with.\n\nDeliberately does not echo `system_prompt` or the `sample_prompts` the tool\naccepts: the caller just sent them, and the prompt is long.",
+      "properties": {
+        "category": {
+          "description": "Which shelf it sits on.",
+          "type": "string"
+        },
+        "created_at": {
+          "description": "RFC 3339 creation timestamp.",
+          "type": "string"
+        },
+        "description": {
+          "description": "What it is for; absent when none was given.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "description": "Identifier of the new agent.",
+          "type": "string"
+        },
+        "tags": {
+          "description": "Free-form labels.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "title": {
+          "description": "Display name.",
+          "type": "string"
+        },
+        "token_count": {
+          "description": "Estimated size of the system prompt, in tokens.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "description",
+        "category",
+        "tags",
+        "token_count",
+        "created_at"
+      ],
+      "title": "CreateAgentResult",
+      "type": "object"
+    },
+    "annotations": {
+      "title": "Create agent",
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": false
+    },
+    "_meta": {
+      "ai.dravr.vault/tool": {
+        "def_hash": "sha256:3ab6275358dadc90a7266101d4c67618f5e1329b5e0854cb710a68a3edbdd178"
+      }
+    }
+  },
+  {
+    "name": "deactivate_agent",
+    "description": "Deactivate the current agent and return to default AI guidance",
+    "inputSchema": {
+      "properties": {},
+      "type": "object"
+    },
+    "outputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "What `deactivate_agent` answers with.",
+      "properties": {
+        "deactivated": {
+          "description": "Whether an agent was actually deactivated. False when none was active,\nwhich is a success rather than an error.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "deactivated"
+      ],
+      "title": "DeactivateAgentResult",
+      "type": "object"
+    },
+    "annotations": {
+      "title": "Deactivate agent",
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    },
+    "_meta": {
+      "ai.dravr.vault/tool": {
+        "def_hash": "sha256:ed2cbb83f6130f336420741b24ec889282eec8119650ff1930d349f63797b18c"
+      }
+    }
+  },
+  {
+    "name": "delete_agent",
+    "description": "Delete an agent",
+    "inputSchema": {
+      "properties": {
+        "agent_id": {
+          "description": "ID of the agent to delete",
+          "type": "string"
+        }
+      },
+      "required": [
+        "agent_id"
+      ],
+      "type": "object"
+    },
+    "outputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "What `delete_agent` answers with.",
+      "properties": {
+        "agent_id": {
+          "description": "The agent that was removed, echoed back.",
+          "type": "string"
+        },
+        "deleted": {
+          "description": "Always true: the tool errors rather than reporting a failed delete.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "deleted",
+        "agent_id"
+      ],
+      "title": "DeleteAgentResult",
+      "type": "object"
+    },
+    "annotations": {
+      "title": "Delete agent",
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "idempotentHint": true,
+      "openWorldHint": false
+    },
+    "_meta": {
+      "ai.dravr.vault/tool": {
+        "def_hash": "sha256:7e8d37cfeeb5decd050e4a6d33b7f0f3fd7df5afb289078a476f0bf1387d654b"
+      }
+    }
+  },
+  {
+    "name": "forget_playbook",
+    "description": "Delete one learned coaching playbook by id (GDPR forget). The athlete can only forget their own playbooks.",
+    "inputSchema": {
+      "properties": {
+        "playbook_id": {
+          "description": "The id of the playbook to forget (from list_coaching_playbooks).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "playbook_id"
+      ],
+      "type": "object"
+    },
+    "outputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "What `forget_playbook` answers with.",
+      "properties": {
+        "deleted": {
+          "description": "Rows removed. A COUNT, not a flag: it is 0 when the id was not this\nathlete's, which is the same answer as \"no such playbook\" on purpose —\na caller must not be able to probe another athlete's ids by the shape\nof the reply.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "playbook_id": {
+          "description": "The id that was asked for, echoed back.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "deleted",
+        "playbook_id"
+      ],
+      "title": "ForgetPlaybookResult",
+      "type": "object"
+    },
+    "annotations": {
+      "title": "Forget coaching playbook",
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "idempotentHint": true,
+      "openWorldHint": false
+    },
+    "_meta": {
+      "ai.dravr.vault/tool": {
+        "def_hash": "sha256:ec033472ce100f4a44918da3655d9ceb5a846376146208b590029ab3bae6a173"
+      }
+    }
+  },
+  {
+    "name": "get_active_agent",
+    "description": "Get the currently active agent",
+    "inputSchema": {
+      "properties": {
+        "format": {
+          "description": "'json' (default) or 'toon' (compact).",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "outputSchema": {
+      "$defs": {
+        "ActiveAgentDetail": {
+          "description": "The active agent in full, as `get_active_agent` reports it.",
+          "properties": {
+            "category": {
+              "description": "Which shelf it sits on.",
+              "type": "string"
+            },
+            "description": {
+              "description": "What it is for; absent when none was given.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "id": {
+              "description": "Identifier.",
+              "type": "string"
+            },
+            "system_prompt": {
+              "description": "The instructions it runs on.",
+              "type": "string"
+            },
+            "tags": {
+              "description": "Free-form labels.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "title": {
+              "description": "Display name.",
+              "type": "string"
+            },
+            "token_count": {
+              "description": "Estimated size of the system prompt, in tokens.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "id",
+            "title",
+            "description",
+            "system_prompt",
+            "category",
+            "tags",
+            "token_count"
+          ],
+          "type": "object"
+        },
+        "GetActiveAgentResult": {
+          "description": "What `get_active_agent` answers with.\n\nOne shape for both answers rather than two: the tool sends the same key set\nwhether an agent is active or not, so `active` false pairs with `agent`\nabsent. A client reads one field to branch instead of probing for a key.",
+          "properties": {
+            "active": {
+              "description": "Whether any agent is active for this athlete.",
+              "type": "boolean"
+            },
+            "agent": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/ActiveAgentDetail"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The active agent; absent when `active` is false."
+            }
+          },
+          "required": [
+            "active",
+            "agent"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/GetActiveAgentResult",
+          "description": "`format=json`, the default: the tool's own shape, unchanged."
+        },
+        {
+          "description": "`format=toon`: the payload rendered as one compact TOON string.",
+          "properties": {
+            "format": {
+              "description": "Always `toon`.",
+              "type": "string"
+            },
+            "toon": {
+              "description": "The rendered payload.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "toon",
+            "format"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "TOON was asked for and could not be produced. The payload still arrives,\nas JSON, and says why it is not what was requested — a caller that\nsilently received JSON would parse it as TOON and fail further away.",
+          "properties": {
+            "format": {
+              "description": "Always `json`.",
+              "type": "string"
+            },
+            "format_error": {
+              "description": "Why TOON rendering failed.",
+              "type": "string"
+            },
+            "format_fallback": {
+              "description": "Always true; present so the fallback is detectable on its own.",
+              "type": "boolean"
+            },
+            "result": {
+              "$ref": "#/$defs/GetActiveAgentResult",
+              "description": "The payload, unformatted."
+            }
+          },
+          "required": [
+            "result",
+            "format",
+            "format_fallback",
+            "format_error"
+          ],
+          "type": "object"
+        }
+      ],
+      "description": "A tool payload after the caller's `format` argument has been applied.\n\nWhich shape arrives depends on the REQUEST rather than the data, which is\nwhy this is a type rather than three call sites deciding for themselves:\n`format=json` sends the tool's own shape, `format=toon` sends a compact\nstring envelope, and a TOON conversion that fails falls back to JSON while\nsaying so. Untagged, so the derived schema is an `anyOf` over exactly\nthose three arms — schemars emits `anyOf` for an untagged enum, not\n`oneOf`, so the schema does not itself assert the arms are mutually\nexclusive. A client tells them apart by the keys: `toon` and `result` are\nthe envelope's, and they are fixed rather than per-tool for that reason.\n\nThe envelope keys are fixed (`toon`, `result`) rather than derived from a\nper-tool `data_key`. A property name that changes per tool cannot be stated\nin a schema, so the old `result_toon` / `recipes_toon` / `recipe_toon` /\n`results_toon` spelling is gone — the key no longer carries information the\ntool name already gives, and the contract is now expressible.",
+      "title": "Formatted",
+      "type": "object"
+    },
+    "annotations": {
+      "title": "Get active agent",
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    },
+    "_meta": {
+      "ai.dravr.vault/tool": {
+        "def_hash": "sha256:c4ff6e4f862f80b6fc761f2353f43d7d92d84034303d67f759bec3e83014754c"
+      }
+    }
+  },
+  {
+    "name": "get_agent",
+    "description": "Get detailed information about a specific agent",
+    "inputSchema": {
+      "properties": {
+        "agent_id": {
+          "description": "ID of the agent to retrieve",
+          "type": "string"
+        },
+        "format": {
+          "description": "'json' (default) or 'toon' (compact).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "agent_id"
+      ],
+      "type": "object"
+    },
+    "outputSchema": {
+      "$defs": {
+        "GetAgentResult": {
+          "description": "What `get_agent` answers with.\n\nCarries `system_prompt`, which the list projection omits — reading one\nagent in full is what this tool is for.",
+          "properties": {
+            "category": {
+              "description": "Which shelf it sits on.",
+              "type": "string"
+            },
+            "created_at": {
+              "description": "RFC 3339 creation timestamp.",
+              "type": "string"
+            },
+            "description": {
+              "description": "What it is for; absent when none was given.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "id": {
+              "description": "Identifier.",
+              "type": "string"
+            },
+            "system_prompt": {
+              "description": "The instructions the agent runs on.",
+              "type": "string"
+            },
+            "tags": {
+              "description": "Free-form labels.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "title": {
+              "description": "Display name.",
+              "type": "string"
+            },
+            "token_count": {
+              "description": "Estimated size of the system prompt, in tokens.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "updated_at": {
+              "description": "RFC 3339 timestamp of the last edit.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "title",
+            "description",
+            "system_prompt",
+            "category",
+            "tags",
+            "token_count",
+            "created_at",
+            "updated_at"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/GetAgentResult",
+          "description": "`format=json`, the default: the tool's own shape, unchanged."
+        },
+        {
+          "description": "`format=toon`: the payload rendered as one compact TOON string.",
+          "properties": {
+            "format": {
+              "description": "Always `toon`.",
+              "type": "string"
+            },
+            "toon": {
+              "description": "The rendered payload.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "toon",
+            "format"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "TOON was asked for and could not be produced. The payload still arrives,\nas JSON, and says why it is not what was requested — a caller that\nsilently received JSON would parse it as TOON and fail further away.",
+          "properties": {
+            "format": {
+              "description": "Always `json`.",
+              "type": "string"
+            },
+            "format_error": {
+              "description": "Why TOON rendering failed.",
+              "type": "string"
+            },
+            "format_fallback": {
+              "description": "Always true; present so the fallback is detectable on its own.",
+              "type": "boolean"
+            },
+            "result": {
+              "$ref": "#/$defs/GetAgentResult",
+              "description": "The payload, unformatted."
+            }
+          },
+          "required": [
+            "result",
+            "format",
+            "format_fallback",
+            "format_error"
+          ],
+          "type": "object"
+        }
+      ],
+      "description": "A tool payload after the caller's `format` argument has been applied.\n\nWhich shape arrives depends on the REQUEST rather than the data, which is\nwhy this is a type rather than three call sites deciding for themselves:\n`format=json` sends the tool's own shape, `format=toon` sends a compact\nstring envelope, and a TOON conversion that fails falls back to JSON while\nsaying so. Untagged, so the derived schema is an `anyOf` over exactly\nthose three arms — schemars emits `anyOf` for an untagged enum, not\n`oneOf`, so the schema does not itself assert the arms are mutually\nexclusive. A client tells them apart by the keys: `toon` and `result` are\nthe envelope's, and they are fixed rather than per-tool for that reason.\n\nThe envelope keys are fixed (`toon`, `result`) rather than derived from a\nper-tool `data_key`. A property name that changes per tool cannot be stated\nin a schema, so the old `result_toon` / `recipes_toon` / `recipe_toon` /\n`results_toon` spelling is gone — the key no longer carries information the\ntool name already gives, and the contract is now expressible.",
+      "title": "Formatted",
+      "type": "object"
+    },
+    "annotations": {
+      "title": "Get agent",
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    },
+    "_meta": {
+      "ai.dravr.vault/tool": {
+        "def_hash": "sha256:c144f253f3a205304b06c282f4f715858e2dea1e3ee7b1ec24c8fa3af81668f1"
+      }
+    }
+  },
+  {
+    "name": "get_configuration_catalog",
+    "description": "Get the complete catalog of available configuration options",
+    "inputSchema": {
+      "properties": {},
+      "type": "object"
+    },
+    "outputSchema": {
+      "$defs": {
+        "ConfigCatalog": {
+          "description": "Complete configuration catalog",
+          "properties": {
+            "categories": {
+              "description": "Configuration categories",
+              "items": {
+                "$ref": "#/$defs/ConfigCategory"
+              },
+              "type": "array"
+            },
+            "total_parameters": {
+              "description": "Total number of configurable parameters",
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "version": {
+              "description": "Catalog version",
+              "type": "string"
+            }
+          },
+          "required": [
+            "categories",
+            "total_parameters",
+            "version"
+          ],
+          "type": "object"
+        },
+        "ConfigCategory": {
+          "description": "Configuration category",
+          "properties": {
+            "description": {
+              "description": "Category description",
+              "type": "string"
+            },
+            "modules": {
+              "description": "Modules in this category",
+              "items": {
+                "$ref": "#/$defs/ConfigModule"
+              },
+              "type": "array"
+            },
+            "name": {
+              "description": "Category name",
+              "type": "string"
+            }
+          },
+          "required": [
+            "name",
+            "description",
+            "modules"
+          ],
+          "type": "object"
+        },
+        "ConfigModule": {
+          "description": "Configuration module",
+          "properties": {
+            "description": {
+              "description": "Module description",
+              "type": "string"
+            },
+            "name": {
+              "description": "Module name",
+              "type": "string"
+            },
+            "parameters": {
+              "description": "Parameters in this module",
+              "items": {
+                "$ref": "#/$defs/ConfigParameter"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "name",
+            "description",
+            "parameters"
+          ],
+          "type": "object"
+        },
+        "ConfigParameter": {
+          "description": "Configuration parameter definition",
+          "properties": {
+            "data_type": {
+              "$ref": "#/$defs/ParameterType",
+              "description": "Data type"
+            },
+            "default_value": {
+              "$ref": "#/$defs/ConfigValue",
+              "description": "Default value"
+            },
+            "description": {
+              "description": "Human-readable description",
+              "type": "string"
+            },
+            "key": {
+              "description": "Parameter key (e.g., `lactate.threshold_percentage`)",
+              "type": "string"
+            },
+            "requires_vo2_max": {
+              "description": "Whether this parameter requires VO2 max data",
+              "type": "boolean"
+            },
+            "scientific_basis": {
+              "description": "Scientific basis or reference",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "units": {
+              "description": "Units (e.g., \"percentage\", \"bpm\", \"seconds\")",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "valid_range": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/ConfigValue"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Valid range (if applicable)"
+            }
+          },
+          "required": [
+            "key",
+            "description",
+            "data_type",
+            "default_value",
+            "valid_range",
+            "units",
+            "scientific_basis",
+            "requires_vo2_max"
+          ],
+          "type": "object"
+        },
+        "ConfigValue": {
+          "description": "Configuration value types",
+          "oneOf": [
+            {
+              "description": "Floating point number value",
+              "properties": {
+                "type": {
+                  "const": "Float",
+                  "type": "string"
+                },
+                "value": {
+                  "format": "double",
+                  "type": "number"
+                }
+              },
+              "required": [
+                "type",
+                "value"
+              ],
+              "type": "object"
+            },
+            {
+              "description": "Integer number value",
+              "properties": {
+                "type": {
+                  "const": "Integer",
+                  "type": "string"
+                },
+                "value": {
+                  "format": "int64",
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "type",
+                "value"
+              ],
+              "type": "object"
+            },
+            {
+              "description": "Boolean flag value",
+              "properties": {
+                "type": {
+                  "const": "Boolean",
+                  "type": "string"
+                },
+                "value": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "type",
+                "value"
+              ],
+              "type": "object"
+            },
+            {
+              "description": "String value",
+              "properties": {
+                "type": {
+                  "const": "String",
+                  "type": "string"
+                },
+                "value": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "value"
+              ],
+              "type": "object"
+            },
+            {
+              "description": "Floating point range with min and max bounds",
+              "properties": {
+                "type": {
+                  "const": "FloatRange",
+                  "type": "string"
+                },
+                "value": {
+                  "properties": {
+                    "max": {
+                      "description": "Maximum value",
+                      "format": "double",
+                      "type": "number"
+                    },
+                    "min": {
+                      "description": "Minimum value",
+                      "format": "double",
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "min",
+                    "max"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "type",
+                "value"
+              ],
+              "type": "object"
+            },
+            {
+              "description": "Integer range with min and max bounds",
+              "properties": {
+                "type": {
+                  "const": "IntegerRange",
+                  "type": "string"
+                },
+                "value": {
+                  "properties": {
+                    "max": {
+                      "description": "Maximum value",
+                      "format": "int64",
+                      "type": "integer"
+                    },
+                    "min": {
+                      "description": "Minimum value",
+                      "format": "int64",
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "min",
+                    "max"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "type",
+                "value"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "ParameterType": {
+          "description": "Parameter data types",
+          "oneOf": [
+            {
+              "const": "float",
+              "description": "Floating-point numeric value",
+              "type": "string"
+            },
+            {
+              "const": "integer",
+              "description": "Integer numeric value",
+              "type": "string"
+            },
+            {
+              "const": "boolean",
+              "description": "Boolean true/false value",
+              "type": "string"
+            },
+            {
+              "const": "string",
+              "description": "Text string value",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "What `get_configuration_catalog` answers with.",
+      "properties": {
+        "catalog": {
+          "$ref": "#/$defs/ConfigCatalog",
+          "description": "Every configurable parameter, by category and module, with its type,\ndefault and valid range."
+        }
+      },
+      "required": [
+        "catalog"
+      ],
+      "title": "ConfigurationCatalogResult",
+      "type": "object"
+    },
+    "annotations": {
+      "title": "Get configuration catalog",
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    },
+    "_meta": {
+      "ai.dravr.vault/tool": {
+        "def_hash": "sha256:540311900969aca1e423eaae3f7d094a976a1138099be1adfb80dcbe8c895d59"
+      }
+    }
+  },
+  {
+    "name": "get_configuration_profiles",
+    "description": "Get available configuration profile templates",
+    "inputSchema": {
+      "properties": {},
+      "type": "object"
+    },
+    "outputSchema": {
+      "$defs": {
+        "ConfigProfile": {
+          "description": "Predefined configuration profiles",
+          "oneOf": [
+            {
+              "description": "Default configuration with standard thresholds",
+              "properties": {
+                "type": {
+                  "const": "Default",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object"
+            },
+            {
+              "description": "Research-grade detailed analysis",
+              "properties": {
+                "sensitivity_multiplier": {
+                  "description": "Multiplier for sensitivity in analysis (1.0 = normal, >1.0 = more sensitive)",
+                  "format": "double",
+                  "type": "number"
+                },
+                "statistical_confidence": {
+                  "description": "Statistical confidence level for analysis",
+                  "format": "double",
+                  "type": "number"
+                },
+                "type": {
+                  "const": "Research",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "sensitivity_multiplier",
+                "statistical_confidence"
+              ],
+              "type": "object"
+            },
+            {
+              "description": "Elite athlete with strict thresholds",
+              "properties": {
+                "performance_factor": {
+                  "description": "Performance adjustment factor (>1.0 for higher standards)",
+                  "format": "double",
+                  "type": "number"
+                },
+                "recovery_sensitivity": {
+                  "description": "Recovery sensitivity multiplier",
+                  "format": "double",
+                  "type": "number"
+                },
+                "type": {
+                  "const": "Elite",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "performance_factor",
+                "recovery_sensitivity"
+              ],
+              "type": "object"
+            },
+            {
+              "description": "Recreational athlete with forgiving analysis",
+              "properties": {
+                "motivation_bias": {
+                  "description": "Positive bias in performance assessment (0.0-1.0)",
+                  "format": "double",
+                  "type": "number"
+                },
+                "threshold_tolerance": {
+                  "description": "Threshold tolerance multiplier (>1.0 for more forgiving)",
+                  "format": "double",
+                  "type": "number"
+                },
+                "type": {
+                  "const": "Recreational",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "motivation_bias",
+                "threshold_tolerance"
+              ],
+              "type": "object"
+            },
+            {
+              "description": "Beginner with educational focus",
+              "properties": {
+                "simplified_metrics": {
+                  "description": "Simplify metrics for easier understanding",
+                  "type": "boolean"
+                },
+                "threshold_reduction": {
+                  "description": "Reduce thresholds by this factor",
+                  "format": "double",
+                  "type": "number"
+                },
+                "type": {
+                  "const": "Beginner",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "threshold_reduction",
+                "simplified_metrics"
+              ],
+              "type": "object"
+            },
+            {
+              "description": "Medical/rehabilitation context",
+              "properties": {
+                "conservative_thresholds": {
+                  "description": "Use conservative thresholds",
+                  "type": "boolean"
+                },
+                "max_intensity": {
+                  "description": "Maximum allowed intensity (0.0-1.0)",
+                  "format": "double",
+                  "type": "number"
+                },
+                "safety_margin": {
+                  "description": "Additional safety margin",
+                  "format": "double",
+                  "type": "number"
+                },
+                "type": {
+                  "const": "Medical",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "max_intensity",
+                "conservative_thresholds",
+                "safety_margin"
+              ],
+              "type": "object"
+            },
+            {
+              "description": "Sport-specific optimization",
+              "properties": {
+                "specialization_factors": {
+                  "additionalProperties": {
+                    "format": "double",
+                    "type": "number"
+                  },
+                  "description": "Sport-specific parameter overrides",
+                  "type": "object"
+                },
+                "sport": {
+                  "description": "Primary sport",
+                  "type": "string"
+                },
+                "type": {
+                  "const": "SportSpecific",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "sport",
+                "specialization_factors"
+              ],
+              "type": "object"
+            },
+            {
+              "description": "Custom configuration",
+              "properties": {
+                "description": {
+                  "description": "Profile description",
+                  "type": "string"
+                },
+                "name": {
+                  "description": "Profile name",
+                  "type": "string"
+                },
+                "overrides": {
+                  "additionalProperties": {
+                    "format": "double",
+                    "type": "number"
+                  },
+                  "description": "Custom parameter overrides",
+                  "type": "object"
+                },
+                "type": {
+                  "const": "Custom",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "name",
+                "description",
+                "overrides"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "ConfigurationProfileEntry": {
+          "description": "One named configuration profile.",
+          "properties": {
+            "description": {
+              "description": "A one-line description, composed from the name.",
+              "type": "string"
+            },
+            "name": {
+              "description": "The name the profile is listed under. `update_user_configuration`\ntakes it, or the profile's own name (`elite`, `sport_cycling`).",
+              "type": "string"
+            },
+            "profile": {
+              "$ref": "#/$defs/ConfigProfile",
+              "description": "The profile itself."
+            }
+          },
+          "required": [
+            "name",
+            "profile",
+            "description"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "What `get_configuration_profiles` answers with.",
+      "properties": {
+        "profiles": {
+          "description": "The profiles on offer.",
+          "items": {
+            "$ref": "#/$defs/ConfigurationProfileEntry"
+          },
+          "type": "array"
+        },
+        "total_count": {
+          "description": "How many there are.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "profiles",
+        "total_count"
+      ],
+      "title": "ConfigurationProfilesResult",
+      "type": "object"
+    },
+    "annotations": {
+      "title": "Get configuration profiles",
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    },
+    "_meta": {
+      "ai.dravr.vault/tool": {
+        "def_hash": "sha256:5113e3a77e57619277c6d0b40797e7fa7a19ee9312032fda721ec9a71453e601"
+      }
+    }
+  },
+  {
+    "name": "get_fitness_config",
+    "description": "Get fitness configuration for the current user (falls back to tenant default)",
+    "inputSchema": {
+      "properties": {
+        "configuration_name": {
+          "description": "Name of the configuration to retrieve (default: 'default')",
+          "type": "string"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "outputSchema": {
+      "$defs": {
+        "EffortThresholds": {
+          "description": "Effort level thresholds for categorizing workout intensity",
+          "properties": {
+            "hard_max": {
+              "description": "Maximum heart rate percentage for hard effort (0-1.0, above this is very high)",
+              "format": "float",
+              "type": "number"
+            },
+            "light_max": {
+              "description": "Maximum heart rate percentage for light effort (0-1.0)",
+              "format": "float",
+              "type": "number"
+            },
+            "moderate_max": {
+              "description": "Maximum heart rate percentage for moderate effort (0-1.0)",
+              "format": "float",
+              "type": "number"
+            }
+          },
+          "required": [
+            "light_max",
+            "moderate_max",
+            "hard_max"
+          ],
+          "type": "object"
+        },
+        "FitnessConfig": {
+          "description": "Main fitness configuration structure",
+          "properties": {
+            "intelligence": {
+              "$ref": "#/$defs/IntelligenceConfig",
+              "description": "Intelligence analysis configuration"
+            },
+            "sport_types": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "description": "Map of sport type IDs to display names",
+              "type": "object"
+            },
+            "weather_api": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/WeatherApiConfig"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional weather API configuration"
+            }
+          },
+          "required": [
+            "sport_types",
+            "intelligence",
+            "weather_api"
+          ],
+          "type": "object"
+        },
+        "IntelligenceConfig": {
+          "description": "Intelligence analysis configuration",
+          "properties": {
+            "effort_thresholds": {
+              "$ref": "#/$defs/EffortThresholds",
+              "description": "Effort level threshold values"
+            },
+            "personal_records": {
+              "$ref": "#/$defs/PersonalRecordConfig",
+              "description": "Personal record detection settings"
+            },
+            "weather_mapping": {
+              "$ref": "#/$defs/WeatherMapping",
+              "description": "Weather detection keyword mappings"
+            }
+          },
+          "required": [
+            "effort_thresholds",
+            "weather_mapping",
+            "personal_records"
+          ],
+          "type": "object"
+        },
+        "PersonalRecordConfig": {
+          "description": "Personal record detection configuration",
+          "properties": {
+            "distance_pr_types": {
+              "description": "Distance-based PR types to track (e.g., \"5k\", \"10k\", \"`half_marathon`\")",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "pace_improvement_threshold": {
+              "description": "Minimum pace improvement percentage to count as PR (0-1.0)",
+              "format": "float",
+              "type": "number"
+            },
+            "time_pr_types": {
+              "description": "Time-based PR types to track (e.g., \"1h\", \"2h\")",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "pace_improvement_threshold",
+            "distance_pr_types",
+            "time_pr_types"
+          ],
+          "type": "object"
+        },
+        "WeatherApiConfig": {
+          "description": "Weather API configuration\n\nThe server reads the one its deployment configuration carries, loaded at\nstartup, and never the one of a stored fitness configuration. Which\nhistorical vendor is asked is `WEATHER_PROVIDER`'s choice, read by\ndravr-meteo. A stored document written before `provider`,\n`cache_duration_hours`, `request_timeout_seconds` and\n`rate_limit_requests_per_minute` were dropped still reads: serde skips\nkeys this type does not name.",
+          "properties": {
+            "base_url": {
+              "description": "Where the weather vendors are asked. At\n[`Self::DEFAULT_BASE_URL`], each vendor on its own host; any other\nvalue is the single origin of the archive, the forecast, the\ngazetteer and `OpenWeatherMap`.",
+              "type": "string"
+            },
+            "enabled": {
+              "description": "Whether an activity list is given the ambient temperature its source\nleft out (`FITNESS_WEATHER_ENABLED`). The tools an athlete asks for\nweather with run either way.",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "base_url",
+            "enabled"
+          ],
+          "type": "object"
+        },
+        "WeatherMapping": {
+          "description": "Weather detection and mapping configuration",
+          "properties": {
+            "rain_keywords": {
+              "description": "Keywords for detecting rain in weather descriptions",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "snow_keywords": {
+              "description": "Keywords for detecting snow in weather descriptions",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "wind_threshold": {
+              "description": "Wind speed threshold for flagging windy conditions (m/s)",
+              "format": "float",
+              "type": "number"
+            }
+          },
+          "required": [
+            "rain_keywords",
+            "snow_keywords",
+            "wind_threshold"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "What `get_fitness_config` answers with.\n\nOne shape for both answers: a missing configuration is a fact about the\ntenant, not a fault, so it reports `config: null` with `source` saying\nwhere the answer came from rather than erroring.",
+      "properties": {
+        "config": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FitnessConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The configuration; null when none is stored under that name."
+        },
+        "configuration_name": {
+          "description": "The configuration asked for, echoed back.",
+          "type": "string"
+        },
+        "message": {
+          "description": "Why there is no configuration. Absent when there is one.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "retrieved_at": {
+          "description": "RFC 3339 timestamp of the read, so a cached answer is recognisable.",
+          "type": "string"
+        },
+        "source": {
+          "description": "Where the answer came from: `database`, or `not_found`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "configuration_name",
+        "config",
+        "source",
+        "retrieved_at"
+      ],
+      "title": "GetFitnessConfigResult",
+      "type": "object"
+    },
+    "annotations": {
+      "title": "Get fitness configuration",
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    },
+    "_meta": {
+      "ai.dravr.vault/tool": {
+        "def_hash": "sha256:998d36f33eafe700b849ed3feebec310b3dbb8366bb5227aa4124a30fe815c5c"
+      }
+    }
+  },
+  {
+    "name": "get_nutrient_timing",
+    "description": "Get nutrient timing around one session, from its length and how long before it the athlete eats. For an athlete with a medical/PAR-Q flag on file it returns qualitative `guidance` and `figures_withheld` instead of any amount: their clinician sets those.",
+    "inputSchema": {
+      "properties": {
+        "daily_protein_g": {
+          "description": "Daily protein target in grams",
+          "type": "number"
+        },
+        "hours_before": {
+          "description": "Hours from eating to the session start, 0-24",
+          "type": "number"
+        },
+        "session_minutes": {
+          "description": "Session length, minutes",
+          "type": "number"
+        },
+        "weight_kg": {
+          "description": "Body weight in kilograms",
+          "type": "number"
+        },
+        "workout_intensity": {
+          "description": "low, moderate or high",
+          "type": "string"
+        }
+      },
+      "required": [
+        "workout_intensity",
+        "weight_kg",
+        "daily_protein_g",
+        "session_minutes",
+        "hours_before"
+      ],
+      "type": "object"
+    },
+    "outputSchema": {
+      "$defs": {
+        "FigureAuthority": {
+          "description": "Who sets the withheld figures instead of the platform.",
+          "oneOf": [
+            {
+              "const": "clinician",
+              "description": "The athlete's clinician.",
+              "type": "string"
+            },
+            {
+              "const": "not_stated",
+              "description": "Not stated: outside Dravr's own apps and channels the answer says\nnothing about who sets this athlete's amounts.",
+              "type": "string"
+            }
+          ]
+        },
+        "FiguresWithheld": {
+          "description": "The machine-readable statement that figures were withheld, and why.\n\nPresent means the answer carries no amount to eat or drink: no energy,\nmacronutrient, fluid, sodium or caffeine intake. What a finished session\ncost (its calories burned) still describes the session and is not an\nintake. Relay `note` rather than supplying a number of your own.",
+          "properties": {
+            "note": {
+              "description": "What to tell the athlete, in plain words.",
+              "type": "string"
+            },
+            "reason": {
+              "$ref": "#/$defs/WithheldReason",
+              "description": "`medical_flag`: a medical / PAR-Q flag is on file.\n`external_transport`: withheld for every athlete outside Dravr's apps."
+            },
+            "set_by": {
+              "$ref": "#/$defs/FigureAuthority",
+              "description": "`clinician`: who sets these amounts; `not_stated` outside Dravr's apps."
+            }
+          },
+          "required": [
+            "reason",
+            "set_by",
+            "note"
+          ],
+          "type": "object"
+        },
+        "NutrientTimingResult": {
+          "description": "What `get_nutrient_timing` answers with.",
+          "properties": {
+            "daily_protein_distribution": {
+              "$ref": "#/$defs/ProteinDistribution",
+              "description": "How to spread protein across the day."
+            },
+            "intensity_source": {
+              "description": "Where the workout intensity came from — stated so the athlete can tell\na figure they gave from one the server inferred.",
+              "type": "string"
+            },
+            "post_workout": {
+              "$ref": "#/$defs/PostWorkoutTiming",
+              "description": "What to take after it."
+            },
+            "pre_workout": {
+              "$ref": "#/$defs/PreWorkoutTiming",
+              "description": "What to take before the session."
+            }
+          },
+          "required": [
+            "pre_workout",
+            "post_workout",
+            "daily_protein_distribution",
+            "intensity_source"
+          ],
+          "type": "object"
+        },
+        "PostWorkoutTiming": {
+          "description": "The post-workout half of a nutrient-timing plan.",
+          "properties": {
+            "carbs_g": {
+              "description": "Carbohydrate to take, grams.",
+              "format": "double",
+              "type": "number"
+            },
+            "protein_g": {
+              "description": "Protein to take, grams.",
+              "format": "double",
+              "type": "number"
+            },
+            "recommendations": {
+              "description": "What to eat, in the athlete's terms.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "timing_hours_after": {
+              "description": "How long after the session to eat, hours.",
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "timing_hours_after",
+            "protein_g",
+            "carbs_g",
+            "recommendations"
+          ],
+          "type": "object"
+        },
+        "PreWorkoutTiming": {
+          "description": "The pre-workout half of a nutrient-timing plan.",
+          "properties": {
+            "carbs_g": {
+              "description": "Carbohydrate to take, grams; absent for a session of an hour or less,\nor an easy one, which takes no set amount.",
+              "format": "double",
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "recommendations": {
+              "description": "What to eat, in the athlete's terms.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "timing_hours_before": {
+              "description": "How long before the session the athlete eats, hours: the gap they gave.",
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "timing_hours_before",
+            "carbs_g",
+            "recommendations"
+          ],
+          "type": "object"
+        },
+        "ProteinDistribution": {
+          "description": "How the day's protein is spread across meals.",
+          "properties": {
+            "meals_per_day": {
+              "description": "Meals the target is split across.",
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "protein_per_meal_g": {
+              "description": "Protein per meal, grams.",
+              "format": "double",
+              "type": "number"
+            },
+            "strategy": {
+              "description": "The strategy behind the split.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "meals_per_day",
+            "protein_per_meal_g",
+            "strategy"
+          ],
+          "type": "object"
+        },
+        "WithheldFigures": {
+          "description": "A prescriptive nutrition answer without its figures.",
+          "properties": {
+            "figures_withheld": {
+              "$ref": "#/$defs/FiguresWithheld",
+              "description": "Why the amounts are absent and who sets them."
+            },
+            "guidance": {
+              "description": "What to do instead, qualitatively — foods and timing, no amounts.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "figures_withheld",
+            "guidance"
+          ],
+          "type": "object"
+        },
+        "WithheldReason": {
+          "description": "Why an answer came back without its nutrition figures.",
+          "oneOf": [
+            {
+              "const": "medical_flag",
+              "description": "A medical / PAR-Q flag is on the athlete's dossier.",
+              "type": "string"
+            },
+            {
+              "const": "external_transport",
+              "description": "Served outside Dravr's own apps and channels, where amounts are\nwithheld for every athlete.",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/NutrientTimingResult",
+          "description": "The figures, when the gate withholds none."
+        },
+        {
+          "$ref": "#/$defs/WithheldFigures",
+          "description": "Qualitative guidance only; `figures_withheld` says why."
+        }
+      ],
+      "description": "What a gated tool answers with: its figures, or guidance without them.\n\nUntagged, so an athlete without a flag gets the tool's own shape byte for\nbyte. A client tells the arms apart by `figures_withheld`, which only the\nwithheld arm carries.",
+      "title": "NutritionAnswer",
+      "type": "object"
+    },
+    "annotations": {
+      "title": "Get nutrient timing",
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    },
+    "_meta": {
+      "ai.dravr.vault/tool": {
+        "def_hash": "sha256:5f45559b0398286db5c98e3bea23d959b94f802fcf94845d5d76ca03b6852cb5"
+      }
+    }
+  },
+  {
+    "name": "get_provider_roster",
+    "description": "Read the roster of the coaching platform you coach on (Intervals.icu, TrainingPeaks) and where each athlete on it stands with your Dravr groups. Dravr members it names are listed by Dravr name with a `state`, such as `linked`, `proposed` (awaiting their confirmation in the app), `proposable` (link them with `propose_athlete_link`), `member_not_sharing` (they stopped sharing with you) or `member_own_connection` (no link needed: you reach their calendar through your own account). Every other athlete is only counted, by state and by your access on the platform; their names are never shown. `next_steps` says what linking them takes. Read it from your own conversation, never a group's room.",
+    "inputSchema": {
+      "properties": {
+        "provider": {
+          "description": "Coaching platform to read (`intervals_icu`, `trainingpeaks`); omit to read every one you connected.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "outputSchema": {
+      "$defs": {
+        "ProviderRosterAccess": {
+          "description": "The caller's access to a roster athlete, as their platform reports it.",
+          "oneOf": [
+            {
+              "const": "coach",
+              "description": "The platform lets the caller coach the athlete.",
+              "type": "string"
+            },
+            {
+              "const": "follower",
+              "description": "The platform lets the caller follow the athlete: their data reads,\nnothing is written.",
+              "type": "string"
+            },
+            {
+              "const": "no_access",
+              "description": "The platform lists the athlete but gives the caller no access to them.",
+              "type": "string"
+            },
+            {
+              "const": "unknown",
+              "description": "The platform did not say: read as neither coach nor follower.",
+              "type": "string"
+            }
+          ]
+        },
+        "ProviderRosterCount": {
+          "description": "How many roster athletes, of those no Dravr member is named for, share\none state and access.",
+          "properties": {
+            "access": {
+              "$ref": "#/$defs/ProviderRosterAccess",
+              "description": "The caller's access to them on the platform."
+            },
+            "athletes": {
+              "description": "How many athletes.",
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "state": {
+              "$ref": "#/$defs/ProviderRosterState",
+              "description": "Their state: `not_in_your_groups` or `roster_email_missing`, or a\nlink's state when the group the link was made in is gone."
+            }
+          },
+          "required": [
+            "state",
+            "access",
+            "athletes"
+          ],
+          "type": "object"
+        },
+        "ProviderRosterMember": {
+          "description": "A Dravr member the roster names, and where they stand.",
+          "properties": {
+            "access": {
+              "$ref": "#/$defs/ProviderRosterAccess",
+              "description": "The caller's access to them on the platform."
+            },
+            "group": {
+              "description": "The group of the caller's the member is in, where a link to them is\nmade.",
+              "type": "string"
+            },
+            "name": {
+              "description": "The member's Dravr display name, never the name the platform lists.",
+              "type": "string"
+            },
+            "not_reading_because": {
+              "description": "Why a `linked_not_reading` link reads nothing\n(`athlete_email_missing`, `athlete_email_mismatch`,\n`member_email_unverified`).",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "state": {
+              "$ref": "#/$defs/ProviderRosterState",
+              "description": "Where they stand."
+            }
+          },
+          "required": [
+            "name",
+            "group",
+            "state",
+            "access"
+          ],
+          "type": "object"
+        },
+        "ProviderRosterPlatform": {
+          "description": "One coaching platform's roster.",
+          "properties": {
+            "members": {
+              "description": "The Dravr members the roster names, by name.",
+              "items": {
+                "$ref": "#/$defs/ProviderRosterMember"
+              },
+              "type": "array"
+            },
+            "others": {
+              "description": "Every other roster athlete, as counts by state and access.",
+              "items": {
+                "$ref": "#/$defs/ProviderRosterCount"
+              },
+              "type": "array"
+            },
+            "provider": {
+              "description": "The platform, as the `provider` argument names it.",
+              "type": "string"
+            },
+            "refusal": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/ProviderRosterRefusal"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Why the roster was not read, when it was not; nothing else is listed\nthen."
+            },
+            "roster_size": {
+              "description": "Athletes the roster lists, the caller's own account not among them;\nabsent when it was not read.",
+              "format": "uint",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "provider",
+            "members",
+            "others"
+          ],
+          "type": "object"
+        },
+        "ProviderRosterRefusal": {
+          "description": "Why a platform's roster was not read, in the refusal shape every tool\nanswers with.",
+          "properties": {
+            "error": {
+              "description": "What to tell the user.",
+              "type": "string"
+            },
+            "reason": {
+              "description": "The reason a caller branches on.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "reason",
+            "error"
+          ],
+          "type": "object"
+        },
+        "ProviderRosterState": {
+          "description": "Where a roster athlete stands with the caller's groups and links.",
+          "oneOf": [
+            {
+              "const": "linked",
+              "description": "Linked: the member's data on the platform reads through the caller's\naccount.",
+              "type": "string"
+            },
+            {
+              "const": "linked_not_reading",
+              "description": "Linked, but the link reads nothing: see `not_reading_because`.",
+              "type": "string"
+            },
+            {
+              "const": "proposed",
+              "description": "A link was proposed; the member has not confirmed it in the app yet.",
+              "type": "string"
+            },
+            {
+              "const": "linked_through_another_coach",
+              "description": "The member reads the platform through another human coach's link.",
+              "type": "string"
+            },
+            {
+              "const": "member_holds_another_link",
+              "description": "The member already holds a link of the caller's for another roster\nentry.",
+              "type": "string"
+            },
+            {
+              "const": "proposable",
+              "description": "The member can be proposed a link with `propose_athlete_link`.",
+              "type": "string"
+            },
+            {
+              "const": "member_email_unverified",
+              "description": "The roster email is the member's, but they have not verified it on\nDravr, so it binds no one yet.",
+              "type": "string"
+            },
+            {
+              "const": "member_own_connection",
+              "description": "The member connects the platform with an account of their own: no\nlink is needed, the coach reaches their calendar through the coach's\nown account.",
+              "type": "string"
+            },
+            {
+              "const": "member_not_sharing",
+              "description": "The member stopped sharing with the caller in every group the caller\ncoaches them in (`/group consent coach yes` restores it).",
+              "type": "string"
+            },
+            {
+              "const": "no_access",
+              "description": "The platform gives the caller no access to the athlete, so no link is\nproposed.",
+              "type": "string"
+            },
+            {
+              "const": "roster_email_missing",
+              "description": "The platform shares no email for the athlete, so no member binds.",
+              "type": "string"
+            },
+            {
+              "const": "not_in_your_groups",
+              "description": "The athlete's roster email is no member's of a group the caller\ncoaches.",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "What `get_provider_roster` answers with.",
+      "properties": {
+        "coach_access": {
+          "description": "Whether the caller holds coach access: what coaching a Dravr group\ntakes.",
+          "type": "boolean"
+        },
+        "coach_access_request_pending": {
+          "description": "Whether a request of the caller's for coach access waits for the\nDravr team to decide: asked in the app, or filed when their\nIntervals.icu account coaches active athletes. Never true for a caller\nwho holds coach access.",
+          "type": "boolean"
+        },
+        "groups_coached": {
+          "description": "Active Dravr groups the caller is the human coach of.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "next_steps": {
+          "description": "What it takes, from the caller's standing, to link the athletes not\nlinked yet.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "platforms": {
+          "description": "Each coaching platform read: the one named, else every one the caller\nconnected.",
+          "items": {
+            "$ref": "#/$defs/ProviderRosterPlatform"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "platforms",
+        "coach_access",
+        "coach_access_request_pending",
+        "groups_coached",
+        "next_steps"
+      ],
+      "title": "ProviderRosterResult",
+      "type": "object"
+    },
+    "annotations": {
+      "title": "Get coaching platform roster",
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    },
+    "_meta": {
+      "ai.dravr.vault/tool": {
+        "def_hash": "sha256:2acce17d9564165d121a519df845d51ac9fe1297292bbfc80ac7f7775dd7fe92"
+      }
+    }
+  },
+  {
+    "name": "get_user_configuration",
+    "description": "Get your current training configuration settings",
+    "inputSchema": {
+      "properties": {},
+      "type": "object"
+    },
+    "outputSchema": {
+      "$defs": {
+        "ConfigProfile": {
+          "description": "Predefined configuration profiles",
+          "oneOf": [
+            {
+              "description": "Default configuration with standard thresholds",
+              "properties": {
+                "type": {
+                  "const": "Default",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object"
+            },
+            {
+              "description": "Research-grade detailed analysis",
+              "properties": {
+                "sensitivity_multiplier": {
+                  "description": "Multiplier for sensitivity in analysis (1.0 = normal, >1.0 = more sensitive)",
+                  "format": "double",
+                  "type": "number"
+                },
+                "statistical_confidence": {
+                  "description": "Statistical confidence level for analysis",
+                  "format": "double",
+                  "type": "number"
+                },
+                "type": {
+                  "const": "Research",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "sensitivity_multiplier",
+                "statistical_confidence"
+              ],
+              "type": "object"
+            },
+            {
+              "description": "Elite athlete with strict thresholds",
+              "properties": {
+                "performance_factor": {
+                  "description": "Performance adjustment factor (>1.0 for higher standards)",
+                  "format": "double",
+                  "type": "number"
+                },
+                "recovery_sensitivity": {
+                  "description": "Recovery sensitivity multiplier",
+                  "format": "double",
+                  "type": "number"
+                },
+                "type": {
+                  "const": "Elite",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "performance_factor",
+                "recovery_sensitivity"
+              ],
+              "type": "object"
+            },
+            {
+              "description": "Recreational athlete with forgiving analysis",
+              "properties": {
+                "motivation_bias": {
+                  "description": "Positive bias in performance assessment (0.0-1.0)",
+                  "format": "double",
+                  "type": "number"
+                },
+                "threshold_tolerance": {
+                  "description": "Threshold tolerance multiplier (>1.0 for more forgiving)",
+                  "format": "double",
+                  "type": "number"
+                },
+                "type": {
+                  "const": "Recreational",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "motivation_bias",
+                "threshold_tolerance"
+              ],
+              "type": "object"
+            },
+            {
+              "description": "Beginner with educational focus",
+              "properties": {
+                "simplified_metrics": {
+                  "description": "Simplify metrics for easier understanding",
+                  "type": "boolean"
+                },
+                "threshold_reduction": {
+                  "description": "Reduce thresholds by this factor",
+                  "format": "double",
+                  "type": "number"
+                },
+                "type": {
+                  "const": "Beginner",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "threshold_reduction",
+                "simplified_metrics"
+              ],
+              "type": "object"
+            },
+            {
+              "description": "Medical/rehabilitation context",
+              "properties": {
+                "conservative_thresholds": {
+                  "description": "Use conservative thresholds",
+                  "type": "boolean"
+                },
+                "max_intensity": {
+                  "description": "Maximum allowed intensity (0.0-1.0)",
+                  "format": "double",
+                  "type": "number"
+                },
+                "safety_margin": {
+                  "description": "Additional safety margin",
+                  "format": "double",
+                  "type": "number"
+                },
+                "type": {
+                  "const": "Medical",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "max_intensity",
+                "conservative_thresholds",
+                "safety_margin"
+              ],
+              "type": "object"
+            },
+            {
+              "description": "Sport-specific optimization",
+              "properties": {
+                "specialization_factors": {
+                  "additionalProperties": {
+                    "format": "double",
+                    "type": "number"
+                  },
+                  "description": "Sport-specific parameter overrides",
+                  "type": "object"
+                },
+                "sport": {
+                  "description": "Primary sport",
+                  "type": "string"
+                },
+                "type": {
+                  "const": "SportSpecific",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "sport",
+                "specialization_factors"
+              ],
+              "type": "object"
+            },
+            {
+              "description": "Custom configuration",
+              "properties": {
+                "description": {
+                  "description": "Profile description",
+                  "type": "string"
+                },
+                "name": {
+                  "description": "Profile name",
+                  "type": "string"
+                },
+                "overrides": {
+                  "additionalProperties": {
+                    "format": "double",
+                    "type": "number"
+                  },
+                  "description": "Custom parameter overrides",
+                  "type": "object"
+                },
+                "type": {
+                  "const": "Custom",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "name",
+                "description",
+                "overrides"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "ConfigurationDocument": {
+          "description": "A saved training configuration: the profile template applied, the\nathlete's own overrides on top, and what the two amount to.",
+          "properties": {
+            "effective_parameters": {
+              "additionalProperties": true,
+              "description": "The template's values with the overrides on top — what the\nconfiguration amounts to.",
+              "type": "object"
+            },
+            "last_modified": {
+              "description": "When the configuration was last written, RFC 3339.",
+              "type": "string"
+            },
+            "profile": {
+              "$ref": "#/$defs/ConfigProfile",
+              "description": "The profile template in effect, with its values."
+            },
+            "profile_parameters": {
+              "additionalProperties": {
+                "format": "double",
+                "type": "number"
+              },
+              "description": "The parameter values the template applies, by name.",
+              "type": "object"
+            },
+            "session_overrides": {
+              "additionalProperties": true,
+              "description": "The athlete's own overrides, by catalogue key. Open-ended: the keys\nare the catalogue's, not a fixed set this type could name.",
+              "type": "object"
+            }
+          },
+          "required": [
+            "profile",
+            "profile_parameters",
+            "session_overrides",
+            "effective_parameters",
+            "last_modified"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "What `get_user_configuration` answers with.",
+      "properties": {
+        "active_profile": {
+          "description": "The profile name of the template in effect: the one last applied with\n`update_user_configuration`, `default` when none was.",
+          "type": "string"
+        },
+        "available_parameters": {
+          "description": "How many parameters the catalogue offers, so a client can show\n\"3 of 47 overridden\" without a second call.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "configuration": {
+          "$ref": "#/$defs/ConfigurationDocument",
+          "description": "The template's values, the athlete's overrides and what they amount\nto."
+        },
+        "user_id": {
+          "description": "The athlete this belongs to.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "user_id",
+        "active_profile",
+        "configuration",
+        "available_parameters"
+      ],
+      "title": "UserConfigurationResult",
+      "type": "object"
+    },
+    "annotations": {
+      "title": "Get user configuration",
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    },
+    "_meta": {
+      "ai.dravr.vault/tool": {
+        "def_hash": "sha256:a8f33f1f4b63ded9a83490c35bd37368c12d0494d0cc21f12c509e70dd91facd"
+      }
+    }
+  },
+  {
+    "name": "hide_agent",
+    "description": "Hide an agent from listings",
+    "inputSchema": {
+      "properties": {
+        "agent_id": {
+          "description": "ID of the agent to hide",
+          "type": "string"
+        }
+      },
+      "required": [
+        "agent_id"
+      ],
+      "type": "object"
+    },
+    "outputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "What `hide_agent` answers with.",
+      "properties": {
+        "agent_id": {
+          "description": "The agent that was hidden.",
+          "type": "string"
+        },
+        "is_hidden": {
+          "description": "Always true here; `show_agent` sends the same field as false.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "agent_id",
+        "is_hidden"
+      ],
+      "title": "HideAgentResult",
+      "type": "object"
+    },
+    "annotations": {
+      "title": "Hide agent",
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    },
+    "_meta": {
+      "ai.dravr.vault/tool": {
+        "def_hash": "sha256:c7de068d1dead67d30a5fe142ec3d354172b666d71617c109eeccdb3685a07b6"
+      }
+    }
+  },
+  {
+    "name": "install_agent_from_store",
+    "description": "Install a published Agent Store agent into the athlete's team; it joins as itself, never as a copy. Call it only once the athlete has asked for that specific agent. After installing, `activate_agent` makes it the agent that answers.",
+    "inputSchema": {
+      "properties": {
+        "agent_id": {
+          "description": "UUID of the published agent, as `browse_agent_store` or `search_agent_store` returned it.",
+          "type": "string"
+        },
+        "format": {
+          "description": "'json' (default) or 'toon' (compact).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "agent_id"
+      ],
+      "type": "object"
+    },
+    "outputSchema": {
+      "$defs": {
+        "InstallAgentFromStoreResult": {
+          "description": "What `install_agent_from_store` answers with.",
+          "properties": {
+            "agent": {
+              "$ref": "#/$defs/StoreAgentEntry",
+              "description": "The installed agent, in the same shape browse and search send: the\ncatalogue agent itself (its own id and handle) for a system agent, or\nthe athlete's copy of another tenant's published agent."
+            },
+            "installed": {
+              "description": "Always true: the tool errors rather than reporting a failed install.",
+              "type": "boolean"
+            },
+            "message": {
+              "description": "What to tell the athlete, already written for them.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "installed",
+            "agent",
+            "message"
+          ],
+          "type": "object"
+        },
+        "StoreAgentEntry": {
+          "description": "One store agent as the browse, search and install tools report it.\n\nThe system prompt is deliberately absent. Browse and search return many\nagents and the prompt is by far the largest field on the row; install\nechoes the same compact shape so a client renders one card either way.",
+          "properties": {
+            "category": {
+              "description": "Which shelf it sits on.",
+              "type": "string"
+            },
+            "description": {
+              "description": "What the agent is for; absent when its author gave none.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "id": {
+              "description": "Identifier `install_agent_from_store` takes.",
+              "type": "string"
+            },
+            "install_count": {
+              "description": "How many athletes have installed it.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "published_at": {
+              "description": "RFC 3339 timestamp of publication; absent while unpublished.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "sample_prompts": {
+              "description": "Openers the author suggests, for a client to offer as chips.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "tags": {
+              "description": "Free-form labels its author set.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "title": {
+              "description": "Display name, as its author wrote it.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "title",
+            "description",
+            "category",
+            "tags",
+            "sample_prompts",
+            "install_count",
+            "published_at"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/InstallAgentFromStoreResult",
+          "description": "`format=json`, the default: the tool's own shape, unchanged."
+        },
+        {
+          "description": "`format=toon`: the payload rendered as one compact TOON string.",
+          "properties": {
+            "format": {
+              "description": "Always `toon`.",
+              "type": "string"
+            },
+            "toon": {
+              "description": "The rendered payload.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "toon",
+            "format"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "TOON was asked for and could not be produced. The payload still arrives,\nas JSON, and says why it is not what was requested — a caller that\nsilently received JSON would parse it as TOON and fail further away.",
+          "properties": {
+            "format": {
+              "description": "Always `json`.",
+              "type": "string"
+            },
+            "format_error": {
+              "description": "Why TOON rendering failed.",
+              "type": "string"
+            },
+            "format_fallback": {
+              "description": "Always true; present so the fallback is detectable on its own.",
+              "type": "boolean"
+            },
+            "result": {
+              "$ref": "#/$defs/InstallAgentFromStoreResult",
+              "description": "The payload, unformatted."
+            }
+          },
+          "required": [
+            "result",
+            "format",
+            "format_fallback",
+            "format_error"
+          ],
+          "type": "object"
+        }
+      ],
+      "description": "A tool payload after the caller's `format` argument has been applied.\n\nWhich shape arrives depends on the REQUEST rather than the data, which is\nwhy this is a type rather than three call sites deciding for themselves:\n`format=json` sends the tool's own shape, `format=toon` sends a compact\nstring envelope, and a TOON conversion that fails falls back to JSON while\nsaying so. Untagged, so the derived schema is an `anyOf` over exactly\nthose three arms — schemars emits `anyOf` for an untagged enum, not\n`oneOf`, so the schema does not itself assert the arms are mutually\nexclusive. A client tells them apart by the keys: `toon` and `result` are\nthe envelope's, and they are fixed rather than per-tool for that reason.\n\nThe envelope keys are fixed (`toon`, `result`) rather than derived from a\nper-tool `data_key`. A property name that changes per tool cannot be stated\nin a schema, so the old `result_toon` / `recipes_toon` / `recipe_toon` /\n`results_toon` spelling is gone — the key no longer carries information the\ntool name already gives, and the contract is now expressible.",
+      "title": "Formatted",
+      "type": "object"
+    },
+    "annotations": {
+      "title": "Install agent from store",
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    },
+    "_meta": {
+      "ai.dravr.vault/tool": {
+        "def_hash": "sha256:fbaee727cfed0337b9b954995833cce9f5ea24eb9381937cb0b7076aa95d817e"
+      }
+    }
+  },
+  {
+    "name": "list_agents",
+    "description": "List available AI agents for personalized training guidance",
+    "inputSchema": {
+      "properties": {
+        "category": {
+          "description": "Only agents in this category. One of: training, nutrition, recovery, recipes, mobility, analysis, custom; any other name reads as custom.",
+          "type": "string"
+        },
+        "favorites_only": {
+          "description": "Only show favorites. Default: false",
+          "type": "boolean"
+        },
+        "format": {
+          "description": "'json' (default) or 'toon' (compact).",
+          "type": "string"
+        },
+        "include_hidden": {
+          "description": "Include agents you hid. Default: false",
+          "type": "boolean"
+        },
+        "include_system": {
+          "description": "Include system agents. Default: true",
+          "type": "boolean"
+        },
+        "limit": {
+          "description": "Max results. Default: 50, max: 100",
+          "type": "integer"
+        },
+        "offset": {
+          "description": "Pagination offset. Default: 0",
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "outputSchema": {
+      "$defs": {
+        "AgentListEntry": {
+          "description": "One agent as `list_agents` reports it.\n\nA projection of the enriched list row, not the stored agent: it carries the\nusage signals (`is_favorite`, `use_count`, `last_used_at`) that only the\nlist query joins in, and leaves out `system_prompt`, which is long and is\nwhat `get_agent` is for.",
+          "properties": {
+            "category": {
+              "description": "Which shelf it sits on: training, nutrition, recovery, recipes,\nmobility, analysis or custom.",
+              "type": "string"
+            },
+            "description": {
+              "description": "What the agent is for; absent when none was given.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "id": {
+              "description": "Identifier the other agent tools take.",
+              "type": "string"
+            },
+            "is_assigned": {
+              "description": "Whether it is on this athlete's team (installed, assigned, activated,\nfavourited or their own) — an agent they only used is not.",
+              "type": "boolean"
+            },
+            "is_favorite": {
+              "description": "Whether the athlete has starred it.",
+              "type": "boolean"
+            },
+            "is_system": {
+              "description": "Whether it ships with the platform rather than being athlete-authored.",
+              "type": "boolean"
+            },
+            "last_used_at": {
+              "description": "RFC 3339 timestamp of the last use; absent if never used.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "tags": {
+              "description": "Free-form labels for filtering and search.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "title": {
+              "description": "Display name.",
+              "type": "string"
+            },
+            "token_count": {
+              "description": "Estimated size of the agent's system prompt, in tokens.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "updated_at": {
+              "description": "RFC 3339 timestamp of the last edit.",
+              "type": "string"
+            },
+            "use_count": {
+              "description": "How many times it has been used.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "id",
+            "title",
+            "description",
+            "category",
+            "tags",
+            "token_count",
+            "is_favorite",
+            "is_system",
+            "is_assigned",
+            "use_count",
+            "last_used_at",
+            "updated_at"
+          ],
+          "type": "object"
+        },
+        "ListAgentsResult": {
+          "description": "What `list_agents` answers with.",
+          "properties": {
+            "agents": {
+              "description": "The agents on this page.",
+              "items": {
+                "$ref": "#/$defs/AgentListEntry"
+              },
+              "type": "array"
+            },
+            "count": {
+              "description": "How many came back on this page.",
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "has_more": {
+              "description": "Whether another page follows. Always false when the caller set no\nlimit, because there is then nothing to compare the count against.",
+              "type": "boolean"
+            },
+            "limit": {
+              "description": "The page size in force, 50 when the caller named none.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "offset": {
+              "description": "The paging offset these start at.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "total": {
+              "description": "How many the athlete has in total, ignoring paging.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "agents",
+            "count",
+            "total",
+            "offset",
+            "limit",
+            "has_more"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ListAgentsResult",
+          "description": "`format=json`, the default: the tool's own shape, unchanged."
+        },
+        {
+          "description": "`format=toon`: the payload rendered as one compact TOON string.",
+          "properties": {
+            "format": {
+              "description": "Always `toon`.",
+              "type": "string"
+            },
+            "toon": {
+              "description": "The rendered payload.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "toon",
+            "format"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "TOON was asked for and could not be produced. The payload still arrives,\nas JSON, and says why it is not what was requested — a caller that\nsilently received JSON would parse it as TOON and fail further away.",
+          "properties": {
+            "format": {
+              "description": "Always `json`.",
+              "type": "string"
+            },
+            "format_error": {
+              "description": "Why TOON rendering failed.",
+              "type": "string"
+            },
+            "format_fallback": {
+              "description": "Always true; present so the fallback is detectable on its own.",
+              "type": "boolean"
+            },
+            "result": {
+              "$ref": "#/$defs/ListAgentsResult",
+              "description": "The payload, unformatted."
+            }
+          },
+          "required": [
+            "result",
+            "format",
+            "format_fallback",
+            "format_error"
+          ],
+          "type": "object"
+        }
+      ],
+      "description": "A tool payload after the caller's `format` argument has been applied.\n\nWhich shape arrives depends on the REQUEST rather than the data, which is\nwhy this is a type rather than three call sites deciding for themselves:\n`format=json` sends the tool's own shape, `format=toon` sends a compact\nstring envelope, and a TOON conversion that fails falls back to JSON while\nsaying so. Untagged, so the derived schema is an `anyOf` over exactly\nthose three arms — schemars emits `anyOf` for an untagged enum, not\n`oneOf`, so the schema does not itself assert the arms are mutually\nexclusive. A client tells them apart by the keys: `toon` and `result` are\nthe envelope's, and they are fixed rather than per-tool for that reason.\n\nThe envelope keys are fixed (`toon`, `result`) rather than derived from a\nper-tool `data_key`. A property name that changes per tool cannot be stated\nin a schema, so the old `result_toon` / `recipes_toon` / `recipe_toon` /\n`results_toon` spelling is gone — the key no longer carries information the\ntool name already gives, and the contract is now expressible.",
+      "title": "Formatted",
+      "type": "object"
+    },
+    "annotations": {
+      "title": "List agents",
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    },
+    "_meta": {
+      "ai.dravr.vault/tool": {
+        "def_hash": "sha256:51046afb9455f1cdc2cf1d041639b9f824a14e87e492dc2aba35e73d2ac4170b"
+      }
+    }
+  },
+  {
+    "name": "list_coaching_playbooks",
+    "description": "List the coaching playbooks learned for this athlete — trigger→intervention patterns with their success/failure counts and confidence. Use this to tell the athlete what you have learned works for them.",
+    "inputSchema": {
+      "properties": {
+        "limit": {
+          "description": "Max playbooks to return (1-50, default 12).",
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "outputSchema": {
+      "$defs": {
+        "InterventionEntry": {
+          "description": "The intervention half of a [`PlaybookEntry`].",
+          "properties": {
+            "kind": {
+              "description": "Which action the playbook prescribes.",
+              "type": "string"
+            },
+            "magnitude": {
+              "description": "Its size where one applies; absent for interventions that carry none.",
+              "format": "int32",
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "magnitude"
+          ],
+          "type": "object"
+        },
+        "PlaybookEntry": {
+          "description": "One learned playbook, as `list_coaching_playbooks` reports it.\n\nDistinct from `pierre_memory::playbooks::Playbook`: that is the stored row,\ncarrying tenant, user and agent identifiers the athlete's own client has no\nbusiness reading. This is the projection the tool actually sends.",
+          "properties": {
+            "confidence": {
+              "description": "Wilson lower bound on the success rate, so a 1/1 never outranks an 18/20.",
+              "format": "float",
+              "type": "number"
+            },
+            "failure_count": {
+              "description": "Times it did not.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "id": {
+              "description": "Stable identifier, and what `forget_playbook` takes.",
+              "type": "string"
+            },
+            "intervention": {
+              "$ref": "#/$defs/InterventionEntry",
+              "description": "The action it prescribes."
+            },
+            "last_outcome_at": {
+              "description": "RFC 3339 timestamp of the most recent outcome; absent if never labeled.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "neutral_count": {
+              "description": "Times the outcome carried no clear signal.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "success_count": {
+              "description": "Times the intervention worked.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "trigger": {
+              "$ref": "#/$defs/TriggerEntry",
+              "description": "The situation the playbook responds to."
+            }
+          },
+          "required": [
+            "id",
+            "trigger",
+            "intervention",
+            "success_count",
+            "failure_count",
+            "neutral_count",
+            "confidence",
+            "last_outcome_at"
+          ],
+          "type": "object"
+        },
+        "TriggerEntry": {
+          "description": "The trigger half of a [`PlaybookEntry`].",
+          "properties": {
+            "kind": {
+              "description": "Which pattern fired.",
+              "type": "string"
+            },
+            "magnitude": {
+              "description": "How pronounced the trigger was, as a band rather than a raw figure.",
+              "type": "string"
+            },
+            "sport": {
+              "description": "Sport it is scoped to, or absent when it applies across sports.",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "sport",
+            "magnitude"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "What `list_coaching_playbooks` answers with.",
+      "properties": {
+        "count": {
+          "description": "How many were returned.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "playbooks": {
+          "description": "The playbooks learned for this athlete, ranked by confidence.",
+          "items": {
+            "$ref": "#/$defs/PlaybookEntry"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "playbooks",
+        "count"
+      ],
+      "title": "ListCoachingPlaybooksResult",
+      "type": "object"
+    },
+    "annotations": {
+      "title": "List coaching playbooks",
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    },
+    "_meta": {
+      "ai.dravr.vault/tool": {
+        "def_hash": "sha256:a973c45bcbf5ccd9e915379943417ddc07992f06a73be3ee436c8e3e33afa9df"
+      }
+    }
+  },
+  {
+    "name": "list_fitness_configs",
+    "description": "List all available fitness configuration names for the user and tenant",
+    "inputSchema": {
+      "properties": {
+        "include_tenant": {
+          "description": "Include tenant-level configurations (default: true)",
+          "type": "boolean"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "outputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "What `list_fitness_configs` answers with.",
+      "properties": {
+        "configurations": {
+          "description": "Every name visible to this athlete, user-level and tenant-level\nmerged and sorted, with no duplicates.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "retrieved_at": {
+          "description": "RFC 3339 timestamp of the read.",
+          "type": "string"
+        },
+        "tenant_level": {
+          "description": "The names stored for the whole tenant. A name in both lists is\noverridden per athlete, which is why both are reported.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "total_count": {
+          "description": "How many distinct names `configurations` holds.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "user_specific": {
+          "description": "The names stored for this athlete specifically.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "configurations",
+        "user_specific",
+        "tenant_level",
+        "total_count",
+        "retrieved_at"
+      ],
+      "title": "ListFitnessConfigsResult",
+      "type": "object"
+    },
+    "annotations": {
+      "title": "List fitness configurations",
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    },
+    "_meta": {
+      "ai.dravr.vault/tool": {
+        "def_hash": "sha256:5f3f405fa131aeae86f9695ee02c190153f6840c64b35d38a97a2c31dd1eace2"
+      }
+    }
+  },
+  {
+    "name": "list_hidden_agents",
+    "description": "List all hidden agents",
+    "inputSchema": {
+      "properties": {
+        "format": {
+          "description": "'json' (default) or 'toon' (compact).",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "outputSchema": {
+      "$defs": {
+        "HiddenAgentEntry": {
+          "description": "One agent as `list_hidden_agents` reports it.\n\nThe narrowest projection of the four: enough to recognise an agent and\nun-hide it, and nothing else.",
+          "properties": {
+            "category": {
+              "description": "Which shelf it sits on.",
+              "type": "string"
+            },
+            "description": {
+              "description": "What it is for; absent when none was given.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "id": {
+              "description": "Identifier `show_agent` takes.",
+              "type": "string"
+            },
+            "is_system": {
+              "description": "Whether it ships with the platform rather than being athlete-authored.",
+              "type": "boolean"
+            },
+            "title": {
+              "description": "Display name.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "title",
+            "description",
+            "category",
+            "is_system"
+          ],
+          "type": "object"
+        },
+        "ListHiddenAgentsResult": {
+          "description": "What `list_hidden_agents` answers with.",
+          "properties": {
+            "agents": {
+              "description": "The hidden agents.",
+              "items": {
+                "$ref": "#/$defs/HiddenAgentEntry"
+              },
+              "type": "array"
+            },
+            "count": {
+              "description": "How many there are.",
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "agents",
+            "count"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ListHiddenAgentsResult",
+          "description": "`format=json`, the default: the tool's own shape, unchanged."
+        },
+        {
+          "description": "`format=toon`: the payload rendered as one compact TOON string.",
+          "properties": {
+            "format": {
+              "description": "Always `toon`.",
+              "type": "string"
+            },
+            "toon": {
+              "description": "The rendered payload.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "toon",
+            "format"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "TOON was asked for and could not be produced. The payload still arrives,\nas JSON, and says why it is not what was requested — a caller that\nsilently received JSON would parse it as TOON and fail further away.",
+          "properties": {
+            "format": {
+              "description": "Always `json`.",
+              "type": "string"
+            },
+            "format_error": {
+              "description": "Why TOON rendering failed.",
+              "type": "string"
+            },
+            "format_fallback": {
+              "description": "Always true; present so the fallback is detectable on its own.",
+              "type": "boolean"
+            },
+            "result": {
+              "$ref": "#/$defs/ListHiddenAgentsResult",
+              "description": "The payload, unformatted."
+            }
+          },
+          "required": [
+            "result",
+            "format",
+            "format_fallback",
+            "format_error"
+          ],
+          "type": "object"
+        }
+      ],
+      "description": "A tool payload after the caller's `format` argument has been applied.\n\nWhich shape arrives depends on the REQUEST rather than the data, which is\nwhy this is a type rather than three call sites deciding for themselves:\n`format=json` sends the tool's own shape, `format=toon` sends a compact\nstring envelope, and a TOON conversion that fails falls back to JSON while\nsaying so. Untagged, so the derived schema is an `anyOf` over exactly\nthose three arms — schemars emits `anyOf` for an untagged enum, not\n`oneOf`, so the schema does not itself assert the arms are mutually\nexclusive. A client tells them apart by the keys: `toon` and `result` are\nthe envelope's, and they are fixed rather than per-tool for that reason.\n\nThe envelope keys are fixed (`toon`, `result`) rather than derived from a\nper-tool `data_key`. A property name that changes per tool cannot be stated\nin a schema, so the old `result_toon` / `recipes_toon` / `recipe_toon` /\n`results_toon` spelling is gone — the key no longer carries information the\ntool name already gives, and the contract is now expressible.",
+      "title": "Formatted",
+      "type": "object"
+    },
+    "annotations": {
+      "title": "List hidden agents",
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    },
+    "_meta": {
+      "ai.dravr.vault/tool": {
+        "def_hash": "sha256:423d65c26cc692e4556f30545d885433e5a521f4968b27fb4774dc8df3c7a82e"
+      }
+    }
+  },
+  {
+    "name": "propose_athlete_link",
+    "description": "Propose linking a member of a group you coach to their entry on your coaching platform roster (Intervals.icu, TrainingPeaks), so their workouts there read through your account; the roster entry is the one carrying their verified Dravr email. The member confirms in the Dravr app; nothing is read until they do. Use `get_provider_roster` to see who is `proposable`. Refused in a group's room, for a member who stopped sharing with you, and when the roster does not list their email.",
+    "inputSchema": {
+      "properties": {
+        "provider": {
+          "description": "Coaching platform to link on (`intervals_icu`, `trainingpeaks`); omit to use the one roster that lists the member.",
+          "type": "string"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "outputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "What `propose_athlete_link` answers with.",
+      "properties": {
+        "group": {
+          "description": "The group the link is made in.",
+          "type": "string"
+        },
+        "member": {
+          "description": "The member asked to confirm, by their Dravr display name.",
+          "type": "string"
+        },
+        "next_step": {
+          "description": "What happens next.",
+          "type": "string"
+        },
+        "provider": {
+          "description": "The coaching platform the link reads through, as `provider` names it.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "member",
+        "group",
+        "provider",
+        "next_step"
+      ],
+      "title": "ProposeAthleteLinkResult",
+      "type": "object"
+    },
+    "annotations": {
+      "title": "Propose athlete link",
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": false
+    },
+    "_meta": {
+      "ai.dravr.vault/tool": {
+        "def_hash": "sha256:9fb5ad14674b2ec108bcc6618ca934c7d0bc1be420b4a677802012f5d1734e52"
+      }
+    }
+  },
+  {
+    "name": "remember_fact",
+    "description": "Persist a structured durable fact about the user. Use it when the user explicitly confirms something the agent should remember next time.",
+    "inputSchema": {
+      "properties": {
+        "agent_id": {
+          "description": "Agent attaching the fact; omit for user-wide.",
+          "type": "string"
+        },
+        "confidence": {
+          "description": "Confidence in [0.0, 1.0]. Direct user confirmation → 0.9+.",
+          "type": "number"
+        },
+        "kind": {
+          "description": "One of: preference | physiology | injury | goal | schedule | equipment | other.",
+          "type": "string"
+        },
+        "object": {
+          "description": "The athlete's own words for the value, verbatim, in the athlete's language — never translated or paraphrased.",
+          "type": "string"
+        },
+        "predicate_code": {
+          "description": "What the fact says, as a code for the kind: goal → training_for | working_toward | target_race; preference → prefer | avoid | primarily_train; physiology → have_baseline; injury → have | recovering_from; schedule → can_train_on | cannot_train_on | need_session_on | unavailable; equipment → own | train_on; other → states. `states` fits every kind (the object stands alone). Unknown codes are rejected.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "predicate_code",
+        "object",
+        "confidence"
+      ],
+      "type": "object"
+    },
+    "outputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "What `remember_fact` answers with.",
+      "properties": {
+        "confidence": {
+          "description": "Extractor confidence, 0.0 to 1.0.",
+          "format": "float",
+          "type": "number"
+        },
+        "fact_id": {
+          "description": "Identifier of the stored fact.",
+          "type": "string"
+        },
+        "kind": {
+          "description": "Which category it was filed under.",
+          "type": "string"
+        },
+        "status": {
+          "description": "`approved` when the athlete's latest message says it in these words,\nand the agent reads it from now on. `draft` otherwise: it waits for the\nathlete to keep it on their Memory screen, so say it was noted for them\nto confirm, not that it is remembered.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "fact_id",
+        "kind",
+        "confidence",
+        "status"
+      ],
+      "title": "RememberFactResult",
+      "type": "object"
+    },
+    "annotations": {
+      "title": "Remember fact about user",
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": false
+    },
+    "_meta": {
+      "ai.dravr.vault/tool": {
+        "def_hash": "sha256:c8c50f1b6fec2f66a6c4d95f3a86dfcd881f6dabe761e69f496c62669087475c"
+      }
+    }
+  },
+  {
+    "name": "search_agent_store",
+    "description": "Search the Agent Store for PUBLISHED agents matching a phrase, e.g. 'ultra trail'. Searches the whole marketplace, unlike `search_agents`, which searches only the athlete's own library. Install a result with `install_agent_from_store`.",
+    "inputSchema": {
+      "properties": {
+        "format": {
+          "description": "'json' (default) or 'toon' (compact).",
+          "type": "string"
+        },
+        "limit": {
+          "description": "Max results (1-100, default 20).",
+          "type": "integer"
+        },
+        "query": {
+          "description": "Text to match against a published agent's title, description or tags.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "query"
+      ],
+      "type": "object"
+    },
+    "outputSchema": {
+      "$defs": {
+        "SearchAgentStoreResult": {
+          "description": "What `search_agent_store` answers with.\n\nNo cursor: search is a single ranked page, so there is nothing to page to.",
+          "properties": {
+            "agents": {
+              "description": "The matches.",
+              "items": {
+                "$ref": "#/$defs/StoreAgentEntry"
+              },
+              "type": "array"
+            },
+            "count": {
+              "description": "How many matched.",
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "query": {
+              "description": "The query, echoed back.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "query",
+            "count",
+            "agents"
+          ],
+          "type": "object"
+        },
+        "StoreAgentEntry": {
+          "description": "One store agent as the browse, search and install tools report it.\n\nThe system prompt is deliberately absent. Browse and search return many\nagents and the prompt is by far the largest field on the row; install\nechoes the same compact shape so a client renders one card either way.",
+          "properties": {
+            "category": {
+              "description": "Which shelf it sits on.",
+              "type": "string"
+            },
+            "description": {
+              "description": "What the agent is for; absent when its author gave none.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "id": {
+              "description": "Identifier `install_agent_from_store` takes.",
+              "type": "string"
+            },
+            "install_count": {
+              "description": "How many athletes have installed it.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "published_at": {
+              "description": "RFC 3339 timestamp of publication; absent while unpublished.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "sample_prompts": {
+              "description": "Openers the author suggests, for a client to offer as chips.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "tags": {
+              "description": "Free-form labels its author set.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "title": {
+              "description": "Display name, as its author wrote it.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "title",
+            "description",
+            "category",
+            "tags",
+            "sample_prompts",
+            "install_count",
+            "published_at"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SearchAgentStoreResult",
+          "description": "`format=json`, the default: the tool's own shape, unchanged."
+        },
+        {
+          "description": "`format=toon`: the payload rendered as one compact TOON string.",
+          "properties": {
+            "format": {
+              "description": "Always `toon`.",
+              "type": "string"
+            },
+            "toon": {
+              "description": "The rendered payload.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "toon",
+            "format"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "TOON was asked for and could not be produced. The payload still arrives,\nas JSON, and says why it is not what was requested — a caller that\nsilently received JSON would parse it as TOON and fail further away.",
+          "properties": {
+            "format": {
+              "description": "Always `json`.",
+              "type": "string"
+            },
+            "format_error": {
+              "description": "Why TOON rendering failed.",
+              "type": "string"
+            },
+            "format_fallback": {
+              "description": "Always true; present so the fallback is detectable on its own.",
+              "type": "boolean"
+            },
+            "result": {
+              "$ref": "#/$defs/SearchAgentStoreResult",
+              "description": "The payload, unformatted."
+            }
+          },
+          "required": [
+            "result",
+            "format",
+            "format_fallback",
+            "format_error"
+          ],
+          "type": "object"
+        }
+      ],
+      "description": "A tool payload after the caller's `format` argument has been applied.\n\nWhich shape arrives depends on the REQUEST rather than the data, which is\nwhy this is a type rather than three call sites deciding for themselves:\n`format=json` sends the tool's own shape, `format=toon` sends a compact\nstring envelope, and a TOON conversion that fails falls back to JSON while\nsaying so. Untagged, so the derived schema is an `anyOf` over exactly\nthose three arms — schemars emits `anyOf` for an untagged enum, not\n`oneOf`, so the schema does not itself assert the arms are mutually\nexclusive. A client tells them apart by the keys: `toon` and `result` are\nthe envelope's, and they are fixed rather than per-tool for that reason.\n\nThe envelope keys are fixed (`toon`, `result`) rather than derived from a\nper-tool `data_key`. A property name that changes per tool cannot be stated\nin a schema, so the old `result_toon` / `recipes_toon` / `recipe_toon` /\n`results_toon` spelling is gone — the key no longer carries information the\ntool name already gives, and the contract is now expressible.",
+      "title": "Formatted",
+      "type": "object"
+    },
+    "annotations": {
+      "title": "Search agent store",
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    },
+    "_meta": {
+      "ai.dravr.vault/tool": {
+        "def_hash": "sha256:c538a42afb163a2047a0a0e1b299edf3a17ae3b5c1e775b1f5fe98667efa0843"
+      }
+    }
+  },
+  {
+    "name": "search_agents",
+    "description": "Search the agents you created by title, description or tags, optionally within one category. Returns up to 20 results by default. Check the `has_more` field before requesting additional results with offset.",
+    "inputSchema": {
+      "properties": {
+        "category": {
+          "description": "Only matches in this category. One of: training, nutrition, recovery, recipes, mobility, analysis, custom; any other name reads as custom.",
+          "type": "string"
+        },
+        "format": {
+          "description": "'json' (default) or 'toon' (compact).",
+          "type": "string"
+        },
+        "limit": {
+          "description": "Maximum results per request. Default: 20, max: 100",
+          "type": "integer"
+        },
+        "offset": {
+          "description": "Pagination offset. Default: 0. Only use if previous response had has_more=true",
+          "type": "integer"
+        },
+        "query": {
+          "description": "Search query",
+          "type": "string"
+        }
+      },
+      "required": [
+        "query"
+      ],
+      "type": "object"
+    },
+    "outputSchema": {
+      "$defs": {
+        "AgentSearchEntry": {
+          "description": "One agent as `search_agents` reports it.\n\nNarrower than the list entry: a search result is for picking, so it omits\nthe usage signals and timestamps.",
+          "properties": {
+            "category": {
+              "description": "Which shelf it sits on.",
+              "type": "string"
+            },
+            "description": {
+              "description": "What it is for; absent when none was given.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "id": {
+              "description": "Identifier.",
+              "type": "string"
+            },
+            "tags": {
+              "description": "Free-form labels.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "title": {
+              "description": "Display name.",
+              "type": "string"
+            },
+            "token_count": {
+              "description": "Estimated size of the system prompt, in tokens.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "id",
+            "title",
+            "description",
+            "category",
+            "tags",
+            "token_count"
+          ],
+          "type": "object"
+        },
+        "SearchAgentsResult": {
+          "description": "What `search_agents` answers with.",
+          "properties": {
+            "has_more": {
+              "description": "Whether another page follows.",
+              "type": "boolean"
+            },
+            "limit": {
+              "description": "The page size in force, 20 when the caller named none.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "offset": {
+              "description": "The paging offset these start at.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "query": {
+              "description": "The query, echoed back.",
+              "type": "string"
+            },
+            "results": {
+              "description": "The matches on this page.",
+              "items": {
+                "$ref": "#/$defs/AgentSearchEntry"
+              },
+              "type": "array"
+            },
+            "returned_count": {
+              "description": "How many came back. Named `returned_count` rather than `count` here,\nunlike `list_agents` — kept as-is because renaming it would change a\nwire shape for no gain.",
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "query",
+            "results",
+            "returned_count",
+            "offset",
+            "limit",
+            "has_more"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SearchAgentsResult",
+          "description": "`format=json`, the default: the tool's own shape, unchanged."
+        },
+        {
+          "description": "`format=toon`: the payload rendered as one compact TOON string.",
+          "properties": {
+            "format": {
+              "description": "Always `toon`.",
+              "type": "string"
+            },
+            "toon": {
+              "description": "The rendered payload.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "toon",
+            "format"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "TOON was asked for and could not be produced. The payload still arrives,\nas JSON, and says why it is not what was requested — a caller that\nsilently received JSON would parse it as TOON and fail further away.",
+          "properties": {
+            "format": {
+              "description": "Always `json`.",
+              "type": "string"
+            },
+            "format_error": {
+              "description": "Why TOON rendering failed.",
+              "type": "string"
+            },
+            "format_fallback": {
+              "description": "Always true; present so the fallback is detectable on its own.",
+              "type": "boolean"
+            },
+            "result": {
+              "$ref": "#/$defs/SearchAgentsResult",
+              "description": "The payload, unformatted."
+            }
+          },
+          "required": [
+            "result",
+            "format",
+            "format_fallback",
+            "format_error"
+          ],
+          "type": "object"
+        }
+      ],
+      "description": "A tool payload after the caller's `format` argument has been applied.\n\nWhich shape arrives depends on the REQUEST rather than the data, which is\nwhy this is a type rather than three call sites deciding for themselves:\n`format=json` sends the tool's own shape, `format=toon` sends a compact\nstring envelope, and a TOON conversion that fails falls back to JSON while\nsaying so. Untagged, so the derived schema is an `anyOf` over exactly\nthose three arms — schemars emits `anyOf` for an untagged enum, not\n`oneOf`, so the schema does not itself assert the arms are mutually\nexclusive. A client tells them apart by the keys: `toon` and `result` are\nthe envelope's, and they are fixed rather than per-tool for that reason.\n\nThe envelope keys are fixed (`toon`, `result`) rather than derived from a\nper-tool `data_key`. A property name that changes per tool cannot be stated\nin a schema, so the old `result_toon` / `recipes_toon` / `recipe_toon` /\n`results_toon` spelling is gone — the key no longer carries information the\ntool name already gives, and the contract is now expressible.",
+      "title": "Formatted",
+      "type": "object"
+    },
+    "annotations": {
+      "title": "Search agents",
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    },
+    "_meta": {
+      "ai.dravr.vault/tool": {
+        "def_hash": "sha256:b13adefd7db5785c95348bc272029452a9f87be308c1c28b4c53c487c1ee9f0b"
+      }
+    }
+  },
+  {
+    "name": "show_agent",
+    "description": "Show a previously hidden agent",
+    "inputSchema": {
+      "properties": {
+        "agent_id": {
+          "description": "ID of the agent to show",
+          "type": "string"
+        }
+      },
+      "required": [
+        "agent_id"
+      ],
+      "type": "object"
+    },
+    "outputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "What `show_agent` answers with.",
+      "properties": {
+        "agent_id": {
+          "description": "The agent that was un-hidden.",
+          "type": "string"
+        },
+        "is_hidden": {
+          "description": "Always false here; `hide_agent` sends the same field as true.",
+          "type": "boolean"
+        },
+        "removed_preference": {
+          "description": "Whether a stored hide preference was actually removed. False when the\nagent was not hidden to begin with, which is a success.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "agent_id",
+        "is_hidden",
+        "removed_preference"
+      ],
+      "title": "ShowAgentResult",
+      "type": "object"
+    },
+    "annotations": {
+      "title": "Show agent",
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    },
+    "_meta": {
+      "ai.dravr.vault/tool": {
+        "def_hash": "sha256:7a09a3562aed639050406db78efd4e4b287d7217c0504108251fd5f4c3c21d78"
+      }
+    }
+  },
+  {
+    "name": "toggle_agent_favorite",
+    "description": "Toggle the favorite status of an agent",
+    "inputSchema": {
+      "properties": {
+        "agent_id": {
+          "description": "ID of the agent",
+          "type": "string"
+        }
+      },
+      "required": [
+        "agent_id"
+      ],
+      "type": "object"
+    },
+    "outputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "What `toggle_agent_favorite` answers with.",
+      "properties": {
+        "agent_id": {
+          "description": "The agent whose star was flipped.",
+          "type": "string"
+        },
+        "is_favorite": {
+          "description": "Its state AFTER the flip, so a caller need not track the previous one.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "agent_id",
+        "is_favorite"
+      ],
+      "title": "ToggleAgentFavoriteResult",
+      "type": "object"
+    },
+    "annotations": {
+      "title": "Toggle agent favorite",
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": false
+    },
+    "_meta": {
+      "ai.dravr.vault/tool": {
+        "def_hash": "sha256:4942ed206f108b1f2dbb16a14ec9d5f695e4c6752e5b87f982550e437ce2828a"
+      }
+    }
+  },
+  {
+    "name": "update_agent",
+    "description": "Update an existing agent's settings",
+    "inputSchema": {
+      "properties": {
+        "agent_id": {
+          "description": "ID of the agent to update",
+          "type": "string"
+        },
+        "category": {
+          "description": "New category. One of: training, nutrition, recovery, recipes, mobility, analysis, custom; any other name reads as custom.",
+          "type": "string"
+        },
+        "description": {
+          "description": "New description",
+          "type": "string"
+        },
+        "sample_prompts": {
+          "description": "New example prompts, replacing the current ones",
+          "items": {
+            "description": "Sample prompt text",
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "system_prompt": {
+          "description": "New system prompt",
+          "type": "string"
+        },
+        "tags": {
+          "description": "New tags, replacing the current ones",
+          "items": {
+            "description": "Tag label",
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "title": {
+          "description": "New title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "agent_id"
+      ],
+      "type": "object"
+    },
+    "outputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "What `update_agent` answers with.",
+      "properties": {
+        "category": {
+          "description": "Which shelf it sits on.",
+          "type": "string"
+        },
+        "description": {
+          "description": "What it is for; absent when none is set.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "description": "Identifier.",
+          "type": "string"
+        },
+        "system_prompt": {
+          "description": "The instructions after the edit.",
+          "type": "string"
+        },
+        "tags": {
+          "description": "Free-form labels.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "title": {
+          "description": "Display name after the edit.",
+          "type": "string"
+        },
+        "token_count": {
+          "description": "Estimated size of the system prompt after the edit, in tokens.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "updated_at": {
+          "description": "RFC 3339 timestamp of this edit.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "description",
+        "system_prompt",
+        "category",
+        "tags",
+        "token_count",
+        "updated_at"
+      ],
+      "title": "UpdateAgentResult",
+      "type": "object"
+    },
+    "annotations": {
+      "title": "Update agent",
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    },
+    "_meta": {
+      "ai.dravr.vault/tool": {
+        "def_hash": "sha256:21a226f65817d7a2ae5eb595e37acea04dede11a85eac7ac24e3e329edc49fda"
+      }
+    }
+  },
+  {
+    "name": "validate_configuration",
+    "description": "Validate configuration parameters for physiological correctness",
+    "inputSchema": {
+      "properties": {
+        "parameters": {
+          "description": "Configuration parameters to validate",
+          "type": "object"
+        }
+      },
+      "required": [
+        "parameters"
+      ],
+      "type": "object"
+    },
+    "outputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "What `validate_configuration` answers with.\n\nA validation failure is a reported outcome, not an error: the athlete\nasked whether their parameters are sound and \"no, and here is why\" is the\nanswer to that question.",
+      "properties": {
+        "errors": {
+          "description": "What failed, one entry per problem. Null rather than an empty list\nwhen everything passed — the two are different answers and the wire\nhas always distinguished them.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "message": {
+          "description": "The verdict in plain language.",
+          "type": "string"
+        },
+        "parameters_validated": {
+          "description": "How many were checked.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "validation_passed": {
+          "description": "Whether every parameter passed.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "validation_passed",
+        "parameters_validated",
+        "message",
+        "errors"
+      ],
+      "title": "ValidateConfigurationResult",
+      "type": "object"
+    },
+    "annotations": {
+      "title": "Validate configuration",
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    },
+    "_meta": {
+      "ai.dravr.vault/tool": {
+        "def_hash": "sha256:86508b37d6c7adb310cedf86c7bbaf8a76ca11b2bd572d1b57d21a12c184fcb1"
+      }
+    }
+  }
+]

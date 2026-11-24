@@ -500,13 +500,14 @@ impl McpTool<dyn ToolRuntime> for ProposeAthleteLinkTool {
 
 // It stores a proposal and notifies the member; the member's confirm is the
 // consent, so it is not destructive.
-// A coach's tool over other athletes' data: Dravr's own surfaces list and run
-// it, an MCP client or an A2A agent never sees it (`crate::first_party_tools`).
+// A coaching-platform tool over people who may not be Dravr members: Dravr's
+// own surfaces list and run it, and externally only an admin whose grant holds
+// `admin` (`crate::first_party_tools`, `crate::tool_access`).
 crate::declare_security!(ProposeAthleteLinkTool => empty; first_party_only);
 
 #[cfg(test)]
 mod tests {
-    use chrono::Utc;
+    use dravr_tronc::dates::Timestamp;
     use pierre_core::models::groups::{GroupDigestMode, GroupRespondMode};
     use pierre_core::models::RosterAthlete;
     use pierre_services::delegated_link_states::CoachedMember;
@@ -514,7 +515,7 @@ mod tests {
     use super::*;
 
     fn group() -> CoachingGroup {
-        let now = Utc::now();
+        let now = Timestamp::now();
         CoachingGroup {
             id: Uuid::new_v4(),
             tenant_id: Uuid::new_v4().to_string(),
@@ -530,6 +531,7 @@ mod tests {
             is_active: true,
             channel_type: None,
             channel_chat_id: None,
+            chat_connection: None,
             created_at: now,
             updated_at: now,
         }

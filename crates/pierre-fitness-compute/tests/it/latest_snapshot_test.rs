@@ -7,10 +7,10 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use chrono::{Duration, Utc};
 use dravr_cageux::models::activity::{Activity, ActivityBuilder, TimeSeriesData};
 use dravr_cageux::models::sport::SportType;
 use dravr_cageux::zones::HrZones;
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::models::zones::HrZonesUnavailable;
 use pierre_fitness_compute::latest_snapshot::{build_latest_snapshot, MAX_WINDOW_DAYS};
 
@@ -49,7 +49,7 @@ fn synthetic_activity(spec: SyntheticActivity<'_>) -> Activity {
         spec.id.to_owned(),
         format!("Test {}", spec.id),
         SportType::Run,
-        Utc::now() - Duration::days(spec.days_ago),
+        Timestamp::now() - Elapsed::days(spec.days_ago),
         spec.duration_seconds,
         "synthetic".to_owned(),
     );
@@ -567,7 +567,7 @@ fn nonfinite_distance_does_not_poison_window_total() {
         "nan-distance".to_owned(),
         "Test nan-distance".to_owned(),
         SportType::Run,
-        Utc::now() - Duration::days(1),
+        Timestamp::now() - Elapsed::days(1),
         3600,
         "synthetic".to_owned(),
     )

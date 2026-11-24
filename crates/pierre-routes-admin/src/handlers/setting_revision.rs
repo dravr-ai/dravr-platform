@@ -20,7 +20,7 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use serde::{Deserialize, Deserializer, Serialize};
 
 /// Which version of the row a save edits.
@@ -33,14 +33,14 @@ pub enum ExpectedRevision {
     /// creates it, and only while there still is none.
     NoRow,
     /// `expected_updated_at` is the `updated_at` the editor read.
-    At(DateTime<Utc>),
+    At(Timestamp),
 }
 
 /// A JSON `null` and a missing field mean different things here. serde reaches
 /// this only when the field is present; `#[serde(default)]` covers the missing case.
 impl<'de> Deserialize<'de> for ExpectedRevision {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        Ok(Option::<DateTime<Utc>>::deserialize(deserializer)?.map_or(Self::NoRow, Self::At))
+        Ok(Option::<Timestamp>::deserialize(deserializer)?.map_or(Self::NoRow, Self::At))
     }
 }
 

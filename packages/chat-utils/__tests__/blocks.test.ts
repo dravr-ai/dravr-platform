@@ -321,28 +321,37 @@ describe('planCardDraft', () => {
 });
 
 describe('threadCarriesDraft', () => {
-  const card = (draftId: string) => ({
+  const card = (draftId: string, updatedAt = DRAFT.updated_at) => ({
     type: 'workout_plan' as const,
     plan: PLAN.plan,
     subject: SUBJECT,
-    draft: { ...DRAFT, draft_id: draftId },
+    draft: { ...DRAFT, draft_id: draftId, updated_at: updatedAt },
   });
 
   it('is true when a plan card in the thread shows the open draft', () => {
     const thread = [[{ type: 'prose' as const, text: 'Here it is.' }], [card(DRAFT.draft_id)]];
-    expect(threadCarriesDraft(thread, DRAFT.draft_id)).toBe(true);
+    expect(threadCarriesDraft(thread, DRAFT)).toBe(true);
   });
 
   it('is false for an empty thread, prose only, a card with no draft, or a discarded draft', () => {
-    expect(threadCarriesDraft([], DRAFT.draft_id)).toBe(false);
-    expect(threadCarriesDraft([[{ type: 'prose', text: 'Hi' }]], DRAFT.draft_id)).toBe(false);
-    expect(threadCarriesDraft([[{ type: 'workout_plan', plan: PLAN.plan }]], DRAFT.draft_id)).toBe(false);
+    expect(threadCarriesDraft([], DRAFT)).toBe(false);
+    expect(threadCarriesDraft([[{ type: 'prose', text: 'Hi' }]], DRAFT)).toBe(false);
+    expect(threadCarriesDraft([[{ type: 'workout_plan', plan: PLAN.plan }]], DRAFT)).toBe(false);
     // A card left by a draft the coach since discarded never hides the new one.
-    expect(threadCarriesDraft([[card('draft-old')]], DRAFT.draft_id)).toBe(false);
+    expect(threadCarriesDraft([[card('draft-old')]], DRAFT)).toBe(false);
+  });
+
+  it('is false when the only card shows an earlier save of the open draft', () => {
+    // The coach saved into the same draft since (the family editor, carnet#1515):
+    // the id stays, the save moved on, and that card's controls are hidden, so the
+    // open draft must be drawn on its own or Publish is nowhere on screen.
+    const saved = { ...DRAFT, updated_at: '2026-10-16T15:30:00Z' };
+    expect(threadCarriesDraft([[card(DRAFT.draft_id)]], saved)).toBe(false);
+    expect(threadCarriesDraft([[card(DRAFT.draft_id)], [card(DRAFT.draft_id, saved.updated_at)]], saved)).toBe(true);
   });
 
   it('reads a Map of blocks keyed by message as the threads hold them', () => {
     const blocks = new Map([['m1', [card(DRAFT.draft_id)]]]);
-    expect(threadCarriesDraft(blocks.values(), DRAFT.draft_id)).toBe(true);
+    expect(threadCarriesDraft(blocks.values(), DRAFT)).toBe(true);
   });
 });

@@ -8,9 +8,6 @@
 #![allow(missing_docs)]
 
 use pierre_core::transport::TransportPolicy;
-use std::collections::HashMap;
-use std::fmt::Debug as FmtDebug;
-use std::sync::{Arc, Mutex};
 
 use anyhow::Result;
 use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
@@ -24,83 +21,9 @@ use pierre_memory::{FactKind, FactSource, MemoryScope};
 use pierre_services::memory_facts::SentenceRenderer;
 use pierre_services::okf::render_okf_bundle_default;
 use pierre_test_support::db::create_test_db_with_key;
-use tracing::field::{Field, Visit};
-use tracing::subscriber::DefaultGuard;
-use tracing::Subscriber;
-use tracing_subscriber::layer::{Context, SubscriberExt};
-use tracing_subscriber::registry::LookupSpan;
-use tracing_subscriber::util::SubscriberInitExt;
-use tracing_subscriber::Layer;
+use pierre_test_support::log_capture::{self, CapturedEvent};
+use tracing::Level;
 use uuid::Uuid;
-
-#[derive(Clone, Debug)]
-struct CapturedEvent {
-    level: tracing::Level,
-    message: String,
-    fields: HashMap<String, String>,
-}
-
-impl CapturedEvent {
-    fn field(&self, name: &str) -> Option<&str> {
-        self.fields.get(name).map(String::as_str)
-    }
-}
-
-#[derive(Clone, Default)]
-struct CaptureLayer {
-    events: Arc<Mutex<Vec<CapturedEvent>>>,
-}
-
-impl CaptureLayer {
-    fn events(&self) -> Arc<Mutex<Vec<CapturedEvent>>> {
-        Arc::clone(&self.events)
-    }
-}
-
-/// Records every field of an event as a string so the test can assert both the
-/// message and the structured `user_id` / `fact_kind` context.
-#[derive(Default)]
-struct FieldVisitor {
-    message: String,
-    fields: HashMap<String, String>,
-}
-
-impl Visit for FieldVisitor {
-    fn record_debug(&mut self, field: &Field, value: &dyn FmtDebug) {
-        let rendered = format!("{value:?}");
-        if field.name() == "message" {
-            self.message.clone_from(&rendered);
-        }
-        self.fields.insert(field.name().to_owned(), rendered);
-    }
-
-    fn record_str(&mut self, field: &Field, value: &str) {
-        self.fields
-            .insert(field.name().to_owned(), value.to_owned());
-    }
-}
-
-impl<S> Layer<S> for CaptureLayer
-where
-    S: Subscriber + for<'a> LookupSpan<'a>,
-{
-    fn on_event(&self, event: &tracing::Event<'_>, _ctx: Context<'_, S>) {
-        let mut visitor = FieldVisitor::default();
-        event.record(&mut visitor);
-        self.events.lock().unwrap().push(CapturedEvent {
-            level: *event.metadata().level(),
-            message: visitor.message,
-            fields: visitor.fields,
-        });
-    }
-}
-
-fn setup_capture() -> (Arc<Mutex<Vec<CapturedEvent>>>, DefaultGuard) {
-    let capture = CaptureLayer::default();
-    let events = capture.events();
-    let guard = tracing_subscriber::registry().with(capture).set_default();
-    (events, guard)
-}
 
 async fn open_test_db() -> Result<Database> {
     Ok(create_test_db_with_key(generate_encryption_key().to_vec()).await?)
@@ -130,6 +53,7 @@ async fn seed_fact(
             valid_until: None,
             source_msg_id: None,
             transport_policy: TransportPolicy::AnyTransport,
+            ai_consent_sources: &[],
         })
         .await?;
     Ok(())
@@ -173,7 +97,7 @@ async fn pillar_facts_group_into_dossier_buckets() -> Result<()> {
 
     let dossier = repos
         .dossier
-        .compose_dossier(tenant, user, TransportPolicy::FirstPartyOnly, &|_| true)
+        .compose_dossier(tenant, user, TransportPolicy::FirstPartyOnly, &|_, _| true)
         .await?;
 
     let fuelling = dossier
@@ -239,7 +163,7 @@ async fn medical_fact_survives_recency_window_eviction() -> Result<()> {
 
     let dossier = repos
         .dossier
-        .compose_dossier(tenant, user, TransportPolicy::FirstPartyOnly, &|_| true)
+        .compose_dossier(tenant, user, TransportPolicy::FirstPartyOnly, &|_, _| true)
         .await?;
     assert_eq!(
         dossier.medical.len(),
@@ -281,7 +205,9 @@ async fn dossier_facts_are_tenant_scoped() -> Result<()> {
     // Composing the same user under tenant A must not see tenant B's fact.
     let dossier_a = repos
         .dossier
-        .compose_dossier(tenant_a, user, TransportPolicy::FirstPartyOnly, &|_| true)
+        .compose_dossier(tenant_a, user, TransportPolicy::FirstPartyOnly, &|_, _| {
+            true
+        })
         .await?;
     assert!(dossier_a.pillars.is_empty(), "no cross-tenant facts leak");
     assert!(render_okf_bundle_default(
@@ -293,7 +219,9 @@ async fn dossier_facts_are_tenant_scoped() -> Result<()> {
     // Tenant B sees its own fact.
     let dossier_b = repos
         .dossier
-        .compose_dossier(tenant_b, user, TransportPolicy::FirstPartyOnly, &|_| true)
+        .compose_dossier(tenant_b, user, TransportPolicy::FirstPartyOnly, &|_, _| {
+            true
+        })
         .await?;
     assert_eq!(
         dossier_b
@@ -313,7 +241,7 @@ async fn failing_fact_reads_warn_with_the_error_and_still_render() -> Result<()>
     // the surviving data, but each failed read leaves a WARN naming the error
     // and the user, the same way the neighbouring `get_profile` degrade does.
     // Silently returning an empty vec strips medical flags and every
-    // interview answer from the agent's context with no operator signal.
+    // interview answer from the agent's context with no admin signal.
     let db = open_test_db().await?;
     let tenant = TenantId::from_uuid(Uuid::new_v4());
     let user = Uuid::new_v4();
@@ -335,10 +263,10 @@ async fn failing_fact_reads_warn_with_the_error_and_still_render() -> Result<()>
     }
 
     let repos = db.repositories();
-    let (events, _guard) = setup_capture();
+    let (events, _guard) = log_capture::capture_events();
     let dossier = repos
         .dossier
-        .compose_dossier(tenant, user, TransportPolicy::FirstPartyOnly, &|_| true)
+        .compose_dossier(tenant, user, TransportPolicy::FirstPartyOnly, &|_, _| true)
         .await?;
 
     // Degradation is preserved: the dossier still composes, minus the facts.
@@ -348,11 +276,11 @@ async fn failing_fact_reads_warn_with_the_error_and_still_render() -> Result<()>
     assert_eq!(dossier.user_id, user);
 
     let warns: Vec<CapturedEvent> = events
-        .lock()
-        .unwrap()
-        .iter()
-        .filter(|e| e.level == tracing::Level::WARN && e.message.contains("fact read failed"))
-        .cloned()
+        .events()
+        .into_iter()
+        .filter(|e| {
+            e.level == Level::WARN && e.message().is_some_and(|m| m.contains("fact read failed"))
+        })
         .collect();
 
     // One per read: the recency window, Medical, NorthStar, and by-source.

@@ -72,24 +72,14 @@ pub mod limits {
     /// of history at one activity/day — well past the 42-day CTL window —
     /// without exceeding Strava's per-page limit (100).
     pub const DEFAULT_ACTIVITIES_LIMIT: usize = 60;
-    /// Maximum activities that can be fetched in one request
-    pub const MAX_ACTIVITIES_FETCH: usize = 100;
-    /// Minutes per hour
-    pub const MINUTES_PER_HOUR: u64 = 60;
-    /// Seconds per minute
-    pub const SECONDS_PER_MINUTE: u64 = 60;
     /// Maximum timeframe days
     pub const MAX_TIMEFRAME_DAYS: u32 = 365;
     /// Activity capacity hint
     pub const ACTIVITY_CAPACITY_HINT: usize = 50;
-    /// Meters per kilometer
-    pub const METERS_PER_KILOMETER: f64 = 1000.0;
     /// Percentage multiplier
     pub const PERCENTAGE_MULTIPLIER: f64 = 100.0;
     /// Default session hours for JWT tokens
     pub const DEFAULT_SESSION_HOURS: i64 = 24;
-    /// User session JWT expiry hours (24 hours for logged-in users)
-    pub const USER_SESSION_EXPIRY_HOURS: i64 = 24;
     /// OAuth access token expiry hours (1 hour per RFC 8252 Security Best Practices)
     pub const OAUTH_ACCESS_TOKEN_EXPIRY_HOURS: i64 = 1;
     /// Maximum request size in bytes
@@ -104,10 +94,6 @@ pub mod limits {
 
 /// Timeout configurations
 pub mod timeouts {
-    /// Default HTTP client request timeout in seconds
-    pub const HTTP_CLIENT_TIMEOUT_SECS: u64 = 30;
-    /// Default HTTP client connect timeout in seconds
-    pub const HTTP_CLIENT_CONNECT_TIMEOUT_SECS: u64 = 10;
     /// OAuth client request timeout in seconds
     pub const OAUTH_CLIENT_TIMEOUT_SECS: u64 = 15;
     /// OAuth client connect timeout in seconds
@@ -116,12 +102,6 @@ pub mod timeouts {
     pub const API_CLIENT_TIMEOUT_SECS: u64 = 60;
     /// API client connect timeout in seconds
     pub const API_CLIENT_CONNECT_TIMEOUT_SECS: u64 = 10;
-    /// Health check client timeout in seconds
-    pub const HEALTH_CHECK_TIMEOUT_SECS: u64 = 5;
-    /// SSE cleanup task interval in seconds
-    pub const SSE_CLEANUP_INTERVAL_SECS: u64 = 300; // 5 minutes
-    /// SSE connection timeout in seconds (inactive connections removed after this duration)
-    pub const SSE_CONNECTION_TIMEOUT_SECS: u64 = 600; // 10 minutes
     /// OAuth session cookie Max-Age in seconds (matches JWT expiration)
     pub const SESSION_COOKIE_MAX_AGE_SECS: u64 = 86400; // 24 hours
 }
@@ -178,8 +158,6 @@ pub mod tiers {
 
 /// Default values
 pub mod defaults {
-    /// Default page size for paginated responses
-    pub const PAGE_SIZE: usize = 20;
     /// Default goal timeframe in days
     pub const DEFAULT_GOAL_TIMEFRAME_DAYS: u32 = 30;
     /// Default backup directory
@@ -347,10 +325,6 @@ pub mod time_constants {
     pub const SECONDS_PER_WEEK: u32 = 604_800;
     /// Seconds per month (30 days)
     pub const SECONDS_PER_MONTH: u32 = 2_592_000;
-    /// Minutes per hour
-    pub const MINUTES_PER_HOUR: u64 = 60;
-    /// Hours per day
-    pub const HOURS_PER_DAY: u64 = 24;
     /// Days per week
     pub const DAYS_PER_WEEK: u32 = 7;
     /// Days per month (30-day approximation for calculations)
@@ -444,7 +418,7 @@ pub mod rate_limits {
 /// Distinct from request rate limits: this is the number of distinct athletes
 /// an OAuth application may have connected at once, enforced by the upstream
 /// provider (Strava) and not exposed via any API response header. The value
-/// here is the default the platform assumes; an operator overrides it via the
+/// here is the default the platform assumes; an admin overrides it via the
 /// `STRAVA_OAUTH_SEAT_CAP` environment variable after self-upgrading the app's
 /// tier in the Strava API settings dashboard.
 pub mod provider_seats {
@@ -599,10 +573,6 @@ pub mod time {
     /// Specification); ten minutes meets that and is a small share of every
     /// provider's token lifetime (Strava 6 h, Garmin 24 h).
     pub const TOKEN_REFRESH_WINDOW_MINUTES: i64 = 10;
-    /// Seconds in a minute
-    pub const MINUTE_SECONDS: i64 = 60;
-    /// Seconds in an hour
-    pub const HOUR_SECONDS: i64 = 3600;
     /// Unix epoch start
     pub const UNIX_EPOCH: &str = "1970-01-01T00:00:00Z";
 }
@@ -617,8 +587,6 @@ pub mod network_config {
     pub const OAUTH_CODE_VERIFIER_LENGTH: usize = 128;
     /// SSE broadcast channel size
     pub const SSE_BROADCAST_CHANNEL_SIZE: usize = 1000;
-    /// Maximum concurrent SSE connections per user (`DoS` prevention)
-    pub const SSE_MAX_CONNECTIONS_PER_USER: usize = 5;
 }
 
 /// HTTP status codes
@@ -729,7 +697,7 @@ pub mod oauth2_client_retention {
     /// How long an expired registration is kept before the sweep deletes it: 30 days.
     ///
     /// `authenticate_client` already refuses it the moment it expires; the grace
-    /// keeps the row readable to an operator asking why a client stopped
+    /// keeps the row readable to an admin asking why a client stopped
     /// working, without holding it for another year.
     pub const EXPIRED_GRACE_SECS: u64 = 30 * 24 * 60 * 60;
     /// Age at which a registration no user has authorized is deleted: 24 hours.

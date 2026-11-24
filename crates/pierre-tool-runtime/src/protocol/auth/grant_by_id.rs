@@ -30,7 +30,7 @@
 use std::fmt;
 
 use async_trait::async_trait;
-use chrono::{DateTime, NaiveDate, Utc};
+use dravr_tronc::dates::{CivilDate, Timestamp};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::provider_context::{
     ProviderActivitySearch, ProviderActivitySearchPage, ProviderActivityZones, ProviderBestEffort,
@@ -117,7 +117,7 @@ impl GrantByIdFallback {
         &self,
         id: &str,
         failed: &AppError,
-        started_at: DateTime<Utc>,
+        started_at: Timestamp,
     ) -> Option<&dyn FitnessProvider> {
         // A capped read of the session asks the grant too (carnet#1661): it
         // was refused before anything was sent, and its refusal was logged.
@@ -233,7 +233,7 @@ impl FitnessProvider for GrantByIdFallback {
     /// The session's profile; a read its session-read cap refused is asked
     /// of the grant (carnet#1661), any other failure stands.
     async fn get_athlete(&self) -> AppResult<Athlete> {
-        let started_at = Utc::now();
+        let started_at = Timestamp::now();
         let failed = match self.session.get_athlete().await {
             Err(e) if capped_session_falls_back(&e, self.session.name()) => e,
             read => return read,
@@ -271,7 +271,7 @@ impl FitnessProvider for GrantByIdFallback {
     }
 
     async fn get_activity(&self, id: &str) -> AppResult<Activity> {
-        let started_at = Utc::now();
+        let started_at = Timestamp::now();
         let failed = match self.session.get_activity(id).await {
             Err(e) => e,
             read => return read,
@@ -286,7 +286,7 @@ impl FitnessProvider for GrantByIdFallback {
     }
 
     async fn get_activity_detailed(&self, id: &str) -> AppResult<Activity> {
-        let started_at = Utc::now();
+        let started_at = Timestamp::now();
         let failed = match self.session.get_activity_detailed(id).await {
             Err(e) => e,
             read => return read,
@@ -305,7 +305,7 @@ impl FitnessProvider for GrantByIdFallback {
     }
 
     async fn get_activity_with_streams(&self, id: &str) -> AppResult<Activity> {
-        let started_at = Utc::now();
+        let started_at = Timestamp::now();
         let failed = match self.session.get_activity_with_streams(id).await {
             Err(e) => e,
             read => return read,
@@ -320,7 +320,7 @@ impl FitnessProvider for GrantByIdFallback {
     }
 
     async fn get_activity_streams(&self, id: &str) -> AppResult<Option<TimeSeriesData>> {
-        let started_at = Utc::now();
+        let started_at = Timestamp::now();
         let failed = match self.session.get_activity_streams(id).await {
             Err(e) => e,
             read => return read,
@@ -369,8 +369,8 @@ impl FitnessProvider for GrantByIdFallback {
 
     async fn list_planned_workouts(
         &self,
-        after: NaiveDate,
-        before: NaiveDate,
+        after: CivilDate,
+        before: CivilDate,
     ) -> AppResult<Vec<PlannedWorkout>> {
         self.session.list_planned_workouts(after, before).await
     }
@@ -392,8 +392,8 @@ impl FitnessProvider for GrantByIdFallback {
 
     async fn list_calendar_events(
         &self,
-        from: NaiveDate,
-        to: NaiveDate,
+        from: CivilDate,
+        to: CivilDate,
     ) -> AppResult<Vec<CalendarEventRef>> {
         self.session.list_calendar_events(from, to).await
     }

@@ -16,7 +16,7 @@ use std::sync::Arc;
 use std::time::Duration as Wait;
 
 use axum::Router;
-use chrono::{Days, Months, Utc};
+use dravr_tronc::dates::Timestamp;
 use serde_json::{json, Value};
 use tokio::time;
 use uuid::Uuid;
@@ -163,7 +163,7 @@ async fn a_request_goes_from_draft_to_sent_to_answered() {
         "bug: a draft has a due date before it is sent"
     );
     let reference = created["reference"].as_str().unwrap();
-    let year = Utc::now().format("%Y").to_string();
+    let year = Timestamp::now().format("%Y").unwrap();
     assert!(
         reference.starts_with(&format!("DRV-{year}-")) && reference.len() == 15,
         "bug: the reference is not DRV-<year>-<6>: {reference}"
@@ -186,8 +186,8 @@ async fn a_request_goes_from_draft_to_sent_to_answered() {
     );
 
     // Sent ten days ago: Quebec's 30 days leave 20.
-    let today = Utc::now().date_naive();
-    let sent_on = today.checked_sub_days(Days::new(10)).unwrap();
+    let today = Timestamp::now().utc_date();
+    let sent_on = today.checked_sub_days(10).unwrap();
     let sent = setup
         .post(
             &token,
@@ -200,7 +200,7 @@ async fn a_request_goes_from_draft_to_sent_to_answered() {
     assert_eq!(sent["status"], "sent", "bug: the request is not sent");
     assert_eq!(
         sent["due_on"],
-        json!(sent_on.checked_add_days(Days::new(30)).unwrap()),
+        json!(sent_on.checked_add_days(30).unwrap()),
         "bug: a Quebec request is not due 30 days after it was sent"
     );
     assert_eq!(
@@ -278,11 +278,11 @@ async fn a_gdpr_request_reads_overdue_then_takes_an_extension() {
     let created = setup.create(&token, &gdpr_request()).await;
     let path = format!("{BASE}/{}", created["id"].as_str().unwrap());
 
-    let today = Utc::now().date_naive();
+    let today = Timestamp::now().utc_date();
     let sent_on = today
-        .checked_sub_months(Months::new(1))
+        .checked_sub_months(1)
         .unwrap()
-        .checked_sub_days(Days::new(2))
+        .checked_sub_days(2)
         .unwrap();
     let sent: Value = setup
         .post(
@@ -294,7 +294,7 @@ async fn a_gdpr_request_reads_overdue_then_takes_an_extension() {
         .json();
     assert_eq!(
         sent["due_on"],
-        json!(sent_on.checked_add_months(Months::new(1)).unwrap()),
+        json!(sent_on.checked_add_months(1).unwrap()),
         "bug: a GDPR request is not due one calendar month after it was sent"
     );
     assert_eq!(
@@ -302,12 +302,12 @@ async fn a_gdpr_request_reads_overdue_then_takes_an_extension() {
         "bug: a request past its due date does not read overdue"
     );
 
-    let too_far = sent_on.checked_add_months(Months::new(3)).unwrap();
+    let too_far = sent_on.checked_add_months(3).unwrap();
     let refused = setup
         .post(
             &token,
             &format!("{path}/extension"),
-            &json!({ "extended_until": too_far.checked_add_days(Days::new(1)).unwrap() }),
+            &json!({ "extended_until": too_far.checked_add_days(1).unwrap() }),
         )
         .await;
     assert_eq!(
@@ -496,7 +496,7 @@ async fn another_athlete_never_reaches_a_request() {
             .post(
                 &ben_token,
                 &format!("{path}/sent"),
-                &json!({ "sent_on": Utc::now().date_naive() }),
+                &json!({ "sent_on": Timestamp::now().utc_date() }),
             )
             .await,
         setup
@@ -591,10 +591,7 @@ async fn a_request_is_refused_without_the_athletes_own_session_or_with_bad_input
     );
 
     let created = setup.create(&token, &quebec_request()).await;
-    let future = Utc::now()
-        .date_naive()
-        .checked_add_days(Days::new(1))
-        .unwrap();
+    let future = Timestamp::now().utc_date().checked_add_days(1).unwrap();
     let response = setup
         .post(
             &token,

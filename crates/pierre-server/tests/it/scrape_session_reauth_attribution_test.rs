@@ -25,7 +25,7 @@ use axum::extract::State;
 use axum::http::StatusCode;
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::constants::oauth_providers;
 use pierre_core::models::{ConnectionStatus, ConnectionType, TenantId, UserOAuthToken};
 use pierre_mcp_server::mcp::resources::ServerContext;
@@ -84,7 +84,7 @@ async fn spawn_scraper() -> (Arc<Scraper>, String) {
                             "id": "21550000001",
                             "name": "Course du matin",
                             "sport_type": "run",
-                            "start_date": (Utc::now() - Duration::days(1)).to_rfc3339(),
+                            "start_date": (Timestamp::now() - Elapsed::days(1)).to_rfc3339(),
                             "duration_seconds": 3000,
                             "provider": "garmin",
                             "distance_meters": 10000.0
@@ -168,7 +168,7 @@ impl Fixture {
 
     /// A healthy Garmin API grant and its connection.
     async fn connect_grant(&self) {
-        let now = Utc::now();
+        let now = Timestamp::now();
         let repos = &self.resources.common.repos;
         repos
             .oauth_tokens
@@ -180,7 +180,7 @@ impl Fixture {
                 access_token: SecretString::from("garmin-access-do-not-log"),
                 refresh_token: Some(SecretString::from("garmin-refresh-do-not-log")),
                 token_type: "Bearer".to_owned(),
-                expires_at: Some(now + Duration::hours(12)),
+                expires_at: Some(now + Elapsed::hours(12)),
                 scope: None,
                 provider_user_id: Some("garmin-user".to_owned()),
                 oauth_app_client_id: None,
@@ -219,7 +219,7 @@ impl Fixture {
     /// The athlete's recent activities, read as a chat turn reads them.
     async fn read(&self, provider: &str) -> Option<usize> {
         let params = ActivityQueryParams {
-            after: Some((Utc::now() - Duration::days(14)).timestamp()),
+            after: Some((Timestamp::now() - Elapsed::days(14)).epoch_seconds()),
             before: None,
             limit: Some(20),
             offset: None,
@@ -278,7 +278,7 @@ async fn a_dead_session_beside_a_garmin_grant_is_read_and_flagged_not_the_grant(
 async fn an_exact_read_of_the_grant_never_starts_a_scrape_of_the_session_beside_it() {
     let f = fixture("exact", true).await;
     let params = ActivityQueryParams {
-        after: Some((Utc::now() - Duration::days(14)).timestamp()),
+        after: Some((Timestamp::now() - Elapsed::days(14)).epoch_seconds()),
         before: None,
         limit: Some(20),
         offset: None,
@@ -373,11 +373,11 @@ mod health_sync {
     use std::sync::Mutex;
 
     use async_trait::async_trait;
-    use chrono::NaiveDate;
     use dravr_enforme::providers::sciotte_reader::{
         AuthSession, DailySummary, DailySummaryReader, ScraperError, ScraperResult,
     };
     use dravr_enforme::traits::credential_store::CredentialStore;
+    use dravr_tronc::dates::CivilDate;
     use pierre_core::constants::oauth_providers;
     use pierre_core::models::ConnectionStatus;
     use pierre_mcp_server::services::health_sync_refresher::install_health_sync_refresher;
@@ -386,7 +386,7 @@ mod health_sync {
     /// A reader every session read of which Garmin refuses, recording each.
     #[derive(Default)]
     struct DeadSession {
-        asked: Mutex<Vec<(String, NaiveDate)>>,
+        asked: Mutex<Vec<(String, CivilDate)>>,
     }
 
     impl DeadSession {
@@ -401,7 +401,7 @@ mod health_sync {
             &self,
             _provider: &str,
             session: &AuthSession,
-            date: NaiveDate,
+            date: CivilDate,
         ) -> ScraperResult<DailySummary> {
             assert_eq!(
                 session.session_id, SESSION_ID,
@@ -425,7 +425,7 @@ mod health_sync {
             .as_ref()
             .expect("health sync is wired");
         let orchestrator = storage
-            .build_orchestrator_with_reader(reader, REFUSED_WELLNESS)
+            .build_orchestrator_with_reader(reader, REFUSED_WELLNESS, None)
             .unwrap();
         // Failed or refused, the outcome is the flag and the reads below.
         drop(

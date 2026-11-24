@@ -7,7 +7,7 @@
 //! # Coach platforms
 //!
 //! A coach whose athletes train on a coaching platform reads them through
-//! the coach's own account there: `TrainingPeaks` through the coach's scraper
+//! the coach's own account there: `TrainingPeaks` through the coach's signed-in
 //! session, Intervals.icu through the coach's personal API key, any other
 //! platform through the OAuth grant or API key stored by the human coach. The
 //! linking flow (`crate::delegated_connections`) and the read path are the
@@ -638,7 +638,7 @@ pub(crate) async fn connected_coach_platforms(
 mod tests {
     use std::sync::Arc;
 
-    use chrono::Utc;
+    use dravr_tronc::dates::Timestamp;
     use pierre_core::errors::ErrorCode;
     use pierre_core::models::API_KEY_TOKEN_TYPE;
     use pierre_providers::request_budget::{
@@ -859,7 +859,7 @@ mod tests {
                 PLATFORM_SCOPE,
                 PLATFORM_SCOPE,
                 &api_key_counter_key(INTERVALS_ICU, "i100"),
-                &budget_period(Utc::now(), FIFTEEN_MINUTES),
+                &budget_period(Timestamp::now(), FIFTEEN_MINUTES),
                 2_500,
             )
             .await

@@ -27,7 +27,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration as StdDuration;
 
 use async_trait::async_trait;
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::models::{Activity, TenantId};
 use pierre_database::repositories::{
     ActivityBackfillJobRow, BackfillJobClaim, BackfillJobKind, BackfillJobState, JobLeaseState,
@@ -55,7 +55,7 @@ const TURN_BUDGET: StdDuration = StdDuration::from_secs(10);
 fn wider(user_id: Uuid, tenant_id: TenantId, conversation: &str, message: &str) -> OwnedLiveRead {
     OwnedLiveRead {
         params: ActivityQueryParams {
-            after: Some((Utc::now() - Duration::days(90)).timestamp()),
+            after: Some((Timestamp::now() - Elapsed::days(90)).epoch_seconds()),
             before: None,
             limit: Some(50),
             offset: None,
@@ -91,7 +91,7 @@ async fn lease_state(
             tenant_id,
             PROVIDER,
             BackfillJobKind::LiveRead,
-            Utc::now().timestamp_millis(),
+            Timestamp::now().epoch_millis(),
         )
         .await
         .unwrap()
@@ -563,14 +563,14 @@ async fn a_re_ask_while_the_read_runs_is_still_owed_its_follow_up() {
 /// tenant of its own and held by a running attempt: the pair's one row,
 /// which no ask of `tenant_id` can rebind or take over.
 async fn other_tenants_read(runtime: &Arc<dyn ToolRuntime>, user_id: Uuid) {
-    let now = Utc::now().timestamp_millis();
+    let now = Timestamp::now().epoch_millis();
     let row = ActivityBackfillJobRow {
         id: Uuid::new_v4().to_string(),
         tenant_id: TenantId::from_uuid(Uuid::new_v4()),
         user_id,
         provider: PROVIDER.to_owned(),
         kind: BackfillJobKind::LiveRead,
-        after_ts: Some((Utc::now() - Duration::days(30)).timestamp()),
+        after_ts: Some((Timestamp::now() - Elapsed::days(30)).epoch_seconds()),
         before_ts: None,
         fetch_limit: Some(50),
         conversation_id: Some("conv-other".to_owned()),
@@ -799,7 +799,7 @@ async fn a_failed_read_waits_its_backoff_for_the_sweep_but_not_for_an_ask() {
         .repos()
         .activity_backfill_jobs
         .claim_stale_backfill_jobs(BackfillJobClaim {
-            now_ms: Utc::now().timestamp_millis(),
+            now_ms: Timestamp::now().epoch_millis(),
             queued_older_than_ms: 0,
             lease_ms: 600_000,
             max_attempts: MAX_BACKFILL_ATTEMPTS,
@@ -1124,9 +1124,9 @@ async fn a_newer_ask_joined_to_a_last_attempt_that_fails_is_followed_up_once() {
 #[tokio::test]
 async fn a_failed_reads_retry_is_due_a_whole_lease_later() {
     let (runtime, _notifier, user_id, tenant_id) = notified_runtime().await;
-    let before = Utc::now().timestamp_millis();
+    let before = Timestamp::now().epoch_millis();
     fail_past_the_budget(&runtime, user_id, tenant_id).await;
-    let after = Utc::now().timestamp_millis();
+    let after = Timestamp::now().epoch_millis();
     let lease = i64::try_from(BACKFILL_JOB_LEASE.as_millis()).unwrap();
     let claim_at = |now_ms: i64| BackfillJobClaim {
         now_ms,
@@ -1174,7 +1174,7 @@ async fn a_reaped_read_still_follows_up_its_ask_once() {
         user_id,
         provider: provider.to_owned(),
         kind: BackfillJobKind::LiveRead,
-        after_ts: Some((Utc::now() - Duration::days(30)).timestamp()),
+        after_ts: Some((Timestamp::now() - Elapsed::days(30)).epoch_seconds()),
         before_ts: None,
         fetch_limit: Some(50),
         conversation_id: conversation.map(ToOwned::to_owned),

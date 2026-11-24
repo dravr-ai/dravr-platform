@@ -264,7 +264,7 @@ pub(crate) const fn is_power_sport(sport: &SportType) -> bool {
 mod tests {
     use super::*;
     use crate::models::PlannedSessionKind;
-    use chrono::NaiveDate;
+    use dravr_tronc::dates::CivilDate;
 
     fn step(label: &str, minutes: u32, zone: &str, repeat: u32) -> WorkoutStep {
         WorkoutStep {
@@ -316,7 +316,7 @@ mod tests {
         let session = PlannedSession {
             external_id: "k".to_owned(),
             kind: PlannedSessionKind::Workout,
-            date: NaiveDate::from_ymd_opt(2026, 10, 8).unwrap_or_default(),
+            date: CivilDate::from_ymd(2026, 10, 8).ok().unwrap_or_default(),
             sport: SportType::Run,
             name: "Coach's words".to_owned(),
             duration_seconds: None,

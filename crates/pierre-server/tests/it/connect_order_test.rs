@@ -1,5 +1,5 @@
-// ABOUTME: The operator's connect order: sign-in first by default for every provider, OAuth first as the kill switch
-// ABOUTME: Pins the card and the reconnect reading the one order, and the super-admin route that flips it
+// ABOUTME: The admin's connect order: extension first by default for every provider, sign-in first, OAuth first as the kill switch
+// ABOUTME: Pins the card and the reconnect reading the one order, the order each sign-in card carries, and the super-admin route
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -9,8 +9,10 @@
 // This `//!` precedes the module-level `#![cfg]` so the docs survive a build
 // without the features.
 //
-// By default a new connection of every provider with a sign-in signs in with
-// usr/pwd, whatever the seats. Flipped to the OAuth first, a new connection
+// By default (extension first) a new connection of every provider with a
+// sign-in signs in with usr/pwd, whatever the seats, and every sign-in card
+// tells the client its order so a web client with the sign-in extension
+// starts it first. Flipped to the OAuth first, a new connection
 // goes through the provider's OAuth while a seat is free — the kill switch —
 // and a reconnect still signs in: every surface reads one order. The order is
 // flipped through `PUT /admin/settings/connect-order`, super-admin only.
@@ -29,7 +31,7 @@ use std::sync::Arc;
 
 use axum::http::StatusCode;
 use axum::Router;
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_auth::connect_order::{connect_order, set_connect_order, ConnectOrder};
 use pierre_config::environment::ServerConfig;
 use pierre_core::admin::models::{AdminPermission, CreateAdminTokenRequest};
@@ -147,10 +149,10 @@ async fn an_oauth_first_strava_order_sends_only_the_strava_card_to_the_oauth() {
     );
 }
 
-/// A dead session's card recommends its sign-in under either order, though
+/// A dead session's card recommends its sign-in under every order, though
 /// seats are free: the order decides new connections only.
 #[tokio::test]
-async fn a_reconnect_signs_in_under_either_order() {
+async fn a_reconnect_signs_in_under_every_order() {
     let (scraper, _calls) = spawn_switchable_scraper(ScraperSwitch::default()).await;
     let resources = server(config_with_cap(&scraper, 5)).await;
     let (user_id, _user, tenant, token) = athlete(&resources).await;
@@ -164,22 +166,99 @@ async fn a_reconnect_signs_in_under_either_order() {
             tenant,
             oauth_providers::SCIOTTE_GARMIN,
             Some("session_expired"),
-            Utc::now(),
+            Timestamp::now(),
         )
         .await
         .unwrap();
 
-    for order in ["sign_in_first", "oauth_first"] {
-        if order == "oauth_first" {
-            oauth_first(&resources, oauth_providers::GARMIN).await;
-        }
+    // No order stored: the default.
+    let card = garmin_card(&resources, &token).await;
+    assert_eq!(card["needs_reauth"], true, "precondition: {card}");
+    assert_eq!(
+        card["recommended_backend"], "mirror",
+        "bug: under the unset order a reconnect is sent to the OAuth: {card}"
+    );
+    assert_eq!(
+        card["connect_order"], "extension_first",
+        "bug: under the unset order a reconnecting card does not carry extension first: {card}"
+    );
+
+    for order in [
+        ConnectOrder::ExtensionFirst,
+        ConnectOrder::SignInFirst,
+        ConnectOrder::OAuthFirst,
+    ] {
+        set_connect_order(
+            resources.common.repos.system_settings.as_ref(),
+            oauth_providers::GARMIN,
+            order,
+        )
+        .await
+        .unwrap();
         let card = garmin_card(&resources, &token).await;
         assert_eq!(card["needs_reauth"], true, "precondition: {card}");
         assert_eq!(
             card["recommended_backend"], "mirror",
-            "bug: under {order} a reconnect is sent to the OAuth: {card}"
+            "bug: under {order:?} a reconnect is sent to the OAuth: {card}"
+        );
+        assert_eq!(
+            card["connect_order"],
+            order.as_str(),
+            "bug: a reconnecting card does not carry its order: {card}"
         );
     }
+}
+
+/// Every account sign-in card carries its own provider's order, the default
+/// (`extension_first`) while none is set; a card with no account sign-in
+/// carries none.
+#[tokio::test]
+async fn every_sign_in_card_carries_its_order_and_no_other_card_does() {
+    let (scraper, _calls) = spawn_switchable_scraper(ScraperSwitch::default()).await;
+    let resources = server(config_with_cap(&scraper, 5)).await;
+    let (_user_id, _user, _tenant, token) = athlete(&resources).await;
+    let sign_in_cards = [
+        oauth_providers::SCIOTTE,
+        oauth_providers::SCIOTTE_GARMIN,
+        oauth_providers::SCIOTTE_TRAININGPEAKS,
+        oauth_providers::SCIOTTE_COROS,
+    ];
+
+    for provider in sign_in_cards {
+        let card = card(&resources, &token, provider).await;
+        assert_eq!(
+            card["connect_order"], "extension_first",
+            "bug: an unset order does not reach the {provider} card as extension first: {card}"
+        );
+    }
+
+    let settings = resources.common.repos.system_settings.as_ref();
+    for (provider, order) in [
+        (oauth_providers::STRAVA, ConnectOrder::OAuthFirst),
+        (oauth_providers::GARMIN, ConnectOrder::SignInFirst),
+        (oauth_providers::TRAININGPEAKS, ConnectOrder::SignInFirst),
+        (oauth_providers::COROS, ConnectOrder::OAuthFirst),
+    ] {
+        set_connect_order(settings, provider, order).await.unwrap();
+    }
+    for (provider, expected) in [
+        (oauth_providers::SCIOTTE, "oauth_first"),
+        (oauth_providers::SCIOTTE_GARMIN, "sign_in_first"),
+        (oauth_providers::SCIOTTE_TRAININGPEAKS, "sign_in_first"),
+        (oauth_providers::SCIOTTE_COROS, "oauth_first"),
+    ] {
+        let card = card(&resources, &token, provider).await;
+        assert_eq!(
+            card["connect_order"], expected,
+            "bug: the {provider} card carries another provider's order, or none: {card}"
+        );
+    }
+
+    let whoop = card(&resources, &token, oauth_providers::WHOOP).await;
+    assert!(
+        whoop.get("connect_order").is_none(),
+        "bug: a card with no account sign-in carries a connect order: {whoop}"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -247,12 +326,12 @@ async fn a_super_admin_flips_one_providers_order_and_reads_every_order_back() {
     assert_eq!(
         shown["data"]["orders"],
         json!({
-            "coros": "sign_in_first",
-            "garmin": "sign_in_first",
-            "strava": "sign_in_first",
-            "trainingpeaks": "sign_in_first",
+            "coros": "extension_first",
+            "garmin": "extension_first",
+            "strava": "extension_first",
+            "trainingpeaks": "extension_first",
         }),
-        "bug: an unset order reads other than the sign-in first, or a provider has none: {shown}"
+        "bug: an unset order reads other than the extension first, or a provider has none: {shown}"
     );
 
     let set: Value = AxumTestRequest::put("/admin/settings/connect-order")
@@ -265,10 +344,10 @@ async fn a_super_admin_flips_one_providers_order_and_reads_every_order_back() {
     assert_eq!(
         set["data"]["orders"],
         json!({
-            "coros": "sign_in_first",
-            "garmin": "sign_in_first",
+            "coros": "extension_first",
+            "garmin": "extension_first",
             "strava": "oauth_first",
-            "trainingpeaks": "sign_in_first",
+            "trainingpeaks": "extension_first",
         }),
         "bug: the flip reads back wrong, or touched another provider: {set}"
     );
@@ -281,6 +360,42 @@ async fn a_super_admin_flips_one_providers_order_and_reads_every_order_back() {
         ConnectOrder::OAuthFirst,
         "bug: the route reported a flip the store does not hold"
     );
+}
+
+/// The route takes each of the three orders, extension first included, and
+/// the store holds what it said.
+#[tokio::test]
+async fn a_super_admin_sets_each_order_extension_first_included() {
+    let resources = common::create_test_server_resources().await.unwrap();
+    let bearer = admin_bearer(&resources, true).await;
+
+    for order in [
+        ConnectOrder::OAuthFirst,
+        ConnectOrder::SignInFirst,
+        ConnectOrder::ExtensionFirst,
+    ] {
+        let set: Value = AxumTestRequest::put("/admin/settings/connect-order")
+            .header("authorization", &bearer)
+            .json(&json!({ "provider": "coros", "order": order.as_str() }))
+            .send(admin_api(&resources))
+            .await
+            .assert_status(StatusCode::OK)
+            .json();
+        assert_eq!(
+            set["data"]["orders"]["coros"],
+            order.as_str(),
+            "bug: the route refused or misread {order:?}: {set}"
+        );
+        assert_eq!(
+            connect_order(
+                resources.common.repos.system_settings.as_ref(),
+                oauth_providers::COROS
+            )
+            .await,
+            order,
+            "bug: the route reported {order:?} the store does not hold"
+        );
+    }
 }
 
 /// The route refuses a token without super-admin, an unknown provider and an
@@ -335,7 +450,7 @@ async fn the_route_refuses_a_plain_admin_and_unknown_values() {
             oauth_providers::GARMIN
         )
         .await,
-        ConnectOrder::SignInFirst,
+        ConnectOrder::ExtensionFirst,
         "bug: a refused request wrote the order"
     );
 }

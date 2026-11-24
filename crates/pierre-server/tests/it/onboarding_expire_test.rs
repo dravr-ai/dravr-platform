@@ -48,6 +48,7 @@ async fn seed(
             valid_until: None,
             source_msg_id: None,
             transport_policy: TransportPolicy::AnyTransport,
+            ai_consent_sources: &[],
         })
         .await?;
     Ok(())
@@ -99,7 +100,7 @@ async fn expire_onboarding_facts_supersedes_scoped_then_all() -> Result<()> {
 
     let dossier = repos
         .dossier
-        .compose_dossier(tenant, user, TransportPolicy::FirstPartyOnly, &|_| true)
+        .compose_dossier(tenant, user, TransportPolicy::FirstPartyOnly, &|_, _| true)
         .await?;
     let fuelling = dossier
         .pillars
@@ -122,7 +123,7 @@ async fn expire_onboarding_facts_supersedes_scoped_then_all() -> Result<()> {
 
     let dossier = repos
         .dossier
-        .compose_dossier(tenant, user, TransportPolicy::FirstPartyOnly, &|_| true)
+        .compose_dossier(tenant, user, TransportPolicy::FirstPartyOnly, &|_, _| true)
         .await?;
     assert!(
         dossier.pillars[&Pillar::SleepAndRecovery]

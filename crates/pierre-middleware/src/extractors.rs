@@ -90,16 +90,8 @@ pub async fn extract_auth_from_headers<C: MiddlewareCtx>(
     headers: &HeaderMap,
     resources: &Arc<C>,
 ) -> Result<AuthResult, AppError> {
-    let auth_value =
-        if let Some(auth_header) = headers.get("authorization").and_then(|h| h.to_str().ok()) {
-            auth_header.to_owned()
-        } else if let Some(token) = get_cookie_value(headers, &auth_cookie_name()) {
-            format!("Bearer {token}")
-        } else {
-            return Err(AppError::auth_invalid(
-                "Missing authorization header or cookie",
-            ));
-        };
+    let auth_value = request_credential(headers)
+        .ok_or_else(|| AppError::auth_invalid("Missing authorization header or cookie"))?;
 
     resources
         .authenticate_request(Some(&auth_value))
@@ -114,6 +106,24 @@ pub async fn extract_auth_from_headers<C: MiddlewareCtx>(
             } else {
                 e.into_auth_refusal("Authentication failed")
             }
+        })
+}
+
+/// The credential a REST request authenticates with, as an `Authorization`
+/// value: the header when present, else the web session cookie as a `Bearer`
+/// token. `None` when the request carries neither.
+///
+/// The one pick [`extract_auth_from_headers`] authenticates and a layer that
+/// reads the request's credential before the handler runs reads, so the two
+/// never look at different credentials.
+#[must_use]
+pub fn request_credential(headers: &HeaderMap) -> Option<String> {
+    headers
+        .get("authorization")
+        .and_then(|h| h.to_str().ok())
+        .map(ToOwned::to_owned)
+        .or_else(|| {
+            get_cookie_value(headers, &auth_cookie_name()).map(|token| format!("Bearer {token}"))
         })
 }
 

@@ -15,8 +15,8 @@
 
 use std::collections::{BTreeMap, HashMap};
 
-use chrono::NaiveDate;
-use chrono_tz::Tz;
+use dravr_tronc::date_pattern;
+use dravr_tronc::dates::{CivilDate, Pattern, Zone};
 use pierre_core::civil_time::{local_date, monday_of};
 use pierre_core::models::coverage::WindowTotals;
 use pierre_core::models::{Activity, PlaceRef, SportFamily};
@@ -27,6 +27,9 @@ use serde::{Deserialize, Serialize};
 
 use super::predicate::{export_only, segments_read, walkable_segments, Unknowable, Verdict};
 use super::{ActivityQuery, SegmentCounts};
+
+/// `2026-11`: the key of a month bucket.
+const MONTH_KEY: Pattern<CivilDate> = date_pattern!(CivilDate, "%Y-%m");
 
 /// Groups an answer carries at most, the largest by count.
 ///
@@ -327,7 +330,7 @@ pub struct Folded {
     /// The workouts a filter could not judge.
     pub unknown: UnknownCounts,
     /// The oldest and newest civil day a counted workout started on.
-    pub span: Option<(NaiveDate, NaiveDate)>,
+    pub span: Option<(CivilDate, CivilDate)>,
     /// Counted workouts that carry Garmin-sourced data, and those that do
     /// not.
     pub garmin: (usize, usize),
@@ -343,11 +346,11 @@ pub struct Folded {
 #[derive(Debug)]
 pub struct Accumulator {
     query: ActivityQuery,
-    zone: Tz,
+    zone: Zone,
     totals: Cell,
     groups: HashMap<Vec<KeyValue>, Cell>,
     unknown: UnknownCounts,
-    span: Option<(NaiveDate, NaiveDate)>,
+    span: Option<(CivilDate, CivilDate)>,
     garmin: (usize, usize),
     segments: Option<SegmentCounts>,
     places: HashMap<String, PlaceRef>,
@@ -357,10 +360,10 @@ pub struct Accumulator {
 impl Accumulator {
     /// An empty count of `query` on the athlete's calendar in `zone`.
     #[must_use]
-    pub fn new(query: &ActivityQuery, zone: Tz) -> Self {
+    pub fn new(query: &ActivityQuery, zone: &Zone) -> Self {
         Self {
             query: query.clone(),
-            zone,
+            zone: zone.clone(),
             totals: Cell::default(),
             groups: HashMap::new(),
             unknown: UnknownCounts::default(),
@@ -423,7 +426,7 @@ impl Accumulator {
         if !self.query.group_by.is_empty() {
             self.groups.entry(key).or_default().add(session);
         }
-        let day = local_date(session.start_date(), self.zone);
+        let day = local_date(session.start_date(), &self.zone);
         self.span = Some(self.span.map_or((day, day), |(oldest, newest)| {
             (oldest.min(day), newest.max(day))
         }));
@@ -435,16 +438,14 @@ impl Accumulator {
     }
 
     fn key_of(&mut self, workout: &Workout<'_>) -> Vec<KeyValue> {
-        use chrono::Datelike;
-
         let session = &workout.session;
-        let day = local_date(session.start_date(), self.zone);
+        let day = local_date(session.start_date(), &self.zone);
         let group_by = self.query.group_by.clone();
         group_by
             .iter()
             .map(|key| match key {
                 GroupKey::Year => KeyValue::Year(day.year()),
-                GroupKey::Month => KeyValue::Text(day.format("%Y-%m").to_string()),
+                GroupKey::Month => KeyValue::Text(day.format_with(&MONTH_KEY)),
                 GroupKey::Week => KeyValue::Text(monday_of(day).to_string()),
                 GroupKey::SportType => KeyValue::Text(sport_bucket(session)),
                 GroupKey::SportFamily => {
@@ -529,7 +530,7 @@ fn family_name(family: SportFamily) -> String {
 pub fn aggregate(
     workouts: &[Workout<'_>],
     query: &ActivityQuery,
-    zone: Tz,
+    zone: &Zone,
 ) -> (MetricValues, Vec<QueryGroup>, UnknownCounts) {
     let mut accumulator = Accumulator::new(query, zone);
     for workout in workouts {

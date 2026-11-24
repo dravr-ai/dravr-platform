@@ -102,29 +102,33 @@ pub(crate) fn render_connect_page(
     // The notice starts hidden and empty: when a card whose
     // `consent_required` is set is picked, the page fills the block with that
     // card's own `notice` and shows it.
-    sciotte_hosted_templates::fill_consent(
-        &strings.fill(&with_hosted_page_css(CONNECT_TEMPLATE)),
-        true,
-        None,
-    )
-    .replace(
-        "{{LINKED_FROM}}",
-        &strings.html(KEY_HOSTED_COMMON_LINKED_FROM, &[&channel_label]),
-    )
-    .replace(
-        "{{DATA_AVAILABLE}}",
-        &strings.html(KEY_HOSTED_PICKER_DATA_AVAILABLE, &[&channel_label]),
-    )
-    .replace("{{LINK_TOKEN}}", &escape_html_attribute(link_token))
-    .replace("{{CHANNEL}}", &escape_html_attribute(channel))
-    .replace("{{FLOW_EXPIRED_REASON}}", LOGIN_FLOW_EXPIRED_REASON)
-    .replace("{{LOGIN_CHALLENGE_REASON}}", LOGIN_CHALLENGE_REASON)
-    .replace("{{CODE_REJECTED_REASON}}", CODE_REJECTED_REASON)
-    .replace("{{SIGN_IN_UNAVAILABLE_REASON}}", SIGN_IN_UNAVAILABLE_REASON)
-    // The JSON goes in last so an escaped token/channel can never close the
-    // script context before it.
-    .replace("{{STRINGS_JSON}}", &script_json(&script_strings))
-    .replace("{{PROVIDERS_JSON}}", &script_json(providers))
+    // The Garmin consent boxes start hidden too: the page shows them when a
+    // card offering them is picked.
+    let page = sciotte_hosted_templates::fill_connect_consents(
+        &strings.fill(&sciotte_hosted_templates::with_connect_consents(
+            &with_hosted_page_css(CONNECT_TEMPLATE),
+        )),
+        false,
+    );
+    sciotte_hosted_templates::fill_consent(&page, true, None)
+        .replace(
+            "{{LINKED_FROM}}",
+            &strings.html(KEY_HOSTED_COMMON_LINKED_FROM, &[&channel_label]),
+        )
+        .replace(
+            "{{DATA_AVAILABLE}}",
+            &strings.html(KEY_HOSTED_PICKER_DATA_AVAILABLE, &[&channel_label]),
+        )
+        .replace("{{LINK_TOKEN}}", &escape_html_attribute(link_token))
+        .replace("{{CHANNEL}}", &escape_html_attribute(channel))
+        .replace("{{FLOW_EXPIRED_REASON}}", LOGIN_FLOW_EXPIRED_REASON)
+        .replace("{{LOGIN_CHALLENGE_REASON}}", LOGIN_CHALLENGE_REASON)
+        .replace("{{CODE_REJECTED_REASON}}", CODE_REJECTED_REASON)
+        .replace("{{SIGN_IN_UNAVAILABLE_REASON}}", SIGN_IN_UNAVAILABLE_REASON)
+        // The JSON goes in last so an escaped token/channel can never close the
+        // script context before it.
+        .replace("{{STRINGS_JSON}}", &script_json(&script_strings))
+        .replace("{{PROVIDERS_JSON}}", &script_json(providers))
 }
 
 /// Render the hosted Intervals.icu page for the connect link-token, in the

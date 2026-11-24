@@ -149,7 +149,7 @@ describe('WorkoutPlanCard', () => {
       'font-mono',
     );
 
-    const day = within(getByTestId('workout-plan-day-2026-09-15'));
+    const day = within(getByTestId('workout-plan-day-2026-09-15-0'));
     expect(day.getByText('Tue, Sep 15').props.className).toContain('font-mono');
     expect(day.getByText('4 x 8 min at threshold')).toBeTruthy();
     // The duration is a mono span of its own; the sentence around it still
@@ -163,7 +163,7 @@ describe('WorkoutPlanCard', () => {
     expect(day.getByText(/threshold_4x8/)).toBeTruthy();
     expect(day.getByText(/catalogue/)).toBeTruthy();
     expect(day.getByText(/60 g\/h carbs/)).toBeTruthy();
-    expect(within(getByTestId('workout-plan-day-2026-09-17')).getByText('Rest')).toBeTruthy();
+    expect(within(getByTestId('workout-plan-day-2026-09-17-0')).getByText('Rest')).toBeTruthy();
   });
 
   it("tells a flagged athlete why a day's fuelling amounts are withheld, and shows no rate", () => {
@@ -183,7 +183,7 @@ describe('WorkoutPlanCard', () => {
     };
     const { getByTestId } = render(<WorkoutPlanCard plan={flagged} />);
 
-    const day = within(getByTestId('workout-plan-day-2026-09-15'));
+    const day = within(getByTestId('workout-plan-day-2026-09-15-0'));
     expect(
       day.getByText(/amounts withheld: a medical flag is on file, so your clinician sets them/),
     ).toBeTruthy();
@@ -201,7 +201,7 @@ describe('WorkoutPlanCard', () => {
     const { getByTestId, getAllByText } = render(<WorkoutPlanCard plan={marked} />);
 
     expect(
-      within(getByTestId('workout-plan-day-2026-09-15')).getByText('Outside the evidence'),
+      within(getByTestId('workout-plan-day-2026-09-15-0')).getByText('Outside the evidence'),
     ).toBeTruthy();
     expect(getAllByText('Outside the evidence')).toHaveLength(1);
   });
@@ -217,7 +217,7 @@ describe('WorkoutPlanCard', () => {
     const { getByTestId, queryByText } = render(<WorkoutPlanCard plan={marked} />);
 
     expect(
-      within(getByTestId('workout-plan-day-2026-09-15')).getByText('Hors des données probantes'),
+      within(getByTestId('workout-plan-day-2026-09-15-0')).getByText('Hors des données probantes'),
     ).toBeTruthy();
     expect(queryByText('Outside the evidence')).toBeNull();
   });
@@ -240,7 +240,7 @@ describe('WorkoutPlanCard', () => {
       <WorkoutPlanCard plan={marked} />,
     );
 
-    const day = within(getByTestId('workout-plan-day-2026-09-15'));
+    const day = within(getByTestId('workout-plan-day-2026-09-15-0'));
     expect(day.getByText('Transposed from another sport')).toBeTruthy();
     expect(day.getByText('Counts as threshold work')).toBeTruthy();
     expect(getAllByTestId('plan-day-evidence')).toHaveLength(1);
@@ -334,11 +334,11 @@ describe('WorkoutPlanCard', () => {
       expect(getByText('14 nov. 2026')).toBeTruthy();
       expect(getByText('14 sept. 2026')).toBeTruthy();
       expect(getByText('16 nov. 2026')).toBeTruthy();
-      const day = within(getByTestId('workout-plan-day-2026-09-15'));
+      const day = within(getByTestId('workout-plan-day-2026-09-15-0'));
       expect(day.getByText('mar. 15 sept.')).toBeTruthy();
       expect(day.getByText(/· Course ·/)).toBeTruthy();
       expect(day.queryByText(/· run ·/)).toBeNull();
-      expect(within(getByTestId('workout-plan-day-2026-09-17')).getByText('Repos')).toBeTruthy();
+      expect(within(getByTestId('workout-plan-day-2026-09-17-0')).getByText('Repos')).toBeTruthy();
       expect(within(getByTestId('workout-plan-week-1')).getByText('14 septembre')).toBeTruthy();
       expect(queryByText(/\d{4}-\d{2}-\d{2}/)).toBeNull();
     } finally {

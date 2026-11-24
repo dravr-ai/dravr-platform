@@ -19,7 +19,7 @@ use std::sync::Arc;
 
 use axum::body::{to_bytes, Body};
 use axum::http::{Request, StatusCode};
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_auth::api_keys::{ApiKey, ApiKeyManager, ApiKeyTier};
 use pierre_core::models::{ActivityBuilder, ConnectionType, SportType, TenantId, TimeSeriesData};
 use pierre_core::permissions::scopes::OAuthScope;
@@ -80,7 +80,7 @@ async fn athlete_with_a_tracked_run(resources: &ServerContext) -> Athlete {
         RUN.to_owned(),
         "Hill loop".to_owned(),
         SportType::Run,
-        Utc::now() - Duration::days(1),
+        Timestamp::now() - Elapsed::days(1),
         3_000,
         UPLOAD.to_owned(),
     )
@@ -101,7 +101,7 @@ async fn athlete_with_a_tracked_run(resources: &ServerContext) -> Athlete {
             origin: StreamOrigin::Upload,
             source_ref: None,
             streams: &samples(),
-            synced_at: Utc::now(),
+            synced_at: Timestamp::now(),
         })
         .await
         .unwrap();
@@ -199,7 +199,7 @@ async fn api_key(resources: &Arc<ServerContext>, user_id: Uuid) -> String {
         is_active: true,
         last_used_at: None,
         expires_at: None,
-        created_at: Utc::now(),
+        created_at: Timestamp::now(),
     };
     resources.common.repos.api_keys.create(&key).await.unwrap();
     data.full_key

@@ -1,5 +1,5 @@
 // ABOUTME: Browser-facing approval page for the RFC 8628 device flow — the gcloud-style zero-token bootstrap
-// ABOUTME: The operator signs in as an admin (email/password) in the browser to approve a pending CLI login
+// ABOUTME: The admin signs in as an admin (email/password) in the browser to approve a pending CLI login
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -7,7 +7,7 @@
 //! Browser approval surface for `pierre-cli auth login`.
 //!
 //! Unlike the token-gated `POST /admin/device/approve` (a headless/CI fallback),
-//! this is the primary, gcloud-style path: the operator opens
+//! this is the primary, gcloud-style path: the admin opens
 //! `GET /admin/device?user_code=XXXX` and approves by signing in **as an
 //! admin** (email/password, verified directly against the API host). No
 //! pre-existing token is needed — the browser sign-in *is* the authorization.
@@ -27,7 +27,7 @@ use axum::http::header::{RETRY_AFTER, SET_COOKIE};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{Html, IntoResponse, Response};
 use axum::Form;
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use serde::Deserialize;
 use tracing::{error, info, warn};
 
@@ -57,12 +57,12 @@ impl fmt::Debug for DevicePageQuery {
     }
 }
 
-/// The sign-in-and-approve form submitted by the operator.
+/// The sign-in-and-approve form submitted by the admin.
 #[derive(Deserialize)]
 pub struct DeviceApproveForm {
-    /// Operator email (must resolve to an admin to approve).
+    /// Admin email (must resolve to an admin to approve).
     pub email: String,
-    /// Operator password.
+    /// Admin password.
     pub password: String,
     /// The `user_code` being approved or denied.
     pub user_code: String,
@@ -196,7 +196,7 @@ pub async fn handle_device_approve_web(
     ([(SET_COOKIE, known_device)], page).into_response()
 }
 
-/// Approve or deny `user_code` for the operator `user`, whose password
+/// Approve or deny `user_code` for the admin `user`, whose password
 /// verified.
 async fn resolve_approval(
     context: &AdminApiContext,
@@ -229,7 +229,7 @@ async fn resolve_approval(
             &format!("This login request is already {}.", record.status),
         ));
     }
-    if record.expires_at <= Utc::now().timestamp() {
+    if record.expires_at <= Timestamp::now().epoch_seconds() {
         return Html(render_message(
             "Expired",
             "This code has expired. Start a new login from the CLI.",

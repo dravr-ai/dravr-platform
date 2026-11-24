@@ -47,8 +47,8 @@ use axum::routing::get;
 use axum::{Json, Router};
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
-use chrono::{NaiveDate, Utc};
 use common::{create_test_server_resources, create_test_user_with_plan};
+use dravr_tronc::dates::{CivilDate, Timestamp};
 use dravr_tronc::mcp::tool::{McpTool, ToolContext};
 use pierre_core::constants::oauth::INTERVALS_ICU;
 use pierre_core::models::groups::{
@@ -183,7 +183,7 @@ impl World {
     async fn new() -> Self {
         let api = Api::default();
         let base = create_test_server_resources().await.unwrap();
-        let mut config = offline_provider_config(INTERVALS_ICU);
+        let mut config = offline_provider_config(INTERVALS_ICU).unwrap();
         config.api_base_url = spawn_api(api.clone()).await;
         let mut registry = offline_provider_registry();
         registry.set_default_config(INTERVALS_ICU, config);
@@ -213,7 +213,7 @@ impl World {
     /// Link `who`'s own Intervals.icu API key, `key-<athlete>`, as the link
     /// route does.
     async fn connect(&self, who: Person, athlete: &str, key: &str) {
-        let now = Utc::now();
+        let now = Timestamp::now();
         let repos = &self.res.common.repos;
         repos
             .oauth_tokens
@@ -300,12 +300,12 @@ impl World {
     }
 }
 
-fn day(y: i32, m: u32, d: u32) -> Option<NaiveDate> {
-    NaiveDate::from_ymd_opt(y, m, d)
+fn day(y: i32, m: u32, d: u32) -> Option<CivilDate> {
+    CivilDate::from_ymd(y, m, d).ok()
 }
 
 /// The provenance an imported value carries.
-fn intervals_estimate(as_of: Option<NaiveDate>) -> MetricProvenance {
+fn intervals_estimate(as_of: Option<CivilDate>) -> MetricProvenance {
     MetricProvenance {
         kind: MeasurementKind::Estimated,
         origin: Some("intervals.icu".to_owned()),
@@ -616,7 +616,7 @@ async fn linked_members(w: &World, members: &[(Person, &str, &str)]) -> Person {
     let agent_id = create_group_agent(repos, owner.id, owner.tenant)
         .await
         .unwrap();
-    let now = Utc::now();
+    let now = Timestamp::now();
     let group = repos
         .groups
         .create_group(
@@ -636,6 +636,7 @@ async fn linked_members(w: &World, members: &[(Person, &str, &str)]) -> Person {
                 is_active: true,
                 channel_type: None,
                 channel_chat_id: None,
+                chat_connection: None,
                 created_at: now,
                 updated_at: now,
             },
@@ -682,7 +683,7 @@ async fn linked_members(w: &World, members: &[(Person, &str, &str)]) -> Person {
             .expect("no live link holds this member yet");
         repos
             .delegated_connections
-            .confirm(link.id, member.id, member.tenant, Utc::now())
+            .confirm(link.id, member.id, member.tenant, Timestamp::now())
             .await
             .unwrap()
             .expect("the proposal names the member");

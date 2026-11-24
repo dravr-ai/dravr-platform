@@ -1,4 +1,4 @@
-# ABOUTME: HTTP middleware layer — auth, tenant resolution, CSRF, CORS, rate limiting, redaction, tracing
+# ABOUTME: HTTP middleware layer — auth, CSRF, CORS, rate limiting, redaction, tracing
 # ABOUTME: Uses MiddlewareCtx trait to stay decoupled from pierre-server's ServerContext
 
 [package]
@@ -25,12 +25,11 @@ pierre-logging = { version = "0.3.0", path = "../pierre-logging" }
 pierre-runtime-context = { version = "0.3.0", path = "../pierre-runtime-context" }
 axum = { version = "0.8", features = ["macros", "ws"] }
 bitflags = "2"
-chrono = { version = "0.4", features = ["serde"] }
+dravr-tronc = { workspace = true }
 futures-util = "0.3"
 http = "1"
 jsonwebtoken = { version = "10.4", features = ["rust_crypto", "use_pem"], default-features = false }
 opentelemetry = { version = "0.32", features = ["trace", "metrics"], optional = true }
-percent-encoding = "2"
 regex = "1"
 tracing-opentelemetry = { version = "0.33", optional = true }
 serde = { version = "1.0", features = ["derive"] }

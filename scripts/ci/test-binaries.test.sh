@@ -29,6 +29,9 @@ TREE="$WORK/tree"
 mkdir -p "$TREE/crates/pierre-server" "$TREE/crates/pierre-database" "$WORK/bin" \
     "$WORK/cargo-home/git/checkouts/dravr-contremaitre-0a1b2c/5bc9599/config"
 echo "contracts: []" >"$WORK/cargo-home/git/checkouts/dravr-contremaitre-0a1b2c/5bc9599/config/persona_contracts.yaml"
+# The server's tests spawn its pierre-pdf-text bin, as the real lab tests do.
+mkdir -p "$TREE/crates/pierre-server/tests"
+echo 'const CHILD: &str = env!("CARGO_BIN_EXE_pierre-pdf-text");' >"$TREE/crates/pierre-server/tests/main.rs"
 
 cat >"$WORK/bin/cargo" <<'STUB'
 #!/bin/sh
@@ -41,6 +44,9 @@ for exe in it-1111 smoke_test-2222; do
     printf '#!/bin/sh\necho "%s ran in $PWD with $*"\n' "$exe" >"$deps/$exe"
     chmod +x "$deps/$exe"
 done
+printf '#!/bin/sh\necho child\n' >"$PWD/target/debug/pierre-pdf-text"
+chmod +x "$PWD/target/debug/pierre-pdf-text"
+printf '{"reason":"compiler-artifact","target":{"name":"pierre-pdf-text","kind":["bin"]},"manifest_path":"%s/crates/pierre-server/Cargo.toml","executable":"%s/target/debug/pierre-pdf-text"}\n' "$PWD" "$PWD"
 echo "not json: a build script's stray line"
 printf '{"reason":"compiler-artifact","target":{"name":"pierre_core","kind":["lib"]},"manifest_path":"%s/crates/pierre-core/Cargo.toml","executable":null}\n' "$PWD"
 printf '{"reason":"compiler-artifact","target":{"name":"it","kind":["test"]},"manifest_path":"%s/crates/pierre-server/Cargo.toml","executable":"%s/it-1111"}\n' "$PWD" "$deps"
@@ -96,6 +102,11 @@ fi
 
 rm -rf "$TREE/target"
 HOME_DIR="$WORK/fresh-home" expect "an unpack restores the binaries" 0 "$TREE" unpack "$PACK"
+if [ -x "$TREE/target/debug/pierre-pdf-text" ]; then
+    pass "the bin the tests spawn by CARGO_BIN_EXE travels with them"
+else
+    fail "the bin the tests spawn by CARGO_BIN_EXE travels with them"
+fi
 if [ -x "$TREE/target/debug/deps/it-1111" ] && [ -x "$TREE/target/debug/deps/smoke_test-2222" ]; then
     pass "the restored binaries are executable"
 else
@@ -179,16 +190,29 @@ echo "test slow::finishes ... ok"
 exec sleep 30
 HUNG
 printf '#!/bin/sh\nexec sleep 30\n' >"$RUNBIN/silent"
-chmod +x "$RUNBIN/hung" "$RUNBIN/silent"
+# A binary still completing tests, a result every half second: slow, never hung.
+cat >"$RUNBIN/busy" <<'BUSY'
+#!/bin/sh
+echo "running 40 tests"
+i=0
+while [ "$i" -lt "${BUSY_TESTS:-40}" ]; do
+    sleep 0.5
+    echo "test busy::t$i ... ok"
+    i=$((i + 1))
+done
+echo "test result: ok. ${BUSY_TESTS:-40} passed; 0 failed"
+BUSY
+chmod +x "$RUNBIN/hung" "$RUNBIN/silent" "$RUNBIN/busy"
 printf 'smoke_test\t%s\t%s\n' "$TREE/crates/pierre-database" "$RUNBIN/hung" >"$WORK/hung-map.tsv"
 printf 'smoke_test\t%s\t%s\n' "$TREE/crates/pierre-database" "$RUNBIN/silent" >"$WORK/silent-map.tsv"
+printf 'smoke_test\t%s\t%s\n' "$TREE/crates/pierre-database" "$RUNBIN/busy" >"$WORK/busy-map.tsv"
 started=$SECONDS
-TEST_BINARY_DEADLINE_SECS=2 expect "a run whose binary passes its deadline fails" 1 "$TREE" \
+TEST_BINARY_IDLE_SECS=2 expect "a run whose binary goes quiet fails" 1 "$TREE" \
     run "$WORK/hung-map.tsv" "$TREE/crates/pierre-database" smoke_test
-if [ $((SECONDS - started)) -lt 20 ]; then pass "the deadline stops the binary instead of waiting it out"; else
-    fail "the deadline stops the binary instead of waiting it out ($((SECONDS - started))s)"
+if [ $((SECONDS - started)) -lt 20 ]; then pass "the idle bound stops the binary instead of waiting it out"; else
+    fail "the idle bound stops the binary instead of waiting it out ($((SECONDS - started))s)"
 fi
-if grep -qF "ran past its 2s deadline and was stopped; still running: slow::hangs" "$OUT" \
+if grep -qF "printed nothing for 2s and was stopped" "$OUT" && grep -qF "; still running: slow::hangs" "$OUT" \
     && ! grep -qF "still running: slow::finishes" "$OUT" && ! grep -qF " slow::hangs slow::finishes" "$OUT"; then
     pass "the failure names the test that never finished, and only it"
 else
@@ -199,7 +223,7 @@ if grep -qF "test slow::finishes ... ok" "$OUT"; then pass "the binary's own out
     fail "the binary's own output still streams through"
     sed 's/^/      /' "$OUT"
 fi
-TEST_BINARY_DEADLINE_SECS=1 expect "a binary that hangs outside any test fails" 1 "$TREE" \
+TEST_BINARY_IDLE_SECS=1 expect "a binary that hangs outside any test fails" 1 "$TREE" \
     run "$WORK/silent-map.tsv" "$TREE/crates/pierre-database" smoke_test
 if grep -qF "no test had run for over 60 seconds, so the binary itself hung" "$OUT"; then
     pass "a hang with no slow test says the binary hung"
@@ -207,7 +231,20 @@ else
     fail "a hang with no slow test says the binary hung"
     sed 's/^/      /' "$OUT"
 fi
+BUSY_TESTS=8 TEST_BINARY_IDLE_SECS=2 expect "a binary still completing tests is never taken for a hung one" 0 "$TREE" \
+    run "$WORK/busy-map.tsv" "$TREE/crates/pierre-database" smoke_test
+TEST_BINARY_DEADLINE_SECS=2 TEST_BINARY_IDLE_SECS=2 expect "a binary past its deadline fails though it still completes tests" 1 "$TREE" \
+    run "$WORK/busy-map.tsv" "$TREE/crates/pierre-database" smoke_test
+if grep -qF "ran past its 2s deadline and was stopped while still completing tests" "$OUT" \
+    && grep -qF "it is slow, not hung" "$OUT" && ! grep -qF "the binary itself hung" "$OUT"; then
+    pass "a binary stopped at its deadline is called slow, never hung"
+else
+    fail "a binary stopped at its deadline is called slow, never hung"
+    sed 's/^/      /' "$OUT"
+fi
 TEST_BINARY_DEADLINE_SECS=soon expect "a deadline that is not a number of seconds is refused" 1 "$TREE" \
+    run "$RUNMAP" "$TREE/crates/pierre-database" smoke_test
+TEST_BINARY_IDLE_SECS=0 expect "an idle bound that is not a positive number of seconds is refused" 1 "$TREE" \
     run "$RUNMAP" "$TREE/crates/pierre-database" smoke_test
 
 mkdir -p "$WORK/elsewhere"
@@ -230,7 +267,7 @@ expect "a build with no cargo arguments is refused" 1 "$TREE" build "$WORK/pack-
 expect "a build keeping one package packs only its binaries" 0 "$TREE" \
     build "$WORK/pack-kept" --keep crates/pierre-server/ --test it
 if [ "$(cut -f1,2 "$WORK/pack-kept/test-binaries.tsv")" = "it	$TREE/crates/pierre-server" ] \
-    && [ "$(zstd -q -dc "$WORK/pack-kept/binaries.tar.zst" | tar -tf - | tr '\n' ' ')" = "target/debug/deps/it-1111 " ]; then
+    && [ "$(zstd -q -dc "$WORK/pack-kept/binaries.tar.zst" | tar -tf - | tr '\n' ' ')" = "target/debug/deps/it-1111 target/debug/pierre-pdf-text " ]; then
     pass "the kept map and archive hold the kept package's binary alone"
 else
     fail "the kept map and archive hold the kept package's binary alone"
@@ -259,6 +296,14 @@ else
     fail "the refusal says --keep named no package"
     sed 's/^/      /' "$OUT"
 fi
+echo 'const GHOST: &str = env!("CARGO_BIN_EXE_ghost");' >"$TREE/crates/pierre-server/tests/ghost.rs"
+expect "a build whose tests spawn a bin it did not produce fails" 1 "$TREE" \
+    build "$WORK/pack-ghost" --keep crates/pierre-server --test it
+if grep -qF "spawn ghost (CARGO_BIN_EXE_ghost)" "$OUT"; then pass "the refusal names the missing bin"; else
+    fail "the refusal names the missing bin"
+    sed 's/^/      /' "$OUT"
+fi
+rm "$TREE/crates/pierre-server/tests/ghost.rs"
 CARGO_STUB_DEPS="$WORK/outside/deps" expect "a build whose binary lands outside the workspace is refused" 1 \
     "$TREE" build "$WORK/pack-outside" --test it
 if grep -qF "is outside the workspace $TREE" "$OUT"; then pass "the refusal names the workspace"; else

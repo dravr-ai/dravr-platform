@@ -133,7 +133,7 @@ export function HomeScreen({ scopeSwitch }: HomeScreenProps = {}) {
   return (
     <View className="flex-1 bg-background-primary" testID="home-screen">
       {/*
-        The lockup is Home's title, as it is the chat tab's (DESIGN.md §5). It
+        The lockup is Home's title, as it is the chat tab's (DESIGN.md "Chat surfaces"). It
         is a button on both: from the chat tab a press comes Home, and here,
         already Home, it goes back to the top of the page — what a press on the
         active tab does.

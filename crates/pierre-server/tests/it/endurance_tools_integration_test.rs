@@ -32,11 +32,12 @@
 #![allow(missing_docs)]
 
 use anyhow::Result;
-use chrono::{Duration, Utc};
 use dravr_cageux::zones::{AerobicThresholdPace, AerobicThresholdPower, HrZones};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use dravr_tronc::mcp::tool::McpTool;
 use pierre_core::config::profiles::FitnessLevel;
-use pierre_core::constants::oauth::providers::STRAVA;
+use pierre_core::constants::oauth::providers::{SENSITIVE_T3, STRAVA};
+use pierre_core::constants::oauth_providers::NoticeKind;
 use pierre_core::models::activity::ActivityBuilder;
 use pierre_core::models::periodization::{ReadinessLevel, WorkoutPurpose};
 use pierre_core::models::{
@@ -46,6 +47,7 @@ use pierre_core::models::{
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::{Transport, TransportPolicy};
 use pierre_fitness_compute::latest_snapshot::MAX_WINDOW_DAYS;
+use pierre_services::provider_notice;
 use pierre_tool_runtime::implementations::endurance_workouts::ListWorkoutTemplatesTool;
 use pierre_tool_runtime::protocol::{auth_required_provider, is_no_provider_refusal};
 use pierre_tool_runtime::protocols::ProtocolError;
@@ -80,6 +82,18 @@ async fn create_test_user(executor: &UniversalToolExecutor) -> Result<(Uuid, Str
         .iter()
         .find(|t| t.owner_user_id == user_id)
         .ok_or_else(|| anyhow::anyhow!("user should have tenant"))?;
+    // This executor declares no transport, so it serves as an outside client
+    // does: the dossier carries the agent's memory (T3), which such a client
+    // reads only under the athlete's `sensitive_t3` (carnet#1544).
+    provider_notice::grant_consent(
+        executor.resources.repos(),
+        user_tenant.id.as_uuid(),
+        user_id,
+        SENSITIVE_T3,
+        NoticeKind::AiConsent,
+        "Intimate health records",
+    )
+    .await?;
     Ok((user_id, user_tenant.id.to_string()))
 }
 
@@ -195,6 +209,8 @@ async fn seed_physiology_with_pace(
         d_prime_meters: None,
         threshold_provenance: ThresholdProvenance::default(),
         threshold_stated_on: ThresholdStatedOn::default(),
+        vo2_max_method: None,
+        vdot: None,
         anchor_provenance: AnchorProvenance::default(),
         transport_policy: TransportPolicy::AnyTransport,
         sex: None,
@@ -414,17 +430,19 @@ async fn test_export_latest_snapshot_clamps_window() -> Result<()> {
     let (user_id, tenant) = create_connected_test_user(&executor).await?;
     let tenant_id = TenantId::parse_str(&tenant)?;
     // The seeded athlete has no timezone, so their calendar is UTC's.
-    let noon = Utc::now()
-        .date_naive()
-        .and_hms_opt(12, 0, 0)
+    let noon = Timestamp::now()
+        .utc_date()
+        .and_hms(12, 0, 0)
+        .ok()
         .ok_or_else(|| anyhow::anyhow!("noon is a valid time"))?
-        .and_utc();
+        .and_utc()
+        .unwrap();
     for (id, days) in [("inside", 200), ("outside", 400)] {
         let run = ActivityBuilder::new(
             id.to_owned(),
             format!("Run {id}"),
             SportType::Run,
-            noon - Duration::days(days),
+            noon - Elapsed::days(days),
             3_000,
             STRAVA.to_owned(),
         )

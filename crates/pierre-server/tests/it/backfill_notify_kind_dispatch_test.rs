@@ -16,7 +16,7 @@
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
-use chrono::{Duration, TimeZone, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_contremaitre::messaging_strings::{
     KEY_DETAIL_WALK_COMPLETE, KEY_HISTORY_WALK_COMPLETE, KEY_LIVE_READ_OVERTAKEN,
 };
@@ -86,6 +86,7 @@ async fn add(thread: &Thread, role: &str, content: &str, finish_reason: Option<&
             channel_type: None,
             about_user_id: None,
             turn_attempted_write: None,
+            ai_consent_sources: &[],
         })
         .await
         .unwrap()
@@ -147,7 +148,7 @@ fn live_read<'a>(thread: &'a Thread, asked: Option<&'a str>) -> BackfillCompleti
             thread.tenant,
             &thread.conversation,
             "strava",
-            (Utc::now() - Duration::days(30)).timestamp(),
+            (Timestamp::now() - Elapsed::days(30)).epoch_seconds(),
             1,
         )
     }
@@ -294,7 +295,7 @@ async fn a_backfill_is_never_taken_for_overtaken() {
             thread.tenant,
             &thread.conversation,
             "strava",
-            (Utc::now() - Duration::days(900)).timestamp(),
+            (Timestamp::now() - Elapsed::days(900)).epoch_seconds(),
             1,
         ))
         .await;
@@ -373,7 +374,7 @@ async fn a_walk_end_posts_one_line_in_the_personal_thread() {
         user_id: user,
         tenant_id: tenant,
         provider: "sciotte_garmin",
-        oldest: Utc.with_ymd_and_hms(2014, 6, 2, 8, 0, 0).unwrap(),
+        oldest: Timestamp::parse_from_rfc3339("2014-06-02T08:00:00Z").unwrap(),
         activity_count: 412,
     };
 
@@ -573,11 +574,12 @@ mod in_app {
                         model: None,
                         finish_reason: Some("stop".to_owned()),
                         content_blocks: None,
-                        created_at: Utc::now().to_rfc3339(),
+                        created_at: Timestamp::now().to_rfc3339(),
                         transport_policy: TransportPolicy::AnyTransport,
                         channel_type: None,
                         about_user_id: None,
                         turn_attempted_write: None,
+                        ai_consent_sources: Vec::new(),
                     },
                     blocks: vec![ReplyBlock::Prose {
                         text: "Strava is not answering right now.".to_owned(),
@@ -670,6 +672,7 @@ mod in_app {
                     channel_type: None,
                     about_user_id: None,
                     turn_attempted_write: None,
+                    ai_consent_sources: &[],
                 })
                 .await
                 .unwrap()
@@ -687,7 +690,7 @@ mod in_app {
                         self.tenant,
                         &self.conversation,
                         "strava",
-                        (Utc::now() - Duration::days(30)).timestamp(),
+                        (Timestamp::now() - Elapsed::days(30)).epoch_seconds(),
                         1,
                     )
                 })
@@ -833,7 +836,7 @@ mod in_app {
                 user_id: thread.user,
                 tenant_id: thread.tenant,
                 provider: "strava",
-                oldest: Utc.with_ymd_and_hms(2014, 3, 2, 8, 0, 0).unwrap(),
+                oldest: Timestamp::parse_from_rfc3339("2014-03-02T08:00:00Z").unwrap(),
                 activity_count: 412,
             })
             .await;

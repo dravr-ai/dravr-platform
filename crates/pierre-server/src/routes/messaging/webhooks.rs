@@ -12,7 +12,9 @@ use axum::Extension;
 use axum::Json;
 use dravr_canot::channel::MessagingChannel;
 use pierre_core::constant_time::matches_configured_secret;
-use pierre_core::models::messaging::{ChannelType, InboundReaction, IncomingMessage};
+use pierre_core::models::messaging::{
+    ChannelType, InboundReaction, IncomingMessage, SenderIdentityChange,
+};
 use pierre_core::models::TenantId;
 use pierre_database::backends::MessagingRepository;
 use pierre_middleware::redaction::mask_recipient;
@@ -46,6 +48,9 @@ struct WebhookVerification {
     /// Emoji reactions parsed from the same verified body. Always empty for a
     /// channel whose descriptor delivers none.
     reactions: Vec<InboundReaction>,
+    /// Users the platform now names by another identifier, parsed from the
+    /// same verified body. Always empty for a channel that announces none.
+    identity_changes: Vec<SenderIdentityChange>,
 }
 
 /// Query parameters for Meta webhook verification (GET request)
@@ -243,6 +248,17 @@ pub(crate) async fn ingest(
             window_failure::redeliver_in_app(resources, verification.tenant_id, failure).await;
         }
     }
+
+    // An athlete the platform now names by another identifier is moved onto
+    // it first, so a message under the new id in this same body finds their
+    // link (carnet#1688).
+    messaging_ingress::apply_identity_changes(
+        resources,
+        verification.tenant_id,
+        channel,
+        &verification.identity_changes,
+    )
+    .await;
 
     // Persist messages synchronously and collect pending dispatches for background processing
     let (stored_count, pending_dispatches) = messaging_ingress::persist_inbound(
@@ -529,6 +545,8 @@ async fn parse_and_verify(
     })?;
 
     let reactions = parse_reactions(channel_type, adapter.as_ref(), headers, body).await;
+    let identity_changes =
+        parse_identity_changes(channel_type, adapter.as_ref(), headers, body).await;
 
     Ok(WebhookVerification {
         tenant_id,
@@ -536,7 +554,29 @@ async fn parse_and_verify(
         adapter,
         messages,
         reactions,
+        identity_changes,
     })
+}
+
+/// Parse the sender identity changes the same verified body announces.
+///
+/// A platform that regenerates the identifier it names a user by (`WhatsApp`
+/// on a phone-number change) says so in an event canot keeps out of the
+/// message stream. A payload the parser rejects is logged and treated as
+/// announcing none: its messages must still be delivered.
+async fn parse_identity_changes(
+    channel_type: ChannelType,
+    adapter: &dyn MessagingChannel,
+    headers: &HeaderMap,
+    body: &Bytes,
+) -> Vec<SenderIdentityChange> {
+    match adapter.receive_identity_changes(headers, body).await {
+        Ok(changes) => changes,
+        Err(e) => {
+            warn!(channel = %channel_type, error = %e, "Failed to parse sender identity changes");
+            Vec::new()
+        }
+    }
 }
 
 /// Parse emoji reactions out of the same verified body `receive` just read.

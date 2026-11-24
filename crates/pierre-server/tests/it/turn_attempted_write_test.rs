@@ -195,6 +195,7 @@ async fn turn_flag(thread: &Thread, content: &str) -> (Option<bool>, Option<Stri
             command_persistence: CommandPersistence::Always,
             sender_id: None,
             grant: OAuthScope::self_grant(),
+            caller: None,
             hooks: PipelineHooks::none(),
         },
         &SurfaceProfile::resolve(&SurfaceRequest {
@@ -504,6 +505,7 @@ async fn the_field_reaches_the_live_turn_and_the_thread_read() {
                 channel_type: None,
                 about_user_id: None,
                 turn_attempted_write: attempted,
+                ai_consent_sources: &[],
             })
             .await
             .unwrap();

@@ -8,7 +8,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { invalidateNotificationReads } from '@pierre/ui-logic';
 import { chatApi } from '../services/api';
-import { QUERY_KEYS } from '../constants/queryKeys';
+import { QUERY_KEYS } from '@pierre/shared-constants';
 import { cachedConversations, patchCachedConversation } from './useConversationList';
 
 function documentVisible(): boolean {

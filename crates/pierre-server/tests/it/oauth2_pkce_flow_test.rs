@@ -11,6 +11,7 @@ use crate::common;
 use secrecy::{ExposeSecret, SecretString};
 
 use base64::{engine::general_purpose, Engine as _};
+use dravr_tronc::dates::Timestamp;
 use pierre_auth::config::OAuth2ServerConfig;
 use pierre_auth::{
     auth::AuthManager,
@@ -124,8 +125,8 @@ async fn create_test_user_with_tenant(database: &Database, email: &str) -> User 
         domain: None,
         plan: "starter".to_owned(),
         owner_user_id: user.id,
-        created_at: chrono::Utc::now(),
-        updated_at: chrono::Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
     };
     repos.tenants.create(&tenant).await.unwrap();
 
@@ -150,6 +151,8 @@ async fn test_pkce_enforcement_no_code_challenge() {
         code_challenge: None, // No PKCE
         code_challenge_method: None,
         resource: None,
+        request_uri: None,
+        authorization_details: None,
     };
 
     let result = oauth_server
@@ -186,6 +189,8 @@ async fn test_pkce_valid_s256_flow() {
         code_challenge: Some(code_challenge),
         code_challenge_method: Some("S256".to_owned()),
         resource: None,
+        request_uri: None,
+        authorization_details: None,
     };
 
     let auth_response = oauth_server
@@ -233,6 +238,8 @@ async fn test_pkce_invalid_code_verifier() {
         code_challenge: Some(code_challenge),
         code_challenge_method: Some("S256".to_owned()),
         resource: None,
+        request_uri: None,
+        authorization_details: None,
     };
 
     let auth_response = oauth_server
@@ -282,6 +289,8 @@ async fn test_pkce_code_verifier_with_invalid_characters() {
         code_challenge: Some(code_challenge),
         code_challenge_method: Some("S256".to_owned()),
         resource: None,
+        request_uri: None,
+        authorization_details: None,
     };
 
     let auth_response = oauth_server
@@ -335,6 +344,8 @@ async fn test_pkce_missing_code_verifier() {
         code_challenge: Some(code_challenge),
         code_challenge_method: Some("S256".to_owned()),
         resource: None,
+        request_uri: None,
+        authorization_details: None,
     };
 
     let auth_response = oauth_server
@@ -384,6 +395,8 @@ async fn test_auth_code_replay_prevention() {
         code_challenge: Some(code_challenge),
         code_challenge_method: Some("S256".to_owned()),
         resource: None,
+        request_uri: None,
+        authorization_details: None,
     };
 
     let auth_response = oauth_server
@@ -468,6 +481,8 @@ async fn test_auth_code_client_binding() {
         code_challenge: Some(code_challenge),
         code_challenge_method: Some("S256".to_owned()),
         resource: None,
+        request_uri: None,
+        authorization_details: None,
     };
 
     let auth_response = oauth_server
@@ -520,6 +535,8 @@ async fn test_redirect_uri_exact_match() {
         code_challenge: Some(code_challenge),
         code_challenge_method: Some("S256".to_owned()),
         resource: None,
+        request_uri: None,
+        authorization_details: None,
     };
 
     let auth_response = oauth_server
@@ -572,6 +589,8 @@ async fn test_refresh_token_rotation() {
         code_challenge: Some(code_challenge),
         code_challenge_method: Some("S256".to_owned()),
         resource: None,
+        request_uri: None,
+        authorization_details: None,
     };
 
     let auth_response = oauth_server

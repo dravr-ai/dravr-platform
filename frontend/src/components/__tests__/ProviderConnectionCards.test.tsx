@@ -8,11 +8,10 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen, waitFor, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { PROVIDER_LINK_POLL_INTERVAL_MS } from '@pierre/shared-constants';
+import { PROVIDER_LINK_POLL_INTERVAL_MS, QUERY_KEYS } from '@pierre/shared-constants';
 import { i18n } from '@pierre/i18n';
 import ProviderConnectionCards from '../ProviderConnectionCards';
 import { ThemeProvider } from '../../hooks/useTheme';
-import { QUERY_KEYS } from '../../constants/queryKeys';
 
 const authorizeUrl = vi.fn((provider: string) => `/api/oauth/authorize/${provider}`);
 const getProvidersStatus = vi.fn();
@@ -31,6 +30,12 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+// A Garmin connect asks its offered consents first (ConnectConsentDialog);
+// Continue goes on with none ticked, as the athlete may.
+async function continueConsents(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(await screen.findByTestId('connect-consent-continue'));
+}
+
 vi.mock('../../services/api', () => ({
   providersApi: { getProvidersStatus: (...args: unknown[]) => getProvidersStatus(...args) },
   oauthApi: { authorizeUrl: (...args: unknown[]) => authorizeUrl(...args) },
@@ -47,17 +52,20 @@ vi.mock('../SciotteLoginModal', () => ({
     consentRequired,
     historyMode,
     onFallBackToOAuth,
+    consents,
   }: {
     isOpen: boolean;
     target: string;
     consentRequired?: boolean;
     historyMode?: boolean;
     onFallBackToOAuth?: () => void;
+    consents?: readonly string[];
   }) =>
     isOpen ? (
       <div
         data-testid="sciotte-modal"
         data-consent={String(Boolean(consentRequired))}
+        data-consents={(consents ?? []).join(',')}
         data-history-mode={String(Boolean(historyMode))}
       >
         {target}
@@ -296,6 +304,7 @@ describe('ProviderConnectionCards — OAuth-first with Sciotte fallback', () => 
     renderCards();
 
     await user.click(await screen.findByLabelText('Connect to Garmin'));
+    await continueConsents(user);
 
     await waitFor(() => expect(assign).toHaveBeenCalledWith('/api/oauth/authorize/garmin'));
     expect(window.open).not.toHaveBeenCalled();
@@ -308,6 +317,7 @@ describe('ProviderConnectionCards — OAuth-first with Sciotte fallback', () => 
     renderCards();
 
     await user.click(await screen.findByLabelText('Connect to Garmin'));
+    await continueConsents(user);
 
     expect(await screen.findByTestId('sciotte-modal')).toHaveTextContent('garmin');
     expect(assign).not.toHaveBeenCalled();
@@ -320,6 +330,7 @@ describe('ProviderConnectionCards — OAuth-first with Sciotte fallback', () => 
     renderCards();
 
     await user.click(await screen.findByLabelText('Connect to Garmin'));
+    await continueConsents(user);
 
     await waitFor(() => expect(assign).toHaveBeenCalledWith('/api/oauth/authorize/garmin'));
     expect(sessionStorage.getItem('pierre_oauth_return')).toBe('/settings/connections');
@@ -348,7 +359,7 @@ describe('ProviderConnectionCards — OAuth-first with Sciotte fallback', () => 
   });
 
   describe('a sign-in-first card falls back to its OAuth (carnet#1477)', () => {
-    // The operator put the sign-in first: the card recommends it with seats free.
+    // The admin put the sign-in first: the card recommends it with seats free.
     const signInFirst = <T extends { seats_left: number }>(card: T) => ({ ...card, seats_left: 3 });
 
     it('opens the Strava OAuth in a new tab when the Strava sign-in cannot complete', async () => {
@@ -373,6 +384,7 @@ describe('ProviderConnectionCards — OAuth-first with Sciotte fallback', () => 
       renderCards();
 
       await user.click(await screen.findByLabelText('Connect to Garmin'));
+      await continueConsents(user);
       await user.click(await screen.findByTestId('sign-in-unavailable'));
 
       await waitFor(() => expect(window.open).toHaveBeenCalledWith('/api/oauth/authorize/garmin', '_blank'));
@@ -437,6 +449,7 @@ describe('ProviderConnectionCards — OAuth-first with Sciotte fallback', () => 
           name: (name) => name.includes(i18n.t('providers.connectRefused', { provider: 'Garmin' })),
         }),
       );
+      await continueConsents(user);
       await waitFor(() => expect(assign).toHaveBeenCalledWith('/api/oauth/authorize/garmin'));
       expect(screen.queryByTestId('sciotte-modal')).not.toBeInTheDocument();
     });
@@ -477,6 +490,7 @@ describe('ProviderConnectionCards — OAuth-first with Sciotte fallback', () => 
     renderCards();
 
     await user.click(await screen.findByText(i18n.t('app.reconnect')));
+    await continueConsents(user);
 
     expect(await screen.findByTestId('sciotte-modal')).toBeInTheDocument();
     expect(assign).not.toHaveBeenCalled();
@@ -504,6 +518,7 @@ describe('ProviderConnectionCards — OAuth-first with Sciotte fallback', () => 
     renderCards();
 
     await user.click(await screen.findByLabelText('Connect to Garmin'));
+    await continueConsents(user);
 
     await waitFor(() => expect(assign).toHaveBeenCalledWith('/api/oauth/authorize/garmin'));
   });
@@ -768,6 +783,32 @@ describe('ProviderConnectionCards — Intervals.icu', () => {
     expect(screen.queryByTestId('own-app-setup')).toBeNull();
     expect(assign).not.toHaveBeenCalled();
   });
+
+  it('reconnects a card the athlete authorized straight through the authorization, never the key form', async () => {
+    getProvidersStatus.mockResolvedValue({
+      providers: [{ ...intervalsCard(false), connected: true, connection_type: 'oauth', needs_reauth: true }],
+    });
+    const user = userEvent.setup();
+    renderCards();
+
+    await user.click(await screen.findByText(i18n.t('app.reconnect')));
+
+    expect(assign).toHaveBeenCalledWith('/api/oauth/authorize/intervals_icu');
+    expect(screen.queryByTestId('intervals-modal')).toBeNull();
+  });
+
+  it('reconnects a key-linked card through the key form alone', async () => {
+    getProvidersStatus.mockResolvedValue({
+      providers: [{ ...intervalsCard(false), connected: true, connection_type: 'manual', needs_reauth: true }],
+    });
+    const user = userEvent.setup();
+    renderCards();
+
+    await user.click(await screen.findByText(i18n.t('app.reconnect')));
+
+    expect(await screen.findByTestId('intervals-modal')).toHaveAttribute('data-offers-authorize', 'false');
+    expect(assign).not.toHaveBeenCalled();
+  });
 });
 
 // JF, 2026-10-27: "We will not drop scrape at all, this is major." Importing
@@ -805,6 +846,7 @@ describe('ProviderConnectionCards — importing your own data sits beside the cr
     expect(await screen.findByTestId('sciotte-modal')).toHaveTextContent('strava');
 
     await user.click(screen.getByLabelText('Connect to Garmin'));
+    await continueConsents(user);
     expect(await screen.findByTestId('sciotte-modal')).toHaveTextContent('garmin');
   });
 
@@ -849,5 +891,84 @@ describe('ProviderConnectionCards — importing your own data sits beside the cr
     await screen.findByLabelText('Connect to Strava');
     expect(screen.queryByTestId('provider-export-sciotte')).not.toBeInTheDocument();
     expect(screen.queryByTestId('provider-export-sciotte_garmin')).not.toBeInTheDocument();
+  });
+});
+
+describe('ProviderConnectionCards — the Garmin connect\'s offered consents (carnet#1157, carnet#1390)', () => {
+  const signInFirst = <T extends { seats_left: number }>(card: T) => ({ ...card, seats_left: 3 });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    localStorage.clear();
+    sessionStorage.clear();
+    stubNavigation();
+  });
+
+  it('asks both consents before the Garmin authorization, which carries the boxes ticked', async () => {
+    getProvidersStatus.mockResolvedValue({ providers: [garminCard('oauth')] });
+    const user = userEvent.setup();
+    renderCards();
+
+    await user.click(await screen.findByLabelText('Connect to Garmin'));
+    expect(assign).not.toHaveBeenCalled();
+    await user.click(await screen.findByTestId('connect-consent-garmin'));
+    await user.click(screen.getByTestId('connect-consent-garmin_workout_transfer'));
+    await user.click(screen.getByTestId('connect-consent-continue'));
+
+    await waitFor(() => expect(assign).toHaveBeenCalledWith('/api/oauth/authorize/garmin'));
+    expect(authorizeUrl).toHaveBeenCalledWith('garmin', {
+      tosConsent: false,
+      consents: ['garmin', 'garmin_workout_transfer'],
+    });
+  });
+
+  it('connects Garmin with neither box ticked, carrying no consent', async () => {
+    getProvidersStatus.mockResolvedValue({ providers: [garminCard('oauth')] });
+    const user = userEvent.setup();
+    renderCards();
+
+    await user.click(await screen.findByLabelText('Connect to Garmin'));
+    await continueConsents(user);
+
+    await waitFor(() => expect(assign).toHaveBeenCalledWith('/api/oauth/authorize/garmin'));
+    expect(authorizeUrl).toHaveBeenCalledWith('garmin', { tosConsent: false });
+  });
+
+  it('hands the boxes ticked to the Garmin sign-in, and on to its OAuth fallback', async () => {
+    getProvidersStatus.mockResolvedValue({ providers: [signInFirst(garminCard('mirror'))] });
+    const user = userEvent.setup();
+    renderCards();
+
+    await user.click(await screen.findByLabelText('Connect to Garmin'));
+    await user.click(await screen.findByTestId('connect-consent-garmin'));
+    await continueConsents(user);
+
+    const modal = await screen.findByTestId('sciotte-modal');
+    expect(modal).toHaveAttribute('data-consents', 'garmin');
+    await user.click(screen.getByTestId('sign-in-unavailable'));
+    expect(authorizeUrl).toHaveBeenCalledWith('garmin', { signInBlocked: true, consents: ['garmin'] });
+  });
+
+  it('starts nothing when the athlete cancels', async () => {
+    getProvidersStatus.mockResolvedValue({ providers: [garminCard('oauth')] });
+    const user = userEvent.setup();
+    renderCards();
+
+    await user.click(await screen.findByLabelText('Connect to Garmin'));
+    await user.click(await screen.findByRole('button', { name: 'Cancel' }));
+
+    expect(assign).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('connect-consent-continue')).not.toBeInTheDocument();
+  });
+
+  it('asks nothing before a connect that offers no consent (Strava)', async () => {
+    getProvidersStatus.mockResolvedValue({ providers: [stravaCard('oauth')] });
+    const user = userEvent.setup();
+    renderCards();
+
+    await user.click(await screen.findByLabelText('Connect to Strava'));
+
+    await waitFor(() => expect(assign).toHaveBeenCalledWith('/api/oauth/authorize/strava'));
+    expect(screen.queryByTestId('connect-consent-continue')).not.toBeInTheDocument();
   });
 });

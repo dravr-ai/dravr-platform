@@ -8,6 +8,7 @@
 #![allow(missing_docs)]
 
 use anyhow::Result;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::{
     CoverageMap, CoverageTarget, GuidedFlow, OnboardingState, Pillar, TenantId, WalkAudience,
     MAX_PROBE_ATTEMPTS,
@@ -54,6 +55,7 @@ async fn capture(
             valid_until: None,
             source_msg_id: None,
             transport_policy: TransportPolicy::AnyTransport,
+            ai_consent_sources: &[],
         })
         .await?;
     Ok(())
@@ -64,7 +66,7 @@ async fn capture(
 async fn coverage(repos: &RepositoryRegistry, tenant: TenantId, user: Uuid) -> Result<CoverageMap> {
     let dossier = repos
         .dossier
-        .compose_dossier(tenant, user, TransportPolicy::FirstPartyOnly, &|_| true)
+        .compose_dossier(tenant, user, TransportPolicy::FirstPartyOnly, &|_, _| true)
         .await?;
     Ok(CoverageMap::from_dossier(&dossier))
 }
@@ -227,7 +229,7 @@ async fn delivered_probe_history_round_trips_and_drives_the_advance() -> Result<
     let user = Uuid::new_v4();
 
     // Turn 1 delivered the North Star probe; nothing extracted yet.
-    let state = OnboardingState::start(chrono::Utc::now().to_rfc3339(), GuidedFlow::Pillars)
+    let state = OnboardingState::start(Timestamp::now().to_rfc3339(), GuidedFlow::Pillars)
         .with_delivered_probe(CoverageTarget::NorthStar.slug());
     let reloaded =
         OnboardingState::from_column(Some(&state.to_column()?)).expect("walk still active");

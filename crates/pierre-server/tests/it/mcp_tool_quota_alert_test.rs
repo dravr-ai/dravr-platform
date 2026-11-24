@@ -21,17 +21,11 @@ use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::mcp::tool_handlers::ToolHandlers;
 use pierre_runtime_context::default_admin_config;
 use pierre_services::usage_counter::UsageCounterService;
-use pierre_test_support::log_capture::{capture_target, drain};
+use pierre_test_support::log_capture::{self, capture_target, drain};
 use pierre_tool_runtime::runtime::ToolRuntime;
 use regex::Regex;
 use serde_json::{json, Value};
-use std::fmt::Debug;
-use std::sync::{Arc, Mutex};
-use tracing::field::{Field, Visit};
-use tracing::{Event, Subscriber};
-use tracing_subscriber::layer::{Context, SubscriberExt};
-use tracing_subscriber::util::SubscriberInitExt;
-use tracing_subscriber::Layer;
+use std::sync::Arc;
 use uuid::Uuid;
 
 /// A read-only tool that needs no provider connection, so only the quota ladder
@@ -44,29 +38,6 @@ const OVER_THE_CAP: i64 = 10;
 
 /// Breaks the read the quota ladder makes, on either backend.
 const DROP_COUNTERS: &str = "DROP TABLE usage_counters";
-
-#[derive(Default)]
-struct MessageCapture {
-    messages: Arc<Mutex<Vec<String>>>,
-}
-
-struct MessageVisitor<'a>(&'a mut String);
-
-impl Visit for MessageVisitor<'_> {
-    fn record_debug(&mut self, field: &Field, value: &dyn Debug) {
-        if field.name() == "message" {
-            *self.0 = format!("{value:?}");
-        }
-    }
-}
-
-impl<S: Subscriber> Layer<S> for MessageCapture {
-    fn on_event(&self, event: &Event<'_>, _ctx: Context<'_, S>) {
-        let mut message = String::new();
-        event.record(&mut MessageVisitor(&mut message));
-        self.messages.lock().unwrap().push(message);
-    }
-}
 
 /// What the metric named `resource` in `public_mcp_monitoring.tf` matches a
 /// message's start against.
@@ -119,9 +90,7 @@ async fn dispatch(
         ..Default::default()
     };
 
-    let capture = MessageCapture::default();
-    let messages = Arc::clone(&capture.messages);
-    let guard = tracing_subscriber::registry().with(capture).set_default();
+    let (log, guard) = log_capture::capture_events();
     let response = ToolHandlers::dispatch_tool_call(
         resources,
         &state,
@@ -134,7 +103,13 @@ async fn dispatch(
     .await;
     drop(guard);
 
-    let logged = messages.lock().unwrap().clone();
+    // Every event counts, one line each; an event with no message logs an
+    // empty line, so the list keeps one entry per event.
+    let logged = log
+        .drain()
+        .iter()
+        .map(|event| event.message().unwrap_or_default().to_owned())
+        .collect();
     (serde_json::to_value(&response).unwrap(), logged)
 }
 

@@ -19,9 +19,9 @@
 //! covering the whole activity so agents can still compare apples to
 //! apples against multi-lap sessions.
 
-use chrono::{DateTime, TimeDelta, Utc};
 use dravr_cageux::models::activity::{Activity, Lap, TimeSeriesData};
 use dravr_cageux::visitor::{DecouplingDetector, NormalizedPowerCalculator, TimeSeriesExt};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use serde::{Deserialize, Serialize};
 
 /// One row in `intervals.json` representing a single lap or interval.
@@ -30,7 +30,7 @@ pub struct IntervalRow {
     /// 1-based interval index inside the activity.
     pub index: u32,
     /// Inclusive start time of the interval (UTC).
-    pub start_time: DateTime<Utc>,
+    pub start_time: Timestamp,
     /// Distance in metres. Zero for stationary intervals.
     pub distance_meters: f64,
     /// Elapsed seconds (includes stopped time).
@@ -102,7 +102,7 @@ pub fn build_intervals(activity: &Activity, ftp_watts: Option<u32>) -> Intervals
 /// running offset is the sum of the preceding laps' elapsed seconds, which is
 /// also what addresses this lap's samples in the stream.
 fn rows_from_laps(
-    base_start: DateTime<Utc>,
+    base_start: Timestamp,
     laps: &[Lap],
     stream: Option<&TimeSeriesData>,
     ftp_watts: Option<u32>,
@@ -132,7 +132,7 @@ fn rows_from_laps(
 /// `window` holds only that lap's samples, so the stream-derived metrics
 /// describe the interval rather than the whole session.
 fn build_row_from_lap(
-    base_start: DateTime<Utc>,
+    base_start: Timestamp,
     offset_seconds: u64,
     lap: &Lap,
     window: Option<&TimeSeriesData>,
@@ -194,11 +194,11 @@ fn build_row_from_whole_activity(
 /// Falls back to the activity start when the offset cannot be represented as a
 /// signed duration, which keeps the row ordered inside the activity instead of
 /// wrapping to an unrelated instant.
-fn start_at_offset(base_start: DateTime<Utc>, offset_seconds: u64) -> DateTime<Utc> {
+fn start_at_offset(base_start: Timestamp, offset_seconds: u64) -> Timestamp {
     i64::try_from(offset_seconds)
         .ok()
-        .and_then(TimeDelta::try_seconds)
-        .and_then(|delta| base_start.checked_add_signed(delta))
+        .map(Elapsed::seconds)
+        .and_then(|delta| base_start.checked_add(delta))
         .unwrap_or(base_start)
 }
 

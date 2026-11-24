@@ -100,23 +100,11 @@ async fn create_test_executor() -> Result<UniversalToolExecutor> {
             },
         },
         external_services: ExternalServicesConfig {
-            strava_api: StravaApiConfig {
-                base_url: "https://www.strava.com/api/v3".to_owned(),
-                auth_url: "https://www.strava.com/oauth/authorize".to_owned(),
-                token_url: "https://www.strava.com/oauth/token".to_owned(),
-                revoke_url: "https://www.strava.com/oauth/revoke".to_owned(),
-                ..Default::default()
-            },
-            garmin_api: GarminApiConfig {
-                base_url: "https://apis.garmin.com/wellness-api/rest".to_owned(),
-                auth_url: "https://connect.garmin.com/oauth2Confirm".to_owned(),
-                token_url: "https://diauth.garmin.com/di-oauth2-service/oauth/token".to_owned(),
-                revoke_url: "https://apis.garmin.com/wellness-api/rest/user/registration"
-                    .to_owned(),
-                ..Default::default()
-            },
+            strava_api: StravaApiConfig::default(),
+            garmin_api: GarminApiConfig::default(),
             sciotte: SciotteServiceConfig::default(),
             meta_graph_api_base: None,
+            overpass_api_base: None,
         },
         app_behavior: AppBehaviorConfig {
             max_activities_fetch: 100,
@@ -131,7 +119,7 @@ async fn create_test_executor() -> Result<UniversalToolExecutor> {
                 server_version: env!("CARGO_PKG_VERSION").to_owned(),
             },
         },
-        sse: SseConfig::default(),
+        session_cookie: SessionCookieConfig::default(),
         oauth2_server: OAuth2ServerConfig::default(),
         host: "localhost".to_owned(),
         base_url: "http://localhost:8081".to_owned(),
@@ -200,6 +188,8 @@ async fn create_test_executor() -> Result<UniversalToolExecutor> {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                lab_reader: None,
+                pdf_text_bin: None,
                 #[cfg(feature = "client-messaging")]
                 channel_adapters: common::offline_adapters(),
             },
@@ -497,23 +487,11 @@ async fn test_set_goal_tool() -> Result<()> {
             },
         },
         external_services: ExternalServicesConfig {
-            strava_api: StravaApiConfig {
-                base_url: "https://www.strava.com/api/v3".to_owned(),
-                auth_url: "https://www.strava.com/oauth/authorize".to_owned(),
-                token_url: "https://www.strava.com/oauth/token".to_owned(),
-                revoke_url: "https://www.strava.com/oauth/revoke".to_owned(),
-                ..Default::default()
-            },
-            garmin_api: GarminApiConfig {
-                base_url: "https://apis.garmin.com/wellness-api/rest".to_owned(),
-                auth_url: "https://connect.garmin.com/oauth2Confirm".to_owned(),
-                token_url: "https://diauth.garmin.com/di-oauth2-service/oauth/token".to_owned(),
-                revoke_url: "https://apis.garmin.com/wellness-api/rest/user/registration"
-                    .to_owned(),
-                ..Default::default()
-            },
+            strava_api: StravaApiConfig::default(),
+            garmin_api: GarminApiConfig::default(),
             sciotte: SciotteServiceConfig::default(),
             meta_graph_api_base: None,
+            overpass_api_base: None,
         },
         app_behavior: AppBehaviorConfig {
             max_activities_fetch: 100,
@@ -528,7 +506,7 @@ async fn test_set_goal_tool() -> Result<()> {
                 server_version: env!("CARGO_PKG_VERSION").to_owned(),
             },
         },
-        sse: SseConfig::default(),
+        session_cookie: SessionCookieConfig::default(),
         oauth2_server: OAuth2ServerConfig::default(),
         host: "localhost".to_owned(),
         base_url: "http://localhost:8081".to_owned(),
@@ -597,6 +575,8 @@ async fn test_set_goal_tool() -> Result<()> {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                lab_reader: None,
+                pdf_text_bin: None,
                 #[cfg(feature = "client-messaging")]
                 channel_adapters: common::offline_adapters(),
             },
@@ -1399,23 +1379,11 @@ async fn test_disconnect_provider_tool() -> Result<()> {
             },
         },
         external_services: ExternalServicesConfig {
-            strava_api: StravaApiConfig {
-                base_url: "https://www.strava.com/api/v3".to_owned(),
-                auth_url: "https://www.strava.com/oauth/authorize".to_owned(),
-                token_url: "https://www.strava.com/oauth/token".to_owned(),
-                revoke_url: "https://www.strava.com/oauth/revoke".to_owned(),
-                ..Default::default()
-            },
-            garmin_api: GarminApiConfig {
-                base_url: "https://apis.garmin.com/wellness-api/rest".to_owned(),
-                auth_url: "https://connect.garmin.com/oauth2Confirm".to_owned(),
-                token_url: "https://diauth.garmin.com/di-oauth2-service/oauth/token".to_owned(),
-                revoke_url: "https://apis.garmin.com/wellness-api/rest/user/registration"
-                    .to_owned(),
-                ..Default::default()
-            },
+            strava_api: StravaApiConfig::default(),
+            garmin_api: GarminApiConfig::default(),
             sciotte: SciotteServiceConfig::default(),
             meta_graph_api_base: None,
+            overpass_api_base: None,
         },
         app_behavior: AppBehaviorConfig {
             max_activities_fetch: 100,
@@ -1430,7 +1398,7 @@ async fn test_disconnect_provider_tool() -> Result<()> {
                 server_version: env!("CARGO_PKG_VERSION").to_owned(),
             },
         },
-        sse: SseConfig::default(),
+        session_cookie: SessionCookieConfig::default(),
         oauth2_server: OAuth2ServerConfig::default(),
         host: "localhost".to_owned(),
         base_url: "http://localhost:8081".to_owned(),
@@ -1499,6 +1467,8 @@ async fn test_disconnect_provider_tool() -> Result<()> {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                lab_reader: None,
+                pdf_text_bin: None,
                 #[cfg(feature = "client-messaging")]
                 channel_adapters: common::offline_adapters(),
             },

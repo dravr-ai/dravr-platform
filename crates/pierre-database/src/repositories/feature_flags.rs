@@ -18,7 +18,7 @@
 //! turns the column into text on Postgres and is empty on `SQLite`, so one
 //! row parser decodes both. `enabled` binds and decodes as a `bool` on both:
 //! sqlx writes it as the integer 0/1 the `SQLite` schema's `CHECK` accepts.
-//! `updated_at` binds and decodes as `DateTime<Utc>` on both: RFC 3339 text
+//! `updated_at` binds and decodes as `Timestamp` on both: RFC 3339 text
 //! on `SQLite`, byte-identical to the `to_rfc3339()` the rows were written
 //! with, and `TIMESTAMPTZ` on Postgres.
 //!
@@ -27,7 +27,7 @@
 //! them.
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::feature_flags::FeatureKey;
 use std::collections::HashMap;
@@ -46,7 +46,7 @@ pub struct FeatureFlagRow {
     /// Stored value at this scope (tenant or user).
     pub enabled: bool,
     /// Last write timestamp.
-    pub updated_at: DateTime<Utc>,
+    pub updated_at: Timestamp,
     /// Admin user who last wrote the row (audit trail). `None` when the
     /// referenced admin has been deleted (FK `ON DELETE SET NULL`).
     pub updated_by: Option<Uuid>,
@@ -227,7 +227,7 @@ where
     String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     Option<String>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     bool: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    DateTime<Utc>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Timestamp: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
     let key_raw: String = row
         .try_get("feature_key")
@@ -267,7 +267,7 @@ where
     String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     Option<String>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     bool: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    DateTime<Utc>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Timestamp: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
     let mut out = Vec::with_capacity(rows.len());
     for row in rows {
@@ -319,7 +319,7 @@ macro_rules! impl_feature_flags_repository {
                     .bind($bind_id(tenant_id))
                     .bind(feature_key.as_str())
                     .bind(enabled)
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .bind(updated_by.map($bind_id))
                     .execute(self.pool())
                     .await
@@ -367,7 +367,7 @@ macro_rules! impl_feature_flags_repository {
                     .bind($bind_id(user_id))
                     .bind(feature_key.as_str())
                     .bind(enabled)
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .bind(updated_by.map($bind_id))
                     .execute(self.pool())
                     .await

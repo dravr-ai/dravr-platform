@@ -143,7 +143,7 @@ impl ConversationTurnId {
     /// Sentinel value used for rows that pre-date turn threading.
     ///
     /// Stored as the nil UUID. Documented in the migration history
-    /// so operators can distinguish "unknown" from "genuine turn".
+    /// so admins can distinguish "unknown" from "genuine turn".
     #[must_use]
     pub const fn nil() -> Self {
         Self(Uuid::nil())
@@ -721,6 +721,10 @@ pub struct MessageRecord {
     /// column, or one no model turn wrote.
     #[serde(default)]
     pub turn_attempted_write: Option<bool>,
+    /// The AI-consent keys of the data this row was drawn from (carnet#1157):
+    /// a withdrawn one keeps it out of every prompt. Empty for rows before it.
+    #[serde(default, skip_serializing)]
+    pub ai_consent_sources: Vec<String>,
 }
 
 // The content is the athlete's message or the reply, and the blocks are lifted
@@ -745,6 +749,7 @@ impl fmt::Debug for MessageRecord {
             .field("channel_type", &self.channel_type)
             .field("about_user_id", &self.about_user_id)
             .field("turn_attempted_write", &self.turn_attempted_write)
+            .field("ai_consent_sources", &self.ai_consent_sources)
             .finish()
     }
 }
@@ -1024,6 +1029,8 @@ pub struct AddMessageParams<'a> {
     /// Whether the row's turn tried to change anything; see
     /// [`MessageRecord::turn_attempted_write`].
     pub turn_attempted_write: Option<bool>,
+    /// See [`MessageRecord::ai_consent_sources`].
+    pub ai_consent_sources: &'a [String],
 }
 
 // The content is the athlete's message or the reply: only lengths are printed.
@@ -1044,6 +1051,7 @@ impl fmt::Debug for AddMessageParams<'_> {
             .field("channel_type", &self.channel_type)
             .field("about_user_id", &self.about_user_id)
             .field("turn_attempted_write", &self.turn_attempted_write)
+            .field("ai_consent_sources", &self.ai_consent_sources)
             .finish()
     }
 }

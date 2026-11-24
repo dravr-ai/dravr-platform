@@ -15,7 +15,7 @@ use std::sync::Arc;
 use axum::http::StatusCode;
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use serde_json::{json, Value};
 
 use common::{create_test_server_resources, create_test_user_with_plan, generate_test_token};
@@ -138,6 +138,7 @@ async fn agent_reply(setup: &Setup, owner: &Athlete, rated: bool) -> AgentReply 
             channel_type: None,
             about_user_id: None,
             turn_attempted_write: None,
+            ai_consent_sources: &[],
         })
         .await
         .unwrap();
@@ -588,7 +589,7 @@ async fn team_reply(setup: &Setup, athlete: &Athlete, body: &str) {
             locale: None,
             about: None,
             image: None,
-            at: Utc::now(),
+            at: Timestamp::now(),
         })
         .await
         .expect("team reply");
@@ -831,7 +832,7 @@ async fn a_screenshot_that_is_not_what_it_says_is_refused() {
 async fn messages_written_in_one_millisecond_read_back_in_the_order_they_were_sent() {
     let setup = setup().await;
     let a = athlete(&setup, "feedback-same-instant@example.com").await;
-    let at = Utc::now();
+    let at = Timestamp::now();
     let team = FeedbackWriter::Team {
         slack_user_id: "U0PHIL",
     };

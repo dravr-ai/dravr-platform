@@ -32,7 +32,7 @@ use axum::extract::{Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use chrono::{Days, NaiveDate, Utc};
+use dravr_tronc::dates::{CivilDate, Timestamp};
 use dravr_tronc::mcp::schema::ToolResponse;
 use dravr_tronc::mcp::tool::{McpTool, ToolContext};
 use pierre_core::models::{ConnectionType, TenantId};
@@ -349,24 +349,20 @@ async fn an_unstated_window_is_today_through_two_weeks_out(
     // In the athlete's calendar: UTC for an athlete with no timezone on file.
     let (user_id, tenant) = planned_athlete(resources, "default-window").await;
     seen.lock().unwrap().clear();
-    let before_call = Utc::now().date_naive();
+    let before_call = Timestamp::now().utc_date();
     let response = call(resources, user_id, tenant, json!({})).await;
     assert!(!response.is_error, "{response:?}");
 
     let queries = asked(seen);
     assert_eq!(queries.len(), 1, "{queries:?}");
-    let after: NaiveDate = queries[0]["after"].parse().unwrap();
+    let after: CivilDate = queries[0]["after"].parse().unwrap();
     assert!(
-        after == before_call || after == Utc::now().date_naive(),
+        after == before_call || after == Timestamp::now().utc_date(),
         "the window starts today: {queries:?}"
     );
     assert_eq!(
         queries[0]["before"],
-        after
-            .checked_add_days(Days::new(14))
-            .unwrap()
-            .format("%Y-%m-%d")
-            .to_string()
+        after.checked_add_days(14).unwrap().to_string()
     );
 }
 

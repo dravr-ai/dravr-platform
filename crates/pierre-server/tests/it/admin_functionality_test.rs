@@ -19,7 +19,7 @@ use crate::common;
 use secrecy::ExposeSecret;
 
 use anyhow::Result;
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::admin::models::{
     AdminAction, AdminPermission, AdminPermissions, AdminTokenUsage, CreateAdminTokenRequest,
 };
@@ -27,6 +27,7 @@ use pierre_core::admin::{AdminJwtManager, TokenScope};
 use pierre_routes_admin::auth::service::AdminAuthService;
 
 const TEST_JWT_SECRET: &str = "test_jwt_secret_for_admin_token_creation_in_tests";
+use dravr_tronc::dates::Elapsed;
 use serial_test::serial;
 
 #[tokio::test]
@@ -73,7 +74,7 @@ async fn test_admin_jwt_with_expiration() -> Result<()> {
     let token_id = "test_token_exp";
     let service_name = "test_service";
     let permissions = AdminPermissions::super_admin();
-    let expires_at = Utc::now() + chrono::Duration::hours(1);
+    let expires_at = Timestamp::now() + Elapsed::hours(1);
 
     // Initialize JWKS manager for RS256 admin token signing
     let jwks_manager = common::get_shared_test_jwks();
@@ -219,7 +220,7 @@ async fn test_admin_token_usage_tracking() -> Result<()> {
     let usage = AdminTokenUsage {
         id: None,
         admin_token_id: generated_token.token_id.clone(),
-        timestamp: Utc::now(),
+        timestamp: Timestamp::now(),
         action: AdminAction::ProvisionKey,
         target_resource: Some("test_api_key_123".to_owned()),
         ip_address: Some(ip_address.to_owned()),
@@ -233,8 +234,8 @@ async fn test_admin_token_usage_tracking() -> Result<()> {
     repos.admin.record_token_usage(&usage).await?;
 
     // Get usage history
-    let start_date = Utc::now() - chrono::Duration::hours(1);
-    let end_date = Utc::now() + chrono::Duration::hours(1);
+    let start_date = Timestamp::now() - Elapsed::hours(1);
+    let end_date = Timestamp::now() + Elapsed::hours(1);
     let usage_history = repos
         .admin
         .get_token_usage_history(&generated_token.token_id, start_date, end_date)

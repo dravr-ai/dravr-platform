@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::AppResult;
 use std::fmt;
 
@@ -127,7 +127,7 @@ pub struct EnqueueOutboundParams<'a> {
     pub payload: &'a str,
     /// Instant after which the payload must not be sent (it carries a link
     /// that has expired by then); `None` when nothing in it expires
-    pub expires_at: Option<DateTime<Utc>>,
+    pub expires_at: Option<Timestamp>,
     /// Set on a reconnect notice: the connection whose state decides whether
     /// the notice still goes out. Requires `user_id`.
     pub reauth: Option<OutboundReauthGuard<'a>>,

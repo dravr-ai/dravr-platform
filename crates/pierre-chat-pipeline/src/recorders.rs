@@ -90,7 +90,7 @@ pub struct ChatRepoToolMessageRecorder {
     rows: ToolRoundRows,
     /// The rounds a platform-composed turn holds, each with the policy it was
     /// derived under; `None` on a turn the athlete sent.
-    held: Option<Mutex<Vec<(ToolRoundRecord, TransportPolicy)>>>,
+    held: Option<Mutex<Vec<(ToolRoundRecord, RoundStamp)>>>,
 }
 
 impl ChatRepoToolMessageRecorder {
@@ -125,8 +125,8 @@ impl ChatRepoToolMessageRecorder {
             return;
         };
         let rounds = mem::take(&mut *held.lock().unwrap_or_else(PoisonError::into_inner));
-        for (record, transport_policy) in rounds {
-            self.rows.write(&record, transport_policy).await;
+        for (record, stamp) in rounds {
+            self.rows.write(&record, &stamp).await;
         }
     }
 }
@@ -148,19 +148,31 @@ impl ToolMessageRecorder for ChatRepoToolMessageRecorder {
         }
         // Stamped here, inside the turn's provenance: neither the spawned
         // write nor a held one runs inside what the round was derived from.
-        let transport_policy = ai_scope::derived_policy();
+        let stamp = RoundStamp {
+            transport_policy: ai_scope::derived_policy(),
+            ai_consent_sources: ai_scope::derived_consent_sources(),
+        };
         if let Some(held) = &self.held {
             held.lock()
                 .unwrap_or_else(PoisonError::into_inner)
-                .push((record, transport_policy));
+                .push((record, stamp));
             return;
         }
         let rows = self.rows.clone();
         let owner = TaskOwner::Conversation(rows.conversation_id.clone());
         spawn_supervised(&Handle::current(), "tool_round_write", owner, async move {
-            rows.write(&record, transport_policy).await;
+            rows.write(&record, &stamp).await;
         });
     }
+}
+
+/// What a round's rows are stamped with, read inside the turn's provenance.
+#[derive(Debug, Clone)]
+struct RoundStamp {
+    /// Where the rows may be served (carnet#769).
+    transport_policy: TransportPolicy,
+    /// The AI-consent keys of what the turn served so far (carnet#1157).
+    ai_consent_sources: Vec<String>,
 }
 
 /// Where a turn's tool rounds are written: one conversation, as one athlete.
@@ -184,7 +196,7 @@ impl fmt::Debug for ToolRoundRows {
 
 impl ToolRoundRows {
     /// Write `record` as its `tool_call` and `tool_result` rows.
-    async fn write(&self, record: &ToolRoundRecord, transport_policy: TransportPolicy) {
+    async fn write(&self, record: &ToolRoundRecord, stamp: &RoundStamp) {
         // Strip tool-call/tool-result scaffolding before persisting. The raw
         // `<tool_call>`/`<tool_result>` blocks are per-turn LLM plumbing, not
         // durable conversation content; persisting them verbatim lets a thread
@@ -208,10 +220,11 @@ impl ToolRoundRows {
                 prompt_tokens: None,
                 model: None,
                 content_blocks: None,
-                transport_policy,
+                transport_policy: stamp.transport_policy,
                 channel_type: None,
                 about_user_id,
                 turn_attempted_write: None,
+                ai_consent_sources: &stamp.ai_consent_sources,
             };
             if let Err(e) = self.chat.add_message(&params).await {
                 warn!("Failed to persist tool_call message: {e}");
@@ -230,10 +243,11 @@ impl ToolRoundRows {
                 prompt_tokens: None,
                 model: None,
                 content_blocks: None,
-                transport_policy,
+                transport_policy: stamp.transport_policy,
                 channel_type: None,
                 about_user_id,
                 turn_attempted_write: None,
+                ai_consent_sources: &stamp.ai_consent_sources,
             };
             if let Err(e) = self.chat.add_message(&params).await {
                 warn!("Failed to persist tool_result message: {e}");

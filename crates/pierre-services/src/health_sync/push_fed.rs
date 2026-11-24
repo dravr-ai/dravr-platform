@@ -4,9 +4,10 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use pierre_core::civil_time::day_start_utc;
 use std::future::Future;
 
-use chrono::{DateTime, NaiveDate, NaiveTime, Utc};
+use dravr_tronc::dates::{CivilDate, Timestamp};
 
 use dravr_enforme::error::{EnformeError, EnformeResult};
 use pierre_core::models::TenantId;
@@ -17,6 +18,7 @@ use uuid::Uuid;
 
 use super::token_tenant_id;
 use crate::garmin_push;
+use dravr_tronc::dates::Zone;
 
 tokio::task_local! {
     /// The athlete whose history walk runs on this task.
@@ -28,7 +30,7 @@ tokio::task_local! {
 #[derive(Debug, Clone, Copy)]
 struct HistoryWalkScope {
     user: Uuid,
-    pushed_from: NaiveDate,
+    pushed_from: CivilDate,
 }
 
 /// Run `work`, the wellness half of `user`'s history walk (carnet#1482).
@@ -43,7 +45,7 @@ struct HistoryWalkScope {
 /// inside the task that runs the sync.
 pub async fn history_walk_scope<F: Future>(
     user: Uuid,
-    pushed_from: NaiveDate,
+    pushed_from: CivilDate,
     work: F,
 ) -> F::Output {
     HISTORY_WALK
@@ -61,7 +63,7 @@ fn in_history_walk_of(user: Uuid) -> bool {
 /// Whether a sync on this task writes `user_id`'s wellness for `day`: every
 /// day, except within the user's history walk, where a day the push holds
 /// is left to it ([`history_walk_scope`]).
-pub(super) fn history_walk_writes(user_id: &str, day: NaiveDate) -> bool {
+pub(super) fn history_walk_writes(user_id: &str, day: CivilDate) -> bool {
     HISTORY_WALK
         .try_with(|walking| walking.user.to_string() != user_id || day < walking.pushed_from)
         .unwrap_or(true)
@@ -72,11 +74,11 @@ pub(super) fn history_walk_writes(user_id: &str, day: NaiveDate) -> bool {
 /// ending from the push's first day on is left to it. The cutoff is that
 /// day's first instant, the same day the push's first stored night counts
 /// toward ([`history_walk_scope`]).
-pub(super) fn history_walk_writes_night(user_id: &str, ended: DateTime<Utc>) -> bool {
+pub(super) fn history_walk_writes_night(user_id: &str, ended: Timestamp) -> bool {
     HISTORY_WALK
         .try_with(|walking| {
             walking.user.to_string() != user_id
-                || ended < walking.pushed_from.and_time(NaiveTime::MIN).and_utc()
+                || ended < day_start_utc(walking.pushed_from, &Zone::utc())
         })
         .unwrap_or(true)
 }

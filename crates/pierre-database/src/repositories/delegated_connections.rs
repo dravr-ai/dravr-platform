@@ -15,7 +15,7 @@
 //! Every uuid column (ids, users, tenants, the group) is `uuid` on Postgres
 //! and hyphenated `TEXT` on `SQLite`, so every id bind and read goes through a
 //! [`super::uuid_columns`] codec, the macro's one per-backend argument besides
-//! the driver's row type. Timestamps bind and decode as [`DateTime<Utc>`] on
+//! the driver's row type. Timestamps bind and decode as [`Timestamp`] on
 //! both: `TIMESTAMPTZ` on Postgres, RFC 3339 text on `SQLite`.
 //!
 //! Groups span tenants, so no statement filters by a group's tenant. Each is
@@ -29,7 +29,7 @@
 //! them.
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{DelegatedConnection, DelegationEndReason, DelegationStatus, TenantId};
 use uuid::Uuid;
@@ -99,7 +99,7 @@ pub trait DelegatedConnectionRepository: Send + Sync {
         id: Uuid,
         member_user_id: Uuid,
         member_tenant_id: TenantId,
-        now: DateTime<Utc>,
+        now: Timestamp,
     ) -> AppResult<Option<DelegatedConnection>>;
 
     /// End one live link. `participant_user_id` scopes the statement: it must
@@ -112,7 +112,7 @@ pub trait DelegatedConnectionRepository: Send + Sync {
         participant_user_id: Uuid,
         actor: Option<Uuid>,
         reason: DelegationEndReason,
-        now: DateTime<Utc>,
+        now: Timestamp,
     ) -> AppResult<Option<DelegatedConnection>>;
 
     /// End every live link naming one member in one group. Returns exactly
@@ -123,7 +123,7 @@ pub trait DelegatedConnectionRepository: Send + Sync {
         member_user_id: Uuid,
         actor: Option<Uuid>,
         reason: DelegationEndReason,
-        now: DateTime<Utc>,
+        now: Timestamp,
     ) -> AppResult<Vec<DelegatedConnection>>;
 
     /// End every live link of one group. Returns exactly the rows it ended.
@@ -132,7 +132,7 @@ pub trait DelegatedConnectionRepository: Send + Sync {
         group_id: Uuid,
         actor: Option<Uuid>,
         reason: DelegationEndReason,
-        now: DateTime<Utc>,
+        now: Timestamp,
     ) -> AppResult<Vec<DelegatedConnection>>;
 
     /// End every live link served by one coach's session in one tenant for
@@ -144,7 +144,7 @@ pub trait DelegatedConnectionRepository: Send + Sync {
         provider: &str,
         actor: Option<Uuid>,
         reason: DelegationEndReason,
-        now: DateTime<Utc>,
+        now: Timestamp,
     ) -> AppResult<Vec<DelegatedConnection>>;
 
     /// End the member's confirmed link for one provider in one tenant.
@@ -157,7 +157,7 @@ pub trait DelegatedConnectionRepository: Send + Sync {
         provider: &str,
         actor: Option<Uuid>,
         reason: DelegationEndReason,
-        now: DateTime<Utc>,
+        now: Timestamp,
     ) -> AppResult<Vec<DelegatedConnection>>;
 
     /// The member's live links for one provider that the group relation still
@@ -655,7 +655,7 @@ macro_rules! impl_delegated_connection_repository {
                 id: Uuid,
                 member_user_id: Uuid,
                 member_tenant_id: TenantId,
-                now: DateTime<Utc>,
+                now: Timestamp,
             ) -> AppResult<Option<DelegatedConnection>> {
                 let row = sqlx::query(CONFIRM_SQL)
                     .bind(now)
@@ -689,7 +689,7 @@ macro_rules! impl_delegated_connection_repository {
                 participant_user_id: Uuid,
                 actor: Option<Uuid>,
                 reason: DelegationEndReason,
-                now: DateTime<Utc>,
+                now: Timestamp,
             ) -> AppResult<Option<DelegatedConnection>> {
                 let row = sqlx::query(END_ONE_SQL)
                     .bind(now)
@@ -712,7 +712,7 @@ macro_rules! impl_delegated_connection_repository {
                 member_user_id: Uuid,
                 actor: Option<Uuid>,
                 reason: DelegationEndReason,
-                now: DateTime<Utc>,
+                now: Timestamp,
             ) -> AppResult<Vec<DelegatedConnection>> {
                 let rows = sqlx::query(END_FOR_GROUP_MEMBER_SQL)
                     .bind(now)
@@ -736,7 +736,7 @@ macro_rules! impl_delegated_connection_repository {
                 group_id: Uuid,
                 actor: Option<Uuid>,
                 reason: DelegationEndReason,
-                now: DateTime<Utc>,
+                now: Timestamp,
             ) -> AppResult<Vec<DelegatedConnection>> {
                 let rows = sqlx::query(END_FOR_GROUP_SQL)
                     .bind(now)
@@ -761,7 +761,7 @@ macro_rules! impl_delegated_connection_repository {
                 provider: &str,
                 actor: Option<Uuid>,
                 reason: DelegationEndReason,
-                now: DateTime<Utc>,
+                now: Timestamp,
             ) -> AppResult<Vec<DelegatedConnection>> {
                 let rows = sqlx::query(END_FOR_COACH_SQL)
                     .bind(now)
@@ -788,7 +788,7 @@ macro_rules! impl_delegated_connection_repository {
                 provider: &str,
                 actor: Option<Uuid>,
                 reason: DelegationEndReason,
-                now: DateTime<Utc>,
+                now: Timestamp,
             ) -> AppResult<Vec<DelegatedConnection>> {
                 let rows = sqlx::query(END_CONFIRMED_FOR_MEMBER_SQL)
                     .bind(now)

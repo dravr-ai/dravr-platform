@@ -23,13 +23,13 @@ mod refused {
     use std::time::Duration;
 
     use axum::http::StatusCode;
-    use chrono::Utc;
+    use dravr_tronc::dates::Timestamp;
     use pierre_chat_pipeline::turn_stop;
-    use pierre_contremaitre::messaging_strings::{DEFAULT_LOCALE, KEY_TURN_INTERRUPTED};
+    use pierre_contremaitre::messaging_strings::{DEFAULT_LOCALE, KEY_TURN_UNAVAILABLE};
     use pierre_database::backends::MessagingRepository;
     use pierre_database::database::MessageRecord;
     use pierre_mcp_server::routes::messaging::MessagingRoutes;
-    use pierre_mcp_server::services::messaging_ingress::turn_watchdog;
+    use pierre_mcp_server::services::turn_runner::turn_watchdog;
     use tokio::time;
 
     use crate::common::{
@@ -42,7 +42,9 @@ mod refused {
     };
 
     /// A turn the health gate refuses is closed on the personal thread with
-    /// the interrupted notice, and the channel hears only the apology.
+    /// the unavailable notice — not the interrupted one, which asks the
+    /// athlete to resend a turn that would be refused again — and the channel
+    /// hears only the apology.
     #[tokio::test(flavor = "multi_thread")]
     async fn a_refused_channel_turn_is_closed_on_the_thread() {
         let config = test_server_config();
@@ -125,7 +127,7 @@ mod refused {
             "{rows:?}"
         );
         assert!(
-            turn_stop::awaiting_question(&rows, &user, Utc::now(), ceiling).is_none(),
+            turn_stop::awaiting_question(&rows, &user, Timestamp::now(), ceiling).is_none(),
             "a refused turn is not a reply on its way: {rows:?}"
         );
 
@@ -134,7 +136,11 @@ mod refused {
         let notice = resources
             .mcp
             .messaging_strings_registry
-            .get(KEY_TURN_INTERRUPTED, DEFAULT_LOCALE);
+            .get(KEY_TURN_UNAVAILABLE, DEFAULT_LOCALE);
+        assert_eq!(
+            closing.content, notice,
+            "a refused turn says the service is unavailable: {rows:?}"
+        );
         let bodies = outbound_bodies(db, tenant_id, sender_id).await;
         assert_eq!(bodies.len(), 1, "one reply on the channel: {bodies:?}");
         assert_ne!(

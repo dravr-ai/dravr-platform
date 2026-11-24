@@ -9,6 +9,7 @@
 
 #[cfg(feature = "client-messaging")]
 mod slack_ops_action_signature_tests {
+    use dravr_tronc::dates::Timestamp;
     use std::sync::Arc;
 
     use axum::http::StatusCode;
@@ -49,7 +50,7 @@ mod slack_ops_action_signature_tests {
             .await
             .unwrap();
         let router = MessagingRoutes::routes(Arc::clone(&resources));
-        let timestamp = chrono::Utc::now().timestamp().to_string();
+        let timestamp = Timestamp::now().epoch_seconds().to_string();
         let signature = slack_signature(signed_with, &timestamp, BODY);
 
         AxumTestRequest::post(OPS_ACTIONS_PATH)

@@ -241,7 +241,7 @@ fn supported(explanation: String) -> VerdictOutcome {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::NaiveDate;
+    use dravr_tronc::dates::CivilDate;
 
     fn figure(value: f64, unit: Unit) -> AssertedFigure {
         AssertedFigure {
@@ -251,12 +251,12 @@ mod tests {
         }
     }
 
-    fn day(m: u32, d: u32) -> NaiveDate {
-        NaiveDate::from_ymd_opt(2026, m, d).unwrap()
+    fn day(m: u32, d: u32) -> CivilDate {
+        CivilDate::from_ymd(2026, m, d).unwrap()
     }
 
     /// A run at six minutes a kilometre.
-    fn run(date: NaiveDate, km: f64) -> RecordedActivity {
+    fn run(date: CivilDate, km: f64) -> RecordedActivity {
         RecordedActivity {
             date,
             sport: SportType::Run,

@@ -14,14 +14,14 @@
 
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::periodization::{
-    envelope_check, EnvelopeInput, FlavourInputs, FlavourVerdict, InstanceRequest, PresetParams,
-    PresetShape, Share, WorkoutTemplate,
+    envelope_check, EnvelopeInput, FlavourInputs, FlavourVerdict, Instance, InstanceRequest,
+    PresetParams, PresetShape, Share, WorkoutTemplate,
 };
 use pierre_core::models::{sport_anchors, HeldAnchors, SportType, TenantId};
 use pierre_database::RepositoryRegistry;
 use pierre_memory::training_plans::{
-    DayEnvelope, FlavourSelection, PlanPhase, PlannedDay, SelectedBy, TemplateParams,
-    TemplateSource,
+    session_positions, DayEnvelope, FlavourSelection, PlanPhase, PlannedDay, SelectedBy,
+    TemplateParams, TemplateSource,
 };
 use pierre_services::agent_package::PackagedCatalogue;
 use pierre_services::plan_calendar_push::plan_sport;
@@ -36,7 +36,7 @@ use super::calendar::{
     MAX_STEP_DURATION_SECONDS, MAX_STEP_REPEAT,
 };
 use super::training_plans::{
-    plan_date, WeekPayload, MAX_DURATION_MIN, MAX_TARGET_HOURS, MAX_TEXT_LEN,
+    plan_date, session_label, WeekPayload, MAX_DURATION_MIN, MAX_TARGET_HOURS, MAX_TEXT_LEN,
 };
 
 /// Hard sessions a week no phase exceeds; the flavour caps are lower.
@@ -200,32 +200,30 @@ fn share_in_unit(field: &str, share: Share) -> AppResult<()> {
 
 /// A day's template reference: a rest day has no session to build from a
 /// template, and parameters or a preset without a template fill nothing.
-pub(super) fn validate_day_template(day: &PlannedDay) -> AppResult<()> {
+/// Messages name the day as `session` does ([`session_label`]).
+pub(super) fn validate_day_template(day: &PlannedDay, session: &str) -> AppResult<()> {
     if let Some(slug) = day.template_slug.as_deref() {
         bounded("day.template_slug", slug, MAX_SHORT_TEXT_LEN)?;
         if day.is_rest() {
             return Err(AppError::invalid_input(format!(
-                "day {} is a rest day and names template {slug} — there is no session to \
-                 build from it",
-                day.date
+                "{session} is a rest day and names template {slug} — there is no session to \
+                 build from it"
             )));
         }
     } else if day.template_params.is_some_and(|p| !p.is_empty()) {
         return Err(AppError::invalid_input(format!(
-            "day {} gives template_params without a template_slug to fill",
-            day.date
+            "{session} gives template_params without a template_slug to fill"
         )));
     } else if day.template_preset.is_some() {
         return Err(AppError::invalid_input(format!(
-            "day {} gives template_preset without a template_slug to name its family",
-            day.date
+            "{session} gives template_preset without a template_slug to name its family"
         )));
     }
     if let Some(preset) = day.template_preset.as_deref() {
         bounded("day.template_preset", preset, MAX_SHORT_TEXT_LEN)?;
     }
     if let Some(params) = day.template_params.as_ref() {
-        check_template_params(&format!("day {} template_params", day.date), params)?;
+        check_template_params(&format!("{session} template_params"), params)?;
     }
     Ok(())
 }
@@ -341,55 +339,79 @@ pub(super) fn instantiate_template_days(
     weeks: &mut [WeekPayload],
     anchors: Option<&HeldAnchors>,
 ) -> AppResult<()> {
-    for day in weeks.iter_mut().flat_map(|w| &mut w.days) {
-        day.envelope = None;
-        let Some(slug) = day.template_slug.clone() else {
-            continue;
-        };
-        let resolved = catalogue.resolve_workout(&slug).map(|(r, _)| r);
-        let Some(resolved) = resolved.filter(|r| r.template.is_family()) else {
-            if let Some(preset) = day.template_preset.as_deref() {
-                return Err(AppError::invalid_input(format!(
-                    "day {} names preset '{preset}' for template '{slug}', which has no presets",
-                    day.date
-                )));
-            }
-            continue;
-        };
-        let template = &resolved.template;
-        let preset = day
-            .template_preset
-            .clone()
-            .or_else(|| resolved.request.preset.clone());
-        let sport = plan_sport(&day.sport);
-        let stated = day.template_params.map(|p| p.preset_params());
-        if day.steps.is_empty() {
-            generate_day(day, template, preset, &sport, stated, anchors);
-        } else {
-            let report = envelope_check(&EnvelopeInput {
-                template,
-                preset: preset.as_deref(),
-                sport: &sport,
-                steps: &day.steps,
-                params: stated.as_ref(),
-                generated: false,
-                anchors: anchors.map(HeldAnchors::values),
-            });
-            let anchor =
-                anchors.and_then(|held| sport_anchors::target_anchor(&day.steps, &sport, held));
-            day.envelope = Some(DayEnvelope::from_report(report, false, anchor));
-        }
-        // Record the preset the day resolved to — its key, not the legacy
-        // slug that named it — so later reads need no alias table.
-        if day.template_preset.is_none() {
-            day.template_preset = day.envelope.as_ref().and_then(|e| e.preset.clone());
+    for week in weeks.iter_mut() {
+        let positions = session_positions(&week.days);
+        for (day, position) in week.days.iter_mut().zip(positions) {
+            instantiate_template_day(catalogue, day, position, anchors)?;
         }
     }
     Ok(())
 }
 
+/// One day of [`instantiate_template_days`], at `position` among its date's
+/// entries, answering the kernel's instance when the day's steps were
+/// generated from its preset: what the coach's family editor shows beside the
+/// day (carnet#1515). `None` for a day with no family, a day that writes its
+/// own steps, and a day whose generated steps left a session's bounds.
+///
+/// # Errors
+///
+/// Those of [`instantiate_template_days`], naming the session.
+pub(super) fn instantiate_template_day(
+    catalogue: &PackagedCatalogue<'_>,
+    day: &mut PlannedDay,
+    position: u32,
+    anchors: Option<&HeldAnchors>,
+) -> AppResult<Option<Instance>> {
+    day.envelope = None;
+    let Some(slug) = day.template_slug.clone() else {
+        return Ok(None);
+    };
+    let resolved = catalogue.resolve_workout(&slug).map(|(r, _)| r);
+    let Some(resolved) = resolved.filter(|r| r.template.is_family()) else {
+        if let Some(preset) = day.template_preset.as_deref() {
+            return Err(AppError::invalid_input(format!(
+                "{} names preset '{preset}' for template '{slug}', which has no presets",
+                session_label(&day.date, position)
+            )));
+        }
+        return Ok(None);
+    };
+    let template = &resolved.template;
+    let preset = day
+        .template_preset
+        .clone()
+        .or_else(|| resolved.request.preset.clone());
+    let sport = plan_sport(&day.sport);
+    let stated = day.template_params.map(|p| p.preset_params());
+    let instance = if day.steps.is_empty() {
+        generate_day(day, template, preset, &sport, stated, anchors)
+    } else {
+        let report = envelope_check(&EnvelopeInput {
+            template,
+            preset: preset.as_deref(),
+            sport: &sport,
+            steps: &day.steps,
+            params: stated.as_ref(),
+            generated: false,
+            anchors: anchors.map(HeldAnchors::values),
+        });
+        let anchor =
+            anchors.and_then(|held| sport_anchors::target_anchor(&day.steps, &sport, held));
+        day.envelope = Some(DayEnvelope::from_report(report, false, anchor));
+        None
+    };
+    // Record the preset the day resolved to — its key, not the legacy
+    // slug that named it — so later reads need no alias table.
+    if day.template_preset.is_none() {
+        day.template_preset = day.envelope.as_ref().and_then(|e| e.preset.clone());
+    }
+    Ok(instance)
+}
+
 /// Fill a family day's steps and duration from its preset, and stamp what
-/// the envelope check found on them.
+/// the envelope check found on them; the instance they came from, or `None`
+/// when they left a session's bounds and the day keeps no steps.
 fn generate_day(
     day: &mut PlannedDay,
     template: &WorkoutTemplate,
@@ -397,7 +419,7 @@ fn generate_day(
     sport: &SportType,
     stated: Option<PresetParams>,
     anchors: Option<&HeldAnchors>,
-) {
+) -> Option<Instance> {
     let mut params = stated.unwrap_or_default();
     let sized_by_duration = preset
         .as_deref()
@@ -443,13 +465,21 @@ fn generate_day(
                 instance.generated.steps.len()
             )),
         });
-        return;
+        return None;
     }
     let anchor = anchors
         .and_then(|held| sport_anchors::target_anchor(&instance.generated.steps, sport, held));
-    day.steps = instance.generated.steps;
+    // The day keeps its own copy of the steps and the report: the instance
+    // goes back whole to the caller, whose family editor names the session
+    // from its generated steps and shows the report's derived values.
+    day.steps.clone_from(&instance.generated.steps);
     day.duration_min = Some(instance.generated.duration_minutes);
-    day.envelope = Some(DayEnvelope::from_report(instance.report, true, anchor));
+    day.envelope = Some(DayEnvelope::from_report(
+        instance.report.clone(),
+        true,
+        anchor,
+    ));
+    Some(instance)
 }
 
 /// Every `template_slug` a day names must be a template of the agent's
@@ -465,27 +495,30 @@ pub(super) async fn check_template_slugs(
     user_id: Uuid,
     weeks: &mut [WeekPayload],
 ) -> AppResult<()> {
-    for day in weeks.iter_mut().flat_map(|w| &mut w.days) {
-        let Some(slug) = day.template_slug.as_deref() else {
-            day.template_source = None;
-            continue;
-        };
-        if let Some((_, tier)) = catalogue.workout(slug) {
-            day.template_source = Some(tier.template_source());
-            continue;
+    for week in weeks.iter_mut() {
+        let positions = session_positions(&week.days);
+        for (day, position) in week.days.iter_mut().zip(positions) {
+            let Some(slug) = day.template_slug.as_deref() else {
+                day.template_source = None;
+                continue;
+            };
+            if let Some((_, tier)) = catalogue.workout(slug) {
+                day.template_source = Some(tier.template_source());
+                continue;
+            }
+            let own = repos
+                .workout_templates
+                .get_user_workout_template(tenant, user_id, slug)
+                .await?;
+            if own.is_none() {
+                return Err(AppError::invalid_input(format!(
+                    "{} names template '{slug}', which is neither in the catalogue nor \
+                     among this athlete's saved sessions — list_workout_templates names both",
+                    session_label(&day.date, position)
+                )));
+            }
+            day.template_source = Some(TemplateSource::Athlete);
         }
-        let own = repos
-            .workout_templates
-            .get_user_workout_template(tenant, user_id, slug)
-            .await?;
-        if own.is_none() {
-            return Err(AppError::invalid_input(format!(
-                "day {} names template '{slug}', which is neither in the catalogue nor \
-                 among this athlete's saved sessions — list_workout_templates names both",
-                day.date
-            )));
-        }
-        day.template_source = Some(TemplateSource::Athlete);
     }
     Ok(())
 }
@@ -619,6 +652,10 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(refused.contains("has no presets"), "{refused}");
+        assert!(
+            refused.contains("day 2026-11-16 session 1 names preset"),
+            "bug: the refusal names the session: {refused}"
+        );
     }
 
     #[test]
@@ -627,19 +664,26 @@ mod tests {
         let orphan = day(json!({
             "date": "2026-11-16", "sport": "ride", "workout": "x", "template_preset": "fx_30_15",
         }));
-        let refused = validate_day_template(&orphan).unwrap_err().to_string();
+        let refused = validate_day_template(&orphan, "day 2026-11-16 session 1")
+            .unwrap_err()
+            .to_string();
         assert!(refused.contains("template_preset"), "{refused}");
         let over = day(json!({
             "date": "2026-11-16", "sport": "ride", "workout": "x",
             "template_slug": FAMILY_SLUG, "template_params": { "sets": 51 },
         }));
-        let refused = validate_day_template(&over).unwrap_err().to_string();
+        let refused = validate_day_template(&over, "day 2026-11-16 session 1")
+            .unwrap_err()
+            .to_string();
         assert!(refused.contains("template_params.sets 51"), "{refused}");
         let at_bounds = day(json!({
             "date": "2026-11-16", "sport": "ride", "workout": "x",
             "template_slug": FAMILY_SLUG, "template_preset": "fx_30_15",
             "template_params": { "sets": 50, "reps": 100, "duration_minutes": 1440 },
         }));
-        assert!(validate_day_template(&at_bounds).is_ok());
+        assert!(
+            validate_day_template(&at_bounds, "day 2026-11-16 session 1").is_ok(),
+            "bug: a template reference at every bound is accepted"
+        );
     }
 }

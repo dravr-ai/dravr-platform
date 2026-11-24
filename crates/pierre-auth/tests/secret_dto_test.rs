@@ -83,6 +83,7 @@ fn the_authorization_server_token_response_keeps_rfc_6749_field_names() {
         expires_in: 3600,
         scope: None,
         refresh_token: None,
+        authorization_details: None,
     };
     let wire: Value = serde_json::to_value(&response).unwrap();
     assert_eq!(wire["access_token"], "as-access-71d3");

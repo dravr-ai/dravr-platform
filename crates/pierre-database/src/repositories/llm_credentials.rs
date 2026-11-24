@@ -12,7 +12,7 @@
 //! `created_by` are `uuid` columns on Postgres and `TEXT` on `SQLite`, so the
 //! shell hands the body its [`uuid_columns`](super::uuid_columns) codec. The
 //! model carries its timestamps as RFC 3339 text; they are parsed once and
-//! bound as [`DateTime<Utc>`] on both drivers (`TIMESTAMPTZ` on Postgres,
+//! bound as [`Timestamp`] on both drivers (`TIMESTAMPTZ` on Postgres,
 //! RFC 3339 text on `SQLite`) and rendered back the same way on the read.
 //! `is_active` binds and reads as `bool`.
 //!
@@ -22,7 +22,7 @@
 
 use std::fmt::Display;
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{LlmCredentialRecord, LlmCredentialSummary, TenantId};
 use uuid::Uuid;
@@ -121,12 +121,10 @@ pub(crate) fn admin_config_category(config_key: &str) -> &str {
 /// # Errors
 /// Returns an invalid-input error naming the column when the text is not
 /// RFC 3339.
-pub(crate) fn credential_timestamp(col: &str, value: &str) -> AppResult<DateTime<Utc>> {
-    DateTime::parse_from_rfc3339(value)
-        .map(|dt| dt.with_timezone(&Utc))
-        .map_err(|e| {
-            AppError::invalid_input(format!("user_llm_credentials.{col} is not RFC 3339: {e}"))
-        })
+pub(crate) fn credential_timestamp(col: &str, value: &str) -> AppResult<Timestamp> {
+    Timestamp::parse_from_rfc3339(value).map_err(|e| {
+        AppError::invalid_input(format!("user_llm_credentials.{col} is not RFC 3339: {e}"))
+    })
 }
 
 /// The error for a `user_llm_credentials` column that cannot be read, naming
@@ -154,7 +152,7 @@ where
     String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     Option<String>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     bool: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    DateTime<Utc>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Timestamp: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
     let id: String = row
         .try_get("id")
@@ -162,10 +160,10 @@ where
     let tenant_id: String = row
         .try_get("tenant_id")
         .map_err(|e| credential_column_error("tenant_id", e))?;
-    let created_at: DateTime<Utc> = row
+    let created_at: Timestamp = row
         .try_get("created_at")
         .map_err(|e| credential_column_error("created_at", e))?;
-    let updated_at: DateTime<Utc> = row
+    let updated_at: Timestamp = row
         .try_get("updated_at")
         .map_err(|e| credential_column_error("updated_at", e))?;
     Ok(LlmCredentialRecord {
@@ -214,15 +212,15 @@ where
     String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     Option<String>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     bool: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    DateTime<Utc>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Timestamp: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
     let id: String = row
         .try_get("id")
         .map_err(|e| credential_column_error("id", e))?;
-    let created_at: DateTime<Utc> = row
+    let created_at: Timestamp = row
         .try_get("created_at")
         .map_err(|e| credential_column_error("created_at", e))?;
-    let updated_at: DateTime<Utc> = row
+    let updated_at: Timestamp = row
         .try_get("updated_at")
         .map_err(|e| credential_column_error("updated_at", e))?;
     Ok(LlmCredentialSummary {

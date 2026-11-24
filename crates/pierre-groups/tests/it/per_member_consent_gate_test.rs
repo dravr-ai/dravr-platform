@@ -7,7 +7,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::groups::{GroupDigestMode, GroupRespondMode};
 use pierre_core::models::{
     CoachingGroup, GroupContext, MemberFlag, MemberSummaryCard, SummaryDetailLevel,
@@ -32,8 +32,9 @@ fn group(peer_data_sharing: bool) -> CoachingGroup {
         is_active: true,
         channel_type: Some("telegram".to_owned()),
         channel_chat_id: Some("12345".to_owned()),
-        created_at: Utc::now(),
-        updated_at: Utc::now(),
+        chat_connection: None,
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
     }
 }
 

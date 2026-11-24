@@ -137,6 +137,7 @@ const TOOL_STEP: Readonly<Record<string, StepKind>> = {
   track_sleep_trends: 'readRecovery',
   optimize_sleep_schedule: 'readRecovery',
   get_athlete: 'readProfile',
+  get_health_records: 'readProfile',
   estimate_lactate_thresholds: 'readProfile',
   export_dossier: 'readProfile',
   set_physiology: 'updateProfile',

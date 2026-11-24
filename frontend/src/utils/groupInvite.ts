@@ -6,11 +6,10 @@
 // ABOUTME: Also what this page load did with the link: the invite card it opened on, and the join in flight (carnet#1649)
 
 import { useSyncExternalStore } from 'react';
+import { groupInviteCodeFromPath } from '@pierre/shared-constants';
 
 /** The sessionStorage key the carried code survives the tab's reloads under. */
 const GROUP_INVITE_CARRY_KEY = 'dravr.pending_invite_code';
-
-const INVITE_PATH = /^\/groups\/join\/([^/]+)$/;
 
 /**
  * The code this page carries when the browser refuses storage (a private
@@ -71,20 +70,6 @@ export function trackInviteSettling<T>(work: Promise<T>): Promise<T> {
   setLoadState({ ...loadState, settling: loadState.settling + 1 });
   const done = () => setLoadState({ ...loadState, settling: Math.max(0, loadState.settling - 1) });
   return work.finally(done);
-}
-
-/** The invite code a `/groups/join/<code>` path names, or null for any other path. */
-export function groupInviteCodeFromPath(pathname: string): string | null {
-  const match = pathname.match(INVITE_PATH);
-  if (!match) return null;
-  try {
-    const code = decodeURIComponent(match[1]).trim();
-    return code === '' ? null : code;
-  } catch (error) {
-    // A malformed escape is not a code anyone was given.
-    if (error instanceof URIError) return null;
-    throw error;
-  }
 }
 
 /** The invite code this tab carries, or null. */

@@ -6,7 +6,7 @@
 
 //! `pierre-cli auth login` device flow.
 //!
-//! Calls `/admin/device/authorization`, shows the operator the `user_code` and
+//! Calls `/admin/device/authorization`, shows the admin the `user_code` and
 //! how an admin approves it, then polls `/admin/device/token` honouring the
 //! server's `interval`/`slow_down` until it receives the minted admin token,
 //! the request is denied, or the code expires.
@@ -29,7 +29,7 @@ const SLOW_DOWN_INCREMENT_SECS: u64 = 5;
 
 /// The admin token the device flow produces on success.
 pub struct DeviceLogin {
-    /// Minted super-admin admin bearer token.
+    /// Minted super-admin bearer token.
     pub access_token: String,
     /// Token type (`Bearer`).
     pub token_type: String,
@@ -50,7 +50,7 @@ impl fmt::Debug for DeviceLogin {
 /// Run the full device-login flow against `server`, blocking until it resolves.
 ///
 /// When `open_browser` is set (the default), the approval URL is launched in the
-/// operator's default browser (gcloud-style); the URL is always printed too, so a
+/// admin's default browser (gcloud-style); the URL is always printed too, so a
 /// failed launch or `open_browser == false` degrades to copy-paste.
 ///
 /// # Errors

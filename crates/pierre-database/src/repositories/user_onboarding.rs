@@ -7,7 +7,7 @@
 use std::collections::BTreeMap;
 
 use async_trait::async_trait;
-use chrono::{DateTime, NaiveDateTime, Utc};
+use dravr_tronc::dates::{CivilDateTime, Timestamp};
 use pierre_core::errors::{AppError, AppResult};
 
 /// One persisted onboarding step state for a user.
@@ -28,7 +28,7 @@ pub struct OnboardingStepRecord {
     /// the stored value does not read as an instant. Home's Getting started
     /// reads it to tell a health check answered after the wizard from one
     /// answered in it, and when a row it ticks became done (carnet#1530).
-    pub updated_at: Option<DateTime<Utc>>,
+    pub updated_at: Option<Timestamp>,
 }
 
 /// Read a step's `updated_at` as the engines render it as text: `SQLite`
@@ -36,17 +36,17 @@ pub struct OnboardingStepRecord {
 /// `YYYY-MM-DD HH:MM:SS[.ffffff]±HH[:MM]`. Anything else reads as `None`
 /// rather than failing the whole list: the time only orders and dates rows.
 #[must_use]
-pub(crate) fn parse_step_time(text: &str) -> Option<DateTime<Utc>> {
+pub(crate) fn parse_step_time(text: &str) -> Option<Timestamp> {
     let text = text.trim();
-    if let Ok(at) = DateTime::parse_from_rfc3339(text) {
-        return Some(at.with_timezone(&Utc));
+    if let Ok(at) = Timestamp::parse_from_rfc3339(text) {
+        return Some(at);
     }
-    if let Ok(at) = DateTime::parse_from_str(text, "%Y-%m-%d %H:%M:%S%.f%#z") {
-        return Some(at.with_timezone(&Utc));
+    if let Ok((at, _)) = Timestamp::parse_from_str_with_offset(text, "%Y-%m-%d %H:%M:%S%.f%#z") {
+        return Some(at);
     }
-    NaiveDateTime::parse_from_str(text, "%Y-%m-%d %H:%M:%S%.f")
+    CivilDateTime::parse_from_str(text, "%Y-%m-%d %H:%M:%S%.f")
         .ok()
-        .map(|at| at.and_utc())
+        .and_then(|at| at.and_utc().ok())
 }
 
 /// Durable onboarding progress, keyed by `(user_id, step_id)`.
@@ -85,7 +85,7 @@ pub trait UserOnboardingRepository: Send + Sync {
     ) -> AppResult<OnboardingReset>;
 }
 
-/// How much an onboarding reset clears, chosen by the operator per call.
+/// How much an onboarding reset clears, chosen by the admin per call.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OnboardingResetScope {
     /// The step records, what onboarding captured, and the profile document.
@@ -95,7 +95,7 @@ pub enum OnboardingResetScope {
     WithMemory,
 }
 
-/// What an onboarding reset changed, by label, for the operator's report.
+/// What an onboarding reset changed, by label, for the admin's report.
 /// Labels with no affected row are absent.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct OnboardingReset {
@@ -171,7 +171,7 @@ pub const ONBOARDING_RESET_STATEMENTS: &[(&str, &str)] = &[
 /// The memory half of a reset.
 ///
 /// Run after [`ONBOARDING_RESET_STATEMENTS`] when
-/// the operator asks for it: every remaining fact and agent note about the
+/// the admin asks for it: every remaining fact and agent note about the
 /// user, and their own in-app conversations (messages, verdicts and feedback
 /// cascade with them). Room threads, threads shared with anyone else and a
 /// coach's threads about the athletes they coach stay.
@@ -338,14 +338,11 @@ pub(crate) use impl_user_onboarding_repository;
 #[cfg(test)]
 mod tests {
     use super::parse_step_time;
-    use chrono::{TimeZone, Utc};
+    use dravr_tronc::dates::Timestamp;
 
     #[test]
     fn a_step_time_reads_as_either_engine_renders_it() {
-        let at = Utc
-            .with_ymd_and_hms(2026, 11, 13, 10, 4, 5)
-            .single()
-            .expect("instant");
+        let at = Timestamp::parse_from_rfc3339("2026-11-13T10:04:05Z").expect("instant");
         assert_eq!(
             parse_step_time("2026-11-13 10:04:05"),
             Some(at),
@@ -367,8 +364,8 @@ mod tests {
             "an offset with minutes"
         );
         assert_eq!(
-            parse_step_time("2026-11-13 10:04:05.250000+00").map(|t| t.timestamp_millis()),
-            Some(at.timestamp_millis() + 250),
+            parse_step_time("2026-11-13 10:04:05.250000+00").map(Timestamp::epoch_millis),
+            Some(at.epoch_millis() + 250),
             "fractional seconds"
         );
         assert_eq!(

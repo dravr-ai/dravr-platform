@@ -1,4 +1,4 @@
-# ABOUTME: Brings the second Claude Code account's secret, created by hand on 2026-09-21, under terraform
+# ABOUTME: Brings the claude_code tier's additional credential secret, created by hand on 2026-09-21, under terraform
 # ABOUTME: An import block, so the apply adopts the existing secret and its real token instead of recreating it
 #
 # SPDX-License-Identifier: MIT OR Apache-2.0

@@ -269,10 +269,10 @@ impl ToolSelectionRoutes {
         );
 
         // An override is attributed to the person who set it: the signed-in
-        // admin of a console session, the approving operator of a device login.
+        // admin of a console session, the approving admin of a device login.
         let admin_user_id = admin_token.operator_user_id.ok_or_else(|| {
             AppError::invalid_input(
-                "Tool overrides are attributed to an operator; this token acts for none",
+                "Tool overrides are attributed to an admin; this token acts for none",
             )
         })?;
 

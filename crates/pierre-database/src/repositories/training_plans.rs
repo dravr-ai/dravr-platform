@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::transport::TransportPolicy;
 use pierre_memory::training_plans::{
@@ -114,7 +114,8 @@ pub struct PlanWeekInput<'a> {
     pub week_start: &'a str,
     /// The week's intent in agent voice.
     pub focus: &'a str,
-    /// The day rows, in date order (at most seven).
+    /// The day rows, in date order. Two sessions on one date are two entries
+    /// with that date, in the order they are done; at most 5 per date.
     pub days: &'a [PlannedDay],
     /// Why the agent re-saved this week; empty on first save.
     pub adjustment_reason: &'a str,
@@ -296,10 +297,7 @@ pub trait TrainingPlanRepository: Send + Sync {
 
     /// When the coach last published a draft of the athlete's plan, or `None`
     /// when they never have.
-    async fn last_published_draft_at(
-        &self,
-        owner: DraftOwner<'_>,
-    ) -> AppResult<Option<DateTime<Utc>>>;
+    async fn last_published_draft_at(&self, owner: DraftOwner<'_>) -> AppResult<Option<Timestamp>>;
 
     /// List the weeks the coach saved into their open draft `draft_id`, in
     /// calendar order: the draft's own version of each, never the live one.
@@ -1118,7 +1116,7 @@ macro_rules! impl_training_plan_repository {
             async fn last_published_draft_at(
                 &self,
                 owner: DraftOwner<'_>,
-            ) -> AppResult<Option<DateTime<Utc>>> {
+            ) -> AppResult<Option<Timestamp>> {
                 let row: Option<(i64,)> = sqlx::query_as(LAST_PUBLISHED_DRAFT_SQL)
                     .bind(owner.tenant_id)
                     .bind(owner.user_id)
@@ -1169,7 +1167,7 @@ macro_rules! impl_training_plan_repository {
                     .bind(owner.tenant_id)
                     .bind(owner.user_id)
                     .bind(owner.coach_user_id)
-                    .bind(Utc::now().timestamp())
+                    .bind(Timestamp::now().epoch_seconds())
                     .fetch_optional(self.pool())
                     .await
                     .map_err(|e| AppError::database(format!("discard draft: {e}")))

@@ -20,7 +20,7 @@ use crate::common;
 use secrecy::{ExposeSecret, SecretString};
 
 use base64::{engine::general_purpose, Engine as _};
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_auth::auth::AuthManager;
 use pierre_auth::config::OAuth2ServerConfig;
 use pierre_auth::oauth2_server::client_registration::ClientRegistrationManager;
@@ -121,8 +121,8 @@ async fn athlete(env: &Env, email: &str) -> User {
             domain: None,
             plan: "starter".to_owned(),
             owner_user_id: user.id,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         })
         .await
         .unwrap();
@@ -143,6 +143,8 @@ fn authorize_request(client_id: &str, scope: Option<&str>) -> AuthorizeRequest {
         code_challenge: Some(challenge()),
         code_challenge_method: Some("S256".to_owned()),
         resource: None,
+        request_uri: None,
+        authorization_details: None,
     }
 }
 
@@ -323,7 +325,7 @@ async fn admin_is_never_authorized_even_for_a_row_registered_before_the_check() 
                     client_name: None,
                     client_uri: None,
                     scope: scope.map(str::to_owned),
-                    created_at: Utc::now(),
+                    created_at: Timestamp::now(),
                     expires_at: None,
                 },
                 u64::MAX,
@@ -332,7 +334,10 @@ async fn admin_is_never_authorized_even_for_a_row_registered_before_the_check() 
             .unwrap();
         assert!(stored, "no ceiling can refuse a client under u64::MAX");
 
-        let refused = env
+        // A request naming admin is checked without it (carnet#1511, Q20):
+        // admin is granted only by an admin ticking Admin access at consent,
+        // never by a request, whatever the client registered.
+        let code = env
             .server
             .authorize(
                 authorize_request(client_id, Some("fitness:read admin")),
@@ -340,8 +345,21 @@ async fn admin_is_never_authorized_even_for_a_row_registered_before_the_check() 
                 None,
             )
             .await
-            .expect_err("admin is never delegated");
-        assert_eq!(refused.error, "invalid_scope", "for {client_id}");
+            .unwrap_or_else(|e| panic!("the rest of the request is authorized: {e:?}"))
+            .code;
+        let minted = env
+            .database
+            .repositories()
+            .oauth2_server
+            .peek_auth_code(&code, client_id, REDIRECT, Timestamp::now())
+            .await
+            .unwrap()
+            .expect("the code is live");
+        assert_eq!(
+            minted.scope.as_deref(),
+            Some("fitness:read"),
+            "admin never reaches the code, for {client_id}"
+        );
     }
 
     // NULL reads as the default the client was told it had, never as "no
@@ -411,7 +429,8 @@ async fn a_refresh_token_holding_admin_mints_a_token_without_it() {
         .await
         .unwrap();
 
-    // A refresh token issued before `admin` was refused at authorization.
+    // A refresh token holding `admin`, for an athlete who is no admin and a
+    // grant bound to no platform resource: the mint reads both live.
     env.database
         .repositories()
         .oauth2_server
@@ -421,12 +440,13 @@ async fn a_refresh_token_holding_admin_mints_a_token_without_it() {
             user_id: user.id,
             tenant_id: tenant[0].id.to_string(),
             scope: Some("fitness:read admin".to_owned()),
-            expires_at: Utc::now() + Duration::days(30),
-            created_at: Utc::now(),
+            expires_at: Timestamp::now() + Elapsed::days(30),
+            created_at: Timestamp::now(),
             revoked: false,
             family_id: "test-family".to_owned(),
-            family_created_at: None,
+            family_created_at: Some(Timestamp::now()),
             resource: None,
+            client_grant_id: None,
         })
         .await
         .unwrap();
@@ -453,6 +473,63 @@ async fn a_refresh_token_holding_admin_mints_a_token_without_it() {
     assert!(
         !OAuthScope::is_self_grant(&grant),
         "every delegated token stays narrower than the athlete's own grant"
+    );
+}
+
+/// A family holding `admin` with no recorded start has no day to keep, so it
+/// is not continued at all (carnet#1511, Q20): nothing is minted.
+#[tokio::test]
+async fn a_refresh_family_holding_admin_with_no_recorded_start_mints_nothing() {
+    let env = env().await;
+    let user = athlete(&env, "scope-refresh-legacy@example.com").await;
+    let client = register(&env, None).await;
+    let tenant = env
+        .database
+        .repositories()
+        .tenants
+        .list_for_user(user.id)
+        .await
+        .unwrap();
+    env.database
+        .repositories()
+        .oauth2_server
+        .store_refresh_token(&OAuth2RefreshToken {
+            token: SecretString::from("legacy-refresh-token-with-admin-no-start"),
+            client_id: client.client_id.clone(),
+            user_id: user.id,
+            tenant_id: tenant[0].id.to_string(),
+            scope: Some("fitness:read admin".to_owned()),
+            expires_at: Timestamp::now() + Elapsed::days(30),
+            created_at: Timestamp::now(),
+            revoked: false,
+            family_id: "test-family-no-start".to_owned(),
+            family_created_at: None,
+            resource: None,
+            client_grant_id: None,
+        })
+        .await
+        .unwrap();
+
+    let refused = env
+        .server
+        .token(TokenRequest {
+            grant_type: "refresh_token".to_owned(),
+            code: None,
+            redirect_uri: None,
+            client_id: client.client_id,
+            client_secret: client.client_secret,
+            scope: None,
+            refresh_token: Some(SecretString::from(
+                "legacy-refresh-token-with-admin-no-start",
+            )),
+            code_verifier: None,
+            resource: None,
+        })
+        .await
+        .expect_err("an admin family with no start is not continued");
+    assert_eq!(
+        refused.error, "invalid_grant",
+        "bug: a refused admin family is not invalid_grant"
     );
 }
 
@@ -485,7 +562,7 @@ async fn machine_client(env: &Env, scope: &str) -> ClientRegistrationResponse {
             client_name: Some("Machine".to_owned()),
             client_uri: None,
             scope: Some(scope.to_owned()),
-            created_at: Utc::now(),
+            created_at: Timestamp::now(),
             expires_at: None,
         })
         .await

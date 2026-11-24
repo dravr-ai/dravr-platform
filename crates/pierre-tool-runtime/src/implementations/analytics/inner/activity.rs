@@ -27,7 +27,7 @@ use dravr_cageux::physiological_constants::business_thresholds::{
     ACHIEVEMENT_DISTANCE_THRESHOLD_KM, ACHIEVEMENT_ELEVATION_THRESHOLD_M,
 };
 use dravr_cageux::zones::{HrIntensity, HrZones};
-use pierre_config::constants::limits::METERS_PER_KILOMETER;
+use pierre_config::constants::units::METERS_PER_KM;
 use pierre_core::errors::{AppResult, ErrorCode};
 use pierre_core::models::zones::HrZonesUnavailable;
 use pierre_core::models::{Activity, TenantId};
@@ -41,6 +41,7 @@ use serde_json::{json, Value};
 use tracing::warn;
 use uuid::Uuid;
 
+use dravr_tronc::dates::Timestamp;
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
@@ -67,7 +68,7 @@ fn generate_activity_insights(
 
     // Analyze distance
     if let Some(distance) = activity.distance_meters() {
-        let km = distance / METERS_PER_KILOMETER;
+        let km = distance / METERS_PER_KM;
         insights.push(format!("Activity covered {km:.2} km"));
         if km > ACHIEVEMENT_DISTANCE_THRESHOLD_KM {
             recommendations.push("Great long-distance effort! Ensure proper recovery time");
@@ -169,10 +170,10 @@ fn create_intelligence_response(
     let analysis = ActivityIntelligenceResult {
         activity_id: activity_id.to_owned(),
         activity_type: format!("{:?}", activity.sport_type()),
-        timestamp: chrono::Utc::now().to_rfc3339(),
+        timestamp: Timestamp::now().to_rfc3339(),
         intelligence,
         performance_metrics: ActivityPerformanceMetrics {
-            distance_km: activity.distance_meters().map(|d| d / METERS_PER_KILOMETER),
+            distance_km: activity.distance_meters().map(|d| d / METERS_PER_KM),
             duration_minutes: Some(duration_minutes),
             elevation_meters: activity.elevation_gain(),
             average_heart_rate: activity.average_heart_rate(),
@@ -287,7 +288,7 @@ async fn fetch_and_analyze_activity(
                             .map(|a| {
                                 format!(
                                     "- {} (ID: {}): {} - {:?}",
-                                    a.start_date().format("%Y-%m-%d"),
+                                    a.start_date().utc_date(),
                                     a.id(),
                                     display_line(a.name(), ACTIVITY_NAME_MAX_CHARS),
                                     a.sport_type()
@@ -316,10 +317,7 @@ async fn fetch_and_analyze_activity(
                                 most_recent.name(),
                                 ACTIVITY_NAME_MAX_CHARS,
                             ),
-                            selected_activity_date: most_recent
-                                .start_date()
-                                .format("%Y-%m-%d")
-                                .to_string(),
+                            selected_activity_date: most_recent.start_date().utc_date().to_string(),
                             available_activities: activity_list,
                         });
 
@@ -654,7 +652,7 @@ mod tests {
     use std::error::Error;
 
     use async_trait::async_trait;
-    use chrono::{Duration, Utc};
+    use dravr_tronc::dates::{Elapsed, Timestamp};
     use pierre_core::errors::{AppError, AppResult};
     use pierre_core::models::activity::ActivityBuilder;
     use pierre_core::models::{Athlete, SportType};
@@ -665,9 +663,16 @@ mod tests {
     use super::*;
 
     fn run_at(avg_hr: u32) -> Activity {
-        ActivityBuilder::new("run-1", "Run", SportType::Run, Utc::now(), 3600, "test")
-            .average_heart_rate(avg_hr)
-            .build()
+        ActivityBuilder::new(
+            "run-1",
+            "Run",
+            SportType::Run,
+            Timestamp::now(),
+            3600,
+            "test",
+        )
+        .average_heart_rate(avg_hr)
+        .build()
     }
 
     const HIGH_INTENSITY: &str = "High-intensity effort detected - monitor recovery";
@@ -751,7 +756,7 @@ mod tests {
             &self,
             _: &ActivityQueryParams,
         ) -> AppResult<Vec<Activity>> {
-            let start = Utc::now() - Duration::hours(3);
+            let start = Timestamp::now() - Elapsed::hours(3);
             let main = ActivityBuilder::new(
                 "main",
                 "Morning Run",
@@ -766,7 +771,7 @@ mod tests {
                 "warm-up",
                 "Morning Run",
                 SportType::Run,
-                start + Duration::seconds(3_482),
+                start + Elapsed::seconds(3_482),
                 120,
                 "garmin",
             )

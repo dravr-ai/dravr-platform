@@ -6,19 +6,18 @@
 
 use std::{
     collections::{HashMap, HashSet},
-    fmt::Write,
     sync::Arc,
 };
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use secrecy::SecretString;
 use tracing::{debug, error, field, info, warn, Span};
-use urlencoding::encode;
 
 use crate::analytics::cache_user_email;
 use crate::coach_platform::coach_platform;
 use crate::delegated_connections::{forget_coach_roster, supersede_delegated_link};
 use crate::import_tombstones::{refused_tombstone_id, TOMBSTONED_ERROR_CODE};
+use crate::provider_connected::{self, ConnectVia, ProviderConnected};
 use crate::provider_revocation::{self, DisconnectReason};
 use crate::strava_reconnect::{self, ReplacedGrants, StorePrecondition};
 use pierre_auth::config::oauth::OAuthProviderConfig;
@@ -36,6 +35,7 @@ use pierre_database::database::repositories::UserRepository;
 use pierre_mcp_transport::OAuthCallbackResponse;
 
 pub use crate::oauth_state_redeem::ParsedOAuthState;
+use dravr_tronc::dates::Elapsed;
 use pierre_providers::backend_resolver;
 use pierre_providers::request_budget::RequestBudget;
 use pierre_providers::spi::ProviderDescriptor;
@@ -64,7 +64,7 @@ struct ClientSettings {
     /// The scopes it asks for, joined by the provider's separator; empty when
     /// the provider takes none.
     scope: String,
-    /// The daily request budget its operator registered (a tenant's own app);
+    /// The daily request budget its admin registered (a tenant's own app);
     /// `None` takes the provider's.
     daily_limit: Option<u32>,
 }
@@ -83,7 +83,7 @@ pub struct OAuthService {
 
 /// The backends a disconnect of `provider` for `reason` clears.
 ///
-/// The athlete's own disconnect and an operator's clear the whole coalesced
+/// The athlete's own disconnect and an admin's clear the whole coalesced
 /// pair, not just the resolved backend: the card the user acted on may be
 /// served by either half, and the clients name it differently, so the
 /// pairing belongs here rather than in each of them (see `backend_pair_for`
@@ -96,7 +96,7 @@ pub struct OAuthService {
 /// grant contributed, as the provider's terms require.
 fn disconnected_backends(provider: &str, reason: DisconnectReason) -> Vec<String> {
     match reason {
-        DisconnectReason::Athlete | DisconnectReason::Operator => {
+        DisconnectReason::Athlete | DisconnectReason::Admin => {
             backend_resolver::backend_pair_for(provider)
         }
         DisconnectReason::SeatReclaim | DisconnectReason::ProviderRevoked => {
@@ -183,7 +183,7 @@ impl OAuthService {
             .await?;
 
         // Record IDs on the current span so the NotifyLayer can attribute the
-        // provider.connected event without re-passing tenant/user fields.
+        // events of this callback without re-passing tenant/user fields.
         let span = Span::current();
         span.record("user_id", field::display(&user_id));
         span.record("tenant_id", field::display(&tenant_id));
@@ -257,17 +257,21 @@ impl OAuthService {
         // user_id, and this event is now the only connect notification, so
         // without it the ping would name the provider but not the athlete.
         cache_user_email(&user_id.to_string(), &user.email);
-        info!(
-            target: "notify",
-            event = "provider.connected",
-            provider = %provider,
-            "user connected fitness provider"
-        );
+        provider_connected::announce(
+            self.data.connect_log(),
+            ProviderConnected {
+                user_id,
+                tenant_id: storage_tenant,
+                backend: provider,
+                via: ConnectVia::OAuth,
+            },
+        )
+        .await;
 
         Ok(OAuthCallbackResponse {
             user_id: user_id.to_string(),
             provider: provider.to_owned(),
-            expires_at: expires_at.map(|at| at.to_rfc3339()),
+            expires_at: expires_at.map(Timestamp::to_rfc3339),
             scopes: token.scope.unwrap_or_else(|| "read".to_owned()),
             mobile_redirect_url,
             tenant_id: storage_tenant.to_string(),
@@ -287,7 +291,7 @@ impl OAuthService {
         token: &OAuth2Token,
         oauth_app_client_id: Option<&str>,
         precondition: StorePrecondition,
-    ) -> AppResult<Option<chrono::DateTime<Utc>>> {
+    ) -> AppResult<Option<Timestamp>> {
         let expires_at = self
             .store_oauth_token(
                 user_id,
@@ -512,7 +516,7 @@ impl OAuthService {
         token: &OAuth2Token,
         oauth_app_client_id: Option<&str>,
         precondition: StorePrecondition,
-    ) -> AppResult<Option<chrono::DateTime<Utc>>> {
+    ) -> AppResult<Option<Timestamp>> {
         let expires_at = token.expires_at;
 
         let user_oauth_token = UserOAuthToken {
@@ -532,8 +536,8 @@ impl OAuthService {
             // Which shared-app pool member issued this token (pinned at authorize)
             // so refresh resolves the matching secret. `None` = env-default app.
             oauth_app_client_id: oauth_app_client_id.map(str::to_owned),
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         };
 
         strava_reconnect::store_guarded(
@@ -585,7 +589,7 @@ impl OAuthService {
         &self,
         user_id: uuid::Uuid,
         provider: &str,
-        expires_at: Option<chrono::DateTime<Utc>>,
+        expires_at: Option<Timestamp>,
     ) -> AppResult<()> {
         let notification_id = self
             .data
@@ -596,7 +600,7 @@ impl OAuthService {
                 provider,
                 true,
                 "OAuth authorization completed successfully",
-                expires_at.map(|at| at.to_rfc3339()).as_deref(),
+                expires_at.map(Timestamp::to_rfc3339).as_deref(),
             )
             .await
             .map_err(|e| AppError::database(format!("Failed to store OAuth notification: {e}")))?;
@@ -635,7 +639,7 @@ impl OAuthService {
         // Validate provider is supported
         self.validate_provider(provider)?;
 
-        // Use active_tenant_id from JWT claims (user's selected tenant)
+        // The tenant the caller resolved for the request; this service selects none.
         let tenant_id = active_tenant_id.map(TenantId::from_uuid).ok_or_else(|| {
             AppError::auth_invalid("No active tenant in session — cannot disconnect provider")
         })?;
@@ -746,6 +750,7 @@ impl OAuthService {
         .await?;
         let ClientSettings {
             client_id,
+            client_secret,
             redirect_uri,
             scope,
             ..
@@ -773,58 +778,26 @@ impl OAuthService {
             },
         );
 
-        // Generate PKCE parameters when provider supports it
-        let pkce = if params.use_pkce {
-            Some(PkceParams::generate())
-        } else {
-            None
-        };
-
-        // URL-encode parameters for OAuth URLs
-        let encoded_state = encode(&state);
-        let encoded_redirect_uri = encode(&redirect_uri);
-
-        // Build authorization URL with provider-specific parameters
-        let mut auth_url = format!(
-            "{}?client_id={}&response_type=code&redirect_uri={}&state={}",
-            self.auth_url_for(provider, &endpoints),
+        // The same configuration the code exchange presents. Its builder
+        // sends the challenge, and the verifier is kept below, only when the
+        // provider uses PKCE; the provider's own parameters ride last.
+        let oauth_config = OAuth2Config {
             client_id,
-            encoded_redirect_uri,
-            encoded_state
-        );
-
-        // A provider with no scope to request (Garmin's is fixed server-side)
-        // gets no `scope` parameter at all: an empty `scope=` is a parameter
-        // its authorization does not define.
-        if !scope.is_empty() {
-            use Write;
-            let _ = write!(&mut auth_url, "&scope={}", encode(&scope));
-        }
-
-        // Add PKCE code_challenge to authorization URL when enabled
-        if let Some(ref pkce_params) = pkce {
-            use Write;
-            let _ = write!(
-                &mut auth_url,
-                "&code_challenge={}&code_challenge_method={}",
-                encode(&pkce_params.code_challenge),
-                encode(&pkce_params.code_challenge_method)
-            );
-        }
-
-        // Add provider-specific additional parameters
-        for (key, value) in params.additional_auth_params {
-            use Write;
-            // Writing to String cannot fail
-            let _ = write!(&mut auth_url, "&{}={}", encode(key), encode(value));
-        }
-
-        let authorization_url = auth_url;
+            client_secret,
+            auth_url: self.auth_url_for(provider, &endpoints),
+            token_url: self.token_url_for(provider, &endpoints),
+            redirect_uri: redirect_uri.clone(),
+            scopes: vec![scope.clone()],
+            use_pkce: params.use_pkce,
+        };
+        let pkce = PkceParams::generate();
+        let authorization_url =
+            oauth_config.authorization_url(&state, &pkce, params.additional_auth_params)?;
 
         // Store state server-side for CSRF protection with 10-minute TTL.
         // The code_challenge field stores the PKCE code_verifier (needed during
         // token exchange to prove we initiated the authorization request).
-        let now = Utc::now();
+        let now = Timestamp::now();
         let client_state = OAuthClientState {
             state: state.clone(),
             provider: provider.to_owned(),
@@ -832,10 +805,10 @@ impl OAuthService {
             tenant_id: Some(tenant_id.to_string()),
             redirect_uri,
             scope: Some(scope).filter(|scope| !scope.is_empty()),
-            pkce_code_verifier: pkce.as_ref().map(|p| p.code_verifier.clone()),
+            pkce_code_verifier: params.use_pkce.then_some(pkce.code_verifier),
             oauth_app_client_id: oauth_app_attribution,
             created_at: now,
-            expires_at: now + chrono::Duration::minutes(10),
+            expires_at: now + Elapsed::minutes(10),
             used: false,
         };
 
@@ -907,7 +880,7 @@ impl OAuthService {
                 let (expires_at, scopes) = if conn.connection_type == ConnectionType::OAuth {
                     // Look up OAuth token details for expiry/scope info
                     token_map.get(&conn.provider).map_or((None, None), |t| {
-                        (t.expires_at.map(|dt| dt.to_rfc3339()), t.scope.clone())
+                        (t.expires_at.map(Timestamp::to_rfc3339), t.scope.clone())
                     })
                 } else {
                     (None, None)
@@ -966,16 +939,6 @@ pub async fn get_user_for_oauth(
             )))
         }
     }
-}
-
-/// Extract tenant ID for OAuth operations from JWT claims
-///
-/// Returns the `active_tenant_id` from the user's JWT session.
-///
-/// # Errors
-/// Returns `AppError::auth_invalid` when no active tenant is set in the session.
-pub fn extract_tenant_id(active_tenant_id: Option<TenantId>) -> Result<TenantId, AppError> {
-    active_tenant_id.ok_or_else(|| AppError::auth_invalid("No active tenant in session"))
 }
 
 /// The error a failed authorization-code exchange surfaces as, logged at the
@@ -1062,8 +1025,8 @@ mod tests {
     /// The athlete's disconnect clears the pair; a reclaim or a revocation
     /// withdraws the grant it names and keeps the session (carnet#1494).
     #[test]
-    fn only_the_athlete_or_an_operator_clears_the_whole_pair() {
-        for reason in [DisconnectReason::Athlete, DisconnectReason::Operator] {
+    fn only_the_athlete_or_an_admin_clears_the_whole_pair() {
+        for reason in [DisconnectReason::Athlete, DisconnectReason::Admin] {
             assert_eq!(
                 disconnected_backends(oauth_providers::STRAVA, reason),
                 [oauth_providers::STRAVA, oauth_providers::SCIOTTE],

@@ -16,7 +16,7 @@
 
 use std::sync::Arc;
 
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::models::messaging::ChannelType;
 use pierre_core::models::ConnectionType;
 use pierre_database::RepositoryRegistry;
@@ -87,7 +87,7 @@ async fn failed_push_is_enqueued_for_retry_not_dropped() {
     );
 
     // `after_ts` = 30 days ago so the 2-day-old cached activity is in-window.
-    let after_ts = (Utc::now() - Duration::days(30)).timestamp();
+    let after_ts = (Timestamp::now() - Elapsed::days(30)).epoch_seconds();
     notifier
         .push_backfill_complete(BackfillCompletion::backfill(
             user_uuid,
@@ -169,7 +169,7 @@ async fn successful_push_does_not_enqueue() {
         BASE_URL.to_owned(),
     );
 
-    let after_ts = (Utc::now() - Duration::days(30)).timestamp();
+    let after_ts = (Timestamp::now() - Elapsed::days(30)).epoch_seconds();
     notifier
         .push_backfill_complete(BackfillCompletion::backfill(
             user_uuid,

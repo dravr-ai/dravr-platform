@@ -24,7 +24,7 @@ mod prelink_locale {
 
     use axum::http::StatusCode;
     use axum::Router;
-    use chrono::{Duration, Utc};
+    use dravr_tronc::dates::{Elapsed, Timestamp};
     use pierre_contremaitre::messaging_strings::{
         DEFAULT_LOCALE, KEY_ACCOUNT_PENDING, KEY_LINK_CANCELLED, KEY_LINK_CONFIRM_PROMPT,
         KEY_LINK_EMAIL_PROMPT, KEY_LINK_EMAIL_SEND_FAILED, KEY_LINK_INITIAL_PROMPT,
@@ -189,7 +189,7 @@ mod prelink_locale {
         async fn started_by(&self, owner: Uuid) -> String {
             let code = Uuid::new_v4().simple().to_string();
             let owner = owner.to_string();
-            let expires_at = (Utc::now() + Duration::minutes(10)).to_rfc3339();
+            let expires_at = (Timestamp::now() + Elapsed::minutes(10)).to_rfc3339();
             self.db()
                 .create_link_state(&CreateLinkStateParams {
                     id: &Uuid::new_v4().to_string(),
@@ -420,7 +420,7 @@ mod prelink_locale {
     async fn a_flow_answers_in_the_language_it_recorded() {
         let bot = bot().await;
         let state_id = Uuid::new_v4().to_string();
-        let expires_at = (Utc::now() + Duration::minutes(10)).to_rfc3339();
+        let expires_at = (Timestamp::now() + Elapsed::minutes(10)).to_rfc3339();
         bot.db()
             .create_link_state(&CreateLinkStateParams {
                 id: &state_id,

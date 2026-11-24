@@ -9,8 +9,8 @@
 
 use std::sync::{Arc, Mutex};
 
-use chrono::Utc;
 use dravr_sciotte::models::AuthSession;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::ErrorCode;
 use pierre_core::models::provider_context::{ProviderActivitySearch, ProviderGearKind};
 use pierre_providers::core::{
@@ -82,8 +82,6 @@ fn spawn_scraper_stub(listener: TcpListener, routes: Vec<Route>, seen: Seen) {
 }
 
 async fn connected(base_url: &str, factory_name: &str, garmin: bool) -> Box<dyn FitnessProvider> {
-    use chrono::TimeZone;
-
     let config = ProviderConfig {
         name: factory_name.to_owned(),
         auth_url: String::new(),
@@ -102,7 +100,7 @@ async fn connected(base_url: &str, factory_name: &str, garmin: bool) -> Box<dyn 
     let session = AuthSession {
         session_id: "stub-session".to_owned(),
         cookies: vec![],
-        created_at: Utc.with_ymd_and_hms(2026, 11, 7, 12, 0, 0).unwrap(),
+        created_at: Timestamp::parse_from_rfc3339("2026-11-07T12:00:00Z").unwrap(),
         expires_at: None,
     };
     provider

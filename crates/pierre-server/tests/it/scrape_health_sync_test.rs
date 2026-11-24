@@ -29,7 +29,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
-use chrono::{DateTime, Duration, NaiveDate, Utc};
 use db_fixtures::seed_user;
 use dravr_enforme::error::EnformeError;
 use dravr_enforme::models::connection::ConnectedUser;
@@ -40,17 +39,16 @@ use dravr_enforme::traits::connection_store::UserConnectionStore;
 use dravr_enforme::traits::credential_store::CredentialStore;
 use dravr_enforme::traits::cursor_store::SyncCursorStore;
 use dravr_enforme::traits::recovery_store::RecoveryStore;
-use pierre_core::errors::AppError;
+use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp};
 use pierre_core::models::{
-    ConnectionType, OAuthNotification, RefreshConfig, StoredRecoveryMetrics, SyncStatus, TenantId,
-    UserOAuthToken,
+    ConnectionType, RefreshConfig, StoredRecoveryMetrics, SyncStatus, TenantId, UserOAuthToken,
 };
 use pierre_database::backends::factory::Database;
 use pierre_database::RepositoryRegistry;
 use pierre_services::health_sync::{
     history_walk_scope, sync_error_is_push_stand_down, wellness_pull_stands_down, PierreSyncStorage,
 };
-use pierre_services::provider_refresh::{scrape_sync_not_due, RefreshService, SyncNotifier};
+use pierre_services::provider_refresh::{scrape_sync_not_due, RefreshService};
 use pierre_services::sciotte_health_reader::{SciotteServiceReader, SessionRows};
 use pierre_test_support::db::create_test_db_with_key;
 use pierre_test_support::garmin::{connect_garmin_session, grant_garmin_push};
@@ -81,7 +79,7 @@ async fn connect_scrape(
     tenant: TenantId,
     backend: &str,
 ) {
-    let now = Utc::now();
+    let now = Timestamp::now();
     repos
         .oauth_tokens
         .upsert_token(&UserOAuthToken {
@@ -110,7 +108,7 @@ async fn connect_oauth(
     tenant: TenantId,
     provider: &str,
 ) {
-    let now = Utc::now();
+    let now = Timestamp::now();
     repos
         .oauth_tokens
         .upsert_token(&UserOAuthToken {
@@ -121,7 +119,7 @@ async fn connect_oauth(
             access_token: SecretString::from(format!("{provider}-access-do-not-log")),
             refresh_token: None,
             token_type: "Bearer".to_owned(),
-            expires_at: Some(now + Duration::hours(1)),
+            expires_at: Some(now + Elapsed::hours(1)),
             scope: Some("read".to_owned()),
             provider_user_id: None,
             oauth_app_client_id: None,
@@ -132,14 +130,14 @@ async fn connect_oauth(
         .unwrap();
 }
 
-fn yesterday() -> NaiveDate {
-    Utc::now().date_naive() - Duration::days(1)
+fn yesterday() -> CivilDate {
+    Timestamp::now().utc_date() - Elapsed::days(1)
 }
 
-fn window() -> (DateTime<Utc>, DateTime<Utc>) {
+fn window() -> (Timestamp, Timestamp) {
     (
-        Utc::now() - Duration::days(30),
-        Utc::now() + Duration::days(1),
+        Timestamp::now() - Elapsed::days(30),
+        Timestamp::now() + Elapsed::days(1),
     )
 }
 
@@ -147,16 +145,16 @@ fn window() -> (DateTime<Utc>, DateTime<Utc>) {
 /// returns for a day, as the service would serialize it. Records every
 /// (provider, day) it is asked for. The real reader is exercised against a
 /// stub service in `the_service_reader_*` below.
-type Answer = Box<dyn Fn(&str, NaiveDate) -> ScraperResult<DailySummary> + Send + Sync>;
+type Answer = Box<dyn Fn(&str, CivilDate) -> ScraperResult<DailySummary> + Send + Sync>;
 
 struct FakeScraper {
     answer: Answer,
-    asked: Mutex<Vec<(String, NaiveDate)>>,
+    asked: Mutex<Vec<(String, CivilDate)>>,
 }
 
 impl FakeScraper {
     fn reader(
-        answer: impl Fn(&str, NaiveDate) -> ScraperResult<DailySummary> + Send + Sync + 'static,
+        answer: impl Fn(&str, CivilDate) -> ScraperResult<DailySummary> + Send + Sync + 'static,
     ) -> (Arc<Self>, Arc<dyn DailySummaryReader>) {
         let fake = Arc::new(Self {
             answer: Box::new(answer),
@@ -173,14 +171,14 @@ impl DailySummaryReader for FakeScraper {
         &self,
         provider: &str,
         _session: &AuthSession,
-        date: NaiveDate,
+        date: CivilDate,
     ) -> ScraperResult<DailySummary> {
         self.asked.lock().unwrap().push((provider.to_owned(), date));
         (self.answer)(provider, date)
     }
 }
 
-fn summary(date: NaiveDate, provider: &str, fields: &str) -> DailySummary {
+fn summary(date: CivilDate, provider: &str, fields: &str) -> DailySummary {
     let sep = if fields.is_empty() { "" } else { "," };
     serde_json::from_str(&format!(
         r#"{{"date":"{date}","provider":"{provider}"{sep}{fields}}}"#
@@ -190,7 +188,7 @@ fn summary(date: NaiveDate, provider: &str, fields: &str) -> DailySummary {
 
 /// COROS measured yesterday only; every other day of the window is empty,
 /// as the Training Hub answers a day it holds nothing for.
-fn coros_yesterday(provider: &str, date: NaiveDate) -> DailySummary {
+fn coros_yesterday(provider: &str, date: CivilDate) -> DailySummary {
     if date == yesterday() {
         summary(
             date,
@@ -204,7 +202,7 @@ fn coros_yesterday(provider: &str, date: NaiveDate) -> DailySummary {
 }
 
 /// Garmin measured yesterday's night and morning.
-fn garmin_yesterday(provider: &str, date: NaiveDate) -> DailySummary {
+fn garmin_yesterday(provider: &str, date: CivilDate) -> DailySummary {
     if date == yesterday() {
         summary(
             date,
@@ -218,7 +216,7 @@ fn garmin_yesterday(provider: &str, date: NaiveDate) -> DailySummary {
     }
 }
 
-fn dead_session(_: &str, _: NaiveDate) -> ScraperResult<DailySummary> {
+fn dead_session(_: &str, _: CivilDate) -> ScraperResult<DailySummary> {
     Err(ScraperError::SessionExpired {
         reason: "access token is invalid".to_owned(),
     })
@@ -261,7 +259,7 @@ async fn a_coros_sync_stores_resting_hr_sleep_hrv_and_vo2max_as_coros() {
     let storage = Arc::new(PierreSyncStorage::new(&repos));
     let (fake, reader) = FakeScraper::reader(|p, d| Ok(coros_yesterday(p, d)));
     let orchestrator = storage
-        .build_orchestrator_with_reader(&reader, REFUSED_WELLNESS)
+        .build_orchestrator_with_reader(&reader, REFUSED_WELLNESS, None)
         .unwrap();
 
     let result = orchestrator
@@ -312,7 +310,7 @@ async fn a_coros_sync_stores_resting_hr_sleep_hrv_and_vo2max_as_coros() {
         .await
         .unwrap()
         .expect("a recovery cursor is stored");
-    assert_eq!(cursor.value, Utc::now().date_naive().to_string());
+    assert_eq!(cursor.value, Timestamp::now().utc_date().to_string());
 }
 
 #[tokio::test]
@@ -324,7 +322,7 @@ async fn a_garmin_sync_stores_the_night_the_morning_and_the_body_as_garmin() {
     let storage = Arc::new(PierreSyncStorage::new(&repos));
     let (_fake, reader) = FakeScraper::reader(|p, d| Ok(garmin_yesterday(p, d)));
     let orchestrator = storage
-        .build_orchestrator_with_reader(&reader, REFUSED_WELLNESS)
+        .build_orchestrator_with_reader(&reader, REFUSED_WELLNESS, None)
         .unwrap();
 
     let result = orchestrator
@@ -379,7 +377,7 @@ async fn a_dead_coros_session_writes_nothing_and_keeps_no_cursor() {
     let storage = Arc::new(PierreSyncStorage::new(&repos));
     let (fake, reader) = FakeScraper::reader(dead_session);
     let orchestrator = storage
-        .build_orchestrator_with_reader(&reader, REFUSED_WELLNESS)
+        .build_orchestrator_with_reader(&reader, REFUSED_WELLNESS, None)
         .unwrap();
 
     let result = orchestrator
@@ -449,7 +447,7 @@ async fn a_flagged_coros_session_is_not_read_by_a_sync() {
             tenant,
             "sciotte_coros",
             Some("session_expired"),
-            Utc::now(),
+            Timestamp::now(),
         )
         .await
         .unwrap();
@@ -465,7 +463,7 @@ async fn a_flagged_coros_session_is_not_read_by_a_sync() {
         "bug: a flagged session hands out no credentials"
     );
     let orchestrator = storage
-        .build_orchestrator_with_reader(&reader, REFUSED_WELLNESS)
+        .build_orchestrator_with_reader(&reader, REFUSED_WELLNESS, None)
         .unwrap();
     drop(orchestrator.sync_user(&user_id.to_string(), "coros").await);
     assert!(
@@ -501,7 +499,7 @@ async fn no_row_is_written_under_another_providers_tenant() {
         daily_strain: None,
         athlete_note: None,
         source_name: "coros".to_owned(),
-        recorded_at: Utc::now(),
+        recorded_at: Timestamp::now(),
     };
     let err = storage.store_recovery_metrics(&[stray]).await.unwrap_err();
     assert!(
@@ -544,7 +542,7 @@ async fn a_scrape_sync_waits_six_hours_and_an_api_sync_never_waits() {
 
     repos
         .oauth_tokens
-        .update_provider_last_sync(user_id, tenant, "sciotte_coros", Utc::now())
+        .update_provider_last_sync(user_id, tenant, "sciotte_coros", Timestamp::now())
         .await
         .unwrap();
     assert!(scrape_sync_not_due(&auth, &coros, "coros").await);
@@ -555,7 +553,7 @@ async fn a_scrape_sync_waits_six_hours_and_an_api_sync_never_waits() {
             user_id,
             tenant,
             "sciotte_coros",
-            Utc::now() - Duration::hours(7),
+            Timestamp::now() - Elapsed::hours(7),
         )
         .await
         .unwrap();
@@ -564,25 +562,10 @@ async fn a_scrape_sync_waits_six_hours_and_an_api_sync_never_waits() {
     // An API provider is polled every cycle, whatever its last sync.
     repos
         .oauth_tokens
-        .update_provider_last_sync(user_id, tenant, "whoop", Utc::now())
+        .update_provider_last_sync(user_id, tenant, "whoop", Timestamp::now())
         .await
         .unwrap();
     assert!(!scrape_sync_not_due(&auth, &whoop, "whoop").await);
-}
-
-/// The refresh service needs a notifier; these tests assert on what was
-/// scraped, not on SSE delivery.
-struct NoopNotifier;
-
-#[async_trait]
-impl SyncNotifier for NoopNotifier {
-    async fn send_notification(
-        &self,
-        _user_id: Uuid,
-        _notification: &OAuthNotification,
-    ) -> Result<(), AppError> {
-        Ok(())
-    }
 }
 
 #[tokio::test]
@@ -602,10 +585,9 @@ async fn a_chat_turn_never_scrapes_for_a_garmin_session_or_a_leftover_garmin_row
         Arc::clone(&repos),
         Some(
             storage
-                .build_orchestrator_with_reader(&reader, REFUSED_WELLNESS)
+                .build_orchestrator_with_reader(&reader, REFUSED_WELLNESS, None)
                 .unwrap(),
         ),
-        Arc::new(NoopNotifier),
     );
 
     let status = service
@@ -733,7 +715,7 @@ fn imports_and_reads(requests: &[String]) -> (usize, usize) {
 /// holds none. That answer says nothing about the athlete's session: reported
 /// as expired credentials it stops the athlete's health sync until they log in
 /// again, for a session that works.
-async fn an_instance_that_never_saw_the_import_is_imported_once_more(day: NaiveDate) {
+async fn an_instance_that_never_saw_the_import_is_imported_once_more(day: CivilDate) {
     const MEASURED: &str = r#"{"date":"2026-09-22","provider":"coros","resting_heart_rate":47,"hrv_value":63,"vo2_max":52.5}"#;
 
     // One miss: the session is imported again and the day is read.
@@ -778,7 +760,7 @@ async fn an_instance_that_never_saw_the_import_is_imported_once_more(day: NaiveD
 /// stand-in reached through the reader's injected client (carnet#982).
 #[tokio::test]
 async fn the_service_reader_imports_the_session_and_maps_every_answer() {
-    let day = NaiveDate::from_ymd_opt(2026, 9, 22).unwrap();
+    let day = CivilDate::from_ymd(2026, 9, 22).unwrap();
 
     // A measured day, read twice through the one client the reader holds.
     let (seen, reader) = stub_service(
@@ -872,10 +854,9 @@ fn refresh_service(
         Arc::clone(repos),
         Some(
             storage
-                .build_orchestrator_with_reader(reader, REFUSED_WELLNESS)
+                .build_orchestrator_with_reader(reader, REFUSED_WELLNESS, None)
                 .unwrap(),
         ),
-        Arc::new(NoopNotifier),
     )
 }
 
@@ -1054,7 +1035,7 @@ async fn a_push_grant_stored_before_the_credential_read_ends_the_sync_as_a_stand
         "bug: the credential read says the pull stands down: {err}"
     );
     let err = storage
-        .build_orchestrator_with_reader(&reader, REFUSED_WELLNESS)
+        .build_orchestrator_with_reader(&reader, REFUSED_WELLNESS, None)
         .unwrap()
         .sync_user(&user, "garmin")
         .await
@@ -1099,7 +1080,7 @@ impl DailySummaryReader for ActsMidSync {
         &self,
         provider: &str,
         _session: &AuthSession,
-        date: NaiveDate,
+        date: CivilDate,
     ) -> ScraperResult<DailySummary> {
         if !self.acted.swap(true, Ordering::SeqCst) {
             match self.action {
@@ -1193,7 +1174,7 @@ async fn a_dead_garmin_session_beside_a_push_grant_leaves_the_wellness_to_the_pu
             tenant,
             "sciotte_garmin",
             Some("session_expired"),
-            Utc::now(),
+            Timestamp::now(),
         )
         .await
         .unwrap();
@@ -1250,15 +1231,15 @@ async fn the_history_walk_reads_the_session_beside_a_push_grant_for_the_days_bef
     let storage = Arc::new(PierreSyncStorage::new(&repos));
     let (fake, reader) = FakeScraper::reader(|p, d| Ok(garmin_yesterday(p, d)));
     let orchestrator = storage
-        .build_orchestrator_with_reader(&reader, REFUSED_WELLNESS)
+        .build_orchestrator_with_reader(&reader, REFUSED_WELLNESS, None)
         .unwrap();
 
-    let today = Utc::now().date_naive();
+    let today = Timestamp::now().utc_date();
     let outside = orchestrator
         .backfill_between(
             &user_id.to_string(),
             "garmin",
-            today - Duration::days(30),
+            today - Elapsed::days(30),
             today,
         )
         .await;
@@ -1271,7 +1252,7 @@ async fn the_history_walk_reads_the_session_beside_a_push_grant_for_the_days_bef
     // push owns that day, and a whole-day write would blank what only it
     // carries, so the walk writes nothing over it even when the read
     // reaches past the grant's first day.
-    let pushed_long_ago = today - Duration::days(30);
+    let pushed_long_ago = today - Elapsed::days(30);
     let over_the_push = history_walk_scope(
         user_id,
         pushed_long_ago,
@@ -1297,7 +1278,7 @@ async fn the_history_walk_reads_the_session_beside_a_push_grant_for_the_days_bef
         orchestrator.backfill_between(
             &user_id.to_string(),
             "garmin",
-            today - Duration::days(30),
+            today - Elapsed::days(30),
             yesterday(),
         ),
     )
@@ -1368,7 +1349,7 @@ async fn a_sessions_daily_reads_reach_the_read_service_its_id_names() {
         Some(reads),
         SessionRows::new(Arc::clone(&db.repositories().oauth_tokens)),
     );
-    let day = NaiveDate::from_ymd_opt(2026, 9, 22).unwrap();
+    let day = CivilDate::from_ymd(2026, 9, 22).unwrap();
 
     for (session_id, own, other) in [("shard-session-f", 0, 1), ("shard-session-b", 1, 0)] {
         let mut session = session();

@@ -20,7 +20,7 @@
 //! a zeroed snapshot, so callers ask cold instead of quoting a fabricated
 //! baseline.
 
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::ai_policy::ProviderTerms;
 use pierre_core::errors::AppResult;
 use pierre_core::models::{Activity, LoadSnapshot, SportFamily, TenantId};
@@ -57,8 +57,8 @@ pub async fn recent_load_snapshot(
     user_id: Uuid,
     tenant_id: &TenantId,
 ) -> AppResult<Option<LoadSnapshot>> {
-    let end = Utc::now();
-    let start = end - Duration::weeks(i64::from(SNAPSHOT_WEEKS));
+    let end = Timestamp::now();
+    let start = end - Elapsed::weeks(i64::from(SNAPSHOT_WEEKS));
     let window = activities
         .get_cached_activities(user_id, tenant_id, None, start, end, ACTIVITY_FETCH_LIMIT)
         .await?;

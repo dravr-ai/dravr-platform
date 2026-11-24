@@ -6,7 +6,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use chrono::{DateTime, NaiveDate, TimeZone, Utc};
+use dravr_tronc::dates::{CivilDate, Timestamp};
 use pierre_core::models::{Tenant, TenantId, User};
 use pierre_database::repositories::{
     DataAccessLaw, DataAccessRequest, DataAccessScope, DataAccessStatus, ReminderStage,
@@ -33,12 +33,12 @@ async fn athlete(repos: &RepositoryRegistry, label: &str) -> (Uuid, TenantId) {
     (user.id, tenant.id)
 }
 
-fn day(y: i32, m: u32, d: u32) -> NaiveDate {
-    NaiveDate::from_ymd_opt(y, m, d).unwrap()
+fn day(y: i32, m: u32, d: u32) -> CivilDate {
+    CivilDate::from_ymd(y, m, d).unwrap()
 }
 
-fn noon(date: NaiveDate) -> DateTime<Utc> {
-    Utc.from_utc_datetime(&date.and_hms_opt(12, 0, 0).unwrap())
+fn noon(date: CivilDate) -> Timestamp {
+    date.and_hms(12, 0, 0).unwrap().and_utc().unwrap()
 }
 
 /// A reference unique per test run, so suites sharing a database never meet.
@@ -74,8 +74,8 @@ fn drafted(user_id: Uuid, tenant_id: TenantId) -> DataAccessRequest {
 
 fn sent(
     mut request: DataAccessRequest,
-    sent_on: NaiveDate,
-    due_on: NaiveDate,
+    sent_on: CivilDate,
+    due_on: CivilDate,
 ) -> DataAccessRequest {
     request.status = DataAccessStatus::Sent;
     request.sent_on = Some(sent_on);

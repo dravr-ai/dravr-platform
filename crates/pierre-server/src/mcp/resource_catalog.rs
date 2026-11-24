@@ -76,7 +76,7 @@ pub fn agent_id_from_uri(uri: &str) -> Option<&str> {
 /// Build the `resources/read` payload for a single published agent.
 ///
 /// The agent markdown is reconstructed from the agent's structured sections so
-/// MCP clients receive the same document an operator authored.
+/// MCP clients receive the same document an admin authored.
 ///
 /// # Errors
 ///

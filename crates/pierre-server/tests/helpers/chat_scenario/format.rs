@@ -21,7 +21,8 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use chrono::NaiveDateTime;
+use dravr_tronc::dates::CivilDateTime;
+use dravr_tronc::dates::DateError;
 use serde::{Deserialize, Serialize};
 
 /// Top-level scenario document.
@@ -321,7 +322,7 @@ pub(crate) fn load(path: &Path) -> Result<ChatScenario, ScenarioLoadError> {
     // string into the system prompt, where a typo would reach the model as
     // the literal "today" and fail as an inscrutable assertion miss.
     if let Some(raw_date) = scenario.current_date.as_deref() {
-        NaiveDateTime::parse_from_str(raw_date, CURRENT_DATE_FORMAT).map_err(|e| {
+        CivilDateTime::parse_from_str(raw_date, CURRENT_DATE_FORMAT).map_err(|e| {
             ScenarioLoadError::InvalidCurrentDate {
                 path: path.to_owned(),
                 value: raw_date.to_owned(),
@@ -346,7 +347,7 @@ pub(crate) enum ScenarioLoadError {
     InvalidCurrentDate {
         path: PathBuf,
         value: String,
-        source: chrono::ParseError,
+        source: DateError,
     },
 }
 

@@ -34,7 +34,7 @@ use crate::helpers;
 use std::sync::Arc;
 
 use axum::http::StatusCode;
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use serde_json::{json, Value};
 use uuid::Uuid;
 
@@ -88,7 +88,7 @@ async fn setup(email: &str) -> Fixture {
         fx.user_id,
         fx.tenant_id,
         MEET_TEAM,
-        Utc::now().date_naive(),
+        Timestamp::now().utc_date(),
         "web_chat",
     )
     .await
@@ -107,7 +107,7 @@ async fn past_finish_profile(email: &str) -> Fixture {
         fx.user_id,
         fx.tenant_id,
         FINISH_PROFILE,
-        Utc::now().date_naive(),
+        Timestamp::now().utc_date(),
         "web_chat",
     )
     .await
@@ -471,7 +471,7 @@ async fn three_untapped_showings_retire_a_starter() {
 async fn examples_wait_for_the_agents_prerequisites() {
     let fx = past_finish_profile("uc-prereq@test.com").await;
     let id = Uuid::new_v4().to_string();
-    let now = Utc::now();
+    let now = Timestamp::now();
     fx.resources
         .common
         .repos

@@ -18,7 +18,7 @@ use std::time::Instant;
 use tracing::{debug, info};
 
 use crate::RepositoryRegistry;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 
 #[cfg(feature = "postgresql")]
 use super::postgres::PostgresDatabase;
@@ -391,8 +391,8 @@ impl Database {
         &self,
         key: &str,
         value: &str,
-        expected: Option<DateTime<Utc>>,
-    ) -> AppResult<Option<DateTime<Utc>>> {
+        expected: Option<Timestamp>,
+    ) -> AppResult<Option<Timestamp>> {
         match &self.backend {
             DatabaseBackend::SQLite(db) => {
                 db.compare_and_set_system_setting(key, value, expected)

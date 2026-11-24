@@ -5,11 +5,13 @@
 // Copyright (c) 2026 dravr.ai
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::admin::models::AdminConfigOverrideRow;
 use pierre_core::errors::AppResult;
 
-use pierre_core::models::usage::{InsertLlmUsage, LlmUsageAggregateRow, LlmUsageDailyRow};
+use pierre_core::models::usage::{
+    DelegatedRead, InsertLlmUsage, LlmUsageAggregateRow, LlmUsageDailyRow, OutsideRead,
+};
 use pierre_core::models::{ApiKeyUsage, ApiKeyUsageStats, WindowUsage};
 use pierre_core::models::{
     ConversationTurnId, JwtMonthlyUsage, JwtUsage, LlmUsageRecord, RequestLog, ToolUsage,
@@ -28,14 +30,14 @@ pub trait UsageRepository: Send + Sync {
     async fn get_api_key_window_usage(
         &self,
         api_key_id: &str,
-        window_start: DateTime<Utc>,
+        window_start: Timestamp,
     ) -> AppResult<WindowUsage>;
     /// Get usage statistics for an API key
     async fn get_api_key_stats(
         &self,
         api_key_id: &str,
-        start_date: DateTime<Utc>,
-        end_date: DateTime<Utc>,
+        start_date: Timestamp,
+        end_date: Timestamp,
     ) -> AppResult<ApiKeyUsageStats>;
     /// Record JWT token usage for rate limiting and analytics
     async fn record_jwt_usage(&self, usage: &JwtUsage) -> AppResult<()>;
@@ -43,13 +45,22 @@ pub trait UsageRepository: Send + Sync {
     /// override for them, read in one statement: the inputs of the JWT
     /// request budget besides the tier
     async fn get_jwt_current_usage(&self, user_id: Uuid) -> AppResult<JwtMonthlyUsage>;
+    /// The user's requests admitted under consent grant `client_grant_id`
+    /// after `window_start` (the grant's hourly window) and the earliest of
+    /// them: the input of the grant's request budget
+    async fn get_grant_window_usage(
+        &self,
+        user_id: Uuid,
+        client_grant_id: &str,
+        window_start: Timestamp,
+    ) -> AppResult<WindowUsage>;
     /// Get request logs with filtering options
     async fn get_request_logs(
         &self,
         user_id: Option<Uuid>,
         api_key_id: Option<&str>,
-        start_time: Option<DateTime<Utc>>,
-        end_time: Option<DateTime<Utc>>,
+        start_time: Option<Timestamp>,
+        end_time: Option<Timestamp>,
         status_filter: Option<&str>,
         tool_filter: Option<&str>,
     ) -> AppResult<Vec<RequestLog>>;
@@ -57,16 +68,16 @@ pub trait UsageRepository: Send + Sync {
     async fn get_top_tools_analysis(
         &self,
         user_id: Uuid,
-        start_time: DateTime<Utc>,
-        end_time: DateTime<Utc>,
+        start_time: Timestamp,
+        end_time: Timestamp,
     ) -> AppResult<Vec<ToolUsage>>;
     /// How many requests the user's API keys made in the window, on every
     /// endpoint. [`Self::get_top_tools_analysis`] only reads the busiest ten.
     async fn count_api_key_requests(
         &self,
         user_id: Uuid,
-        start_time: DateTime<Utc>,
-        end_time: DateTime<Utc>,
+        start_time: Timestamp,
+        end_time: Timestamp,
     ) -> AppResult<u64>;
 }
 
@@ -155,6 +166,33 @@ pub trait LlmUsageRepository: Send + Sync {
     /// Insert a new LLM usage record
     async fn insert_llm_usage(&self, params: &InsertLlmUsage<'_>) -> AppResult<LlmUsageRecord>;
 
+    /// Insert the row of a read an outside caller made, with what it read and
+    /// through what (carnet#1543): a direct tool call an outside client made
+    /// ([`InsertLlmUsage::for_direct_tool_call`]), or the summary of a turn of
+    /// Dravr's agent an outside caller drove
+    /// ([`InsertLlmUsage::for_turn_summary`]). The record the athlete's "who
+    /// read my data" feed lists.
+    async fn insert_delegated_usage(
+        &self,
+        params: &InsertLlmUsage<'_>,
+        read: &DelegatedRead<'_>,
+    ) -> AppResult<()>;
+
+    /// The reads outside callers made of `user_id`'s own data under
+    /// `tenant_id` (their tool calls and the agent turns they drove), made at
+    /// or after `since`, newest first, at most `limit` (carnet#1543): only
+    /// those that answered with a result, as a call that failed served
+    /// nothing. A coach's or a peer's call reading them is not
+    /// one of these: it is the caller's row, and the read is the athlete's
+    /// `coach_data_reads` or `peer_data_reads` record.
+    async fn list_outside_reads(
+        &self,
+        tenant_id: &str,
+        user_id: &str,
+        since: Timestamp,
+        limit: u32,
+    ) -> AppResult<Vec<OutsideRead>>;
+
     /// Query aggregated LLM usage grouped by `provider`, `model`, and
     /// `call_type`, of one tenant or, with `None`, of every tenant: the
     /// platform-wide path of the Analytics screen and the platform's cost today.
@@ -210,8 +248,8 @@ pub trait LlmUsageRepository: Send + Sync {
     async fn get_llm_calls_between(
         &self,
         tenant_id: Option<&str>,
-        start: DateTime<Utc>,
-        end: DateTime<Utc>,
+        start: Timestamp,
+        end: Timestamp,
         limit: i64,
     ) -> AppResult<Vec<LlmUsageRecord>>;
 

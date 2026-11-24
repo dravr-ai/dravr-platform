@@ -24,7 +24,7 @@
 //! arithmetic is left to the caller, which has both instants.
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::AppResult;
 use pierre_core::models::TenantId;
 use uuid::Uuid;
@@ -40,26 +40,26 @@ pub struct NewUserMilestones {
     /// The name it chose, if any.
     pub display_name: Option<String>,
     /// When it was created.
-    pub signed_up_at: DateTime<Utc>,
+    pub signed_up_at: Timestamp,
     /// How it signed up: `email`, `google`, `apple`, …
     pub auth_provider: String,
     /// `pending`, `active` or `suspended`.
     pub status: String,
-    /// When an operator approved it, or it was admitted.
-    pub approved_at: Option<DateTime<Utc>>,
+    /// When an admin approved it, or it was admitted.
+    pub approved_at: Option<Timestamp>,
     /// When it proved its address.
-    pub email_verified_at: Option<DateTime<Utc>>,
+    pub email_verified_at: Option<Timestamp>,
     /// When it was last seen by the server.
-    pub last_active_at: Option<DateTime<Utc>>,
+    pub last_active_at: Option<Timestamp>,
     /// Its first provider connection (seeded synthetic connections excluded).
-    pub provider_connected_at: Option<DateTime<Utc>>,
+    pub provider_connected_at: Option<Timestamp>,
     /// When its first provider activity was cached.
-    pub first_activity_at: Option<DateTime<Utc>>,
+    pub first_activity_at: Option<Timestamp>,
     /// The earliest completed health sync on record. `sync_state` keeps only
     /// each provider's latest sync, so this is an upper bound on the first.
-    pub first_health_sync_at: Option<DateTime<Utc>>,
+    pub first_health_sync_at: Option<Timestamp>,
     /// The first message it sent in a conversation it owns.
-    pub first_turn_at: Option<DateTime<Utc>>,
+    pub first_turn_at: Option<Timestamp>,
 }
 
 /// One message an account in the window sent in a conversation it owns.
@@ -68,7 +68,7 @@ pub struct NewUserTurn {
     /// Who sent it.
     pub user_id: Uuid,
     /// When.
-    pub sent_at: DateTime<Utc>,
+    pub sent_at: Timestamp,
 }
 
 /// The new-user cohort, read for the admin console and the daily digest.
@@ -79,7 +79,7 @@ pub trait SignupCohortRepository: Send + Sync {
     /// describe; `None` is the admin's platform-wide read.
     async fn new_user_milestones(
         &self,
-        since: DateTime<Utc>,
+        since: Timestamp,
         tenant: Option<TenantId>,
         limit: i64,
     ) -> AppResult<Vec<NewUserMilestones>>;
@@ -89,7 +89,7 @@ pub trait SignupCohortRepository: Send + Sync {
     /// week. Scoped like [`Self::new_user_milestones`].
     async fn new_user_turns(
         &self,
-        since: DateTime<Utc>,
+        since: Timestamp,
         tenant: Option<TenantId>,
     ) -> AppResult<Vec<NewUserTurn>>;
 }
@@ -197,7 +197,7 @@ macro_rules! impl_signup_cohort_repository {
         impl SignupCohortRepository for $ty {
             async fn new_user_milestones(
                 &self,
-                since: DateTime<Utc>,
+                since: Timestamp,
                 tenant: Option<TenantId>,
                 limit: i64,
             ) -> AppResult<Vec<NewUserMilestones>> {
@@ -250,7 +250,7 @@ macro_rules! impl_signup_cohort_repository {
 
             async fn new_user_turns(
                 &self,
-                since: DateTime<Utc>,
+                since: Timestamp,
                 tenant: Option<TenantId>,
             ) -> AppResult<Vec<NewUserTurn>> {
                 let rows = match tenant {

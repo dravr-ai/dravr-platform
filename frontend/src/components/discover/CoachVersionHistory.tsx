@@ -10,9 +10,8 @@ import type { Agent, AgentFieldChange, AgentVersion } from '@pierre/shared-types
 import { useTranslation } from '@pierre/i18n';
 import { formatDateTime } from '@pierre/chat-utils';
 import { describeApiError } from '@pierre/ui-logic';
-import { coachCategoryLabelKey } from '@pierre/shared-constants';
+import { coachCategoryLabelKey, QUERY_KEYS } from '@pierre/shared-constants';
 import { coachesApi } from '../../services/api';
-import { QUERY_KEYS } from '../../constants/queryKeys';
 import { Button, ConfirmDialog, Section } from '../ui';
 import { WASH_TONE } from '../ui/washTone';
 

@@ -9,6 +9,7 @@ use pierre_core::errors::AppError;
 use pierre_middleware::provider_link_token::{
     extract_bearer_link_token, verify_link_token, ProviderLinkTokenClaims,
 };
+use pierre_runtime_context::require_tenant_in;
 use uuid::Uuid;
 
 use crate::AuthRoutesContext;
@@ -91,10 +92,9 @@ pub(crate) async fn authenticate(
             .refuse_impersonation(resources.repos.admin_audit.as_ref(), action)
             .await?;
     }
-    let tenant_id = auth_result
-        .active_tenant_id
-        .ok_or_else(|| AppError::invalid_input("No active tenant"))?;
-    Ok((auth_result.user_id, tenant_id, None))
+    let tenants = resources.repos.tenants.as_ref();
+    let tenant = require_tenant_in(tenants, &auth_result).await?;
+    Ok((auth_result.user_id, tenant.as_uuid(), None))
 }
 
 /// If an `Authorization: Bearer ...` header contains a Sciotte-scoped link-token,

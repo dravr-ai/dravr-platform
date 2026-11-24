@@ -18,6 +18,13 @@
 pub mod archive_import;
 /// Work this service delivers to itself through Cloud Tasks: task creation and delivery tokens.
 pub mod cloud_tasks;
+/// The dated title a new conversation falls back to when nothing else names it.
+#[cfg(any(
+    feature = "client-chat",
+    feature = "client-messaging",
+    feature = "protocol-a2a"
+))]
+pub(crate) mod conversation_title;
 /// One lock per conversation that every chat turn holds while it runs.
 pub mod conversation_turn_lock;
 /// The interrupted notice that closes a turn which stored its question and produced no reply.
@@ -79,6 +86,8 @@ pub mod training_volume;
 
 /// The athlete's gear ledger over their cached workouts: lazy default pairs, choices once per workout
 pub mod gear_ledger;
+/// An uploaded lab report read into pending FHIR Observations for the athlete's review (carnet#1544)
+pub mod lab_documents;
 
 /// Discord Gateway WebSocket client — bridges real-time messages and reactions to the webhook pipeline
 #[cfg(feature = "client-messaging")]

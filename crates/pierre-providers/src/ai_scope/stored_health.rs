@@ -22,7 +22,7 @@ use pierre_database::repositories::WellnessRowOrigin;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
-use super::filter_typed;
+use super::{filter_typed, Dated};
 
 /// A stored health record — a night's sleep, a day's recovery, a day's body
 /// metrics, a day's activity totals — as the sync pipeline persisted it.
@@ -34,6 +34,9 @@ pub trait StoredHealthRecord: Serialize + DeserializeOwned {
     fn data_source_id(&self) -> &str;
     /// The provider the record was stored under.
     fn source_name(&self) -> &str;
+    /// When the record is dated, for a grant's window floor; `None` for one
+    /// that names no date.
+    fn dated(&self) -> Option<Dated>;
 }
 
 impl StoredHealthRecord for StoredSleepSession {
@@ -43,6 +46,10 @@ impl StoredHealthRecord for StoredSleepSession {
 
     fn source_name(&self) -> &str {
         &self.source_name
+    }
+
+    fn dated(&self) -> Option<Dated> {
+        Some(Dated::At(self.start_datetime))
     }
 }
 
@@ -54,6 +61,10 @@ impl StoredHealthRecord for StoredRecoveryMetrics {
     fn source_name(&self) -> &str {
         &self.source_name
     }
+
+    fn dated(&self) -> Option<Dated> {
+        Some(Dated::Day(self.date))
+    }
 }
 
 impl StoredHealthRecord for StoredHealthMetrics {
@@ -63,6 +74,10 @@ impl StoredHealthRecord for StoredHealthMetrics {
 
     fn source_name(&self) -> &str {
         &self.source_name
+    }
+
+    fn dated(&self) -> Option<Dated> {
+        Some(Dated::Day(self.date))
     }
 }
 
@@ -74,6 +89,10 @@ impl StoredHealthRecord for StoredDailyActivity {
     fn source_name(&self) -> &str {
         &self.source_name
     }
+
+    fn dated(&self) -> Option<Dated> {
+        Some(Dated::Day(self.date))
+    }
 }
 
 impl StoredHealthRecord for WellnessRowOrigin {
@@ -83,6 +102,10 @@ impl StoredHealthRecord for WellnessRowOrigin {
 
     fn source_name(&self) -> &str {
         &self.provider
+    }
+
+    fn dated(&self) -> Option<Dated> {
+        None
     }
 }
 
@@ -129,8 +152,9 @@ mod tests {
     use crate::provider_terms::{NOLIO, NOLIO_TRANSPORT, WHOOP, WHOOP_TRANSPORT};
     #[cfg(feature = "provider-whoop")]
     use crate::registry::ProviderRegistry;
-    use chrono::{Duration, NaiveDate, TimeZone, Utc};
     use dravr_equilibre::{merge_recovery_metrics, merge_sleep_sessions, Sourced};
+    use dravr_tronc::dates::Zone;
+    use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp};
     use pierre_core::ai_policy::SourcePolicy;
     use pierre_core::models::DeviceType;
     use pierre_core::transport::{Transport, TransportPolicy};
@@ -196,7 +220,7 @@ mod tests {
 
     /// One night every source recorded, each with metrics of its own.
     fn night(data_source_id: &str, source_name: &str) -> StoredSleepSession {
-        let start = Utc.with_ymd_and_hms(2026, 9, 29, 22, 0, 0).unwrap();
+        let start = Timestamp::parse_from_rfc3339("2026-09-29T22:00:00Z").unwrap();
         let from = |name: &str| source_name.eq_ignore_ascii_case(name);
         StoredSleepSession {
             id: format!("sleep-{data_source_id}"),
@@ -204,7 +228,7 @@ mod tests {
             data_source_id: data_source_id.to_owned(),
             is_nap: false,
             start_datetime: start,
-            end_datetime: start + Duration::hours(8),
+            end_datetime: start + Elapsed::hours(8),
             total_sleep_seconds: Some(7 * 3600),
             deep_sleep_seconds: from("nolio").then_some(5400),
             light_sleep_seconds: None,
@@ -226,7 +250,7 @@ mod tests {
             id: format!("recovery-{data_source_id}"),
             user_id: "athlete".to_owned(),
             data_source_id: data_source_id.to_owned(),
-            date: NaiveDate::from_ymd_opt(2026, 9, 30).unwrap(),
+            date: CivilDate::from_ymd(2026, 9, 30).unwrap(),
             recovery_score: Some(34),
             readiness_score: None,
             hrv_ms: Some(65.0),
@@ -240,7 +264,7 @@ mod tests {
             daily_strain: None,
             athlete_note: None,
             source_name: source_name.to_owned(),
-            recorded_at: Utc.with_ymd_and_hms(2026, 9, 30, 7, 0, 0).unwrap(),
+            recorded_at: Timestamp::parse_from_rfc3339("2026-09-30T07:00:00Z").unwrap(),
         }
     }
 
@@ -277,7 +301,7 @@ mod tests {
             "the WHOOP row and both Nolio rows stay first-party"
         );
 
-        let merged = merge_sleep_sessions(sourced(kept), &Utc);
+        let merged = merge_sleep_sessions(sourced(kept), &Zone::utc());
         assert_eq!(merged.len(), 1, "the permitted source is one night");
         let night = &merged[0];
         assert_eq!(night.sources, vec!["garmin".to_owned()]);
@@ -309,7 +333,7 @@ mod tests {
         };
 
         let (own, own_withheld) = read(Transport::WebApp).await;
-        let own = merge_sleep_sessions(sourced(own), &Utc);
+        let own = merge_sleep_sessions(sourced(own), &Zone::utc());
         assert_eq!(own.len(), 1);
         assert_eq!(own[0].sources.len(), 2, "{:?}", own[0].sources);
         assert_eq!(own[0].record.min_heart_rate, Some(48));
@@ -318,7 +342,7 @@ mod tests {
 
         for transport in [Transport::McpHttp, Transport::A2a, Transport::ApiKey] {
             let (external, withheld) = read(transport).await;
-            let external = merge_sleep_sessions(sourced(external), &Utc);
+            let external = merge_sleep_sessions(sourced(external), &Zone::utc());
             assert_eq!(external.len(), 1, "{transport:?}");
             assert_eq!(external[0].sources, vec!["garmin".to_owned()]);
             assert_eq!(external[0].record.min_heart_rate, Some(48));

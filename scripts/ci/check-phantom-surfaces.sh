@@ -53,6 +53,10 @@
 #   check-phantom-surfaces.sh [BASE_REF]   — report the standing stock, and FAIL
 #                                            when the diff against the base
 #                                            introduces a NEW phantom surface
+#   check-phantom-surfaces.sh --all-routes — FAIL on any route the server
+#                                            registers that nothing calls,
+#                                            whatever the diff (see below)
+#   check-phantom-surfaces.sh --help       — print the modes
 #
 # The base follows the rule every diff gate shares (gate-base-ref.sh): the
 # argument, else $GATE_BASE_REF, else origin/main, and HEAD~1 whenever that is
@@ -66,6 +70,37 @@
 # fix it. Clearing the existing stock is a deletion decision per surface (some
 # are superseded scaffolding, some are unfinished features) and is tracked in
 # the dravr-ai/carnet register (carnet#17), not blessed by a list in this script.
+#
+# --all-routes: THE SERVER END, WHOLE TREE
+# ----------------------------------------
+# The diff gate asks one question of a route: was it added without a client?
+# It cannot see a route that LOSES its last client later, because that change
+# adds no route, and it reads `/api/` alone. This mode asks
+# the standing question instead: every route the server registers, of any
+# prefix, must have a caller in the tree or a declared caller outside it.
+#
+# A caller is a line that spells the route's whole path in the api-client,
+# either app, the SDK, the CLI, a served template, the browser extension, a
+# script, or a workflow. `{param}` matches what a caller writes in its place:
+# `${expr}`, `{name}`, `{}`, `:name`, `<name>`, `$VAR`, `%s`, or a string
+# concatenation (`'/a/' + id + '/b'`). A path built on a constant of the same
+# file (`const APPS: &str = "/admin/apps"` … `format!("{APPS}/{id}")`) is read
+# with the constant filled in. A caller that builds its path any other way
+# names the route in a comment beside the call, as the api-client's doc
+# comments do. Unlike scan 4 the path must also START where the mention
+# starts, so `/api/health` is not a caller of `/health`.
+#
+# Routes whose callers are outside the tree by design (a provider's webhook,
+# an OAuth client, Cloud Tasks, a link mailed to a user) are declared in
+# scripts/ci/routes-called-from-outside.txt, one per line with WHO calls it.
+# The file cannot rot: an entry naming no registered route fails the run, and
+# so does an entry without a reason. A `LIMITATION(registre#issue):` marker
+# naming the route at its declaration registers a known gap, as in the diff
+# gate. Anything else is a route served to nobody: delete it or wire its
+# client.
+#
+# Matching is by path. Two methods registered on one path are one route here,
+# so a PUT nobody sends hides behind a GET somebody does.
 
 set -uo pipefail
 
@@ -79,15 +114,336 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 PROJECT_ROOT="$( cd "$SCRIPT_DIR/../.." && pwd )"
 cd "$PROJECT_ROOT" || exit 1
 
+usage() {
+    cat <<'USAGE'
+Usage:
+  check-phantom-surfaces.sh [BASE_REF]    Report the standing stock of phantom
+                                          surfaces and fail when the diff against
+                                          BASE_REF (else $GATE_BASE_REF, else
+                                          origin/main) adds a new one.
+  check-phantom-surfaces.sh --all-routes  Fail on any registered route with no
+                                          caller in the tree, no entry in
+                                          scripts/ci/routes-called-from-outside.txt
+                                          and no LIMITATION(registre#n) marker;
+                                          fail on a stale or reasonless entry.
+  check-phantom-surfaces.sh --help        Print this.
+USAGE
+}
+
+MODE="diff"
+case "${1:-}" in
+    -h|--help) usage; exit 0 ;;
+    --all-routes) MODE="all-routes" ;;
+    -*)
+        echo "check-phantom-surfaces.sh: unknown option ${1}" >&2
+        usage >&2
+        exit 64
+        ;;
+esac
+
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
+
+# registered_gap_issue ROUTE SITES_FILE — the `registre#N` of a
+# LIMITATION(registre#N) marker that names ROUTE in a file declaring it, or
+# nothing. SITES_FILE is backend-routes.py's PATH<TAB>FILE:LINE list.
+#
+# The marker must name the whole route — `/api/agents/import` does not register
+# `/api/agents/import/preview` — so one marker cannot blanket-silence a family.
+registered_gap_issue() {
+    awk -F'\t' -v r="$1" '$1 == r { sub(/:[0-9]+$/, "", $2); print $2 }' "$2" | sort -u \
+        | while read -r f; do
+            awk -v r="$1" '
+                {
+                    m = index($0, "LIMITATION(registre#")
+                    if (m == 0) next
+                    rest = substr($0, m)
+                    i = index(rest, r)
+                    if (i == 0) next
+                    after = substr(rest, i + length(r), 1)
+                    if (after ~ /[A-Za-z0-9_\/{}-]/) next
+                    match(rest, /registre#[0-9]+/)
+                    print substr(rest, RSTART, RLENGTH)
+                    exit
+                }' "$PROJECT_ROOT/$f"
+        done | head -1
+}
+
+# ---------------------------------------------------------------------------
+# --all-routes: every registered route has a caller, or says who calls it
+# ---------------------------------------------------------------------------
+OUTSIDE_CALLERS="$SCRIPT_DIR/routes-called-from-outside.txt"
+
+check_all_routes() {
+    echo -e "${BLUE}==== Clientless Route Detection (whole tree) ====${NC}"
+
+    local sites="$TMP/all_route_sites.txt" out status
+    if ! out="$(python3 "$SCRIPT_DIR/backend-routes.py" routes "$PROJECT_ROOT" 2>&1)"; then
+        echo -e "${RED}❌ Route scan failed:${NC}"
+        printf '%s\n' "$out" | sed 's/^/   /'
+        return 1
+    fi
+    printf '%s\n' "$out" > "$sites"
+
+    if [[ ! -f "$OUTSIDE_CALLERS" ]]; then
+        echo -e "${RED}❌ ${OUTSIDE_CALLERS#"$PROJECT_ROOT"/} not found — the routes called from outside the tree are undeclared.${NC}"
+        return 1
+    fi
+
+    # The matcher. It writes three files into $TMP — clientless.txt (ROUTE),
+    # outside.txt (ROUTE<TAB>REASON) and declaration_errors.txt — and one
+    # summary line on stdout. Exit 2 means it could not stand behind a result.
+    python3 - "$PROJECT_ROOT" "$sites" "$OUTSIDE_CALLERS" "$TMP" <<'PY'
+import os
+import re
+import sys
+from pathlib import Path
+
+root, sites_file, declared_file, out_dir = (Path(a) for a in sys.argv[1:5])
+
+# Where a caller can live. Globs are expanded; a pool that does not exist in
+# this tree is skipped, and finding no caller file at all fails below.
+POOLS = [
+    "packages/api-client",
+    "frontend/src",
+    "frontend-mobile/src",
+    "frontend-mobile/app",
+    "sdk",
+    "crates/pierre-cli/src",
+    "templates",
+    "crates/*/templates",
+    "extensions",
+    "scripts",
+    "bin",
+    ".github/workflows",
+]
+CODE = {".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".rs", ".html", ".sh", ".py"}
+WORKFLOW = {".yml", ".yaml"}
+SKIP_DIRS = {
+    "node_modules", "dist", "build", "target", "coverage",
+    "__tests__", "test", "tests", "e2e",
+}
+TEST_FILE = re.compile(r"\.(test|spec)\.")
+# A gate under scripts/ci reads the tree and names routes to explain itself;
+# it calls nothing. The smoke scripts beside them do call the server and stay.
+GATE_FILE = re.compile(r"^(check-.*|.*-check\.sh|backend-routes\.py)$")
+
+
+def caller_files():
+    for pool in POOLS:
+        for base in sorted(root.glob(pool)):
+            if not base.is_dir():
+                continue
+            rel_base = base.relative_to(root).as_posix()
+            wanted = WORKFLOW if rel_base == ".github/workflows" else CODE
+            for directory, subdirs, names in os.walk(base):
+                subdirs[:] = sorted(d for d in subdirs if d not in SKIP_DIRS)
+                in_ci = Path(directory).relative_to(root).as_posix() == "scripts/ci"
+                for name in sorted(names):
+                    if Path(name).suffix not in wanted or TEST_FILE.search(name):
+                        continue
+                    if in_ci and GATE_FILE.match(name):
+                        continue
+                    yield Path(directory) / name
+
+
+# `NAME = "/path"` in any of the caller languages: a path constant.
+CONSTANT = re.compile(
+    r"""\b([A-Z][A-Z0-9_]{2,})\b\s*(?::[^=\n]{0,40})?=\s*(["'`])(/[^"'`\n$]*)\2"""
+)
+SEGMENT = re.compile(r"/([A-Za-z0-9_.:~-]+)")
+
+lines = []          # every caller line that holds a path
+by_segment = {}     # literal path segment -> indexes into `lines`
+file_count = 0
+
+
+def keep(line):
+    index = len(lines)
+    lines.append(line)
+    for segment in set(SEGMENT.findall(line)):
+        by_segment.setdefault(segment, []).append(index)
+
+
+for path in caller_files():
+    file_count += 1
+    text = path.read_text(errors="ignore")
+    constants = {name: value for name, _quote, value in CONSTANT.findall(text)}
+    for line in text.split("\n"):
+        if "/" in line:
+            keep(line)
+        # The same line with each path constant filled in where it is
+        # interpolated: `{NAME}`, `${NAME}` or `$NAME`.
+        filled = line
+        for name, value in constants.items():
+            if name in filled:
+                filled = re.sub(
+                    r"\$\{%s\}|\{%s\}|\$%s\b" % (name, name, name),
+                    lambda _m, value=value: value,
+                    filled,
+                )
+        if filled != line:
+            keep(filled)
+
+if file_count == 0:
+    print("found no caller file in any pool: this scan is stale", file=sys.stderr)
+    sys.exit(2)
+
+# What may stand before a path: the start of the line, a character that cannot
+# be part of a longer path, an interpolated base (`${base}`, `{}`, `$BASE`)
+# that is not itself a path segment, or a URL's host.
+PREFIX = (
+    r"(?:^|[^\w/.}-]"
+    r"|(?<![\w/.-])\$?\{[^{}]*\}"
+    r"|(?<![\w/.-])\$\w+"
+    r"|//[\w.-]+(?::(?:\d+|\$?\{[^{}]*\}))?)"
+)
+# What a caller writes where the route has a `{param}`.
+PARAM = (
+    r"(?:['\"`]\s*\+\s*[\w.$]+(?:\([^()]*\))?(?:\s*\+\s*['\"`])?"
+    r"|\$\{[^}]*\}|\{[^}/]*\}|<[^>/]*>|:[A-Za-z_]\w*|\$\w+|%s)"
+)
+# The path ends where the mention ends.
+SUFFIX = r"(?=[^A-Za-z0-9_/-]|$)"
+
+
+def matcher(route):
+    """The pattern for `route`, and a literal segment every caller must hold."""
+    parts = []
+    anchor = None
+    for segment in route.split("/")[1:]:
+        if segment.startswith("{*"):
+            parts.append(r"[^\s\"'`]*")
+        elif segment.startswith("{"):
+            parts.append(PARAM)
+        else:
+            parts.append(re.escape(segment))
+            if anchor is None and SEGMENT.fullmatch("/" + segment):
+                anchor = segment
+    return re.compile(PREFIX + "/" + "/".join(parts) + SUFFIX), anchor
+
+
+sites = {}
+for row in sites_file.read_text().split("\n"):
+    if row.strip():
+        route, site = row.split("\t")
+        sites.setdefault(route, []).append(site)
+if not sites:
+    print("the route scan listed no route: this scan is stale", file=sys.stderr)
+    sys.exit(2)
+
+called = set()
+for route in sites:
+    pattern, anchor = matcher(route)
+    candidates = range(len(lines)) if anchor is None else by_segment.get(anchor, ())
+    if any(pattern.search(lines[index]) for index in candidates):
+        called.add(route)
+
+declared = {}
+errors = []
+for number, raw in enumerate(declared_file.read_text().split("\n"), 1):
+    row = raw.strip()
+    if not row or row.startswith("#"):
+        continue
+    fields = row.split(None, 1)
+    route = fields[0]
+    reason = fields[1].strip() if len(fields) > 1 else ""
+    where = f"{declared_file.name}:{number}"
+    if not reason:
+        errors.append(f"{where}: {route} gives no reason — say who calls it")
+    if route in declared:
+        errors.append(f"{where}: {route} is declared twice")
+    declared[route] = reason
+    if route not in sites:
+        errors.append(
+            f"{where}: {route} is not a route the server registers — "
+            "delete the line, or fix it to the registered template"
+        )
+
+clientless = sorted(r for r in sites if r not in called and r not in declared)
+outside = sorted(r for r in sites if r in declared and r not in called)
+
+(out_dir / "clientless.txt").write_text("".join(f"{r}\n" for r in clientless))
+(out_dir / "outside.txt").write_text("".join(f"{r}\t{declared[r]}\n" for r in outside))
+(out_dir / "declaration_errors.txt").write_text("".join(f"{e}\n" for e in errors))
+
+# Completeness tripwire, as for scan 4: the clients call hundreds of routes,
+# so matching almost none means the matcher broke, not that the tree is dead.
+if len(called) < len(sites) // 4:
+    print(
+        f"route match implausible: only {len(called)} of {len(sites)} routes "
+        f"matched a line in {file_count} caller files",
+        file=sys.stderr,
+    )
+    sys.exit(2)
+
+print(
+    f"{len(sites)} routes: {len(called)} called from the tree, "
+    f"{len(outside)} declared as called from outside, {len(clientless)} clientless "
+    f"({file_count} caller files)"
+)
+PY
+    status=$?
+    if [[ "$status" -ne 0 ]]; then
+        echo -e "${RED}❌ The clientless-route scan could not stand behind a result (exit ${status}).${NC}"
+        return 1
+    fi
+
+    local failed=false
+    if [[ -s "$TMP/outside.txt" ]]; then
+        echo -e "${BLUE}Called from outside the tree (${OUTSIDE_CALLERS#"$PROJECT_ROOT"/}):${NC}"
+        while IFS=$'\t' read -r route reason; do
+            echo "   $route  — $reason"
+        done < "$TMP/outside.txt"
+    fi
+
+    if [[ -s "$TMP/declaration_errors.txt" ]]; then
+        echo -e "${RED}❌ Stale or incomplete declarations:${NC}"
+        sed 's/^/   /' "$TMP/declaration_errors.txt"
+        failed=true
+    fi
+
+    local route issue shown=false
+    while read -r route; do
+        [[ -z "$route" ]] && continue
+        issue="$(registered_gap_issue "$route" "$sites")"
+        if [[ -n "$issue" ]]; then
+            echo -e "${YELLOW}⚠️  Registered gap (${issue}): ${route} has no caller${NC}"
+            continue
+        fi
+        if [[ "$shown" == "false" ]]; then
+            echo -e "${RED}❌ Routes the server registers that nothing calls:${NC}"
+            shown=true
+        fi
+        echo "   $route  ($(awk -F'\t' -v r="$route" '$1 == r { print $2 }' "$sites" | paste -sd' ' -))"
+        failed=true
+    done < "$TMP/clientless.txt"
+
+    if [[ "$failed" == "true" ]]; then
+        echo ""
+        echo -e "${RED}A route nothing calls is a phantom surface, seen from the server end.${NC}"
+        echo -e "${YELLOW}Delete the route and what only it used, or wire its caller. A route whose${NC}"
+        echo -e "${YELLOW}caller is outside the tree by design goes in${NC}"
+        echo -e "${YELLOW}${OUTSIDE_CALLERS#"$PROJECT_ROOT"/} with who calls it; a known gap takes a${NC}"
+        echo -e "${YELLOW}LIMITATION(registre#issue): marker naming the route at its declaration.${NC}"
+        echo -e "${RED}❌ CLIENTLESS ROUTE CHECK FAILED${NC}"
+        return 1
+    fi
+    echo -e "${GREEN}✅ Every registered route has a caller in the tree or a declared one outside it.${NC}"
+    return 0
+}
+
+if [[ "$MODE" == "all-routes" ]]; then
+    check_all_routes
+    exit $?
+fi
+
 # shellcheck source=scripts/ci/gate-base-ref.sh
 . "$SCRIPT_DIR/gate-base-ref.sh"
 BASE_REF="$(resolve_gate_base_ref "${1:-}" || true)"
 FAILED=false
 
 echo -e "${BLUE}==== Phantom Surface Detection (static) ====${NC}"
-
-TMP="$(mktemp -d)"
-trap 'rm -rf "$TMP"' EXIT
 
 # ---------------------------------------------------------------------------
 # Scan 1: Rust traits with zero implementors
@@ -592,28 +948,11 @@ if [[ -n "$BASE_REF" ]]; then
             # The failure text below offers a LIMITATION(registre#issue:) marker
             # as the way to ship a known gap. Honour it: a route whose own
             # declaring file carries a marker naming that route is registered
-            # debt with an issue behind it, not an unowned phantom. The marker
-            # must name the whole route — `/api/agents/import` does not register
-            # `/api/agents/import/preview` — so one marker cannot blanket-silence
-            # a family, and the issue number is printed here so a registered gap
-            # stays visible in the run instead of disappearing into a pass.
-            issue="$(awk -F'\t' -v r="$r" '$1 == r { sub(/:[0-9]+$/, "", $2); print $2 }' \
-                    "$TMP/route_sites.txt" | sort -u \
-                | while read -r f; do
-                    awk -v r="$r" '
-                        {
-                            m = index($0, "LIMITATION(registre#")
-                            if (m == 0) next
-                            rest = substr($0, m)
-                            i = index(rest, r)
-                            if (i == 0) next
-                            after = substr(rest, i + length(r), 1)
-                            if (after ~ /[A-Za-z0-9_\/{}-]/) next
-                            match(rest, /registre#[0-9]+/)
-                            print substr(rest, RSTART, RLENGTH)
-                            exit
-                        }' "$PROJECT_ROOT/$f"
-                done | head -1)"
+            # debt with an issue behind it, not an unowned phantom
+            # (registered_gap_issue), and the issue number is printed here so a
+            # registered gap stays visible in the run instead of disappearing
+            # into a pass.
+            issue="$(registered_gap_issue "$r" "$TMP/route_sites.txt")"
             if [[ -n "$issue" ]]; then
                 echo -e "${YELLOW}⚠️  Registered gap (${issue}): ${r} has no client${NC}"
             else

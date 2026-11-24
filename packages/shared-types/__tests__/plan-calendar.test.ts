@@ -8,6 +8,7 @@ import {
   phaseWeekOn,
   planDayDistanceMeters,
   planDayOn,
+  planSessionsOf,
   planWeeksDayOn,
 } from '../src/plan-calendar';
 import type { PlanDay, PlanPhase, WorkoutPlan } from '../src/workout-plan';
@@ -71,9 +72,30 @@ describe('planDayOn', () => {
     const today = planDayOn(plan, '2026-09-24');
     expect(today.kind).toBe('session');
     if (today.kind === 'session') {
-      expect(today.day.workout).toBe('Tempo run');
+      expect(today.days.map((day) => day.workout)).toEqual(['Tempo run']);
       expect(today.week.week_start).toBe('2026-09-21');
     }
+  });
+
+  it('lists every entry on a date in order, a rest entry beside a session reading as a session day (carnet#1716)', () => {
+    const week = plan.weeks[0]!;
+    const brick = { ...week.days[0]!, date: '2026-09-23', rest: false };
+    const days = [
+      { ...brick, workout: 'Bike 90 min', sport: 'ride' },
+      { ...brick, workout: 'Run off the bike 20 min', sport: 'run' },
+    ];
+    const restAndOptional = [
+      { ...brick, date: '2026-09-22', workout: 'Rest', sport: 'rest', rest: true },
+      { ...brick, date: '2026-09-22', workout: "Optional: 20' light strength", sport: 'strength' },
+    ];
+    const weeks = [{ ...week, days: [...days, ...restAndOptional] }];
+    const both = planWeeksDayOn(weeks, '2026-09-23');
+    expect(both.kind).toBe('session');
+    expect(both.kind !== 'uncovered' && both.days.map((day) => day.workout)).toEqual(['Bike 90 min', 'Run off the bike 20 min']);
+    const optional = planWeeksDayOn(weeks, '2026-09-22');
+    expect(optional.kind).toBe('session');
+    expect(planSessionsOf(optional).map((day) => day.workout)).toEqual(["Optional: 20' light strength"]);
+    expect(planSessionsOf({ kind: 'uncovered' })).toEqual([]);
   });
 
   it('reads a planned rest day as rest', () => {
@@ -167,7 +189,7 @@ describe('planDayDistanceMeters', () => {
 
 describe('planWeeksDayOn', () => {
   it('reads any run of weeks as the plan card reads its own', () => {
-    expect(planWeeksDayOn(plan.weeks, '2026-09-24')).toMatchObject({ kind: 'session', day: { workout: 'Tempo run' } });
+    expect(planWeeksDayOn(plan.weeks, '2026-09-24')).toMatchObject({ kind: 'session', days: [{ workout: 'Tempo run' }] });
     expect(planWeeksDayOn(plan.weeks, '2026-09-25').kind).toBe('rest');
     expect(planWeeksDayOn([], '2026-09-24').kind).toBe('uncovered');
   });

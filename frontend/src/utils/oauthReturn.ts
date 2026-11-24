@@ -59,6 +59,15 @@ export interface OAuthResult {
 }
 
 /**
+ * The `consents` part of an OAuth start's options: the offered consents the
+ * athlete ticked (`ConnectConsentDialog`), or nothing when none was — an
+ * empty list records nothing on the server, so the start says nothing.
+ */
+export function offeredConsents(consents: readonly string[]): { consents?: readonly string[] } {
+  return consents.length > 0 ? { consents } : {};
+}
+
+/**
  * Start a provider connect in this tab: remember the dashboard route the
  * athlete is on, then go to the server's launch route, which redirects to the
  * provider. The server returns to the app root, where [`settleOAuthReturn`]

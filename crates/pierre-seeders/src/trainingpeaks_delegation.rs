@@ -32,7 +32,7 @@
 //! pierre-cli seed trainingpeaks-delegation
 //! ```
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::constants::oauth::providers::provider_terms_version;
 use pierre_core::constants::oauth_providers::{SCIOTTE_TRAININGPEAKS, TOKEN_TYPE_SESSION};
 use pierre_core::errors::{AppError, AppResult};
@@ -186,7 +186,7 @@ async fn seed_member_link(
 /// The coach's own `TrainingPeaks`: a stand-in session recorded as a coach
 /// account, the roster grant, and the current notice accepted.
 async fn seed_coach_account(repos: &RepositoryRegistry, coach: &Account) -> AppResult<()> {
-    let now = Utc::now();
+    let now = Timestamp::now();
     let session = json!({
         "session_id": format!("seed-coach-{}", coach.id.as_simple()),
         "cookies": [],

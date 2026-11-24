@@ -272,7 +272,7 @@ async fn the_dossier_carries_the_stored_anchors_beside_the_profile() -> Result<(
         .resources
         .repos()
         .dossier
-        .compose_dossier(tenant, user_id, TransportPolicy::AnyTransport, &|_| true)
+        .compose_dossier(tenant, user_id, TransportPolicy::AnyTransport, &|_, _| true)
         .await?;
     assert!(dossier.physiology.is_some());
     assert_eq!(

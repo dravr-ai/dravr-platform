@@ -12,7 +12,7 @@
 //! — answers its list, cursor and single reads from the rows cached under its
 //! key. This is that read, written once, scoped to one user in one tenant.
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_database::repositories::ActivityCacheRepository;
 use serde_json::Value;
 use uuid::Uuid;
@@ -48,12 +48,12 @@ impl CachedActivities<'_> {
     pub(crate) async fn window(&self, params: &ActivityQueryParams) -> AppResult<Vec<Activity>> {
         let start = params
             .after
-            .and_then(|ts| DateTime::<Utc>::from_timestamp(ts, 0))
-            .unwrap_or(DateTime::UNIX_EPOCH);
+            .and_then(|ts| Timestamp::from_epoch_seconds(ts).ok())
+            .unwrap_or(Timestamp::UNIX_EPOCH);
         let end = params
             .before
-            .and_then(|ts| DateTime::<Utc>::from_timestamp(ts, 0))
-            .unwrap_or_else(Utc::now);
+            .and_then(|ts| Timestamp::from_epoch_seconds(ts).ok())
+            .unwrap_or_else(Timestamp::now);
         let offset = params.offset.unwrap_or(0);
         let limit = params.limit.unwrap_or(DEFAULT_LIST_LIMIT);
         let read = i64::try_from(offset.saturating_add(limit)).unwrap_or(i64::MAX);
@@ -81,7 +81,7 @@ impl CachedActivities<'_> {
         params: &PaginationParams,
     ) -> AppResult<CursorPage<Activity>> {
         let after = params.cursor.as_ref().and_then(Cursor::decode);
-        let end = after.as_ref().map_or_else(Utc::now, |(at, _)| *at);
+        let end = after.as_ref().map_or_else(Timestamp::now, |(at, _)| *at);
         let read = params.limit.saturating_add(1 + SAME_START_SLACK);
         let mut rows = self
             .cache
@@ -89,7 +89,7 @@ impl CachedActivities<'_> {
                 self.user_id,
                 self.tenant_id,
                 Some(self.provider),
-                DateTime::UNIX_EPOCH,
+                Timestamp::UNIX_EPOCH,
                 end,
                 i64::try_from(read).unwrap_or(i64::MAX),
             )

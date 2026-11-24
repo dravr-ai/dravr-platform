@@ -8,11 +8,11 @@
 #![allow(missing_docs)]
 
 use crate::common;
-use chrono::Utc;
+use dravr_tronc::dates::Elapsed;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::SportType;
 use pierre_mcp_server::constants::oauth_providers;
 use pierre_providers::core::{CredentialKind, FitnessProvider, OAuth2Credentials, ProviderConfig};
-use pierre_providers::registry::{get_supported_providers, global_registry};
 use pierre_providers::whoop_provider::WhoopProvider;
 use secrecy::SecretString;
 
@@ -67,7 +67,7 @@ async fn test_whoop_provider_authentication_lifecycle() {
         client_secret: SecretString::from("test_client_secret"),
         access_token: Some(SecretString::from("test_access_token")),
         refresh_token: Some(SecretString::from("test_refresh_token")),
-        expires_at: Some(Utc::now() + chrono::Duration::hours(1)),
+        expires_at: Some(Timestamp::now() + Elapsed::hours(1)),
         scopes: vec!["read:profile".to_owned(), "read:workout".to_owned()],
         kind: CredentialKind::OAuthBearer,
         request_budget: None,
@@ -93,7 +93,7 @@ async fn test_whoop_provider_expired_token() {
         client_secret: SecretString::from("test_client_secret"),
         access_token: Some(SecretString::from("expired_token")),
         refresh_token: Some(SecretString::from("test_refresh_token")),
-        expires_at: Some(Utc::now() - chrono::Duration::hours(1)), // Already expired
+        expires_at: Some(Timestamp::now() - Elapsed::hours(1)), // Already expired
         scopes: vec!["read:profile".to_owned()],
         kind: CredentialKind::OAuthBearer,
         request_budget: None,
@@ -241,7 +241,7 @@ async fn test_whoop_provider_refresh_token_not_needed() {
         client_secret: SecretString::from("test_client_secret"),
         access_token: Some(SecretString::from("test_access_token")),
         refresh_token: Some(SecretString::from("test_refresh_token")),
-        expires_at: Some(Utc::now() + chrono::Duration::hours(2)),
+        expires_at: Some(Timestamp::now() + Elapsed::hours(2)),
         scopes: vec!["read:profile".to_owned()],
         kind: CredentialKind::OAuthBearer,
         request_budget: None,
@@ -260,7 +260,7 @@ async fn test_whoop_provider_refresh_token_not_needed() {
 #[test]
 fn test_whoop_in_provider_registry() {
     ensure_http_clients_initialized();
-    let registry = global_registry();
+    let registry = common::offline_provider_registry();
     // Verify WHOOP is in the list of all providers using the registry
     let all_providers = registry.supported_providers();
     assert!(all_providers.contains(&oauth_providers::WHOOP));
@@ -270,7 +270,7 @@ fn test_whoop_in_provider_registry() {
 #[test]
 fn test_whoop_provider_factory() {
     ensure_http_clients_initialized();
-    let registry = global_registry();
+    let registry = common::offline_provider_registry();
 
     // Verify WHOOP is supported
     assert!(registry.is_supported(oauth_providers::WHOOP));
@@ -285,7 +285,7 @@ fn test_whoop_provider_factory() {
 
 #[test]
 fn test_whoop_in_supported_providers_list() {
-    let supported = get_supported_providers();
+    let supported = common::offline_provider_registry().supported_providers();
     assert!(supported.contains(&oauth_providers::WHOOP));
 }
 
@@ -300,7 +300,7 @@ async fn test_whoop_credentials_without_access_token() {
         client_secret: SecretString::from("test_client_secret"),
         access_token: None, // No access token
         refresh_token: Some(SecretString::from("test_refresh_token")),
-        expires_at: Some(Utc::now() + chrono::Duration::hours(1)),
+        expires_at: Some(Timestamp::now() + Elapsed::hours(1)),
         scopes: vec!["read:profile".to_owned()],
         kind: CredentialKind::OAuthBearer,
         request_budget: None,
@@ -362,7 +362,7 @@ fn test_sport_type_conversion_basic() {
 #[test]
 fn test_whoop_provider_has_full_health_capabilities() {
     ensure_http_clients_initialized();
-    let registry = global_registry();
+    let registry = common::offline_provider_registry();
 
     // WHOOP should have full health capabilities
     assert!(registry.supports_sleep(oauth_providers::WHOOP));

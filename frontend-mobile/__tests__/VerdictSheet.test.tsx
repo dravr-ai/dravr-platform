@@ -192,7 +192,7 @@ describe('VerdictSheet', () => {
     await waitFor(() => expect(openURL).toHaveBeenCalledWith('https://doi.org/10.1111/sms.12104'));
     // The raw id never reaches the athlete when it resolves to a page.
     expect(queryByText('doi:10.1111/sms.12104')).toBeNull();
-    // A link on its own line is still a 44pt target (DESIGN.md §8).
+    // A link on its own line is still a 44pt target (DESIGN.md "Layout").
     const [studyLink] = UNSAFE_getAllByProps({ testID: 'verdict-study-link' });
     expect(studyLink.props.className).toContain('min-h-11');
     openURL.mockRestore();

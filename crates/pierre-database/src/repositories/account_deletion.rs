@@ -22,7 +22,7 @@
 //!    instead);
 //! 3. it retires the device logins the account approved as an admin
 //!    (`RETIRE_DEVICE_LOGINS_SQL`): each row is kept, inactive, under a name
-//!    that names no one and an operator that is no account, so its request
+//!    that names no one and an admin that is no account, so its request
 //!    log and its record of the keys it provisioned stay while a deleted
 //!    admin's tokens end in this transaction and never after it. The log
 //!    keeps each request's action, target and time; the IP address and
@@ -56,18 +56,18 @@
 //! hashed, so [`verify_receipt_chain`] recomputes each link from the stored
 //! columns alone. A chain proves no receipt was altered or removed from the
 //! middle; removing the newest receipts leaves a shorter chain that still
-//! verifies, so an operator who needs that guarantee records the head
+//! verifies, so an admin who needs that guarantee records the head
 //! ([`ChainVerification::head`]) somewhere the database cannot reach.
 //!
 //! ISOLATION EXEMPTION: `deletion_receipts` carries neither `tenant_id` nor
 //! `user_id`: it outlives the account and must not point at it, and an
 //! account deletion spans every tenant. It is read only by the admin
-//! route an operator verifies the chain through.
+//! route an admin verifies the chain through.
 
 use std::collections::BTreeMap;
 
 use async_trait::async_trait;
-use chrono::{DateTime, SecondsFormat, Utc};
+use dravr_tronc::dates::{SecondsFormat, Timestamp};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
 use serde::{Deserialize, Serialize};
@@ -84,8 +84,12 @@ pub const GENESIS_HASH: &str = "000000000000000000000000000000000000000000000000
 pub enum DeletionActor {
     /// The athlete, from the app.
     Athlete,
-    /// An operator, from an admin surface.
-    Operator,
+    /// An admin, from an admin surface. Stored and hashed as `operator`, the
+    /// word receipts were sealed with before admins were called admins: the
+    /// `deletion_receipts.actor` CHECK constraint and every sealed hash hold
+    /// that value, so it never changes.
+    #[serde(rename = "operator")]
+    Admin,
     /// The athlete, from a messaging channel (`/deleteaccount`).
     Messaging,
 }
@@ -97,7 +101,7 @@ impl DeletionActor {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Athlete => "athlete",
-            Self::Operator => "operator",
+            Self::Admin => "operator",
             Self::Messaging => "messaging",
         }
     }
@@ -206,7 +210,7 @@ impl DeletionReceipt {
     /// The time a receipt records for a deletion committing at `at`:
     /// RFC 3339, microseconds, `Z`.
     #[must_use]
-    pub fn timestamp(at: DateTime<Utc>) -> String {
+    pub fn timestamp(at: Timestamp) -> String {
         at.to_rfc3339_opts(SecondsFormat::Micros, true)
     }
 }
@@ -229,7 +233,7 @@ pub struct ChainVerification {
     /// Receipts that verified before the first break (all of them when
     /// there is none).
     pub verified: usize,
-    /// The newest receipt's `(seq, hash)`, for an operator to record
+    /// The newest receipt's `(seq, hash)`, for an admin to record
     /// outside the database.
     pub head: Option<(i64, String)>,
     /// The first broken link, `None` when the whole chain verifies.
@@ -383,7 +387,7 @@ pub struct ReceiptAnchor {
     /// The C2SP signed note.
     pub note: String,
     /// When it was anchored.
-    pub anchored_at: DateTime<Utc>,
+    pub anchored_at: Timestamp,
 }
 
 /// Record one anchor; a checkpoint is anchored once.
@@ -604,7 +608,7 @@ macro_rules! impl_account_deletion_repository {
                     .map(|row| row.try_get("id").map_err(admin_token))
                     .collect::<AppResult<Vec<String>>>()?;
                 let retired_logins = sqlx::query(RETIRE_DEVICE_LOGINS_SQL)
-                    .bind(DELETED_ACCOUNT_OPERATOR.to_string())
+                    .bind(DELETED_ACCOUNT_ADMIN.to_string())
                     .bind(DEVICE_CLI_DELETED_ACCOUNT_SERVICE)
                     .bind(&owner)
                     .fetch_all(guard.executor()?)
@@ -645,6 +649,18 @@ macro_rules! impl_account_deletion_repository {
                         ))
                     })?;
 
+                // A coach's usage row of a call that read the account's data
+                // stays the coach's, without the account's id (carnet#1543).
+                sqlx::query(SCRUB_SUBJECT_LLM_USAGE_SQL)
+                    .bind(&owner)
+                    .execute(guard.executor()?)
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!(
+                            "Failed to take a deleted account out of the usage rows naming it: {e}"
+                        ))
+                    })?;
+
                 let rows_removed = clear_user_in_transaction!(
                     guard,
                     $ids,
@@ -653,7 +669,7 @@ macro_rules! impl_account_deletion_repository {
                     plan.firebase_project.as_deref()
                 );
 
-                let now = Utc::now();
+                let now = Timestamp::now();
                 let subject = subject_hash(user_id);
                 let mut tombstone_ids = Vec::with_capacity(identities.len() + 1);
                 for (provider, identity_hash) in &identities {
@@ -883,7 +899,7 @@ mod tests {
     #[test]
     fn an_altered_field_breaks_the_link_it_is_in() {
         let mut receipts = chain(3);
-        receipts[1].actor = DeletionActor::Operator.as_str().to_owned();
+        receipts[1].actor = DeletionActor::Admin.as_str().to_owned();
         let verification = verify_receipt_chain(&receipts);
         assert_eq!(verification.verified, 1);
         let fault = verification.first_break.unwrap();
@@ -913,9 +929,7 @@ mod tests {
 
     #[test]
     fn a_receipt_timestamp_keeps_microseconds_in_utc() {
-        let at = DateTime::parse_from_rfc3339("2026-10-20T12:34:56.123456789+02:00")
-            .unwrap()
-            .with_timezone(&Utc);
+        let at = Timestamp::parse_from_rfc3339("2026-10-20T12:34:56.123456789+02:00").unwrap();
         assert_eq!(
             DeletionReceipt::timestamp(at),
             "2026-10-20T10:34:56.123456Z"

@@ -7,7 +7,7 @@
 #![allow(missing_docs)]
 #![allow(clippy::unwrap_used)]
 
-use chrono::{TimeZone, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::constants::oauth_providers::{INTERVALS_ICU, SCIOTTE, SCIOTTE_GARMIN, STRAVA};
 use pierre_core::constants::provider_capture::{
     current_capture_version, BASELINE_CAPTURE_VERSION, INTERVALS_ICU_CAPTURE_VERSION,
@@ -325,7 +325,7 @@ fn act(id: &str, start_ts: i64, km: f64, duration_s: u64) -> Activity {
         id.to_owned(),
         id.to_owned(),
         SportType::Run,
-        Utc.timestamp_opt(start_ts, 0).single().unwrap(),
+        Timestamp::from_epoch_seconds(start_ts).unwrap(),
         duration_s,
         "strava".to_owned(),
     )

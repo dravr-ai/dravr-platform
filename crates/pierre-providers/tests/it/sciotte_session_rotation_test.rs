@@ -20,12 +20,12 @@
 
 use std::sync::{Arc, Mutex};
 
-use chrono::{TimeZone, Utc};
 use dravr_sciotte::models::{AuthSession, CookieData};
 use dravr_sciotte::wire::{
     PATH_ACTIVITIES, PATH_ATHLETE, PATH_IMPORT_SESSION, PATH_SESSIONS, SESSION_EXPORT_SEGMENT,
     SESSION_ROTATED, SESSION_ROTATED_HEADER,
 };
+use dravr_tronc::dates::Timestamp;
 use pierre_providers::core::{
     ActivityQueryParams, CredentialKind, FitnessProvider, OAuth2Credentials, ProviderConfig,
     ProviderFactory, TokenRefreshCallback,
@@ -153,7 +153,7 @@ fn session_with(session_id: &str, cookie: &str) -> AuthSession {
             http_only: true,
             secure: true,
         }],
-        created_at: Utc.with_ymd_and_hms(2026, 10, 29, 8, 0, 0).unwrap(), // Safe: literal instant
+        created_at: Timestamp::parse_from_rfc3339("2026-10-29T08:00:00Z").unwrap(), // Safe: literal instant
         expires_at: None,
     }
 }

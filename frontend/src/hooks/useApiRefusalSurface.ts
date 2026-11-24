@@ -71,6 +71,12 @@ export function useApiRefusalSurface(): void {
         return;
       }
       const reconnectKey = providerAuthRefusalKey(error);
+      // On the connections pane the provider's row and the banner already ask
+      // for the reconnect, and the toast's action would lead back to the pane
+      // the athlete is on.
+      if (reconnectKey !== undefined && window.location.hash === `#${CONNECTIONS_ROUTE}`) {
+        return;
+      }
       toast.current({
         type: 'error',
         title: translate.current('common.error'),

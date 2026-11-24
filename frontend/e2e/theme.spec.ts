@@ -237,7 +237,7 @@ test.describe('Boreal Theme — visible layout elements', () => {
   // (1.11:1) pretending to be different things. Assertions on visibility pass
   // identically before and after that fix, so this one MEASURES: at >=1024px
   // the two panes must resolve to different fills, and the aside must be the
-  // sage tint rather than another paper tier. DESIGN.md §5 "Auth and onboarding".
+  // sage tint rather than another paper tier. DESIGN.md "Auth and onboarding".
   test('login pairs a tinted aside with a white form sheet in light mode', async ({ page }) => {
     await forceLightTheme(page);
     await setupThemeMocks(page, { isAdmin: true });

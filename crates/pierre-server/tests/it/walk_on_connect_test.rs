@@ -149,7 +149,7 @@ mod strava {
 
     use axum::routing::{get, post};
     use axum::{Json, Router};
-    use chrono::Utc;
+    use dravr_tronc::dates::Timestamp;
     use pierre_config::environment::ProviderEndpointOverride;
     use pierre_routes_auth::AuthRoutes;
     use pierre_services::oauth_flow::{AuthUrlOptions, OAuthService};
@@ -165,7 +165,7 @@ mod strava {
             .route(
                 "/oauth/token",
                 post(|| async {
-                    let expires_at = Utc::now().timestamp() + 6 * 3600;
+                    let expires_at = Timestamp::now().epoch_seconds() + 6 * 3600;
                     Json(json!({
                         "token_type": "Bearer",
                         // >= 40 chars and not "at_"-prefixed: the provider's token validation.

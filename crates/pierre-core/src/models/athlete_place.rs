@@ -22,7 +22,7 @@
 
 use std::fmt;
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 
 /// A `cached_activities` row's key: the provider key it is filed under and
 /// the activity id. Ordered by provider, then activity id.
@@ -81,7 +81,7 @@ pub struct StoredHome {
     /// What the athlete said; `Inferred` when they never declared.
     pub home: HomeDeclaration,
     /// When they said it; `None` when they never declared.
-    pub declared_at: Option<DateTime<Utc>>,
+    pub declared_at: Option<Timestamp>,
 }
 
 #[cfg(test)]

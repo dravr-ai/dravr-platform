@@ -42,7 +42,7 @@ use axum::extract::{Path, State};
 use axum::http::{Request, StatusCode};
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use chrono::{DateTime, Duration, TimeZone, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::models::{
     Activity, ActivityBuilder, ConnectionType, HomeDeclaration, SportType, TenantId,
 };
@@ -117,8 +117,8 @@ async fn detail(
         "start_date": id
             .parse::<i64>()
             .ok()
-            .and_then(|at| Utc.timestamp_opt(at, 0).single())
-            .unwrap_or_else(|| Utc::now() - Duration::days(2))
+            .and_then(|at| Timestamp::from_epoch_seconds(at).ok())
+            .unwrap_or_else(|| Timestamp::now() - Elapsed::days(2))
             .to_rfc3339(),
         "duration_seconds": 5_400,
         "distance_meters": 25_000.0,
@@ -197,7 +197,7 @@ fn loop_track(phase: f64) -> Vec<(f64, f64)> {
 }
 
 /// A ride as the sciotte list read stores it: a raw start, no route overview.
-fn listed_ride(id: &str, started: DateTime<Utc>) -> Activity {
+fn listed_ride(id: &str, started: Timestamp) -> Activity {
     ActivityBuilder::new(
         id,
         "Sortie VTT",
@@ -286,7 +286,7 @@ async fn drawn(resources: &Arc<ServerContext>, athlete: &Athlete, id: &str) -> R
 async fn pass_detail_rechecks(resources: &Arc<ServerContext>, user_id: Uuid) {
     const SQL: &str = "UPDATE cached_activities SET detail_recheck_at = $1 \
                        WHERE user_id = $2 AND detail_recheck_at IS NOT NULL";
-    let past = Utc::now() - Duration::minutes(1);
+    let past = Timestamp::now() - Elapsed::minutes(1);
     match resources.agent.database.backend() {
         DatabaseBackend::SQLite(sqlite) => {
             sqlx::query(SQL)
@@ -326,7 +326,7 @@ async fn a_detail_read_carrying_a_route_stores_the_rides_trimmed_track_with_no_e
     cache_rides(
         &resources,
         &athlete,
-        &[listed_ride("t1", Utc::now() - Duration::days(2))],
+        &[listed_ride("t1", Timestamp::now() - Elapsed::days(2))],
     )
     .await;
 
@@ -385,7 +385,7 @@ async fn the_stored_track_is_the_athletes_own_in_their_own_tenant() {
     let athlete = sciotte_athlete(&resources, "sciotte-track-scope").await;
     let other = sciotte_athlete(&resources, "sciotte-track-other").await;
     scraper.answer("t2", Detail::Route(loop_track(0.4)));
-    let ride = listed_ride("t2", Utc::now() - Duration::days(2));
+    let ride = listed_ride("t2", Timestamp::now() - Elapsed::days(2));
     cache_rides(&resources, &athlete, slice_of(&ride)).await;
     cache_rides(&resources, &other, slice_of(&ride)).await;
 
@@ -427,8 +427,8 @@ async fn an_empty_route_settles_no_gps_and_only_a_drawn_track_replaces_it() {
         &resources,
         &athlete,
         &[
-            listed_ride("indoor", Utc::now() - Duration::days(3)),
-            listed_ride("drawn", Utc::now() - Duration::days(2)),
+            listed_ride("indoor", Timestamp::now() - Elapsed::days(3)),
+            listed_ride("drawn", Timestamp::now() - Elapsed::days(2)),
         ],
     )
     .await;
@@ -487,8 +487,8 @@ async fn a_read_with_no_route_or_a_failed_read_settles_nothing() {
         &resources,
         &athlete,
         &[
-            listed_ride("unrendered", Utc::now() - Duration::days(3)),
-            listed_ride("down", Utc::now() - Duration::days(2)),
+            listed_ride("unrendered", Timestamp::now() - Elapsed::days(3)),
+            listed_ride("down", Timestamp::now() - Elapsed::days(2)),
         ],
     )
     .await;
@@ -523,14 +523,14 @@ async fn the_next_places_pass_forms_a_place_from_the_stored_tracks() {
     let rides: Vec<Activity> = ids
         .iter()
         .zip(1_i64..)
-        .map(|(id, days)| listed_ride(id, Utc::now() - Duration::days(days * 2)))
+        .map(|(id, days)| listed_ride(id, Timestamp::now() - Elapsed::days(days * 2)))
         .collect();
     for (id, phase) in ids.iter().zip([0.0, 0.5, 1.0]) {
         scraper.answer(id, Detail::Route(loop_track(phase)));
     }
     cache_rides(&resources, &athlete, &rides).await;
     // Home is not the trailhead: no start is excluded as home.
-    let declared = Utc::now() - Duration::hours(3);
+    let declared = Timestamp::now() - Elapsed::hours(3);
     repos
         .athlete_places
         .store_home_declaration(
@@ -543,7 +543,7 @@ async fn the_next_places_pass_forms_a_place_from_the_stored_tracks() {
         .unwrap();
 
     // Raw starts alone never create a place.
-    let first_pass = Utc::now() - Duration::hours(2);
+    let first_pass = Timestamp::now() - Elapsed::hours(2);
     places_pass(repos, first_pass, 50).await.unwrap();
     assert!(
         repos
@@ -562,7 +562,7 @@ async fn the_next_places_pass_forms_a_place_from_the_stored_tracks() {
     assert_eq!(reads, ids.len(), "bug: each view reads its ride once");
 
     // Within the day's backstop: only the stored tracks make the athlete due.
-    let report = places_pass(repos, Utc::now(), 50).await.unwrap();
+    let report = places_pass(repos, Timestamp::now(), 50).await.unwrap();
     assert_eq!(
         report.users, 1,
         "bug: a newly stored track did not make the athlete due a places pass"
@@ -601,7 +601,7 @@ async fn a_session_detail_walk_stores_each_rides_route_with_its_one_read() {
         .unwrap();
     let resources = with_window(&resources, 400);
     let athlete = sciotte_athlete(&resources, "sciotte-track-walk").await;
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     let (outdoor, indoor, unrendered) = (now - 10 * DAY, now - 8 * DAY, now - 6 * DAY);
     scraper.answer(&outdoor.to_string(), Detail::Route(loop_track(0.3)));
     scraper.answer(&indoor.to_string(), Detail::Route(Vec::new()));

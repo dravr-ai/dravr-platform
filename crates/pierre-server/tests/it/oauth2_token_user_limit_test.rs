@@ -18,7 +18,7 @@ use crate::helpers::axum_test::{AxumTestRequest, AxumTestResponse};
 use axum::extract::connect_info::MockConnectInfo;
 use axum::Router;
 use base64::{engine::general_purpose, Engine as _};
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use jsonwebtoken::dangerous::insecure_decode;
 use jsonwebtoken::{encode, Algorithm, Header};
 use pierre_auth::auth::Claims;
@@ -31,17 +31,12 @@ use pierre_contremaitre::MessagingStringsRegistry;
 use pierre_core::models::{Tenant, TenantId, User};
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_routes_identity::oauth2::{OAuth2Context, OAuth2Routes};
+use pierre_test_support::log_capture;
 use regex::Regex;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use std::fmt::Debug;
 use std::net::SocketAddr;
-use std::sync::{Arc, Mutex};
-use tracing::field::{Field, Visit};
-use tracing::{Event, Subscriber};
-use tracing_subscriber::layer::{Context, SubscriberExt};
-use tracing_subscriber::util::SubscriberInitExt;
-use tracing_subscriber::Layer;
+use std::sync::Arc;
 use uuid::Uuid;
 
 const REDIRECT: &str = "https://app.example.com/callback";
@@ -71,6 +66,7 @@ fn routes(resources: &Arc<ServerContext>, limiter: Arc<OAuth2RateLimiter>) -> Ro
         jwks_manager: resources.auth.jwks_manager.clone(),
         config: Arc::new(resources.common.config.oauth2_server.clone()),
         refresh_token_expiry_days: resources.common.config.auth.refresh_token_expiry_days,
+        session_cookie_max_age_secs: resources.common.config.session_cookie.max_age_secs,
         csrf_manager: resources.auth.csrf_manager.clone(),
         accounts: resources.account_service(),
         google_sign_in: None,
@@ -115,8 +111,8 @@ async fn athlete(resources: &Arc<ServerContext>) -> User {
             domain: None,
             plan: "starter".to_owned(),
             owner_user_id: user.id,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         })
         .await
         .unwrap();
@@ -147,6 +143,8 @@ async fn code_for(resources: &Arc<ServerContext>, client_id: &str, user: &User) 
             ),
             code_challenge_method: Some("S256".to_owned()),
             resource: None,
+            request_uri: None,
+            authorization_details: None,
         },
         Some(user.id),
         None,
@@ -361,29 +359,6 @@ async fn only_a_live_grant_of_its_own_client_counts() {
     assert_eq!(own.status(), 200, "{}", own.body_text());
 }
 
-#[derive(Default)]
-struct MessageCapture {
-    messages: Arc<Mutex<Vec<String>>>,
-}
-
-struct MessageVisitor<'a>(&'a mut String);
-
-impl Visit for MessageVisitor<'_> {
-    fn record_debug(&mut self, field: &Field, value: &dyn Debug) {
-        if field.name() == "message" {
-            *self.0 = format!("{value:?}");
-        }
-    }
-}
-
-impl<S: Subscriber> Layer<S> for MessageCapture {
-    fn on_event(&self, event: &Event<'_>, _ctx: Context<'_, S>) {
-        let mut message = String::new();
-        event.record(&mut MessageVisitor(&mut message));
-        self.messages.lock().unwrap().push(message);
-    }
-}
-
 /// `public_mcp_monitoring.tf` alerts on the words of this refusal. Reworded on
 /// one side only, the alert would never fire and nothing else would say so.
 #[tokio::test]
@@ -404,14 +379,16 @@ async fn the_refusal_the_alert_reads_is_the_one_the_server_logs() {
     let token = connected(&resources, &client_id, &user).await;
     let metered = limiter(0, None);
 
-    let capture = MessageCapture::default();
-    let messages = Arc::clone(&capture.messages);
-    let guard = tracing_subscriber::registry().with(capture).set_default();
+    let (capture, guard) = log_capture::capture_events();
     let refused = refresh(routes(&resources, metered), &client_id, &token).await;
     drop(guard);
 
     assert_refused(&refused);
-    let logged = messages.lock().unwrap();
+    let logged: Vec<String> = capture
+        .events()
+        .iter()
+        .filter_map(|e| e.message().map(str::to_owned))
+        .collect();
     assert!(
         logged.iter().any(|message| message.starts_with(wanted)),
         "the alert reads {wanted:?}; the server logged {logged:#?}"
@@ -422,7 +399,7 @@ async fn the_refusal_the_alert_reads_is_the_one_the_server_logs() {
 fn expired(resources: &Arc<ServerContext>, token: &str) -> String {
     let mut claims = insecure_decode::<Claims>(token).unwrap().claims;
     claims.iat -= 7200;
-    claims.exp = Utc::now().timestamp() - 3600;
+    claims.exp = Timestamp::now().epoch_seconds() - 3600;
     let key = resources.auth.jwks_manager.get_active_key().unwrap();
     let mut header = Header::new(Algorithm::RS256);
     header.kid = Some(key.kid.clone());

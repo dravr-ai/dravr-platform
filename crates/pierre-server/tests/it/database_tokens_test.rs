@@ -7,8 +7,9 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::models::CoachingPersona;
-use pierre_core::models::{DecryptedToken, TenantId, User, UserOAuthToken, UserStatus, UserTier};
+use pierre_core::models::{TenantId, User, UserOAuthToken, UserStatus, UserTier};
 use pierre_core::permissions::UserRole;
 use pierre_mcp_server::constants::oauth_providers;
 use pierre_test_support::db::create_test_db;
@@ -28,14 +29,13 @@ async fn test_strava_token_storage() {
         display_name: None,
         password_hash: "hashed".into(),
         tier: UserTier::Starter,
-        strava_token: None,
         is_active: true,
         user_status: UserStatus::Active,
         role: UserRole::User,
         approved_by: None,
-        approved_at: Some(chrono::Utc::now()),
-        created_at: chrono::Utc::now(),
-        last_active: chrono::Utc::now(),
+        approved_at: Some(Timestamp::now()),
+        created_at: Timestamp::now(),
+        last_active: Timestamp::now(),
         firebase_uid: None,
         auth_provider: String::new(),
         analytics_consent: false,
@@ -54,25 +54,22 @@ async fn test_strava_token_storage() {
         .expect("Failed to create user");
 
     // Create test token with timestamp precision truncated to seconds
-    let expires_at = chrono::Utc::now() + chrono::Duration::seconds(3600);
+    let expires_at = Timestamp::now() + Elapsed::seconds(3600);
     let expires_at_truncated =
-        chrono::DateTime::from_timestamp(expires_at.timestamp(), 0).expect("Valid timestamp");
-    let token = DecryptedToken {
-        access_token: "test_access_token".into(),
-        refresh_token: "test_refresh_token".into(),
-        expires_at: expires_at_truncated,
-        scope: "read,activity:read_all".into(),
-    };
+        Timestamp::from_epoch_seconds(expires_at.epoch_seconds()).expect("Valid timestamp");
+    let access_token = "test_access_token";
+    let refresh_token = "test_refresh_token";
+    let scope = "read,activity:read_all";
 
     // Store token
     let oauth_token = UserOAuthToken::new(
         user.id,
         TenantId::from_uuid(Uuid::nil()).to_string(),
         oauth_providers::STRAVA.to_owned(),
-        token.access_token.expose_secret().to_owned(),
-        Some(token.refresh_token.expose_secret().to_owned()),
-        Some(token.expires_at),
-        Some(token.scope.clone()),
+        access_token.to_owned(),
+        Some(refresh_token.to_owned()),
+        Some(expires_at_truncated),
+        Some(scope.to_owned()),
     );
     db.repositories()
         .oauth_tokens
@@ -81,7 +78,7 @@ async fn test_strava_token_storage() {
         .expect("Failed to update Strava token");
 
     // Retrieve token
-    let retrieved_oauth = db
+    let retrieved = db
         .repositories()
         .oauth_tokens
         .get_token(
@@ -93,23 +90,14 @@ async fn test_strava_token_storage() {
         .expect("Failed to get Strava token")
         .expect("Token not found");
 
-    let retrieved = DecryptedToken {
-        access_token: retrieved_oauth.access_token,
-        refresh_token: retrieved_oauth.refresh_token.unwrap_or_default(),
-        expires_at: retrieved_oauth.expires_at.unwrap_or_else(chrono::Utc::now),
-        scope: retrieved_oauth.scope.unwrap_or_default(),
-    };
-
-    assert_eq!(
-        retrieved.access_token.expose_secret(),
-        token.access_token.expose_secret()
-    );
-    assert_eq!(
-        retrieved.refresh_token.expose_secret(),
-        token.refresh_token.expose_secret()
-    );
-    assert_eq!(retrieved.expires_at, token.expires_at);
-    assert_eq!(retrieved.scope, token.scope);
+    assert_eq!(retrieved.access_token.expose_secret(), access_token);
+    let stored_refresh = retrieved
+        .refresh_token
+        .as_ref()
+        .expect("Refresh token not stored");
+    assert_eq!(stored_refresh.expose_secret(), refresh_token);
+    assert_eq!(retrieved.expires_at, Some(expires_at_truncated));
+    assert_eq!(retrieved.scope.as_deref(), Some(scope));
 
     // Clear token
     db.repositories()
@@ -150,14 +138,13 @@ async fn test_whoop_token_storage() {
         display_name: None,
         password_hash: "hashed".into(),
         tier: UserTier::Professional,
-        strava_token: None,
         is_active: true,
         user_status: UserStatus::Active,
         role: UserRole::User,
         approved_by: None,
-        approved_at: Some(chrono::Utc::now()),
-        created_at: chrono::Utc::now(),
-        last_active: chrono::Utc::now(),
+        approved_at: Some(Timestamp::now()),
+        created_at: Timestamp::now(),
+        last_active: Timestamp::now(),
         firebase_uid: None,
         auth_provider: String::new(),
         analytics_consent: false,
@@ -176,25 +163,22 @@ async fn test_whoop_token_storage() {
         .expect("Failed to create user");
 
     // Create test token with timestamp precision truncated to seconds
-    let expires_at = chrono::Utc::now() + chrono::Duration::seconds(7200);
+    let expires_at = Timestamp::now() + Elapsed::seconds(7200);
     let expires_at_truncated =
-        chrono::DateTime::from_timestamp(expires_at.timestamp(), 0).expect("Valid timestamp");
-    let token = DecryptedToken {
-        access_token: "whoop_access_token".into(),
-        refresh_token: "whoop_refresh_token".into(),
-        expires_at: expires_at_truncated,
-        scope: "read:workout read:recovery read:sleep".into(),
-    };
+        Timestamp::from_epoch_seconds(expires_at.epoch_seconds()).expect("Valid timestamp");
+    let access_token = "whoop_access_token";
+    let refresh_token = "whoop_refresh_token";
+    let scope = "read:workout read:recovery read:sleep";
 
     // Store token
     let oauth_token = UserOAuthToken::new(
         user_id,
         TenantId::from_uuid(Uuid::nil()).to_string(),
         oauth_providers::WHOOP.to_owned(),
-        token.access_token.expose_secret().to_owned(),
-        Some(token.refresh_token.expose_secret().to_owned()),
-        Some(token.expires_at),
-        Some(token.scope.clone()),
+        access_token.to_owned(),
+        Some(refresh_token.to_owned()),
+        Some(expires_at_truncated),
+        Some(scope.to_owned()),
     );
     db.repositories()
         .oauth_tokens
@@ -203,7 +187,7 @@ async fn test_whoop_token_storage() {
         .expect("Failed to update WHOOP token");
 
     // Retrieve token
-    let retrieved_oauth = db
+    let retrieved = db
         .repositories()
         .oauth_tokens
         .get_token(
@@ -215,21 +199,12 @@ async fn test_whoop_token_storage() {
         .expect("Failed to get WHOOP token")
         .expect("Token not found");
 
-    let retrieved = DecryptedToken {
-        access_token: retrieved_oauth.access_token,
-        refresh_token: retrieved_oauth.refresh_token.unwrap_or_default(),
-        expires_at: retrieved_oauth.expires_at.unwrap_or_else(chrono::Utc::now),
-        scope: retrieved_oauth.scope.unwrap_or_default(),
-    };
-
-    assert_eq!(
-        retrieved.access_token.expose_secret(),
-        token.access_token.expose_secret()
-    );
-    assert_eq!(
-        retrieved.refresh_token.expose_secret(),
-        token.refresh_token.expose_secret()
-    );
-    assert_eq!(retrieved.expires_at, token.expires_at);
-    assert_eq!(retrieved.scope, token.scope);
+    assert_eq!(retrieved.access_token.expose_secret(), access_token);
+    let stored_refresh = retrieved
+        .refresh_token
+        .as_ref()
+        .expect("Refresh token not stored");
+    assert_eq!(stored_refresh.expose_secret(), refresh_token);
+    assert_eq!(retrieved.expires_at, Some(expires_at_truncated));
+    assert_eq!(retrieved.scope.as_deref(), Some(scope));
 }

@@ -23,7 +23,6 @@ use std::sync::Arc;
 use dravr_tronc::mcp::tool::{McpTool, ToolContext};
 use pierre_core::models::ConnectionType;
 use pierre_providers::activity_source::resolve_activity_source;
-use pierre_providers::registry::global_registry;
 use pierre_tool_runtime::implementations::data::GetActivitiesTool;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use serde_json::{json, Value};
@@ -130,7 +129,7 @@ async fn a_served_window_stamps_last_used_and_wins_the_next_election() {
 
     let elected = resolve_activity_source(
         resources.common.repos.provider_connections.as_ref(),
-        &global_registry(),
+        &resources.fitness.provider_registry,
         user_id,
         Some(tenant),
     )

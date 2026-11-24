@@ -7,6 +7,7 @@
 import { Stack } from 'expo-router';
 import { useTranslation } from '@pierre/i18n';
 import { settingsPane } from '@pierre/shared-constants';
+import { HEALTH_RECORDS_KEYS } from '@pierre/ui-logic';
 import { useStackScreenOptions } from '../../../../src/navigation/stackOptions';
 
 export default function SettingsLayout() {
@@ -20,6 +21,7 @@ export default function SettingsLayout() {
       <Stack.Screen name="connected-apps" options={{ title: t('app.connectedAppsLower') }} />
       <Stack.Screen name="connections" options={{ title: t(settingsPane('connections').nameKey) }} />
       <Stack.Screen name="gear" options={{ title: t(settingsPane('gear').nameKey) }} />
+      <Stack.Screen name="health-records" options={{ title: t(HEALTH_RECORDS_KEYS.title) }} />
       <Stack.Screen name="messaging" options={{ title: t(settingsPane('messaging').nameKey) }} />
       <Stack.Screen name="notification-preferences" options={{ title: t('notifPrefs.title') }} />
       <Stack.Screen name="physiology" options={{ title: t(settingsPane('physiology').nameKey) }} />

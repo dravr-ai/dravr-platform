@@ -52,6 +52,8 @@ pub mod next_steps;
 pub mod quota_policy;
 pub mod recorders;
 pub(crate) mod recovery;
+/// Relaying a web or mobile turn into its group's connected chat (carnet#1683, D2).
+mod room_relay;
 pub mod stages;
 pub mod suggestions;
 /// Detached work, spawned with a watcher that reports how it failed.
@@ -107,7 +109,7 @@ use recovery::{run_recovery_and_post_process, RecoveryAndPostProcessInputs};
 use std::future::Future;
 use std::pin::Pin;
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_agui::AgUiEvent;
 use pierre_core::errors::AppResult;
 use pierre_core::models::{
@@ -233,7 +235,7 @@ struct DispatchStageArgs<'a> {
     turn_agent_id: Option<&'a str>,
     /// Whose data the turn's tools run against (see `DispatchLlmInputs::seat`).
     seat: TurnSeat,
-    /// What an operator switched off for the sender (see
+    /// What an admin switched off for the sender (see
     /// `DispatchLlmInputs::switched_off`).
     switched_off: &'a SwitchedOff,
     /// Whether the turn's tools beyond the core go out deferred (see
@@ -437,7 +439,7 @@ async fn emit_run_outcome(hooks: &PipelineHooks<'_>, outcome: &AppResult<TurnEnv
 fn emit_answer_delivered(
     persona: CoachingPersona,
     origin: &str,
-    asker_created_at: Option<DateTime<Utc>>,
+    asker_created_at: Option<Timestamp>,
     telemetry: &TurnTelemetry,
     provider_data_served: bool,
 ) {
@@ -451,7 +453,7 @@ fn emit_answer_delivered(
         persona = persona.as_str(),
         origin = origin,
         grounded = first_run_hooks::grounded(telemetry, provider_data_served),
-        account_age_hours = Utc::now().signed_duration_since(created_at).num_hours(),
+        account_age_hours = Timestamp::now().signed_duration_since(created_at).num_hours(),
         "answer delivered"
     );
 }
@@ -487,9 +489,9 @@ const fn persisted_finish_reason<'a>(
     }
 }
 
-/// The turn's tool offer: the tools an operator switched off for its sender,
+/// The turn's tool offer: the tools an admin switched off for its sender,
 /// under the tenant its tools run in, and whether the tools beyond the loaded
-/// core go out deferred (the operator's switch, on an Anthropic head whose
+/// core go out deferred (the admin's switch, on an Anthropic head whose
 /// model `chat_catalogue::defers_on` names). A sender id that does not parse
 /// switches nothing off; the executor refuses whatever it must on its own.
 async fn turn_tool_offer(
@@ -539,10 +541,17 @@ async fn run_turn(
     // dispatches then knows the message it answers ([`TURN_ASK`]).
     let msg_result = store_turn_prompt(ctx, &input, profile, hooks).await?;
     let ask = turn_ask(&input, &msg_result.message);
+    // What the turn's calls hand to its end runs once the turn is answered,
+    // however it was: the writes that handed it over landed (carnet#1702).
+    let turn_end = stages::turn_end::TurnEndRun::of(&input);
     // Erased behind `dyn`: the rest of the turn is the deepest future the
     // pipeline builds, and every caller proving its own `Send` would walk it.
     let answer: Pin<Box<dyn Future<Output = AppResult<TurnEnvelope>> + Send + '_>> =
-        Box::pin(answer_stored_turn(ctx, input, profile, hooks, msg_result));
+        Box::pin(async move {
+            let answered = answer_stored_turn(ctx, input, profile, hooks, msg_result).await;
+            turn_end.run(ctx).await;
+            answered
+        });
     TURN_ASK.scope(Some(ask), answer).await
 }
 
@@ -575,7 +584,7 @@ async fn answer_stored_turn(
 
     // Stage 4.1: who the turn is about, named once. Every stage below that
     // reads, fetches or files the sender's own data follows it. With it, the
-    // turn's tool offer (`turn_tool_offer`): what an operator switched off for
+    // turn's tool offer (`turn_tool_offer`): what an admin switched off for
     // the sender, which the declarations, the prompt's names index and the
     // loopback listing all leave out as `tools/list` does, and whether the
     // tools beyond the loaded core go out deferred.
@@ -692,7 +701,9 @@ async fn answer_stored_turn(
     stages::agent_mention::apply_prompt_text(&mut history, &user_message.id, &input);
 
     // Stage 6: Resolve the agent runtime context this turn answers as.
-    let agent_ctx = stages::prompt_assembly::resolve_turn_agent_ctx(ctx, &input, &conv).await?;
+    let agent_ctx =
+        stages::prompt_assembly::resolve_turn_agent_ctx(ctx, &input, &conv, &profile.locale)
+            .await?;
 
     // Stages 7a–7h + 8: assemble the hardened system prompt and flatten the
     // conversation history into a ready-to-dispatch LLM message list.
@@ -875,11 +886,11 @@ async fn answer_stored_turn(
         // Stamped with what the turn served so far (carnet#769).
         transport_policy: ai_scope::derived_policy(),
         channel_type: Some(profile.surface.wire_channel()),
-        // A reply drawn from one group member's data restates it, so it names
-        // them as their tool rows do (carnet#1174). A turn that read several
-        // members writes a reply about nobody.
+        // A reply drawn from one member's data names them as their tool rows
+        // do (carnet#1174); one drawn from several members is about nobody.
         about_user_id: ai_scope::derived_member(),
         turn_attempted_write: Some(result.attempted_write(ctx.tool_runtime.tool_registry())),
+        ai_consent_sources: &ai_scope::derived_consent_sources(),
     };
     if let Some(stopped) = turn_stop::stopped_before_reply(ctx, hooks, profile, &input).await? {
         return Ok(stopped);
@@ -895,6 +906,17 @@ async fn answer_stored_turn(
         input.origin,
     )
     .await?;
+    // The reply to an app post in a group connected to a chat follows that
+    // post into the chat, when the room may read it (carnet#1683).
+    room_relay::relay_reply(
+        ctx,
+        profile.surface,
+        input.origin,
+        &updated_conversation,
+        &input.user_id,
+        &persisted_assistant_content,
+    )
+    .await;
 
     // Stage 19.5: Persist claim verdicts now that the assistant message is durable.
     #[cfg(feature = "tools-verification")]

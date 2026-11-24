@@ -27,7 +27,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use chrono::NaiveDate;
+use dravr_tronc::dates::CivilDate;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use pierre_core::errors::AppResult;
@@ -53,7 +53,9 @@ use uuid::Uuid;
 
 use super::plan_scope::{resolve_plan_scope, PlanScope, PlanScopeRequest, PlanSubject};
 use super::training_plan_authorship::load_conversation;
-use super::training_plan_push::{calendar_preview_after_save, push_after_write, AthleteNotice};
+use super::training_plan_push::{
+    calendar_preview_after_save, push_after_write, AthleteNotice, PushStep,
+};
 use super::training_plan_rails::{draft_plan_safety, run_live_plan_rails, LivePlanWrite};
 use super::training_plans_output::{
     race_summary, saved_weeks, CalendarPushOutcome, DraftSection, PlanEnvelopeReport,
@@ -65,6 +67,7 @@ use crate::conversions::{
 };
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
+use crate::turn_end::{Handoff, TurnEnd};
 
 /// The tool's name, as the scope check and the log lines name it.
 const PUBLISH_TOOL: &str = "publish_training_plan";
@@ -118,6 +121,12 @@ pub(super) async fn save_into_draft(
             transport_policy: ai_scope::derived_policy(),
         })
         .await?;
+    // A draft reaches no calendar, so in a chat turn the save gives back the
+    // destructive charge its label took, and a draft written in batches is
+    // not refused at its fourth (carnet#1702).
+    if let Some(end) = TurnEnd::here() {
+        end.hand_over(Handoff::NothingToCarry);
+    }
     let draft = &saved.draft.plan;
     info!(
         athlete_user_id = %target.athlete(),
@@ -199,7 +208,7 @@ pub struct PublishedDraftReport {
     /// The two safety-shaped findings of the rails, empty when none.
     pub safety: PlanSafetyReport,
     /// The athlete's civil date the rails measured against.
-    pub today: NaiveDate,
+    pub today: CivilDate,
     /// Where the line saying the publish in the athlete's room landed
     /// (carnet#1249).
     pub room_post: RoomPostOutcome,
@@ -301,6 +310,7 @@ pub async fn publish_draft_live(
         &push_args,
         publish.trigger,
         AthleteNotice::ToldByPublish,
+        PushStep::Run,
     ))
     .await;
     Ok(DraftPublishOutcome::Published(Box::new(
@@ -600,7 +610,7 @@ async fn publish(
     // A publish whose push did not run says what one would now change, when
     // the calendar already carries this plan.
     let calendar = match &calendar_push {
-        CalendarPushOutcome::Pushed { .. } => None,
+        CalendarPushOutcome::Pushed { .. } | CalendarPushOutcome::Queued { .. } => None,
         CalendarPushOutcome::NotPushed { .. } => {
             calendar_preview_after_save(context, scope, &published.plan.id, today).await
         }
@@ -620,6 +630,9 @@ async fn publish(
             "It is on {name}'s calendar too: calendar_push.report says what changed, and any day \
              it skipped or failed to write."
         ),
+        CalendarPushOutcome::Queued { .. } => {
+            format!("It goes onto {name}'s calendar once this reply is sent.")
+        }
         CalendarPushOutcome::NotPushed { message, .. } => {
             let message = message.trim_end();
             let stop = if message.ends_with(['.', '!', '?']) {
@@ -667,5 +680,8 @@ pub fn create_training_plan_publish_tools() -> Vec<Box<dyn RuntimeTool>> {
 // Publishing replaces the athlete's live season and weeks — the athlete's own
 // changes too, under overwrite — and discarding throws the coach's draft
 // away; neither can be undone from here. Irreversible, so it spends the Guardian's
-// per-turn destructive budget, as push_training_plan does.
-crate::declare_security!(PublishTrainingPlanTool => IRREVERSIBLE ; coach_only);
+// per-turn destructive budget, as push_training_plan does. Kept in Dravr's
+// own app whoever asks: every effect is another athlete's live plan, which an
+// external transport refuses for everyone (carnet#1533), so it is never
+// listed there.
+crate::declare_security!(PublishTrainingPlanTool => IRREVERSIBLE ; app_only);

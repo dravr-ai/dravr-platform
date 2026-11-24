@@ -50,7 +50,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use std::time::Duration;
 
-use chrono::{DateTime, TimeDelta, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_contremaitre::anchor_strings::AnchorReader;
 use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
 use pierre_core::errors::{AppError, AppResult};
@@ -306,7 +306,7 @@ pub fn question_state(rows: &[MessageRecord], question_id: &str) -> Option<Quest
 pub fn awaiting_question<'a>(
     rows: &'a [MessageRecord],
     user_id: &str,
-    now: DateTime<Utc>,
+    now: Timestamp,
     ceiling: Duration,
 ) -> Option<&'a MessageRecord> {
     let question = latest_question_by(rows, user_id)?;
@@ -316,13 +316,13 @@ pub fn awaiting_question<'a>(
     ) {
         return None;
     }
-    let asked_at = DateTime::parse_from_rfc3339(&question.created_at)
+    let asked_at = Timestamp::parse_from_rfc3339(&question.created_at)
         .inspect_err(|e| {
             warn!(error = %e, question_id = question.id.as_str(), "question timestamp does not parse; not reporting it as awaiting");
         })
         .ok()?;
-    let age = now.signed_duration_since(asked_at.with_timezone(&Utc));
-    let ceiling = TimeDelta::from_std(ceiling).unwrap_or(TimeDelta::MAX);
+    let age = now.signed_duration_since(asked_at);
+    let ceiling = Elapsed::from_std(ceiling).unwrap_or(Elapsed::MAX);
     (age <= ceiling).then_some(question)
 }
 
@@ -832,6 +832,7 @@ mod tests {
             channel_type: None,
             about_user_id: None,
             turn_attempted_write: None,
+            ai_consent_sources: Vec::new(),
         }
     }
 
@@ -839,19 +840,17 @@ mod tests {
     /// reported: a client told to wait must have a turn that can still answer.
     #[test]
     fn the_ceiling_is_measured_from_the_questions_own_timestamp() {
-        let asked = DateTime::parse_from_rfc3339("2026-10-26T10:00:00Z")
-            .unwrap()
-            .with_timezone(&Utc);
+        let asked = Timestamp::parse_from_rfc3339("2026-10-26T10:00:00Z").unwrap();
         let ceiling = Duration::from_mins(16);
         let rows = vec![question_at("2026-10-26T10:00:00Z")];
 
-        let at_ceiling = asked + TimeDelta::minutes(16);
+        let at_ceiling = asked + Elapsed::minutes(16);
         assert_eq!(
             awaiting_question(&rows, "alice", at_ceiling, ceiling).map(|q| q.id.as_str()),
             Some("q"),
             "a question exactly at the ceiling is still awaited"
         );
-        let past = at_ceiling + TimeDelta::seconds(1);
+        let past = at_ceiling + Elapsed::seconds(1);
         assert!(
             awaiting_question(&rows, "alice", past, ceiling).is_none(),
             "a question past the ceiling is a turn that died"
@@ -876,6 +875,7 @@ mod tests {
         .expect("a finding");
         NoticeDay {
             date: date.to_owned(),
+            position: Some(0),
             findings: vec![finding],
             relabelled_purpose: None,
             anchor: None,

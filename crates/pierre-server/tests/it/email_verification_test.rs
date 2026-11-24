@@ -12,10 +12,11 @@
 //! 1. A token is issued and stored hashed, never whole
 //! 2. Consuming it stamps `users.email_verified_at` and applies the approval decision
 //! 3. The token is single-use, and a wrong verifier costs an attempt without consuming it
-//! 4. Operator settings are read from `system_settings` and clamped to a sane range
+//! 4. Admin settings are read from `system_settings` and clamped to a sane range
 
 use crate::common;
 
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_config::constants::email_verification::{
     DEFAULT_LINK_TTL_MINUTES, DEFAULT_MAX_SENDS_PER_HOUR,
 };
@@ -87,6 +88,8 @@ impl VerificationTestSetup {
                     archive_imports: None,
                     live_records: None,
                     blobs: None,
+                    lab_reader: None,
+                    pdf_text_bin: None,
                     #[cfg(feature = "client-messaging")]
                     channel_adapters: common::offline_adapters(),
                 },
@@ -144,7 +147,7 @@ async fn consuming_a_valid_token_marks_the_address_verified() {
     );
 
     // A second proof of the same inbox keeps the first and says so: the
-    // operator email for a pending account goes out on the first proof only
+    // admin email for a pending account goes out on the first proof only
     // (carnet#1056).
     assert!(
         !repo
@@ -268,7 +271,7 @@ async fn issued_tokens_are_counted_for_rate_limiting() {
     let user_id = setup.create_user().await.expect("user creation failed");
     let repo = &setup.resources.common.repos.email_verification;
 
-    let since = chrono::Utc::now() - chrono::Duration::hours(1);
+    let since = Timestamp::now() - Elapsed::hours(1);
     assert_eq!(
         repo.count_recent_tokens(user_id, since)
             .await
@@ -309,9 +312,9 @@ async fn settings_fall_back_to_the_compiled_defaults() {
     );
 }
 
-/// An operator-set value inside the allowed range is honoured verbatim.
+/// An admin-set value inside the allowed range is honoured verbatim.
 #[tokio::test]
-async fn operator_settings_are_honoured_when_in_range() {
+async fn admin_settings_are_honoured_when_in_range() {
     let setup = VerificationTestSetup::new().await.expect("setup failed");
     let db = setup.resources.agent.database.as_ref();
 
@@ -445,7 +448,7 @@ async fn re_answering_about_you_supersedes_rather_than_duplicates() {
         .expect("fact read failed");
     // Superseding sets `valid_until` rather than deleting, so "live" means the
     // horizon is absent or still in the future.
-    let now = chrono::Utc::now();
+    let now = Timestamp::now();
     let live: Vec<_> = facts
         .iter()
         .filter(|f| f.valid_until.is_none_or(|until| until > now))

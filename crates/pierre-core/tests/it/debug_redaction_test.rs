@@ -9,18 +9,17 @@
 
 use std::fmt::Debug;
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::admin::models::{AdminPermissions, AdminToken};
 use pierre_core::models::agents::AgentCategory;
 use pierre_core::models::groups::GroupInviteKind;
 use pierre_core::models::{
     AddMessageParams, AgentRuntimeContext, ConversationLastMessage, ConversationRecord,
-    ConversationSummary, DeviceAuthorization, EncryptedToken, GroupInvite, MessageFeedbackRecord,
-    MessagePage, MessageRecord, OAuth2AuthCode, OAuth2State, OAuthClientState, TenantId,
-    ThreadTopic, UpsertMessageFeedbackParams, User,
+    ConversationSummary, DeviceAuthorization, GroupInvite, MessageFeedbackRecord, MessagePage,
+    MessageRecord, OAuth2AuthCode, OAuth2State, OAuthClientState, TenantId, ThreadTopic,
+    UpsertMessageFeedbackParams, User,
 };
 use pierre_core::transport::TransportPolicy;
-use secrecy::SecretString;
 use uuid::Uuid;
 
 /// Formats `value` both ways, asserts none of `secrets` appears in either,
@@ -54,6 +53,7 @@ fn a_message_write_prints_the_size_of_its_content_never_the_content() {
         channel_type: Some("web"),
         about_user_id: None,
         turn_attempted_write: None,
+        ai_consent_sources: &[],
     };
     let compact = format!("{params:?}");
     let pretty = format!("{params:#?}");
@@ -104,7 +104,7 @@ fn a_group_invite_never_prints_its_code() {
         use_count: 0,
         is_active: true,
         approves_signup: false,
-        created_at: Utc::now(),
+        created_at: Timestamp::now(),
     };
     let printed = printed_without(&invite, &["sentinel-invite-7f3a"]);
     assert!(printed.contains("GroupInvite"), "{printed}");
@@ -134,12 +134,13 @@ fn an_auth_code_never_prints_its_code_or_state() {
         tenant_id: "tenant-1".to_owned(),
         redirect_uri: "https://example.test/cb".to_owned(),
         scope: None,
-        expires_at: Utc::now(),
+        expires_at: Timestamp::now(),
         used: false,
         state: Some("sentinel-authstate-7f3a".to_owned()),
         code_challenge: None,
         code_challenge_method: None,
         resource: None,
+        client_grant_id: None,
     };
     let printed = printed_without(
         &auth_code,
@@ -160,8 +161,8 @@ fn an_oauth2_state_never_prints_its_state() {
         scope: None,
         code_challenge: None,
         code_challenge_method: None,
-        created_at: Utc::now(),
-        expires_at: Utc::now(),
+        created_at: Timestamp::now(),
+        expires_at: Timestamp::now(),
         used: false,
     };
     let printed = printed_without(&state, &["sentinel-csrf-7f3a"]);
@@ -179,8 +180,8 @@ fn an_oauth_client_state_never_prints_its_state_or_pkce_verifier() {
         scope: None,
         pkce_code_verifier: Some("sentinel-verifier-7f3a".to_owned()),
         oauth_app_client_id: None,
-        created_at: Utc::now(),
-        expires_at: Utc::now(),
+        created_at: Timestamp::now(),
+        expires_at: Timestamp::now(),
         used: false,
     };
     let printed = printed_without(
@@ -206,6 +207,7 @@ fn message_record(content: &str, blocks: &str) -> MessageRecord {
         channel_type: Some("web".to_owned()),
         about_user_id: None,
         turn_attempted_write: None,
+        ai_consent_sources: Vec::new(),
     }
 }
 
@@ -408,7 +410,7 @@ fn admin_token_with_sentinel_hashes() -> AdminToken {
         tenant_id: None,
         operator_user_id: None,
         rotated_to_token_id: None,
-        created_at: Utc::now(),
+        created_at: Timestamp::now(),
         expires_at: None,
         last_used_at: None,
         last_used_ip: None,
@@ -436,13 +438,12 @@ fn an_admin_token_never_prints_the_hash_it_is_verified_against_or_its_secret_has
 
 /// Every field of a [`User`], in declaration order: each one still prints
 /// its name, so a row in a log line is still a row someone can read.
-const USER_FIELDS: [&str; 22] = [
+const USER_FIELDS: [&str; 21] = [
     "id",
     "email",
     "display_name",
     "password_hash",
     "tier",
-    "strava_token",
     "created_at",
     "last_active",
     "is_active",
@@ -462,26 +463,13 @@ const USER_FIELDS: [&str; 22] = [
 ];
 
 #[test]
-fn a_user_never_prints_its_password_hash_or_its_provider_tokens() {
-    let mut user = User::new(
+fn a_user_never_prints_its_password_hash() {
+    let user = User::new(
         "athlete@example.com".to_owned(),
         "sentinel-pwhash-7f3a".to_owned(),
         Some("Athlete".to_owned()),
     );
-    user.strava_token = Some(EncryptedToken {
-        access_token: SecretString::from("sentinel-access-7f3a"),
-        refresh_token: SecretString::from("sentinel-refresh-7f3a"),
-        expires_at: Utc::now(),
-        scope: "activity:read".to_owned(),
-    });
-    let printed = printed_without(
-        &user,
-        &[
-            "sentinel-pwhash-7f3a",
-            "sentinel-access-7f3a",
-            "sentinel-refresh-7f3a",
-        ],
-    );
+    let printed = printed_without(&user, &["sentinel-pwhash-7f3a"]);
     assert!(printed.starts_with("User {"), "{printed}");
     assert!(
         printed.contains(r#"password_hash: "[REDACTED]""#),

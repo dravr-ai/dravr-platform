@@ -32,7 +32,7 @@ use axum::body::{to_bytes, Body};
 use axum::http::{header, HeaderMap, Request, StatusCode};
 use axum::routing::post;
 use axum::{Json, Router};
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_auth::api_keys::{ApiKeyManager, ApiKeyTier, CreateApiKeyRequest};
 use pierre_auth::auth::DelegatedGrant;
 use pierre_auth::connect_order::{set_connect_order, ConnectOrder};
@@ -63,7 +63,7 @@ async fn mock_strava() -> String {
                 "refresh_token": "refresh-from-the-exchange",
                 "token_type": "Bearer",
                 "expires_in": 21_600,
-                "expires_at": (Utc::now() + Duration::hours(6)).timestamp(),
+                "expires_at": (Timestamp::now() + Elapsed::hours(6)).epoch_seconds(),
                 "athlete": { "id": 4242 }
             }))
         }),
@@ -240,7 +240,6 @@ fn delegated_bearer(resources: &ServerContext, user_id: Uuid, grant: &[OAuthScop
                 audience: None,
             },
             &user_id,
-            &[],
             None,
         )
         .unwrap();
@@ -487,7 +486,7 @@ async fn the_launch_route_refuses_another_athletes_identity() {
 async fn the_connect_provider_tool_mints_a_delegated_bridges_flow_for_its_athlete_only() {
     let strava = mock_strava().await;
     let (resources, service, executor) = dravr(&strava).await;
-    // An oauth-mode bridge connects through the authorization: the operator's
+    // An oauth-mode bridge connects through the authorization: the admin's
     // kill switch puts Strava's OAuth first (the default signs in,
     // carnet#1494).
     set_connect_order(

@@ -32,14 +32,12 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use chrono::{Datelike, NaiveDate};
+use dravr_tronc::dates::CivilDate;
 use pierre_core::models::periodization::serde_num::whole_u32_opt;
-use pierre_core::models::{TenantId, WorkoutStep};
+use pierre_core::models::TenantId;
 use pierre_database::repositories::training_plans::PlanAuthor;
 use pierre_database::repositories::{PlanOutlineInput, PlanWeekInput, SavePlanBundleParams};
-use pierre_memory::training_plans::{
-    parse_plan_date, GoalRace, PlanPhase, PlanWeek, PlannedDay, WeekStatus, MAX_DAYS_PER_WEEK,
-};
+use pierre_memory::training_plans::{GoalRace, PlanPhase, PlanWeek, PlannedDay, WeekStatus};
 use pierre_services::agent_package::{load_agent_package, PackagedCatalogue};
 use pierre_services::athlete_anchors::stored_athlete_anchors;
 use pierre_services::athlete_clock::athlete_today;
@@ -53,7 +51,13 @@ use serde::Deserialize;
 use serde_json::Value;
 use tracing::warn;
 
-use super::calendar::{bounded, validate_step, TargetRule, MAX_SESSION_STEPS, MAX_SHORT_TEXT_LEN};
+mod plan_dates;
+mod plan_days;
+pub(super) use plan_dates::plan_date;
+use plan_days::validate_week;
+pub(super) use plan_days::{session_label, validate_date_entries, validate_day};
+
+use super::calendar::{bounded, MAX_SHORT_TEXT_LEN};
 use super::plan_scope::{resolve_plan_scope, PlanScope, PlanScopeRequest};
 use super::training_plan_authorship::{
     agent_title, load_conversation, plan_authors, season_held_refusal,
@@ -68,8 +72,7 @@ use super::training_plan_schema::{
 use super::training_plan_state::plan_state_block;
 use super::training_plan_vision::{
     check_phase_indexes, check_template_slugs, instantiate_template_days, resolve_flavour,
-    validate_day_template, validate_flavour, validate_phase, validate_season_window,
-    FlavourPayload,
+    validate_flavour, validate_phase, validate_season_window, FlavourPayload,
 };
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
@@ -91,7 +94,7 @@ use pierre_tools_core::ToolResult;
 /// Keep the weeks [`select_active_weeks`] picks for `today` — the athlete's
 /// fortnight, the same one the prompt block, the plan card and `/plan` show —
 /// and return how many it dropped.
-fn window_to_active_weeks(weeks: &mut Vec<PlanWeek>, today: NaiveDate) -> usize {
+fn window_to_active_weeks(weeks: &mut Vec<PlanWeek>, today: CivilDate) -> usize {
     let before = weeks.len();
     let keep: Vec<String> = training_plan_render::select_active_weeks(weeks, today, ACTIVE_WEEKS)
         .weeks
@@ -187,46 +190,6 @@ const MAX_PHASES: usize = 24;
 const MAX_WEEKS: usize = 104;
 pub(super) const MAX_TARGET_HOURS: f32 = 60.0;
 pub(super) const MAX_DURATION_MIN: u32 = 24 * 60;
-/// Fuelling ceilings. Nothing bounded what a plan could store, so a rate no
-/// gut can absorb reached the athlete's calendar unchallenged; these are the
-/// bound the save enforces.
-const MAX_CARBS_G_PER_H: f32 = 150.0;
-const MAX_FLUID_ML_PER_H: f32 = 1_500.0;
-const MAX_SODIUM_MG_PER_H: f32 = 2_000.0;
-
-/// Calendar domain a plan date must fall in.
-///
-/// `parse_plan_date` is a format check: chrono's `%Y` accepts a signed,
-/// unlimited-digit year and `NaiveDate`'s `Display` re-emits it, so
-/// `+262142-12-31` round-trips and persists. Every renderer that walks a plan
-/// adds `Days` to a stored date, which panics past `NaiveDate::MAX` — and a
-/// stored plan is re-rendered into the system prompt on every subsequent turn,
-/// so one such date breaks the athlete's chat until the row is removed.
-/// `9999-12-31` plus the longest offset any renderer adds stays far inside
-/// `NaiveDate::MAX`, which is what makes those additions unreachable from
-/// overflow rather than merely unlikely.
-const MIN_PLAN_YEAR: i32 = 1000;
-const MAX_PLAN_YEAR: i32 = 9999;
-
-/// Parse a plan date, accepting only a canonical `YYYY-MM-DD` inside the
-/// calendar domain plans are rendered in (see [`MIN_PLAN_YEAR`]).
-///
-/// `field` names the payload field in the rejection so the model's next
-/// iteration knows which date to fix.
-pub(super) fn plan_date(field: &str, raw: &str) -> AppResult<NaiveDate> {
-    let Some(date) = parse_plan_date(raw) else {
-        return Err(AppError::invalid_input(format!(
-            "{field} must be YYYY-MM-DD, got '{raw}'"
-        )));
-    };
-    let year = date.year();
-    if !(MIN_PLAN_YEAR..=MAX_PLAN_YEAR).contains(&year) {
-        return Err(AppError::invalid_input(format!(
-            "{field} year {year} is outside {MIN_PLAN_YEAR}-{MAX_PLAN_YEAR}, got '{raw}'"
-        )));
-    }
-    Ok(date)
-}
 
 /// Validate every date/shape/size constraint BEFORE any write so a rejected
 /// payload can never begin a partial save.
@@ -279,140 +242,6 @@ fn validate_outline(outline: &OutlinePayload) -> AppResult<()> {
     )?;
     if let Some(flavour) = outline.flavour.as_ref() {
         validate_flavour(flavour)?;
-    }
-    Ok(())
-}
-
-/// Validate one week payload (dates, day count, day dates inside the week,
-/// step bounds), and complete a structured day's `duration_min` from its
-/// steps when the agent left it out — the stored day never contradicts its
-/// own structure, and a stated duration that does is refused.
-fn validate_week(week: &mut WeekPayload) -> AppResult<()> {
-    let start = plan_date("week_start", &week.week_start)?;
-    if week.days.is_empty() {
-        return Err(AppError::invalid_input(format!(
-            "week {} has no days",
-            week.week_start
-        )));
-    }
-    if week.days.len() > MAX_DAYS_PER_WEEK {
-        return Err(AppError::invalid_input(format!(
-            "week {} has {} days; max {MAX_DAYS_PER_WEEK}",
-            week.week_start,
-            week.days.len()
-        )));
-    }
-    bounded("week.focus", &week.focus, MAX_TEXT_LEN)?;
-    bounded(
-        "week.adjustment_reason",
-        &week.adjustment_reason,
-        MAX_TEXT_LEN,
-    )?;
-    for day in &mut week.days {
-        let date = plan_date("day date", &day.date)?;
-        let offset = (date - start).num_days();
-        if !(0..7).contains(&offset) {
-            return Err(AppError::invalid_input(format!(
-                "day {} falls outside week starting {}",
-                day.date, week.week_start
-            )));
-        }
-        if day.workout.trim().is_empty() {
-            return Err(AppError::invalid_input(format!(
-                "day {} has an empty workout",
-                day.date
-            )));
-        }
-        bounded("day.sport", &day.sport, MAX_SHORT_TEXT_LEN)?;
-        bounded("day.workout", &day.workout, MAX_TEXT_LEN)?;
-        bounded("day.intensity", &day.intensity, MAX_SHORT_TEXT_LEN)?;
-        if let Some(mins) = day.duration_min {
-            if mins > MAX_DURATION_MIN {
-                return Err(AppError::invalid_input(format!(
-                    "day {} duration_min {mins} exceeds {MAX_DURATION_MIN}",
-                    day.date
-                )));
-            }
-        }
-        if let Some(fuel) = day.fueling.as_ref() {
-            // Rates are per hour and cannot be negative, and each ceiling is
-            // the schema's own. Sodium is checked like the rest even though it
-            // is a loss estimate rather than a target — an implausible estimate
-            // produces an implausible plan just as surely.
-            for (field, value, max) in [
-                ("carbs_g_per_h", fuel.carbs_g_per_h, MAX_CARBS_G_PER_H),
-                ("fluid_ml_per_h", fuel.fluid_ml_per_h, MAX_FLUID_ML_PER_H),
-            ] {
-                if !value.is_finite() || !(0.0..=max).contains(&value) {
-                    return Err(AppError::invalid_input(format!(
-                        "day {} fueling.{field} {value} is outside 0..={max}",
-                        day.date
-                    )));
-                }
-            }
-            if let Some(sodium) = fuel.sodium_mg_per_h {
-                if !sodium.is_finite() || !(0.0..=MAX_SODIUM_MG_PER_H).contains(&sodium) {
-                    return Err(AppError::invalid_input(format!(
-                        "day {} fueling.sodium_mg_per_h {sodium} is outside 0..={MAX_SODIUM_MG_PER_H}",
-                        day.date
-                    )));
-                }
-            }
-            if let Some(source) = fuel.carb_source.as_deref() {
-                bounded("day.fueling.carb_source", source, MAX_SHORT_TEXT_LEN)?;
-            }
-            if day.is_rest() {
-                return Err(AppError::invalid_input(format!(
-                    "day {} is a rest day and carries a fuelling protocol — there is no \
-                     session to fuel",
-                    day.date
-                )));
-            }
-        }
-        validate_day_template(day)?;
-        if day.steps.is_empty() {
-            continue;
-        }
-        if day.is_rest() {
-            return Err(AppError::invalid_input(format!(
-                "day {} is a rest day and carries steps — drop the steps or give the day a sport",
-                day.date
-            )));
-        }
-        if day.steps.len() > MAX_SESSION_STEPS {
-            return Err(AppError::invalid_input(format!(
-                "day {} has {} steps; max {MAX_SESSION_STEPS}",
-                day.date,
-                day.steps.len()
-            )));
-        }
-        for (index, step) in day.steps.iter().enumerate() {
-            validate_step(
-                &format!("day {} steps[{index}]", day.date),
-                step,
-                TargetRule::Resolvable,
-            )?;
-        }
-        let minutes = WorkoutStep::total_seconds(&day.steps).div_ceil(60);
-        if minutes > u64::from(MAX_DURATION_MIN) {
-            return Err(AppError::invalid_input(format!(
-                "day {} steps total {minutes} minutes; max {MAX_DURATION_MIN}",
-                day.date
-            )));
-        }
-        let minutes = u32::try_from(minutes)
-            .map_err(|e| AppError::internal(format!("day duration does not fit in u32: {e}")))?;
-        match day.duration_min {
-            Some(stated) if stated != minutes => {
-                return Err(AppError::invalid_input(format!(
-                    "day {} duration_min {stated} contradicts its steps, which total {minutes} \
-                     minutes — omit duration_min or make it {minutes}",
-                    day.date
-                )));
-            }
-            Some(_) => {}
-            None => day.duration_min = Some(minutes),
-        }
     }
     Ok(())
 }
@@ -739,7 +568,7 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
         let schema = object_schema(properties, None);
         answers_with::<SaveTrainingPlanResult>(tool_definition(
             "save_training_plan",
-            "Persist the plan you agreed with the athlete — the outline and/or day-by-day weeks — in the SAME turn you state it; an unsaved plan is forgotten. The plan is the athlete's one season, shared by every agent they use: weeks saved without an outline attach to it whoever laid it. Send an outline only for a season you laid, or with replace_season when the athlete asked you to re-lay one another agent laid; re-save a week another agent wrote only when the athlete asks. Adjustments re-save only the changed weeks and supersede prospectively; past weeks are immutable. Saving also puts the plan on the athlete's chosen calendar: relay calendar_push when it is not_pushed, and any day it skipped or failed; calendar.pushed_by human_coach means their human coach updates that calendar. A group's human coach saving for a consenting athlete (see `athlete`) writes a draft: the reply says draft: true, and the athlete sees none of it until the coach publishes it with publish_training_plan.",
+            "Persist the plan you agreed with the athlete — the outline and/or day-by-day weeks — in the SAME turn you state it; an unsaved plan is forgotten. The plan is the athlete's one season, shared by every agent they use: weeks saved without an outline attach to it whoever laid it. Send an outline only for a season you laid, or with replace_season when the athlete asked you to re-lay one another agent laid; re-save a week another agent wrote only when the athlete asks. Adjustments re-save only the changed weeks and supersede prospectively; past weeks are immutable. Saving also puts the plan on the athlete's chosen calendar: relay calendar_push when it is not_pushed, and any day it skipped or failed (queued: it lands after your reply); calendar.pushed_by human_coach means their human coach updates that calendar. In Dravr's app or channels a group's human coach can save for a consenting athlete as a draft: the reply says draft: true, and the athlete sees none of it until the coach publishes it with publish_training_plan; elsewhere a save is the caller's own.",
             schema,
             // The athlete's own save reconciles their calendar, removing the
             // days Dravr put there that the plan dropped (carnet#1492).
@@ -1139,14 +968,14 @@ pub fn create_training_plan_tools() -> Vec<Box<dyn RuntimeTool>> {
 crate::declare_security!(GetTrainingPlanTool => empty);
 // The athlete's own save deletes on the provider the entries the plan dropped
 // (carnet#1492), so it spends the per-turn destructive budget as a push does:
-// the cap keeps a save loop off the calendar. A refused save refunds it; a
-// coach's draft save spends one too, since the label is the tool's.
+// the cap keeps a save loop off the calendar. A refused save refunds it, and in
+// a chat turn every save gives it back: the turn's end pushes at most once (carnet#1702).
 crate::declare_security!(SaveTrainingPlanTool => IRREVERSIBLE);
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::Utc;
+    use dravr_tronc::dates::Timestamp;
 
     fn week(id: &str, week_start: &str) -> PlanWeek {
         PlanWeek {
@@ -1162,14 +991,14 @@ mod tests {
             supersedes_id: None,
             adjustment_reason: String::new(),
             author_agent_id: None,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         }
     }
 
     #[test]
     fn window_keeps_the_current_and_next_week_and_counts_the_rest() {
-        let today = NaiveDate::from_ymd_opt(2026, 11, 4).unwrap();
+        let today = CivilDate::from_ymd(2026, 11, 4).unwrap();
         let mut weeks = vec![
             week("over", "2026-10-26"),
             week("current", "2026-11-02"),
@@ -1187,7 +1016,7 @@ mod tests {
 
     #[test]
     fn window_leaves_a_short_plan_alone() {
-        let today = NaiveDate::from_ymd_opt(2026, 11, 4).unwrap();
+        let today = CivilDate::from_ymd(2026, 11, 4).unwrap();
         let mut weeks = vec![week("current", "2026-11-02"), week("next", "2026-11-09")];
 
         assert_eq!(

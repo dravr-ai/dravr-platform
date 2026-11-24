@@ -15,18 +15,19 @@
 //!
 //! A row that has failed [`ALERT_AFTER_ATTEMPTS`] times is logged once at
 //! ERROR with `event = "firebase_identity.delete_stalled"`, which the platform
-//! forwards to the operators' Slack channel like every ERROR; the sweep keeps
+//! forwards to the admins' Slack channel like every ERROR; the sweep keeps
 //! retrying it after that, at the capped backoff.
 
 use std::sync::Arc;
 use std::time::Duration;
 
-use chrono::{DateTime, TimeDelta, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_auth::firebase_identity::{FirebaseIdentityDeleter, FirebaseIdentityRemoval};
 use pierre_core::errors::AppResult;
 use pierre_database::repositories::{FirebaseIdentityDeletionRepository, WorkerRunRepository};
 use tracing::{error, info, warn};
 
+use crate::backoff::doubling_backoff;
 use crate::periodic::spawn_periodic;
 
 /// The ledger name the sweep runs under.
@@ -40,23 +41,23 @@ const SWEEP_INTERVAL: Duration = Duration::from_mins(15);
 const SWEEP_BATCH: i64 = 50;
 
 /// Wait after the first failure; doubled after each further one.
-const FIRST_RETRY: TimeDelta = TimeDelta::minutes(15);
+const FIRST_RETRY: Duration = Duration::from_mins(15);
 
 /// The longest wait between two attempts.
-const MAX_RETRY: TimeDelta = TimeDelta::hours(24);
+const MAX_RETRY: Duration = Duration::from_hours(24);
 
-/// Failed attempts after which a stuck identity is raised to the operators.
+/// Failed attempts after which a stuck identity is raised to the admins.
 pub const ALERT_AFTER_ATTEMPTS: i64 = 5;
 
 /// When to try again after `attempts` failed attempts (`attempts >= 1`):
 /// [`FIRST_RETRY`] doubled per earlier failure, capped at [`MAX_RETRY`].
 #[must_use]
-fn next_attempt_after(attempts: i64, now: DateTime<Utc>) -> DateTime<Utc> {
-    let doublings = u32::try_from(attempts.saturating_sub(1).clamp(0, 16)).unwrap_or(16);
-    let wait = FIRST_RETRY
-        .checked_mul(1_i32 << doublings)
-        .map_or(MAX_RETRY, |wait| wait.min(MAX_RETRY));
-    now.checked_add_signed(wait).unwrap_or(now)
+fn next_attempt_after(attempts: i64, now: Timestamp) -> Timestamp {
+    let wait = doubling_backoff(FIRST_RETRY, MAX_RETRY, attempts.saturating_sub(1));
+    Elapsed::from_std(wait)
+        .ok()
+        .and_then(|wait| now.checked_add(wait))
+        .unwrap_or(now)
 }
 
 /// Record what one deletion attempt of `firebase_uid` came to.
@@ -75,7 +76,7 @@ pub(crate) async fn settle(
     firebase_uid: &str,
     removal: &FirebaseIdentityRemoval,
     prior_attempts: i64,
-    now: DateTime<Utc>,
+    now: Timestamp,
 ) -> AppResult<()> {
     let FirebaseIdentityRemoval::Failed { error: cause } = removal else {
         if removal.is_settled() {
@@ -120,7 +121,7 @@ pub(crate) async fn settle(
 pub async fn sweep_firebase_identity_deletions(
     outbox: &dyn FirebaseIdentityDeletionRepository,
     deleter: &FirebaseIdentityDeleter,
-    now: DateTime<Utc>,
+    now: Timestamp,
 ) -> AppResult<usize> {
     let pending = outbox.due(now, SWEEP_BATCH).await?;
     let mut gone = 0;
@@ -166,7 +167,7 @@ pub fn start_firebase_identity_sweeper(
         let outbox = Arc::clone(&outbox);
         let deleter = Arc::clone(&deleter);
         async move {
-            sweep_firebase_identity_deletions(outbox.as_ref(), &deleter, Utc::now())
+            sweep_firebase_identity_deletions(outbox.as_ref(), &deleter, Timestamp::now())
                 .await
                 .map(|_| ())
         }
@@ -179,11 +180,11 @@ mod tests {
 
     #[test]
     fn the_backoff_doubles_from_a_quarter_hour_and_caps_at_a_day() {
-        let now = Utc::now();
-        assert_eq!(next_attempt_after(1, now) - now, TimeDelta::minutes(15));
-        assert_eq!(next_attempt_after(2, now) - now, TimeDelta::minutes(30));
-        assert_eq!(next_attempt_after(4, now) - now, TimeDelta::hours(2));
-        assert_eq!(next_attempt_after(8, now) - now, MAX_RETRY);
-        assert_eq!(next_attempt_after(i64::MAX, now) - now, MAX_RETRY);
+        let now = Timestamp::now();
+        assert_eq!(next_attempt_after(1, now) - now, Elapsed::minutes(15));
+        assert_eq!(next_attempt_after(2, now) - now, Elapsed::minutes(30));
+        assert_eq!(next_attempt_after(4, now) - now, Elapsed::hours(2));
+        assert_eq!(next_attempt_after(8, now) - now, Elapsed::hours(24));
+        assert_eq!(next_attempt_after(i64::MAX, now) - now, Elapsed::hours(24));
     }
 }

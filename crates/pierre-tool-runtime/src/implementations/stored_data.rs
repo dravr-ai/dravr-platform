@@ -41,7 +41,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use chrono::{DateTime, Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::models::{
     DataSource, Merged, StoredDailyActivity, StoredHealthMetrics, StoredRecoveryMetrics,
     StoredSleepSession, TenantId,
@@ -93,27 +93,24 @@ const MAX_RANGE_DAYS: i64 = 366;
 /// # Errors
 ///
 /// Returns `invalid_input` when `start` is after `end`.
-pub fn parse_date_range(args: &Value) -> AppResult<(DateTime<Utc>, DateTime<Utc>)> {
+pub fn parse_date_range(args: &Value) -> AppResult<(Timestamp, Timestamp)> {
     let end = args
         .get("end")
         .and_then(Value::as_str)
-        .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
-        .map_or_else(Utc::now, |dt| dt.with_timezone(&Utc));
+        .and_then(|s| Timestamp::parse_from_rfc3339(s).ok())
+        .unwrap_or_else(Timestamp::now);
     let mut start = args
         .get("start")
         .and_then(Value::as_str)
-        .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
-        .map_or_else(
-            || end - Duration::days(DEFAULT_LOOKBACK_DAYS),
-            |dt| dt.with_timezone(&Utc),
-        );
+        .and_then(|s| Timestamp::parse_from_rfc3339(s).ok())
+        .unwrap_or_else(|| end - Elapsed::days(DEFAULT_LOOKBACK_DAYS));
     if start > end {
         return Err(AppError::invalid_input(format!(
             "start ({start}) is after end ({end})"
         )));
     }
-    if end - start > Duration::days(MAX_RANGE_DAYS) {
-        start = end - Duration::days(MAX_RANGE_DAYS);
+    if end - start > Elapsed::days(MAX_RANGE_DAYS) {
+        start = end - Elapsed::days(MAX_RANGE_DAYS);
     }
     Ok((start, end))
 }
@@ -145,7 +142,7 @@ async fn last_synced(
             .ok()
             .flatten()
             .and_then(|cursor| cursor.last_sync_at)
-            .map(|at| at.to_rfc3339());
+            .map(Timestamp::to_rfc3339);
         synced.insert(source.provider, at);
     }
     synced
@@ -154,7 +151,7 @@ async fn last_synced(
 /// Build the standard date-range + format property set used by stored
 /// health-data queries (sleep, recovery, snapshots), whose handlers read
 /// `start`, `end` and `format` from `request.parameters`.
-fn date_range_properties() -> BTreeMap<String, PropertySchema> {
+pub(crate) fn date_range_properties() -> BTreeMap<String, PropertySchema> {
     let mut properties = BTreeMap::new();
     properties.insert(
         "start".to_owned(),

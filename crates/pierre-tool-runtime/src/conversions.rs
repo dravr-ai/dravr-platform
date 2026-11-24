@@ -32,7 +32,7 @@ use serde::Serialize;
 use tracing::warn;
 
 use crate::reply_budget;
-use crate::schema_canonical::to_canonical_value;
+use dravr_tronc::mcp::canonical::to_canonical_value;
 
 /// Assemble a tronc [`Tool`] definition from the platform's typed pieces.
 ///

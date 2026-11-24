@@ -27,7 +27,7 @@
 
 use axum::http::StatusCode;
 use axum::Json;
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use dravr_tronc::notifications::SlackResult;
 use pierre_contremaitre::notify_routing::NOTIFY_ROUTING_PROVIDER;
 use pierre_core::errors::{AppError, AppResult};
@@ -60,7 +60,7 @@ const SLACK_INPUT_MAX_CHARS: usize = 3000;
 /// The most sections the athlete's words take in a modal. Slack refuses a
 /// view of more than 100 blocks with `invalid_arguments`, and a rating's
 /// reason has no length bound, so a longer text is cut, and says so, rather
-/// than costing the operator the window.
+/// than costing the admin the window.
 const MAX_TEXT_SECTIONS: usize = 90;
 
 /// The most characters Slack keeps in a view's `private_metadata`.
@@ -260,7 +260,7 @@ async fn store_team_reply(
             locale: None,
             about: given.rated_reply.as_ref(),
             image: None,
-            at: Utc::now(),
+            at: Timestamp::now(),
         })
         .await
 }
@@ -639,7 +639,7 @@ pub(super) async fn answer_reply_submission(
 
 #[cfg(test)]
 mod tests {
-    use chrono::Utc;
+    use dravr_tronc::dates::Timestamp;
     use pierre_core::errors::ErrorCode;
     use pierre_core::models::{AddMessageParams, TenantId, UpsertMessageFeedbackParams};
     use pierre_core::transport::TransportPolicy;
@@ -795,7 +795,7 @@ mod tests {
     }
 
     /// Every limit Slack enforces on a modal, so a view it would refuse with
-    /// `invalid_arguments` fails here instead of on the operator's tap.
+    /// `invalid_arguments` fails here instead of on the admin's tap.
     ///
     /// The limits are Slack's Block Kit wire values, pinned as literals rather
     /// than read from this module's constants: a constant raised past Slack's
@@ -1024,6 +1024,7 @@ mod tests {
                 channel_type: None,
                 about_user_id: None,
                 turn_attempted_write: None,
+                ai_consent_sources: &[],
             })
             .await
             .expect("agent reply");
@@ -1051,7 +1052,7 @@ mod tests {
                 locale: None,
                 about: None,
                 image: None,
-                at: Utc::now(),
+                at: Timestamp::now(),
             })
             .await
             .expect("thread message");

@@ -25,8 +25,9 @@
 use secrecy::SecretString;
 use std::sync::{Arc, Mutex};
 
-use chrono::{DateTime, TimeZone, Utc};
 use dravr_sciotte::models::AuthSession;
+use dravr_tronc::dates::Timestamp;
+use dravr_tronc::dates::{CivilDate, CivilDateTime};
 use pierre_providers::core::{
     CredentialKind, FitnessProvider, OAuth2Credentials, ProviderConfig, ProviderFactory,
 };
@@ -234,7 +235,7 @@ async fn connected(
     let session = AuthSession {
         session_id: session_id.to_owned(),
         cookies: vec![],
-        created_at: Utc.with_ymd_and_hms(2026, 9, 18, 11, 0, 0).unwrap(), // Safe: literal calendar date is valid
+        created_at: Timestamp::parse_from_rfc3339("2026-09-18T11:00:00Z").unwrap(), // Safe: literal calendar date is valid
         expires_at: None,
     };
     provider
@@ -265,8 +266,11 @@ fn import_for(seen: &Mutex<Vec<String>>, session_id: &str) -> String {
         .unwrap_or_else(|| panic!("no session import carried {session_id}"))
 }
 
-fn at(hour: u32, minute: u32) -> DateTime<Utc> {
-    Utc.with_ymd_and_hms(2026, 9, 18, hour, minute, 0).unwrap() // Safe: literal calendar date is valid
+fn at(hour: u32, minute: u32) -> Timestamp {
+    CivilDate::from_ymd(2026, 9, 18)
+        .and_then(|date| date.and_hms(hour, minute, 0))
+        .and_then(CivilDateTime::and_utc)
+        .unwrap() // Safe: literal calendar date is valid
 }
 
 async fn a_workout_keeps_its_load_metrics(

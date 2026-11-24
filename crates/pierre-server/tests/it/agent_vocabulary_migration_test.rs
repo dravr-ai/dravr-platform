@@ -7,7 +7,7 @@
 //! ADR-026 splits the two senses the word "coach" carried: the persona an
 //! athlete talks to is an agent, a coach is a human. Two migrations rewrite
 //! the text of rows that already exist — the `tool_catalog` display text an
-//! operator reads, and the opening sentence of every persona the old
+//! admin reads, and the opening sentence of every persona the old
 //! `agent_generation` mandate produced. This file proves both.
 //!
 //! Both are rewrites of live data, so they are proven by replaying each lane's
@@ -24,7 +24,7 @@
 use std::str::FromStr;
 
 #[cfg(feature = "postgresql")]
-use chrono::{TimeZone, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_test_support::db::create_test_db_url;
 use sqlx::migrate::Migrator;
 #[cfg(feature = "postgresql")]
@@ -49,7 +49,7 @@ static MIGRATOR: Migrator = sqlx::migrate!("../../migrations");
 #[cfg(feature = "postgresql")]
 static PG_MIGRATOR: Migrator = sqlx::migrate!("../../migrations_pg");
 
-/// (`tool_name`, `category`, `display_name`, `description`) the operator reads
+/// (`tool_name`, `category`, `display_name`, `description`) the admin reads
 /// once the display-text migration has run. The replay stops on that
 /// migration, so `tool_name` here is the spelling the catalogue holds at that
 /// point — the key each of its `UPDATE` statements reads, and the key every
@@ -349,7 +349,7 @@ async fn catalogue_on_postgres(url: &str) {
 #[cfg(feature = "postgresql")]
 async fn prompts_on_postgres(url: &str) {
     let pool = postgres_pool(url).await;
-    let planted_at = Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap();
+    let planted_at = Timestamp::parse_from_rfc3339("2026-01-01T00:00:00Z").unwrap();
     let tenant = Uuid::new_v4();
     let user = Uuid::new_v4();
     let mut applied = None;

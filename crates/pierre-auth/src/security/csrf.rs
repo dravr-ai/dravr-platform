@@ -16,6 +16,7 @@ use std::str;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use ring::hmac;
 
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 
 /// CSRF token TTL in seconds (24 hours).
@@ -75,7 +76,7 @@ impl CsrfTokenManager {
     /// # Errors
     /// Currently infallible but returns `AppResult` for API compatibility.
     pub fn generate_token(&self, user_id: uuid::Uuid) -> AppResult<String> {
-        let timestamp = chrono::Utc::now().timestamp();
+        let timestamp = Timestamp::now().epoch_seconds();
         let payload = format!("{timestamp}.{user_id}");
         let signature = hmac::sign(&self.signing_key, payload.as_bytes());
         let sig_b64 = URL_SAFE_NO_PAD.encode(signature.as_ref());
@@ -126,7 +127,7 @@ impl CsrfTokenManager {
             .map_err(|_| AppError::auth_invalid("Invalid CSRF token"))?;
 
         // Check expiration
-        let now = chrono::Utc::now().timestamp();
+        let now = Timestamp::now().epoch_seconds();
         let age = now - timestamp;
         if !(0..=CSRF_TOKEN_TTL_SECS).contains(&age) {
             return Err(AppError::auth_invalid("CSRF token expired"));

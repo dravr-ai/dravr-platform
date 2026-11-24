@@ -200,7 +200,7 @@ export function ConversationsScreen() {
 
         The lockup stands where the screen title would, the way every
         messenger writes its own name across the top of its conversation list.
-        Home and this tab are the only two that carry it (DESIGN.md §5): the
+        Home and this tab are the only two that carry it (DESIGN.md "Chat surfaces"): the
         phone has no icon rail to hold the mark, so these headers are where the
         athlete's Dravr identity lives, and repeating it on every tab would
         make it chrome instead. It is a button here, as the web rail's mark is:
@@ -285,7 +285,7 @@ export function ConversationsScreen() {
           // The empty state sits left-aligned in the content column where
           // the rows would have been: one sentence and, when nothing is
           // being searched, one ink link that opens the same "+" menu as the
-          // header's button (DESIGN.md §5).
+          // header's button (DESIGN.md "Chat surfaces").
           ListEmptyComponent={
             searchQuery.trim() ? (
               <EmptyState testID="conversations-empty" className="pt-6">

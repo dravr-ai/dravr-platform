@@ -34,7 +34,7 @@ use axum::middleware::Next;
 use axum::response::Response;
 use bitflags::bitflags;
 use http::Uri;
-use percent_encoding::percent_decode_str;
+use pierre_core::redaction::is_sensitive_query_name;
 use regex::Regex;
 use std::collections::hash_map::DefaultHasher;
 use std::fmt::{self, Display, Formatter};
@@ -118,34 +118,6 @@ const SENSITIVE_HEADERS: &[&str] = &[
     "apikey",
     "proxy-authorization",
     "www-authenticate",
-];
-
-/// Query-string parameters whose value is a secret or a direct identifier.
-///
-/// The URL query is the one part of a request line that routinely carries live
-/// credentials: an `OAuth` authorization `code` and `state` on a provider
-/// callback, a password-reset or channel-link `token`, an API key on a
-/// machine-to-machine call. All of them are worth exactly as much to an
-/// attacker reading a log line as they are to the client that was issued them.
-const SENSITIVE_QUERY_PARAMS: &[&str] = &[
-    "access_token",
-    "api_key",
-    "apikey",
-    "auth",
-    "client_secret",
-    "code",
-    "email",
-    "id_token",
-    "jwt",
-    "key",
-    "link_token",
-    "password",
-    "refresh_token",
-    "secret",
-    "session",
-    "signature",
-    "state",
-    "token",
 ];
 
 /// Redact sensitive HTTP headers
@@ -405,13 +377,14 @@ fn email_regex() -> Option<&'static Regex> {
 
 /// Redact secret and PII values out of a URL query string.
 ///
-/// Parameter *names* survive — an operator needs to know a callback carried a
-/// `code` — while the value of any name in [`SENSITIVE_QUERY_PARAMS`] becomes
-/// the configured placeholder. A name is compared percent-decoded, so
-/// `access%5Ftoken` is the `access_token` the server reads. Every other value
-/// still passes through
-/// [`mask_email`], so an address handed to an unlisted parameter is masked
-/// rather than logged whole.
+/// Parameter *names* survive — an admin needs to know a callback carried a
+/// `code` — while the value of any name [`is_sensitive_query_name`] recognises
+/// becomes the configured placeholder. That predicate is the one rule
+/// `pierre_core::redaction::redact_url` applies too: an exact name such as
+/// `code` or `state`, or a credential word as a segment of the name
+/// (`webhook_secret`, `x-api-key`), compared percent-decoded. Every other
+/// value still passes through [`mask_email`], so an address handed to an
+/// unlisted parameter is masked rather than logged whole.
 ///
 /// # Examples
 ///
@@ -436,7 +409,7 @@ pub fn redact_query(query: &str, config: &RedactionConfig) -> String {
             let Some((name, value)) = pair.split_once('=') else {
                 return mask_email(pair);
             };
-            if is_sensitive_query_param(name) {
+            if is_sensitive_query_name(name) {
                 format!("{name}={}", config.redaction_placeholder)
             } else {
                 format!("{name}={}", mask_email(value))
@@ -444,15 +417,6 @@ pub fn redact_query(query: &str, config: &RedactionConfig) -> String {
         })
         .collect::<Vec<_>>()
         .join("&")
-}
-
-/// Whether a raw query-parameter name, once percent-decoded, is one of
-/// [`SENSITIVE_QUERY_PARAMS`].
-fn is_sensitive_query_param(raw_name: &str) -> bool {
-    let name = percent_decode_str(raw_name)
-        .decode_utf8_lossy()
-        .to_lowercase();
-    SENSITIVE_QUERY_PARAMS.contains(&name.as_str())
 }
 
 /// Path prefixes whose next segment is a credential, not a route: a caller
@@ -484,7 +448,7 @@ pub fn redacted_path(path: &str) -> String {
 
 /// Build the log-safe request line for a URI: path plus redacted query.
 ///
-/// The path is the route, and routes are what an operator reads an alert
+/// The path is the route, and routes are what an admin reads an alert
 /// for, so it is kept verbatim except for a segment that is a credential
 /// ([`redacted_path`]).
 #[must_use]
@@ -544,10 +508,45 @@ mod tests {
     use proptest::prelude::*;
     use proptest::sample::select;
 
-    use super::{
-        mask_email, redact_query, redacted_path, redacted_request_line, RedactionConfig,
-        SENSITIVE_QUERY_PARAMS,
-    };
+    use super::{mask_email, redact_query, redacted_path, redacted_request_line, RedactionConfig};
+
+    /// Names a request line carries a secret or an identifier under: the
+    /// exact ones an `OAuth` callback or a signed link uses, and compound
+    /// ones caught by a credential word in a segment.
+    const SENSITIVE_NAMES: &[&str] = &[
+        "access_token",
+        "api_key",
+        "apikey",
+        "auth",
+        "client_secret",
+        "code",
+        "email",
+        "id_token",
+        "jwt",
+        "key",
+        "link_token",
+        "password",
+        "refresh_token",
+        "secret",
+        "session",
+        "signature",
+        "state",
+        "token",
+        "webhook_secret",
+    ];
+
+    #[test]
+    fn a_compound_credential_name_is_redacted_with_the_configured_placeholder() {
+        let config = RedactionConfig::new(true, "<gone>".to_owned());
+        assert_eq!(
+            redact_query("webhook_secret=w-1&x-api-key=k-2&keyword=run", &config),
+            "webhook_secret=<gone>&x-api-key=<gone>&keyword=run"
+        );
+        assert_eq!(
+            redact_query("code=abc&state=xyz&country_code=ca", &config),
+            "code=<gone>&state=<gone>&country_code=ca"
+        );
+    }
 
     #[test]
     fn a_garmin_push_path_never_logs_its_token() {
@@ -575,7 +574,7 @@ mod tests {
     /// A sensitive parameter name in any case, raw or with its `_` written
     /// as `%5F`, which a server decodes to the same name.
     fn sensitive_name() -> impl Strategy<Value = String> {
-        (select(SENSITIVE_QUERY_PARAMS), any::<bool>(), any::<bool>()).prop_map(
+        (select(SENSITIVE_NAMES), any::<bool>(), any::<bool>()).prop_map(
             |(name, upper, encoded)| {
                 let name = if upper {
                     name.to_ascii_uppercase()

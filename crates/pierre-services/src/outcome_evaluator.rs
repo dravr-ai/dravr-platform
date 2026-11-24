@@ -36,11 +36,12 @@ use crate::periodic::spawn_periodic;
 use crate::provider_notice::under_ai_consent;
 use crate::stored_health::{self, SourceFilter};
 use crate::training_history_read::{history_rows_for_model, HistoryHandles};
-use chrono::Utc;
 use dravr_cageux::config::intelligence::AlgorithmConfig;
+use dravr_tronc::dates::Timestamp;
 use pierre_contremaitre::cageux_config::CageuxConfigRegistry;
 use pierre_contremaitre::registry::PromptRegistry;
 use pierre_core::ai_policy::ProviderTerms;
+use pierre_core::constants::oauth_providers::union_consent_sources;
 use pierre_core::models::{
     Activity, ConversationTurnId, Merged, SportType, StoredRecoveryMetrics, TenantId,
 };
@@ -98,102 +99,11 @@ struct JudgeVerdict {
     verdict: String,
 }
 
-// ---- Pure labeling helpers (unit-tested without a DB or LLM) ----
-
-/// Adherence verdict from whether a matching activity landed in the window.
-/// `None` => no activity data at all, so we cannot tell (the caller expires it).
-#[must_use]
-pub fn activity_completed_label(matched: bool, any_activity: bool) -> Option<OutcomeLabel> {
-    if matched {
-        Some(OutcomeLabel::Success)
-    } else if any_activity {
-        Some(OutcomeLabel::Failure)
-    } else {
-        None
-    }
-}
-
-/// Outcome of a delta-metric data heuristic.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct DeltaVerdict {
-    /// `None` => not enough data to compute a delta (expire).
-    pub label: Option<OutcomeLabel>,
-    /// `true` => within the dead-band; escalate to the LLM judge.
-    pub ambiguous: bool,
-}
-
-/// Label a "did the metric move favorably" delta.
-///
-/// A move smaller than `dead_band` is ambiguous (Neutral + escalate); a clear
-/// favorable/unfavorable move is Success/Failure. Missing endpoints yield `None`
-/// (expire).
-#[must_use]
-pub fn delta_label(
-    before: Option<f64>,
-    after: Option<f64>,
-    higher_is_better: bool,
-    dead_band: f64,
-) -> DeltaVerdict {
-    let (Some(b), Some(a)) = (before, after) else {
-        return DeltaVerdict {
-            label: None,
-            ambiguous: false,
-        };
-    };
-    let oriented = if higher_is_better { a - b } else { b - a };
-    if oriented.abs() < dead_band {
-        DeltaVerdict {
-            label: Some(OutcomeLabel::Neutral),
-            ambiguous: true,
-        }
-    } else if oriented > 0.0 {
-        DeltaVerdict {
-            label: Some(OutcomeLabel::Success),
-            ambiguous: false,
-        }
-    } else {
-        DeltaVerdict {
-            label: Some(OutcomeLabel::Failure),
-            ambiguous: false,
-        }
-    }
-}
-
-/// Did a ramp rate stay within the safe ceiling? Inclusive at the ceiling.
-///
-/// The ceiling arrives widened from the metric's `f32` (lossless), so the
-/// comparison is exact. The caller maps over the `Option<f64>` max ramp.
-#[must_use]
-pub fn ramp_within_label(max_ramp: f64, ceiling: f64) -> OutcomeLabel {
-    if max_ramp <= ceiling {
-        OutcomeLabel::Success
-    } else {
-        OutcomeLabel::Failure
-    }
-}
-
-/// Label a session-count consistency window: enough sessions => Success, none =>
-/// Failure, in-between => ambiguous (escalate). `expected` is the rough session
-/// target for the window.
-#[must_use]
-pub fn consistency_label(session_count: u32, expected: u32) -> DeltaVerdict {
-    if session_count >= expected.max(1) {
-        DeltaVerdict {
-            label: Some(OutcomeLabel::Success),
-            ambiguous: false,
-        }
-    } else if session_count == 0 {
-        DeltaVerdict {
-            label: Some(OutcomeLabel::Failure),
-            ambiguous: false,
-        }
-    } else {
-        DeltaVerdict {
-            label: Some(OutcomeLabel::Neutral),
-            ambiguous: true,
-        }
-    }
-}
+/// The pure labelling rules (unit-tested without a DB or LLM).
+mod labels;
+pub use labels::{
+    activity_completed_label, consistency_label, delta_label, ramp_within_label, DeltaVerdict,
+};
 
 // ---- Async evaluation (reads the data layer; may call the LLM judge) ----
 
@@ -226,10 +136,10 @@ struct EvalCtx<'a> {
 }
 
 impl EvalCtx<'_> {
-    fn start(&self) -> chrono::DateTime<Utc> {
+    fn start(&self) -> Timestamp {
         self.advice.created_at
     }
-    fn end(&self) -> chrono::DateTime<Utc> {
+    fn end(&self) -> Timestamp {
         self.advice.due_by
     }
     fn repos(&self) -> &RepositoryRegistry {
@@ -401,8 +311,8 @@ async fn eval_consistency(ctx: &EvalCtx<'_>, window_days: u8) -> AdviceResolutio
 /// The rows the judge may read: the persisted rollup when nothing in the
 /// window is withheld, else the series recomputed from the permitted sessions.
 async fn eval_training(ctx: &EvalCtx<'_>) -> AdviceResolution {
-    let from = ctx.start().date_naive();
-    let to = ctx.end().date_naive();
+    let from = ctx.start().utc_date();
+    let to = ctx.end().utc_date();
     let sources = HistoryHandles {
         repos: ctx.repos(),
         terms: ctx.inputs.terms,
@@ -487,6 +397,12 @@ async fn run_judge(
     after: Option<f64>,
 ) -> Option<OutcomeLabel> {
     let provider = ctx.inputs.chat_provider?;
+    // The judge reads the advice: never advice drawn from data whose AI
+    // consent the athlete has withdrawn, nor from data kept out of the
+    // agent's memory (carnet#1157, #1158). The heuristic's label stands.
+    if !ai_scope::admit_consent_sources(&ctx.advice.ai_consent_sources, true) {
+        return None;
+    }
     let summary = format!(
         "Recommendation: a '{}' intervention for a '{}' trigger. Observed {metric_label}: {} -> {} over the window. Did it work?",
         ctx.advice.intervention.kind.as_str(),
@@ -572,7 +488,7 @@ pub fn spawn_outcome_evaluator(
 
 /// One scan-and-label sweep over the currently-due advice.
 async fn run_one_sweep(inputs: SweepInputs<'_>) {
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     let due = match inputs
         .repos
         .playbooks
@@ -605,12 +521,19 @@ async fn process_one_advice(advice: &PendingAdvice, inputs: SweepInputs<'_>) -> 
     let repos = inputs.repos;
     // The label is derived from the athlete's data over the window: the
     // playbook it reinforces is as strict as that data and the advice
-    // (carnet#769).
-    let (resolution, observed) = ai_scope::derived(evaluate_advice(advice, inputs)).await;
+    // (carnet#769), and names the consents of both (carnet#1157).
+    let observed = ai_scope::Provenance::new();
+    let resolution = ai_scope::tracking(observed.clone(), evaluate_advice(advice, inputs)).await;
     match resolution {
         AdviceResolution::Labeled(label, source) => {
-            let policy = advice.transport_policy.strictest(observed);
-            record_and_mark(repos, advice, label, source, policy).await
+            let derived = Derivation {
+                transport_policy: advice.transport_policy.strictest(observed.policy()),
+                ai_consent_sources: union_consent_sources(
+                    &advice.ai_consent_sources,
+                    &observed.consent_sources(),
+                ),
+            };
+            record_and_mark(repos, advice, label, source, &derived).await
         }
         AdviceResolution::Expire => {
             expire_advice(repos, advice).await;
@@ -620,7 +543,9 @@ async fn process_one_advice(advice: &PendingAdvice, inputs: SweepInputs<'_>) -> 
             // Expire a row that has kept failing well past its window so a
             // permanent read failure cannot head-of-line block the oldest-first
             // scan forever; a normal transient failure just waits for next tick.
-            if Utc::now().timestamp() - advice.due_by.timestamp() > RETRY_STALENESS_SECS {
+            if Timestamp::now().epoch_seconds() - advice.due_by.epoch_seconds()
+                > RETRY_STALENESS_SECS
+            {
                 expire_advice(repos, advice).await;
             }
             false
@@ -639,6 +564,15 @@ async fn expire_advice(repos: &RepositoryRegistry, advice: &PendingAdvice) {
     }
 }
 
+/// What a labelled outcome was derived from: the advice and the window its
+/// label read.
+struct Derivation {
+    /// The stricter of the advice's stamp and the window's (carnet#769).
+    transport_policy: TransportPolicy,
+    /// The consent keys of both (carnet#1157).
+    ai_consent_sources: Vec<String>,
+}
+
 /// Atomically record an outcome into its playbook and mark the advice labeled.
 ///
 /// Uses the one-transaction repository path
@@ -650,7 +584,7 @@ async fn record_and_mark(
     advice: &PendingAdvice,
     label: OutcomeLabel,
     source: LabelSource,
-    transport_policy: TransportPolicy,
+    derived: &Derivation,
 ) -> bool {
     let outcome = RecordedOutcome {
         tenant_id: &advice.tenant_id,
@@ -660,8 +594,9 @@ async fn record_and_mark(
         intervention: &advice.intervention,
         outcome_metric: &advice.outcome_metric,
         label,
-        at: Utc::now(),
-        transport_policy,
+        at: Timestamp::now(),
+        transport_policy: derived.transport_policy,
+        ai_consent_sources: &derived.ai_consent_sources,
     };
     match repos
         .playbooks
@@ -693,10 +628,11 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     use async_trait::async_trait;
-    use chrono::Duration as ChronoDuration;
+    use dravr_tronc::dates::Elapsed;
     use embacle::types::{
         ChatStream as EmbacleChatStream, LlmProvider as EmbacleLlmProvider, RunnerError, TokenUsage,
     };
+    use pierre_core::constants::oauth_providers::{NoticeKind, GARMIN, WHOOP};
     use pierre_core::errors::AppError;
     use pierre_llm::config::LlmProviderType;
     use pierre_llm::stage::{StageModels, COPILOT_SDK_BACKGROUND_MODEL};
@@ -708,6 +644,7 @@ mod tests {
     use tokio::time::sleep;
 
     use super::*;
+    use crate::provider_notice::grant_consent;
     use crate::training_history_read::tests::{athlete, noon, relayed, Athlete, NolioTerms, RELAY};
     use pierre_core::models::{DataSource, DeviceType};
     use pierre_llm::LlmProvider;
@@ -769,7 +706,7 @@ mod tests {
 
     /// Advice given seven days ago whose window closes now.
     fn advice(fx: &Athlete, outcome_metric: OutcomeMetric) -> PendingAdvice {
-        let now = Utc::now();
+        let now = Timestamp::now();
         PendingAdvice {
             id: Uuid::new_v4().to_string(),
             tenant_id: fx.tenant.to_string(),
@@ -787,15 +724,16 @@ mod tests {
             },
             outcome_metric,
             baseline: MetricBaseline {
-                captured_at: now - ChronoDuration::days(7),
+                captured_at: now - Elapsed::days(7),
             },
             due_by: now,
             status: AdviceStatus::Pending,
             label: None,
             label_source: None,
             source_msg_id: None,
-            created_at: now - ChronoDuration::days(7),
+            created_at: now - Elapsed::days(7),
             transport_policy: TransportPolicy::AnyTransport,
+            ai_consent_sources: Vec::new(),
         }
     }
 
@@ -871,9 +809,9 @@ mod tests {
     async fn the_judge_never_reads_a_rollup_that_summed_a_withheld_session() {
         let control = athlete().await;
         control.cache_garmin_history(200).await;
-        let to = Utc::now().date_naive();
+        let to = Timestamp::now().utc_date();
         control
-            .persist_rollup(to - ChronoDuration::days(7), to, 42.0)
+            .persist_rollup(to - Elapsed::days(7), to, 42.0)
             .await;
         let advice_for = |fx: &Athlete| advice(fx, OutcomeMetric::TsbDelta { window_days: 7 });
         let (_, asked) = judge_reads(&control, &advice_for(&control)).await;
@@ -884,14 +822,95 @@ mod tests {
 
         let fx = athlete().await;
         fx.cache_garmin_history(200).await;
-        fx.persist_rollup(to - ChronoDuration::days(7), to, 42.0)
-            .await;
+        fx.persist_rollup(to - Elapsed::days(7), to, 42.0).await;
         fx.cache(&[relayed("z", "Secret zepp ride", "zepp", noon(2))])
             .await;
         let (_, asked) = judge_reads(&fx, &advice_for(&fx)).await;
         assert!(
             asked.iter().all(|m| !m.contains("42.0")),
             "the stored rollup counted the zepp session; the judge must not read it: {asked:?}"
+        );
+    }
+
+    /// Advice the evaluator may need the judge for (one session against a
+    /// two-a-week target), drawn from a WHOOP-derived reply.
+    async fn whoop_advice(fx: &Athlete) -> PendingAdvice {
+        fx.cache(&[relayed("g", "Garmin tempo", "garmin", noon(3))])
+            .await;
+        let mut advice = advice(fx, OutcomeMetric::Consistency { window_days: 7 });
+        advice.ai_consent_sources = vec![WHOOP.to_owned()];
+        advice
+    }
+
+    // carnet#1157: the judge is a model, and the advice it reads is derived
+    // from WHOOP data; it reads it only under the athlete's WHOOP consent.
+    #[tokio::test]
+    async fn the_judge_never_reads_advice_naming_a_consent_the_athlete_withheld() {
+        let fx = athlete().await;
+        let advice = whoop_advice(&fx).await;
+        let (resolution, asked) = judge_reads(&fx, &advice).await;
+        assert_eq!(
+            resolution,
+            AdviceResolution::Labeled(OutcomeLabel::Neutral, LabelSource::DataHeuristic),
+            "without the WHOOP consent the heuristic's label stands"
+        );
+        assert!(asked.is_empty(), "the judge was never asked: {asked:?}");
+
+        grant_consent(
+            fx.db.repositories(),
+            fx.tenant.as_uuid(),
+            fx.user_id,
+            WHOOP,
+            NoticeKind::AiConsent,
+            "WHOOP",
+        )
+        .await
+        .unwrap();
+        let (resolution, asked) = judge_reads(&fx, &advice).await;
+        assert_eq!(
+            resolution,
+            AdviceResolution::Labeled(OutcomeLabel::Neutral, LabelSource::LlmJudge)
+        );
+        assert!(!asked.is_empty(), "with the consent the judge reads it");
+    }
+
+    // carnet#1157: the playbook an outcome reinforces names the consents of
+    // the advice it was labelled from and of the window its label read.
+    #[tokio::test]
+    async fn a_labelled_playbook_names_the_consents_of_its_advice_and_window() {
+        let fx = athlete().await;
+        let advice = whoop_advice(&fx).await;
+        let algorithms = AlgorithmConfig::default();
+        let usage = LlmUsageSink::new(
+            Arc::clone(&fx.db.repositories().llm_usage),
+            TaskTracker::new(),
+        );
+        let inputs = SweepInputs {
+            repos: fx.db.repositories(),
+            chat_provider: None,
+            judge_prompt: "Label the outcome.",
+            terms: &NolioTerms,
+            algorithms: &algorithms,
+            usage: &usage,
+        };
+        assert!(process_one_advice(&advice, inputs).await, "labelled");
+        let playbooks = fx
+            .db
+            .repositories()
+            .playbooks
+            .list_all_user_playbooks(
+                &fx.tenant.to_string(),
+                &fx.user_id.to_string(),
+                10,
+                TransportPolicy::FirstPartyOnly,
+            )
+            .await
+            .unwrap();
+        assert_eq!(playbooks.len(), 1);
+        assert_eq!(
+            playbooks[0].ai_consent_sources,
+            vec![GARMIN.to_owned(), WHOOP.to_owned()],
+            "the WHOOP advice, labelled over a window holding a Garmin session"
         );
     }
 
@@ -925,7 +944,7 @@ mod tests {
                 id: Uuid::new_v4().to_string(),
                 user_id: self.user_id.to_string(),
                 data_source_id: data_source_id.to_owned(),
-                date: at.date_naive(),
+                date: at.utc_date(),
                 recovery_score: None,
                 readiness_score: None,
                 hrv_ms: Some(hrv_ms),
@@ -948,7 +967,7 @@ mod tests {
                     &self.tenant,
                     &reading,
                     WellnessWriteMode::FullDay,
-                    Utc::now(),
+                    Timestamp::now(),
                 )
                 .await
                 .unwrap();

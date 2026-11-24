@@ -6,7 +6,7 @@
 
 //! Tests for de-duplicating an extracted fact against the athlete's existing ones.
 
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::transport::TransportPolicy;
 use pierre_memory::{FactKind, FactSource, FactStatus, MemoryScope, PredicateCode, UserFact};
 use pierre_services::memory_dedup::{
@@ -67,7 +67,7 @@ impl Stored {
     }
 
     fn build(self) -> UserFact {
-        let created = Utc::now() - Duration::minutes(self.age_minutes);
+        let created = Timestamp::now() - Elapsed::minutes(self.age_minutes);
         UserFact {
             id: self.id.into(),
             tenant_id: "t1".into(),
@@ -87,6 +87,7 @@ impl Stored {
             transport_policy: TransportPolicy::AnyTransport,
             status: FactStatus::Approved,
             evidence: None,
+            ai_consent_sources: Vec::new(),
         }
     }
 }

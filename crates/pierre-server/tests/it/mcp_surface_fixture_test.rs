@@ -18,11 +18,25 @@
 //!
 //! - `initialize`, with the build version redacted and the instructions held
 //!   to the catalogue's prompt rather than to a copy of its words;
-//! - `tools/list` with the admin bit set, for a user who coaches a group: the
-//!   whole catalogue, `athlete` and the coach-only tools included;
+//! - `tools/list` for a human coach who leads a group, on a grant that covers
+//!   every scope (`tools_list_coach`): the athlete tools and the three coach
+//!   tools, `athlete` on the reads (carnet#1511). The role is read live from
+//!   the database, so the context's admin bit changes nothing; it is set on
+//!   one view to pin that;
 //! - the tool names `tools/list` gives without it, each schema identical;
 //! - the listing of a user who coaches no group, which is that catalogue
-//!   without the coach-only tools and without `athlete` (carnet#1426).
+//!   without the coach tools and without `athlete`;
+//! - the listing of a real admin on a grant holding `admin` (Admin access
+//!   ticked): every tool but those kept to Dravr's own app, whose names are
+//!   frozen (`tools_list_admin_names`) with the schemas of the tools the
+//!   coach is not offered (`tools_list_admin_only`). Every other schema is
+//!   the coach's without `athlete`: an admin who coaches no group is not
+//!   offered it.
+//!
+//! Every definition carries its `def_hash` (dravr-tronc 7.3.0), frozen in the
+//! coach fixture. A view derived by editing a schema compares definitions with
+//! the hash set aside, and each served hash is checked against
+//! `Tool::def_hash` of its own definition.
 //!
 //! The contremaitre description overlay starts empty and is only filled when
 //! `CONTREMAITRE_REPO` is set, so these are the compiled-in descriptions — the
@@ -40,8 +54,9 @@ use crate::helpers::coach_roster_fixtures::{coached_group, group_agent, Person};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::{env, fs};
+use std::{env, fs, slice};
 
+use crate::helpers::tool_def_hash::without_def_hashes;
 use dravr_tronc::mcp::protocol::JsonRpcRequest;
 use dravr_tronc::mcp::server::McpServer;
 use dravr_tronc::mcp::tool::ToolContext;
@@ -49,6 +64,7 @@ use pierre_core::permissions::scopes::OAuthScope;
 use pierre_mcp_server::mcp::host_seams::build_mcp_server;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_tool_runtime::runtime::ToolRuntime;
+use pierre_tool_runtime::security::ToolReach;
 use serde_json::{json, Value};
 
 const WRITE_ENV: &str = "MCP_SURFACE_FIXTURE_WRITE";
@@ -103,14 +119,14 @@ async fn call(
     serde_json::to_value(response).unwrap()
 }
 
-/// The same tenant user seen twice, with the admin bit and without it, and a
-/// second user who coaches no group. A global
-/// admin holds the public profile on `/mcp`, so the two views are one list. The
-/// first user coaches a group, so their list is the whole catalogue: `athlete=`
-/// and the coach-only tools go to a coach alone. The
+/// The same tenant user seen twice, with the context's admin bit and without
+/// it, and a second user who coaches no group. The role is read live from the
+/// database, where neither is an admin, so the two views are one list. The
+/// first user coaches a group, so their list carries `athlete=` on the reads
+/// and the coach tools, which go to a coach alone (carnet#1511). The
 /// tenant is on the top plan: `tools/list` leaves out what a plan does not cover,
 /// and the fixture freezes every tool an external client can be offered.
-async fn admin_and_member(
+async fn coach_and_member(
     resources: &Arc<ServerContext>,
 ) -> (ToolContext, ToolContext, ToolContext) {
     let (user, _) = common::create_test_tenant(resources, "surface-fixture@example.com")
@@ -233,14 +249,14 @@ async fn mcp_surface_matches_the_committed_fixtures() {
     initialize["result"]["instructions"] = json!(REDACTED);
     assert_matches_fixture("initialize", &initialize["result"]);
 
-    let (admin, member, non_coach) = admin_and_member(&resources).await;
-    let admin_list = call(&server, "tools/list", json!({}), &admin).await;
-    assert_matches_fixture("tools_list_admin", &admin_list["result"]);
+    let (coach, member, non_coach) = coach_and_member(&resources).await;
+    let coach_list = call(&server, "tools/list", json!({}), &coach).await;
+    assert_matches_fixture("tools_list_coach", &coach_list["result"]);
     // The catalogue view lists a subset of the same schemas, so only its names
-    // are frozen; each entry must be byte-identical to the admin one. The
+    // are frozen; each entry must be byte-identical to the coach one. The
     // catalogue path once skipped the contremaitre description overlay.
     let member_list = call(&server, "tools/list", json!({}), &member).await;
-    let admin_by_name: BTreeMap<&str, &Value> = admin_list["result"]["tools"]
+    let coach_by_name: BTreeMap<&str, &Value> = coach_list["result"]["tools"]
         .as_array()
         .unwrap()
         .iter()
@@ -254,8 +270,8 @@ async fn mcp_surface_matches_the_committed_fixtures() {
             let name = tool["name"].as_str().unwrap();
             assert_eq!(
                 Some(&tool),
-                admin_by_name.get(name),
-                "the member schema of `{name}` differs from the admin one"
+                coach_by_name.get(name),
+                "the member schema of `{name}` differs from the coach one"
             );
             name
         })
@@ -266,13 +282,19 @@ async fn mcp_surface_matches_the_committed_fixtures() {
     // coach-only tools and without `athlete`, and nothing else is different
     // (carnet#1426). Frozen as a derivation, not as a second 1.3 MB fixture.
     let non_coach_list = call(&server, "tools/list", json!({}), &non_coach).await;
-    let mut expected: Vec<Value> = admin_list["result"]["tools"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .filter(|tool| tool["name"] != "publish_training_plan")
-        .cloned()
-        .collect();
+    let mut expected: Vec<Value> =
+        without_def_hashes(coach_list["result"]["tools"].as_array().unwrap())
+            .into_iter()
+            .filter(|tool| {
+                ![
+                    "get_group_member_activities",
+                    "get_group_member_plan_status",
+                    "get_roster_overview",
+                ]
+                .iter()
+                .any(|coach_tool| tool["name"] == *coach_tool)
+            })
+            .collect();
     let mut athlete_properties = 0_usize;
     for tool in &mut expected {
         if let Some(properties) = tool["inputSchema"]["properties"].as_object_mut() {
@@ -284,13 +306,13 @@ async fn mcp_surface_matches_the_committed_fixtures() {
         "the coach list carries athlete= on the scoped reads, or this proves nothing"
     );
     assert_eq!(
-        json!(expected),
-        non_coach_list["result"]["tools"],
-        "a non-coach's list is the coach's without publish_training_plan and athlete="
+        expected,
+        without_def_hashes(non_coach_list["result"]["tools"].as_array().unwrap()),
+        "a non-coach's list is the coach's without the coach tools and athlete="
     );
-    // The public profile's names: what every external client who coaches no
-    // group is offered, a global admin included, and so what the generated
-    // SDK types describe. The SDK drift check compares the types against it.
+    // The public profile's names: what an external client who coaches no
+    // group and is no admin is offered. The generated SDK types describe the
+    // coach's list instead (carnet#1511), which the coach fixture pins.
     let public_names: Vec<&str> = non_coach_list["result"]["tools"]
         .as_array()
         .unwrap()
@@ -301,7 +323,14 @@ async fn mcp_surface_matches_the_committed_fixtures() {
 
     // Both views are in name order: a reordered list is a different prompt
     // prefix for every client that caches it.
-    for (view, list) in [("admin", &admin_list), ("member", &member_list)] {
+    let admin_list = call(&server, "tools/list", json!({}), &admin(&resources).await).await;
+    assert_admin_list(&resources, &admin_list, &coach_by_name);
+
+    for (view, list) in [
+        ("coach", &coach_list),
+        ("member", &member_list),
+        ("admin", &admin_list),
+    ] {
         let names: Vec<&str> = list["result"]["tools"]
             .as_array()
             .unwrap()
@@ -312,4 +341,110 @@ async fn mcp_surface_matches_the_committed_fixtures() {
         sorted.sort_unstable();
         assert_eq!(names, sorted, "the {view} tools/list is not in name order");
     }
+}
+
+/// A real admin (the role, read live) on the top plan, on a grant that holds
+/// `admin`: an admin's connection with Admin access ticked. They coach no
+/// group.
+async fn admin(resources: &Arc<ServerContext>) -> ToolContext {
+    let (user, _) = common::create_test_tenant(resources, "surface-fixture-admin@example.com")
+        .await
+        .unwrap();
+    let repos = resources.agent.database.repositories();
+    let tenant = repos
+        .tenants
+        .list_for_user(user.id)
+        .await
+        .unwrap()
+        .remove(0);
+    repos
+        .tenants
+        .set_plan(tenant.id, "enterprise")
+        .await
+        .unwrap();
+    resources
+        .common
+        .repos
+        .users
+        .set_admin_status(user.id, true)
+        .await
+        .unwrap();
+    let mut ctx = ToolContext::new()
+        .with_user(user.id.to_string())
+        .with_tenant(tenant.id.to_string());
+    ctx.scopes = OAuthScope::self_grant()
+        .iter()
+        .map(|scope| scope.as_str().to_owned())
+        .collect();
+    assert!(
+        ctx.scopes.iter().any(|scope| scope == "admin"),
+        "the grant holds admin, or this is not an admin's full list"
+    );
+    ctx
+}
+
+/// The admin's list: every registered tool but those kept to Dravr's own
+/// app, its names frozen, the schemas of what the coach is not offered
+/// frozen, and every other schema the coach's without `athlete`.
+fn assert_admin_list(
+    resources: &Arc<ServerContext>,
+    admin_list: &Value,
+    coach_by_name: &BTreeMap<&str, &Value>,
+) {
+    let tools = admin_list["result"]["tools"].as_array().unwrap();
+    let names: Vec<&str> = tools
+        .iter()
+        .map(|tool| tool["name"].as_str().unwrap())
+        .collect();
+    let registry = &resources.mcp.tool_registry;
+    let mut every: Vec<&str> = registry
+        .tool_names()
+        .into_iter()
+        .filter(|name| {
+            registry
+                .get(name)
+                .is_some_and(|tool| tool.reach() != ToolReach::AppOnly)
+        })
+        .collect();
+    every.sort_unstable();
+    assert_eq!(
+        names, every,
+        "an admin with Admin access is listed every tool not kept to Dravr's own app"
+    );
+    assert!(
+        coach_by_name.keys().all(|name| names.contains(name)),
+        "an admin is listed every tool a coach is"
+    );
+    assert_matches_fixture("tools_list_admin_names", &json!(names));
+
+    let mut admin_only = Vec::new();
+    for tool in tools {
+        let name = tool["name"].as_str().unwrap();
+        let Some(coach_tool) = coach_by_name.get(name) else {
+            admin_only.push(tool.clone());
+            continue;
+        };
+        let mut expected = without_def_hashes(slice::from_ref(*coach_tool)).remove(0);
+        if let Some(properties) = expected["inputSchema"]["properties"].as_object_mut() {
+            properties.remove("athlete");
+        }
+        if let Some(required) = expected
+            .pointer_mut("/inputSchema/required")
+            .and_then(Value::as_array_mut)
+        {
+            required.retain(|property| property != "athlete");
+        }
+        assert_eq!(
+            without_def_hashes(slice::from_ref(tool)).remove(0),
+            expected,
+            "the admin schema of `{name}` is the coach's without athlete="
+        );
+    }
+    assert!(
+        admin_only
+            .iter()
+            .any(|tool| tool["name"].as_str().unwrap().starts_with("admin_")),
+        "the admin tools are the admin's alone"
+    );
+    assert_matches_fixture("tools_list_admin_only", &json!(admin_only));
 }

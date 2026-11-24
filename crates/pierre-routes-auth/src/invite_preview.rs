@@ -24,7 +24,7 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 
 use pierre_auth::rate_limiting::OAuth2Endpoint;
 use pierre_core::errors::{AppError, AppResult};
@@ -61,7 +61,7 @@ pub(crate) async fn handle_invite_preview(
         .await
         .ok()
         .map(|user| user.id);
-    let card = group_invite_card::preview(&resources.repos, &code, viewer, Utc::now())
+    let card = group_invite_card::preview(&resources.repos, &code, viewer, Timestamp::now())
         .await?
         .ok_or_else(|| AppError::not_found("Invite"))?;
 

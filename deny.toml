@@ -2,6 +2,17 @@
 # ABOUTME: Replaces custom cargo-audit bash scripting with native cargo-deny tool
 
 # ============================================================================
+# Dependency graph - every feature, so the PostgreSQL build is judged too
+# ============================================================================
+# The default graph is the workspace's default features, which build SQLite
+# only: sqlx-postgres and everything behind the `postgresql` features never
+# reached a check, though the deployed server is built with them. Set here,
+# not as a flag, so every caller of `cargo deny` (the security-audit lane, the
+# weekly dependency check, lint-and-test.sh, a hand run) judges the same graph.
+[graph]
+all-features = true
+
+# ============================================================================
 # Advisory Database - Security Vulnerability Scanning
 # ============================================================================
 # Replaces: cargo audit --ignore RUSTSEC-2023-0071 --no-fetch --color always
@@ -32,8 +43,34 @@ ignore = [
     # Status: Accepted risk until stable fix available
     # Reviewed: 2026-10-23 — rsa 0.9.10 is still the latest stable (0.10 is at
     #   rc.19), so no fixed release exists; the assessment above is unchanged.
-    # Next Review: 2026-11-23
+    # Reviewed: 2026-11-24 — rsa 0.10.0 went stable on 2026-11-08: the fix
+    #   exists, and this entry ends with the upgrade (carnet#1785), not another
+    #   renewal. The lock still resolves 0.9.10; the assessment above holds
+    #   until then.
+    # Next Review: 2026-12-01
     "RUSTSEC-2023-0071",
+
+    # -------------------------------------------------------------------------
+    # RUSTSEC-2026-0192: ttf-parser 0.25.1 is unmaintained (no vulnerability)
+    # -------------------------------------------------------------------------
+    # Pulled by lopdf 0.42 <- pdf-extract 0.12.1, the lab-report text extractor
+    # (carnet#1544), which only the `pierre-pdf-text` child binary links.
+    # ttf-parser is a mandatory lopdf dependency in every release
+    # pdf-extract can use, with no feature that turns it off, and no maintained
+    # Rust PDF text extractor keeps the line layout barrage's lab rules read
+    # (lopdf's own extract_text yields 0 results on owl's synthetic reports;
+    # pdf-extract yields their truth on all 12 measured).
+    # Reach: lopdf calls ttf_parser only in FontData::new, its PDF *writing*
+    # API (Document::add_font). pdf-extract only reads, and never builds a
+    # FontData, so no uploaded byte reaches ttf-parser.
+    # The separate lopdf stack-overflow advisory is fixed by lopdf 0.42: its
+    # parser stops past 100 nested arrays or dictionaries (MAX_NESTING_DEPTH).
+    # Whatever an uploaded PDF still does to the parser ends the child
+    # process, never the server.
+    # Mitigation: drop this entry when lopdf replaces ttf-parser or
+    # pdf-extract moves off it.
+    # Next Review: 2026-12-21
+    "RUSTSEC-2026-0192",
 
     # -------------------------------------------------------------------------
     # RUSTSEC-2026-0194 + RUSTSEC-2026-0195: quick-xml 0.26 parser DoS
@@ -52,7 +89,10 @@ ignore = [
     # Reviewed: 2026-10-23 — lock still shows quick-xml 0.26.0 under
     #   pprof 0.15.0 (latest) -> inferno 0.11.21, i.e. the upstream chain is
     #   unchanged and the dep is still dev-only (never in the shipped binary).
-    # Next Review: 2026-11-23
+    # Reviewed: 2026-11-24 — pprof 0.15.0 is still the latest and still asks
+    #   inferno ^0.11 (crates.io), and the lock still resolves quick-xml
+    #   0.26.0, dev-only; unchanged.
+    # Next Review: 2026-12-24
     "RUSTSEC-2026-0194",
     "RUSTSEC-2026-0195",
 
@@ -98,7 +138,12 @@ ignore = [
     #
     # Reviewed: 2026-10-24 — published 2026-10-23; jsonwebtoken 11.1.0, the
     #   latest, still depends on p256 / p384 0.13, so no upgrade clears it.
-    # Next Review: 2026-11-24
+    # Reviewed: 2026-11-24 — jsonwebtoken 12.0.0 (2026-11-13) depends on
+    #   p256 / p384 ^0.14 and rsa ^0.10: the upgrade path exists and is tracked
+    #   with the rsa one (carnet#1785), across the platform and dravr-tronc.
+    #   We are still on jsonwebtoken 10.4 and crypto-bigint 0.5.5; the
+    #   reachability assessment above is unchanged.
+    # Next Review: 2026-12-01
     "RUSTSEC-2026-0387",
 
     # -------------------------------------------------------------------------
@@ -129,39 +174,34 @@ ignore = [
     "RUSTSEC-2026-0459",
 
     # -------------------------------------------------------------------------
-    # RUSTSEC-2026-0543 + RUSTSEC-2026-0555: chrono and chrono-tz unmaintained
+    # RUSTSEC-2026-0543: chrono unmaintained
     # -------------------------------------------------------------------------
-    # Severity: none; these are maintenance notices, not vulnerabilities.
-    # Crates: chrono 0.4.45, chrono-tz 0.10.4 (the only versions in Cargo.lock)
-    # Issue: RustSec lists both crates as unmaintained, citing the upstream
-    # issue "Soft-deprecating chrono and chrono-tz" opened by a chrono
-    # maintainer; every version is affected and no safe upgrade exists. The
-    # chrono advisory recommends jiff or time; the chrono-tz advisory names
-    # no alternative.
-    # Advisories: https://rustsec.org/advisories/RUSTSEC-2026-0543
-    #             https://rustsec.org/advisories/RUSTSEC-2026-0555
+    # Severity: none; a maintenance notice, not a vulnerability.
+    # Crate: chrono 0.4.45 (the only version in Cargo.lock)
+    # Issue: RustSec lists chrono as unmaintained, citing the upstream issue
+    # "Soft-deprecating chrono and chrono-tz" opened by a chrono maintainer;
+    # every version is affected and no safe upgrade exists.
+    # Advisory: https://rustsec.org/advisories/RUSTSEC-2026-0543
     # Upstream issue: https://github.com/chronotope/chrono/issues/1768
     #
     # Risk Assessment: no known defect today
-    # - chrono is a direct dependency of 33 workspace manifests and is named
-    #   in about 1,400 source files. chrono-tz is a direct dependency of 6 of
-    #   those manifests and also arrives through dravr-cageux and
-    #   dravr-commere.
-    # - Of the 13 dravr-* crates in Cargo.lock, 12 depend on chrono as well;
-    #   dravr-contremaitre is the exception.
-    # - The exposure is forward-looking: a vulnerability found in either
-    #   crate from now on has no upstream fix.
+    # - carnet#1620 moved the platform and the satellites to dravr-tronc's
+    #   date types, and chrono-tz left the graph with it (its notice,
+    #   RUSTSEC-2026-0555, is no longer ignored). chrono remains only through
+    #   fitparser, the FIT decoder, which hands its timestamps over as chrono
+    #   values, and dravr-barrage's private edge that reads them.
+    # - The exposure is forward-looking: a vulnerability found in chrono from
+    #   now on has no upstream fix.
     #
     # Mitigation:
     # - cargo-deny still reports any vulnerability advisory filed against
-    #   either crate; only these two notices are ignored.
-    # - Staying on chrono or migrating the platform and the satellites is an
-    #   open decision, tracked in carnet#1620.
+    #   chrono; only this notice is ignored.
+    # - No chrono type crosses dravr-barrage's public API, so replacing the
+    #   FIT decoder is barrage's change alone.
     #
-    # Reviewed: 2026-11-17
-    # Next Review: 2026-12-17
+    # Reviewed: 2026-11-22
+    # Next Review: 2026-12-22
     "RUSTSEC-2026-0543",
-    "RUSTSEC-2026-0555",
 ]
 
 # Warn on yanked crates
@@ -221,10 +261,7 @@ allow = []
 # Deny specific crates (if needed)
 deny = []
 # Skip these dependencies from multiple-version checking.
-# winnow: cron 0.15 uses winnow 0.6, dravr-sciotte's toml 0.8 uses winnow 0.7.
-skip = [
-    { crate = "winnow", reason = "transitive version split between cron and toml_edit" },
-]
+skip = []
 # Skip tree checking for these dependencies
 skip-tree = []
 

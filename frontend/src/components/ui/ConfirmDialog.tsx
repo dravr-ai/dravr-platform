@@ -8,6 +8,7 @@ import React, { useId } from 'react';
 import { Modal, ModalActions } from './Modal';
 import { Button } from './Button';
 import { useTranslation } from '@pierre/i18n';
+import { ALERT_TONE } from './alertTone';
 
 export type ConfirmDialogVariant = 'danger' | 'warning' | 'info';
 
@@ -24,20 +25,23 @@ export interface ConfirmDialogProps {
   icon?: React.ReactNode;
 }
 
+// The icon sits on its tone's tint in that tone's container ink (ALERT_TONE):
+// a full `bg-error` disc stroked in `text-error` drew the glyph in the same
+// colour as its disc, an empty circle in both themes.
 const variantStyles: Record<ConfirmDialogVariant, { iconBg: string; iconColor: string; buttonVariant: 'danger' | 'primary' | 'secondary' }> = {
   danger: {
-    iconBg: 'bg-error',
-    iconColor: 'text-error',
+    iconBg: ALERT_TONE.error.tone,
+    iconColor: ALERT_TONE.error.ink,
     buttonVariant: 'danger',
   },
   warning: {
-    iconBg: 'bg-warning',
-    iconColor: 'text-warning',
+    iconBg: ALERT_TONE.warning.tone,
+    iconColor: ALERT_TONE.warning.ink,
     buttonVariant: 'primary',
   },
   info: {
-    iconBg: 'bg-info',
-    iconColor: 'text-info',
+    iconBg: ALERT_TONE.info.tone,
+    iconColor: ALERT_TONE.info.ink,
     buttonVariant: 'primary',
   },
 };

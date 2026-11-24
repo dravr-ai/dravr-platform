@@ -25,6 +25,7 @@ use common::{
     create_test_server_resources, create_test_server_resources_with_llm,
     create_test_user_with_plan, generate_test_token,
 };
+use dravr_tronc::dates::Timestamp;
 use helpers::agent_fixtures::{install_catalogue_agent, publish_catalogue_agent};
 use helpers::axum_test::AxumTestRequest;
 use pierre_chat_pipeline::stages::persistence::get_conversation_history;
@@ -220,6 +221,7 @@ async fn add_row(
             channel_type: None,
             about_user_id: None,
             turn_attempted_write: None,
+            ai_consent_sources: &[],
         })
         .await
         .unwrap()
@@ -302,7 +304,7 @@ async fn every_row_carries_its_kind_facts_preview_and_counts() {
     let installed = install_catalogue_agent(repos, origin, fx.owner_id, fx.tenant_id).await;
 
     // A coaching group the owner belongs to: the row shows its name.
-    let now = chrono::Utc::now();
+    let now = Timestamp::now();
     let group_id = Uuid::new_v4();
     repos
         .groups
@@ -323,6 +325,7 @@ async fn every_row_carries_its_kind_facts_preview_and_counts() {
                 is_active: true,
                 channel_type: None,
                 channel_chat_id: None,
+                chat_connection: None,
                 created_at: now,
                 updated_at: now,
             },
@@ -723,6 +726,7 @@ async fn coaching_turn_over(
             ambient_group_fallback: false,
             command_persistence: CommandPersistence::Always,
             sender_id: None,
+            caller: None,
             hooks: PipelineHooks::none(),
             grant: OAuthScope::self_grant(),
         },

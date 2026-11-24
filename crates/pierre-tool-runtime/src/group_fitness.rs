@@ -14,13 +14,14 @@ use std::cmp::Reverse;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
-use chrono::{DateTime, Days, Duration, NaiveDate, Utc};
-use chrono_tz::Tz;
 use dravr_cageux::algorithms::training_load::{DailyTrainingLoad, TrainingLoadAlgorithm};
 use dravr_cageux::config::intelligence::AlgorithmConfig;
 use dravr_cageux::training_load::TrainingLoadCalculator;
+use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp, Zone};
 use futures_util::future::join_all;
 use pierre_core::civil_time::{clock_date, local_date, resolve_zone};
+use pierre_core::constants::time_constants::DAYS_PER_WEEK;
+use pierre_core::constants::units::METERS_PER_KM;
 use pierre_core::models::groups::{
     FormMorning, MemberFitnessSnapshot, OvertrainingRiskLevel, RosterActivity,
 };
@@ -87,8 +88,8 @@ pub(crate) async fn fetch_and_merge_all_providers(
     activity_limit: usize,
 ) -> Vec<Activity> {
     let tenant_id_str = tenant_id.to_string();
-    let now = Utc::now();
-    let lookback_start = (now - Duration::days(TRAINING_LOAD_LOOKBACK_DAYS)).timestamp();
+    let now = Timestamp::now();
+    let lookback_start = (now - Elapsed::days(TRAINING_LOAD_LOOKBACK_DAYS)).epoch_seconds();
     let params = ActivityQueryParams {
         limit: Some(activity_limit),
         offset: None,
@@ -258,76 +259,13 @@ pub async fn fetch_member_snapshots_in(
 // plan tools' `athlete=` resolution all render a member by that one function.
 use pierre_services::athlete_display_name::fetch_athlete_identity;
 
-/// Each of the athlete's own calendar days' summed TSS, every session
-/// scored against the member's saved thresholds and bucketed on the day it
-/// started where they live — the day the roster lists it on, and the day
-/// `get_training_history` counts it on ([`local_date`]).
-///
-/// cageux's own as-of reading sums on UTC days, which put a Kiritimati
-/// evening on the day before and a session just west of the date line on the
-/// day after (carnet#1640), so the platform buckets and cageux smooths
-/// ([`TrainingLoadAlgorithm::daily_series`]), as the history does.
-///
-/// Logs one line per session with its TSS plus an aggregate: diagnoses why
-/// an athlete with N workouts can land at an unexpectedly low CTL/ATL (e.g.
-/// WHOOP entries with no distance/HR falling through to the duration-only
-/// fallback).
-fn daily_tss(
-    activities: &[Activity],
-    athlete: &AthleteInputs,
-    algorithm_config: &AlgorithmConfig,
-    as_of: NaiveDate,
-    zone: Tz,
-) -> BTreeMap<NaiveDate, f64> {
-    // Scores sessions only: the day this calculator reports is never read.
-    let calculator = TrainingLoadCalculator::from_config(algorithm_config.clone(), as_of);
-    let mut totals: BTreeMap<NaiveDate, f64> = BTreeMap::new();
-    let mut tss_skipped = 0_usize;
-    for a in activities {
-        if let Ok(tss) = athlete.tss(&calculator, a) {
-            *totals
-                .entry(local_date(a.start_date(), zone))
-                .or_insert(0.0) += tss;
-            debug!(
-                activity_id = %a.id(),
-                name = %a.name(),
-                sport = ?a.sport_type(),
-                start = %a.start_date(),
-                duration_s = a.duration_seconds(),
-                distance_m = ?a.distance_meters(),
-                tss,
-                "Snapshot TSS per-activity"
-            );
-        } else {
-            tss_skipped += 1;
-            info!(
-                activity_id = %a.id(),
-                name = %a.name(),
-                sport = ?a.sport_type(),
-                start = %a.start_date(),
-                duration_s = a.duration_seconds(),
-                distance_m = ?a.distance_meters(),
-                "Snapshot TSS skipped — no estimator could produce a value"
-            );
-        }
-    }
-    info!(
-        total_activities = activities.len(),
-        tss_included = activities.len() - tss_skipped,
-        tss_skipped,
-        total_tss = totals.values().sum::<f64>(),
-        "Snapshot TSS aggregate"
-    );
-    totals
-}
-
 /// The training load on `day` of the athlete's calendar: CTL and ATL at its
 /// end, form (`tsb` over `form_ctl`) from the end of the day before, a
 /// session after it not counted. `None` when the calculation fails.
 fn load_on(
     algorithm: &TrainingLoadAlgorithm,
-    daily_tss: &BTreeMap<NaiveDate, f64>,
-    day: NaiveDate,
+    daily_tss: &BTreeMap<CivilDate, f64>,
+    day: CivilDate,
 ) -> Option<DailyTrainingLoad> {
     match algorithm.daily_series(daily_tss, day, day) {
         Ok(mut series) => series.pop(),
@@ -352,8 +290,8 @@ const DEEP_FATIGUE_SCAN_MORNINGS: u32 = 21;
 /// disagree about today. Counting is all this does: the band is cageux's.
 fn deep_fatigue_mornings(
     algorithm: &TrainingLoadAlgorithm,
-    daily_tss: &BTreeMap<NaiveDate, f64>,
-    as_of: NaiveDate,
+    daily_tss: &BTreeMap<CivilDate, f64>,
+    as_of: CivilDate,
     today: Option<&DailyTrainingLoad>,
 ) -> Vec<FormMorning> {
     let deep = |load: &DailyTrainingLoad| {
@@ -370,7 +308,7 @@ fn deep_fatigue_mornings(
         form_pct,
     }];
     for days_ago in 1..DEEP_FATIGUE_SCAN_MORNINGS {
-        let Some(day) = as_of.checked_sub_days(Days::new(u64::from(days_ago))) else {
+        let Some(day) = as_of.checked_sub_days(i64::from(days_ago)) else {
             break;
         };
         match load_on(algorithm, daily_tss, day).as_ref().and_then(deep) {
@@ -380,9 +318,6 @@ fn deep_fatigue_mornings(
     }
     run
 }
-
-/// Number of days in one week, used to split current vs previous week.
-const DAYS_PER_WEEK: i64 = 7;
 
 /// Aggregated current-week metrics plus the prior week's volume trend input.
 ///
@@ -423,15 +358,14 @@ pub struct WeeklyMetrics {
 #[must_use]
 pub fn compute_weekly_metrics(
     activities: &[Activity],
-    now: DateTime<Utc>,
-    zone: Tz,
+    now: Timestamp,
+    zone: &Zone,
 ) -> WeeklyMetrics {
     let today = clock_date(now, zone);
     let days_back = |a: &Activity| days_before(today, a.start_date(), zone);
-    let weekly_activities: Vec<_> = activities
-        .iter()
-        .filter(|a| days_back(a) < DAYS_PER_WEEK)
-        .collect();
+    // Days in one week, splitting the current week from the previous one.
+    let week = i64::from(DAYS_PER_WEEK);
+    let weekly_activities: Vec<_> = activities.iter().filter(|a| days_back(a) < week).collect();
 
     let weekly_activity_count = i32::try_from(weekly_activities.len()).unwrap_or(i32::MAX);
 
@@ -439,13 +373,13 @@ pub fn compute_weekly_metrics(
         .iter()
         .filter_map(|a| a.distance_meters())
         .sum::<f64>()
-        / 1000.0;
+        / METERS_PER_KM;
 
     let weekly_duration_seconds: u64 = weekly_activities.iter().map(|a| a.duration_seconds()).sum();
 
     let previous_week: Vec<_> = activities
         .iter()
-        .filter(|a| (DAYS_PER_WEEK..2 * DAYS_PER_WEEK).contains(&days_back(a)))
+        .filter(|a| (week..2 * week).contains(&days_back(a)))
         .collect();
     let previous_week_volume_km = if previous_week.is_empty() {
         None
@@ -455,7 +389,7 @@ pub fn compute_weekly_metrics(
                 .iter()
                 .filter_map(|a| a.distance_meters())
                 .sum::<f64>()
-                / 1000.0,
+                / METERS_PER_KM,
         )
     };
 
@@ -477,7 +411,7 @@ pub fn compute_weekly_metrics(
 /// The days on the athlete's calendar in `zone` from the one a session
 /// `started` on to `today`: zero for today, one for yesterday, negative for a
 /// session dated after today.
-fn days_before(today: NaiveDate, started: DateTime<Utc>, zone: Tz) -> i64 {
+fn days_before(today: CivilDate, started: Timestamp, zone: &Zone) -> i64 {
     (today - local_date(started, zone)).num_days()
 }
 
@@ -600,7 +534,7 @@ async fn fetch_single_member_snapshot(
     user_id: Uuid,
     fallback_tenant_id: TenantId,
 ) -> MemberFitnessSnapshot {
-    let now = Utc::now();
+    let now = Timestamp::now();
     let data = runtime.data();
     let identity = fetch_athlete_identity(data.repos(), user_id).await;
     let display_name = identity.display_name.clone();
@@ -633,7 +567,7 @@ async fn fetch_single_member_snapshot(
         fetch_member_activities_across_tenants(runtime, user_id, &tenants),
     )
     .await;
-    // Emit one log line per fetched activity so an operator can verify
+    // Emit one log line per fetched activity so an admin can verify
     // what reached the training-load calc when a snapshot looks stale
     // (e.g. "Phil rode 250km yesterday but ATL=19" — either the ride
     // isn't on the provider yet, or its TSS was skipped for missing
@@ -713,7 +647,7 @@ fn build_snapshot_from_activities(
     display_name: String,
     timezone: Option<String>,
     activities: &[Activity],
-    now: DateTime<Utc>,
+    now: Timestamp,
     athlete: Option<&AthleteInputs>,
     algorithm_config: &AlgorithmConfig,
 ) -> MemberFitnessSnapshot {
@@ -721,22 +655,39 @@ fn build_snapshot_from_activities(
     // in, so `computed_at` read on their clock names the day the form reading
     // describes and the deep-fatigue mornings are counted back from the day
     // the roster dates the first of them by (carnet#1640).
+    //
+    // The daily split is cageux's, the one `get_training_history` reads: each
+    // session scored against the member's saved thresholds and counted on
+    // the day it started where they live.
     let zone = resolve_zone(timezone.as_deref());
-    let today = clock_date(now, zone);
-    let algorithm = algorithm_config.training_load_algorithm();
-    let daily =
-        athlete.map(|athlete| daily_tss(activities, athlete, algorithm_config, today, zone));
+    let calculator =
+        TrainingLoadCalculator::as_of_today(algorithm_config.clone(), zone.clone(), now);
+    let today = calculator.as_of();
+    let algorithm = calculator.algorithm();
+    let daily = athlete.map(|athlete| athlete.daily_tss(calculator, activities));
+    // Diagnoses a member with N workouts landing at an unexpectedly low
+    // CTL/ATL (e.g. WHOOP entries with no distance or HR); cageux logs each
+    // session it could not score.
+    if let Some(daily) = &daily {
+        info!(
+            user_id = %user_id,
+            total_activities = activities.len(),
+            days_with_load = daily.len(),
+            total_tss = daily.values().sum::<f64>(),
+            "Snapshot TSS aggregate"
+        );
+    }
     let load = daily
         .as_ref()
         .and_then(|daily| load_on(&algorithm, daily, today));
     let deep_fatigue_mornings = daily.as_ref().map_or_else(Vec::new, |daily| {
         deep_fatigue_mornings(&algorithm, daily, today, load.as_ref())
     });
-    let weekly = compute_weekly_metrics(activities, now, zone);
+    let weekly = compute_weekly_metrics(activities, now, &zone);
     let primary_sport = determine_primary_sport(activities);
     let overtraining_risk = assess_overtraining_risk(load.as_ref());
     let last_activity_per_provider = compute_last_activity_per_provider(activities);
-    let recent_activities = compute_recent_activities(activities, now, zone);
+    let recent_activities = compute_recent_activities(activities, now, &zone);
 
     MemberFitnessSnapshot {
         user_id,
@@ -776,11 +727,11 @@ fn build_snapshot_from_activities(
 /// doesn't push older context into the prompt.
 fn compute_recent_activities(
     activities: &[Activity],
-    now: DateTime<Utc>,
-    zone: Tz,
+    now: Timestamp,
+    zone: &Zone,
 ) -> Vec<RosterActivity> {
     let today = clock_date(now, zone);
-    let first_day = today - Days::new(RECENT_ACTIVITIES_LOOKBACK_DAYS.unsigned_abs() - 1);
+    let first_day = today - Elapsed::days(RECENT_ACTIVITIES_LOOKBACK_DAYS - 1);
     let total_input = activities.len();
     let mut filtered: Vec<&Activity> = activities
         .iter()
@@ -803,7 +754,7 @@ fn compute_recent_activities(
             RosterActivity {
                 start: a.start_date(),
                 sport: format!("{:?}", a.sport_type()),
-                distance_km: a.distance_meters().map(|m| m / 1000.0),
+                distance_km: a.distance_meters().map(|m| m / METERS_PER_KM),
                 duration_seconds: a.duration_seconds(),
                 name: display_line(a.name(), ACTIVITY_NAME_MAX_CHARS),
                 city: a.city().map(str::to_owned),
@@ -830,8 +781,8 @@ fn compute_recent_activities(
 /// `days_since_last_activity` over a multi-provider member and inventing
 /// "your Strava is not synced" defenses. Keyed by the service the athlete
 /// connected ([`backend_resolver::activity_origin`]), never a backend.
-fn compute_last_activity_per_provider(activities: &[Activity]) -> HashMap<String, DateTime<Utc>> {
-    let mut latest: HashMap<String, DateTime<Utc>> = HashMap::new();
+fn compute_last_activity_per_provider(activities: &[Activity]) -> HashMap<String, Timestamp> {
+    let mut latest: HashMap<String, Timestamp> = HashMap::new();
     for activity in activities {
         let provider =
             backend_resolver::activity_origin(activity.provider(), activity.source()).to_owned();
@@ -853,7 +804,7 @@ fn empty_snapshot(
     user_id: Uuid,
     display_name: String,
     timezone: Option<String>,
-    computed_at: DateTime<Utc>,
+    computed_at: Timestamp,
 ) -> MemberFitnessSnapshot {
     MemberFitnessSnapshot {
         user_id,
@@ -923,18 +874,18 @@ fn assess_overtraining_risk(load: Option<&DailyTrainingLoad>) -> OvertrainingRis
 
 #[cfg(test)]
 mod tests {
-    use chrono::TimeZone;
     use pierre_core::models::{ActivityBuilder, SportType};
+    use pierre_fitness_compute::compute_training_history;
 
     use super::*;
 
     /// A run `days` before `now` lasting `seconds`.
-    fn run(id: &str, now: DateTime<Utc>, days: i64, seconds: u64) -> Activity {
+    fn run(id: &str, now: Timestamp, days: i64, seconds: u64) -> Activity {
         ActivityBuilder::new(
             id,
             "Course",
             SportType::Run,
-            now - Duration::days(days),
+            now - Elapsed::days(days),
             seconds,
             "strava",
         )
@@ -946,25 +897,25 @@ mod tests {
     fn roster_durations_keep_the_seconds() {
         // 53:59 truncated to whole minutes reads as 53, about 10 s/km slow on
         // 6.1 km (carnet#1015).
-        let now = Utc.with_ymd_and_hms(2026, 10, 14, 12, 0, 0).unwrap();
+        let now = Timestamp::parse_from_rfc3339("2026-10-14T12:00:00Z").unwrap();
         let activities = [run("a", now, 1, 3_239), run("b", now, 2, 1_801)];
 
-        let recent = compute_recent_activities(&activities, now, Tz::UTC);
+        let recent = compute_recent_activities(&activities, now, &Zone::utc());
         let durations: Vec<u64> = recent.iter().map(|a| a.duration_seconds).collect();
         assert_eq!(durations, [3_239, 1_801]);
 
-        let weekly = compute_weekly_metrics(&activities, now, Tz::UTC);
+        let weekly = compute_weekly_metrics(&activities, now, &Zone::utc());
         assert_eq!(weekly.duration_seconds, 5_040);
     }
 
     #[test]
     fn freshness_is_keyed_by_the_service_never_the_backend() {
-        let now = Utc.with_ymd_and_hms(2026, 10, 14, 12, 0, 0).unwrap();
+        let now = Timestamp::parse_from_rfc3339("2026-10-14T12:00:00Z").unwrap();
         let scraped = ActivityBuilder::new(
             "g",
             "Ride",
             SportType::Ride,
-            now - Duration::days(3),
+            now - Elapsed::days(3),
             3_600,
             "sciotte",
         )
@@ -981,21 +932,19 @@ mod tests {
 
     /// Sixty daily runs at 12:30 on the athlete's own calendar in `zone`,
     /// ending on their yesterday as of `now`; the last six long and hard.
-    fn hard_week_ending_yesterday(now: DateTime<Utc>, zone: Tz) -> Vec<Activity> {
+    fn hard_week_ending_yesterday(now: Timestamp, zone: &Zone) -> Vec<Activity> {
         let today = clock_date(now, zone);
-        (1..=60_u64)
+        (1..=60_i64)
             .map(|back| {
                 let (seconds, heart_rate) = if back <= 6 {
                     (14_400, 178)
                 } else {
                     (1_800, 120)
                 };
-                let start = (today - Days::new(back))
-                    .and_hms_opt(12, 30, 0)
-                    .unwrap()
-                    .and_local_timezone(zone)
-                    .unwrap()
-                    .with_timezone(&Utc);
+                let start = zone
+                    .resolve((today - Elapsed::days(back)).and_hms(12, 30, 0).unwrap())
+                    .single()
+                    .unwrap();
                 ActivityBuilder::new(
                     format!("run-{back}"),
                     "Course",
@@ -1021,8 +970,8 @@ mod tests {
         }
     }
 
-    fn snapshot_at(now: DateTime<Utc>, zone: &str) -> MemberFitnessSnapshot {
-        let activities = hard_week_ending_yesterday(now, zone.parse().unwrap());
+    fn snapshot_at(now: Timestamp, zone: &str) -> MemberFitnessSnapshot {
+        let activities = hard_week_ending_yesterday(now, &zone.parse::<Zone>().unwrap());
         let athlete = ada_thresholds();
         build_snapshot_from_activities(
             Uuid::nil(),
@@ -1041,26 +990,26 @@ mod tests {
     /// hours where the two agree beside them. Read on UTC's day, the fixture
     /// counts six mornings at the first two, seven at the third, six at the
     /// fourth and five at the last.
-    fn readings() -> [(DateTime<Utc>, &'static str); 5] {
+    fn readings() -> [(Timestamp, &'static str); 5] {
         [
             (
-                Utc.with_ymd_and_hms(2026, 11, 17, 22, 0, 0).unwrap(),
+                Timestamp::parse_from_rfc3339("2026-11-17T22:00:00Z").unwrap(),
                 KIRITIMATI,
             ),
             (
-                Utc.with_ymd_and_hms(2026, 11, 17, 11, 0, 0).unwrap(),
+                Timestamp::parse_from_rfc3339("2026-11-17T11:00:00Z").unwrap(),
                 KIRITIMATI,
             ),
             (
-                Utc.with_ymd_and_hms(2026, 11, 17, 5, 0, 0).unwrap(),
+                Timestamp::parse_from_rfc3339("2026-11-17T05:00:00Z").unwrap(),
                 KIRITIMATI,
             ),
             (
-                Utc.with_ymd_and_hms(2026, 11, 18, 2, 0, 0).unwrap(),
+                Timestamp::parse_from_rfc3339("2026-11-18T02:00:00Z").unwrap(),
                 WEST_OF_THE_DATE_LINE,
             ),
             (
-                Utc.with_ymd_and_hms(2026, 11, 18, 13, 0, 0).unwrap(),
+                Timestamp::parse_from_rfc3339("2026-11-18T13:00:00Z").unwrap(),
                 WEST_OF_THE_DATE_LINE,
             ),
         ]
@@ -1095,11 +1044,12 @@ mod tests {
         for (now, zone) in readings() {
             let snapshot = snapshot_at(now, zone);
             let tz = resolve_zone(Some(zone));
-            let here = clock_date(now, tz);
+            let here = clock_date(now, &tz);
             assert_eq!(snapshot.computed_on(), here, "{zone} at {now}");
             let config = AlgorithmConfig::default();
-            let activities = hard_week_ending_yesterday(now, tz);
-            let daily = daily_tss(&activities, &ada_thresholds(), &config, here, tz);
+            let activities = hard_week_ending_yesterday(now, &tz);
+            let calculator = TrainingLoadCalculator::as_of_today(config.clone(), tz, now);
+            let daily = ada_thresholds().daily_tss(calculator, &activities);
             let expected = load_on(&config.training_load_algorithm(), &daily, here).unwrap();
             assert_eq!(snapshot.ctl, Some(expected.ctl), "{zone} at {now}");
             assert_eq!(snapshot.tsb, Some(expected.tsb), "{zone} at {now}");
@@ -1107,10 +1057,80 @@ mod tests {
             assert_eq!(daily.len(), 60, "{zone} at {now}");
             assert_eq!(
                 daily.keys().next_back(),
-                here.pred_opt().as_ref(),
+                here.pred().as_ref(),
                 "{zone} at {now}: the last run is bucketed on her yesterday"
             );
         }
+    }
+
+    #[test]
+    fn the_roster_reads_the_load_the_training_history_reads_for_her_day() {
+        // One daily split, cageux's: the roster's CTL, ATL and form on her
+        // today are the history's row for that day, in every zone at every
+        // hour (carnet#1663).
+        for (now, zone) in readings() {
+            let snapshot = snapshot_at(now, zone);
+            let tz = resolve_zone(Some(zone));
+            let here = clock_date(now, &tz);
+            let rows = compute_training_history(
+                &hard_week_ending_yesterday(now, &tz),
+                ada_thresholds(),
+                here - Elapsed::days(5),
+                here,
+                &AlgorithmConfig::default(),
+                Some(zone),
+            )
+            .unwrap();
+            let row = rows.last().unwrap();
+            assert_eq!(row.date, here, "{zone} at {now}");
+            assert_eq!(snapshot.ctl, Some(row.ctl), "{zone} at {now}");
+            assert_eq!(snapshot.atl, Some(row.atl), "{zone} at {now}");
+            assert_eq!(snapshot.tsb, Some(row.tsb), "{zone} at {now}");
+        }
+    }
+
+    #[test]
+    fn a_session_without_training_stress_leaves_the_roster_load_alone() {
+        // A provider-scored zero, two days before her first run: kept, it
+        // would open her history there and lower the seed of every load.
+        let (now, zone) = readings()[0];
+        let tz: Zone = zone.parse().unwrap();
+        let mut activities = hard_week_ending_yesterday(now, &tz);
+        let first = activities.iter().map(Activity::start_date).min().unwrap();
+        activities.push(
+            ActivityBuilder::new(
+                "walk",
+                "Marche",
+                SportType::Walk,
+                first - Elapsed::days(2),
+                1_200,
+                "whoop",
+            )
+            .training_stress_score(0.0)
+            .build(),
+        );
+        let with_walk = build_snapshot_from_activities(
+            Uuid::nil(),
+            "Ada".to_owned(),
+            Some(zone.to_owned()),
+            &activities,
+            now,
+            Some(&ada_thresholds()),
+            &AlgorithmConfig::default(),
+        );
+        let without = snapshot_at(now, zone);
+        assert_eq!(
+            with_walk.ctl, without.ctl,
+            "bug: a zero-TSS session moved the roster CTL"
+        );
+        assert_eq!(
+            with_walk.atl, without.atl,
+            "bug: a zero-TSS session moved the roster ATL"
+        );
+        assert_eq!(
+            with_walk.tsb, without.tsb,
+            "bug: a zero-TSS session moved the roster form"
+        );
     }
 
     #[test]
@@ -1127,7 +1147,7 @@ mod tests {
         }
         // West of the date line at 23:00 UTC it is 11:00 her today, 22:30
         // after her last run began: still one calendar day.
-        let late = Utc.with_ymd_and_hms(2026, 11, 18, 23, 0, 0).unwrap();
+        let late = Timestamp::parse_from_rfc3339("2026-11-18T23:00:00Z").unwrap();
         let snapshot = snapshot_at(late, WEST_OF_THE_DATE_LINE);
         assert_eq!(
             snapshot.days_since_last_activity,
@@ -1156,13 +1176,13 @@ mod tests {
                 (previous - 42.0).abs() < 1e-9,
                 "{zone} at {now}: {previous}"
             );
-            let here = clock_date(now, resolve_zone(Some(zone)));
-            let days: Vec<NaiveDate> = snapshot
+            let here = clock_date(now, &resolve_zone(Some(zone)));
+            let days: Vec<CivilDate> = snapshot
                 .recent_activities
                 .iter()
-                .map(|a| local_date(a.start, resolve_zone(Some(zone))))
+                .map(|a| local_date(a.start, &resolve_zone(Some(zone))))
                 .collect();
-            let expected: Vec<NaiveDate> = (1..=6).map(|back| here - Days::new(back)).collect();
+            let expected: Vec<CivilDate> = (1..=6).map(|back| here - Elapsed::days(back)).collect();
             assert_eq!(days, expected, "{zone} at {now}");
         }
     }

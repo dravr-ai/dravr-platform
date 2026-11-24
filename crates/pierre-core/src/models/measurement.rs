@@ -6,7 +6,7 @@
 
 use std::collections::BTreeSet;
 
-use chrono::NaiveDate;
+use dravr_tronc::dates::CivilDate;
 use serde::{Deserialize, Serialize};
 
 use crate::ai_policy::SourceClass;
@@ -76,7 +76,7 @@ pub struct MetricProvenance {
     pub origin: Option<String>,
     /// The day the value was measured or estimated, when known.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub as_of: Option<NaiveDate>,
+    pub as_of: Option<CivilDate>,
 }
 
 /// A physiological value together with its [`MetricProvenance`].
@@ -98,6 +98,26 @@ impl<T> ProvenancedValue<T> {
     pub const fn new(value: T, provenance: MetricProvenance) -> Self {
         Self { value, provenance }
     }
+}
+
+/// A VDOT the athlete or their coach stated, from a race or as a number, with
+/// the day it was true and how it was found.
+///
+/// A VDOT is Daniels' performance index, read from a race; it folds running
+/// economy and the share of `VO2max` an athlete sustains into one number, so
+/// it is stored apart from the profile's `VO2max` and never filled from one.
+/// The day is what ages it: a stated VDOT gives way to what recent running
+/// shows once it is 12 weeks old (cageux `PerformancePredictor::resolve_vdot`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct ProfileVdot {
+    /// The VDOT.
+    pub value: f64,
+    /// The day it was true: the race's day, or the day it was stated.
+    pub as_of: CivilDate,
+    /// How it was found, as the athlete or tool put it ("race: 10 km in
+    /// 41:21", "stated"). Absent when none was given; never invented.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub method: Option<String>,
 }
 
 /// Where each of the profile's four scalar thresholds came from, for the ones
@@ -222,13 +242,13 @@ pub struct AnchorStamp {
     pub origin: AnchorOrigin,
     /// The day it was stated, imported, estimated or measured, when known.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub as_of: Option<NaiveDate>,
+    pub as_of: Option<CivilDate>,
 }
 
 impl AnchorStamp {
     /// The stamp of a number the athlete stated on `as_of`.
     #[must_use]
-    pub const fn athlete(as_of: NaiveDate) -> Self {
+    pub const fn athlete(as_of: CivilDate) -> Self {
         Self {
             origin: AnchorOrigin::Athlete,
             as_of: Some(as_of),
@@ -237,7 +257,7 @@ impl AnchorStamp {
 
     /// The stamp of a number promoted from a measurement taken on `as_of`.
     #[must_use]
-    pub const fn promoted(as_of: NaiveDate) -> Self {
+    pub const fn promoted(as_of: CivilDate) -> Self {
         Self {
             origin: AnchorOrigin::Promoted,
             as_of: Some(as_of),
@@ -308,16 +328,16 @@ impl AnchorProvenance {
 pub struct ThresholdStatedOn {
     /// The day the athlete stated their functional threshold power.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub ftp_watts: Option<NaiveDate>,
+    pub ftp_watts: Option<CivilDate>,
     /// The day the athlete stated their lactate threshold heart rate.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub threshold_hr: Option<NaiveDate>,
+    pub threshold_hr: Option<CivilDate>,
     /// The day the athlete stated their maximum heart rate.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub max_hr: Option<NaiveDate>,
+    pub max_hr: Option<CivilDate>,
     /// The day the athlete stated their threshold pace.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub threshold_pace_sec_per_km: Option<NaiveDate>,
+    pub threshold_pace_sec_per_km: Option<CivilDate>,
 }
 
 impl ThresholdStatedOn {
@@ -379,8 +399,8 @@ impl UserPhysiologicalProfile {
     ///   the athlete's when none was recorded.
     /// - A critical-power or critical-speed value takes its stated
     ///   provenance's class ([`MetricProvenance::stated_class`]).
-    /// - The lactate fraction, age and training years are written only by
-    ///   `set_physiology`, so they are the athlete's. A sex is the athlete's
+    /// - The lactate fraction, age, training years and a stated VDOT are
+    ///   written only by `set_physiology`, so they are the athlete's. A sex is the athlete's
     ///   or what a provider reported of them, which the row does not tell
     ///   apart, so it claims the least.
     ///
@@ -427,7 +447,8 @@ impl UserPhysiologicalProfile {
         .map(MetricProvenance::stated_class);
         let athletes_own = (self.lactate_threshold_percentage.is_some()
             || self.age.is_some()
-            || self.training_experience_years.is_some())
+            || self.training_experience_years.is_some()
+            || self.vdot.is_some())
         .then_some(SourceClass::PatientEntered);
         let reported_sex = self.sex.is_some().then_some(SourceClass::ThirdPartyApp);
         thresholds
@@ -472,7 +493,7 @@ mod tests {
             MetricProvenance {
                 kind: MeasurementKind::Estimated,
                 origin: Some("vekta".to_owned()),
-                as_of: NaiveDate::from_ymd_opt(2026, 10, 1),
+                as_of: CivilDate::from_ymd(2026, 10, 1).ok(),
             },
         );
         let json = serde_json::to_value(&value)?;
@@ -501,7 +522,7 @@ mod tests {
             ftp_watts: Some(MetricProvenance {
                 kind: MeasurementKind::Estimated,
                 origin: Some("intervals.icu".to_owned()),
-                as_of: NaiveDate::from_ymd_opt(2026, 9, 30),
+                as_of: CivilDate::from_ymd(2026, 9, 30).ok(),
             }),
             ..ThresholdProvenance::NONE
         };
@@ -586,7 +607,9 @@ mod tests {
 
     #[test]
     fn a_value_with_no_recorded_origin_is_the_athletes_own() -> Result<(), String> {
-        let day = NaiveDate::from_ymd_opt(2026, 10, 31).ok_or("a valid day")?;
+        let day = CivilDate::from_ymd(2026, 10, 31)
+            .ok()
+            .ok_or("a valid day")?;
         assert!(
             !AnchorProvenance::promotable(true, None),
             "a legacy value must never be promoted over"
@@ -622,7 +645,9 @@ mod tests {
             serde_json::json!({}),
             "bug: an unrecorded origin is serialized"
         );
-        let day = NaiveDate::from_ymd_opt(2026, 10, 25).ok_or("a valid day")?;
+        let day = CivilDate::from_ymd(2026, 10, 25)
+            .ok()
+            .ok_or("a valid day")?;
         let promoted = AnchorProvenance {
             resting_hr: Some(AnchorStamp::promoted(day)),
             ..AnchorProvenance::NONE

@@ -18,7 +18,7 @@ import { openExternal } from '../../utils/openExternal';
 /**
  * What the app is, and where help and the legal documents live.
  *
- * Which model answers is an operator's reading, never an athlete's
+ * Which model answers is an admin's reading, never an athlete's
  * (carnet#1147), so the pane names none.
  *
  * Three rows in one group: one fact that is read and two links that open the

@@ -41,7 +41,7 @@ use axum::extract::State;
 use axum::http::{Request, StatusCode};
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_config::environment::ServerConfig;
 use pierre_core::models::messaging::ChannelType;
 use pierre_core::models::{ConnectionType, TenantId, UserOAuthToken};
@@ -137,7 +137,7 @@ async fn spawn_scraper() -> (String, Arc<Backend>) {
                             "id": "15550001111",
                             "name": "Scraped ride",
                             "sport_type": "ride",
-                            "start_date": (Utc::now() - Duration::days(1)).to_rfc3339(),
+                            "start_date": (Timestamp::now() - Elapsed::days(1)).to_rfc3339(),
                             "duration_seconds": 3600,
                             "provider": "strava",
                             "distance_meters": 30000.0
@@ -164,7 +164,7 @@ async fn spawn_strava() -> (String, Arc<Backend>) {
                     "name": "API ride",
                     "type": "Ride",
                     "sport_type": "Ride",
-                    "start_date": (Utc::now() - Duration::hours(3)).to_rfc3339(),
+                    "start_date": (Timestamp::now() - Elapsed::hours(3)).to_rfc3339(),
                     "distance": 32_000.0,
                     "elapsed_time": 4_200,
                     "total_elevation_gain": 310.0
@@ -216,7 +216,7 @@ pub(crate) async fn athlete_with_both(resources: &Arc<ServerContext>) -> (Uuid, 
     )
     .await
     .unwrap();
-    let now = Utc::now();
+    let now = Timestamp::now();
     let repos = &resources.common.repos;
     repos
         .oauth_tokens
@@ -229,7 +229,7 @@ pub(crate) async fn athlete_with_both(resources: &Arc<ServerContext>) -> (Uuid, 
             access_token: SecretString::from(format!("strava_access_token_{:0>30}", 7)),
             refresh_token: Some(SecretString::from("strava_refresh")),
             token_type: "Bearer".to_owned(),
-            expires_at: Some(now + Duration::hours(6)),
+            expires_at: Some(now + Elapsed::hours(6)),
             scope: Some("activity:read_all".to_owned()),
             provider_user_id: Some(OWNER_ID.to_string()),
             oauth_app_client_id: None,
@@ -347,7 +347,7 @@ async fn the_sweeps_fallback_to_the_grant_keeps_to_the_background_share() {
             PLATFORM_SCOPE,
             PLATFORM_SCOPE,
             &budget_counter_key("strava", APP),
-            &budget_period(Utc::now(), ONE_DAY),
+            &budget_period(Timestamp::now(), ONE_DAY),
             i64::from(DAY_BUDGET * BACKGROUND_SHARE_PERCENT / 100),
         )
         .await
@@ -385,7 +385,7 @@ async fn a_strava_webhook_reads_the_grant_and_never_starts_a_scrape() {
         "aspect_type": "create",
         "owner_id": OWNER_ID,
         "subscription_id": SUBSCRIPTION_ID,
-        "event_time": Utc::now().timestamp()
+        "event_time": Timestamp::now().epoch_seconds()
     });
 
     let response = WebhookRoutes::routes(Arc::clone(&w.resources))
@@ -424,7 +424,7 @@ async fn a_strava_webhook_reads_the_grant_and_never_starts_a_scrape() {
 /// Records the pair's history walk as owed under the session and leased for
 /// an hour, so no ask starts another and the resume sweep leaves it alone.
 async fn pair_walk_owed(resources: &Arc<ServerContext>, user_id: Uuid, tenant: TenantId) {
-    let now = Utc::now().timestamp_millis();
+    let now = Timestamp::now().epoch_millis();
     let recorded = resources
         .common
         .repos
@@ -547,6 +547,8 @@ async fn a_group_member_read_scrapes_the_session_once_and_never_writes_it_under_
     use pierre_core::models::groups::{
         CoachConsents, CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
     };
+    use pierre_core::transport::Transport;
+    use pierre_providers::ai_scope;
     use pierre_tool_runtime::implementations::groups::GetGroupMemberActivitiesTool;
 
     let w = world().await;
@@ -583,7 +585,7 @@ async fn a_group_member_read_scrapes_the_session_once_and_never_writes_it_under_
         .unwrap()
         .id;
     let group_id = Uuid::new_v4();
-    let now = Utc::now();
+    let now = Timestamp::now();
     repos
         .groups
         .create_group(
@@ -603,6 +605,7 @@ async fn a_group_member_read_scrapes_the_session_once_and_never_writes_it_under_
                 is_active: true,
                 channel_type: None,
                 channel_chat_id: None,
+                chat_connection: None,
                 created_at: now,
                 updated_at: now,
             },
@@ -639,9 +642,11 @@ async fn a_group_member_read_scrapes_the_session_once_and_never_writes_it_under_
         .with_tenant(host_tenant.to_string())
         .with_auth_method("jwt_bearer");
 
-    let response = GetGroupMemberActivitiesTool
-        .execute(&runtime, &ctx, json!({ "member": "raph" }))
-        .await;
+    let response = ai_scope::serve_over(
+        Transport::WebApp,
+        GetGroupMemberActivitiesTool.execute(&runtime, &ctx, json!({ "member": "raph" })),
+    )
+    .await;
 
     let payload = response
         .structured_content
@@ -689,7 +694,7 @@ async fn a_commitment_refresh_scrapes_the_session_once_and_never_reads_the_api()
             Arc::clone(&runtime),
             user_id,
             tenant,
-            (Utc::now() - Duration::days(7)).timestamp(),
+            (Timestamp::now() - Elapsed::days(7)).epoch_seconds(),
         ),
         "fixture: no refresh is in flight for this athlete"
     );

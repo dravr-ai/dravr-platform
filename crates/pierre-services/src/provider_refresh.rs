@@ -1,5 +1,5 @@
 // ABOUTME: Provider data refresh service orchestrating on-demand and on-chat sync triggers
-// ABOUTME: Checks data freshness per provider, delegates to enforme SyncOrchestrator, sends SSE notifications
+// ABOUTME: Checks data freshness per provider and delegates to enforme's SyncOrchestrator
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -10,14 +10,11 @@ use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
 
-use async_trait::async_trait;
-use chrono::Utc;
+use dravr_tronc::dates::{Elapsed, Timestamp};
 #[cfg(feature = "health-sync")]
 use futures_util::future::join_all;
-use pierre_core::errors::AppError;
 use pierre_core::models::{
-    DataFreshness, OAuthNotification, ProviderFreshness, RefreshConfig, RefreshStatus,
-    SmartScheduleWeights, TenantId,
+    DataFreshness, ProviderFreshness, RefreshConfig, RefreshStatus, SmartScheduleWeights, TenantId,
 };
 #[cfg(feature = "health-sync")]
 use pierre_core::models::{DelegatedConnection, DelegationStatus};
@@ -45,25 +42,6 @@ use crate::delegated_read::{holds_own_session, OwnLogins};
 #[cfg(feature = "health-sync")]
 use crate::health_sync::{sync_error_is_push_stand_down, wellness_pull_stands_down};
 
-/// Push interface used by the refresh service to inform connected clients.
-///
-/// Implemented by `pierre-server`'s `SseManager`; abstracted as a trait so
-/// this service crate stays free of any pierre-server SSE/MCP machinery.
-#[async_trait]
-pub trait SyncNotifier: Send + Sync {
-    /// Push an `OAuthNotification` to the user's active SSE stream, if any.
-    ///
-    /// # Errors
-    /// Returns an error when no stream is registered for `user_id` or when
-    /// the broadcast channel send fails. Callers typically treat these as
-    /// best-effort and log at debug level.
-    async fn send_notification(
-        &self,
-        user_id: Uuid,
-        notification: &OAuthNotification,
-    ) -> Result<(), AppError>;
-}
-
 /// How the agent treats a provider whose newest data it may not have.
 ///
 /// A sync an hour old, or a live read that outlives the turn's budget (a
@@ -80,7 +58,7 @@ pub const UNREAD_PROVIDER_DIRECTIVE: &str = "This is for you, not the athlete: d
 ///
 /// Evaluates data freshness for a user's connected providers and triggers
 /// background syncs via enforme's `SyncOrchestrator` when data is stale.
-/// SSE notifications inform the client when sync completes.
+/// A landed sync stamps `last_sync`, which is what a client's next read sees.
 pub struct RefreshService {
     /// Narrow repository view: `RefreshService` reads `repos.oauth_tokens`
     /// (last-sync timestamps for orchestrator-managed providers, credential
@@ -103,12 +81,6 @@ pub struct RefreshService {
     /// Health data sync orchestrator (enforme).
     #[cfg(feature = "health-sync")]
     sync_orchestrator: Option<Arc<dravr_enforme::SyncOrchestrator>>,
-    /// SSE manager for real-time notifications to clients. Only read by the
-    /// `health-sync` spawn paths today; cfg-gated so non-health-sync builds
-    /// (e.g. pierre-routes-web-admin's preflight clippy) don't see a dead
-    /// field.
-    #[cfg(feature = "health-sync")]
-    sse_manager: Arc<dyn SyncNotifier>,
 }
 
 impl fmt::Debug for RefreshService {
@@ -131,7 +103,6 @@ impl RefreshService {
         #[cfg(feature = "health-sync")] sync_orchestrator: Option<
             Arc<dravr_enforme::SyncOrchestrator>,
         >,
-        #[cfg(feature = "health-sync")] sse_manager: Arc<dyn SyncNotifier>,
     ) -> Self {
         Self {
             repos: repos.clone(),
@@ -140,8 +111,6 @@ impl RefreshService {
             registry,
             #[cfg(feature = "health-sync")]
             sync_orchestrator,
-            #[cfg(feature = "health-sync")]
-            sse_manager,
         }
     }
 
@@ -199,7 +168,7 @@ impl RefreshService {
         user_id: Uuid,
         tenant_id: TenantId,
         provider: &str,
-    ) -> Option<chrono::DateTime<Utc>> {
+    ) -> Option<Timestamp> {
         // Without the `health-sync` feature there is no orchestrator at all, so
         // every provider is on-demand and sources its freshness from the cache.
         #[cfg(feature = "health-sync")]
@@ -309,7 +278,7 @@ impl RefreshService {
             }
 
             let age = pf.last_sync_at.map_or(Duration::from_secs(u64::MAX), |ts| {
-                let delta = Utc::now().signed_duration_since(ts);
+                let delta = Timestamp::now().signed_duration_since(ts);
                 if delta.num_seconds() < 0 {
                     Duration::ZERO
                 } else {
@@ -372,7 +341,7 @@ impl RefreshService {
                     // Reflect the just-completed sync so build_agent_hint
                     // (which reads .freshness) treats it as Fresh and
                     // omits the stale-data warning.
-                    pf.last_sync_at = Some(Utc::now());
+                    pf.last_sync_at = Some(Timestamp::now());
                     pf.freshness = DataFreshness::Fresh;
                     fresh.push(pf.provider.clone());
                 } else {
@@ -487,7 +456,7 @@ impl RefreshService {
         for pf in &stale_providers {
             let age_str = pf.last_sync_at.map_or_else(
                 || "never synced".to_owned(),
-                |ts| format_age(Utc::now().signed_duration_since(ts)),
+                |ts| format_age(Timestamp::now().signed_duration_since(ts)),
             );
             let _ = writeln!(hint, "- {}: {} ({})", pf.provider, pf.freshness, age_str);
         }
@@ -602,8 +571,7 @@ impl RefreshService {
 
             // Skip providers the orchestrator doesn't manage (e.g. sciotte, an
             // on-demand scrape-only provider fetched per chat request). Spawning
-            // a sync for them only yields a "provider not registered" failure
-            // and a bogus failure notification to the user.
+            // a sync for them only yields a "provider not registered" failure.
             if !orchestrator.provider_names().contains(&provider.as_str()) {
                 tracing::debug!(
                     provider = %provider,
@@ -618,7 +586,6 @@ impl RefreshService {
                     orchestrator,
                     repos: self.repos.clone(),
                     registry: Arc::clone(&self.registry),
-                    sse: Arc::clone(&self.sse_manager),
                     user_id,
                     tenant_id,
                     provider,
@@ -680,7 +647,7 @@ impl RefreshService {
                         user_id,
                         tenant_id,
                         &sync_backend(provider),
-                        Utc::now(),
+                        Timestamp::now(),
                     )
                     .await
                 {
@@ -886,8 +853,8 @@ pub fn user_facing_providers(providers: &[String]) -> Vec<String> {
     named
 }
 
-/// Format a chrono Duration as a human-readable age string.
-fn format_age(duration: chrono::Duration) -> String {
+/// Format an [`Elapsed`] as a human-readable age string.
+fn format_age(duration: Elapsed) -> String {
     let total_secs = duration.num_seconds();
     if total_secs < 0 {
         return "just now".to_owned();
@@ -1028,10 +995,10 @@ impl SyncMetrics {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::Duration as ChronoDuration;
+    use dravr_tronc::dates::Elapsed;
 
     fn row(provider: &str, days_ago: Option<i64>) -> ProviderFreshness {
-        let last_sync_at = days_ago.map(|days| Utc::now() - ChronoDuration::days(days));
+        let last_sync_at = days_ago.map(|days| Timestamp::now() - Elapsed::days(days));
         ProviderFreshness {
             provider: provider.to_owned(),
             last_sync_at,

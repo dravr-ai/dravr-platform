@@ -13,7 +13,7 @@
 
 use std::sync::Arc;
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::models::ConnectionType;
 use pierre_database::RepositoryRegistry;
@@ -47,7 +47,13 @@ async fn gate_flips_with_trainingpeaks_connection_status() {
 
     repos
         .provider_connections
-        .mark_needs_reauth(user, tenant, mirror, Some("session_expired"), Utc::now())
+        .mark_needs_reauth(
+            user,
+            tenant,
+            mirror,
+            Some("session_expired"),
+            Timestamp::now(),
+        )
         .await
         .unwrap();
     let conns = repos

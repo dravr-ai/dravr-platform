@@ -40,7 +40,7 @@
 
 use std::collections::BTreeMap;
 
-use chrono::{DateTime, Duration, NaiveDate, Utc};
+use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp};
 use pierre_contremaitre::messaging_strings::{
     format_template, MessagingStringsRegistry, KEY_AGENT_WELCOME_FIGURES_DISTANCE_TIME,
     KEY_AGENT_WELCOME_FIGURES_LAST, KEY_AGENT_WELCOME_FIGURES_PER_WEEK,
@@ -210,7 +210,7 @@ pub(crate) async fn read_history(
     repos: &RepositoryRegistry,
     tenant: TenantId,
     user: Uuid,
-    now: DateTime<Utc>,
+    now: Timestamp,
 ) -> AppResult<(Option<HistoryFigures>, TransportPolicy)> {
     let (figures, policy) = ai_scope::derived(read_untracked(repos, tenant, user, now)).await;
     Ok((figures?, policy))
@@ -220,10 +220,10 @@ async fn read_untracked(
     repos: &RepositoryRegistry,
     tenant: TenantId,
     user: Uuid,
-    now: DateTime<Utc>,
+    now: Timestamp,
 ) -> AppResult<Option<HistoryFigures>> {
     let registry = global_registry();
-    let opens = now - Duration::days(HISTORY_WINDOW_DAYS);
+    let opens = now - Elapsed::days(HISTORY_WINDOW_DAYS);
     let rows = repos
         .activity_cache
         .get_cached_activities(user, &tenant, None, opens, now, MAX_HISTORY_ROWS)
@@ -238,7 +238,7 @@ async fn read_untracked(
     let whole_window = !read_full && {
         let older = repos
             .activity_cache
-            .get_cached_activities(user, &tenant, None, DateTime::UNIX_EPOCH, opens, 1)
+            .get_cached_activities(user, &tenant, None, Timestamp::UNIX_EPOCH, opens, 1)
             .await?;
         !ai_scope::filter_activities(registry.as_ref(), older).is_empty()
     };
@@ -249,10 +249,10 @@ async fn read_untracked(
         .any(|activity| garmin_recorded(activity.source(), activity.device_name()));
     let (sessions, _) = merge_duplicates(rows, &DedupConfig::from_env());
     let zone = athlete_zone(repos, user).await;
-    let today = clock_date(now, zone);
+    let today = clock_date(now, &zone);
     let Some(oldest) = sessions
         .iter()
-        .map(|session| local_date(session.start_date(), zone))
+        .map(|session| local_date(session.start_date(), &zone))
         .min()
     else {
         return Ok(None);
@@ -267,7 +267,7 @@ async fn read_untracked(
 
 /// The days from `oldest` to `today`, both counted, held between
 /// [`MIN_DAYS_SAID`] and [`HISTORY_WINDOW_DAYS`].
-fn days_since(oldest: NaiveDate, today: NaiveDate) -> i64 {
+fn days_since(oldest: CivilDate, today: CivilDate) -> i64 {
     (today.signed_duration_since(oldest).num_days() + 1).clamp(MIN_DAYS_SAID, HISTORY_WINDOW_DAYS)
 }
 
@@ -506,16 +506,15 @@ const FIRST_SYNC_ROW_SLACK_SECS: i64 = 60;
 /// command's answer, a divider or the Guardian's own reply — stamped no later
 /// than that instant.
 #[must_use]
-pub(crate) fn holds_first_sync_post(rows: &[MessageRecord], posted_at: DateTime<Utc>) -> bool {
-    let latest = posted_at + Duration::seconds(FIRST_SYNC_ROW_SLACK_SECS);
+pub(crate) fn holds_first_sync_post(rows: &[MessageRecord], posted_at: Timestamp) -> bool {
+    let latest = posted_at + Elapsed::seconds(FIRST_SYNC_ROW_SLACK_SECS);
     rows.iter().any(|row| {
         row.role == "assistant"
             && !row.is_agent_welcome()
             && !row.is_command_turn()
             && !row.is_divider()
             && !row.is_guardian_reply()
-            && DateTime::parse_from_rfc3339(&row.created_at)
-                .is_ok_and(|created| created.with_timezone(&Utc) <= latest)
+            && Timestamp::parse_from_rfc3339(&row.created_at).is_ok_and(|created| created <= latest)
     })
 }
 
@@ -564,7 +563,7 @@ pub(crate) async fn first_sync_spoke(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::TimeZone;
+    use dravr_tronc::dates::CivilDateTime;
     use pierre_core::models::{ActivityBuilder, SportType};
 
     fn templates() -> FirstWelcomeTemplates {
@@ -589,9 +588,10 @@ mod tests {
         seconds: u64,
         metres: Option<f64>,
     ) -> Activity {
-        let start = Utc
-            .with_ymd_and_hms(2026, 10, day, 7, 0, 0)
-            .single()
+        let start = CivilDate::from_ymd(2026, 10, day)
+            .and_then(|date| date.and_hms(7, 0, 0))
+            .and_then(CivilDateTime::and_utc)
+            .ok()
             .unwrap_or_default();
         let mut builder = ActivityBuilder::new(
             id.to_owned(),
@@ -625,8 +625,8 @@ mod tests {
 
     #[test]
     fn the_days_said_run_from_the_oldest_session_held_between_a_week_and_the_window() {
-        let today = NaiveDate::from_ymd_opt(2026, 10, 30).unwrap_or_default();
-        let back = |days: i64| today - Duration::days(days);
+        let today = CivilDate::from_ymd(2026, 10, 30).ok().unwrap_or_default();
+        let back = |days: i64| today - Elapsed::days(days);
         assert_eq!(days_since(back(0), today), MIN_DAYS_SAID);
         assert_eq!(days_since(back(19), today), 20);
         assert_eq!(days_since(back(400), today), HISTORY_WINDOW_DAYS);
@@ -858,14 +858,14 @@ mod tests {
             channel_type: None,
             about_user_id: None,
             turn_attempted_write: None,
+            ai_consent_sources: Vec::new(),
         }
     }
 
     #[test]
     fn the_first_sync_post_is_a_model_reply_from_no_later_than_the_ledger_says_it_landed() {
-        let posted = Utc
-            .with_ymd_and_hms(2026, 11, 14, 9, 0, 30)
-            .single()
+        let posted = Timestamp::parse_from_rfc3339("2026-11-14T09:00:30Z")
+            .ok()
             .unwrap_or_default();
         let post = row("assistant", Some("stop"), "2026-11-14T09:00:29Z");
         assert!(holds_first_sync_post(&[post], posted));

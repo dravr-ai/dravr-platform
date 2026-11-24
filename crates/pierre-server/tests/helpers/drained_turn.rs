@@ -24,7 +24,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::Duration;
 
 use async_trait::async_trait;
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use futures_util::stream;
 use hmac::{Hmac, Mac};
 use pierre_core::errors::AppError;
@@ -213,7 +213,7 @@ pub(crate) async fn create_active_user(resources: &ServerContext, email: &str) -
     );
     user.user_status = UserStatus::Active;
     user.approved_by = Some(user.id);
-    user.approved_at = Some(Utc::now());
+    user.approved_at = Some(Timestamp::now());
 
     let user_id = user.id;
     resources.common.repos.users.create(&user).await.unwrap();
@@ -226,8 +226,8 @@ pub(crate) async fn create_active_user(resources: &ServerContext, email: &str) -
         domain: None,
         plan: "starter".to_owned(),
         owner_user_id: user_id,
-        created_at: Utc::now(),
-        updated_at: Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
     };
     resources
         .common

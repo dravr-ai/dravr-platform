@@ -228,7 +228,6 @@ mod tests {
         WeatherApiConfig {
             base_url: base_url.to_owned(),
             enabled,
-            ..WeatherApiConfig::default()
         }
     }
 

@@ -35,14 +35,15 @@ use crate::implementations::field_dictionary::served_header;
 use crate::implementations::session_merge_summary::FragmentDedupSummary;
 use crate::protocol::types::UniversalResponse;
 use crate::runtime::ToolRuntime;
-use chrono::{DateTime, Utc};
 use dravr_cageux::physiological_constants::api_limits::{
     CLAUDE_CONTEXT_TOKENS, CONTEXT_WARNING_THRESHOLD_PERCENT, TOKENS_PER_ACTIVITY_DETAILED,
     TOKENS_PER_ACTIVITY_SUMMARY, USABLE_CONTEXT_TOKENS,
 };
+use dravr_tronc::dates::Timestamp;
 use pierre_cache::{Cache, CacheKey, CacheResource};
 use pierre_core::ai_policy::ProviderTerms;
 use pierre_core::civil_time::parse_zone;
+use pierre_core::civil_time::zoned_rfc3339;
 use pierre_core::config::fitness::{DETAIL_WINDOW_DAYS, EXPLICIT_DETAIL_CAP};
 use pierre_core::json_value::to_value_as_written;
 use pierre_core::models::coverage::{Completeness, IncompleteReason};
@@ -329,7 +330,7 @@ impl ActivityRetrievalContext {
     /// Calculate the date range from activities
     fn calculate_date_range(activities: &[Activity]) -> DateRange {
         if activities.is_empty() {
-            let now = Utc::now();
+            let now = Timestamp::now();
             return DateRange {
                 start: now.to_rfc3339(),
                 end: now.to_rfc3339(),
@@ -469,7 +470,7 @@ pub(crate) struct CachedActivitiesParams<'a> {
 pub(crate) struct CachedDetail<'a> {
     pub repos: &'a RepositoryRegistry,
     pub tenant_id: TenantId,
-    pub window_start: DateTime<Utc>,
+    pub window_start: Timestamp,
     /// The provider key the list was read under.
     pub serving: &'a str,
     pub provider_names: &'a [&'a str],
@@ -565,11 +566,11 @@ pub(crate) async fn try_get_cached_activities(
                 after: params
                     .asked
                     .after
-                    .and_then(|at| DateTime::from_timestamp(at, 0)),
+                    .and_then(|at| Timestamp::from_epoch_seconds(at).ok()),
                 before: params
                     .asked
                     .before
-                    .and_then(|at| DateTime::from_timestamp(at, 0)),
+                    .and_then(|at| Timestamp::from_epoch_seconds(at).ok()),
                 pinned: params.pinned,
                 keep: &keep,
             },
@@ -863,10 +864,10 @@ fn activity_rows(
                         .and_then(Vec::pop)
                         .unwrap_or(Value::Null)
                 };
-                if let (Some(tz), Some(map)) = (tz, row.as_object_mut()) {
+                if let (Some(tz), Some(map)) = (tz.as_ref(), row.as_object_mut()) {
                     map.insert(
                         "start_date_local".to_owned(),
-                        Value::String(a.start_date().with_timezone(&tz).to_rfc3339()),
+                        Value::String(zoned_rfc3339(a.start_date(), tz)),
                     );
                 }
                 Ok(row)
@@ -884,7 +885,7 @@ fn activity_rows(
                 if let Some(map) = obj.as_object_mut() {
                     map.insert(
                         "start_date_local".to_owned(),
-                        Value::String(activity.start_date().with_timezone(&tz).to_rfc3339()),
+                        Value::String(zoned_rfc3339(activity.start_date(), &tz)),
                     );
                 }
             }
@@ -999,7 +1000,7 @@ pub(crate) fn build_activities_success_response(
         page_merge.as_ref(),
         &locale,
         user_timezone.as_deref(),
-        Utc::now(),
+        Timestamp::now(),
     );
 
     // Calculate retrieval context for LLM data sufficiency guidance
@@ -1083,14 +1084,22 @@ pub(crate) fn build_activities_success_response(
 mod tests {
     use std::collections::{HashMap, HashSet};
 
-    use chrono::Utc;
+    use dravr_tronc::dates::Timestamp;
     use pierre_core::models::{Activity, ActivityBuilder, PlaceRef, SportType};
     use serde_json::{json, Value};
 
     use super::prepare_activity_data;
 
     fn ride(id: &str) -> Activity {
-        ActivityBuilder::new(id, "Ride", SportType::Ride, Utc::now(), 3_600, "strava").build()
+        ActivityBuilder::new(
+            id,
+            "Ride",
+            SportType::Ride,
+            Timestamp::now(),
+            3_600,
+            "strava",
+        )
+        .build()
     }
 
     fn placed(activities: &[Activity]) -> HashMap<(String, String), PlaceRef> {

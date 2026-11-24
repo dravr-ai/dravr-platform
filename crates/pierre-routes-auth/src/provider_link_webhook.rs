@@ -25,7 +25,7 @@ use std::env;
 use std::sync::LazyLock;
 use std::time::Duration;
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use hmac::{Hmac, Mac};
 use serde::Serialize;
 use sha2::Sha256;
@@ -68,7 +68,7 @@ pub(crate) struct ProviderLinkedEvent {
     /// Optional channel thread/DM id for the bot to reply in
     pub channel_thread: Option<String>,
     /// Completion timestamp
-    pub connected_at: DateTime<Utc>,
+    pub connected_at: Timestamp,
 }
 
 impl ProviderLinkedEvent {
@@ -93,7 +93,7 @@ impl ProviderLinkedEvent {
             target,
             channel,
             channel_thread,
-            connected_at: Utc::now(),
+            connected_at: Timestamp::now(),
         }
     }
 }

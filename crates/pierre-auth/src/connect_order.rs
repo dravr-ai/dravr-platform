@@ -1,4 +1,4 @@
-// ABOUTME: The operator's per-provider connect order: the account sign-in first (the default), or the provider's OAuth first
+// ABOUTME: The admin's per-provider connect order: the sign-in extension first (the default), the account sign-in, or the OAuth
 // ABOUTME: Read from system_settings on every decision, so `pierre-cli settings connect-order` flips it with no deploy
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -11,11 +11,18 @@
 //! order. By default a new connection signs in with the account, whatever
 //! the seats, and the provider's OAuth, where it has one, stays open to
 //! anyone who starts it and is the fallback of a sign-in that fails
-//! unexpectedly ([`ConnectOrder::SignInFirst`]). The order is the operator's
-//! kill switch: flipped to [`ConnectOrder::OAuthFirst`], a new connection
+//! unexpectedly. Two orders put the sign-in first, and they differ only on
+//! the client: under [`ConnectOrder::ExtensionFirst`] (the default) a web
+//! client with the Dravr sign-in browser extension installed starts the
+//! extension before it shows the credentials form; under
+//! [`ConnectOrder::SignInFirst`] it shows the credentials form first and
+//! offers the extension as a button. A surface with no extension (the hosted
+//! page, the chat) treats both alike ([`ConnectOrder::signs_in_first`]).
+//! The order is the admin's kill switch: flipped to
+//! [`ConnectOrder::OAuthFirst`], a new connection
 //! goes through the provider's OAuth while a seat is free and signs in once
 //! the seats are gone. A provider with no OAuth Pierre can call
-//! (TrainingPeaks, COROS) has no seat, so it signs in under either order.
+//! (TrainingPeaks, COROS) has no seat, so it signs in under every order.
 //!
 //! The order decides new connections only. A dead grant reconnects through
 //! the hosted sign-in whatever the order, and nothing is re-routed when the
@@ -39,18 +46,35 @@ pub enum ConnectOrder {
     #[serde(rename = "oauth_first")]
     OAuthFirst,
     /// The account sign-in, whatever the seats; the OAuth stays startable.
+    /// A web client shows the credentials form first and offers the sign-in
+    /// extension beside it.
     #[serde(rename = "sign_in_first")]
     SignInFirst,
+    /// The account sign-in, whatever the seats, as [`Self::SignInFirst`]; a
+    /// web client with the Dravr sign-in extension installed starts it before
+    /// showing the credentials form. The default.
+    #[serde(rename = "extension_first")]
+    ExtensionFirst,
 }
 
 impl ConnectOrder {
-    /// The stored and wire form: `oauth_first` or `sign_in_first`.
+    /// The stored and wire form: `extension_first`, `sign_in_first` or
+    /// `oauth_first`.
     #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::OAuthFirst => "oauth_first",
             Self::SignInFirst => "sign_in_first",
+            Self::ExtensionFirst => "extension_first",
         }
+    }
+
+    /// Whether a new connection signs in with the account before any OAuth:
+    /// [`Self::ExtensionFirst`] and [`Self::SignInFirst`], which the server
+    /// routes alike and only a client with the extension tells apart.
+    #[must_use]
+    pub const fn signs_in_first(self) -> bool {
+        matches!(self, Self::SignInFirst | Self::ExtensionFirst)
     }
 
     /// Parse the stored or wire form; `None` for anything else.
@@ -59,20 +83,21 @@ impl ConnectOrder {
         match value.trim() {
             "oauth_first" => Some(Self::OAuthFirst),
             "sign_in_first" => Some(Self::SignInFirst),
+            "extension_first" => Some(Self::ExtensionFirst),
             _ => None,
         }
     }
 }
 
-/// The providers whose connect order the operator sets.
+/// The providers whose connect order the admin sets.
 ///
 /// Every provider with an account sign-in, by the name the athlete knows it
 /// under: the user-facing half of the one mirror table
 /// ([`oauth_providers::MIRROR_PAIRS`]).
 pub const CONNECT_ORDER_PROVIDERS: [&str; 4] = oauth_providers::MIRRORED_PROVIDERS;
 
-/// The order in force when the operator stored none, or none that reads.
-const DEFAULT_ORDER: ConnectOrder = ConnectOrder::SignInFirst;
+/// The order in force when the admin stored none, or none that reads.
+pub const DEFAULT_ORDER: ConnectOrder = ConnectOrder::ExtensionFirst;
 
 /// The `system_settings` key holding `provider`'s order, or `None` for a
 /// provider with no order to set.
@@ -85,7 +110,7 @@ fn setting_key(provider: &str) -> Option<String> {
 /// The order a new `provider` connection follows right now.
 ///
 /// Never fails: a row that cannot be read reads as the default,
-/// [`ConnectOrder::SignInFirst`], as everything [`read_connect_order`] maps
+/// [`ConnectOrder::ExtensionFirst`], as everything [`read_connect_order`] maps
 /// to it does. For the connect surfaces, which must answer whatever the
 /// store does.
 pub async fn connect_order(
@@ -95,17 +120,17 @@ pub async fn connect_order(
     read_connect_order(settings, provider)
         .await
         .unwrap_or_else(|e| {
-            warn!(provider, error = %e, "connect order could not be read; using sign_in_first");
+            warn!(provider, error = %e, "connect order could not be read; using extension_first");
             DEFAULT_ORDER
         })
 }
 
 /// The order a new `provider` connection follows, or the store's error.
 ///
-/// An absent row and one holding neither form read as
-/// [`ConnectOrder::SignInFirst`], which is what is in force then, and so
+/// An absent row and one holding no known form read as
+/// [`ConnectOrder::ExtensionFirst`], which is what is in force then, and so
 /// does any provider outside [`CONNECT_ORDER_PROVIDERS`], which has no
-/// account sign-in to put first or last. For the operator's read, where a
+/// account sign-in to put first or last. For the admin's read, where a
 /// failed read must not be shown as the default.
 ///
 /// # Errors
@@ -124,7 +149,7 @@ pub async fn read_connect_order(
     Ok(ConnectOrder::parse(&setting.value).unwrap_or_else(|| {
         warn!(
             setting = %key,
-            "connect order is neither oauth_first nor sign_in_first; using sign_in_first"
+            "connect order is none of extension_first, sign_in_first or oauth_first; using extension_first"
         );
         DEFAULT_ORDER
     }))
@@ -162,11 +187,13 @@ pub fn new_connection_through_oauth(order: ConnectOrder, seats_left: u32) -> boo
 
 /// Whether a NEW connection's failed account sign-in falls back to the OAuth.
 ///
-/// The sign-in goes first by the operator's order while a seat is still free.
-/// With the pool full there is no OAuth to fall back to.
+/// The sign-in goes first by the admin's order
+/// ([`ConnectOrder::signs_in_first`]: extension first or sign-in first)
+/// while a seat is still free. With the pool full there is no OAuth to fall
+/// back to.
 #[must_use]
-pub fn sign_in_falls_back_to_oauth(order: ConnectOrder, seats_left: u32) -> bool {
-    order == ConnectOrder::SignInFirst && seats_left > 0
+pub const fn sign_in_falls_back_to_oauth(order: ConnectOrder, seats_left: u32) -> bool {
+    order.signs_in_first() && seats_left > 0
 }
 
 /// `provider`'s connect order and the seats left on its OAuth, read once.
@@ -202,8 +229,9 @@ pub async fn order_and_seats(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::Utc;
+    use dravr_tronc::dates::Timestamp;
     use pierre_database::database::system_settings::SystemSetting;
+    use serde_json::json;
 
     /// A one-row store, or one whose every read fails: the database fault the
     /// real backends cannot be made to raise on demand. The integration suite
@@ -219,7 +247,7 @@ mod tests {
                         key: key.to_owned(),
                         value: value.to_owned(),
                         description: None,
-                        updated_at: Utc::now(),
+                        updated_at: Timestamp::now(),
                     })
                 })
                 .map_err(|()| AppError::internal("the store is down"))
@@ -231,28 +259,29 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_failed_read_is_an_error_to_the_operator_and_sign_in_first_to_a_connection() {
+    async fn a_failed_read_is_an_error_to_the_admin_and_extension_first_to_a_connection() {
         let down = OneRowStore(Err(()));
         assert!(
             read_connect_order(&down, oauth_providers::STRAVA)
                 .await
                 .is_err(),
-            "bug: a failed read is shown to the operator as an order"
+            "bug: a failed read is shown to the admin as an order"
         );
         assert_eq!(
             connect_order(&down, oauth_providers::STRAVA).await,
-            ConnectOrder::SignInFirst,
+            ConnectOrder::ExtensionFirst,
             "bug: a failed read leaves a connection with no order"
         );
     }
 
     #[tokio::test]
-    async fn the_stored_order_is_read_and_an_absent_or_unknown_row_reads_sign_in_first() {
+    async fn the_stored_order_is_read_and_an_absent_or_unknown_row_reads_extension_first() {
         for (row, expected) in [
             (Some("sign_in_first"), ConnectOrder::SignInFirst),
             (Some("oauth_first"), ConnectOrder::OAuthFirst),
-            (Some("sciotte_first"), ConnectOrder::SignInFirst),
-            (None, ConnectOrder::SignInFirst),
+            (Some("extension_first"), ConnectOrder::ExtensionFirst),
+            (Some("sciotte_first"), ConnectOrder::ExtensionFirst),
+            (None, ConnectOrder::ExtensionFirst),
         ] {
             assert_eq!(
                 read_connect_order(&OneRowStore(Ok(row)), oauth_providers::GARMIN)
@@ -266,11 +295,24 @@ mod tests {
 
     #[test]
     fn the_order_round_trips_through_its_stored_form_and_refuses_anything_else() {
-        for order in [ConnectOrder::OAuthFirst, ConnectOrder::SignInFirst] {
+        // The forms are pinned as literals on purpose: they are persisted
+        // values already written to `system_settings` rows, and wire values
+        // the admin route, the CLI and the web client parse.
+        for (order, stored) in [
+            (ConnectOrder::OAuthFirst, "oauth_first"),
+            (ConnectOrder::SignInFirst, "sign_in_first"),
+            (ConnectOrder::ExtensionFirst, "extension_first"),
+        ] {
+            assert_eq!(order.as_str(), stored, "bug: {order:?} stored form");
             assert_eq!(
                 ConnectOrder::parse(order.as_str()),
                 Some(order),
                 "bug: {order:?} round trip"
+            );
+            assert_eq!(
+                serde_json::to_value(order).ok(),
+                Some(json!(stored)),
+                "bug: {order:?} serializes as another form than it is stored under"
             );
         }
         assert_eq!(
@@ -326,25 +368,47 @@ mod tests {
             !new_connection_through_oauth(ConnectOrder::OAuthFirst, 0),
             "bug: a full pool signs in"
         );
-        assert!(
-            !new_connection_through_oauth(ConnectOrder::SignInFirst, 3),
-            "bug: sign-in first signs in"
-        );
+        for sign_in in [ConnectOrder::SignInFirst, ConnectOrder::ExtensionFirst] {
+            assert!(
+                !new_connection_through_oauth(sign_in, 3),
+                "bug: {sign_in:?} sends a new connection to the OAuth"
+            );
+        }
     }
 
     #[test]
     fn a_failed_sign_in_falls_back_only_while_the_sign_in_goes_first_with_a_seat() {
-        assert!(
-            sign_in_falls_back_to_oauth(ConnectOrder::SignInFirst, 3),
-            "bug: no fallback with a seat free"
-        );
-        assert!(
-            !sign_in_falls_back_to_oauth(ConnectOrder::SignInFirst, 0),
-            "bug: a fallback into a full pool"
-        );
+        for sign_in in [ConnectOrder::SignInFirst, ConnectOrder::ExtensionFirst] {
+            assert!(
+                sign_in_falls_back_to_oauth(sign_in, 3),
+                "bug: {sign_in:?} has no fallback with a seat free"
+            );
+            assert!(
+                !sign_in_falls_back_to_oauth(sign_in, 0),
+                "bug: {sign_in:?} falls back into a full pool"
+            );
+        }
         assert!(
             !sign_in_falls_back_to_oauth(ConnectOrder::OAuthFirst, 3),
             "bug: OAuth first never signs in first"
+        );
+    }
+
+    /// The extension changes only what a web client shows first: the server
+    /// routes extension first exactly as sign-in first.
+    #[test]
+    fn extension_first_and_sign_in_first_both_sign_in_first_and_oauth_first_does_not() {
+        assert!(
+            ConnectOrder::ExtensionFirst.signs_in_first(),
+            "bug: extension first does not sign in first"
+        );
+        assert!(
+            ConnectOrder::SignInFirst.signs_in_first(),
+            "bug: sign-in first does not sign in first"
+        );
+        assert!(
+            !ConnectOrder::OAuthFirst.signs_in_first(),
+            "bug: OAuth first signs in first"
         );
     }
 }

@@ -55,7 +55,7 @@ test.describe('Login Page', () => {
     await expect(page.getByRole('link', { name: 'Website' })).toHaveAttribute('href', 'https://dravr.ai');
 
     // The aside is the hero line and the four pillars: no blurb under the
-    // line, and no provider named anywhere in it (DESIGN.md, auth section).
+    // line, and no provider named anywhere in it (DESIGN.md "Auth and onboarding").
     const aside = page.locator('aside');
     await expect(aside.locator('h2')).toBeVisible();
     await expect(aside).not.toContainText(/strava|garmin|trainingpeaks|coros|whoop|wahoo|intervals\.icu/i);

@@ -7,7 +7,7 @@
 //! # A coach told how their request was decided (carnet#1521)
 //!
 //! An admin's decision on a coach-access request used to reach only the
-//! operators' notify channel: the coach found out by coming back, and only
+//! admins' notify channel: the coach found out by coming back, and only
 //! after signing in again. [`CoachAccessNotices`] closes that loop for both
 //! decision paths (the console queue and the Slack card), which hand it to
 //! [`crate::coach_access::grant`] and [`crate::coach_access::decline`]:
@@ -306,6 +306,7 @@ async fn write_into_copies(
                 channel_type: None,
                 about_user_id: None,
                 turn_attempted_write: None,
+                ai_consent_sources: &[],
             })
             .await?;
         delivered += 1;

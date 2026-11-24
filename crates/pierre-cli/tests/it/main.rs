@@ -21,6 +21,7 @@ mod guardian_settings_cli_test;
 mod mint_session_absent_test;
 #[cfg(feature = "e2e-seeded-sessions")]
 mod mint_session_cli_test;
+mod oauth2_client_create_cli_test;
 mod pierre_cli_test;
 mod remote_token_target_test;
 mod sciotte_login_canary_test;

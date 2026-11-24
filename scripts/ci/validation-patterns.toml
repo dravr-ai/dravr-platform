@@ -294,7 +294,6 @@ legitimate_clone_patterns = [
     "resources\\.",
     "database\\.",
     "auth_manager\\.",
-    "sse_manager\\.",
     "websocket_manager\\.",
     "\\.to_string\\(\\)",
     "format!",

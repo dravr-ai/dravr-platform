@@ -74,7 +74,7 @@ impl ClaimTimeline {
     /// limitation, not a drift event. Only cross-turn deltas count.
     ///
     /// We flag the *first* drift per category to surface the bug
-    /// without drowning the operator in noise.
+    /// without drowning the admin in noise.
     #[must_use]
     pub(crate) fn detect_drift(&self, tolerance: f64) -> Vec<DriftFinding> {
         let mut findings = Vec::new();

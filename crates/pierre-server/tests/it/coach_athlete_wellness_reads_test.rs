@@ -24,8 +24,8 @@
 //! the coach's ride, the coached group and the coach's thread) and files a
 //! week of wellness for each of them, told apart by its numbers.
 
-use chrono::{Duration, Utc};
 use dravr_riviere::{DataPoint, SeriesType};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::constants::oauth::providers::provider_terms_version;
 use pierre_core::constants::oauth::INTERVALS_ICU;
 use pierre_core::models::{
@@ -93,8 +93,10 @@ pub(crate) fn wellness_reads() -> Vec<(&'static str, Value)> {
         "weight_kg": 60.0, "height_cm": 168.0, "age": 31, "gender": "female",
         "activity_level": "very_active", "training_goal": "endurance_performance"
     });
-    let timing =
-        json!({ "workout_intensity": "high", "weight_kg": 60.0, "daily_protein_g": 110.0 });
+    let timing = json!({
+        "workout_intensity": "high", "weight_kg": 60.0, "daily_protein_g": 110.0,
+        "session_minutes": 90, "hours_before": 2
+    });
     vec![
         ("get_sleep_sessions", json!({})),
         ("get_recovery_metrics", json!({})),
@@ -120,12 +122,19 @@ fn external_wellness_reads() -> Vec<(&'static str, Value)> {
         .collect()
 }
 
-/// `who`'s physiology: training numbers with their wellness anchors.
-fn physiology(who: Person, wellness: Wellness, ftp: u32) -> UserPhysiologicalProfile {
+/// `who`'s physiology: training numbers with their wellness anchors, and
+/// the threshold heart rate their runs are scored against when they saved one.
+fn physiology(
+    who: Person,
+    wellness: Wellness,
+    ftp: u32,
+    threshold_hr: Option<u16>,
+) -> UserPhysiologicalProfile {
     let mut profile = UserPhysiologicalProfile::new(who.id, SportType::Run);
     profile.ftp_watts = Some(ftp);
     profile.vo2_max = Some(55.0);
     profile.max_hr = Some(190);
+    profile.threshold_hr = threshold_hr;
     profile.age = Some(31);
     profile.resting_hr = Some(wellness.resting_hr);
     profile.weight = Some(wellness.weight_kg);
@@ -153,9 +162,9 @@ pub(crate) async fn file_wellness(f: &Fixture, who: Person, wellness: Wellness) 
         )
         .await
         .unwrap();
-    let now = Utc::now();
+    let now = Timestamp::now();
     for night in 0..NIGHTS {
-        let woke = now - Duration::days(night) - Duration::minutes(5);
+        let woke = now - Elapsed::days(night) - Elapsed::minutes(5);
         repos
             .sleep
             .upsert_sleep_session(
@@ -165,7 +174,7 @@ pub(crate) async fn file_wellness(f: &Fixture, who: Person, wellness: Wellness) 
                     user_id: who.id.to_string(),
                     data_source_id: source.clone(),
                     is_nap: false,
-                    start_datetime: woke - Duration::seconds(i64::from(wellness.sleep_seconds)),
+                    start_datetime: woke - Elapsed::seconds(i64::from(wellness.sleep_seconds)),
                     end_datetime: woke,
                     total_sleep_seconds: Some(wellness.sleep_seconds),
                     deep_sleep_seconds: None,
@@ -186,7 +195,7 @@ pub(crate) async fn file_wellness(f: &Fixture, who: Person, wellness: Wellness) 
             .await
             .unwrap();
     }
-    let today = now.date_naive();
+    let today = now.utc_date();
     repos
         .recovery
         .upsert_recovery_metrics(
@@ -251,8 +260,8 @@ pub(crate) async fn file_wellness(f: &Fixture, who: Person, wellness: Wellness) 
             &source,
             SeriesType::HrvRmssd.id(),
             vec![
-                DataPoint::new(now - Duration::hours(2), rmssd_first),
-                DataPoint::new(now - Duration::hours(1), rmssd_second),
+                DataPoint::new(now - Elapsed::hours(2), rmssd_first),
+                DataPoint::new(now - Elapsed::hours(1), rmssd_second),
             ],
         )
         .await
@@ -263,8 +272,8 @@ pub(crate) async fn file_wellness(f: &Fixture, who: Person, wellness: Wellness) 
             &source,
             SeriesType::HeartRate.id(),
             vec![
-                DataPoint::new(now - Duration::hours(2), first),
-                DataPoint::new(now - Duration::hours(1), second),
+                DataPoint::new(now - Elapsed::hours(2), first),
+                DataPoint::new(now - Elapsed::hours(1), second),
             ],
         )
         .await
@@ -274,14 +283,22 @@ pub(crate) async fn file_wellness(f: &Fixture, who: Person, wellness: Wellness) 
 /// Phase 1's fixture, with each person's wellness and physiology filed.
 pub(crate) async fn world() -> Fixture {
     let f = fixture().await;
-    for (who, wellness, ftp) in [
-        (f.athlete, ATHLETE_WELLNESS, ATHLETE_FTP),
-        (f.coach, COACH_WELLNESS, 301),
+    // Heart-rate TSS reads a run against the threshold on the heart-rate
+    // reserve. The coach saved one, so their run carries training stress; the
+    // athlete saved none, so theirs carry none and their form reads as no
+    // chronic history: their training load and the coach's always differ.
+    for (who, wellness, ftp, threshold_hr) in [
+        (f.athlete, ATHLETE_WELLNESS, ATHLETE_FTP, None),
+        (f.coach, COACH_WELLNESS, 301, Some(165)),
     ] {
         file_wellness(&f, who, wellness).await;
         f.repos()
             .user_physiological_profile
-            .upsert_user_physiological_profile(who.tenant, who.id, &physiology(who, wellness, ftp))
+            .upsert_user_physiological_profile(
+                who.tenant,
+                who.id,
+                &physiology(who, wellness, ftp, threshold_hr),
+            )
             .await
             .unwrap();
     }
@@ -298,7 +315,7 @@ impl Fixture {
                 self.athlete.id,
                 None,
                 Some(shared),
-                Utc::now(),
+                Timestamp::now(),
             )
             .await
             .unwrap()
@@ -406,7 +423,7 @@ async fn each_stored_wellness_read_in_the_thread_reads_the_athletes_under_their_
         "the athlete's hour of HRV samples: {series}"
     );
     assert!(
-        mentions(&series, "66.75") && !mentions(&series, "33.75"),
+        mentions_number(&series, "66.75") && !mentions_number(&series, "33.75"),
         "bug: the samples read are the athlete's: {series}"
     );
 
@@ -473,14 +490,14 @@ async fn the_nutrition_targets_read_the_athletes_medical_flag_under_their_grant(
 
 // ── No side effect on the athlete's account ──────────────────────────────
 
-/// A night poor enough, after the athlete's dense block of runs, to score
-/// their recovery under the threshold at which their own read notifies them.
+/// A night poor enough to score the athlete's recovery under the threshold at
+/// which their own read notifies them.
 #[cfg(feature = "client-notifications")]
 fn low_recovery() -> Value {
     json!({
         "activity_provider": UPLOAD,
         "sleep_data": {
-            "date": Utc::now().date_naive().to_string(),
+            "date": Timestamp::now().utc_date().to_string(),
             "duration_hours": 0.5,
             "deep_sleep_hours": 0.0,
             "rem_sleep_hours": 0.0,
@@ -488,9 +505,7 @@ fn low_recovery() -> Value {
             "awake_hours": 4.0,
             "efficiency_percent": 10.0,
             "hrv_rmssd_ms": 18.0
-        },
-        "baseline_hrv": 70.0,
-        "recent_hrv_values": [66.0, 71.0, 69.0]
+        }
     })
 }
 
@@ -772,9 +787,9 @@ async fn file_whoop_nights(f: &Fixture) {
         )
         .await
         .unwrap();
-    let now = Utc::now();
+    let now = Timestamp::now();
     for night in NIGHTS + 2..NIGHTS + 5 {
-        let woke = now - Duration::days(night);
+        let woke = now - Elapsed::days(night);
         repos
             .sleep
             .upsert_sleep_session(
@@ -784,7 +799,7 @@ async fn file_whoop_nights(f: &Fixture) {
                     user_id: athlete.id.to_string(),
                     data_source_id: source.clone(),
                     is_nap: false,
-                    start_datetime: woke - Duration::seconds(i64::from(WHOOP_NIGHT_SECONDS)),
+                    start_datetime: woke - Elapsed::seconds(i64::from(WHOOP_NIGHT_SECONDS)),
                     end_datetime: woke,
                     total_sleep_seconds: Some(WHOOP_NIGHT_SECONDS),
                     deep_sleep_seconds: None,
@@ -875,7 +890,7 @@ async fn every_wellness_read_is_listed_with_athlete_over_mcp_and_offered_in_the_
             .as_ref()
             .is_some_and(|properties| properties.contains_key("athlete"))
     };
-    let listed = registry.user_visible_schemas();
+    let listed = registry.athlete_audience_schemas();
     let chat = registry.chat_callable_schemas();
     for (tool, _) in wellness_reads() {
         assert!(
@@ -926,6 +941,12 @@ async fn every_wellness_read_is_listed_with_athlete_over_mcp_and_offered_in_the_
     let mut offered = registry.chat_callable_of_class(DataClass::Wellness);
     offered.sort_unstable();
     let mut expected: Vec<&str> = wellness_reads().into_iter().map(|(tool, _)| tool).collect();
+    // A coach's thread is offered the health records reader too, which reads
+    // T2 only under the athlete's grant and T3 never
+    // (tier_consent_test::the_coachs_agent_reads_a_t2_health_record_under_all_three_and_a_t3_one_never).
+    // It is not among `wellness_reads()`: those are called over MCP, which
+    // refuses it to every outside client.
+    expected.push("get_health_records");
     expected.sort_unstable();
     assert_eq!(
         offered, expected,

@@ -17,10 +17,10 @@
 use std::sync::Arc;
 
 use axum::{extract::State, Json};
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::AppError;
 use pierre_middleware::extractors::AuthenticatedUser;
-use pierre_runtime_context::{resolve_tenant, tenant::require, TenantMode};
+use pierre_runtime_context::require_tenant;
 use pierre_services::first_run::coach::{
     coach_setup, CoachFacts, CoachGroup, CoachStep, JoinedAthlete,
 };
@@ -79,7 +79,7 @@ pub struct CoachSetupAthleteResponse {
     /// The group they joined.
     pub group_id: Uuid,
     /// When they joined it (RFC 3339).
-    pub joined_at: DateTime<Utc>,
+    pub joined_at: Timestamp,
 }
 
 impl From<JoinedAthlete> for CoachSetupAthleteResponse {
@@ -125,7 +125,7 @@ pub async fn get_coach_setup(
     auth: AuthenticatedUser,
 ) -> Result<Json<CoachSetupResponse>, AppError> {
     let auth = auth.into_inner();
-    let tenant = require(resolve_tenant(&resources, &auth, TenantMode::Required).await?)?;
+    let tenant = require_tenant(&resources, &auth).await?;
     let facts = CoachFacts::read(&resources.common.repos, tenant, auth.user_id).await?;
     let setup = coach_setup(&facts);
     Ok(Json(CoachSetupResponse {

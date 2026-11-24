@@ -20,7 +20,7 @@ use axum::{
     response::IntoResponse,
     Extension, Json,
 };
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use serde::{Deserialize, Serialize};
 use tracing::{error, info};
 
@@ -65,7 +65,7 @@ pub async fn handle_get_memory_metrics(
 ) -> AppResult<impl IntoResponse> {
     let scope = console_read_scope(&admin_token, params.tenant_id.as_deref())?;
 
-    let now_ms = Utc::now().timestamp_millis();
+    let now_ms = Timestamp::now().epoch_millis();
     let lease_ms = i64::try_from(EXTRACTION_JOB_LEASE.as_millis()).unwrap_or(i64::MAX);
     let owed_since_ms = now_ms.saturating_sub(lease_ms);
     let memory = &context.repos.memory;

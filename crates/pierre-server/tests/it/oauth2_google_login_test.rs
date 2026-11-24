@@ -20,6 +20,7 @@
 
 use crate::common;
 use crate::helpers;
+use crate::helpers::consent_form::review_digest;
 use pierre_test_support::account::delete_account;
 use secrecy::{ExposeSecret, SecretString};
 
@@ -30,8 +31,8 @@ use axum::extract::connect_info::MockConnectInfo;
 use axum::http::header::COOKIE;
 use axum::http::HeaderMap;
 use base64::{engine::general_purpose, Engine as _};
-use chrono::{Duration, Utc};
 use common::{create_test_server_resources_with_config, create_test_user_with_email};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use helpers::axum_test::{AxumTestRequest, AxumTestResponse};
 use helpers::google_oidc::{
     GoogleIdClaims, GoogleStub, GOOGLE_CHOOSER, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET,
@@ -336,6 +337,7 @@ fn oauth2_routes(resources: &Arc<ServerContext>) -> axum::Router {
             &resources.common.config.rate_limiting,
         )),
         refresh_token_expiry_days: 30,
+        session_cookie_max_age_secs: 86_400,
         csrf_manager: resources.auth.csrf_manager.clone(),
         accounts: resources.account_service(),
         google_sign_in: resources.oauth2_google_sign_in(),
@@ -546,6 +548,7 @@ async fn google_sign_in_goes_to_google_and_back_to_consent_for_a_new_account() {
         .unwrap()
         .to_owned();
     let challenge = pkce_challenge();
+    let (digest_field, digest) = review_digest(&page);
     let approved = AxumTestRequest::post("/oauth2/consent")
         .header("cookie", &format!("{SESSION}={jwt}"))
         .form(&[
@@ -557,6 +560,7 @@ async fn google_sign_in_goes_to_google_and_back_to_consent_for_a_new_account() {
             ("code_challenge_method", "S256"),
             ("resource", ""),
             ("csrf_token", csrf_token.as_str()),
+            (digest_field, digest.as_str()),
             ("decision", "approve"),
         ])
         .send(f.routes())
@@ -695,7 +699,7 @@ async fn an_unverified_or_absent_email_is_refused_without_an_account_or_session(
     let unchanged = f.user("taken@gmail.com").await.unwrap();
     assert_eq!(unchanged.password_hash, existing.password_hash);
     assert_eq!(f.linked_subject(existing.id).await, None);
-    let lines = logs.lock().unwrap();
+    let lines = logs.events();
     assert!(lines
         .iter()
         .any(|l| l.event.starts_with("Google sign-in refused")));
@@ -846,8 +850,7 @@ async fn unreachable_google_keys_are_a_server_fault_not_a_refusal() {
         .contains("Google sign-in could not be completed"));
     assert!(session(&callback).is_none());
     assert!(logs
-        .lock()
-        .unwrap()
+        .events()
         .iter()
         .any(|l| l.event.starts_with("Google sign-in could not complete")));
 }
@@ -983,7 +986,7 @@ async fn an_expired_or_foreign_transaction_is_refused_before_google() {
     let expired = sealed_transaction(
         &f,
         "expired-state",
-        (Utc::now() - Duration::seconds(5)).timestamp(),
+        (Timestamp::now() - Elapsed::seconds(5)).epoch_seconds(),
         "oauth2:google-sign-in:v1",
     );
     let callback = f
@@ -1003,7 +1006,7 @@ async fn an_expired_or_foreign_transaction_is_refused_before_google() {
     let foreign = sealed_transaction(
         &f,
         "foreign-state",
-        (Utc::now() + Duration::seconds(300)).timestamp(),
+        (Timestamp::now() + Elapsed::seconds(300)).epoch_seconds(),
         "another:purpose",
     );
     let callback = f
@@ -1125,8 +1128,8 @@ async fn a_refused_code_is_a_refusal_and_a_failing_google_a_fault_neither_echoin
         assert!(!page.contains(SENTINEL), "{page}");
         assert!(!page.contains(GOOGLE_CLIENT_SECRET));
     }
-    let lines = logs.lock().unwrap();
-    for line in lines.iter() {
+    let lines = logs.events();
+    for line in &lines {
         let text = format!("{} {:?}", line.event, line.fields);
         assert!(!text.contains(SENTINEL), "{text}");
         assert!(!text.contains(GOOGLE_CLIENT_SECRET), "{text}");
@@ -1448,12 +1451,13 @@ async fn proving_an_unverified_accounts_email_retires_every_credential_it_held()
             user_id: squatted.id,
             tenant_id,
             scope: None,
-            expires_at: Utc::now() + Duration::days(30),
-            created_at: Utc::now(),
+            expires_at: Timestamp::now() + Elapsed::days(30),
+            created_at: Timestamp::now(),
             revoked: false,
             family_id: Uuid::new_v4().to_string(),
             family_created_at: None,
             resource: None,
+            client_grant_id: None,
         })
         .await
         .unwrap();
@@ -1482,7 +1486,7 @@ async fn proving_an_unverified_accounts_email_retires_every_credential_it_held()
         is_active: true,
         last_used_at: None,
         expires_at: None,
-        created_at: Utc::now(),
+        created_at: Timestamp::now(),
     };
     repos.api_keys.create(&api_key).await.unwrap();
 
@@ -1850,7 +1854,7 @@ async fn the_hosted_login_cookie_signs_in_the_authorize_flow_only() {
         .starts_with("/oauth2/login?"));
 }
 
-// ── K: the operator's sign-up bounds on the connector door (carnet#1057) ────
+// ── K: the admin's sign-up bounds on the connector door (carnet#1057) ────
 
 impl Fixture {
     async fn signup_policy(&self, update: SignupPolicyUpdate) {
@@ -1922,7 +1926,7 @@ async fn with_sign_up_open_to_verified_addresses_a_fresh_google_identity_reaches
     assert!(f.verified(user.id).await);
     assert!(
         named(&events, "user.pending_approval").is_empty(),
-        "nothing waits for an operator"
+        "nothing waits for an admin"
     );
     assert_eq!(only(&events, "user.signed_up").field("source"), "google");
 
@@ -1966,7 +1970,7 @@ async fn a_reached_ceiling_refuses_a_first_google_sign_in_before_any_row() {
         .common
         .repos
         .users
-        .count_created_since(Utc::now() - Duration::hours(24))
+        .count_created_since(Timestamp::now() - Elapsed::hours(24))
         .await
         .unwrap();
     assert!(counted > 0);
@@ -2003,7 +2007,7 @@ async fn without_self_activation_a_fresh_google_identity_waits_and_consent_says_
     let text = page.body_text();
     assert!(
         text.contains("en attente d’approbation") && text.contains("une fois le compte approuvé"),
-        "the next step is an operator's approval: {text}"
+        "the next step is an admin's approval: {text}"
     );
     assert!(!text.contains("csrf_token"), "no consent form: {text}");
 }
@@ -2047,7 +2051,7 @@ async fn a_self_activating_account_not_yet_confirmed_is_told_to_confirm_its_emai
     let text = page.body_text();
     assert!(
         text.contains("la confirmation de votre adresse courriel"),
-        "no operator reviews it, so the link is the next step: {text}"
+        "no admin reviews it, so the link is the next step: {text}"
     );
     assert!(!text.contains("en attente d’approbation"), "{text}");
     assert!(!text.contains("csrf_token"), "no consent form: {text}");

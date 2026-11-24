@@ -33,9 +33,9 @@ use pierre_config::environment::ServerConfig;
 use pierre_core::config::database::PostgresPoolConfig;
 use pierre_database::backends::factory::Database;
 use pierre_middleware::{mask_email, McpAuthMiddleware};
-use pierre_providers::ProviderRegistry;
 use pierre_runtime_context::DataContext;
 use pierre_services::auth::AuthService;
+use pierre_test_support::providers::offline_provider_registry;
 use secrecy::ExposeSecret;
 use serde_json::Value;
 use uuid::Uuid;
@@ -206,7 +206,7 @@ async fn a_minted_session_signs_the_account_in_as_the_mobile_app_and_refreshes_o
             .await
             .unwrap(),
         ),
-        Arc::new(ProviderRegistry::new()),
+        Arc::new(offline_provider_registry()),
     );
     let auth_service = AuthService::new(
         Arc::new(AuthManager::new(24)),

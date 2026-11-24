@@ -9,8 +9,8 @@ use std::sync::LazyLock;
 
 use dravr_contremaitre::schemas::NOTIFY_EVENTS_YAML;
 use dravr_tronc::notify::{AnalyticsCapture, AnalyticsProvider, NotifyEnricher};
+use pierre_services::admin_mail::console_users_url;
 use pierre_services::analytics::{hash_id, is_consented, resolve_user_email, EventTier};
-use pierre_services::operator_mail::console_users_url;
 use serde::Deserialize;
 use serde_json::{Map, Value};
 use tracing::error;
@@ -28,7 +28,7 @@ const STRIPPED_KEYS: &[&str] = &[
     "user_email",
     "emoji",
     // The group a coach-access request names, for the admin deciding it
-    // (carnet#1072), and the console link the enricher adds: operator notice
+    // (carnet#1072), and the console link the enricher adds: admin notice
     // detail with no analytics meaning.
     "group_name",
     "review_url",
@@ -47,12 +47,8 @@ const STRIPPED_KEYS: &[&str] = &[
     // (A domain `request_id`, a coach-access request's, is kept.)
     "http_request_id",
     "cloud_trace_id",
-    // The operator behind an impersonated request: operator identity.
+    // The admin behind an impersonated request: admin identity.
     "impersonator_id",
-    // A channel identity derives from the sender's phone number or channel
-    // user id, and an unkeyed hash of a phone number is reversible, so it
-    // never goes to PostHog (carnet#1680).
-    "channel_identity",
 ];
 
 /// Catalogued events kept out of `PostHog` (Slack still carries them).

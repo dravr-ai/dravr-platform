@@ -84,9 +84,9 @@ mod pipeline {
     use uuid::Uuid;
 
     use crate::mcp::resources::ServerContext;
+    use crate::services::conversation_title::fresh_title_fallback;
     use crate::services::conversation_turn_lock::{acquire_turn_lock, evict_idle_turn_lock};
-    use crate::services::failed_turn_notice::{close_failed_turn, TurnThread};
-    use crate::services::messaging_ingress::fresh_title_fallback;
+    use crate::services::failed_turn_notice::{close_failed_turn, FailedTurn, TurnThread};
     use crate::services::messaging_ingress::turn_guard::{
         run_bounded, run_guarded, TurnInterruption, TurnOutcome,
     };
@@ -328,6 +328,7 @@ mod pipeline {
                 sender_id: None,
                 transport: Transport::A2a,
                 grant: turn.grant,
+                caller: Some(turn.credential),
                 hooks: PipelineHooks {
                     stop: Some(Arc::clone(&stop)),
                     ..PipelineHooks::none()
@@ -351,6 +352,7 @@ mod pipeline {
                 () = canceled => None,
             };
 
+            let mut why = FailedTurn::Interrupted;
             let ended = match outcome {
                 Some(TurnOutcome::Delivered(ServedTurn::Pipeline(envelope))) => deliverable_reply(
                     envelope.posted,
@@ -367,6 +369,7 @@ mod pipeline {
                     Err(CoachingEnd::Failed(e.sanitized_message()))
                 }
                 Some(TurnOutcome::Failed(e)) => {
+                    why = FailedTurn::of(&e);
                     warn!(error = %e, "A2A text turn failed");
                     Err(CoachingEnd::Failed(TURN_FAILED.to_owned()))
                 }
@@ -393,6 +396,7 @@ mod pipeline {
                         tenant_id: turn.tenant_id,
                     },
                     &stop,
+                    why,
                     &profile.locale,
                 )
                 .await;

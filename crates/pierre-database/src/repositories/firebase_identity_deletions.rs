@@ -18,7 +18,7 @@
 use std::fmt::Display;
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 
 /// One Firebase identity still to delete.
@@ -31,7 +31,7 @@ pub struct PendingFirebaseDeletion {
     /// Failed attempts so far.
     pub attempts: i64,
     /// When the sweep may try again.
-    pub next_attempt_at: DateTime<Utc>,
+    pub next_attempt_at: Timestamp,
     /// The last attempt's failure.
     pub last_error: Option<String>,
 }
@@ -41,7 +41,7 @@ pub struct PendingFirebaseDeletion {
 pub trait FirebaseIdentityDeletionRepository: Send + Sync {
     /// The rows due at `now`, oldest attempt first, at most `limit`; a uid a
     /// live account holds again is never due.
-    async fn due(&self, now: DateTime<Utc>, limit: i64) -> AppResult<Vec<PendingFirebaseDeletion>>;
+    async fn due(&self, now: Timestamp, limit: i64) -> AppResult<Vec<PendingFirebaseDeletion>>;
 
     /// Remove the row for `firebase_uid`: Firebase confirmed the identity is
     /// gone. Returns whether a row was removed.
@@ -54,7 +54,7 @@ pub trait FirebaseIdentityDeletionRepository: Send + Sync {
         &self,
         firebase_uid: &str,
         error: &str,
-        next_attempt_at: DateTime<Utc>,
+        next_attempt_at: Timestamp,
     ) -> AppResult<Option<i64>>;
 }
 
@@ -116,7 +116,7 @@ macro_rules! impl_firebase_identity_deletion_repository {
         impl FirebaseIdentityDeletionRepository for $ty {
             async fn due(
                 &self,
-                now: DateTime<Utc>,
+                now: Timestamp,
                 limit: i64,
             ) -> AppResult<Vec<PendingFirebaseDeletion>> {
                 let rows = sqlx::query(DUE_FIREBASE_DELETIONS_SQL)
@@ -169,7 +169,7 @@ macro_rules! impl_firebase_identity_deletion_repository {
                 &self,
                 firebase_uid: &str,
                 error: &str,
-                next_attempt_at: DateTime<Utc>,
+                next_attempt_at: Timestamp,
             ) -> AppResult<Option<i64>> {
                 let row = sqlx::query(RECORD_FIREBASE_DELETION_FAILURE_SQL)
                     .bind(firebase_uid)

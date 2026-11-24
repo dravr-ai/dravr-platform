@@ -12,7 +12,7 @@
 
 use std::sync::Arc;
 
-use chrono::{DateTime, Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::constants::oauth_providers::{STRAVA, STRAVA_ARCHIVE};
 use pierre_core::models::{
     ActivityBuilder, ActivityGearKey, AthleteGear, AttributionSource, GearAttribution,
@@ -33,15 +33,8 @@ const CSV_HEADER: &str = "Activity ID,Activity Date,Activity Name,Activity Type,
 
 /// One CSV row: id, start, name, type, elapsed seconds, filename and gear;
 /// 5 km in the detail block.
-fn csv_row(
-    id: &str,
-    start: DateTime<Utc>,
-    kind: &str,
-    elapsed: u32,
-    file: &str,
-    gear: &str,
-) -> String {
-    let date = start.format("%b %-d, %Y, %-I:%M:%S %p");
+fn csv_row(id: &str, start: Timestamp, kind: &str, elapsed: u32, file: &str, gear: &str) -> String {
+    let date = start.format("%b %-d, %Y, %-I:%M:%S %p").unwrap();
     format!(
         "{id},\"{date}\",Workout,{kind},,{elapsed},5.0,,,false,,\"{gear}\",{file},,,{elapsed}.0,\
          {elapsed}.0,5000.0,4.0,3.1,40.0,,,321"
@@ -49,12 +42,13 @@ fn csv_row(
 }
 
 /// Twenty days ago at 07:00 UTC, whole seconds as the export writes them.
-fn twenty_days_ago() -> DateTime<Utc> {
-    (Utc::now() - Duration::days(20))
-        .date_naive()
-        .and_hms_opt(7, 0, 0)
+fn twenty_days_ago() -> Timestamp {
+    (Timestamp::now() - Elapsed::days(20))
+        .utc_date()
+        .and_hms(7, 0, 0)
         .expect("a valid time")
         .and_utc()
+        .unwrap()
 }
 
 /// Two runs in one pair (its name in two cases), a ride on a bike, and a run
@@ -65,7 +59,7 @@ fn export_with_gear() -> Vec<u8> {
         csv_row("9101", start, "Run", 1200, "", "Pegasus 40"),
         csv_row(
             "9102",
-            start + Duration::days(1),
+            start + Elapsed::days(1),
             "Run",
             1500,
             "",
@@ -73,13 +67,13 @@ fn export_with_gear() -> Vec<u8> {
         ),
         csv_row(
             "9103",
-            start + Duration::days(2),
+            start + Elapsed::days(2),
             "Ride",
             600,
             "activities/9103.fit",
             "Canyon Endurace",
         ),
-        csv_row("9104", start + Duration::days(3), "Run", 900, "", ""),
+        csv_row("9104", start + Elapsed::days(3), "Run", 900, "", ""),
     ];
     let mut csv = format!("{CSV_HEADER}\n");
     for row in &rows {
@@ -90,7 +84,7 @@ fn export_with_gear() -> Vec<u8> {
         ("activities.csv", csv.as_bytes()),
         (
             "activities/9103.fit",
-            &FitWorkout::ride(start + Duration::days(2), 600).encode(),
+            &FitWorkout::ride(start + Elapsed::days(2), 600).encode(),
         ),
     ])
 }
@@ -127,8 +121,8 @@ async fn attributions(resources: &Arc<ServerContext>, athlete: &Athlete) -> Vec<
         .athlete_gear
         .list_gear_attributions(
             athlete.user_id,
-            start - Duration::days(2),
-            start + Duration::days(10),
+            start - Elapsed::days(2),
+            start + Elapsed::days(10),
         )
         .await
         .expect("the attributions read");
@@ -242,7 +236,7 @@ async fn a_workout_the_athlete_already_attributed_keeps_its_pair() {
                 warn_distance_meters: DEFAULT_SHOE_WARN_DISTANCE_METERS,
                 pinned: false,
             },
-            start - Duration::days(30),
+            start - Elapsed::days(30),
         )
         .await
         .expect("the pair is declared");
@@ -256,7 +250,7 @@ async fn a_workout_the_athlete_already_attributed_keeps_its_pair() {
             &athlete.tenant,
             STRAVA,
             &[synced],
-            Utc::now(),
+            Timestamp::now(),
         )
         .await
         .expect("the synced run is cached");

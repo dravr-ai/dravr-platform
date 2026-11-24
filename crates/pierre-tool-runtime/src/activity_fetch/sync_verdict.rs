@@ -18,7 +18,7 @@
 
 use std::sync::Arc;
 
-use chrono::{DateTime, Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::constants::oauth_providers;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::{Activity, TenantId};
@@ -78,14 +78,14 @@ const EMPTY_ANSWERS_SPAN_MINUTES: i64 = 60;
 #[must_use]
 pub fn sync_backoff_until(
     failure: Option<ActivityFetchFailureRecord>,
-    last_sync: Option<DateTime<Utc>>,
-    now: DateTime<Utc>,
-) -> Option<DateTime<Utc>> {
+    last_sync: Option<Timestamp>,
+    now: Timestamp,
+) -> Option<Timestamp> {
     let failure = failure.filter(|f| last_sync.is_none_or(|synced| f.failed_at > synced))?;
     let step = usize::try_from(failure.consecutive.saturating_sub(1))
         .unwrap_or(usize::MAX)
         .min(SYNC_FAILURE_BACKOFF_MINUTES.len() - 1);
-    let until = failure.failed_at + Duration::minutes(SYNC_FAILURE_BACKOFF_MINUTES[step]);
+    let until = failure.failed_at + Elapsed::minutes(SYNC_FAILURE_BACKOFF_MINUTES[step]);
     (until > now).then_some(until)
 }
 
@@ -194,7 +194,7 @@ pub struct LiveRead<'a> {
     /// When the attempt began, before the credential was read: a reconnect
     /// that lands while the read is in flight is newer than any refusal it
     /// reports.
-    pub attempt_started_at: DateTime<Utc>,
+    pub attempt_started_at: Timestamp,
 }
 
 /// Read `read.params` live through an already authenticated `provider` and
@@ -359,7 +359,7 @@ async fn connect_prefetch_answer(
 /// ([`covers_list_head`]). A closed window or a later page that failed says
 /// nothing about whether the head is current, so it records nothing.
 ///
-/// A failed head read is also the one event here an operator must hear
+/// A failed head read is also the one event here an admin must hear
 /// about, so it is logged at `error`, the level the Slack error layer
 /// forwards: every caller that reads a head — a chat turn, its live-read
 /// job, Home, the capture sweep — passes through here, and each
@@ -370,7 +370,7 @@ async fn connect_prefetch_answer(
 /// stays out of it: the reconnect notice is that failure's page. So does the
 /// refusal of a coach account's own calendar ([`is_coach_account_refusal`]):
 /// the account keeps no calendar, every read of it is refused the same way,
-/// and no operator can change that — the athlete is told in the refusal's own
+/// and no admin can change that — the athlete is told in the refusal's own
 /// words, and the connect-time role probe already reported it. It is still
 /// recorded, so the backoff spaces the reads it would otherwise repeat, and
 /// logged at `info` with the same fields.
@@ -424,7 +424,7 @@ pub(super) async fn record_head_attempt(
     let Some(failure) = failure else {
         return false;
     };
-    if !covers_list_head(params, Utc::now().timestamp()) {
+    if !covers_list_head(params, Timestamp::now().epoch_seconds()) {
         return false;
     }
     if deferred_in_background(read, user_id, provider_slug) {
@@ -571,7 +571,7 @@ async fn judge_empty_answer(
     else {
         return HeadVerdict::Complete;
     };
-    let now = Utc::now();
+    let now = Timestamp::now();
     if believes_repeated_empty(runtime, provider_slug, user_id, tenant, now).await
         && evict_window(runtime, provider_slug, user_id, tenant, params, now).await
     {
@@ -599,7 +599,7 @@ async fn evict_window(
     user_id: Uuid,
     tenant: TenantId,
     params: &ActivityQueryParams,
-    now: DateTime<Utc>,
+    now: Timestamp,
 ) -> bool {
     let (start, end) = cached_window_bounds(params, now);
     match runtime
@@ -652,7 +652,7 @@ async fn believes_repeated_empty(
     provider_slug: &str,
     user_id: Uuid,
     tenant: TenantId,
-    now: DateTime<Utc>,
+    now: Timestamp,
 ) -> bool {
     let cache = &runtime.repos().activity_cache;
     let Ok(last_sync) = cache
@@ -671,7 +671,7 @@ async fn believes_repeated_empty(
     current
         && failure.failure == ActivityFetchFailure::EmptyOverCached
         && failure.streak.saturating_add(1) >= EMPTY_ANSWERS_BELIEVED
-        && now - failure.streak_started_at >= Duration::minutes(EMPTY_ANSWERS_SPAN_MINUTES)
+        && now - failure.streak_started_at >= Elapsed::minutes(EMPTY_ANSWERS_SPAN_MINUTES)
 }
 
 /// Whether an empty answer for `params` contradicts the cache, and if so how
@@ -735,7 +735,7 @@ pub async fn record_sync_failure(
         .await
         .unwrap_or(None)
         .filter(|f| last_sync.is_none_or(|synced| f.failed_at > synced));
-    let failed_at = Utc::now();
+    let failed_at = Timestamp::now();
     let (streak, streak_started_at) = previous
         .filter(|f| f.failure == failure)
         .map_or((1, failed_at), |f| {

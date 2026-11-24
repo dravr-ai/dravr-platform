@@ -9,7 +9,9 @@ import type {
   FreshMember,
   GroupAggregateStats,
   GroupAnalyticsScope,
+  GroupDigestMode,
   GroupHealthFlag,
+  GroupRole,
   GroupTrend,
 } from '@pierre/shared-types';
 
@@ -214,4 +216,27 @@ export function weeklyReportRecommendations(t: Translate, stats: GroupAggregateS
   }
   lines.push(t(TREND_KEY[stats.weekly_trend]));
   return lines;
+}
+
+/**
+ * Each weekly-digest mode's option label and the one-line hint shown beside it
+ * while it is chosen, as corpus keys: the table is built at import time, where
+ * `t` does not exist, and each client's render resolves them.
+ */
+export const DIGEST_MODES: Record<GroupDigestMode, { labelKey: string; hintKey: string }> = {
+  off: { labelKey: 'groups.digestOff', hintKey: 'groups.digestOffHint' },
+  chat: { labelKey: 'groups.digestChat', hintKey: 'groups.digestChatHint' },
+  managers: { labelKey: 'groups.digestManagers', hintKey: 'groups.digestManagersHint' },
+};
+
+/** The weekly-digest modes in the order a settings surface offers them. */
+export const DIGEST_MODE_ORDER: readonly GroupDigestMode[] = ['off', 'chat', 'managers'];
+
+/**
+ * Whether a member of `role` manages the group — its invites, its settings and
+ * who is in it: the owner or an admin, as the server's routes allow. A viewer
+ * with no membership (`undefined`) manages nothing.
+ */
+export function canManageGroup(role: GroupRole | null | undefined): boolean {
+  return role === 'owner' || role === 'admin';
 }

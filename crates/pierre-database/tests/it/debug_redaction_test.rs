@@ -9,7 +9,7 @@
 
 use std::fmt::Debug;
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::TenantId;
 use pierre_core::permissions::UserRole;
 use pierre_core::transport::TransportPolicy;
@@ -98,7 +98,7 @@ fn an_outbound_queue_entry_prints_the_size_of_its_payload_never_the_payload() {
         user_id: Some("user-1"),
         channel_type: "telegram",
         payload,
-        expires_at: Some(Utc::now()),
+        expires_at: Some(Timestamp::now()),
         reauth: None,
     };
     let printed = printed_without(&params, &["sentinel-link-7f3a"]);
@@ -195,7 +195,7 @@ fn a_seeded_demo_user_never_prints_its_password_hash() {
         status: "active".to_owned(),
         role: UserRole::User,
         locale: "en".to_owned(),
-        created_at: Utc::now(),
+        created_at: Timestamp::now(),
     };
     let printed = printed_without(&user, &["sentinel-hash-7f3a"]);
     assert!(
@@ -217,7 +217,7 @@ fn a_seeded_api_key_never_prints_its_hash() {
         tier: "starter".to_owned(),
         rate_limit: Some(100),
         expires_at: None,
-        created_at: Utc::now(),
+        created_at: Timestamp::now(),
     };
     let printed = printed_without(&key, &["sentinel-key-hash-7f3a"]);
     assert!(printed.contains("key_hash: \"[REDACTED]\""), "{printed}");
@@ -255,6 +255,7 @@ fn a_compaction_block_prints_the_size_of_its_summary_never_the_summary() {
         last_message_id: "msg-9",
         transport_policy: TransportPolicy::AnyTransport,
         about_user_id: None,
+        ai_consent_sources: &[],
     };
     let printed = printed_without(&params, &["sentinel-summary-7f3a", "achilles"]);
     assert!(
@@ -313,7 +314,7 @@ fn a_verdict_disposition_prints_the_size_of_its_note_never_the_note() {
         reason: Some(DispositionReason::MissingKeyword),
         note: Some(note),
         disposed_by: "admin_console",
-        disposed_at: Utc::now(),
+        disposed_at: Timestamp::now(),
     };
     let printed = printed_without(&params, &["sentinel-note-7f3a"]);
     assert!(printed.contains("SetVerdictDispositionParams"), "{printed}");
@@ -341,6 +342,7 @@ fn a_user_fact_upsert_prints_the_size_of_the_athletes_words_never_the_words() {
         valid_until: None,
         source_msg_id: Some("msg-1"),
         transport_policy: TransportPolicy::AnyTransport,
+        ai_consent_sources: &[],
     };
     let printed = printed_without(&params, &["sentinel-object-7f3a", "Montreal"]);
     assert!(printed.contains("UpsertUserFactParams"), "{printed}");

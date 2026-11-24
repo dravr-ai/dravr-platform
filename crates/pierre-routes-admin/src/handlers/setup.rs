@@ -8,7 +8,7 @@ use secrecy::{ExposeSecret, SecretString};
 use std::sync::Arc;
 
 use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use serde_json::json;
 use tokio::task;
 use tracing::{error, info, warn};
@@ -255,7 +255,7 @@ pub(crate) async fn handle_health() -> Json<serde_json::Value> {
         json!({
             "status": "healthy",
             "service": "pierre-mcp-admin-api",
-            "timestamp": Utc::now().to_rfc3339(),
+            "timestamp": Timestamp::now().to_rfc3339(),
             "version": env!("CARGO_PKG_VERSION")
         })
     })

@@ -15,14 +15,31 @@ use percent_encoding::percent_decode_str;
 const SENSITIVE_QUERY_SEGMENTS: [&str; 6] =
     ["password", "passwd", "secret", "token", "key", "apikey"];
 
+/// Query-parameter names whose value is a secret or a direct identifier, and
+/// that are sensitive only as the whole name.
+///
+/// An `OAuth` callback carries a live authorization `code` and `state`, a
+/// signed link its `signature`, a sign-in hint an `email`. As a segment each
+/// of these words would also catch `country_code` or `state_filter`, so they
+/// are compared against the full lowercased name instead.
+const SENSITIVE_QUERY_NAMES: [&str; 7] = [
+    "auth",
+    "code",
+    "email",
+    "jwt",
+    "session",
+    "signature",
+    "state",
+];
+
 /// Redact credentials from a URL for safe logging
 ///
 /// Replaces the `user:password` portion of a URL with `***:***` when
 /// credentials are found between the scheme and an `@` symbol, and replaces
-/// the value of every query parameter that names a credential (`password`,
-/// `secret`, `token`, `key`, `api_key`, `access_token`, `refresh_token`,
-/// `client_secret`, matched case-insensitively) with `***`. Every other part
-/// of the URL is kept as written.
+/// the value of every query parameter [`is_sensitive_query_name`] recognises
+/// (`password`, `api_key`, `access_token`, `client_secret`, an `OAuth` `code`
+/// and `state`, matched case-insensitively) with `***`. Every other part of
+/// the URL is kept as written.
 ///
 /// # Arguments
 ///
@@ -47,6 +64,12 @@ const SENSITIVE_QUERY_SEGMENTS: [&str; 6] =
 /// assert_eq!(
 ///     redact_url("https://api.example.com/v1?api_key=abc123&page=2"),
 ///     "https://api.example.com/v1?api_key=***&page=2"
+/// );
+///
+/// // Redacts the authorization code and state of an OAuth callback
+/// assert_eq!(
+///     redact_url("https://app.example.com/callback?code=abc123&state=xyz"),
+///     "https://app.example.com/callback?code=***&state=***"
 /// );
 ///
 /// // Leaves URLs without credentials unchanged
@@ -108,14 +131,35 @@ fn redact_query(query: &str) -> String {
         .join("&")
 }
 
-/// Whether a query-parameter name names a credential. The name is compared
-/// percent-decoded, so `api%5Fkey` is the `api_key` a server reads.
-fn is_sensitive_query_name(name: &str) -> bool {
-    percent_decode_str(name)
+/// Whether a query-parameter name names a secret or a direct identifier.
+///
+/// The one rule every query redactor in the workspace applies. A name is
+/// sensitive when any `_`/`-`/`.`-separated segment of it is a credential
+/// word (`api_key`, `access_token`, `webhook_secret`, `X-Api-Key`), or when
+/// the whole name is one of the exact names an `OAuth` callback or a signed
+/// link carries (`code`, `state`, `signature`, `session`, `jwt`, `auth`,
+/// `email`). The name is compared lowercased and percent-decoded, so
+/// `api%5Fkey` is the `api_key` a server reads.
+///
+/// # Examples
+///
+/// ```
+/// use pierre_core::redaction::is_sensitive_query_name;
+///
+/// assert!(is_sensitive_query_name("code"));
+/// assert!(is_sensitive_query_name("Webhook_Secret"));
+/// assert!(!is_sensitive_query_name("country_code"));
+/// assert!(!is_sensitive_query_name("keyword"));
+/// ```
+#[must_use]
+pub fn is_sensitive_query_name(name: &str) -> bool {
+    let name = percent_decode_str(name)
         .decode_utf8_lossy()
-        .to_ascii_lowercase()
-        .split(['_', '-', '.'])
-        .any(|segment| SENSITIVE_QUERY_SEGMENTS.contains(&segment))
+        .to_ascii_lowercase();
+    SENSITIVE_QUERY_NAMES.contains(&name.as_str())
+        || name
+            .split(['_', '-', '.'])
+            .any(|segment| SENSITIVE_QUERY_SEGMENTS.contains(&segment))
 }
 
 #[cfg(test)]
@@ -123,7 +167,54 @@ mod tests {
     use proptest::collection::vec;
     use proptest::prelude::*;
 
-    use super::redact_url;
+    use super::{is_sensitive_query_name, redact_url};
+
+    #[test]
+    fn an_oauth_callback_loses_its_code_and_state() {
+        assert_eq!(
+            redact_url("https://app.example.com/api/oauth/callback/strava?code=4b2c8f&state=s-1"),
+            "https://app.example.com/api/oauth/callback/strava?code=***&state=***"
+        );
+    }
+
+    #[test]
+    fn exact_names_are_sensitive_only_as_the_whole_name() {
+        for name in [
+            "auth",
+            "code",
+            "email",
+            "jwt",
+            "session",
+            "signature",
+            "state",
+        ] {
+            assert!(is_sensitive_query_name(name), "{name}");
+            assert!(
+                is_sensitive_query_name(&name.to_ascii_uppercase()),
+                "{name}"
+            );
+        }
+        for name in ["country_code", "state_filter", "session_count", "author"] {
+            assert!(!is_sensitive_query_name(name), "{name}");
+        }
+    }
+
+    #[test]
+    fn compound_credential_names_are_caught_by_their_segment() {
+        for name in [
+            "webhook_secret",
+            "x-api-key",
+            "id_token",
+            "link_token",
+            "client.secret",
+            "access%5Ftoken",
+        ] {
+            assert!(is_sensitive_query_name(name), "{name}");
+        }
+        for name in ["keyword", "tokenizer", "monkey", "page"] {
+            assert!(!is_sensitive_query_name(name), "{name}");
+        }
+    }
 
     /// A secret no other generated part can contain, so finding it in the
     /// output can only mean it leaked.
@@ -148,6 +239,10 @@ mod tests {
             Just("X-Api-Key"),
             Just("apikey"),
             Just("auth.token"),
+            Just("code"),
+            Just("state"),
+            Just("signature"),
+            Just("id_token"),
         ]
         .prop_flat_map(|name| {
             (vec(any::<bool>(), name.len()), any::<bool>()).prop_map(move |(upper, encoded)| {

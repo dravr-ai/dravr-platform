@@ -9,37 +9,50 @@ use crate::implementations::analytics::recommendations_output::{
     TrainingSummary, WeekStructure,
 };
 use crate::implementations::stored_copy::{activities_or_stored, with_caveat, Reader, Served};
-use crate::implementations::stored_physiology::{stored_athlete_inputs, stored_hr_zones};
+use crate::implementations::stored_physiology::{stored_hr_zones, stored_profile};
 use crate::protocol::format::{apply_format_typed, extract_output_format};
 use crate::protocol::provider_helpers::resolve_provider_for_request;
 use crate::protocol::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
 use crate::protocols::ProtocolError;
 use crate::read_subject::{self, WellnessInput};
-use chrono::{Duration, Utc};
 use dravr_cageux::config::intelligence::AlgorithmConfig;
 use dravr_cageux::pattern_detection::PatternDetector;
-use dravr_cageux::performance_prediction::PerformancePredictor;
+use dravr_cageux::performance_prediction::{PerformancePredictor, VdotReading, VdotSource};
 use dravr_cageux::physiological_constants::api_limits::DEFAULT_ACTIVITY_LIMIT;
 use dravr_cageux::training_load::TrainingLoad;
 use dravr_cageux::training_load::{FormBand, RiskLevel, TrainingLoadCalculator, TrainingLoadLevel};
 use dravr_cageux::zones::HrZones;
-use pierre_config::constants::limits::METERS_PER_KILOMETER;
+use dravr_tronc::dates::{Elapsed, Timestamp, Zone};
+use pierre_config::constants::units::METERS_PER_KM;
 use pierre_core::civil_time::resolve_zone;
 use pierre_core::models::zones::HrZonesUnavailable;
 use pierre_core::models::{Activity, TenantId};
 use pierre_core::uuid_utils::parse_user_id_for_protocol;
 use pierre_fitness_compute::AthleteInputs;
 use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
+use pierre_services::athlete_vdot::resolve_athlete_vdot;
 
 use super::recommendations_nutrition::{
     generate_nutrition_recommendations, load_nutrition_athlete, NutritionAthlete,
 };
 
-use std::cmp::Ordering;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::future::Future;
 use std::pin::Pin;
 use tracing::warn;
+
+/// What the recommendation modes read about the athlete beyond their
+/// sessions, thresholds and zones.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct AthleteReads {
+    /// What the nutrition mode reads.
+    pub nutrition: NutritionAthlete,
+    /// The athlete's one VDOT, from a performance only
+    /// (`pierre_services::athlete_vdot::resolve_athlete_vdot`), which the
+    /// goal-specific mode predicts race times from; `None` when no
+    /// performance gives one.
+    pub vdot: Option<VdotReading>,
+}
 
 /// The modes `generate_recommendations` answers in, the default first.
 const RECOMMENDATION_TYPES: [&str; 6] = [
@@ -61,7 +74,6 @@ const fn empty_metrics() -> RecommendationMetrics {
         ctl: None,
         atl: None,
         tsb: None,
-        hr_drift_detected: None,
         risk_level: None,
         pattern_detected: None,
         pattern_description: None,
@@ -122,7 +134,7 @@ pub fn generate_training_recommendations(
     hr_zones: Result<&HrZones, &HrZonesUnavailable>,
     algorithm_config: &AlgorithmConfig,
     user_timezone: Option<&str>,
-    nutrition_athlete: &NutritionAthlete,
+    reads: &AthleteReads,
 ) -> RecommendationsResult {
     if activities.is_empty() {
         return base_recommendations(
@@ -134,7 +146,7 @@ pub fn generate_training_recommendations(
     }
 
     // Filter to last 4 weeks for recommendation generation
-    let four_weeks_ago = Utc::now() - Duration::days(28);
+    let four_weeks_ago = Timestamp::now() - Elapsed::days(28);
     let recent_activities: Vec<_> = activities
         .iter()
         .filter(|a| a.start_date() >= four_weeks_ago)
@@ -154,23 +166,34 @@ pub fn generate_training_recommendations(
     };
 
     let zones = hr_zones.ok();
+    // The athlete's civil clock: the day their training load is read as of,
+    // and the days their sessions are counted on.
+    let zone = resolve_zone(user_timezone);
     let mut result = match recommendation_type {
         "training_plan" => {
             return generate_training_plan_recommendations(
                 &recent_activities,
                 athlete,
                 algorithm_config,
-                user_timezone,
+                &zone,
             )
         }
         "goal_specific" => {
-            return generate_goal_specific_recommendations(&recent_activities, algorithm_config)
+            return generate_goal_specific_recommendations(
+                &recent_activities,
+                reads.vdot.as_ref(),
+                algorithm_config,
+            )
         }
-        "recovery" => {
-            generate_recovery_recommendations(&recent_activities, athlete, zones, algorithm_config)
-        }
+        "recovery" => generate_recovery_recommendations(
+            &recent_activities,
+            athlete,
+            zones,
+            algorithm_config,
+            &zone,
+        ),
         "intensity" => generate_intensity_recommendations(&recent_activities, zones),
-        "nutrition" => generate_nutrition_recommendations(latest, zones, nutrition_athlete),
+        "nutrition" => generate_nutrition_recommendations(latest, zones, &reads.nutrition),
         // `all`: the handler refuses any type outside `RECOMMENDATION_TYPES`
         // before a provider is read, so nothing else reaches this arm.
         _ => generate_comprehensive_recommendations(
@@ -178,6 +201,7 @@ pub fn generate_training_recommendations(
             athlete,
             zones,
             algorithm_config,
+            &zone,
         ),
     };
     // Every mode left here read heart rate against the athlete's zones.
@@ -190,7 +214,7 @@ fn generate_training_plan_recommendations(
     activities: &[Activity],
     athlete: &AthleteInputs,
     algorithm_config: &AlgorithmConfig,
-    user_timezone: Option<&str>,
+    zone: &Zone,
 ) -> RecommendationsResult {
     // Analyze volume progression to detect spikes
     let volume_pattern = PatternDetector::detect_volume_progression(activities);
@@ -198,17 +222,19 @@ fn generate_training_plan_recommendations(
     // schedule and a uniform shift leaves it alone — but an athlete who trains
     // some evenings at 19:00 and some at 21:00 has one local habit split across
     // two UTC days, which reads as inconsistency they do not have (registre#252).
-    let weekly_schedule =
-        PatternDetector::detect_weekly_schedule(activities, resolve_zone(user_timezone));
+    let weekly_schedule = PatternDetector::detect_weekly_schedule(activities, zone);
 
     // Sort oldest-first — EMA calculation requires chronological order
     let mut sorted = activities.to_vec();
     sorted.sort_by_key(Activity::start_date);
 
     // Calculate training load metrics
-    let calculator =
-        TrainingLoadCalculator::from_config(algorithm_config.clone(), Utc::now().date_naive());
-    let training_load = athlete.training_load(&calculator, &sorted).ok();
+    let calculator = TrainingLoadCalculator::as_of_today(
+        algorithm_config.clone(),
+        zone.clone(),
+        Timestamp::now(),
+    );
+    let training_load = athlete.training_load(calculator, &sorted).ok();
 
     let mut recommendations = Vec::new();
     let mut priority = "medium";
@@ -423,15 +449,19 @@ fn generate_recovery_recommendations(
     athlete: &AthleteInputs,
     hr_zones: Option<&HrZones>,
     algorithm_config: &AlgorithmConfig,
+    zone: &Zone,
 ) -> RecommendationsResult {
     // Sort oldest-first — EMA calculation requires chronological order
     let mut sorted = activities.to_vec();
     sorted.sort_by_key(Activity::start_date);
 
     // Calculate TSB (Training Stress Balance)
-    let calculator =
-        TrainingLoadCalculator::from_config(algorithm_config.clone(), Utc::now().date_naive());
-    let training_load = athlete.training_load(&calculator, &sorted).ok();
+    let calculator = TrainingLoadCalculator::as_of_today(
+        algorithm_config.clone(),
+        zone.clone(),
+        Timestamp::now(),
+    );
+    let training_load = athlete.training_load(calculator, &sorted).ok();
 
     // Detect overtraining signals
     let overtraining_signals = PatternDetector::detect_overtraining_signals(activities, hr_zones);
@@ -457,22 +487,6 @@ fn generate_recovery_recommendations(
         });
 
     // Overtraining signal detection
-    if overtraining_signals.hr_drift_detected {
-        if let Some(drift_pct) = overtraining_signals.hr_drift_percent {
-            recommendations.push(format!(
-                "Heart rate drift detected ({drift_pct:.1}% increase) - sign of fatigue"
-            ));
-            if priority == "medium" {
-                priority = "high";
-            }
-        }
-    }
-
-    if overtraining_signals.performance_decline {
-        recommendations
-            .push("Performance declining despite training - increase recovery".to_owned());
-    }
-
     if overtraining_signals.insufficient_recovery {
         recommendations
             .push("Insufficient recovery between hard sessions - add easy days".to_owned());
@@ -488,7 +502,6 @@ fn generate_recovery_recommendations(
             tsb: training_load.as_ref().map(|l| l.tsb),
             ctl: training_load.as_ref().map(|l| l.ctl),
             atl: training_load.as_ref().map(|l| l.atl),
-            hr_drift_detected: Some(overtraining_signals.hr_drift_detected),
             risk_level: Some(
                 match overtraining_signals.risk_level {
                     RiskLevel::Low => "low",
@@ -604,9 +617,36 @@ fn generate_intensity_recommendations(
     }
 }
 
-/// Generate goal-specific recommendations using performance prediction
+/// What a goal-specific prediction's VDOT rests on, in words, with "an
+/// estimate" said when it is one.
+fn vdot_basis(reading: &VdotReading) -> String {
+    match reading.source {
+        VdotSource::Stated { as_of } => {
+            format!("your stated VDOT, as of {}", as_of.utc_date())
+        }
+        VdotSource::RecentRun {
+            distance_meters,
+            time_seconds,
+            ..
+        } => format!(
+            "an estimate from your best run of the last 6 weeks, {:.1}km in {}",
+            distance_meters / METERS_PER_KM,
+            PerformancePredictor::format_time(time_seconds)
+        ),
+        VdotSource::ThresholdPace {
+            threshold_pace_sec_per_km,
+        } => format!(
+            "an estimate from your saved threshold pace, {}/km",
+            PerformancePredictor::format_time(threshold_pace_sec_per_km)
+        ),
+    }
+}
+
+/// Generate goal-specific recommendations, with race predictions from the
+/// athlete's one VDOT (`vdot`) when there is one
 fn generate_goal_specific_recommendations(
     activities: &[Activity],
+    vdot: Option<&VdotReading>,
     algorithm_config: &AlgorithmConfig,
 ) -> RecommendationsResult {
     use HashMap;
@@ -627,53 +667,28 @@ fn generate_goal_specific_recommendations(
         .max_by(|a, b| a.1.cmp(b.1).then_with(|| b.0.cmp(a.0)))
         .map_or("Unknown", |(sport, _)| sport.as_str());
 
-    // Find best recent performance for predictions
-    let best_performance = activities
-        .iter()
-        .filter(|a| a.distance_meters().is_some() && a.duration_seconds() > 0)
-        .filter_map(|a| {
-            let distance = a.distance_meters()?;
-            #[allow(clippy::cast_precision_loss)]
-            let time_secs = a.duration_seconds() as f64;
-            if distance > 3_000.0 && distance < 50_000.0 && time_secs > 0.0 {
-                Some((distance, time_secs))
-            } else {
-                None
-            }
-        })
-        .max_by(|a, b| {
-            let pace_a = a.1 / (a.0 / METERS_PER_KILOMETER);
-            let pace_b = b.1 / (b.0 / METERS_PER_KILOMETER);
-            pace_b.partial_cmp(&pace_a).unwrap_or(Ordering::Equal)
-        });
-
     let mut recommendations = Vec::new();
     let priority = "medium";
     let mut race_predictions = None;
 
-    // Generate race time predictions if we have performance data
-    if let Some((distance, time)) = best_performance {
-        if let Ok(predictions) =
-            PerformancePredictor::generate_race_predictions(distance, time, algorithm_config)
-        {
-            race_predictions = Some(RacePredictionSummary {
-                based_on: format!(
-                    "{:.1}km in {}",
-                    distance / METERS_PER_KILOMETER,
-                    PerformancePredictor::format_time(time)
-                ),
-                vdot: predictions.vdot,
-                race_times: predictions
-                    .predictions
-                    .iter()
-                    .map(|(distance, minutes)| (distance.clone(), *minutes))
-                    .collect(),
-            });
-
+    // Race time predictions from the athlete's VDOT, read from a performance
+    // only: a VDOT the race-time model has no times for predicts nothing.
+    if let Some(reading) = vdot {
+        let race_times: BTreeMap<String, f64> =
+            PerformancePredictor::predictions_for_vdot(reading.vdot, algorithm_config)
+                .into_iter()
+                .collect();
+        if !race_times.is_empty() {
+            let basis = vdot_basis(reading);
             recommendations.push(format!(
-                "Your VDOT is {:.1} - use this to set appropriate training paces",
-                predictions.vdot
+                "Your VDOT is {:.1} ({basis}) - use this to set appropriate training paces",
+                reading.vdot
             ));
+            race_predictions = Some(RacePredictionSummary {
+                based_on: basis,
+                vdot: reading.vdot,
+                race_times,
+            });
         }
     }
 
@@ -716,15 +731,19 @@ fn generate_comprehensive_recommendations(
     athlete: &AthleteInputs,
     hr_zones: Option<&HrZones>,
     algorithm_config: &AlgorithmConfig,
+    zone: &Zone,
 ) -> RecommendationsResult {
     // Sort oldest-first — EMA calculation requires chronological order
     let mut sorted = activities.to_vec();
     sorted.sort_by_key(Activity::start_date);
 
     // Comprehensive analysis using all available modules
-    let calculator =
-        TrainingLoadCalculator::from_config(algorithm_config.clone(), Utc::now().date_naive());
-    let training_load = athlete.training_load(&calculator, &sorted).ok();
+    let calculator = TrainingLoadCalculator::as_of_today(
+        algorithm_config.clone(),
+        zone.clone(),
+        Timestamp::now(),
+    );
+    let training_load = athlete.training_load(calculator, &sorted).ok();
 
     let volume_pattern = PatternDetector::detect_volume_progression(activities);
     let intensity_pattern = PatternDetector::detect_hard_easy_pattern(activities, hr_zones);
@@ -793,13 +812,6 @@ fn generate_comprehensive_recommendations(
         }
     }
 
-    // Overtraining checks
-    if overtraining.hr_drift_detected {
-        recommendations
-            .push("Heart rate drift detected - prioritize recovery this week".to_owned());
-        key_insights.push("Possible fatigue accumulation detected".to_owned());
-    }
-
     // General best practices if no specific issues
     if recommendations.is_empty() {
         recommendations.push("Training load is balanced - maintain current approach".to_owned());
@@ -820,8 +832,7 @@ fn generate_comprehensive_recommendations(
             tsb: training_load.as_ref().map(|l| l.tsb),
             volume_spike_detected: volume_pattern.volume_spikes_detected,
             intensity_pattern_detected: intensity_pattern.pattern_detected,
-            overtraining_signals: overtraining.hr_drift_detected
-                || overtraining.performance_decline,
+            overtraining_signals: overtraining.insufficient_recovery,
         }),
         core_principles: Some(CorePrinciples {
             consistency: "Regular training beats sporadic hard efforts".to_owned(),
@@ -932,16 +943,17 @@ pub(crate) fn handle_generate_recommendations(
             NutritionAthlete::default()
         };
 
-        // The thresholds set_physiology saved, the ones every training-load
-        // surface scores sessions against.
-        let athlete =
-            stored_athlete_inputs(&executor.resources, request.tenant_id.as_deref(), user_uuid)
-                .await
-                .map_err(|e| {
-                    ProtocolError::InternalError(format!(
-                        "generate_recommendations: reading the saved thresholds failed: {e}"
-                    ))
-                })?;
+        // The profile set_physiology saved: the thresholds every training-load
+        // surface scores sessions against, and what the athlete's VDOT is
+        // resolved from.
+        let profile = stored_profile(&executor.resources, request.tenant_id.as_deref(), user_uuid)
+            .await
+            .map_err(|e| {
+                ProtocolError::InternalError(format!(
+                    "generate_recommendations: reading the saved thresholds failed: {e}"
+                ))
+            })?;
+        let athlete = AthleteInputs::from_profile(profile.as_ref());
         // The athlete's heart-rate zones, which decide how hard a session was.
         let hr_zones =
             stored_hr_zones(&executor.resources, request.tenant_id.as_deref(), user_uuid)
@@ -987,14 +999,29 @@ pub(crate) fn handle_generate_recommendations(
                             .flatten()
                             .and_then(|user| user.timezone);
 
+                        let algorithms = &executor.cageux_config().algorithms;
+                        // Only the goal-specific mode predicts race times.
+                        let vdot = (recommendation_type == "goal_specific")
+                            .then(|| {
+                                resolve_athlete_vdot(
+                                    profile.as_ref(),
+                                    &activities,
+                                    Timestamp::now(),
+                                    algorithms,
+                                )
+                            })
+                            .flatten();
                         let analysis = generate_training_recommendations(
                             &activities,
                             recommendation_type,
                             &athlete,
                             hr_zones.as_ref(),
-                            &executor.cageux_config().algorithms,
+                            algorithms,
                             user_timezone.as_deref(),
-                            &nutrition_athlete,
+                            &AthleteReads {
+                                nutrition: nutrition_athlete,
+                                vdot,
+                            },
                         );
 
                         let result = UniversalResponse {
@@ -1030,4 +1057,62 @@ pub(crate) fn handle_generate_recommendations(
             Err(response) => Ok(*response),
         }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use std::error::Error;
+
+    use pierre_core::models::{ActivityBuilder, SportType};
+
+    use super::*;
+
+    /// A 10 km run `days_ago` days back at a steady 5 min/km, averaging
+    /// `avg_hr` bpm.
+    fn run(days_ago: i64, avg_hr: u32) -> Activity {
+        ActivityBuilder::new(
+            format!("run_{days_ago}"),
+            "Run",
+            SportType::Run,
+            Timestamp::now() - Elapsed::days(days_ago),
+            3000,
+            "test",
+        )
+        .distance_meters(10_000.0)
+        .average_heart_rate(avg_hr)
+        .build()
+    }
+
+    /// The training summary of a comprehensive read, on cageux's zones for
+    /// resting 50 / max 190.
+    fn summary(activities: &[Activity]) -> Result<TrainingSummary, Box<dyn Error>> {
+        let zones = HrZones::for_athlete(None, 50, 190)?;
+        let result = generate_comprehensive_recommendations(
+            activities,
+            &AthleteInputs::default(),
+            Some(&zones),
+            &AlgorithmConfig::default(),
+            &Zone::utc(),
+        );
+        Ok(result
+            .training_summary
+            .ok_or("a comprehensive read carries its training summary")?)
+    }
+
+    #[test]
+    fn the_overtraining_flag_reports_short_recovery() -> Result<(), Box<dyn Error>> {
+        // Six hard days in a row at a steady heart rate and pace: short
+        // recovery between hard efforts is the only signal they carry.
+        let hard: Vec<Activity> = (0..6).map(|day| run(day, 170)).collect();
+        assert!(
+            summary(&hard)?.overtraining_signals,
+            "bug: six consecutive hard days did not raise the overtraining flag"
+        );
+        let easy: Vec<Activity> = (0..6).map(|day| run(day, 120)).collect();
+        assert!(
+            !summary(&easy)?.overtraining_signals,
+            "bug: six easy days raised the overtraining flag"
+        );
+        Ok(())
+    }
 }

@@ -19,7 +19,7 @@
 
 use std::sync::Arc;
 
-use chrono::NaiveDate;
+use dravr_tronc::dates::CivilDate;
 use pierre_database::RepositoryRegistry;
 use pierre_memory::training_plans::{PlanWeek, TrainingPlan};
 
@@ -47,7 +47,7 @@ pub(super) async fn plan_state_block(
     scope: &PlanScope,
     plan: &TrainingPlan,
     weeks: &[PlanWeek],
-    today: NaiveDate,
+    today: CivilDate,
 ) -> PlanStateBlock {
     let (tenant, user_id) = (scope.tenant, scope.user_id);
     let withheld = scope.wellness_withheld();

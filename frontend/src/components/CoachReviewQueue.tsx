@@ -12,7 +12,7 @@ import { clsx } from 'clsx';
 import { BADGE_TONE } from './ui';
 import { coachCategoryTone } from './coachCategory';
 import CoachReviewDrawer from './CoachReviewDrawer';
-import { QUERY_KEYS } from '../constants/queryKeys';
+import { QUERY_KEYS } from '@pierre/shared-constants';
 import { formatDateTime } from '@pierre/chat-utils';
 import { ADMIN_LOCALE } from '../utils/adminLocale';
 

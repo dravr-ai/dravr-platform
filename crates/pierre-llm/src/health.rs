@@ -16,6 +16,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::LazyLock;
 use std::time::{Duration, Instant};
 
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 
@@ -35,9 +36,10 @@ fn elapsed_ms() -> u64 {
 /// `Unknown` is the boot default — the `/ready` route returns 200 in that
 /// window so a slow LLM round-trip does not delay Cloud Run's first traffic
 /// shift. Once the probe finishes, the status flips to `Healthy` or
-/// `Unhealthy` and stays there for the lifetime of the process (re-probing
-/// is the fallback chain's and the alert layer's job, not the readiness
-/// gate's).
+/// `Unhealthy`. `Unhealthy` means no tier of the chain answers: a dead tier
+/// in front of a live one is benched ([`crate::tier_bench`]) and the chain
+/// reads `Healthy`. An `Unhealthy` chain is asked again every
+/// [`crate::tier_bench::BENCH_REPROBE_INTERVAL`] until a tier answers.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum LlmHealthStatus {
@@ -96,7 +98,7 @@ pub struct LlmHealthSnapshot {
     /// First-line error reason when `status == Unhealthy`; `None` otherwise.
     pub error: Option<String>,
     /// Timestamp of the last probe result, or `None` before the first probe.
-    pub checked_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub checked_at: Option<Timestamp>,
 }
 
 impl Default for LlmHealthSnapshot {
@@ -115,7 +117,7 @@ impl Default for LlmHealthSnapshot {
 /// the `/ready` and `/health/llm` Axum handlers.
 ///
 /// Cloud Run's startup probe defaults to `/health` (matched by the Docker
-/// `HEALTHCHECK`). Operators who want a hard gate on the boot-time LLM
+/// `HEALTHCHECK`). Admins who want a hard gate on the boot-time LLM
 /// round-trip can point the startup probe at `/ready` instead — that
 /// handler returns 503 while `status == Unhealthy`.
 #[derive(Debug)]
@@ -173,7 +175,7 @@ impl LlmHealthState {
         provider: impl Into<String>,
         served_by: impl Into<String>,
     ) -> LlmHealthStatus {
-        self.set_healthy(provider.into(), Some(served_by.into()), chrono::Utc::now())
+        self.set_healthy(provider.into(), Some(served_by.into()), Timestamp::now())
             .await
     }
 
@@ -192,8 +194,8 @@ impl LlmHealthState {
         provider: impl Into<String>,
         observed_ago: Duration,
     ) -> LlmHealthStatus {
-        let ago = chrono::Duration::from_std(observed_ago).unwrap_or_default();
-        let checked_at = chrono::Utc::now() - ago;
+        let ago = Elapsed::from_std(observed_ago).unwrap_or_default();
+        let checked_at = Timestamp::now() - ago;
         self.set_healthy(provider.into(), None, checked_at).await
     }
 
@@ -204,7 +206,7 @@ impl LlmHealthState {
         &self,
         provider: String,
         served_by: Option<String>,
-        checked_at: chrono::DateTime<chrono::Utc>,
+        checked_at: Timestamp,
     ) -> LlmHealthStatus {
         let mut guard = self.inner.write().await;
         let previous = guard.status;
@@ -236,7 +238,7 @@ impl LlmHealthState {
             provider: Some(provider),
             served_by: None,
             error: Some(first_line),
-            checked_at: Some(chrono::Utc::now()),
+            checked_at: Some(Timestamp::now()),
         };
         previous
     }

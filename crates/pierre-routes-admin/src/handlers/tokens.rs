@@ -66,6 +66,7 @@ use super::api_keys::json_response;
 use super::types::AdminResponse;
 use crate::audit::AuditDetail;
 use crate::context::AdminApiContext;
+use dravr_tronc::dates::Timestamp;
 
 /// Lifetime of a rotated token when the request names none.
 const DEFAULT_ROTATION_DAYS: u64 = 365;
@@ -335,7 +336,7 @@ pub(crate) async fn handle_create_admin_token(
                     "jwt_token": generated_token.jwt_token.expose_secret(),
                     "token_prefix": generated_token.token_prefix,
                     "is_super_admin": generated_token.is_super_admin,
-                    "expires_at": generated_token.expires_at.map(|t| t.to_rfc3339()),
+                    "expires_at": generated_token.expires_at.map(Timestamp::to_rfc3339),
                 }))
                 .ok(),
             },
@@ -358,7 +359,7 @@ fn minted_token_target(token: &GeneratedAdminToken) -> Value {
         "token_id": token.token_id,
         "service_name": token.service_name,
         "is_super_admin": token.is_super_admin,
-        "expires_at": token.expires_at.map(|t| t.to_rfc3339()),
+        "expires_at": token.expires_at.map(Timestamp::to_rfc3339),
     })
 }
 
@@ -662,7 +663,7 @@ pub(crate) async fn handle_rotate_admin_token(
                     "jwt_token": new_token.jwt_token.expose_secret(),
                     "token_prefix": new_token.token_prefix,
                     "is_super_admin": new_token.is_super_admin,
-                    "expires_at": new_token.expires_at.map(|t| t.to_rfc3339()),
+                    "expires_at": new_token.expires_at.map(Timestamp::to_rfc3339),
                 }))
                 .ok(),
             },

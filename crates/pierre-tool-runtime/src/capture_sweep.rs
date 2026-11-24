@@ -59,7 +59,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use chrono::{DateTime, Duration as ChronoDuration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{ReauthMark, TenantId};
 use pierre_database::repositories::{ActivityFetchFailure, CaptureFreshness};
@@ -74,9 +74,7 @@ use tracing::{info, warn};
 use uuid::Uuid;
 
 #[cfg(feature = "tools-data")]
-use crate::activity_backfill::detail_walk::ask_track_walk;
-#[cfg(feature = "tools-data")]
-use crate::activity_backfill::tag_walk::ask_tag_walk;
+use crate::activity_backfill::after_refresh;
 use crate::activity_fetch::fetch_provider_head;
 use crate::activity_fetch::sync_verdict::{
     covers_list_head, held_to_background_share, record_sync_failure,
@@ -154,13 +152,37 @@ pub struct SweepSelection {
     /// Only the connections of athletes served — a chat turn or an app load,
     /// on any of their connections — within this long. `None` walks every
     /// live connection.
-    pub active_within: Option<ChronoDuration>,
+    pub active_within: Option<Elapsed>,
     /// Pass over connections whose last successful fetch is younger than
     /// this: a turn or an earlier sweep already refreshed them.
-    pub skip_fetched_within: Option<ChronoDuration>,
+    pub skip_fetched_within: Option<Elapsed>,
 }
 
+/// The widest window, in hours, either bound of a [`SweepSelection`] takes:
+/// past it the sweep's `now - window` would leave the range the date types hold.
+const MAX_SELECTION_HOURS: i64 = 720;
+
 impl SweepSelection {
+    /// The selection the hour bounds a caller names, each `None` when not
+    /// given. Either one given is clamped to at most `MAX_SELECTION_HOURS`.
+    ///
+    /// An activity window of zero hours would select nobody, so it is clamped
+    /// to one. A skip window of zero passes over nothing: every connection of
+    /// an active athlete is due, a head their own turn read minutes ago
+    /// included, which is what an admin asking the lane to skip nothing
+    /// expects (carnet#1692).
+    #[must_use]
+    pub fn from_hours(
+        active_within_hours: Option<u32>,
+        skip_fetched_within_hours: Option<u32>,
+    ) -> Self {
+        let hours = |h: u32| Elapsed::hours(i64::from(h).clamp(1, MAX_SELECTION_HOURS));
+        Self {
+            active_within: active_within_hours.map(hours),
+            skip_fetched_within: skip_fetched_within_hours.filter(|&h| h > 0).map(hours),
+        }
+    }
+
     /// The athletes of `rows` this sweep treats as active: those with a serve
     /// of ANY of their connections within `active_within`. `None` when the
     /// sweep walks everyone.
@@ -170,7 +192,7 @@ impl SweepSelection {
     /// connections never carry it (11 of 24 on dev read `NULL` on
     /// 2026-10-30), and a connection-level test left every one of them to
     /// the daily sweep while their athlete chatted daily (carnet#1278).
-    fn active_athletes(&self, rows: &[CaptureFreshness], now: DateTime<Utc>) -> ActiveAthletes {
+    fn active_athletes(&self, rows: &[CaptureFreshness], now: Timestamp) -> ActiveAthletes {
         let Some(window) = self.active_within else {
             return ActiveAthletes(None);
         };
@@ -188,7 +210,7 @@ impl SweepSelection {
     fn selects(
         &self,
         connection: &CaptureFreshness,
-        now: DateTime<Utc>,
+        now: Timestamp,
         active: &ActiveAthletes,
     ) -> bool {
         let due = self.skip_fetched_within.is_none_or(|window| {
@@ -260,7 +282,7 @@ pub enum RefreshOutcome {
     /// session a reconnect replaced while the fetch ran. Recorded, never
     /// flagged: a flake is not a disconnect.
     Failed {
-        /// Error text, for the operator reading the report.
+        /// Error text, for the admin reading the report.
         error: String,
     },
     /// The sweep's background share of the provider's request budget was
@@ -271,7 +293,7 @@ pub enum RefreshOutcome {
     /// the staleness monitor's to judge. A `429` the provider itself answered
     /// was sent, and is [`RefreshOutcome::Failed`].
     Deferred {
-        /// The refusal, for the operator reading the report.
+        /// The refusal, for the admin reading the report.
         error: String,
     },
     /// The scraper refused the read because the account is a coach's, which
@@ -307,9 +329,9 @@ pub struct ConnectionRefresh {
 #[derive(Debug, Clone, Serialize)]
 pub struct RefreshReport {
     /// When the sweep started.
-    pub started_at: DateTime<Utc>,
+    pub started_at: Timestamp,
     /// When it finished.
-    pub finished_at: DateTime<Utc>,
+    pub finished_at: Timestamp,
     /// Connections the sweep attempted a fetch for.
     pub attempted: usize,
     /// Attempts whose provider answered.
@@ -390,7 +412,7 @@ async fn sweep(
     budget: SweepBudget,
     selection: SweepSelection,
 ) -> AppResult<RefreshReport> {
-    let started_at = Utc::now();
+    let started_at = Timestamp::now();
     let deadline = Instant::now() + budget.total;
     let live = runtime
         .repos()
@@ -411,7 +433,7 @@ async fn sweep(
     }
     let passed_over = live_count - snapshot.len();
 
-    let after_ts = (started_at - ChronoDuration::days(HEAD_WINDOW_DAYS)).timestamp();
+    let after_ts = (started_at - Elapsed::days(HEAD_WINDOW_DAYS)).epoch_seconds();
     let params = ActivityQueryParams {
         limit: Some(HEAD_FETCH_LIMIT),
         offset: None,
@@ -464,7 +486,7 @@ async fn sweep(
 
     Ok(RefreshReport {
         started_at,
-        finished_at: Utc::now(),
+        finished_at: Timestamp::now(),
         attempted: tally.attempted,
         refreshed: tally.refreshed,
         flagged: tally.flagged,
@@ -570,7 +592,7 @@ impl Walk<'_> {
 /// session keeps its claim for the next sweep. A listing that cannot be read
 /// is logged and retries nothing: the live half of the sweep already ran.
 async fn retry_flagged_sessions(walk: &mut Walk<'_>, limit: i64) -> usize {
-    let due_before = Utc::now() - ChronoDuration::hours(SCRAPE_SESSION_RETRY_INTERVAL_HOURS);
+    let due_before = Timestamp::now() - Elapsed::hours(SCRAPE_SESSION_RETRY_INTERVAL_HOURS);
     let due = match walk
         .runtime
         .repos()
@@ -639,7 +661,7 @@ async fn refresh_one(
 
     // Taken before the fetch reads the credential, so a reconnect that lands
     // while the fetch is in flight is newer than the failure it reports.
-    let attempt_started_at = Utc::now();
+    let attempt_started_at = Timestamp::now();
     let fetch = fetch_provider_head(runtime, provider, parsed_user, tenant_id, params);
     let Ok(result) = timeout(per_connection, fetch).await else {
         // A bound the sweep imposed, not a verdict on the connection — a slow
@@ -658,7 +680,10 @@ async fn refresh_one(
     match result {
         Ok(activities) => {
             #[cfg(feature = "tools-data")]
-            ask_walks_after_refresh(runtime, tenant_id, parsed_user, provider).await;
+            if let Ok(tenant) = TenantId::parse_str(tenant_id) {
+                after_refresh::ask_walks_after_refresh(runtime, parsed_user, tenant, provider)
+                    .await;
+            }
             RefreshOutcome::Refreshed {
                 activities: activities.len(),
             }
@@ -675,27 +700,6 @@ async fn refresh_one(
         }
         Err(e) => unflagged_outcome(&e, user_id, provider),
     }
-}
-
-/// A connection whose head just refreshed has a live session: ask for its
-/// tag walk, which fills the tags and gear id of the stored history the head
-/// read never carries, once per connection and only after its history walk
-/// ended ([`ask_tag_walk`]), and for its track walk, which reads once more the
-/// rides a detail read reached before it kept their route
-/// ([`ask_track_walk`]). A backend that is no counted session is asked
-/// neither.
-#[cfg(feature = "tools-data")]
-async fn ask_walks_after_refresh(
-    runtime: &Arc<dyn ToolRuntime>,
-    tenant_id: &str,
-    user_id: Uuid,
-    provider: &str,
-) {
-    let Ok(tenant) = TenantId::parse_str(tenant_id) else {
-        return;
-    };
-    ask_tag_walk(runtime, user_id, tenant, provider).await;
-    ask_track_walk(runtime, user_id, tenant, provider).await;
 }
 
 /// What the sweep reports for a fetch error that leaves the connection
@@ -756,7 +760,7 @@ async fn fetch_dropped(
     );
     if let (Ok(tenant), true) = (
         TenantId::parse_str(tenant_id),
-        covers_list_head(params, Utc::now().timestamp()),
+        covers_list_head(params, Timestamp::now().epoch_seconds()),
     ) {
         record_sync_failure(
             runtime,
@@ -824,7 +828,7 @@ async fn flag_connection(
     tenant_id: &str,
     user_id: Uuid,
     provider: &str,
-    attempt_started_at: DateTime<Utc>,
+    attempt_started_at: Timestamp,
 ) -> RefreshOutcome {
     let Ok(tenant) = TenantId::parse_str(tenant_id) else {
         warn!(
@@ -866,18 +870,18 @@ async fn flag_connection(
 mod tests {
     use std::slice;
 
-    use chrono::{DateTime, Duration, Utc};
+    use dravr_tronc::dates::{Elapsed, Timestamp};
     use pierre_core::errors::{AppError, ErrorCode};
     use pierre_database::repositories::CaptureFreshness;
     use pierre_providers::request_budget::in_background;
     use pierre_providers::sciotte_error::coach_account_error;
     use serde_json::json;
 
-    use super::{unflagged_outcome, RefreshOutcome, SweepSelection};
+    use super::{unflagged_outcome, RefreshOutcome, SweepSelection, MAX_SELECTION_HOURS};
 
     fn connection(
-        last_used_at: Option<DateTime<Utc>>,
-        last_fetch_at: Option<DateTime<Utc>>,
+        last_used_at: Option<Timestamp>,
+        last_fetch_at: Option<Timestamp>,
     ) -> CaptureFreshness {
         CaptureFreshness {
             tenant_id: "tenant".to_owned(),
@@ -889,26 +893,63 @@ mod tests {
     }
 
     const ACTIVE_ONLY: SweepSelection = SweepSelection {
-        active_within: Some(Duration::days(7)),
-        skip_fetched_within: Some(Duration::hours(2)),
+        active_within: Some(Elapsed::days(7)),
+        skip_fetched_within: Some(Elapsed::hours(2)),
     };
 
     /// Whether `selection` walks `row` when `row` is the athlete's only
     /// connection.
     fn selects_alone(selection: &SweepSelection, row: &CaptureFreshness) -> bool {
-        let now = Utc::now();
+        let now = Timestamp::now();
         let active = selection.active_athletes(slice::from_ref(row), now);
         selection.selects(row, now, &active)
+    }
+
+    /// A window past the bound is clamped to it, so the sweep's `now - window`
+    /// stays in range instead of panicking the request, and an activity window
+    /// of zero hours, which would select nobody, is clamped to one.
+    #[test]
+    fn an_out_of_range_window_is_clamped() {
+        let oversized = SweepSelection::from_hours(Some(u32::MAX), Some(u32::MAX));
+        assert_eq!(
+            oversized.active_within,
+            Some(Elapsed::hours(MAX_SELECTION_HOURS)),
+            "bug: an oversized activity window must be clamped to the bound"
+        );
+        assert_eq!(
+            oversized.skip_fetched_within,
+            Some(Elapsed::hours(MAX_SELECTION_HOURS)),
+            "bug: an oversized skip window must be clamped to the bound"
+        );
+        assert_eq!(
+            SweepSelection::from_hours(Some(0), None).active_within,
+            Some(Elapsed::hours(1)),
+            "bug: a zero activity window must be clamped to one hour"
+        );
+    }
+
+    /// carnet#1692: a skip window of zero hours passes over nothing, so a
+    /// head the athlete's own turn read 26 minutes ago is refreshed.
+    #[test]
+    fn a_zero_skip_window_makes_every_connection_due() {
+        let selection = SweepSelection::from_hours(Some(168), Some(0));
+        assert_eq!(
+            selection.skip_fetched_within, None,
+            "bug: a zero skip window must be no window"
+        );
+        let now = Timestamp::now();
+        let row = connection(Some(now), Some(now - Elapsed::minutes(26)));
+        assert!(
+            selects_alone(&selection, &row),
+            "bug: an active athlete's head fetched 26 minutes ago must be due"
+        );
     }
 
     /// The 2026-10-27 athlete: chatted yesterday, last fetched this morning.
     #[test]
     fn an_athlete_who_chats_and_was_not_fetched_lately_is_refreshed() {
-        let now = Utc::now();
-        let row = connection(
-            Some(now - Duration::days(1)),
-            Some(now - Duration::hours(5)),
-        );
+        let now = Timestamp::now();
+        let row = connection(Some(now - Elapsed::days(1)), Some(now - Elapsed::hours(5)));
         assert!(
             selects_alone(&ACTIVE_ONLY, &row),
             "bug: an active athlete's stale head must be refreshed"
@@ -917,8 +958,8 @@ mod tests {
 
     #[test]
     fn an_athlete_who_has_not_chatted_this_week_waits_for_the_daily_sweep() {
-        let now = Utc::now();
-        for used in [None, Some(now - Duration::days(8))] {
+        let now = Timestamp::now();
+        for used in [None, Some(now - Elapsed::days(8))] {
             let row = connection(used, None);
             assert!(
                 !selects_alone(&ACTIVE_ONLY, &row),
@@ -933,8 +974,8 @@ mod tests {
 
     #[test]
     fn a_head_a_turn_just_refreshed_is_not_fetched_again() {
-        let now = Utc::now();
-        let row = connection(Some(now), Some(now - Duration::minutes(30)));
+        let now = Timestamp::now();
+        let row = connection(Some(now), Some(now - Elapsed::minutes(30)));
         assert!(
             !selects_alone(&ACTIVE_ONLY, &row),
             "bug: a head fetched 30 minutes ago must be passed over"
@@ -951,17 +992,14 @@ mod tests {
     /// only by the daily sweep. Activity is theirs, not the elected row's.
     #[test]
     fn an_active_athletes_untouched_connection_is_refreshed_too() {
-        let now = Utc::now();
+        let now = Timestamp::now();
         let elected = CaptureFreshness {
             provider: "strava".to_owned(),
-            ..connection(
-                Some(now - Duration::days(1)),
-                Some(now - Duration::hours(1)),
-            )
+            ..connection(Some(now - Elapsed::days(1)), Some(now - Elapsed::hours(1)))
         };
         let untouched = CaptureFreshness {
             provider: "intervals_icu".to_owned(),
-            ..connection(None, Some(now - Duration::hours(20)))
+            ..connection(None, Some(now - Elapsed::hours(20)))
         };
         let rows = [elected.clone(), untouched.clone()];
         let active = ACTIVE_ONLY.active_athletes(&rows, now);
@@ -978,8 +1016,8 @@ mod tests {
     /// A different athlete's recent serve lends nobody else activity.
     #[test]
     fn activity_does_not_cross_athletes_or_tenants() {
-        let now = Utc::now();
-        let chatty = connection(Some(now), Some(now - Duration::hours(5)));
+        let now = Timestamp::now();
+        let chatty = connection(Some(now), Some(now - Elapsed::hours(5)));
         let other_user = CaptureFreshness {
             user_id: "someone-else".to_owned(),
             ..connection(None, None)

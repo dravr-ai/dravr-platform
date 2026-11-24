@@ -7,7 +7,7 @@
 use std::slice;
 use std::time::Instant;
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::Activity;
 use pierre_core::permissions::scopes::OAuthScope;
@@ -78,7 +78,7 @@ pub(in crate::activity_backfill) async fn run_detail_walk(
         return;
     };
     let renewal = keep_backfill_lease(job, &lease);
-    let attempt_started_at = Utc::now();
+    let attempt_started_at = Timestamp::now();
     let mut asked_ms = None;
     let step = walk_step(job, &lease, &mut asked_ms).await;
     let held = Held {
@@ -143,7 +143,7 @@ async fn walk_step(
     let cursor = job
         .query_params
         .before
-        .unwrap_or_else(|| Utc::now().timestamp());
+        .unwrap_or_else(|| Timestamp::now().epoch_seconds());
     let mut progress = Progress {
         walked_to: cursor,
         units_done: 0,
@@ -390,7 +390,7 @@ impl Reader<'_> {
     /// the walk's owed-write guard.
     async fn store(&self, listed: &str, detailed: &Activity) -> Read {
         let job = self.job;
-        let start = detailed.start_date().timestamp();
+        let start = detailed.start_date().epoch_seconds();
         // A read of the one activity, never of the list head: the copy moves
         // no freshness, and carries the head's last sync, or this activity's
         // start when the grant has none.
@@ -450,7 +450,7 @@ async fn settle(
     held: &Held<'_>,
     attempts: i64,
     step: Step,
-    attempt_started_at: DateTime<Utc>,
+    attempt_started_at: Timestamp,
 ) {
     let ledger = &job.resources.repos().activity_backfill_jobs;
     let lease = held.lease;

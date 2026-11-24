@@ -44,7 +44,7 @@ pub struct SetOverrideParams<'a> {
 pub struct LogChangeParams<'a> {
     /// Admin user performing the change.
     pub admin_user_id: &'a str,
-    /// Admin email (operator-visible attribution).
+    /// Admin email (admin-visible attribution).
     pub admin_email: &'a str,
     /// Top-level config category.
     pub category: &'a str,
@@ -127,7 +127,7 @@ pub trait AdminConfigRepository: Send + Sync {
 // `admin_user_id` reference `users(id)`: `uuid` on Postgres and TEXT on
 // `SQLite`, so the shared body binds and reads them through a
 // `pierre_database::repositories::uuid_columns` codec. Timestamps bind as
-// `DateTime<Utc>` on both; sqlx-sqlite writes the RFC 3339 text the `SQLite`
+// `Timestamp` on both; sqlx-sqlite writes the RFC 3339 text the `SQLite`
 // TEXT columns always held. A scope is a closed enum, so each one is its own
 // literal statement and no SQL is built from a runtime value.
 

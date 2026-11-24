@@ -79,6 +79,27 @@ export const ENDPOINTS = {
     /** Discard (DELETE) the coach's draft; the athlete's live plan stays as it is */
     SUBJECT_PLAN_DRAFT: (conversationId: string) =>
       `/api/chat/conversations/${conversationId}/subject-plan/draft`,
+    /** The workout families the thread's athlete's agent offers, for the coach's editor (carnet#1515) */
+    SUBJECT_FAMILIES: (conversationId: string) =>
+      `/api/chat/conversations/${conversationId}/subject-plan/families`,
+    /** Preview (POST) a session built from a family, measured on the athlete's anchors; nothing is saved */
+    SUBJECT_SESSION_PREVIEW: (conversationId: string) =>
+      `/api/chat/conversations/${conversationId}/subject-plan/session-preview`,
+    /** Save (PUT) a session built from a family over session `position` of a date in the coach's draft */
+    SUBJECT_DRAFT_DAY: (conversationId: string, date: string, position: number) =>
+      `/api/chat/conversations/${conversationId}/subject-plan/draft/days/${date}/${position}`,
+    /** Save (PUT) a session the coach wrote by hand, or a rest day, over session `position` (carnet#1714, #1716) */
+    SUBJECT_DRAFT_HAND_DAY: (conversationId: string, date: string, position: number) =>
+      `/api/chat/conversations/${conversationId}/subject-plan/draft/days/${date}/${position}/session`,
+    /** Restore (POST) session `position` to how it stood before the coach's first edit, or remove it when the coach added it */
+    SUBJECT_DRAFT_DAY_RESTORE: (conversationId: string, date: string, position: number) =>
+      `/api/chat/conversations/${conversationId}/subject-plan/draft/days/${date}/${position}/restore`,
+    /** Remove (POST) session `position` from a date that holds more than one (carnet#1716) */
+    SUBJECT_DRAFT_DAY_REMOVE: (conversationId: string, date: string, position: number) =>
+      `/api/chat/conversations/${conversationId}/subject-plan/draft/days/${date}/${position}/remove`,
+    /** Add (POST) a session at the end of a date's entries in the coach's draft (carnet#1716) */
+    SUBJECT_DRAFT_SESSIONS: (conversationId: string, date: string) =>
+      `/api/chat/conversations/${conversationId}/subject-plan/draft/days/${date}/sessions`,
   },
 
   // ==================== SLASH COMMANDS ====================
@@ -152,6 +173,12 @@ export const ENDPOINTS = {
     CONNECTED_APP: (id: string) => `/api/me/oauth-grants/${id}`,
   },
 
+  // ==================== ACCESS FEED ====================
+  ACCESS_FEED: {
+    /** The athlete's "Who read your data" feed over the last 30 days (GET, session only). */
+    FEED: '/api/me/access-feed',
+  },
+
   // ==================== PROVIDERS ====================
   PROVIDERS: {
     /** Get all providers with connection status (OAuth and non-OAuth) */
@@ -162,6 +189,7 @@ export const ENDPOINTS = {
     INTERVALS_ICU_DISCONNECT: '/api/providers/intervals_icu/disconnect',
     /** Give (PUT) or withdraw (DELETE) the consent to AI use of a provider's data */
     AI_CONSENT: (provider: string) => `/api/providers/${provider}/ai-consent`,
+    TRANSFER_CONSENT: (provider: string) => `/api/providers/${provider}/transfer-consent`,
     /**
      * WebSocket of a sign-in parked at a provider's robot check (ADR-034),
      * opened with `?token=` (the takeover token). Under `/ws`, which the web
@@ -235,6 +263,11 @@ export const ENDPOINTS = {
      * coachless group
      */
     COACH: (id: string) => `/api/groups/${id}/coach`,
+    /**
+     * The group's room in a chat app's group chat: GET reads it, POST mints a
+     * one-time connect code, DELETE disconnects it (owner or human coach)
+     */
+    CHAT_CONNECTION: (id: string) => `/api/groups/${id}/chat-connection`,
     /** The invite the server holds for the caller: PUT holds a code, GET reads it */
     HELD_INVITE: '/api/user/group-invite',
     /** Join the group of the invite the server holds for the caller */
@@ -444,6 +477,30 @@ export const ENDPOINTS = {
     PREFERRED_CALENDAR: '/api/me/preferred-calendar',
     /** Cached workouts and the plan's weeks over the athlete's days `?from=&to=` (`YYYY-MM-DD`, at most 42 days) */
     CALENDAR: '/api/me/calendar',
+  },
+  // ==================== HEALTH RECORDS ====================
+  /** The athlete's own health records and lab reports (owl phase 5); session only, an outside credential gets 403 */
+  HEALTH_RECORDS: {
+    /** The served records of one kind (`GET`, `?kind=labs|clinical|glucose|self_reports&since&until&limit`) */
+    LIST: '/api/me/health-records',
+    /** The records read from a lab report, waiting for the athlete's answer (`GET`) */
+    REVIEW: '/api/me/health-records/review',
+    /** Confirm a pending record (`POST`, 204; 404 for any other record) */
+    CONFIRM: (id: string) => `/api/me/health-records/${encodeURIComponent(id)}/confirm`,
+    /** Reject a pending record (`POST`, 204; 404 for any other record) */
+    REJECT: (id: string) => `/api/me/health-records/${encodeURIComponent(id)}/reject`,
+    /** Upload a lab report's PDF as the raw body (`POST`, 201 new / 200 already held), or list them (`GET`) */
+    LAB_DOCUMENTS: '/api/me/lab-documents',
+    /** Delete one lab report and its records (`DELETE`, 204) */
+    LAB_DOCUMENT: (id: string) => `/api/me/lab-documents/${encodeURIComponent(id)}`,
+  },
+  // ==================== DEVICE HEALTH ====================
+  /** The phone's own health store (HealthKit, Health Connect), read on the device (owl phase 9); session only */
+  DEVICE_HEALTH: {
+    /** One page of raw samples, barrage's `DeviceSamples` (`POST`, at most 2 000 samples), answering the counts */
+    SYNC: (source: string) => `/api/device-health/${encodeURIComponent(source)}/sync`,
+    /** Everything synced from the store (`DELETE`), answering the counts removed */
+    DATA: (source: string) => `/api/device-health/${encodeURIComponent(source)}/data`,
   },
   // ==================== GEAR LEDGER ====================
   /** The shoes the athlete declares, and the pair each activity was run in (carnet#711) */

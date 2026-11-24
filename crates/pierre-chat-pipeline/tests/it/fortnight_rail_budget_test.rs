@@ -7,12 +7,12 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_chat_pipeline::stages::onboarding::FORTNIGHT_FLOW_TURNS;
 use pierre_core::models::{GuidedFlow, OnboardingState};
 
 fn opened() -> OnboardingState {
-    OnboardingState::start(Utc::now().to_rfc3339(), GuidedFlow::Fortnight)
+    OnboardingState::start(Timestamp::now().to_rfc3339(), GuidedFlow::Fortnight)
 }
 
 #[test]

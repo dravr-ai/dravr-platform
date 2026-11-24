@@ -38,6 +38,9 @@ mod sharing;
 /// Invite redemption: the checks an invite passes and a coach's attachment
 mod invites;
 
+/// Connecting a group to a messaging chat from the web app: connect codes, the members-only room (carnet#1683)
+pub mod chat_connect;
+
 /// Coach setup timing: the first athlete to join a coach's group
 mod setup_timing;
 

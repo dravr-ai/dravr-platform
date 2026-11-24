@@ -12,7 +12,7 @@
 use pierre_core::transport::TransportPolicy;
 use std::sync::Arc;
 
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_database::repositories::{ArchetypePriorUpsert, RecordedOutcome};
 use pierre_database::RepositoryRegistry;
 use pierre_memory::playbooks::{
@@ -60,8 +60,9 @@ async fn record_outcome_creates_then_increments_same_playbook() {
         intervention: &intervention,
         outcome_metric: &metric,
         label: OutcomeLabel::Success,
-        at: Utc::now(),
+        at: Timestamp::now(),
         transport_policy: TransportPolicy::AnyTransport,
+        ai_consent_sources: &[],
     };
 
     let id1 = repos
@@ -120,8 +121,9 @@ async fn list_playbooks_is_tenant_isolated() {
             intervention: &intervention,
             outcome_metric: &metric,
             label: OutcomeLabel::Success,
-            at: Utc::now(),
+            at: Timestamp::now(),
             transport_policy: TransportPolicy::AnyTransport,
+            ai_consent_sources: &[],
         };
         repos
             .playbooks
@@ -154,19 +156,20 @@ async fn pending_advice_due_label_and_future() {
         intervention: sample_intervention(),
         outcome_metric: sample_metric(),
         baseline: MetricBaseline {
-            captured_at: Utc::now(),
+            captured_at: Timestamp::now(),
         },
         due_by,
         status: AdviceStatus::Pending,
         label: None,
         label_source: None,
         source_msg_id: Some("m1".to_owned()),
-        created_at: Utc::now(),
+        created_at: Timestamp::now(),
         transport_policy: TransportPolicy::AnyTransport,
+        ai_consent_sources: Vec::new(),
     };
 
-    let past = make_advice("due-now", Utc::now() - Duration::hours(1));
-    let future = make_advice("not-yet", Utc::now() + Duration::hours(48));
+    let past = make_advice("due-now", Timestamp::now() - Elapsed::hours(1));
+    let future = make_advice("not-yet", Timestamp::now() + Elapsed::hours(48));
     repos.playbooks.insert_pending_advice(&past).await.unwrap();
     repos
         .playbooks
@@ -174,7 +177,7 @@ async fn pending_advice_due_label_and_future() {
         .await
         .unwrap();
 
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     let due = repos.playbooks.due_pending_advice(now, 100).await.unwrap();
     assert_eq!(due.len(), 1, "only the past-due advice is returned");
     assert_eq!(due[0].id, "due-now");
@@ -191,8 +194,9 @@ async fn pending_advice_due_label_and_future() {
         intervention: &intervention,
         outcome_metric: &metric,
         label: OutcomeLabel::Success,
-        at: Utc::now(),
+        at: Timestamp::now(),
         transport_policy: TransportPolicy::AnyTransport,
+        ai_consent_sources: &[],
     };
     let playbook_id = repos
         .playbooks
@@ -238,8 +242,9 @@ async fn agent_scoping_includes_agnostic_excludes_other_agent() {
             intervention: &intervention,
             outcome_metric: &metric,
             label: OutcomeLabel::Success,
-            at: Utc::now(),
+            at: Timestamp::now(),
             transport_policy: TransportPolicy::AnyTransport,
+            ai_consent_sources: &[],
         };
         repos
             .playbooks
@@ -284,15 +289,16 @@ fn due_sample_advice(id: &str) -> PendingAdvice {
         intervention: sample_intervention(),
         outcome_metric: sample_metric(),
         baseline: MetricBaseline {
-            captured_at: Utc::now(),
+            captured_at: Timestamp::now(),
         },
-        due_by: Utc::now() - Duration::hours(1),
+        due_by: Timestamp::now() - Elapsed::hours(1),
         status: AdviceStatus::Pending,
         label: None,
         label_source: None,
         source_msg_id: None,
-        created_at: Utc::now(),
+        created_at: Timestamp::now(),
         transport_policy: TransportPolicy::AnyTransport,
+        ai_consent_sources: Vec::new(),
     }
 }
 
@@ -313,8 +319,9 @@ async fn forget_playbook_purges_pending_advice_so_it_cannot_resurrect() {
         intervention: &intervention,
         outcome_metric: &metric,
         label: OutcomeLabel::Success,
-        at: Utc::now(),
+        at: Timestamp::now(),
         transport_policy: TransportPolicy::AnyTransport,
+        ai_consent_sources: &[],
     };
     let playbook_id = repos
         .playbooks
@@ -336,7 +343,7 @@ async fn forget_playbook_purges_pending_advice_so_it_cannot_resurrect() {
         .unwrap();
     assert_eq!(removed, 1);
 
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     let due = repos.playbooks.due_pending_advice(now, 100).await.unwrap();
     assert!(due.is_empty(), "forget purged the in-flight advice");
     let playbooks = repos
@@ -365,7 +372,7 @@ async fn insert_pending_advice_dedups_identical_open_advice() {
         .await
         .unwrap();
 
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     let due = repos.playbooks.due_pending_advice(now, 100).await.unwrap();
     assert_eq!(due.len(), 1, "reaffirmed advice deduped to one open row");
 }
@@ -420,4 +427,119 @@ async fn archetype_priors_batch_fetch_is_confidence_ranked_and_pruned() {
         .await
         .unwrap();
     assert!(after.is_empty(), "pruned prior no longer returned");
+}
+
+// carnet#1157: advice names its consent sources through the round trip, and
+// the playbook its outcomes reinforce names every outcome's, only growing.
+#[tokio::test]
+async fn consent_sources_round_trip_and_only_grow_on_a_playbook() {
+    let db = create_test_db().await;
+    let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
+    let whoop = vec!["whoop".to_owned()];
+    let garmin = vec!["garmin".to_owned()];
+
+    let mut advice = due_sample_advice("adv-whoop");
+    advice.ai_consent_sources.clone_from(&whoop);
+    repos
+        .playbooks
+        .insert_pending_advice(&advice)
+        .await
+        .unwrap();
+    let due = repos
+        .playbooks
+        .due_pending_advice(Timestamp::now().epoch_seconds(), 10)
+        .await
+        .unwrap();
+    assert_eq!(due.len(), 1);
+    assert_eq!(due[0].ai_consent_sources, whoop, "advice keeps its keys");
+
+    let (trigger, intervention, metric) =
+        (sample_trigger(), sample_intervention(), sample_metric());
+    let mut outcome = RecordedOutcome {
+        tenant_id: "t1",
+        user_id: "u1",
+        agent_slug: None,
+        trigger: &trigger,
+        intervention: &intervention,
+        outcome_metric: &metric,
+        label: OutcomeLabel::Success,
+        at: Timestamp::now(),
+        transport_policy: TransportPolicy::AnyTransport,
+        ai_consent_sources: &whoop,
+    };
+    let listed = |repos: Arc<RepositoryRegistry>| async move {
+        repos
+            .playbooks
+            .list_all_user_playbooks("t1", "u1", 10, TransportPolicy::FirstPartyOnly)
+            .await
+            .unwrap()
+    };
+    repos
+        .playbooks
+        .record_outcome_and_label(&outcome, "adv-whoop", LabelSource::DataHeuristic)
+        .await
+        .unwrap();
+    assert_eq!(
+        listed(Arc::clone(&repos)).await[0].ai_consent_sources,
+        whoop
+    );
+
+    // A later outcome naming none takes nothing away; one naming another
+    // key adds it.
+    outcome.ai_consent_sources = &[];
+    repos
+        .playbooks
+        .record_outcome_and_label(&outcome, "adv-none", LabelSource::DataHeuristic)
+        .await
+        .unwrap();
+    assert_eq!(
+        listed(Arc::clone(&repos)).await[0].ai_consent_sources,
+        whoop
+    );
+    outcome.ai_consent_sources = &garmin;
+    repos
+        .playbooks
+        .record_outcome_and_label(&outcome, "adv-garmin", LabelSource::DataHeuristic)
+        .await
+        .unwrap();
+    let playbooks = listed(Arc::clone(&repos)).await;
+    assert_eq!(playbooks.len(), 1, "still one playbook");
+    assert_eq!(
+        playbooks[0].ai_consent_sources,
+        vec!["garmin".to_owned(), "whoop".to_owned()]
+    );
+}
+
+// carnet#1157: the cross-athlete priors are learned by a job that runs for no
+// athlete, under none of their consents: a playbook naming one never feeds
+// them.
+#[tokio::test]
+async fn a_playbook_naming_a_consent_never_feeds_the_archetype_priors() {
+    let db = create_test_db().await;
+    let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
+    let (trigger, intervention, metric) =
+        (sample_trigger(), sample_intervention(), sample_metric());
+    let whoop = ["whoop".to_owned()];
+    for (user, sources) in [("u-open", &[][..]), ("u-whoop", &whoop[..])] {
+        let outcome = RecordedOutcome {
+            tenant_id: "t1",
+            user_id: user,
+            agent_slug: None,
+            trigger: &trigger,
+            intervention: &intervention,
+            outcome_metric: &metric,
+            label: OutcomeLabel::Success,
+            at: Timestamp::now(),
+            transport_policy: TransportPolicy::AnyTransport,
+            ai_consent_sources: sources,
+        };
+        repos
+            .playbooks
+            .record_outcome_and_label(&outcome, "advice-without-row", LabelSource::DataHeuristic)
+            .await
+            .unwrap();
+    }
+    let aggregated = repos.playbooks.aggregate_playbook_rows(100).await.unwrap();
+    let users: Vec<&str> = aggregated.iter().map(|row| row.user_id.as_str()).collect();
+    assert_eq!(users, vec!["u-open"]);
 }

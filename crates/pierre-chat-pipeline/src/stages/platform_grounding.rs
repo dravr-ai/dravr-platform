@@ -22,7 +22,7 @@
 //! way a welcome's starters are ([`closing_steps`]), so the coach speaking
 //! first leaves a tap, not a blank composer.
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_contremaitre::messaging_strings::{
     MessagingStringsRegistry, KEY_CAPABILITY_REFUSAL, KEY_SCOPE_REFUSAL,
 };
@@ -177,10 +177,11 @@ pub(crate) fn withheld_platform_reply(
         finish_reason: draft.result.finish_reason.clone(),
         content_blocks: None,
         transport_policy: ai_scope::derived_policy(),
-        created_at: Utc::now().to_rfc3339(),
+        created_at: Timestamp::now().to_rfc3339(),
         channel_type: None,
         about_user_id: None,
         turn_attempted_write: None,
+        ai_consent_sources: ai_scope::derived_consent_sources(),
     };
     let envelope = build_envelope(
         profile,

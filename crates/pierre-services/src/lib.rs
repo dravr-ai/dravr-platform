@@ -19,13 +19,17 @@
 
 #![warn(missing_docs)]
 
-/// Operator reset of a whole account: every provider disconnected, every owned row wiped, the account kept.
+/// The athlete's "who read my data" feed: outside clients' calls per call, their coach's reads per day (carnet#1543)
+pub mod access_feed;
+/// Admin reset of a whole account: every provider disconnected, every owned row wiped, the account kept.
 pub mod account_reset;
 /// The activity-sport vocabulary shared with the clients, for server-rendered text.
 pub mod activity_sports;
+/// Email to the admins: who receives it, and the pending sign-up alert (carnet#1056)
+pub mod admin_mail;
 /// Admin operations: user lifecycle, token management, settings, and analytics
 pub mod admin_ops;
-/// System-wide operator settings — auto-approval and its env shadow
+/// System-wide admin settings — auto-approval and its env shadow
 pub mod admin_settings;
 /// Advice capture: turn an agent recommendation into a PendingAdvice (playbook memory)
 pub mod advice_capture;
@@ -51,8 +55,6 @@ pub mod coach_replies;
 pub mod coach_roster;
 /// The new-user cohort report the admin console and the daily digest read
 pub mod new_user_cohort;
-/// Email to the admins: who receives it, and the pending sign-up alert (carnet#1056)
-pub mod operator_mail;
 
 /// Authentication service: registration, login, password management, token refresh
 pub mod auth;
@@ -65,6 +67,9 @@ pub mod athlete_anchors;
 
 /// The athlete's civil date, from the timezone on their user row.
 pub mod athlete_clock;
+
+/// The athlete's one VDOT, from a performance only (carnet#1693 item 5).
+pub mod athlete_vdot;
 
 /// The one display-name rule a member is rendered by, on every build.
 pub mod athlete_display_name;
@@ -233,6 +238,14 @@ pub mod garmin_push;
 #[cfg(feature = "health-sync")]
 pub mod health_sync;
 
+/// The T2–T3 records an import or a lab document yields, as the platform stores them (carnet#1544)
+pub mod health_records;
+
+/// The lab reader's configurable model: none by default, else one tool-free HTTP provider or Ollama (carnet#1544)
+pub mod lab_document_model;
+
+/// The one projection of a batch of wellness records: the archive sink, Terra and the device health sync file theirs through it
+pub mod wellness_projection;
 /// The one writer of wellness rows: every ingress writes nights, days, sources and series through it
 pub mod wellness_store;
 /// What the wellness store may keep of a WHOOP record: measurements, never WHOOP's own scores
@@ -241,7 +254,7 @@ pub mod whoop_terms;
 /// The one row-level merge of stored activity copies into workouts, and the gates a read applies first
 pub mod workouts;
 
-/// Health sync's daily-summary reads, made on the dedicated sciotte scraper service
+/// Health sync's daily-summary reads, made on the dedicated sciotte service
 #[cfg(feature = "health-sync")]
 pub mod sciotte_health_reader;
 
@@ -306,7 +319,7 @@ pub mod group_invite_hold;
 pub mod link_token;
 /// Signup codes: mint, list, revoke, resolve and claim (carnet#1128)
 pub mod signup_codes;
-/// The operator's bounds on self-serve sign-up (carnet#1063)
+/// The admin's bounds on self-serve sign-up (carnet#1063)
 pub mod signup_policy;
 
 /// Platform-initiated outbound messaging: send a localized text on every
@@ -363,6 +376,9 @@ mod oauth_exchange_lookups;
 /// Redeeming a callback's state, the only path to a flow's mobile redirect URL
 mod oauth_state_redeem;
 
+/// Announcing a provider connect: the notify event and the athlete's log entry
+pub mod provider_connected;
+
 /// Upstream grant revocation + provider-data purge for the disconnect chokepoint
 pub mod provider_revocation;
 
@@ -394,7 +410,7 @@ pub mod effective_physiology;
 /// Onboarding gate: requires at least one connected fitness provider before
 /// the user can reach chat/agent/MCP tools.
 pub mod onboarding_gate;
-/// Operator reset of one user's onboarding, leaving every group row in place.
+/// Admin reset of one user's onboarding, leaving every group row in place.
 pub mod onboarding_reset;
 /// Outcome evaluator: label due advice from real data + reinforce playbooks
 pub mod outcome_evaluator;
@@ -452,9 +468,7 @@ pub mod quota_policy;
 /// Provider data refresh service: freshness checks, on-chat triggers, manual sync.
 ///
 /// Owns `RefreshService`, `start_scheduled_sync`,
-/// `compute_smart_interval`, and `SyncMetrics`. Push notifications go through
-/// the abstract `SyncNotifier` trait so the service is decoupled from the
-/// concrete pierre-server `SseManager`.
+/// `compute_smart_interval`, and `SyncMetrics`.
 pub mod provider_refresh;
 
 /// The one sync-failure notice each failing provider owes an athlete,
@@ -480,6 +494,11 @@ pub mod periodic;
 
 /// Per-instance periodic loops under a supervisor
 pub mod supervised;
+// Outer doc omitted: `lease_guard.rs`'s inner `//!` header is the module's doc.
+pub mod lease_guard;
+
+// Outer doc omitted: `backoff.rs`'s inner `//!` header is the module's doc.
+pub mod backoff;
 
 /// Agent version diff computation
 pub mod recipes;
@@ -505,10 +524,10 @@ pub mod user_status_gate;
 /// User-approval notification seam (email + linked-channel messages).
 pub mod user_approval;
 
-/// Operator removal of a user and of one provider grant, through the disconnect chokepoint.
+/// Admin removal of a user and of one provider grant, through the disconnect chokepoint.
 pub mod user_removal;
 
-/// Sciotte scrape-session persistence, and the operator clone of one account's session onto another.
+/// Sciotte scrape-session persistence, and the admin clone of one account's session onto another.
 pub mod scrape_session;
 
 /// The doors a deleted account's identities are refused at, and the explicit clear that reopens them.

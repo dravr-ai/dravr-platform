@@ -7,13 +7,13 @@
 //! The riviere time-series store, written once.
 //!
 //! `data_point_series` keys on text ids on both backends; `recorded_at`
-//! binds as a [`DateTime<Utc>`], which sqlx-sqlite encodes to the bytes
+//! binds as a [`Timestamp`], which sqlx-sqlite encodes to the bytes
 //! `to_rfc3339()` writes, so the half-open range comparisons order as they
 //! always did on the `SQLite` TEXT column while Postgres gets its
 //! `TIMESTAMPTZ`. Nothing on this table is spelled differently per engine.
 
-use chrono::{DateTime, Utc};
 use dravr_riviere::{DataPoint, RiviereError};
+use dravr_tronc::dates::Timestamp;
 
 // ============================================================================
 // data_point_series (riviere TimeSeriesStore)
@@ -35,14 +35,17 @@ pub(crate) const TS_FETCH_RANGE_SQL: &str = r"
 /// Insert one point; a second insert at the same timestamp replaces the
 /// first (riviere's last-writer-wins on the unique key). `$6` is when the
 /// point was copied from its provider, refreshed on every re-copy: the age
-/// the retention policy (`activity_retention.*`) judges the point by.
+/// the retention policy (`activity_retention.*`) judges the point by. A
+/// point written again after a range delete is present again: its
+/// `deleted_at` is cleared.
 pub(crate) const TS_INSERT_POINT_SQL: &str = r"
                 INSERT INTO data_point_series
                     (id, data_source_id, series_type_id, recorded_at, zone_offset, value, synced_at)
                 VALUES ($1, $2, $3, $4, NULL, $5, $6)
                 ON CONFLICT(data_source_id, series_type_id, recorded_at) DO UPDATE SET
                     value = EXCLUDED.value,
-                    synced_at = EXCLUDED.synced_at
+                    synced_at = EXCLUDED.synced_at,
+                    deleted_at = NULL
                 ";
 
 /// The most recent live point of a series.
@@ -77,13 +80,13 @@ where
     R: sqlx::Row,
     for<'a> &'a str: sqlx::ColumnIndex<R>,
     f64: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    DateTime<Utc>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Timestamp: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
-    let timestamp: DateTime<Utc> =
-        row.try_get("recorded_at")
-            .map_err(|e| RiviereError::Storage {
-                message: format!("invalid recorded_at: {e}"),
-            })?;
+    let timestamp: Timestamp = row
+        .try_get("recorded_at")
+        .map_err(|e| RiviereError::Storage {
+            message: format!("invalid recorded_at: {e}"),
+        })?;
     let value: f64 = row.try_get("value").map_err(|e| RiviereError::Storage {
         message: format!("invalid value: {e}"),
     })?;
@@ -155,7 +158,7 @@ macro_rules! impl_time_series_store {
                         message: format!("begin tx for time-series insert: {e}"),
                     })?;
 
-                let synced_at = Utc::now();
+                let synced_at = Timestamp::now();
                 for point in &points {
                     let id = Uuid::new_v4().to_string();
                     sqlx::query(TS_INSERT_POINT_SQL)
@@ -231,7 +234,7 @@ macro_rules! impl_time_series_store {
                 range: &TimeRange,
             ) -> Result<u64, RiviereError> {
                 let res = sqlx::query(TS_DELETE_RANGE_SQL)
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .bind(source_id)
                     .bind(i64::from(series_type))
                     .bind(range.start)

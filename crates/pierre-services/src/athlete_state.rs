@@ -28,7 +28,7 @@
 
 use std::collections::BTreeSet;
 
-use chrono::{DateTime, Datelike, Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_contremaitre::use_case_catalogue::{Predicate, Stage};
 use pierre_core::errors::AppResult;
 use pierre_core::models::{Activity, CheckInCadence, ConnectionType, CoverageMap, TenantId};
@@ -106,7 +106,7 @@ pub async fn dossier_coverage(
             tenant,
             user_id,
             ai_scope::readable_policy(),
-            &ai_scope::admit_derived,
+            &ai_scope::admit_memory,
         )
         .await?;
     let coverage = CoverageMap::from_dossier(&dossier);
@@ -159,7 +159,7 @@ impl AthleteState {
         repos: &RepositoryRegistry,
         tenant: TenantId,
         user_id: Uuid,
-        now: DateTime<Utc>,
+        now: Timestamp,
     ) -> AppResult<(Self, TransportPolicy)> {
         let (state, policy) = ai_scope::derived(read_untracked(repos, tenant, user_id, now)).await;
         Ok((state?, policy))
@@ -187,10 +187,10 @@ impl AthleteState {
 
 /// The catalogue stage of an account created at `created_at`; an unknown
 /// creation time reads as an established account.
-fn stage_at(created_at: Option<DateTime<Utc>>, now: DateTime<Utc>) -> Stage {
+fn stage_at(created_at: Option<Timestamp>, now: Timestamp) -> Stage {
     match created_at.map(|created| now.signed_duration_since(created)) {
-        Some(age) if age < Duration::hours(FIRST_SESSION_HOURS) => Stage::FirstSession,
-        Some(age) if age < Duration::days(FIRST_WEEK_DAYS) => Stage::FirstWeek,
+        Some(age) if age < Elapsed::hours(FIRST_SESSION_HOURS) => Stage::FirstSession,
+        Some(age) if age < Elapsed::days(FIRST_WEEK_DAYS) => Stage::FirstWeek,
         _ => Stage::Any,
     }
 }
@@ -206,10 +206,7 @@ fn distinct_weeks(activities: Vec<Activity>) -> u8 {
     let (sessions, _) = merge_duplicates(activities, &DedupConfig::from_env());
     let weeks: BTreeSet<(i32, u32)> = sessions
         .iter()
-        .map(|activity| {
-            let week = activity.start_date().iso_week();
-            (week.year(), week.week())
-        })
+        .map(|activity| activity.start_date().utc_date().iso_week())
         .collect();
     u8::try_from(weeks.len()).unwrap_or(u8::MAX)
 }
@@ -218,7 +215,7 @@ async fn read_untracked(
     repos: &RepositoryRegistry,
     tenant: TenantId,
     user_id: Uuid,
-    now: DateTime<Utc>,
+    now: Timestamp,
 ) -> AppResult<AthleteState> {
     let created_at = repos
         .users
@@ -252,7 +249,7 @@ async fn read_untracked(
         registry.as_ref(),
         user_id,
         &tenant,
-        (now - Duration::days(RECOVERY_ROWS_WINDOW_DAYS), now),
+        (now - Elapsed::days(RECOVERY_ROWS_WINDOW_DAYS), now),
     )
     .await?;
     let calendar_writable = writes_a_calendar(&registry, &own);
@@ -266,7 +263,7 @@ async fn read_untracked(
             user_id,
             &tenant,
             None,
-            now - Duration::days(WEEKS_OF_DATA_WINDOW_DAYS),
+            now - Elapsed::days(WEEKS_OF_DATA_WINDOW_DAYS),
             now,
             RECENT_ACTIVITY_LIMIT,
         )
@@ -277,7 +274,7 @@ async fn read_untracked(
     let activities = if none_recent {
         let older = repos
             .activity_cache
-            .get_cached_activities(user_id, &tenant, None, DateTime::UNIX_EPOCH, now, 1)
+            .get_cached_activities(user_id, &tenant, None, Timestamp::UNIX_EPOCH, now, 1)
             .await?;
         if !ai_scope::filter_activities(registry.as_ref(), older).is_empty() {
             ActivityHistory::Present
@@ -363,13 +360,13 @@ mod tests {
 
     #[test]
     fn an_account_ages_through_the_three_stages() {
-        let now = Utc::now();
-        let at = |age: Duration| stage_at(Some(now - age), now);
-        assert_eq!(at(Duration::hours(1)), Stage::FirstSession);
-        assert_eq!(at(Duration::hours(23)), Stage::FirstSession);
-        assert_eq!(at(Duration::hours(24)), Stage::FirstWeek);
-        assert_eq!(at(Duration::days(6)), Stage::FirstWeek);
-        assert_eq!(at(Duration::days(7)), Stage::Any);
+        let now = Timestamp::now();
+        let at = |age: Elapsed| stage_at(Some(now - age), now);
+        assert_eq!(at(Elapsed::hours(1)), Stage::FirstSession);
+        assert_eq!(at(Elapsed::hours(23)), Stage::FirstSession);
+        assert_eq!(at(Elapsed::hours(24)), Stage::FirstWeek);
+        assert_eq!(at(Elapsed::days(6)), Stage::FirstWeek);
+        assert_eq!(at(Elapsed::days(7)), Stage::Any);
         assert_eq!(stage_at(None, now), Stage::Any);
     }
 
@@ -442,13 +439,12 @@ mod tests {
 
     #[test]
     fn a_ride_held_live_and_in_the_export_is_one_week_of_data() {
-        use chrono::TimeZone;
         use pierre_core::constants::oauth_providers::{SCIOTTE, STRAVA, STRAVA_ARCHIVE};
         use pierre_core::models::{ActivityBuilder, SportType};
 
         // Sunday 2026-08-09, read date-only by the usr/pwd capture; the
         // export holds its real start, Monday 01:30 UTC: another ISO week.
-        let sunday = Utc.with_ymd_and_hms(2026, 8, 9, 0, 0, 0).unwrap();
+        let sunday = Timestamp::parse_from_rfc3339("2026-08-09T00:00:00Z").unwrap();
         let capture = ActivityBuilder::new(
             "16012345678",
             "Ride",
@@ -463,7 +459,7 @@ mod tests {
             "16012345678",
             "Ride",
             SportType::Ride,
-            sunday + Duration::hours(25) + Duration::minutes(30),
+            sunday + Elapsed::hours(25) + Elapsed::minutes(30),
             2_700,
             STRAVA_ARCHIVE,
         )

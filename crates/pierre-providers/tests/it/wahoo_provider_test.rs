@@ -14,7 +14,7 @@ use std::time::Duration as StdDuration;
 
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine as _;
-use chrono::{Duration, NaiveDate, Utc};
+use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp};
 use pierre_providers::core::{
     ActivityQueryParams, FitnessProvider, OAuth2Credentials, ProviderConfig,
 };
@@ -24,6 +24,7 @@ use pierre_providers::pagination::PaginationParams;
 use pierre_providers::wahoo_plan::opaque_id;
 use pierre_providers::wahoo_provider::WahooProvider;
 use pierre_providers::{ProviderRegistry, TokenRefreshCallback};
+use pierre_test_support::providers::offline_provider_config;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::select;
@@ -137,11 +138,7 @@ async fn stub(script: Vec<(&'static str, &'static str)>) -> (String, JoinHandle<
 const TOKEN: &str = "wahoo-access-token";
 
 async fn provider(base_url: &str) -> WahooProvider {
-    let registry = ProviderRegistry::new();
-    let mut config: ProviderConfig = registry
-        .default_config("wahoo")
-        .cloned()
-        .expect("wahoo is registered");
+    let mut config: ProviderConfig = offline_provider_config("wahoo").unwrap();
     config.api_base_url = base_url.to_owned();
     let provider = WahooProvider::with_config(config);
     provider
@@ -150,7 +147,7 @@ async fn provider(base_url: &str) -> WahooProvider {
             client_secret: SecretString::from("secret"),
             access_token: Some(SecretString::from(TOKEN.to_owned())),
             refresh_token: Some(SecretString::from("refresh")),
-            expires_at: Some(Utc::now() + Duration::hours(2)),
+            expires_at: Some(Timestamp::now() + Elapsed::hours(2)),
             scopes: vec![],
             kind: pierre_providers::CredentialKind::OAuthBearer,
             request_budget: None,
@@ -178,7 +175,7 @@ fn session() -> PlannedSession {
     PlannedSession {
         external_id: KEY.to_owned(),
         kind: PlannedSessionKind::Workout,
-        date: NaiveDate::from_ymd_opt(2026, 10, 8).unwrap(),
+        date: CivilDate::from_ymd(2026, 10, 8).unwrap(),
         sport: SportType::Ride,
         name: "Threshold for Julie, HRV is back up".to_owned(),
         duration_seconds: Some(3600),
@@ -348,8 +345,8 @@ async fn the_calendar_lists_only_dravrs_workouts_inside_the_window() {
     let events = provider(&base)
         .await
         .list_calendar_events(
-            NaiveDate::from_ymd_opt(2026, 10, 7).unwrap(),
-            NaiveDate::from_ymd_opt(2026, 10, 14).unwrap(),
+            CivilDate::from_ymd(2026, 10, 7).unwrap(),
+            CivilDate::from_ymd(2026, 10, 14).unwrap(),
         )
         .await
         .unwrap();
@@ -468,11 +465,7 @@ async fn a_dropped_refresh_still_writes_the_rotated_pair_back() {
         r#"{"access_token":"rotated-access","refresh_token":"rotated-refresh","expires_in":7200}"#,
     )])
     .await;
-    let registry = ProviderRegistry::new();
-    let mut config: ProviderConfig = registry
-        .default_config("wahoo")
-        .cloned()
-        .expect("wahoo is registered");
+    let mut config: ProviderConfig = offline_provider_config("wahoo").unwrap();
     config.token_url = format!("{base}/oauth/token");
     let provider = WahooProvider::with_config(config);
     provider
@@ -482,7 +475,7 @@ async fn a_dropped_refresh_still_writes_the_rotated_pair_back() {
             access_token: Some(SecretString::from(TOKEN.to_owned())),
             refresh_token: Some(SecretString::from("refresh")),
             // Inside the ten minutes before expiry: the call refreshes first.
-            expires_at: Some(Utc::now() + Duration::minutes(1)),
+            expires_at: Some(Timestamp::now() + Elapsed::minutes(1)),
             scopes: vec![],
             kind: pierre_providers::CredentialKind::OAuthBearer,
             request_budget: None,
@@ -547,6 +540,8 @@ async fn a_dropped_refresh_still_writes_the_rotated_pair_back() {
 
 #[test]
 fn wahoo_is_registered_with_its_calendar_and_its_terms() {
+    // The real registry: its endpoints are what this pins, and nothing here
+    // calls them.
     let registry = ProviderRegistry::new();
     let caps = registry.get_capabilities("wahoo").expect("registered");
     assert!(caps.supports_calendar_write());

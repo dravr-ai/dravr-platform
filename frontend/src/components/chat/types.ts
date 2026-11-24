@@ -4,60 +4,7 @@
 // ABOUTME: Shared types for chat components
 // ABOUTME: Centralizes type definitions used across chat-related components
 
-import type {
-  Conversation,
-  Agent,
-  MessageActions,
-  MessageAudience,
-  MessageOrigin,
-  MessageRole,
-  RoomAttribution,
-  RoomQuote,
-} from '@pierre/shared-types';
-
-export interface Message {
-  id: string;
-  role: MessageRole;
-  content: string;
-  token_count?: number;
-  created_at: string;
-  /**
-   * Resolved visual blocks, a JSON-encoded `RenderBlock[]`. Index-aligned with
-   * the `⟦viz:N⟧` markers in `content`. Resolved server-side on every read, so
-   * this is geometry rather than the spec the agent wrote.
-   */
-  scene_blocks?: string;
-  /**
-   * Why this row ended — `command` marks a slash-command turn; otherwise the
-   * provider's own reason for an LLM row.
-   */
-  finish_reason?: string;
-  /**
-   * The controls a persisted command reply carried, so a reload draws the
-   * same buttons the live turn did.
-   */
-  actions?: MessageActions;
-  isError?: boolean;
-  /** Whether the row's turn tried to change anything; read through `canRegenerateReply`. */
-  turn_attempted_write?: boolean | null;
-  /**
-   * Set on a row a group thread shows from the room — another member's words,
-   * the agent's reply to them, or a placeholder for an entry the author's
-   * sharing consent withholds. Absent on the caller's own rows.
-   */
-  room?: RoomAttribution;
-  /**
-   * The athlete's room words a coach's private question quotes — "Adjust plan
-   * from this" (carnet#1249). Absent on every other row.
-   */
-  quote?: RoomQuote;
-  /**
-   * `private` on a row of the coach's own thread about the room's one
-   * athlete, drawn inline in the room for the coach alone (carnet#1249).
-   * Absent reads as the room's; read it through `audienceOf`.
-   */
-  audience?: MessageAudience;
-}
+import type { Conversation, Agent, Message, MessageOrigin } from '@pierre/shared-types';
 
 export interface ConversationListResponse {
   conversations: Conversation[];
@@ -104,4 +51,4 @@ export interface PendingComposerAction {
 }
 
 // Re-export for convenience
-export type { Conversation, Agent };
+export type { Conversation, Agent, Message };

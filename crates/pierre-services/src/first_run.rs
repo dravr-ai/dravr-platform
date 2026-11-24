@@ -32,7 +32,7 @@ pub mod coach;
 
 use std::iter::once;
 
-use chrono::{DateTime, NaiveDate, Utc};
+use dravr_tronc::dates::{CivilDate, Timestamp};
 use pierre_contremaitre::use_case_catalogue::UseCaseCatalogue;
 use pierre_core::civil_time::clock_date;
 use pierre_core::errors::AppResult;
@@ -48,6 +48,7 @@ use crate::intake::{
     athlete_steps_waived, STATUS_COMPLETE, STEP_ABOUT_YOU, STEP_CHECK_IN, STEP_COACH_PROPOSAL,
     STEP_PARQ,
 };
+use dravr_tronc::dates::Zone;
 
 /// Flow 1: the lead agent's first turn introduces the team.
 pub const MEET_TEAM: &str = "meet_team";
@@ -149,7 +150,7 @@ impl FirstRun {
     /// When `flow` became done: the day that completed its count, or `None`
     /// while it is open.
     #[must_use]
-    pub fn done_at(&self, flow: &str) -> Option<DateTime<Utc>> {
+    pub fn done_at(&self, flow: &str) -> Option<Timestamp> {
         self.days_of(flow)
             .nth(days_to_done(flow).saturating_sub(1))
             .map(|day| day.recorded_at)
@@ -163,7 +164,7 @@ impl FirstRun {
 
     /// Whether `flow`'s done rule was already met on `date`.
     #[must_use]
-    pub fn met_on(&self, flow: &str, date: NaiveDate) -> bool {
+    pub fn met_on(&self, flow: &str, date: CivilDate) -> bool {
         self.days_of(flow).any(|day| day.local_date == date)
     }
 }
@@ -184,12 +185,12 @@ pub async fn record(
     user: Uuid,
     tenant: TenantId,
     flow: &str,
-    local_date: NaiveDate,
+    local_date: CivilDate,
     surface: &str,
 ) -> AppResult<FlowProgress> {
     let written = repos
         .first_run_progress
-        .record_first_run_day(tenant, user, flow, local_date, Utc::now())
+        .record_first_run_day(tenant, user, flow, local_date, Timestamp::now())
         .await?;
     let days = FirstRun::read(repos, tenant, user)
         .await?
@@ -224,7 +225,7 @@ async fn record_best_effort(
     user: Uuid,
     tenant: TenantId,
     flow: &str,
-    local_date: NaiveDate,
+    local_date: CivilDate,
     surface: &str,
 ) {
     if let Err(e) = record(repos, user, tenant, flow, local_date, surface).await {
@@ -266,9 +267,9 @@ pub async fn after_athlete_turn(repos: &RepositoryRegistry, turn: AthleteTurn<'_
             return;
         }
     };
-    let now = Utc::now();
+    let now = Timestamp::now();
     let zone = athlete_zone(repos, turn.user).await;
-    let today = clock_date(now, zone);
+    let today = clock_date(now, &zone);
     let mark = |flow| record_best_effort(repos, turn.user, turn.tenant, flow, today, turn.surface);
     if turn.personal_thread && !first_run.is_done(MEET_TEAM) {
         mark(MEET_TEAM).await;
@@ -279,7 +280,7 @@ pub async fn after_athlete_turn(repos: &RepositoryRegistry, turn: AthleteTurn<'_
     if turn.personal_thread
         && !first_run.is_done(CHECK_IN)
         && !first_run.met_on(CHECK_IN, today)
-        && checked_in_on(repos, turn.tenant, turn.user, today, zone, now).await
+        && checked_in_on(repos, turn.tenant, turn.user, today, &zone, now).await
     {
         mark(CHECK_IN).await;
     }
@@ -302,7 +303,7 @@ pub async fn after_personal_tap(
             return;
         }
     }
-    let today = clock_date(Utc::now(), athlete_zone(repos, user).await);
+    let today = clock_date(Timestamp::now(), &athlete_zone(repos, user).await);
     record_best_effort(repos, user, tenant, MEET_TEAM, today, surface).await;
 }
 
@@ -323,7 +324,7 @@ pub async fn observe_profile(
     }
     match dossier_coverage(repos, tenant, user).await {
         Ok(coverage) if coverage.complete => {
-            let today = clock_date(Utc::now(), athlete_zone(repos, user).await);
+            let today = clock_date(Timestamp::now(), &athlete_zone(repos, user).await);
             record_best_effort(repos, user, tenant, FINISH_PROFILE, today, surface).await;
         }
         Ok(_) => {}
@@ -339,9 +340,9 @@ async fn checked_in_on(
     repos: &RepositoryRegistry,
     tenant: TenantId,
     user: Uuid,
-    today: NaiveDate,
-    zone: chrono_tz::Tz,
-    now: DateTime<Utc>,
+    today: CivilDate,
+    zone: &Zone,
+    now: Timestamp,
 ) -> bool {
     match repos
         .platform_post_claims
@@ -379,7 +380,7 @@ pub enum Answer {
     /// Answered, at the time its step row was last written when that reads.
     Answered {
         /// When the step row was written.
-        at: Option<DateTime<Utc>>,
+        at: Option<Timestamp>,
     },
 }
 
@@ -398,7 +399,7 @@ impl Answer {
         matches!(self, Self::Answered { .. })
     }
 
-    const fn at(self) -> Option<DateTime<Utc>> {
+    const fn at(self) -> Option<Timestamp> {
         match self {
             Self::Answered { at } => at,
             Self::Open => None,
@@ -419,7 +420,7 @@ pub enum HealthCheck {
     /// count moves on by one instead of losing a row.
     Answered {
         /// When the PAR-Q step row was written.
-        at: Option<DateTime<Utc>>,
+        at: Option<Timestamp>,
     },
 }
 
@@ -503,7 +504,7 @@ pub struct GettingStarted {
     /// Rows in all.
     pub total: usize,
     /// When the last row became done; `None` until every row is.
-    pub folded_at: Option<DateTime<Utc>>,
+    pub folded_at: Option<Timestamp>,
 }
 
 /// The first-run flows whose rows complete in a sheet (carnet#1530): Finish
@@ -517,13 +518,13 @@ struct DraftRow {
     eligible: bool,
     done: bool,
     /// When it became done, where that is known.
-    done_at: Option<DateTime<Utc>>,
+    done_at: Option<Timestamp>,
     /// A first-run flow whose tap sends its starter into the thread.
     starter: bool,
 }
 
 /// The earlier of two instants, either of which may be unknown.
-fn earliest(a: Option<DateTime<Utc>>, b: Option<DateTime<Utc>>) -> Option<DateTime<Utc>> {
+fn earliest(a: Option<Timestamp>, b: Option<Timestamp>) -> Option<Timestamp> {
     match (a, b) {
         (Some(a), Some(b)) => Some(a.min(b)),
         (a, b) => a.or(b),
@@ -668,7 +669,7 @@ mod tests {
     use super::*;
     use crate::athlete_state::{ActivityHistory, DossierCoverage};
     use crate::intake::STATUS_NOT_APPLICABLE;
-    use chrono::TimeZone;
+    use dravr_tronc::dates::CivilDateTime;
     use pierre_contremaitre::use_case_catalogue::Stage;
 
     const FLOWS: &str = "
@@ -702,21 +703,22 @@ mod tests {
         }
     }
 
-    fn instant(date: u32, hour: u32) -> DateTime<Utc> {
-        Utc.with_ymd_and_hms(2026, 10, date, hour, 0, 0)
-            .single()
+    fn instant(date: u32, hour: u32) -> Timestamp {
+        CivilDate::from_ymd(2026, 10, date)
+            .and_then(|date| date.and_hms(hour, 0, 0))
+            .and_then(CivilDateTime::and_utc)
             .expect("instant")
     }
 
     fn day(flow: &str, date: u32, hour: u32) -> FirstRunDay {
         FirstRunDay {
             flow_id: flow.to_owned(),
-            local_date: NaiveDate::from_ymd_opt(2026, 10, date).expect("date"),
+            local_date: CivilDate::from_ymd(2026, 10, date).expect("date"),
             recorded_at: instant(date, hour),
         }
     }
 
-    fn step(step_id: &str, status: &str, at: Option<DateTime<Utc>>) -> OnboardingStepRecord {
+    fn step(step_id: &str, status: &str, at: Option<Timestamp>) -> OnboardingStepRecord {
         OnboardingStepRecord {
             step_id: step_id.to_owned(),
             status: status.to_owned(),
@@ -771,10 +773,7 @@ mod tests {
         );
         let two = FirstRun::from_days(vec![day(CHECK_IN, 1, 9), day(CHECK_IN, 2, 9)]);
         assert!(!two.is_done(CHECK_IN));
-        assert!(two.met_on(
-            CHECK_IN,
-            NaiveDate::from_ymd_opt(2026, 10, 2).expect("date")
-        ));
+        assert!(two.met_on(CHECK_IN, CivilDate::from_ymd(2026, 10, 2).expect("date")));
         let three = FirstRun::from_days(vec![
             day(CHECK_IN, 1, 9),
             day(CHECK_IN, 2, 9),

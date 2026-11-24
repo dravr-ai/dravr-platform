@@ -17,7 +17,7 @@
 #[cfg(feature = "tools-groups")]
 mod peer_fetch_tests {
     use crate::common::create_test_server_resources;
-    use chrono::{Duration, Utc};
+    use dravr_tronc::dates::{Elapsed, Timestamp};
     use dravr_tronc::mcp::schema::ToolResponse;
     use dravr_tronc::mcp::tool::{McpTool, ToolContext};
     use pierre_core::models::agents::{AgentCategory, AgentVisibility, CreateSystemAgentRequest};
@@ -31,6 +31,7 @@ mod peer_fetch_tests {
     use pierre_core::permissions::scopes::OAuthScope;
     use pierre_core::transport::Transport;
     use pierre_mcp_server::mcp::resources::ServerContext;
+    use pierre_providers::ai_scope;
     use pierre_test_support::delegation::grant_coach_access;
     use pierre_tool_runtime::context::{CONVERSATION_ID, TURN_DIRECT_MESSAGE};
     use pierre_tool_runtime::implementations::groups::GetGroupMemberActivitiesTool;
@@ -59,7 +60,7 @@ mod peer_fetch_tests {
 
     async fn create_tenant_owned_by(resources: &ServerContext, owner_id: Uuid) -> TenantId {
         let tenant_id = TenantId::generate();
-        let now = Utc::now();
+        let now = Timestamp::now();
         let tenant = Tenant {
             id: tenant_id,
             name: "Peer Tenant".to_owned(),
@@ -111,7 +112,7 @@ mod peer_fetch_tests {
         peer_data_sharing: bool,
     ) -> Uuid {
         let id = Uuid::new_v4();
-        let now = Utc::now();
+        let now = Timestamp::now();
         let group = CoachingGroup {
             id,
             tenant_id: tenant_id.to_string(),
@@ -127,6 +128,7 @@ mod peer_fetch_tests {
             is_active: true,
             channel_type: None,
             channel_chat_id: None,
+            chat_connection: None,
             created_at: now,
             updated_at: now,
         };
@@ -148,7 +150,7 @@ mod peer_fetch_tests {
         role: GroupRole,
         consent: bool,
     ) {
-        let now = Utc::now();
+        let now = Timestamp::now();
         resources
             .common
             .repos
@@ -182,7 +184,7 @@ mod peer_fetch_tests {
     }
 
     async fn add_member_sharing(resources: &ServerContext, sharing: MemberSharing) {
-        let now = Utc::now();
+        let now = Timestamp::now();
         resources
             .common
             .repos
@@ -239,7 +241,7 @@ mod peer_fetch_tests {
             id.to_owned(),
             format!("ride {id}"),
             SportType::Ride,
-            Utc::now() - Duration::days(2),
+            Timestamp::now() - Elapsed::days(2),
             7_200,
             "strava".to_owned(),
         )
@@ -309,11 +311,31 @@ mod peer_fetch_tests {
                 Some(is_direct_message),
                 CONVERSATION_ID.scope(
                     Some(conversation_id.to_owned()),
-                    GetGroupMemberActivitiesTool.execute(runtime, &ctx, args),
+                    InApp.execute(runtime, &ctx, args),
                 ),
             )
             .await;
         structured(&response)
+    }
+
+    /// The tool, run as Dravr's own app runs it: under the transport the
+    /// executor declares for an in-app call. A body run with no declared
+    /// transport reads as served to an outside assistant (carnet#1511).
+    struct InApp;
+
+    impl InApp {
+        async fn execute(
+            &self,
+            runtime: &Arc<dyn ToolRuntime>,
+            ctx: &ToolContext,
+            args: Value,
+        ) -> ToolResponse {
+            ai_scope::serve_over(
+                Transport::WebApp,
+                GetGroupMemberActivitiesTool.execute(runtime, ctx, args),
+            )
+            .await
+        }
     }
 
     /// The tool's answer when a messaging turn in `conversation_id` dispatches
@@ -391,7 +413,7 @@ mod peer_fetch_tests {
 
         let runtime: Arc<dyn ToolRuntime> = resources.clone();
         let ctx = tool_context(requester, host_tenant);
-        let response = GetGroupMemberActivitiesTool
+        let response = InApp
             .execute(&runtime, &ctx, json!({ "member": "raphtool" }))
             .await;
 
@@ -456,7 +478,7 @@ mod peer_fetch_tests {
 
         let runtime: Arc<dyn ToolRuntime> = resources.clone();
         let ctx = tool_context(requester, host_tenant);
-        let response = GetGroupMemberActivitiesTool
+        let response = InApp
             .execute(&runtime, &ctx, json!({ "member": "raphtool" }))
             .await;
 
@@ -499,7 +521,7 @@ mod peer_fetch_tests {
 
         let runtime: Arc<dyn ToolRuntime> = resources.clone();
         let ctx = tool_context(requester, host_tenant);
-        let response = GetGroupMemberActivitiesTool
+        let response = InApp
             .execute(&runtime, &ctx, json!({ "member": "raphtool" }))
             .await;
 
@@ -536,7 +558,7 @@ mod peer_fetch_tests {
 
         let runtime: Arc<dyn ToolRuntime> = resources.clone();
         let ctx = tool_context(requester, host_tenant);
-        let response = GetGroupMemberActivitiesTool
+        let response = InApp
             .execute(&runtime, &ctx, json!({ "member": "nobody-here" }))
             .await;
 
@@ -576,7 +598,7 @@ mod peer_fetch_tests {
 
         let runtime: Arc<dyn ToolRuntime> = resources.clone();
         let ctx = tool_context(requester, host_tenant);
-        let response = GetGroupMemberActivitiesTool
+        let response = InApp
             .execute(&runtime, &ctx, json!({ "member": "philtool" }))
             .await;
 
@@ -630,7 +652,7 @@ mod peer_fetch_tests {
 
         let runtime: Arc<dyn ToolRuntime> = resources.clone();
         let ctx = tool_context(requester, host_tenant);
-        let response = GetGroupMemberActivitiesTool
+        let response = InApp
             .execute(&runtime, &ctx, json!({ "member": "raphtool" }))
             .await;
 
@@ -682,9 +704,7 @@ mod peer_fetch_tests {
             (json!({ "member": "philtool" }), "self"),
         ];
         for (args, expected) in cases {
-            let response = GetGroupMemberActivitiesTool
-                .execute(&runtime, &ctx, args.clone())
-                .await;
+            let response = InApp.execute(&runtime, &ctx, args.clone()).await;
             let payload = structured(&response);
             assert_eq!(
                 payload.get("reason").and_then(Value::as_str),
@@ -766,7 +786,7 @@ mod peer_fetch_tests {
         let ctx = tool_context(requester, host_tenant);
 
         let pinned = structured(
-            &GetGroupMemberActivitiesTool
+            &InApp
                 .execute(
                     &runtime,
                     &ctx,
@@ -782,7 +802,7 @@ mod peer_fetch_tests {
         assert!(pinned.get("activities").is_none());
 
         let unpinned = structured(
-            &GetGroupMemberActivitiesTool
+            &InApp
                 .execute(&runtime, &ctx, json!({ "member": "raphtool" }))
                 .await,
         );
@@ -843,7 +863,7 @@ mod peer_fetch_tests {
         let runtime: Arc<dyn ToolRuntime> = resources.clone();
         let ctx = tool_context(human_coach, coach_tenant);
         let payload = structured(
-            &GetGroupMemberActivitiesTool
+            &InApp
                 .execute(&runtime, &ctx, json!({ "member": "raphtool" }))
                 .await,
         );
@@ -865,7 +885,7 @@ mod peer_fetch_tests {
             .await
             .unwrap());
         let refused = structured(
-            &GetGroupMemberActivitiesTool
+            &InApp
                 .execute(&runtime, &ctx, json!({ "member": "raphtool" }))
                 .await,
         );
@@ -929,7 +949,7 @@ mod peer_fetch_tests {
 
         let runtime: Arc<dyn ToolRuntime> = resources.clone();
         let coach_read = structured(
-            &GetGroupMemberActivitiesTool
+            &InApp
                 .execute(
                     &runtime,
                     &tool_context(human_coach, coach_tenant),
@@ -944,7 +964,7 @@ mod peer_fetch_tests {
         );
 
         let peer_read = structured(
-            &GetGroupMemberActivitiesTool
+            &InApp
                 .execute(
                     &runtime,
                     &tool_context(owner, host_tenant),

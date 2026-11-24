@@ -7,11 +7,11 @@
 use std::fmt;
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::admin::jwt::JwtSigner;
 use pierre_core::admin::models::{
     AdminAction, AdminPermissions, AdminToken, AdminTokenUsage, CreateAdminTokenRequest,
-    GeneratedAdminToken, DELETED_ACCOUNT_OPERATOR,
+    GeneratedAdminToken, DELETED_ACCOUNT_ADMIN,
 };
 use pierre_core::admin::{AdminJwtManager, TokenScope};
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
@@ -80,7 +80,7 @@ pub enum TokenRevocation {
 /// Admin token management repository.
 ///
 /// A permission surface, and a global one: admin tokens authenticate the
-/// operator console and the CLI, so they are keyed by token id and prefix
+/// admin console and the CLI, so they are keyed by token id and prefix
 /// rather than by tenant — the row itself carries the `tenant_id` claim the
 /// token was minted with, and the auth service enforces it on every call.
 #[async_trait]
@@ -223,15 +223,15 @@ pub trait AdminRepository: Send + Sync {
     async fn record_token_use(
         &self,
         token_id: &str,
-        used_at: DateTime<Utc>,
+        used_at: Timestamp,
         ip_address: Option<&str>,
     ) -> AppResult<()>;
     /// Get admin token usage history
     async fn get_token_usage_history(
         &self,
         token_id: &str,
-        start_date: DateTime<Utc>,
-        end_date: DateTime<Utc>,
+        start_date: Timestamp,
+        end_date: Timestamp,
     ) -> AppResult<Vec<AdminTokenUsage>>;
     /// Record API key provisioning by admin
     async fn record_provisioned_key(
@@ -272,7 +272,7 @@ pub(crate) use admin_token_columns;
 /// `$n` placeholders throughout: sqlx accepts them on `SQLite` as well as
 /// Postgres, so one statement serves both backends and cannot drift between
 /// them. Every bind here is a plain `&str`, `Option<&str>`, `bool`,
-/// `DateTime<Utc>`, `Option<DateTime<Utc>>` or `i64` both drivers encode
+/// `Timestamp`, `Option<Timestamp>` or `i64` both drivers encode
 /// alike — the boolean columns are `BOOLEAN` on Postgres and 0/1 `INTEGER`
 /// on `SQLite`, and a `bool` binds and decodes as both.
 pub(crate) const CREATE_ADMIN_TOKEN_SQL: &str = r"
@@ -300,17 +300,16 @@ pub(crate) const DEACTIVATE_ADMIN_TOKEN_SQL: &str =
 pub(crate) const CLAIM_ADMIN_TOKEN_SQL: &str = "UPDATE admin_tokens \
      SET is_active = FALSE, rotated_to_token_id = $2 WHERE id = $1 AND is_active = TRUE";
 
-/// Retire every live token acting as one operator, naming the ones retired:
+/// Retire every live token acting as one admin, naming the ones retired:
 /// the device logins an account loses with its admin standing, run by the
 /// user write that ends it, in that write's transaction (`admin_standing`).
 /// `operator_user_id` is text on both engines, so the id binds as a string.
-pub(crate) const DEACTIVATE_OPERATOR_TOKENS_SQL: &str =
-    "UPDATE admin_tokens SET is_active = FALSE \
+pub(crate) const DEACTIVATE_ADMIN_TOKENS_SQL: &str = "UPDATE admin_tokens SET is_active = FALSE \
      WHERE operator_user_id = $1 AND is_active = TRUE RETURNING id";
 
 /// Whether an `admin_tokens` row still takes a caller's address: every row
 /// but the device login of a deleted account, which acts as no account
-/// (`$deleted` is the placeholder `DELETED_ACCOUNT_OPERATOR` binds to, as
+/// (`$deleted` is the placeholder `DELETED_ACCOUNT_ADMIN` binds to, as
 /// text). The deletion cleared the address under that row and its log, and
 /// a request still in flight must not write it back.
 ///
@@ -329,10 +328,10 @@ pub(crate) use token_takes_a_caller_sql;
 
 /// What the `$deleted` placeholder of [`token_takes_a_caller_sql!`] binds:
 /// what a deleted account's device logins act as
-/// (`DELETED_ACCOUNT_OPERATOR`), as the text `operator_user_id` holds on
+/// (`DELETED_ACCOUNT_ADMIN`), as the text `operator_user_id` holds on
 /// both engines.
 pub(crate) fn deleted_account_column() -> String {
-    DELETED_ACCOUNT_OPERATOR.to_string()
+    DELETED_ACCOUNT_ADMIN.to_string()
 }
 
 /// The statements that touch an address column, resolved once per backend.
@@ -486,7 +485,7 @@ pub(crate) fn mint_admin_token(
 
     let permissions = request.granted_permissions();
 
-    let expires_at = request.expires_at(Utc::now())?;
+    let expires_at = request.expires_at(Timestamp::now())?;
 
     let jwt_token = AdminJwtManager::new()
         .generate_token(
@@ -517,7 +516,7 @@ pub(crate) fn mint_admin_token(
             permissions,
             is_super_admin: request.is_super_admin,
             expires_at,
-            created_at: Utc::now(),
+            created_at: Timestamp::now(),
         },
         token_hash,
         jwt_secret_hash,
@@ -587,8 +586,8 @@ where
     Option<String>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     bool: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     i64: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    DateTime<Utc>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    Option<DateTime<Utc>>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Timestamp: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Option<Timestamp>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
     let permissions_json: String = row
         .try_get("permissions")
@@ -676,7 +675,7 @@ where
     bool: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     i64: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     Option<i32>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    DateTime<Utc>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Timestamp: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
     let action_str: String = row
         .try_get("action")
@@ -920,7 +919,7 @@ macro_rules! impl_admin_repository {
             async fn record_token_use(
                 &self,
                 token_id: &str,
-                used_at: DateTime<Utc>,
+                used_at: Timestamp,
                 ip_address: Option<&str>,
             ) -> AppResult<()> {
                 sqlx::query(RECORD_ADMIN_TOKEN_USE_SQL)
@@ -940,8 +939,8 @@ macro_rules! impl_admin_repository {
             async fn get_token_usage_history(
                 &self,
                 token_id: &str,
-                start_date: DateTime<Utc>,
-                end_date: DateTime<Utc>,
+                start_date: Timestamp,
+                end_date: Timestamp,
             ) -> AppResult<Vec<AdminTokenUsage>> {
                 let rows = sqlx::query(GET_ADMIN_TOKEN_USAGE_SQL)
                     .bind(token_id)
@@ -975,7 +974,7 @@ macro_rules! impl_admin_repository {
                     .bind(api_key_id)
                     .bind(normalize_email(user_email))
                     .bind(tier)
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .bind(service_name)
                     .bind(count_to_column(rate_limit_requests))
                     .bind(rate_limit_period)

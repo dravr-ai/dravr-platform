@@ -239,7 +239,7 @@ async fn test_configuration_tools_count_in_total() {
     // for user_physiological_profiles. It is counted here rather than with the
     // configuration tools: this split is by name prefix, and the tool is
     // registered under the chat-callable `physiology` category precisely
-    // because it is not operator configuration.
+    // because it is not admin configuration.
     // 2026-08-25: the Agent Store tools browse_coach_store,
     // search_coach_store and install_coach_from_store added (99→102, total
     // 105→108) — the marketplace had no chat-callable surface at all.
@@ -279,8 +279,8 @@ async fn test_configuration_tools_count_in_total() {
     // count, total and breakdown over a period from one read of the store,
     // carnet#1485.
     assert_eq!(
-        fitness_tools, 118,
-        "Expected exactly 118 non-configuration tools"
+        fitness_tools, 121,
+        "Expected exactly 121 non-configuration tools"
     );
     // 2026-09-04: estimate_vo2max added (104→105, total 110→111) — the field-test
     // capture path for VO2max, closing carnet#265.
@@ -288,5 +288,10 @@ async fn test_configuration_tools_count_in_total() {
     // lactate step-test capture path, carnet#357.
     // 2026-09-07: recommend_plan_flavour added (106→107, total 112→113) — the
     // profile through the selection rule and the season it implies, carnet#343.
-    assert_eq!(tools.len(), 124, "Expected total of 124 tools"); // 118 non-configuration + 6 configuration
+    // 2026-11-20: admin_impersonate_start and admin_impersonate_end added
+    // (118→120, total 124→126), an admin's support session over MCP and A2A,
+    // carnet#1511.
+    // 2026-11-21: get_health_records added (120→121, total 126→127) — the
+    // T2–T3 records every import stores, each row by its own tier, carnet#1544.
+    assert_eq!(tools.len(), 127, "Expected total of 127 tools"); // 121 non-configuration + 6 configuration
 }

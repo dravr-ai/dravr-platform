@@ -14,8 +14,7 @@
 
 use std::sync::Arc;
 
-use chrono::Utc;
-use chrono_tz::Tz;
+use dravr_tronc::dates::{Timestamp, Zone};
 use pierre_cache::Cache;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::{SportType, TenantId};
@@ -67,8 +66,15 @@ pub(super) async fn search(
     search: &LoopSearch,
 ) -> Vec<OwnLoop> {
     let terms = state.provider_registry().as_ref();
-    match athlete_loops::own_loops(state.repos(), terms, tenant_id, user_id, search, Utc::now())
-        .await
+    match athlete_loops::own_loops(
+        state.repos(),
+        terms,
+        tenant_id,
+        user_id,
+        search,
+        Timestamp::now(),
+    )
+    .await
     {
         Ok(loops) => loops,
         Err(error) => {
@@ -127,7 +133,7 @@ pub(super) async fn entries(
     let zone = athlete_zone(state.repos(), user_id).await;
     let mut listed = Vec::with_capacity(loops.len());
     for found in loops {
-        if let Some(entry) = entry(state.cache(), tenant_id, user_id, sport, zone, found).await {
+        if let Some(entry) = entry(state.cache(), tenant_id, user_id, sport, &zone, found).await {
             listed.push(entry);
         }
     }
@@ -140,14 +146,10 @@ async fn entry(
     tenant_id: TenantId,
     user_id: Uuid,
     sport: &SportType,
-    zone: Tz,
+    zone: &Zone,
     found: OwnLoop,
 ) -> Option<DiscoveredRouteEntry> {
-    let date = found
-        .started_at
-        .with_timezone(&zone)
-        .date_naive()
-        .to_string();
+    let date = zone.date_at(found.started_at).to_string();
     let place_name = served_place_name(&found.place);
     let name = found
         .name

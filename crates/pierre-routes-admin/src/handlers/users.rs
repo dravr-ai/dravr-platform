@@ -35,6 +35,7 @@ use super::types::{
 };
 use super::user_removal::{account_in_reach, parse_user_id};
 use crate::context::AdminApiContext;
+use dravr_tronc::dates::Timestamp;
 
 /// User list response
 #[derive(Debug, Clone, Serialize)]
@@ -76,7 +77,7 @@ pub(crate) struct UserSummary {
     is_admin: bool,
     /// When the account was approved, if it has been
     approved_at: Option<String>,
-    /// Who approved it, if an operator did
+    /// Who approved it, if an admin did
     approved_by: Option<String>,
 }
 
@@ -92,7 +93,7 @@ impl From<&User> for UserSummary {
             user_status: user_status_str(user.user_status),
             role: user.role.as_str(),
             is_admin: user.role.is_admin(),
-            approved_at: user.approved_at.map(|t| t.to_rfc3339()),
+            approved_at: user.approved_at.map(Timestamp::to_rfc3339),
             approved_by: user.approved_by.map(|id| id.to_string()),
         }
     }
@@ -201,7 +202,7 @@ pub(crate) async fn handle_list_users(
 
 /// Read one user by id.
 ///
-/// `/admin/users/{user_id}` carried only `delete` until now, so an operator
+/// `/admin/users/{user_id}` carried only `delete` until now, so an admin
 /// could remove a user but never read one — `pierre-cli user get <email>` hit a
 /// 405 on a path that plainly looked like a fetch. Returns more than the
 /// listing's summary does (status, admin flag, the providers the user holds in
@@ -265,10 +266,10 @@ pub async fn handle_get_user(
         .map(|held| held.provider.as_str())
         .filter(|provider| kept_for_groups(provider))
         .collect();
-    let manages_roster_operator_grant = context
+    let manages_roster_admin_grant = context
         .repos
         .users
-        .manages_roster_operator_grant(user_uuid)
+        .manages_roster_admin_grant(user_uuid)
         .await?;
     let owned_active_groups: Vec<Value> = context
         .repos
@@ -295,7 +296,7 @@ pub async fn handle_get_user(
         "role": user.role.as_str(),
         "is_admin": user.role.is_admin(),
         "manages_roster": user.manages_roster,
-        "manages_roster_operator_grant": manages_roster_operator_grant,
+        "manages_roster_admin_grant": manages_roster_admin_grant,
         "created_at": user.created_at.to_rfc3339(),
         "last_active": user.last_active.to_rfc3339(),
         "connected_providers": connected_providers,
@@ -452,7 +453,7 @@ pub(super) fn token_tenant(token: &ValidatedAdminToken) -> AppResult<Option<Tena
         .transpose()
 }
 
-/// Announce an approval: raise the operator notify event, then tell the user.
+/// Announce an approval: raise the admin notify event, then tell the user.
 ///
 /// The identity cache is warmed first because the notify enricher only attaches
 /// `user_email` when the record carries `user_id` and that id resolves — an
@@ -573,7 +574,7 @@ pub(crate) async fn handle_approve_user(
                     "email": updated_user.email,
                     "user_status": user_status_str(updated_user.user_status),
                     "approved_by": updated_user.approved_by,
-                    "approved_at": updated_user.approved_at.map(|t| t.to_rfc3339()),
+                    "approved_at": updated_user.approved_at.map(Timestamp::to_rfc3339),
                 },
                 "reason": reason
             }))
@@ -626,7 +627,7 @@ pub(crate) async fn handle_suspend_user(
     let user_uuid = acting.id();
 
     // Shared get/guard/update-status core (no tenant step on suspension); the
-    // operator behind the token is recorded against the transition, and is
+    // admin behind the token is recorded against the transition, and is
     // the actor an admin's own suspension is refused to: a console session
     // or a device login acts as its admin, a service token as no one.
     let transition =
@@ -720,7 +721,7 @@ pub(crate) async fn handle_reset_user_password(
     let user_uuid = acting.id();
     let user = acting.account();
 
-    // Audit identity: the operator when the token names one, else the service.
+    // Audit identity: the admin when the token names one, else the service.
     let reset_by = caller.audit_name();
     let raw_token = admin_ops::issue_password_reset_token(&ctx.repos, &acting).await?;
 
@@ -849,7 +850,7 @@ pub(crate) struct SetUserTierRequest {
 ///
 /// Restricted to super-admin tokens because the tier write is
 /// orthogonal to `ManageUsers` — Stripe webhook drives Stripe-paid
-/// upgrades; this route is the human-operator backdoor for QA, comp
+/// upgrades; this route is the human-admin backdoor for QA, comp
 /// accounts, and overrides outside the Stripe loop. Auditable via
 /// the existing `tracing::info` on the path.
 pub(crate) async fn handle_set_user_tier(
@@ -884,7 +885,7 @@ pub(crate) async fn handle_set_user_tier(
     };
 
     // Shared implementation: writes users.tier AND the anti-clobber marker,
-    // attributed to the operator behind the token when it names one.
+    // attributed to the admin behind the token when it names one.
     let note = format!("admin tier override via {}", admin_token.service_name);
     let updated = admin_ops::set_user_tier(
         &context.repos,
@@ -935,7 +936,7 @@ pub(crate) struct SetManagesRosterRequest {
 /// `POST /admin/users/{user_id}/manages-roster`, and the console's
 /// `/api/admin/users/{user_id}/manages-roster`. This is how a coach with no
 /// `TrainingPeaks` coach account becomes able to redeem a group's coach
-/// invite. A grant records the operator behind the token and the time, and a
+/// invite. A grant records the admin behind the token and the time, and a
 /// `TrainingPeaks` disconnect never takes it back. Super-admin only, like the
 /// tier override: the grant lets its holder coach the members of any group
 /// that invites them.
@@ -966,10 +967,10 @@ pub(crate) async fn handle_set_user_manages_roster(
         admin_token.operator_user_id,
     )
     .await?;
-    let operator_grant = context
+    let admin_grant = context
         .repos
         .users
-        .manages_roster_operator_grant(user_uuid)
+        .manages_roster_admin_grant(user_uuid)
         .await?;
 
     info!(
@@ -996,7 +997,7 @@ pub(crate) async fn handle_set_user_manages_roster(
                 "user_id": user_uuid.to_string(),
                 "email": updated.email,
                 "manages_roster": updated.manages_roster,
-                "manages_roster_operator_grant": operator_grant,
+                "manages_roster_admin_grant": admin_grant,
             }))
             .ok(),
         },

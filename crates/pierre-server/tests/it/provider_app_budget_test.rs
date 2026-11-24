@@ -22,7 +22,7 @@ use std::sync::Arc;
 
 use axum::routing::get;
 use axum::{Json, Router};
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::{ConnectionType, TenantId, TenantOAuthCredentials, UserOAuthToken};
 use pierre_mcp_server::mcp::resources::ServerContext;
@@ -89,7 +89,7 @@ async fn connected_athlete(resources: &ServerContext, label: &str) -> (Uuid, Ten
         "strava".to_owned(),
         LIVE_ACCESS.to_owned(),
         Some("live-refresh".to_owned()),
-        Some(Utc::now() + Duration::hours(6)),
+        Some(Timestamp::now() + Elapsed::hours(6)),
         Some("activity:read_all".to_owned()),
     );
     repos.oauth_tokens.upsert_token(&token).await.unwrap();

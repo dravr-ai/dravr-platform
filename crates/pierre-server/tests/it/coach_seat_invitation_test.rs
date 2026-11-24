@@ -7,7 +7,7 @@
 //! carnet#1524: an admin invites a coach the team recruited. The invite
 //! is the single-use mailed link of every invitation, locked to the address,
 //! and its redemption also settles coach access (`manages_roster`, an
-//! operator grant by the inviter) and the coach role, so the coach meets no
+//! admin grant by the inviter) and the coach role, so the coach meets no
 //! role question and no request.
 //!
 //! These drive the real admin routes (`/admin/coach-seat-invitations`), the
@@ -24,7 +24,7 @@ use secrecy::ExposeSecret;
 
 use anyhow::Result;
 use async_trait::async_trait;
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use helpers::axum_test::AxumTestRequest;
 use pierre_auth::admin::jwks::JwksManager;
 use pierre_config::environment::{
@@ -98,14 +98,14 @@ impl UserApprovalNotifier for RecordingNotifier {
 }
 
 /// One in-memory database behind the admin routes, the acceptance handler and
-/// the onboarding read, and the admin operator issuing invitations.
+/// the onboarding read, and the admin issuing invitations.
 struct Harness {
     resources: Arc<ServerContext>,
     admin: axum::Router,
     repos: Arc<RepositoryRegistry>,
     jwks: Arc<JwksManager>,
-    operator_id: Uuid,
-    operator_email: String,
+    admin_id: Uuid,
+    admin_email: String,
     invited: Arc<Mutex<Vec<MailedInvitation>>>,
 }
 
@@ -159,6 +159,8 @@ impl Harness {
                     archive_imports: None,
                     live_records: None,
                     blobs: None,
+                    lab_reader: None,
+                    pdf_text_bin: None,
                     #[cfg(feature = "client-messaging")]
                     channel_adapters: common::offline_adapters(),
                 },
@@ -197,21 +199,21 @@ impl Harness {
         }));
         context.frontend_url = Some(FRONTEND_URL.to_owned());
 
-        let operator_email = "team-operator@example.com".to_owned();
-        let operator_id = seed_user(&repos, &operator_email, UserRole::Admin).await?;
+        let admin_email = "team-admin@example.com".to_owned();
+        let admin_id = seed_user(&repos, &admin_email, UserRole::Admin).await?;
 
         Ok(Self {
             resources,
             admin: AdminRoutes::routes(context),
             repos,
             jwks,
-            operator_id,
-            operator_email,
+            admin_id,
+            admin_email,
             invited,
         })
     }
 
-    /// A super-admin token acting as the operator, as the console session is.
+    /// A super-admin token acting as the admin, as the console session is.
     async fn super_admin_token(&self) -> Result<String> {
         self.token(true).await
     }
@@ -224,7 +226,7 @@ impl Harness {
             expires_in_days: Some(30),
             is_super_admin,
             tenant_id: None,
-            operator_user_id: Some(self.operator_id),
+            operator_user_id: Some(self.admin_id),
         };
         let generated = self
             .repos
@@ -376,15 +378,15 @@ async fn redeeming_a_coach_seat_invitation_grants_the_seat_and_records_the_coach
     let grant = harness
         .repos
         .users
-        .manages_roster_operator_grant(coach.id)
+        .manages_roster_admin_grant(coach.id)
         .await?
-        .expect("coach access is an operator grant");
+        .expect("coach access is an admin grant");
     assert_eq!(
         grant.granted_by,
-        Some(harness.operator_id),
-        "the inviter is the operator of the grant"
+        Some(harness.admin_id),
+        "the inviter is the admin of the grant"
     );
-    assert_eq!(coach.approved_by, Some(harness.operator_id));
+    assert_eq!(coach.approved_by, Some(harness.admin_id));
     assert!(
         harness.repos.users.coaches_others(coach.id).await?,
         "the coach role is recorded"
@@ -418,7 +420,7 @@ async fn a_plain_invitation_settles_neither_the_seat_nor_the_role() -> Result<()
     let issued = match invitation::issue(
         &harness.repos,
         "athlete@example.com",
-        Some(harness.operator_id),
+        Some(harness.admin_id),
         InvitationKind::Account,
     )
     .await?
@@ -501,10 +503,10 @@ async fn an_expired_coach_seat_invitation_is_refused() -> Result<()> {
         .user_invitations
         .issue(
             "late-coach@example.com",
-            Some(harness.operator_id),
+            Some(harness.admin_id),
             &generated.selector,
             &generated.verifier_hash,
-            Utc::now() - Duration::minutes(1),
+            Timestamp::now() - Elapsed::minutes(1),
             InvitationKind::CoachSeat,
         )
         .await?;
@@ -594,7 +596,7 @@ async fn the_console_lists_each_outstanding_coach_seat_invitation_with_its_expir
     invitation::issue(
         &harness.repos,
         "plain-invitee@example.com",
-        Some(harness.operator_id),
+        Some(harness.admin_id),
         InvitationKind::Account,
     )
     .await?;
@@ -609,13 +611,14 @@ async fn the_console_lists_each_outstanding_coach_seat_invitation_with_its_expir
     );
     let row = &listed[0];
     assert_eq!(row["email"], "first-coach@example.com");
-    assert_eq!(row["invited_by_email"], harness.operator_email.as_str());
+    assert_eq!(row["invited_by_email"], harness.admin_email.as_str());
     assert_eq!(row["expired"], false);
     let expires_at = row["expires_at"].as_str().expect("an expiry");
-    let expires_at = chrono::DateTime::parse_from_rfc3339(expires_at)?;
+    let expires_at = Timestamp::parse_from_rfc3339(expires_at)?;
     assert!(
         expires_at
-            > Utc::now() + Duration::days(invitation::INVITATION_TTL_DAYS) - Duration::minutes(1),
+            > Timestamp::now() + Elapsed::days(invitation::INVITATION_TTL_DAYS)
+                - Elapsed::minutes(1),
         "the invitation TTL applies: {expires_at}"
     );
 

@@ -6,7 +6,7 @@
 
 //! HTTP routes for API key management
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use secrecy::SecretString;
 use serde::Serialize;
 use std::fmt;
@@ -42,11 +42,11 @@ pub struct ApiKeyInfo {
     /// Whether the key is active
     pub is_active: bool,
     /// When the key was last used
-    pub last_used_at: Option<DateTime<Utc>>,
+    pub last_used_at: Option<Timestamp>,
     /// When the key expires (if applicable)
-    pub expires_at: Option<DateTime<Utc>>,
+    pub expires_at: Option<Timestamp>,
     /// When the key was created
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
 }
 
 /// Response after creating a new API key
@@ -74,7 +74,7 @@ pub struct ApiKeyDeactivateResponse {
     /// Success message
     pub message: String,
     /// When the key was deactivated
-    pub deactivated_at: DateTime<Utc>,
+    pub deactivated_at: Timestamp,
 }
 
 /// API Key management routes
@@ -268,7 +268,7 @@ impl ApiKeyRoutes {
 
         Ok(ApiKeyDeactivateResponse {
             message: format!("API key {api_key_id} has been deactivated"),
-            deactivated_at: Utc::now(),
+            deactivated_at: Timestamp::now(),
         })
     }
 
@@ -284,8 +284,8 @@ impl ApiKeyRoutes {
         &self,
         auth: &AuthResult,
         api_key_id: &str,
-        start_date: DateTime<Utc>,
-        end_date: DateTime<Utc>,
+        start_date: Timestamp,
+        end_date: Timestamp,
     ) -> AppResult<ApiKeyUsageResponse> {
         let user_id = auth.user_id;
 
@@ -371,7 +371,7 @@ impl ApiKeyRoutes {
             },
             warning: format!(
                 "This is a trial API key that will expire on {}. Store it securely - it cannot be recovered once lost.",
-                api_key.expires_at.map_or_else(|| "N/A".into(), |d| d.format("%Y-%m-%d").to_string())
+                api_key.expires_at.map_or_else(|| "N/A".into(), |d| d.utc_date().to_string())
             ),
         })
     }

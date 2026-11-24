@@ -11,7 +11,8 @@
     clippy::items_after_statements
 )]
 
-use chrono::Utc;
+use dravr_tronc::dates::Elapsed;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::billing::{BillingEvent, SubscriptionEventPayload};
 use pierre_core::models::CoachingPersona;
 use pierre_core::models::{SubscriptionStatus, Tenant, TenantId, User, UserStatus, UserTier};
@@ -39,8 +40,8 @@ fn upsert_payload(
         user_id: user_id.to_string(),
         plan_tier: plan_tier.to_owned(),
         status: status.to_owned(),
-        current_period_start: Some(Utc::now()),
-        current_period_end: Some(Utc::now() + chrono::Duration::days(30)),
+        current_period_start: Some(Timestamp::now()),
+        current_period_end: Some(Timestamp::now() + Elapsed::days(30)),
         cancel_at_period_end: false,
         canceled_at: None,
         trial_end: None,
@@ -52,7 +53,7 @@ async fn seed_starter_user_and_tenant(db: &Database) -> (Uuid, TenantId) {
     let repos = db.repositories();
     let user_id = Uuid::new_v4();
     let tenant_id = TenantId::generate();
-    let now = Utc::now();
+    let now = Timestamp::now();
 
     let user = User {
         id: user_id,
@@ -60,7 +61,6 @@ async fn seed_starter_user_and_tenant(db: &Database) -> (Uuid, TenantId) {
         display_name: Some("Phase 5B Test".to_owned()),
         password_hash: bcrypt::hash("password123", bcrypt::DEFAULT_COST).unwrap(),
         tier: UserTier::Starter,
-        strava_token: None,
         is_active: true,
         user_status: UserStatus::Active,
         role: UserRole::User,
@@ -125,9 +125,15 @@ async fn subscription_upserted_flips_tier_and_plan() {
 
     let auth_repos = repos.auth_repos();
     let usage_repos = repos.usage_repos();
-    dispatch_billing_event(&auth_repos, &usage_repos, TEST_PROVIDER, Utc::now(), &event)
-        .await
-        .expect("dispatch should succeed");
+    dispatch_billing_event(
+        &auth_repos,
+        &usage_repos,
+        TEST_PROVIDER,
+        Timestamp::now(),
+        &event,
+    )
+    .await
+    .expect("dispatch should succeed");
 
     let user_after = repos.users.get_global(user_id).await.unwrap().unwrap();
     assert_eq!(user_after.tier, UserTier::Professional);
@@ -193,7 +199,7 @@ async fn subscription_canceled_downgrades_to_starter() {
         &auth_repos,
         &usage_repos,
         TEST_PROVIDER,
-        Utc::now(),
+        Timestamp::now(),
         &upsert,
     )
     .await
@@ -201,14 +207,14 @@ async fn subscription_canceled_downgrades_to_starter() {
 
     let cancel = BillingEvent::SubscriptionCanceled {
         provider_subscription_id: subscription_id.clone(),
-        canceled_at: Some(Utc::now()),
+        canceled_at: Some(Timestamp::now()),
     };
 
     dispatch_billing_event(
         &auth_repos,
         &usage_repos,
         TEST_PROVIDER,
-        Utc::now(),
+        Timestamp::now(),
         &cancel,
     )
     .await
@@ -252,7 +258,7 @@ async fn payment_failed_flips_status_to_past_due() {
         &auth_repos,
         &usage_repos,
         TEST_PROVIDER,
-        Utc::now(),
+        Timestamp::now(),
         &upsert,
     )
     .await
@@ -265,7 +271,7 @@ async fn payment_failed_flips_status_to_past_due() {
         &auth_repos,
         &usage_repos,
         TEST_PROVIDER,
-        Utc::now(),
+        Timestamp::now(),
         &payment_failed,
     )
     .await
@@ -293,14 +299,14 @@ async fn admin_tier_override_blocks_webhook_tier_change() {
     let (plain_user, plain_tenant) = seed_starter_user_and_tenant(&db).await;
     let repos = db.repositories();
 
-    // Operator pins the first user to Enterprise (set_tier + override marker),
+    // Admin pins the first user to Enterprise (set_tier + override marker),
     // mirroring what handle_set_user_tier does.
     repos
         .users
         .set_tier(overridden_user, UserTier::Enterprise)
         .await
         .unwrap();
-    let now = Utc::now();
+    let now = Timestamp::now();
     repos
         .user_tier_overrides
         .upsert(&UserTierOverride {
@@ -331,7 +337,7 @@ async fn admin_tier_override_blocks_webhook_tier_change() {
         &auth_repos,
         &usage_repos,
         TEST_PROVIDER,
-        Utc::now(),
+        Timestamp::now(),
         &overridden_event,
     )
     .await
@@ -366,7 +372,7 @@ async fn admin_tier_override_blocks_webhook_tier_change() {
         &auth_repos,
         &usage_repos,
         TEST_PROVIDER,
-        Utc::now(),
+        Timestamp::now(),
         &plain_event,
     )
     .await
@@ -387,7 +393,7 @@ async fn admin_tier_override_blocks_cancel_downgrade() {
         .set_tier(user_id, UserTier::Enterprise)
         .await
         .unwrap();
-    let now = Utc::now();
+    let now = Timestamp::now();
     repos
         .user_tier_overrides
         .upsert(&UserTierOverride {
@@ -419,7 +425,7 @@ async fn admin_tier_override_blocks_cancel_downgrade() {
         &auth_repos,
         &usage_repos,
         TEST_PROVIDER,
-        Utc::now(),
+        Timestamp::now(),
         &upsert,
     )
     .await
@@ -427,13 +433,13 @@ async fn admin_tier_override_blocks_cancel_downgrade() {
 
     let cancel = BillingEvent::SubscriptionCanceled {
         provider_subscription_id: subscription_id.clone(),
-        canceled_at: Some(Utc::now()),
+        canceled_at: Some(Timestamp::now()),
     };
     dispatch_billing_event(
         &auth_repos,
         &usage_repos,
         TEST_PROVIDER,
-        Utc::now(),
+        Timestamp::now(),
         &cancel,
     )
     .await
@@ -491,7 +497,7 @@ async fn ignored_event_is_a_noop() {
         &auth_repos,
         &usage_repos,
         TEST_PROVIDER,
-        Utc::now(),
+        Timestamp::now(),
         &BillingEvent::Ignored,
     )
     .await

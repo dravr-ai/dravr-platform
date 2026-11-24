@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: API keys domain API — the athlete's own keys: list, create (the key comes back once), revoke, and one key's usage
-// ABOUTME: Both settings panes call it; the operator-side key provisioning stays in the admin console
+// ABOUTME: Both settings panes call it; the admin-side key provisioning stays in the admin console
 
 import type { AxiosInstance } from 'axios';
 import type {

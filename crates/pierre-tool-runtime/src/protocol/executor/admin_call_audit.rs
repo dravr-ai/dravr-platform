@@ -12,7 +12,10 @@
 //! REST admin routes write each action to `audit_events`, and each such tool
 //! call over `/mcp` or A2A is one row of the same trail, naming the caller,
 //! the tool, the transport and how the call ended (EFVP 2026-11-17, decision
-//! 9.4d).
+//! 9.4d), and the credential it came through: its kind (an OAuth grant, an
+//! API key, a personal MCP token, a first-party session, an A2A client's
+//! client credentials) and the client it was issued to, ids and kinds only
+//! (carnet#1511). A call that declared no credential names none.
 //!
 //! The row is written **before** the call is dispatched, as
 //! [`AuditOutcome::Started`], and settled afterwards. A row that cannot be
@@ -25,12 +28,28 @@
 //! by that door through [`record_refused_admin_call`], so every admin-only
 //! call over those transports is on the trail.
 //!
+//! **A tool kept on Dravr's own surfaces** ([`ToolReach::FirstPartyOnly`])
+//! run from outside by a caller whose grant holds `admin` passes only through
+//! the admin exception of the access predicate (carnet#1511, Q25): an admin's
+//! API key, or an OAuth connection on which the admin ticked Admin access.
+//! Such a call is recorded the same way, before it runs, and a row that
+//! cannot be written refuses it.
+//!
+//! **In an admin's support session** ([`crate::support_session`],
+//! carnet#1511) every call from outside is recorded the same way, whatever
+//! the tool: the row's actor is the admin, and its metadata names the user
+//! the session acts as and the session. A row that cannot be written
+//! refuses the call, a plain read included.
+//!
 //! Calls from Dravr's own surfaces (the web and mobile apps, messaging) are
 //! not recorded here: the admin's own session already answers for them. A
 //! call that declared no transport is recorded, as the AI gates treat it as
 //! external (`ai_scope::result_exposure`); its row names the transport
 //! [`UNDECLARED_TRANSPORT`](pierre_core::transport::UNDECLARED_TRANSPORT).
 
+use pierre_auth::auth::ImpersonationGrant;
+use pierre_core::permissions::impersonation::{CallerCredential, CredentialKind};
+use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::Transport;
 use pierre_database::repositories::{
     AdminAuditRepository, AuditOutcome, AuditSource, NewAuditEvent, SettledAuditEvent,
@@ -43,6 +62,7 @@ use super::UniversalExecutor;
 use crate::protocol::types::{UniversalRequest, UniversalResponse};
 use crate::protocols::ProtocolError;
 use crate::runtime::ToolRuntime;
+use crate::security::ToolReach;
 use dravr_tronc::mcp::tool::ToolCapabilities;
 use pierre_providers::ai_scope;
 
@@ -76,14 +96,21 @@ impl UniversalExecutor {
         request: &UniversalRequest,
     ) -> Result<Option<StartedAdminCall>, ProtocolError> {
         let transport = ai_scope::effective_transport(self.transport);
-        if !is_admin_only(self.resources.as_ref(), &request.tool_name) || !recorded_over(transport)
-        {
+        let support = self.support_session.as_ref();
+        let runtime = self.resources.as_ref();
+        let recorded = support.is_some()
+            || is_admin_only(runtime, &request.tool_name)
+            || (self.scopes.contains(&OAuthScope::Admin)
+                && is_first_party_only(runtime, &request.tool_name));
+        if !recorded || !recorded_over(transport) {
             return Ok(None);
         }
         start(
             self.resources.repos().admin_audit.as_ref(),
             request,
             transport,
+            support,
+            self.credential.as_ref(),
         )
         .await
         .map(Some)
@@ -98,6 +125,15 @@ fn is_admin_only(runtime: &dyn ToolRuntime, tool_name: &str) -> bool {
         .is_some_and(|tool| tool.capabilities().contains(ToolCapabilities::ADMIN_ONLY))
 }
 
+/// Whether `tool_name` is a registered tool kept on Dravr's own surfaces,
+/// which reaches an outside caller only through the admin exception.
+fn is_first_party_only(runtime: &dyn ToolRuntime, tool_name: &str) -> bool {
+    runtime
+        .tool_registry()
+        .get(tool_name)
+        .is_some_and(|tool| tool.reach() == ToolReach::FirstPartyOnly)
+}
+
 /// Whether a call of an admin-only tool served over `transport` is recorded:
 /// it reaches the tool from outside Dravr's own surfaces, or it declared no
 /// transport, which is read as outside.
@@ -106,29 +142,47 @@ fn recorded_over(transport: Option<Transport>) -> bool {
     transport.is_none_or(|served| !served.is_first_party())
 }
 
+/// Who made an audited call, and through what.
+struct CallParty<'call> {
+    /// The user the row names as its actor.
+    actor: Option<Uuid>,
+    /// The tenant the call acted in.
+    tenant_id: Option<String>,
+    /// The credential the call came through, when the transport declared it.
+    credential: Option<&'call CallerCredential>,
+}
+
 /// The row of an admin-only tool call, before it is written.
 fn event_of(
     tool_name: &str,
     protocol: &str,
-    actor: Option<Uuid>,
-    tenant_id: Option<String>,
+    party: CallParty<'_>,
     transport: Option<Transport>,
     outcome: AuditOutcome,
 ) -> NewAuditEvent {
     let label = Transport::label_of(transport);
+    let kind = party
+        .credential
+        .map(|credential| credential.kind)
+        .map(CredentialKind::as_str);
+    let client_id = party
+        .credential
+        .and_then(|credential| credential.client_id.as_deref());
     NewAuditEvent {
         action: format!("{ACTION_PREFIX}{tool_name}"),
         summary: format!("{tool_name} called over {label}"),
         outcome,
         source: AuditSource::ToolCall,
-        actor_user_id: actor,
-        tenant_id,
+        actor_user_id: party.actor,
+        tenant_id: party.tenant_id,
         ip_address: None,
         user_agent: None,
         metadata: json!({
             "tool": tool_name,
             "transport": label,
             "protocol": protocol,
+            "credential_kind": kind,
+            "client_id": client_id,
         }),
     }
 }
@@ -146,6 +200,9 @@ pub struct RefusedAdminCall<'call> {
     pub transport: Transport,
     /// The protocol the call came in on (`mcp`, `a2a`).
     pub protocol: &'call str,
+    /// The credential the call came through, when the door read it before
+    /// refusing; `None` when it refused the credential itself.
+    pub credential: Option<&'call CallerCredential>,
 }
 
 /// Write the `refused` row of `call`, an admin-only tool call a door refused.
@@ -161,8 +218,11 @@ pub async fn record_refused_admin_call(runtime: &dyn ToolRuntime, call: &Refused
     let event = event_of(
         call.tool_name,
         call.protocol,
-        Some(call.user_id),
-        call.tenant_id.map(str::to_owned),
+        CallParty {
+            actor: Some(call.user_id),
+            tenant_id: call.tenant_id.map(str::to_owned),
+            credential: call.credential,
+        },
         transport,
         AuditOutcome::Refused,
     );
@@ -176,7 +236,7 @@ pub async fn record_refused_admin_call(runtime: &dyn ToolRuntime, call: &Refused
 }
 
 /// Write the started row of `request`, an admin-only tool call served over
-/// `transport` (`None`: undeclared).
+/// `transport` (`None`: undeclared) through `credential`.
 ///
 /// # Errors
 ///
@@ -185,17 +245,34 @@ async fn start(
     trail: &dyn AdminAuditRepository,
     request: &UniversalRequest,
     transport: Option<Transport>,
+    support: Option<&ImpersonationGrant>,
+    credential: Option<&CallerCredential>,
 ) -> Result<StartedAdminCall, ProtocolError> {
-    let actor = Uuid::parse_str(&request.user_id).ok();
+    // In a support session the admin acted, as the user.
+    let actor = support.map_or_else(
+        || Uuid::parse_str(&request.user_id).ok(),
+        |grant| Some(grant.impersonator_id),
+    );
     let label = Transport::label_of(transport);
-    let event = event_of(
+    let mut event = event_of(
         &request.tool_name,
         &request.protocol,
-        actor,
-        request.tenant_id.clone(),
+        CallParty {
+            actor,
+            tenant_id: request.tenant_id.clone(),
+            credential,
+        },
         transport,
         AuditOutcome::Started,
     );
+    if let Some(grant) = support {
+        event.summary = format!(
+            "{} called over {label} in a support session",
+            request.tool_name
+        );
+        event.metadata["target"] = json!({ "user_id": request.user_id });
+        event.metadata["impersonation_session_id"] = json!(grant.session_id);
+    }
     match trail.record(&event).await {
         Ok(id) => Ok(StartedAdminCall {
             id,

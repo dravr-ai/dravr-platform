@@ -7,7 +7,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult, ErrorCode, ErrorResponse};
 use std::io;
 
@@ -335,12 +335,12 @@ fn test_error_response_from_app_error() {
     assert_eq!(error_response.request_id, Some("req_123".to_owned()));
 
     // Check that timestamp is valid RFC3339 format
-    let parsed_timestamp = chrono::DateTime::parse_from_rfc3339(&error_response.timestamp);
+    let parsed_timestamp = Timestamp::parse_from_rfc3339(&error_response.timestamp);
     assert!(parsed_timestamp.is_ok());
 
     // Timestamp should be recent (within last minute)
-    let timestamp_utc = parsed_timestamp.unwrap().with_timezone(&Utc);
-    let now = Utc::now();
+    let timestamp_utc = parsed_timestamp.unwrap();
+    let now = Timestamp::now();
     let diff = now.signed_duration_since(timestamp_utc);
     assert!(diff.num_seconds() < 60);
 }
@@ -459,12 +459,12 @@ fn test_error_response_timestamp_format() {
     let error_response = ErrorResponse::from(app_error);
 
     // Timestamp should be in RFC3339 format
-    let parsed = chrono::DateTime::parse_from_rfc3339(&error_response.timestamp);
+    let parsed = Timestamp::parse_from_rfc3339(&error_response.timestamp);
     assert!(parsed.is_ok(), "Timestamp should be valid RFC3339 format");
 
     // Should be a recent timestamp
-    let parsed_utc = parsed.unwrap().with_timezone(&Utc);
-    let now = Utc::now();
+    let parsed_utc = parsed.unwrap();
+    let now = Timestamp::now();
     let duration_since = now.signed_duration_since(parsed_utc);
     assert!(
         duration_since.num_seconds() < 10,

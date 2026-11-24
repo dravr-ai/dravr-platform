@@ -33,7 +33,7 @@ use axum::{
     routing::{delete, get, post},
     Json, Router,
 };
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_auth::auth::AuthResult;
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::groups::{CoachConsents, CoachingGroup};
@@ -44,10 +44,12 @@ use pierre_providers::backend_resolver::user_facing_name;
 use pierre_providers::core::ActivityQueryParams;
 use pierre_providers::registry::ProviderRegistry;
 use pierre_providers::request_budget::in_background;
+use pierre_runtime_context::require_tenant;
 use pierre_runtime_context::{GroupsCtx, MiddlewareCtx};
 use pierre_services::coach_consents::{
     consent_offer, link_consents, link_offer, link_reads_wellness, set_coach_consents,
-    wellness_notice_due, wellness_read_skipped, ConsentChange, ConsentOffer, WellnessReadSkip,
+    wellness_notice_due, wellness_read_skipped, ConsentChange, ConsentOffer, SensitiveWindow,
+    WellnessReadSkip,
 };
 use pierre_services::coach_platform::{check_roster_transport, roster_platform};
 use pierre_services::delegated_connections::{
@@ -216,6 +218,19 @@ pub struct UpdateCoachConsentsRequest {
     /// deletes the wellness the member's links synced
     #[serde(default)]
     pub wellness_read: Option<bool>,
+    /// Turn on (`true`) or off (`false`) the coach's AI assistant including
+    /// the member in the roster tools (carnet#1511)
+    #[serde(default)]
+    pub assistant_read: Option<bool>,
+    /// Grant (`true`) or revoke (`false`) the coach's reads of the member's
+    /// health records (T2: labs, clinical records, blood glucose), its own
+    /// grant beside `wellness_read`
+    #[serde(default)]
+    pub sensitive_t2_read: Option<bool>,
+    /// How long a `sensitive_t2_read` grant holds: 30 days, or left out for
+    /// until revoked; any other number is refused
+    #[serde(default)]
+    pub sensitive_days: Option<u32>,
 }
 
 /// What a member lets their group's coach do beyond reading their training,
@@ -248,6 +263,27 @@ pub struct CoachConsentsResponse {
     /// widening to every app they connect, so the apps tell them and ask
     /// whether to keep it; keeping it is a fresh grant, which clears this
     pub wellness_notice_due: bool,
+    /// The AI assistant the group's human coach connects to Dravr includes
+    /// the member in the coach's roster tools (carnet#1511)
+    pub assistant_read: bool,
+    /// When the member last turned `assistant_read` on or off (RFC 3339)
+    pub assistant_read_at: Option<String>,
+    /// Whether the group has a human coach other than the member, so the
+    /// member can be asked for `assistant_read`
+    pub assistant_read_supported: bool,
+    /// The group's coach may read the member's health records (T2) now: the
+    /// grant is given and has not lapsed. It reaches a read only alongside
+    /// `wellness_read`, and the member's own consent to AI use of those
+    /// records still applies
+    pub sensitive_t2_read: bool,
+    /// When the member last granted or revoked `sensitive_t2_read` (RFC 3339)
+    pub sensitive_t2_read_at: Option<String>,
+    /// When a `sensitive_t2_read` grant lapses (RFC 3339); `None` while it
+    /// holds until revoked
+    pub sensitive_t2_read_until: Option<String>,
+    /// Whether the group has a human coach, so the member can be asked for
+    /// `sensitive_t2_read`
+    pub sensitive_t2_read_supported: bool,
 }
 
 /// Query for the roster read
@@ -317,21 +353,18 @@ impl DelegatedConnectionRoutes {
 
     fn build_metadata() -> GroupMetadata {
         GroupMetadata {
-            timestamp: Utc::now().to_rfc3339(),
+            timestamp: Timestamp::now().to_rfc3339(),
             api_version: "1.0".to_owned(),
         }
     }
 
     /// The group, active, and the caller's tenant.
-    async fn open_group<C: GroupsCtx>(
+    async fn open_group<C: GroupsCtx + MiddlewareCtx>(
         resources: &Arc<C>,
         auth: &AuthResult,
         group_id: &str,
     ) -> Result<(CoachingGroup, TenantId), AppError> {
-        let tenant = auth
-            .active_tenant_id
-            .map(TenantId::from_uuid)
-            .ok_or_else(|| AppError::auth_invalid("No active tenant in session"))?;
+        let tenant = require_tenant(resources, auth).await?;
         let group = resources
             .group_service()
             .get_group(group_id, tenant)
@@ -452,7 +485,7 @@ impl DelegatedConnectionRoutes {
             provider_athlete_name: link.provider_athlete_name.clone(),
             status: link.status,
             proposed_at: link.proposed_at.to_rfc3339(),
-            confirmed_at: link.confirmed_at.map(|at| at.to_rfc3339()),
+            confirmed_at: link.confirmed_at.map(Timestamp::to_rfc3339),
             read_refused: read_refused.map(str::to_owned),
             calendar_write: consents.calendar_write,
             calendar_write_supported: offer.calendar_write,
@@ -645,8 +678,15 @@ impl DelegatedConnectionRoutes {
 
         let body = body.map_or_default(|Json(body)| body);
         let requested = ConsentChange::grants(body.calendar_write, body.wellness_read);
-        let confirmed =
-            confirm(Self::services(&resources), &group, &link, tenant, requested).await?;
+        let confirmed = confirm(
+            Self::services(&resources),
+            &group,
+            &link,
+            tenant,
+            requested,
+            GroupsCtx::connect_log(resources.as_ref()),
+        )
+        .await?;
         Self::spawn_warm_up(
             &resources,
             confirmed.provider.clone(),
@@ -669,7 +709,7 @@ impl DelegatedConnectionRoutes {
         consents: CoachConsents,
         member: Uuid,
     ) -> Result<CoachConsentsResponse, AppError> {
-        let offer = consent_offer(registry, group);
+        let offer = consent_offer(registry, group, member);
         let mut skipped = None;
         if offer.wellness_read {
             let links = repos
@@ -687,13 +727,20 @@ impl DelegatedConnectionRoutes {
         }
         Ok(CoachConsentsResponse {
             calendar_write: consents.calendar_write,
-            calendar_write_at: consents.calendar_write_at.map(|at| at.to_rfc3339()),
+            calendar_write_at: consents.calendar_write_at.map(Timestamp::to_rfc3339),
             calendar_write_supported: offer.calendar_write,
             wellness_read: consents.wellness_read,
-            wellness_read_at: consents.wellness_read_at.map(|at| at.to_rfc3339()),
+            wellness_read_at: consents.wellness_read_at.map(Timestamp::to_rfc3339),
             wellness_read_supported: offer.wellness_read,
             wellness_read_skipped: skipped.map(|skip| skip.as_str().to_owned()),
             wellness_notice_due: wellness_notice_due(offer, consents),
+            assistant_read: consents.assistant_read,
+            assistant_read_at: consents.assistant_read_at.map(Timestamp::to_rfc3339),
+            assistant_read_supported: offer.assistant_read,
+            sensitive_t2_read: consents.sensitive_t2_standing(Timestamp::now()),
+            sensitive_t2_read_at: consents.sensitive_t2_read_at.map(Timestamp::to_rfc3339),
+            sensitive_t2_read_until: consents.sensitive_t2_read_until.map(Timestamp::to_rfc3339),
+            sensitive_t2_read_supported: offer.wellness_read,
         })
     }
 
@@ -739,6 +786,9 @@ impl DelegatedConnectionRoutes {
         let change = ConsentChange {
             calendar_write: body.calendar_write,
             wellness_read: body.wellness_read,
+            assistant_read: body.assistant_read,
+            sensitive_t2_read: body.sensitive_t2_read,
+            sensitive_window: SensitiveWindow::try_from_days(body.sensitive_days)?,
         };
         // A consent is the member's own; a support session revokes, never grants.
         if change.grants_any() {

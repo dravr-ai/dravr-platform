@@ -6,17 +6,15 @@
 
 use super::manager::AdminConfigManager;
 use super::repository::{AdminConfigRepository, LogChangeParams, SetOverrideParams};
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_config::activity_landed::register_activity_landed;
 use pierre_config::activity_retention::register_activity_retention;
 use pierre_config::admin_definitions::{
-    register_activity_access_quotas, register_algorithm_selection, register_feature_flags,
-    register_garmin_provider, register_group_permissions, register_llm_pricing,
-    register_llm_provider_config, register_mcp_network, register_monitoring,
-    register_recommendation_engine, register_sleep_recovery, register_sqlx_pool,
-    register_strava_provider, register_strava_seat_reclaim, register_tokio_runtime,
-    register_tool_execution, register_usage_quotas, register_weather_analysis, ParameterDefinition,
-    ORDERED_PARAMETERS,
+    register_activity_access_quotas, register_algorithm_selection, register_garmin_provider,
+    register_group_permissions, register_llm_pricing, register_llm_provider_config,
+    register_mcp_network, register_sqlx_pool, register_strava_provider,
+    register_strava_seat_reclaim, register_tokio_runtime, register_tool_execution,
+    register_usage_quotas, ParameterDefinition, ORDERED_PARAMETERS,
 };
 use pierre_config::admin_env::{EnvConfigError, EnvConfigPins};
 use pierre_config::admin_types::{
@@ -156,7 +154,7 @@ impl AdminConfigService {
     /// Warn at boot for every key an environment pin outranks a stored
     /// system-wide override on.
     ///
-    /// The pin wins by design, but the operator who saved that override sees
+    /// The pin wins by design, but the admin who saved that override sees
     /// their value simply not apply. Announcing it once at startup is what
     /// turns "the config write did nothing" into a question with an answer.
     /// Bounded by the number of pins, so this is a handful of reads at most.
@@ -218,23 +216,11 @@ impl AdminConfigService {
     fn build_definitions() -> HashMap<String, ParameterDefinition> {
         let mut defs = HashMap::new();
 
-        // Feature Flags — see config::admin::definitions::register_feature_flags
-        register_feature_flags(&mut defs);
-
         // LLM Provider Configuration — see config::admin::definitions::register_llm_provider_config
         register_llm_provider_config(&mut defs);
 
         // Algorithm Selection — see config::admin::definitions::register_algorithm_selection
         register_algorithm_selection(&mut defs);
-
-        // Recommendation Engine — see config::admin::definitions::register_recommendation_engine
-        register_recommendation_engine(&mut defs);
-
-        // Sleep & Recovery — see config::admin::definitions::register_sleep_recovery
-        register_sleep_recovery(&mut defs);
-
-        // Weather Analysis — see config::admin::definitions::register_weather_analysis
-        register_weather_analysis(&mut defs);
 
         // Nutrition — the athlete protein target calculate_daily_nutrition reads — see pierre_config::nutrition_params
         register_nutrition(&mut defs);
@@ -253,9 +239,6 @@ impl AdminConfigService {
 
         // MCP Network Settings — see config::admin::definitions::register_mcp_network
         register_mcp_network(&mut defs);
-
-        // Monitoring Thresholds — see config::admin::definitions::register_monitoring
-        register_monitoring(&mut defs);
 
         // Usage Quotas — per-user and per-tenant limits — see config::admin::definitions::register_usage_quotas
         register_usage_quotas(&mut defs);
@@ -643,7 +626,7 @@ impl AdminConfigService {
 pub struct UpdateConfigContext<'a> {
     /// Admin user performing the change (audit attribution).
     pub admin_user_id: &'a str,
-    /// Admin email (operator-visible attribution).
+    /// Admin email (admin-visible attribution).
     pub admin_email: &'a str,
     /// Which scope the change targets: system-wide, one tenant, or one user.
     pub scope: ConfigScope<'a>,
@@ -691,7 +674,7 @@ impl AdminConfigService {
                 updated_count: 0,
                 validation_errors,
                 requires_restart: false,
-                effective_at: Utc::now(),
+                effective_at: Timestamp::now(),
                 shadowed_by_env: Vec::new(),
             });
         }
@@ -768,7 +751,7 @@ impl AdminConfigService {
             updated_count,
             validation_errors: Vec::new(),
             requires_restart,
-            effective_at: Utc::now(),
+            effective_at: Timestamp::now(),
             shadowed_by_env,
         })
     }

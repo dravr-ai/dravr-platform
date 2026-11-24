@@ -9,7 +9,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use chrono::{Duration, NaiveDate, NaiveTime};
+use dravr_tronc::dates::{CivilDate, Elapsed};
 use pierre_core::civil_time::{local_date, resolve_zone};
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::coverage::{Completeness, Coverage, CoverageWindow, IncompleteReason};
@@ -124,23 +124,21 @@ async fn delivering_services(
     resources: &Arc<dyn ToolRuntime>,
     tenant_id: TenantId,
     user_id: Uuid,
-    from: NaiveDate,
-    to: NaiveDate,
+    from: CivilDate,
+    to: CivilDate,
 ) -> AppResult<Vec<DeliveringService>> {
     let zone = resolve_zone(user_timezone(resources.repos(), user_id).await?.as_deref());
-    let start = (from - Duration::days(1))
-        .and_time(NaiveTime::MIN)
-        .and_utc();
-    let end = (to + Duration::days(2)).and_time(NaiveTime::MIN).and_utc();
+    let start = (from - Elapsed::days(1)).at_midnight().and_utc()?;
+    let end = (to + Elapsed::days(2)).at_midnight().and_utc()?;
     let stored = resources
         .repos()
         .activity_cache
         .get_cached_activities(user_id, &tenant_id, None, start, end, SOURCE_READ_LIMIT)
         .await?;
     let readable = ai_scope::filter_activities(resources.provider_registry().as_ref(), stored);
-    let mut last: BTreeMap<String, NaiveDate> = BTreeMap::new();
+    let mut last: BTreeMap<String, CivilDate> = BTreeMap::new();
     for activity in &readable {
-        let day = local_date(activity.start_date(), zone);
+        let day = local_date(activity.start_date(), &zone);
         if day < from || day > to {
             continue;
         }
@@ -157,7 +155,7 @@ async fn delivering_services(
                 .get_display_name(&provider)
                 .unwrap_or(provider.as_str())
                 .to_owned(),
-            last_activity: day.format("%Y-%m-%d").to_string(),
+            last_activity: day.to_string(),
             provider,
         })
         .collect();
@@ -167,7 +165,7 @@ async fn delivering_services(
 
 /// The consecutive days ending on `to` whose form fell in deep fatigue,
 /// oldest first; empty unless the row for `to` is one of them.
-fn deep_fatigue_run(days: &[TrainingHistoryDay], to: NaiveDate) -> Vec<DeepFatigueMorning> {
+fn deep_fatigue_run(days: &[TrainingHistoryDay], to: CivilDate) -> Vec<DeepFatigueMorning> {
     let mut run: Vec<DeepFatigueMorning> = Vec::new();
     let mut expected = to;
     for day in days.iter().rev() {
@@ -175,10 +173,10 @@ fn deep_fatigue_run(days: &[TrainingHistoryDay], to: NaiveDate) -> Vec<DeepFatig
             break;
         }
         run.push(DeepFatigueMorning {
-            date: day.state.date.format("%Y-%m-%d").to_string(),
+            date: day.state.date.to_string(),
             tsb_pct_of_ctl: day.tsb_pct_of_ctl,
         });
-        expected = day.state.date - Duration::days(1);
+        expected = day.state.date - Elapsed::days(1);
     }
     run.reverse();
     run
@@ -219,10 +217,10 @@ pub struct ComputeTrainingHistoryResult {
 impl From<TrainingHistoryComputed> for ComputeTrainingHistoryResult {
     fn from(c: TrainingHistoryComputed) -> Self {
         Self {
-            from: c.from.format("%Y-%m-%d").to_string(),
-            to: c.to.format("%Y-%m-%d").to_string(),
+            from: c.from.to_string(),
+            to: c.to.to_string(),
             rows_upserted: c.rows_upserted,
-            requested_from: c.requested_from.format("%Y-%m-%d").to_string(),
+            requested_from: c.requested_from.to_string(),
             coverage: c.coverage,
             capture_requested: c.capture_requested,
         }
@@ -253,11 +251,11 @@ fn require_tenant(context: &ToolExecutionContext) -> AppResult<TenantId> {
     })
 }
 
-fn parse_date(args: &Value, key: &str) -> AppResult<Option<NaiveDate>> {
+fn parse_date(args: &Value, key: &str) -> AppResult<Option<CivilDate>> {
     let Some(raw) = args.get(key).and_then(Value::as_str) else {
         return Ok(None);
     };
-    NaiveDate::parse_from_str(raw, "%Y-%m-%d")
+    CivilDate::parse_from_str(raw, "%Y-%m-%d")
         .map(Some)
         .map_err(|e| AppError::invalid_input(format!("{key} must be YYYY-MM-DD: {e}")))
 }
@@ -273,11 +271,11 @@ async fn resolve_window(
     resources: &Arc<dyn ToolRuntime>,
     user_id: Uuid,
     args: &Value,
-) -> AppResult<(NaiveDate, NaiveDate)> {
+) -> AppResult<(CivilDate, CivilDate)> {
     let (_, athlete_today) = default_window(resources, user_id).await?;
     let to = parse_date(args, "to")?.unwrap_or(athlete_today);
     let from =
-        parse_date(args, "from")?.unwrap_or_else(|| to - Duration::days(DEFAULT_BACKFILL_DAYS));
+        parse_date(args, "from")?.unwrap_or_else(|| to - Elapsed::days(DEFAULT_BACKFILL_DAYS));
     if to < from {
         return Err(AppError::invalid_input("from > to"));
     }
@@ -505,8 +503,8 @@ impl McpTool<dyn ToolRuntime> for GetTrainingHistoryTool {
             ok_typed(
                 "get_training_history",
                 TrainingHistoryResult {
-                    from: from.format("%Y-%m-%d").to_string(),
-                    to: to.format("%Y-%m-%d").to_string(),
+                    from: from.to_string(),
+                    to: to.to_string(),
                     days,
                     sources,
                     deep_fatigue_mornings,
@@ -542,7 +540,7 @@ pierre_tool_runtime::declare_security!(GetTrainingHistoryTool => empty);
 mod tests {
     use super::*;
 
-    fn day(date: NaiveDate, band: FormBand, pct: f64) -> TrainingHistoryDay {
+    fn day(date: CivilDate, band: FormBand, pct: f64) -> TrainingHistoryDay {
         TrainingHistoryDay {
             state: DailyTrainingState::zero(date),
             tsb_pct_of_ctl: Some(pct),
@@ -550,8 +548,8 @@ mod tests {
         }
     }
 
-    fn date(d: u32) -> NaiveDate {
-        NaiveDate::from_ymd_opt(2026, 11, d).expect("a valid day")
+    fn date(d: u32) -> CivilDate {
+        CivilDate::from_ymd(2026, 11, d).expect("a valid day")
     }
 
     #[test]

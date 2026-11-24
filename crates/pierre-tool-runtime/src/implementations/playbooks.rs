@@ -30,6 +30,7 @@ use serde_json::Value;
 use crate::context::ToolExecutionContext;
 use crate::conversions::{answers_with, object_schema, tool_definition, tool_result_to_response};
 use crate::runtime::ToolRuntime;
+use dravr_tronc::dates::Timestamp;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use pierre_core::json_value::to_value_as_written;
@@ -169,6 +170,13 @@ impl McpTool<dyn ToolRuntime> for ListCoachingPlaybooksTool {
             // A playbook learned from first-party-only data is withheld from
             // an external caller; the rest are served (carnet#769).
             ai_scope::retain_admitted(&mut playbooks, |playbook| playbook.transport_policy);
+            // Nor one naming a withdrawn consent, or data kept out of AI
+            // memory (carnet#1157, #1158).
+            ai_scope::retain_consented(
+                &mut playbooks,
+                |playbook| &playbook.ai_consent_sources,
+                true,
+            );
             // A playbook is what the agent learned and wrote down, and the
             // result's trust label says so.
             if !playbooks.is_empty() {
@@ -192,7 +200,7 @@ impl McpTool<dyn ToolRuntime> for ListCoachingPlaybooksTool {
                     failure_count: p.failure_count,
                     neutral_count: p.neutral_count,
                     confidence: p.confidence,
-                    last_outcome_at: p.last_outcome_at.map(|t| t.to_rfc3339()),
+                    last_outcome_at: p.last_outcome_at.map(Timestamp::to_rfc3339),
                 })
                 .collect();
 

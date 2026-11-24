@@ -16,7 +16,7 @@ use axum::body::to_bytes;
 use axum::http::header::RETRY_AFTER;
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
-use chrono::{Duration, SecondsFormat, Utc};
+use dravr_tronc::dates::{Elapsed, SecondsFormat, Timestamp};
 use pierre_core::errors::{AppError, ErrorCode, RETRY_AFTER_SECS_DETAIL};
 use serde_json::Value;
 
@@ -59,7 +59,8 @@ async fn test_rate_limit_exceeded_floors_a_zero_wait_at_one_second() {
 
 #[tokio::test]
 async fn test_time_windowed_quota_attaches_the_seconds_to_its_reset() {
-    let resets_at = (Utc::now() + Duration::hours(3)).to_rfc3339_opts(SecondsFormat::Secs, true);
+    let resets_at =
+        (Timestamp::now() + Elapsed::hours(3)).to_rfc3339_opts(SecondsFormat::Secs, true);
     let (status, retry_after, body) = render(AppError::quota_exceeded(
         "daily_messages",
         50,

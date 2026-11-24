@@ -1,12 +1,12 @@
-// ABOUTME: Response date goldens for the admin console routes: accounts, admins, the audit trail and its page cursor
+// ABOUTME: Response date goldens for the admin console routes: accounts, the audit trail and its page cursor
 // ABOUTME: Pins account stamps written with an offset, audit instants, and how the `before` cursor is read
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! Response date goldens: `/api/admin/users`, `/api/admin/admins`,
-//! `/api/admin/audit-events`, `/api/admin/analytics/new-users`,
-//! `/api/dashboard/analytics` (carnet#1620, gate 3).
+//! Response date goldens: `/api/admin/users`, `/api/admin/audit-events`,
+//! `/api/admin/analytics/new-users`, `/api/dashboard/analytics`
+//! (carnet#1620, gate 3).
 //!
 //! Accounts are created with the stamps the suite chooses. The audit trail
 //! stamps each row with the wall clock, so two rows are recorded through the
@@ -171,13 +171,6 @@ async fn the_account_list_writes_each_stamp_in_utc_with_an_offset() {
                 ("/last_active", last_active),
             ]),
             "{users}"
-        );
-
-        let admins = console.read_ok("/api/admin/admins").await;
-        assert_eq!(
-            dates_in(row_of(&admins["admins"], &console.admin)),
-            table(&[("/created_at", "2026-08-01T09:30:00.250125+00:00")]),
-            "{admins}"
         );
     })
     .await;

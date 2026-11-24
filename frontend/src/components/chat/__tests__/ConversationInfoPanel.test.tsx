@@ -226,7 +226,7 @@ describe('ConversationInfoPanel', () => {
     expect(sheet).toHaveAttribute('aria-modal', 'true');
     expect(document.querySelector('.bg-scrim\\/60')).not.toBeNull();
     expect(document.querySelector('.bg-black\\/60')).toBeNull();
-    // h-11 w-11: 44px, over the 32px desktop floor (DESIGN.md §8).
+    // h-11 w-11: 44px, over the 32px desktop floor (DESIGN.md "Layout").
     expect(within(sheet).getByRole('button', { name: 'Close' })).toHaveClass('h-11', 'w-11');
   });
 

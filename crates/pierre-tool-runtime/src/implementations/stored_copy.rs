@@ -27,7 +27,8 @@ use std::sync::Arc;
 
 #[cfg(any(feature = "tools-goals", feature = "tools-analytics"))]
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
+use pierre_core::civil_time::UTC_MINUTE;
 #[cfg(any(feature = "tools-goals", feature = "tools-analytics"))]
 use pierre_core::constants::oauth_providers;
 #[cfg(feature = "tools-analytics")]
@@ -288,7 +289,7 @@ trait StandIn: Send + Sync {
     async fn stored_activity(&self, backend: &str, activity_id: &str) -> Option<Activity>;
 
     /// When `backend` last synced for the athlete.
-    async fn synced_at(&self, backend: &str) -> Option<DateTime<Utc>>;
+    async fn synced_at(&self, backend: &str) -> Option<Timestamp>;
 }
 
 #[cfg(any(feature = "tools-goals", feature = "tools-analytics"))]
@@ -435,7 +436,7 @@ impl StandIn for TenantStore<'_> {
         None
     }
 
-    async fn synced_at(&self, backend: &str) -> Option<DateTime<Utc>> {
+    async fn synced_at(&self, backend: &str) -> Option<Timestamp> {
         self.reader
             .runtime
             .repos()
@@ -459,12 +460,12 @@ pub(crate) fn caveat(
     backend: &str,
     what: &str,
     reason: StaleReason,
-    synced_at: Option<DateTime<Utc>>,
+    synced_at: Option<Timestamp>,
 ) -> Value {
     let name = user_facing_name(backend);
     let when = synced_at.map_or_else(
         || "last synced".to_owned(),
-        |at| format!("last synced ({})", at.format("%Y-%m-%d %H:%M UTC")),
+        |at| format!("last synced ({})", at.format_with(&UTC_MINUTE)),
     );
     let note = reason.retry_after_secs().map_or_else(
         || {
@@ -480,7 +481,7 @@ pub(crate) fn caveat(
     let mut caveat = json!({
         "provider": name,
         "reason": reason.as_str(),
-        "last_synced_at": synced_at.map(|at| at.to_rfc3339()),
+        "last_synced_at": synced_at.map(Timestamp::to_rfc3339),
         "note": note,
     });
     if let (Some(retry_after_secs), Some(object)) =
@@ -550,7 +551,7 @@ fn put_caveat(payload: &mut Value, caveat: Value) {
 #[cfg(feature = "tools-analytics")]
 mod tests {
     use async_trait::async_trait;
-    use chrono::{DateTime, TimeZone, Utc};
+    use dravr_tronc::dates::Timestamp;
     use pierre_core::errors::{AppError, ErrorCode};
     use pierre_core::models::activity::ActivityBuilder;
     use pierre_core::models::{Activity, SportType};
@@ -578,16 +579,16 @@ mod tests {
             id,
             "Run",
             SportType::Run,
-            Utc::now(),
+            Timestamp::now(),
             3_600,
             "sciotte_garmin",
         )
         .build()
     }
 
-    fn synced() -> DateTime<Utc> {
-        Utc.with_ymd_and_hms(2026, 11, 19, 8, 30, 0)
-            .single()
+    fn synced() -> Timestamp {
+        Timestamp::parse_from_rfc3339("2026-11-19T08:30:00Z")
+            .ok()
             .unwrap_or_default()
     }
 
@@ -613,7 +614,7 @@ mod tests {
             self.stored_one.clone()
         }
 
-        async fn synced_at(&self, _: &str) -> Option<DateTime<Utc>> {
+        async fn synced_at(&self, _: &str) -> Option<Timestamp> {
             Some(synced())
         }
     }

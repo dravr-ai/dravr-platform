@@ -7,7 +7,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use chrono::{DateTime, Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_auth::api_keys::{ApiKey, ApiKeyManager, ApiKeyTier, ApiKeyUsage, CreateApiKeyRequest};
 use pierre_core::models::{User, UserStatus, UserTier};
 use pierre_database::backends::factory::Database;
@@ -110,7 +110,7 @@ async fn test_api_key_usage_tracking() {
     let usage = ApiKeyUsage {
         id: None,
         api_key_id: api_key.id.clone(),
-        timestamp: Utc::now(),
+        timestamp: Timestamp::now(),
         tool_name: "get_activities".into(),
         status_code: 200,
         response_time_ms: Some(50),
@@ -130,13 +130,13 @@ async fn test_api_key_usage_tracking() {
     // Check the key's window usage
     let window_usage = repos
         .usage
-        .get_api_key_window_usage(&api_key.id, Utc::now() - Duration::days(30))
+        .get_api_key_window_usage(&api_key.id, Timestamp::now() - Elapsed::days(30))
         .await
         .expect("Failed to get window usage");
     assert_eq!(window_usage.count, 1);
     assert_eq!(
-        window_usage.oldest.map(|oldest| oldest.timestamp()),
-        Some(usage.timestamp.timestamp())
+        window_usage.oldest.map(Timestamp::epoch_seconds),
+        Some(usage.timestamp.epoch_seconds())
     );
 
     // Get usage stats
@@ -144,8 +144,8 @@ async fn test_api_key_usage_tracking() {
         .usage
         .get_api_key_stats(
             &api_key.id,
-            Utc::now() - Duration::hours(1),
-            Utc::now() + Duration::hours(1),
+            Timestamp::now() - Elapsed::hours(1),
+            Timestamp::now() + Elapsed::hours(1),
         )
         .await
         .expect("Failed to get usage stats");
@@ -179,9 +179,9 @@ async fn test_api_key_expiration() {
         rate_limit_requests: 10,
         rate_limit_window_seconds: 3600,
         is_active: true,
-        expires_at: Some(DateTime::from_timestamp(1_000_000_000, 0).unwrap()), // Year 2001 - clearly expired
+        expires_at: Some(Timestamp::from_epoch_seconds(1_000_000_000).unwrap()), // Year 2001 - clearly expired
         last_used_at: None,
-        created_at: Utc::now() - Duration::days(1),
+        created_at: Timestamp::now() - Elapsed::days(1),
     };
 
     let repos = db.repositories();
@@ -240,11 +240,11 @@ async fn test_request_logs_return_persisted_values() {
         .await
         .expect("Failed to store API key");
 
-    let now = Utc::now();
+    let now = Timestamp::now();
     let succeeded = ApiKeyUsage {
         id: None,
         api_key_id: api_key.id.clone(),
-        timestamp: now - Duration::minutes(10),
+        timestamp: now - Elapsed::minutes(10),
         tool_name: "get_activities".into(),
         status_code: 200,
         response_time_ms: Some(50),

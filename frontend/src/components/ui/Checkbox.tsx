@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Boreal Checkbox and Radio — the choice controls DESIGN.md §5 lacked
+// ABOUTME: Boreal Checkbox and Radio — the choice controls that sit beside the editorial fields (DESIGN.md "Inputs / Fields")
 // ABOUTME: Label + description sit beside the control, sharing Input's help/error voice
 
 import React, { forwardRef, useId } from 'react';
@@ -25,7 +25,7 @@ interface ChoiceProps {
   label: React.ReactNode;
   /**
    * The label's ink. Defaults to the body ink; a control sitting on a tinted
-   * hue passes that hue's `on-*-container` ink (DESIGN.md §2, bound ink).
+   * hue passes that hue's `on-*-container` ink (DESIGN.md "The Bound Ink Rule").
    */
   labelClassName?: string;
   /** Secondary line under the label, in the same voice as Input's helpText. */

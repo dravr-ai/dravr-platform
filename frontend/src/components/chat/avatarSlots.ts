@@ -10,7 +10,7 @@ import { BADGE_TONE } from '../ui/badgeTone';
 /**
  * The Tailwind pair each shared hue resolves to on the web: the fill and its ink.
  *
- * DESIGN.md §2 pairs — the primary tint and its ink, tertiary, and the four
+ * DESIGN.md "The Bound Ink Rule" pairs — the primary tint and its ink, tertiary, and the four
  * pillar accents — so a row's colour follows the theme like every other
  * surface. The primary and pillar pairs are the badge's tones (BADGE_TONE,
  * measured on every ground); tertiary has no badge tone and is its own pair,
@@ -60,7 +60,7 @@ export type AvatarShape = 'circle' | 'square';
 
 /**
  * The corner class for a shape: full for a person or an agent, `xl` (12px,
- * the floating-card step of the ladder) for a room — DESIGN.md §2 radii.
+ * the floating-card step of the ladder) for a room — DESIGN.md "Shapes" radii.
  * Shape reaches no screen reader, so it only reinforces the kind glyph and
  * the accessible name beside it.
  */

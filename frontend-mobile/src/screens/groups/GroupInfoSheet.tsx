@@ -10,7 +10,10 @@ import { Feather } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import {
   COACH_CONSENTS_KEYS,
+  DIGEST_MODES,
+  DIGEST_MODE_ORDER,
   analyticsScopeLine,
+  canManageGroup,
   coachPlatformName,
   offeredConsents,
   weeklyVolumeFigure,
@@ -41,6 +44,7 @@ import {
   useUpdatePeerConsent,
   useCoachSharing,
   useSetCoachSharing,
+  useSetCoachConsents,
 } from '../../hooks/useGroups';
 import { useOpenAthleteThread } from '../../hooks/useCoachPlan';
 import { GroupInsightsSection } from './GroupInsightsSection';
@@ -55,7 +59,7 @@ import { CoachAssistantNotice } from './CoachAssistantNotice';
 import { CoachConsentsSection } from './CoachConsentsSection';
 import { CoachReadLog } from './CoachReadLog';
 import { CONNECTIONS_ROUTE, threadHref } from '../../navigation/routes';
-import type { GroupDigestMode, GroupMember, GroupRole, UpdateGroupRequest } from '../../types';
+import type { GroupMember, GroupRole, UpdateGroupRequest } from '../../types';
 import { useTranslation } from '@pierre/i18n';
 import { describeApiError, openThreadRefusalText, useDistanceUnit } from '@pierre/ui-logic';
 import { inviteLink } from '../../constants/inviteLink';
@@ -69,13 +73,6 @@ const INVITE_LIFETIME_DAYS = 7;
  * `INVITE_LIFETIME_DAYS`, inside the server's 30-day ceiling.
  */
 const SIGNUP_INVITE_MAX_USES = 50;
-
-/** Each weekly-digest mode, in the order the sheet offers them, with its label and one-line hint. */
-const DIGEST_MODES: ReadonlyArray<{ mode: GroupDigestMode; labelKey: string; hintKey: string }> = [
-  { mode: 'off', labelKey: 'groups.digestOff', hintKey: 'groups.digestOffHint' },
-  { mode: 'chat', labelKey: 'groups.digestChat', hintKey: 'groups.digestChatHint' },
-  { mode: 'managers', labelKey: 'groups.digestManagers', hintKey: 'groups.digestManagersHint' },
-];
 
 /**
  * `Row` pays its own 16px side inset for a full-bleed pane. This sheet is
@@ -136,7 +133,7 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
 
   const { stats, scope: statsScope, isLoading: isLoadingStats } = useGroupStats(groupId, memberSurfaces);
   const statsScopeLine = analyticsScopeLine(t, statsScope);
-  const isAdmin = myMembership?.role === 'owner' || myMembership?.role === 'admin';
+  const isAdmin = canManageGroup(myMembership?.role);
   // Only an owner or admin may list a group's invites; the route refuses anyone else.
   const { invites, isLoading: isLoadingInvites } = useGroupInvites(groupId, memberSurfaces && isAdmin);
   const { connections: delegatedConnections, viewer: delegationViewer } = useDelegatedConnections(
@@ -176,6 +173,12 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
   const { sharing: coachSharing } = useCoachSharing(groupId, showsCoachSharing);
   const { setSharing: setCoachSharing, isPending: isSavingCoachSharing } =
     useSetCoachSharing(groupId);
+  // Whether the coach's AI assistant includes the member in its roster tools
+  // (carnet#1511): per membership, off until the member turns it on here.
+  const { setConsents: setCoachConsents, isPending: isSavingAssistantRead } =
+    useSetCoachConsents(groupId);
+  const showsAssistantRead =
+    showsCoachSharing && !!group?.coach_user_id && coachConsents?.assistant_read_supported === true;
   const { updateRole } = useUpdateMemberRole(groupId);
   const { removeMember } = useRemoveMember(groupId);
   const { removeCoach, isPending: isRemovingCoach } = useRemoveCoach(groupId);
@@ -370,6 +373,17 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
       }
     },
     [setCoachSharing, t],
+  );
+
+  const handleAssistantReadChange = useCallback(
+    async (granted: boolean) => {
+      try {
+        await setCoachConsents({ assistant_read: granted });
+      } catch (err) {
+        Alert.alert(t('common.error'), describeApiError(err, { t, fallbackKey: 'app.failedUpdateSharing' }));
+      }
+    },
+    [setCoachConsents, t],
   );
 
   /**
@@ -743,7 +757,8 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
               <Text className="px-4 pt-3 pb-1 text-xs font-semibold text-text-tertiary">
                 {t('groups.digestMode')}
               </Text>
-              {DIGEST_MODES.map(({ mode, labelKey, hintKey }, index) => {
+              {DIGEST_MODE_ORDER.map((mode, index) => {
+                const { labelKey, hintKey } = DIGEST_MODES[mode];
                 const isSelected = group.digest_mode === mode;
                 return (
                   <Row
@@ -754,7 +769,7 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
                       if (!isSelected && !isUpdatingGroup) void setGroupFlag({ digest_mode: mode });
                     }}
                     showChevron={false}
-                    last={!myMembership && index === DIGEST_MODES.length - 1}
+                    last={!myMembership && index === DIGEST_MODE_ORDER.length - 1}
                     accessibilityRole="radio"
                     accessibilityState={{ selected: isSelected }}
                     accessibilityLabel={t(labelKey)}
@@ -803,8 +818,27 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
                       testID="coach-sharing-switch"
                     />
                   }
-                  last
+                  last={!showsAssistantRead}
                   testID="coach-sharing-row"
+                />
+              )}
+              {/* Beside coach sharing: whether the coach's AI assistant (Claude,
+                  ChatGPT…) includes the member in its roster tools (carnet#1511). */}
+              {showsAssistantRead && coachConsents && (
+                <Row
+                  title={t('humanCoach.assistantOptIn.label', { coach: coachName ?? '' })}
+                  subtitle={t('humanCoach.assistantOptIn.hint', { coach: coachName ?? '' })}
+                  trailing={
+                    <Switch
+                      value={coachConsents.assistant_read}
+                      onValueChange={(value) => void handleAssistantReadChange(value)}
+                      disabled={isSavingAssistantRead}
+                      {...switchColors(colors.tokens, coachConsents.assistant_read)}
+                      testID="coach-assistant-read-switch"
+                    />
+                  }
+                  last
+                  testID="coach-assistant-read-row"
                 />
               )}
             </View>

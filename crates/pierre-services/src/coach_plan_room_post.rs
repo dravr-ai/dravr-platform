@@ -36,7 +36,7 @@
 
 use std::collections::BTreeSet;
 
-use chrono::{Datelike, NaiveDate};
+use dravr_tronc::dates::CivilDate;
 use photograveur::Locale;
 use pierre_contremaitre::messaging_strings::{
     MessagingStringsRegistry, KEY_PLAN_PUBLISHED_ROOM_POST, KEY_PLAN_PUBLISHED_ROOM_POST_MORE,
@@ -44,7 +44,6 @@ use pierre_contremaitre::messaging_strings::{
 };
 use pierre_core::civil_time::weekday_short;
 use pierre_core::models::groups::{CoachingGroup, NewGroupTranscriptEntry, TranscriptSpeaker};
-use pierre_core::models::TenantId;
 use pierre_core::transport::TransportPolicy;
 use pierre_core::untrusted::{self, ROSTER_NAME_MAX_CHARS};
 use pierre_database::RepositoryRegistry;
@@ -67,7 +66,7 @@ pub enum PlanChange {
     New,
     /// The days whose session the publish changed — written, rewritten or
     /// taken away — in date order. Never empty.
-    Days(Vec<NaiveDate>),
+    Days(Vec<CivilDate>),
 }
 
 /// What publishing `published` over `previous` changed, or `None` when it
@@ -76,9 +75,10 @@ pub enum PlanChange {
 /// `previous` is the athlete's live weeks before the publish, `None` when
 /// they had no live season. Only the weeks the publish wrote are compared,
 /// each with the live week of the same `week_start`: weeks the coach did not
-/// draft keep the athlete's version, so nothing changed there. A day counts
-/// as changed when its session differs in any field, when it is new to its
-/// week, or when the publish took it away. A day whose date does not parse
+/// draft keep the athlete's version, so nothing changed there. A date counts
+/// as changed when its entries differ, compared in order and in every field:
+/// a session rewritten, added, taken away — one of two on the date included
+/// (carnet#1716) — or moved within the date. A date that does not parse
 /// cannot be named, and is left out (logged).
 #[must_use]
 pub fn plan_change(previous: Option<&[PlanWeek]>, published: &[PlanWeek]) -> Option<PlanChange> {
@@ -91,13 +91,20 @@ pub fn plan_change(previous: Option<&[PlanWeek]>, published: &[PlanWeek]) -> Opt
             .iter()
             .find(|live| live.week_start == week.week_start)
             .map_or(&[][..], |live| live.days.as_slice());
-        let rewritten = week.days.iter().filter(|day| !before.contains(day));
-        let removed = before
+        let dates: BTreeSet<&str> = before
             .iter()
-            .filter(|day| !week.days.iter().any(|after| after.date == day.date));
-        changed.extend(rewritten.chain(removed).map(|day| day.date.as_str()));
+            .chain(&week.days)
+            .map(|day| day.date.as_str())
+            .collect();
+        for date in dates {
+            let was = before.iter().filter(|day| day.date == date);
+            let is = week.days.iter().filter(|day| day.date == date);
+            if !was.eq(is) {
+                changed.insert(date);
+            }
+        }
     }
-    let days: Vec<NaiveDate> = changed
+    let days: Vec<CivilDate> = changed
         .into_iter()
         .filter_map(|date| {
             parse_plan_date(date).or_else(|| {
@@ -115,7 +122,7 @@ pub fn plan_change(previous: Option<&[PlanWeek]>, published: &[PlanWeek]) -> Opt
 /// One day as the room post names it: the weekday, then the short date —
 /// photograveur's, the one conversation titles and chart axes write — in
 /// `locale`.
-fn day_label(date: NaiveDate, locale: &str) -> String {
+fn day_label(date: CivilDate, locale: &str) -> String {
     format!(
         "{} {}",
         weekday_short(date.weekday(), locale),
@@ -360,14 +367,13 @@ async fn coached_group(
 
 /// Post `text` into `group`'s bound chat; whether any of it arrived.
 async fn post_in_chat(poster: &dyn GroupChatPoster, group: &CoachingGroup, text: &str) -> bool {
-    let Some((channel, chat_id)) = proactive_chat(group) else {
+    let Some(chat) = proactive_chat(group) else {
         return false;
     };
-    let Ok(tenant) = TenantId::parse_str(&group.tenant_id) else {
-        warn!(group_id = %group.id, "plan room post: the group's tenant is not a uuid; not posted to its chat");
-        return false;
-    };
-    let parts = poster.post(tenant, channel, chat_id, text).await;
+    let channel = chat.channel;
+    let parts = poster
+        .post(chat.tenant_id, channel, chat.chat_id, text)
+        .await;
     if parts > 0 {
         info!(group_id = %group.id, channel = %channel, parts, "plan room post: posted into the group's chat");
     }
@@ -376,7 +382,7 @@ async fn post_in_chat(poster: &dyn GroupChatPoster, group: &CoachingGroup, text:
 
 #[cfg(test)]
 mod tests {
-    use chrono::Utc;
+    use dravr_tronc::dates::Timestamp;
     use pierre_memory::training_plans::{PlannedDay, WeekStatus};
 
     use super::*;
@@ -395,6 +401,8 @@ mod tests {
             template_source: None,
             template_preset: None,
             envelope: None,
+            coach_original: None,
+            coach_added: false,
         }
     }
 
@@ -412,13 +420,37 @@ mod tests {
             supersedes_id: None,
             adjustment_reason: String::new(),
             author_agent_id: None,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         }
     }
 
-    fn date(raw: &str) -> NaiveDate {
+    fn date(raw: &str) -> CivilDate {
         parse_plan_date(raw).unwrap()
+    }
+
+    /// Removing one of two sessions on a date, or reordering them, names
+    /// the date; the same two sessions in the same order do not
+    /// (carnet#1716).
+    #[test]
+    fn a_session_taken_from_a_date_with_two_names_the_date() {
+        let brick = vec![day("2026-10-27", "bike"), day("2026-10-27", "run")];
+        let previous = [week("2026-10-26", brick.clone())];
+        for (published, named) in [
+            (vec![day("2026-10-27", "bike")], true),
+            (
+                vec![day("2026-10-27", "run"), day("2026-10-27", "bike")],
+                true,
+            ),
+            (brick, false),
+        ] {
+            let change = plan_change(Some(&previous), &[week("2026-10-26", published.clone())]);
+            assert_eq!(
+                change,
+                named.then(|| PlanChange::Days(vec![date("2026-10-27")])),
+                "bug: a date's entries are compared whole: {published:?}"
+            );
+        }
     }
 
     #[test]
@@ -501,7 +533,7 @@ mod tests {
     /// counted last.
     #[test]
     fn the_post_names_four_days_and_counts_the_rest() {
-        let days: Vec<NaiveDate> = [
+        let days: Vec<CivilDate> = [
             "2026-10-27",
             "2026-10-29",
             "2026-10-30",

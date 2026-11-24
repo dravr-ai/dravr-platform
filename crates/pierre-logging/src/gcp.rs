@@ -17,7 +17,7 @@ use std::collections::BTreeMap;
 use std::error::Error as StdError;
 use std::fmt;
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use serde_json::{json, Map, Value};
 use tracing::{field::Field, field::Visit, Event, Level, Subscriber};
 use tracing_subscriber::fmt::{format::Writer, FmtContext, FormatEvent, FormatFields};
@@ -27,6 +27,7 @@ use crate::request_trace::{self, CLOUD_TRACE_ID_FIELD};
 use crate::span_fields::SpanFields;
 #[cfg(feature = "telemetry")]
 use crate::trace_link::TraceLink;
+use dravr_tronc::dates::SecondsFormat;
 
 /// Key used by tracing for the primary message field.
 const MESSAGE_FIELD: &str = "message";
@@ -128,7 +129,7 @@ where
 
         entry.insert(
             TIME_KEY.to_owned(),
-            Value::String(Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Micros, true)),
+            Value::String(Timestamp::now().to_rfc3339_opts(SecondsFormat::Micros, true)),
         );
 
         let mut labels = Map::new();

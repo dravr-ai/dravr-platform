@@ -36,41 +36,49 @@ use pierre_core::civil_time::{
 
 /// Everything in this file that names the date engine.
 mod engine {
-    use chrono::{DateTime, FixedOffset, NaiveDateTime, Utc};
-    use chrono_tz::Tz;
+    use std::borrow::Borrow;
 
-    pub(super) type Instant = DateTime<Utc>;
-    pub(super) type Zone = Tz;
+    use dravr_tronc::dates::CivilDateTime;
+
+    pub(super) use dravr_tronc::dates::Timestamp as Instant;
 
     /// A UTC instant from `2026-11-17T15:00:05.120`, with any fraction or none.
     pub(super) fn instant(text: &str) -> Instant {
-        NaiveDateTime::parse_from_str(text, "%Y-%m-%dT%H:%M:%S%.f")
+        CivilDateTime::parse_from_str(text, "%Y-%m-%dT%H:%M:%S%.f")
             .unwrap()
             .and_utc()
+            .unwrap()
     }
 
-    /// A zone from its IANA name.
-    pub(super) fn zone(name: &str) -> Zone {
-        name.parse().unwrap()
+    pub(super) use dravr_tronc::dates::Zone;
+
+    /// A zone from its IANA name, held for the whole run so the tables can
+    /// pass it on by copy as they passed the zone type it replaced.
+    pub(super) fn zone(name: &str) -> &'static Zone {
+        Box::leak(Box::new(name.parse().unwrap()))
     }
 
     /// The hand formatter on a zoned value: what `start_date_local` carries.
-    pub(super) fn zoned_rfc3339(value: Instant, zone: Zone) -> String {
-        value.with_timezone(&zone).to_rfc3339()
+    pub(super) fn zoned_rfc3339(value: Instant, zone: impl Borrow<Zone>) -> String {
+        zone.borrow()
+            .format(value, "%Y-%m-%dT%H:%M:%S%.f%:z")
+            .unwrap()
     }
 
     /// The minute pattern on a zoned value: the session-merge note's window.
-    pub(super) fn zoned_minutes(value: Instant, zone: Zone) -> String {
-        value
-            .with_timezone(&zone)
-            .format("%Y-%m-%d %H:%M")
-            .to_string()
+    pub(super) fn zoned_minutes(value: Instant, zone: impl Borrow<Zone>) -> String {
+        zone.borrow().format(value, "%Y-%m-%d %H:%M").unwrap()
     }
 
     /// The JSON serializer on a value that keeps a fixed offset.
     pub(super) fn fixed_offset_json(value: Instant, seconds_east: i32) -> String {
-        let offset = FixedOffset::east_opt(seconds_east).unwrap();
-        serde_json::to_string(&value.with_timezone(&offset)).unwrap()
+        let offset = Zone::fixed(seconds_east).unwrap();
+        let pattern = if seconds_east == 0 {
+            "%Y-%m-%dT%H:%M:%S%.fZ"
+        } else {
+            "%Y-%m-%dT%H:%M:%S%.f%:z"
+        };
+        serde_json::to_string(&offset.format(value, pattern).unwrap()).unwrap()
     }
 }
 
@@ -248,9 +256,9 @@ fn the_prompt_stamps_show_the_athlete_s_wall_clock_and_weekday() {
             let zone = parse_zone(Some(name)).unwrap();
             let at = instant(at);
             [
-                format_clock_stamp(at, zone, locale),
-                format_local_stamp(at, zone, locale),
-                format_local_day(at, zone, locale),
+                format_clock_stamp(at, &zone, locale),
+                format_local_stamp(at, &zone, locale),
+                format_local_day(at, &zone, locale),
             ]
         })
         .collect();
@@ -273,12 +281,12 @@ fn a_calendar_date_stamps_as_its_date_and_weekday() {
     let toronto = parse_zone(Some("America/Toronto")).unwrap();
     let evening = instant("2026-08-28T02:59:03");
     assert_eq!(
-        format_civil_day(local_date(evening, toronto), "fr"),
+        format_civil_day(local_date(evening, &toronto), "fr"),
         "2026-08-27 jeu",
         "the French day-only stamp of a calendar date"
     );
     assert_eq!(
-        format_civil_day(local_date(evening, toronto), "en"),
+        format_civil_day(local_date(evening, &toronto), "en"),
         "2026-08-27 Thu",
         "the English day-only stamp of a calendar date"
     );

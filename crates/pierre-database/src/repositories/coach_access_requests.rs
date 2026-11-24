@@ -9,7 +9,7 @@
 //! A coach whose onboarding group came back coachless asks for coach access in
 //! one tap; an admin grants or declines it. The table is scoped by
 //! `user_id`: coach access (`manages_roster`) belongs to the account, not to a
-//! tenant, and the admin queue is the global operator's. `group_tenant_id`
+//! tenant, and the admin queue is the global admin's. `group_tenant_id`
 //! only locates the group a grant attaches the coach to.
 //!
 //! At most one request per user is pending, held by a partial unique index, so
@@ -37,7 +37,7 @@
 //! `SQLite` as well as Postgres.
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{CoachAccessRequest, CoachAccessStatus};
 use uuid::Uuid;
@@ -63,7 +63,7 @@ pub trait CoachAccessRequestRepository: Send + Sync {
         &self,
         user_id: Uuid,
         except: Uuid,
-        at: DateTime<Utc>,
+        at: Timestamp,
     ) -> AppResult<u64>;
     /// Every request in `status`, oldest first.
     async fn list_by_status(&self, status: CoachAccessStatus)
@@ -87,7 +87,7 @@ pub trait CoachAccessRequestRepository: Send + Sync {
         id: Uuid,
         status: CoachAccessStatus,
         decided_by: Option<Uuid>,
-        decided_at: DateTime<Utc>,
+        decided_at: Timestamp,
         decline_reason: Option<&str>,
     ) -> AppResult<bool>;
     /// Withdraw `user_id`'s pending request `id`: the row is deleted, so the
@@ -206,8 +206,8 @@ where
     for<'a> &'a str: sqlx::ColumnIndex<R>,
     String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     Option<String>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    DateTime<Utc>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    Option<DateTime<Utc>>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Timestamp: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Option<Timestamp>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
     let column =
         |col: &str, e: sqlx::Error| AppError::database(format!("coach_access_requests {col}: {e}"));
@@ -320,7 +320,7 @@ macro_rules! impl_coach_access_request_repository {
                 &self,
                 user_id: Uuid,
                 except: Uuid,
-                at: DateTime<Utc>,
+                at: Timestamp,
             ) -> AppResult<u64> {
                 let result = sqlx::query(SUPERSEDE_DECLINED_SQL)
                     .bind($ids::bind(user_id))
@@ -377,7 +377,7 @@ macro_rules! impl_coach_access_request_repository {
                 id: Uuid,
                 status: CoachAccessStatus,
                 decided_by: Option<Uuid>,
-                decided_at: DateTime<Utc>,
+                decided_at: Timestamp,
                 decline_reason: Option<&str>,
             ) -> AppResult<bool> {
                 let result = sqlx::query(DECIDE_REQUEST_SQL)

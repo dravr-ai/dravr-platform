@@ -22,7 +22,7 @@ use async_trait::async_trait;
 use axum::extract::connect_info::MockConnectInfo;
 use axum::Router;
 use base64::{engine::general_purpose, Engine as _};
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_auth::auth::AuthManager;
 use pierre_auth::config::OAuth2ServerConfig;
 use pierre_auth::oauth2_server::cimd::{client_from_document, CimdError, MetadataFetcher};
@@ -104,8 +104,8 @@ async fn athlete(database: &Database, email: &str) -> User {
             domain: None,
             plan: "starter".to_owned(),
             owner_user_id: user.id,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         })
         .await
         .unwrap();
@@ -133,6 +133,8 @@ fn authorize_request(client_id: &str, redirect: &str, scope: Option<&str>) -> Au
         code_challenge: Some(challenge()),
         code_challenge_method: Some("S256".to_owned()),
         resource: None,
+        request_uri: None,
+        authorization_details: None,
     }
 }
 
@@ -336,7 +338,7 @@ async fn stale_client_failing_with(error: CimdError) -> (Env, String) {
     let url = document_url();
     let env = env_with(Arc::new(FailingFetcher(error))).await;
     let body = serde_json::to_vec(&document(&url, REDIRECT)).unwrap();
-    let client = client_from_document(&url, &body, Utc::now()).unwrap();
+    let client = client_from_document(&url, &body, Timestamp::now()).unwrap();
     env.database
         .repositories()
         .oauth2_server
@@ -760,7 +762,7 @@ async fn a_registration_expires_after_ninety_days_without_use() {
         .await
         .unwrap();
     let expires = client.client_secret_expires_at.unwrap();
-    let days = (expires - Utc::now().timestamp()) / 86_400;
+    let days = (expires - Timestamp::now().epoch_seconds()) / 86_400;
     assert!((89..=90).contains(&days), "expires in {days} days");
 }
 
@@ -775,7 +777,7 @@ async fn authorizing_through_a_client_slides_its_expiry_forward() {
         .unwrap();
     // A registration close to its expiry: 3 days left.
     let repos = env.database.repositories();
-    let soon = Utc::now() + Duration::days(3);
+    let soon = Timestamp::now() + Elapsed::days(3);
     let mut row = repos
         .oauth2_server
         .get_client(&client.client_id)
@@ -818,7 +820,10 @@ async fn authorizing_through_a_client_slides_its_expiry_forward() {
         .unwrap()
         .expires_at
         .unwrap();
-    assert!(slid > Utc::now() + Duration::days(80), "expires {slid}");
+    assert!(
+        slid > Timestamp::now() + Elapsed::days(80),
+        "expires {slid}"
+    );
 }
 
 #[tokio::test]
@@ -831,7 +836,7 @@ async fn the_expiry_never_moves_back_or_onto_a_row_without_one() {
         .await
         .unwrap();
     assert_ne!(secret, "");
-    let far = Utc::now() + Duration::days(400);
+    let far = Timestamp::now() + Elapsed::days(400);
     repos
         .oauth2_server
         .extend_client_expiry("machine_expiry", far)
@@ -861,7 +866,7 @@ async fn the_expiry_never_moves_back_or_onto_a_row_without_one() {
         .unwrap();
     repos
         .oauth2_server
-        .extend_client_expiry(&client.client_id, Utc::now() + Duration::days(1))
+        .extend_client_expiry(&client.client_id, Timestamp::now() + Elapsed::days(1))
         .await
         .unwrap();
     let after = repos
@@ -1040,6 +1045,7 @@ fn oauth2_routes(resources: &Arc<ServerContext>) -> Router {
         jwks_manager: resources.auth.jwks_manager.clone(),
         config: Arc::new(resources.common.config.oauth2_server.clone()),
         refresh_token_expiry_days: resources.common.config.auth.refresh_token_expiry_days,
+        session_cookie_max_age_secs: resources.common.config.session_cookie.max_age_secs,
         csrf_manager: resources.auth.csrf_manager.clone(),
         accounts: resources.account_service(),
         google_sign_in: None,
@@ -1083,8 +1089,8 @@ async fn registered_over_http(
             domain: None,
             plan: "starter".to_owned(),
             owner_user_id: user.id,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         })
         .await
         .unwrap();

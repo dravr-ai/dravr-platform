@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use async_trait::async_trait;
-use chrono::NaiveDate;
+use dravr_tronc::dates::CivilDate;
 use pierre_core::config::profiles::FitnessLevel;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::periodization::SportFamily;
@@ -19,6 +19,8 @@ use pierre_core::transport::TransportPolicy;
 use serde_json::Value;
 use sqlx::Row;
 use uuid::Uuid;
+
+use crate::repositories::user_physiological_profile_vdot::{vdot_binds, vdot_from_row, VdotBinds};
 
 /// Typed CRUD for [`UserPhysiologicalProfile`] backed by the
 /// `user_physiological_profiles` table.
@@ -118,15 +120,17 @@ pub trait DossierRepository: Send + Sync {
     /// reads so their limits count only readable rows.
     ///
     /// `admit` decides, per stored row, whether content stamped with a policy
-    /// may be served to this caller (carnet#769): the caller passes
-    /// `ai_scope::admit_derived`, so a first-party-only fact or profile never
-    /// reaches an external one. A row it refuses is left out of the dossier.
+    /// and naming AI-consent keys may be served to this caller (carnet#769,
+    /// carnet#1157): the caller passes `ai_scope::admit_memory`, so a
+    /// first-party-only fact or profile never reaches an external one, and a
+    /// fact naming a withdrawn or kept-out key never reaches a model. The
+    /// profile names no key. A row it refuses is left out of the dossier.
     async fn compose_dossier(
         &self,
         tenant_id: TenantId,
         user_id: Uuid,
         readable: TransportPolicy,
-        admit: &(dyn Fn(TransportPolicy) -> bool + Sync),
+        admit: &(dyn for<'s> Fn(TransportPolicy, &'s [String]) -> bool + Sync),
     ) -> AppResult<Dossier>;
 }
 
@@ -163,13 +167,15 @@ pub(crate) const UPSERT_PHYSIOLOGICAL_PROFILE_SQL: &str = r"
                 vo2_max_origin, vo2_max_as_of,
                 weight_origin, weight_as_of,
                 ftp_watts_stated_on, threshold_hr_stated_on, max_hr_stated_on,
-                threshold_pace_sec_per_km_stated_on
+                threshold_pace_sec_per_km_stated_on,
+                vo2_max_method, vdot, vdot_as_of, vdot_method
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
                     $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28,
                     $29, $30, $31, $32, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, $33,
                     $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46,
-                    $47, $48, $49, $50, $51, $52, $53, $54, $55, $56)
+                    $47, $48, $49, $50, $51, $52, $53, $54, $55, $56,
+                    $57, $58, $59, $60)
             ON CONFLICT (tenant_id, user_id) DO UPDATE SET
                 vo2_max = EXCLUDED.vo2_max,
                 resting_hr = EXCLUDED.resting_hr,
@@ -225,7 +231,11 @@ pub(crate) const UPSERT_PHYSIOLOGICAL_PROFILE_SQL: &str = r"
                 ftp_watts_stated_on = EXCLUDED.ftp_watts_stated_on,
                 threshold_hr_stated_on = EXCLUDED.threshold_hr_stated_on,
                 max_hr_stated_on = EXCLUDED.max_hr_stated_on,
-                threshold_pace_sec_per_km_stated_on = EXCLUDED.threshold_pace_sec_per_km_stated_on
+                threshold_pace_sec_per_km_stated_on = EXCLUDED.threshold_pace_sec_per_km_stated_on,
+                vo2_max_method = EXCLUDED.vo2_max_method,
+                vdot = EXCLUDED.vdot,
+                vdot_as_of = EXCLUDED.vdot_as_of,
+                vdot_method = EXCLUDED.vdot_method
             ";
 
 /// Read the one profile row for `(tenant_id, user_id)`.
@@ -249,7 +259,8 @@ pub(crate) const GET_PHYSIOLOGICAL_PROFILE_SQL: &str = r"
                    vo2_max_origin, vo2_max_as_of,
                    weight_origin, weight_as_of,
                    ftp_watts_stated_on, threshold_hr_stated_on, max_hr_stated_on,
-                   threshold_pace_sec_per_km_stated_on
+                   threshold_pace_sec_per_km_stated_on,
+                   vo2_max_method, vdot, vdot_as_of, vdot_method
             FROM user_physiological_profiles
             WHERE tenant_id = $1 AND user_id = $2
             LIMIT 1
@@ -296,10 +307,12 @@ pub(crate) struct ProfileBinds {
     pub(crate) resting_hr_stamp: AnchorStampBinds,
     pub(crate) vo2_max_stamp: AnchorStampBinds,
     pub(crate) weight_stamp: AnchorStampBinds,
-    pub(crate) ftp_watts_stated_on: Option<NaiveDate>,
-    pub(crate) threshold_hr_stated_on: Option<NaiveDate>,
-    pub(crate) max_hr_stated_on: Option<NaiveDate>,
-    pub(crate) threshold_pace_stated_on: Option<NaiveDate>,
+    pub(crate) ftp_watts_stated_on: Option<CivilDate>,
+    pub(crate) threshold_hr_stated_on: Option<CivilDate>,
+    pub(crate) max_hr_stated_on: Option<CivilDate>,
+    pub(crate) threshold_pace_stated_on: Option<CivilDate>,
+    pub(crate) vo2_max_method: Option<String>,
+    pub(crate) vdot: VdotBinds,
 }
 
 /// The day an athlete-set threshold was stated, bound only beside a value
@@ -308,8 +321,8 @@ pub(crate) struct ProfileBinds {
 fn stated_on_bind(
     has_value: bool,
     import: Option<&MetricProvenance>,
-    stated_on: Option<NaiveDate>,
-) -> Option<NaiveDate> {
+    stated_on: Option<CivilDate>,
+) -> Option<CivilDate> {
     stated_on.filter(|_| has_value && import.is_none())
 }
 
@@ -317,7 +330,7 @@ fn stated_on_bind(
 /// an anchor with no value, or one whose origin was never recorded.
 pub(crate) struct AnchorStampBinds {
     pub(crate) origin: Option<&'static str>,
-    pub(crate) as_of: Option<NaiveDate>,
+    pub(crate) as_of: Option<CivilDate>,
 }
 
 /// The origin columns of an anchor: its stamp when the anchor has a value,
@@ -337,7 +350,7 @@ pub(crate) struct ProvenanceBinds<V> {
     pub(crate) value: Option<V>,
     pub(crate) kind: Option<&'static str>,
     pub(crate) origin: Option<String>,
-    pub(crate) as_of: Option<NaiveDate>,
+    pub(crate) as_of: Option<CivilDate>,
 }
 
 /// The three provenance columns of one scalar threshold, whose value is bound
@@ -345,7 +358,7 @@ pub(crate) struct ProvenanceBinds<V> {
 pub(crate) struct ThresholdProvenanceBinds {
     pub(crate) kind: Option<&'static str>,
     pub(crate) origin: Option<String>,
-    pub(crate) as_of: Option<NaiveDate>,
+    pub(crate) as_of: Option<CivilDate>,
 }
 
 /// The provenance columns of a scalar threshold: the provenance when the
@@ -497,6 +510,12 @@ pub(crate) fn profile_binds(profile: &UserPhysiologicalProfile) -> AppResult<Pro
                 .as_ref(),
             profile.threshold_stated_on.threshold_pace_sec_per_km,
         ),
+        // A method describes the VO2max beside it, so none is stored alone.
+        vo2_max_method: profile
+            .vo2_max_method
+            .clone()
+            .filter(|_| profile.vo2_max.is_some()),
+        vdot: vdot_binds(profile.vdot.as_ref()),
     })
 }
 
@@ -520,7 +539,7 @@ where
     i32: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     f64: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     Value: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    NaiveDate: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    CivilDate: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     bool: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
     let fitness_level_str: String = row
@@ -608,6 +627,10 @@ where
         vo2_max: anchor_stamp_from_row(row, "vo2_max", vo2_max.is_some())?,
         weight: anchor_stamp_from_row(row, "weight", weight.is_some())?,
     };
+    let vo2_max_method = row
+        .try_get::<Option<String>, _>("vo2_max_method")
+        .map_err(|e| AppError::database(format!("read vo2_max_method: {e}")))?
+        .filter(|_| vo2_max.is_some());
 
     Ok(UserPhysiologicalProfile {
         user_id,
@@ -639,6 +662,8 @@ where
         threshold_provenance,
         threshold_stated_on,
         anchor_provenance,
+        vo2_max_method,
+        vdot: vdot_from_row(row)?,
         sex: row
             .try_get::<Option<String>, _>("sex")
             .map_err(|e| AppError::database(format!("read sex: {e}")))?
@@ -674,7 +699,7 @@ where
     R: Row,
     for<'a> &'a str: sqlx::ColumnIndex<R>,
     String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    NaiveDate: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    CivilDate: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
     let read = |e: sqlx::Error, which: &str| AppError::database(format!("read {which}: {e}"));
     let kind_column = format!("{column}_kind");
@@ -689,7 +714,7 @@ where
     let origin: Option<String> = row
         .try_get(origin_column.as_str())
         .map_err(|e| read(e, &origin_column))?;
-    let as_of: Option<NaiveDate> = row
+    let as_of: Option<CivilDate> = row
         .try_get(as_of_column.as_str())
         .map_err(|e| read(e, &as_of_column))?;
     Ok(Some(MetricProvenance {
@@ -706,14 +731,14 @@ where
 ///
 /// # Errors
 /// Returns a database error when the column cannot be decoded.
-fn stated_on_from_row<R>(row: &R, column: &str, athlete_owned: bool) -> AppResult<Option<NaiveDate>>
+fn stated_on_from_row<R>(row: &R, column: &str, athlete_owned: bool) -> AppResult<Option<CivilDate>>
 where
     R: Row,
     for<'a> &'a str: sqlx::ColumnIndex<R>,
-    NaiveDate: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    CivilDate: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
     let stated_column = format!("{column}_stated_on");
-    let stated: Option<NaiveDate> = row
+    let stated: Option<CivilDate> = row
         .try_get(stated_column.as_str())
         .map_err(|e| AppError::database(format!("read {stated_column}: {e}")))?;
     Ok(stated.filter(|_| athlete_owned))
@@ -737,7 +762,7 @@ where
     R: Row,
     for<'a> &'a str: sqlx::ColumnIndex<R>,
     String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    NaiveDate: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    CivilDate: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
     let read = |e: sqlx::Error, which: &str| AppError::database(format!("read {which}: {e}"));
     let origin_column = format!("{column}_origin");
@@ -748,7 +773,7 @@ where
         return Ok(None);
     };
     let as_of_column = format!("{column}_as_of");
-    let as_of: Option<NaiveDate> = row
+    let as_of: Option<CivilDate> = row
         .try_get(as_of_column.as_str())
         .map_err(|e| read(e, &as_of_column))?;
     Ok(Some(AnchorStamp {
@@ -778,7 +803,7 @@ where
     for<'a> &'a str: sqlx::ColumnIndex<R>,
     V: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    NaiveDate: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    CivilDate: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
     let read = |e: sqlx::Error, which: &str| AppError::database(format!("read {which}: {e}"));
     let kind_column = format!("{column}_kind");
@@ -797,7 +822,7 @@ where
             let origin: Option<String> = row
                 .try_get(origin_column.as_str())
                 .map_err(|e| read(e, &origin_column))?;
-            let as_of: Option<NaiveDate> = row
+            let as_of: Option<CivilDate> = row
                 .try_get(as_of_column.as_str())
                 .map_err(|e| read(e, &as_of_column))?;
             Ok(Some(ProvenancedValue::new(
@@ -897,6 +922,10 @@ macro_rules! impl_user_physiological_profile_repository {
                     .bind(binds.threshold_hr_stated_on)
                     .bind(binds.max_hr_stated_on)
                     .bind(binds.threshold_pace_stated_on)
+                    .bind(binds.vo2_max_method)
+                    .bind(binds.vdot.value)
+                    .bind(binds.vdot.as_of)
+                    .bind(binds.vdot.method)
                     .execute(self.pool())
                     .await
                     .map_err(|e| {
@@ -1030,12 +1059,12 @@ macro_rules! impl_user_physiological_profile_repository {
                 tenant_id: TenantId,
                 user_id: Uuid,
                 readable: TransportPolicy,
-                admit: &(dyn Fn(TransportPolicy) -> bool + Sync),
+                admit: &(dyn for<'s> Fn(TransportPolicy, &'s [String]) -> bool + Sync),
             ) -> AppResult<Dossier> {
                 let physiology = self
                     .get_user_physiological_profile(tenant_id, user_id)
                     .await?
-                    .filter(|profile| admit(profile.transport_policy));
+                    .filter(|profile| admit(profile.transport_policy, &[]));
                 let sport_anchors = if physiology.is_some() {
                     self.list_sport_anchors(tenant_id, user_id).await?
                 } else {
@@ -1123,8 +1152,8 @@ macro_rules! impl_user_physiological_profile_repository {
                         tracing::warn!(error = %e, user_id = %user_id, fact_source = FactSource::Onboarding.as_str(), "guaranteed by-source fact read failed; dossier degrades without interview answers");
                     }
                 }
-                facts.retain(|fact| admit(fact.transport_policy));
-                let buckets = group_facts(&facts, Utc::now());
+                facts.retain(|fact| admit(fact.transport_policy, &fact.ai_consent_sources));
+                let buckets = group_facts(&facts, Timestamp::now());
 
                 Ok(Dossier {
                     user_id,

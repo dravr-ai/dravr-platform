@@ -20,7 +20,7 @@
 
 use std::time::Duration;
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::{User, UserTier};
 use pierre_database::repositories::UserTierOverride;
 use pierre_database::RepositoryRegistry;
@@ -44,7 +44,7 @@ async fn upsert_then_get_round_trips_every_column() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
     let user_id = fresh_user(repos).await;
-    let operator_id = fresh_user(repos).await;
+    let admin_id = fresh_user(repos).await;
 
     assert_eq!(
         repos.user_tier_overrides.get(user_id).await.unwrap(),
@@ -52,15 +52,15 @@ async fn upsert_then_get_round_trips_every_column() {
         "a user with no marker reads as None so the webhook drives the tier"
     );
 
-    let before = Utc::now();
-    let now = Utc::now();
+    let before = Timestamp::now();
+    let now = Timestamp::now();
     repos
         .user_tier_overrides
         .upsert(&UserTierOverride {
             user_id,
             tier: UserTier::Professional,
             note: Some("comp account for the launch demo".to_owned()),
-            set_by: Some(operator_id),
+            set_by: Some(admin_id),
             set_at: now,
             updated_at: now,
         })
@@ -79,9 +79,9 @@ async fn upsert_then_get_round_trips_every_column() {
         stored.note.as_deref(),
         Some("comp account for the launch demo")
     );
-    assert_eq!(stored.set_by, Some(operator_id));
+    assert_eq!(stored.set_by, Some(admin_id));
     assert!(
-        stored.set_at >= before && stored.set_at <= Utc::now(),
+        stored.set_at >= before && stored.set_at <= Timestamp::now(),
         "set_at is the write time, not the caller's field"
     );
     assert_eq!(
@@ -95,16 +95,16 @@ async fn second_upsert_keeps_set_at_and_replaces_the_rest() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
     let user_id = fresh_user(repos).await;
-    let first_operator = fresh_user(repos).await;
+    let first_admin = fresh_user(repos).await;
 
-    let now = Utc::now();
+    let now = Timestamp::now();
     repos
         .user_tier_overrides
         .upsert(&UserTierOverride {
             user_id,
             tier: UserTier::Starter,
             note: Some("first".to_owned()),
-            set_by: Some(first_operator),
+            set_by: Some(first_admin),
             set_at: now,
             updated_at: now,
         })
@@ -119,7 +119,7 @@ async fn second_upsert_keeps_set_at_and_replaces_the_rest() {
 
     sleep(Duration::from_millis(50)).await;
 
-    let later = Utc::now();
+    let later = Timestamp::now();
     repos
         .user_tier_overrides
         .upsert(&UserTierOverride {
@@ -163,7 +163,7 @@ async fn delete_reports_whether_a_marker_existed() {
         "deleting a marker that was never set reports false"
     );
 
-    let now = Utc::now();
+    let now = Timestamp::now();
     repos
         .user_tier_overrides
         .upsert(&UserTierOverride {

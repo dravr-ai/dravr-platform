@@ -6,7 +6,7 @@
 
 use std::collections::HashMap;
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use serde::{Deserialize, Serialize};
 
 /// Sleep stage data
@@ -15,7 +15,7 @@ pub struct SleepStage {
     /// Stage type (awake, light, deep, rem)
     pub stage_type: SleepStageType,
     /// Start time of this stage
-    pub start_time: DateTime<Utc>,
+    pub start_time: Timestamp,
     /// Duration of this stage in minutes
     pub duration_minutes: u32,
 }
@@ -40,9 +40,9 @@ pub struct SleepSession {
     /// Unique identifier for the sleep session
     pub id: String,
     /// When sleep started
-    pub start_time: DateTime<Utc>,
+    pub start_time: Timestamp,
     /// When sleep ended
-    pub end_time: DateTime<Utc>,
+    pub end_time: Timestamp,
     /// Total time spent in bed (minutes)
     pub time_in_bed: u32,
     /// Actual sleep time (minutes)

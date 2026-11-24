@@ -20,6 +20,7 @@
 
 use crate::common;
 use crate::helpers;
+use crate::helpers::consent_form::review_digest;
 use secrecy::ExposeSecret;
 
 use std::net::SocketAddr;
@@ -27,8 +28,8 @@ use std::sync::Arc;
 
 use axum::extract::connect_info::MockConnectInfo;
 use base64::{engine::general_purpose, Engine as _};
-use chrono::Utc;
 use common::{create_test_server_resources_with_config, create_test_tenant};
+use dravr_tronc::dates::Timestamp;
 use helpers::axum_test::{AxumTestRequest, AxumTestResponse};
 use jsonwebtoken::dangerous::insecure_decode;
 use jsonwebtoken::{encode, Algorithm, Header};
@@ -101,6 +102,7 @@ fn oauth2_routes(resources: &Arc<ServerContext>) -> axum::Router {
             &resources.common.config.rate_limiting,
         )),
         refresh_token_expiry_days: 30,
+        session_cookie_max_age_secs: 86_400,
         csrf_manager: resources.auth.csrf_manager.clone(),
         accounts: resources.account_service(),
         google_sign_in: None,
@@ -237,6 +239,7 @@ async fn authorization_code(
         .unwrap_or_else(|| panic!("the consent form carries its synchronizer token: {page}"))
         .to_owned();
 
+    let (digest_field, digest) = review_digest(&page);
     let challenge = pkce_challenge();
     let form = [
         ("response_type", "code"),
@@ -247,6 +250,7 @@ async fn authorization_code(
         ("code_challenge_method", "S256"),
         ("resource", resource.unwrap_or_default()),
         ("csrf_token", csrf_token.as_str()),
+        (digest_field, digest.as_str()),
         ("decision", "approve"),
     ];
     let approved = AxumTestRequest::post("/oauth2/consent")
@@ -560,7 +564,6 @@ async fn a_token_bound_to_another_resource_is_refused_at_mcp() {
                     audience: Some(audience),
                 },
                 &user.id,
-                &[],
                 tenant.clone(),
             )
             .unwrap()
@@ -851,8 +854,8 @@ async fn a_grant_acts_in_the_tenant_it_was_authorized_in() {
             domain: None,
             plan: "starter".to_owned(),
             owner_user_id: user.id,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         })
         .await
         .unwrap();
@@ -1058,7 +1061,6 @@ async fn a_token_bound_to_either_host_is_served_at_mcp() {
                     audience: Some(audience),
                 },
                 &user.id,
-                &[],
                 tenant.clone(),
             )
             .unwrap()
@@ -1106,7 +1108,7 @@ async fn validate_and_refresh(
 fn expired(resources: &Arc<ServerContext>, token: &str) -> String {
     let mut claims = insecure_decode::<Claims>(token).unwrap().claims;
     claims.iat -= 7200;
-    claims.exp = Utc::now().timestamp() - 3600;
+    claims.exp = Timestamp::now().epoch_seconds() - 3600;
     let key = resources.auth.jwks_manager.get_active_key().unwrap();
     let mut header = Header::new(Algorithm::RS256);
     header.kid = Some(key.kid.clone());
@@ -1155,7 +1157,6 @@ async fn validate_and_refresh_rotates_a_bound_grant_into_a_token_still_bound() {
                 audience: Some(OTHER_RESOURCE),
             },
             &user.id,
-            &[],
             None,
         )
         .unwrap();
@@ -1183,7 +1184,6 @@ async fn validate_and_refresh_rotates_a_bound_grant_into_a_token_still_bound() {
                 audience: Some(MCP_RESOURCE),
             },
             &intruder.id,
-            &[],
             None,
         )
         .unwrap();

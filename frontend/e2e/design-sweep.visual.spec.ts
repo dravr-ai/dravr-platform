@@ -98,7 +98,7 @@ async function sweep(
       missed.push(surface);
       continue;
     }
-    // Entrance animation is 500ms (DESIGN.md §7); capturing inside it yields a
+    // Entrance animation is 500ms (DESIGN.md "Motion"); capturing inside it yields a
     // half-faded screen that reads as a contrast bug.
     await page.waitForTimeout(700);
     await setTheme(page, theme);
@@ -165,6 +165,74 @@ async function sweepSettings(page: Page, theme: (typeof THEMES)[number]) {
       }),
     }),
   );
+  // The privacy pane's health records block holds one result waiting for
+  // review (with a check it failed), one lab report and one served result, so
+  // each of its row shapes reaches the capture rather than its empty lines.
+  const flat = {
+    code_system: 'http://loinc.org', code: '718-7', display: 'Hemoglobin', value: 150, unit: 'g/L',
+    value_code: null, interpretation: null, ref_low: 135, ref_high: 175, status: 'final', components: [],
+    effective_at: '2026-05-05',
+  };
+  const pending = {
+    id: 'rec-1', flat, checks: ['flag_not_printed'], locator: 'text:page=1;line=4',
+    review_decision: null, effective_at: '2026-05-05T00:00:00Z',
+  };
+  const labDocument = {
+    id: 'doc-1', status: 'read', pages: 2, size_bytes: 48_000, engine: 'rules', flagged_lines: 0,
+    skipped: 0, dropped: 0, model_failure: null, received_at: '2026-11-20T15:00:00Z',
+  };
+  const json = (body: unknown) => ({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
+  await page.route('**/api/me/health-records/review', (route) => route.fulfill(json({ pending: [pending] })));
+  await page.route('**/api/me/health-records?*', (route) =>
+    route.fulfill(
+      json({
+        records: [
+          {
+            id: 'served-1', resource_type: 'Observation', tier: 't2', effective_at: '2026-05-05T00:00:00Z',
+            source: 'upload', resource: {}, flat, derivation: 'confirmed', read_by: 'rules',
+          },
+        ],
+      }),
+    ),
+  );
+  await page.route('**/api/me/lab-documents', (route) =>
+    route.fulfill(json({ documents: [{ document: labDocument, records: [pending], new: false }] })),
+  );
+  // "Who read your data" holds a Connected app with a Revoke, an API key that
+  // points to its settings, support's reads, an agent turn, one coach day,
+  // members' days (named and served to their AI tool, gone and support's,
+  // views only) and an API key's days with their request counts, so each of
+  // its row shapes reaches the capture; the long names test the wrap (carnet#1543).
+  await page.route('**/api/me/access-feed', (route) =>
+    route.fulfill(
+      json({
+        days: 30,
+        app_reads: [
+          { read_at: '2026-11-20T10:00:00Z', kind: 'tool_call', tool: 'get_activities', tools: ['get_activities'], client_id: 'client-claude', client_name: 'Claude', client_host: 'claude.ai', credential: 'oauth_grant', transport: 'mcp_http', support_read: false },
+          { read_at: '2026-11-19T09:00:00Z', kind: 'tool_call', tool: 'get_sleep_sessions', tools: ['get_sleep_sessions'], client_id: 'client-script', client_name: 'Export script', client_host: null, credential: 'api_key', transport: 'mcp_http', support_read: false },
+          { read_at: '2026-11-18T08:00:00Z', kind: 'tool_call', tool: 'get_athlete', tools: ['get_athlete'], client_id: 'admin-console', client_name: null, client_host: null, credential: 'oauth_grant', transport: 'mcp_http', support_read: true },
+          { read_at: '2026-11-17T07:00:00Z', kind: 'agent_turn', tool: null, tools: ['get_activities', 'get_athlete'], client_id: 'client-bridge', client_name: 'Training bridge', client_host: null, credential: 'a2a_client_credentials', transport: 'a2a', support_read: false },
+        ],
+        coach_days: [
+          { day: '2026-11-20', coach_name: 'Marie', group_id: 'group-1', group_name: 'Run Club', data_class: 'training', reads: 3, views: 1, served_to_assistant: true, support_read: false },
+        ],
+        peer_days: [
+          { day: '2026-11-21', member_name: 'Alice Tremblay-Fortin', group_id: 'group-1', group_name: 'Run Club Montréal — Saturday long run', reads: 2, views: 1, served_to_assistant: true, support_read: false },
+          { day: '2026-11-20', member_name: null, group_id: 'group-2', group_name: null, reads: 1, views: 0, served_to_assistant: false, support_read: true },
+          { day: '2026-11-19', member_name: 'Bob', group_id: 'group-1', group_name: 'Run Club', reads: 0, views: 3, served_to_assistant: false, support_read: false },
+        ],
+        api_key_days: [
+          { day: '2026-11-21', key_id: 'key-1', key_name: 'Garage sync for the indoor trainer and the spreadsheet', key_prefix: 'pk_live_ab12', requests: 4 },
+          { day: '2026-11-20', key_id: 'key-1', key_name: 'Garage sync for the indoor trainer and the spreadsheet', key_prefix: 'pk_live_ab12', requests: 1 },
+        ],
+      }),
+    ),
+  );
+  await page.route('**/api/me/oauth-grants', (route) =>
+    route.fulfill(
+      json({ grants: [{ id: 'g1', client_id: 'client-claude', client_name: 'Claude', client_host: 'claude.ai', scope: 'fitness:read', granted_at: '2026-11-01T10:00:00Z' }] }),
+    ),
+  );
   await loginToDashboard(page);
   page.setDefaultTimeout(5_000);
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
@@ -183,6 +251,39 @@ async function sweepSettings(page: Page, theme: (typeof THEMES)[number]) {
     await setTheme(page, theme);
     await page.screenshot({ path: `design-sweep/${theme}/user-settings-${id}.png`, fullPage: true });
     layoutFailures.push(...describeLayoutFailures(`user/settings-${id}`, await measurePageLayout(page)));
+    if (id === 'privacy') {
+      // The health records block on its own, then the confirmation its
+      // delete asks for: both are read in this pane only.
+      const records = page.getByTestId('health-records-settings');
+      await expect(page.getByTestId('health-review-rec-1')).toBeVisible();
+      await records.scrollIntoViewIfNeeded();
+      await records.screenshot({ path: `design-sweep/${theme}/user-settings-health-records.png` });
+      await page.getByTestId('health-document-delete-doc-1').click();
+      await expect(page.getByRole('dialog')).toBeVisible();
+      await page.waitForTimeout(400);
+      await page.screenshot({ path: `design-sweep/${theme}/user-settings-health-records-delete.png` });
+      await page.keyboard.press('Escape');
+      await expect(page.getByRole('dialog')).toHaveCount(0);
+      const accessFeed = page.getByTestId('access-feed');
+      await expect(accessFeed.getByTestId('access-feed-revoke')).toBeVisible();
+      await expect(accessFeed.getByTestId('access-feed-peer-day')).toHaveCount(3);
+      await expect(accessFeed.getByTestId('access-feed-api-key')).toHaveCount(1);
+      // The card is taller than the pane, which scrolls: a tall viewport
+      // holds all of it, so the capture shows every row kind.
+      const viewport = page.viewportSize();
+      await page.setViewportSize({ width: viewport?.width ?? 1280, height: 2400 });
+      await page.waitForTimeout(400);
+      await accessFeed.scrollIntoViewIfNeeded();
+      await accessFeed.screenshot({ path: `design-sweep/${theme}/user-settings-access-feed.png` });
+      // At phone width, where the members' sentences and a long key name wrap.
+      await page.setViewportSize({ width: 390, height: 2800 });
+      await page.waitForTimeout(400);
+      await accessFeed.scrollIntoViewIfNeeded();
+      await accessFeed.screenshot({ path: `design-sweep/${theme}/user-settings-access-feed-phone.png` });
+      layoutFailures.push(...describeLayoutFailures('user/settings-access-feed-phone', await measurePageLayout(page)));
+      if (viewport) await page.setViewportSize(viewport);
+      await page.waitForTimeout(400);
+    }
   }
   expect(layoutFailures, `layout contract broken on ${layoutFailures.length} pane(s):\n${layoutFailures.join('\n')}`).toEqual([]);
 }
@@ -867,7 +968,7 @@ async function sweepToast(page: Page, theme: (typeof THEMES)[number]) {
   await lastReply.hover();
   await lastReply.getByTitle('Copy message').click();
   await expect(page.getByText('Copied', { exact: false }).first()).toBeVisible();
-  // The toast slides in (DESIGN.md §7); a capture inside it reads as faded ink.
+  // The toast slides in (DESIGN.md "Motion"); a capture inside it reads as faded ink.
   await page.waitForTimeout(600);
   await page.screenshot({ path: `design-sweep/${theme}/tones-toast-success.png` });
 }

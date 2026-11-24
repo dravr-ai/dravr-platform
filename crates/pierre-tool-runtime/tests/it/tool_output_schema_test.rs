@@ -17,12 +17,14 @@
 //! describes the fields the payload carries, and it rejects a payload missing
 //! one.
 
-use chrono::NaiveDate;
-use chrono_tz::America::Montreal;
+use dravr_cageux::nutrition_calculator::TrainingDayLoad;
 use dravr_meteo::{
     DummyWeatherProvider, GeocodeError, Geocoded, Geocoder, Place, PlaceQuery, WeatherError,
     WeatherProvider, WeatherQuery, WeatherSample,
 };
+use dravr_tronc::dates::CivilDate;
+use dravr_tronc::dates::Timestamp;
+use dravr_tronc::dates::Zone;
 use dravr_tronc::mcp::schema::Tool;
 use dravr_tronc::mcp::tool::McpTool;
 use pierre_core::config::profiles::FitnessLevel;
@@ -38,12 +40,12 @@ use pierre_core::models::{
 use pierre_fitness_compute::weather::WeatherDifficulty;
 use pierre_providers::field_support::FieldMode;
 use pierre_providers::precedence::wellness_source;
-use pierre_providers::ProviderRegistry;
 use pierre_services::athlete_loops::Effort;
 use pierre_services::athlete_places::HomeState;
 use pierre_services::coach_roster::RosterAthleteStatus;
 use pierre_services::continuous_series::SourceSeries;
 use pierre_services::plan_calendar_push::PushReport;
+use pierre_test_support::providers::offline_provider_registry;
 use pierre_tool_runtime::activity_query::{
     parse_query, AppliedQuery, GroupKey, KeyValue, MetricValues, QueryAnswer, QueryGroup,
     UnknownCounts,
@@ -74,13 +76,13 @@ use pierre_tool_runtime::implementations::agents_output::{
 };
 use pierre_tool_runtime::implementations::analytics::output::{
     ActivityIntelligence, ActivityIntelligenceResult, ActivityMetricsResult,
-    ActivityPerformanceMetrics, AutoSelectedActivity, BestPerformance, CompareActivitiesResult,
-    DayFrequency, FitnessScoreResult, HardEasyPatternResult, ImperialWeather,
-    InsufficientPatternData, IntensityDistribution, MetricComparison, MetricWeather,
-    MetricsInputSummary, NoRacePrediction, OvertrainingResult, PatternsResult,
-    PerformanceTrendsResult, PersonalRecordComparison, RacePrediction, RacePredictionDetail,
-    RacePredictionResult, TrainingLoadResult, TrendStatistics, VolumeProgressionResult,
-    WeatherImpactAssessment, WeatherImpactResult, WeatherReading, WeeklySchedulePatternResult,
+    ActivityPerformanceMetrics, AutoSelectedActivity, CompareActivitiesResult, DayFrequency,
+    FitnessScoreResult, HardEasyPatternResult, ImperialWeather, InsufficientPatternData,
+    IntensityDistribution, MetricComparison, MetricWeather, MetricsInputSummary, NoRacePrediction,
+    OvertrainingResult, PatternsResult, PerformanceTrendsResult, PersonalRecordComparison,
+    PredictionVdotSource, RacePrediction, RacePredictionDetail, RacePredictionResult,
+    TrainingLoadResult, TrendStatistics, VolumeProgressionResult, WeatherImpactAssessment,
+    WeatherImpactResult, WeatherReading, WeeklySchedulePatternResult,
 };
 use pierre_tool_runtime::implementations::analytics::recommendations_output::RecommendationsResult;
 use pierre_tool_runtime::implementations::analytics::{
@@ -638,7 +640,10 @@ fn calculate_daily_nutrition_declares_a_schema_that_accepts_its_payload() {
         tdee: 2740.0,
         protein_g: 150.0,
         carbs_g: 340.0,
+        carbs_g_range: (280.0, 400.0),
+        carbohydrate_load: TrainingDayLoad::Moderate,
         fat_g: 85.0,
+        energy_from_macros_kcal: 2740.0,
         protein_percent: 22.0,
         carbs_percent: 50.0,
         fat_percent: 28.0,
@@ -673,7 +678,7 @@ fn get_nutrient_timing_declares_a_schema_that_accepts_its_payload() {
     let sample = NutrientTimingResult {
         pre_workout: PreWorkoutTiming {
             timing_hours_before: 2.0,
-            carbs_g: 60.0,
+            carbs_g: Some(140.0),
             recommendations: vec!["Porridge and a banana".to_owned()],
         },
         post_workout: PostWorkoutTiming {
@@ -733,7 +738,10 @@ fn a_gated_nutrition_answer_is_one_arm_or_the_other() {
         tdee: 2740.0,
         protein_g: 150.0,
         carbs_g: 340.0,
+        carbs_g_range: (280.0, 400.0),
+        carbohydrate_load: TrainingDayLoad::Moderate,
         fat_g: 85.0,
+        energy_from_macros_kcal: 2740.0,
         protein_percent: 22.0,
         carbs_percent: 50.0,
         fat_percent: 28.0,
@@ -1068,7 +1076,11 @@ fn get_connection_status_declares_one_schema_that_accepts_all_three_shapes() {
                 delegated_by: None,
                 // The real dictionary, both modes, so the schema is checked
                 // against what the tool sends.
-                fields: dictionary(&ProviderRegistry::new(), "strava", Some(FieldMode::Mirror)),
+                fields: dictionary(
+                    &offline_provider_registry(),
+                    "strava",
+                    Some(FieldMode::Mirror),
+                ),
             },
         ),
         (
@@ -1121,7 +1133,7 @@ fn get_connection_status_declares_one_schema_that_accepts_all_three_shapes() {
                             backend: "delegated".to_owned(),
                             delegated_by: Some("Casey Coach".to_owned()),
                             fields: dictionary(
-                                &ProviderRegistry::new(),
+                                &offline_provider_registry(),
                                 "trainingpeaks",
                                 Some(FieldMode::Mirror),
                             ),
@@ -1237,13 +1249,13 @@ fn get_health_snapshots_declares_a_schema_that_accepts_its_payload() {
         id: "day-1".to_owned(),
         user_id: "user-1".to_owned(),
         data_source_id: "ds-1".to_owned(),
-        date: NaiveDate::from_ymd_opt(2026, 9, 5).unwrap_or_default(),
+        date: CivilDate::from_ymd(2026, 9, 5).ok().unwrap_or_default(),
         steps: Some(11_284),
         active_kcal: Some(520.0),
         total_kcal: None,
         intensity_minutes: Some(104),
         source_name: "garmin_archive".to_owned(),
-        recorded_at: chrono::DateTime::UNIX_EPOCH,
+        recorded_at: Timestamp::UNIX_EPOCH,
     };
     let sample = Formatted::Json(HealthSnapshotsResult {
         count: 0,
@@ -1297,10 +1309,10 @@ fn list_data_sources_declares_a_schema_that_accepts_its_payload() {
 /// read's `windows`, each riviere's own type forwarded unprojected.
 #[test]
 fn get_heart_rate_series_declares_a_schema_that_accepts_its_payload() {
-    use chrono::{Duration, TimeZone, Utc};
     use dravr_riviere::{AggregatedPoint, DataPoint};
+    use dravr_tronc::dates::{Elapsed, Timestamp};
 
-    let at = Utc.with_ymd_and_hms(2026, 10, 12, 6, 0, 0).unwrap();
+    let at = Timestamp::parse_from_rfc3339("2026-10-12T06:00:00Z").unwrap();
     let range = || DateRange {
         start: "2026-10-12T06:00:00+00:00".to_owned(),
         end: "2026-10-12T07:00:00+00:00".to_owned(),
@@ -1342,7 +1354,7 @@ fn get_heart_rate_series_declares_a_schema_that_accepts_its_payload() {
             points: vec![],
             windows: vec![AggregatedPoint {
                 window_start: at,
-                window_end: at + Duration::minutes(15),
+                window_end: at + Elapsed::minutes(15),
                 value: 61.5,
                 sample_count: 15,
             }],
@@ -1369,7 +1381,7 @@ fn get_segment_history_declares_a_schema_that_accepts_its_payload() {
         Completeness, Coverage, CoverageWindow, IncompleteReason, Pending, WindowScope,
     };
 
-    let day = |y, m, d| NaiveDate::from_ymd_opt(y, m, d).expect("a real day");
+    let day = |y, m, d| CivilDate::from_ymd(y, m, d).expect("a real day");
     let effort = |provider: &str| SegmentHistoryEffort {
         provider: provider.to_owned(),
         source: provider.to_owned(),
@@ -2764,11 +2776,9 @@ fn every_detect_patterns_shape_matches_exactly_one_arm() {
             PatternsResult::Overtraining(Box::new(OvertrainingResult {
                 pattern_type: "overtraining".to_owned(),
                 risk_level: "moderate".to_owned(),
-                warning_signs: vec!["Heart rate drift detected: 4.2% increase".to_owned()],
-                insights: vec!["Heart rate drift detected: 4.2% increase".to_owned()],
-                hr_drift_detected: true,
-                performance_decline: false,
-                insufficient_recovery: false,
+                warning_signs: vec!["Insufficient recovery time between hard efforts".to_owned()],
+                insights: vec!["Insufficient recovery time between hard efforts".to_owned()],
+                insufficient_recovery: true,
                 confidence: "medium".to_owned(),
                 recommendations: vec!["Monitor recovery closely".to_owned()],
                 hr_zones_unavailable: Some(
@@ -2873,12 +2883,13 @@ fn predict_performance_declares_a_schema_that_accepts_both_of_its_answers() {
         RacePredictionDetail {
             target_sport: "run".to_owned(),
             vdot: 48.0,
-            best_performance: BestPerformance {
+            vdot_source: PredictionVdotSource::RecentRun {
                 distance_meters: 10_000.0,
                 time_seconds: 2_580.0,
                 pace_min_km: "4:18".to_owned(),
                 date: "2026-08-30T09:12:00+00:00".to_owned(),
             },
+            estimated: true,
             predictions: vec![RacePrediction {
                 distance: "Half Marathon".to_owned(),
                 distance_meters: 21_097.5,
@@ -2966,12 +2977,11 @@ fn the_two_race_prediction_shapes_match_exactly_one_arm_each() {
                 RacePredictionDetail {
                     target_sport: "run".to_owned(),
                     vdot: 48.0,
-                    best_performance: BestPerformance {
-                        distance_meters: 10_000.0,
-                        time_seconds: 2_580.0,
-                        pace_min_km: "4:18".to_owned(),
-                        date: "2026-08-30T09:12:00+00:00".to_owned(),
+                    vdot_source: PredictionVdotSource::Stated {
+                        as_of: "2026-08-30".to_owned(),
+                        method: Some("race: 10 km in 43:00".to_owned()),
                     },
+                    estimated: false,
                     predictions: vec![],
                     confidence: "medium".to_owned(),
                     activities_analyzed: 9,
@@ -3072,9 +3082,9 @@ fn each_admin_schema_is_attached_to_the_tool_it_names() {
 }
 
 #[test]
-fn every_admin_projection_declares_the_visibility_an_operator_decides() {
-    // The operator-facing twins differ from the athlete-facing agent tools in
-    // exactly this: who a system agent is visible to is the operator's call,
+fn every_admin_projection_declares_the_visibility_an_admin_decides() {
+    // The admin-facing twins differ from the athlete-facing agent tools in
+    // exactly this: who a system agent is visible to is the admin's call,
     // so every admin projection reports it. An admin schema that dropped it
     // would be describing the athlete's view by mistake.
     for (name, schema) in [
@@ -3097,7 +3107,7 @@ fn every_admin_projection_declares_the_visibility_an_operator_decides() {
                 .as_object()
                 .unwrap_or_else(|| panic!("{name} is an object schema"))
                 .contains_key("visibility"),
-            "{name} must declare visibility: it is what makes this the operator's view"
+            "{name} must declare visibility: it is what makes this the admin's view"
         );
     }
 }
@@ -3136,7 +3146,7 @@ fn admin_list_system_agents_declares_a_schema_that_accepts_its_payload() {
 fn an_assignment_row_validates_without_an_email_or_an_assigner() {
     // Both are Option on the wire and the compiler caught it: a deleted
     // account leaves the assignment row behind with no email to join to, and
-    // rows predating the assigned_by column have no operator to name. A
+    // rows predating the assigned_by column have no admin to name. A
     // schema demanding either would reject a listing the tool really sends.
     let sample = AdminListAgentAssignmentsResult {
         agent_id: "b21f0f4e-0000-4000-8000-000000000002".to_owned(),
@@ -3170,7 +3180,7 @@ fn an_assignment_row_validates_without_an_email_or_an_assigner() {
     assert!(
         value["truncated"].as_bool() == Some(true)
             && value["total"].as_u64() > value["count"].as_u64(),
-        "a truncated listing must say so, or an operator reads a short list as a complete one"
+        "a truncated listing must say so, or an admin reads a short list as a complete one"
     );
 }
 
@@ -3981,7 +3991,7 @@ async fn a_forecast_answers_with_meteos_shape_plus_daylight_and_validates() {
         &DummyWeatherProvider::temperate(),
         &StubGeocoder,
         &args,
-        Montreal,
+        &Zone::from_name("America/Montreal").unwrap(),
     )
     .await
     .expect("renders");
@@ -4016,7 +4026,7 @@ async fn a_forecast_answers_with_meteos_shape_plus_daylight_and_validates() {
         wind_speed_kmh: None,
         conditions: "snow".to_owned(),
     });
-    let bare = forecast(&bare, &StubGeocoder, &args, chrono_tz::UTC)
+    let bare = forecast(&bare, &StubGeocoder, &args, &Zone::utc())
         .await
         .expect("renders");
     assert!(bare.content["sample"].get("humidity_percentage").is_none());
@@ -4031,7 +4041,7 @@ async fn a_forecast_by_place_reads_the_geocoded_coordinates() {
     let provider = RecordingProvider::new();
     let args = json!({ "place": "Chamonix", "timestamp": "2026-09-28T07:30:00Z" });
 
-    let result = forecast(&provider, &StubGeocoder, &args, chrono_tz::UTC)
+    let result = forecast(&provider, &StubGeocoder, &args, &Zone::utc())
         .await
         .expect("renders");
     assert!(!result.is_error, "{:#}", result.content);
@@ -4073,7 +4083,7 @@ async fn an_ambiguous_place_takes_the_top_match_and_says_so() {
         &provider,
         &StubGeocoder,
         &json!({ "place": "Paris", "timestamp": "2026-09-28T07:30:00Z" }),
-        chrono_tz::UTC,
+        &Zone::utc(),
     )
     .await
     .expect("renders");
@@ -4089,7 +4099,7 @@ async fn an_ambiguous_place_takes_the_top_match_and_says_so() {
         &provider,
         &StubGeocoder,
         &json!({ "place": "Paris", "country_code": "us", "timestamp": "2026-09-28T07:30:00Z" }),
-        chrono_tz::UTC,
+        &Zone::utc(),
     )
     .await
     .expect("renders");
@@ -4109,7 +4119,7 @@ async fn coordinates_win_over_a_place_and_the_answer_says_so() {
             "place": "Chamonix",
             "timestamp": "2026-09-28T07:30:00Z",
         }),
-        chrono_tz::UTC,
+        &Zone::utc(),
     )
     .await
     .expect("renders");
@@ -4159,7 +4169,7 @@ async fn a_forecast_refuses_what_meteo_refuses() {
             "timestamp must be RFC 3339",
         ),
     ] {
-        let result = forecast(&provider, &StubGeocoder, &args, chrono_tz::UTC)
+        let result = forecast(&provider, &StubGeocoder, &args, &Zone::utc())
             .await
             .expect("renders");
         assert!(result.is_error, "{args} must be refused");
@@ -4617,6 +4627,7 @@ fn the_roster_overview_shares_only_the_roster_card_fields() {
             },
         ],
         truncated: false,
+        note: None,
     })
     .expect("serializes");
     assert!(validator.is_valid(&value), "roster overview:\n{value:#}");
@@ -4777,7 +4788,7 @@ fn sample_query_answer() -> QueryAnswer {
         WindowScope, WindowTotals,
     };
 
-    let day = |y, m, d| NaiveDate::from_ymd_opt(y, m, d).expect("a real day");
+    let day = |y, m, d| CivilDate::from_ymd(y, m, d).expect("a real day");
     let values = MetricValues {
         count: Some(12),
         distance_km: Some(254.3),
@@ -5264,6 +5275,7 @@ fn an_almost_empty_physiology_profile_still_validates() {
         saved: true,
         created: true,
         updated_fields: vec!["resting_hr"],
+        warnings: Vec::new(),
         profile: PhysiologyProfile {
             ftp_watts: None,
             threshold_pace_sec_per_km: None,
@@ -5286,6 +5298,8 @@ fn an_almost_empty_physiology_profile_still_validates() {
             d_prime_meters: None,
             threshold_provenance: ThresholdProvenance::default(),
             threshold_stated_on: ThresholdStatedOn::default(),
+            vo2_max_method: None,
+            vdot: None,
             anchor_provenance: AnchorProvenance::default(),
             sport_anchors: Vec::new(),
         },
@@ -5315,12 +5329,13 @@ fn a_critical_power_reaches_the_agent_with_its_kind_beside_it() {
     let estimated = MetricProvenance {
         kind: MeasurementKind::Estimated,
         origin: Some("vekta".to_owned()),
-        as_of: NaiveDate::from_ymd_opt(2026, 10, 1),
+        as_of: CivilDate::from_ymd(2026, 10, 1).ok(),
     };
     let value = serde_json::to_value(SetPhysiologyResult {
         saved: true,
         created: true,
         updated_fields: vec!["critical_power_watts", "critical_speed_mps"],
+        warnings: Vec::new(),
         profile: PhysiologyProfile {
             ftp_watts: None,
             threshold_pace_sec_per_km: None,
@@ -5350,6 +5365,8 @@ fn a_critical_power_reaches_the_agent_with_its_kind_beside_it() {
             d_prime_meters: None,
             threshold_provenance: ThresholdProvenance::default(),
             threshold_stated_on: ThresholdStatedOn::default(),
+            vo2_max_method: None,
+            vdot: None,
             anchor_provenance: AnchorProvenance::default(),
             sport_anchors: vec![SportAnchor {
                 sport: SportFamily::Ride,
@@ -5360,7 +5377,7 @@ fn a_critical_power_reaches_the_agent_with_its_kind_beside_it() {
                     low: Some(365.0),
                     high: Some(395.0),
                     origin: Some("lab".to_owned()),
-                    as_of: NaiveDate::from_ymd_opt(2026, 11, 2),
+                    as_of: CivilDate::from_ymd(2026, 11, 2).ok(),
                     method: Some("ramp peak".to_owned()),
                     confidence: AnchorConfidence::High,
                 },
@@ -5439,13 +5456,17 @@ fn an_import_names_each_outcome_and_which_values_the_provider_supplied() {
                 ftp_watts: Some(MetricProvenance {
                     kind: MeasurementKind::Estimated,
                     origin: Some("intervals.icu".to_owned()),
-                    as_of: NaiveDate::from_ymd_opt(2026, 9, 30),
+                    as_of: CivilDate::from_ymd(2026, 9, 30).ok(),
                 }),
                 ..ThresholdProvenance::default()
             },
             threshold_stated_on: ThresholdStatedOn::default(),
+            vo2_max_method: None,
+            vdot: None,
             anchor_provenance: AnchorProvenance {
-                resting_hr: NaiveDate::from_ymd_opt(2026, 10, 30).map(AnchorStamp::promoted),
+                resting_hr: CivilDate::from_ymd(2026, 10, 30)
+                    .ok()
+                    .map(AnchorStamp::promoted),
                 ..AnchorProvenance::default()
             },
             sport_anchors: Vec::new(),
@@ -5503,12 +5524,16 @@ fn estimate_vo2max_says_it_did_not_save() {
     let derived = output_schema_for::<EstimateVo2maxResult>();
     let validator = jsonschema::validator_for(&derived).expect("compiles");
     let value = serde_json::to_value(EstimateVo2maxResult {
-        method: "cooper_12_minute".to_owned(),
-        vo2max_ml_kg_min: 52.4,
+        method: "cooper_test".to_owned(),
+        vo2max_ml_kg_min: Some(52.4),
+        vdot: Some(44.6),
         formula: "Cooper (1968): VO2max = (distance_m - 504.9) / 44.73".to_owned(),
+        warnings: Vec::new(),
+        heart_rates_used: None,
         defaults_from_profile: vec!["weight", "age"],
         stored_vo2_max: None,
-        implied_threshold_pace_sec_per_km: Some(246.5),
+        stored_vdot: None,
+        implied_threshold_pace_sec_per_km: Some(282.5),
         saved: false,
         to_store: "call set_physiology with vo2_max once the athlete confirms the number"
             .to_owned(),
@@ -5759,7 +5784,7 @@ fn a_zone_family_with_missing_inputs_is_null_and_says_what_is_missing() {
     // An athlete who has given nothing: every family null, all three named.
     let nothing_known = json!({
         "user_profile": {
-            "vo2_max": null, "resting_hr": null, "max_hr": null, "ftp": null,
+            "vo2_max": null, "vdot": null, "resting_hr": null, "max_hr": null, "ftp": null,
             "lactate_threshold": 0.88
         },
         "input_sources": {"lactate_threshold": "daniels_default"},
@@ -5768,7 +5793,7 @@ fn a_zone_family_with_missing_inputs_is_null_and_says_what_is_missing() {
         },
         "unavailable": {
             "heart_rate_zones": "needs both resting_hr and max_hr — supply them here or save them with set_physiology",
-            "pace_zones": "needs vo2_max — supply it here or save it with set_physiology",
+            "pace_zones": "needs a VDOT — supply vdot here, or save a race's VDOT or a threshold pace with set_physiology",
             "power_zones": "needs ftp — supply it here or save it with set_physiology"
         },
         "zone_calculations": null
@@ -6204,10 +6229,10 @@ fn prescribing_reports_the_calendar_entry_it_created() {
 /// and an empty calendar too.
 #[test]
 fn get_planned_workouts_declares_a_schema_that_accepts_its_payload() {
-    use chrono::NaiveDate;
+    use dravr_tronc::dates::CivilDate;
     use pierre_core::models::{PlannedWorkoutBuilder, WorkoutStep};
 
-    let day = |d: u32| NaiveDate::from_ymd_opt(2026, 9, d).expect("valid date literal");
+    let day = |d: u32| CivilDate::from_ymd(2026, 9, d).expect("valid date literal");
     let step = |label: &str, zone: &str, repeat: u32, group: u32| WorkoutStep {
         label: label.to_owned(),
         duration_seconds: 600,

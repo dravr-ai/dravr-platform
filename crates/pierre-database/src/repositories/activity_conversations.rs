@@ -195,7 +195,7 @@ macro_rules! impl_activity_conversation_repository {
                     .bind(provider)
                     .bind(activity_id)
                     .bind(conversation_id)
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .bind(transport_policy.is_first_party_only())
                     .execute(self.pool())
                     .await

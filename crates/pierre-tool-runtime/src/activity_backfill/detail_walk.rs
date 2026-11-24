@@ -90,8 +90,10 @@ mod step;
 mod track;
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use pierre_core::constants::oauth::providers::{STRAVA, STRAVA_ARCHIVE};
+use pierre_core::constants::time_constants::SECONDS_PER_DAY;
 use pierre_core::errors::AppResult;
 use pierre_core::models::coverage::Pending;
 use pierre_core::models::TenantId;
@@ -105,9 +107,12 @@ use pierre_providers::ProviderDescriptor;
 use pierre_services::training_history_read::{
     history_source_order, history_store_keys, HistorySource,
 };
+use tokio::sync::watch;
+use tokio::time;
 use tracing::{info, warn};
 use uuid::Uuid;
 
+use super::in_flight::InFlight;
 use super::{enqueue, now_ms, provider_tenant_id_str, ActivityBackfillJob, Enqueued};
 use crate::protocol::AuthService;
 use crate::runtime::ToolRuntime;
@@ -125,9 +130,6 @@ pub(crate) const DETAIL_WALK_STEP_ACTIVITIES: usize = 10;
 /// the athlete's day re-reading the activities the backend could not read.
 /// A week: a ride deleted or made private since is read again soon enough.
 pub(crate) const DETAIL_WALK_STANDS_MS: i64 = 7 * 86_400_000;
-
-/// Seconds in a day.
-const SECS_PER_DAY: f64 = 86_400.0;
 
 /// The backend a detail walk of `provider`'s history reads for the athlete.
 ///
@@ -264,7 +266,8 @@ pub enum DetailWalkAsked {
         unreadable: i64,
     },
     /// The store or the ledger could not be read or written (logged), or
-    /// the owed walk this ask would widen ended under it twice running.
+    /// twice running the ask could neither widen an owed walk (it ended
+    /// under the ask) nor record its own (a run here still held the key).
     /// Nothing was asked: a walk may still be owed and reading the window.
     NotRecorded,
     /// The backend's budget leaves the athlete's walk no call a day (an app
@@ -292,7 +295,9 @@ pub enum DetailWalkAsked {
 /// ([`DetailWalkAsked::RecentlyWalked`]).
 ///
 /// An owed walk that ends between this ask's read of it and its widen is
-/// asked again once: the walk that ended then stands, or is replaced.
+/// asked again once: the walk that ended then stands, or is replaced. So is
+/// one whose row ended while its run here still holds the walk's key (it is
+/// telling the athlete): the ask goes again once the run gives it back.
 pub async fn ask_detail_walk(
     runtime: &Arc<dyn ToolRuntime>,
     user_id: Uuid,
@@ -314,7 +319,7 @@ pub async fn ask_detail_walk(
             return asked;
         }
     }
-    info!(user_id = %user_id, backend, "Detail walk: the owed walk ended under the ask twice running; nothing is asked");
+    info!(user_id = %user_id, backend, "Detail walk: twice running the owed walk ended under the ask, or a run here still held the walk's key; nothing is asked");
     DetailWalkAsked::NotRecorded
 }
 
@@ -471,20 +476,48 @@ async fn record_walk(
         units_total: Some(units_total),
         ..JobProgress::default()
     };
-    match enqueue(job, None, progress).await {
+    let running_here = match enqueue(job, None, progress).await {
         Enqueued::Started => {
             info!(user_id = %user_id, backend, units_total, "Detail walk: asked");
             return Some(DetailWalkAsked::Started { units_total });
         }
         Enqueued::Unrecorded => return Some(DetailWalkAsked::NotRecorded),
-        Enqueued::InFlightHere(..) | Enqueued::Owed(..) => {}
-    }
+        Enqueued::InFlightHere(_, _, run) => Some(run),
+        Enqueued::Owed(..) => None,
+    };
     // Recorded by another ask between the read and the record: this one
     // widens it.
     match owed_walk(athlete, backend).await {
         Ok(Some(row)) => widen(athlete, backend, &row, ask).await,
-        Ok(None) => None,
+        Ok(None) => {
+            // None owed, yet a run here holds the walk's key: one whose row
+            // already ended, still finishing (telling the athlete). The ask
+            // goes again once it gives the key back, or it would find the
+            // key held again at once.
+            if let Some(run) = running_here {
+                run_released(run).await;
+            }
+            None
+        }
         Err(()) => Some(DetailWalkAsked::NotRecorded),
+    }
+}
+
+/// How long an ask waits for a walk run here whose row already ended to give
+/// its in-flight key back. All that is left of such a run is telling the
+/// athlete; past this the ask goes again regardless, and at worst is not
+/// recorded.
+const ENDED_RUN_RELEASE_WAIT: Duration = Duration::from_secs(10);
+
+/// Wait until the run `run` watches releases its in-flight key (its state
+/// channel closes), for at most [`ENDED_RUN_RELEASE_WAIT`].
+async fn run_released(mut run: watch::Receiver<InFlight>) {
+    let released = async { while run.changed().await.is_ok() {} };
+    if time::timeout(ENDED_RUN_RELEASE_WAIT, released)
+        .await
+        .is_err()
+    {
+        info!("Detail walk: the ended walk's run still holds its key; asking again");
     }
 }
 
@@ -682,7 +715,7 @@ pub(super) async fn session_walk_window(
 pub(crate) fn detail_walk_running(progress: &JobProgress, daily_calls: Option<u32>) -> Pending {
     let units = |n: i64| u32::try_from(n.max(0)).unwrap_or(u32::MAX);
     let day = daily_calls.unwrap_or(DETAIL_WALK_DAILY_CALLS).max(1);
-    let budget_pace = SECS_PER_DAY / f64::from(day);
+    let budget_pace = f64::from(SECONDS_PER_DAY) / f64::from(day);
     let pace = progress
         .secs_per_unit
         .map_or(budget_pace, |measured| measured.max(budget_pace));

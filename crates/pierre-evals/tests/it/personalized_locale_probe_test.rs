@@ -18,7 +18,7 @@
 //! repeatedly quoted — and eventually lost confidence over — went unchecked
 //! (registre#204).
 
-use chrono::NaiveDate;
+use dravr_tronc::dates::CivilDate;
 use pierre_core::models::{DailyTrainingState, FormReading};
 use pierre_evals::personalized::check as personalized_check;
 use pierre_evals::ClaimSource;
@@ -35,7 +35,7 @@ fn raph() -> FormReading {
         atl: 197.0,
         tsb: -77.0,
         form_ctl: 120.0,
-        ..DailyTrainingState::zero(NaiveDate::from_ymd_opt(2026, 9, 2).unwrap())
+        ..DailyTrainingState::zero(CivilDate::from_ymd(2026, 9, 2).unwrap())
     }
     .form_reading()
 }

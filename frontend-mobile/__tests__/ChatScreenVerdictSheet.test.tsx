@@ -54,14 +54,14 @@ const CONVERSATION = {
 };
 // The thread on screen; a test that needs Home's personal thread swaps it in.
 let mockConversation: typeof CONVERSATION & { personal?: boolean } = CONVERSATION;
-jest.mock('../src/screens/chat/useConversations', () => ({
-  useConversations: () => ({
+jest.mock('../src/screens/chat/useOpenConversation', () => ({
+  useOpenConversation: () => ({
     conversations: [mockConversation],
+    openId: mockConversation.id,
     currentConversation: mockConversation,
     isLoading: false,
-    error: null,
-    loadConversations: jest.fn(),
-    setCurrentConversation: jest.fn(),
+    refresh: jest.fn(),
+    openConversation: jest.fn(),
     createConversation: jest.fn(),
     switchToConversation: jest.fn(),
     deleteConversation: jest.fn(),

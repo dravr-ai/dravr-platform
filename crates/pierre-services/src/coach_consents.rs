@@ -43,9 +43,17 @@
 //!
 //! `wellness_read` once covered only the wellness a link syncs through the
 //! coach's account. A grant given before it widened
-//! ([`WELLNESS_READ_WIDENED_AT`]) stands, and the apps tell the member it now
+//! ([`wellness_read_widened_at`]) stands, and the apps tell the member it now
 //! covers every app they connect ([`wellness_notice_due`]) until they keep it
 //! (a fresh grant, which stamps it again) or revoke it.
+//!
+//! - `sensitive_t2_read`: the group's coach may also read the member's
+//!   health records (owl tier T2: labs, clinical records, self-measured
+//!   glucose), for 30 days or until revoked ([`SensitiveWindow`]). Its own
+//!   grant, beside `wellness_read`, never folded into what that grant names:
+//!   it reaches a coach's read only alongside `wellness_read`, and the
+//!   member's own consent to AI use of those records still applies on top
+//!   (J2, row 64). Offered whenever the group has a human coach.
 //!
 //! No coach can change a consent: every write is scoped to the member's own
 //! membership.
@@ -57,7 +65,7 @@
 use std::cmp::Ordering;
 use std::sync::Arc;
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::groups::{CoachConsents, CoachingGroup, GroupMember};
 use pierre_core::models::{DelegatedConnection, DelegationStatus};
@@ -89,8 +97,13 @@ const GRANT_NEEDS_APP: &str = "consent_grant_needs_app";
 /// the coach connects to Dravr as readers too (carnet#1452). A grant
 /// stamped before it was given to a narrower consent, so the member is told
 /// of the widening ([`wellness_notice_due`]).
-const WELLNESS_READ_WIDENED_AT: DateTime<Utc> =
-    DateTime::from_timestamp_nanos(1_794_501_000_000_000_000);
+const WELLNESS_READ_WIDENED_AT_SECS: i64 = 1_794_501_000;
+
+/// [`WELLNESS_READ_WIDENED_AT_SECS`] as an instant; it lies inside the range
+/// the date types hold.
+fn wellness_read_widened_at() -> Timestamp {
+    Timestamp::UNIX_EPOCH + Elapsed::seconds(WELLNESS_READ_WIDENED_AT_SECS)
+}
 
 /// Which coach consents are offered: by a member's coach relationship right
 /// now ([`consent_offer`]), or by one link's platform ([`link_offer`]).
@@ -103,6 +116,11 @@ pub struct ConsentOffer {
     /// platform's coach credential reads the member's wellness, so the link
     /// syncs it under the consent.
     pub wellness_read: bool,
+    /// For a relationship, the group has a human coach other than the member,
+    /// whose AI assistant may include them in the roster tools
+    /// ([`CoachConsents::assistant_read`]). A link never carries it: the
+    /// opt-in has no platform behind it.
+    pub assistant_read: bool,
 }
 
 /// Whether a coaching platform Dravr serves takes a coach's writes to an
@@ -133,20 +151,38 @@ pub fn link_offer(registry: &ProviderRegistry, link: &DelegatedConnection) -> Co
             .get_capabilities(&link.provider)
             .is_some_and(|caps| caps.supports_coach_calendar_write()),
         wellness_read: link_reads_wellness(registry, link),
+        assistant_read: false,
     }
 }
 
 /// The consents a member's relationship with the coach of `group` can carry.
 ///
 /// None while the group has no coach; else calendar writes where a platform
-/// takes them, and wellness reads, whatever the member connects or links.
+/// takes them, wellness reads, whatever the member connects or links, and,
+/// for a member who is not the coach, the coach's AI assistant including them
+/// in the roster tools.
 #[must_use]
-pub fn consent_offer(registry: &ProviderRegistry, group: &CoachingGroup) -> ConsentOffer {
+pub fn consent_offer(
+    registry: &ProviderRegistry,
+    group: &CoachingGroup,
+    member: Uuid,
+) -> ConsentOffer {
     let coached = group.coach_user_id.is_some();
     ConsentOffer {
         calendar_write: coached && calendar_write_offered(registry),
         wellness_read: coached,
+        assistant_read: assistant_read_offered(group, member),
     }
+}
+
+/// Whether `member`'s relationship with the coach of `group` offers the
+/// coach's AI assistant including them in the roster tools.
+///
+/// The group has a human coach, and it is not the member. No platform
+/// condition: the opt-in is about the coach's assistant, not a platform.
+#[must_use]
+fn assistant_read_offered(group: &CoachingGroup, member: Uuid) -> bool {
+    group.coach_user_id.is_some_and(|coach| coach != member)
 }
 
 /// Whether the apps tell the member their wellness grant widened.
@@ -154,7 +190,7 @@ pub fn consent_offer(registry: &ProviderRegistry, group: &CoachingGroup) -> Cons
 /// They say it now covers every app the member connects, and ask whether to
 /// keep it, while the relationship offers wellness reads (`offer`) and the
 /// grant stands, stamped before the consent widened
-/// ([`WELLNESS_READ_WIDENED_AT`]) or never stamped at all. Keeping it is a
+/// ([`wellness_read_widened_at`]) or never stamped at all. Keeping it is a
 /// fresh grant, which stamps it again and clears the notice.
 #[must_use]
 pub fn wellness_notice_due(offer: ConsentOffer, consents: CoachConsents) -> bool {
@@ -162,7 +198,7 @@ pub fn wellness_notice_due(offer: ConsentOffer, consents: CoachConsents) -> bool
         && consents.wellness_read
         && consents
             .wellness_read_at
-            .is_none_or(|at| at < WELLNESS_READ_WIDENED_AT)
+            .is_none_or(|at| at < wellness_read_widened_at())
 }
 
 /// Whether the apps tell `member` that `group`'s human coach's AI tools read
@@ -180,7 +216,7 @@ pub fn wellness_notice_due(offer: ConsentOffer, consents: CoachConsents) -> bool
 pub fn assistant_notice_due(
     group: &CoachingGroup,
     member: &GroupMember,
-    answered_at: Option<DateTime<Utc>>,
+    answered_at: Option<Timestamp>,
 ) -> bool {
     group
         .coach_user_id
@@ -295,6 +331,47 @@ fn own_wellness_backends(registry: &ProviderRegistry, link: &str) -> Vec<String>
     backends
 }
 
+/// How long a `sensitive_t2_read` grant holds: owl's preset windows.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum SensitiveWindow {
+    /// Until the member revokes it.
+    #[default]
+    UntilRevoked,
+    /// For 30 days from the grant.
+    ThirtyDays,
+}
+
+impl SensitiveWindow {
+    /// The only window length a member may pick besides "until revoked".
+    pub const DAYS: u32 = 30;
+
+    /// The window a request's `sensitive_days` asks for: absent, until
+    /// revoked; 30, thirty days.
+    ///
+    /// # Errors
+    ///
+    /// Returns an invalid-input error for any other number of days.
+    pub fn try_from_days(days: Option<u32>) -> AppResult<Self> {
+        match days {
+            None => Ok(Self::UntilRevoked),
+            Some(Self::DAYS) => Ok(Self::ThirtyDays),
+            Some(other) => Err(AppError::invalid_input(format!(
+                "sensitive_days must be {}, or left out for until revoked; got {other}",
+                Self::DAYS
+            ))),
+        }
+    }
+
+    /// When a grant made at `now` lapses; `None` until revoked.
+    #[must_use]
+    pub fn until(self, now: Timestamp) -> Option<Timestamp> {
+        match self {
+            Self::UntilRevoked => None,
+            Self::ThirtyDays => Some(now + Elapsed::days(i64::from(Self::DAYS))),
+        }
+    }
+}
+
 /// The member's change to their coach consents: `Some` grants or revokes
 /// one, `None` leaves it as it stands.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -303,6 +380,13 @@ pub struct ConsentChange {
     pub calendar_write: Option<bool>,
     /// Grant or revoke the coach's reads of the member's wellness.
     pub wellness_read: Option<bool>,
+    /// Turn on or off the coach's AI assistant including the member in the
+    /// roster tools.
+    pub assistant_read: Option<bool>,
+    /// Grant or revoke the coach's reads of the member's health records (T2).
+    pub sensitive_t2_read: Option<bool>,
+    /// How long a `sensitive_t2_read` grant holds.
+    pub sensitive_window: SensitiveWindow,
 }
 
 impl ConsentChange {
@@ -313,21 +397,32 @@ impl ConsentChange {
         Self {
             calendar_write: if calendar_write { Some(true) } else { None },
             wellness_read: if wellness_read { Some(true) } else { None },
+            assistant_read: None,
+            sensitive_t2_read: None,
+            sensitive_window: SensitiveWindow::UntilRevoked,
         }
     }
 
     /// Whether the change grants anything.
     #[must_use]
     pub const fn grants_any(self) -> bool {
-        matches!(self.calendar_write, Some(true)) || matches!(self.wellness_read, Some(true))
+        matches!(self.calendar_write, Some(true))
+            || matches!(self.wellness_read, Some(true))
+            || matches!(self.assistant_read, Some(true))
+            || matches!(self.sensitive_t2_read, Some(true))
     }
 
     /// The change, with every grant `offer` does not carry dropped. A revoke
-    /// always stands: withdrawing what is not offered is harmless.
+    /// always stands: withdrawing what is not offered is harmless. Health
+    /// records are offered wherever wellness reads are: a group with a
+    /// human coach.
     pub(crate) const fn within(self, offer: ConsentOffer) -> Self {
         Self {
             calendar_write: keep(self.calendar_write, offer.calendar_write),
             wellness_read: keep(self.wellness_read, offer.wellness_read),
+            assistant_read: keep(self.assistant_read, offer.assistant_read),
+            sensitive_t2_read: keep(self.sensitive_t2_read, offer.wellness_read),
+            sensitive_window: self.sensitive_window,
         }
     }
 }
@@ -365,23 +460,53 @@ pub async fn set_coach_consents(
     change: ConsentChange,
 ) -> AppResult<GroupMember> {
     require_app_for_grant(change.grants_any())?;
-    let change = change.within(consent_offer(registry, group));
-    let updated = repos
-        .groups
-        .set_coach_consents(
-            &group.id.to_string(),
-            member,
-            change.calendar_write,
-            change.wellness_read,
-            Utc::now(),
-        )
-        .await?
-        .ok_or_else(|| AppError::not_found("Group member"))?;
+    let change = change.within(consent_offer(registry, group, member));
+    let now = Timestamp::now();
+    let group_key = group.id.to_string();
+    let consents = match change.sensitive_t2_read {
+        Some(t2_read) => {
+            repos
+                .groups
+                .set_coach_sensitive_reads(
+                    &group_key,
+                    member,
+                    change.calendar_write,
+                    change.wellness_read,
+                    Some((t2_read, change.sensitive_window.until(now))),
+                    now,
+                )
+                .await?
+        }
+        None => {
+            repos
+                .groups
+                .set_coach_consents(
+                    &group_key,
+                    member,
+                    change.calendar_write,
+                    change.wellness_read,
+                    now,
+                )
+                .await?
+        }
+    }
+    .ok_or_else(|| AppError::not_found("Group member"))?;
+    let updated = match change.assistant_read {
+        Some(granted) => repos
+            .groups
+            .set_coach_assistant_read(&group_key, member, granted, now)
+            .await?
+            .ok_or_else(|| AppError::not_found("Group member"))?,
+        None => consents,
+    };
     info!(
         group_id = %group.id,
         member_user_id = %member,
         calendar_write = updated.coach_consents.calendar_write,
         wellness_read = updated.coach_consents.wellness_read,
+        assistant_read = updated.coach_consents.assistant_read,
+        sensitive_t2_read = updated.coach_consents.sensitive_t2_read,
+        sensitive_t2_read_until = ?updated.coach_consents.sensitive_t2_read_until,
         "Coach consents set"
     );
     if change.wellness_read == Some(false) {
@@ -480,7 +605,6 @@ pub(crate) fn require_app_for_grant(grants: bool) -> AppResult<()> {
 
 #[cfg(test)]
 mod tests {
-    use chrono::Duration;
     use pierre_core::constants::oauth_providers::{
         GARMIN, INTERVALS_ICU, SCIOTTE_GARMIN, TRAININGPEAKS, WHOOP,
     };
@@ -524,22 +648,40 @@ mod tests {
         let calendar_only = ConsentOffer {
             calendar_write: true,
             wellness_read: false,
+            assistant_read: false,
         };
         assert_eq!(
             both.within(calendar_only),
             ConsentChange {
                 calendar_write: Some(true),
-                wellness_read: None,
+                ..ConsentChange::default()
             }
         );
         let nothing = ConsentOffer {
             calendar_write: false,
             wellness_read: false,
+            assistant_read: false,
         };
         assert_eq!(both.within(nothing), ConsentChange::default());
+        let opt_in = ConsentChange {
+            assistant_read: Some(true),
+            ..ConsentChange::default()
+        };
+        assert!(
+            opt_in.grants_any(),
+            "an opt-in is a grant: it is held to the app"
+        );
+        assert_eq!(
+            opt_in.within(nothing),
+            ConsentChange::default(),
+            "bug: an opt-in the offer does not hold is dropped"
+        );
         let revokes = ConsentChange {
             calendar_write: Some(false),
             wellness_read: Some(false),
+            assistant_read: Some(false),
+            sensitive_t2_read: Some(false),
+            ..ConsentChange::default()
         };
         assert_eq!(revokes.within(nothing), revokes);
         assert_eq!(
@@ -550,6 +692,59 @@ mod tests {
         assert!(both.grants_any());
     }
 
+    #[test]
+    fn health_records_are_offered_with_wellness_and_only_for_thirty_days_or_until_revoked() {
+        let records = ConsentChange {
+            sensitive_t2_read: Some(true),
+            ..ConsentChange::default()
+        };
+        assert!(
+            records.grants_any(),
+            "bug: a health-records grant is a grant"
+        );
+        let coached = ConsentOffer {
+            calendar_write: false,
+            wellness_read: true,
+            assistant_read: false,
+        };
+        assert_eq!(
+            records.within(coached),
+            records,
+            "bug: a coached group offers the health-records grant"
+        );
+        let uncoached = ConsentOffer {
+            calendar_write: false,
+            wellness_read: false,
+            assistant_read: false,
+        };
+        assert_eq!(
+            records.within(uncoached).sensitive_t2_read,
+            None,
+            "bug: a group with no human coach offers no health-records grant"
+        );
+
+        let now = Timestamp::now();
+        assert_eq!(
+            SensitiveWindow::try_from_days(None).unwrap().until(now),
+            None,
+            "bug: no window holds until revoked"
+        );
+        assert_eq!(
+            SensitiveWindow::try_from_days(Some(30)).unwrap().until(now),
+            Some(now + Elapsed::days(30)),
+            "bug: a 30-day window lapses 30 days after the grant"
+        );
+        for refused in [0, 7, 31, 365] {
+            assert_eq!(
+                SensitiveWindow::try_from_days(Some(refused))
+                    .expect_err("bug: only 30 days is a window")
+                    .code,
+                ErrorCode::InvalidInput,
+                "{refused}"
+            );
+        }
+    }
+
     /// A grant given before the consent widened to every app is told of the
     /// widening until it is given again; one given at the widening or after
     /// it, a revoked one, and one the relationship no longer offers are not.
@@ -558,13 +753,14 @@ mod tests {
         let offered = ConsentOffer {
             calendar_write: false,
             wellness_read: true,
+            assistant_read: true,
         };
-        let granted_at = |at: Option<DateTime<Utc>>| CoachConsents {
+        let granted_at = |at: Option<Timestamp>| CoachConsents {
             wellness_read: true,
             wellness_read_at: at,
             ..CoachConsents::default()
         };
-        let before = WELLNESS_READ_WIDENED_AT - Duration::seconds(1);
+        let before = wellness_read_widened_at() - Elapsed::seconds(1);
         assert!(
             wellness_notice_due(offered, granted_at(Some(before))),
             "a grant a second before the widening was given to the narrower consent"
@@ -574,7 +770,7 @@ mod tests {
             "a grant with no instant cannot be shown to postdate the widening"
         );
         assert!(
-            !wellness_notice_due(offered, granted_at(Some(WELLNESS_READ_WIDENED_AT))),
+            !wellness_notice_due(offered, granted_at(Some(wellness_read_widened_at()))),
             "a grant at the widening was given to the consent as it reads now"
         );
         let revoked = CoachConsents {
@@ -588,6 +784,7 @@ mod tests {
         let no_coach = ConsentOffer {
             calendar_write: false,
             wellness_read: false,
+            assistant_read: false,
         };
         assert!(
             !wellness_notice_due(no_coach, granted_at(Some(before))),
@@ -602,7 +799,7 @@ mod tests {
     fn only_a_sharing_member_who_never_answered_is_told_of_the_coachs_tools() {
         use pierre_core::models::groups::{GroupDigestMode, GroupRespondMode, GroupRole};
 
-        let now = Utc::now();
+        let now = Timestamp::now();
         let coach = Uuid::new_v4();
         let group = |coach_user_id: Option<Uuid>| CoachingGroup {
             id: Uuid::new_v4(),
@@ -619,6 +816,7 @@ mod tests {
             is_active: true,
             channel_type: None,
             channel_chat_id: None,
+            chat_connection: None,
             created_at: now,
             updated_at: now,
         };

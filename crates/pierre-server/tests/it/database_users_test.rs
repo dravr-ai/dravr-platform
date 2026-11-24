@@ -7,7 +7,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use chrono::Utc;
+use dravr_tronc::dates::Elapsed;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::ErrorCode;
 use pierre_core::models::CoachingPersona;
 use pierre_core::models::{TenantId, User, UserStatus, UserTier};
@@ -30,14 +31,13 @@ async fn test_create_and_get_user() {
         display_name: Some("Test User".into()),
         password_hash: "hashed_password".into(),
         tier: UserTier::Starter,
-        strava_token: None,
         is_active: true,
         user_status: UserStatus::Active,
         role: UserRole::User,
         approved_by: None,
-        approved_at: Some(Utc::now()),
-        created_at: Utc::now(),
-        last_active: Utc::now(),
+        approved_at: Some(Timestamp::now()),
+        created_at: Timestamp::now(),
+        last_active: Timestamp::now(),
         firebase_uid: None,
         auth_provider: String::new(),
         analytics_consent: false,
@@ -130,14 +130,13 @@ async fn test_last_active_update() {
         display_name: None,
         password_hash: "hashed".into(),
         tier: UserTier::Starter,
-        strava_token: None,
         is_active: true,
         user_status: UserStatus::Active,
         role: UserRole::User,
         approved_by: None,
-        approved_at: Some(Utc::now()),
-        created_at: Utc::now(),
-        last_active: Utc::now() - chrono::Duration::hours(1),
+        approved_at: Some(Timestamp::now()),
+        created_at: Timestamp::now(),
+        last_active: Timestamp::now() - Elapsed::hours(1),
         firebase_uid: None,
         auth_provider: String::new(),
         analytics_consent: false,
@@ -529,7 +528,7 @@ async fn test_provider_last_sync() {
     db.repositories().users.create(&user).await.unwrap();
 
     let provider = "strava";
-    let sync_time = Utc::now();
+    let sync_time = Timestamp::now();
 
     // First, create an OAuth token record (last_sync lives in user_oauth_tokens)
     let test_tenant_id = TenantId::generate();
@@ -539,7 +538,7 @@ async fn test_provider_last_sync() {
         provider.to_owned(),
         "test_access_token".to_owned(),
         Some("test_refresh_token".to_owned()),
-        Some(Utc::now() + chrono::Duration::hours(6)),
+        Some(Timestamp::now() + Elapsed::hours(6)),
         Some("read_all".to_owned()),
     );
     db.repositories()
@@ -678,7 +677,7 @@ async fn test_user_with_encrypted_tokens() {
 
     let db = create_test_database().await;
 
-    let now = Utc::now();
+    let now = Timestamp::now();
     let user = create_test_user("tokens_test@example.com", Some("Tokens Test".to_owned()));
     db.repositories().users.create(&user).await.unwrap();
 
@@ -690,7 +689,7 @@ async fn test_user_with_encrypted_tokens() {
         "strava".to_owned(),
         "encrypted_strava_access".to_owned(),
         Some("encrypted_strava_refresh".to_owned()),
-        Some(now + chrono::Duration::hours(6)),
+        Some(now + Elapsed::hours(6)),
         Some("read_all,activity:read".to_owned()),
     );
     db.repositories()
@@ -707,7 +706,7 @@ async fn test_user_with_encrypted_tokens() {
         .await
         .unwrap()
         .unwrap();
-    assert!(retrieved.strava_token.is_none()); // Tokens are loaded separately
+    assert_eq!(retrieved.id, user.id);
 
     // Verify token via dedicated OAuth token API
     let oauth_token = db
@@ -1122,7 +1121,7 @@ async fn test_user_tier_operations() {
 /// Every listing hands back the whole account. The Postgres admin listing,
 /// the untenanted status listing and both backends' cursor page used to
 /// select a narrower column set and fill the persona, roster flag, timezone
-/// and theme with their defaults, so an operator screen showed every admin
+/// and theme with their defaults, so an admin screen showed every admin
 /// as a casual coach in no timezone.
 #[tokio::test]
 async fn listings_return_the_columns_the_row_holds() {

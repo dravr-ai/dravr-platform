@@ -21,7 +21,7 @@ import {
   skippedStepIds,
   withStepRecorded,
   type OnboardingContext,
-} from '../onboarding/steps';
+} from '@pierre/shared-constants/onboarding';
 
 /** What the Your team step writes: Start (`complete`) or Skip (`skipped`, the lead alone). */
 export interface TeamStepChoice {

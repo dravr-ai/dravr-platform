@@ -121,6 +121,7 @@ where
             source_msg_id: None,
             // The athlete's own answers, derived from no provider data.
             transport_policy: TransportPolicy::AnyTransport,
+            ai_consent_sources: &[],
         })
         .await?;
         written += 1;
@@ -144,6 +145,7 @@ where
             source_msg_id: None,
             // The athlete's own answers, derived from no provider data.
             transport_policy: TransportPolicy::AnyTransport,
+            ai_consent_sources: &[],
         })
         .await?;
         written += 1;
@@ -167,6 +169,7 @@ where
             source_msg_id: None,
             // The athlete's own answers, derived from no provider data.
             transport_policy: TransportPolicy::AnyTransport,
+            ai_consent_sources: &[],
         })
         .await?;
         written += 1;

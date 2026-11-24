@@ -25,11 +25,11 @@ use std::sync::Arc;
 use axum::body::{to_bytes, Body};
 use axum::http::{Request, StatusCode};
 use axum::Router;
-use chrono::{Duration, NaiveDate, Utc};
+use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp};
 use pierre_core::constants::oauth::providers::provider_terms_version;
 use pierre_core::models::{
     Activity, ActivityBuilder, ConnectionType, ConversationSubject, DailyTrainingState, SportType,
-    TenantId, TenantPlan, TimeSeriesData, ToolCatalogEntry, ToolCategory,
+    TenantId, TenantPlan, TimeSeriesData, ToolCatalogEntry, ToolCategory, UserPhysiologicalProfile,
 };
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::Transport;
@@ -100,7 +100,7 @@ pub(crate) fn run(id: &str, days_ago: i64) -> Activity {
         id.to_owned(),
         format!("{id} session"),
         SportType::Run,
-        Utc::now() - Duration::days(days_ago),
+        Timestamp::now() - Elapsed::days(days_ago),
         3_600,
         UPLOAD.to_owned(),
     )
@@ -125,6 +125,21 @@ fn samples() -> TimeSeriesData {
     }
 }
 
+/// `who`'s heart-rate thresholds, which score their runs: heart-rate TSS
+/// reads the session on the heart-rate reserve, so it needs the resting heart
+/// rate as well as the threshold.
+async fn save_thresholds(repos: &RepositoryRegistry, who: Person) {
+    let mut profile = UserPhysiologicalProfile::new(who.id, SportType::Run);
+    profile.threshold_hr = Some(165);
+    profile.max_hr = Some(190);
+    profile.resting_hr = Some(50);
+    repos
+        .user_physiological_profile
+        .upsert_user_physiological_profile(who.tenant, who.id, &profile)
+        .await
+        .unwrap();
+}
+
 /// The athlete's twelve uploaded runs, one with recorded samples, and the
 /// coach's one ride.
 async fn seed_sessions(repos: &RepositoryRegistry, coach: Person, athlete: Person) {
@@ -146,7 +161,7 @@ async fn seed_sessions(repos: &RepositoryRegistry, coach: Person, athlete: Perso
             origin: StreamOrigin::Upload,
             source_ref: None,
             streams: &samples(),
-            synced_at: Utc::now(),
+            synced_at: Timestamp::now(),
         })
         .await
         .unwrap();
@@ -222,6 +237,8 @@ pub(crate) async fn fixture_on(res: Arc<ServerContext>) -> Fixture {
     let repos = &res.common.repos;
     let group = coached_group(repos, coach, athlete).await;
     seed_sessions(repos, coach, athlete).await;
+    save_thresholds(repos, coach).await;
+    save_thresholds(repos, athlete).await;
     let thread = open_thread(repos, coach, athlete, group).await;
     Fixture {
         res,
@@ -384,10 +401,10 @@ async fn get_activities_in_the_thread_lists_the_athletes_sessions_and_none_of_th
 #[tokio::test]
 async fn get_training_history_in_the_thread_reads_the_athletes_rows() {
     let f = fixture().await;
-    let today = Utc::now().date_naive();
-    let mut athlete_day = DailyTrainingState::zero(today - Duration::days(1));
+    let today = Timestamp::now().utc_date();
+    let mut athlete_day = DailyTrainingState::zero(today - Elapsed::days(1));
     athlete_day.daily_load = 111.0;
-    let mut coach_day = DailyTrainingState::zero(today - Duration::days(1));
+    let mut coach_day = DailyTrainingState::zero(today - Elapsed::days(1));
     coach_day.daily_load = 999.0;
     f.repos()
         .training_history
@@ -403,7 +420,7 @@ async fn get_training_history_in_the_thread_reads_the_athletes_rows() {
     let history = ok(
         f.in_thread(
             "get_training_history",
-            json!({ "from": day(today - Duration::days(3)), "to": day(today - Duration::days(1)) }),
+            json!({ "from": day(today - Elapsed::days(3)), "to": day(today - Elapsed::days(1)) }),
         )
         .await,
         "get_training_history",
@@ -628,7 +645,7 @@ async fn a_tool_disabled_in_the_athletes_tenant_refuses_the_coachs_read_of_them(
         f.coach.tenant, f.athlete.tenant,
         "the fixture files the athlete under a tenant of their own"
     );
-    let now = Utc::now();
+    let now = Timestamp::now();
     f.repos()
         .tool_selection
         .upsert_tool_catalog_entry(&ToolCatalogEntry {
@@ -642,6 +659,7 @@ async fn a_tool_disabled_in_the_athletes_tenant_refuses_the_coachs_read_of_them(
             min_plan: TenantPlan::Starter,
             created_at: now,
             updated_at: now,
+            def_hash: None,
         })
         .await
         .unwrap();
@@ -926,8 +944,8 @@ async fn an_mcp_read_of_an_athlete_with_nothing_connected_never_offers_connect_p
     assert!(message.contains("connects a provider"), "{message}");
 }
 
-fn day(date: NaiveDate) -> String {
-    date.format("%Y-%m-%d").to_string()
+fn day(date: CivilDate) -> String {
+    date.to_string()
 }
 
 /// The training reads, which take `athlete` over MCP and A2A: the first
@@ -1105,7 +1123,7 @@ async fn seed_provider_sessions(repos: &RepositoryRegistry, athlete: Person) {
             id.to_owned(),
             format!("{provider} ride"),
             SportType::Ride,
-            Utc::now() - Duration::days(1),
+            Timestamp::now() - Elapsed::days(1),
             3_600,
             provider.to_owned(),
         )
@@ -1169,7 +1187,7 @@ async fn athlete_over_mcp_and_a2a_serves_what_the_providers_terms_allow_off_drav
 impl Fixture {
     /// `who`'s `daily_tool_calls` for the current period.
     async fn charged(&self, who: Person) -> i64 {
-        let period = Utc::now().format("%Y-%m-%d").to_string();
+        let period = Timestamp::now().utc_date().to_string();
         self.repos()
             .usage_counters
             .get_counter(
@@ -1244,7 +1262,7 @@ async fn seed_whoop_workout(repos: &RepositoryRegistry, athlete: Person) {
         "whoop-workout-1".to_owned(),
         "whoop workout".to_owned(),
         SportType::Run,
-        Utc::now() - Duration::days(3),
+        Timestamp::now() - Elapsed::days(3),
         3_600,
         "whoop".to_owned(),
     )

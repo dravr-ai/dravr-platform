@@ -40,10 +40,10 @@ use axum::routing::{get, put};
 use axum::{Json, Router};
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
-use chrono::{Datelike, Duration, NaiveDate, Utc, Weekday};
 use common::{
     create_test_server_resources, create_test_user_with_plan, generate_test_token, in_web_turn,
 };
+use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp, Weekday};
 use dravr_tronc::mcp::tool::{McpTool, ToolContext};
 use helpers::axum_test::AxumTestRequest;
 use pierre_core::constants::oauth::providers::{provider_terms_version, INTERVALS_ICU};
@@ -338,7 +338,7 @@ async fn connect_intervals_as(
     token_type: &str,
     athlete: Option<&str>,
 ) {
-    let now = Utc::now();
+    let now = Timestamp::now();
     repos
         .oauth_tokens
         .upsert_token(&UserOAuthToken {
@@ -367,17 +367,17 @@ async fn connect_intervals_as(
 
 /// The Monday at least a week out, so every plan date is in the future on
 /// whatever day the suite runs.
-fn next_plan_monday() -> NaiveDate {
-    let mut day = Utc::now().date_naive() + Duration::days(7);
+fn next_plan_monday() -> CivilDate {
+    let mut day = Timestamp::now().utc_date() + Elapsed::days(7);
     while day.weekday() != Weekday::Mon {
-        day += Duration::days(1);
+        day += Elapsed::days(1);
     }
     day
 }
 
-fn planned(date: NaiveDate, workout: &str, minutes: u32) -> PlannedDay {
+fn planned(date: CivilDate, workout: &str, minutes: u32) -> PlannedDay {
     PlannedDay {
-        date: date.format("%Y-%m-%d").to_string(),
+        date: date.to_string(),
         sport: "run".to_owned(),
         workout: workout.to_owned(),
         duration_min: Some(minutes),
@@ -389,6 +389,8 @@ fn planned(date: NaiveDate, workout: &str, minutes: u32) -> PlannedDay {
         template_source: None,
         template_preset: None,
         envelope: None,
+        coach_original: None,
+        coach_added: false,
     }
 }
 
@@ -415,7 +417,7 @@ impl World {
         let base = spawn_api(api.clone()).await;
         let resources = create_test_server_resources().await.unwrap();
         let mut registry = offline_provider_registry();
-        let mut config = offline_provider_config(INTERVALS_ICU);
+        let mut config = offline_provider_config(INTERVALS_ICU).unwrap();
         config.api_base_url = base;
         registry.set_default_config(INTERVALS_ICU, config);
         let mut context = (*resources).clone();
@@ -446,7 +448,7 @@ impl World {
 
     /// `who` joins the coach's group, sharing with its coach or not.
     async fn join(&self, group: &CoachingGroup, who: Person, shares: bool) {
-        let now = Utc::now();
+        let now = Timestamp::now();
         self.repos()
             .groups
             .add_member(&GroupMember {
@@ -478,7 +480,7 @@ impl World {
                 member.id,
                 Some(true),
                 None,
-                Utc::now(),
+                Timestamp::now(),
             )
             .await
             .unwrap()
@@ -583,7 +585,7 @@ impl World {
             .expect("no live link holds this member or athlete yet");
         let link = repos
             .delegated_connections
-            .confirm(proposed.id, member.id, member.tenant, Utc::now())
+            .confirm(proposed.id, member.id, member.tenant, Timestamp::now())
             .await
             .unwrap()
             .expect("the proposal names the member");
@@ -610,13 +612,13 @@ impl World {
         let monday = next_plan_monday();
         let goal = GoalRace {
             name: "Fall race".to_owned(),
-            date: (monday + Duration::days(70)).format("%Y-%m-%d").to_string(),
+            date: (monday + Elapsed::days(70)).to_string(),
             discipline: "trail".to_owned(),
             priority: RacePriority::A,
         };
         let phases = vec![PlanPhase {
             kind: PhaseKind::Base,
-            start: monday.format("%Y-%m-%d").to_string(),
+            start: monday.to_string(),
             weeks: 10,
             intent: "rebuild volume".to_owned(),
             target_hours: None,
@@ -631,9 +633,9 @@ impl World {
         }];
         let days = vec![
             planned(monday, "Easy 45", 45),
-            planned(monday + Duration::days(2), "Steady 60", 60),
+            planned(monday + Elapsed::days(2), "Steady 60", 60),
         ];
-        let start = monday.format("%Y-%m-%d").to_string();
+        let start = monday.to_string();
         self.repos()
             .training_plans
             .save_plan_bundle(&SavePlanBundleParams {
@@ -831,7 +833,7 @@ async fn coached_group(
     let agent_id = create_group_agent(repos, owner.id, owner.tenant)
         .await
         .unwrap();
-    let now = Utc::now();
+    let now = Timestamp::now();
     let group = repos
         .groups
         .create_group(
@@ -851,6 +853,7 @@ async fn coached_group(
                 is_active: true,
                 channel_type: None,
                 channel_chat_id: None,
+                chat_connection: None,
                 created_at: now,
                 updated_at: now,
             },
@@ -943,11 +946,7 @@ async fn a_coachs_push_carries_the_published_plan_never_their_draft() {
         .await;
     w.plan(alex, TransportPolicy::AnyTransport).await;
     let monday = next_plan_monday();
-    let date = |offset: i64| {
-        (monday + Duration::days(offset))
-            .format("%Y-%m-%d")
-            .to_string()
-    };
+    let date = |offset: i64| (monday + Elapsed::days(offset)).to_string();
     let (saved, refused) = w
         .in_dm(
             &SaveTrainingPlanTool,
@@ -977,7 +976,7 @@ async fn a_coachs_push_carries_the_published_plan_never_their_draft() {
     // The published plan's two sessions and its week note went out; the
     // draft's day, a Tuesday the published plan leaves empty, did not.
     assert_eq!(report["created"], 3, "{report}");
-    let drafted_day = monday + Duration::days(1);
+    let drafted_day = monday + Elapsed::days(1);
     assert!(
         w.live(alex)
             .await
@@ -994,9 +993,7 @@ async fn a_coach_prescribes_and_withdraws_on_a_consenting_athletes_calendar() {
     let (alex, _) = w
         .athlete("Alex Athlete", "i201", Some(json!("WRITE")), true)
         .await;
-    let date = (Utc::now().date_naive() + Duration::days(3))
-        .format("%Y-%m-%d")
-        .to_string();
+    let date = (Timestamp::now().utc_date() + Elapsed::days(3)).to_string();
 
     let (prescribed, refused) = w
         .in_dm(
@@ -1074,7 +1071,7 @@ async fn the_key_that_writes_is_the_links_never_one_in_the_coachs_request_tenant
     w.plan(alex, TransportPolicy::AnyTransport).await;
     // The coach works from a second tenant, which holds a key of another
     // Intervals.icu account.
-    let now = Utc::now();
+    let now = Timestamp::now();
     let elsewhere = TenantId::generate();
     w.repos()
         .tenants
@@ -1519,7 +1516,7 @@ async fn a_calendar_read_only_through_a_coachs_link_is_not_the_athletes_to_push(
         .await;
     w.plan(alex, TransportPolicy::AnyTransport).await;
 
-    let (state, _) = AthleteState::read(w.repos(), alex.tenant, alex.id, Utc::now())
+    let (state, _) = AthleteState::read(w.repos(), alex.tenant, alex.id, Timestamp::now())
         .await
         .unwrap();
     assert!(
@@ -1625,7 +1622,7 @@ async fn an_athlete_reading_through_the_link_is_told_their_human_coach_pushes_it
     let monday = next_plan_monday();
     let day = |offset: i64, workout: &str, minutes: u32| {
         json!({
-            "date": (monday + Duration::days(offset)).format("%Y-%m-%d").to_string(),
+            "date": (monday + Elapsed::days(offset)).to_string(),
             "sport": "run",
             "workout": workout,
             "duration_min": minutes,
@@ -1637,7 +1634,7 @@ async fn an_athlete_reading_through_the_link_is_told_their_human_coach_pushes_it
             &SaveTrainingPlanTool,
             alex,
             json!({ "weeks": [{
-                "week_start": monday.format("%Y-%m-%d").to_string(),
+                "week_start": monday.to_string(),
                 "focus": "base",
                 "days": [day(0, "Easy 50", 50), day(2, "Steady 60", 60)],
             }] }),
@@ -1710,9 +1707,7 @@ async fn a_coach_writes_an_own_key_athletes_calendar_with_the_coach_key_at_their
     assert!(w.live(w.coach).await.is_empty());
 
     // Prescribe and withdraw go the same way.
-    let date = (Utc::now().date_naive() + Duration::days(3))
-        .format("%Y-%m-%d")
-        .to_string();
+    let date = (Timestamp::now().utc_date() + Elapsed::days(3)).to_string();
     let (prescribed, refused) = w
         .in_dm(
             &PrescribeWorkoutTool,
@@ -2030,9 +2025,7 @@ async fn a_coachs_dispatched_calendar_writes_run_under_the_athletes_ai_consents(
         "bug: a coach's push runs under the athlete's AI consents, never the coach's"
     );
 
-    let date = (Utc::now().date_naive() + Duration::days(3))
-        .format("%Y-%m-%d")
-        .to_string();
+    let date = (Timestamp::now().utc_date() + Elapsed::days(3)).to_string();
     let (prescribed, consents) = w
         .dispatched(
             "prescribe_workout",
@@ -2081,11 +2074,7 @@ async fn a_coachs_dispatched_calendar_writes_run_under_the_athletes_ai_consents(
 /// on the Tuesday the athlete's own plan leaves empty.
 fn draft_args(athlete: Option<&str>) -> Value {
     let monday = next_plan_monday();
-    let date = |offset: i64| {
-        (monday + Duration::days(offset))
-            .format("%Y-%m-%d")
-            .to_string()
-    };
+    let date = |offset: i64| (monday + Elapsed::days(offset)).to_string();
     let mut args = json!({
         "weeks": [{
             "week_start": date(0),

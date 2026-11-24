@@ -22,9 +22,10 @@ use serde::{Deserialize, Serialize};
 use tracing::warn;
 
 use crate::mcp::resources::ServerContext;
+use dravr_tronc::dates::Zone;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_middleware::extractors::AuthenticatedUser;
-use pierre_runtime_context::{default_admin_config, AdminConfigLookup};
+use pierre_runtime_context::{default_admin_config, resolve_tenant, AdminConfigLookup, TenantMode};
 
 /// Mount the user-profile routes on the supplied router.
 pub fn routes() -> Router<Arc<ServerContext>> {
@@ -66,7 +67,7 @@ async fn set_timezone(
     if tz.is_empty() {
         return Err(AppError::invalid_input("timezone must not be empty"));
     }
-    if tz.parse::<chrono_tz::Tz>().is_err() {
+    if tz.parse::<Zone>().is_err() {
         return Err(AppError::invalid_input(format!(
             "{tz} is not a valid IANA timezone database name",
         )));
@@ -142,19 +143,12 @@ async fn get_my_quota(
         .await?
         .ok_or_else(|| AppError::not_found("authenticated user row missing"))?;
 
-    let tenant_id_str = if let Some(t) = auth.active_tenant_id {
-        t.to_string()
-    } else {
-        resources
-            .common
-            .repos
-            .tenants
-            .first_for_user(auth.user_id)
-            .await
-            .map_err(|e| AppError::internal(format!("tenant lookup failed: {e}")))?
-            .map(|tenant_id| tenant_id.to_string())
-            .ok_or_else(|| AppError::not_found("user has no active tenant"))?
-    };
+    // An account with no tenant has no counters to show: a 404, which leaves
+    // its session alone where the resolver's own refusal would end it.
+    let tenant_id_str = resolve_tenant(&resources, &auth, TenantMode::Optional)
+        .await?
+        .ok_or_else(|| AppError::not_found("user has no active tenant"))?
+        .to_string();
     let user_id_str = auth.user_id.to_string();
 
     let usage_svc = pierre_services::usage_counter::UsageCounterService::new(

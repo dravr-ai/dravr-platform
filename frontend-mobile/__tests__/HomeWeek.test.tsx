@@ -2,12 +2,12 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: The Home week over a mocked calendar read — past days' workouts, paging to stored history and the plan's end, the month sheet
-// ABOUTME: Red if a day before history reads as empty, no plan hides the strip, paging runs past its edges, or a workout cannot be opened
+// ABOUTME: Red if a day before history reads as empty, no plan hides the strip, paging runs past its edges, a workout cannot be opened, or a date's second session is lost or doubled
 
 import React from 'react';
 import { fireEvent, render, waitFor, within } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import type { CalendarResponse, GarminContribution, HomeActivity, TrainingPlanResponse } from '@pierre/shared-types';
+import type { CalendarResponse, GarminContribution, HomeActivity, PlanDay, TrainingPlanResponse } from '@pierre/shared-types';
 
 import {
   ACTIVITIES,
@@ -100,7 +100,7 @@ describe('the week strip', () => {
       const { screen, openDraft } = renderWeek(withEvidence);
       await weekOf(screen, '2026-09-21');
 
-      const row = within(screen.getByTestId('home-week-detail')).getByTestId(`home-plan-day-${TODAY}`);
+      const row = within(screen.getByTestId('home-week-detail')).getByTestId(`home-plan-day-${TODAY}-0`);
       expect(screen.queryByText('Rønnestad 2015 [RCT]')).toBeNull();
       fireEvent.press(within(row).getByTestId('plan-day-evidence'));
       expect(screen.getByText('The evidence behind this session')).toBeTruthy();
@@ -112,7 +112,7 @@ describe('the week strip', () => {
       const { screen, openDraft } = renderWeek(withEvidence);
       await weekOf(screen, '2026-09-21');
 
-      const row = within(screen.getByTestId('home-week-detail')).getByTestId(`home-plan-day-${TODAY}`);
+      const row = within(screen.getByTestId('home-week-detail')).getByTestId(`home-plan-day-${TODAY}-0`);
       expect(row.props.accessibilityActions).toEqual([
         { name: 'evidence', label: 'The evidence behind this session' },
       ]);
@@ -125,7 +125,7 @@ describe('the week strip', () => {
       const { screen } = renderWeek();
       await weekOf(screen, '2026-09-21');
 
-      const row = within(screen.getByTestId('home-week-detail')).getByTestId(`home-plan-day-${TODAY}`);
+      const row = within(screen.getByTestId('home-week-detail')).getByTestId(`home-plan-day-${TODAY}-0`);
       expect(row.props.accessibilityActions).toBeUndefined();
       expect(within(row).queryByTestId('plan-day-evidence')).toBeNull();
     });
@@ -314,5 +314,95 @@ describe('the month sheet', () => {
     fireEvent.press(screen.getByTestId('home-month-next'));
     expect(screen.getByTestId('home-month-title')).toHaveTextContent('October 2026');
     await waitFor(() => expect(mockGetCalendar).toHaveBeenLastCalledWith('2026-09-28', '2026-11-01', 'en'));
+  });
+});
+
+// carnet#1716: a date may hold several entries, in the order they are done.
+describe('dates that hold several entries', () => {
+  const CORE: PlanDay = {
+    date: '2026-09-29',
+    position: 1,
+    sport: 'strength',
+    workout: 'Core circuit',
+    duration_min: 20,
+    intensity: 'easy',
+    rest: false,
+  };
+  const OPTIONAL: PlanDay = {
+    date: '2026-09-22',
+    position: 1,
+    sport: 'swim',
+    workout: "Optional: 20' easy swim",
+    duration_min: 20,
+    intensity: 'easy',
+    rest: false,
+  };
+  /** Tuesday's rest with an optional session beside it, and next Tuesday's hills with a core circuit after them. */
+  const response: TrainingPlanResponse = {
+    ...PLAN_RESPONSE,
+    plan: {
+      ...PLAN,
+      weeks: PLAN.weeks.map((week) => {
+        const days = week.days.flatMap((day) => {
+          if (day.date === OPTIONAL.date) return [day, OPTIONAL];
+          if (day.date === CORE.date) return [day, CORE];
+          return [day];
+        });
+        return { ...week, days };
+      }),
+    },
+  };
+
+  it("lists each of next week's sessions once, in order", async () => {
+    const { screen, openDraft } = renderWeek(response);
+    await weekOf(screen, '2026-09-21');
+
+    fireEvent.press(screen.getByTestId('home-next-week'));
+    const days = within(screen.getByTestId('home-next-week-days'));
+    expect(days.getAllByText('Hill repeats')).toHaveLength(1);
+    expect(days.getAllByText('Core circuit')).toHaveLength(1);
+    expect(days.getAllByText('Rest')).toHaveLength(1);
+    expect(
+      days.getAllByTestId(/^home-plan-day-/).map((row) => row.props.testID),
+    ).toEqual(['home-plan-day-2026-09-28-0', 'home-plan-day-2026-09-29-0', 'home-plan-day-2026-09-29-1']);
+
+    fireEvent.press(days.getByTestId('home-plan-day-2026-09-29-1'));
+    expect(openDraft).toHaveBeenCalledWith('Walk me through my session on Tuesday, September 29: Core circuit');
+  });
+
+  it('opens a day on each of its entries, the rest included, and marks it a session day', async () => {
+    const { screen, openDraft } = renderWeek(response);
+    await weekOf(screen, '2026-09-21');
+
+    const tuesday = screen.getByTestId('home-week-day-2026-09-22');
+    // A session beside the rest makes it a session day: filled, not hollow.
+    expect(within(tuesday).getByTestId('home-week-mark-session')).toBeTruthy();
+    expect(within(tuesday).queryByTestId('home-week-mark-rest')).toBeNull();
+    expect(tuesday.props.accessibilityLabel).toBe(
+      "Tuesday, September 22 — Rest; Optional: 20' easy swim · Swim · 20 min · easy",
+    );
+
+    fireEvent.press(tuesday);
+    const detail = within(screen.getByTestId('home-week-detail'));
+    expect(detail.getByTestId('home-plan-day-2026-09-22-0')).toHaveTextContent(/Rest/);
+    expect(detail.getByTestId('home-plan-day-2026-09-22-1')).toHaveTextContent(/^Optional: 20' easy swim/);
+    fireEvent.press(detail.getByTestId('home-plan-day-2026-09-22-0'));
+    expect(openDraft).toHaveBeenLastCalledWith('Why is Tuesday, September 22 a rest day in my plan?');
+    fireEvent.press(detail.getByTestId('home-plan-day-2026-09-22-1'));
+    expect(openDraft).toHaveBeenLastCalledWith(
+      "Walk me through my session on Tuesday, September 22: Optional: 20' easy swim",
+    );
+  });
+
+  it('marks the same day a session day on the month', async () => {
+    const { screen } = renderWeek(response);
+    await weekOf(screen, '2026-09-21');
+
+    fireEvent.press(screen.getByTestId('home-week-month'));
+    await screen.findByTestId('home-month-title');
+    await waitFor(() =>
+      expect(within(screen.getByTestId('home-month-day-2026-09-22')).getByTestId('home-week-mark-session')).toBeTruthy(),
+    );
+    expect(within(screen.getByTestId('home-month-day-2026-09-22')).queryByTestId('home-week-mark-rest')).toBeNull();
   });
 });

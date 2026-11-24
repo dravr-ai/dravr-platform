@@ -56,7 +56,7 @@ export interface VerdictSheetProps {
 
 const SECTION_HEADING = 'text-sm font-semibold text-text-secondary mt-4 mb-1';
 const INLINE_LINK = 'text-sm text-primary font-medium';
-// A link that stands on its own line is a 44pt row (DESIGN.md §8) that still
+// A link that stands on its own line is a 44pt row (DESIGN.md "Layout") that still
 // reads as an inline link: no fill, no border, the words left-aligned.
 const LINK_ROW = 'min-h-11 justify-center self-start';
 

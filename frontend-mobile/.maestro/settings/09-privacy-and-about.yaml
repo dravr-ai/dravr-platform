@@ -1,4 +1,4 @@
-# ABOUTME: The Settings screen reaches its Privacy and About panes; Privacy carries the analytics-consent control
+# ABOUTME: The Settings screen reaches its Privacy and About panes; Privacy carries the analytics-consent control and "Who read your data"
 # ABOUTME: Relocated from visual/08-settings-privacy.yaml (Boreal v2.2 Phase 6); a specific-control assertion, not a render check, so it does not fold into visual/00-capture.yaml (which does not visit either pane)
 
 appId: ai.dravr.app
@@ -34,6 +34,14 @@ appId: ai.dravr.app
     timeout: 10000
 - assertVisible:
     id: "analytics-consent-switch"
+# Test: "Who read your data" sits below the fold on the same pane (carnet#1543).
+- scrollUntilVisible:
+    element:
+      id: "privacy-section-access-feed"
+    direction: DOWN
+    timeout: 10000
+- assertVisible:
+    id: "privacy-section-access-feed"
 - runFlow:
     file: ../helpers/go-back.yaml
 - extendedWaitUntil:

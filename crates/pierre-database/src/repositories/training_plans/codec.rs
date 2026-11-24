@@ -11,7 +11,7 @@
 //! binds, and builds the domain value an insert returns. The parent module
 //! re-exports everything the backend shells use.
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::transport::TransportPolicy;
 use pierre_memory::training_plans::{
@@ -21,10 +21,11 @@ use pierre_memory::training_plans::{
 
 use super::{PlanDraft, PlanWeekRow, SaveTrainingPlanParams, TrainingPlanRow};
 
-/// Convert epoch seconds to `DateTime<Utc>`, treating an out-of-range value
+/// Convert epoch seconds to `Timestamp`, treating an out-of-range value
 /// as corruption rather than silently clamping.
-pub(crate) fn epoch_to_datetime(epoch: i64, column: &str) -> AppResult<DateTime<Utc>> {
-    DateTime::from_timestamp(epoch, 0)
+pub(crate) fn epoch_to_datetime(epoch: i64, column: &str) -> AppResult<Timestamp> {
+    Timestamp::from_epoch_seconds(epoch)
+        .ok()
         .ok_or_else(|| AppError::database(format!("training plan {column} out of range: {epoch}")))
 }
 
@@ -165,7 +166,7 @@ pub(crate) fn plan_insert_values(
         races_json,
         phases_json,
         flavour_json,
-        now: Utc::now().timestamp(),
+        now: Timestamp::now().epoch_seconds(),
     })
 }
 
@@ -202,7 +203,7 @@ pub(crate) fn week_insert_values(days: &[PlannedDay]) -> AppResult<WeekInsertVal
     Ok(WeekInsertValues {
         id: uuid::Uuid::new_v4().to_string(),
         days_json,
-        now: Utc::now().timestamp(),
+        now: Timestamp::now().epoch_seconds(),
     })
 }
 

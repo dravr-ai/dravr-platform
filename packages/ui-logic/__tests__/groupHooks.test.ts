@@ -191,7 +191,6 @@ describe('createGroupHooks — writes', () => {
       ['groups', 'g1', 'delegation-roster'],
       ['providers'],
       ['providers-status'],
-      ['provider-connections'],
       ['groups', 'g1', 'coach-consents'],
     ]);
   });
@@ -228,7 +227,6 @@ describe('createGroupHooks — writes', () => {
       ['groups', 'g1', 'delegation-roster'],
       ['providers'],
       ['providers-status'],
-      ['provider-connections'],
     ]);
   });
 
@@ -253,7 +251,6 @@ describe('createGroupHooks — writes', () => {
       ['groups', 'g1', 'delegation-roster'],
       ['providers'],
       ['providers-status'],
-      ['provider-connections'],
     ]);
   });
 

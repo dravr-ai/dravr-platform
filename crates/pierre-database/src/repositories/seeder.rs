@@ -25,7 +25,7 @@
 //!   `TEXT[]` on Postgres. The seed carries the list as JSON; the seed codec
 //!   binds the checked text on one and the parsed list on the other.
 //!
-//! Timestamps bind as [`DateTime<Utc>`] on both: sqlx-sqlite encodes one as
+//! Timestamps bind as [`Timestamp`] on both: sqlx-sqlite encodes one as
 //! `to_rfc3339_opts(AutoSi, false)`, the bytes `to_rfc3339()` produces, so the
 //! `SQLite` TEXT columns hold what they always held. `TRUE`/`FALSE` are the
 //! boolean spellings both engines accept (`SQLite` reads them as 1/0), and
@@ -33,7 +33,7 @@
 //! `OR IGNORE`, which only `SQLite` spelled.
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::AppResult;
 use pierre_core::models::mobility::{ActivityMuscleMapping, StretchingExercise, YogaPose};
 use pierre_core::models::User;
@@ -167,7 +167,7 @@ pub trait SeederRepository: Send + Sync {
         id: Uuid,
         tenant_id: Uuid,
         user_id: Uuid,
-        now: DateTime<Utc>,
+        now: Timestamp,
     ) -> AppResult<()>;
 
     /// Update the `tenant_id` column on a user row
@@ -182,7 +182,7 @@ pub trait SeederRepository: Send + Sync {
         tenant_id: &str,
         group_id: Uuid,
         user_id: Uuid,
-        joined_at: DateTime<Utc>,
+        joined_at: Timestamp,
     ) -> AppResult<()>;
 
     /// Check if an API key exists by name, returning its ID if found
@@ -264,7 +264,7 @@ pub trait SeederRepository: Send + Sync {
     /// `source = 'contremaitre'`, or the transitional `'seed'` that the
     /// source-column migration stamped on rows seeded before it existed and
     /// that the seeder only re-stamps once the content hash changes.
-    /// Operator-authored system agents (`source = 'custom'`) are never
+    /// Admin-authored system agents (`source = 'custom'`) are never
     /// listed. The agent seeder diffs this against the slugs it discovered on
     /// disk and deletes the rest, so an agent retired from dravr-contremaitre
     /// leaves every database instead of lingering in the store.
@@ -304,7 +304,7 @@ pub trait SeederRepository: Send + Sync {
     /// conversation still bound to the agent would block the delete; nulling
     /// it drops that conversation to the default prompt. Groups are left
     /// alone — a group needs an agent, so a group bound to an agent with no
-    /// successor keeps blocking the delete until an operator picks one.
+    /// successor keeps blocking the delete until an admin picks one.
     /// Returns the number of conversations detached.
     async fn seed_detach_agent_conversations(&self, retired_agent_id: &str) -> AppResult<u64>;
 
@@ -331,7 +331,7 @@ pub trait SeederRepository: Send + Sync {
 ///
 /// `'contremaitre'` is the source the seeder stamps today and `'seed'` the one
 /// it claims from before that stamp existed; a row outside the pair is an
-/// operator's or an athlete's own agent and no seeder query may touch it.
+/// admin's or an athlete's own agent and no seeder query may touch it.
 /// Every catalogue query spells the same pair, so it is spelled once, as a
 /// literal the statement consts below concatenate.
 macro_rules! catalogue_source_filter {
@@ -402,7 +402,7 @@ pub const AGENT_POINTER_MERGES: [&str; 3] = [
 /// itself (a usage-only row is not one) or a copy forked from it, exactly
 /// what every membership change and every copy install or uninstall count.
 /// The author's own row on an agent they wrote for themselves is not an
-/// install: it exists before any listing does. A catalogue agent's operator
+/// install: it exists before any listing does. A catalogue agent's admin
 /// holds no such row, and joins its team by installing it like anyone. `$1`
 /// is the successor.
 ///

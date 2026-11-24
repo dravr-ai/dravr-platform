@@ -137,7 +137,7 @@ async fn setup_over(base_url: &str, config: ServerConfig) -> Fixture {
         .await
         .expect("store the athlete's locale");
 
-    let mut config = offline_provider_config(INTERVALS_ICU);
+    let mut config = offline_provider_config(INTERVALS_ICU).unwrap();
     base_url.clone_into(&mut config.api_base_url);
     let mut registry = offline_provider_registry();
     registry.set_default_config(INTERVALS_ICU, config);
@@ -541,14 +541,14 @@ async fn posting_valid_credentials_links_the_account_and_redirects_to_success() 
         vec![ConnectionType::Manual]
     );
 
-    let lines = logs.lock().unwrap();
+    let lines = logs.events();
     assert!(
         lines
             .iter()
             .any(|l| l.event == "Hosted connect: Intervals.icu linked"),
         "the link is logged"
     );
-    for line in lines.iter() {
+    for line in &lines {
         assert!(
             !line.event.contains(SECRET_KEY)
                 && line.fields.values().all(|v| !v.contains(SECRET_KEY)),
@@ -617,14 +617,14 @@ async fn posting_rejected_credentials_reshows_the_form_and_stores_nothing() {
     assert_eq!(intervals_connections(&fixture).await, []);
 
     stub.await.expect("stub task joins");
-    let lines = logs.lock().unwrap();
+    let lines = logs.events();
     assert!(
         lines
             .iter()
             .any(|l| l.event == "Hosted connect: Intervals.icu credentials refused"),
         "the refusal is logged"
     );
-    for line in lines.iter() {
+    for line in &lines {
         assert!(
             !line.event.contains(SECRET_KEY)
                 && line.fields.values().all(|v| !v.contains(SECRET_KEY)),

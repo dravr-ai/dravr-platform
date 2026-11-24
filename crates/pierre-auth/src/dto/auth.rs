@@ -9,6 +9,7 @@
 //! This module contains all DTOs (Data Transfer Objects) used by the authentication
 //! routes for serialization and deserialization of API requests and responses.
 
+use crate::connect_order::ConnectOrder;
 use pierre_core::models::{DelegationStatus, ProviderAccountRole, TenantId, UserStatus};
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
@@ -45,7 +46,7 @@ pub enum RegistrationActivation {
     Active,
     /// The confirmation link mailed to the address activates it.
     ConfirmEmail,
-    /// An operator reviews it.
+    /// An admin reviews it.
     Review,
 }
 
@@ -235,7 +236,7 @@ pub struct UserInfo {
     pub email_tombstone: Option<EmailTombstoneInfo>,
     /// What the account waits on, the value its registration answered with:
     /// `active`, `confirm_email` for a Pending account a proven address
-    /// activates, `review` for one an operator decides. Lets the waiting
+    /// activates, `review` for one an admin decides. Lets the waiting
     /// screen say so on any tab or device, not only in the tab that signed
     /// up. Absent for a suspended account and on surfaces that did not
     /// resolve it.
@@ -687,6 +688,18 @@ pub struct ProviderStatus {
     /// providers without a seat cap.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub seats_left: Option<u32>,
+    /// The admin's connect order of this card's provider.
+    ///
+    /// Carried by a card that signs in with the provider account (`sciotte`,
+    /// `sciotte_garmin`, `sciotte_trainingpeaks`, `sciotte_coros`), on
+    /// connect, reconnect and history import alike: `"extension_first"`
+    /// (the default — a web client
+    /// with the Dravr sign-in extension installed starts it before the
+    /// credentials form), `"sign_in_first"` (the credentials form first, the
+    /// extension offered beside it) or `"oauth_first"`. `None` for every
+    /// other card.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub connect_order: Option<ConnectOrder>,
     /// Whether connecting this provider first needs the account to accept its
     /// exposure notice — TrainingPeaks, until the current notice version is
     /// accepted. The client shows the notice with a required checkbox before
@@ -709,14 +722,23 @@ pub struct ProviderStatus {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub oauth_callback_url: Option<String>,
     /// The account's consent to AI use of this provider's data, for a
-    /// provider whose notice is one (WHOOP's owner authorization): `true`
-    /// while it is given in the current version, `false` while it is not —
-    /// never given, outdated or withdrawn — and then no model reads this
-    /// provider's data. Withdrawn with `DELETE` and given again with `PUT` on
+    /// provider whose notice is one (WHOOP's owner authorization, Garmin's AI
+    /// consent): `true` while it is given in the current version, `false`
+    /// while it is not — never given, outdated or withdrawn — and then no
+    /// model reads this provider's data. Withdrawn with `DELETE` and given again with `PUT` on
     /// `/api/providers/{provider}/ai-consent`. Absent for every provider that
     /// asks no such consent of this account.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ai_consent: Option<bool>,
+    /// The account's consent to Dravr sending this provider its data, for a
+    /// provider that asks one (Garmin's workout transfer, carnet#1390):
+    /// `true` while it is given in the current version, `false` while it is
+    /// not, and then Dravr writes nothing to this provider. Withdrawn with
+    /// `DELETE` and given again with `PUT` on
+    /// `/api/providers/{provider}/transfer-consent`. Absent for every
+    /// provider that asks no such consent.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub transfer_consent: Option<bool>,
     /// What kind of account the user's own connection signed in with, once
     /// the provider has reported it: `"coach"` for a TrainingPeaks coach
     /// account, which keeps no calendar of its own, so the card can say where

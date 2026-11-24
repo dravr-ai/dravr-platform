@@ -7,8 +7,8 @@
 //! Strava parity of the scraped session (carnet#1602, carnet#1603).
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use chrono::{TimeZone, Utc};
 use dravr_sciotte::models::AuthSession;
+use dravr_tronc::dates::Timestamp;
 use pierre_providers::core::{
     CredentialKind, FitnessProvider, OAuth2Credentials, ProviderConfig, ProviderFactory,
 };
@@ -117,7 +117,7 @@ async fn connected_provider(base_url: &str) -> Box<dyn FitnessProvider> {
     let session = AuthSession {
         session_id: "stub-session".to_owned(),
         cookies: vec![],
-        created_at: Utc.with_ymd_and_hms(2026, 11, 7, 12, 0, 0).unwrap(),
+        created_at: Timestamp::parse_from_rfc3339("2026-11-07T12:00:00Z").unwrap(),
         expires_at: None,
     };
     provider

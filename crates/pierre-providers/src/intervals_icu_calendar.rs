@@ -16,7 +16,7 @@
 //! The DSL is parsed server-side on every write and cannot be disabled, which
 //! is why prose is escaped rather than trusted.
 
-use chrono::NaiveDate;
+use dravr_tronc::dates::CivilDate;
 use serde::Deserialize;
 use serde_json::json;
 
@@ -316,7 +316,7 @@ fn render_description(session: &PlannedSession) -> String {
 
 /// The `EventEx` body Intervals.icu expects for a session.
 pub(crate) fn event_body(session: &PlannedSession) -> serde_json::Value {
-    let start_date_local = format!("{}T00:00:00", session.date.format("%Y-%m-%d"));
+    let start_date_local = format!("{}T00:00:00", session.date);
     match session.kind {
         PlannedSessionKind::Workout => {
             let mut body = json!({
@@ -393,7 +393,7 @@ impl IntervalsIcuEvent {
     /// date — an event the calendar cannot place on a day cannot be reconciled.
     pub(crate) fn calendar_event_ref(self) -> AppResult<CalendarEventRef> {
         let day = self.start_date_local.get(..10).unwrap_or_default();
-        let date = NaiveDate::parse_from_str(day, "%Y-%m-%d").map_err(|e| {
+        let date = CivilDate::parse_from_str(day, "%Y-%m-%d").map_err(|e| {
             AppError::external_service(
                 "intervals_icu",
                 format!(

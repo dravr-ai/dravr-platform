@@ -27,6 +27,8 @@ mod activity_revalidation_dedup_test;
 #[cfg(feature = "tools-data")]
 mod activity_self_report_render_test;
 mod activity_summary_free_fields_test;
+#[cfg(feature = "tools-analytics")]
+mod analytics_local_day_test;
 #[cfg(feature = "tools-data")]
 mod backfill_coverage_logic_test;
 #[cfg(feature = "client-chat")]

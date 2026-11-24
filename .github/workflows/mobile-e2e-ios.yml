@@ -289,7 +289,7 @@ jobs:
           # new conversation, and nothing behind it is required at boot.
           PIERRE_LLM_DEFAULT_MODEL: "ci-test-model"
           # onboarding/02's coaches connect Strava through a scripted stand-in
-          # for the sciotte scraper on this port (the control process below).
+          # for the sciotte service on this port (the control process below).
           DRAVR_SCIOTTE_REMOTE_URL: "http://127.0.0.1:8097"
           # The app signs in on the hosted login page and returns to
           # exp://<host>:8082/--/auth/callback inside Expo Go, an address the

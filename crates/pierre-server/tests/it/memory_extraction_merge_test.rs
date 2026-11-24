@@ -121,6 +121,7 @@ async fn seed_anchor(
             valid_until: None,
             source_msg_id: Some("m-onboarding"),
             transport_policy: TransportPolicy::AnyTransport,
+            ai_consent_sources: &[],
         })
         .await
         .expect("anchor stored")
@@ -181,6 +182,8 @@ async fn run(
             plan_was_saved: false,
             transport_policy: TransportPolicy::AnyTransport,
             recorder: None,
+            ai_consent_sources: &[],
+            consent_withheld: None,
         },
         CONFIG,
     )
@@ -373,6 +376,8 @@ async fn a_stored_plan_mints_no_schedule_fact_from_the_coachs_own_words() {
             plan_was_saved: true,
             transport_policy: TransportPolicy::AnyTransport,
             recorder: None,
+            ai_consent_sources: &[],
+            consent_withheld: None,
         },
         CONFIG,
     )
@@ -447,6 +452,8 @@ async fn the_same_prescription_survives_when_no_plan_was_saved() {
             plan_was_saved: false,
             transport_policy: TransportPolicy::AnyTransport,
             recorder: None,
+            ai_consent_sources: &[],
+            consent_withheld: None,
         },
         CONFIG,
     )

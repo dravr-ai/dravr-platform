@@ -29,7 +29,7 @@
 /// their own data rather than the literature.
 pub mod athlete_data;
 /// Blind grading: a stratified sample of production verdicts into grader
-/// sheets and the operator's key (carnet#854).
+/// sheets and the admin's key (carnet#854).
 pub mod blind_grading;
 /// Blind grading: graded sheets joined back to the key and scored.
 pub mod blind_grading_score;

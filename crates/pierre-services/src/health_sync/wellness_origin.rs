@@ -7,7 +7,6 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use dravr_enforme::config;
 use dravr_enforme::error::EnformeResult;
 use dravr_enforme::providers;
 use dravr_enforme::providers::client::{self, HttpTimeouts};
@@ -17,6 +16,7 @@ use dravr_enforme::providers::whoop::WhoopProvider;
 use dravr_enforme::SyncProvider;
 use pierre_core::constants::oauth_providers;
 use pierre_providers::registry::ProviderRegistry;
+use secrecy::{ExposeSecret, SecretString};
 
 /// Where an orchestrator reads the wellness of the two providers
 /// dravr-enforme would otherwise read on a host of its own.
@@ -81,12 +81,14 @@ fn whoop_wellness_base(api_base: &str) -> &str {
 /// register: it reads none of its wellness, and the reader is taken out.
 ///
 /// Each replacement is built as the provider's own `new()` builds it: the
-/// same client and deadlines, the credential presented by the same code,
-/// and for WHOOP the webhook secret read from `WHOOP_WEBHOOK_SECRET`, blank
-/// meaning unset.
+/// same client and deadlines and the credential presented by the same code.
+/// WHOOP's webhooks are verified against `whoop_webhook_secret`, the
+/// server configuration's `webhooks.whoop_secret` (`WHOOP_WEBHOOK_SECRET`
+/// read once at startup, blank meaning unset); `None` verifies no event.
 pub(super) fn sync_providers(
     reader: &Arc<dyn DailySummaryReader>,
     origins: WellnessOrigins<'_>,
+    whoop_webhook_secret: Option<&SecretString>,
 ) -> EnformeResult<HashMap<String, Box<dyn SyncProvider>>> {
     let mut registry = providers::build_provider_registry_with_reader(reader)?;
     // One entry per provider name: an insert replaces dravr-enforme's own.
@@ -106,7 +108,7 @@ pub(super) fn sync_providers(
         Some(api_base) => {
             let whoop = WhoopProvider::with_base_url(
                 client::http_client(HttpTimeouts::PROVIDER)?,
-                config::env_non_blank("WHOOP_WEBHOOK_SECRET"),
+                whoop_webhook_secret.map(|secret| secret.expose_secret().to_owned()),
                 whoop_wellness_base(api_base),
             );
             registry.insert(whoop.name().to_owned(), Box::new(whoop));
@@ -122,10 +124,10 @@ pub(super) fn sync_providers(
 mod tests {
     use super::*;
     use async_trait::async_trait;
-    use chrono::NaiveDate;
     use dravr_enforme::providers::sciotte_reader::{
         AuthSession, DailySummary, ScraperError, ScraperResult,
     };
+    use dravr_tronc::dates::CivilDate;
 
     /// A scrape reader no test here reads through.
     struct NoScrape;
@@ -136,7 +138,7 @@ mod tests {
             &self,
             provider: &str,
             _: &AuthSession,
-            _: NaiveDate,
+            _: CivilDate,
         ) -> ScraperResult<DailySummary> {
             Err(ScraperError::Internal {
                 reason: format!("no scrape reader for {provider} in this test"),
@@ -227,12 +229,12 @@ mod tests {
             intervals_icu_api: Some("http://127.0.0.1:1"),
             whoop_api: Some("http://127.0.0.1:1"),
         };
-        let replaced = sync_providers(&reader, refused).unwrap();
+        let replaced = sync_providers(&reader, refused, None).unwrap();
         assert_eq!(names(&replaced), names(&enforme_own));
 
         // Named none: every other provider, and neither reader left on
         // dravr-enforme's host.
-        let removed = sync_providers(&reader, WellnessOrigins::default()).unwrap();
+        let removed = sync_providers(&reader, WellnessOrigins::default(), None).unwrap();
         let mut others = names(&enforme_own);
         others.retain(|name| name != INTERVALS_ICU && name != oauth_providers::WHOOP);
         assert_eq!(names(&removed), others);
@@ -244,6 +246,7 @@ mod tests {
                 whoop_api: Some("http://127.0.0.1:1"),
                 ..WellnessOrigins::default()
             },
+            None,
         )
         .unwrap();
         let mut without_intervals = names(&enforme_own);

@@ -30,7 +30,7 @@
 use crate::common::offline_provider_registry;
 use std::sync::Arc;
 
-use chrono::{TimeZone, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::{Activity, ActivityBuilder, SportType, TenantId};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_providers::field_support::{field_support, ActivityFields, FieldMode};
@@ -198,7 +198,7 @@ fn row(id: &str, provider: &str, source: &str) -> Activity {
         id.to_owned(),
         "Session".to_owned(),
         SportType::Ride,
-        Utc.with_ymd_and_hms(2026, 11, 7, 13, 0, 0).unwrap(),
+        Timestamp::parse_from_rfc3339("2026-11-07T13:00:00Z").unwrap(),
         3_600,
         provider.to_owned(),
     )

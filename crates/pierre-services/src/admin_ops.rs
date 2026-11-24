@@ -5,11 +5,11 @@
 // Copyright (c) 2026 dravr.ai
 
 use crate::pricing::{cost_for_record, costs_of_usage_groups};
-use chrono::{DateTime, Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::admin::scope::AdminScope;
 use pierre_core::errors::AppError;
 use pierre_core::models::TenantId;
-use pierre_core::models::{MonthlyLimitOverride, OperatorRosterGrant, User, UserStatus};
+use pierre_core::models::{AdminRosterGrant, MonthlyLimitOverride, User, UserStatus};
 use pierre_database::database::repositories::UserMcpTokenRepository;
 use pierre_database::database::CreateUserMcpTokenRequest;
 use pierre_database::repositories::analytics::next_utc_month_start;
@@ -59,10 +59,10 @@ pub struct UserRateLimits {
     /// Monthly quota remaining (None means unlimited)
     pub monthly_remaining: Option<u32>,
     /// Wall-clock time when the monthly counter resets
-    pub monthly_reset: DateTime<Utc>,
+    pub monthly_reset: Timestamp,
     /// True when a per-user override is in effect (tier default ignored).
     pub override_active: bool,
-    /// Operator note attached to the override, if any.
+    /// Admin note attached to the override, if any.
     pub override_note: Option<String>,
 }
 
@@ -153,9 +153,9 @@ pub struct UserAdminProfile {
     pub coaching_persona: String,
     /// Whether the user may become a coaching group's human coach
     pub manages_roster: bool,
-    /// Who granted it as an operator, and when; `None` when no operator did.
-    /// A `TrainingPeaks` disconnect leaves an operator grant in place.
-    pub manages_roster_operator_grant: Option<OperatorRosterGrant>,
+    /// Who granted it as an admin, and when; `None` when no admin did.
+    /// A `TrainingPeaks` disconnect leaves an admin grant in place.
+    pub manages_roster_admin_grant: Option<AdminRosterGrant>,
     /// Coaches the user has installed from the Agent Store
     pub installed_agents: Vec<InstalledAgentSummary>,
     /// Coaching groups the user belongs to
@@ -510,23 +510,6 @@ pub struct AdminDemotion {
     pub withdrawn: WithdrawnAdminCredentials,
 }
 
-/// Admin user summary for the admins listing
-#[derive(Debug, Serialize)]
-pub struct AdminUserSummary {
-    /// User ID
-    pub id: String,
-    /// User email
-    pub email: String,
-    /// Display name (optional)
-    pub display_name: Option<String>,
-    /// User role (always `admin`)
-    pub role: String,
-    /// User status (active, pending, suspended)
-    pub user_status: String,
-    /// Account creation timestamp (RFC3339)
-    pub created_at: String,
-}
-
 /// Give `user` the admin role: the write every promotion makes.
 ///
 /// The admin API and the console reach it through
@@ -680,40 +663,6 @@ pub async fn demote_user_from_admin(
     })
 }
 
-/// List all admin users across all tenants.
-///
-/// Any admin can view the full admin roster, ordered by email ascending.
-///
-/// # Errors
-///
-/// Returns `PermissionDenied` if the caller is not an admin, or `Internal`
-/// if the admin listing repository call fails.
-pub async fn list_all_admins(
-    data: &DataContext,
-    admin_user_id: Uuid,
-) -> Result<Vec<AdminUserSummary>, AppError> {
-    require_admin(admin_user_id, &data.repos().users).await?;
-
-    let admins = data
-        .repos()
-        .users
-        .list_admins()
-        .await
-        .map_err(|e| AppError::internal(format!("Failed to list admins: {e}")))?;
-
-    Ok(admins
-        .into_iter()
-        .map(|u| AdminUserSummary {
-            id: u.id.to_string(),
-            email: u.email,
-            display_name: u.display_name,
-            role: u.role.as_str().to_owned(),
-            user_status: u.user_status.to_string(),
-            created_at: u.created_at.to_rfc3339(),
-        })
-        .collect())
-}
-
 // =========================================================================
 // Password reset
 // =========================================================================
@@ -837,7 +786,7 @@ pub async fn compute_user_rate_limits(
         monthly_limit,
         monthly_used: usage.used,
         monthly_remaining: monthly_limit.map(|l| l.saturating_sub(usage.used)),
-        monthly_reset: next_utc_month_start(Utc::now()),
+        monthly_reset: next_utc_month_start(Timestamp::now()),
         override_active: usage.monthly_override != MonthlyLimitOverride::NotSet,
         override_note,
     })
@@ -872,8 +821,8 @@ pub async fn compute_user_activity(
 
     // Get time range for activity using days parameter (default 30)
     let days = i64::from(days.unwrap_or(30).clamp(1, 365));
-    let now = Utc::now();
-    let start_time = now - Duration::days(days);
+    let now = Timestamp::now();
+    let start_time = now - Elapsed::days(days);
 
     // The list stops at the busiest endpoints, the count does not, so a share is
     // of everything the keys did.
@@ -945,10 +894,10 @@ pub async fn compute_user_admin_profile(
         .await
         .map_err(|e| AppError::internal(format!("Failed to fetch user: {e}")))?
         .ok_or_else(|| AppError::not_found("User not found"))?;
-    let manages_roster_operator_grant = data
+    let manages_roster_admin_grant = data
         .repos()
         .users
-        .manages_roster_operator_grant(target_user_id)
+        .manages_roster_admin_grant(target_user_id)
         .await?;
 
     // Installed agents require a tenant scope — use the user's first tenant.
@@ -1017,7 +966,7 @@ pub async fn compute_user_admin_profile(
         user_id: target_user_id.to_string(),
         coaching_persona: user.coaching_persona.to_string(),
         manages_roster: user.manages_roster,
-        manages_roster_operator_grant,
+        manages_roster_admin_grant,
         installed_agents,
         joined_groups,
     })
@@ -1040,16 +989,11 @@ pub async fn fetch_recent_activity(
     scope: AdminScope,
 ) -> Result<RecentActivityResult, AppError> {
     // Time boundary for "today" stats
-    let today_start = Utc::now()
-        .date_naive()
-        .and_hms_opt(0, 0, 0)
-        .map_or_else(Utc::now, |t| {
-            DateTime::<Utc>::from_naive_utc_and_offset(t, Utc)
-        });
+    let today_start = Timestamp::now().utc_date().at_midnight().and_utc()?;
     let today_str = today_start.to_rfc3339();
 
     // Time boundary for "active conversations" (last 15 minutes)
-    let fifteen_min_ago = (Utc::now() - Duration::minutes(15)).to_rfc3339();
+    let fifteen_min_ago = (Timestamp::now() - Elapsed::minutes(15)).to_rfc3339();
 
     let repos = data.repos();
     let tenant_text = scope.tenant_filter().map(|t| t.to_string());

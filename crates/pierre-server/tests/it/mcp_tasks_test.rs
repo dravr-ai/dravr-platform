@@ -24,6 +24,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Result;
+use dravr_tronc::dates::Timestamp;
 use dravr_tronc::mcp::tasks::{
     DetailedTask, Task, TaskId, TaskManager, TaskOwner, TaskPayload, TaskStatus, TaskStore,
 };
@@ -250,7 +251,7 @@ async fn test_durable_store_update_refuses_a_stale_state() -> Result<()> {
 
     let run = manager.create(&owner).await?;
     let task_id = run.id().clone();
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = Timestamp::now().epoch_millis();
     let working = repo
         .get_task(
             owner.tenant_id.as_deref().expect("owner has a tenant"),

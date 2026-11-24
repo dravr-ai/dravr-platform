@@ -194,7 +194,7 @@ fn unconfigured_locale_falls_back_to_english() {
     // The Italian locale isn't present in `rules()`; with `en` available,
     // resolve_locale returns the English entry, and the outcome names `en` so the
     // disclaimer copy reads in the language of the rule that matched. That's the
-    // documented contract, surfaced here so operators don't ship partial locale
+    // documented contract, surfaced here so admins don't ship partial locale
     // coverage by accident.
     let r = rules();
     assert_eq!(

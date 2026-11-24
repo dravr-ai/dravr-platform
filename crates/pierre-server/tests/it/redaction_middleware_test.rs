@@ -124,6 +124,11 @@ fn redact_query_keeps_parameter_names_and_replaces_only_sensitive_values() {
         "parameter names are matched case-insensitively"
     );
     assert_eq!(
+        redact_query("webhook_secret=w-1&x-api-key=k-2&keyword=run", &config),
+        "webhook_secret=[REDACTED]&x-api-key=[REDACTED]&keyword=run",
+        "a credential word in a name segment is caught, as redact_url catches it"
+    );
+    assert_eq!(
         redact_query("limit=25&offset=50", &config),
         "limit=25&offset=50",
         "pagination parameters are not secrets and stay legible"

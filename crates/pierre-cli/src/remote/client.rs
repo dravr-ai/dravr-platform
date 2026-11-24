@@ -188,7 +188,7 @@ impl RemoteClient {
     /// DELETE carrying a JSON body, requiring a 2xx; returns the parsed body.
     ///
     /// For the delete routes that take a payload — `DELETE /admin/users/{id}`
-    /// records the operator's reason from it.
+    /// records the admin's reason from it.
     ///
     /// # Errors
     /// Returns an error on transport failure or a non-2xx status.

@@ -27,6 +27,9 @@ pierre-database = { version = "0.3.0", path = "../pierre-database" }
 pierre-cache = { version = "0.3.0", path = "../pierre-cache" }
 # Google's published signing keys (`GoogleKeySet`) for Firebase ID tokens
 dravr-tronc = { workspace = true, features = ["google-iam"] }
+# owl's presets and tiers: an OAuth grant's `authorization_details` resolve
+# to one of barrage's frozen presets (no default features: no store)
+dravr-barrage = { workspace = true }
 
 # Async runtime and traits
 async-trait = "0.1"
@@ -35,9 +38,6 @@ tokio = { version = "1.54", features = ["time", "sync", "rt"] }
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-
-# Date/time
-chrono = { version = "0.4", features = ["serde"] }
 
 # Identifiers
 uuid = { version = "1.29", features = ["v4", "serde"] }

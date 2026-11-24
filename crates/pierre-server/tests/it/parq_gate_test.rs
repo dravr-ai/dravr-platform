@@ -8,7 +8,7 @@
 #![allow(missing_docs)]
 
 use anyhow::Result;
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::TenantId;
 use pierre_core::transport::TransportPolicy;
 use pierre_database::backends::factory::Database;
@@ -42,12 +42,12 @@ async fn parq_yes_answers_raise_medical_flags() -> Result<()> {
 
     let dossier = repos
         .dossier
-        .compose_dossier(tenant, user, TransportPolicy::FirstPartyOnly, &|_| true)
+        .compose_dossier(tenant, user, TransportPolicy::FirstPartyOnly, &|_, _| true)
         .await?;
     assert_eq!(dossier.medical.len(), 2, "flags land in the medical bucket");
 
     // 12-month freshness: valid_until is set and in the future (not stale).
-    let now = Utc::now();
+    let now = Timestamp::now();
     for fact in &dossier.medical {
         let vu = fact.valid_until.expect("medical flag carries valid_until");
         assert!(vu > now, "flag is fresh");
@@ -72,7 +72,7 @@ async fn parq_all_no_raises_nothing() -> Result<()> {
 
     let dossier = repos
         .dossier
-        .compose_dossier(tenant, user, TransportPolicy::FirstPartyOnly, &|_| true)
+        .compose_dossier(tenant, user, TransportPolicy::FirstPartyOnly, &|_, _| true)
         .await?;
     assert!(dossier.medical.is_empty());
     Ok(())

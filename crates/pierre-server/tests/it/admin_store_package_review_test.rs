@@ -16,6 +16,7 @@ use anyhow::Result;
 use axum::Router;
 use common::{create_test_server_resources, generate_test_token};
 use dravr_contremaitre::training;
+use dravr_tronc::dates::Timestamp;
 use helpers::axum_test::AxumTestRequest;
 use pierre_core::models::agents::{AgentCategory, AgentVisibility, CreateSystemAgentRequest};
 use pierre_core::models::{ArtefactKind, PackageArtefact, Tenant, TenantId, User, UserStatus};
@@ -52,7 +53,7 @@ async fn admin(resources: &Arc<ServerContext>) -> Result<(Uuid, TenantId, String
     user.role = UserRole::Admin;
     user.user_status = UserStatus::Active;
     user.approved_by = Some(user.id);
-    user.approved_at = Some(chrono::Utc::now());
+    user.approved_at = Some(Timestamp::now());
     let user_id = user.id;
     resources.common.repos.users.create(&user).await?;
 
@@ -64,8 +65,8 @@ async fn admin(resources: &Arc<ServerContext>) -> Result<(Uuid, TenantId, String
         domain: None,
         plan: "starter".to_owned(),
         owner_user_id: user_id,
-        created_at: chrono::Utc::now(),
-        updated_at: chrono::Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
     };
     resources.common.repos.tenants.create(&tenant).await?;
     resources

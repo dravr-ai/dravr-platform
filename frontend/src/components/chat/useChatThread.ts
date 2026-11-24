@@ -29,6 +29,7 @@ import {
   MENTION_PREFIX,
   providerStatusLine,
   trackAbsence,
+  QUERY_KEYS,
 } from '@pierre/shared-constants';
 import {
   describeApiError,
@@ -54,7 +55,6 @@ import { hasAdminRole } from '@pierre/shared-types';
 import { useTranslation } from '@pierre/i18n';
 import { chatApi, groupsApi, providersApi } from '../../services/api';
 import { track } from '../../services/analytics';
-import { QUERY_KEYS } from '../../constants/queryKeys';
 import { useUsageStatus } from '../../hooks/useUsageStatus';
 import { cachedConversations, useConversationList } from '../../hooks/useConversationList';
 import { useMarkConversationRead } from '../../hooks/useMarkConversationRead';
@@ -310,7 +310,7 @@ export function useChatThread({
   // draft rather than as typed. Cleared when the composer empties.
   const draftSeededRef = useRef(false);
   const [messageMetadata, setMessageMetadata] = useState<Map<string, MessageMetadata>>(new Map());
-  // Which model wrote a reply, and how long it took, is an operator's reading
+  // Which model wrote a reply, and how long it took, is an admin's reading
   // (carnet#1147): an athlete talks to their agent, never to a model id.
   const { user } = useAuth();
   const showsReplyModel = hasAdminRole(user);

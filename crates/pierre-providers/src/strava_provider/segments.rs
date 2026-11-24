@@ -16,7 +16,7 @@
 //! the activity crossed no segment: it is left unstamped (`None`), and the
 //! row reads as unread, an activity a walk tried and could not read.
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 
 use super::{f32_to_u32, StravaProvider};
 use crate::models::SegmentEffort;
@@ -52,9 +52,7 @@ pub(super) fn convert_segment_effort(raw: &StravaSegmentEffort) -> Option<Segmen
         .distance
         .map(f64::from)
         .or_else(|| segment.and_then(|s| s.distance))?;
-    let start_date = DateTime::parse_from_rfc3339(raw.start_date.as_deref()?)
-        .ok()?
-        .with_timezone(&Utc);
+    let start_date = Timestamp::parse_from_rfc3339(raw.start_date.as_deref()?).ok()?;
     Some(SegmentEffort {
         id: raw.id?.to_string(),
         segment_id: segment.and_then(|s| s.id).map(|id| id.to_string()),

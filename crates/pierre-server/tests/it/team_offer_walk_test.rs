@@ -21,7 +21,7 @@ use pierre_core::permissions::scopes::OAuthScope;
 use std::sync::Arc;
 
 use axum::http::StatusCode;
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_chat_pipeline::stages::deterministic_reply::{
     deliver, DeterministicReplyInputs, PlatformReply,
 };
@@ -142,6 +142,7 @@ impl Fixture {
                     valid_until: None,
                     source_msg_id: None,
                     transport_policy: TransportPolicy::AnyTransport,
+                    ai_consent_sources: &[],
                 })
                 .await
                 .unwrap();
@@ -152,7 +153,7 @@ impl Fixture {
     /// topic burned its probe budget an hour ago, so the next turn ends it.
     async fn spent_walk(&self) -> ConversationRecord {
         let mut state = OnboardingState::start(
-            (Utc::now() - Duration::hours(1)).to_rfc3339(),
+            (Timestamp::now() - Elapsed::hours(1)).to_rfc3339(),
             GuidedFlow::Pillars,
         )
         .with_audience(WalkAudience::Private);
@@ -228,6 +229,7 @@ impl Fixture {
                 channel_type: None,
                 about_user_id: None,
                 turn_attempted_write: None,
+                ai_consent_sources: &[],
             })
             .await
             .unwrap();

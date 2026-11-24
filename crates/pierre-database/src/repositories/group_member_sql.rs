@@ -16,6 +16,8 @@ macro_rules! member_columns {
               m.consent_given_at,
               m.coach_calendar_write, m.coach_calendar_write_at,
               m.coach_wellness_read, m.coach_wellness_read_at,
+              m.coach_assistant_read, m.coach_assistant_read_at,
+              m.coach_sensitive_t2_read, m.coach_sensitive_t2_read_at, m.coach_sensitive_t2_read_until,
               m.joined_at, m.left_at,
               ",
             person_name_column!(),
@@ -77,22 +79,16 @@ pub(crate) const UPDATE_COACH_SHARING_CONSENT_SQL: &str = r"UPDATE coaching_grou
               coach_sharing_consent_at = $2
               WHERE group_id = $3 AND user_id = $4 AND left_at IS NULL";
 
-/// When a live member answered the notice of their coach's AI tools, NULL
-/// while they have not.
-pub(crate) const GET_ASSISTANT_NOTICE_ANSWERED_SQL: &str = r"SELECT assistant_notice_answered_at FROM coaching_group_members
-              WHERE group_id = $1 AND user_id = $2 AND left_at IS NULL";
-
-/// Record that a live member answered the notice of their coach's AI tools,
-/// at `$1`.
-pub(crate) const ANSWER_ASSISTANT_NOTICE_SQL: &str = r"UPDATE coaching_group_members SET assistant_notice_answered_at = $1
-              WHERE group_id = $2 AND user_id = $3 AND left_at IS NULL";
-
 /// A live member sets what their coach may do beyond reading their training:
-/// `$1` calendar write and `$2` wellness read, NULL to leave one as it
-/// stands. A consent whose value changes is stamped `$3`, and so is every
-/// wellness grant, a standing one included: `coach_wellness_read_at` is when
-/// the member last agreed to the wellness consent as it reads now. Every SET
-/// expression reads the row as it stood before the update, on both engines.
+/// `$1` calendar write, `$2` wellness read and `$6` sharing their health
+/// records (T2), NULL to leave one as it stands, in one statement so a
+/// change lands whole or not at all. A calendar consent whose value changes
+/// is stamped `$3`, and so is every wellness grant, a standing one included:
+/// `coach_wellness_read_at` is when the member last agreed to the wellness
+/// consent as it reads now. Every health-records grant or revoke is stamped
+/// `$3`; a grant lapses at `$7` (NULL: until revoked), a renewed grant
+/// included, and a revoke clears the lapse instant. Every SET expression
+/// reads the row as it stood before the update, on both engines.
 pub(crate) const SET_COACH_CONSENTS_SQL: &str = r"UPDATE coaching_group_members
         SET coach_calendar_write = COALESCE($1, coach_calendar_write),
             coach_calendar_write_at = CASE WHEN $1 IS NULL OR $1 = coach_calendar_write
@@ -100,7 +96,12 @@ pub(crate) const SET_COACH_CONSENTS_SQL: &str = r"UPDATE coaching_group_members
             coach_wellness_read = COALESCE($2, coach_wellness_read),
             coach_wellness_read_at = CASE WHEN $2 THEN $3
                                           WHEN $2 IS NULL OR $2 = coach_wellness_read
-                                          THEN coach_wellness_read_at ELSE $3 END
+                                          THEN coach_wellness_read_at ELSE $3 END,
+            coach_sensitive_t2_read = COALESCE($6, coach_sensitive_t2_read),
+            coach_sensitive_t2_read_at = CASE WHEN $6 IS NULL
+                                              THEN coach_sensitive_t2_read_at ELSE $3 END,
+            coach_sensitive_t2_read_until = CASE WHEN $6 IS NULL THEN coach_sensitive_t2_read_until
+                                                 WHEN $6 THEN $7 ELSE NULL END
       WHERE group_id = $4 AND user_id = $5 AND left_at IS NULL";
 
 /// Live members of a group, counted by group alone: they may span tenants.

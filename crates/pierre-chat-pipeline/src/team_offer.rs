@@ -29,7 +29,7 @@
 
 use std::slice;
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_contremaitre::messaging_strings::{
     MessagingStringsRegistry, KEY_AGENTS_TEAM_OFFER_ADDED, KEY_AGENTS_TEAM_OFFER_DISMISSED,
     KEY_USE_CASES_UNAVAILABLE,
@@ -256,7 +256,7 @@ pub(crate) async fn record_shown(
     let id = exposure_id(pillar);
     if let Err(e) = repos
         .use_case_exposures
-        .record_use_cases_shown(tenant_id, user_id, &[id.as_str()], Utc::now())
+        .record_use_cases_shown(tenant_id, user_id, &[id.as_str()], Timestamp::now())
         .await
     {
         warn!(error = %e, pillar = %pillar, "team offer shown could not be recorded; it may be offered again");
@@ -272,7 +272,7 @@ async fn record_tapped(
 ) {
     if let Err(e) = repos
         .use_case_exposures
-        .record_use_case_tapped(tenant_id, user_id, &exposure_id(pillar), Utc::now())
+        .record_use_case_tapped(tenant_id, user_id, &exposure_id(pillar), Timestamp::now())
         .await
     {
         warn!(error = %e, pillar = %pillar, "team offer tap could not be recorded; it may be offered again");

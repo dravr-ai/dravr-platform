@@ -32,7 +32,7 @@ use std::sync::atomic::{AtomicBool, AtomicI64, AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use anyhow::Result;
-use chrono::{DateTime, Datelike, Duration, NaiveDate, Utc, Weekday};
+use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp, Weekday};
 use pierre_core::constants::oauth::INTERVALS_ICU;
 use pierre_core::models::periodization::PhaseKind;
 use pierre_core::models::{
@@ -42,15 +42,18 @@ use pierre_core::models::{
 use pierre_database::backends::factory::DatabaseBackend;
 use pierre_database::repositories::training_plans::PlanAuthor;
 use pierre_database::repositories::{PlanOutlineInput, PlanWeekInput, SavePlanBundleParams};
+use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_memory::training_plans::{GoalRace, PlanPhase, PlannedDay, RacePriority};
 use pierre_providers::ai_scope;
 use pierre_services::parq;
 use pierre_services::plan_fueling::FUELING_WITHHELD_CLAUSE;
+use pierre_tool_runtime::context::{DispatchOrigin, TurnAsk, DISPATCH_ORIGIN, TURN_ASK};
+use pierre_tool_runtime::guardian::{CallFate, TurnKey, TurnState};
 use pierre_tool_runtime::implementations::endurance_workouts::PrescribeWorkoutTool;
 use pierre_tool_runtime::protocols::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
 use pierre_tool_runtime::runtime::ToolRuntime;
 use pierre_tool_runtime::task_cancellation::scoped_with_cancel_flag;
-use pierre_tool_runtime::McpTool;
+use pierre_tool_runtime::{McpTool, SecurityLabels};
 use serde_json::{json, Value};
 use sqlx::Row;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -69,7 +72,7 @@ const ATHLETE_ID: &str = "i123456";
 struct FakeEvent {
     id: i64,
     body: Value,
-    updated: DateTime<Utc>,
+    updated: Timestamp,
 }
 
 /// How the fake answers.
@@ -83,8 +86,8 @@ enum Mode {
 
 /// A fake Intervals.icu on loopback: one athlete's events collection, plus a
 /// record of every full request (head + body) it served.
-struct Stub {
-    base_url: String,
+pub(crate) struct Stub {
+    pub(crate) base_url: String,
     requests: Arc<Mutex<Vec<String>>>,
     events: Arc<Mutex<Vec<FakeEvent>>>,
     handle: JoinHandle<()>,
@@ -125,6 +128,21 @@ impl Stub {
     }
 
     /// The calendar as the fake holds it now.
+    /// How many times a push read the calendar's window: once per push.
+    pub(crate) async fn window_reads(&self) -> usize {
+        let read = format!("GET /api/v1/athlete/{ATHLETE_ID}/events");
+        self.requests()
+            .await
+            .iter()
+            .filter(|request| request.starts_with(&read))
+            .count()
+    }
+
+    /// How many events the fake calendar holds.
+    pub(crate) async fn event_count(&self) -> usize {
+        self.events.lock().await.len()
+    }
+
     async fn events(&self) -> Vec<FakeEvent> {
         self.events.lock().await.clone()
     }
@@ -138,7 +156,7 @@ impl Stub {
     }
 
     /// Pretend the athlete edited an event on Intervals.icu at `when`.
-    async fn touch(&self, id: i64, when: DateTime<Utc>) {
+    async fn touch(&self, id: i64, when: Timestamp) {
         let mut events = self.events.lock().await;
         let event = events
             .iter_mut()
@@ -232,7 +250,7 @@ fn respond(
             events.push(FakeEvent {
                 id,
                 body: parsed,
-                updated: Utc::now(),
+                updated: Timestamp::now(),
             });
             ("HTTP/1.1 200 OK", json!({ "id": id }).to_string())
         }
@@ -257,7 +275,7 @@ fn respond(
             match events.iter_mut().find(|e| e.id == id) {
                 Some(event) => {
                     event.body = parsed;
-                    event.updated = Utc::now();
+                    event.updated = Timestamp::now();
                     ("HTTP/1.1 200 OK", json!({ "id": id }).to_string())
                 }
                 None => ("HTTP/1.1 404 Not Found", "{}".to_owned()),
@@ -332,13 +350,68 @@ async fn stub_inner(
 }
 
 /// A live fake whose first created event gets `first_id`.
-async fn stub_live(first_id: i64) -> Stub {
+pub(crate) async fn stub_live(first_id: i64) -> Stub {
     stub_with(Mode::Live, first_id).await
 }
 
 /// A fake that refuses everything with `status_line`.
 async fn stub_refusing(status_line: &'static str) -> Stub {
     stub_with(Mode::Refuse(status_line), 1).await
+}
+
+/// `resources` with Intervals.icu served by the fake at `base_url`.
+pub(crate) fn serving_intervals_at(
+    resources: &ServerContext,
+    base_url: &str,
+) -> Arc<ServerContext> {
+    let mut config = offline_provider_config(INTERVALS_ICU).unwrap();
+    base_url.clone_into(&mut config.api_base_url);
+    let mut registry = offline_provider_registry();
+    registry.set_default_config(INTERVALS_ICU, config);
+    let mut context = resources.clone();
+    context.fitness.provider_registry = Arc::new(registry);
+    Arc::new(context)
+}
+
+/// Connect `user_id` to Intervals.icu with an API key, the calendar Dravr
+/// writes for them.
+pub(crate) async fn connect_intervals_icu(
+    resources: &dyn ToolRuntime,
+    user_id: Uuid,
+    tenant: TenantId,
+) -> Result<()> {
+    let now = Timestamp::now();
+    resources
+        .repos()
+        .oauth_tokens
+        .upsert_token(&UserOAuthToken {
+            id: Uuid::new_v4().to_string(),
+            user_id,
+            tenant_id: tenant.to_string(),
+            provider: INTERVALS_ICU.to_owned(),
+            access_token: SecretString::from("test-api-key"),
+            refresh_token: None,
+            token_type: "api_key".to_owned(),
+            expires_at: None,
+            scope: None,
+            provider_user_id: Some(ATHLETE_ID.to_owned()),
+            oauth_app_client_id: None,
+            created_at: now,
+            updated_at: now,
+        })
+        .await?;
+    resources
+        .repos()
+        .provider_connections
+        .register_connection(
+            user_id,
+            tenant,
+            INTERVALS_ICU,
+            &ConnectionType::Manual,
+            None,
+        )
+        .await?;
+    Ok(())
 }
 
 /// An athlete with a connected provider, and the executor that serves them.
@@ -452,7 +525,7 @@ impl Fixture {
 
     /// Persist plan weeks the way `save_training_plan` does, with an outline
     /// on the first call so the athlete has an active plan to attach to.
-    async fn save_weeks(&self, with_outline: bool, weeks: &[(NaiveDate, &str, Vec<PlannedDay>)]) {
+    async fn save_weeks(&self, with_outline: bool, weeks: &[(CivilDate, &str, Vec<PlannedDay>)]) {
         self.save_weeks_by(PlanAuthor::none(), with_outline, weeks)
             .await;
     }
@@ -462,7 +535,7 @@ impl Fixture {
         &self,
         author: PlanAuthor<'_>,
         with_outline: bool,
-        weeks: &[(NaiveDate, &str, Vec<PlannedDay>)],
+        weeks: &[(CivilDate, &str, Vec<PlannedDay>)],
     ) {
         self.save_weeks_stamped(author, with_outline, weeks, TransportPolicy::AnyTransport)
             .await;
@@ -474,20 +547,18 @@ impl Fixture {
         &self,
         author: PlanAuthor<'_>,
         with_outline: bool,
-        weeks: &[(NaiveDate, &str, Vec<PlannedDay>)],
+        weeks: &[(CivilDate, &str, Vec<PlannedDay>)],
         transport_policy: TransportPolicy,
     ) {
         let goal = GoalRace {
             name: "Fall race".to_owned(),
-            date: (weeks[0].0 + Duration::days(70))
-                .format("%Y-%m-%d")
-                .to_string(),
+            date: (weeks[0].0 + Elapsed::days(70)).to_string(),
             discipline: "gravel".to_owned(),
             priority: RacePriority::A,
         };
         let phases = vec![PlanPhase {
             kind: PhaseKind::Base,
-            start: weeks[0].0.format("%Y-%m-%d").to_string(),
+            start: weeks[0].0.to_string(),
             weeks: 10,
             intent: "rebuild volume".to_owned(),
             target_hours: None,
@@ -512,7 +583,7 @@ impl Fixture {
         });
         let starts: Vec<String> = weeks
             .iter()
-            .map(|(start, _, _)| start.format("%Y-%m-%d").to_string())
+            .map(|(start, _, _)| start.to_string())
             .collect();
         let inputs: Vec<PlanWeekInput<'_>> = weeks
             .iter()
@@ -557,14 +628,9 @@ async fn fixture(base_url: &str, connect_intervals: bool) -> Result<Fixture> {
     common::init_test_http_clients();
     let resources = common::create_test_server_resources().await?;
 
-    let mut config = offline_provider_config(INTERVALS_ICU);
-    config.api_base_url = base_url.to_owned();
-    let mut registry = offline_provider_registry();
-    registry.set_default_config(INTERVALS_ICU, config);
-    let mut context = (*resources).clone();
-    context.fitness.provider_registry = Arc::new(registry);
     let executor = Arc::new(
-        UniversalToolExecutor::new(Arc::new(context)).with_scopes(OAuthScope::self_grant()),
+        UniversalToolExecutor::new(serving_intervals_at(&resources, base_url))
+            .with_scopes(OAuthScope::self_grant()),
     );
     let resources = &executor.resources;
 
@@ -578,38 +644,15 @@ async fn fixture(base_url: &str, connect_intervals: bool) -> Result<Fixture> {
         .map(|t| t.id)
         .expect("user owns a tenant");
 
-    let (provider, connection_type) = if connect_intervals {
-        (INTERVALS_ICU, ConnectionType::Manual)
-    } else {
-        ("strava", ConnectionType::OAuth)
-    };
     if connect_intervals {
-        let now = Utc::now();
+        connect_intervals_icu(resources.as_ref(), user_id, tenant).await?;
+    } else {
         resources
             .repos()
-            .oauth_tokens
-            .upsert_token(&UserOAuthToken {
-                id: Uuid::new_v4().to_string(),
-                user_id,
-                tenant_id: tenant.to_string(),
-                provider: INTERVALS_ICU.to_owned(),
-                access_token: SecretString::from("test-api-key"),
-                refresh_token: None,
-                token_type: "api_key".to_owned(),
-                expires_at: None,
-                scope: None,
-                provider_user_id: Some(ATHLETE_ID.to_owned()),
-                oauth_app_client_id: None,
-                created_at: now,
-                updated_at: now,
-            })
+            .provider_connections
+            .register_connection(user_id, tenant, "strava", &ConnectionType::OAuth, None)
             .await?;
     }
-    resources
-        .repos()
-        .provider_connections
-        .register_connection(user_id, tenant, provider, &connection_type, None)
-        .await?;
 
     Ok(Fixture {
         executor: Arc::clone(&executor),
@@ -638,23 +681,23 @@ fn trail_session() -> Value {
 
 /// The Monday at least a week out, so every plan date is in the future on
 /// whatever day the suite runs.
-fn next_plan_monday() -> NaiveDate {
-    let mut day = Utc::now().date_naive() + Duration::days(7);
+fn next_plan_monday() -> CivilDate {
+    let mut day = Timestamp::now().utc_date() + Elapsed::days(7);
     while day.weekday() != Weekday::Mon {
-        day += Duration::days(1);
+        day += Elapsed::days(1);
     }
     day
 }
 
 fn planned(
-    date: NaiveDate,
+    date: CivilDate,
     sport: &str,
     workout: &str,
     minutes: Option<u32>,
     intensity: &str,
 ) -> PlannedDay {
     PlannedDay {
-        date: date.format("%Y-%m-%d").to_string(),
+        date: date.to_string(),
         sport: sport.to_owned(),
         workout: workout.to_owned(),
         duration_min: minutes,
@@ -666,10 +709,12 @@ fn planned(
         template_source: None,
         template_preset: None,
         envelope: None,
+        coach_original: None,
+        coach_added: false,
     }
 }
 
-fn rest_day(date: NaiveDate) -> PlannedDay {
+fn rest_day(date: CivilDate) -> PlannedDay {
     planned(date, "rest", "", None, "")
 }
 
@@ -693,8 +738,8 @@ fn threshold_steps() -> Vec<WorkoutStep> {
     ]
 }
 
-fn iso(date: NaiveDate) -> String {
-    date.format("%Y-%m-%d").to_string()
+fn iso(date: CivilDate) -> String {
+    date.to_string()
 }
 
 // ── Single prescriptions ───────────────────────────────────────────────────
@@ -810,7 +855,7 @@ async fn a_single_prescription_names_the_agent_it_ran_under() -> Result<()> {
         .await?;
     assert!(direct.success, "prescribe must succeed: {:?}", direct.error);
 
-    let named: Vec<(NaiveDate, Option<String>)> = fixture
+    let named: Vec<(CivilDate, Option<String>)> = fixture
         .live()
         .await
         .into_iter()
@@ -820,11 +865,11 @@ async fn a_single_prescription_names_the_agent_it_ran_under() -> Result<()> {
         named,
         vec![
             (
-                NaiveDate::from_ymd_opt(2026, 9, 15).expect("valid date"),
+                CivilDate::from_ymd(2026, 9, 15).expect("valid date"),
                 Some(turn_agent)
             ),
             (
-                NaiveDate::from_ymd_opt(2026, 9, 16).expect("valid date"),
+                CivilDate::from_ymd(2026, 9, 16).expect("valid date"),
                 Some(direct_agent)
             ),
         ]
@@ -1335,7 +1380,7 @@ async fn pushing_a_plan_puts_every_future_session_on_the_calendar_and_reconciles
     let fixture = Box::pin(fixture(&stub.base_url, true)).await?;
     let user = fixture.user_id;
     let monday = next_plan_monday();
-    let d = |offset: i64| monday + Duration::days(offset);
+    let d = |offset: i64| monday + Elapsed::days(offset);
 
     // Two weeks: one full microcycle with a focus, one sparse week without.
     fixture
@@ -1594,7 +1639,8 @@ async fn pushing_a_plan_puts_every_future_session_on_the_calendar_and_reconciles
     // and the agent also re-saved that week with a longer version.
     let tempo_key = CalendarKey::plan_day(user, d(7), 0);
     let tempo = stub.event_by_key(&tempo_key).await.expect("tempo ride");
-    stub.touch(tempo.id, Utc::now() + Duration::hours(1)).await;
+    stub.touch(tempo.id, Timestamp::now() + Elapsed::hours(1))
+        .await;
     fixture
         .save_weeks(
             false,
@@ -1738,7 +1784,7 @@ async fn each_pushed_plan_day_names_the_agent_that_wrote_its_week() -> Result<()
     let stub = stub_live(3000).await;
     let fixture = Box::pin(fixture(&stub.base_url, true)).await?;
     let monday = next_plan_monday();
-    let d = |offset: i64| monday + Duration::days(offset);
+    let d = |offset: i64| monday + Elapsed::days(offset);
     fixture
         .save_weeks_by(
             PlanAuthor::agent("endurance-agent"),
@@ -1775,7 +1821,7 @@ async fn each_pushed_plan_day_names_the_agent_that_wrote_its_week() -> Result<()
 
     let report = fixture.ok("push_training_plan", json!({})).await?;
     assert_eq!(report["created"].as_u64(), Some(3), "got: {report}");
-    let named: Vec<(NaiveDate, Option<String>)> = fixture
+    let named: Vec<(CivilDate, Option<String>)> = fixture
         .live()
         .await
         .into_iter()
@@ -1803,7 +1849,7 @@ async fn a_structured_plan_day_reaches_the_calendar_as_repeat_blocks() -> Result
     let fixture = Box::pin(fixture(&stub.base_url, true)).await?;
     let user = fixture.user_id;
     let monday = next_plan_monday();
-    let d = |offset: i64| monday + Duration::days(offset);
+    let d = |offset: i64| monday + Elapsed::days(offset);
     let workout = "Threshold 3x8. Keep the recoveries easy";
     let mut structured = planned(d(2), "vélo", workout, Some(61), "Z4");
     structured.steps = threshold_steps();
@@ -1890,7 +1936,7 @@ async fn a_flagged_athletes_calendar_note_loses_its_fuelling_rates_on_the_next_p
     let fixture = Box::pin(fixture(&stub.base_url, true)).await?;
     let user = fixture.user_id;
     let monday = next_plan_monday();
-    let d = |offset: i64| monday + Duration::days(offset);
+    let d = |offset: i64| monday + Elapsed::days(offset);
     let mut ride = planned(d(5), "mtb", "Long ride, eat early", Some(150), "Z2");
     ride.fueling = Some(FuelingProtocol {
         carbs_g_per_h: 90.0,
@@ -1971,7 +2017,7 @@ async fn a_push_from_outside_dravr_writes_the_athletes_own_note_and_tells_the_ca
     let fixture = Box::pin(fixture(&stub.base_url, true)).await?;
     let user = fixture.user_id;
     let monday = next_plan_monday();
-    let d = |offset: i64| monday + Duration::days(offset);
+    let d = |offset: i64| monday + Elapsed::days(offset);
     let mut ride = planned(d(5), "mtb", "Long ride, eat early", Some(150), "Z2");
     ride.fueling = Some(FuelingProtocol {
         carbs_g_per_h: 90.0,
@@ -2056,7 +2102,7 @@ async fn a_band_keeps_its_threshold_and_adjacent_sets_keep_their_groups() -> Res
     let fixture = Box::pin(fixture(&stub.base_url, true)).await?;
     let user = fixture.user_id;
     let monday = next_plan_monday();
-    let d = |offset: i64| monday + Duration::days(offset);
+    let d = |offset: i64| monday + Elapsed::days(offset);
     let step =
         |label: &str, seconds: u32, zone: &str, repeat: u32, group: Option<u32>| WorkoutStep {
             label: label.to_owned(),
@@ -2175,7 +2221,7 @@ async fn a_refused_plan_push_records_every_failure_and_leaves_the_ledger_honest(
                 "",
                 vec![
                     planned(monday, "run", "Easy", Some(30), "Z1"),
-                    rest_day(monday + Duration::days(1)),
+                    rest_day(monday + Elapsed::days(1)),
                 ],
             )],
         )
@@ -2199,14 +2245,14 @@ async fn a_refused_plan_push_records_every_failure_and_leaves_the_ledger_honest(
 
 /// `save_training_plan`'s arguments re-laying the week of `monday` as two
 /// runs, Monday and Wednesday, with no focus (so no week note).
-fn two_runs(monday: NaiveDate) -> Value {
+fn two_runs(monday: CivilDate) -> Value {
     json!({
         "weeks": [{
             "week_start": iso(monday),
             "focus": "",
             "days": [
                 { "date": iso(monday), "sport": "run", "workout": "Easy 40", "duration_min": 40, "intensity": "Z1" },
-                { "date": iso(monday + Duration::days(2)), "sport": "run", "workout": "Steady 50", "duration_min": 50, "intensity": "Z2" }
+                { "date": iso(monday + Elapsed::days(2)), "sport": "run", "workout": "Steady 50", "duration_min": 50, "intensity": "Z2" }
             ]
         }]
     })
@@ -2214,7 +2260,7 @@ fn two_runs(monday: NaiveDate) -> Value {
 
 /// The season a weeks-only save attaches to, written without the tool so
 /// nothing is pushed before the save under test.
-async fn lay_season(fixture: &Fixture, monday: NaiveDate) {
+async fn lay_season(fixture: &Fixture, monday: CivilDate) {
     fixture
         .save_weeks(
             true,
@@ -2354,6 +2400,186 @@ async fn a_calendar_that_refuses_the_saves_push_never_undoes_the_save() -> Resul
     Ok(())
 }
 
+// ── A plan saved in batches in one chat turn (carnet#1702) ────────────────
+
+/// The executor of one chat turn over the fixture's resources: its turn token
+/// and the turn ask the pipeline scopes before it builds one, so a call it
+/// runs can hand an effect to the turn's end.
+fn chat_turn_executor(fixture: &Fixture, turn: &str) -> UniversalToolExecutor {
+    let ask = TurnAsk {
+        turn_id: turn.to_owned(),
+        user_message_id: None,
+    };
+    TURN_ASK.sync_scope(Some(ask), || {
+        UniversalToolExecutor::new(Arc::clone(&fixture.executor.resources))
+            .with_scopes(OAuthScope::self_grant())
+            .with_turn_token(turn.to_owned())
+    })
+}
+
+/// `tool` called with `params` on `executor`, as the fixture's athlete.
+async fn run_on(
+    executor: &UniversalToolExecutor,
+    fixture: &Fixture,
+    tool: &str,
+    params: Value,
+) -> Result<UniversalResponse> {
+    Ok(executor
+        .execute_tool(UniversalRequest {
+            tool_name: tool.to_owned(),
+            parameters: params,
+            user_id: fixture.user_id.to_string(),
+            protocol: "chat".to_owned(),
+            tenant_id: Some(fixture.tenant_str()),
+        })
+        .await?)
+}
+
+/// What the turn under `key` has spent: its destructive charges and writes.
+fn spent(fixture: &Fixture, key: &TurnKey) -> (u16, u16) {
+    fixture
+        .executor
+        .resources
+        .guardian_turns()
+        .decide_and_reserve(
+            key,
+            SecurityLabels::empty(),
+            false,
+            |state: &TurnState| (state.destructive_count(), state.write_count()),
+            |_| CallFate::Unchanged,
+        )
+        .0
+}
+
+/// Four batches of one plan, saved in one chat turn, each a week of two runs.
+async fn save_four_batches(
+    fixture: &Fixture,
+    executor: &UniversalToolExecutor,
+    monday: CivilDate,
+) -> Result<Vec<Value>> {
+    let mut replies = Vec::new();
+    for batch in 0..4 {
+        let saved = run_on(
+            executor,
+            fixture,
+            "save_training_plan",
+            two_runs(monday + Elapsed::weeks(batch)),
+        )
+        .await?;
+        assert!(
+            saved.success,
+            "bug: batch {} of one plan was refused: {:?}",
+            batch + 1,
+            saved.error
+        );
+        replies.push(saved.result.expect("result payload"));
+    }
+    Ok(replies)
+}
+
+#[tokio::test]
+async fn a_plan_saved_in_four_batches_reaches_the_calendar_once_after_the_turn() -> Result<()> {
+    let stub = stub_live(9000).await;
+    let fixture = Box::pin(fixture(&stub.base_url, true)).await?;
+    let monday = next_plan_monday();
+    lay_season(&fixture, monday).await;
+    let turn = format!("batched-plan-{}", Uuid::new_v4());
+    let key = TurnKey::new(Some(fixture.tenant.as_uuid()), turn.clone());
+    let executor = chat_turn_executor(&fixture, &turn);
+
+    for saved in save_four_batches(&fixture, &executor, monday).await? {
+        assert_eq!(saved["calendar_push"]["status"], "queued", "got: {saved}");
+        assert_eq!(
+            saved["calendar_push"]["provider"], INTERVALS_ICU,
+            "got: {saved}"
+        );
+        assert!(
+            saved.get("calendar").is_none(),
+            "nothing is previewed for a push the turn will run: {saved}"
+        );
+    }
+    assert!(
+        stub.requests().await.is_empty(),
+        "bug: a batch reached the calendar before the turn's end"
+    );
+    assert_eq!(
+        spent(&fixture, &key),
+        (0, 4),
+        "four writes, and no destructive charge until the push runs"
+    );
+
+    let handed = fixture.executor.resources.turn_end_dispatches().take(&key);
+    assert_eq!(handed.len(), 1, "bug: four batches queued {handed:?}");
+    let push = handed[0].dispatch;
+    assert_eq!(
+        (push.tool, push.trigger),
+        ("push_training_plan", "save_training_plan"),
+        "bug: the turn's end must push the plan, reported as the saves'"
+    );
+
+    // What the chat pipeline runs when the turn ends: one push on the turn's
+    // executor, reported as the saves'.
+    let ran = DISPATCH_ORIGIN
+        .scope(
+            DispatchOrigin::TurnEnd {
+                trigger: push.trigger,
+            },
+            run_on(&executor, &fixture, push.tool, json!({})),
+        )
+        .await?;
+    assert!(ran.success, "the turn's push runs: {:?}", ran.error);
+    let report = ran.result.expect("push report");
+    assert_eq!(report["created"].as_u64(), Some(8), "got: {report}");
+    assert_eq!(stub.events().await.len(), 8, "every saved day is on it");
+    assert_eq!(
+        stub.window_reads().await,
+        1,
+        "the calendar was reconciled once"
+    );
+    assert_eq!(fixture.live().await.len(), 8, "one ledger row per day");
+    assert_eq!(
+        spent(&fixture, &key),
+        (1, 5),
+        "the whole plan cost one destructive charge"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn an_athlete_with_no_calendar_saves_four_batches_in_one_turn() -> Result<()> {
+    let stub = stub_live(9500).await;
+    // Strava-connected only: nothing Dravr writes a calendar on.
+    let fixture = Box::pin(fixture(&stub.base_url, false)).await?;
+    let monday = next_plan_monday();
+    lay_season(&fixture, monday).await;
+    let turn = format!("batched-plan-{}", Uuid::new_v4());
+    let key = TurnKey::new(Some(fixture.tenant.as_uuid()), turn.clone());
+    let executor = chat_turn_executor(&fixture, &turn);
+
+    for saved in save_four_batches(&fixture, &executor, monday).await? {
+        assert!(
+            saved.get("calendar_push").is_none(),
+            "an athlete without a calendar is not told about one: {saved}"
+        );
+    }
+    assert_eq!(
+        spent(&fixture, &key),
+        (0, 4),
+        "bug: a save that reached no calendar spent a destructive charge"
+    );
+    assert!(
+        fixture
+            .executor
+            .resources
+            .turn_end_dispatches()
+            .take(&key)
+            .is_empty(),
+        "no push is queued for an athlete with no calendar"
+    );
+    assert!(stub.requests().await.is_empty(), "no calendar was called");
+    Ok(())
+}
+
 // ── Cooperative cancellation (MCP task handle) ─────────────────────────────
 
 /// A cancel raised before the entry loop stops the push before ANY provider
@@ -2367,7 +2593,7 @@ async fn a_cancelled_push_writes_nothing_and_never_reaches_the_removal_pass() ->
     let stub = stub_live(4000).await;
     let fixture = Box::pin(fixture(&stub.base_url, true)).await?;
     let monday = next_plan_monday();
-    let d = |offset: i64| monday + Duration::days(offset);
+    let d = |offset: i64| monday + Elapsed::days(offset);
 
     // Two sessions (no week focus → no note entry), pushed to completion.
     fixture
@@ -2439,7 +2665,7 @@ async fn a_mid_push_cancel_stops_between_entries_and_the_next_push_finishes() ->
     let stub = stub_cancelling_after_writes(5000, Arc::clone(&flag), 1).await;
     let fixture = Box::pin(fixture(&stub.base_url, true)).await?;
     let monday = next_plan_monday();
-    let d = |offset: i64| monday + Duration::days(offset);
+    let d = |offset: i64| monday + Elapsed::days(offset);
 
     // Three sessions; the stub raises the flag when the first create lands,
     // so the loop notices at the second entry's head.

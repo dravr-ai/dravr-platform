@@ -9,7 +9,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from '@pierre/i18n';
 import { importSourceCopy, offeredImportSources } from '@pierre/ui-logic';
 import { importsApi } from '../../services/api';
-import { QUERY_KEYS } from '../../constants/queryKeys';
+import { QUERY_KEYS } from '@pierre/shared-constants';
 import { DravrLogo } from '../DravrLogo';
 import SourceImport from './SourceImport';
 import { importStateLine } from './importCopy';

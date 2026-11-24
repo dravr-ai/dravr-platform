@@ -42,7 +42,8 @@
 use std::collections::BTreeSet;
 use std::future::Future;
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
+use pierre_core::constants::oauth_providers;
 use pierre_core::errors::{AppResult, ErrorCode};
 use pierre_core::models::{ConversationRecord, TenantId};
 use pierre_database::RepositoryRegistry;
@@ -80,6 +81,10 @@ pub(super) fn athlete_property() -> PropertySchema {
         ..Default::default()
     }
 }
+
+/// The reason a send to the Garmin Connect calendar is refused while the
+/// athlete has not let Dravr send Garmin their workouts (carnet#1390).
+pub(super) const GARMIN_TRANSFER_CONSENT_REASON: &str = "no_garmin_transfer_consent";
 
 /// A refusal in the tool's error shape, with a machine-readable reason.
 pub(super) fn refusal(reason: &str, message: &str) -> ToolResult {
@@ -192,7 +197,7 @@ pub(super) struct CalendarScope {
     /// Whose account the coach's writer goes through, once it is built.
     seat: Option<CoachSeat>,
     /// When the coach's credential was read for the writer.
-    credential_read_at: Option<DateTime<Utc>>,
+    credential_read_at: Option<Timestamp>,
 }
 
 /// Resolve whose calendar the call writes: the caller's own, or — for a
@@ -454,6 +459,43 @@ impl CalendarScope {
         calendar_refusal(context, "choose_calendar", &message, calendars)
     }
 
+    /// The provider that sends the athlete's planned workouts to their
+    /// calendar on `backend`: [`Self::calendar_writer`], once the athlete
+    /// lets Dravr send that provider their data.
+    ///
+    /// A send to the Garmin Connect calendar is refused here, before anything
+    /// reaches Garmin, until the athlete lets Dravr send Garmin their workouts
+    /// (Garmin's agreement §4.5, carnet#1390): every Training API create or
+    /// update, from a plan push, a save, a coach's publish or a prescription,
+    /// reaches its provider through this.
+    ///
+    /// # Errors
+    ///
+    /// Returns a repository error or [`Self::calendar_writer`]'s.
+    pub(super) async fn calendar_sender(
+        &mut self,
+        context: &ToolExecutionContext,
+        backend: &str,
+    ) -> AppResult<Result<Box<dyn FitnessProvider>, ToolResult>> {
+        if backend == oauth_providers::GARMIN
+            && !provider_notice::garmin_transfer_allowed(
+                context.resources.repos(),
+                self.tenant.as_uuid(),
+                self.user_id,
+            )
+            .await
+        {
+            return Ok(Err(refusal(
+                GARMIN_TRANSFER_CONSENT_REASON,
+                "Nothing was sent: the athlete has not allowed Dravr to send workouts to their \
+                 Garmin Connect calendar. Only the athlete can allow it, in Dravr's Privacy & \
+                 Data settings (or when connecting Garmin). Tell them so, and never offer to \
+                 send it another way.",
+            )));
+        }
+        self.calendar_writer(context, backend).await
+    }
+
     /// The provider this scope's calendar on `backend` is written with: the
     /// athlete's own in self scope, the link's coach writer on the coach
     /// path, or the refusal either path answers with.
@@ -463,6 +505,11 @@ impl CalendarScope {
     /// athlete's connections), so a calendar the athlete holds only through a
     /// human coach's link is refused here, once, before its provider is
     /// built: only that coach writes it.
+    ///
+    /// A removal of Dravr's own entries builds its provider here directly:
+    /// it sends nothing of the athlete's, so a withdrawn transfer consent
+    /// still lets Dravr take back what it wrote. Anything that creates or
+    /// updates an entry goes through [`Self::calendar_sender`].
     ///
     /// # Errors
     ///
@@ -486,7 +533,7 @@ impl CalendarScope {
             )
             .await?));
         }
-        self.credential_read_at = Some(Utc::now());
+        self.credential_read_at = Some(Timestamp::now());
         match AuthService::new(context.resources.clone())
             .coach_calendar_writer(self.writer.user_id, self.user_id, self.tenant, backend)
             .await?

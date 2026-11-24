@@ -6,12 +6,12 @@
 
 #![allow(missing_docs)]
 
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::transport::TransportPolicy;
 use pierre_memory::commitments::{Commitment, CommitmentOutcome, CommitmentStatus};
 
 fn sample() -> Commitment {
-    let now = Utc::now();
+    let now = Timestamp::now();
     Commitment {
         id: "c1".to_owned(),
         tenant_id: "t1".to_owned(),
@@ -22,7 +22,7 @@ fn sample() -> Commitment {
         sport: Some("run".to_owned()),
         target_sessions: 3,
         window_start: now,
-        window_end: now + Duration::days(7),
+        window_end: now + Elapsed::days(7),
         status: CommitmentStatus::Open,
         outcome: None,
         completed_sessions: None,
@@ -31,6 +31,7 @@ fn sample() -> Commitment {
         created_at: now,
         updated_at: now,
         transport_policy: TransportPolicy::AnyTransport,
+        ai_consent_sources: Vec::new(),
     }
 }
 

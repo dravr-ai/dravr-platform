@@ -89,8 +89,36 @@ fn keeps_parameters_that_only_contain_a_sensitive_word() {
 
 #[test]
 fn an_address_in_the_query_or_path_is_not_userinfo() {
-    let input = "https://example.com/users/a@b.example?email=c@d.example";
+    let input = "https://example.com/users/a@b.example?hint=c@d.example";
     assert_eq!(redact_url(input), input);
+}
+
+#[test]
+fn an_oauth_callback_url_loses_its_code_and_state() {
+    assert_eq!(
+        redact_url("https://dravr.example/oauth/callback/strava?code=4b2c8f&state=s-1&scope=read"),
+        "https://dravr.example/oauth/callback/strava?code=***&state=***&scope=read"
+    );
+}
+
+#[test]
+fn redacts_the_exact_names_a_callback_or_signed_link_carries() {
+    assert_eq!(
+        redact_url(
+            "https://example.com/cb?auth=a&email=c@d.example&jwt=j&session=s&signature=g\
+             &id_token=i&link_token=l"
+        ),
+        "https://example.com/cb?auth=***&email=***&jwt=***&session=***&signature=***\
+         &id_token=***&link_token=***"
+    );
+}
+
+#[test]
+fn redacts_compound_credential_names_by_segment() {
+    assert_eq!(
+        redact_url("https://example.com/hook?webhook_secret=w-1&x-api-key=k-2&country_code=ca"),
+        "https://example.com/hook?webhook_secret=***&x-api-key=***&country_code=ca"
+    );
 }
 
 #[test]

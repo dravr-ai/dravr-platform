@@ -27,7 +27,7 @@ use pierre_core::transport::TransportPolicy;
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
-use chrono::{Datelike, Duration, NaiveDate, Utc};
+use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp};
 use embacle::types::ToolCallRequest;
 use embacle_tool_host::ToolSurface;
 use futures_util::stream;
@@ -161,13 +161,13 @@ fn web_profile() -> SurfaceProfile {
     })
 }
 
-fn monday() -> NaiveDate {
-    let today = Utc::now().date_naive();
-    today - Duration::days(i64::from(today.weekday().num_days_from_monday()))
+fn monday() -> CivilDate {
+    let today = Timestamp::now().utc_date();
+    today - Elapsed::days(i64::from(today.weekday().num_days_from_monday()))
 }
 
-fn ymd(date: NaiveDate) -> String {
-    date.format("%Y-%m-%d").to_string()
+fn ymd(date: CivilDate) -> String {
+    date.to_string()
 }
 
 /// The season `author` lays for the athlete, straight through the repository.
@@ -179,7 +179,7 @@ async fn lay_season(
 ) -> String {
     let race = GoalRace {
         name: "Ultra Trail".to_owned(),
-        date: ymd(monday() + Duration::weeks(12)),
+        date: ymd(monday() + Elapsed::weeks(12)),
         discipline: "trail".to_owned(),
         priority: RacePriority::A,
     };
@@ -214,7 +214,7 @@ async fn lay_season(
 
 /// A weeks-only save of one taper week, as a model would send it.
 fn taper_week_payload() -> Value {
-    let start = monday() + Duration::weeks(10);
+    let start = monday() + Elapsed::weeks(10);
     json!({
         "weeks": [{
             "week_start": ymd(start),
@@ -269,7 +269,7 @@ async fn store_author(resources: &ServerContext) -> (Uuid, TenantId) {
     let user_id = user.id;
     resources.common.repos.users.create(&user).await.unwrap();
     let tenant_id = TenantId::generate();
-    let now = Utc::now();
+    let now = Timestamp::now();
     resources
         .common
         .repos

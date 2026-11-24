@@ -172,13 +172,15 @@ pub async fn resolve_with_own_copies(
 /// history (an imported Strava export for `strava`) answers, so asking for a
 /// provider by name serves what they brought in from it rather than a
 /// refusal to connect. `None` when they are connected to `provider`, or hold
-/// no copy of its history.
+/// no copy of its history, or `provider` is itself a key the athlete brings
+/// data in under (`apple_health`): no connection backs it, its own rows
+/// answer, and the read merges its companions' beside them.
 pub async fn companion_stand_in(
     context: &ToolExecutionContext,
     provider: &str,
 ) -> Option<&'static str> {
     let companions = oauth_providers::companion_keys(provider);
-    if companions.is_empty() {
+    if companions.is_empty() || oauth_providers::is_user_provided(provider) {
         return None;
     }
     let connected = context

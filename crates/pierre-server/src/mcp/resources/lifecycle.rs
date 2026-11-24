@@ -17,6 +17,7 @@ use crate::services::archive_import::ArchiveImports;
 use crate::services::backfill_notifier::ServerBackfillNotifier;
 #[cfg(all(feature = "client-messaging", feature = "client-groups"))]
 use crate::services::group_chat_poster::ServerGroupChatPoster;
+use crate::services::lab_documents::{pdf_text_bin_beside_server, PdfChild};
 use crate::services::originals::blob_store_when_unset;
 use crate::services::photograveur_client::PhotograveurClient;
 #[cfg(feature = "client-messaging")]
@@ -37,9 +38,9 @@ use pierre_auth::oauth2_server::rate_limiting::OAuth2RateLimiter;
 use pierre_auth::oauth2_server::KnownDeviceKey;
 use pierre_auth::security::csrf::CsrfTokenManager;
 use pierre_cache::Cache;
-#[cfg(feature = "client-messaging")]
+#[cfg(feature = "slash-commands")]
 use pierre_commands as commands;
-#[cfg(feature = "client-messaging")]
+#[cfg(feature = "slash-commands")]
 use pierre_commands::{
     account::LogoutHandler,
     account_deletion::DeleteAccountHandler,
@@ -52,7 +53,7 @@ use pierre_commands::{
     discover::{DiscoverHandler, DiscoverInstallHandler},
     fortnight::FortnightHandler,
     group::{
-        GroupCoachHandler, GroupDigestHandler, GroupLeaveHandler, GroupListHandler,
+        GroupAgentHandler, GroupDigestHandler, GroupLeaveHandler, GroupListHandler,
         GroupMembersHandler, GroupRespondHandler, GroupStatusHandler,
     },
     group_consent::GroupConsentHandler,
@@ -77,10 +78,15 @@ use pierre_contremaitre::harness_config_registry::HarnessConfigRegistry;
 #[cfg(feature = "client-notifications")]
 use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
 use pierre_providers::originals::OriginalsStore;
+use pierre_runtime_context::ProviderConnectLog;
+use pierre_services::barrage_live_store::{live_store, BarrageLiveStore};
+use pierre_services::lab_document_model::LabReaderModel;
+use pierre_services::live_activities::LiveActivityStore;
+use pierre_services::originals_bundle::OriginalsBundleService;
 use pierre_services::provider_purge::ProviderPurgeService;
-use pierre_services::{barrage_live_store::live_store, originals_bundle::OriginalsBundleService};
 
-#[cfg(feature = "client-messaging")]
+use crate::mcp::tool_selection::start_tool_def_hash_task;
+#[cfg(feature = "slash-commands")]
 use dravr_canot::commands::CommandRegistry;
 #[cfg(feature = "client-messaging")]
 use dravr_canot::ChannelRegistry;
@@ -133,22 +139,22 @@ use pierre_services::pricing_loader;
 use pierre_services::sync_failure_notice::SyncFailureNotices;
 use pierre_services::tenant_chat_provider::TenantChatProviderCache;
 use pierre_services::usage_pruning::start_usage_pruning_task;
-#[cfg(feature = "transport-sse")]
-use pierre_sse::SseManager;
 use pierre_tool_runtime::guardian::GuardianConfigRegistry;
 use pierre_tool_runtime::registry::ToolRegistry;
 use pierre_tool_runtime::tool_selection::ToolSelectionService;
-#[cfg(feature = "client-messaging")]
+#[cfg(feature = "health-sync")]
+use secrecy::SecretString;
+#[cfg(feature = "slash-commands")]
 use std::collections::HashMap;
 // Only `CommandRegistries` carries a HashSet, and that whole type is
-// client-messaging-gated.
-#[cfg(feature = "client-messaging")]
+// slash-commands-gated.
+#[cfg(feature = "slash-commands")]
 use std::collections::HashSet;
 // Its one reader is the commands-directory override, which is
-// client-messaging-gated like the catalogue it points at.
-#[cfg(feature = "client-messaging")]
+// slash-commands-gated like the catalogue it points at.
+#[cfg(feature = "slash-commands")]
 use std::env;
-#[cfg(feature = "client-messaging")]
+#[cfg(feature = "slash-commands")]
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 #[cfg(feature = "protocol-rest")]
@@ -162,7 +168,7 @@ use tracing::{error, info, warn};
 /// definitions, the handlers keyed by command name, the argument signatures
 /// `/help` renders beside each, and the names of the commands that act on
 /// their caller alone. `None` in a host built without the catalogue.
-#[cfg(feature = "client-messaging")]
+#[cfg(feature = "slash-commands")]
 type CommandRegistries = (
     Option<Arc<CommandRegistry>>,
     Option<Arc<CommandHandlerRegistry>>,
@@ -231,13 +237,33 @@ impl ServerContext {
         // One record store (imports write it, the export reads it), one live
         // store over it and the blob store, and the one purge every disconnect takes.
         let activity_records = archive_imports.record_store(options.live_records)?;
-        let live_activities = live_store(Arc::clone(&activity_records), blobs.clone().ok(), &repos);
-        let provider_purge = ProviderPurgeService::shared(&repos, Arc::clone(&live_activities));
+        // The live store also records each provider connect in the athlete's
+        // log (carnet#1542).
+        let live = live_store(Arc::clone(&activity_records), blobs.clone().ok(), &repos);
+        let connect_log: Arc<dyn ProviderConnectLog> = Arc::<BarrageLiveStore>::clone(&live);
+        let live_activities: Arc<dyn LiveActivityStore> = live;
         let originals_bundles = OriginalsBundleService::over(&activity_records, &blobs, &repos);
         let originals = Arc::new(OriginalsStore::new(
             blobs,
             Arc::clone(&repos.uploaded_activity_files),
         ));
+        let provider_purge = ProviderPurgeService::shared(
+            &repos,
+            Arc::clone(&live_activities),
+            Arc::clone(&originals),
+        );
+        let pdf_child = PdfChild::new(
+            options
+                .pdf_text_bin
+                .map_or_else(pdf_text_bin_beside_server, Ok),
+        );
+        if let Some(reason) = pdf_child.missing() {
+            warn!(reason = %reason, "No lab report can be read: the PDF child binary is missing");
+        }
+        let lab_reader = match options.lab_reader {
+            Some(model) => model,
+            None => LabReaderModel::from_env().await,
+        };
 
         let auth_manager_arc = Arc::new(auth_manager);
 
@@ -320,10 +346,6 @@ impl ServerContext {
             Self::resolve_jwks_manager(jwks_manager, database_arc.as_ref(), rsa_key_size_bits)
                 .await?;
 
-        // Create SSE manager with configured buffer size
-        #[cfg(feature = "transport-sse")]
-        let sse_manager = Arc::new(SseManager::new(config.sse.max_buffer_size));
-
         // Create auth middleware after jwks_manager is initialized
         let auth_middleware = Arc::new(
             McpAuthMiddleware::new(
@@ -392,10 +414,12 @@ impl ServerContext {
         // Hourly sweep of expired API keys, on the shared worker ledger.
         start_api_key_cleanup_task(Arc::clone(&repos.api_keys), Arc::clone(&repos.worker_runs));
 
-        // Hourly purge of the athletes' records of their human coach's reads
-        // past their 12 months, on the shared worker ledger (carnet#1445).
+        // Hourly purge of the athletes' records of their human coach's and
+        // their peers' reads past their 12 months, on the shared worker
+        // ledger (carnet#1445, carnet#1543).
         start_coach_read_retention_task(
             Arc::clone(&repos.coach_data_reads),
+            Arc::clone(&repos.peer_data_reads),
             Arc::clone(&repos.worker_runs),
         );
 
@@ -421,7 +445,7 @@ impl ServerContext {
         ));
 
         // Load messaging slash commands + handlers (see `build_command_registries`).
-        #[cfg(feature = "client-messaging")]
+        #[cfg(feature = "slash-commands")]
         let (command_registry, command_handler_registry, command_arg_specs, personal_commands) =
             Self::build_command_registries();
 
@@ -465,6 +489,13 @@ impl ServerContext {
 
         // Sync tool_catalog table with registry so tenant filtering always has complete data
         Self::run_tool_catalog_sync(&tool_registry, &repos).await;
+        // The catalog's record of each tool's published definition hash, kept
+        // up to date as contremaitre descriptions change (carnet#1543).
+        start_tool_def_hash_task(
+            Arc::clone(&tool_registry),
+            Arc::clone(&repos.tool_selection),
+            Arc::clone(&repos.worker_runs),
+        );
 
         // The tracker the shutdown drain awaits. Created ahead of the
         // notification service, which spawns every trigger dispatch onto it.
@@ -509,8 +540,8 @@ impl ServerContext {
             Self::init_health_sync(
                 &repos,
                 &provider_registry,
+                config.webhooks.whoop_secret.as_ref(),
                 &request_limiter,
-                &sse_manager,
                 SyncFailureNotices::new(
                     Arc::clone(&repos.provider_connections),
                     sync_notice_service,
@@ -554,7 +585,10 @@ impl ServerContext {
             activity_records,
             originals_bundles,
             provider_purge,
+            connect_log,
             originals,
+            lab_reader,
+            pdf_child,
             // Reads PHOTOGRAVEUR_URL; absent means messaging charts stay off.
             photograveur: Arc::new(PhotograveurClient::from_env()),
             config,
@@ -573,13 +607,13 @@ impl ServerContext {
             pruning_abort_handle,
             #[cfg(feature = "tools-groups")]
             group_service,
-            #[cfg(feature = "client-messaging")]
+            #[cfg(feature = "slash-commands")]
             command_registry,
-            #[cfg(feature = "client-messaging")]
+            #[cfg(feature = "slash-commands")]
             command_handler_registry,
-            #[cfg(feature = "client-messaging")]
+            #[cfg(feature = "slash-commands")]
             command_arg_specs,
-            #[cfg(feature = "client-messaging")]
+            #[cfg(feature = "slash-commands")]
             personal_commands,
         };
 
@@ -626,8 +660,6 @@ impl ServerContext {
         };
 
         let sse = super::slices::SseSlice {
-            #[cfg(feature = "transport-sse")]
-            sse_manager,
             agui_registry: Arc::new(AgUiRunRegistry::new()),
         };
 
@@ -682,6 +714,8 @@ impl ServerContext {
         let mcp = super::slices::McpSlice {
             tool_registry,
             tool_selection,
+            // Installed by the composition root with the checkpoint signer.
+            tool_def_sigs: Arc::default(),
             prompt_registry: contremaitre_prompt_registry,
             tool_description_registry: contremaitre_tool_desc_registry,
             evidence_registry: contremaitre_evidence_registry,
@@ -751,7 +785,7 @@ impl ServerContext {
     ///
     /// `PIERRE_COMMANDS_DIR` overrides the default CWD-relative `commands/`
     /// lookup so tests and non-default deployments can point at an absolute path.
-    #[cfg(feature = "client-messaging")]
+    #[cfg(feature = "slash-commands")]
     fn build_command_registries() -> CommandRegistries {
         let commands_dir_override = env::var("PIERRE_COMMANDS_DIR").ok();
         let commands_dir = commands_dir_override
@@ -780,7 +814,7 @@ impl ServerContext {
             ("group-status", Arc::new(GroupStatusHandler)),
             ("group-members", Arc::new(GroupMembersHandler)),
             ("group-invite", Arc::new(GroupInviteHandler)),
-            ("group-coach", Arc::new(GroupCoachHandler)),
+            ("group-agent", Arc::new(GroupAgentHandler)),
             ("group-respond", Arc::new(GroupRespondHandler)),
             ("group-digest", Arc::new(GroupDigestHandler)),
             ("group-leave", Arc::new(GroupLeaveHandler)),
@@ -932,7 +966,7 @@ impl ServerContext {
     /// Initialize the health data sync orchestrator and start the Pierre-aware scheduler.
     ///
     /// Uses Pierre's `start_scheduled_sync` instead of enforme's built-in scheduler
-    /// to add post-sync behaviors: `last_sync` updates and SSE notifications.
+    /// to add post-sync behaviors: `last_sync` updates and sync-failure notices.
     ///
     /// Returns the storage adapter (kept for post-Arc injection of the
     /// credential refresher), the orchestrator, and the abort handle for the
@@ -946,8 +980,8 @@ impl ServerContext {
     fn init_health_sync(
         repos: &Arc<RepositoryRegistry>,
         provider_registry: &ProviderRegistry,
+        whoop_webhook_secret: Option<&SecretString>,
         request_limiter: &Arc<ProviderRateLimiter>,
-        sse_manager: &Arc<SseManager>,
         notices: SyncFailureNotices,
     ) -> AppResult<(
         Arc<PierreSyncStorage>,
@@ -957,11 +991,11 @@ impl ServerContext {
         use pierre_core::errors::AppError;
         use pierre_services::provider_refresh::start_scheduled_sync;
 
-        use pierre_services::provider_refresh::SyncNotifier;
         // The wellness readers ask Intervals.icu and WHOOP at the API the
         // provider registry names for each, as the activity and link calls
         // do. A build that registers no provider for one of them reads none
-        // of its wellness.
+        // of its wellness. WHOOP's webhooks are verified against the secret
+        // the configuration read at startup, the one the route checks.
         // Every daily-summary read of a scrape session spends its owner's
         // session reads (carnet#1661).
         let adapter =
@@ -970,17 +1004,13 @@ impl ServerContext {
             .build_orchestrator(
                 provider_registry.sciotte_reads().cloned(),
                 WellnessOrigins::named_by(provider_registry),
+                whoop_webhook_secret,
             )
             .map_err(|e| {
                 AppError::internal(format!("health sync providers could not be built: {e}"))
             })?;
-        let notifier: Arc<dyn SyncNotifier> = Arc::<SseManager>::clone(sse_manager);
-        let abort_handle = start_scheduled_sync(
-            Arc::clone(&orchestrator),
-            Arc::clone(&adapter),
-            notifier,
-            notices,
-        );
+        let abort_handle =
+            start_scheduled_sync(Arc::clone(&orchestrator), Arc::clone(&adapter), notices);
         info!("Health data sync scheduler started (Pierre-aware)");
         Ok((adapter, orchestrator, abort_handle))
     }

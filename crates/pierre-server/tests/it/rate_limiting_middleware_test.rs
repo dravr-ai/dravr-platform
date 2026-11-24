@@ -18,7 +18,7 @@ use axum::middleware::from_fn_with_state;
 use axum::response::IntoResponse;
 use axum::routing::get;
 use axum::Router;
-use chrono::{DateTime, Duration, TimeZone, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_auth::api_keys::{ApiKey, ApiKeyTier};
 use pierre_auth::rate_limiting::RequestBudget;
 use pierre_core::models::{A2AClient, RequestLog};
@@ -35,8 +35,8 @@ use tower::ServiceExt;
 use tower_http::catch_panic::CatchPanicLayer;
 use uuid::Uuid;
 
-fn reset_instant() -> DateTime<Utc> {
-    Utc.with_ymd_and_hms(2026, 10, 1, 0, 0, 0).unwrap()
+fn reset_instant() -> Timestamp {
+    Timestamp::parse_from_rfc3339("2026-10-01T00:00:00Z").unwrap()
 }
 
 fn header<'a>(map: &'a HeaderMap, name: &str) -> Option<&'a str> {
@@ -66,7 +66,7 @@ async fn stored_key(database: &Database) -> ApiKey {
         is_active: true,
         last_used_at: None,
         expires_at: None,
-        created_at: Utc::now(),
+        created_at: Timestamp::now(),
     };
     database
         .repositories()
@@ -88,10 +88,10 @@ async fn stored_a2a_client(database: &Database, key: &ApiKey) -> A2AClient {
         redirect_uris: Vec::new(),
         contact_email: None,
         is_active: true,
-        created_at: Utc::now(),
+        created_at: Timestamp::now(),
         rate_limit_requests: 100,
         rate_limit_window_seconds: 3_600,
-        updated_at: Utc::now(),
+        updated_at: Timestamp::now(),
     };
     database
         .repositories()
@@ -171,7 +171,7 @@ fn test_metered_budget_renders_exactly_three_headers() {
     assert_eq!(header(&map, "x-ratelimit-remaining"), Some("750"));
     assert_eq!(
         header(&map, "x-ratelimit-reset"),
-        Some(reset_instant().timestamp().to_string().as_str())
+        Some(reset_instant().epoch_seconds().to_string().as_str())
     );
     for absent in [
         "retry-after",
@@ -225,7 +225,7 @@ async fn test_layer_renders_the_reported_budget() {
     assert_eq!(header(&headers, "x-ratelimit-remaining"), Some("6"));
     assert_eq!(
         header(&headers, "x-ratelimit-reset"),
-        Some(reset_instant().timestamp().to_string().as_str())
+        Some(reset_instant().epoch_seconds().to_string().as_str())
     );
 }
 
@@ -312,7 +312,7 @@ async fn test_admitted_key_row_carries_the_real_status_route_and_latency() {
         &database,
     );
 
-    let before = Utc::now();
+    let before = Timestamp::now();
     let response = app
         .oneshot(Request::get("/items/42").body(Body::empty()).unwrap())
         .await
@@ -365,7 +365,7 @@ async fn test_admitted_a2a_client_row_goes_to_the_clients_own_ledger() {
         &database,
     );
 
-    let before = Utc::now();
+    let before = Timestamp::now();
     let response = app
         .oneshot(Request::get("/a2a/tasks/7").body(Body::empty()).unwrap())
         .await
@@ -375,7 +375,7 @@ async fn test_admitted_a2a_client_row_goes_to_the_clients_own_ledger() {
     let repos = database.repositories();
     let window = repos
         .a2a
-        .get_client_window_usage(&client.id, before - Duration::minutes(1))
+        .get_client_window_usage(&client.id, before - Elapsed::minutes(1))
         .await
         .unwrap();
     assert_eq!(window.count, 1, "one row per admitted request");
@@ -388,8 +388,8 @@ async fn test_admitted_a2a_client_row_goes_to_the_clients_own_ledger() {
         .a2a
         .get_usage_stats(
             &client.id,
-            before - Duration::minutes(1),
-            Utc::now() + Duration::minutes(1),
+            before - Elapsed::minutes(1),
+            Timestamp::now() + Elapsed::minutes(1),
         )
         .await
         .unwrap();
@@ -560,5 +560,5 @@ async fn test_abandoned_request_is_still_counted_as_499() {
     );
     assert_eq!(rows[0].status_code, 499, "client closed request");
     assert_eq!(rows[0].tool_name, "GET /slow");
-    assert!(rows[0].timestamp > Utc::now() - Duration::minutes(1));
+    assert!(rows[0].timestamp > Timestamp::now() - Elapsed::minutes(1));
 }

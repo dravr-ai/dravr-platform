@@ -14,7 +14,7 @@ import {
   emailConfirms,
 } from '@pierre/ui-logic';
 import { userApi } from '../services/api';
-import { QUERY_KEYS } from '../constants/queryKeys';
+import { QUERY_KEYS } from '@pierre/shared-constants';
 import { useAuth } from '../hooks/useAuth';
 import { Button, Input, Modal, ModalActions, Section } from './ui';
 

@@ -470,7 +470,7 @@ fn status_text_for_event_localized(
             // `RunError` is suppressed on purpose. Earlier behavior
             // interpolated the AG-UI `message` field into the localized
             // "erreur : {0}" template and pushed it to the channel as a
-            // status update — that leaked operator-facing internals to
+            // status update — that leaked admin-facing internals to
             // end users (e.g. `copilot-acp: RPC error: {"code":-32000,
             // "message":"Authentication required"}` during the
             // GitHub-API rate-limit incident on 2026-05-07). The proper

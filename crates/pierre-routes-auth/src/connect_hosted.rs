@@ -59,6 +59,7 @@ use urlencoding::encode;
 
 use pierre_auth::dto::auth::{HistoryState, ProviderStatus};
 use pierre_core::constants::oauth::INTERVALS_ICU;
+use pierre_core::constants::oauth_providers::offered_at_connect;
 use pierre_core::errors::AppError;
 use pierre_core::models::TenantId;
 use pierre_middleware::provider_link_token::{
@@ -74,7 +75,8 @@ use crate::connect_hosted_import::hosted_import_source;
 use crate::connect_hosted_templates;
 use crate::dead_grant::dead_grant_sign_in_url;
 use crate::hosted_page::{locale_for_reader, locale_for_token, PageStrings};
-use crate::oauth::{compute_providers_status, require_oauth_start_notice};
+use crate::oauth::compute_providers_status;
+use crate::oauth_start::{query_consents, require_oauth_start_notice};
 use crate::short_link::preferred_locale;
 use crate::AuthRoutesContext;
 
@@ -99,6 +101,10 @@ pub(crate) struct ConnectOAuthInitQuery {
     /// authorization) before this start.
     #[serde(default)]
     pub tos_consent: bool,
+    /// The offered consents the athlete ticked on the picker (Garmin's AI use
+    /// and workout transfer), comma-separated.
+    #[serde(default)]
+    pub consents: Option<String>,
 }
 
 /// Query parameters for the connect success page.
@@ -127,7 +133,7 @@ const CREDENTIALS_KIND: &str = "credentials";
 struct ConnectProviderCard {
     /// Provider id passed to `oauth-init` (OAuth kind) or used for routing.
     provider: String,
-    /// User-facing label (e.g. "Strava", "Garmin", "Whoop").
+    /// User-facing label (e.g. "Strava", "Garmin", "WHOOP").
     display_name: String,
     /// The line under the label, in the user's locale, as `/api/providers`
     /// serves it.
@@ -182,15 +188,22 @@ struct ConnectProviderCard {
     /// Sciotte cards only.
     login_identifier: &'static str,
     /// The card's account sign-in goes first while an OAuth seat is free (the
-    /// operator's sign-in-first connect order): a sign-in that cannot complete
+    /// admin's extension-first or sign-in-first connect order): a sign-in that cannot complete
     /// or meets a challenge starts the provider's OAuth for `target` instead
     /// of showing the failure (carnet#1477). Wrong credentials never do.
     oauth_fallback: bool,
+    /// The boxes a connect to this card offers without requiring them, by
+    /// key: Garmin's AI use and workout transfer (carnet#1157, carnet#1390).
+    /// The page shows them unticked before the card's OAuth start or
+    /// credentials, and sends the ticked ones with it.
+    consents: Vec<&'static str>,
 }
 
 /// Whether a not-yet-connected card's sign-in falls back to its provider's
 /// OAuth: it recommends the sign-in (`mirror`) with seats still free, which
-/// only the operator's sign-in-first connect order produces.
+/// only a connect order putting the sign-in first produces (extension first
+/// or sign-in first: the hosted page has no extension, so both show the
+/// credentials).
 fn oauth_fallback(p: &ProviderStatus) -> bool {
     !p.connected
         && p.recommended_backend.as_deref() == Some("mirror")
@@ -240,7 +253,7 @@ async fn build_connect_providers(
         }
         match provider_name.as_str() {
             // Strava card: the account sign-in, or its OAuth while shared-app
-            // seats remain under the operator's OAuth-first order
+            // seats remain under the admin's OAuth-first order
             // (`recommended_backend`). Mirrors ProviderConnectionCards /
             // OnboardingConnectScreen.
             "sciotte" => {
@@ -270,6 +283,7 @@ async fn build_connect_providers(
                     form_url: None,
                     login_identifier: "email",
                     oauth_fallback: fallback,
+                    consents: offered_at_connect(&provider_name).collect(),
                 });
             }
             // Garmin: the Strava card's decision, against the Developer
@@ -307,6 +321,7 @@ async fn build_connect_providers(
                             .login_identifier()
                             .as_str(),
                         oauth_fallback: fallback,
+                        consents: offered_at_connect(&provider_name).collect(),
                     });
                 }
             }
@@ -336,8 +351,9 @@ async fn build_connect_providers(
                 )),
                 login_identifier: "email",
                 oauth_fallback: false,
+                consents: offered_at_connect(&provider_name).collect(),
             }),
-            // Any remaining OAuth provider (Whoop, and future keepers).
+            // Any remaining OAuth provider (WHOOP, and future keepers).
             _ if p.requires_oauth => cards.push(ConnectProviderCard {
                 history_state: p.history.state,
                 history_sign_in: false,
@@ -353,6 +369,7 @@ async fn build_connect_providers(
                 form_url: None,
                 login_identifier: "email",
                 oauth_fallback: false,
+                consents: offered_at_connect(&provider_name).collect(),
             }),
             // Non-OAuth, non-Sciotte (e.g. synthetic) is not offered in chat.
             _ => {}
@@ -508,9 +525,15 @@ pub(crate) async fn handle_connect_oauth_init(
     // The picker shows the provider's notice before this redirect; a start
     // without its acceptance goes back to the picker rather than on to the
     // provider.
-    if let Err(e) =
-        require_oauth_start_notice(&resources, user_id, tenant_id, &provider, query.tos_consent)
-            .await
+    if let Err(e) = require_oauth_start_notice(
+        &resources,
+        user_id,
+        tenant_id,
+        &provider,
+        query.tos_consent,
+        &query_consents(query.consents.as_deref()),
+    )
+    .await
     {
         warn!(provider = %provider, user_id = %user_id, error = %e, "Hosted connect: OAuth start refused");
         let locale =

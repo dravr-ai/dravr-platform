@@ -8,7 +8,10 @@ use pierre_core::transport::TransportPolicy;
 use std::cmp::Ordering;
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
+use pierre_core::constants::oauth_providers::{
+    consent_sources_column, consent_sources_from_column,
+};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_memory::playbooks::{
     wilson_lower_bound_95, AdviceStatus, ArchetypePrior, Intervention, LabelSource, MetricBaseline,
@@ -41,10 +44,14 @@ pub struct RecordedOutcome<'a> {
     /// The verdict to fold in.
     pub label: OutcomeLabel,
     /// When the outcome was observed.
-    pub at: DateTime<Utc>,
+    pub at: Timestamp,
     /// The stamp of the advice and the measurement the outcome was labelled
     /// from (carnet#769). The playbook keeps the stricter of its own and this.
     pub transport_policy: TransportPolicy,
+    /// The AI-consent keys of the advice and of the measurement the outcome
+    /// was labelled from (carnet#1157). The playbook names them beside its
+    /// own: they only ever grow.
+    pub ai_consent_sources: &'a [String],
 }
 
 /// Persistence for procedural coaching memory.
@@ -195,6 +202,8 @@ pub(crate) struct OutcomeUpsertValues {
     pub now: i64,
     /// The outcome's `first_party_only` stamp (carnet#769).
     pub first_party_only: bool,
+    /// The outcome's `ai_consent_sources` column (carnet#1157).
+    pub ai_consent_sources: Option<String>,
 }
 
 /// Compute the upsert bind values for one observed outcome (hashes, serialized
@@ -221,8 +230,9 @@ pub(crate) fn outcome_upsert_values(
         sc,
         fc,
         nc,
-        now: outcome.at.timestamp(),
+        now: outcome.at.epoch_seconds(),
         first_party_only: outcome.transport_policy.is_first_party_only(),
+        ai_consent_sources: consent_sources_column(outcome.ai_consent_sources),
     })
 }
 
@@ -298,8 +308,8 @@ pub(crate) fn archetype_prior_from_row(
 
 /// Convert Unix epoch seconds to a UTC timestamp. `None` only for values outside
 /// the representable range (not reachable from our own writes).
-fn epoch_to_dt(secs: i64) -> Option<DateTime<Utc>> {
-    DateTime::from_timestamp(secs, 0)
+fn epoch_to_dt(secs: i64) -> Option<Timestamp> {
+    Timestamp::from_epoch_seconds(secs).ok()
 }
 
 /// Clamp a DB counter (`i64`, always non-negative in our schema) into the `u32`
@@ -342,6 +352,8 @@ pub(crate) struct PlaybookRow {
     pub updated_at: i64,
     /// `first_party_only` stamp (carnet#769).
     pub first_party_only: bool,
+    /// `ai_consent_sources` column (carnet#1157), NULL for none.
+    pub ai_consent_sources: Option<String>,
 }
 
 /// Build a [`Playbook`] from extracted row primitives, deserializing the JSON
@@ -367,9 +379,10 @@ pub(crate) fn playbook_from_row(row: PlaybookRow) -> AppResult<Playbook> {
         neutral_count: count_to_u32(row.neutral_count),
         confidence: 0.0,
         last_outcome_at: row.last_outcome_at.and_then(epoch_to_dt),
-        created_at: epoch_to_dt(row.created_at).unwrap_or_else(Utc::now),
-        updated_at: epoch_to_dt(row.updated_at).unwrap_or_else(Utc::now),
+        created_at: epoch_to_dt(row.created_at).unwrap_or_else(Timestamp::now),
+        updated_at: epoch_to_dt(row.updated_at).unwrap_or_else(Timestamp::now),
         transport_policy: TransportPolicy::from_first_party_only(row.first_party_only),
+        ai_consent_sources: consent_sources_from_column(row.ai_consent_sources.as_deref()),
     };
     playbook.confidence = playbook.wilson_lower_bound();
     Ok(playbook)
@@ -409,6 +422,8 @@ pub(crate) struct PendingAdviceRow {
     pub created_at: i64,
     /// `first_party_only` stamp (carnet#769).
     pub first_party_only: bool,
+    /// `ai_consent_sources` column (carnet#1157), NULL for none.
+    pub ai_consent_sources: Option<String>,
 }
 
 /// Build a [`PendingAdvice`] from extracted row primitives.
@@ -431,13 +446,14 @@ pub(crate) fn pending_advice_from_row(row: PendingAdviceRow) -> AppResult<Pendin
         intervention,
         outcome_metric,
         baseline,
-        due_by: epoch_to_dt(row.due_by).unwrap_or_else(Utc::now),
+        due_by: epoch_to_dt(row.due_by).unwrap_or_else(Timestamp::now),
         status: AdviceStatus::parse_lenient(&row.status),
         label: row.label.as_deref().map(OutcomeLabel::parse_lenient),
         label_source: row.label_source.as_deref().map(LabelSource::parse_lenient),
         source_msg_id: row.source_msg_id,
-        created_at: epoch_to_dt(row.created_at).unwrap_or_else(Utc::now),
+        created_at: epoch_to_dt(row.created_at).unwrap_or_else(Timestamp::now),
         transport_policy: TransportPolicy::from_first_party_only(row.first_party_only),
+        ai_consent_sources: consent_sources_from_column(row.ai_consent_sources.as_deref()),
     })
 }
 
@@ -463,14 +479,19 @@ pub(crate) const ARCHETYPE_PRIOR_FETCH_CEILING: i64 = 500;
 /// Postgres rejects the bare column as ambiguous against `excluded`, and
 /// `SQLite` accepts the qualified form. `RETURNING` is likewise common to
 /// both engines.
+///
+/// The playbook names the outcome's consent sources beside its own
+/// (carnet#1157), appended in the statement so two outcomes folded at once
+/// cannot drop each other's: they only ever grow, and the reader drops the
+/// repeats.
 pub(crate) const UPSERT_OUTCOME_SQL: &str = r"
     INSERT INTO coaching_playbooks (
         id, tenant_id, user_id, agent_slug, trigger_hash, intervention_hash,
         trigger_json, intervention_json, outcome_metric_json,
         success_count, failure_count, neutral_count, last_outcome_at, created_at, updated_at,
-        first_party_only
+        first_party_only, ai_consent_sources
     )
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
     ON CONFLICT(tenant_id, user_id, agent_slug, trigger_hash, intervention_hash)
     DO UPDATE SET
         success_count = coaching_playbooks.success_count + excluded.success_count,
@@ -479,7 +500,15 @@ pub(crate) const UPSERT_OUTCOME_SQL: &str = r"
         last_outcome_at = excluded.last_outcome_at,
         updated_at = excluded.updated_at,
         first_party_only = CASE WHEN excluded.first_party_only
-            THEN excluded.first_party_only ELSE coaching_playbooks.first_party_only END
+            THEN excluded.first_party_only ELSE coaching_playbooks.first_party_only END,
+        ai_consent_sources = CASE
+            WHEN coaching_playbooks.ai_consent_sources IS NULL THEN excluded.ai_consent_sources
+            WHEN excluded.ai_consent_sources IS NULL
+                 OR (',' || coaching_playbooks.ai_consent_sources || ',')
+                    LIKE ('%,' || excluded.ai_consent_sources || ',%')
+                THEN coaching_playbooks.ai_consent_sources
+            ELSE coaching_playbooks.ai_consent_sources || ',' || excluded.ai_consent_sources
+        END
     RETURNING id
 ";
 
@@ -490,13 +519,13 @@ pub(crate) const MARK_ADVICE_LABELED_SQL: &str = r"
             WHERE id = $4 AND tenant_id = $5
             ";
 
-/// The fourteen columns every playbook read returns, in the order
+/// The fifteen columns every playbook read returns, in the order
 /// [`playbook_row`] reads them.
 macro_rules! playbook_columns {
     () => {
         "id, tenant_id, user_id, agent_slug, trigger_json, intervention_json, \
          outcome_metric_json, success_count, failure_count, neutral_count, \
-         last_outcome_at, created_at, updated_at, first_party_only"
+         last_outcome_at, created_at, updated_at, first_party_only, ai_consent_sources"
     };
 }
 
@@ -537,9 +566,10 @@ pub(crate) const INSERT_PENDING_ADVICE_SQL: &str = r"
             INSERT INTO pending_advice (
                 id, tenant_id, user_id, agent_slug, playbook_id, trigger_json,
                 intervention_json, outcome_metric_json, baseline_json, due_by,
-                status, label, label_source, source_msg_id, created_at, first_party_only
+                status, label, label_source, source_msg_id, created_at, first_party_only,
+                ai_consent_sources
             )
-            SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16
+            SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17
             WHERE NOT EXISTS (
                 SELECT 1 FROM pending_advice
                 WHERE tenant_id = $2 AND user_id = $3 AND agent_slug = $4
@@ -553,7 +583,8 @@ pub(crate) const INSERT_PENDING_ADVICE_SQL: &str = r"
 pub(crate) const DUE_PENDING_ADVICE_SQL: &str = r"
             SELECT id, tenant_id, user_id, agent_slug, playbook_id, trigger_json,
                    intervention_json, outcome_metric_json, baseline_json, due_by,
-                   status, label, label_source, source_msg_id, created_at, first_party_only
+                   status, label, label_source, source_msg_id, created_at, first_party_only,
+                   ai_consent_sources
             FROM pending_advice
             WHERE status = 'pending' AND due_by <= $1
             ORDER BY due_by ASC
@@ -569,12 +600,16 @@ pub(crate) const MARK_ADVICE_EXPIRED_SQL: &str =
 ///
 /// A playbook stamped first-party-only never feeds the cross-athlete priors:
 /// they are served to other athletes over every transport, and its terms
-/// forbid its data even in aggregated form (carnet#769).
+/// forbid its data even in aggregated form (carnet#769). Nor does one naming
+/// an AI consent (carnet#1157): the job runs for no athlete, so it declares
+/// none of their consents, and a read made under none withholds every
+/// consent-gated row.
 pub(crate) const AGGREGATE_PLAYBOOK_ROWS_SQL: &str = r"
             SELECT user_id, trigger_hash, intervention_hash, trigger_json,
                    intervention_json, success_count, failure_count
             FROM coaching_playbooks
             WHERE first_party_only = FALSE
+              AND (ai_consent_sources IS NULL OR ai_consent_sources = '')
             ORDER BY id
             LIMIT $1
             ";
@@ -662,6 +697,7 @@ where
     R: Row,
     for<'a> &'a str: sqlx::ColumnIndex<R>,
     String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Option<String>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     i64: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     Option<i64>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     bool: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
@@ -682,6 +718,7 @@ where
         created_at: column(r, what, "created_at")?,
         updated_at: column(r, what, "updated_at")?,
         first_party_only: column(r, what, "first_party_only")?,
+        ai_consent_sources: column(r, what, "ai_consent_sources")?,
     })
 }
 
@@ -716,6 +753,7 @@ where
         source_msg_id: column(r, what, "source_msg_id")?,
         created_at: column(r, what, "created_at")?,
         first_party_only: column(r, what, "first_party_only")?,
+        ai_consent_sources: column(r, what, "ai_consent_sources")?,
     })
 }
 
@@ -828,6 +866,7 @@ macro_rules! impl_playbook_repository {
                     .bind(v.now)
                     .bind(v.now)
                     .bind(v.first_party_only)
+                    .bind(v.ai_consent_sources.as_deref())
                     .fetch_one(&mut *tx)
                     .await
                     .map_err(|e| AppError::database(format!("upsert playbook outcome: {e}")))?;
@@ -901,13 +940,14 @@ macro_rules! impl_playbook_repository {
                     .bind(&intervention_json)
                     .bind(&outcome_metric_json)
                     .bind(&baseline_json)
-                    .bind(advice.due_by.timestamp())
+                    .bind(advice.due_by.epoch_seconds())
                     .bind(advice.status.as_str())
                     .bind(advice.label.map(OutcomeLabel::as_str))
                     .bind(advice.label_source.map(LabelSource::as_str))
                     .bind(advice.source_msg_id.as_deref())
-                    .bind(advice.created_at.timestamp())
+                    .bind(advice.created_at.epoch_seconds())
                     .bind(advice.transport_policy.is_first_party_only())
+                    .bind(consent_sources_column(&advice.ai_consent_sources))
                     .execute(self.pool())
                     .await
                     .map_err(|e| AppError::database(format!("insert pending advice: {e}")))?;
@@ -976,7 +1016,7 @@ macro_rules! impl_playbook_repository {
                     .bind(prior.success_count)
                     .bind(prior.failure_count)
                     .bind(prior.distinct_user_count)
-                    .bind(Utc::now().timestamp())
+                    .bind(Timestamp::now().epoch_seconds())
                     .execute(self.pool())
                     .await
                     .map_err(|e| AppError::database(format!("upsert archetype prior: {e}")))?;

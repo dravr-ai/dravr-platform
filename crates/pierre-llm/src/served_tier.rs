@@ -1,5 +1,5 @@
-// ABOUTME: Task-local record of which tier of a fallback chain answered the current LLM call
-// ABOUTME: Written by the chain observer on success, read by the caller so logs and cost rows name who served
+// ABOUTME: Task-local record of which tier of a fallback chain answered the current LLM call, or was the last one asked
+// ABOUTME: Written by the chain observer, read by the caller so logs name who served and a rejection names who rejected
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -35,6 +35,7 @@ pub struct ServedTier {
 
 tokio::task_local! {
     static SERVED_TIER: Cell<Option<ServedTier>>;
+    static REACHED_TIER: Cell<Option<usize>>;
 }
 
 /// Run one LLM call and report which chain tier answered it.
@@ -63,4 +64,30 @@ pub(crate) fn record_served_tier(tier: ServedTier) {
             "served tier reported outside an observed call"
         );
     }
+}
+
+/// Run one call through a chain and report the position of the last tier the
+/// chain moved to.
+///
+/// `None` when the chain never moved: the tier that answered or failed is
+/// then the first one. A position, not a name: a router tier is named after
+/// its active backend, so a name can change mid-call or match another tier. A call that fails with an error the chain does not
+/// fall through on failed on the tier this names, which is the one worth a
+/// second opinion — reading the cooldown book afterwards cannot tell, since
+/// a tier is also passed over by the chain guard, and another call in flight
+/// may change the book meanwhile.
+pub(crate) async fn observe_reached_tier<F: Future>(call: F) -> (F::Output, Option<usize>) {
+    REACHED_TIER
+        .scope(Cell::new(None), async {
+            let output = call.await;
+            (output, REACHED_TIER.with(Cell::get))
+        })
+        .await
+}
+
+/// Record the position of the tier the chain is moving to, for the enclosing
+/// [`observe_reached_tier`]; dropped outside one.
+pub(crate) fn record_reached_tier(position: usize) {
+    // Outside an observed call nobody asks which tier was reached.
+    let _ = REACHED_TIER.try_with(|cell| cell.set(Some(position)));
 }

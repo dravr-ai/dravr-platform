@@ -1,5 +1,5 @@
 // ABOUTME: Barrage's ProjectionSink in the platform: imported records into cached_activities, wellness into the wellness store
-// ABOUTME: Samples first (origin='archive', the original's SHA-256 as source_ref), then the rows, bests and list refresh
+// ABOUTME: Samples first (origin='archive', the original's blob name as source_ref), then the rows, bests and list refresh
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -14,7 +14,8 @@
 //!
 //! 1. each record's decoded samples into the one per-activity sample store,
 //!    `activity_streams`, with `origin = 'archive'`, the source key as the
-//!    provider and the original's SHA-256 as `source_ref`, at the format
+//!    provider and the original's blob name as `source_ref` (its keyed name,
+//!    or its content digest while it keeps its content name), at the format
 //!    version barrage decoded them to — before the row they belong to, so a
 //!    cached archive activity is never read without its samples;
 //! 2. the records' activities into the activity cache under the source key
@@ -28,12 +29,16 @@
 //!    rollup recomputed.
 //!
 //! The wellness an export holds (the Garmin, Apple Health and WHOOP
-//! archives' nights and days) is
-//! written through the one wellness writer, [`WellnessStore`], under the
+//! archives' nights and days) is written through the one wellness
+//! projection, [`wellness_projection::project`], under the
 //! source key and a data source named for it, as rows every merged read
 //! sees: a night whole, each day record as a partial summary, since each
 //! file of the export carries only some of a day's readings and none
 //! retracts another's. Readings measured as SDNN go to their own series.
+//! The T2–T3 records an export holds (glucose, cycle tracking, clinical
+//! records) are stored too, whatever the athlete allowed
+//! (`pierre_services::health_records::store_sensitive`): the tier consent
+//! gates who else reads them.
 //! Retracting a source deletes every row the key
 //! contributed, its samples and wellness included.
 
@@ -41,19 +46,20 @@ use std::fmt;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use chrono::Utc;
 use dravr_barrage::cageux::models::TimeSeriesData;
 use dravr_barrage::{
     ActivityId, ActivityRecord, BarrageError, ProjectionSink, RetractReason, Scope, SourceKey,
     WellnessRecords,
 };
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::{Activity, DataSource, DeviceType, TenantId};
 use pierre_database::repositories::{ActivityStreamsWrite, PurgeReason, StreamOrigin};
 use pierre_database::RepositoryRegistry;
 use pierre_services::activity_cache_sink::{
     project_cached_activities, projection_error, retract_activities, scope_ids, LiveCacheSink,
 };
-use pierre_services::wellness_store::{IntradaySeries, WellnessStore, WellnessWriteMode};
+use pierre_services::wellness_projection::{self, WellnessFiling, WellnessModes};
+use pierre_services::wellness_store::WellnessWriteMode;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use tracing::info;
 use uuid::Uuid;
@@ -103,23 +109,6 @@ impl CachedActivitiesSink {
     }
 }
 
-/// Whose rows an import's wellness is filed as: the scope's athlete, under
-/// the import's key and data source, whatever the records name.
-struct Filing<'import> {
-    user: &'import str,
-    data_source_id: &'import str,
-    key: &'import str,
-}
-
-impl Filing<'_> {
-    /// Stamp a record's owner, data source and key.
-    fn stamp(&self, user_id: &mut String, data_source_id: &mut String, source_name: &mut String) {
-        self.user.clone_into(user_id);
-        self.data_source_id.clone_into(data_source_id);
-        self.key.clone_into(source_name);
-    }
-}
-
 #[async_trait]
 impl ProjectionSink for CachedActivitiesSink {
     async fn project(
@@ -137,12 +126,17 @@ impl ProjectionSink for CachedActivitiesSink {
         }
         let (tenant_id, user_id) = scope_ids(scope);
         let repos = &self.repos;
-        let synced_at = Utc::now();
+        let synced_at = Timestamp::now();
         for (row, samples) in rows.iter().zip(series) {
             let Some(samples) = samples else {
                 continue;
             };
-            let source_ref = row.provenance.original_sha256.map(|digest| digest.to_hex());
+            // The name the original is kept under, never its digest in
+            // clear: a keyed name says nothing of the bytes (carnet#1542).
+            let source_ref = row
+                .provenance
+                .original
+                .map(|original| original.id.to_string());
             repos
                 .activity_streams
                 .upsert_activity_streams(&ActivityStreamsWrite {
@@ -195,112 +189,46 @@ impl ProjectionSink for CachedActivitiesSink {
             return Ok(());
         }
         let (tenant_id, user_id) = scope_ids(scope);
-        let repos = &self.repos;
         let key = source.as_str();
-        let user = user_id.to_string();
-        let data_source = DataSource {
-            id: Uuid::new_v4().to_string(),
-            user_id: user.clone(),
-            provider: key.to_owned(),
-            device_model: None,
-            software_version: None,
-            source: Some(ARCHIVE_SOURCE_MARKER.to_owned()),
-            device_type: DeviceType::Unknown,
-            original_source_name: None,
+        let filing = WellnessFiling {
+            tenant_id,
+            user_id,
+            provider: key,
+            data_source: DataSource {
+                id: Uuid::new_v4().to_string(),
+                user_id: user_id.to_string(),
+                provider: key.to_owned(),
+                device_model: None,
+                software_version: None,
+                source: Some(ARCHIVE_SOURCE_MARKER.to_owned()),
+                device_type: DeviceType::Unknown,
+                original_source_name: None,
+            },
+            // Each file of an export carries only some of a day's readings,
+            // and none retracts another's.
+            modes: WellnessModes {
+                recovery: WellnessWriteMode::PartialSummary,
+                body: WellnessWriteMode::PartialSummary,
+                daily_activity: WellnessWriteMode::PartialSummary,
+            },
+            label: "archive import",
         };
-        let store = WellnessStore::new(repos);
-        let source_id = store
-            .record_data_source(&tenant_id, &data_source)
+        let counts = wellness_projection::project(&self.repos, filing, wellness, Timestamp::now())
             .await
             .map_err(|e| projection_error(&e))?;
-        let own = Filing {
-            user: &user,
-            data_source_id: &source_id,
-            key,
-        };
-        let synced_at = Utc::now();
-        let mut writes = store.writes("archive import");
-        for night in &wellness.sleep {
-            let mut night = night.clone();
-            own.stamp(
-                &mut night.user_id,
-                &mut night.data_source_id,
-                &mut night.source_name,
-            );
-            writes
-                .sleep(tenant_id, &night, synced_at)
-                .await
-                .map_err(|e| projection_error(&e))?;
-        }
-        for day in &wellness.recovery {
-            let mut day = day.clone();
-            own.stamp(
-                &mut day.user_id,
-                &mut day.data_source_id,
-                &mut day.source_name,
-            );
-            writes
-                .recovery(
-                    tenant_id,
-                    &day,
-                    WellnessWriteMode::PartialSummary,
-                    synced_at,
-                )
-                .await
-                .map_err(|e| projection_error(&e))?;
-        }
-        for day in &wellness.body {
-            let mut day = day.clone();
-            own.stamp(
-                &mut day.user_id,
-                &mut day.data_source_id,
-                &mut day.source_name,
-            );
-            writes
-                .body(
-                    tenant_id,
-                    &day,
-                    WellnessWriteMode::PartialSummary,
-                    synced_at,
-                )
-                .await
-                .map_err(|e| projection_error(&e))?;
-        }
-        for day in &wellness.daily_activity {
-            let mut day = day.clone();
-            own.stamp(
-                &mut day.user_id,
-                &mut day.data_source_id,
-                &mut day.source_name,
-            );
-            writes
-                .daily_activity(
-                    tenant_id,
-                    &day,
-                    WellnessWriteMode::PartialSummary,
-                    synced_at,
-                )
-                .await
-                .map_err(|e| projection_error(&e))?;
-        }
-        // SDNN keeps its own series: a day's HRV is read as rMSSD.
-        store
-            .store_series(
-                &source_id,
-                IntradaySeries::hrv_sdnn(
-                    wellness
-                        .hrv_sdnn
-                        .iter()
-                        .map(|reading| (reading.at, reading.milliseconds)),
-                ),
-            )
-            .await
-            .map_err(|e| projection_error(&e))?;
-        writes.report();
+        let sensitive = counts.sensitive;
         info!(
             %user_id,
             source = key,
-            records = wellness.len(),
+            sleep = wellness.sleep.len(),
+            recovery = wellness.recovery.len(),
+            body = wellness.body.len(),
+            daily_activity = wellness.daily_activity.len(),
+            hrv_sdnn = wellness.hrv_sdnn.len(),
+            glucose = sensitive.glucose,
+            glucose_dropped = sensitive.glucose_dropped,
+            self_reports = sensitive.self_reports,
+            clinical = sensitive.clinical,
             "imported wellness stored"
         );
         Ok(())

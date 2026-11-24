@@ -8,9 +8,11 @@
 #![allow(missing_docs)]
 
 use crate::common;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use secrecy::{ExposeSecret, SecretString};
+use serde_json::Value;
 
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_auth::{
     admin::jwks::JwksManager,
     auth::{
@@ -53,7 +55,7 @@ fn test_generate_and_validate_token() {
     let claims = auth_manager.validate_token(&token, &jwks_manager).unwrap();
     assert_eq!(claims.email, "test@example.com");
     assert_eq!(claims.sub, user.id.to_string());
-    assert!(claims.exp > Utc::now().timestamp());
+    assert!(claims.exp > Timestamp::now().epoch_seconds());
 }
 
 #[test]
@@ -67,7 +69,7 @@ fn test_create_session() {
     assert_eq!(session.user_id, user.id);
     assert_eq!(session.email, "test@example.com");
     assert_ne!(session.jwt_token.expose_secret(), "");
-    assert!(session.expires_at > Utc::now());
+    assert!(session.expires_at > Timestamp::now());
 }
 
 #[test]
@@ -212,33 +214,23 @@ async fn test_mcp_auth_middleware_invalid_header() {
     assert!(result.is_err());
 }
 
-#[tokio::test]
-async fn test_provider_access_check() {
+/// A session token says who the user is and what it may do, never which
+/// fitness providers the user connected: those are read from the stored
+/// connections when a tool needs them.
+#[test]
+fn a_session_token_carries_no_providers_claim() {
+    use base64::Engine as _;
+
     let auth_manager = create_auth_manager();
     let user = create_test_user();
-
-    // Create in-memory database for testing
-    let encryption_key = generate_encryption_key().to_vec();
-
-    let database = Arc::new(create_test_db_with_key(encryption_key).await.unwrap());
-
     let jwks_manager = common::get_shared_test_jwks();
-    let repos = Arc::clone(database.repositories());
-    let middleware = McpAuthMiddleware::new(auth_manager, repos, jwks_manager.clone());
 
-    // User has no providers initially
-    let token = middleware
-        .auth_manager()
-        .generate_token(&user, &jwks_manager)
-        .unwrap();
+    let token = auth_manager.generate_token(&user, &jwks_manager).unwrap();
 
-    // Validate token directly with auth manager
-    let claims = middleware
-        .auth_manager()
-        .validate_token(&token, &jwks_manager)
-        .unwrap();
-    let has_strava = claims.providers.contains(&"strava".to_owned());
-    assert!(!has_strava);
+    let encoded = token.split('.').nth(1).expect("a JWT has a payload");
+    let payload: Value = serde_json::from_slice(&URL_SAFE_NO_PAD.decode(encoded).unwrap()).unwrap();
+    assert_eq!(payload["sub"], user.id.to_string());
+    assert!(payload.get("providers").is_none(), "{payload}");
 }
 
 #[test]
@@ -448,7 +440,7 @@ fn test_generate_oauth_access_token() {
         audience: None,
     };
     let token_result =
-        auth_manager.generate_oauth_access_token(&jwks_manager, &grant, &user_id, &[], None);
+        auth_manager.generate_oauth_access_token(&jwks_manager, &grant, &user_id, None);
     assert!(token_result.is_ok());
 
     let token = token_result.unwrap();
@@ -534,8 +526,8 @@ async fn test_session_token_names_the_client_it_was_signed_in_to() {
 
 #[test]
 fn test_jwt_validation_error_display() {
-    let now = Utc::now();
-    let expired_at = now - Duration::minutes(30);
+    let now = Timestamp::now();
+    let expired_at = now - Elapsed::minutes(30);
 
     let error = JwtValidationError::TokenExpired {
         expired_at,
@@ -589,7 +581,8 @@ fn test_auth_method_details() {
 
 #[test]
 fn test_claims_serialization() {
-    // Build claims via JSON since some fields are private for backward compatibility
+    // Built from JSON, as a token arrives. `providers` is a claim tokens used
+    // to carry: one that still names it decodes, and the claim is dropped.
     let json_input = r#"{
         "sub": "123e4567-e89b-12d3-a456-426614174000",
         "email": "test@example.com",
@@ -611,7 +604,7 @@ fn test_claims_serialization() {
     assert_eq!(claims.email, deserialized.email);
     assert_eq!(claims.iat, deserialized.iat);
     assert_eq!(claims.exp, deserialized.exp);
-    assert_eq!(claims.providers, deserialized.providers);
+    assert!(!json.contains("providers"), "{json}");
 }
 
 #[tokio::test]

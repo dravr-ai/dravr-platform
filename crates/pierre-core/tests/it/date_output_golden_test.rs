@@ -31,22 +31,20 @@ use serde::{Deserialize, Serialize};
 
 /// Everything in this file that names the date engine.
 mod engine {
-    use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, SecondsFormat, Utc};
+    use dravr_tronc::dates::SecondsFormat;
 
-    pub(super) type Instant = DateTime<Utc>;
-    pub(super) type CivilDate = NaiveDate;
-    pub(super) type CivilTime = NaiveTime;
-    pub(super) type CivilDateTime = NaiveDateTime;
-    pub(super) type Weekday = chrono::Weekday;
+    pub(super) use dravr_tronc::dates::{
+        CivilDate, CivilDateTime, CivilTime, Timestamp as Instant, Weekday,
+    };
 
     /// A calendar date.
     pub(super) fn date(year: i32, month: u32, day: u32) -> CivilDate {
-        NaiveDate::from_ymd_opt(year, month, day).unwrap()
+        CivilDate::from_ymd(year, month, day).unwrap()
     }
 
     /// A time of day with a nanosecond fraction.
     pub(super) fn time(hour: u32, minute: u32, second: u32, nanos: u32) -> CivilTime {
-        NaiveTime::from_hms_nano_opt(hour, minute, second, nanos).unwrap()
+        CivilTime::from_hms_nano(hour, minute, second, nanos).unwrap()
     }
 
     /// A date and a time of day with no zone.
@@ -56,12 +54,12 @@ mod engine {
 
     /// The UTC instant at that date and time of day.
     pub(super) fn instant(ymd: (i32, u32, u32), at: CivilTime) -> Instant {
-        civil(ymd, at).and_utc()
+        civil(ymd, at).and_utc().unwrap()
     }
 
     /// Monday is 0.
     pub(super) fn weekday(days_from_monday: u8) -> Weekday {
-        Weekday::try_from(days_from_monday).unwrap()
+        Weekday::ALL[usize::from(days_from_monday)]
     }
 
     /// The hand formatter: what every `.to_rfc3339()` call site writes.
@@ -86,12 +84,12 @@ mod engine {
 
     /// An instant through a strftime pattern.
     pub(super) fn format_instant(value: Instant, pattern: &str) -> String {
-        value.format(pattern).to_string()
+        value.format(pattern).unwrap()
     }
 
     /// A calendar date through a strftime pattern.
     pub(super) fn format_date(value: CivilDate, pattern: &str) -> String {
-        value.format(pattern).to_string()
+        value.format(pattern).unwrap()
     }
 
     /// A calendar date as it prints.
@@ -101,7 +99,7 @@ mod engine {
 
     /// Nanoseconds since the epoch, to compare two instants as plain integers.
     pub(super) fn epoch_nanos(value: Instant) -> i128 {
-        i128::from(value.timestamp()) * 1_000_000_000 + i128::from(value.timestamp_subsec_nanos())
+        i128::from(value.epoch_seconds()) * 1_000_000_000 + i128::from(value.subsec_nanos())
     }
 }
 

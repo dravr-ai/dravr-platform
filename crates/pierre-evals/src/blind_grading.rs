@@ -1,5 +1,5 @@
 // ABOUTME: Blind grading export — a stratified, seeded sample of production verdicts into two grader sheets and a key
-// ABOUTME: A sheet row carries the claim and nothing the checker decided; the key holding the verdicts stays with the operator
+// ABOUTME: A sheet row carries the claim and nothing the checker decided; the key holding the verdicts stays with the admin
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -58,7 +58,7 @@
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_memory::claims::{
     ClaimCategory, ClaimStatus, GradingCandidate, GradingPool, GradingWithheld, VerdictLayer,
 };
@@ -244,7 +244,7 @@ pub struct StratumCount {
     pub sample: usize,
 }
 
-/// One sampled claim as the operator's key records it: the item the graders
+/// One sampled claim as the admin's key records it: the item the graders
 /// see, and the verdict they must not.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct KeyItem {
@@ -265,7 +265,7 @@ pub struct KeyItem {
     /// The reply it was extracted from.
     pub message_id: Option<String>,
     /// When the verdict was recorded.
-    pub claimed_at: DateTime<Utc>,
+    pub claimed_at: Timestamp,
     /// The athlete's locale.
     pub locale: String,
     /// The claim as extracted.
@@ -280,7 +280,7 @@ pub struct KeyItem {
     pub flagged: bool,
 }
 
-/// The operator's half of an export: everything needed to score the graded
+/// The admin's half of an export: everything needed to score the graded
 /// sheets and to re-check the draw. Never given to a grader.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GradingKey {
@@ -289,7 +289,7 @@ pub struct GradingKey {
     /// Seed the sample was drawn with.
     pub seed: u64,
     /// Window lower bound.
-    pub window_start: DateTime<Utc>,
+    pub window_start: Timestamp,
     /// Window length in days.
     pub window_days: i64,
     /// Verdicts the tenant recorded in the window.
@@ -427,10 +427,10 @@ impl GradingSheet {
     }
 }
 
-/// An export: the key for the operator, a sheet per grader.
+/// An export: the key for the admin, a sheet per grader.
 #[derive(Debug, Clone)]
 pub struct GradingExport {
-    /// The operator's key.
+    /// The admin's key.
     pub key: GradingKey,
     /// The grader sheets, numbered from 1.
     pub sheets: Vec<GradingSheet>,
@@ -541,7 +541,7 @@ pub fn build_export(pool: GradingPool, spec: &ExportSpec) -> GradingExport {
                 .map(|item| SheetRow {
                     item_id: item.item_id.clone(),
                     athlete: item.athlete.clone(),
-                    claimed_on: item.claimed_at.format("%Y-%m-%d").to_string(),
+                    claimed_on: item.claimed_at.utc_date().to_string(),
                     locale: item.locale.clone(),
                     claim: item.claim_text.clone(),
                 })
@@ -572,7 +572,6 @@ pub fn build_export(pool: GradingPool, spec: &ExportSpec) -> GradingExport {
 mod tests {
     use std::collections::BTreeSet;
 
-    use chrono::TimeZone;
     use pierre_core::transport::TransportPolicy;
     use pierre_memory::claims::{ClaimVerdict, EvidenceStrength};
 
@@ -600,7 +599,7 @@ mod tests {
                 layer_fired: layer,
                 explanation: Some("the checker's reasoning".to_owned()),
                 evidence_refs: None,
-                created_at: Utc.with_ymd_and_hms(2026, 10, 1, 9, 30, 0).unwrap(),
+                created_at: Timestamp::parse_from_rfc3339("2026-10-01T09:30:00Z").unwrap(),
                 disposition: None,
                 disposition_reason: None,
                 disposition_note: None,
@@ -630,7 +629,7 @@ mod tests {
     fn pool(candidates: Vec<GradingCandidate>) -> GradingPool {
         let eligible = i64::try_from(candidates.len()).unwrap();
         GradingPool {
-            window_start: Utc.with_ymd_and_hms(2026, 9, 12, 0, 0, 0).unwrap(),
+            window_start: Timestamp::parse_from_rfc3339("2026-09-12T00:00:00Z").unwrap(),
             window_days: 30,
             in_window: eligible + 7,
             withheld: GradingWithheld {

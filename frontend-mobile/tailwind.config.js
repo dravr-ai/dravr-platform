@@ -101,7 +101,7 @@ module.exports = {
         warning: 'rgb(var(--color-warning) / <alpha-value>)',
         info: 'rgb(var(--color-info) / <alpha-value>)',
 
-        // DESIGN.md §2 pillar accents — semantic, so they flip with the theme.
+        // DESIGN.md "Feedback and pillars" pillar accents — semantic, so they flip with the theme.
         activity: 'rgb(var(--color-activity) / <alpha-value>)',
         nutrition: 'rgb(var(--color-nutrition) / <alpha-value>)',
         recovery: 'rgb(var(--color-recovery) / <alpha-value>)',
@@ -109,8 +109,9 @@ module.exports = {
 
         // Text that sits ON a tint of the hue above — the bound ink each hue
         // carries. At the /15 tint the hue drawn as its own label measures
-        // 1.95:1 at worst in light and the ink 4.58:1; DESIGN.md §2 "Bound
-        // ink" carries the envelope. Values in the generated token block, the
+        // 1.95:1 at worst in light and the ink 4.58:1; the `CONTAINER_INKS` doc comment in
+        // @pierre/shared-constants carries the envelope (DESIGN.md "The Bound Ink Rule"
+        // states the ink-on-tint rule itself). Values in the generated token block, the
         // same names and the same triples the web config maps. The runtime path is
         // `useThemeColors().ink.*`; these are the class path.
         'on-activity-container': 'rgb(var(--color-on-activity-container) / <alpha-value>)',
@@ -120,14 +121,6 @@ module.exports = {
         'on-info-container': 'rgb(var(--color-on-info-container) / <alpha-value>)',
         'on-success-container': 'rgb(var(--color-on-success-container) / <alpha-value>)',
         'on-warning-container': 'rgb(var(--color-on-warning-container) / <alpha-value>)',
-
-        // Provider brand colors — belong to third parties, unchanged across modes.
-        providers: {
-          strava: '#FC4C02',
-          garmin: '#007CC3',
-          whoop: '#00D46A',
-          terra: '#6366F1',
-        },
       },
       // Two faces beside the system one, loaded in app/_layout.tsx under these
       // family names: Schibsted Grotesk 600 for the wordmark and the auth and
@@ -167,7 +160,7 @@ module.exports = {
         full: '9999px',
       },
       // The only shadow in the system: what floats over the page. A resting
-      // card is lifted by its hairline (DESIGN.md §4).
+      // card is lifted by its hairline (DESIGN.md "The Hairlines-Lift Rule").
       boxShadow: {
         floating: '0 12px 24px rgba(0, 0, 0, 0.55)',
       },

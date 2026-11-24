@@ -8,6 +8,7 @@ import React, { useState } from 'react';
 import { authApi } from '../services/api';
 import { Button, Input, RevealButton, Alert } from './ui';
 import { useTranslation } from '@pierre/i18n';
+import { isPasswordLongEnough } from '@pierre/ui-logic';
 
 interface ResetPasswordProps {
   email: string;
@@ -40,7 +41,7 @@ export default function ResetPassword({
       return;
     }
 
-    if (newPassword.length < 8) {
+    if (!isPasswordLongEnough(newPassword)) {
       setError(t('app.passwordTooShort'));
       return;
     }

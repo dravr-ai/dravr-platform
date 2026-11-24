@@ -159,7 +159,7 @@ fn report_rows(body: &Value) -> AppResult<Vec<AdoptionRow>> {
     })
 }
 
-/// The operator's word for an outcome.
+/// The admin's word for an outcome.
 const fn outcome_label(outcome: AdoptionOutcome) -> &'static str {
     match outcome {
         AdoptionOutcome::Matched => "ok",

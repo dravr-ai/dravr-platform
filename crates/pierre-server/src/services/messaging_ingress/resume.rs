@@ -48,8 +48,8 @@ use std::str::FromStr;
 use std::sync::{Arc, LazyLock};
 use std::time::{Duration, Instant};
 
-use chrono::Utc;
 use dravr_canot::channel::MessagingChannel;
+use dravr_tronc::dates::Timestamp;
 use pierre_auth::auth::AuthResult;
 use pierre_core::models::messaging::ChannelType;
 use pierre_core::models::{ConversationTurnId, TenantId};
@@ -57,9 +57,9 @@ use pierre_database::backends::MessagingRepository;
 use pierre_database::repositories::{
     ResumableTurnClaim, ResumableTurnRepository, ResumableTurnRow, TurnClaim, TurnLease,
 };
+use pierre_services::lease_guard::{keep_lease, LeaseGuard};
 use pierre_services::periodic::spawn_periodic;
 use tokio::sync::oneshot;
-use tokio::task::JoinHandle;
 use tokio::time::sleep;
 use tracing::{error, info, warn, Instrument};
 use uuid::Uuid;
@@ -148,7 +148,7 @@ pub(super) enum DrainHandOff {
 }
 
 fn now_ms() -> i64 {
-    Utc::now().timestamp_millis()
+    Timestamp::now().epoch_millis()
 }
 
 /// The lease this process takes on a turn it is about to run.
@@ -502,31 +502,23 @@ pub(super) async fn note_placeholder(dispatch: &PendingDispatch, placeholder_mes
     }
 }
 
-/// The lease renewal a running turn keeps alive; aborted when dropped.
-pub(super) struct LeaseHeartbeat(JoinHandle<()>);
-
-impl Drop for LeaseHeartbeat {
-    fn drop(&mut self) {
-        self.0.abort();
-    }
-}
-
 /// Renew the run's lease every [`LEASE_HEARTBEAT`] until the guard drops.
 ///
 /// A renewal that finds the lease gone or held by someone else logs it: the
 /// row was finished or reclaimed under this run, which happens only if this
 /// run stalled past [`TURN_LEASE`] without renewing — a stalled runtime, not
 /// a stalled turn.
-pub(super) fn keep_lease(dispatch: &PendingDispatch) -> Option<LeaseHeartbeat> {
+pub(super) fn keep_turn_lease(dispatch: &PendingDispatch) -> Option<LeaseGuard> {
     let record = dispatch.record.as_ref()?;
     let resources = Arc::clone(&dispatch.resources);
     let tenant_id = dispatch.session_tenant_id;
     let row_id = record.row_id.clone();
-    let handle = tokio::spawn(async move {
-        loop {
-            sleep(LEASE_HEARTBEAT).await;
+    let renew = move || {
+        let resources = Arc::clone(&resources);
+        let row_id = row_id.clone();
+        async move {
             let lease = run_lease();
-            match resources
+            resources
                 .common
                 .repos
                 .resumable_turns
@@ -537,17 +529,14 @@ pub(super) fn keep_lease(dispatch: &PendingDispatch) -> Option<LeaseHeartbeat> {
                     lease.lease_until_ms,
                 )
                 .await
-            {
-                Ok(true) => {}
-                Ok(false) => {
-                    warn!(row_id = %row_id, "turn lease is no longer this run's; a sibling may be re-running it");
-                    return;
-                }
-                Err(e) => warn!(error = %e, row_id = %row_id, "turn lease could not be renewed"),
-            }
         }
-    });
-    Some(LeaseHeartbeat(handle))
+    };
+    Some(keep_lease(
+        "resumable turn",
+        &record.row_id,
+        LEASE_HEARTBEAT,
+        renew,
+    ))
 }
 
 /// Re-run or re-enqueue every turn an instance left behind.
@@ -668,7 +657,7 @@ async fn re_enqueue_stale(
     row: &ResumableTurnRow,
 ) {
     let Ok(tenant_id) = TenantId::parse_str(&row.tenant_id) else {
-        warn!(row_id = %row.id, "stale turn carries a malformed tenant id; leaving it for an operator");
+        warn!(row_id = %row.id, "stale turn carries a malformed tenant id; leaving it for an admin");
         return;
     };
     let seq = match repo.bump_resumable_turn_enqueue(tenant_id, &row.id).await {
@@ -918,7 +907,7 @@ fn parse_tenant(raw: &str) -> Option<TenantId> {
     match TenantId::parse_str(raw) {
         Ok(id) => Some(id),
         Err(e) => {
-            warn!(error = %e, "recorded turn carries a malformed tenant id; leaving the row for an operator");
+            warn!(error = %e, "recorded turn carries a malformed tenant id; leaving the row for an admin");
             None
         }
     }

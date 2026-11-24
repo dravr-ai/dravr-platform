@@ -35,7 +35,7 @@ use secrecy::SecretString;
 use std::sync::Arc;
 use std::time::Duration;
 
-use chrono::{Duration as ChronoDuration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use helpers::axum_test::AxumTestRequest;
 use helpers::impersonation::{assert_refusal_audited, assert_support_refused, impersonation_of};
 use pierre_cache::{Cache, CacheConfig};
@@ -318,12 +318,12 @@ async fn a_login_method_outside_the_closed_set_is_refused_before_the_handler() {
 /// Store a sciotte session written moments ago, so a login inside the reuse
 /// window short-circuits instead of reaching the scraper service.
 async fn seed_fresh_session(resources: &Arc<ServerContext>, user_id: Uuid, tenant_id: TenantId) {
-    let now = Utc::now();
+    let now = Timestamp::now();
     let session = serde_json::json!({
         "session_id": "stored-session-1",
         "cookies": [],
         "created_at": now.to_rfc3339(),
-        "expires_at": (now + ChronoDuration::hours(6)).to_rfc3339(),
+        "expires_at": (now + Elapsed::hours(6)).to_rfc3339(),
     })
     .to_string();
     resources

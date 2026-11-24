@@ -20,7 +20,8 @@
 
 use crate::common;
 use axum::{routing::get, Json, Router};
-use chrono::Utc;
+use dravr_tronc::dates::Elapsed;
+use dravr_tronc::dates::Timestamp;
 use pierre_providers::core::{CredentialKind, FitnessProvider, OAuth2Credentials, ProviderConfig};
 use pierre_providers::strava_provider::StravaProvider;
 use secrecy::SecretString;
@@ -141,7 +142,7 @@ async fn provider_serving(payload: Value) -> StravaProvider {
                 "test_access_token_0123456789abcdef0123456789",
             )),
             refresh_token: Some(SecretString::from("test_refresh_token")),
-            expires_at: Some(Utc::now() + chrono::Duration::days(30)),
+            expires_at: Some(Timestamp::now() + Elapsed::days(30)),
             scopes: vec!["read".to_owned()],
             kind: CredentialKind::OAuthBearer,
             request_budget: None,

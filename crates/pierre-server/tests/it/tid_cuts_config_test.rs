@@ -36,6 +36,7 @@ use serde_json::{json, Value};
 use uuid::Uuid;
 
 use crate::common;
+use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp};
 
 // ============================================================================
 // Catalogue
@@ -465,10 +466,8 @@ fn request(tool: &str, params: Value, user_id: Uuid, tenant_id: &str) -> Univers
 }
 
 fn day_in(week: &str, offset: i64) -> String {
-    let start = chrono::NaiveDate::parse_from_str(week, "%Y-%m-%d").expect("a week start");
-    (start + chrono::Duration::days(offset))
-        .format("%Y-%m-%d")
-        .to_string()
+    let start = CivilDate::parse_from_str(week, "%Y-%m-%d").expect("a week start");
+    (start + Elapsed::days(offset)).to_string()
 }
 
 /// A steady run at 85–87 % of threshold heart rate: midpoint 86, below LT1 on
@@ -544,9 +543,7 @@ async fn a_tenant_override_moves_the_verdict_for_that_tenant_only() -> Result<()
     let (user_a, tenant_a) = create_test_user(&executor).await?;
     let (user_b, tenant_b) = create_test_user(&executor).await?;
     assert_ne!(tenant_a, tenant_b);
-    let week = (chrono::Utc::now().date_naive() + chrono::Duration::days(7))
-        .format("%Y-%m-%d")
-        .to_string();
+    let week = (Timestamp::now().utc_date() + Elapsed::days(7)).to_string();
 
     save_easy_week(&executor, user_a, &tenant_a, &week).await?;
     save_easy_week(&executor, user_b, &tenant_b, &week).await?;

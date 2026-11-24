@@ -24,16 +24,13 @@
 //! so the tests stay independent when they run in parallel.
 
 use secrecy::{ExposeSecret, SecretString};
-use std::collections::HashMap;
-use std::fmt::Debug as FmtDebug;
-use std::sync::{Arc, Mutex};
 #[cfg(feature = "postgresql")]
 use std::time::Duration as StdDuration;
 use std::time::Instant;
 
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use base64::Engine;
-use chrono::{Duration as ChronoDuration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_auth::admin::jwks::load_or_store_first_keypair;
 use pierre_auth::key_management::{KekProvider, KeyManager, LocalKekProvider, MasterEncryptionKey};
 use pierre_auth::keyset::secrets::{ACTIVE_VERSION_SECRET, V1_SECRET};
@@ -49,15 +46,11 @@ use pierre_database::backends::shared::keyring::{Keyring, SealDomain};
 #[cfg(feature = "postgresql")]
 use pierre_test_support::db::create_test_db_url;
 use pierre_test_support::db::create_test_db_with_key;
+use pierre_test_support::log_capture::{self, CapturedEvent, CapturedLog};
 use pierre_test_support::server::create_test_user;
 use regex::Regex;
-use tracing::field::{Field, Visit};
 use tracing::subscriber::DefaultGuard;
-use tracing::{Level, Subscriber};
-use tracing_subscriber::layer::{Context, SubscriberExt};
-use tracing_subscriber::registry::LookupSpan;
-use tracing_subscriber::util::SubscriberInitExt;
-use tracing_subscriber::Layer;
+use tracing::Level;
 use uuid::Uuid;
 
 /// The key every fixture database is written under.
@@ -76,92 +69,36 @@ const LLM_API_KEY: &str = "plaintext-llm-api-key-703";
 
 // ── Event capture ────────────────────────────────────────────────────────────
 
-#[derive(Clone, Debug)]
-struct CapturedEvent {
-    level: Level,
-    message: String,
-    fields: HashMap<String, String>,
-}
-
-impl CapturedEvent {
-    fn field(&self, name: &str) -> &str {
-        self.fields
-            .get(name)
-            .unwrap_or_else(|| panic!("event has no {name} field: {self:#?}"))
-    }
-}
-
-#[derive(Clone, Default)]
-struct CaptureLayer {
-    events: Arc<Mutex<Vec<CapturedEvent>>>,
-}
-
-#[derive(Default)]
-struct FieldVisitor {
-    message: String,
-    fields: HashMap<String, String>,
-}
-
-impl Visit for FieldVisitor {
-    fn record_debug(&mut self, field: &Field, value: &dyn FmtDebug) {
-        let rendered = format!("{value:?}");
-        if field.name() == "message" {
-            self.message.clone_from(&rendered);
-        }
-        self.fields.insert(field.name().to_owned(), rendered);
-    }
-
-    fn record_str(&mut self, field: &Field, value: &str) {
-        if field.name() == "message" {
-            value.clone_into(&mut self.message);
-        }
-        self.fields
-            .insert(field.name().to_owned(), value.to_owned());
-    }
-}
-
-impl<S> Layer<S> for CaptureLayer
-where
-    S: Subscriber + for<'a> LookupSpan<'a>,
-{
-    fn on_event(&self, event: &tracing::Event<'_>, _ctx: Context<'_, S>) {
-        let mut visitor = FieldVisitor::default();
-        event.record(&mut visitor);
-        self.events.lock().unwrap().push(CapturedEvent {
-            level: *event.metadata().level(),
-            message: visitor.message,
-            fields: visitor.fields,
-        });
-    }
+/// The rendered value of `name` on `event`, failing the test when the event
+/// does not carry it.
+fn required<'a>(event: &'a CapturedEvent, name: &str) -> &'a str {
+    event
+        .field(name)
+        .unwrap_or_else(|| panic!("event has no {name} field: {event:#?}"))
 }
 
 /// Every event emitted on this thread while the guard lives. The tests run
 /// on tokio's current-thread runtime, so every await stays on this thread.
 struct Captured {
-    events: Arc<Mutex<Vec<CapturedEvent>>>,
+    log: CapturedLog,
     _guard: DefaultGuard,
 }
 
 impl Captured {
     fn start() -> Self {
-        let layer = CaptureLayer::default();
-        let events = Arc::clone(&layer.events);
-        let guard = tracing_subscriber::registry().with(layer).set_default();
-        Self {
-            events,
-            _guard: guard,
-        }
+        let (log, guard) = log_capture::capture_events();
+        Self { log, _guard: guard }
     }
 
     fn all(&self) -> Vec<CapturedEvent> {
-        self.events.lock().unwrap().clone()
+        self.log.events()
     }
 
     /// Events carrying `event = <name>` at `level`.
     fn with_event(&self, name: &str, level: Level) -> Vec<CapturedEvent> {
         self.all()
             .into_iter()
-            .filter(|e| e.level == level && e.fields.get("event").map(String::as_str) == Some(name))
+            .filter(|e| e.level == level && e.field("event") == Some(name))
             .collect()
     }
 
@@ -193,8 +130,7 @@ impl Captured {
     fn assert_never_logged(&self, secret: &str) {
         for event in self.all() {
             assert!(
-                !event.message.contains(secret)
-                    && event.fields.values().all(|v| !v.contains(secret)),
+                event.fields.values().all(|v| !v.contains(secret)),
                 "a secret reached a log line: {event:#?}"
             );
         }
@@ -236,7 +172,7 @@ fn with_wrong_key(database: &Database) -> Database {
     let wrong = database.clone();
     wrong
         .keyring()
-        .install(Keyring::single(WRONG_KEY.to_vec()), Utc::now());
+        .install(Keyring::single(WRONG_KEY.to_vec()), Timestamp::now());
     wrong
 }
 
@@ -245,7 +181,7 @@ async fn user_with_tenant(database: &Database) -> (Uuid, TenantId) {
     let user = create_test_user(&format!("km-{}@example.com", Uuid::new_v4()), None);
     let user_id = database.repositories().users.create(&user).await.unwrap();
     let tenant_id = TenantId::generate();
-    let now = Utc::now();
+    let now = Timestamp::now();
     database
         .repositories()
         .tenants
@@ -279,7 +215,7 @@ async fn store_oauth_token(database: &Database) -> (Uuid, TenantId) {
         "strava".to_owned(),
         ACCESS_TOKEN.to_owned(),
         Some(format!("refresh-{ACCESS_TOKEN}")),
-        Some(Utc::now() + ChronoDuration::hours(6)),
+        Some(Timestamp::now() + Elapsed::hours(6)),
         Some("read".to_owned()),
     );
     database
@@ -375,13 +311,16 @@ async fn oauth_token_decrypt_failures_page_once_then_repeat_at_warn() {
     // The kind leads the message: the error notifier dedups on target plus
     // the message's first 80 characters, so a fixed message would fold every
     // kind into the first one's Slack line.
-    assert_eq!(page.message, "Stored oauth_access_token failed to decrypt");
-    assert_eq!(page.field("secret_kind"), "oauth_access_token");
-    assert_eq!(page.field("table"), "user_oauth_tokens");
-    assert_eq!(page.field("column"), "access_token");
-    assert_eq!(page.field("dek_version"), "1");
-    assert_eq!(page.field("repeats_since_last_alert"), "0");
-    let aad = page.field("aad_context");
+    assert_eq!(
+        page.message(),
+        Some("Stored oauth_access_token failed to decrypt")
+    );
+    assert_eq!(required(&page, "secret_kind"), "oauth_access_token");
+    assert_eq!(required(&page, "table"), "user_oauth_tokens");
+    assert_eq!(required(&page, "column"), "access_token");
+    assert_eq!(required(&page, "dek_version"), "1");
+    assert_eq!(required(&page, "repeats_since_last_alert"), "0");
+    let aad = required(&page, "aad_context");
     assert!(
         aad.contains(&tenant_id.to_string()) && aad.contains(&user_id.to_string()),
         "the event must name the row it failed on: {aad}"
@@ -396,7 +335,7 @@ async fn oauth_token_decrypt_failures_page_once_then_repeat_at_warn() {
     );
     assert!(repeats
         .iter()
-        .all(|e| e.field("secret_kind") == "oauth_access_token"));
+        .all(|e| required(e, "secret_kind") == "oauth_access_token"));
     captured.assert_never_logged(ACCESS_TOKEN);
 }
 
@@ -430,13 +369,13 @@ async fn tenant_oauth_client_secret_decrypt_failure_pages() {
 
     let page = captured.page("key_material.stored_secret_decrypt_failed");
     assert_eq!(
-        page.message,
-        "Stored tenant_oauth_client_secret failed to decrypt"
+        page.message(),
+        Some("Stored tenant_oauth_client_secret failed to decrypt")
     );
-    assert_eq!(page.field("secret_kind"), "tenant_oauth_client_secret");
-    assert_eq!(page.field("table"), "tenant_oauth_credentials");
-    assert_eq!(page.field("column"), "client_secret_encrypted");
-    assert!(page.field("aad_context").contains(&tenant_id.to_string()));
+    assert_eq!(required(&page, "secret_kind"), "tenant_oauth_client_secret");
+    assert_eq!(required(&page, "table"), "tenant_oauth_credentials");
+    assert_eq!(required(&page, "column"), "client_secret_encrypted");
+    assert!(required(&page, "aad_context").contains(&tenant_id.to_string()));
     captured.assert_never_logged(CLIENT_SECRET);
 }
 
@@ -460,9 +399,9 @@ async fn strava_pool_client_secret_decrypt_failure_pages() {
     assert!(read.is_err());
 
     let page = captured.page("key_material.stored_secret_decrypt_failed");
-    assert_eq!(page.field("secret_kind"), "strava_pool_client_secret");
-    assert_eq!(page.field("table"), "strava_oauth_app_pool");
-    assert!(page.field("aad_context").contains("pool-703"));
+    assert_eq!(required(&page, "secret_kind"), "strava_pool_client_secret");
+    assert_eq!(required(&page, "table"), "strava_oauth_app_pool");
+    assert!(required(&page, "aad_context").contains("pool-703"));
     captured.assert_never_logged(CLIENT_SECRET);
 }
 
@@ -502,9 +441,9 @@ async fn llm_api_key_decrypt_failure_pages() {
     );
 
     let page = captured.page("key_material.stored_secret_decrypt_failed");
-    assert_eq!(page.field("secret_kind"), "llm_api_key");
-    assert_eq!(page.field("table"), "user_llm_credentials");
-    assert!(page.field("aad_context").contains("groq"));
+    assert_eq!(required(&page, "secret_kind"), "llm_api_key");
+    assert_eq!(required(&page, "table"), "user_llm_credentials");
+    assert!(required(&page, "aad_context").contains("groq"));
     captured.assert_never_logged(LLM_API_KEY);
 }
 
@@ -518,7 +457,7 @@ async fn rsa_private_key_decrypt_failure_pages_and_refuses_the_keypair() {
             "kid-703",
             "sealed-signing-key-703",
             "public-half",
-            Utc::now(),
+            Timestamp::now(),
             true,
             2048,
         )
@@ -534,8 +473,8 @@ async fn rsa_private_key_decrypt_failure_pages_and_refuses_the_keypair() {
     );
 
     let decrypt = captured.page("key_material.stored_secret_decrypt_failed");
-    assert_eq!(decrypt.field("secret_kind"), "rsa_private_key");
-    assert_eq!(decrypt.field("aad_context"), "kid-703|rsa_keypairs");
+    assert_eq!(required(&decrypt, "secret_kind"), "rsa_private_key");
+    assert_eq!(required(&decrypt, "aad_context"), "kid-703|rsa_keypairs");
     captured.page("key_material.rsa_keypair_load_failed");
     captured.assert_never_logged("sealed-signing-key-703");
 }
@@ -579,11 +518,11 @@ async fn dek_read_failure_pages() {
 
     let page = captured.page("key_material.dek_read_failed");
     if breaks_every_secret(&database) {
-        assert_eq!(page.message, KEYSET_READ_FAILED);
+        assert_eq!(page.message(), Some(KEYSET_READ_FAILED));
     } else {
-        assert_eq!(page.message, "Failed to read a stored key version");
-        assert_eq!(page.field("key_family"), "data");
-        assert_eq!(page.field("key_version"), "1");
+        assert_eq!(page.message(), Some("Failed to read a stored key version"));
+        assert_eq!(required(&page, "key_family"), "data");
+        assert_eq!(required(&page, "key_version"), "1");
     }
 }
 
@@ -602,7 +541,7 @@ async fn dek_read_failure_on_the_legacy_layout_pages() {
     } else {
         "Failed to read the stored DEK; refusing to initialize key management"
     };
-    assert_eq!(page.message, expected);
+    assert_eq!(page.message(), Some(expected));
 }
 
 #[tokio::test]
@@ -615,7 +554,7 @@ async fn dek_unwrap_failure_pages() {
     assert!(booting.complete_initialization(&database).await.is_err());
 
     let page = captured.page("key_material.dek_unwrap_failed");
-    assert_eq!(page.field("key_version"), "1");
+    assert_eq!(required(&page, "key_version"), "1");
 }
 
 /// The stored Strava access token for `user_id`, read through `database`.
@@ -647,7 +586,7 @@ async fn dek_missing_on_a_database_holding_ciphertext_refuses_the_boot() {
         "an instance must not mint a DEK over ciphertext the new key cannot open"
     );
     let page = captured.page("key_material.dek_minted_over_ciphertext");
-    assert_eq!(page.field("encrypted_rows"), "1");
+    assert_eq!(required(&page, "encrypted_rows"), "1");
     let stored = database
         .as_security_repository()
         .get_system_secret(V1_SECRET)
@@ -709,7 +648,7 @@ async fn signing_keypair_missing_on_a_database_holding_ciphertext_refuses_the_bo
         "an instance must not mint a signing keypair over a database whose keypair was lost"
     );
     let page = captured.page("key_material.rsa_keypair_minted_over_ciphertext");
-    assert_eq!(page.field("encrypted_rows"), "1");
+    assert_eq!(required(&page, "encrypted_rows"), "1");
     assert!(
         database
             .as_security_repository()
@@ -797,7 +736,7 @@ async fn active_dek_version_missing_from_the_store_pages() {
     boot_refuses(&database).await;
 
     let page = captured.page("key_material.dek_read_failed");
-    assert_eq!(page.field("key_version"), "2");
+    assert_eq!(required(&page, "key_version"), "2");
 }
 
 #[tokio::test]
@@ -809,7 +748,7 @@ async fn stored_dek_that_is_not_base64_pages() {
     boot_refuses(&database).await;
 
     let page = captured.page("key_material.dek_read_failed");
-    assert_eq!(page.field("key_version"), "1");
+    assert_eq!(required(&page, "key_version"), "1");
 }
 
 #[tokio::test]
@@ -823,7 +762,7 @@ async fn stored_dek_of_the_wrong_length_pages() {
     boot_refuses(&database).await;
 
     let page = captured.page("key_material.dek_unwrap_failed");
-    assert_eq!(page.field("key_version"), "1");
+    assert_eq!(required(&page, "key_version"), "1");
 }
 
 #[tokio::test]

@@ -54,10 +54,10 @@ use axum::{
     routing::get,
     Json, Router,
 };
-use chrono::{DateTime, NaiveDate, NaiveTime, Utc};
+use dravr_tronc::dates::{CivilDate, Timestamp};
 use futures_util::stream::{self, StreamExt, TryStreamExt};
-use pierre_auth::auth::AuthResult;
 use pierre_config::coach_home::CoachHomeConfig;
+use pierre_core::ai_policy::ProviderTerms;
 use pierre_core::civil_time;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::groups::{CoachingGroup, MemberFitnessSnapshot};
@@ -189,11 +189,11 @@ pub struct RosterRace {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct RosterPlanThread {
     /// When the caller last saved the draft they hold; absent with none open.
-    pub draft_updated_at: Option<DateTime<Utc>>,
+    pub draft_updated_at: Option<Timestamp>,
     /// Whether the open draft clashes with weeks the athlete changed since.
     pub draft_has_conflicts: bool,
     /// When the caller last published a draft of this plan; absent if never.
-    pub published_at: Option<DateTime<Utc>>,
+    pub published_at: Option<Timestamp>,
     /// The open draft's phases, for the season view's draft band; empty with
     /// no draft open, or one the caller may not read.
     pub draft_phases: Vec<RosterPhase>,
@@ -229,7 +229,7 @@ pub struct RosterRow {
     /// and absent when the date is unknown (a revoke from before it was
     /// recorded).
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub sharing_stopped_at: Option<DateTime<Utc>>,
+    pub sharing_stopped_at: Option<Timestamp>,
     /// Their training; only for `shared`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub training: Option<RosterReading>,
@@ -333,12 +333,17 @@ pub async fn handle_roster(
     let repos = &resources.common.repos;
     let groups = roster_groups(repos, coach).await?;
 
-    let gathered = roster_served_to(repos, &auth, &groups).await?;
+    let outside = ai_scope::served_outside(auth.acts_for_outside_client());
+    let gathered = roster_served_to(repos, outside, auth.user_id, &groups).await?;
     let scope = RosterScope {
         visible_members: gathered.visible_members(),
         roster_members: gathered.roster_members(),
     };
-    let ordered = order_roster(repos, gathered.members).await?;
+    // Served outside, the order reads only what the client may be shown
+    // (carnet#1511).
+    let terms = resources.provider_registry();
+    let outside_terms: Option<&dyn ProviderTerms> = outside.then_some(terms.as_ref());
+    let ordered = order_roster(repos, gathered.members, outside_terms).await?;
     let offset = query.offset.unwrap_or(0).min(ordered.len());
     let limit = query.limit.unwrap_or(DEFAULT_PAGE).clamp(1, MAX_PAGE);
     let end = offset.saturating_add(limit).min(ordered.len());
@@ -422,23 +427,22 @@ pub async fn handle_roster(
         .into_response())
 }
 
-/// The roster of `groups` as it is served to `auth`, its coach. An outside
-/// client acting for the coach is never told of an athlete who stopped
-/// sharing (EFVP 2026-11-17, decision 9.4c), as the agent's
-/// `get_roster_overview`, a first-party-only tool, never tells one.
+/// The roster of `groups` as it is served to `coach`. An outside client
+/// acting for the coach (`outside`) is never told of an athlete who stopped
+/// sharing (EFVP 2026-11-17, decision 9.4c), as the coach's assistant is
+/// never told one by `get_roster_overview`.
 async fn roster_served_to(
     repos: &RepositoryRegistry,
-    auth: &AuthResult,
+    outside: bool,
+    coach: Uuid,
     groups: &[CoachingGroup],
 ) -> AppResult<GatheredRoster> {
-    let gathered = gather_roster(repos, auth.user_id, groups).await?;
-    Ok(
-        if ai_scope::served_outside(auth.acts_for_outside_client()) {
-            gathered.served_to_outside_client()
-        } else {
-            gathered
-        },
-    )
+    let gathered = gather_roster(repos, coach, groups).await?;
+    Ok(if outside {
+        gathered.served_to_outside_client()
+    } else {
+        gathered
+    })
 }
 
 /// What one page read shares across its rows.
@@ -475,7 +479,7 @@ async fn row(
         attention: Vec::new(),
     };
     let zone = athlete_zone(repos, athlete).await;
-    let today = civil_time::clock_date(Utc::now(), zone);
+    let today = civil_time::clock_date(Timestamp::now(), &zone);
     let snapshot = read.snapshots.get(&athlete);
     let replies = read.replies.signals_for(athlete);
     let plan = if member.member.status == RosterAthleteStatus::Shared {
@@ -499,9 +503,9 @@ async fn row(
         status: member.member.status,
         sharing_stopped_at: member.member.sharing_stopped_at,
         joined: &member.member.joined,
-        now: Utc::now(),
+        now: Timestamp::now(),
         today,
-        zone,
+        zone: &zone,
         training: snapshot
             .zip(row.training.as_ref())
             .map(|(snapshot, reading)| training_signals(snapshot, reading, &sources, &refusals)),
@@ -537,7 +541,7 @@ async fn shared_plan(
     repos: &RepositoryRegistry,
     coach: Uuid,
     access: Option<&CoachedAthleteAccess>,
-    today: NaiveDate,
+    today: CivilDate,
     row: &mut RosterRow,
 ) -> AppResult<SharedPlan> {
     let Some(access) = access else {
@@ -563,7 +567,7 @@ async fn plan_summary(
     repos: &RepositoryRegistry,
     tenant: TenantId,
     athlete: Uuid,
-    today: NaiveDate,
+    today: CivilDate,
 ) -> AppResult<Option<(RosterPlan, PlanSignals)>> {
     let Some(plan) = repos
         .training_plans
@@ -632,7 +636,7 @@ async fn plan_summary(
         goal_race: roster_race(&plan.goal_race),
         races: races.into_iter().map(roster_race).collect(),
         season_end: plan.season_end.clone(),
-        ends: ends.map(|day| day.format("%Y-%m-%d").to_string()),
+        ends: ends.map(|day| day.to_string()),
         phases: roster_phases(&plan.phases),
         pushed_to,
     };
@@ -653,9 +657,7 @@ fn roster_phases(phases: &[PlanPhase]) -> Vec<RosterPhase> {
         .map(|p| RosterPhase {
             kind: p.kind.as_str().to_owned(),
             start: p.start.clone(),
-            end: p
-                .end_exclusive()
-                .map(|day| day.format("%Y-%m-%d").to_string()),
+            end: p.end_exclusive().map(|day| day.to_string()),
             weeks: p.weeks,
         })
         .collect()
@@ -663,8 +665,8 @@ fn roster_phases(phases: &[PlanPhase]) -> Vec<RosterPhase> {
 
 /// The day after the plan's last day: its last phase's end, the day after
 /// its last race or after its season end, whichever is latest.
-fn plan_ends(plan: &TrainingPlan) -> Option<NaiveDate> {
-    let after = |date: &str| parse_plan_date(date).and_then(|d| d.succ_opt());
+fn plan_ends(plan: &TrainingPlan) -> Option<CivilDate> {
+    let after = |date: &str| parse_plan_date(date).and_then(CivilDate::succ);
     plan.phases
         .iter()
         .filter_map(PlanPhase::end_exclusive)
@@ -679,7 +681,7 @@ fn plan_ends(plan: &TrainingPlan) -> Option<NaiveDate> {
 
 /// The week of a `weeks_total`-week season starting `start` that `today`
 /// falls in, from 1; `None` before or after it.
-fn season_week(start: NaiveDate, today: NaiveDate, weeks_total: u32) -> Option<u32> {
+fn season_week(start: CivilDate, today: CivilDate, weeks_total: u32) -> Option<u32> {
     let days = (today - start).num_days();
     if days < 0 {
         return None;
@@ -748,12 +750,12 @@ impl WeekReplies {
         let Ok(athlete) = Uuid::parse_str(&reply.athlete_user_id) else {
             return;
         };
-        if let Ok(sent_at) = DateTime::parse_from_rfc3339(&reply.created_at) {
+        if let Ok(sent_at) = Timestamp::parse_from_rfc3339(&reply.created_at) {
             self.signals.entry(athlete).or_default().push(ReplySignal {
                 reply_id: reply.id.clone(),
                 group_id: reply.group_id.clone(),
                 group_name: reply.group_name.clone(),
-                sent_at: sent_at.with_timezone(&Utc),
+                sent_at,
                 figures: reply.unmatched_figure_claims.clone(),
                 corrected: !reply.corrections.is_empty(),
             });
@@ -776,9 +778,9 @@ impl WeekReplies {
 /// Read the reply review newest first, back to this week's Monday, through
 /// the same service and checker rules as `GET /api/coach/replies`.
 async fn replies_this_week(resources: &ServerContext, coach: Uuid) -> AppResult<WeekReplies> {
-    let since = civil_time::monday_of(Utc::now().date_naive())
-        .and_time(NaiveTime::MIN)
-        .and_utc();
+    let since = civil_time::monday_of(Timestamp::now().utc_date())
+        .at_midnight()
+        .and_utc()?;
     let mut week = WeekReplies::default();
     let mut before = None;
     for _ in 0..MAX_REPLY_PAGES {
@@ -794,9 +796,7 @@ async fn replies_this_week(resources: &ServerContext, coach: Uuid) -> AppResult<
         )
         .await?;
         for reply in &page.replies {
-            let sent = DateTime::parse_from_rfc3339(&reply.created_at)
-                .map(|t| t.with_timezone(&Utc))
-                .ok();
+            let sent = Timestamp::parse_from_rfc3339(&reply.created_at).ok();
             if sent.is_some_and(|t| t < since) {
                 return Ok(week);
             }
@@ -815,8 +815,8 @@ async fn replies_this_week(resources: &ServerContext, coach: Uuid) -> AppResult<
 mod tests {
     use super::*;
 
-    fn day(s: &str) -> NaiveDate {
-        NaiveDate::parse_from_str(s, "%Y-%m-%d").unwrap()
+    fn day(s: &str) -> CivilDate {
+        CivilDate::parse_from_str(s, "%Y-%m-%d").unwrap()
     }
 
     #[test]

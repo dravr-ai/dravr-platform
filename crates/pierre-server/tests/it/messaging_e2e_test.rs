@@ -22,7 +22,7 @@ mod messaging_e2e_tests {
     use crate::common::create_test_server_resources;
     use crate::helpers::axum_test::AxumTestRequest;
     use axum::http::StatusCode;
-    use chrono::{Duration, Utc};
+    use dravr_tronc::dates::{Elapsed, Timestamp};
     use hmac::{Hmac, Mac};
     use pierre_core::models::{Tenant, TenantId, User};
     use pierre_database::backends::{
@@ -80,7 +80,7 @@ mod messaging_e2e_tests {
         let mut user = User::new(email.to_owned(), password_hash, Some("E2E User".to_owned()));
         user.user_status = UserStatus::Active;
         user.approved_by = Some(user.id);
-        user.approved_at = Some(Utc::now());
+        user.approved_at = Some(Timestamp::now());
 
         let user_id = user.id;
         resources.common.repos.users.create(&user).await.unwrap();
@@ -94,8 +94,8 @@ mod messaging_e2e_tests {
             domain: None,
             plan: "starter".to_owned(),
             owner_user_id: user_id,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         };
         resources
             .common
@@ -117,7 +117,7 @@ mod messaging_e2e_tests {
         sender_name: Option<&str>,
     ) -> String {
         let code = Uuid::new_v4().to_string();
-        let expires_at = (Utc::now() + Duration::minutes(10)).to_rfc3339();
+        let expires_at = (Timestamp::now() + Elapsed::minutes(10)).to_rfc3339();
 
         let params = CreateLinkStateParams {
             id: &Uuid::new_v4().to_string(),
@@ -372,7 +372,7 @@ mod messaging_e2e_tests {
             "challenge": "e2e_challenge_abc123"
         })
         .to_string();
-        let timestamp = Utc::now().timestamp().to_string();
+        let timestamp = Timestamp::now().epoch_seconds().to_string();
         let sig = compute_slack_sig(signing_secret, &timestamp, &challenge_body);
 
         let router = MessagingRoutes::routes(Arc::clone(&resources));
@@ -407,7 +407,7 @@ mod messaging_e2e_tests {
             }
         })
         .to_string();
-        let timestamp2 = Utc::now().timestamp().to_string();
+        let timestamp2 = Timestamp::now().epoch_seconds().to_string();
         let sig2 = compute_slack_sig(signing_secret, &timestamp2, &slack_msg_body);
 
         let router = MessagingRoutes::routes(Arc::clone(&resources));
@@ -809,7 +809,7 @@ mod messaging_e2e_tests {
             "event": {"type": "message", "user": "U1", "text": "hi", "channel": "C1", "ts": "1.1"}
         })
         .to_string();
-        let timestamp = Utc::now().timestamp().to_string();
+        let timestamp = Timestamp::now().epoch_seconds().to_string();
         let bad_sig = compute_slack_sig("wrong_secret", &timestamp, &body_str);
 
         let router = MessagingRoutes::routes(Arc::clone(&resources));
@@ -1211,7 +1211,7 @@ mod messaging_e2e_tests {
 
         // Create an already-expired link state
         let code = Uuid::new_v4().to_string();
-        let expires_at = (Utc::now() - Duration::minutes(1)).to_rfc3339();
+        let expires_at = (Timestamp::now() - Elapsed::minutes(1)).to_rfc3339();
         let params = CreateLinkStateParams {
             id: &Uuid::new_v4().to_string(),
             tenant_id,

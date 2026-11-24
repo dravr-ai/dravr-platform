@@ -15,18 +15,18 @@ use axum::routing::get;
 #[cfg(feature = "provider-wahoo")]
 use axum::routing::post;
 use axum::{Json, Router};
-use chrono::Utc;
 use dravr_enforme::error::EnformeError;
 use dravr_enforme::models::webhook::WebhookEvent;
 use dravr_enforme::SyncOrchestrator;
+use dravr_tronc::dates::Timestamp;
 use secrecy::ExposeSecret;
 use serde::Deserialize;
-use tracing::{debug, error, info, warn};
+use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use pierre_core::constant_time::matches_configured_secret;
 use pierre_core::constants::oauth_providers;
-use pierre_core::models::{Activity, OAuthNotification, TenantId};
+use pierre_core::models::{Activity, TenantId};
 use pierre_providers::core::ActivityQueryParams;
 use pierre_services::oauth_flow::OAuthService;
 use pierre_services::personal_bests::is_measured_sport;
@@ -137,7 +137,8 @@ impl WebhookRoutes {
     ///
     /// The orchestrator's WHOOP provider verifies the `x-whoop-signature`
     /// HMAC of the `x-whoop-signature-timestamp` and the body, keyed with
-    /// the WHOOP app's client secret (`WHOOP_WEBHOOK_SECRET`), refuses a
+    /// the WHOOP app's client secret (`webhooks.whoop_secret`, read from
+    /// `WHOOP_WEBHOOK_SECRET` at startup), refuses a
     /// timestamp outside its replay window, and parses the body into events.
     /// Each event names the WHOOP-side user id; that id is mapped to the one
     /// platform user whose WHOOP token carries it (captured at token exchange
@@ -148,9 +149,8 @@ impl WebhookRoutes {
     /// synced; an unparseable one with 400; a missing secret with 503.
     ///
     /// A `WHOOP_WEBHOOK_SECRET` that is set but blank is a missing secret,
-    /// refused here before the orchestrator runs: enforme's WHOOP provider
-    /// keys the HMAC with any value the variable holds, the empty string
-    /// included, and a signature under the empty key is one anyone can make.
+    /// refused here before the orchestrator runs: a signature under the
+    /// empty key is one anyone can make.
     async fn handle_whoop_event(
         State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
@@ -315,8 +315,9 @@ impl WebhookRoutes {
 ///
 /// Both refusals come before the orchestrator runs: no orchestrator is
 /// configured, or `WHOOP_WEBHOOK_SECRET` was unset or blank at startup
-/// (`webhooks.whoop_secret`). dravr-enforme's WHOOP provider keys its HMAC with
-/// whatever the variable holds, so a blank one must never reach it.
+/// (`webhooks.whoop_secret`). The orchestrator's WHOOP provider keys its HMAC
+/// with that same configured secret and holds none in this case, so the
+/// refusal here answers 503 rather than the provider's validation error.
 fn whoop_orchestrator(resources: &ServerContext) -> Result<Arc<SyncOrchestrator>, StatusCode> {
     let Some(orchestrator) = resources.fitness.sync_orchestrator.clone() else {
         warn!("WHOOP webhook received but sync orchestrator is not configured");
@@ -428,7 +429,7 @@ pub(super) async fn stamp_last_sync(
         .common
         .repos
         .oauth_tokens
-        .update_provider_last_sync(user_id, tenant, provider, Utc::now())
+        .update_provider_last_sync(user_id, tenant, provider, Timestamp::now())
         .await
     {
         warn!(user_id = %user_id, provider = %provider, error = %e, "failed to stamp last_sync after webhook sync");
@@ -453,34 +454,6 @@ pub(super) async fn report_sync(
         notices.sync_landed(user_id, tenant, provider).await;
     } else {
         notices.sync_failed(user_id, tenant, provider).await;
-    }
-}
-
-/// Tell the owner's live SSE stream what a webhook sync landed.
-pub(super) async fn notify_owner(
-    resources: &ServerContext,
-    user_id: Uuid,
-    provider: &str,
-    message: String,
-) {
-    let notification = OAuthNotification {
-        id: Uuid::new_v4().to_string(),
-        user_id: user_id.to_string(),
-        provider: provider.to_owned(),
-        success: true,
-        message,
-        expires_at: None,
-        created_at: Utc::now(),
-        read_at: None,
-    };
-    // A user with no open SSE stream simply has nothing to notify.
-    if let Err(e) = resources
-        .sse
-        .sse_manager
-        .send_notification(user_id, &notification)
-        .await
-    {
-        debug!(%user_id, error = %e, "OAuth notification not delivered over SSE");
     }
 }
 
@@ -653,8 +626,8 @@ async fn disconnect_deauthorized_strava_owner(
 }
 
 /// Record what a webhook-triggered Strava fetch landed: stamp `last_sync`,
-/// re-arm the sync-failure notice, tell the athlete's SSE stream when the
-/// window held activities, then scan the new runs for personal records.
+/// re-arm the sync-failure notice, then scan the new runs for personal
+/// records.
 async fn land_strava_fetch(
     resources: &Arc<ServerContext>,
     event: &StravaWebhookEvent,
@@ -673,18 +646,6 @@ async fn land_strava_fetch(
     );
     stamp_last_sync(resources, user_id, tenant_id, "strava").await;
     report_sync(resources, user_id, tenant_id, "strava", true).await;
-    if fetched > 0 {
-        notify_owner(
-            resources,
-            user_id,
-            "strava",
-            format!(
-                "Strava activity {}d: {fetched} recent activities fetched",
-                event.aspect_type
-            ),
-        )
-        .await;
-    }
     scan_new_runs(resources, user_id, tenant_id, activities).await;
 }
 
@@ -778,7 +739,7 @@ async fn sync_whoop_owner(
 }
 
 /// Record that a WHOOP webhook sync created `records` for the owner: stamp
-/// `last_sync` and tell the athlete's SSE stream how many landed.
+/// `last_sync` and re-arm the sync-failure notice.
 async fn land_whoop_records(
     resources: &ServerContext,
     user_id: Uuid,
@@ -794,13 +755,6 @@ async fn land_whoop_records(
     );
     stamp_last_sync(resources, user_id, tenant_id, "whoop").await;
     report_sync(resources, user_id, tenant_id, "whoop", true).await;
-    notify_owner(
-        resources,
-        user_id,
-        "whoop",
-        format!("WHOOP data synced ({records} records)"),
-    )
-    .await;
 }
 
 /// Strava webhook event payload.
@@ -861,7 +815,8 @@ impl StravaWebhookEvent {
     /// activity uploaded late is still inside the window. An event time the
     /// clock cannot represent falls back to now.
     fn fetch_window_start(&self) -> i64 {
-        let event_time = i64::try_from(self.event_time).unwrap_or_else(|_| Utc::now().timestamp());
+        let event_time =
+            i64::try_from(self.event_time).unwrap_or_else(|_| Timestamp::now().epoch_seconds());
         event_time - STRAVA_WEBHOOK_LOOKBACK_DAYS * 86_400
     }
 }

@@ -70,7 +70,7 @@ use crate::turn_service::{CommandTurn, SlashRequest};
 pub const ROOM_VISIBLE_COMMANDS: [&str; 8] = [
     "group-respond",
     "group-digest",
-    "group-coach",
+    "group-agent",
     "agent-add",
     "plan-share",
     "calibrate",
@@ -201,6 +201,7 @@ pub async fn persist_command_turn(
             channel_type: Some(request.channel_type),
             about_user_id: None,
             turn_attempted_write: None,
+            ai_consent_sources: &[],
         })
         .await?;
 
@@ -227,6 +228,7 @@ pub async fn persist_command_turn(
             // coach — names them, so it goes with their account (carnet#1174).
             about_user_id: ai_scope::derived_member(),
             turn_attempted_write: None,
+            ai_consent_sources: &ai_scope::derived_consent_sources(),
         })
         .await?;
 

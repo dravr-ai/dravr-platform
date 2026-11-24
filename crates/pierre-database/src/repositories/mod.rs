@@ -26,7 +26,7 @@ pub mod activity_route_tracks;
 pub mod activity_streams;
 /// Repository traits for admin tokens and admin overrides.
 pub mod admin;
-/// The admin audit trail: one row per operator write (carnet#1391).
+/// The admin audit trail: one row per admin write (carnet#1391).
 pub mod admin_audit;
 /// What a user write does, in its own transaction, to the credentials an account holds as an admin.
 pub(crate) mod admin_standing;
@@ -89,6 +89,8 @@ pub mod claim_verdict_grading;
 pub mod claim_verdicts;
 /// Repository trait and shared body for coach-access requests (carnet#738).
 pub mod coach_access_requests;
+/// What a member answers about their coach's AI assistant (carnet#1511): its repository trait and shared body.
+pub mod coach_assistant;
 /// Repository trait and shared body for a coach's "Traité" on Coach Home attention reasons (carnet#1252).
 pub mod coach_attention_dismissals;
 /// The athlete's record of their human coach's reads of their data (carnet#1445).
@@ -123,6 +125,8 @@ pub mod first_run_progress;
 pub mod fitness_config;
 /// `GarminPushInboxRepository`: every batch Garmin pushes, written before the 200.
 pub mod garmin_push_inbox;
+/// Connecting a group to a messaging chat from the web app (carnet#1683): its repository trait and shared body.
+pub mod group_chat_connect;
 /// Shared statements for a group's weekly digest lease, run by the coaching-group repository body.
 pub(crate) mod group_digest_sql;
 /// Shared statements for group invites, run by the coaching-group repository body.
@@ -137,6 +141,8 @@ pub mod harness_memory;
 pub mod health;
 /// Shared statements, row decoders and body for data sources, sleep, recovery and health snapshots.
 pub mod health_persistence;
+/// The T2–T3 health records an import or a lab document yields (carnet#1544).
+pub mod health_records;
 /// Repository trait, statements and shared body for admin impersonation sessions.
 pub mod impersonation;
 /// Tombstones of a deleted account's provider accounts and email, by hash, refused until cleared.
@@ -175,6 +181,8 @@ pub mod oauth;
 pub mod oauth_client_state;
 /// Shared statements and body for password-reset tokens: issue, consume once under a lockout, invalidate, rate-limit.
 pub mod password_reset_tokens;
+/// A member's record of fellow group members reading their data under peer consent (carnet#1543).
+pub mod peer_data_reads;
 /// Repository trait for the persona-held notifications each digest returned.
 pub mod persona_digest_returns;
 /// Repository trait for an athlete's personal bests at the standard running distances.
@@ -222,6 +230,8 @@ pub(crate) mod store_listings_backend;
 pub mod strava_seat_reclaim_warnings;
 /// `SubscriptionsRepository`: provider-agnostic billing subscriptions and webhook event dedupe.
 pub mod subscriptions;
+/// Ends the support sessions bound to a credential inside the write that revokes it (carnet#1511).
+pub mod support_binding;
 /// Shared statements, decoders and body for provider sync cursors and the connected-user roster.
 pub mod sync_cursors;
 /// The one body of the system-settings key/value store, emitted per backend.
@@ -262,6 +272,8 @@ pub mod user_mcp_tokens;
 pub mod user_oauth_tokens;
 /// Repository trait for durable per-user onboarding step completion state.
 pub mod user_onboarding;
+/// The stated VDOT's three columns on the physiology row: bound and read back together.
+pub(crate) mod user_physiological_profile_vdot;
 /// `UserPhysiologicalProfileRepository` + `DossierRepository`: physiology row and the read-time dossier composer
 pub mod user_physiological_profiles;
 /// Statements and row decoder for an athlete's per-sport anchors, emitted by the profile repository's macro.
@@ -337,6 +349,7 @@ pub use chat_subject::{NewSubjectConversation, OpenedSubjectThread, SubjectThrea
 pub use check_in_preferences::{CheckInPreferenceRepository, CheckInSubscriber};
 pub use claim_verdicts::*;
 pub use coach_access_requests::CoachAccessRequestRepository;
+pub use coach_assistant::CoachAssistantRepository;
 pub use coach_attention_dismissals::{
     AttentionDismissal, AttentionDismissalKey, CoachAttentionDismissalRepository,
 };
@@ -365,8 +378,15 @@ pub use firebase_identity_deletions::{
 pub use first_run_progress::{FirstRunDay, FirstRunProgressRepository};
 pub use fitness_config::*;
 pub use garmin_push_inbox::*;
+pub use group_chat_connect::GroupChatConnectRepository;
 pub use harness_memory::*;
 pub use health::*;
+pub use health_records::{
+    ClinicalRecordWrite, ClinicalSelection, HealthRecordRepository, LabDocumentFile,
+    LabDocumentWrite, RecordFiling, RecordWindow, ReviewDecision, SelfReportWrite,
+    StoredClinicalRecord, StoredLabDocument, StoredSelfReport, LAB_DOCUMENT_PROVIDER,
+    LAB_DOCUMENT_SOURCE_MARKER, MAX_HEALTH_RECORDS_PAGE,
+};
 pub use impersonation::*;
 pub use import_tombstones::{
     athlete_marker, email_identity_hash, provider_identity_hash, subject_hash, ImportTombstone,
@@ -379,6 +399,7 @@ pub use messaging_proactive::{ProactiveNotice, ProactiveNoticePart};
 pub use mobility::*;
 pub use notifications::*;
 pub use oauth::*;
+pub use peer_data_reads::{NewPeerDataRead, PeerDataRead, PeerDataReadRepository};
 pub use persona_digest_returns::PersonaDigestReturnRepository;
 pub use personal_bests::{PersonalBest, PersonalBestRepository};
 pub use personal_bests::{PersonalBestSeed, PersonalBestSeedCandidate};

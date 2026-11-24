@@ -32,8 +32,8 @@
 
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine as _;
-use chrono::{DateTime, NaiveDate, Utc};
 use dravr_cageux::zones::COGGAN_POWER_ZONE_UPPER_FRACTIONS;
+use dravr_tronc::dates::{CivilDate, Timestamp};
 use ring::digest::{digest, SHA256};
 use serde_json::{json, Value};
 
@@ -42,6 +42,7 @@ use crate::models::{PlannedSession, RelativeIntensity, SportType, WorkoutStep};
 use crate::neutral_session::{
     is_power_sport, neutral_title, session_seconds, StepClass, SWEET_SPOT,
 };
+use dravr_tronc::dates::SecondsFormat;
 
 /// Prefix of every id Dravr writes into Wahoo, so a listing tells Dravr's
 /// scheduled workouts from the athlete's own.
@@ -402,14 +403,14 @@ pub fn targets_ftp(session: &PlannedSession) -> bool {
 
 /// A UTC instant as Wahoo's date-time fields take it (`2026-10-08T12:00:00.000Z`).
 #[must_use]
-pub fn wahoo_timestamp(at: DateTime<Utc>) -> String {
-    at.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string()
+pub fn wahoo_timestamp(at: Timestamp) -> String {
+    at.to_rfc3339_opts(SecondsFormat::Millis, true)
 }
 
 /// The start time a session on `date` is scheduled at.
 #[must_use]
-pub fn scheduled_start(date: NaiveDate) -> String {
-    format!("{}T{SCHEDULED_HOUR_UTC}", date.format("%Y-%m-%d"))
+pub fn scheduled_start(date: CivilDate) -> String {
+    format!("{date}T{SCHEDULED_HOUR_UTC}")
 }
 
 /// The form fields of a plan upload (`POST /v1/plans`, or `PUT` with
@@ -419,7 +420,7 @@ pub fn scheduled_start(date: NaiveDate) -> String {
 pub fn plan_form(
     session: &PlannedSession,
     file: &Value,
-    updated_at: DateTime<Utc>,
+    updated_at: Timestamp,
     with_external_id: bool,
 ) -> Vec<(&'static str, String)> {
     let encoded = BASE64.encode(file.to_string());
@@ -482,7 +483,7 @@ mod tests {
         PlannedSession {
             external_id: "dravr:plan:4b0f3c1e-8a2d-4f6b-9c3e-2d1a7e5f9b10:2026-10-08:0".to_owned(),
             kind: PlannedSessionKind::Workout,
-            date: NaiveDate::from_ymd_opt(2026, 10, 8).unwrap_or_default(),
+            date: CivilDate::from_ymd(2026, 10, 8).ok().unwrap_or_default(),
             sport: SportType::Ride,
             name: "Julie threshold — HRV low so keep it honest".to_owned(),
             duration_seconds: Some(5400),
@@ -499,7 +500,7 @@ mod tests {
     fn everything_sent(session: &PlannedSession, ftp: Option<u32>) -> String {
         let file = plan_file(session, ftp).unwrap_or_default();
         let mut sent = file.to_string();
-        let now = Utc::now();
+        let now = Timestamp::now();
         for (key, value) in plan_form(session, &file, now, true)
             .into_iter()
             .chain(workout_form(session, Some(7)))
@@ -559,7 +560,7 @@ mod tests {
             .all(|c| c.is_ascii_hexdigit()));
         assert_eq!(id, opaque_id(&session.external_id), "stable across pushes");
         let file = plan_file(&session, None).unwrap_or_default();
-        let plan = plan_form(&session, &file, Utc::now(), true);
+        let plan = plan_form(&session, &file, Timestamp::now(), true);
         let workout = workout_form(&session, Some(7));
         assert!(plan.contains(&("plan[external_id]", id.clone())));
         assert!(workout.contains(&("workout[workout_token]", id.clone())));
@@ -571,7 +572,7 @@ mod tests {
     fn an_update_never_resends_the_external_id() {
         let session = loaded_session();
         let file = plan_file(&session, None).unwrap_or_default();
-        assert!(plan_form(&session, &file, Utc::now(), false)
+        assert!(plan_form(&session, &file, Timestamp::now(), false)
             .iter()
             .all(|(key, _)| *key != "plan[external_id]"));
     }

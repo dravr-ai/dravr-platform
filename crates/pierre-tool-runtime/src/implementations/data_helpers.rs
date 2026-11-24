@@ -15,7 +15,7 @@
 use std::env;
 use std::sync::Arc;
 
-use chrono::{DateTime, NaiveDate, Utc};
+use dravr_tronc::dates::{CivilDate, Timestamp};
 
 use serde_json::{json, Value};
 #[cfg(feature = "tools-data")]
@@ -77,7 +77,7 @@ const DEFAULT_HISTORICAL_BACKFILL_FETCH_LIMIT: usize = 2_000;
 /// Fetch limit a background backfill requests.
 ///
 /// Read from `PIERRE_HISTORICAL_BACKFILL_FETCH_LIMIT`, falling back to
-/// [`DEFAULT_HISTORICAL_BACKFILL_FETCH_LIMIT`]. Operators raise this for
+/// [`DEFAULT_HISTORICAL_BACKFILL_FETCH_LIMIT`]. Admins raise this for
 /// athletes with very deep histories; zero or unparseable values fall back to
 /// the default.
 #[must_use]
@@ -191,7 +191,7 @@ pub struct WindowCount {
     pub fetched: usize,
     /// The oldest and newest day, in the athlete's zone, a counted activity
     /// started on.
-    pub span: Option<(NaiveDate, NaiveDate)>,
+    pub span: Option<(CivilDate, CivilDate)>,
     /// Count, distance, duration and climb summed over the window.
     pub totals: Option<WindowTotals>,
     /// Served rows the store does not hold, left out of `total` and `totals`.
@@ -282,8 +282,8 @@ pub fn activity_coverage(
     let count = |n: usize| u64::try_from(n).unwrap_or(u64::MAX);
     let day = |epoch: Option<i64>| {
         epoch
-            .and_then(|e| DateTime::<Utc>::from_timestamp(e, 0))
-            .map(|at| at.date_naive())
+            .and_then(|e| Timestamp::from_epoch_seconds(e).ok())
+            .map(Timestamp::utc_date)
     };
     Some(Coverage {
         completeness,
@@ -317,7 +317,7 @@ pub fn activity_coverage(
 pub(crate) fn segments_read_coverage(
     activities: usize,
     read: usize,
-    asked: (NaiveDate, NaiveDate),
+    asked: (CivilDate, CivilDate),
     completeness: Completeness,
     pending: Option<Pending>,
 ) -> Coverage {
@@ -449,7 +449,7 @@ pub(crate) fn read_limit_note(name: &str, what: &str, when: &str, retry_after_se
 #[must_use]
 pub(crate) fn read_paused_note(name: &str, until_ms: i64) -> String {
     let wait_ms = until_ms
-        .saturating_sub(Utc::now().timestamp_millis())
+        .saturating_sub(Timestamp::now().epoch_millis())
         .max(0);
     let minutes = request_budget::minutes_until(u64::try_from(wait_ms / 1_000).unwrap_or(0));
     format!(
@@ -721,7 +721,8 @@ pub fn backfill_placeholder_message(
 
 #[cfg(test)]
 mod tests {
-    use chrono::Utc;
+    #[cfg(feature = "tools-data")]
+    use dravr_tronc::dates::Timestamp;
 
     #[cfg(feature = "tools-data")]
     use super::read_paused_note;
@@ -735,7 +736,7 @@ mod tests {
     #[cfg(feature = "tools-data")]
     #[test]
     fn a_paused_history_read_says_when_live_reads_resume() {
-        let until_ms = Utc::now().timestamp_millis() + 600_000;
+        let until_ms = Timestamp::now().epoch_millis() + 600_000;
         let note = read_paused_note("Garmin", until_ms);
         assert!(
             note.contains("about 10 min"),
@@ -745,7 +746,7 @@ mod tests {
             note.contains("do not ask the athlete to reconnect"),
             "bug: a paused read reads as a dead connection: {note}"
         );
-        let past = read_paused_note("Garmin", Utc::now().timestamp_millis() - 5_000);
+        let past = read_paused_note("Garmin", Timestamp::now().epoch_millis() - 5_000);
         assert!(
             past.contains("about 1 min"),
             "bug: a wait already over reads as no wait at all: {past}"

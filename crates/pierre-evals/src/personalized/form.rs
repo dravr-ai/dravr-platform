@@ -885,7 +885,7 @@ fn mark_percent_ranges(lower: &str, found: &mut [Figure]) {
 
 #[cfg(test)]
 mod tests {
-    use chrono::NaiveDate;
+    use dravr_tronc::dates::CivilDate;
     use pierre_core::models::DailyTrainingState;
 
     use super::*;
@@ -901,7 +901,7 @@ mod tests {
             atl,
             tsb: ctl - atl,
             form_ctl: ctl,
-            ..DailyTrainingState::zero(NaiveDate::from_ymd_opt(2026, 10, 9).unwrap())
+            ..DailyTrainingState::zero(CivilDate::from_ymd(2026, 10, 9).unwrap())
         }
         .form_reading()
     }

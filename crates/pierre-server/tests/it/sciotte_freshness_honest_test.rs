@@ -27,29 +27,12 @@ use secrecy::SecretString;
 
 use std::sync::Arc;
 
-use chrono::Utc;
 use common::{create_test_server_resources, create_test_user};
-use pierre_core::errors::AppError;
-use pierre_core::models::{
-    ActivityBuilder, OAuthNotification, RefreshConfig, SportType, UserOAuthToken,
-};
-use pierre_services::provider_refresh::{RefreshService, SyncNotifier};
+use dravr_tronc::dates::Elapsed;
+use dravr_tronc::dates::Timestamp;
+use pierre_core::models::{ActivityBuilder, RefreshConfig, SportType, UserOAuthToken};
+use pierre_services::provider_refresh::RefreshService;
 use uuid::Uuid;
-
-/// No-op notifier: the refresh service requires a `SyncNotifier`, but these
-/// tests assert on freshness classification, not SSE delivery.
-struct NoopNotifier;
-
-#[async_trait::async_trait]
-impl SyncNotifier for NoopNotifier {
-    async fn send_notification(
-        &self,
-        _user_id: Uuid,
-        _notification: &OAuthNotification,
-    ) -> Result<(), AppError> {
-        Ok(())
-    }
-}
 
 /// Seed a sciotte session token so `get_provider_freshness` iterates the
 /// provider, mirroring what `store_sciotte_session` writes after login.
@@ -58,7 +41,7 @@ async fn seed_sciotte_token(
     user_id: Uuid,
     tenant: &str,
 ) {
-    let now = Utc::now();
+    let now = Timestamp::now();
     let token = UserOAuthToken {
         id: Uuid::new_v4().to_string(),
         user_id,
@@ -101,7 +84,6 @@ async fn sciotte_with_no_cache_is_reported_stale_not_fresh() {
         repos.activity_cache.clone(),
         Arc::clone(repos),
         None,
-        Arc::new(NoopNotifier),
     );
 
     let status = service
@@ -166,7 +148,7 @@ async fn sciotte_with_fresh_cache_is_reported_fresh() {
         "sc1".to_owned(),
         "morning ride".to_owned(),
         SportType::Ride,
-        Utc::now() - chrono::Duration::hours(2),
+        Timestamp::now() - Elapsed::hours(2),
         3_600,
         "sciotte".to_owned(),
     )
@@ -184,7 +166,6 @@ async fn sciotte_with_fresh_cache_is_reported_fresh() {
         repos.activity_cache.clone(),
         Arc::clone(repos),
         None,
-        Arc::new(NoopNotifier),
     );
 
     let status = service

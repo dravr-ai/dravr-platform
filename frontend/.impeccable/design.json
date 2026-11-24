@@ -1,0 +1,268 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-22T16:33:06.000Z",
+  "title": "Design System: Dravr Boreal",
+  "extensions": {
+    "colorMeta": {
+      "primary": {
+        "role": "primary",
+        "displayName": "Sage Forest",
+        "canonical": "#255f4d",
+        "tonalRamp": [
+          "#001812",
+          "#002117",
+          "#0d3b2e",
+          "#234e40",
+          "#255f4d",
+          "#3c6658",
+          "#5e8a78",
+          "#79a694",
+          "#a3d0be",
+          "#d6e3dc",
+          "#eef4f1"
+        ]
+      },
+      "primary-container": {
+        "role": "primary",
+        "displayName": "Forest Tint",
+        "canonical": "#e1eae5",
+        "tonalRamp": [
+          "#143d30",
+          "#e1eae5"
+        ]
+      },
+      "on-surface": {
+        "role": "neutral",
+        "displayName": "Boreal Ink",
+        "canonical": "#1a1c1b",
+        "tonalRamp": [
+          "#1a1c1b",
+          "#414845",
+          "#525a55",
+          "#c0c8c3"
+        ]
+      },
+      "warning": {
+        "role": "feedback",
+        "displayName": "Bronze",
+        "canonical": "#b08326",
+        "tonalRamp": [
+          "#664c16",
+          "#b08326",
+          "#d6b87a"
+        ]
+      },
+      "info": {
+        "role": "feedback",
+        "displayName": "Slate Teal",
+        "canonical": "#3e7283",
+        "tonalRamp": [
+          "#2d525e",
+          "#3e7283",
+          "#9bb6bd"
+        ]
+      },
+      "surface": {
+        "role": "neutral",
+        "displayName": "Warm Paper",
+        "canonical": "#f7f6f2",
+        "tonalRamp": [
+          "#cfcec9",
+          "#d7d6d1",
+          "#e0dfda",
+          "#ebeae5",
+          "#f7f6f2",
+          "#ffffff"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "Page and column titles, row and card titles; Schibsted Grotesk 600."
+      },
+      "body": {
+        "displayName": "Reading text",
+        "purpose": "Messages and descriptions at 15px."
+      },
+      "interface": {
+        "displayName": "Interface text",
+        "purpose": "Nav, tabs, rows, tables, buttons at 13px medium."
+      },
+      "numeric": {
+        "displayName": "Compared numbers",
+        "purpose": "TSS, CTL, dates in tables; tabular-nums mono."
+      },
+      "wordmark": {
+        "displayName": "DRAVR wordmark",
+        "purpose": "The only tracked text in the product."
+      }
+    },
+    "shadows": [
+      {
+        "name": "floating-light",
+        "value": "0 12px 24px -6px rgba(26,28,27,.12), 0 6px 12px -3px rgba(26,28,27,.08)",
+        "purpose": "Menus, popovers, drawers, modals in light."
+      },
+      {
+        "name": "floating-dark",
+        "value": "0 12px 24px -6px rgba(0,0,0,.55), 0 6px 12px -3px rgba(0,0,0,.45)",
+        "purpose": "The same floating layer in dark."
+      }
+    ],
+    "motion": [
+      {
+        "name": "hover",
+        "value": "200ms ease-out",
+        "purpose": "Hover state changes."
+      },
+      {
+        "name": "press",
+        "value": "100ms ease-in",
+        "purpose": "Press feedback."
+      },
+      {
+        "name": "modal",
+        "value": "300ms cubic-bezier(.4, 0, .2, 1)",
+        "purpose": "Modals and dialogs."
+      },
+      {
+        "name": "page",
+        "value": "400ms ease-in-out",
+        "purpose": "Page transitions."
+      },
+      {
+        "name": "fade-rise",
+        "value": "500ms cubic-bezier(.22, 1, .36, 1)",
+        "purpose": "Entrance. All motion respects prefers-reduced-motion."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "md",
+        "value": "768px"
+      },
+      {
+        "name": "lg",
+        "value": "1024px"
+      },
+      {
+        "name": "xl",
+        "value": "1280px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The one filled call to action per view.",
+      "html": "<button class=\"ds-btn-primary\">Save plan</button>",
+      "css": ".ds-btn-primary { background: #255f4d; color: #ffffff; height: 32px; padding: 0 12px; border: none; border-radius: 8px; font: 500 13px/18px 'Plus Jakarta Sans', system-ui, sans-serif; cursor: pointer; transition: background 200ms ease-out; } .ds-btn-primary:hover { background: #1e5040; } .ds-btn-primary:focus-visible { outline: none; box-shadow: 0 0 0 2px #255f4d, 0 0 0 4px rgba(255,255,255,.95); }"
+    },
+    {
+      "name": "Tertiary Button",
+      "kind": "button",
+      "description": "Text-only action in primary ink, sentence case.",
+      "html": "<button class=\"ds-btn-tertiary\">Build from family</button>",
+      "css": ".ds-btn-tertiary { background: transparent; color: #255f4d; height: 32px; padding: 0 8px; border: none; border-radius: 8px; font: 500 13px/18px 'Plus Jakarta Sans', system-ui, sans-serif; cursor: pointer; } .ds-btn-tertiary:focus-visible { outline: none; box-shadow: 0 0 0 2px #255f4d, 0 0 0 4px rgba(255,255,255,.95); }"
+    },
+    {
+      "name": "Card",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "A white sheet with a ghost-border hairline and no shadow.",
+      "html": "<div class=\"ds-card\"><div class=\"ds-card-title\">This week</div><div class=\"ds-card-body\">4 sessions planned, form steady.</div></div>",
+      "css": ".ds-card { background: #ffffff; border: 1px solid rgba(155,165,159,.40); border-radius: 12px; padding: 24px; font-family: 'Plus Jakarta Sans', system-ui, sans-serif; color: #1a1c1b; } .ds-card-title { font: 600 18px/24px 'Schibsted Grotesk', system-ui, sans-serif; letter-spacing: -0.01em; margin-bottom: 8px; } .ds-card-body { font: 400 15px/23px 'Plus Jakarta Sans', system-ui, sans-serif; color: #414845; }"
+    },
+    {
+      "name": "Athlete Bubble",
+      "kind": "custom",
+      "refersTo": "athlete-bubble",
+      "description": "The one bubble in a thread, on the primary tint.",
+      "html": "<div class=\"ds-bubble\">How was my week?</div>",
+      "css": ".ds-bubble { display: inline-block; background: #e1eae5; color: #143d30; border-radius: 14px 14px 4px 14px; padding: 8px 12px; font: 400 15px/23px 'Plus Jakarta Sans', system-ui, sans-serif; }"
+    },
+    {
+      "name": "Badge",
+      "kind": "chip",
+      "refersTo": "badge",
+      "description": "A feedback or category chip: hue at /15 under its bound ink.",
+      "html": "<span class=\"ds-badge\">Draft</span>",
+      "css": ".ds-badge { display: inline-block; background: rgba(176,131,38,.15); color: #664c16; border-radius: 9999px; padding: 4px 12px; font: 500 12px/16px 'Plus Jakarta Sans', system-ui, sans-serif; }"
+    },
+    {
+      "name": "Field",
+      "kind": "input",
+      "description": "The editorial underline: the one form-field language.",
+      "html": "<label class=\"ds-field\"><span>Email</span><input type=\"email\" value=\"athlete@example.com\"></label>",
+      "css": ".ds-field { display: block; font: 500 13px/18px 'Plus Jakarta Sans', system-ui, sans-serif; color: #414845; } .ds-field input { display: block; width: 100%; margin-top: 4px; background: transparent; border: 0; border-radius: 0; border-bottom: 1px solid rgba(192,200,195,.45); padding: 8px 0; font: 400 13px/18px 'Plus Jakarta Sans', system-ui, sans-serif; color: #1a1c1b; } .ds-field input:focus { border-bottom: 2px solid #255f4d; outline: none; padding-bottom: 7px; } .ds-field input:focus-visible { outline: 2px solid #255f4d; outline-offset: 3px; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "Boreal Forest on Paper",
+    "overview": "Dravr reads like a quiet field notebook for training: one warm paper ground, one sage-forest green, and hairlines instead of shadows and of fill steps between panes. The product is dense and data-first, because athletes scan a thread, a plan and a set of numbers in short sessions, but it never looks busy: depth comes from a 1px ghost-border hairline and a half-step fill, and the single accent is saved for the one action that matters.\n\nThe same identity carries to the phone (iOS and Android) and to the editorial marketing site; the product tier adds visible hairlines, lifted pillar saturation and mandatory on-colour text pairings for high-density screens.",
+    "keyCharacteristics": [
+      "One accent, green: primary is the fill, the ink and the link colour.",
+      "Hairlines lift, shadows float: the only shadow belongs to what hovers over the page.",
+      "Warm paper (#f7f6f2) as the one ground for rail, list and thread.",
+      "Tone is calm, premium, editorial; never glossy, never hype.",
+      "Every text/surface pairing is measured, not assumed (WCAG AA, 4.5:1)."
+    ],
+    "rules": [
+      {
+        "name": "The One Voice Rule",
+        "body": "primary is the only accent. Filled primary appears once per view; everything else green is the container tint or primary ink. There is no separate brand token.",
+        "section": "colors"
+      },
+      {
+        "name": "The Bound Ink Rule",
+        "body": "A hue may be a fill, tint, dot, rule or border. Text that sits on it takes the hue's bound on-*-container ink, never the hue itself.",
+        "section": "colors"
+      },
+      {
+        "name": "The No Dark-on-Dark Rule",
+        "body": "Any bg-primary or inline background at or below #234e40 takes text-on-primary. Dark-on-dark is a bug, not a style.",
+        "section": "colors"
+      },
+      {
+        "name": "The Alpha Rule",
+        "body": "Every --color-* holds a bare r g b triplet and Tailwind maps it as rgb(var(--color-x) / <alpha-value>). A bare var(--color-x) silently drops /NN modifiers.",
+        "section": "colors"
+      },
+      {
+        "name": "The Sentence-Case Rule",
+        "body": "Labels are sentence case with no tracking. The DRAVR wordmark is the only letter-spaced label (headlines carry a slight -0.01em tightening, nothing more); uppercase tracked labels are retired.",
+        "section": "typography"
+      },
+      {
+        "name": "The Hairlines-Lift Rule",
+        "body": "Resting surfaces are lifted by hairline and fill step, never by shadow. In dark, a black shadow is inert on a black ground.",
+        "section": "elevation"
+      },
+      {
+        "name": "The Fill-Step-First Rule",
+        "body": "The fill step is the only channel that survives a screenshot or reduced transparency. Adjacent light tiers separate by at least 1.06:1; a raised surface over its canvas by at least 1.18:1.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do use primary for the one call to action per view and primary-container for tints (#e1eae5 / #234e40).",
+      "Do pair every fill with its mandatory on-colour (text-on-primary, bound on-*-container inks).",
+      "Do lift resting surfaces with a 1px ghost-border hairline and a fill step; reserve shadow-floating for what floats.",
+      "Do use sentence-case labels, 13px medium interface text and 15px reading text; set compared numbers in font-mono.",
+      "Do keep touch targets at 44×44px on coarse pointers and under lg, and honour prefers-reduced-motion.",
+      "Do route every colour through a token (alpha modifiers on token classes work), including the phone via useThemeColors()."
+    ],
+    "donts": [
+      "Don't pair a dark brand fill (bg-primary, or an inline background at or below #234e40) with text-on-surface; dark-on-dark is a bug.",
+      "Don't use a pillar hue as a button fill, a state, a progress bar or text; a state takes a feedback tone.",
+      "Don't use a stock Tailwind shade (text-amber-400, bg-red-500) or hard-code hex outside brand glyphs.",
+      "Don't add glow, a violet ring, a gradient on a resting surface, or backdrop blur on standard cards.",
+      "Don't use uppercase tracked labels; only the wordmark is tracked.",
+      "Don't let colour be the sole channel of meaning; pair it with an icon, label or position.",
+      "Don't raise a dark card with surface-container-lowest; it sinks below the canvas."
+    ]
+  }
+}

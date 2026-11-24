@@ -25,7 +25,7 @@ use crate::common;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use chrono::{Duration as ChronoDuration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use dravr_tronc::mcp::tool::{McpTool, ToolContext};
 use pierre_config::environment::ProviderEndpointOverride;
 use pierre_core::models::TenantId;
@@ -101,7 +101,6 @@ async fn stack() -> Stack {
         },
     );
     config.webhooks.garmin_token = Some(SecretString::from(PATH_TOKEN));
-    config.external_services.garmin_api.base_url = format!("{fixture_base}/wellness-api/rest");
     let resources = common::create_test_server_resources_with_config(config)
         .await
         .unwrap();
@@ -233,8 +232,8 @@ async fn call(
 /// A stored-data window covering the templates' days.
 fn window() -> Value {
     json!({
-        "start": (Utc::now() - ChronoDuration::days(7)).to_rfc3339(),
-        "end": (Utc::now() + ChronoDuration::days(1)).to_rfc3339(),
+        "start": (Timestamp::now() - Elapsed::days(7)).to_rfc3339(),
+        "end": (Timestamp::now() + Elapsed::days(1)).to_rfc3339(),
     })
 }
 
@@ -330,8 +329,8 @@ async fn a_garmin_api_athlete_connects_is_pushed_to_and_reads_through_the_tools(
             user_id,
             &tenant_id,
             Some("garmin"),
-            Utc::now() - ChronoDuration::days(7),
-            Utc::now(),
+            Timestamp::now() - Elapsed::days(7),
+            Timestamp::now(),
             10,
         )
         .await
@@ -432,8 +431,8 @@ async fn a_garmin_api_athlete_connects_is_pushed_to_and_reads_through_the_tools(
             user_id,
             &tenant_id,
             Some("garmin"),
-            Utc::now() - ChronoDuration::days(30),
-            Utc::now() + ChronoDuration::days(1),
+            Timestamp::now() - Elapsed::days(30),
+            Timestamp::now() + Elapsed::days(1),
             10,
         )
         .await
@@ -533,7 +532,7 @@ async fn every_data_push_template_is_accepted_and_lands() {
         .repos
         .garmin_push_inbox
         .claim_due_pushes(InboxClaim {
-            now_ms: Utc::now().timestamp_millis() + 86_400_000,
+            now_ms: Timestamp::now().epoch_millis() + 86_400_000,
             lease_ms: 60_000,
             max_attempts: 8,
             limit: 50,

@@ -980,7 +980,7 @@ mod data_tests {
         use pierre_tool_runtime::implementations::data::create_data_tools;
 
         let tools = create_data_tools();
-        assert_eq!(tools.len(), 11, "bug: expected 11 data tools");
+        assert_eq!(tools.len(), 12, "bug: expected 12 data tools");
 
         let names: Vec<String> = tools.iter().map(|t| t.definition().name).collect();
         let expected_names = [
@@ -991,6 +991,7 @@ mod data_tests {
             "get_heart_rate_series",
             "get_segment_history",
             "query_activities",
+            "get_health_records",
         ];
 
         for expected in expected_names {
@@ -1405,7 +1406,7 @@ mod admin_tests {
         use pierre_tool_runtime::implementations::admin::create_admin_tools;
 
         let tools = create_admin_tools();
-        assert_eq!(tools.len(), 8, "Expected 8 admin tools");
+        assert_eq!(tools.len(), 10, "Expected 10 admin tools");
 
         let names: Vec<String> = tools.iter().map(|t| t.definition().name).collect();
         let expected_names = [
@@ -1417,6 +1418,8 @@ mod admin_tests {
             "admin_assign_agent",
             "admin_unassign_agent",
             "admin_list_agent_assignments",
+            "admin_impersonate_start",
+            "admin_impersonate_end",
         ];
 
         for expected in expected_names {
@@ -1483,7 +1486,10 @@ fn test_total_tool_count() {
         + admin.len()
         + mobility.len();
 
-    assert_eq!(total, 83, "bug: expected 83 tools across all categories");
+    // 2026-11-20: admin_impersonate_start and admin_impersonate_end (83→85),
+    // an admin's support session over MCP and A2A, carnet#1511.
+    // 2026-11-21: get_health_records (85→86), carnet#1544.
+    assert_eq!(total, 86, "bug: expected 86 tools across all categories");
 }
 
 #[test]

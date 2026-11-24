@@ -8,7 +8,7 @@
 //! expands once per backend below, with that driver's row type and its
 //! [`super::uuid_columns`] codec.
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 
 /// Read a column, naming it in the error.
@@ -23,11 +23,11 @@ where
 }
 
 /// Read a timestamp column.
-pub(crate) fn instant<'r, R>(row: &'r R, name: &str) -> AppResult<DateTime<Utc>>
+pub(crate) fn instant<'r, R>(row: &'r R, name: &str) -> AppResult<Timestamp>
 where
     R: sqlx::Row,
     for<'a> &'a str: sqlx::ColumnIndex<R>,
-    DateTime<Utc>: sqlx::Decode<'r, R::Database> + sqlx::Type<R::Database>,
+    Timestamp: sqlx::Decode<'r, R::Database> + sqlx::Type<R::Database>,
 {
     column(row, name)
 }

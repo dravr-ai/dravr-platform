@@ -36,7 +36,7 @@ use std::fmt::Write as _;
 use std::sync::Arc;
 use std::time::Duration;
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_database::repositories::{OAuthClientStateRepository, WorkerRunRepository};
 use tracing::warn;
 
@@ -67,7 +67,9 @@ pub fn start_oauth_launch_sweeper(
     spawn_periodic("oauth launch sweeper", SWEEP_INTERVAL, ledger, move || {
         let states = Arc::clone(&states);
         async move {
-            let reaped = states.reap_expired_oauth_client_states(Utc::now()).await?;
+            let reaped = states
+                .reap_expired_oauth_client_states(Timestamp::now())
+                .await?;
             report_reaped(&reaped);
             Ok(())
         }
@@ -94,7 +96,7 @@ fn report_reaped(reaped: &[(String, u64)]) {
 /// Render the per-provider counts as `strava=3 whoop=1`.
 ///
 /// A bare total says connecting is failing; the breakdown says which provider,
-/// which is the first thing an operator needs and the difference between one
+/// which is the first thing an admin needs and the difference between one
 /// provider's outage and a platform-wide one.
 fn format_breakdown(reaped: &[(String, u64)]) -> String {
     let mut rendered = String::new();

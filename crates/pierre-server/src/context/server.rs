@@ -45,6 +45,7 @@ impl ServerContext {
             self.fitness.provider_registry.clone(),
         )
         .with_provider_purge(Arc::clone(&self.common.provider_purge))
+        .with_connect_log(Arc::clone(&self.common.connect_log))
     }
 
     /// Extract configuration context (server config, OAuth, A2A, admin config).

@@ -36,8 +36,8 @@
 
 use std::sync::Arc;
 
-use chrono::{Duration, NaiveDate};
 use dravr_cageux::training_load::{FormBand, TrainingLoad, TrainingLoadCalculator};
+use dravr_tronc::dates::{CivilDate, Elapsed};
 use pierre_core::constants::oauth_providers::GarminContribution;
 use pierre_core::errors::AppResult;
 use pierre_core::models::{DailyTrainingState, TenantId};
@@ -53,7 +53,7 @@ use uuid::Uuid;
 #[derive(Debug, Clone, Serialize)]
 pub struct TrainingStatus {
     /// The athlete's civil date the status is read on, `YYYY-MM-DD`.
-    pub today: NaiveDate,
+    pub today: CivilDate,
     /// Form on `today`; `null` when the stored history cannot stand behind
     /// that day.
     pub form: Option<FormToday>,
@@ -88,7 +88,7 @@ pub struct FormToday {
 #[derive(Debug, Clone, Copy, Serialize)]
 pub struct FormTrendPoint {
     /// The athlete's civil date, `YYYY-MM-DD`.
-    pub date: NaiveDate,
+    pub date: CivilDate,
     /// The band form fell in that day.
     pub band: FormBand,
     /// Form as a whole percentage of fitness; `null` with no chronic base.
@@ -120,7 +120,7 @@ pub async fn training_status(
     runtime: &Arc<dyn ToolRuntime>,
     tenant_id: TenantId,
     user_id: Uuid,
-    today: NaiveDate,
+    today: CivilDate,
 ) -> AppResult<TrainingStatus> {
     let (from, to) = status_window(today, configured_ctl_days(runtime));
     let read = read_history_from_cache(runtime, tenant_id, user_id, from, to).await?;
@@ -140,8 +140,8 @@ pub async fn training_status(
 /// The one definition of the page's window, read by the page and by the
 /// connect that lands its history ([`request_status_depth`]).
 #[must_use]
-fn status_window(today: NaiveDate, ctl_days: i64) -> (NaiveDate, NaiveDate) {
-    (today - Duration::days(ctl_days), today)
+fn status_window(today: CivilDate, ctl_days: i64) -> (CivilDate, CivilDate) {
+    (today - Elapsed::days(ctl_days), today)
 }
 
 /// The configured chronic window: the trend spans it, never a figure of this
@@ -185,7 +185,7 @@ pub async fn request_status_depth(
 /// Today's figures come from today's row alone: a series that stops short of
 /// `today` answers `form: null` rather than passing an older day off as now.
 #[must_use]
-pub fn status_from_rows(today: NaiveDate, rows: &[DailyTrainingState]) -> TrainingStatus {
+pub fn status_from_rows(today: CivilDate, rows: &[DailyTrainingState]) -> TrainingStatus {
     let current = rows.last().filter(|row| row.date == today);
     let Some(current) = current else {
         return TrainingStatus {
@@ -236,14 +236,14 @@ pub fn status_from_rows(today: NaiveDate, rows: &[DailyTrainingState]) -> Traini
 
 #[cfg(test)]
 mod tests {
-    use chrono::{Duration, NaiveDate};
+    use dravr_tronc::dates::{CivilDate, Elapsed};
     use pierre_fitness_compute::training_history_compute::warmup_days;
     use pierre_services::training_history_read::first_vouched_day;
 
     use super::status_window;
 
-    fn day(y: i32, m: u32, d: u32) -> NaiveDate {
-        NaiveDate::from_ymd_opt(y, m, d).expect("valid date")
+    fn day(y: i32, m: u32, d: u32) -> CivilDate {
+        CivilDate::from_ymd(y, m, d).expect("valid date")
     }
 
     /// The history depth the whole page needs, derived from the same
@@ -269,9 +269,9 @@ mod tests {
         let ctl_days = 42;
         let (from, _) = status_window(today, ctl_days);
         let warmup = warmup_days(ctl_days);
-        let deep_enough = today - Duration::days(depth_needed(ctl_days));
+        let deep_enough = today - Elapsed::days(depth_needed(ctl_days));
         assert_eq!(first_vouched_day(from, deep_enough, warmup), from);
-        let one_short = deep_enough + Duration::days(1);
+        let one_short = deep_enough + Elapsed::days(1);
         assert!(first_vouched_day(from, one_short, warmup) > from);
     }
 
@@ -281,7 +281,7 @@ mod tests {
     fn thirty_days_of_history_vouch_for_nothing() {
         let today = day(2026, 10, 15);
         let (from, to) = status_window(today, 42);
-        let oldest = today - Duration::days(30);
+        let oldest = today - Elapsed::days(30);
         assert!(first_vouched_day(from, oldest, warmup_days(42)) > to);
     }
 }

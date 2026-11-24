@@ -14,7 +14,7 @@ use std::sync::{Arc, Mutex};
 
 use anyhow::Result;
 use async_trait::async_trait;
-use chrono::{DateTime, Duration, NaiveDate, Utc, Weekday};
+use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp, Weekday};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::periodization::PhaseKind;
 use pierre_core::models::{
@@ -46,11 +46,11 @@ const TAG: &str = "written-by-dravr";
 /// One entry on the fake calendar.
 #[derive(Debug, Clone)]
 struct Entry {
-    date: NaiveDate,
+    date: CivilDate,
     /// Whether Dravr wrote it (the calendar files it under [`TAG`]).
     dravrs: bool,
     /// When someone other than Dravr last changed it, if anyone did.
-    edited_at: Option<DateTime<Utc>>,
+    edited_at: Option<Timestamp>,
 }
 
 #[derive(Debug, Default)]
@@ -91,7 +91,7 @@ impl IdentityOnly {
         }
     }
 
-    fn put(&self, id: &str, date: NaiveDate, dravrs: bool) {
+    fn put(&self, id: &str, date: CivilDate, dravrs: bool) {
         self.calendar.lock().unwrap().entries.insert(
             id.to_owned(),
             Entry {
@@ -102,7 +102,7 @@ impl IdentityOnly {
         );
     }
 
-    fn edit(&self, id: &str, at: DateTime<Utc>) {
+    fn edit(&self, id: &str, at: Timestamp) {
         self.calendar
             .lock()
             .unwrap()
@@ -181,8 +181,8 @@ impl FitnessProvider for IdentityOnly {
 
     async fn list_calendar_events(
         &self,
-        from: NaiveDate,
-        to: NaiveDate,
+        from: CivilDate,
+        to: CivilDate,
     ) -> AppResult<Vec<CalendarEventRef>> {
         Ok(self
             .calendar
@@ -266,11 +266,10 @@ struct Fixture {
     repos: Arc<RepositoryRegistry>,
     user_id: Uuid,
     tenant: TenantId,
-    monday: NaiveDate,
+    monday: CivilDate,
 }
 
 async fn fixture() -> Result<Fixture> {
-    use chrono::Datelike;
     use pierre_tool_runtime::runtime::ToolRuntime;
 
     common::init_server_config();
@@ -284,9 +283,9 @@ async fn fixture() -> Result<Fixture> {
         .first()
         .expect("user has a tenant")
         .id;
-    let mut monday = Utc::now().date_naive() + Duration::days(7);
+    let mut monday = Timestamp::now().utc_date() + Elapsed::days(7);
     while monday.weekday() != Weekday::Mon {
-        monday += Duration::days(1);
+        monday += Elapsed::days(1);
     }
     Ok(Fixture {
         repos,
@@ -297,14 +296,14 @@ async fn fixture() -> Result<Fixture> {
 }
 
 impl Fixture {
-    fn day(&self, offset: i64) -> NaiveDate {
-        self.monday + Duration::days(offset)
+    fn day(&self, offset: i64) -> CivilDate {
+        self.monday + Elapsed::days(offset)
     }
 
     /// Save the athlete's one plan week, `days` as `(offset, sport, workout)`;
     /// the first save lays the season outline, a later one re-saves the week.
     async fn save_week(&self, outline: bool, days: &[(i64, &str, &str)]) {
-        let iso = |offset: i64| self.day(offset).format("%Y-%m-%d").to_string();
+        let iso = |offset: i64| self.day(offset).to_string();
         let days: Vec<PlannedDay> = days
             .iter()
             .map(|(offset, sport, workout)| PlannedDay {
@@ -320,6 +319,8 @@ impl Fixture {
                 template_source: None,
                 template_preset: None,
                 envelope: None,
+                coach_original: None,
+                coach_added: false,
             })
             .collect();
         let goal = GoalRace {
@@ -384,7 +385,7 @@ impl Fixture {
                 tenant: self.tenant,
                 user_id: self.user_id,
                 provider: PROVIDER,
-                from: Utc::now().date_naive(),
+                from: Timestamp::now().utc_date(),
                 week_notes: false,
                 cancel: None,
             },
@@ -411,8 +412,8 @@ impl Fixture {
 
     /// A live prescription row naming `event_id` on `date`, as
     /// `prescribe_workout` records one.
-    async fn prescription_on(&self, date: NaiveDate, event_id: &str) {
-        let now = Utc::now();
+    async fn prescription_on(&self, date: CivilDate, event_id: &str) {
+        let now = Timestamp::now();
         self.repos
             .prescribed_workouts
             .upsert_prescribed_workout(&PrescribedWorkout {
@@ -471,7 +472,7 @@ async fn an_entry_is_read_only_before_it_is_overwritten_and_an_athletes_edit_kee
     let live = fx.live().await;
     let monday_event = live[&fx.plan_key(0)].provider_event_id.clone().unwrap();
     let wednesday_event = live[&fx.plan_key(2)].provider_event_id.clone().unwrap();
-    calendar.edit(&monday_event, Utc::now() + Duration::hours(1));
+    calendar.edit(&monday_event, Timestamp::now() + Elapsed::hours(1));
     fx.save_week(
         false,
         &[(0, "run", "Tempo run"), (2, "bike", "Sweet spot ride")],

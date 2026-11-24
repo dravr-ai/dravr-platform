@@ -21,19 +21,19 @@
 use secrecy::SecretString;
 use std::sync::{Arc, Mutex};
 
-use chrono::{TimeZone, Utc};
 use dravr_sciotte::models::AuthSession;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::constants::oauth_providers::SCIOTTE_COROS;
 use pierre_providers::core::{
     CredentialKind, FitnessProvider, OAuth2Credentials, ProviderConfig, ProviderFactory,
 };
 use pierre_providers::coros_self_report::feel_from_coros;
 use pierre_providers::models::Feel;
-use pierre_providers::registry::ProviderRegistry;
 use pierre_providers::sciotte_provider::{
     startup_reads, SciotteCorosProviderFactory, SciotteTarget,
 };
 use pierre_providers::spi::ProviderCapabilities;
+use pierre_test_support::providers::offline_provider_registry;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 
@@ -73,7 +73,7 @@ fn the_five_coros_faces_map_onto_the_named_scale_in_order() {
 
 #[test]
 fn the_registry_serves_sciotte_coros_as_coros() {
-    let registry = ProviderRegistry::new();
+    let registry = offline_provider_registry();
     assert!(registry.is_supported(SCIOTTE_COROS));
     let descriptor = registry
         .get_descriptor(SCIOTTE_COROS)
@@ -179,7 +179,7 @@ async fn connected_provider(base_url: &str) -> Box<dyn FitnessProvider> {
     let session = AuthSession {
         session_id: "stub-session".to_owned(),
         cookies: vec![],
-        created_at: Utc.with_ymd_and_hms(2026, 9, 10, 12, 0, 0).unwrap(), // Safe: literal calendar date is valid
+        created_at: Timestamp::parse_from_rfc3339("2026-09-10T12:00:00Z").unwrap(), // Safe: literal calendar date is valid
         expires_at: None,
     };
     provider

@@ -6,10 +6,9 @@
 
 use std::fmt;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use dravr_canot::turn::ConversationTurnId as CanotTurnId;
-use pierre_config::timeouts::ServerTimeouts;
 use pierre_core::models::messaging::{ChannelConfig, MessageContent, OutgoingMessage};
 use pierre_core::models::{ConversationTurnId, TenantId};
 use pierre_core::permissions::scopes::OAuthScope;
@@ -41,7 +40,7 @@ use super::intake;
 use super::otp::apply_conversation_recipient;
 use super::outbound_persist::{persist_outbound_row, OutboundRowParams};
 use super::resume::{
-    finish_turn_record, hand_off_drained_turn, keep_lease, note_placeholder,
+    finish_turn_record, hand_off_drained_turn, keep_turn_lease, note_placeholder,
     release_turn_for_retry, DrainHandOff, MAX_TURN_ATTEMPTS,
 };
 use super::slash::command_body;
@@ -50,7 +49,8 @@ use super::turn_guard::{
 };
 use super::{build_messaging_profile, outbound_retry, PendingDispatch};
 use crate::services::conversation_turn_lock::{acquire_turn_lock, evict_idle_turn_lock};
-use crate::services::failed_turn_notice::{close_failed_turn, TurnThread};
+use crate::services::failed_turn_notice::{close_failed_turn, FailedTurn, TurnThread};
+use crate::services::turn_runner::turn_watchdog;
 use pierre_chat_pipeline::turn_stop::TurnStop;
 use pierre_services::onboarding_gate::user_has_connected_provider;
 use pierre_services::user_status_gate::messaging_key_for_status;
@@ -258,40 +258,6 @@ pub(super) fn reply_message(
     }
 }
 
-/// Default wall-clock ceiling on one messaging turn.
-///
-/// Not a latency target — it is the ceiling above every bound the turn runs
-/// under, so that reaching it means the turn found something with no bound of
-/// its own. The deepest of those is the whole-turn ACP prompt cap
-/// (`EMBACLE_ACP_PROMPT_TIMEOUT_SECS`, 300s on dev), and a turn legitimately
-/// opens more than one ACP session: the tool loop runs in one, the final
-/// answer in another, and embacle retries an empty answer on a third. Three
-/// full-length prompts plus delivery is the honest worst case a healthy turn
-/// can reach, so the ceiling sits just above it.
-///
-/// The cost of setting it too low is worse than setting it too high: too low
-/// replaces an answer that was still coming with a notice saying it is not,
-/// while too high only delays a placeholder that was already going to close.
-const DEFAULT_TURN_WATCHDOG_SECS: u64 = 960;
-
-/// The per-turn watchdog, as the server's config holds it
-/// (`MESSAGING_TURN_WATCHDOG_SECS`, else [`DEFAULT_TURN_WATCHDOG_SECS`]).
-///
-/// Operator-set for the same reason its siblings under it are
-/// (`EMBACLE_ACP_PROMPT_TIMEOUT_SECS`, `EMBACLE_ACP_MESSAGE_TIMEOUT_SECS`):
-/// the number that is right depends on the deployed provider chain, and
-/// re-tuning it should not need a binary. Zero or unparseable is read as unset
-/// rather than disarming the watchdog — an unbounded turn is the defect this
-/// exists to end.
-#[must_use]
-pub fn turn_watchdog(timeouts: &ServerTimeouts) -> Duration {
-    Duration::from_secs(
-        timeouts
-            .turn_watchdog_secs
-            .unwrap_or(DEFAULT_TURN_WATCHDOG_SECS),
-    )
-}
-
 /// Log the pipeline failure, track analytics, and send a localized
 /// generic-error reply with a short correlation id.
 ///
@@ -476,7 +442,7 @@ async fn send_quota_denial_reply(
     // `increment_messaging_usage_counters` records — under the requester's own
     // tenant, so that is where the `usage_counters` row that tripped lives. In
     // a group the bot's tenant owns the channel and differs, and naming it here
-    // (as the neighbouring dispatch-failure event does) sends an operator
+    // (as the neighbouring dispatch-failure event does) sends an admin
     // resetting a dev counter to a tenant whose budget was never touched.
     warn!(
         error = %err,
@@ -502,7 +468,7 @@ async fn send_quota_denial_reply(
 ///
 /// The `#[instrument]` span pins `turn_id`, `channel`, and `conversation_id`
 /// onto every downstream log line (chat pipeline stages, embacle HTTP call)
-/// so an operator can grep a single `turn_id=...` across the whole flow.
+/// so an admin can grep a single `turn_id=...` across the whole flow.
 ///
 /// A run holds the lease on its recorded row (`dispatch.record`) and renews
 /// it while it works. Whatever end the turn reaches, the row is finished
@@ -520,7 +486,7 @@ pub(crate) async fn dispatch_and_respond(dispatch: PendingDispatch) -> TurnClose
     // The lease this run holds on its row is renewed for as long as the run
     // lives, whichever way the turn ends, and stops before the row is
     // settled — a renewal racing the delete would only find it gone.
-    let lease_heartbeat = keep_lease(&dispatch);
+    let lease_heartbeat = keep_turn_lease(&dispatch);
     let close = run_turn(&dispatch).await;
     drop(lease_heartbeat);
     if close == TurnClose::Finished {
@@ -678,7 +644,7 @@ async fn run_turn(dispatch: &PendingDispatch) -> TurnClose {
     TurnClose::Finished
 }
 
-/// The operator-facing record of a served turn: the `messaging.response_sent`
+/// The admin-facing record of a served turn: the `messaging.response_sent`
 /// notify event and the identity-leak signal.
 ///
 /// The security signal matters because the athlete received the canned
@@ -712,7 +678,7 @@ fn announce_served_turn(
 
 /// Log the inbound user message at debug.
 ///
-/// The full body is dumped at trace level so an operator can run
+/// The full body is dumped at trace level so an admin can run
 /// `RUST_LOG=...=trace` to follow a typed message all the way to the LLM
 /// call without needing to enable payload events at the ingress layer in
 /// prod.
@@ -894,6 +860,7 @@ async fn serve_turn(
             CommandPersistence::Always
         },
         sender_id: Some(&dispatch.sender_id),
+        caller: None,
         hooks,
     };
 
@@ -932,7 +899,13 @@ async fn serve_turn(
         // the notice row first, under the thread's lock; the channel still
         // hears only the apology below (carnet#1362).
         TurnOutcome::Failed(e) => {
-            close_failed_turn(&failed_turn_thread(dispatch), &stop, &dispatch.locale).await;
+            close_failed_turn(
+                &failed_turn_thread(dispatch),
+                &stop,
+                FailedTurn::of(&e),
+                &dispatch.locale,
+            )
+            .await;
             report_dispatch_failure(dispatch, channel_config, &e).await;
             return Served::Ended(TurnClose::Finished);
         }
@@ -1066,7 +1039,7 @@ async fn send_plain_reply(dispatch: &PendingDispatch, channel_config: &ChannelCo
         // Error replies emit a fresh turn id — the chat pipeline never
         // reached the point where a turn would have been recorded, so
         // there's no upstream id to thread. The platform records a
-        // terminal failed turn under this id so operators can correlate.
+        // terminal failed turn under this id so admins can correlate.
         turn_id: CanotTurnId::new(),
         reply_to: answer_reply_to(
             dispatch.channel_type,

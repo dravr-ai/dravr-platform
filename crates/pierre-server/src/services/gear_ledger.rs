@@ -52,7 +52,7 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-use chrono::{DateTime, Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{
     default_pair, shoe_sport_slug, Activity, ActivityGearKey, AthleteGear, AttributionSource,
@@ -104,7 +104,7 @@ pub async fn read_ledger(
     resources: &ServerContext,
     user_id: Uuid,
     tenant_id: &TenantId,
-    now: DateTime<Utc>,
+    now: Timestamp,
 ) -> AppResult<Vec<AthleteGear>> {
     let repos = &resources.common.repos;
     let mut ledger = repos.athlete_gear.list_gear(user_id).await?;
@@ -116,7 +116,7 @@ pub async fn read_ledger(
     else {
         return Ok(ledger);
     };
-    let since = oldest.max(now - Duration::days(CACHED_ACTIVITY_LOOKBACK_DAYS));
+    let since = oldest.max(now - Elapsed::days(CACHED_ACTIVITY_LOOKBACK_DAYS));
     if since >= now {
         return Ok(ledger);
     }
@@ -133,7 +133,7 @@ pub async fn read_ledger(
     if rows.is_empty() {
         return Ok(ledger);
     }
-    let margin = Duration::hours(WORKOUT_WINDOW_HOURS);
+    let margin = Elapsed::hours(WORKOUT_WINDOW_HOURS);
     let attributions: HashMap<ActivityGearKey, f64> = repos
         .athlete_gear
         .list_gear_attributions(user_id, since - margin, now + margin)
@@ -235,7 +235,7 @@ async fn owned_workout(
         provider: backend,
         activity_id: activity_id.to_owned(),
     };
-    let window = Duration::hours(WORKOUT_WINDOW_HOURS);
+    let window = Elapsed::hours(WORKOUT_WINDOW_HOURS);
     let rows = served_rows(
         resources.fitness.provider_registry.as_ref(),
         cache
@@ -272,9 +272,9 @@ pub async fn activity_gear(
     activity_id: &str,
 ) -> AppResult<ActivityGear> {
     let (workout, _) = owned_workout(resources, user_id, tenant_id, provider, activity_id).await?;
-    read_ledger(resources, user_id, tenant_id, Utc::now()).await?;
+    read_ledger(resources, user_id, tenant_id, Timestamp::now()).await?;
     let start = workout.session.start_date();
-    let margin = Duration::hours(WORKOUT_WINDOW_HOURS);
+    let margin = Elapsed::hours(WORKOUT_WINDOW_HOURS);
     let held = resources
         .common
         .repos
@@ -357,7 +357,7 @@ struct NamedPair {
     /// The name as the source spelled it, trimmed.
     name: String,
     /// The start of the earliest activity naming it.
-    first_start: DateTime<Utc>,
+    first_start: Timestamp,
     /// The sport of that activity: a pair declared for the name is worn for it.
     sport: SportType,
 }
@@ -447,7 +447,7 @@ pub(crate) async fn attribute_imported_gear(
     provider: &str,
     imported: &[ImportedGear<'_>],
 ) -> AppResult<u64> {
-    let window = Duration::hours(WORKOUT_WINDOW_HOURS);
+    let window = Elapsed::hours(WORKOUT_WINDOW_HOURS);
     let mut claimed: HashSet<ActivityGearKey> = HashSet::new();
     let mut unattributed = Vec::new();
     for item in imported {

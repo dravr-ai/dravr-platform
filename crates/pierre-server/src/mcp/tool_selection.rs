@@ -4,15 +4,21 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use dravr_tronc::mcp::tool::ToolCapabilities;
 use pierre_core::errors::AppResult;
 use pierre_core::models::{TenantPlan, ToolCatalogEntry, ToolCategory};
-use pierre_database::repositories::ToolSelectionRepository;
+use pierre_database::repositories::{ToolSelectionRepository, WorkerRunRepository};
+use pierre_services::periodic::spawn_periodic;
 use pierre_tool_runtime::registry::ToolRegistry;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
+use std::time::Duration;
+use tokio::task::AbortHandle;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
+
+use crate::mcp::host_seams::published_tool;
 
 // =============================================================================
 // Startup catalog sync
@@ -64,14 +70,16 @@ fn display_name_from_tool_name(name: &str) -> String {
 ///
 /// Inserts tools that exist in the registry but are missing from the catalog,
 /// and removes phantom entries that no longer exist in the registry.
-/// Existing entries are left untouched (preserving admin customizations).
+/// Existing entries keep their admin customizations; only their recorded
+/// definition hash is brought up to date ([`refresh_tool_def_hashes`]).
 ///
 /// Called once during server startup after the `ToolRegistry` is built.
 ///
 /// # Errors
 ///
-/// Returns an error if the initial catalog fetch fails. Individual insert/delete
-/// failures are logged and skipped.
+/// Returns an error if the initial catalog fetch or the hash refresh's catalog
+/// read fails. Individual insert/delete/hash-write failures are logged and
+/// skipped.
 pub async fn sync_tool_catalog(
     tool_registry: &ToolRegistry,
     repo: &dyn ToolSelectionRepository,
@@ -90,6 +98,8 @@ pub async fn sync_tool_catalog(
 
     let inserted = insert_missing_tools(&registry_tools, &catalog_names, repo).await;
     let removed = remove_phantom_tools(&catalog_entries, &registry_names, repo).await;
+
+    refresh_tool_def_hashes(tool_registry, repo).await?;
 
     if inserted > 0 || removed > 0 {
         info!(
@@ -128,8 +138,9 @@ async fn insert_missing_tools(
                 None
             },
             min_plan: TenantPlan::Starter,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
+            def_hash: None,
         };
 
         if let Err(e) = repo.upsert_tool_catalog_entry(&entry).await {
@@ -159,4 +170,104 @@ async fn remove_phantom_tools(
         removed += 1;
     }
     removed
+}
+
+// =============================================================================
+// Published definition hashes (carnet#1543)
+// =============================================================================
+
+/// Ledger name of the definition-hash refresh.
+const DEF_HASH_WORKER: &str = "tool definition hashes";
+
+/// How often the recorded hashes are brought up to date: a contremaitre
+/// description sync changes a definition between boots, and this is how long
+/// at most the catalog trails what `tools/list` publishes.
+const DEF_HASH_PERIOD: Duration = Duration::from_mins(5);
+
+/// Bring `tool_catalog`'s recorded definition hashes up to date.
+///
+/// Each registry tool whose recorded hash differs from the hash of the
+/// definition `tools/list` publishes is rewritten and logged: the tools a
+/// client that pins definitions will alert on. Returns how many changed.
+///
+/// The hash is taken over [`published_tool`], the definition as listed, so
+/// it is the one clients see at `_meta["ai.dravr.vault/tool"].def_hash`.
+///
+/// Nothing is written until the descriptions have settled
+/// ([`ToolRegistry::descriptions_settled`]): at boot the contremaitre overlay
+/// has not landed yet, and recording the compiled-in text there would flap
+/// the column on every deploy against the overlay the worker records next.
+///
+/// # Errors
+///
+/// Returns the repository error from the catalog read; a failed row write is
+/// logged and the rest are still written.
+pub async fn refresh_tool_def_hashes(
+    tool_registry: &ToolRegistry,
+    repo: &dyn ToolSelectionRepository,
+) -> AppResult<usize> {
+    if !tool_registry.descriptions_settled() {
+        debug!("tool descriptions not settled yet: definition hashes left as recorded");
+        return Ok(0);
+    }
+    record_changed_def_hashes(tool_registry, repo).await
+}
+
+/// Rewrite each recorded hash that differs from its tool's published one,
+/// returning how many changed; see [`refresh_tool_def_hashes`].
+async fn record_changed_def_hashes(
+    tool_registry: &ToolRegistry,
+    repo: &dyn ToolSelectionRepository,
+) -> AppResult<usize> {
+    let recorded: HashMap<String, Option<String>> = repo
+        .get_tool_catalog()
+        .await?
+        .into_iter()
+        .map(|entry| (entry.tool_name, entry.def_hash))
+        .collect();
+    let mut changed = 0usize;
+    for schema in tool_registry.all_schemas() {
+        let name = schema.name.clone();
+        let Some(previous) = recorded.get(&name) else {
+            continue;
+        };
+        let hash = published_tool(tool_registry, schema).def_hash();
+        if previous.as_deref() == Some(hash.as_str()) {
+            continue;
+        }
+        match repo.set_tool_def_hash(&name, &hash).await {
+            Ok(_) => {
+                info!(
+                    tool_name = %name,
+                    previous = previous.as_deref().unwrap_or("none"),
+                    def_hash = %hash,
+                    "tool definition changed: a client pinning it will alert"
+                );
+                changed += 1;
+            }
+            Err(e) => warn!(tool_name = %name, error = %e, "failed to record a tool's def_hash"),
+        }
+    }
+    Ok(changed)
+}
+
+/// Start the periodic refresh of the recorded definition hashes, on the
+/// shared worker ledger.
+///
+/// Returns the worker's abort handle; callers discard it, as a restart
+/// re-arms the worker from the ledger.
+pub fn start_tool_def_hash_task(
+    tool_registry: Arc<ToolRegistry>,
+    repo: Arc<dyn ToolSelectionRepository>,
+    ledger: Arc<dyn WorkerRunRepository>,
+) -> AbortHandle {
+    spawn_periodic(DEF_HASH_WORKER, DEF_HASH_PERIOD, ledger, move || {
+        let tool_registry = Arc::clone(&tool_registry);
+        let repo = Arc::clone(&repo);
+        async move {
+            refresh_tool_def_hashes(&tool_registry, repo.as_ref())
+                .await
+                .map(|_| ())
+        }
+    })
 }

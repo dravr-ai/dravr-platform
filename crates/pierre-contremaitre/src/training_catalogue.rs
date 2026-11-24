@@ -31,8 +31,8 @@ use std::collections::{BTreeSet, HashMap};
 use std::fmt;
 use std::sync::{PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
-use chrono::{DateTime, Utc};
 use dravr_contremaitre::training;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::periodization::{
     Flavour, Generated, InputDimension, InstanceRequest, PhaseKind, SelectionRow, SelectionTable,
     SkeletonTemplate, SportFamily, SportMix, UnresolvedReference, WorkoutFilter, WorkoutPurpose,
@@ -126,7 +126,7 @@ pub struct CatalogueEntry {
     /// Where this entry was loaded from.
     pub source: PromptSource,
     /// When this entry was loaded or last updated.
-    pub loaded_at: DateTime<Utc>,
+    pub loaded_at: Timestamp,
 }
 
 /// Counts over the live registry.
@@ -184,7 +184,7 @@ impl TrainingCatalogueRegistry {
     /// cannot pass CI.
     #[must_use]
     pub fn new() -> Self {
-        let now = Utc::now();
+        let now = Timestamp::now();
         let mut compiled_in = HashMap::new();
         let tables: [(CatalogueKind, &[(&str, &str)]); 3] = [
             (CatalogueKind::Flavour, training::FLAVOURS),
@@ -225,7 +225,7 @@ impl TrainingCatalogueRegistry {
                 item,
                 sha256,
                 source: PromptSource::Contremaitre,
-                loaded_at: Utc::now(),
+                loaded_at: Timestamp::now(),
             },
         );
     }
@@ -556,7 +556,7 @@ impl Default for TrainingCatalogueRegistry {
 }
 
 /// Parse one compiled-in file into `map`, or log why it was left out.
-fn seed_entry(map: &mut EntryMap, kind: CatalogueKind, slug: &str, text: &str, now: DateTime<Utc>) {
+fn seed_entry(map: &mut EntryMap, kind: CatalogueKind, slug: &str, text: &str, now: Timestamp) {
     match parse_catalogue_file(kind, text) {
         Ok(item) => {
             map.insert(

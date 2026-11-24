@@ -4,10 +4,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-/// Add a member, idempotently. `ON CONFLICT DO NOTHING` keeps an existing
-/// row (the owner's included) untouched; the WHERE EXISTS gate refuses a
-/// conversation outside this tenant instead of writing a dangling
-/// membership.
 pub(crate) const ADD_PARTICIPANT_SQL: &str = r"
     INSERT INTO conversation_participants
         (conversation_id, user_id, tenant_id, role, added_by, added_at)
@@ -65,7 +61,7 @@ macro_rules! impl_chat_participants {
                     .bind(&tenant)
                     .bind(ParticipantRole::Member.as_str())
                     .bind($ids::bind_text(added_by)?)
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .execute(self.pool())
                     .await
                     .map_err(|e| AppError::database(format!("Failed to add participant: {e}")))?;

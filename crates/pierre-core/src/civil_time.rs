@@ -34,8 +34,19 @@
 //! is error-prone)"*. This module applies the identical reasoning to weekdays:
 //! the server knows the answer, so the server says it.
 
-use chrono::{DateTime, Datelike, Days, NaiveDate, NaiveTime, TimeDelta, Utc, Weekday};
-use chrono_tz::Tz;
+use dravr_tronc::date_pattern;
+use dravr_tronc::dates::{CivilDate, CivilTime, Elapsed, Pattern, Timestamp, Weekday, Zone};
+
+/// `2026-11-17 10:00 UTC`: an instant to the minute, in UTC, named as such —
+/// the stamp admin and CLI surfaces print.
+pub const UTC_MINUTE: Pattern<Timestamp> = date_pattern!(Timestamp, "%Y-%m-%d %H:%M UTC");
+
+/// `2026-11-17 05:00`: an instant to the minute on a zone's clock, written
+/// through `Zone::format_with`.
+pub const LOCAL_MINUTE: Pattern<Timestamp> = date_pattern!(Timestamp, "%Y-%m-%d %H:%M");
+
+/// RFC 3339 on a zone's clock, the fraction as `to_rfc3339` writes it.
+const ZONED_RFC3339: Pattern<Timestamp> = date_pattern!(Timestamp, "%Y-%m-%dT%H:%M:%S%.f%:z");
 
 /// Resolve a stored `users.timezone` into a zone, falling back to UTC.
 ///
@@ -44,8 +55,8 @@ use chrono_tz::Tz;
 /// date anchor, the activity list and the roster card — they all fall back
 /// together.
 #[must_use]
-pub fn resolve_zone(user_timezone: Option<&str>) -> Tz {
-    parse_zone(user_timezone).unwrap_or(Tz::UTC)
+pub fn resolve_zone(user_timezone: Option<&str>) -> Zone {
+    parse_zone(user_timezone).unwrap_or_else(Zone::utc)
 }
 
 /// Parse a stored `users.timezone`, or `None` when it is absent or names no
@@ -55,8 +66,8 @@ pub fn resolve_zone(user_timezone: Option<&str>) -> Tz {
 /// several people's zones needs the refusal instead of the fallback, so that
 /// an unparseable zone is passed over rather than read as UTC.
 #[must_use]
-pub fn parse_zone(user_timezone: Option<&str>) -> Option<Tz> {
-    user_timezone.and_then(|tz| tz.parse::<Tz>().ok())
+pub fn parse_zone(user_timezone: Option<&str>) -> Option<Zone> {
+    user_timezone.and_then(|tz| tz.parse::<Zone>().ok())
 }
 
 /// Column index into the five-locale tables, shared with the sport-name table
@@ -160,16 +171,12 @@ pub const ALL_WEEKDAYS: [Weekday; 7] = [
 /// the row left to right, and the weekday is the field it was previously forced
 /// to compute.
 #[must_use]
-pub fn format_local_stamp(instant: DateTime<Utc>, zone: Tz, locale: &str) -> String {
+pub fn format_local_stamp(instant: Timestamp, zone: &Zone, locale: &str) -> String {
     // A date-only row has no time of day to convert, so it keeps its own date
     // and renders 00:00 rather than being pulled back a day (registre#258).
     if is_date_only(instant) {
-        let date = instant.date_naive();
-        return format!(
-            "{} {} 00:00",
-            date.format("%Y-%m-%d"),
-            weekday_short(date.weekday(), locale)
-        );
+        let date = instant.utc_date();
+        return format!("{} {} 00:00", date, weekday_short(date.weekday(), locale));
     }
     format_clock_stamp(instant, zone, locale)
 }
@@ -192,19 +199,30 @@ pub fn format_local_stamp(instant: DateTime<Utc>, zone: Tz, locale: &str) -> Str
 /// Takes the instant rather than reading the clock itself, so the boundary it
 /// exists for is testable.
 #[must_use]
-pub fn format_clock_stamp(instant: DateTime<Utc>, zone: Tz, locale: &str) -> String {
-    let local = instant.with_timezone(&zone);
+pub fn format_clock_stamp(instant: Timestamp, zone: &Zone, locale: &str) -> String {
+    let local = zone.civil_at(instant);
     format!(
-        "{} {} {}",
-        local.format("%Y-%m-%d"),
-        weekday_short(local.weekday(), locale),
-        local.format("%H:%M")
+        "{} {} {:02}:{:02}",
+        local.date(),
+        weekday_short(local.date().weekday(), locale),
+        local.time().hour(),
+        local.time().minute()
     )
+}
+
+/// `instant` as RFC 3339 on `zone`'s clock, with that clock's offset:
+/// `2026-11-17T10:00:05.120-05:00`, the fraction written as `to_rfc3339`
+/// writes it (none, or 3, 6 or 9 digits) and a zero offset as `+00:00`.
+///
+/// What `start_date_local` and the other zoned instants carry.
+#[must_use]
+pub fn zoned_rfc3339(instant: Timestamp, zone: &Zone) -> String {
+    zone.format_with(instant, &ZONED_RFC3339)
 }
 
 /// `2026-09-01 lun` — the day-only shape, for surfaces that quote no time.
 #[must_use]
-pub fn format_local_day(instant: DateTime<Utc>, zone: Tz, locale: &str) -> String {
+pub fn format_local_day(instant: Timestamp, zone: &Zone, locale: &str) -> String {
     // Via `local_date`, so a date-only row keeps the day its provider named
     // instead of being shifted back one (registre#258).
     format_civil_day(local_date(instant, zone), locale)
@@ -212,12 +230,8 @@ pub fn format_local_day(instant: DateTime<Utc>, zone: Tz, locale: &str) -> Strin
 
 /// `2026-09-01 lun` for a date that is already on the athlete's calendar.
 #[must_use]
-pub fn format_civil_day(date: NaiveDate, locale: &str) -> String {
-    format!(
-        "{} {}",
-        date.format("%Y-%m-%d"),
-        weekday_short(date.weekday(), locale)
-    )
+pub fn format_civil_day(date: CivilDate, locale: &str) -> String {
+    format!("{} {}", date, weekday_short(date.weekday(), locale))
 }
 
 /// A day named by its distance from the athlete's today rather than by its date.
@@ -245,7 +259,7 @@ pub enum RelativeDay {
 /// `None` when it is neither — two days ago and tomorrow both read as plain
 /// dates.
 #[must_use]
-pub fn relative_day(date: NaiveDate, today: NaiveDate) -> Option<RelativeDay> {
+pub fn relative_day(date: CivilDate, today: CivilDate) -> Option<RelativeDay> {
     match today.signed_duration_since(date).num_days() {
         0 => Some(RelativeDay::Today),
         1 => Some(RelativeDay::Yesterday),
@@ -366,8 +380,8 @@ pub fn relative_day_forms(day: RelativeDay, locale: &str) -> &'static [&'static 
 /// vanishingly rare; treating it as date-only costs at most a day-boundary
 /// nudge, where the alternative costs every date-only row a wrong weekday.
 #[must_use]
-pub fn is_date_only(instant: DateTime<Utc>) -> bool {
-    instant.time() == NaiveTime::MIN
+pub fn is_date_only(instant: Timestamp) -> bool {
+    instant.utc_time() == CivilTime::MIDNIGHT
 }
 
 /// The athlete's local calendar date for a UTC instant.
@@ -381,11 +395,11 @@ pub fn is_date_only(instant: DateTime<Utc>) -> bool {
 /// registre#200 worse on exactly the provider the 2026-09-02 athlete used
 /// (registre#258).
 #[must_use]
-pub fn local_date(instant: DateTime<Utc>, zone: Tz) -> NaiveDate {
+pub fn local_date(instant: Timestamp, zone: &Zone) -> CivilDate {
     if is_date_only(instant) {
-        return instant.date_naive();
+        return instant.utc_date();
     }
-    instant.with_timezone(&zone).date_naive()
+    zone.date_at(instant)
 }
 
 /// Today, on the athlete's clock.
@@ -399,7 +413,7 @@ pub fn local_date(instant: DateTime<Utc>, zone: Tz) -> NaiveDate {
 ///
 /// It exists because the distinction cost a whole civil day of training data:
 /// the daily rollup buckets each activity on the athlete's civil date but
-/// bounded its window with `Utc::now().date_naive()`, so for any zone ahead of
+/// bounded its window with `Timestamp::now().utc_date()`, so for any zone ahead of
 /// UTC the athlete's current day sat past the end of the window and was
 /// dropped — from the CTL/ATL/TSB series and from every answer built on it
 /// (registre#260).
@@ -407,15 +421,15 @@ pub fn local_date(instant: DateTime<Utc>, zone: Tz) -> NaiveDate {
 /// Takes the instant rather than reading the clock itself so the boundary it
 /// exists for is testable.
 #[must_use]
-pub fn clock_date(instant: DateTime<Utc>, zone: Tz) -> NaiveDate {
-    instant.with_timezone(&zone).date_naive()
+pub fn clock_date(instant: Timestamp, zone: &Zone) -> CivilDate {
+    zone.date_at(instant)
 }
 
 /// The Monday of the week `date` falls in: weeks run Monday to Sunday on the
 /// athlete's calendar, as Home's plan strip and its volume weeks do.
 #[must_use]
-pub fn monday_of(date: NaiveDate) -> NaiveDate {
-    date.checked_sub_days(Days::new(u64::from(date.weekday().num_days_from_monday())))
+pub fn monday_of(date: CivilDate) -> CivilDate {
+    date.checked_sub_days(i64::from(date.weekday().num_days_from_monday()))
         .unwrap_or(date)
 }
 
@@ -425,36 +439,31 @@ pub fn monday_of(date: NaiveDate) -> NaiveDate {
 /// forward), the day begins the instant the gap opens: midnight under the
 /// offset in force the day before.
 #[must_use]
-pub fn day_start_utc(date: NaiveDate, zone: Tz) -> DateTime<Utc> {
-    use chrono::{Offset, TimeZone};
-
-    let midnight = date.and_time(NaiveTime::MIN);
-    zone.from_local_datetime(&midnight).earliest().map_or_else(
-        || {
-            // At the calendar's first day there is no day before to read an
-            // offset from: midnight UTC is the only instant left.
-            midnight
-                .checked_sub_signed(TimeDelta::days(1))
-                .map(|before| zone.offset_from_utc_datetime(&before).fix())
-                .and_then(|offset| {
-                    midnight
-                        .checked_sub_signed(TimeDelta::seconds(i64::from(offset.local_minus_utc())))
-                })
-                .unwrap_or(midnight)
-                .and_utc()
-        },
-        |start| start.with_timezone(&Utc),
-    )
+pub fn day_start_utc(date: CivilDate, zone: &Zone) -> Timestamp {
+    let midnight = date.at_midnight();
+    zone.resolve(midnight).earliest().unwrap_or_else(|| {
+        // At the calendar's first day there is no day before to read an
+        // offset from: midnight UTC is the only instant left.
+        let start = midnight
+            .checked_sub(Elapsed::days(1))
+            .and_then(|before| before.and_utc().ok())
+            .map(|before| zone.offset_seconds_at(before))
+            .and_then(|offset| midnight.checked_sub(Elapsed::seconds(i64::from(offset))))
+            .unwrap_or(midnight);
+        // A reading UTC cannot name lies at the start of the range.
+        start.and_utc().unwrap_or(Timestamp::MIN)
+    })
 }
 
 #[cfg(test)]
 mod tests {
-    use chrono::TimeZone;
 
     use super::*;
 
-    fn ymd(year: i32, month: u32, day: u32) -> NaiveDate {
-        NaiveDate::from_ymd_opt(year, month, day).unwrap_or(NaiveDate::MIN)
+    fn ymd(year: i32, month: u32, day: u32) -> CivilDate {
+        CivilDate::from_ymd(year, month, day)
+            .ok()
+            .unwrap_or(CivilDate::MIN)
     }
 
     #[test]
@@ -480,9 +489,9 @@ mod tests {
     fn a_day_starts_at_the_athletes_midnight() {
         let montreal = resolve_zone(Some("America/Montreal"));
         assert_eq!(
-            day_start_utc(ymd(2026, 1, 1), montreal),
-            Utc.with_ymd_and_hms(2026, 1, 1, 5, 0, 0)
-                .single()
+            day_start_utc(ymd(2026, 1, 1), &montreal),
+            Timestamp::parse_from_rfc3339("2026-01-01T05:00:00Z")
+                .ok()
                 .unwrap_or_default(),
             "bug: Montreal's midnight is not 05:00 UTC in winter"
         );
@@ -496,23 +505,21 @@ mod tests {
         let date = ymd(2026, 3, 29);
         assert!(
             beirut
-                .from_local_datetime(&date.and_time(NaiveTime::MIN))
+                .resolve(date.and_time(CivilTime::MIDNIGHT))
                 .earliest()
                 .is_none(),
             "bug: the fixture zone no longer skips this midnight, so the gap is untested"
         );
-        let start = day_start_utc(date, beirut);
+        let start = day_start_utc(date, &beirut);
         assert_eq!(
             start,
-            Utc.with_ymd_and_hms(2026, 3, 28, 22, 0, 0)
-                .single()
+            Timestamp::parse_from_rfc3339("2026-03-28T22:00:00Z")
+                .ok()
                 .unwrap_or_default(),
             "bug: a day whose midnight is skipped does not begin when the gap opens"
         );
         assert_eq!(
-            (start - TimeDelta::nanoseconds(1))
-                .with_timezone(&beirut)
-                .date_naive(),
+            beirut.date_at(start - Elapsed::nanoseconds(1)),
             ymd(2026, 3, 28),
             "bug: the instant before the day begins is not the day before"
         );
@@ -521,11 +528,14 @@ mod tests {
     #[test]
     fn the_calendars_first_day_starts_east_of_utc_without_a_panic() {
         // Tokyo's midnight on the calendar's first day falls before the first
-        // instant chrono holds, so it has no local start to map.
+        // instant the date types hold, so it has no local start to map.
         let tokyo = resolve_zone(Some("Asia/Tokyo"));
         assert_eq!(
-            day_start_utc(NaiveDate::MIN, tokyo),
-            NaiveDate::MIN.and_time(NaiveTime::MIN).and_utc(),
+            day_start_utc(CivilDate::MIN, &tokyo),
+            CivilDate::MIN
+                .and_time(CivilTime::MIDNIGHT)
+                .and_utc()
+                .unwrap_or(Timestamp::MIN),
             "bug: a day with no local start and no day before is not read from midnight UTC"
         );
     }

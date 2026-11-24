@@ -12,7 +12,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![cfg(feature = "postgresql")]
 
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::models::CoachingPersona;
 use pierre_core::models::{Tenant, TenantId, User, UserStatus, UserTier};
 use pierre_core::permissions::UserRole;
@@ -40,10 +40,9 @@ async fn seed_pg_user(db: &Database) -> Uuid {
         user_status: UserStatus::Active,
         role: UserRole::User,
         approved_by: None,
-        approved_at: Some(Utc::now()),
-        created_at: Utc::now(),
-        last_active: Utc::now(),
-        strava_token: None,
+        approved_at: Some(Timestamp::now()),
+        created_at: Timestamp::now(),
+        last_active: Timestamp::now(),
         firebase_uid: None,
         auth_provider: String::new(),
         analytics_consent: false,
@@ -71,8 +70,8 @@ async fn seed_pg_tenant(db: &Database, owner: Uuid) -> TenantId {
         domain: None,
         plan: "starter".to_owned(),
         owner_user_id: owner,
-        created_at: Utc::now(),
-        updated_at: Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
     };
     db.repositories()
         .tenants
@@ -100,7 +99,7 @@ async fn pg_db() -> Database {
 /// Root cause regression test: `create_session` → `get_session_by_channel_identity`.
 ///
 /// Before the uuid-cast fix (de947ce7), PG rejected this pair with
-/// "operator does not exist: uuid = text" because migration 20260417000001
+/// "admin does not exist: uuid = text" because migration 20260417000001
 /// converted `user_id`/`tenant_id` to UUID but the plugin bound them as text.
 #[tokio::test]
 async fn test_pg_session_create_then_lookup_by_channel_identity() {
@@ -382,7 +381,7 @@ async fn test_pg_link_state_web_initiated() {
     let user_id = user_uuid.to_string();
 
     let code = Uuid::new_v4().to_string();
-    let expires_at = (Utc::now() + Duration::minutes(10)).to_rfc3339();
+    let expires_at = (Timestamp::now() + Elapsed::minutes(10)).to_rfc3339();
 
     db.repositories()
         .messaging
@@ -433,7 +432,7 @@ async fn test_pg_pairing_code_hold_and_release() {
     let user_id = user_uuid.to_string();
     let messaging = &db.repositories().messaging;
     let code = Uuid::new_v4().to_string();
-    let expires_at = (Utc::now() + Duration::minutes(10)).to_rfc3339();
+    let expires_at = (Timestamp::now() + Elapsed::minutes(10)).to_rfc3339();
     messaging
         .create_link_state(&CreateLinkStateParams {
             id: &Uuid::new_v4().to_string(),
@@ -534,7 +533,7 @@ async fn test_pg_pairing_code_spends_only_for_its_holder() {
     let user_id = user_uuid.to_string();
     let messaging = &db.repositories().messaging;
     let code = Uuid::new_v4().to_string();
-    let expires_at = (Utc::now() + Duration::minutes(10)).to_rfc3339();
+    let expires_at = (Timestamp::now() + Elapsed::minutes(10)).to_rfc3339();
     messaging
         .create_link_state(&CreateLinkStateParams {
             id: &Uuid::new_v4().to_string(),
@@ -587,7 +586,7 @@ async fn test_pg_link_state_channel_initiated_then_complete() {
     let user_id = user_uuid.to_string();
 
     let code = Uuid::new_v4().to_string();
-    let expires_at = (Utc::now() + Duration::minutes(10)).to_rfc3339();
+    let expires_at = (Timestamp::now() + Elapsed::minutes(10)).to_rfc3339();
 
     db.repositories()
         .messaging
@@ -636,7 +635,7 @@ async fn test_pg_otp_flow_opens_in_its_language_within_its_tenant() {
     let (_, other_tenant) = seed_pg_user_and_tenant(&db).await;
     let messaging = &db.repositories().messaging;
     let state_id = Uuid::new_v4().to_string();
-    let expires_at = (Utc::now() + Duration::minutes(10)).to_rfc3339();
+    let expires_at = (Timestamp::now() + Elapsed::minutes(10)).to_rfc3339();
     messaging
         .create_link_state(&CreateLinkStateParams {
             id: &state_id,
@@ -746,7 +745,7 @@ async fn test_pg_create_channel_link_rejects_orphan_tenant() {
 async fn test_pg_create_link_state_rejects_orphan_tenant() {
     let db = pg_db().await;
     let orphan_tenant = TenantId::generate();
-    let expires_at = (Utc::now() + Duration::minutes(10)).to_rfc3339();
+    let expires_at = (Timestamp::now() + Elapsed::minutes(10)).to_rfc3339();
 
     let err = db
         .repositories()

@@ -4,8 +4,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use chrono::NaiveDate;
 use dravr_cageux::algorithms::training_load::DailyTrainingLoad;
+use dravr_tronc::dates::CivilDate;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -36,7 +36,7 @@ pub struct DailyTrainingState {
     /// Their zone, not the server's: a 21:00 America/Toronto session belongs
     /// to the day they trained. Bucketing on the UTC day shifted the whole
     /// series against their calendar (registre#200).
-    pub date: NaiveDate,
+    pub date: CivilDate,
     /// Chronic Training Load (42-day EMA of TSS) at the end of the day,
     /// counting the day's own TSS — proxy for fitness.
     pub ctl: f64,
@@ -75,7 +75,7 @@ pub struct DailyTrainingState {
 impl DailyTrainingState {
     /// Construct an all-zero (rest-day) state for a given date.
     #[must_use]
-    pub const fn zero(date: NaiveDate) -> Self {
+    pub const fn zero(date: CivilDate) -> Self {
         Self {
             date,
             ctl: 0.0,
@@ -112,5 +112,5 @@ pub struct DailyTrainingKey {
     /// User this row belongs to.
     pub user_id: Uuid,
     /// Calendar date the row covers.
-    pub date: NaiveDate,
+    pub date: CivilDate,
 }

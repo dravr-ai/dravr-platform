@@ -28,6 +28,7 @@ mod coach_plan_write_transport_tests {
     use crate::helpers::coach_roster_fixtures::{
         coach, coached_group, group_agent, join, person, Person,
     };
+    use dravr_tronc::dates::Elapsed;
 
     use std::collections::BTreeSet;
     use std::sync::Arc;
@@ -35,7 +36,7 @@ mod coach_plan_write_transport_tests {
     use axum::body::{to_bytes, Body};
     use axum::http::{Request, StatusCode};
     use axum::Router;
-    use chrono::{Datelike, Days, NaiveDate, Utc};
+    use dravr_tronc::dates::{CivilDate, Timestamp};
     use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
     use pierre_core::constants::oauth::providers::INTERVALS_ICU;
     use pierre_core::models::{ConnectionType, UserOAuthToken, API_KEY_TOKEN_TYPE};
@@ -131,7 +132,7 @@ mod coach_plan_write_transport_tests {
             join(&res, group, alex.id, alex.tenant, true).await;
             // The coach's own Intervals.icu key: without a calendar the
             // calendar tools answer before whose calendar it is.
-            let now = Utc::now();
+            let now = Timestamp::now();
             let repos = &res.common.repos;
             repos
                 .oauth_tokens
@@ -252,6 +253,27 @@ mod coach_plan_write_transport_tests {
             )
         }
 
+        /// A per-session write of the day editor on `thread` (carnet#1714,
+        /// carnet#1716): a PUT or a POST to `suffix` after tomorrow's date,
+        /// `body` as the client sends it.
+        async fn session_route(
+            &self,
+            thread: &str,
+            (put, suffix): (bool, &str),
+            body: Value,
+            authorization: &str,
+        ) -> (StatusCode, Value) {
+            let date = Timestamp::now().utc_date() + Elapsed::days(1);
+            let path =
+                format!("/api/chat/conversations/{thread}/subject-plan/draft/days/{date}/{suffix}");
+            let request = if put {
+                AxumTestRequest::put(&path)
+            } else {
+                AxumTestRequest::post(&path)
+            };
+            self.rest(request.json(&body), authorization).await
+        }
+
         /// Whether the coach holds a draft of the athlete's plan.
         async fn has_draft(&self) -> bool {
             let tenant = self.athlete.tenant.to_string();
@@ -352,17 +374,17 @@ mod coach_plan_write_transport_tests {
         }
     }
 
-    fn monday(weeks: u64) -> NaiveDate {
-        let today = Utc::now().date_naive();
-        let this = today - Days::new(u64::from(today.weekday().num_days_from_monday()));
-        this + Days::new(7 * weeks)
+    fn monday(weeks: i64) -> CivilDate {
+        let today = Timestamp::now().utc_date();
+        let this = today - Elapsed::days(i64::from(today.weekday().num_days_from_monday()));
+        this + Elapsed::days(7 * weeks)
     }
 
-    fn week(start: NaiveDate) -> Value {
+    fn week(start: CivilDate) -> Value {
         let days: Vec<Value> = (0..7)
             .map(|offset| {
                 json!({
-                    "date": (start + Days::new(offset)).format("%Y-%m-%d").to_string(),
+                    "date": (start + Elapsed::days(offset)).to_string(),
                     "sport": "run",
                     "workout": "easy aerobic run",
                     "duration_min": 40,
@@ -371,7 +393,7 @@ mod coach_plan_write_transport_tests {
             })
             .collect();
         json!({
-            "week_start": start.format("%Y-%m-%d").to_string(),
+            "week_start": start.to_string(),
             "focus": "aerobic base",
             "days": days,
         })
@@ -464,7 +486,12 @@ mod coach_plan_write_transport_tests {
         task["status"]["state"] == "TASK_STATE_FAILED"
             && task["status"]["message"]["parts"][0]["text"]
                 .as_str()
-                .is_some_and(|text| text.contains("not over this interface"))
+                .is_some_and(|text| {
+                    // Refused by #1533's write gate, or, for an app-only tool
+                    // never listed externally, by the access predicate.
+                    text.contains("not over this interface")
+                        || text.contains("not available over this interface")
+                })
     }
 
     fn reason(response: &UniversalResponse) -> Option<&str> {
@@ -594,9 +621,10 @@ mod coach_plan_write_transport_tests {
     }
 
     /// The plan card's Publish and Discard routes run the draft publish and
-    /// discard themselves, not through the plan tools: an API key the coach
-    /// holds is refused on both, with the plan tools' reason, and the draft
-    /// stays as it was. The coach's own session from the app publishes and
+    /// discard themselves, not through the plan tools, and the day editor's
+    /// session writes change the draft the same way: an API key the
+    /// coach holds is refused on each, with the plan tools' reason, and the
+    /// draft stays as it was. The coach's own session from the app publishes and
     /// discards on the same routes.
     #[tokio::test]
     async fn the_plan_cards_publish_and_discard_refuse_an_api_key_and_answer_the_app() {
@@ -607,12 +635,64 @@ mod coach_plan_write_transport_tests {
             .await
             .unwrap();
 
-        // Both routes are tried before any verdict, so a regression names
+        // Every route is tried before any verdict, so a regression names
         // each one it reopens. An API key is the whole header, not a bearer.
+        let seen = json!({ "sport": "run", "workout": "Easy" });
+        let build = json!({ "family": "vo2max_short", "sport": "ride" });
         let mut written = Vec::new();
         for (route, (status, body)) in [
             ("publish", w.publish_route(&thread, &key).await),
             ("discard", w.discard_route(&thread, &key).await),
+            (
+                "session build",
+                w.session_route(
+                    &thread,
+                    (true, "0"),
+                    json!({ "build": build, "expect": seen }),
+                    &key,
+                )
+                .await,
+            ),
+            (
+                "hand session",
+                w.session_route(
+                    &thread,
+                    (true, "0/session"),
+                    json!({ "day": { "rest": true }, "expect": seen }),
+                    &key,
+                )
+                .await,
+            ),
+            (
+                "restore session",
+                w.session_route(
+                    &thread,
+                    (false, "0/restore"),
+                    json!({ "expect": seen }),
+                    &key,
+                )
+                .await,
+            ),
+            (
+                "remove session",
+                w.session_route(
+                    &thread,
+                    (false, "0/remove"),
+                    json!({ "expect": seen }),
+                    &key,
+                )
+                .await,
+            ),
+            (
+                "add session",
+                w.session_route(
+                    &thread,
+                    (false, "sessions"),
+                    json!({ "day": { "rest": true } }),
+                    &key,
+                )
+                .await,
+            ),
         ] {
             if status != StatusCode::FORBIDDEN || body["details"]["reason"] != EXTERNAL {
                 written.push(format!("{route} with an API key: {status} {body}"));

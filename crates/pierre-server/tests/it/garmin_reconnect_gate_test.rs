@@ -12,7 +12,7 @@
 
 use std::sync::Arc;
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::ConnectionType;
 use pierre_database::RepositoryRegistry;
 use pierre_tool_runtime::implementations::data_helpers::connection_needs_reauth;
@@ -53,7 +53,7 @@ async fn gate_flips_with_connection_status_active_then_reauth_then_reconnect() {
             tenant,
             "sciotte_garmin",
             Some("session_expired"),
-            Utc::now(),
+            Timestamp::now(),
         )
         .await
         .unwrap();

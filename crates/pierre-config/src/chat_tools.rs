@@ -64,7 +64,7 @@ mod tests {
     fn it_is_on_by_default() {
         assert!(
             ChatToolSettings::default().defer_tools,
-            "deferred tool loading must be on unless an operator turns it off"
+            "deferred tool loading must be on unless an admin turns it off"
         );
     }
 }

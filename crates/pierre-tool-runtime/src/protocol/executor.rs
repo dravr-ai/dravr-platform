@@ -20,8 +20,7 @@ use crate::context::{
     GRANTED_SCOPES, GUARDIAN_TURN_TOKEN, READ_SUBJECT, SUPPORT_SESSION, TURN_AGENT_ID, TURN_ASK,
     TURN_DIRECT_MESSAGE, TURN_LOCALE,
 };
-use crate::first_party_tools;
-use crate::guardian::{self, DenyReason, GateOutcome, HeadlessBlock, ReadFingerprint, TurnKey};
+use crate::guardian::{self, GateOutcome, ReadFingerprint, TurnKey};
 use crate::protocol::data_source::athlete_has_data_source;
 use crate::protocol::provider_helpers::no_provider_refusal;
 use crate::protocol::provider_offer::{
@@ -34,33 +33,54 @@ use crate::read_subject::ReadSubject;
 use crate::reply_check;
 use crate::runtime::ToolRuntime;
 use crate::scopes::missing_scope;
+use crate::security::SecurityLabels;
+use crate::support_session;
+use crate::tool_data::ToolData;
+use crate::turn_end::{self, HandoffSlot};
+use dispatch_record::DispatchRecord;
 use dravr_cageux::config::intelligence::IntelligenceConfig;
 use dravr_tronc::mcp::tool::ToolCapabilities;
 use futures_util::future::Either;
 use pierre_auth::auth::ImpersonationGrant;
+use pierre_auth::oauth2_server::grant_ceiling::GrantCeiling;
 use pierre_config::environment::default_provider;
 use pierre_core::ai_policy::WithConsent;
 use pierre_core::constants::oauth::providers::is_credential_free;
 use pierre_core::constants::tools::identifiers::CONNECT_PROVIDER;
+use pierre_core::permissions::impersonation::CallerCredential;
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::Transport;
 use pierre_providers::ai_scope;
 use pierre_services::provider_notice;
-use pierre_services::usage_counter::increment_counter;
 use serde_json::Value as JsonValue;
 use std::fmt;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 use subject::{answered_for_member, build_tool_context, subject_tool_context, Parties};
-use tracing::{info, warn, Instrument};
+use tracing::{info, Instrument};
 use uuid::Uuid;
 
+/// The access refusal: what the one access predicate withholds, rendered (carnet#1511)
+mod access;
 /// Admin-only tool calls from outside Dravr's own surfaces, on the audit trail.
 mod admin_call_audit;
+/// The usage row of a tool call an outside client made (carnet#1543).
+mod delegated_read;
+/// Charging a dispatch to the athlete's tool budget and telling admins it ran.
+mod dispatch_record;
+/// A consent grant's daily row budgets, checked and levied at dispatch
+mod grant_budget;
+/// The refusals of a call beyond its consent grant's ceiling
+mod grant_ceiling_refusal;
+/// Answering a call the Guardian blocked, and leaving the block for the turn.
+mod guardian_block;
 /// Whose data a dispatched call reads (carnet#1387).
 mod subject;
+mod tier_gate;
 mod turn_signals;
 
+pub use access::SUPPORT_SESSION_EXPORT_REFUSED;
 pub use admin_call_audit::{record_refused_admin_call, RefusedAdminCall};
 
 /// The two facts the dispatch chokepoint needs to decide a provider refusal.
@@ -119,6 +139,11 @@ pub struct UniversalExecutor {
     /// The admin's support session the turn runs in, read from
     /// [`SUPPORT_SESSION`] like `turn_locale` and scoped back the same way.
     support_session: Option<ImpersonationGrant>,
+    /// The credential the external call came through, which the admin audit
+    /// trail names (carnet#1511), read from
+    /// [`CALLER_CREDENTIAL`](crate::support_session::CALLER_CREDENTIAL) when
+    /// the executor is built, so a nested dispatch names its caller's.
+    credential: Option<CallerCredential>,
     /// Per-**utterance** token used solely as the Guardian's turn key so per-turn
     /// budgets accumulate over one user message's `ReAct` loop and
     /// reset on the next. Distinct from `conversation_id` (the persistent thread
@@ -175,6 +200,13 @@ pub struct UniversalExecutor {
     /// body. A nested dispatch then reads that athlete too, and is charged to
     /// the coach who asked, rather than resolving a subject of its own.
     read_subject: Option<ReadSubject>,
+    /// The ceiling of the detailed consent grant the caller's token was
+    /// minted under (plan slice 3): bound by an entry point with
+    /// [`Self::with_ceiling`], or inherited from the scope it was built in,
+    /// so a nested dispatch reads no wider. Held here for the reason
+    /// [`Self::transport`] is, and scoped around each body
+    /// ([`ai_scope::under_grant`]).
+    ceiling: Option<GrantCeiling>,
 }
 
 impl fmt::Debug for UniversalExecutor {
@@ -195,6 +227,7 @@ impl fmt::Debug for UniversalExecutor {
             .field("provenance", &self.provenance)
             .field("caller_writes_reply", &self.caller_writes_reply)
             .field("read_subject", &self.read_subject)
+            .field("ceiling", &self.ceiling)
             .finish_non_exhaustive()
     }
 }
@@ -221,6 +254,7 @@ impl UniversalExecutor {
             turn_direct_message: TURN_DIRECT_MESSAGE.try_with(Clone::clone).ok().flatten(),
             turn_ask: TURN_ASK.try_with(Clone::clone).ok().flatten(),
             support_session: SUPPORT_SESSION.try_with(Clone::clone).ok().flatten(),
+            credential: support_session::current_credential(),
             // Inherit the caller's turn token when this executor is built inside
             // a tool body (nested dispatch), so a nested write is charged to the
             // SAME turn as its caller. Absent outside any tool scope
@@ -242,7 +276,19 @@ impl UniversalExecutor {
             caller_writes_reply: false,
             // A nested dispatch reads the coached athlete its caller reads.
             read_subject: scoped_read_subject(),
+            // And reads no wider than the grant its caller runs under.
+            ceiling: ai_scope::grant_ceiling(),
         }
+    }
+
+    /// Bind the ceiling of the consent grant the caller's token was minted
+    /// under. A binding only narrows: `None` keeps an inherited ceiling.
+    #[must_use]
+    pub fn with_ceiling(mut self, ceiling: Option<GrantCeiling>) -> Self {
+        if ceiling.is_some() {
+            self.ceiling = ceiling;
+        }
+        self
     }
 
     /// Bind that the caller writes its own reply from each result.
@@ -367,19 +413,16 @@ impl UniversalExecutor {
 
     /// Pre-dispatch authorization refusals shared by every transport: the
     /// always-on tool-disable, per tenant and per user (S3, fail-closed on a
-    /// genuine lookup error)
-    /// and the `ADMIN_ONLY` defense-in-depth gate (S2). Returns `Some(refusal)`
+    /// genuine lookup error). Returns `Some(refusal)`
     /// to block in-band (a refusal the LLM adapts to — NOT a security block that
     /// abandons the turn), or `None` to proceed to the Guardian budget check.
     async fn authorization_refusal(
         &self,
         tool_name: &str,
         parties: Parties,
-        is_admin: bool,
-        admin_only: bool,
         provider_gate: ProviderGate<'_>,
     ) -> Result<Option<UniversalResponse>, ProtocolError> {
-        // Tool-disable (absorbed `enforce_tool_allowlist`): an operator's
+        // Tool-disable (absorbed `enforce_tool_allowlist`): an admin's
         // explicit config for the tenant, or a per-user override above it,
         // enforced on every transport. Disabling a tool is config, not a
         // security incident — return the graceful in-band nudge the old
@@ -395,24 +438,6 @@ impl UniversalExecutor {
             return Ok(Some(refusal_response::tenant_disabled_response(tool_name)));
         }
 
-        // ADMIN_ONLY defense-in-depth: a future ADMIN_ONLY tool that forgets its
-        // inline `ctx.require_admin()` must not be silently reachable via
-        // MCP-direct / A2A. Reject with the same `ProtocolError` a tool body's
-        // own `require_admin` refusal is re-raised as (`PermissionDenied`, the
-        // 403 lane), so every transport and every admin-tool test sees one
-        // consistent authz shape — not a divergent in-band response. Denies by
-        // default when the admin lookup failed.
-        if admin_only && !is_admin {
-            warn!(
-                tool_name = %tool_name,
-                "admin-only tool denied for non-admin caller at the dispatch chokepoint"
-            );
-            return Err(ProtocolError::PermissionDenied {
-                tool_name: tool_name.to_owned(),
-                reason: "Admin access required".to_owned(),
-            });
-        }
-
         // The data sources asked of are the reader's: a coach's read of their
         // athlete needs the athlete's connection, not the coach's.
         if provider_gate.required {
@@ -424,7 +449,17 @@ impl UniversalExecutor {
             }
         }
 
-        Ok(None)
+        // A consent grant whose day of rows is spent runs nothing more today.
+        Ok(self.row_budget_refusal(tool_name, parties).await)
+    }
+
+    /// Count a call that spends the turn's write budget as attempted.
+    fn note_write_attempt(&self, counts: bool, tenant: Option<Uuid>, turn_token: &str) {
+        if counts {
+            self.resources
+                .guardian_turns()
+                .record_write_attempt(&TurnKey::new(tenant, turn_token.to_owned()));
+        }
     }
 
     /// The `REQUIRES_PROVIDER` half of the pre-dispatch refusals.
@@ -549,6 +584,23 @@ impl UniversalExecutor {
         &self,
         request: UniversalRequest,
     ) -> Result<UniversalResponse, ProtocolError> {
+        // An outside client's call answered before its body ran (a refusal,
+        // a failure) still writes its usage row, marked refused (carnet#1543).
+        let call = delegated_read::PreBodyCall::of(&request);
+        let body_answered = AtomicBool::new(false);
+        let result = self.execute_traced(request, &body_answered).await;
+        if !body_answered.load(Ordering::Relaxed) {
+            self.record_refused_outside_call(&call).await;
+        }
+        result
+    }
+
+    /// [`Self::execute_tool`] inside its span and admin audit.
+    async fn execute_traced(
+        &self,
+        request: UniversalRequest,
+        body_answered: &AtomicBool,
+    ) -> Result<UniversalResponse, ProtocolError> {
         // The one span per tool call, opened here because every transport
         // funnels through this function; see `dispatch_span`.
         let span = tool_call_span(&request);
@@ -558,7 +610,11 @@ impl UniversalExecutor {
         // Boxed: a tool body may dispatch another tool through here
         // (`analyze_activity` → `get_activity_intelligence`), and an inline
         // `dispatch` future would ride in that body's future and its callers'.
-        let result = Box::pin(self.dispatch(request).instrument(span.clone())).await;
+        let result = Box::pin(
+            self.dispatch(request, body_answered)
+                .instrument(span.clone()),
+        )
+        .await;
         if let Some(started) = &audited {
             admin_call_audit::settle(
                 self.resources.repos().admin_audit.as_ref(),
@@ -575,6 +631,7 @@ impl UniversalExecutor {
     async fn dispatch(
         &self,
         request: UniversalRequest,
+        body_answered: &AtomicBool,
     ) -> Result<UniversalResponse, ProtocolError> {
         let tool = self
             .resources
@@ -587,7 +644,7 @@ impl UniversalExecutor {
             })?;
 
         let (ctx, is_admin) = build_tool_context(&self.resources, &request).await?;
-        // Captured before `request` is torn apart: the charge and the operator
+        // Captured before `request` is torn apart: the charge and the admin
         // event below are owed for every transport, and `protocol` is the only
         // thing that says which one this was.
         let protocol = request.protocol.clone();
@@ -605,12 +662,6 @@ impl UniversalExecutor {
             .tenant_id
             .as_deref()
             .and_then(|raw| Uuid::parse_str(raw).ok());
-        // Pre-dispatch authorization refusals — the always-on tenant tool-disable
-        // (S3, an in-band nudge the LLM adapts to) and the ADMIN_ONLY
-        // defense-in-depth gate (S2, a propagated `ProtocolError` matching the
-        // tool's own `ctx.require_admin()`). Extracted to a helper to keep this
-        // dispatch fn within the cognitive-complexity budget.
-        let admin_only = tool.capabilities().contains(ToolCapabilities::ADMIN_ONLY);
         let user_uuid = Uuid::parse_str(&request.user_id).map_err(|e| {
             ProtocolError::InternalError(format!("malformed user id in request: {e}"))
         })?;
@@ -626,11 +677,11 @@ impl UniversalExecutor {
         // Before every refusal below, so a write that any of them turns away
         // counts too: sending this turn's question again would try the same
         // thing on a fresh budget, and the refusal may no longer apply by then.
-        if writes_data || labels.is_irreversible() {
-            self.resources
-                .guardian_turns()
-                .record_write_attempt(&TurnKey::new(tenant_uuid, resolved_turn_token.clone()));
-        }
+        self.note_write_attempt(
+            counts_as_write(writes_data, labels),
+            tenant_uuid,
+            &resolved_turn_token,
+        );
 
         // The scope gate runs first, and is its own gate rather than an arm of
         // `authorization_refusal`: the two answer different questions and both
@@ -642,25 +693,23 @@ impl UniversalExecutor {
         // First, because an unauthorized caller should not learn anything the
         // later refusals would tell them — a tenant's tool-disable config,
         // say — and because the credential's reach is the outermost question.
-        scope_refusal(&tool_name, tool.capabilities(), &self.scopes)?;
-
-        // A tool kept on Dravr's own surfaces is refused to an external caller
-        // before anything it would read is looked up — the same answer its
-        // absence from that caller's listing gives.
-        if let Some(refusal) = first_party_tools::refusal(
-            self.resources.tool_registry(),
-            &tool_name,
-            ai_scope::effective_transport(self.transport),
-        ) {
-            return Ok(refusal);
-        }
-
-        // The coach's seats: in a group the caller coaches, their own data is
-        // not what the turn is about (carnet#742); in their thread about one
-        // athlete, nothing is filed on their own account (carnet#1070).
+        //
+        // Then the transport and the role, in the one predicate every listing
+        // reads (carnet#1511), so a call is refused exactly what its caller's
+        // listing leaves out, before anything the tool would read is looked
+        // up.
+        //
+        // The coach's seats come next: in a group the caller coaches, their
+        // own data is not what the turn is about (carnet#742); in their thread
+        // about one athlete, nothing is filed on their own account
+        // (carnet#1070).
         if let Some(refusal) = self
-            .seat
-            .refusal(self.resources.tool_registry(), &tool_name)
+            .access_refusal(tool.as_ref(), &tool_name, user_uuid, is_admin)
+            .await?
+            .or_else(|| {
+                self.seat
+                    .refusal(self.resources.tool_registry(), &tool_name)
+            })
         {
             return Ok(refusal);
         }
@@ -689,7 +738,7 @@ impl UniversalExecutor {
                 .filter(|s| !s.is_empty()),
         };
         if let Some(refusal) = self
-            .authorization_refusal(&tool_name, parties, is_admin, admin_only, provider_gate)
+            .authorization_refusal(&tool_name, parties, provider_gate)
             .await?
         {
             return Ok(refusal);
@@ -772,7 +821,14 @@ impl UniversalExecutor {
         // notice) is the athlete's, and never posts into the coach's thread.
         let in_conversation = subject.is_none();
         let member_read = subject.as_ref().map(ReadSubject::athlete);
-        let execute = async move {
+        // An outside client reaches a tool reading T2/T3 streams only under
+        // the athlete's tier consent (`tier_gate`, carnet#1544).
+        let tiers = self
+            .resources
+            .tool_registry()
+            .tool_data(&tool_name)
+            .map_or_else(Vec::new, ToolData::tiers);
+        let execute = tier_gate::gated(&tool_name, &tiers, async move {
             // What the call derives from here on is the athlete's (carnet#1174),
             // and so is every attribution what it serves owes (carnet#1464).
             match member_read {
@@ -783,7 +839,15 @@ impl UniversalExecutor {
                 }
                 None => tool.execute(&self.resources, &ctx, args).await,
             }
-        };
+        });
+        // A call that answers a chat turn under its real turn token may hand
+        // an effect the turn's next call would only repeat to the turn's end
+        // (carnet#1702). A one-shot MCP or A2A call is its own turn, with no
+        // end to hand anything to, and a read of a coached athlete answers into
+        // no conversation.
+        let handoff = (self.turn_token.is_some() && self.turn_ask.is_some() && in_conversation)
+            .then(HandoffSlot::default);
+        let execute = turn_end::with_handoff(handoff.clone(), execute);
         let body = ai_scope::ai_read(CONVERSATION_ID.scope(
             self.conversation_id.clone().filter(|_| in_conversation),
             CONVERSATION_TENANT.scope(
@@ -828,6 +892,11 @@ impl UniversalExecutor {
         } else {
             Either::Right(ai_scope::with_ai_consent(consent_withheld.clone(), body))
         });
+        // Every reader below runs under the grant's ceiling, which counts
+        // the rows they serve for its daily budgets.
+        // Boxed for the reason the body above is.
+        let body =
+            Box::pin(self.levied(parties, ai_scope::under_grant(self.ceiling.clone(), body)));
         let body = async {
             match transport {
                 Some(served) => ai_scope::serve_over(served, body).await,
@@ -846,25 +915,37 @@ impl UniversalExecutor {
         if let Some(reservation) = reservation.as_mut() {
             reservation.start();
         }
-        let (((response, read_side_withheld), subject_withheld), served_items) =
-            ai_scope::tracking(
+        let ((((response, read_side_withheld), subject_withheld), served_items), read_members) =
+            delegated_read::reading_members(ai_scope::tracking(
                 provenance.clone(),
                 ai_scope::serving_items(ai_scope::subject_consents(body)),
-            )
+            ))
             .await;
         // The backstop applies the consents the body's reads ran under. For a
         // read of a coached athlete those are the athlete's, by construction:
         // the subject resolved above, whatever a nested call recorded. For the
         // caller's own call, they are the person a body read other than its
         // caller, when it read one (a group tool reading a member).
+        let read_another_person = subject_withheld.is_some();
         let consent_withheld = if subject.is_some() {
             consent_withheld
         } else {
             subject_withheld.unwrap_or(consent_withheld)
         };
-        if served_items && !response.is_error {
-            provenance.mark_provider_data();
-        }
+        mark_served_provider_data(&provenance, served_items && !response.is_error);
+        // The call's own usage row, when an outside client made it, written
+        // whatever the tool answered (carnet#1543).
+        body_answered.store(true, Ordering::Relaxed);
+        self.record_outside_call(delegated_read::OutsideCall {
+            tool_name: &tool_name,
+            started: dispatch_start,
+            outcome: delegated_read::body_outcome(response.is_error),
+            parties,
+            subject_resolved: subject.is_some(),
+            read_another_person,
+            members_read: read_members,
+        })
+        .await;
 
         // Guardian POST. The budget was reserved pre-execution; it is refunded if
         // the call returned a failure, so only *successful* consequential actions
@@ -876,9 +957,12 @@ impl UniversalExecutor {
                 reservation.refund();
             }
         } else {
+            let handed = handoff.as_ref().and_then(HandoffSlot::handed);
             if let Some(reservation) = reservation {
-                reservation.keep();
+                reservation.keep_unless_handed_over(handed);
             }
+            let turn_end = self.resources.turn_end_dispatches();
+            turn_end.record_handoff(&turn_key, handed, self.seat);
             if writes_data || labels.is_irreversible() {
                 turns.record_committed(&turn_key, &tool_name);
             }
@@ -983,13 +1067,15 @@ impl UniversalExecutor {
         // reads the slug off its own result and has no turn to report to, and a
         // window the pipeline prefetched offers nothing: the model never asked
         // for it, and most turns prefetch, so it would ask an athlete with one
-        // dead connection to reconnect on every message.
-        if self.turn_token.is_some() && DispatchOrigin::current() != DispatchOrigin::Prefetch {
+        // dead connection to reconnect on every message. A run the turn's end
+        // made has no loop left to take a slug: its reply is written.
+        if self.turn_token.is_some() && DispatchOrigin::current() == DispatchOrigin::Model {
             turn_signals::record(
                 &*self.resources,
                 &turn_key,
                 &tool_name,
                 universal.result.as_ref(),
+                ai_scope::effective_transport(self.transport),
             );
         }
 
@@ -1003,67 +1089,6 @@ impl UniversalExecutor {
         })
         .await;
         Ok(universal)
-    }
-
-    /// Charge the athlete's tool budget and tell operators a tool ran.
-    ///
-    /// Both belong HERE and nowhere else. Every transport funnels through
-    /// `execute_tool` — the chat `ReAct` loop, MCP-direct, A2A, and an ACP
-    /// agent's tool-host session — so a charge levied here
-    /// is levied exactly once per real dispatch. Levied at the turn's end
-    /// instead, an ACP turn paid twice for one tool (once at the tool host, once
-    /// for the turn) and paid again for tools that were never ours: Copilot's
-    /// own `noop` and shell calls are counted in the ACP-reported total but
-    /// never reach this function, so they now cost nothing.
-    ///
-    /// Only a successful dispatch is *charged*. A refused or errored call
-    /// consumed the athlete's quota under the old scheme, which is the same
-    /// mistake as letting it satisfy a citation. It is still *reported*: the
-    /// notify event sits above the charge guard and carries
-    /// `success: false`, so a tool that ran and declined stays visible to
-    /// operators.
-    ///
-    /// What no transport reports through here is a call that produced no
-    /// response at all. This is `execute_tool`'s last statement before `Ok`,
-    /// so an early `ProtocolError` return skips it, and so does a caller that
-    /// abandons the future — which is what the loopback surface's own timeout
-    /// does. `TurnToolSurface::call` also refuses outright when a turn's tool
-    /// budget is spent, before reaching `execute_tool` at all. Those three
-    /// exits are the notify lane's blind spot, and the closing analysis on
-    /// registre#103 mistook it for a wider one: every native call that DOES
-    /// return a response is catalogued here, because that surface dispatches
-    /// through this executor like every other transport.
-    ///
-    /// Fire-and-forget: a counter write must never fail a tool the athlete
-    /// already received an answer from.
-    async fn record_dispatch(&self, r: DispatchRecord<'_>) {
-        let duration_ms = u64::try_from(r.started.elapsed().as_millis()).unwrap_or(u64::MAX);
-        let tenant_id = r.tenant_uuid.map_or_default(|t| t.to_string());
-
-        info!(
-            target: "notify",
-            event = "messaging.tool_executed",
-            tenant_id = %tenant_id,
-            channel = %r.protocol,
-            tool_name = %r.tool_name,
-            success = r.response.success,
-            duration_ms = duration_ms,
-            "tool executed"
-        );
-
-        if !r.response.success || tenant_id.is_empty() {
-            return;
-        }
-
-        let repo = self.resources.repos().usage_counters.as_ref();
-        for counter_type in ["daily_tool_calls", "weekly_tool_calls"] {
-            if let Err(e) = increment_counter(repo, &tenant_id, r.user_id, counter_type, 1).await {
-                warn!(
-                    tool_name = r.tool_name,
-                    counter_type, "failed to charge tool call: {e}"
-                );
-            }
-        }
     }
 
     /// Check if executor has a specific tool
@@ -1095,18 +1120,6 @@ impl UniversalExecutor {
     }
 }
 
-/// What [`UniversalExecutor::record_dispatch`] needs to charge and report one
-/// dispatch. A struct because the six values trip the too-many-arguments lint.
-struct DispatchRecord<'a> {
-    tool_name: &'a str,
-    /// The transport this call arrived on — `chat`, `mcp`, `a2a`.
-    protocol: &'a str,
-    user_id: &'a str,
-    response: &'a UniversalResponse,
-    tenant_uuid: Option<Uuid>,
-    started: Instant,
-}
-
 impl UniversalExecutor {
     /// The turn token bound to this executor, `None` for a one-shot MCP or A2A
     /// call: such a call mints a nonce that no later reader could ever name.
@@ -1114,83 +1127,18 @@ impl UniversalExecutor {
     pub fn turn_token(&self) -> Option<&str> {
         self.turn_token.as_deref()
     }
+}
 
-    /// Answer a call the Guardian blocked: tell operators, leave the block for
-    /// the turn's tool loop, and refuse the call in-band.
-    fn refuse_blocked(
-        &self,
-        turn_key: &TurnKey,
-        tenant: Option<Uuid>,
-        channel: &str,
-        tool_name: &str,
-        reason: DenyReason,
-    ) -> UniversalResponse {
-        // Operators see every block, whatever transport raised it.
-        let tenant_id = tenant.map_or_default(|t| t.to_string());
-        info!(
-            target: "notify",
-            event = "guardian.denied",
-            tenant_id = %tenant_id,
-            channel = %channel,
-            tool_name = %tool_name,
-            reason = reason.as_str(),
-            "guardian denied tool dispatch"
-        );
-        // #10: record the block under the turn it fired in, so the turn's tool
-        // loop surfaces a deterministic refusal for one raised inside an ACP
-        // agent's tool-host session (a separate task that can't return this
-        // out-of-band). A `TurnBlocked` refusal is a consequence of the block
-        // already recorded, never the first.
-        if reason != DenyReason::TurnBlocked {
-            self.record_turn_block(
-                turn_key,
-                HeadlessBlock {
-                    tool_name: tool_name.to_owned(),
-                    reason,
-                },
-            );
-        }
-        refusal_response::guardian_denied_response(tool_name, reason)
-    }
-
-    /// Record `block` for the turn's tool loop to render, when this call runs in
-    /// a turn. A one-shot MCP or A2A call answers its caller in-band, and an
-    /// entry under its nonce would never be taken (carnet#1404).
-    fn record_turn_block(&self, turn_key: &TurnKey, block: HeadlessBlock) {
-        if self.turn_token.is_some() {
-            self.resources
-                .guardian_turns()
-                .record_block(turn_key, block);
-        }
+/// Mark `provenance` as having served provider data when the call that
+/// answered without an error put provider items in front of its caller.
+fn mark_served_provider_data(provenance: &ai_scope::Provenance, served: bool) {
+    if served {
+        provenance.mark_provider_data();
     }
 }
 
-/// Refuse a tool the caller's grant does not cover.
-///
-/// Required scopes are derived from the tool's own capability flags
-/// ([`required_scopes`](crate::scopes::required_scopes)), never from a table,
-/// so they cannot fall out of step with what the tool declares.
-///
-/// A [`ProtocolError`], because this is the transport-agnostic chokepoint every
-/// transport funnels through. The HTTP transport renders the same refusal as
-/// RFC 6750's 403 + `insufficient_scope` challenge before dispatch, reading
-/// this same derivation — one predicate, two renderings, no second source of
-/// truth, and a caller who slipped past the transport is still refused here.
-fn scope_refusal(
-    tool_name: &str,
-    capabilities: ToolCapabilities,
-    granted: &[OAuthScope],
-) -> Result<(), ProtocolError> {
-    if let Some(missing) = missing_scope(granted, capabilities) {
-        warn!(
-            tool_name = %tool_name,
-            missing_scope = %missing,
-            "tool denied: the caller's grant does not cover it"
-        );
-        return Err(ProtocolError::PermissionDenied {
-            tool_name: tool_name.to_owned(),
-            reason: format!("the '{missing}' scope is required"),
-        });
-    }
-    Ok(())
+/// Whether a call spends the turn's write budget: it writes data, or its
+/// effect cannot be undone.
+const fn counts_as_write(writes_data: bool, labels: SecurityLabels) -> bool {
+    writes_data || labels.is_irreversible()
 }

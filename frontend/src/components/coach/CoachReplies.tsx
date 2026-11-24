@@ -17,11 +17,11 @@ import {
   REPLY_FLAG_REASONS as REASONS,
   VERDICT_STATUS_LABEL_KEY,
   coachReviewWeekSummary,
+  QUERY_KEYS,
 } from '@pierre/shared-constants';
 import { useTranslation } from '@pierre/i18n';
 import { ALL_COACHED_ATHLETES, coachedAthleteOptions, describeApiError, replyStatus } from '@pierre/ui-logic';
 import { coachRepliesApi } from '../../services/api';
-import { QUERY_KEYS } from '../../constants/queryKeys';
 import { TabHeader } from '../ui/TabHeader';
 import { Button, Select, Textarea, useErrorToast, useSuccessToast } from '../ui';
 import { StatusDot, type DotTone } from '../coach-home/parts';
@@ -105,7 +105,7 @@ function ReplyCard({ reply }: ReplyCardProps) {
       )}
 
       {/* One status per reply, one dot beside its words, never red or green
-          text (DESIGN.md, Coach Home); the claims follow, each as its words. */}
+          text (DESIGN.md "Status"); the claims follow, each as its words. */}
       {status !== null && (
         <div data-testid="coach-reply-verdicts" className="mt-2 space-y-1">
           <p

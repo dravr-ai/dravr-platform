@@ -18,7 +18,6 @@
 //! is handed back: a corrupted or substituted signature never reaches a
 //! checkpoint.
 
-use std::env;
 use std::fmt;
 use std::time::Duration;
 
@@ -77,28 +76,19 @@ struct SignResponse {
 }
 
 impl GcpKmsEd25519Signer {
-    /// The signer of `key_version` from the environment's
-    /// [`CHECKPOINT_SIGNING_KEY_ENV`], on the production KMS endpoint with the
-    /// metadata server's tokens; `None` when the variable is unset.
+    /// The signer of `key_version` (what [`CHECKPOINT_SIGNING_KEY_ENV`] names)
+    /// on the production KMS endpoint, with the metadata server's tokens.
     ///
     /// # Errors
     ///
     /// As [`Self::connect`].
-    pub async fn from_env() -> AppResult<Option<Self>> {
-        let Ok(key_version) = env::var(CHECKPOINT_SIGNING_KEY_ENV) else {
-            return Ok(None);
-        };
-        let key_version = key_version.trim().to_owned();
-        if key_version.is_empty() {
-            return Ok(None);
-        }
+    pub async fn production(key_version: String) -> AppResult<Self> {
         Self::connect(
             key_version,
             KMS_BASE_URL.to_owned(),
             Box::new(MetadataTokenProvider::default()),
         )
         .await
-        .map(Some)
     }
 
     /// The signer of `key_version` at `base_url`, its public key read now.

@@ -1,15 +1,31 @@
-// ABOUTME: Canonical tenant resolution — single helper that EVERY route + service calls before touching tenant-scoped data
-// ABOUTME: Replaces 10+ ad-hoc `TenantId::from_uuid(user_id)` fallbacks; verifies membership when active_tenant_id is claimed
+// ABOUTME: Canonical tenant resolution — the single rule EVERY route + service applies before touching tenant-scoped data
+// ABOUTME: Never fabricates a tenant from the user uuid; verifies membership when active_tenant_id is claimed
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
 //! Canonical per-request tenant resolution.
 //!
-//! Every route handler and tenant-scoped service must pass the authenticated
+//! Every route handler and tenant-scoped service passes the authenticated
 //! [`AuthResult`] through [`resolve_tenant`] before reading or writing
 //! tenant-scoped data; that is how a request *selects* which tenant it acts
-//! for, and the policy for selecting one lives here.
+//! for, and the policy for selecting one lives here and nowhere else.
+//!
+//! There is one rule and two doors onto it, which differ only in what the
+//! caller holds:
+//!
+//! - [`resolve_tenant`] — a caller holding an `Arc` of a [`MiddlewareCtx`]
+//!   (every router generic over a runtime-context trait, and the server's own
+//!   routes).
+//! - [`resolve_tenant_in`] — a caller holding the tenants repository and no
+//!   runtime context (the auth routes' focused context, a service).
+//!
+//! No route reads `AuthResult.active_tenant_id` to decide which tenant it
+//! acts for, and none takes the head of `tenants.first_for_user` for that: a
+//! claim is a request, and only a membership row answers it. What still reads
+//! the claim directly is what carries it rather than acts on it — minting a
+//! token, reporting which tenant a session names, recording the request's
+//! identity for logs.
 //!
 //! ## Why this exists
 //!
@@ -72,6 +88,8 @@ use pierre_auth::auth::AuthResult;
 use pierre_core::admin::scope::{AdminScope, ScopeCaller};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
+use pierre_database::repositories::TenantRepository;
+use uuid::Uuid;
 
 use crate::MiddlewareCtx;
 
@@ -118,10 +136,38 @@ pub async fn resolve_tenant<C>(
 where
     C: MiddlewareCtx + ?Sized,
 {
-    let tenants = ctx.repos().tenants.list_for_user(auth.user_id).await?;
+    resolve_tenant_in(ctx.repos().tenants.as_ref(), auth, mode).await
+}
 
-    if let Some(claimed) = auth.active_tenant_id {
-        if tenants.iter().any(|t| t.id.as_uuid() == claimed) {
+/// [`resolve_tenant`] for a caller that holds the tenants repository and no
+/// runtime context: the same rule, read from the same membership rows.
+///
+/// # Errors
+///
+/// Everything [`resolve_tenant`] returns.
+pub async fn resolve_tenant_in(
+    tenants: &dyn TenantRepository,
+    auth: &AuthResult,
+    mode: TenantMode,
+) -> AppResult<Option<TenantId>> {
+    let memberships: Vec<TenantId> = tenants
+        .list_for_user(auth.user_id)
+        .await?
+        .iter()
+        .map(|tenant| tenant.id)
+        .collect();
+    select_tenant(&memberships, auth.active_tenant_id, mode)
+}
+
+/// The selection rule itself, over the tenants the user belongs to in the
+/// order the repository lists them.
+fn select_tenant(
+    memberships: &[TenantId],
+    claimed: Option<Uuid>,
+    mode: TenantMode,
+) -> AppResult<Option<TenantId>> {
+    if let Some(claimed) = claimed {
+        if memberships.iter().any(|t| t.as_uuid() == claimed) {
             return Ok(Some(TenantId::from_uuid(claimed)));
         }
         return Err(AppError::auth_invalid(
@@ -129,8 +175,8 @@ where
         ));
     }
 
-    if let Some(first) = tenants.first() {
-        return Ok(Some(first.id));
+    if let Some(first) = memberships.first() {
+        return Ok(Some(*first));
     }
 
     match mode {
@@ -209,4 +255,101 @@ where
 /// Returns [`AppError::auth_invalid`] if the inner value is `None`.
 pub fn require<T>(opt: Option<T>) -> AppResult<T> {
     opt.ok_or_else(|| AppError::auth_invalid("tenant required for this operation but not resolved"))
+}
+
+/// The tenant a request acts in, by the canonical rule; a caller with no
+/// tenant at all is refused.
+///
+/// # Errors
+///
+/// Whatever [`resolve_tenant`] returns under [`TenantMode::Required`].
+pub async fn require_tenant<C>(ctx: &Arc<C>, auth: &AuthResult) -> AppResult<TenantId>
+where
+    C: MiddlewareCtx + ?Sized,
+{
+    require(resolve_tenant(ctx, auth, TenantMode::Required).await?)
+}
+
+/// [`require_tenant`] for a caller that holds the tenant repository and no
+/// context.
+///
+/// # Errors
+///
+/// Whatever [`resolve_tenant_in`] returns under [`TenantMode::Required`].
+pub async fn require_tenant_in(
+    tenants: &dyn TenantRepository,
+    auth: &AuthResult,
+) -> AppResult<TenantId> {
+    require(resolve_tenant_in(tenants, auth, TenantMode::Required).await?)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{select_tenant, TenantMode};
+    use pierre_core::errors::ErrorCode;
+    use pierre_core::models::TenantId;
+    use uuid::Uuid;
+
+    #[test]
+    fn a_claim_the_user_belongs_to_selects_that_tenant_over_the_first() {
+        let first = TenantId::from_uuid(Uuid::new_v4());
+        let second = Uuid::new_v4();
+        let memberships = [first, TenantId::from_uuid(second)];
+
+        let selected = select_tenant(&memberships, Some(second), TenantMode::Required);
+
+        assert_eq!(
+            selected.ok().flatten().map(|t| t.as_uuid()),
+            Some(second),
+            "a verified claim is the tenant the request acts for"
+        );
+    }
+
+    #[test]
+    fn a_claim_with_no_membership_is_refused_in_both_modes() {
+        let memberships = [TenantId::from_uuid(Uuid::new_v4())];
+        let stale = Uuid::new_v4();
+
+        for mode in [TenantMode::Required, TenantMode::Optional] {
+            let refused = select_tenant(&memberships, Some(stale), mode);
+            assert_eq!(
+                refused.err().map(|e| e.code),
+                Some(ErrorCode::AuthInvalid),
+                "a claim that outlived its membership never falls back to another tenant"
+            );
+        }
+    }
+
+    #[test]
+    fn no_claim_selects_the_first_tenant() {
+        let first = Uuid::new_v4();
+        let memberships = [
+            TenantId::from_uuid(first),
+            TenantId::from_uuid(Uuid::new_v4()),
+        ];
+
+        let selected = select_tenant(&memberships, None, TenantMode::Required);
+
+        assert_eq!(
+            selected.ok().flatten().map(|t| t.as_uuid()),
+            Some(first),
+            "a credential without a claim acts for the account's first tenant"
+        );
+    }
+
+    #[test]
+    fn no_tenant_at_all_is_an_error_when_required_and_none_when_optional() {
+        let required = select_tenant(&[], None, TenantMode::Required);
+        assert_eq!(
+            required.err().map(|e| e.code),
+            Some(ErrorCode::AuthInvalid),
+            "a route that needs a tenant refuses an account that has none"
+        );
+
+        let optional = select_tenant(&[], None, TenantMode::Optional);
+        assert!(
+            matches!(optional, Ok(None)),
+            "a route that can serve an account with no tenant is told there is none"
+        );
+    }
 }

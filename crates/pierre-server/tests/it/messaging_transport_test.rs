@@ -18,6 +18,7 @@
 )]
 
 use dravr_canot::transport::TransportAdapter;
+use dravr_tronc::dates::Timestamp;
 use hmac::{Hmac, Mac};
 use http::HeaderMap;
 use pierre_core::models::messaging::{ChannelType, MessageContent};
@@ -636,7 +637,7 @@ mod slack {
     }
 
     fn current_timestamp() -> String {
-        chrono::Utc::now().timestamp().to_string()
+        Timestamp::now().epoch_seconds().to_string()
     }
 
     fn compute_slack_signature(secret: &str, timestamp: &str, body: &str) -> String {
@@ -679,7 +680,7 @@ mod slack {
     fn test_replay_protection_rejects_old_timestamp() {
         let transport = make_transport();
         // Use a timestamp from 10 minutes ago (> 5 min max)
-        let old_ts = (chrono::Utc::now().timestamp() - 600).to_string();
+        let old_ts = (Timestamp::now().epoch_seconds() - 600).to_string();
         let body = "test body";
         let headers = signed_headers(&old_ts, body);
         let err = transport

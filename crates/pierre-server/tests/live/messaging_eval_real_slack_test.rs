@@ -89,7 +89,7 @@ impl SlackCreds {
     /// a skip that reads as a pass (carnet#805).
     fn from_env() -> Self {
         // App token + signing secret aren't used by polling but are
-        // required by the operator's setup, so we gate on their
+        // required by the admin's setup, so we gate on their
         // presence to catch half-configured environments loudly.
         let required = |name: &str| match env::var(name) {
             Ok(value) if !value.is_empty() => value,
@@ -362,7 +362,7 @@ async fn wait_for_any_message_from(
 
 /// Extract the QA driver bot's own user id via `auth.test`. Used by
 /// the smoke test so it can read back its own post without needing
-/// the operator to configure a second id.
+/// the admin to configure a second id.
 async fn driver_user_id(client: &Client, bot_token: &str) -> Result<String, String> {
     let response: Value = client
         .post("https://slack.com/api/auth.test")

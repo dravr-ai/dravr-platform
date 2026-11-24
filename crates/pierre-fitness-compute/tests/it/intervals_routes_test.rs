@@ -7,9 +7,9 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use chrono::{TimeZone, Utc};
 use dravr_cageux::models::activity::{Activity, ActivityBuilder, Lap, TimeSeriesData};
 use dravr_cageux::models::sport::SportType;
+use dravr_tronc::dates::Timestamp;
 use pierre_fitness_compute::intervals::build_intervals;
 use pierre_fitness_compute::routes::{
     build_route_summary, build_route_summary_from_streams, route_summary_from_cache,
@@ -21,7 +21,7 @@ fn synthetic_activity_with_laps(laps: Vec<Lap>) -> Activity {
         "act-1".to_owned(),
         "Test Run".to_owned(),
         SportType::Run,
-        Utc.with_ymd_and_hms(2026, 4, 1, 12, 0, 0).unwrap(),
+        Timestamp::parse_from_rfc3339("2026-04-01T12:00:00Z").unwrap(),
         3600,
         "synthetic".to_owned(),
     )
@@ -75,7 +75,7 @@ fn intervals_synthesises_one_row_when_no_laps() {
         "lone".to_owned(),
         "No Laps Run".to_owned(),
         SportType::Run,
-        Utc.with_ymd_and_hms(2026, 4, 1, 12, 0, 0).unwrap(),
+        Timestamp::parse_from_rfc3339("2026-04-01T12:00:00Z").unwrap(),
         3600,
         "synthetic".to_owned(),
     )
@@ -141,7 +141,7 @@ fn activity_with_stream(laps: Vec<Lap>, stream: TimeSeriesData) -> Activity {
         "act-laps".to_owned(),
         "Interval Session".to_owned(),
         SportType::Run,
-        Utc.with_ymd_and_hms(2026, 4, 1, 12, 0, 0).unwrap(),
+        Timestamp::parse_from_rfc3339("2026-04-01T12:00:00Z").unwrap(),
         180,
         "synthetic".to_owned(),
     )
@@ -198,15 +198,15 @@ fn intervals_compute_stream_metrics_over_each_lap_window() {
     // Each lap starts where the previous one ended.
     assert_eq!(
         start(0),
-        Utc.with_ymd_and_hms(2026, 4, 1, 12, 0, 0).unwrap()
+        Timestamp::parse_from_rfc3339("2026-04-01T12:00:00Z").unwrap()
     );
     assert_eq!(
         start(1),
-        Utc.with_ymd_and_hms(2026, 4, 1, 12, 1, 0).unwrap()
+        Timestamp::parse_from_rfc3339("2026-04-01T12:01:00Z").unwrap()
     );
     assert_eq!(
         start(2),
-        Utc.with_ymd_and_hms(2026, 4, 1, 12, 2, 0).unwrap()
+        Timestamp::parse_from_rfc3339("2026-04-01T12:02:00Z").unwrap()
     );
 }
 
@@ -239,7 +239,7 @@ fn intervals_leave_stream_metrics_absent_for_a_lap_with_no_samples() {
     assert!(rows[1].decoupling_pct.is_none());
     assert_eq!(
         rows[1].start_time,
-        Utc.with_ymd_and_hms(2026, 4, 1, 12, 1, 0).unwrap()
+        Timestamp::parse_from_rfc3339("2026-04-01T12:01:00Z").unwrap()
     );
 }
 

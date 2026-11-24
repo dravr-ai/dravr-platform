@@ -397,8 +397,15 @@ impl McpTool<dyn ToolRuntime> for DiscoverRoutesTool {
 
             // One task, two reads at once: the Overpass walk, bounded by its
             // own few seconds, and the store's loops. Never spawned, so both
-            // run under this call's gate and provenance.
-            let service = RouteDiscoveryService::with_defaults();
+            // run under this call's gate and provenance. The instances are
+            // the ones the deployment configuration names.
+            let service = RouteDiscoveryService::new(
+                state
+                    .config()
+                    .external_services
+                    .overpass_api_base
+                    .as_deref(),
+            );
             let walk = service.discover_routes_for_sport(
                 &sport,
                 resolved.latitude,
@@ -832,6 +839,7 @@ crate::declare_security!(DiscoverRoutesTool => empty);
 #[cfg(test)]
 mod tests {
     use super::*;
+    use dravr_tronc::dates::{Timestamp, Zone};
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Mutex;
 
@@ -910,13 +918,13 @@ mod tests {
 
         let weather_args = json!({
             "place": "Paris, Texas",
-            "timestamp": chrono::Utc::now().to_rfc3339(),
+            "timestamp": Timestamp::now().to_rfc3339(),
         });
         let weather = forecast(
             &DummyWeatherProvider::temperate(),
             &geocoder,
             &weather_args,
-            chrono_tz::UTC,
+            &Zone::utc(),
         )
         .await
         .unwrap();

@@ -1,5 +1,5 @@
 // ABOUTME: A Section with a disclosure — the 13 / 600 title and a chevron on one pressable header, the content under it while expanded
-// ABOUTME: No fill, no border, no radius: sections are separated by space (32 below each), never by a box (DESIGN.md §10)
+// ABOUTME: No fill, no border, no radius: sections are separated by space (32 below each), never by a box (DESIGN.md "Phone")
 
 import React, { useState, useCallback } from 'react';
 import { View, Text, Pressable } from 'react-native';

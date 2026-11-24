@@ -69,7 +69,7 @@ import TopicDivider from './TopicDivider';
 import PrivateLaneDivider from './PrivateLaneDivider';
 import { presentMessageMenu } from './presentMessageMenu';
 import SceneView from './SceneView';
-import WorkoutPlanCard from './WorkoutPlanCard';
+import WorkoutPlanCard, { type SessionEditorTarget } from './WorkoutPlanCard';
 import EnvelopeNotice from './EnvelopeNotice';
 import PlanDraftControls from './PlanDraftControls';
 import { MARKDOWN_RULES, TABLE_CELL_MIN_WIDTH } from './markdownRules';
@@ -179,7 +179,7 @@ function FeedbackReasonInput({
 
 // Markdown styles for assistant messages — built per palette so the rendered
 // markdown flips with the active theme. Sizes are steps of the phone's class
-// ladder (DESIGN.md §10): the prose reads at `base`, the headings climb to
+// ladder (DESIGN.md "Phone"): the prose reads at `base`, the headings climb to
 // `lg` and `xl`, and code and table cells sit at the interface step `sm`.
 const buildMarkdownStyles = (colors: ThemeColors) => ({
   body: {
@@ -524,6 +524,13 @@ interface MessageListProps {
   onReachStart?: () => void;
   /** A coach's private lane in this room; absent in every other thread and for every other reader. */
   privateLane?: MessageListPrivateLane;
+  /**
+   * Opens the coach's day editor on an entry of a plan card, or on a date to
+   * add a session to (carnet#1515, #1714, #1716). The host hands it only in
+   * the coach's own plan thread on an athlete; without it no card's entry
+   * offers the editor.
+   */
+  onBuildPlanDay?: (target: SessionEditorTarget) => void;
 }
 
 export function MessageList({
@@ -561,6 +568,7 @@ export function MessageList({
   loadingEarlier = false,
   onReachStart,
   privateLane,
+  onBuildPlanDay,
 }: MessageListProps) {
   const { t, language } = useTranslation();
   const colors = useThemeColors();
@@ -634,7 +642,7 @@ export function MessageList({
     switch (block.type) {
       case 'prose':
         return context.isUser ? (
-          // The ink the tint binds. DESIGN.md §2 pairs `primary-container`
+          // The ink the tint binds. DESIGN.md "Primary" pairs `primary-container`
           // with `on-primary-container` (9.8:1 light, 7.5:1 dark), so the
           // bubble's ink moves with its ground instead of staying on the
           // body role the canvas uses.
@@ -663,8 +671,11 @@ export function MessageList({
         // the card shows, never the room the row is drawn in.
         const planThread = context.planConversationId;
         const shown = planThread === null ? null : planCardDraft(block);
+        // A day is built in the thread on screen, never from a private row,
+        // whose card belongs to the coach's work thread rather than this one.
+        const onBuildDay = context.audience === 'private' ? undefined : onBuildPlanDay;
         return (
-          <WorkoutPlanCard key={key} plan={plan}>
+          <WorkoutPlanCard key={key} plan={plan} onBuildDay={onBuildDay}>
             {shown && planThread !== null ? (
               <PlanDraftControls conversationId={planThread} subject={shown.subject} draft={shown.draft} />
             ) : null}
@@ -1091,7 +1102,7 @@ export function MessageList({
       >
         {isUser ? (
           /* The athlete's message — right-aligned, on the sage tint in both
-             schemes, which is what DESIGN.md §5 specifies and what the web
+             schemes, which is what DESIGN.md "Chat surfaces" specifies and what the web
              bubble already wore. A neutral `surface-container-high` made the
              athlete's own words a grey blob on the light canvas and said
              nothing about whose they were; the tint is the same green the

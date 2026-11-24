@@ -36,6 +36,7 @@ mod messaging_tests {
     use dravr_canot::retry::{compute_retry_update, RetryDecision};
     use dravr_canot::transport::TransportAdapter;
     use dravr_canot::turn::ConversationTurnId as CanotTurnId;
+    use dravr_tronc::dates::Timestamp;
     use hmac::{Hmac, Mac};
     use http::HeaderMap;
     use pierre_core::models::messaging::{
@@ -56,7 +57,7 @@ mod messaging_tests {
     }
 
     fn fresh_timestamp() -> String {
-        chrono::Utc::now().timestamp().to_string()
+        Timestamp::now().epoch_seconds().to_string()
     }
 
     #[test]
@@ -108,7 +109,7 @@ mod messaging_tests {
         let transport = SlackTransport::new(secret.to_owned());
         let body = "test body";
         // 10 minutes ago, beyond the 5 min window
-        let old_timestamp = (chrono::Utc::now().timestamp() - 600).to_string();
+        let old_timestamp = (Timestamp::now().epoch_seconds() - 600).to_string();
         let signature = compute_slack_signature(secret, &old_timestamp, body);
 
         let mut headers = HeaderMap::new();

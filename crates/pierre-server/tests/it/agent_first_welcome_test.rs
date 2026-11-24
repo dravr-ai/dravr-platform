@@ -14,7 +14,7 @@ use crate::helpers::agent_fixtures::publish_catalogue_agent;
 use std::sync::Arc;
 
 use axum::http::StatusCode;
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use serde_json::json;
 
 use common::{create_test_server_resources, create_test_user, generate_test_token};
@@ -115,7 +115,7 @@ fn session(id: &str, sport: SportType, days_ago: i64, seconds: u64, metres: f64)
         id.to_owned(),
         id.to_owned(),
         sport,
-        Utc::now() - Duration::days(days_ago),
+        Timestamp::now() - Elapsed::days(days_ago),
         seconds,
         "strava".to_owned(),
     )
@@ -248,11 +248,12 @@ async fn first_sync_posted(resources: &ServerContext, user_id: Uuid, tenant: Ten
             channel_type: None,
             about_user_id: None,
             turn_attempted_write: None,
+            ai_consent_sources: &[],
         })
         .await
         .unwrap();
     let purpose = PostPurpose::FirstSync.as_str();
-    let now = Utc::now();
+    let now = Timestamp::now();
     let lease = repos
         .platform_post_claims
         .claim_platform_post_once(
@@ -260,7 +261,7 @@ async fn first_sync_posted(resources: &ServerContext, user_id: Uuid, tenant: Ten
             user_id,
             purpose,
             PostPurpose::NO_SUBJECT,
-            now - Duration::minutes(15),
+            now - Elapsed::minutes(15),
             now,
         )
         .await
@@ -274,7 +275,7 @@ async fn first_sync_posted(resources: &ServerContext, user_id: Uuid, tenant: Ten
             purpose,
             PostPurpose::NO_SUBJECT,
             &lease,
-            Utc::now()
+            Timestamp::now()
         )
         .await
         .unwrap());

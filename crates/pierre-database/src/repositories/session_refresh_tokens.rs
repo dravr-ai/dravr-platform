@@ -20,11 +20,11 @@
 //!
 //! `$n` placeholders throughout: sqlx accepts them on `SQLite` as well as
 //! Postgres, so one statement serves both drivers and cannot drift between
-//! them. Timestamps bind as [`DateTime<Utc>`] on both: `TIMESTAMPTZ` on
+//! them. Timestamps bind as [`Timestamp`] on both: `TIMESTAMPTZ` on
 //! Postgres, RFC 3339 text on `SQLite`, which orders correctly for the
 //! `expires_at > now` filter because every value shares one offset and width.
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::SessionRefreshToken;
 use uuid::Uuid;
@@ -107,7 +107,7 @@ where
     for<'a> &'a str: sqlx::ColumnIndex<R>,
     String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     Option<String>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    DateTime<Utc>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Timestamp: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
     let user_id: String = row
         .try_get("user_id")
@@ -175,7 +175,7 @@ macro_rules! impl_session_refresh_token_repository {
             async fn consume_token(
                 &self,
                 token: &str,
-                now: DateTime<Utc>,
+                now: Timestamp,
             ) -> AppResult<Option<SessionRefreshToken>> {
                 let [primary, other] = HasEncryption::blind_index_lookups(self, token);
 
@@ -192,7 +192,7 @@ macro_rules! impl_session_refresh_token_repository {
                 row.map(|row| token_from_row(&row)).transpose()
             }
 
-            async fn revoke_token_family(&self, token: &str, now: DateTime<Utc>) -> AppResult<u64> {
+            async fn revoke_token_family(&self, token: &str, now: Timestamp) -> AppResult<u64> {
                 let [primary, other] = HasEncryption::blind_index_lookups(self, token);
 
                 let result = sqlx::query(REVOKE_TOKEN_FAMILY_SQL)
@@ -210,11 +210,7 @@ macro_rules! impl_session_refresh_token_repository {
                 Ok(result.rows_affected())
             }
 
-            async fn revoke_user_tokens(
-                &self,
-                user_id: Uuid,
-                now: DateTime<Utc>,
-            ) -> AppResult<u64> {
+            async fn revoke_user_tokens(&self, user_id: Uuid, now: Timestamp) -> AppResult<u64> {
                 let result = sqlx::query(revoke_user_tokens_sql!($uuid))
                     .bind(user_id.to_string())
                     .bind(now)

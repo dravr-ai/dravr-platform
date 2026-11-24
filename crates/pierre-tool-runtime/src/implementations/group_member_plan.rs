@@ -51,6 +51,7 @@ use pierre_tools_core::ToolResult;
 use super::call_room::{call_room, CallRoom};
 use super::coach_scope::refusal;
 use super::plan_scope::{coached_plan_read_access, CoachedPlanRefusal};
+use crate::coach_assistant;
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
     answers_with, object_schema, ok_typed, tool_definition, tool_result_to_response,
@@ -297,6 +298,21 @@ impl McpTool<dyn ToolRuntime> for GetGroupMemberPlanStatusTool {
             let (attached, holds_coach_access) = match roster_access(repos, requester).await? {
                 RosterAccess::Granted(groups) => (groups, true),
                 RosterAccess::NoCoachAccess(groups) => (groups, false),
+                // An admin's assistant is listed this tool with or without a
+                // group (carnet#1511, Q24): it answers no match, and how an
+                // admin sees a coach's members.
+                RosterAccess::NotACoach
+                    if ctx.is_admin && coach_assistant::serving_coach_assistant() =>
+                {
+                    return Ok(refusal(
+                        "no_match",
+                        &format!(
+                            "{} {}",
+                            coach_assistant::not_included_message(query),
+                            coach_assistant::ADMIN_NO_GROUP_NOTE
+                        ),
+                    ));
+                }
                 RosterAccess::NotACoach => {
                     return Ok(refusal(
                         "not_a_coach",
@@ -327,6 +343,20 @@ impl McpTool<dyn ToolRuntime> for GetGroupMemberPlanStatusTool {
                 Ok(found) => found,
                 Err(miss) => return Ok(miss_refusal(&miss, query)),
             };
+            // The AI assistant a coach connects is shown a member who allowed
+            // it there (carnet#1511), asked before the gates below record the
+            // read, so a member left out is never logged as read.
+            let included = repos
+                .groups
+                .get_member(&found.group.id.to_string(), found.user_id)
+                .await?
+                .is_some_and(|membership| coach_assistant::includes(&membership));
+            if !included {
+                return Ok(refusal(
+                    "no_match",
+                    &coach_assistant::not_included_message(query),
+                ));
+            }
             // The gates record the read on the athlete's own record before
             // their plan is read (carnet#1445).
             let access = match coached_plan_read_access(
@@ -355,9 +385,11 @@ impl McpTool<dyn ToolRuntime> for GetGroupMemberPlanStatusTool {
 }
 
 // The goal race's name is athlete-authored text.
-// A coach's tool over other athletes' data: Dravr's own surfaces list and run
-// it, an MCP client or an A2A agent never sees it (`crate::first_party_tools`).
-crate::declare_security!(GetGroupMemberPlanStatusTool => empty; first_party_only);
+// A coach's tool over other members' data: listed and run over every
+// transport for a human coach or an admin (`crate::tool_access`), and
+// externally it shows only the members who allowed their coach's assistant
+// (`crate::coach_assistant`).
+crate::declare_security!(GetGroupMemberPlanStatusTool => empty; coach);
 
 #[cfg(test)]
 mod tests {

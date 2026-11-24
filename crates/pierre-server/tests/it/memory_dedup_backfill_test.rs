@@ -78,6 +78,7 @@ async fn seed_the_reported_pile(resources: &Arc<ServerContext>, tenant_id: Tenan
                 valid_until: None,
                 source_msg_id: None,
                 transport_policy: TransportPolicy::AnyTransport,
+                ai_consent_sources: &[],
             })
             .await
             .expect("fact stored");
@@ -249,6 +250,7 @@ async fn two_real_goals_are_left_alone() {
                 valid_until: None,
                 source_msg_id: None,
                 transport_policy: TransportPolicy::AnyTransport,
+                ai_consent_sources: &[],
             })
             .await
             .expect("fact stored");

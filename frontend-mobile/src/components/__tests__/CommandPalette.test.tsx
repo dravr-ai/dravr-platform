@@ -155,7 +155,7 @@ describe('slash-command palette (mobile composer)', () => {
     expect(listCommands).not.toHaveBeenCalled();
   });
 
-  // The bar's leading slot is empty (Boreal v2.2 P3.3): the way in is the
+  // The bar's leading slot is empty: the way in is the
   // typed "/", and the empty thread's hint sentence is what tells a new
   // athlete so. Turns red if the palette needs a button to open.
   it('typing "/" opens the palette', async () => {

@@ -45,7 +45,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use pierre_core::constants::oauth::INTERVALS_ICU;
@@ -136,7 +136,7 @@ pub enum ThresholdImport<T> {
 }
 
 impl<T> ThresholdImport<T> {
-    /// The outcome's name, the only part the operator log carries: the
+    /// The outcome's name, the only part the admin log carries: the
     /// values are health data.
     const fn label(&self) -> &'static str {
         match self {
@@ -366,7 +366,7 @@ async fn read_provider_thresholds(
     let brand = user_facing_name(INTERVALS_ICU);
     let executor = UniversalExecutor::new(context.resources.clone());
     let tenant = tenant_id.to_string();
-    let attempt_started_at = Utc::now();
+    let attempt_started_at = Timestamp::now();
     let provider = match executor
         .auth_service
         .create_authenticated_provider(INTERVALS_ICU, context.user_id, Some(&tenant))
@@ -593,15 +593,15 @@ crate::declare_security!(ImportProviderThresholdsTool => empty);
 
 #[cfg(test)]
 mod tests {
-    use chrono::NaiveDate;
+    use dravr_tronc::dates::CivilDate;
     use uuid::Uuid;
 
     use super::*;
 
     const ORIGIN: &str = "intervals.icu";
 
-    fn day(d: u32) -> Option<NaiveDate> {
-        NaiveDate::from_ymd_opt(2026, 9, d)
+    fn day(d: u32) -> Option<CivilDate> {
+        CivilDate::from_ymd(2026, 9, d).ok()
     }
 
     fn offered<T>(value: T, d: u32) -> ProviderThreshold<T> {
@@ -804,7 +804,7 @@ mod tests {
 
     #[test]
     fn the_log_names_each_outcome_as_the_result_does() {
-        // The operator log carries the label alone, never the values; it must
+        // The admin log carries the label alone, never the values; it must
         // be the outcome name the agent reads, so the two can be joined.
         for outcome in [
             ThresholdImport::Imported { value: 285_u32 },

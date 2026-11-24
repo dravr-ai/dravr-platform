@@ -4,7 +4,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-/// The nine columns every feedback read returns.
 macro_rules! feedback_columns {
     () => {
         "id, message_id, conversation_id, user_id, tenant_id, rating, comment, \
@@ -83,7 +82,7 @@ macro_rules! impl_chat_feedback {
                 params: &UpsertMessageFeedbackParams<'_>,
             ) -> AppResult<MessageFeedbackRecord> {
                 let id = Uuid::new_v4().to_string();
-                let now = Utc::now();
+                let now = Timestamp::now();
                 let user = $ids::bind_text(params.user_id)?;
                 let tenant = params.tenant_id.to_string();
 

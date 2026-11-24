@@ -10,8 +10,8 @@
 use crate::common;
 
 use anyhow::Result;
-use chrono::{Duration, Utc};
 use dravr_cageux::config::intelligence::{AlgorithmConfig, TrainingZonesConfig};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::civil_time::{clock_date, resolve_zone};
 use pierre_core::config::profiles::FitnessLevel;
 use pierre_core::models::activity::ActivityBuilder;
@@ -25,7 +25,6 @@ use pierre_evals::{ClaimSource, ConservativeStrategy, ExtractedClaim, Personaliz
 use pierre_fitness_compute::{compute_training_history, AthleteInputs};
 use pierre_memory::claims::{ClaimCategory, ClaimStatus};
 use pierre_providers::ai_scope;
-use pierre_providers::registry::global_registry;
 use pierre_services::athlete_snapshot::build_athlete_metrics;
 use uuid::Uuid;
 
@@ -41,7 +40,7 @@ fn synthetic_run(id: &str, days_ago: i64) -> Activity {
         id.to_owned(),
         format!("synthetic {id}"),
         SportType::Run,
-        Utc::now() - Duration::days(days_ago),
+        Timestamp::now() - Elapsed::days(days_ago),
         3600,
         "synthetic".to_owned(),
     )
@@ -75,6 +74,8 @@ fn profile(user_id: Uuid) -> UserPhysiologicalProfile {
         d_prime_meters: None,
         threshold_provenance: ThresholdProvenance::default(),
         threshold_stated_on: ThresholdStatedOn::default(),
+        vo2_max_method: None,
+        vdot: None,
         anchor_provenance: AnchorProvenance::default(),
         transport_policy: TransportPolicy::AnyTransport,
         sex: None,
@@ -115,7 +116,7 @@ async fn the_snapshot_carries_the_reading_the_tools_render() -> Result<()> {
 
     let metrics = build_athlete_metrics(
         repos,
-        global_registry().as_ref(),
+        &common::offline_provider_registry(),
         &AlgorithmConfig::default(),
         &TrainingZonesConfig::default(),
         tenant_id,
@@ -128,26 +129,26 @@ async fn the_snapshot_carries_the_reading_the_tools_render() -> Result<()> {
 
     // The same stored activities, through the same rollup the Home block and
     // `get_training_history` read, banded by the row's own `form_reading`.
-    let now = Utc::now();
+    let now = Timestamp::now();
     let stored = ai_scope::filter_activities(
-        global_registry().as_ref(),
+        &common::offline_provider_registry(),
         repos
             .activity_cache
             .get_cached_activities(
                 user_id,
                 &tenant_id,
                 None,
-                now - Duration::days(180),
+                now - Elapsed::days(180),
                 now,
                 500,
             )
             .await?,
     );
-    let today = clock_date(now, resolve_zone(None));
+    let today = clock_date(now, &resolve_zone(None));
     let states = compute_training_history(
         &stored,
         AthleteInputs::from_profile(Some(&profile)),
-        today - Duration::days(90),
+        today - Elapsed::days(90),
         today,
         &AlgorithmConfig::default(),
         None,

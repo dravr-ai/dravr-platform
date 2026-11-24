@@ -26,7 +26,7 @@
 
 use std::collections::HashMap;
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::groups::{CoachingGroup, GroupInvite, GroupInviteKind};
 use pierre_core::models::{GroupInviteFunnelRow, TenantId};
@@ -159,15 +159,11 @@ pub struct InvitePreview {
     /// without a usable name
     pub coach_name: Option<String>,
     /// When a live link stops working
-    pub expires_at: Option<DateTime<Utc>>,
+    pub expires_at: Option<Timestamp>,
 }
 
 /// How `invite` reads at `now`, its group's standing included.
-fn status_of(
-    invite: &GroupInvite,
-    group: &CoachingGroup,
-    now: DateTime<Utc>,
-) -> InvitePreviewStatus {
+fn status_of(invite: &GroupInvite, group: &CoachingGroup, now: Timestamp) -> InvitePreviewStatus {
     if !invite.is_active || !group.is_active {
         InvitePreviewStatus::Inactive
     } else if invite.expires_at.is_some_and(|expires| expires < now) {
@@ -194,7 +190,7 @@ pub async fn preview(
     repos: &RepositoryRegistry,
     raw: &str,
     viewer: Option<Uuid>,
-    now: DateTime<Utc>,
+    now: Timestamp,
 ) -> AppResult<Option<InvitePreview>> {
     let normalized = signup_codes::normalize_code(raw);
     if normalized.is_empty() {
@@ -248,11 +244,11 @@ pub struct InviteFunnel {
     /// group
     pub open_count: i64,
     /// When it was last opened
-    pub last_opened_at: Option<DateTime<Utc>>,
+    pub last_opened_at: Option<Timestamp>,
     /// Accounts holding the invite that have not joined
     pub held_count: i64,
     /// When the latest of those holds was taken
-    pub last_held_at: Option<DateTime<Utc>>,
+    pub last_held_at: Option<Timestamp>,
     /// Of those holds, how many a full group refused
     pub full_count: i64,
 }
@@ -279,7 +275,7 @@ pub async fn invite_funnels(
     repos: &RepositoryRegistry,
     group_id: Uuid,
     tenant_id: &str,
-    now: DateTime<Utc>,
+    now: Timestamp,
 ) -> AppResult<HashMap<Uuid, InviteFunnel>> {
     Ok(repos
         .signup_codes
@@ -318,7 +314,7 @@ pub struct HeldInviteCard {
     /// without a usable name
     pub coach_name: Option<String>,
     /// When the account took the hold
-    pub held_at: DateTime<Utc>,
+    pub held_at: Timestamp,
     /// Whether it waits or a full group refused it
     pub state: HeldInviteState,
 }
@@ -332,7 +328,7 @@ pub struct HeldInviteCard {
 pub async fn held_invite_card(
     repos: &RepositoryRegistry,
     user_id: Uuid,
-    now: DateTime<Utc>,
+    now: Timestamp,
 ) -> AppResult<Option<HeldInviteCard>> {
     let Some(hold) = repos.signup_codes.held_group_invite(user_id).await? else {
         return Ok(None);
@@ -378,6 +374,7 @@ pub async fn held_invite_card(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use dravr_tronc::dates::Elapsed;
     use pierre_core::models::groups::{GroupDigestMode, GroupRespondMode};
 
     fn label(name: &str) -> (String, String) {
@@ -431,12 +428,12 @@ mod tests {
             code: "ABCD2345".to_owned(),
             kind: GroupInviteKind::Member,
             created_by: Uuid::new_v4(),
-            expires_at: expires_in_days.map(|d| Utc::now() + chrono::Duration::days(d)),
+            expires_at: expires_in_days.map(|d| Timestamp::now() + Elapsed::days(d)),
             max_uses,
             use_count: uses,
             is_active,
             approves_signup: false,
-            created_at: Utc::now(),
+            created_at: Timestamp::now(),
         }
     }
 
@@ -456,14 +453,15 @@ mod tests {
             is_active,
             channel_type: None,
             channel_chat_id: None,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            chat_connection: None,
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         }
     }
 
     #[test]
     fn status_names_the_first_reason_a_link_does_not_work() {
-        let now = Utc::now();
+        let now = Timestamp::now();
         assert_eq!(
             status_of(&invite(true, Some(3), Some(2), 1), &group(true), now),
             InvitePreviewStatus::Live

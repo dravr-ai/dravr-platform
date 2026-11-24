@@ -36,7 +36,7 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use axum::http::StatusCode;
-use chrono::{DateTime, Duration};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use serial_test::serial;
 
 /// Pins a listing's `published_at`, so cursor pagination can be driven through ties.
@@ -421,10 +421,10 @@ async fn cursor_pagination_survives_same_millisecond_published_at() {
     // Pin every published_at into one millisecond, microseconds apart — and
     // give the first two the exact same instant. Written as to_rfc3339(), the
     // same format the production publish path uses.
-    let base = DateTime::from_timestamp_micros(1_755_432_000_000_100).unwrap();
+    let base = Timestamp::from_epoch_micros(1_755_432_000_000_100).unwrap();
     let micro_offsets: [i64; 5] = [0, 0, 100, 200, 300];
     for (agent_id, offset) in agent_ids.iter().zip(micro_offsets) {
-        let ts = base + Duration::microseconds(offset);
+        let ts = base + Elapsed::microseconds(offset);
         match resources.agent.database.backend() {
             DatabaseBackend::SQLite(db) => {
                 sqlx::query(SET_PUBLISHED_AT)
@@ -1545,7 +1545,7 @@ async fn test_uninstall_of_a_forked_copy_hands_its_conversation_to_the_origin() 
     assert_eq!(listing_install_count(&resources, &origin_id).await, 0);
 }
 
-/// Catalogue agents are owned by the operator who wrote them. An operator who
+/// Catalogue agents are owned by the admin who wrote them. An admin who
 /// also coaches with one installs it like anyone else, and can take it off
 /// their team again.
 #[tokio::test]
@@ -1557,7 +1557,7 @@ async fn test_the_author_of_a_catalogue_agent_can_take_it_off_their_team() {
         &resources,
         author_id,
         author_tenant,
-        "Operator Coach",
+        "Admin Coach",
         AgentCategory::Training,
     )
     .await;
@@ -1808,7 +1808,7 @@ async fn test_the_author_sees_their_own_listing_as_their_own() {
         assert_eq!(detail.is_own, expected, "{}", user.email);
     }
 
-    // A catalogue agent is never "own", even to the operator who wrote it:
+    // A catalogue agent is never "own", even to the admin who wrote it:
     // they install and remove it like anyone.
     let catalogue = create_published_agent(
         &resources,

@@ -26,8 +26,8 @@ use secrecy::SecretString;
 use std::sync::Arc;
 use std::time::Duration as StdDuration;
 
-use chrono::{Duration, Utc};
 use common::{create_test_server_resources, create_test_user_with_plan};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::constants::oauth_providers::TOKEN_TYPE_SESSION;
 use pierre_core::models::groups::{
@@ -111,7 +111,7 @@ async fn world() -> World {
 impl World {
     /// An active group the world's coach coaches.
     async fn group(&self, name: &str) -> Uuid {
-        let now = Utc::now();
+        let now = Timestamp::now();
         let repos = &self.res.common.repos;
         let group = repos
             .groups
@@ -132,6 +132,7 @@ impl World {
                     is_active: true,
                     channel_type: None,
                     channel_chat_id: None,
+                    chat_connection: None,
                     created_at: now,
                     updated_at: now,
                 },
@@ -152,7 +153,7 @@ impl World {
             create_test_user_with_plan(&self.res.agent.database, email, "starter")
                 .await
                 .unwrap();
-        let now = Utc::now();
+        let now = Timestamp::now();
         self.res
             .common
             .repos
@@ -208,7 +209,7 @@ impl World {
         let link = self.proposed(group, member, athlete).await;
         let link = repos
             .delegated_connections
-            .confirm(link.id, member, member_tenant, Utc::now())
+            .confirm(link.id, member, member_tenant, Timestamp::now())
             .await
             .unwrap()
             .expect("the member confirms their own proposal");
@@ -227,7 +228,7 @@ impl World {
             format!("{athlete}:7001"),
             "Tempo run".to_owned(),
             SportType::Run,
-            Utc::now() - Duration::days(1),
+            Timestamp::now() - Elapsed::days(1),
             2_700,
             "sciotte".to_owned(),
         )
@@ -245,7 +246,7 @@ impl World {
     /// The coach's own TrainingPeaks session and connection, in their tenant.
     async fn coach_connected(&self) {
         let repos = &self.res.common.repos;
-        let now = Utc::now();
+        let now = Timestamp::now();
         repos
             .oauth_tokens
             .upsert_token(&UserOAuthToken {
@@ -313,8 +314,8 @@ impl World {
                 member,
                 &tenant,
                 Some(PROVIDER),
-                Utc::now() - Duration::days(30),
-                Utc::now(),
+                Timestamp::now() - Elapsed::days(30),
+                Timestamp::now(),
                 100,
             )
             .await
@@ -391,7 +392,7 @@ async fn an_ended_link_deletes_every_row_read_through_it_and_records_it() {
     let group = w.group("Squad").await;
     let (member, member_tenant) = w.member("health@lifecycle.test", group).await;
     w.confirmed(group, member, member_tenant, "900010").await;
-    let night = Utc::now() - Duration::days(1);
+    let night = Timestamp::now() - Elapsed::days(1);
     let source = repos
         .data_sources
         .upsert_data_source(
@@ -419,7 +420,7 @@ async fn an_ended_link_deletes_every_row_read_through_it_and_records_it() {
                 data_source_id: source,
                 is_nap: false,
                 start_datetime: night,
-                end_datetime: night + Duration::hours(8),
+                end_datetime: night + Elapsed::hours(8),
                 total_sleep_seconds: Some(25_200),
                 deep_sleep_seconds: None,
                 light_sleep_seconds: None,
@@ -434,7 +435,7 @@ async fn an_ended_link_deletes_every_row_read_through_it_and_records_it() {
                 stages: Vec::new(),
                 source_name: PROVIDER.to_owned(),
             },
-            Utc::now(),
+            Timestamp::now(),
         )
         .await
         .unwrap();
@@ -444,8 +445,8 @@ async fn an_ended_link_deletes_every_row_read_through_it_and_records_it() {
             .get_sleep_sessions(
                 member,
                 &member_tenant,
-                night - Duration::hours(1),
-                night + Duration::hours(1),
+                night - Elapsed::hours(1),
+                night + Elapsed::hours(1),
             )
             .await
             .unwrap()

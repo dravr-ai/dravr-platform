@@ -48,7 +48,7 @@ interface ReconnectBannerProps {
  * The text block is the live region, announced when the banner appears; the
  * button stays its own focus stop. The ground is opaque paper under a
  * `warning` tint, so the tab content never shows through, and the text takes
- * `on-warning-container`, the ink bound to that tint (DESIGN.md §2).
+ * `on-warning-container`, the ink bound to that tint (DESIGN.md "The Bound Ink Rule").
  */
 export function ReconnectBanner({ insetTop }: ReconnectBannerProps) {
   const { t } = useTranslation();

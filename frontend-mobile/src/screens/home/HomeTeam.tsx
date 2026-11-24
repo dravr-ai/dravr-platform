@@ -9,8 +9,8 @@ import { Pressable, Text, View } from 'react-native';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from '@pierre/i18n';
 import { QUERY_KEYS } from '@pierre/shared-constants';
-import type { Agent } from '@pierre/shared-types';
 import { avatarSlot, formatList, initialsFor } from '@pierre/chat-utils';
+import { orderTeam, teamInOrder } from '@pierre/ui-logic';
 import { chatApi, coachesApi } from '../../services/api';
 import { InitialsAvatar } from '../../components/ui';
 
@@ -22,18 +22,6 @@ const ROW_AVATARS = 3;
 
 /** Diameter of a stacked avatar, in points. */
 const AVATAR_SIZE = 28;
-
-/**
- * The athlete's team, lead first, then the others by title: `is_assigned` on
- * the agent list, the one membership rule the mention palette and Discover
- * read. A lead off the team marks nobody.
- */
-function orderTeam(agents: readonly Agent[], leadId: string | null): Agent[] {
-  const team = agents.filter((agent) => agent.is_assigned === true);
-  const lead = leadId === null ? undefined : team.find((agent) => agent.id === leadId);
-  const others = team.filter((agent) => agent !== lead).sort((a, b) => a.title.localeCompare(b.title));
-  return lead === undefined ? others : [lead, ...others];
-}
 
 interface HomeTeamProps {
   /** Open Discover, where an agent joins or leaves the team. */
@@ -59,7 +47,7 @@ export function HomeTeam({ onManage }: HomeTeamProps) {
     queryFn: () => chatApi.getPersonalConversation(),
   });
   const team = useMemo(
-    () => orderTeam(agents.data?.agents ?? [], personal.data?.agent_id ?? null),
+    () => teamInOrder(orderTeam(agents.data?.agents ?? [], personal.data?.agent_id ?? null)),
     [agents.data, personal.data],
   );
 

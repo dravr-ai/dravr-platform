@@ -51,6 +51,7 @@ async fn a_restatement_merges_into_the_athletes_own_words() {
             valid_until: None,
             source_msg_id: Some("m-onboarding"),
             transport_policy: TransportPolicy::AnyTransport,
+            ai_consent_sources: &[],
         })
         .await
         .expect("anchor stored");
@@ -64,6 +65,7 @@ async fn a_restatement_merges_into_the_athletes_own_words() {
             source_msg_id: Some("m-later"),
             confidence: 0.6,
             transport_policy: TransportPolicy::AnyTransport,
+            ai_consent_sources: &[],
         })
         .await
         .expect("merge succeeds")
@@ -136,6 +138,7 @@ async fn a_merge_raises_the_confidence_of_the_anchor() {
             valid_until: None,
             source_msg_id: None,
             transport_policy: TransportPolicy::AnyTransport,
+            ai_consent_sources: &[],
         })
         .await
         .expect("anchor stored");
@@ -147,6 +150,7 @@ async fn a_merge_raises_the_confidence_of_the_anchor() {
             source_msg_id: Some("m-2"),
             confidence: 0.9,
             transport_policy: TransportPolicy::AnyTransport,
+            ai_consent_sources: &[],
         })
         .await
         .expect("merge succeeds")
@@ -194,6 +198,7 @@ async fn a_merge_cannot_reach_another_tenants_fact() {
             valid_until: None,
             source_msg_id: None,
             transport_policy: TransportPolicy::AnyTransport,
+            ai_consent_sources: &[],
         })
         .await
         .expect("anchor stored");
@@ -209,6 +214,7 @@ async fn a_merge_cannot_reach_another_tenants_fact() {
             source_msg_id: Some("m-x"),
             confidence: 1.0,
             transport_policy: TransportPolicy::AnyTransport,
+            ai_consent_sources: &[],
         })
         .await
         .expect("the call itself succeeds");

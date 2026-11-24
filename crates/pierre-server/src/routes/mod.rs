@@ -21,15 +21,9 @@
 //!
 //! The composition root in `mcp::multitenant` mounts those routers via
 //! `pierre_routes_<area>::<RouterType>::routes(…)`. Modules in this
-//! directory are pierre-server-local (e.g. `mcp`, `health`, `chat`,
-//! `messaging`, `webhooks`, `endurance`, `athlete_home`, `onboarding`).
-
-// ═══════════════════════════════════════════════════════════════
-// ALWAYS ENABLED - Core infrastructure
-// ═══════════════════════════════════════════════════════════════
-
-/// Health check and system status routes
-pub mod health;
+//! directory are pierre-server-local (e.g. `mcp`, `chat`, `messaging`,
+//! `webhooks`, `endurance`, `athlete_home`, `onboarding`). The health and
+//! readiness probes are served by the composition root itself.
 
 // ═══════════════════════════════════════════════════════════════
 // PROTOCOL FEATURES
@@ -42,10 +36,6 @@ pub mod mcp;
 // ═══════════════════════════════════════════════════════════════
 // CLIENT-WEB FEATURES
 // ═══════════════════════════════════════════════════════════════
-
-/// Fitness configuration routes
-#[cfg(feature = "client-settings")]
-pub mod fitness;
 
 /// Chat conversation routes for AI assistants
 #[cfg(feature = "client-chat")]
@@ -77,6 +67,8 @@ pub mod personas;
 #[cfg(feature = "client-admin-api")]
 pub mod admin;
 
+/// The athlete's "who read my data" feed (carnet#1543).
+pub mod access_feed;
 /// Onboarding state — self-read endpoint that tells the frontend whether
 /// the user still needs to connect a fitness provider.
 pub mod oauth_grants;
@@ -131,12 +123,20 @@ pub mod contremaitre_webhook;
 /// Athlete Home read-side endpoints (`GET /api/me/activities/recent`, one
 /// activity's route, `GET /api/me/training-plan`).
 pub mod athlete_home;
+/// The athlete's own health records: the served list, the review queue, lab report upload (carnet#1544).
+pub mod health_records;
+/// The refusal of an outside credential on a route served to the athlete's own screens only.
+pub(crate) mod own_screens;
 
 /// The athlete's gear ledger (`/api/me/gear`).
 pub mod athlete_gear;
 
 /// Importing the athlete's own history from a service's export (`/api/imports`).
 pub mod imports;
+
+/// The athlete's phone syncing its own health store, `HealthKit` or Health
+/// Connect (`/api/device-health`).
+pub mod device_health;
 
 /// User profile self-service routes (`/api/users/me/*`).
 ///
@@ -164,6 +164,9 @@ pub mod i18n;
 /// The Garmin push webhook: the path token and client id, the batch stored before the 200, then ingested.
 #[cfg(all(feature = "health-sync", feature = "provider-garmin"))]
 pub mod garmin_webhook;
+/// The support session a REST request made under an admin's web
+/// impersonation is served in, declared before any route runs (carnet#1511).
+pub mod request_support;
 /// The transport each HTTP request is served over, declared from its
 /// credential before any route runs (carnet#724).
 pub mod request_transport;

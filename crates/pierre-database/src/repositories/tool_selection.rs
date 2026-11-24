@@ -13,7 +13,7 @@
 //! hands the body its [`uuid_columns`](super::uuid_columns) codec. A
 //! [`TenantId`] binds and reads natively on both. Booleans bind and read as
 //! `bool` (`BOOLEAN` on Postgres, `INTEGER` 0/1 on `SQLite`); timestamps
-//! bind as [`DateTime<Utc>`](chrono::DateTime) and are stamped by
+//! bind as [`Timestamp`] and are stamped by
 //! `CURRENT_TIMESTAMP` where the row's own moment is not the caller's, which
 //! sqlx decodes on both drivers.
 //!
@@ -22,7 +22,7 @@
 //! one driver and a placeholder list on the other.
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 
 use pierre_core::models::TenantId;
@@ -62,13 +62,16 @@ pub trait ToolSelectionRepository: Send + Sync {
     async fn upsert_tool_catalog_entry(&self, entry: &ToolCatalogEntry) -> AppResult<()>;
     /// Delete a tool catalog entry by tool name (removes phantom entries)
     async fn delete_tool_catalog_entry(&self, tool_name: &str) -> AppResult<bool>;
+    /// Record the hash of the definition `tools/list` now publishes for
+    /// `tool_name` (carnet#1543); `false` when no catalog row names it.
+    async fn set_tool_def_hash(&self, tool_name: &str, def_hash: &str) -> AppResult<bool>;
 }
 
 /// The columns [`tool_catalog_entry_from_row`] reads.
 macro_rules! tool_catalog_columns {
     () => {
         "id, tool_name, display_name, description, category, \
-         is_enabled_by_default, requires_provider, min_plan, created_at, updated_at"
+         is_enabled_by_default, requires_provider, min_plan, created_at, updated_at, def_hash"
     };
 }
 
@@ -169,6 +172,10 @@ pub(crate) const UPSERT_TOOL_CATALOG_ENTRY_SQL: &str = r"
                 updated_at = CURRENT_TIMESTAMP
             ";
 
+/// Record the hash of a tool's published definition.
+pub(crate) const SET_TOOL_DEF_HASH_SQL: &str =
+    "UPDATE tool_catalog SET def_hash = $2 WHERE tool_name = $1";
+
 /// Drop a catalog entry.
 pub(crate) const DELETE_TOOL_CATALOG_ENTRY_SQL: &str =
     "DELETE FROM tool_catalog WHERE tool_name = $1";
@@ -186,7 +193,7 @@ where
     String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     Option<String>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     bool: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    DateTime<Utc>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Timestamp: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
     let column = |col: &str, e: sqlx::Error| {
         AppError::database(format!("Failed to get tool_catalog.{col}: {e}"))
@@ -220,6 +227,7 @@ where
         updated_at: row
             .try_get("updated_at")
             .map_err(|e| column("updated_at", e))?,
+        def_hash: row.try_get("def_hash").map_err(|e| column("def_hash", e))?,
     })
 }
 
@@ -241,7 +249,7 @@ where
     String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     Option<String>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     bool: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    DateTime<Utc>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Timestamp: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
     let column = |col: &str, e: sqlx::Error| {
         AppError::database(format!("Failed to get tenant_tool_overrides.{col}: {e}"))
@@ -381,7 +389,7 @@ macro_rules! impl_tool_selection_repository {
                     .bind(is_enabled)
                     .bind($ids::bind_opt(enabled_by_user_id))
                     .bind(&reason)
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .execute(self.pool())
                     .await
                     .map_err(|e| {
@@ -440,6 +448,18 @@ macro_rules! impl_tool_selection_repository {
                         AppError::database(format!("Failed to delete tool catalog entry: {e}"))
                     })?;
 
+                Ok(result.rows_affected() > 0)
+            }
+
+            async fn set_tool_def_hash(&self, tool_name: &str, def_hash: &str) -> AppResult<bool> {
+                let result = sqlx::query(SET_TOOL_DEF_HASH_SQL)
+                    .bind(tool_name)
+                    .bind(def_hash)
+                    .execute(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to record a tool's def_hash: {e}"))
+                    })?;
                 Ok(result.rows_affected() > 0)
             }
         }

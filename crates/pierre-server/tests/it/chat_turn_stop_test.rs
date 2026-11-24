@@ -368,6 +368,7 @@ fn row(id: &str, role: &str, finish_reason: Option<&str>, blocks: Option<String>
         channel_type: None,
         about_user_id: None,
         turn_attempted_write: None,
+        ai_consent_sources: Vec::new(),
     }
 }
 

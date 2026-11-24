@@ -27,7 +27,7 @@ pierre-middleware = { version = "0.3.0", path = "../pierre-middleware" }
 pierre-services = { version = "0.3.0", path = "../pierre-services" }
 
 bcrypt = "0.16"
-chrono = { version = "0.4", features = ["serde"] }
+dravr-tronc = { workspace = true }
 clap = { version = "4", features = ["derive", "env"] }
 glob = "0.3"
 rand = "0.9"

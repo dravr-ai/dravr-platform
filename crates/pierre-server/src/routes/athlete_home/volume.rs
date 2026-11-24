@@ -8,17 +8,17 @@ use std::sync::Arc;
 
 use axum::extract::State;
 use axum::Json;
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::civil_time::{clock_date, resolve_zone};
 use pierre_core::errors::AppResult;
 use pierre_middleware::extractors::AuthenticatedUser;
+use pierre_runtime_context::require_tenant;
 use pierre_tool_runtime::activity_query::{
     query_activities, ActivityPredicate, ActivityQuery, ReadGate,
 };
 use pierre_tool_runtime::runtime::ToolRuntime;
 use tracing::warn;
 
-use super::active_tenant;
 use crate::mcp::resources::ServerContext;
 use crate::services::training_volume::{
     volume_from_answer, window_start, TrainingVolume, VOLUME_GROUPS, VOLUME_METRICS,
@@ -38,10 +38,10 @@ pub(super) async fn get_training_volume(
     auth: AuthenticatedUser,
 ) -> AppResult<Json<TrainingVolume>> {
     let user_id = auth.user_id;
-    let tenant_id = active_tenant(&auth)?;
+    let tenant_id = require_tenant(&resources, &auth).await?;
     let user = resources.repos().users.get_global(user_id).await?;
     let zone = resolve_zone(user.as_ref().and_then(|u| u.timezone.as_deref()));
-    let today = clock_date(Utc::now(), zone);
+    let today = clock_date(Timestamp::now(), &zone);
     let query = ActivityQuery {
         from: Some(window_start(today)),
         to: today,

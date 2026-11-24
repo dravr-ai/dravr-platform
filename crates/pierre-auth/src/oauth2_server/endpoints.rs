@@ -8,6 +8,7 @@
 // - String ownership transfers to struct constructors (OAuth2AuthCode, TokenResponse)
 // - Arc clone for database manager creation
 
+use super::authorization_details::ResolvedDetails;
 use super::cimd::{self, MetadataFetcher, MetadataResolver};
 use super::client_registration::{
     is_public_client, redirect_uri_matches, redirects_to_any_local_process,
@@ -23,12 +24,14 @@ use super::rate_limiting::OAuth2RateLimiter;
 use super::request_text::{refuse_control_characters, refuse_oversized_state};
 use super::resource::bound_audience;
 use crate::admin::jwks::JwksManager;
-use crate::auth::{AuthManager, DelegatedGrant};
+use crate::auth::{AuthManager, TokenLineage};
 use crate::config::oauth::ClientRetentionConfig;
 use crate::config::OAuth2ServerConfig;
-use crate::refresh_rotation::{generate_refresh_token, refresh_token_lifetime};
+use crate::refresh_rotation::{
+    admin_family_first_expiry, generate_refresh_token, refresh_token_lifetime,
+};
 use base64::{engine::general_purpose, Engine as _};
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::redaction;
@@ -40,6 +43,13 @@ use std::sync::Arc;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
+/// Minting the access token a grant is redeemed for, under its refresh family
+mod access_token;
+/// Admin access at consent: the one way a grant holds `admin` (carnet#1511)
+mod admin_grant;
+pub use admin_grant::{without_admin, AdminAccess};
+/// The request's RFC 9396 details, and the details a grant's tokens echo
+mod details;
 /// Access-token validation with refresh, `validate_and_refresh`
 mod first_party_code;
 mod grant_checks;
@@ -47,6 +57,7 @@ pub use grant_checks::TokenGrant;
 mod rotate_refresh;
 pub use first_party_code::RedeemedFirstPartyCode;
 mod validate_refresh;
+pub use validate_refresh::ADMIN_REFRESHES_AT_TOKEN_ENDPOINT;
 
 /// Parameters for authorization code generation
 struct AuthCodeParams<'a> {
@@ -59,6 +70,9 @@ struct AuthCodeParams<'a> {
     code_challenge: Option<&'a str>,
     code_challenge_method: Option<&'a str>,
     resource: Option<&'a str>,
+    /// The consent grant the code is issued under; `None` for a code no
+    /// consent grant governs
+    client_grant_id: Option<&'a str>,
 }
 
 /// What an accepted authorization request is granted: the scope the code
@@ -78,6 +92,17 @@ pub struct CheckedAuthorization {
     /// [`OAuth2AuthorizationServer::enroll_checked_client`] stores it once an
     /// athlete is signed in
     pub unstored_client: Option<OAuth2Client>,
+    /// Whether an admin's Admin access may be granted on this request: it is
+    /// bound to the platform's own `/mcp` or `/a2a` resource. No resource, or
+    /// a satellite's, is never granted `admin`
+    pub admin_grantable: bool,
+    /// The request's RFC 9396 details, resolved: the preset grant it asks
+    /// for; `None` when it asks for none
+    pub details: Option<ResolvedDetails>,
+    /// The resource a preset grant on this request reads from, which the
+    /// consent screen's picker grants for; `None` when no preset may be
+    /// granted (a request bound to a satellite)
+    pub preset_source: Option<String>,
 }
 
 /// OAuth 2.0 Authorization Server
@@ -92,7 +117,7 @@ pub struct OAuth2AuthorizationServer {
     /// User repository for token validation user lookups
     users: Arc<dyn UserRepository>,
     /// How long each issued refresh token stays exchangeable
-    refresh_token_lifetime: Duration,
+    refresh_token_lifetime: Elapsed,
     /// Identifiers of the MCP resource server this authorization server mints
     /// audience-bound tokens for (RFC 8707): each origin that serves `/mcp`,
     /// the one its protected-resource metadata publishes to a client first
@@ -403,8 +428,11 @@ impl OAuth2AuthorizationServer {
         }
 
         // The grant this authorization issues (RFC 6749 Section 3.3), inside
-        // the client's registered scope.
-        let scope = Self::authorized_scope(client, request.scope.as_deref())?;
+        // the client's registered scope. `admin` is offered on the consent
+        // screen, never asked for, so a request naming it is checked without
+        // it rather than refused (carnet#1511, Q20).
+        let requested = without_admin(request.scope.as_deref());
+        let scope = Self::authorized_scope(client, requested.as_deref())?;
 
         check_code_challenge(request)?;
 
@@ -415,12 +443,26 @@ impl OAuth2AuthorizationServer {
             .as_deref()
             .map(|requested| bound_audience(&self.served(), requested))
             .transpose()?;
+        // RFC 9396: details the server cannot resolve are refused now too.
+        let details = self.resolve_request_details(
+            request.authorization_details.as_deref(),
+            resource.as_deref(),
+        )?;
+        let preset_source = self
+            .preset_sources(resource.as_deref())
+            .first()
+            .map(|s| (*s).to_owned());
+        // A preset grant never carries `admin`.
+        let admin_grantable = details.is_none() && self.is_platform_resource(resource.as_deref());
         Ok(CheckedAuthorization {
             scope,
             resource,
             client_name: client.client_name.clone(),
             consent_every_time: redirects_to_any_local_process(client, &request.redirect_uri),
             unstored_client: None,
+            admin_grantable,
+            details,
+            preset_source,
         })
     }
 
@@ -436,6 +478,25 @@ impl OAuth2AuthorizationServer {
         request: AuthorizeRequest,
         user_id: Option<Uuid>,     // From authentication
         tenant_id: Option<String>, // From JWT claims
+    ) -> Result<AuthorizeResponse, OAuth2Error> {
+        self.authorize_with_admin_access(request, user_id, tenant_id, AdminAccess::Withheld, None)
+            .await
+    }
+
+    /// [`Self::authorize`] for a request the user decided `access` on at the
+    /// consent screen: the code carries [`Self::granted_scope`], and names
+    /// `client_grant_id`, the consent grant it is issued under, which every
+    /// token minted from it carries.
+    ///
+    /// # Errors
+    /// As [`Self::authorize`].
+    pub async fn authorize_with_admin_access(
+        &self,
+        request: AuthorizeRequest,
+        user_id: Option<Uuid>,
+        tenant_id: Option<String>,
+        access: AdminAccess,
+        client_grant_id: Option<String>,
     ) -> Result<AuthorizeResponse, OAuth2Error> {
         let checked = self
             .check_authorize_request(&request)
@@ -465,17 +526,19 @@ impl OAuth2AuthorizationServer {
                 OAuth2Error::invalid_request("User does not belong to any tenant")
             })?
         };
+        let scope = Self::granted_scope(&checked, access);
         let auth_code = self
             .generate_authorization_code(AuthCodeParams {
                 client_id: &request.client_id,
                 user_id,
                 tenant_id: &tenant_id,
                 redirect_uri: &request.redirect_uri,
-                scope: Some(&checked.scope),
+                scope: Some(&scope),
                 state: request.state.as_deref(),
                 code_challenge: request.code_challenge.as_deref(),
                 code_challenge_method: request.code_challenge_method.as_deref(),
                 resource: checked.resource.as_deref(),
+                client_grant_id: client_grant_id.as_deref(),
             })
             .await
             .map_err(|e| {
@@ -580,7 +643,7 @@ impl OAuth2AuthorizationServer {
 
         let response = match request.grant_type.as_str() {
             "authorization_code" => self.handle_authorization_code_grant(request).await,
-            "client_credentials" => self.handle_client_credentials_grant(&client, request).await,
+            "client_credentials" => self.handle_client_credentials_grant(&client, &request),
             "refresh_token" => self.handle_refresh_token_grant(request).await,
             _ => Err(OAuth2Error::unsupported_grant_type()),
         }?;
@@ -626,17 +689,37 @@ impl OAuth2AuthorizationServer {
         let audience = self.audience(request.resource.as_deref(), auth_code.resource.as_deref())?;
         self.require_grant_tenant(auth_code.user_id, &auth_code.tenant_id)
             .await?;
+        let authorization_details = self
+            .require_live_client_grant(
+                auth_code.user_id,
+                &auth_code.tenant_id,
+                &request.client_id,
+                auth_code.client_grant_id.as_deref(),
+            )
+            .await?;
 
-        // Generate JWT access token
-        let granted = Self::delegated_grant(auth_code.scope.as_deref());
+        // Generate JWT access token; `admin` only while the user is an admin
+        let granted = self
+            .delegated_grant_for(
+                auth_code.user_id,
+                auth_code.scope.as_deref(),
+                auth_code.resource.as_deref(),
+            )
+            .await;
+        // The grant starts a refresh family, which its every access token
+        // names (carnet#1511).
+        let family_id = Uuid::new_v4().to_string();
         let access_token = self
             .generate_access_token(
                 &request.client_id,
                 Some((auth_code.user_id, auth_code.tenant_id.as_str())),
+                Some(TokenLineage {
+                    family_id: &family_id,
+                    client_grant_id: auth_code.client_grant_id.as_deref(),
+                }),
                 &granted,
                 audience.as_deref(),
             )
-            .await
             .map_err(|e| {
                 error!(
                     "Failed to generate access token for client_id={}: {:#}",
@@ -650,7 +733,13 @@ impl OAuth2AuthorizationServer {
             error!("Failed to generate secure refresh token: {:#}", e);
             OAuth2Error::server_error("Failed to generate secure refresh token")
         })?;
-        let now = Utc::now();
+        let now = Timestamp::now();
+        // A family holding `admin` lives a day from this first token (Q20).
+        let expires_at = if granted.contains(&OAuthScope::Admin) {
+            admin_family_first_expiry(now, self.refresh_token_lifetime)
+        } else {
+            now + self.refresh_token_lifetime
+        };
 
         let refresh_token = super::models::OAuth2RefreshToken {
             token: SecretString::from(refresh_token_value.clone()), // Safe: Clone for storage
@@ -658,15 +747,16 @@ impl OAuth2AuthorizationServer {
             user_id: auth_code.user_id,
             tenant_id: auth_code.tenant_id.clone(), // Safe: Clone for tenant isolation
             scope: Self::rendered_scope(&granted),
-            expires_at: now + self.refresh_token_lifetime,
+            expires_at,
             created_at: now,
             revoked: false,
-            family_id: Uuid::new_v4().to_string(),
+            family_id,
             // The first token of a chain stamps when the chain began.
             family_created_at: Some(now),
             // The grant keeps the resource it was authorized for; a token
             // request that narrowed an unbound grant bound only that token.
             resource: auth_code.resource,
+            client_grant_id: auth_code.client_grant_id,
         };
 
         // Store refresh token
@@ -686,6 +776,7 @@ impl OAuth2AuthorizationServer {
             expires_in: 3600, // 1 hour
             scope: Self::rendered_scope(&granted),
             refresh_token: Some(SecretString::from(refresh_token_value)),
+            authorization_details,
         })
     }
 
@@ -695,10 +786,10 @@ impl OAuth2AuthorizationServer {
     /// is (RFC 6749 §3.3, §5.2): an unknown or undelegable name, or one
     /// outside what the client registered, is `invalid_scope` — never dropped
     /// while the rest is minted.
-    async fn handle_client_credentials_grant(
+    fn handle_client_credentials_grant(
         &self,
         client: &OAuth2Client,
-        request: TokenRequest,
+        request: &TokenRequest,
     ) -> Result<TokenResponse, OAuth2Error> {
         let audience = self.audience(request.resource.as_deref(), None)?;
 
@@ -708,10 +799,10 @@ impl OAuth2AuthorizationServer {
             .generate_access_token(
                 &request.client_id,
                 None, // No user for client credentials
+                None,
                 &granted,
                 audience.as_deref(),
             )
-            .await
             .map_err(|e| {
                 error!(
                     "Failed to generate client credentials access token for client_id={}: {:#}",
@@ -726,6 +817,7 @@ impl OAuth2AuthorizationServer {
             expires_in: 3600, // 1 hour
             scope: Self::rendered_scope(&granted),
             refresh_token: None,
+            authorization_details: None,
         })
     }
 
@@ -742,7 +834,7 @@ impl OAuth2AuthorizationServer {
         // server, is refused before the refresh token is rotated away, and a
         // grant whose tenant the user left is revoked.
         self.check_requested_resource(request.resource.as_deref())?;
-        let grant = self
+        let (grant, authorization_details) = self
             .check_refresh_grant(
                 refresh_token_value.expose_secret(),
                 request.resource.as_deref(),
@@ -753,7 +845,7 @@ impl OAuth2AuthorizationServer {
 
         // Consume the presented token and issue its successor; a replayed one
         // revokes its whole chain instead
-        let (old_refresh_token, new_refresh_token_value) = self
+        let (old_refresh_token, new_refresh_token_value, granted) = self
             .rotate_refresh_token(refresh_token_value.expose_secret(), &request.client_id)
             .await
             .map_err(|e| {
@@ -779,8 +871,7 @@ impl OAuth2AuthorizationServer {
             old_refresh_token.resource.as_deref(),
         )?;
 
-        // Generate new access token
-        let granted = Self::delegated_grant(old_refresh_token.scope.as_deref());
+        // Generate new access token, under the grant the rotation decided
         let access_token = self
             .generate_access_token(
                 &request.client_id,
@@ -788,10 +879,13 @@ impl OAuth2AuthorizationServer {
                     old_refresh_token.user_id,
                     old_refresh_token.tenant_id.as_str(),
                 )),
+                Some(TokenLineage {
+                    family_id: &old_refresh_token.family_id,
+                    client_grant_id: old_refresh_token.client_grant_id.as_deref(),
+                }),
                 &granted,
                 audience.as_deref(),
             )
-            .await
             .map_err(|e| {
                 error!(
                     "Failed to generate access token from refresh for client_id={}: {:#}",
@@ -811,13 +905,14 @@ impl OAuth2AuthorizationServer {
             expires_in: 3600, // 1 hour
             scope: Self::rendered_scope(&granted),
             refresh_token: Some(SecretString::from(new_refresh_token_value)),
+            authorization_details,
         })
     }
 
     /// Generate authorization code
     async fn generate_authorization_code(&self, params: AuthCodeParams<'_>) -> AppResult<String> {
         let code = Self::generate_random_string(32)?;
-        let expires_at = Utc::now() + Duration::minutes(10); // 10 minute expiry
+        let expires_at = Timestamp::now() + Elapsed::minutes(10); // 10 minute expiry
 
         let auth_code = OAuth2AuthCode {
             code: code.clone(), // Safe: String ownership for OAuth2AuthCode struct
@@ -832,6 +927,7 @@ impl OAuth2AuthorizationServer {
             code_challenge: params.code_challenge.map(str::to_owned),
             code_challenge_method: params.code_challenge_method.map(str::to_owned),
             resource: params.resource.map(str::to_owned),
+            client_grant_id: params.client_grant_id.map(str::to_owned),
         };
 
         self.store_auth_code(&auth_code).await?;
@@ -864,7 +960,7 @@ impl OAuth2AuthorizationServer {
                 scope: params.scope.map(str::to_owned),
                 code_challenge: params.code_challenge.map(str::to_owned),
                 code_challenge_method: params.code_challenge_method.map(str::to_owned),
-                created_at: Utc::now(),
+                created_at: Timestamp::now(),
                 expires_at,
                 used: false,
             };
@@ -912,7 +1008,7 @@ impl OAuth2AuthorizationServer {
         // This validates client_id, redirect_uri, expiration, and used status in a single atomic operation
         let auth_code = self
             .oauth2_server
-            .consume_auth_code(code, client_id, redirect_uri, Utc::now())
+            .consume_auth_code(code, client_id, redirect_uri, Timestamp::now())
             .await
             .map_err(|e| {
                 error!(
@@ -959,7 +1055,7 @@ impl OAuth2AuthorizationServer {
         if let Some(state_value) = &auth_code.state {
             let consumed_state = self
                 .oauth2_server
-                .consume_state(state_value, client_id, Utc::now())
+                .consume_state(state_value, client_id, Timestamp::now())
                 .await
                 .map_err(|e| {
                     error!(
@@ -1043,23 +1139,6 @@ impl OAuth2AuthorizationServer {
             .map_or_else(OAuthScope::default_grant, OAuthScope::parse_granted)
     }
 
-    /// The grant a token minted for a stored or requested `scope` carries: the
-    /// names this server defines, less any that cannot be delegated.
-    ///
-    /// Registration, authorization and the client-credentials grant already
-    /// refuse `admin`, so this bites only on a stored code or refresh token
-    /// that predates those checks. It keeps `admin` out of every delegated
-    /// token, and that is all it does: a route that reads no scope tells a
-    /// third party from the athlete by the client the token names
-    /// ([`Claims::is_session`](crate::auth::Claims::is_session)), not by the
-    /// token being narrower than the self grant.
-    fn delegated_grant(scope: Option<&str>) -> Vec<OAuthScope> {
-        OAuthScope::parse_granted(scope.unwrap_or_default())
-            .into_iter()
-            .filter(|scope| scope.is_delegable())
-            .collect()
-    }
-
     /// A grant in the token response's `scope` form: absent when empty.
     fn rendered_scope(granted: &[OAuthScope]) -> Option<String> {
         (!granted.is_empty()).then(|| OAuthScope::render_granted(granted))
@@ -1074,79 +1153,6 @@ impl OAuth2AuthorizationServer {
     #[must_use]
     pub fn default_scope_display() -> String {
         OAuthScope::render_granted(&OAuthScope::default_grant())
-    }
-
-    /// Generate JWT access token with RS256 asymmetric signing.
-    ///
-    /// Async because a user-bound token has to carry the athlete's real
-    /// connected providers. That field used to be filled with the granted
-    /// scopes, which is how an OAuth-minted token came to report `fitness:read`
-    /// as a connected provider; the grant now rides in the token's own `scope`
-    /// claim and `providers` means what it means everywhere else.
-    ///
-    /// `audience` is the RFC 8707 resource the token is bound to, `None` for
-    /// the platform audience. `subject` is the user the grant acts for and the
-    /// tenant it was authorized in, which the caller confirmed the user still
-    /// belongs to ([`Self::require_grant_tenant`]); the token carries it as
-    /// `active_tenant_id`. A user token is never minted without one.
-    async fn generate_access_token(
-        &self,
-        client_id: &str,
-        subject: Option<(Uuid, &str)>,
-        granted: &[OAuthScope],
-        audience: Option<&str>,
-    ) -> AppResult<String> {
-        if granted.is_empty() {
-            debug!(
-                client_id = %client_id,
-                user_id = ?subject.map(|(user_id, _)| user_id),
-                "Minting an access token with an empty grant"
-            );
-        }
-        let scopes: Vec<String> = granted
-            .iter()
-            .map(|scope| scope.as_str().to_owned())
-            .collect();
-
-        let Some((uid, tenant_id)) = subject else {
-            return self
-                .auth_manager
-                .generate_client_credentials_token(
-                    &self.jwks_manager,
-                    client_id,
-                    &scopes,
-                    None, // tenant_id for client credentials
-                    audience,
-                )
-                .map_err(|e| {
-                    AppError::internal(format!("Failed to generate client credentials token: {e}"))
-                });
-        };
-
-        // SECURITY: Global lookup — OAuth2 token minting, no tenant context.
-        // A user who cannot be read has no providers to report; the token is
-        // still minted, because the grant is what authorizes it and the
-        // provider list is descriptive.
-        let providers = self
-            .users
-            .get_global(uid)
-            .await
-            .ok()
-            .flatten()
-            .map_or_default(|user| user.available_providers());
-        self.auth_manager
-            .generate_oauth_access_token(
-                &self.jwks_manager,
-                &DelegatedGrant {
-                    client_id,
-                    scopes: &scopes,
-                    audience,
-                },
-                &uid,
-                &providers,
-                Some(tenant_id.to_owned()),
-            )
-            .map_err(|e| AppError::internal(format!("Failed to generate OAuth access token: {e}")))
     }
 
     /// Generate random string for codes

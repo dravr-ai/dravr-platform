@@ -31,7 +31,7 @@ use std::fmt;
 use std::slice;
 use std::sync::Arc;
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::AppResult;
 use pierre_core::models::{DelegatedConnection, DelegationEndReason, DelegationStatus, TenantId};
 use pierre_database::repositories::{
@@ -106,7 +106,7 @@ impl DelegationStore {
     ) -> AppResult<Vec<DelegatedConnection>> {
         let ended = self
             .links
-            .end_for_group_member(group_id, member_user_id, actor, reason, Utc::now())
+            .end_for_group_member(group_id, member_user_id, actor, reason, Timestamp::now())
             .await?;
         self.release(&ended, reason).await?;
         Ok(ended)
@@ -127,7 +127,7 @@ impl DelegationStore {
     ) -> AppResult<Vec<DelegatedConnection>> {
         let ended = self
             .links
-            .end_for_group(group_id, actor, reason, Utc::now())
+            .end_for_group(group_id, actor, reason, Timestamp::now())
             .await?;
         self.release(&ended, reason).await?;
         Ok(ended)
@@ -157,7 +157,7 @@ impl DelegationStore {
                 provider,
                 actor,
                 reason,
-                Utc::now(),
+                Timestamp::now(),
             )
             .await?;
         self.release(&ended, reason).await?;
@@ -189,7 +189,7 @@ impl DelegationStore {
                 provider,
                 actor,
                 reason,
-                Utc::now(),
+                Timestamp::now(),
             )
             .await?;
         self.release(&ended, reason).await?;
@@ -328,7 +328,7 @@ impl DelegationStore {
     ) -> AppResult<Option<DelegatedConnection>> {
         let ended = self
             .links
-            .end_one(id, participant_user_id, actor, reason, Utc::now())
+            .end_one(id, participant_user_id, actor, reason, Timestamp::now())
             .await?;
         if let Some(link) = &ended {
             self.release(slice::from_ref(link), reason).await?;

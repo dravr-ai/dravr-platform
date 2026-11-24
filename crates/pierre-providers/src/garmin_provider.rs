@@ -50,7 +50,10 @@
 //! call is made only once Garmin reports the athlete granted Dravr
 //! `WORKOUT_IMPORT` (`GET user/permissions`, read once per provider); a
 //! connection without it is refused by name before anything is sent, and a
-//! grant withdrawn since (Garmin's `412`) is refused the same way.
+//! grant withdrawn since (Garmin's `412`) is refused the same way. Before
+//! that, Dravr's own calendar writer refuses to send anything until the
+//! athlete let Dravr send Garmin their workouts (Garmin's agreement §4.5,
+//! carnet#1390).
 //!
 //! The schedule listing names each entry's workout, schedule and day and
 //! nothing else, so the reconcile matches its ledger by provider id: an
@@ -86,7 +89,7 @@ use crate::models::{
 use crate::pagination::{CursorPage, PaginationParams};
 use crate::request_budget;
 use async_trait::async_trait;
-use chrono::{NaiveDate, Utc};
+use dravr_tronc::dates::{CivilDate, Timestamp};
 use reqwest::{Method, StatusCode};
 use secrecy::{ExposeSecret, SecretString};
 use serde::de::DeserializeOwned;
@@ -379,11 +382,9 @@ impl GarminProvider {
     }
 
     /// The schedules on the athlete's calendar over `[from, to]`.
-    async fn schedules(&self, from: NaiveDate, to: NaiveDate) -> AppResult<Vec<Schedule>> {
+    async fn schedules(&self, from: CivilDate, to: CivilDate) -> AppResult<Vec<Schedule>> {
         self.training_get(&format!(
-            "training-api/schedule?startDate={}&endDate={}",
-            from.format("%Y-%m-%d"),
-            to.format("%Y-%m-%d")
+            "training-api/schedule?startDate={from}&endDate={to}"
         ))
         .await
     }
@@ -416,7 +417,7 @@ impl GarminProvider {
 
     /// Put `workout_id` on `date` and return the schedule's id. A create
     /// whose answer names no id is looked up on the day's listing.
-    async fn schedule(&self, workout_id: i64, date: NaiveDate) -> AppResult<i64> {
+    async fn schedule(&self, workout_id: i64, date: CivilDate) -> AppResult<i64> {
         let body = training::schedule_body(workout_id, date, None);
         let answer = self
             .training_call(Method::POST, "training-api/schedule/", Some(&body))
@@ -494,7 +495,7 @@ impl FitnessProvider for GarminProvider {
             if creds.access_token.is_some() {
                 // Check if token is expired
                 if let Some(expires_at) = creds.expires_at {
-                    return Utc::now() < expires_at;
+                    return Timestamp::now() < expires_at;
                 }
                 return true;
             }
@@ -640,8 +641,8 @@ impl FitnessProvider for GarminProvider {
     )]
     async fn list_calendar_events(
         &self,
-        from: NaiveDate,
-        to: NaiveDate,
+        from: CivilDate,
+        to: CivilDate,
     ) -> AppResult<Vec<CalendarEventRef>> {
         self.ensure_workout_import().await?;
         let schedules = self.schedules(from, to).await?;
@@ -688,10 +689,13 @@ impl FitnessProvider for GarminProvider {
         })
     }
 
-    /// LIMITATION(registre#1390): `GarminProvider::push_planned_session` sends without Dravr's own transfer consent.
     /// Create the workout, then schedule it on the session's day. A schedule
     /// that fails takes its workout with it, so the library never holds a
     /// workout of Dravr's that no calendar entry names.
+    ///
+    /// Reached only once the athlete let Dravr send Garmin their workouts:
+    /// the calendar writer every tool builds this provider through refuses a
+    /// send without that consent (carnet#1390).
     #[instrument(
         skip(self, session),
         fields(provider = "garmin", api_call = "push_planned_session")
@@ -828,7 +832,7 @@ mod tests {
     use crate::core::no_recorded_samples;
     use crate::models::{ActivityBuilder, SportType, TenantId};
     use crate::spi::{GarminDescriptor, ProviderCapabilities, ProviderDescriptor};
-    use chrono::{DateTime, Duration};
+    use dravr_tronc::dates::{Elapsed, Timestamp};
     use pierre_database::repositories::{ActivityStreamsWrite, StreamOrigin};
     use pierre_test_support::db::create_test_db;
     use pierre_test_support::server::create_test_user;
@@ -839,10 +843,10 @@ mod tests {
     /// of their own, and another athlete's Garmin ride beside them.
     struct Seeded {
         stores: OwnerStores,
-        ride_start: DateTime<Utc>,
+        ride_start: Timestamp,
     }
 
-    fn activity(id: &str, sport: SportType, start: DateTime<Utc>, provider: &str) -> Activity {
+    fn activity(id: &str, sport: SportType, start: Timestamp, provider: &str) -> Activity {
         ActivityBuilder::new(id, "Pushed", sport, start, 3_600, provider)
             .source(provider)
             .distance_meters(30_000.0)
@@ -859,8 +863,8 @@ mod tests {
         repos.users.create(&athlete).await.expect("athlete");
         repos.users.create(&stranger).await.expect("stranger");
 
-        let ride_start = Utc::now() - Duration::days(2);
-        let run_start = Utc::now() - Duration::days(1);
+        let ride_start = Timestamp::now() - Elapsed::days(2);
+        let run_start = Timestamp::now() - Elapsed::days(1);
         repos
             .activity_cache
             .upsert_activities(
@@ -981,7 +985,7 @@ mod tests {
 
         let older = provider
             .get_activities_with_params(&ActivityQueryParams::with_time_range(
-                Some((seeded.ride_start + Duration::hours(1)).timestamp()),
+                Some((seeded.ride_start + Elapsed::hours(1)).epoch_seconds()),
                 None,
             ))
             .await
@@ -1054,7 +1058,7 @@ mod tests {
                 origin: StreamOrigin::Push,
                 source_ref: None,
                 streams: &samples,
-                synced_at: Utc::now(),
+                synced_at: Timestamp::now(),
             })
             .await
             .expect("store samples");
@@ -1120,7 +1124,7 @@ mod tests {
                 origin: StreamOrigin::Push,
                 source_ref: Some("sha"),
                 streams: &samples,
-                synced_at: Utc::now(),
+                synced_at: Timestamp::now(),
             })
             .await
             .expect("store samples");

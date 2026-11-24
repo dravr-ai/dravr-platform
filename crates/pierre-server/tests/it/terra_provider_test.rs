@@ -18,7 +18,7 @@
 
 use std::sync::Arc;
 
-use chrono::{DateTime, Datelike, FixedOffset, NaiveDate, TimeZone, Utc};
+use dravr_tronc::dates::{CivilDate, Timestamp};
 use pierre_core::models::{MealType, SportType, TenantId};
 use pierre_core::pagination::PaginationParams;
 use pierre_mcp_server::mcp::resources::ServerContext;
@@ -26,7 +26,7 @@ use pierre_mcp_server::services::terra_ingest::{store_terra_records, TerraStored
 use pierre_providers::core::{FitnessProvider, OwnerStores};
 use pierre_providers::spi::ProviderDescriptor;
 use pierre_providers::terra::models::{
-    TerraActivity, TerraCaloriesData, TerraDistanceData, TerraMetadata, TerraUser,
+    TerraActivity, TerraCaloriesData, TerraDistanceData, TerraMetadata, TerraTime, TerraUser,
 };
 use pierre_providers::terra::webhook::{
     SignatureValidation, WebhookResult, WebhookSignatureValidator,
@@ -55,8 +55,8 @@ fn make_test_user() -> TerraUser {
 }
 
 /// `text`, an RFC 3339 time with its offset, as Terra sends one.
-fn at(text: &str) -> DateTime<FixedOffset> {
-    DateTime::parse_from_rfc3339(text).unwrap()
+fn at(text: &str) -> TerraTime {
+    serde_json::from_value(serde_json::Value::String(text.to_owned())).unwrap()
 }
 
 /// A server context and an athlete with a tenant.
@@ -182,7 +182,7 @@ fn test_activity_conversion() {
     );
     assert_eq!(
         activity.start_date(),
-        Utc.with_ymd_and_hms(2024, 1, 15, 13, 0, 0).unwrap(),
+        Timestamp::parse_from_rfc3339("2024-01-15T13:00:00Z").unwrap(),
         "bug: 08:00 at UTC-5 is 13:00 UTC"
     );
     assert_eq!(
@@ -269,7 +269,7 @@ fn terra_records_take_their_local_dates() {
     );
     assert_eq!(
         night.start_datetime,
-        Utc.with_ymd_and_hms(2024, 3, 10, 13, 0, 0).unwrap(),
+        Timestamp::parse_from_rfc3339("2024-03-10T13:00:00Z").unwrap(),
         "bug: 23:00 at UTC+10 is 13:00 UTC"
     );
     let [recovery] = sleep.recovery.as_slice() else {
@@ -277,7 +277,7 @@ fn terra_records_take_their_local_dates() {
     };
     assert_eq!(
         recovery.date,
-        NaiveDate::from_ymd_opt(2024, 3, 11).unwrap(),
+        CivilDate::from_ymd(2024, 3, 11).unwrap(),
         "bug: the night's readings are the local morning's, not the UTC date (10th)"
     );
     assert_eq!(recovery.resting_heart_rate, Some(48), "bug: resting HR");
@@ -311,7 +311,7 @@ fn terra_records_take_their_local_dates() {
     };
     assert_eq!(
         day.date,
-        NaiveDate::from_ymd_opt(2024, 3, 11).unwrap(),
+        CivilDate::from_ymd(2024, 3, 11).unwrap(),
         "bug: a day starting at local midnight is its own date, not the UTC date (10th)"
     );
     assert_eq!(day.steps, Some(11_234), "bug: steps");
@@ -415,7 +415,7 @@ async fn a_terra_event_lands_in_the_activity_cache_and_the_wellness_rows() {
     let (resources, owner) = athlete().await;
     let (tenant, user_id) = owner;
     let repos = &resources.common.repos;
-    let received = Utc.with_ymd_and_hms(2024, 3, 12, 6, 0, 0).unwrap();
+    let received = Timestamp::parse_from_rfc3339("2024-03-12T06:00:00Z").unwrap();
 
     let (relayed_from, runs) = records_of(&activity_event(2));
     let stored = store_terra_records(
@@ -488,8 +488,8 @@ async fn a_terra_event_lands_in_the_activity_cache_and_the_wellness_rows() {
             user_id,
             &tenant,
             Some("terra"),
-            DateTime::UNIX_EPOCH,
-            Utc::now(),
+            Timestamp::UNIX_EPOCH,
+            Timestamp::now(),
             10,
         )
         .await
@@ -497,8 +497,8 @@ async fn a_terra_event_lands_in_the_activity_cache_and_the_wellness_rows() {
     assert_eq!(cached.len(), 2, "bug: both runs are cached under `terra`");
 
     let window = (
-        Utc.with_ymd_and_hms(2024, 3, 9, 0, 0, 0).unwrap(),
-        Utc.with_ymd_and_hms(2024, 3, 13, 0, 0, 0).unwrap(),
+        Timestamp::parse_from_rfc3339("2024-03-09T00:00:00Z").unwrap(),
+        Timestamp::parse_from_rfc3339("2024-03-13T00:00:00Z").unwrap(),
     );
     let nights = repos
         .sleep
@@ -519,7 +519,7 @@ async fn a_terra_event_lands_in_the_activity_cache_and_the_wellness_rows() {
     };
     assert_eq!(
         day.date,
-        NaiveDate::from_ymd_opt(2024, 3, 11).unwrap(),
+        CivilDate::from_ymd(2024, 3, 11).unwrap(),
         "bug: the local date"
     );
     assert_eq!(
@@ -570,7 +570,7 @@ async fn each_relayed_service_keeps_its_own_data_source() {
     let (resources, owner) = athlete().await;
     let (tenant, user_id) = owner;
     let repos = &resources.common.repos;
-    let received = Utc.with_ymd_and_hms(2024, 3, 12, 6, 0, 0).unwrap();
+    let received = Timestamp::parse_from_rfc3339("2024-03-12T06:00:00Z").unwrap();
     let night_from = |provider: &str, day: u32| {
         serde_json::json!({
             "type": "sleep",
@@ -603,8 +603,8 @@ async fn each_relayed_service_keeps_its_own_data_source() {
         .get_sleep_sessions(
             user_id,
             &tenant,
-            Utc.with_ymd_and_hms(2024, 3, 8, 0, 0, 0).unwrap(),
-            Utc.with_ymd_and_hms(2024, 3, 13, 0, 0, 0).unwrap(),
+            Timestamp::parse_from_rfc3339("2024-03-08T00:00:00Z").unwrap(),
+            Timestamp::parse_from_rfc3339("2024-03-13T00:00:00Z").unwrap(),
         )
         .await
         .unwrap();
@@ -617,7 +617,7 @@ async fn each_relayed_service_keeps_its_own_data_source() {
     let relay_of = |night_end_day: u32| {
         let night = nights
             .iter()
-            .find(|n| n.end_datetime.day() == night_end_day)
+            .find(|n| n.end_datetime.utc_date().day() == night_end_day)
             .expect("the night is stored");
         sources
             .iter()
@@ -705,7 +705,7 @@ async fn the_terra_provider_reads_what_terra_pushed() {
         owner,
         Some("GARMIN"),
         &runs,
-        Utc::now(),
+        Timestamp::now(),
     )
     .await
     .unwrap();

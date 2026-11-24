@@ -31,7 +31,7 @@
 use std::fmt::Display;
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::normalize_email;
 use serde::{Deserialize, Serialize};
@@ -125,17 +125,17 @@ pub struct ImportTombstone {
     /// The identity's digest.
     pub identity_hash: String,
     /// When the account deletion wrote it.
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
     /// When it was cleared; `None` while it is live.
-    pub cleared_at: Option<DateTime<Utc>>,
-    /// Who cleared it: an [`athlete_marker`] or `operator:` and the
-    /// operator's token id.
+    pub cleared_at: Option<Timestamp>,
+    /// Who cleared it: an [`athlete_marker`] or `admin:` and the
+    /// admin's token id.
     pub cleared_by: Option<String>,
     /// The [`athlete_marker`] of the last account that proved it holds the
     /// provider account and was refused.
     pub claimed_by: Option<String>,
     /// When that proof was made.
-    pub claimed_at: Option<DateTime<Utc>>,
+    pub claimed_at: Option<Timestamp>,
 }
 
 /// The tombstones of deleted accounts' identities.
@@ -156,7 +156,7 @@ pub trait ImportTombstoneRepository: Send + Sync {
     /// Record that the account `claimed_by` names proved it holds the
     /// identity of the live tombstone `id`, at `at`. Returns whether a live
     /// tombstone was there to claim.
-    async fn record_claim(&self, id: &str, claimed_by: &str, at: DateTime<Utc>) -> AppResult<bool>;
+    async fn record_claim(&self, id: &str, claimed_by: &str, at: Timestamp) -> AppResult<bool>;
 
     /// Clear the tombstone `id` as `cleared_by` at `at`, so its identity is
     /// accepted again. Idempotent: a tombstone already cleared keeps its
@@ -166,7 +166,7 @@ pub trait ImportTombstoneRepository: Send + Sync {
         &self,
         id: &str,
         cleared_by: &str,
-        at: DateTime<Utc>,
+        at: Timestamp,
     ) -> AppResult<Option<ImportTombstone>>;
 
     /// The newest `limit` tombstones, live ones only unless `include_cleared`.
@@ -283,7 +283,7 @@ where
     R: sqlx::Row,
     for<'a> &'a str: sqlx::ColumnIndex<R>,
     String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    DateTime<Utc>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Timestamp: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
     let kind: String = row
         .try_get("kind")
@@ -365,7 +365,7 @@ pub(crate) use ensure_tombstone_in_transaction;
 /// Emit the whole [`ImportTombstoneRepository`] implementation for one
 /// backend type; sqlx resolves the driver from `self.pool()`. The invoking
 /// shell must `use` every statement, `tombstone_from_row`, the trait and its
-/// types, `AppError`, `AppResult`, `DateTime` and `Utc`.
+/// types, `AppError`, `AppResult` and `Timestamp`.
 macro_rules! impl_import_tombstone_repository {
     ($ty:ty) => {
         #[async_trait::async_trait]
@@ -404,7 +404,7 @@ macro_rules! impl_import_tombstone_repository {
                 &self,
                 id: &str,
                 claimed_by: &str,
-                at: DateTime<Utc>,
+                at: Timestamp,
             ) -> AppResult<bool> {
                 let done = sqlx::query(CLAIM_TOMBSTONE_SQL)
                     .bind(id)
@@ -422,7 +422,7 @@ macro_rules! impl_import_tombstone_repository {
                 &self,
                 id: &str,
                 cleared_by: &str,
-                at: DateTime<Utc>,
+                at: Timestamp,
             ) -> AppResult<Option<ImportTombstone>> {
                 sqlx::query(CLEAR_TOMBSTONE_SQL)
                     .bind(id)

@@ -7,7 +7,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use chrono::{Duration, TimeZone, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_memory::commitments::CommitmentOutcome;
 use pierre_services::commitment_sweep::{commitment_outcome, data_covers_window};
 
@@ -37,19 +37,19 @@ fn zero_target_cannot_accuse_the_athlete() {
 
 #[test]
 fn freshness_guard_needs_a_sync_past_the_window() {
-    let window_end = Utc.with_ymd_and_hms(2026, 8, 16, 23, 59, 59).unwrap();
+    let window_end = Timestamp::parse_from_rfc3339("2026-08-16T23:59:59Z").unwrap();
 
     assert!(
         !data_covers_window(None, window_end),
         "an athlete whose cache was never warmed has not been proven to miss anything"
     );
     assert!(
-        !data_covers_window(Some(window_end - Duration::hours(6)), window_end),
+        !data_covers_window(Some(window_end - Elapsed::hours(6)), window_end),
         "a sync that predates the window close cannot rule out a late session"
     );
     assert!(data_covers_window(Some(window_end), window_end));
     assert!(data_covers_window(
-        Some(window_end + Duration::hours(2)),
+        Some(window_end + Elapsed::hours(2)),
         window_end
     ));
 }

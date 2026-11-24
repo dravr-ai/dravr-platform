@@ -152,14 +152,14 @@ fn detect_activity_patterns(
         // the following weekday and reported as a 01:00 habit (registre#252).
         _ => format_weekly_schedule(&PatternDetector::detect_weekly_schedule(
             activities,
-            resolve_zone(user_timezone),
+            &resolve_zone(user_timezone),
         )), // weekly_schedule: the handler admits no other value
     }
 }
 
 /// Format weekly schedule pattern results for JSON response
 fn format_weekly_schedule(pattern: &WeeklySchedulePattern) -> PatternsResult {
-    use chrono::Weekday;
+    use dravr_tronc::dates::Weekday;
 
     // Convert Weekday enum to string
     let day_to_string = |weekday: &Weekday| -> &str {
@@ -312,20 +312,6 @@ fn format_overtraining_signals(
 
     let mut warning_signs = Vec::new();
 
-    if signals.hr_drift_detected {
-        if let Some(drift_pct) = signals.hr_drift_percent {
-            warning_signs.push(format!(
-                "Heart rate drift detected: {drift_pct:.1}% increase - possible fatigue"
-            ));
-        } else {
-            warning_signs.push("Heart rate drift detected - possible fatigue".to_owned());
-        }
-    }
-
-    if signals.performance_decline {
-        warning_signs.push("Performance declining despite training - check recovery".to_owned());
-    }
-
     if signals.insufficient_recovery {
         warning_signs.push("Insufficient recovery time between hard efforts".to_owned());
     }
@@ -366,8 +352,6 @@ fn format_overtraining_signals(
             warning_signs.clone()
         },
         warning_signs,
-        hr_drift_detected: signals.hr_drift_detected,
-        performance_decline: signals.performance_decline,
         insufficient_recovery: signals.insufficient_recovery,
         confidence: "medium".to_owned(),
         recommendations: recommendations.into_iter().map(ToOwned::to_owned).collect(),

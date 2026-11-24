@@ -32,7 +32,7 @@ const APPEARANCE_OPTIONS: readonly AppearancePref[] = ['system', 'dark', 'light'
  *
  * The identity block is the same 56 row the settings root draws — the initials
  * circle at 40, name and email beside it — rather than a hero ring; the rest
- * is `Section`s of fields and `Row`s on the ground (DESIGN.md §10).
+ * is `Section`s of fields and `Row`s on the ground (DESIGN.md "Phone").
  */
 export function ProfileScreen() {
   const { t } = useTranslation();

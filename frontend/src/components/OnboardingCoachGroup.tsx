@@ -17,12 +17,12 @@ import {
   coachSeatState,
   defaultGroupAgent,
   groupAgentChoices,
+  QUERY_KEYS,
 } from '@pierre/shared-constants';
 import { useTranslation } from '@pierre/i18n';
 import { coachesApi, userApi } from '../services/api';
 import { useCoachGroupSetup } from '../hooks/useGroups';
 import { useAuth } from '../hooks/useAuth';
-import { QUERY_KEYS } from '../constants/queryKeys';
 import { Button, Input, ALERT_TONE } from './ui';
 import OnboardingShell from './OnboardingShell';
 import CoachAccessRequest from './CoachAccessRequest';
@@ -353,7 +353,7 @@ function AgentField({
 /**
  * Whether the link goes to the share sheet first: the browser has one (Web
  * Share) and the screen is a phone's — a coarse pointer or below `lg`, the
- * same test the 44px touch targets use (DESIGN.md §8).
+ * same test the 44px touch targets use (DESIGN.md "Layout").
  */
 function sharesFromPhone(): boolean {
   if (typeof navigator === 'undefined' || typeof navigator.share !== 'function') return false;

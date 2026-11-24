@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use super::TenantId;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -144,9 +144,15 @@ pub struct ToolCatalogEntry {
     /// Minimum subscription plan required for this tool
     pub min_plan: TenantPlan,
     /// When this catalog entry was created
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
     /// When this catalog entry was last updated
-    pub updated_at: DateTime<Utc>,
+    pub updated_at: Timestamp,
+    /// The hash of the tool's full definition as `tools/list` publishes it
+    /// (`dravr_tronc` `Tool::def_hash`, `sha256:` + 64 hex digits), as last
+    /// recorded; `None` until it is (carnet#1543). A caller offered fewer
+    /// arguments is served another definition, with its own hash.
+    #[serde(default)]
+    pub def_hash: Option<String>,
 }
 
 /// Per-tenant tool override from the `tenant_tool_overrides` table
@@ -165,9 +171,9 @@ pub struct TenantToolOverride {
     /// Reason for the override (for audit)
     pub reason: Option<String>,
     /// When this override was created
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
     /// When this override was last updated
-    pub updated_at: DateTime<Utc>,
+    pub updated_at: Timestamp,
 }
 
 /// Source of tool enablement state
@@ -210,7 +216,7 @@ impl EffectiveTool {
     /// Whether every surface that lists tools — `tools/list` and a chat
     /// turn's declarations, index and loopback alike — leaves this one out.
     ///
-    /// It is left out when an operator switched it off — globally, for the
+    /// It is left out when an admin switched it off — globally, for the
     /// tenant, or for this user, or off by catalogue default — because that
     /// is what the deployment offers. It is not left out when the tenant's
     /// plan does not cover it: the plan is the athlete's current state, and

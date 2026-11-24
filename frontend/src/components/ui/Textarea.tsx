@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Boreal Editorial Textarea — bottom-stroke underline, DESIGN.md §5
+// ABOUTME: Boreal Editorial Textarea — bottom-stroke underline, DESIGN.md "Inputs / Fields"
 // ABOUTME: Multi-line sibling of Input; same label, help and error treatment
 
 import React, { forwardRef, useId } from 'react';

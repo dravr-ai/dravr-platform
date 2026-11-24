@@ -155,17 +155,17 @@ const mockInvites = {
 const mockCoachReads = {
   retention_months: 12,
   reads: [
-    { coach_name: 'Casey Coach', tool: 'coach_thread', data_class: 'wellness', read_at: '2026-11-12T14:05:00Z', served_to_assistant: false },
-    { coach_name: 'Casey Coach', tool: 'coach_thread', data_class: 'training', read_at: '2026-11-12T14:05:00Z', served_to_assistant: false },
-    { coach_name: 'Casey Coach', tool: 'get_activities', data_class: 'training', read_at: '2026-11-12T14:04:00Z', served_to_assistant: true },
-    { coach_name: 'Casey Coach', tool: 'plan_view', data_class: 'training', read_at: '2026-11-11T18:20:00Z', served_to_assistant: false },
-    { coach_name: 'Casey Coach', tool: 'plan_command', data_class: 'training', read_at: '2026-11-11T07:45:00Z', served_to_assistant: false },
-    { coach_name: null, tool: 'roster', data_class: 'training', read_at: '2026-11-10T08:30:00Z', served_to_assistant: false },
-    { coach_name: 'Casey Coach', tool: 'group_room', data_class: 'training', read_at: '2026-11-10T08:00:00Z', served_to_assistant: false },
-    { coach_name: 'Casey Coach', tool: 'group_stats', data_class: 'training', read_at: '2026-11-09T19:10:00Z', served_to_assistant: false },
-    { coach_name: 'Casey Coach', tool: 'group_report', data_class: 'training', read_at: '2026-11-09T19:05:00Z', served_to_assistant: false },
-    { coach_name: 'Casey Coach', tool: 'group_health', data_class: 'training', read_at: '2026-11-09T19:00:00Z', served_to_assistant: false },
-    { coach_name: 'Casey Coach', tool: 'weekly_digest', data_class: 'training', read_at: '2026-11-09T13:00:00Z', served_to_assistant: false },
+    { coach_name: 'Casey Coach', tool: 'coach_thread', data_class: 'wellness', read_at: '2026-11-12T14:05:00Z', served_to_assistant: false, support_read: false },
+    { coach_name: 'Casey Coach', tool: 'coach_thread', data_class: 'training', read_at: '2026-11-12T14:05:00Z', served_to_assistant: false, support_read: false },
+    { coach_name: 'Casey Coach', tool: 'get_activities', data_class: 'training', read_at: '2026-11-12T14:04:00Z', served_to_assistant: true, support_read: false },
+    { coach_name: 'Casey Coach', tool: 'plan_view', data_class: 'training', read_at: '2026-11-11T18:20:00Z', served_to_assistant: false, support_read: false },
+    { coach_name: 'Casey Coach', tool: 'plan_command', data_class: 'training', read_at: '2026-11-11T07:45:00Z', served_to_assistant: false, support_read: false },
+    { coach_name: null, tool: 'roster', data_class: 'training', read_at: '2026-11-10T08:30:00Z', served_to_assistant: false, support_read: false },
+    { coach_name: 'Casey Coach', tool: 'group_room', data_class: 'training', read_at: '2026-11-10T08:00:00Z', served_to_assistant: false, support_read: false },
+    { coach_name: 'Casey Coach', tool: 'group_stats', data_class: 'training', read_at: '2026-11-09T19:10:00Z', served_to_assistant: false, support_read: false },
+    { coach_name: 'Casey Coach', tool: 'group_report', data_class: 'training', read_at: '2026-11-09T19:05:00Z', served_to_assistant: false, support_read: false },
+    { coach_name: 'Casey Coach', tool: 'group_health', data_class: 'training', read_at: '2026-11-09T19:00:00Z', served_to_assistant: false, support_read: false },
+    { coach_name: 'Casey Coach', tool: 'weekly_digest', data_class: 'training', read_at: '2026-11-09T13:00:00Z', served_to_assistant: false, support_read: false },
   ],
 };
 
@@ -1102,6 +1102,9 @@ test.describe('Group info — coaching-platform links', () => {
       wellness_read_supported: true,
       wellness_read_skipped: null,
       wellness_notice_due: false,
+      assistant_read: false,
+      assistant_read_at: null,
+      assistant_read_supported: false,
     };
 
     await openGroupInfo(page, { userGroupRole: 'member' }, async (p) => {
@@ -1194,6 +1197,9 @@ test.describe('Group info — coaching-platform links', () => {
       wellness_read_supported: true,
       wellness_read_skipped: null,
       wellness_notice_due: true,
+      assistant_read: false,
+      assistant_read_at: null,
+      assistant_read_supported: false,
     };
 
     await openGroupInfo(page, { userGroupRole: 'member' }, async (p) => {
@@ -1424,5 +1430,96 @@ test.describe('Group info — layout', () => {
     // The owner's coach-seat block leads the panel, so the list starts below the fold.
     await panel.getByTestId('member-list').scrollIntoViewIfNeeded();
     await expectNoCollidingText(page, 'member list', '[data-testid="member-list"]', 6);
+  });
+});
+
+// ============================================================================
+// Group info — chat app (carnet#1683)
+// ============================================================================
+
+/**
+ * A stateful `/chat-connection` mock: no chat until a code is minted, then
+ * connected a read later (the bot joined), then none again once
+ * disconnected. `canManage` is what the server would answer for the viewer.
+ */
+function chatConnectionRoutes(canManage: boolean, startConnected = false) {
+  return async (page: Page) => {
+    let connected = startConnected;
+    let minted = false;
+    let readsSinceMint = 0;
+    await page.route(`**/api/groups/${GROUP_ID}/chat-connection`, async (route, request) => {
+      const method = request.method();
+      if (method === 'POST') {
+        minted = true;
+        await route.fulfill({
+          status: 201,
+          json: {
+            channel: 'telegram',
+            code: 'ABCD2345EFGH',
+            deep_link_url: 'https://t.me/dravr_bot?startgroup=ABCD2345EFGH',
+            command: '/group link ABCD2345EFGH',
+            qr_svg: null,
+            expires_at: '2099-01-01T00:10:00Z',
+          },
+        });
+        return;
+      }
+      if (method === 'DELETE') {
+        connected = false;
+        minted = false;
+        await route.fulfill({ status: 204, body: '' });
+        return;
+      }
+      // The bot joins a while after the code is out: the read right after the
+      // mint still finds no chat, the one after it finds the bot joined.
+      if (minted) {
+        readsSinceMint += 1;
+        if (readsSinceMint >= 2) connected = true;
+      }
+      await route.fulfill({
+        json: {
+          connected,
+          channel: connected ? 'telegram' : null,
+          chat_title: connected ? 'Les Rouleurs chat' : null,
+          connected_at: connected ? '2026-11-20T10:00:00Z' : null,
+          can_manage: canManage,
+        },
+      });
+    });
+  };
+}
+
+test.describe('Group info — chat app', () => {
+  test('the owner connects Telegram with the add-to-group link, then disconnects', async ({ page }) => {
+    await openGroupInfo(page, {}, chatConnectionRoutes(true));
+    const section = page.getByTestId('group-chat-connection');
+    await expect(section.getByTestId('group-chat-not-connected')).toBeVisible();
+
+    await section.getByTestId('group-chat-connect').click();
+    await section.getByTestId('group-chat-choose-telegram').click();
+
+    const open = section.getByTestId('group-chat-open-app');
+    await expect(open).toHaveAttribute('href', 'https://t.me/dravr_bot?startgroup=ABCD2345EFGH');
+    await expect(section.getByTestId('group-chat-command')).toHaveText('/group link ABCD2345EFGH');
+
+    // The panel reads the connection again until the bot has joined.
+    await expect(section.getByTestId('group-chat-title')).toHaveText('Les Rouleurs chat', {
+      timeout: 10000,
+    });
+    await expect(section.getByTestId('group-chat-connected-to')).toHaveText('Connected to Telegram');
+
+    await section.getByTestId('group-chat-disconnect').click();
+    // Group info is a dialog too; the confirm is the one titled for the chat.
+    const confirm = page.getByRole('dialog', { name: 'Disconnect Telegram?' });
+    await confirm.getByRole('button', { name: 'Disconnect' }).click();
+    await expect(section.getByTestId('group-chat-not-connected')).toBeVisible({ timeout: 10000 });
+  });
+
+  test('a member reads which chat the group is in, and cannot change it', async ({ page }) => {
+    await openGroupInfo(page, { userGroupRole: 'member' }, chatConnectionRoutes(false, true));
+    const section = page.getByTestId('group-chat-connection');
+    await expect(section.getByTestId('group-chat-title')).toHaveText('Les Rouleurs chat');
+    await expect(section.getByTestId('group-chat-disconnect')).toHaveCount(0);
+    await expect(section.getByTestId('group-chat-connect')).toHaveCount(0);
   });
 });

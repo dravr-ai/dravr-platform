@@ -32,7 +32,7 @@ use secrecy::SecretString;
 use std::collections::{HashMap, HashSet};
 use std::future::pending;
 use std::sync::{Arc, Mutex};
-use std::time::Duration as Elapsed;
+use std::time::Duration as StdDuration;
 
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
@@ -40,7 +40,6 @@ use axum::routing::get;
 use axum::{Json, Router};
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
-use chrono::{Duration, Utc};
 use common::{
     create_test_server_resources_with_config, create_test_user_with_plan,
     test_server_config_with_api_base,
@@ -49,6 +48,7 @@ use dravr_enforme::models::connection::{CredentialKind, ProviderCredentials};
 use dravr_enforme::traits::credential_store::CredentialStore;
 use dravr_enforme::SyncOrchestrator;
 use dravr_equilibre_sync::{StoredHealthMetrics, StoredRecoveryMetrics, StoredSleepSession};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use dravr_tronc::mcp::tool::{McpTool, ToolContext};
 use pierre_core::constants::oauth::providers::{
     INTERVALS_ICU, SCIOTTE_GARMIN, SCIOTTE_TRAININGPEAKS, TRAININGPEAKS, WHOOP,
@@ -91,7 +91,7 @@ const COACH_EMAIL: &str = "coach@wellness.test";
 const HOUR_MS: i64 = 3_600_000;
 
 /// What a pass gives each link's sync: the scheduled cycle's ten minutes.
-const PASS_DEADLINE: Elapsed = Elapsed::from_mins(10);
+const PASS_DEADLINE: StdDuration = StdDuration::from_mins(10);
 
 /// One request the stand-in received.
 #[derive(Debug, Clone)]
@@ -208,8 +208,8 @@ async fn wellness_route(
 
 /// The date `ago` days back, as an Intervals.icu wellness day's `id`.
 fn day(ago: i64) -> String {
-    (Utc::now() - Duration::days(ago))
-        .format("%Y-%m-%d")
+    (Timestamp::now() - Elapsed::days(ago))
+        .utc_date()
         .to_string()
 }
 
@@ -337,7 +337,7 @@ async fn world() -> World {
         .unwrap()
         .id
         .to_string();
-    let now = Utc::now();
+    let now = Timestamp::now();
     let group = repos
         .groups
         .create_group(
@@ -357,6 +357,7 @@ async fn world() -> World {
                 is_active: true,
                 channel_type: None,
                 channel_chat_id: None,
+                chat_connection: None,
                 created_at: now,
                 updated_at: now,
             },
@@ -398,7 +399,7 @@ async fn world() -> World {
 
 /// `who`'s own Intervals.icu API key, for athlete `athlete`.
 fn intervals_key(who: &Person, key: &str, athlete: &str) -> UserOAuthToken {
-    let now = Utc::now();
+    let now = Timestamp::now();
     UserOAuthToken {
         id: Uuid::new_v4().to_string(),
         user_id: who.id,
@@ -443,7 +444,7 @@ impl World {
         wellness_read: bool,
     ) -> (Person, DelegatedConnection) {
         let member = person(&self.res, email).await;
-        let now = Utc::now();
+        let now = Timestamp::now();
         let repos = self.repos();
         repos
             .groups
@@ -484,7 +485,7 @@ impl World {
             .expect("no live link holds this member or athlete yet");
         let link = repos
             .delegated_connections
-            .confirm(proposed.id, member.id, member.tenant, Utc::now())
+            .confirm(proposed.id, member.id, member.tenant, Timestamp::now())
             .await
             .unwrap()
             .expect("the proposal names the member");
@@ -496,7 +497,7 @@ impl World {
                     member.id,
                     None,
                     Some(true),
-                    Utc::now(),
+                    Timestamp::now(),
                 )
                 .await
                 .unwrap()
@@ -527,7 +528,7 @@ impl World {
     }
 
     /// A pass that gives each link's sync at most `deadline`.
-    async fn pass_within(&self, now_ms: i64, deadline: Elapsed) {
+    async fn pass_within(&self, now_ms: i64, deadline: StdDuration) {
         sync_delegated_members(
             &self.storage,
             &self.orchestrator,
@@ -541,8 +542,8 @@ impl World {
     async fn rows(&self, who: &Person, tenant: TenantId) -> Rows {
         let repos = self.repos();
         let (start, end) = (
-            Utc::now() - Duration::days(40),
-            Utc::now() + Duration::days(1),
+            Timestamp::now() - Elapsed::days(40),
+            Timestamp::now() + Elapsed::days(1),
         );
         Rows {
             sleep: repos
@@ -630,8 +631,8 @@ impl World {
     ) {
         let repos = self.repos();
         let (start, end) = (
-            Utc::now() - Duration::days(40),
-            Utc::now() + Duration::days(1),
+            Timestamp::now() - Elapsed::days(40),
+            Timestamp::now() + Elapsed::days(1),
         );
         (
             repos
@@ -665,7 +666,7 @@ fn wellness_path(athlete: &str) -> String {
 async fn a_granted_link_syncs_through_the_coach_key_every_three_hours() {
     let w = world().await;
     let (member, _) = w.granted("m1@wellness.test", "i201").await;
-    let t0 = Utc::now().timestamp_millis();
+    let t0 = Timestamp::now().epoch_millis();
 
     w.pass(t0).await;
     assert_eq!(w.api.roster_reads(), 1);
@@ -690,13 +691,13 @@ async fn a_granted_link_syncs_through_the_coach_key_every_three_hours() {
 async fn a_link_stores_only_the_wellness_its_consent_names() {
     let w = world().await;
     let (member, _) = w.granted("m1@wellness.test", "i201").await;
-    w.pass(Utc::now().timestamp_millis()).await;
+    w.pass(Timestamp::now().epoch_millis()).await;
     assert_eq!(w.rows(&member, member.tenant).await, ONE_DAY);
 
     let repos = w.repos();
     let (start, end) = (
-        Utc::now() - Duration::days(40),
-        Utc::now() + Duration::days(1),
+        Timestamp::now() - Elapsed::days(40),
+        Timestamp::now() + Elapsed::days(1),
     );
     let recovery = repos
         .recovery
@@ -740,7 +741,7 @@ async fn a_link_without_the_wellness_consent_spends_nothing() {
             false,
         )
         .await;
-    let t0 = Utc::now().timestamp_millis();
+    let t0 = Timestamp::now().epoch_millis();
 
     w.pass(t0).await;
     assert!(w.api.hits.lock().unwrap().is_empty());
@@ -753,7 +754,7 @@ async fn a_link_without_the_wellness_consent_spends_nothing() {
             member.id,
             None,
             Some(true),
-            Utc::now(),
+            Timestamp::now(),
         )
         .await
         .unwrap()
@@ -770,7 +771,7 @@ async fn two_members_of_one_coach_share_one_roster_read() {
     let (m1, _) = w.granted("m1@wellness.test", "i201").await;
     let (m2, _) = w.granted("m2@wellness.test", "i202").await;
 
-    w.pass(Utc::now().timestamp_millis()).await;
+    w.pass(Timestamp::now().epoch_millis()).await;
     assert_eq!(w.api.roster_reads(), 1);
     let mut reads = w.api.wellness_reads();
     reads.sort();
@@ -788,7 +789,7 @@ async fn a_refused_wellness_read_holds_the_link_a_full_period() {
     let w = world().await;
     let (member, link) = w.granted("m1@wellness.test", "i201").await;
     w.api.refused.lock().unwrap().insert("i201".to_owned());
-    let t0 = Utc::now().timestamp_millis();
+    let t0 = Timestamp::now().epoch_millis();
 
     w.pass(t0).await;
     assert_eq!(w.api.wellness_reads().len(), 3);
@@ -833,13 +834,13 @@ async fn a_stalled_wellness_read_is_dropped_at_the_deadline_and_the_pass_moves_o
     let (stalled, _) = w.granted("m1@wellness.test", "i201").await;
     let (next, _) = w.granted("m2@wellness.test", "i202").await;
     w.api.stalled.lock().unwrap().insert("i201".to_owned());
-    let t0 = Utc::now().timestamp_millis();
+    let t0 = Timestamp::now().epoch_millis();
 
     // Without the deadline the pass never returns; the outer bound turns that
     // hang into a failure.
     timeout(
-        Elapsed::from_secs(30),
-        w.pass_within(t0, Elapsed::from_secs(2)),
+        StdDuration::from_secs(30),
+        w.pass_within(t0, StdDuration::from_secs(2)),
     )
     .await
     .expect("the pass moves past the stalled link");
@@ -869,13 +870,13 @@ async fn the_pass_spends_only_the_background_share_of_the_coach_key() {
             PLATFORM_SCOPE,
             PLATFORM_SCOPE,
             &api_key_counter_key(INTERVALS_ICU, COACH_ATHLETE),
-            &budget_period(Utc::now(), FIFTEEN_MINUTES),
+            &budget_period(Timestamp::now(), FIFTEEN_MINUTES),
             i64::from(background_share),
         )
         .await
         .unwrap();
 
-    w.pass(Utc::now().timestamp_millis()).await;
+    w.pass(Timestamp::now().epoch_millis()).await;
     assert!(
         w.api.hits.lock().unwrap().is_empty(),
         "{:?}",
@@ -920,7 +921,7 @@ async fn a_roster_that_leaves_the_private_fields_unknown_syncs_nothing() {
     }
     let (open, _) = w.granted("open@wellness.test", "i204").await;
 
-    w.pass(Utc::now().timestamp_millis()).await;
+    w.pass(Timestamp::now().epoch_millis()).await;
     assert_eq!(w.api.roster_reads(), 1);
     assert_eq!(w.api.wellness_reads(), vec![wellness_path("i204"); 3]);
     assert_eq!(w.rows(&open, open.tenant).await, ONE_DAY);
@@ -955,7 +956,7 @@ async fn a_private_wellness_field_is_dropped_and_only_that_one() {
         )
         .await;
 
-    w.pass(Utc::now().timestamp_millis()).await;
+    w.pass(Timestamp::now().epoch_millis()).await;
     assert_eq!(w.api.roster_reads(), 1);
     assert_eq!(w.rows(&cycle, cycle.tenant).await, ONE_DAY);
     assert_eq!(w.rows(&hrv, hrv.tenant).await, ONE_DAY);
@@ -994,7 +995,7 @@ async fn a_row_left_empty_by_the_private_fields_is_not_filed() {
         "i201".to_owned(),
         json!([{ "id": day(1), "hrv": 62.0, "restingHR": 47.0, "comments": "legs heavy" }]),
     );
-    let t0 = Utc::now().timestamp_millis();
+    let t0 = Timestamp::now().epoch_millis();
 
     w.pass(t0).await;
     assert_eq!(w.api.wellness_reads(), vec![wellness_path("i201"); 3]);
@@ -1043,7 +1044,7 @@ async fn a_source_of_the_members_own_wins_over_the_link() {
         .await
         .unwrap();
 
-    w.pass(Utc::now().timestamp_millis()).await;
+    w.pass(Timestamp::now().epoch_millis()).await;
     assert!(
         w.api.hits.lock().unwrap().is_empty(),
         "{:?}",
@@ -1078,11 +1079,11 @@ async fn a_link_that_serves_no_read_syncs_nothing() {
             w.coach.tenant,
             INTERVALS_ICU,
             Some("delegated_session_expired"),
-            Utc::now(),
+            Timestamp::now(),
         )
         .await
         .unwrap();
-    let t0 = Utc::now().timestamp_millis();
+    let t0 = Timestamp::now().epoch_millis();
 
     w.pass(t0).await;
     assert!(w.api.hits.lock().unwrap().is_empty());
@@ -1111,7 +1112,7 @@ async fn an_athlete_off_the_coach_roster_ends_the_link_and_syncs_nothing() {
     let (member, link) = w.granted("m1@wellness.test", "i201").await;
     w.api.roster.lock().unwrap().clear();
 
-    w.pass(Utc::now().timestamp_millis()).await;
+    w.pass(Timestamp::now().epoch_millis()).await;
     assert_eq!(w.api.roster_reads(), 1);
     assert!(
         w.api.wellness_reads().is_empty(),
@@ -1131,7 +1132,7 @@ async fn withdrawing_the_consent_or_ending_the_link_purges_and_stops() {
     let w = world().await;
     let (withdraws, withdrawn_link) = w.granted("withdraws@wellness.test", "i201").await;
     let (ends, ended_link) = w.granted("ends@wellness.test", "i202").await;
-    let t0 = Utc::now().timestamp_millis();
+    let t0 = Timestamp::now().epoch_millis();
     w.pass(t0).await;
     assert_eq!(w.rows(&withdraws, withdraws.tenant).await, ONE_DAY);
     assert_eq!(w.rows(&ends, ends.tenant).await, ONE_DAY);
@@ -1143,8 +1144,8 @@ async fn withdrawing_the_consent_or_ending_the_link_purges_and_stops() {
         &w.group().await,
         withdrawn_link.member_user_id,
         ConsentChange {
-            calendar_write: None,
             wellness_read: Some(false),
+            ..ConsentChange::default()
         },
     )
     .await
@@ -1229,7 +1230,7 @@ async fn the_refresh_answer_claims_no_schedule_a_link_does_not_have() {
         .expect("no live TrainingPeaks link holds this member yet");
     repos
         .delegated_connections
-        .confirm(proposed.id, member.id, member.tenant, Utc::now())
+        .confirm(proposed.id, member.id, member.tenant, Timestamp::now())
         .await
         .unwrap()
         .expect("the proposal names the member");
@@ -1331,7 +1332,7 @@ async fn the_decision_holds_each_exclusion_when_the_sync_asks() {
             open.id,
             None,
             Some(false),
-            Utc::now(),
+            Timestamp::now(),
         )
         .await
         .unwrap()

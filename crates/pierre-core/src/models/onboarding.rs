@@ -7,7 +7,7 @@
 use crate::transport::TransportPolicy;
 use std::collections::BTreeMap;
 
-use chrono::{DateTime, Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use serde::{Deserialize, Serialize};
 
 use super::{Dossier, Pillar};
@@ -284,11 +284,11 @@ impl OnboardingState {
     /// an absent, unparseable or un-stamped column, and for a completion older
     /// than [`COMPLETION_RELEASE_WINDOW_MINUTES`].
     #[must_use]
-    pub fn just_completed(raw: Option<&str>, now: DateTime<Utc>) -> bool {
+    pub fn just_completed(raw: Option<&str>, now: Timestamp) -> bool {
         let Some((_, at)) = Self::retired(raw) else {
             return false;
         };
-        now.signed_duration_since(at) < Duration::minutes(COMPLETION_RELEASE_WINDOW_MINUTES)
+        now.signed_duration_since(at) < Elapsed::minutes(COMPLETION_RELEASE_WINDOW_MINUTES)
     }
 
     /// The flow a retired marker belonged to — the release directive names
@@ -301,7 +301,7 @@ impl OnboardingState {
     }
 
     /// A retired marker's flow and completion instant.
-    fn retired(raw: Option<&str>) -> Option<(GuidedFlow, DateTime<Utc>)> {
+    fn retired(raw: Option<&str>) -> Option<(GuidedFlow, Timestamp)> {
         let state = raw.and_then(|s| serde_json::from_str::<Self>(s).ok())?;
         if state.active {
             return None;
@@ -309,8 +309,8 @@ impl OnboardingState {
         let at = state
             .completed_at
             .as_deref()
-            .and_then(|s| DateTime::parse_from_rfc3339(s).ok())?;
-        Some((state.flow, at.with_timezone(&Utc)))
+            .and_then(|s| Timestamp::parse_from_rfc3339(s).ok())?;
+        Some((state.flow, at))
     }
 
     /// This state with the flow-start load snapshot attached.
@@ -367,18 +367,22 @@ impl OnboardingState {
     /// sleep hygiene.
     #[must_use]
     pub fn start_now_column(flow: GuidedFlow) -> String {
-        serde_json::to_string(&Self::start(Utc::now().to_rfc3339(), flow)).unwrap_or_else(|_| {
-            match flow {
-                GuidedFlow::Pillars => r#"{"active":true,"started_at":"","flow":"pillars"}"#,
-                GuidedFlow::Calibration => {
-                    r#"{"active":true,"started_at":"","flow":"calibration"}"#
+        serde_json::to_string(&Self::start(Timestamp::now().to_rfc3339(), flow)).unwrap_or_else(
+            |_| {
+                match flow {
+                    GuidedFlow::Pillars => r#"{"active":true,"started_at":"","flow":"pillars"}"#,
+                    GuidedFlow::Calibration => {
+                        r#"{"active":true,"started_at":"","flow":"calibration"}"#
+                    }
+                    GuidedFlow::Intake => r#"{"active":true,"started_at":"","flow":"intake"}"#,
+                    GuidedFlow::Season => r#"{"active":true,"started_at":"","flow":"season"}"#,
+                    GuidedFlow::Fortnight => {
+                        r#"{"active":true,"started_at":"","flow":"fortnight"}"#
+                    }
                 }
-                GuidedFlow::Intake => r#"{"active":true,"started_at":"","flow":"intake"}"#,
-                GuidedFlow::Season => r#"{"active":true,"started_at":"","flow":"season"}"#,
-                GuidedFlow::Fortnight => r#"{"active":true,"started_at":"","flow":"fortnight"}"#,
-            }
-            .to_owned()
-        })
+                .to_owned()
+            },
+        )
     }
 
     /// Parse from the stored JSON column. Returns `None` on absent/invalid.

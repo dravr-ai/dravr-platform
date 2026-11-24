@@ -8,6 +8,7 @@
 #![allow(missing_docs)]
 
 use anyhow::Result;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::CoachingPersona;
 use pierre_core::models::{User, UserStatus, UserTier};
 use pierre_core::pagination::PaginationParams;
@@ -33,14 +34,13 @@ async fn test_get_users_by_status_cursor() -> Result<()> {
             display_name: Some(format!("User {i}")),
             password_hash: "hashed_password".to_owned(),
             tier: UserTier::Starter,
-            strava_token: None,
             is_active: true,
             user_status: UserStatus::Pending,
             role: UserRole::User,
             approved_by: None,
             approved_at: None,
-            created_at: chrono::Utc::now(),
-            last_active: chrono::Utc::now(),
+            created_at: Timestamp::now(),
+            last_active: Timestamp::now(),
             firebase_uid: None,
             auth_provider: String::new(),
             analytics_consent: false,
@@ -144,14 +144,13 @@ async fn test_cursor_pagination_consistency() -> Result<()> {
             display_name: Some(format!("Initial User {i}")),
             password_hash: "hashed".to_owned(),
             tier: UserTier::Starter,
-            strava_token: None,
             is_active: true,
             user_status: UserStatus::Pending,
             role: UserRole::User,
             approved_by: None,
             approved_at: None,
-            created_at: chrono::Utc::now(),
-            last_active: chrono::Utc::now(),
+            created_at: Timestamp::now(),
+            last_active: Timestamp::now(),
             firebase_uid: None,
             auth_provider: String::new(),
             analytics_consent: false,
@@ -183,14 +182,13 @@ async fn test_cursor_pagination_consistency() -> Result<()> {
         display_name: Some("Newer User".to_owned()),
         password_hash: "hashed".to_owned(),
         tier: UserTier::Starter,
-        strava_token: None,
         is_active: true,
         user_status: UserStatus::Pending,
         role: UserRole::User,
         approved_by: None,
         approved_at: None,
-        created_at: chrono::Utc::now(),
-        last_active: chrono::Utc::now(),
+        created_at: Timestamp::now(),
+        last_active: Timestamp::now(),
         firebase_uid: None,
         auth_provider: String::new(),
         analytics_consent: false,

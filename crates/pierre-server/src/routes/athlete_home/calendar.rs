@@ -27,12 +27,13 @@
 //! and starts no refresh and no historical backfill. Freshness is the recent
 //! list's job, which every Home load already runs.
 
+use pierre_core::civil_time::day_start_utc;
+use pierre_runtime_context::require_tenant;
 use std::sync::Arc;
 
 use axum::extract::{Query, State};
 use axum::Json;
-use chrono::{DateTime, Days, Duration, NaiveDate, NaiveTime, Utc};
-use chrono_tz::Tz;
+use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp, Zone};
 use pierre_core::civil_time::{clock_date, local_date, resolve_zone};
 use pierre_core::constants::oauth_providers::{self, GarminContribution};
 use pierre_core::errors::{AppError, AppResult};
@@ -47,12 +48,12 @@ use pierre_tool_runtime::runtime::ToolRuntime;
 use serde::{Deserialize, Serialize};
 use tracing::warn;
 
-use super::{active_tenant, copies_per_workout, home_activities, HomeActivity};
+use super::{copies_per_workout, home_activities, HomeActivity};
 use crate::mcp::resources::ServerContext;
 
 /// Most days one read spans, both ends included: the six weeks a month grid
 /// that starts on a Monday can need.
-pub const MAX_CALENDAR_DAYS: u64 = 42;
+pub const MAX_CALENDAR_DAYS: i64 = 42;
 
 /// Cached rows the read makes room for per day and per connection: far more
 /// workouts than anyone records in a day, so the bound is never what decides
@@ -63,10 +64,10 @@ const ROWS_PER_DAY_PER_CONNECTION: i64 = 12;
 #[derive(Debug, Deserialize)]
 pub struct CalendarQuery {
     /// The first day, `YYYY-MM-DD`, on the athlete's calendar.
-    pub from: NaiveDate,
+    pub from: CivilDate,
     /// The last day, `YYYY-MM-DD`, included; at most
     /// [`MAX_CALENDAR_DAYS`] days after `from`, counting both.
-    pub to: NaiveDate,
+    pub to: CivilDate,
     /// The locale a plan day's evidence chip and relabel line render in; an
     /// unsupported or absent value falls back to the athlete's stored locale,
     /// then to the default, as the training plan's does.
@@ -78,7 +79,7 @@ pub struct CalendarQuery {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct CalendarActivity {
     /// The athlete's civil date of the workout's start, `YYYY-MM-DD`.
-    pub date: NaiveDate,
+    pub date: CivilDate,
     /// The workout exactly as its Home row projects it.
     pub activity: HomeActivity,
 }
@@ -87,14 +88,14 @@ pub struct CalendarActivity {
 #[derive(Debug, Clone, Serialize)]
 pub struct CalendarResponse {
     /// The athlete's civil today.
-    pub today: NaiveDate,
+    pub today: CivilDate,
     /// The first day read, as asked.
-    pub from: NaiveDate,
+    pub from: CivilDate,
     /// The last day read, as asked.
-    pub to: NaiveDate,
+    pub to: CivilDate,
     /// The first day whose activities the cache still holds in full; no
     /// activity is answered before it, and the days before it are unknown.
-    pub history_start: NaiveDate,
+    pub history_start: CivilDate,
     /// The workouts on the days read, oldest first.
     pub activities: Vec<CalendarActivity>,
     /// The active plan's weeks overlapping the days read, in calendar order;
@@ -115,13 +116,13 @@ pub(super) async fn get_calendar(
     let CalendarQuery { from, to, locale } = query;
     check_span(from, to)?;
     let user_id = auth.user_id;
-    let tenant_id = active_tenant(&auth)?;
+    let tenant_id = require_tenant(&resources, &auth).await?;
     let repos = resources.repos();
     let user = repos.users.get_global(user_id).await?;
     let zone = resolve_zone(user.as_ref().and_then(|u| u.timezone.as_deref()));
-    let now = Utc::now();
-    let today = clock_date(now, zone);
-    let history_start = history_start(now, zone, CACHED_ACTIVITY_LOOKBACK_DAYS);
+    let now = Timestamp::now();
+    let today = clock_date(now, &zone);
+    let history_start = history_start(now, &zone, CACHED_ACTIVITY_LOOKBACK_DAYS);
 
     let connections = repos
         .provider_connections
@@ -151,7 +152,7 @@ pub(super) async fn get_calendar(
         usize::MAX,
         None,
     );
-    let activities = on_days(workouts, zone, from.max(history_start), to);
+    let activities = on_days(workouts, &zone, from.max(history_start), to);
     let garmin_contribution = oauth_providers::garmin_contribution(
         activities.iter().map(|day| day.activity.garmin_recorded),
     );
@@ -179,13 +180,13 @@ pub(super) async fn get_calendar(
 
 /// Refuse a span that ends before it starts or is longer than
 /// [`MAX_CALENDAR_DAYS`].
-fn check_span(from: NaiveDate, to: NaiveDate) -> AppResult<()> {
+fn check_span(from: CivilDate, to: CivilDate) -> AppResult<()> {
     if to < from {
         return Err(AppError::invalid_input("`to` is before `from`"));
     }
     let last_allowed = from
-        .checked_add_days(Days::new(MAX_CALENDAR_DAYS - 1))
-        .unwrap_or(NaiveDate::MAX);
+        .checked_add_days(MAX_CALENDAR_DAYS - 1)
+        .unwrap_or(CivilDate::MAX);
     if to > last_allowed {
         return Err(AppError::invalid_input(format!(
             "a calendar read spans at most {MAX_CALENDAR_DAYS} days"
@@ -196,28 +197,26 @@ fn check_span(from: NaiveDate, to: NaiveDate) -> AppResult<()> {
 
 /// The first civil day the cache holds in full: the day after the one the
 /// retention cutoff falls in, since that day is pruned up to the cutoff.
-fn history_start(now: DateTime<Utc>, zone: Tz, retention_days: i64) -> NaiveDate {
-    let cutoff = clock_date(now - Duration::days(retention_days), zone);
-    cutoff.succ_opt().unwrap_or(cutoff)
+fn history_start(now: Timestamp, zone: &Zone, retention_days: i64) -> CivilDate {
+    let cutoff = clock_date(now - Elapsed::days(retention_days), zone);
+    cutoff.succ().unwrap_or(cutoff)
 }
 
 /// The instants the cache is read between: a day wider than the span on both
 /// sides in UTC, which holds every start that falls on one of its days in any
 /// zone, a date-only row at midnight UTC included. [`on_days`] keeps the ones
 /// that do.
-fn read_window(from: NaiveDate, to: NaiveDate) -> (DateTime<Utc>, DateTime<Utc>) {
-    let start = from.pred_opt().unwrap_or(from).and_time(NaiveTime::MIN);
-    let end = to
-        .checked_add_days(Days::new(2))
-        .unwrap_or(to)
-        .and_time(NaiveTime::MIN);
-    (start.and_utc(), end.and_utc())
+fn read_window(from: CivilDate, to: CivilDate) -> (Timestamp, Timestamp) {
+    let utc = Zone::utc();
+    let start = from.pred().unwrap_or(from);
+    let end = to.checked_add_days(2).unwrap_or(to);
+    (day_start_utc(start, &utc), day_start_utc(end, &utc))
 }
 
 /// How many cached rows the read takes: room for
 /// [`ROWS_PER_DAY_PER_CONNECTION`] on each day read (the window's extra day on
 /// either side included) for each connection's copy.
-fn row_limit(from: NaiveDate, to: NaiveDate, connections: usize) -> i64 {
+fn row_limit(from: CivilDate, to: CivilDate, connections: usize) -> i64 {
     let days = (to - from).num_days() + 3;
     days * ROWS_PER_DAY_PER_CONNECTION * copies_per_workout(connections)
 }
@@ -226,9 +225,9 @@ fn row_limit(from: NaiveDate, to: NaiveDate, connections: usize) -> i64 {
 /// calendar, each with that day, oldest first.
 fn on_days(
     workouts: Vec<HomeActivity>,
-    zone: Tz,
-    from: NaiveDate,
-    to: NaiveDate,
+    zone: &Zone,
+    from: CivilDate,
+    to: CivilDate,
 ) -> Vec<CalendarActivity> {
     let mut days: Vec<CalendarActivity> = workouts
         .into_iter()
@@ -246,13 +245,12 @@ fn on_days(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::TimeZone;
 
-    fn date(y: i32, m: u32, d: u32) -> NaiveDate {
-        NaiveDate::from_ymd_opt(y, m, d).unwrap_or(NaiveDate::MIN)
+    fn date(y: i32, m: u32, d: u32) -> CivilDate {
+        CivilDate::from_ymd(y, m, d).ok().unwrap_or(CivilDate::MIN)
     }
 
-    fn workout(id: &str, start: DateTime<Utc>) -> HomeActivity {
+    fn workout(id: &str, start: Timestamp) -> HomeActivity {
         HomeActivity {
             id: id.to_owned(),
             provider: "strava".to_owned(),
@@ -279,19 +277,19 @@ mod tests {
 
     #[test]
     fn an_evening_run_is_the_day_it_was_run_and_a_date_only_row_keeps_its_day() {
-        let toronto: Tz = "America/Toronto".parse().unwrap_or(Tz::UTC);
-        let evening = Utc.with_ymd_and_hms(2026, 9, 25, 1, 0, 0).single();
-        let date_only = Utc.with_ymd_and_hms(2026, 9, 25, 0, 0, 0).single();
+        let toronto: Zone = "America/Toronto".parse().unwrap_or_else(|_| Zone::utc());
+        let evening = Timestamp::parse_from_rfc3339("2026-09-25T01:00:00Z").ok();
+        let date_only = Timestamp::parse_from_rfc3339("2026-09-25T00:00:00Z").ok();
         let (Some(evening), Some(date_only)) = (evening, date_only) else {
             panic!("fixture instants are on the calendar");
         };
         let days = on_days(
             vec![workout("date-only", date_only), workout("evening", evening)],
-            toronto,
+            &toronto,
             date(2026, 9, 24),
             date(2026, 9, 25),
         );
-        let placed: Vec<(&str, NaiveDate)> = days
+        let placed: Vec<(&str, CivilDate)> = days
             .iter()
             .map(|day| (day.activity.id.as_str(), day.date))
             .collect();
@@ -306,13 +304,13 @@ mod tests {
 
     #[test]
     fn a_workout_outside_the_days_is_left_out() {
-        let start = Utc.with_ymd_and_hms(2026, 9, 30, 12, 0, 0).single();
+        let start = Timestamp::parse_from_rfc3339("2026-09-30T12:00:00Z").ok();
         let Some(start) = start else {
             panic!("fixture instant is on the calendar");
         };
         let days = on_days(
             vec![workout("later", start)],
-            Tz::UTC,
+            &Zone::utc(),
             date(2026, 9, 21),
             date(2026, 9, 27),
         );
@@ -321,20 +319,26 @@ mod tests {
 
     #[test]
     fn history_starts_the_day_after_the_retention_cutoff_on_the_athletes_calendar() {
-        let now = Utc.with_ymd_and_hms(2026, 10, 7, 3, 0, 0).single();
+        let now = Timestamp::parse_from_rfc3339("2026-10-07T03:00:00Z").ok();
         let Some(now) = now else {
             panic!("fixture instant is on the calendar");
         };
         // 03:00 UTC is still the 6th in Toronto; 90 days before is 8 July.
-        let toronto: Tz = "America/Toronto".parse().unwrap_or(Tz::UTC);
-        assert_eq!(history_start(now, toronto, 90), date(2026, 7, 9));
-        assert_eq!(history_start(now, Tz::UTC, 90), date(2026, 7, 10));
+        let toronto: Zone = "America/Toronto".parse().unwrap_or_else(|_| Zone::utc());
+        assert_eq!(history_start(now, &toronto, 90), date(2026, 7, 9));
+        assert_eq!(history_start(now, &Zone::utc(), 90), date(2026, 7, 10));
     }
 
     #[test]
     fn the_read_window_is_a_day_wider_than_the_span_on_each_side() {
         let (start, end) = read_window(date(2026, 9, 21), date(2026, 9, 27));
-        assert_eq!(start, Utc.with_ymd_and_hms(2026, 9, 20, 0, 0, 0).unwrap());
-        assert_eq!(end, Utc.with_ymd_and_hms(2026, 9, 29, 0, 0, 0).unwrap());
+        assert_eq!(
+            start,
+            Timestamp::parse_from_rfc3339("2026-09-20T00:00:00Z").unwrap()
+        );
+        assert_eq!(
+            end,
+            Timestamp::parse_from_rfc3339("2026-09-29T00:00:00Z").unwrap()
+        );
     }
 }

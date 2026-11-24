@@ -75,8 +75,12 @@ use tokio::task::LocalKey;
 
 /// The athlete's withdrawable consent to AI use of each provider's data.
 mod consent;
+/// The AI consents derived content owes, recorded and applied (carnet#1157).
+mod derived_consent;
 /// The decorator that applies the provider-terms filters to every read.
 mod governed;
+/// The consent-grant ceiling a call runs under: window floor and row tally.
+mod grant;
 /// A human coach's read: only the athlete's AI consents apply (carnet#1262).
 mod human_coach;
 /// The provenance accumulator, and the group members it records (carnet#1174).
@@ -87,9 +91,17 @@ mod source_classes;
 mod stored_health;
 
 pub use consent::{
-    ai_consent_withheld, consented_read, subject_consents, with_ai_consent, with_subject_consent,
+    ai_consent_withheld, consented_read, subject_consents, tier_readable, with_ai_consent,
+    with_subject_consent, withheld_providers, withhold_tier,
+};
+pub use derived_consent::{
+    admit_consent_sources, admit_memory, derived_consent_sources, retain_consented,
 };
 pub use governed::AiGovernedProvider;
+pub use grant::{
+    counting_rows, grant_ceiling, holds_stream, in_window, note_raw_rows, note_rows,
+    retain_in_window, under_grant, window_since, without_route, Dated, ServedRows,
+};
 pub use human_coach::for_human_coach;
 pub use provenance::{
     derived_member, note_member_read, reading_about, reading_members, sole, Provenance,
@@ -201,6 +213,9 @@ fn note_served(lookup: &dyn ProviderTerms, provider: &str, source: Option<&str>)
     // Where it came from, for the trust label a result carries. Not under
     // `unfiltered`, for the reason marking is not.
     source_classes::note_source_class(source_class_of(provider));
+    // Whose AI consent it was served under, so a withdrawal reaches what is
+    // derived from it (carnet#1157).
+    derived_consent::note_served_consent(provider, source);
 }
 
 /// Record `attribution` on the running derivation.
@@ -294,8 +309,10 @@ pub fn unfiltered<F: Future>(fut: F) -> impl Future<Output = F::Output> {
 
 /// Lift the AI rules for output the athlete sees and the model does not.
 ///
-/// For a map drawn from an activity's streams. Anything a model reads must not
-/// run under this. The transport gate stays: a chart served over an external
+/// For a map drawn from an activity's streams, or a calendar reconcile's own
+/// reads of the entries it wrote (ids, dates, change stamps), which decide
+/// what to write and reach no model. Anything a model reads must not run
+/// under this. The transport gate stays: a chart served over an external
 /// transport never carries a first-party-only provider's data.
 pub fn for_display<F: Future>(fut: F) -> impl Future<Output = F::Output> {
     DISPLAY.scope(true, fut)
@@ -421,7 +438,7 @@ where
         Some(exposure) => {
             // The athlete's AI consents ride on the provider terms (carnet#726);
             // for a human coach, on no AI rule at all (carnet#1262).
-            let consent = ai_consent_withheld();
+            let consent = withheld_providers();
             let consent_only_terms = human_coach::ConsentOnly(lookup);
             let rules: &dyn ProviderTerms = if consent_only() {
                 &consent_only_terms
@@ -477,7 +494,12 @@ where
 /// Activities as a model, or a caller over an external transport, may see
 /// them; unchanged when no gate applies.
 #[must_use]
-pub fn filter_activities(lookup: &dyn ProviderTerms, activities: Vec<Activity>) -> Vec<Activity> {
+pub fn filter_activities(
+    lookup: &dyn ProviderTerms,
+    mut activities: Vec<Activity>,
+) -> Vec<Activity> {
+    // Under a grant's window, no session dated before it (plan slice 3).
+    retain_in_window(&mut activities, |a| Some(Dated::At(a.start_date())));
     let kept = filter_typed(
         lookup,
         activities,
@@ -491,7 +513,9 @@ pub fn filter_activities(lookup: &dyn ProviderTerms, activities: Vec<Activity>) 
             note_attribution(Some(GARMIN_ATTRIBUTION));
         }
     }
-    kept
+    note_rows(kept.len());
+    // A grant without routes reads the sessions, not where they were.
+    without_route(kept)
 }
 
 /// Planned workouts as a model, or a caller over an external transport, may
@@ -562,7 +586,7 @@ mod tests {
     use crate::core::{ActivityQueryParams, FitnessProvider, OAuth2Credentials, ProviderConfig};
     use crate::provider_terms::{NOLIO, NOLIO_TRANSPORT};
     use async_trait::async_trait;
-    use chrono::{TimeZone, Utc};
+    use dravr_tronc::dates::Timestamp;
     use pierre_core::ai_policy::SourcePolicy;
     use pierre_core::errors::ErrorCode;
     use pierre_core::models::Athlete;
@@ -621,7 +645,7 @@ mod tests {
     }
 
     fn activity(id: &str, source: &str) -> Activity {
-        let start = Utc.with_ymd_and_hms(2026, 9, 30, 6, 0, 0).unwrap();
+        let start = Timestamp::parse_from_rfc3339("2026-09-30T06:00:00Z").unwrap();
         ActivityBuilder::new(id, "Hills", SportType::Ride, start, 3600, "nolio")
             .average_heart_rate(150)
             .source(source)
@@ -1066,7 +1090,7 @@ mod tests {
     /// Strava backend, which stamps it `sciotte` with `source = "strava"`.
     #[cfg(all(feature = "provider-strava", feature = "provider-sciotte"))]
     fn strava_sessions() -> Vec<Activity> {
-        let start = Utc.with_ymd_and_hms(2026, 10, 6, 6, 0, 0).unwrap();
+        let start = Timestamp::parse_from_rfc3339("2026-10-06T06:00:00Z").unwrap();
         vec![
             ActivityBuilder::new("api", "Tempo", SportType::Run, start, 3600, "strava").build(),
             ActivityBuilder::new("scraped", "Tempo", SportType::Run, start, 3600, "sciotte")

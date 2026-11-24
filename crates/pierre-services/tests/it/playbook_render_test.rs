@@ -11,14 +11,14 @@
 use pierre_core::transport::TransportPolicy;
 use std::slice::from_ref;
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_memory::playbooks::{
     Band, Intervention, InterventionKind, OutcomeMetric, Playbook, TriggerKind, TriggerPattern,
 };
 use pierre_services::playbook_render::render_playbooks_block;
 
 fn playbook(success: u32, failure: u32, confidence: f32) -> Playbook {
-    let now = Utc::now();
+    let now = Timestamp::now();
     Playbook {
         id: "p".to_owned(),
         tenant_id: "t".to_owned(),
@@ -45,6 +45,7 @@ fn playbook(success: u32, failure: u32, confidence: f32) -> Playbook {
         created_at: now,
         updated_at: now,
         transport_policy: TransportPolicy::AnyTransport,
+        ai_consent_sources: Vec::new(),
     }
 }
 

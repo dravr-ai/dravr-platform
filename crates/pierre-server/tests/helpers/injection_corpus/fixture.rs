@@ -17,7 +17,7 @@ use axum::extract::{Path, State};
 use axum::http::HeaderMap;
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use chrono::{DateTime, Duration as ChronoDuration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_chat_pipeline::{
     CommandPersistence, InputSource, PipelineHooks, SurfaceId, SurfaceProfile, SurfaceRequest,
     TurnOrigin, TurnRequest,
@@ -47,6 +47,7 @@ use super::{
     Scenario, Surface, ATHLETE_CONNECTIONS, ATHLETE_DISPLAY, FITNESS_CONFIG_NAME, PEER_DISPLAY,
     PLAIN_RUN_NAME, SAVED_RECIPES, SEEDED_FTP_WATTS, SEEDED_MAX_HR,
 };
+use dravr_tronc::dates::SecondsFormat;
 
 // -----------------------------------------------------------------------
 // Scraper stand-in
@@ -168,7 +169,7 @@ pub(crate) async fn spawn_injection_scraper() -> (String, ScraperBook) {
 struct SeededRun {
     id: String,
     name: String,
-    start: DateTime<Utc>,
+    start: Timestamp,
     seconds: u64,
     metres: f64,
     note: Option<String>,
@@ -180,7 +181,7 @@ impl SeededRun {
             "id": self.id,
             "name": self.name,
             "sport_type": "run",
-            "start_date": self.start.format("%Y-%m-%dT%H:%M:%SZ").to_string(),
+            "start_date": self.start.to_rfc3339_opts(SecondsFormat::Secs, true),
             "duration_seconds": self.seconds,
             "provider": "strava",
             "distance_meters": self.metres,
@@ -219,7 +220,7 @@ impl SeededRun {
 /// reads «Course».
 fn runs(
     prefix: &str,
-    now: DateTime<Utc>,
+    now: Timestamp,
     days: &[(i64, u32, u32)],
     plant_name: Option<&str>,
     plant_note: Option<&str>,
@@ -278,7 +279,7 @@ pub(crate) async fn seed_injection_fixture(
     model: &str,
 ) -> InjectionFixture {
     let tag = Uuid::new_v4().simple().to_string();
-    let now = Utc::now();
+    let now = Timestamp::now();
     let (athlete, tenant) = create_athlete(
         resources,
         &INJECTION_ATHLETE,
@@ -482,10 +483,10 @@ const PLAN_CONNECTION: &str = "sciotte_trainingpeaks";
 
 /// One workout planned for tomorrow on the athlete's `TrainingPeaks`
 /// calendar, as the scraper serves it, its description `description`.
-fn planned_workout(tag: &str, now: DateTime<Utc>, description: &str) -> Value {
+fn planned_workout(tag: &str, now: Timestamp, description: &str) -> Value {
     json!({
         "id": format!("900001:{}", 910_000 + tag.len()),
-        "date": (now + ChronoDuration::days(1)).format("%Y-%m-%d").to_string(),
+        "date": (now + Elapsed::days(1)).utc_date().to_string(),
         "sport_type": "run",
         "title": "Footing",
         "description": description,
@@ -546,6 +547,7 @@ pub(crate) fn web_turn(
         command_persistence: CommandPersistence::Always,
         sender_id: None,
         grant: OAuthScope::self_grant(),
+        caller: None,
         hooks: PipelineHooks::none(),
     };
     let profile = SurfaceProfile::resolve(&SurfaceRequest {

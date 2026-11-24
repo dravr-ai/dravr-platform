@@ -24,8 +24,8 @@ use crate::helpers;
 
 use std::sync::Arc;
 
-use chrono::Utc;
 use common::create_test_server_resources;
+use dravr_tronc::dates::Timestamp;
 use helpers::axum_test::AxumTestRequest;
 use pierre_core::models::{ConnectionType, Tenant, TenantId, User, UserStatus};
 use pierre_mcp_server::mcp::resources::ServerContext;
@@ -52,7 +52,7 @@ async fn call_tool_over_mcp(resources: &Arc<ServerContext>, jwt: &str, tool: &st
 
 /// Read `daily_tool_calls` for the current period.
 async fn charged(resources: &Arc<ServerContext>, tenant: TenantId, user_id: Uuid) -> i64 {
-    let period = Utc::now().format("%Y-%m-%d").to_string();
+    let period = Timestamp::now().utc_date().to_string();
     resources
         .common
         .repos
@@ -81,7 +81,7 @@ async fn one_dispatch_over_mcp_charges_exactly_once() {
     );
     user.user_status = UserStatus::Active;
     user.approved_by = Some(user.id);
-    user.approved_at = Some(Utc::now());
+    user.approved_at = Some(Timestamp::now());
     let user_id = user.id;
     resources.common.repos.users.create(&user).await.unwrap();
 
@@ -97,8 +97,8 @@ async fn one_dispatch_over_mcp_charges_exactly_once() {
             domain: None,
             plan: "starter".to_owned(),
             owner_user_id: user_id,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         })
         .await
         .unwrap();

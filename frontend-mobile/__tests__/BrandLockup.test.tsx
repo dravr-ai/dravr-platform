@@ -61,7 +61,7 @@ import { HOME_ROUTE } from '../src/navigation/routes';
 
 const APPEARANCE_KEY = 'pierre.appearance_pref';
 
-/** DESIGN.md §1: the wordmark is tracked at 0.15em of its own type size. */
+/** DESIGN.md "The Sentence-Case Rule": the wordmark is tracked at 0.15em of its own type size. */
 const BRAND_TRACKING_RATIO = 0.15;
 
 function renderInTheme(ui: React.ReactElement) {
@@ -137,7 +137,7 @@ describe('the Dravr lockup on the phone', () => {
     });
   });
 
-  describe('the lockup type spec (DESIGN.md §1 / §3)', () => {
+  describe('the lockup type spec (DESIGN.md "The Sentence-Case Rule")', () => {
     it('sets Schibsted Grotesk 600 at 0.15em in the primary ink — dark', async () => {
       await AsyncStorage.setItem(APPEARANCE_KEY, 'dark');
       const screen = renderInTheme(<BrandLockup size={28} />);

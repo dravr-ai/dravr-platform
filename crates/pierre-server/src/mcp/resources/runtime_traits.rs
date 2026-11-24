@@ -1,5 +1,5 @@
 // ABOUTME: pierre_runtime_context::*Ctx trait impls projecting ServerContext onto narrow per-subsystem facades
-// ABOUTME: Each impl exposes only the Arc handles a downstream route/service crate needs (auth, billing, identity, dashboard, mcp-dispatch, a2a, sse, agents, social, command)
+// ABOUTME: Each impl exposes only the Arc handles a downstream route/service crate needs (auth, billing, identity, dashboard, mcp-dispatch, a2a, agents, social, command)
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -12,8 +12,6 @@ use pierre_auth::auth::{AuthManager, AuthResult};
 #[cfg(feature = "protocol-a2a")]
 use pierre_auth::config::OAuth2ServerConfig;
 use pierre_auth::security::csrf::CsrfTokenManager;
-#[cfg(feature = "transport-sse")]
-use pierre_config::environment::SseBufferStrategy;
 use pierre_config::security::llm_base_url_policy as config_llm_base_url_policy;
 use pierre_core::billing::BillingProvider;
 use pierre_core::errors::AppResult;
@@ -134,31 +132,6 @@ impl pierre_runtime_context::A2ACtx for ServerContext {
     }
 }
 
-#[cfg(feature = "transport-sse")]
-#[async_trait::async_trait]
-impl pierre_runtime_context::SseCtx for ServerContext {
-    fn sse_buffer_overflow_strategy(&self) -> pierre_runtime_context::SseBufferOverflowStrategy {
-        match self.common.config.sse.buffer_overflow_strategy {
-            SseBufferStrategy::DropOldest => {
-                pierre_runtime_context::SseBufferOverflowStrategy::DropOldest
-            }
-            SseBufferStrategy::DropNew => {
-                pierre_runtime_context::SseBufferOverflowStrategy::DropNew
-            }
-            SseBufferStrategy::CloseConnection => {
-                pierre_runtime_context::SseBufferOverflowStrategy::CloseConnection
-            }
-        }
-    }
-
-    async fn authenticate_request(&self, auth_header: Option<&str>) -> AppResult<AuthResult> {
-        self.auth
-            .auth_middleware
-            .authenticate_request(auth_header)
-            .await
-    }
-}
-
 // NOTE: this `AdminConfigLookup` impl is on `AdminConfigService`, not
 // `ServerContext`. It conceptually belongs alongside `AdminConfigService`
 // (crate::config::admin) — kept here for now to avoid expanding the scope of
@@ -217,7 +190,7 @@ mod groups_ctx_impl {
     use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
     use pierre_groups::GroupService;
     use pierre_notifications::NotificationService;
-    use pierre_runtime_context::GroupsCtx;
+    use pierre_runtime_context::{GroupsCtx, ProviderConnectLog};
     use std::sync::Arc;
 
     #[async_trait]
@@ -228,6 +201,10 @@ mod groups_ctx_impl {
 
         fn group_service(&self) -> &Arc<GroupService> {
             &self.common.group_service
+        }
+
+        fn connect_log(&self) -> &Arc<dyn ProviderConnectLog> {
+            &self.common.connect_log
         }
 
         fn messaging_strings_registry(&self) -> &Arc<MessagingStringsRegistry> {
@@ -249,11 +226,11 @@ mod groups_ctx_impl {
     }
 }
 
-// `CommandCtx` is gated on `client-messaging` because the trait is consumed
+// `CommandCtx` is gated on `slash-commands` because the trait is consumed
 // only by `pierre-commands`, which is itself an optional dep behind that
 // flag. With the flag off the slash-command dispatcher / handlers never link,
 // so the impl carries no value.
-#[cfg(feature = "client-messaging")]
+#[cfg(feature = "slash-commands")]
 mod command_ctx_impl {
     use super::ServerContext;
     use crate::config::admin::AdminConfigService;

@@ -11,6 +11,7 @@ use pierre_core::admin::scope::AdminScope;
 use pierre_core::errors::AppResult;
 use pierre_core::transport::TransportPolicy;
 
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::{Pillar, TenantId};
 use uuid::Uuid;
 
@@ -34,6 +35,10 @@ pub struct MergeUserFactParams<'a> {
     /// The restatement's stamp (carnet#769): the anchor keeps the stricter of
     /// its own and this one, since it now stands for both.
     pub transport_policy: TransportPolicy,
+    /// The AI-consent keys of what the restatement was drawn from
+    /// (carnet#1157): the anchor names its own and these, since it now stands
+    /// for both.
+    pub ai_consent_sources: &'a [String],
 }
 
 /// Parameters for a [`HarnessMemoryRepository::upsert_user_fact`] call.
@@ -62,11 +67,13 @@ pub struct UpsertUserFactParams<'a> {
     /// Provenance (onboarding / conversation / device / agent).
     pub source: pierre_memory::FactSource,
     /// Freshness horizon after which the fact is stale, or `None` for no expiry.
-    pub valid_until: Option<chrono::DateTime<chrono::Utc>>,
+    pub valid_until: Option<Timestamp>,
     /// Source message id for provenance.
     pub source_msg_id: Option<&'a str>,
     /// The stamp of what the row is derived from (carnet#769).
     pub transport_policy: TransportPolicy,
+    /// The AI-consent keys of what the row is derived from (carnet#1157).
+    pub ai_consent_sources: &'a [String],
 }
 
 // The object is the athlete's own words: only its length prints.
@@ -86,6 +93,7 @@ impl fmt::Debug for UpsertUserFactParams<'_> {
             .field("valid_until", &self.valid_until)
             .field("source_msg_id", &self.source_msg_id)
             .field("transport_policy", &self.transport_policy)
+            .field("ai_consent_sources", &self.ai_consent_sources)
             .finish()
     }
 }
@@ -123,6 +131,9 @@ pub struct InsertCompactionBlockParams<'a> {
     /// The one group member the summarized rows read (carnet#1174); see
     /// [`CompactionBlock::about_user_id`](pierre_memory::CompactionBlock::about_user_id).
     pub about_user_id: Option<Uuid>,
+    /// The AI-consent keys of the summarized rows (carnet#1157); see
+    /// [`CompactionBlock::ai_consent_sources`](pierre_memory::CompactionBlock::ai_consent_sources).
+    pub ai_consent_sources: &'a [String],
 }
 
 // The summary condenses the athlete's conversation: only its length prints.
@@ -138,6 +149,7 @@ impl fmt::Debug for InsertCompactionBlockParams<'_> {
             .field("last_message_id", &self.last_message_id)
             .field("transport_policy", &self.transport_policy)
             .field("about_user_id", &self.about_user_id)
+            .field("ai_consent_sources", &self.ai_consent_sources)
             .finish()
     }
 }
@@ -347,8 +359,8 @@ pub trait HarnessMemoryRepository: Send + Sync {
         tenant_id: TenantId,
         user_id: &str,
         pillar: Option<Pillar>,
-        created_after: Option<chrono::DateTime<chrono::Utc>>,
-        created_before: Option<chrono::DateTime<chrono::Utc>>,
+        created_after: Option<Timestamp>,
+        created_before: Option<Timestamp>,
         predicate_code: Option<pierre_memory::PredicateCode>,
     ) -> AppResult<u64>;
 

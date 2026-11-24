@@ -25,7 +25,7 @@
 //! Postgres and is empty on `SQLite`, so one row decode serves both.
 //! `used` decodes as `bool` on both (`BOOLEAN` on Postgres, `INTEGER` 0/1 on
 //! `SQLite`, where the `TRUE`/`FALSE` literals are 1 and 0). Timestamps bind
-//! and decode as `DateTime<Utc>` on both: RFC 3339 text on `SQLite`,
+//! and decode as `Timestamp` on both: RFC 3339 text on `SQLite`,
 //! byte-identical to the `to_rfc3339()` the rows were written with, and
 //! `TIMESTAMPTZ` on Postgres.
 //!
@@ -35,7 +35,7 @@
 
 use std::fmt;
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use serde_json::Value;
 
@@ -203,9 +203,9 @@ pub(crate) struct LinkStateRow {
     /// link, set on OAuth links the phone app starts (carnet#1580).
     pub app_return_uri: Option<String>,
     /// When the code stops being consumable.
-    pub expires_at: DateTime<Utc>,
+    pub expires_at: Timestamp,
     /// When the code was minted.
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
 }
 
 impl fmt::Debug for LinkStateRow {
@@ -260,9 +260,8 @@ impl LinkStateRow {
 ///
 /// # Errors
 /// Returns an invalid-input error when the text is not RFC 3339.
-pub(crate) fn parse_expires_at(text: &str) -> AppResult<DateTime<Utc>> {
-    DateTime::parse_from_rfc3339(text)
-        .map(|dt| dt.with_timezone(&Utc))
+pub(crate) fn parse_expires_at(text: &str) -> AppResult<Timestamp> {
+    Timestamp::parse_from_rfc3339(text)
         .map_err(|e| AppError::invalid_input(format!("Invalid expires_at timestamp: {e}")))
 }
 
@@ -280,7 +279,7 @@ where
     String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     Option<String>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     bool: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    DateTime<Utc>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Timestamp: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
     let col = |name: &str| -> AppResult<String> {
         row.try_get(name)
@@ -290,7 +289,7 @@ where
         row.try_get(name)
             .map_err(|e| AppError::database(format!("messaging_link_states {name}: {e}")))
     };
-    let at = |name: &str| -> AppResult<DateTime<Utc>> {
+    let at = |name: &str| -> AppResult<Timestamp> {
         row.try_get(name)
             .map_err(|e| AppError::database(format!("messaging_link_states {name}: {e}")))
     };
@@ -349,7 +348,7 @@ macro_rules! impl_link_state_functions {
                 .bind(params.sender_name)
                 .bind(params.app_return_uri)
                 .bind(expires_at)
-                .bind(Utc::now())
+                .bind(Timestamp::now())
                 .execute(pool)
                 .await
                 .map_err(|e| AppError::database(format!("Failed to create link state: {e}")))?;
@@ -372,7 +371,7 @@ macro_rules! impl_link_state_functions {
             code: &str,
             tenant_id: TenantId,
         ) -> AppResult<Value> {
-            let now = Utc::now();
+            let now = Timestamp::now();
             let existing = sqlx::query(link_state_for_tenant_sql!($text))
                 .bind(code)
                 .bind(tenant_id)
@@ -416,7 +415,7 @@ macro_rules! impl_link_state_functions {
         ) -> AppResult<Option<Value>> {
             let row = sqlx::query(live_link_state_sql!($text))
                 .bind(code)
-                .bind(Utc::now())
+                .bind(Timestamp::now())
                 .fetch_optional(pool)
                 .await
                 .map_err(|e| AppError::database(format!("Failed to look up link state: {e}")))?;
@@ -438,7 +437,7 @@ macro_rules! impl_link_state_functions {
             code: &str,
             user_id: &str,
         ) -> AppResult<Value> {
-            let now = Utc::now();
+            let now = Timestamp::now();
             let existing = sqlx::query(link_state_by_code_sql!($text))
                 .bind(code)
                 .fetch_optional(pool)
@@ -542,7 +541,7 @@ macro_rules! impl_link_state_functions {
                 .bind(code)
                 .bind(tenant_id)
                 .bind(channel_type)
-                .bind(Utc::now())
+                .bind(Timestamp::now())
                 .bind(locale)
                 .execute(&mut *tx)
                 .await
@@ -575,7 +574,7 @@ macro_rules! impl_link_state_functions {
                 .bind(tenant_id)
                 .bind(channel_type)
                 .bind(channel_user_id)
-                .bind(Utc::now())
+                .bind(Timestamp::now())
                 .execute(pool)
                 .await
                 .map_err(|e| AppError::database(format!("Failed to spend held pairing code: {e}")))?
@@ -610,7 +609,7 @@ pub(crate) use impl_link_state_functions;
 #[cfg(test)]
 mod tests {
     use super::LinkStateRow;
-    use chrono::Utc;
+    use dravr_tronc::dates::Timestamp;
 
     #[test]
     fn a_link_state_row_never_prints_its_code_sender_or_name() {
@@ -625,8 +624,8 @@ mod tests {
             channel_user_id: Some("+15550007f3a".to_owned()),
             sender_name: Some("sentinel-sender-7f3a".to_owned()),
             app_return_uri: None,
-            expires_at: Utc::now(),
-            created_at: Utc::now(),
+            expires_at: Timestamp::now(),
+            created_at: Timestamp::now(),
         };
         for printed in [format!("{row:?}"), format!("{row:#?}")] {
             for secret in [

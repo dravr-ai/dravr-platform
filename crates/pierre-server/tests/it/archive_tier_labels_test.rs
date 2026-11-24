@@ -8,31 +8,24 @@
 #![allow(missing_docs)]
 
 use crate::common;
+use crate::tier_consent_test::allow_outside_memory;
 
 use std::sync::Arc;
 
-use async_trait::async_trait;
 use axum::body::{to_bytes, Body};
 use axum::http::{Request, StatusCode};
 use axum::Router;
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::constants::oauth_providers::{INTERVALS_ICU, USER_PROVIDED_PROVIDERS, WAHOO};
-use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{
-    Activity, ActivityBuilder, Athlete, ConnectionType, SportType, TenantId, User, UserOAuthToken,
+    Activity, ActivityBuilder, ConnectionType, SportType, TenantId, User, UserOAuthToken,
 };
-use pierre_core::pagination::{CursorPage, PaginationParams};
 use pierre_core::permissions::scopes::OAuthScope;
-use pierre_core::transport::{Transport, TransportPolicy};
+use pierre_core::transport::Transport;
 use pierre_mcp_server::context::ServerContext;
 use pierre_mcp_server::mcp::multitenant::ProviderToolRouter;
-use pierre_providers::core::{
-    ActivityQueryParams, FitnessProvider, OAuth2Credentials, ProviderConfig,
-};
-use pierre_providers::spi::{
-    OAuthEndpoints, OAuthParams, OAuthRefresh, ProviderBundle, ProviderCapabilities,
-    ProviderDescriptor,
-};
+use pierre_providers::core::{FitnessProvider, ProviderConfig};
+use pierre_providers::spi::ProviderBundle;
 use pierre_tool_runtime::protocol::trust_labels::{labels_of, TRUST_LABELS_META_KEY};
 use pierre_tool_runtime::protocol::{UniversalExecutor, UniversalRequest, UniversalResponse};
 use pierre_tool_runtime::runtime::ToolRuntime;
@@ -41,51 +34,7 @@ use tower::ServiceExt;
 use uuid::Uuid;
 
 use crate::common::{create_test_server_resources, create_test_user_with_plan};
-
-/// A stand-in for a provider key, with terms that let its data travel over
-/// every transport, so what it serves reaches an MCP or A2A caller. The key
-/// is what sets the item's source class; the terms are the test's.
-struct StandIn {
-    name: &'static str,
-}
-
-impl ProviderDescriptor for StandIn {
-    fn name(&self) -> &'static str {
-        self.name
-    }
-
-    fn display_name(&self) -> &'static str {
-        "Stand-in"
-    }
-
-    fn capabilities(&self) -> ProviderCapabilities {
-        ProviderCapabilities::ACTIVITIES
-    }
-
-    fn oauth_endpoints(&self) -> Option<OAuthEndpoints> {
-        None
-    }
-
-    fn oauth_params(&self) -> Option<OAuthParams> {
-        None
-    }
-
-    fn oauth_refresh(&self) -> Option<OAuthRefresh> {
-        None
-    }
-
-    fn api_base_url(&self) -> &'static str {
-        "http://localhost/stand-in"
-    }
-
-    fn default_scopes(&self) -> &'static [&'static str] {
-        &[]
-    }
-
-    fn transport_policy(&self) -> TransportPolicy {
-        TransportPolicy::AnyTransport
-    }
-}
+use crate::helpers::stand_in_provider::{Account, StandIn};
 
 /// One session the stand-in under `provider` answers with.
 fn session(provider: &str) -> Activity {
@@ -93,79 +42,13 @@ fn session(provider: &str) -> Activity {
         format!("{provider}-run"),
         "Riverside Loop",
         SportType::Run,
-        Utc::now() - Duration::days(1),
+        Timestamp::now() - Elapsed::days(1),
         3_600,
         provider,
     )
     .distance_meters(10_000.0)
     .average_heart_rate(148)
     .build()
-}
-
-/// The account behind a stand-in, answering with `activities`.
-struct Account {
-    config: ProviderConfig,
-    provider: &'static str,
-    activities: Vec<Activity>,
-}
-
-#[async_trait]
-impl FitnessProvider for Account {
-    fn name(&self) -> &'static str {
-        self.provider
-    }
-
-    fn config(&self) -> &ProviderConfig {
-        &self.config
-    }
-
-    async fn set_credentials(&self, _credentials: OAuth2Credentials) -> AppResult<()> {
-        Ok(())
-    }
-
-    async fn is_authenticated(&self) -> bool {
-        true
-    }
-
-    async fn refresh_token_if_needed(&self) -> AppResult<()> {
-        Ok(())
-    }
-
-    async fn get_athlete(&self) -> AppResult<Athlete> {
-        Ok(Athlete {
-            active_streak: None,
-            created_at: None,
-            id: format!("{}-athlete", self.provider),
-            username: "stand_in".to_owned(),
-            firstname: None,
-            lastname: None,
-            profile_picture: None,
-            provider: self.provider.to_owned(),
-            sex: None,
-        })
-    }
-
-    async fn get_activities_with_params(
-        &self,
-        _params: &ActivityQueryParams,
-    ) -> AppResult<Vec<Activity>> {
-        Ok(self.activities.clone())
-    }
-
-    async fn get_activities_cursor(
-        &self,
-        _params: &PaginationParams,
-    ) -> AppResult<CursorPage<Activity>> {
-        Ok(CursorPage::new(self.activities.clone(), None, None, false))
-    }
-
-    async fn get_activity(&self, id: &str) -> AppResult<Activity> {
-        self.activities
-            .iter()
-            .find(|a| a.id() == id)
-            .cloned()
-            .ok_or_else(|| AppError::not_found(id.to_owned()))
-    }
 }
 
 fn wahoo_account(config: ProviderConfig) -> Box<dyn FitnessProvider> {
@@ -233,7 +116,7 @@ async fn connect(resources: &ServerContext, athlete: &Rider, provider: &str) {
         provider.to_owned(),
         format!("{provider}-access"),
         Some(format!("{provider}-refresh")),
-        Some(Utc::now() + Duration::hours(6)),
+        Some(Timestamp::now() + Elapsed::hours(6)),
         None,
     );
     repos.oauth_tokens.upsert_token(&token).await.unwrap();
@@ -568,6 +451,12 @@ async fn every_history_the_athlete_brought_in_is_the_devices_record() {
 async fn the_agents_memory_is_t3_sensitive_and_agent_written() {
     let resources = server().await;
     let rider = athlete(&resources).await;
+    allow_outside_memory(
+        resources.agent.database.repositories(),
+        rider.tenant.as_uuid(),
+        rider.user_id,
+    )
+    .await;
     // The agent remembers in Dravr's own app; an MCP caller recalls it.
     let remembered = call(
         &resources,
@@ -624,6 +513,12 @@ async fn the_agents_memory_is_t3_sensitive_and_agent_written() {
 async fn the_dossier_carrying_the_agents_memory_is_t3_and_agent_written() {
     let resources = server().await;
     let rider = athlete(&resources).await;
+    allow_outside_memory(
+        resources.agent.database.repositories(),
+        rider.tenant.as_uuid(),
+        rider.user_id,
+    )
+    .await;
     assert_eq!(
         label(&resources, &rider, "export_dossier", json!({})).await,
         None,
@@ -687,6 +582,12 @@ async fn the_dossier_carrying_the_agents_memory_is_t3_and_agent_written() {
 async fn the_dossier_labels_the_sport_anchors_it_carries() {
     let resources = server().await;
     let rider = athlete(&resources).await;
+    allow_outside_memory(
+        resources.agent.database.repositories(),
+        rider.tenant.as_uuid(),
+        rider.user_id,
+    )
+    .await;
     // The athlete states one per-sport anchor in Dravr's own app; the profile
     // beside it holds no other value.
     let stated = call(

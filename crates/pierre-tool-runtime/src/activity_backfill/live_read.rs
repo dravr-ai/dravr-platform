@@ -37,7 +37,7 @@
 
 use std::fmt;
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_database::repositories::{
     ActivityBackfillJobRow, BackfillJobKind, JobLease, JobLeaseState, JobProgress, LiveReadAsk,
@@ -49,6 +49,7 @@ use tokio::sync::{oneshot, watch};
 use tokio::time;
 use tracing::{info, instrument, warn};
 
+use super::after_refresh;
 use super::{
     enqueue, job_row, keep_backfill_lease, lease_ms, mark_in_flight, notify_backfill_reauth,
     now_ms,
@@ -89,7 +90,7 @@ pub(crate) struct Authenticated {
     /// The provider.
     pub(crate) provider: Box<dyn CoreFitnessProvider>,
     /// When the turn's attempt began.
-    pub(crate) attempt_started_at: DateTime<Utc>,
+    pub(crate) attempt_started_at: Timestamp,
 }
 
 impl fmt::Debug for Authenticated {
@@ -441,9 +442,12 @@ pub(super) async fn run_live_read(
     // that lands during a long scrape is newer than the failure it reports.
     let attempt_started_at = authenticated
         .as_ref()
-        .map_or_else(Utc::now, |authenticated| authenticated.attempt_started_at);
+        .map_or_else(Timestamp::now, |authenticated| {
+            authenticated.attempt_started_at
+        });
     let output = read_once(job, authenticated, attempt_started_at).await;
     drop(renewal);
+    after_refresh::ask_walks_after_live_read(job, &output.read);
     let attempt = Attempt::of(&output.read);
     // A landed read finishes its row before it marks itself landed, and both
     // before anything is answered. From then on the run holds no read and no
@@ -478,7 +482,7 @@ struct Ended {
     /// Whether the turn that asked heard the answer itself.
     delivered: bool,
     /// When the attempt began.
-    attempt_started_at: DateTime<Utc>,
+    attempt_started_at: Timestamp,
 }
 
 /// Settle the row of an attempt that ended as `attempt`.
@@ -631,7 +635,7 @@ pub(super) async fn answer_reaped(job: &ActivityBackfillJob, claim: &InFlightCla
 async fn read_once(
     job: &ActivityBackfillJob,
     authenticated: Option<Authenticated>,
-    attempt_started_at: DateTime<Utc>,
+    attempt_started_at: Timestamp,
 ) -> LiveReadOutput {
     let Authenticated {
         provider,
@@ -689,7 +693,7 @@ async fn read_once(
 /// Authenticate the job's provider for an attempt no turn handed one to.
 async fn authenticate(
     job: &ActivityBackfillJob,
-    attempt_started_at: DateTime<Utc>,
+    attempt_started_at: Timestamp,
 ) -> AppResult<Authenticated> {
     let provider = AuthService::new(job.resources.clone())
         .create_authenticated_provider(

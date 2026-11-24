@@ -14,7 +14,7 @@
 
 use std::sync::Arc;
 
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::constants::oauth_providers::{STRAVA, UPLOAD};
 use pierre_core::models::{ActivityBuilder, ConnectionType, DailyTrainingState, SportType};
 use pierre_mcp_server::services::precedence_recompute::{
@@ -34,14 +34,14 @@ async fn a_stale_rollup_is_recomputed_once_then_the_pass_stands_down() {
             .await
             .unwrap();
     let repos = &resources.common.repos;
-    let today = Utc::now().date_naive();
+    let today = Timestamp::now().utc_date();
     let runs: Vec<_> = (1..=10)
         .map(|day| {
             ActivityBuilder::new(
                 format!("upload-run-{day}"),
                 "Run",
                 SportType::Run,
-                Utc::now() - Duration::days(day),
+                Timestamp::now() - Elapsed::days(day),
                 3_600,
                 UPLOAD,
             )
@@ -57,7 +57,7 @@ async fn a_stale_rollup_is_recomputed_once_then_the_pass_stands_down() {
         .unwrap();
     // A day computed under the previous rule, its load a figure the stored
     // workouts do not give.
-    let mut stale = DailyTrainingState::zero(today - Duration::days(1));
+    let mut stale = DailyTrainingState::zero(today - Elapsed::days(1));
     stale.daily_load = 999.0;
     repos
         .training_history
@@ -89,8 +89,8 @@ async fn a_stale_rollup_is_recomputed_once_then_the_pass_stands_down() {
         .get_training_history(
             tenant,
             user_id,
-            today - Duration::days(1),
-            today - Duration::days(1),
+            today - Elapsed::days(1),
+            today - Elapsed::days(1),
         )
         .await
         .unwrap();
@@ -122,8 +122,8 @@ async fn an_athlete_with_nothing_to_recompute_from_lets_the_generation_record() 
         common::create_test_user_with_plan(&resources.agent.database, &email, "starter")
             .await
             .unwrap();
-    let today = Utc::now().date_naive();
-    let mut kept = DailyTrainingState::zero(today - Duration::days(3));
+    let today = Timestamp::now().utc_date();
+    let mut kept = DailyTrainingState::zero(today - Elapsed::days(3));
     kept.daily_load = 120.0;
     resources
         .common
@@ -172,11 +172,11 @@ async fn an_athlete_whose_connection_needs_reconnecting_lets_the_generation_reco
         .unwrap();
     repos
         .provider_connections
-        .mark_needs_reauth(user_id, tenant, STRAVA, None, Utc::now())
+        .mark_needs_reauth(user_id, tenant, STRAVA, None, Timestamp::now())
         .await
         .unwrap();
-    let today = Utc::now().date_naive();
-    let mut kept = DailyTrainingState::zero(today - Duration::days(3));
+    let today = Timestamp::now().utc_date();
+    let mut kept = DailyTrainingState::zero(today - Elapsed::days(3));
     kept.daily_load = 120.0;
     repos
         .training_history
@@ -212,8 +212,8 @@ async fn a_later_generation_stored_by_a_newer_revision_stands() {
         common::create_test_user_with_plan(&resources.agent.database, &email, "starter")
             .await
             .unwrap();
-    let today = Utc::now().date_naive();
-    let mut kept = DailyTrainingState::zero(today - Duration::days(1));
+    let today = Timestamp::now().utc_date();
+    let mut kept = DailyTrainingState::zero(today - Elapsed::days(1));
     kept.daily_load = 999.0;
     resources
         .common

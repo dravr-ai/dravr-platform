@@ -12,12 +12,11 @@ publish = false
 
 [features]
 # Forwarded from pierre-server so the trait surface can expose the
-# matching optional services (notification, sync orchestrator, SSE
-# notifier, evidence registry) without dragging their crates in
+# matching optional services (notification, sync orchestrator,
+# evidence registry) without dragging their crates in
 # unconditionally.
 client-notifications = ["dep:pierre-notifications"]
 health-sync = ["dep:dravr-enforme", "pierre-services/health-sync"]
-transport-sse = []
 # Provider feature flag (auth.rs has a small synthetic-provider code path).
 # Chat tool-loop strategies (API/headless/CLI) used by client-chat in pierre-server.
 client-chat = []
@@ -32,7 +31,7 @@ tools-admin = ["tools-agents"]  # admin tools depend on coach tools
 tools-analytics = []       # discover_routes (Overpass + OSM piste data), compose_route
 tools-mobility = []
 tools-config = []          # fitness config tools, user configuration
-tools-connection = ["transport-sse"]  # sync / refresh tools (refresh_provider_data, get_data_freshness) — require SSE for SyncNotifier
+tools-connection = []      # sync / refresh tools (refresh_provider_data, get_data_freshness)
 tools-data = []            # endurance workout tools (list_workout_templates, prescribe_workout) + data access tools
 tools-goals = []           # set_goal, track_progress, suggest_goals, analyze_goal_feasibility
 tools-groups = []          # group_fitness snapshot fetcher used by chat_pipeline group context injection
@@ -58,7 +57,7 @@ pierre-providers = { version = "0.3.0", path = "../pierre-providers" }
 pierre-auth = { version = "0.3.0", path = "../pierre-auth" }
 pierre-mcp-schema = { version = "0.3.0", path = "../pierre-mcp-schema" }
 pierre-tools-core = { version = "0.3.0", path = "../pierre-tools-core" }
-dravr-tronc = { workspace = true }
+dravr-tronc = { workspace = true, features = ["zones", "schemars1"] }
 pierre-contremaitre = { version = "0.3.0", path = "../pierre-contremaitre" }
 pierre-services = { version = "0.3.0", path = "../pierre-services" }
 # The delegated-connection chokepoint a linked read ends a link through when it no longer reads.
@@ -77,18 +76,14 @@ dravr-riviere = { workspace = true }
 
 async-trait = "0.1"
 bitflags = { version = "2.13", features = ["serde"] }
-chrono = { version = "0.4", features = ["serde"] }
-# The athlete's zone get_segment_history reads its window and years on
-# (pierre_core::civil_time::resolve_zone); the version pierre-core pins.
-chrono-tz = "0.10"
 futures-util = "0.3"
 lru = "0.18.5"
 secrecy = { workspace = true }
 num-traits = "0.2"
 regex = "1.13"
-# chrono04: sleep answers carry DateTime<Utc>, which the schema states as
-# a date-time string rather than an opaque one.
-schemars = { version = "1.2", features = ["chrono04", "uuid1"] }
+# uuid1 for the ids answers carry; their dates bring their own schemas
+# (dravr-tronc's schemars1, a date-time string rather than an opaque one).
+schemars = { version = "1.2", features = ["uuid1"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 # The chat catalogue's digest: two turns whose tool blocks differ cannot share
@@ -104,7 +99,7 @@ uuid = { version = "1.29", features = ["v4", "serde"] }
 [dev-dependencies]
 # The headless re-run classifies the AppError image of embacle's RunnerError
 # kinds; the test that pins it constructs those RunnerErrors directly.
-embacle = { version = "0.47.0" }
+embacle = { version = "0.47.3" }
 # Validates a tool's declared outputSchema against the payload it actually
 # returns. Same version the chat pipeline validates structured replies with.
 jsonschema = { version = "0.46.10", default-features = false }
@@ -112,10 +107,12 @@ tokio = { version = "1.54", features = ["macros", "rt-multi-thread"] }
 # The tool-call span's test reads its fields the way the GCP formatter does,
 # through pierre-logging's span field storage.
 pierre-logging = { version = "0.3.0", path = "../pierre-logging" }
-# Captures the warning a zero destructive budget logs, so its unit test reads
-# the line whichever layer set the budget.
-# Same spec the chat pipeline's log-asserting tests use.
-tracing-subscriber = { version = "0.3", features = ["fmt", "std"], default-features = false }
+# The offline provider registry the tests read provider terms off, every
+# endpoint the server calls refused.
+pierre-test-support = { version = "0.3.0", path = "../pierre-test-support", features = ["providers"] }
+# The dispatch span's unit test reads the span fields a registry layer
+# stores, which only a subscriber built from that registry can see.
+tracing-subscriber = { version = "0.3", features = ["registry", "std"], default-features = false }
 
 # Integration tests are modules of tests/it/main.rs, one binary. Every tool
 # module in this crate sits behind a `tools-*` feature and the crate declares

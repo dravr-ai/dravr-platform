@@ -12,7 +12,7 @@
 use std::fmt::Debug;
 use std::sync::Arc;
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_chat_pipeline::stages::auth_recovery::AuthRecoveryDeps;
 use pierre_chat_pipeline::stages::capability_recovery::CapabilityRecoveryDeps;
 use pierre_chat_pipeline::stages::prefetch::ActivityRefreshInputs;
@@ -437,11 +437,12 @@ async fn activity_refresh_inputs_print_the_size_of_the_history_never_its_text() 
         model: None,
         finish_reason: None,
         content_blocks: Some(r#"[{"title":"sentinel-blocks-7f3a"}]"#.to_owned()),
-        created_at: Utc::now().to_rfc3339(),
+        created_at: Timestamp::now().to_rfc3339(),
         transport_policy: TransportPolicy::AnyTransport,
         channel_type: Some("web".to_owned()),
         about_user_id: None,
         turn_attempted_write: None,
+        ai_consent_sources: Vec::new(),
     }];
     let inputs = ActivityRefreshInputs {
         executor: &executor,
@@ -473,6 +474,7 @@ async fn a_compaction_context_prints_the_size_of_the_transcript_never_its_text()
         conversation_id: "conv-1",
         source_ids: &source_ids,
         source_members: &vec![None; source_ids.len()],
+        source_consents: &vec![Vec::new(); source_ids.len()],
         llm_messages: &mut llm_messages,
         summary_for_prompt: str::to_owned,
     };

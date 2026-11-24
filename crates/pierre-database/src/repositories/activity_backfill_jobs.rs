@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use async_trait::async_trait;
-use chrono::NaiveDate;
+use dravr_tronc::dates::CivilDate;
 use pierre_core::errors::AppResult;
 use pierre_core::models::TenantId;
 use uuid::Uuid;
@@ -26,9 +26,9 @@ pub use walk_rows::{HistoryWalkRowState, LeasedWalkRow, PurgedHistoryWalk, Reope
 /// The statements that move a history walk down its window, through its phases
 mod walk_statements;
 pub(crate) use walk_statements::{
-    END_HISTORY_WALK_SQL, HAND_OFF_HISTORY_WALK_SQL, HISTORY_WALK_ROW_SQL, LEASED_WALK_ROW_SQL,
-    PURGED_HISTORY_WALKS_SQL, RECORD_JOB_PROGRESS_SQL, REOPEN_HISTORY_WALK_SQL,
-    SETTLE_PURGED_HISTORY_WALK_SQL,
+    END_HISTORY_WALK_SQL, FAIL_HISTORY_WALK_SQL, HAND_OFF_HISTORY_WALK_SQL, HISTORY_WALK_ROW_SQL,
+    LEASED_WALK_ROW_SQL, PURGED_HISTORY_WALKS_SQL, RECORD_JOB_PROGRESS_SQL,
+    REOPEN_HISTORY_WALK_SQL, RESUME_INCOMPLETE_HISTORY_WALK_SQL, SETTLE_PURGED_HISTORY_WALK_SQL,
 };
 
 /// A detail walk asked again while one is owed
@@ -406,7 +406,7 @@ pub trait ActivityBackfillJobRepository: Send + Sync {
         &self,
         lease: &JobLease,
         tenant_id: TenantId,
-    ) -> AppResult<Option<NaiveDate>>;
+    ) -> AppResult<Option<CivilDate>>;
 
     /// Pause the walk's wellness copy at `resume_day` until `pause_until_ms`
     /// (unix ms): the row is released with its attempt returned, so a cap
@@ -416,7 +416,7 @@ pub trait ActivityBackfillJobRepository: Send + Sync {
         &self,
         lease: &JobLease,
         tenant_id: TenantId,
-        resume_day: NaiveDate,
+        resume_day: CivilDate,
         pause_until_ms: i64,
     ) -> AppResult<bool>;
 
@@ -474,6 +474,27 @@ pub trait ActivityBackfillJobRepository: Send + Sync {
         from: ReopenFrom,
         hand_off: &WalkHandOff,
         now_ms: i64,
+    ) -> AppResult<bool>;
+
+    /// A history walk's last attempt failed: keep its row, if this lease
+    /// still holds it, as [`BackfillJobState::Incomplete`], stamped as ended
+    /// at `ended_at_ms`, which holds a re-ask off
+    /// ([`Self::resume_incomplete_history_walk`]). `false` when another claim
+    /// took it.
+    async fn fail_history_walk(&self, lease: &JobLease, ended_at_ms: i64) -> AppResult<bool>;
+
+    /// Owe again the history walk of `(user_id, provider)` in `tenant_id`
+    /// that ended [`BackfillJobState::Incomplete`], from where it stopped:
+    /// its cursor, floor, phase and progress are kept, its attempts start
+    /// over, and the resume sweep runs its next step. Only once its failing
+    /// end is at or before `ended_by_ms` (an end with no time is); `false`
+    /// when no such row stands.
+    async fn resume_incomplete_history_walk(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        provider: &str,
+        ended_by_ms: i64,
     ) -> AppResult<bool>;
 
     /// The history walk of `(user_id, provider)` in `tenant_id` in

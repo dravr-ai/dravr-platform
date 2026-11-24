@@ -45,7 +45,8 @@ use pierre_commands::{
 use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
 use pierre_core::errors::AppError;
 use pierre_middleware::extract_auth_from_headers;
-use pierre_runtime_context::{resolve_tenant, tenant::require, CommandCtx, TenantMode};
+use pierre_runtime_context::require_tenant;
+use pierre_runtime_context::CommandCtx;
 use pierre_services::locale::resolve_user_locale;
 use pierre_tool_runtime::runtime::ToolRuntime;
 
@@ -166,7 +167,7 @@ pub async fn list_commands(
     Query(params): Query<CommandCatalogueQuery>,
 ) -> Result<Response, AppError> {
     let auth = extract_auth_from_headers(&headers, &resources).await?;
-    let tenant_id = require(resolve_tenant(&resources, &auth, TenantMode::Required).await?)?;
+    let tenant_id = require_tenant(&resources, &auth).await?;
 
     let Some(registry) = resources.common.command_registry.as_ref() else {
         return Ok((

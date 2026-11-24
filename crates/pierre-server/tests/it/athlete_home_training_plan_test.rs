@@ -27,8 +27,8 @@ use std::sync::Arc;
 
 use axum::body::{to_bytes, Body};
 use axum::http::{Request, StatusCode};
-use chrono::{Days, NaiveDate, Timelike, Utc};
-use chrono_tz::Tz;
+use dravr_tronc::dates::Elapsed;
+use dravr_tronc::dates::{CivilDate, Timestamp, Zone};
 use pierre_commands::plan::PlanShowHandler;
 use pierre_commands::{CommandHandler, ConversationRotation, PlatformCommandContext};
 use pierre_core::models::agents::{AgentCategory, AgentVisibility, CreateSystemAgentRequest};
@@ -75,24 +75,22 @@ async fn seed_athlete(resources: &Arc<ServerContext>, label: &str) -> Athlete {
 /// A zone whose civil date is never UTC's at this hour: fourteen hours ahead
 /// in the afternoon (UTC), twelve behind in the morning.
 fn zone_off_utc_today() -> &'static str {
-    if Utc::now().hour() >= 12 {
+    if Timestamp::now().utc_time().hour() >= 12 {
         "Etc/GMT-14"
     } else {
         "Etc/GMT+12"
     }
 }
 
-fn civil_today(zone: &str) -> NaiveDate {
-    Utc::now()
-        .with_timezone(&zone.parse::<Tz>().unwrap())
-        .date_naive()
+fn civil_today(zone: &str) -> CivilDate {
+    zone.parse::<Zone>().unwrap().date_at(Timestamp::now())
 }
 
-fn ymd(date: NaiveDate) -> String {
-    date.format("%Y-%m-%d").to_string()
+fn ymd(date: CivilDate) -> String {
+    date.to_string()
 }
 
-fn day(date: NaiveDate, sport: &str, workout: &str, minutes: Option<u32>) -> PlannedDay {
+fn day(date: CivilDate, sport: &str, workout: &str, minutes: Option<u32>) -> PlannedDay {
     PlannedDay {
         date: ymd(date),
         sport: sport.to_owned(),
@@ -106,15 +104,17 @@ fn day(date: NaiveDate, sport: &str, workout: &str, minutes: Option<u32>) -> Pla
         template_source: None,
         template_preset: None,
         envelope: None,
+        coach_original: None,
+        coach_added: false,
     }
 }
 
 /// A week of sessions from `start`, its fifth day a rest day, each session
 /// named after its own date so no two days of the fixture read alike.
-fn week(start: NaiveDate, label: &str) -> Vec<PlannedDay> {
+fn week(start: CivilDate, label: &str) -> Vec<PlannedDay> {
     (0..7)
         .map(|i| {
-            let date = start + Days::new(i);
+            let date = start + Elapsed::days(i);
             if i == 4 {
                 day(date, "rest", "full rest", None)
             } else {
@@ -136,16 +136,16 @@ async fn seed_plan(
     athlete: &Athlete,
     tenant: TenantId,
     agent: Option<&str>,
-    today: NaiveDate,
-    extra_weeks: u64,
+    today: CivilDate,
+    extra_weeks: i64,
 ) {
     let goal = GoalRace {
         name: "Harricana 65".to_owned(),
-        date: ymd(today + Days::new(60)),
+        date: ymd(today + Elapsed::days(60)),
         discipline: "trail".to_owned(),
         priority: RacePriority::A,
     };
-    let start = today - Days::new(2);
+    let start = today - Elapsed::days(2);
     let phases = [PlanPhase {
         kind: PhaseKind::Build,
         start: ymd(start),
@@ -173,7 +173,7 @@ async fn seed_plan(
     };
     let starts: Vec<(String, Vec<PlannedDay>)> = (0..=extra_weeks)
         .map(|w| {
-            let week_start = start + Days::new(7 * w);
+            let week_start = start + Elapsed::days(7 * w);
             (ymd(week_start), week(week_start, &format!("week{w}")))
         })
         .collect();
@@ -341,7 +341,7 @@ async fn today_is_the_athletes_and_shows_the_session_plan_today_shows() {
     let today = civil_today(zone);
     assert_ne!(
         today,
-        Utc::now().date_naive(),
+        Timestamp::now().utc_date(),
         "premise: the zone is off UTC's date"
     );
     seed_plan(&resources, &athlete, athlete.tenant, None, today, 0).await;
@@ -361,7 +361,7 @@ async fn today_is_the_athletes_and_shows_the_session_plan_today_shows() {
         command.contains(workout),
         "/plan today must name the same session the page does: {command}"
     );
-    let utc_session = format!("week0 session {}", ymd(Utc::now().date_naive()));
+    let utc_session = format!("week0 session {}", ymd(Timestamp::now().utc_date()));
     assert!(
         !command.contains(&utc_session),
         "neither surface reads UTC's today: {command}"
@@ -374,7 +374,7 @@ async fn today_is_the_athletes_and_shows_the_session_plan_today_shows() {
         .filter(|week| week["current"] == true)
         .collect();
     assert_eq!(current.len(), 1);
-    assert_eq!(current[0]["week_start"], ymd(today - Days::new(2)));
+    assert_eq!(current[0]["week_start"], ymd(today - Elapsed::days(2)));
     assert_eq!(plan["current_phase_index"], 0);
     assert_eq!(plan["phases"][0]["current"], true);
 }
@@ -383,7 +383,7 @@ async fn today_is_the_athletes_and_shows_the_session_plan_today_shows() {
 async fn a_rest_day_is_a_rest_day_and_an_uncovered_date_is_in_no_week() {
     let resources = common::create_test_server_resources().await.unwrap();
     let athlete = seed_athlete(&resources, "plan-rest").await;
-    let today = Utc::now().date_naive();
+    let today = Timestamp::now().utc_date();
     // Four weeks stored: the current and the next are shown, two deferred.
     seed_plan(&resources, &athlete, athlete.tenant, None, today, 3).await;
 
@@ -392,16 +392,16 @@ async fn a_rest_day_is_a_rest_day_and_an_uncovered_date_is_in_no_week() {
     assert_eq!(plan["weeks"].as_array().unwrap().len(), 2);
     assert_eq!(plan["weeks_deferred"], 2);
 
-    let rest_date = ymd(today + Days::new(2));
+    let rest_date = ymd(today + Elapsed::days(2));
     let rest = day_on(plan, &rest_date).expect("the rest day is listed");
     assert_eq!(rest["rest"], true);
     assert_eq!(rest["workout"], "full rest");
     assert!(rest.get("duration_min").is_none());
 
-    let next_week_session = day_on(plan, &ymd(today + Days::new(6))).unwrap();
+    let next_week_session = day_on(plan, &ymd(today + Elapsed::days(6))).unwrap();
     assert_eq!(next_week_session["rest"], false);
 
-    let uncovered = ymd(today + Days::new(40));
+    let uncovered = ymd(today + Elapsed::days(40));
     assert!(
         day_on(plan, &uncovered).is_none(),
         "a date no shown week spans is absent, never a rest day"
@@ -412,7 +412,7 @@ async fn a_rest_day_is_a_rest_day_and_an_uncovered_date_is_in_no_week() {
 async fn the_plan_survives_an_agent_switch() {
     let resources = common::create_test_server_resources().await.unwrap();
     let athlete = seed_athlete(&resources, "plan-agent").await;
-    let today = Utc::now().date_naive();
+    let today = Timestamp::now().utc_date();
     let agent = select_agent(&resources, &athlete, "Trail Coach").await;
     seed_plan(&resources, &athlete, athlete.tenant, Some(&agent), today, 0).await;
 
@@ -432,7 +432,7 @@ async fn another_tenants_plan_is_invisible() {
     let resources = common::create_test_server_resources().await.unwrap();
     let athlete = seed_athlete(&resources, "plan-tenancy").await;
     let stranger = seed_athlete(&resources, "plan-stranger").await;
-    let today = Utc::now().date_naive();
+    let today = Timestamp::now().utc_date();
     seed_plan(&resources, &athlete, athlete.tenant, None, today, 0).await;
 
     let elsewhere = TenantId::generate();
@@ -447,8 +447,8 @@ async fn another_tenants_plan_is_invisible() {
             domain: None,
             plan: "starter".to_owned(),
             owner_user_id: athlete.user_id,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         })
         .await
         .unwrap();
@@ -471,7 +471,7 @@ async fn another_tenants_plan_is_invisible() {
 async fn the_flavour_label_follows_the_requested_then_the_stored_locale() {
     let resources = common::create_test_server_resources().await.unwrap();
     let athlete = seed_athlete(&resources, "plan-locale").await;
-    let today = Utc::now().date_naive();
+    let today = Timestamp::now().utc_date();
     seed_plan(&resources, &athlete, athlete.tenant, None, today, 0).await;
     resources
         .common
@@ -505,7 +505,7 @@ async fn an_unreadable_plan_store_is_a_server_error_not_an_empty_plan() {
         &athlete,
         athlete.tenant,
         None,
-        Utc::now().date_naive(),
+        Timestamp::now().utc_date(),
         0,
     )
     .await;

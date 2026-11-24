@@ -64,6 +64,7 @@ fn turn_actions_title(body: &TurnResponse) -> Option<&str> {
         _ => None,
     })
 }
+use dravr_tronc::dates::Timestamp;
 use serde_json::json;
 use std::sync::{Arc, Mutex};
 use tokio::task::spawn_blocking;
@@ -170,7 +171,7 @@ async fn seed_user_tenant(resources: &Arc<ServerContext>, email: &str) -> (Uuid,
     );
     user.user_status = UserStatus::Active;
     user.approved_by = Some(user.id);
-    user.approved_at = Some(chrono::Utc::now());
+    user.approved_at = Some(Timestamp::now());
 
     let user_id = user.id;
     resources.common.repos.users.create(&user).await.unwrap();
@@ -183,8 +184,8 @@ async fn seed_user_tenant(resources: &Arc<ServerContext>, email: &str) -> (Uuid,
         domain: None,
         plan: "professional".to_owned(),
         owner_user_id: user_id,
-        created_at: chrono::Utc::now(),
-        updated_at: chrono::Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
     };
     // tenants.create() adds the owner to tenant_users automatically.
     resources
@@ -269,7 +270,7 @@ async fn seed_group_membership(
     agent_id: &str,
     role: GroupRole,
 ) -> Uuid {
-    let now = chrono::Utc::now();
+    let now = Timestamp::now();
     let group_id = Uuid::new_v4();
     let group = CoachingGroup {
         id: group_id,
@@ -289,6 +290,7 @@ async fn seed_group_membership(
         is_active: true,
         channel_type: None,
         channel_chat_id: None,
+        chat_connection: None,
         created_at: now,
         updated_at: now,
     };
@@ -338,7 +340,7 @@ async fn seed_admin_from_another_tenant(
         admin_tenant, group_tenant,
         "fixture bug: the admin must join from another tenant"
     );
-    let now = chrono::Utc::now();
+    let now = Timestamp::now();
     resources
         .common
         .repos
@@ -581,6 +583,7 @@ async fn seed_coaching_exchange(
                 channel_type: None,
                 about_user_id: None,
                 turn_attempted_write: None,
+                ai_consent_sources: &[],
             })
             .await
             .unwrap();
@@ -1723,7 +1726,7 @@ async fn owner_in_a_solo_thread_is_not_offered_group_management() {
 
     for hidden in [
         "/group invite",
-        "/group coach",
+        "/group agent",
         "/group respond",
         "/group digest",
         "/group members",
@@ -1815,7 +1818,7 @@ async fn help_hides_group_commands_from_an_athlete_with_no_group() {
         "/group digest",
         "/group status",
         "/group leave",
-        "/group coach",
+        "/group agent",
         "/agent assign",
     ] {
         assert!(
@@ -1886,7 +1889,7 @@ async fn help_hides_admin_only_commands_from_a_plain_group_member() {
     }
     for hidden in [
         "/group invite",
-        "/group coach",
+        "/group agent",
         "/group respond",
         "/group digest",
         "/agent assign",
@@ -1919,7 +1922,7 @@ async fn help_shows_admin_only_commands_to_a_group_owner() {
 
     for shown in [
         "/group invite",
-        "/group coach agent-name",
+        "/group agent agent-name",
         "/group respond mentions|all",
         "/group digest off|chat|managers",
         "/agent assign agent-id group-id",
@@ -1960,7 +1963,7 @@ async fn help_shows_argument_options_localized_headings_and_stable_order() {
     for signature in [
         "/group consent [coach] yes|no",
         "/group respond mentions|all",
-        "/group coach agent-name",
+        "/group agent agent-name",
         "/plan [athlete] [week|today]",
         // Named, not a `pillar` placeholder: the athlete must be able to type
         // one of these without knowing the internal DB slugs.
@@ -2075,7 +2078,7 @@ async fn help_shows_agent_assign_to_an_owner_who_is_a_member_of_the_ambient_grou
     // the fix did not simply widen the filter for everything.
     for hidden in [
         "/group invite",
-        "/group coach",
+        "/group agent",
         "/group respond",
         "/group digest",
     ] {
@@ -2142,7 +2145,7 @@ async fn help_shows_own_group_commands_when_the_room_belongs_to_another_group() 
     // caller is not a member of it, so they would refuse.
     for hidden in [
         "/group invite",
-        "/group coach",
+        "/group agent",
         "/group respond",
         "/group digest",
         "/group consent",

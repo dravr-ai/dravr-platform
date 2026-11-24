@@ -1,5 +1,5 @@
 // ABOUTME: Clusters an athlete's privacy-trimmed activity starts into places with ids that survive re-clustering
-// ABOUTME: DBSCAN over trimmed starts, athlete-named anchors, one heir per previous place, and a home exclusion never served
+// ABOUTME: DBSCAN over trimmed starts, named anchors, stable ids; rides from a never-served home placed by their area
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -16,8 +16,23 @@
 //! ([`StartKind::RawAssignOnly`]) may join a place whose radius it falls
 //! inside, but never creates one or moves its centroid. And the densest
 //! cluster of trimmed track endpoints is taken to be home, unless the
-//! athlete said where home is ([`HomeDeclaration`]): every start within the
-//! exclusion is excluded from every place, and the home is returned nowhere.
+//! athlete said where home is ([`HomeDeclaration`]): no start within the
+//! exclusion joins or shapes a place, and the home is returned nowhere.
+//!
+//! **Rides from home** (carnet#1723). A ride that starts inside the
+//! exclusion is placed by where it went, never by where it left from. Its
+//! *area point* is the mean of its trimmed track's points farther than the
+//! exclusion's radius plus the trim radius from the exclusion's centre (700 m
+//! for the inferred home, 900 m for a declared one). Area points cluster on
+//! their own at `AREA_REACH_METERS`, one ride already making an area, so the
+//! athlete can name it; an athlete-named place takes every area point within
+//! its radius or that reach. No area point, and no centroid of a group
+//! holding one, lies within that distance of the centre: an area point that
+//! would (a ride circling the door) is never made, and a group whose
+//! centroid would gives its area points back to the exclusion. A ride that
+//! never leaves that distance, a walk around the block, stays excluded.
+//! An area is a place like any other, flagged [`ClusteredPlace::area`]; the
+//! home itself is still returned nowhere.
 //!
 //! **Home.** The trim leaves a track's first and last points on a ring
 //! about [`DEFAULT_PRIVACY_RADIUS_METERS`] around the spot it left from, so
@@ -70,9 +85,11 @@ use uuid::Uuid;
 use crate::route_privacy::DEFAULT_PRIVACY_RADIUS_METERS;
 use crate::routes::haversine_meters_between;
 
+mod home;
+
 /// The version of the clustering rule. A change to a parameter or the rule
 /// bumps it, and every athlete's places are recomputed.
-pub const PLACES_VERSION: u32 = 1;
+pub const PLACES_VERSION: u32 = 2;
 
 /// The smallest radius a place is given, in metres: the clustering distance,
 /// so a tight cluster still catches a start a few hundred metres off.
@@ -95,10 +112,17 @@ pub const ONE_SPOT_REACH_METERS: f64 =
 /// sparsely sampled polyline may sit, summed over a track's two ends.
 const POLYLINE_SLACK_METERS: f64 = 100.0;
 
-/// How near a declared seed, in metres, an athlete-named place's centroid
-/// must lie for home to win over the name: two trimmed starts from one door,
-/// each a trim ring and one end's whole slack out, on opposite sides.
-const HOME_WINS_METERS: f64 = 2.0 * (DEFAULT_PRIVACY_RADIUS_METERS + POLYLINE_SLACK_METERS);
+/// How far apart, in metres, the area points of rides from home into one
+/// area can lie and still be one place.
+///
+/// Measured on one athlete's trimmed tracks (carnet#1723): rides from his
+/// door into one trail network have area points within 380 m of each other
+/// for one network and chained within about 600 m for the other, and the two
+/// networks lie at least 1.27 km apart. 600 m keeps each network one place
+/// and the two apart. An athlete-named area takes every area point within
+/// its radius or this reach, whichever is wider, so a name given after one
+/// ride holds the next ride there.
+const AREA_REACH_METERS: f64 = 600.0;
 
 /// Metres per degree of latitude on the crate's sphere, to bound neighbour
 /// searches by latitude before measuring.
@@ -125,6 +149,10 @@ pub struct StartPoint {
     pub lon: f64,
     /// Whether it may shape a place.
     pub kind: StartKind,
+    /// The row's privacy-trimmed track, downsampled by the caller; empty when
+    /// it has none. Read only for a start the home exclusion removes, to find
+    /// the area the ride went to.
+    pub track: Vec<(f64, f64)>,
 }
 
 /// A place from the previous clustering.
@@ -181,6 +209,9 @@ pub struct ClusteredPlace {
     /// Every row placed here, sorted. Empty for an athlete-named place that
     /// kept its name with no start left.
     pub members: Vec<CachedRowKey>,
+    /// Whether rides from home are among its members, placed by the area
+    /// their tracks went to rather than by their start.
+    pub area: bool,
 }
 
 /// The places of one athlete, and the starts the home exclusion removed.
@@ -188,17 +219,9 @@ pub struct ClusteredPlace {
 pub struct Clustering {
     /// Every place, ordered by its first member then its id.
     pub places: Vec<ClusteredPlace>,
-    /// Rows whose start lies within the home exclusion: placed nowhere.
+    /// Rows whose start lies within the home exclusion and whose track
+    /// reached no area: placed nowhere.
     pub excluded: Vec<CachedRowKey>,
-}
-
-/// The home exclusion one clustering applies: its centre and radius, and the
-/// athlete-named places whose starts it leaves alone.
-struct Exclusion<'anchors> {
-    lat: f64,
-    lon: f64,
-    radius_m: f64,
-    spared: Vec<&'anchors PlaceAnchor>,
 }
 
 /// A group of trimmed starts on its way to becoming a place.
@@ -232,48 +255,59 @@ pub fn cluster(
         .iter()
         .filter(|place| place.athlete_named)
         .collect();
-    let home = exclusion(home, endpoints, &named, params);
+    let home = home::exclusion(home, endpoints, &named, params);
 
-    // The home exclusion first: nothing near the door joins anything, but a
-    // start the athlete placed by naming a spot it spares is never the door's.
-    let mut excluded = Vec::new();
+    // The home exclusion first: nothing near the door joins anything by its
+    // start. A ride from home that went somewhere is placed by its area
+    // point instead; a start the athlete placed by naming a spot it spares,
+    // and that lies nearer that spot than the door, is never the door's.
+    let mut excluded: Vec<&StartPoint> = Vec::new();
     let mut kept: Vec<&StartPoint> = Vec::with_capacity(points.len());
+    let mut areas: Vec<StartPoint> = Vec::new();
     for point in points {
-        let near_home = home.as_ref().is_some_and(|home| {
-            haversine_meters_between(point.lat, point.lon, home.lat, home.lon) <= home.radius_m
-                && nearest_within(
-                    point.lat,
-                    point.lon,
-                    home.spared
-                        .iter()
-                        .map(|place| (place.lat, place.lon, place.radius_m)),
-                )
-                .is_none()
-        });
-        if near_home {
-            excluded.push(point.key.clone());
-        } else {
+        let Some(home) = home.as_ref() else {
             kept.push(point);
+            continue;
+        };
+        if !home.holds(point) {
+            kept.push(point);
+        } else if let Some(area) = home.area_point(point) {
+            areas.push(area);
+        } else {
+            excluded.push(point);
         }
     }
+    let first_area = kept.len();
+    kept.extend(areas.iter());
 
-    // Athlete-named places take every trimmed start inside their radius.
+    // Athlete-named places take every trimmed start inside their radius,
+    // and every area point within their radius or an area's reach.
     let mut anchored: Vec<Vec<usize>> = vec![Vec::new(); named.len()];
     let mut free: Vec<usize> = Vec::new();
+    let mut free_areas: Vec<usize> = Vec::new();
     let mut assign_only: Vec<usize> = Vec::new();
     for (index, point) in kept.iter().enumerate() {
         if point.kind == StartKind::RawAssignOnly {
             assign_only.push(index);
             continue;
         }
+        let is_area = index >= first_area;
+        let reach = |radius: f64| {
+            if is_area {
+                radius.max(AREA_REACH_METERS)
+            } else {
+                radius
+            }
+        };
         match nearest_within(
             point.lat,
             point.lon,
             named
                 .iter()
-                .map(|place| (place.lat, place.lon, place.radius_m)),
+                .map(|place| (place.lat, place.lon, reach(place.radius_m))),
         ) {
             Some(anchor) => anchored[anchor].push(index),
+            None if is_area => free_areas.push(index),
             None => free.push(index),
         }
     }
@@ -296,11 +330,11 @@ pub fn cluster(
 
     let located: Vec<(f64, f64)> = free.iter().map(|&i| (kept[i].lat, kept[i].lon)).collect();
     let (clusters, noise) = dbscan(&located, params);
-    let first_cluster = groups.len();
+    let mut found: Vec<Group> = Vec::new();
     for cluster in clusters {
         let members: Vec<usize> = cluster.into_iter().map(|i| free[i]).collect();
         let (lat, lon) = centroid(&kept, &members);
-        groups.push(Group {
+        found.push(Group {
             id: None,
             members,
             lat,
@@ -309,13 +343,47 @@ pub fn cluster(
     }
     assign_only.extend(noise.into_iter().map(|i| free[i]));
 
-    inherit_ids(
-        &mut groups[first_cluster..],
-        previous,
-        &taken,
-        &kept,
-        params,
-    );
+    // Areas cluster on their own, at an area's reach; one ride from home is
+    // already an area, so the athlete can name it.
+    let area_params = PlaceParams {
+        eps_m: AREA_REACH_METERS,
+        min_pts: 1,
+        ..*params
+    };
+    let located: Vec<(f64, f64)> = free_areas
+        .iter()
+        .map(|&i| (kept[i].lat, kept[i].lon))
+        .collect();
+    let (area_clusters, _) = dbscan(&located, &area_params);
+    for cluster in area_clusters {
+        let members: Vec<usize> = cluster.into_iter().map(|i| free_areas[i]).collect();
+        let (lat, lon) = centroid(&kept, &members);
+        found.push(Group {
+            id: None,
+            members,
+            lat,
+            lon,
+        });
+    }
+
+    // Nothing a ride from home places lies near the door: a group whose
+    // centroid does gives its area points back to the exclusion.
+    if let Some(home) = home.as_ref() {
+        let every_group = groups.iter_mut().chain(found.iter_mut());
+        for group in every_group {
+            let returned = home.keep_area_away(group, &kept, first_area);
+            excluded.extend(returned.into_iter().map(|i| kept[i]));
+        }
+        groups.retain(|group| !group.members.is_empty());
+        found.retain(|group| !group.members.is_empty());
+    }
+    let taken: Vec<&str> = taken
+        .into_iter()
+        .filter(|id| groups.iter().any(|group| group.id.as_deref() == Some(*id)))
+        .collect();
+
+    inherit_ids(&mut found, previous, &taken, &kept, params);
+    groups.append(&mut found);
 
     let mut places: Vec<ClusteredPlace> = groups
         .into_iter()
@@ -325,6 +393,7 @@ pub fn cluster(
             lat: group.lat,
             lon: group.lon,
             members: group.members.iter().map(|&i| kept[i].key.clone()).collect(),
+            area: group.members.iter().any(|&i| i >= first_area),
         })
         .collect();
 
@@ -338,6 +407,7 @@ pub fn cluster(
                 lon: place.lon,
                 radius_m: place.radius_m,
                 members: Vec::new(),
+                area: false,
             });
         }
     }
@@ -367,6 +437,7 @@ pub fn cluster(
             .cmp(&b.members.first())
             .then(a.id.cmp(&b.id))
     });
+    let mut excluded: Vec<CachedRowKey> = excluded.into_iter().map(|p| p.key.clone()).collect();
     excluded.sort();
     Clustering { places, excluded }
 }
@@ -424,79 +495,6 @@ fn inherit_ids(
 
 fn first_key<'a>(kept: &[&'a StartPoint], group: &Group) -> Option<&'a CachedRowKey> {
     group.members.iter().map(|&i| &kept[i].key).min()
-}
-
-/// The exclusion `home` asks for. The inferred candidate spares every
-/// athlete-named place; a declared seed spares only those farther than
-/// [`HOME_WINS_METERS`] from it; `Elsewhere` excludes nothing.
-fn exclusion<'anchors>(
-    home: HomeDeclaration,
-    endpoints: &[(f64, f64)],
-    named: &[&'anchors PlaceAnchor],
-    params: &PlaceParams,
-) -> Option<Exclusion<'anchors>> {
-    match home {
-        HomeDeclaration::Inferred => {
-            home_candidate(endpoints, named, params).map(|(lat, lon)| Exclusion {
-                lat,
-                lon,
-                radius_m: params.home_exclusion_m,
-                spared: named.to_vec(),
-            })
-        }
-        HomeDeclaration::At { lat, lon } => Some(Exclusion {
-            lat,
-            lon,
-            radius_m: params.home_exclusion_m + DEFAULT_PRIVACY_RADIUS_METERS,
-            spared: named
-                .iter()
-                .copied()
-                .filter(|place| {
-                    haversine_meters_between(lat, lon, place.lat, place.lon) > HOME_WINS_METERS
-                })
-                .collect(),
-        }),
-        HomeDeclaration::Elsewhere => None,
-    }
-}
-
-/// The home candidate: of the clusters of trimmed endpoints at
-/// [`ONE_SPOT_REACH_METERS`], the one with the most endpoints whose centroid is
-/// not within that reach of an athlete-named place.
-fn home_candidate(
-    endpoints: &[(f64, f64)],
-    named: &[&PlaceAnchor],
-    params: &PlaceParams,
-) -> Option<(f64, f64)> {
-    let mut sorted: Vec<(f64, f64)> = endpoints.to_vec();
-    sorted.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.total_cmp(&b.1)));
-    let reach = PlaceParams {
-        eps_m: params.eps_m.max(ONE_SPOT_REACH_METERS),
-        ..*params
-    };
-    let (clusters, _) = dbscan(&sorted, &reach);
-    clusters
-        .iter()
-        .map(|members| {
-            let count = members.len().max(1) as f64;
-            let lat = members.iter().map(|&i| sorted[i].0).sum::<f64>() / count;
-            let lon = members.iter().map(|&i| sorted[i].1).sum::<f64>() / count;
-            (members.len(), lat, lon)
-        })
-        .filter(|&(_, lat, lon)| {
-            !named.iter().any(|place| {
-                haversine_meters_between(lat, lon, place.lat, place.lon) <= reach.eps_m
-            })
-        })
-        // Densest first; of equals, the one found first in sorted order.
-        .fold(
-            None,
-            |best: Option<(usize, f64, f64)>, candidate| match best {
-                Some(found) if found.0 >= candidate.0 => Some(found),
-                _ => Some(candidate),
-            },
-        )
-        .map(|(_, lat, lon)| (lat, lon))
 }
 
 /// DBSCAN over `points` with haversine distance: the clusters, each a list
@@ -634,17 +632,17 @@ fn radius(kept: &[&StartPoint], members: &[usize], lat: f64, lon: f64) -> f64 {
 mod tests {
     use super::*;
 
-    const ORIGIN: (f64, f64) = (46.0, -72.0);
+    pub(super) const ORIGIN: (f64, f64) = (46.0, -72.0);
 
     /// The point `east` and `north` metres from the origin.
-    fn at(east: f64, north: f64) -> (f64, f64) {
+    pub(super) fn at(east: f64, north: f64) -> (f64, f64) {
         (
             ORIGIN.0 + north / METERS_PER_DEGREE,
             ORIGIN.1 + east / (METERS_PER_DEGREE * ORIGIN.0.to_radians().cos()),
         )
     }
 
-    fn key(id: &str) -> CachedRowKey {
+    pub(super) fn key(id: &str) -> CachedRowKey {
         CachedRowKey {
             provider: "strava".to_owned(),
             activity_id: id.to_owned(),
@@ -658,14 +656,15 @@ mod tests {
             lat,
             lon,
             kind,
+            track: Vec::new(),
         }
     }
 
-    fn trimmed(id: &str, east: f64, north: f64) -> StartPoint {
+    pub(super) fn trimmed(id: &str, east: f64, north: f64) -> StartPoint {
         start(id, east, north, StartKind::Trimmed)
     }
 
-    fn anchor(id: &str, east: f64, north: f64, named: bool, count: u32) -> PlaceAnchor {
+    pub(super) fn anchor(id: &str, east: f64, north: f64, named: bool, count: u32) -> PlaceAnchor {
         let (lat, lon) = at(east, north);
         PlaceAnchor {
             id: id.to_owned(),
@@ -678,7 +677,7 @@ mod tests {
     }
 
     /// `count` trimmed starts within 60 m of `(east, north)`, ids `prefix0..`.
-    fn visits(prefix: &str, count: usize, east: f64, north: f64) -> Vec<StartPoint> {
+    pub(super) fn visits(prefix: &str, count: usize, east: f64, north: f64) -> Vec<StartPoint> {
         (0..count)
             .map(|i| {
                 let angle = i as f64;
@@ -695,7 +694,7 @@ mod tests {
         run_with(points, &[], previous, HomeDeclaration::Inferred)
     }
 
-    fn run_with(
+    pub(super) fn run_with(
         points: &[StartPoint],
         endpoints: &[(f64, f64)],
         previous: &[PlaceAnchor],
@@ -704,7 +703,7 @@ mod tests {
         cluster(points, endpoints, previous, home, &PlaceParams::default())
     }
 
-    fn memberships(clustering: &Clustering) -> Vec<Vec<CachedRowKey>> {
+    pub(super) fn memberships(clustering: &Clustering) -> Vec<Vec<CachedRowKey>> {
         let mut sets: Vec<Vec<CachedRowKey>> = clustering
             .places
             .iter()
@@ -910,268 +909,6 @@ mod tests {
             (with.places[0].lat - without.places[0].lat).abs() < 1e-12
                 && (with.places[0].lon - without.places[0].lon).abs() < 1e-12,
             "bug: a raw start moved the centroid"
-        );
-    }
-
-    /// Trimmed starts ring the door at about 200 m; the track endpoints are
-    /// thickest there. None of it becomes a place, and no centroid lands
-    /// near the door.
-    #[test]
-    fn starts_around_home_form_no_place() {
-        let ring: Vec<StartPoint> = (0..12)
-            .map(|i| {
-                let angle = f64::from(i) * 0.5;
-                trimmed(&format!("h{i}"), angle.cos() * 200.0, angle.sin() * 200.0)
-            })
-            .collect();
-        let endpoints: Vec<(f64, f64)> = (0..24)
-            .map(|i| {
-                let angle = f64::from(i) * 0.26;
-                at(angle.cos() * 200.0, angle.sin() * 200.0)
-            })
-            .collect();
-        let mut points = ring;
-        points.extend(visits("park", 4, 4_000.0, 0.0));
-        let after = run_with(&points, &endpoints, &[], HomeDeclaration::Inferred);
-        assert_eq!(after.places.len(), 1, "bug: home formed a place: {after:?}");
-        assert_eq!(
-            after.excluded.len(),
-            12,
-            "bug: a home start was not excluded"
-        );
-        let door = at(0.0, 0.0);
-        for place in &after.places {
-            assert!(
-                haversine_meters_between(place.lat, place.lon, door.0, door.1) > 1_000.0,
-                "bug: a centroid sits near the door"
-            );
-        }
-    }
-
-    /// The athlete always drives to one trailhead, so it is the densest
-    /// endpoint cluster and is excluded; once they name it, it is a place
-    /// and the home candidate moves on.
-    #[test]
-    fn naming_an_excluded_trailhead_makes_it_a_place() {
-        let starts = visits("t", 6, 0.0, 0.0);
-        let endpoints: Vec<(f64, f64)> = starts.iter().flat_map(|s| [(s.lat, s.lon); 2]).collect();
-        let before = run_with(&starts, &endpoints, &[], HomeDeclaration::Inferred);
-        assert!(
-            before.places.is_empty(),
-            "bug: the trailhead was not excluded"
-        );
-        assert_eq!(before.excluded.len(), 6, "bug: wrong exclusion");
-
-        let named = [anchor("gai-luron", 20.0, 0.0, true, 1)];
-        let after = run_with(&starts, &endpoints, &named, HomeDeclaration::Inferred);
-        assert!(
-            after.excluded.is_empty(),
-            "bug: the named trailhead is still home"
-        );
-        assert_eq!(after.places.len(), 1, "bug: wrong place count");
-        assert_eq!(
-            after.places[0].id, "gai-luron",
-            "bug: the name was not kept"
-        );
-        assert_eq!(
-            after.places[0].members.len(),
-            6,
-            "bug: the rides did not join"
-        );
-    }
-
-    /// A loop leaves the trailhead north and comes back from the east: its
-    /// trimmed start and end sit 358 m apart on the trim ring, farther than
-    /// `eps`. The far ends are the named trailhead's own rides, never home,
-    /// and the starts inside its radius stay its members.
-    #[test]
-    fn a_loops_far_end_never_takes_the_named_trailheads_starts() {
-        let starts: Vec<StartPoint> = (0..5)
-            .map(|i| trimmed(&format!("t{i}"), 0.0, 0.0))
-            .collect();
-        let mut endpoints = vec![at(0.0, 0.0); 5];
-        endpoints.extend(vec![at(297.0, 200.0); 5]);
-        let named = [anchor("gai-luron", 0.0, 0.0, true, 1)];
-        let after = run_with(&starts, &endpoints, &named, HomeDeclaration::Inferred);
-        assert!(
-            after.excluded.is_empty(),
-            "bug: the loops' far ends were taken for home and excluded the named starts: {after:?}"
-        );
-        let place = after
-            .places
-            .iter()
-            .find(|place| place.id == "gai-luron")
-            .expect("bug: the named place is gone");
-        assert_eq!(
-            place.members.len(),
-            5,
-            "bug: the named trailhead lost its starts"
-        );
-    }
-
-    /// Endpoints 358 m from a named place, with starts there that lie
-    /// outside its radius: the cluster is within reach of the name, so it is
-    /// not home, and those starts are free to form a place.
-    #[test]
-    fn an_endpoint_cluster_within_reach_of_a_named_place_is_never_home() {
-        let starts = visits("q", 4, 297.0, 200.0);
-        let endpoints: Vec<(f64, f64)> = starts.iter().flat_map(|s| [(s.lat, s.lon); 2]).collect();
-        let named = [anchor("gai-luron", 0.0, 0.0, true, 1)];
-        let after = run_with(&starts, &endpoints, &named, HomeDeclaration::Inferred);
-        assert!(
-            after.excluded.is_empty(),
-            "bug: a cluster within reach of a named place was taken for home: {after:?}"
-        );
-        assert!(
-            after.places.iter().any(|place| place.members.len() == 4),
-            "bug: the starts near the named place formed no place: {after:?}"
-        );
-    }
-
-    /// Six loops leave the door north and come home from the south, so
-    /// their trimmed ends sit 400 m apart; four out-and-back rides start at
-    /// a trailhead. Per direction the door has six endpoints, the trailhead
-    /// eight: counted as one spot the door has twelve, and is home.
-    #[test]
-    fn a_door_ridden_in_loops_outranks_a_trailhead_ridden_out_and_back() {
-        let mut points: Vec<StartPoint> = (0..6)
-            .map(|i| trimmed(&format!("h{i}"), 0.0, 200.0))
-            .collect();
-        let mut endpoints = vec![at(0.0, 200.0); 6];
-        endpoints.extend(vec![at(0.0, -200.0); 6]);
-        let trailhead = visits("t", 4, 4_000.0, 0.0);
-        endpoints.extend(trailhead.iter().flat_map(|s| [(s.lat, s.lon); 2]));
-        points.extend(trailhead);
-        let after = run_with(&points, &endpoints, &[], HomeDeclaration::Inferred);
-        let home: Vec<CachedRowKey> = (0..6).map(|i| key(&format!("h{i}"))).collect();
-        assert_eq!(
-            after.excluded, home,
-            "bug: the door's loops were outranked by the trailhead: {after:?}"
-        );
-        assert_eq!(
-            memberships(&after),
-            vec![(0..4).map(|i| key(&format!("t{i}"))).collect::<Vec<_>>()],
-            "bug: the trailhead is not the one place"
-        );
-    }
-
-    /// The athlete declared home at `(east, north)` from the origin.
-    fn declared(east: f64, north: f64) -> HomeDeclaration {
-        let (lat, lon) = at(east, north);
-        HomeDeclaration::At { lat, lon }
-    }
-
-    fn keys(prefix: &str, count: usize) -> Vec<CachedRowKey> {
-        (0..count).map(|i| key(&format!("{prefix}{i}"))).collect()
-    }
-
-    /// The trailhead is the densest endpoint cluster; the door, 3 km north,
-    /// has its starts on the trim ring and the seed is one of them.
-    #[test]
-    fn a_declared_home_replaces_the_inferred_trailhead() {
-        let mut points = visits("t", 6, 0.0, 0.0);
-        let endpoints: Vec<(f64, f64)> = points.iter().flat_map(|s| [(s.lat, s.lon); 2]).collect();
-        points.extend(
-            [(200.0, 0.0), (0.0, 200.0), (-200.0, 0.0), (0.0, -200.0)]
-                .iter()
-                .enumerate()
-                .map(|(i, (east, north))| trimmed(&format!("h{i}"), *east, 3_000.0 + north)),
-        );
-        let after = run_with(&points, &endpoints, &[], declared(0.0, 3_200.0));
-        assert_eq!(
-            after.excluded,
-            keys("h", 4),
-            "bug: the door's starts were not excluded: {after:?}"
-        );
-        assert_eq!(
-            memberships(&after),
-            vec![keys("t", 6)],
-            "bug: the trailhead is not the one place"
-        );
-    }
-
-    /// The seed 245 m north of the door, another start 245 m south: inside
-    /// the trim ring plus a sample's slack per end.
-    #[test]
-    fn a_declared_seed_excludes_starts_inside_the_model() {
-        let points = [trimmed("n", 0.0, 245.0), trimmed("s", 0.0, -245.0)];
-        let after = run_with(&points, &[], &[], declared(0.0, 245.0));
-        assert_eq!(
-            after.excluded,
-            vec![key("n"), key("s")],
-            "bug: a start from the door was kept"
-        );
-    }
-
-    /// One end took the whole slack on each side: 600 m apart, past a
-    /// 500 m radius.
-    #[test]
-    fn a_declared_seed_covers_the_slack_margin() {
-        let points = [trimmed("n", 0.0, 300.0), trimmed("s", 0.0, -300.0)];
-        let after = run_with(&points, &[], &[], declared(0.0, 300.0));
-        assert_eq!(
-            after.excluded,
-            vec![key("n"), key("s")],
-            "bug: the far start escaped the exclusion"
-        );
-    }
-
-    #[test]
-    fn elsewhere_excludes_nothing() {
-        let points = visits("t", 6, 0.0, 0.0);
-        let endpoints: Vec<(f64, f64)> = points.iter().flat_map(|s| [(s.lat, s.lon); 2]).collect();
-        let after = run_with(&points, &endpoints, &[], HomeDeclaration::Elsewhere);
-        assert!(
-            after.excluded.is_empty(),
-            "bug: elsewhere excluded starts: {after:?}"
-        );
-        assert_eq!(
-            memberships(&after),
-            vec![keys("t", 6)],
-            "bug: the trailhead formed no place"
-        );
-    }
-
-    /// A named place 650 m from the seed, inside the 700 m exclusion, is
-    /// past `HOME_WINS_METERS`: its name wins and its starts stay.
-    #[test]
-    fn a_named_place_far_from_the_seed_keeps_its_starts() {
-        let named = [anchor("club", 0.0, 650.0, true, 3)];
-        let after = run_with(&visits("c", 3, 0.0, 650.0), &[], &named, declared(0.0, 0.0));
-        assert!(
-            after.excluded.is_empty(),
-            "bug: a far named place lost starts: {after:?}"
-        );
-        assert_eq!(
-            after.places[0].members,
-            keys("c", 3),
-            "bug: the named place lost its starts"
-        );
-    }
-
-    /// A named place 200 m from the seed: home wins, and the place survives
-    /// empty under its id.
-    #[test]
-    fn a_named_place_near_the_seed_loses_its_starts_and_keeps_its_name() {
-        let named = [anchor("porch", 0.0, 200.0, true, 3)];
-        let after = run_with(&visits("p", 3, 0.0, 200.0), &[], &named, declared(0.0, 0.0));
-        assert_eq!(
-            after.excluded,
-            keys("p", 3),
-            "bug: a named place near the seed kept the door's starts"
-        );
-        assert_eq!(
-            after.places.len(),
-            1,
-            "bug: the named place is gone: {after:?}"
-        );
-        assert_eq!(
-            after.places[0].id, "porch",
-            "bug: the named place lost its id"
-        );
-        assert!(
-            after.places[0].members.is_empty(),
-            "bug: the named place kept members"
         );
     }
 }

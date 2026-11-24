@@ -27,7 +27,7 @@
 //! pierre-cli seed synthetic-activities --reset
 //! ```
 
-use chrono::{DateTime, Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::UserOAuthToken;
 use pierre_database::seed_models::{SeedProviderConnection, SeedSyntheticActivity};
@@ -532,7 +532,7 @@ async fn generate_activities(
         "Generating {} activities over {} days...",
         params.count, params.days
     );
-    let now = Utc::now();
+    let now = Timestamp::now();
     let mut activities_by_type: HashMap<&str, u32> = HashMap::new();
 
     for i in 0..params.count {
@@ -561,7 +561,7 @@ async fn generate_activities(
 fn build_activity(
     rng: &mut StdRng,
     sport: &SportConfig,
-    now: DateTime<Utc>,
+    now: Timestamp,
     user_id: Uuid,
     tenant_id: Uuid,
     index: u32,
@@ -571,8 +571,8 @@ fn build_activity(
     let hour = rng.random_range(5..21); // 5 AM to 9 PM
     let minute = rng.random_range(0..60);
     let start_date =
-        now - Duration::days(i64::from(days_ago)) - Duration::hours(24 - i64::from(hour))
-            + Duration::minutes(i64::from(minute));
+        now - Elapsed::days(i64::from(days_ago)) - Elapsed::hours(24 - i64::from(hour))
+            + Elapsed::minutes(i64::from(minute));
 
     let duration = rng.random_range(sport.duration_range.0..=sport.duration_range.1);
     let distance = sport
@@ -616,8 +616,8 @@ fn build_activity(
         country: "Canada".to_owned(),
         start_latitude,
         start_longitude,
-        created_at: Utc::now(),
-        updated_at: Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
     }
 }
 
@@ -681,7 +681,7 @@ pub(crate) async fn register_provider_connection(
         tenant_id,
         provider: provider.to_owned(),
         connection_type: "oauth".to_owned(),
-        connected_at: Utc::now(),
+        connected_at: Timestamp::now(),
         metadata: r#"{"source": "seed-synthetic-activities"}"#.to_owned(),
     };
     repos
@@ -689,7 +689,7 @@ pub(crate) async fn register_provider_connection(
         .seed_upsert_provider_connection(&connection)
         .await?;
 
-    let now = Utc::now();
+    let now = Timestamp::now();
     let token = UserOAuthToken {
         id: Uuid::new_v4().to_string(),
         user_id,
@@ -701,7 +701,7 @@ pub(crate) async fn register_provider_connection(
         access_token: SecretString::from(format!("devfixture:{user_id}")),
         refresh_token: Some(SecretString::from(format!("devfixture-refresh:{user_id}"))),
         token_type: "bearer".to_owned(),
-        expires_at: Some(now + Duration::days(3650)),
+        expires_at: Some(now + Elapsed::days(3650)),
         scope: Some("read,activity:read_all".to_owned()),
         provider_user_id: None,
         oauth_app_client_id: None,

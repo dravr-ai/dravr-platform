@@ -33,13 +33,17 @@ export type ChannelBrandId = keyof typeof CHANNEL_BRAND;
  * How each data source and coaching platform writes its own name, keyed by the
  * provider id the server sends. The server already names a mirrored backend
  * as the athlete knows it (`sciotte_garmin` arrives as `garmin`), so this
- * table holds brands only. Trademarks, so data rather than copy.
+ * table holds brands only. Trademarks, so data rather than copy, and spelled
+ * as their owner spells them: WHOOP and COROS are all capitals.
+ *
+ * The one table on the web and the phone: a surface that names a provider
+ * without a server `display_name` to hand reads it here.
  */
 export const PROVIDER_BRAND = {
   garmin: 'Garmin',
   strava: 'Strava',
   wahoo: 'Wahoo',
-  whoop: 'Whoop',
+  whoop: 'WHOOP',
   polar: 'Polar',
   coros: 'COROS',
   fitbit: 'Fitbit',
@@ -57,6 +61,28 @@ export function providerBrand(provider: string): string | null {
     ? PROVIDER_BRAND[provider as ProviderBrandId]
     : null;
 }
+
+/**
+ * The name a surface prints for the provider id `id` when no server
+ * `display_name` is to hand: its brand, and for an id the brand table does
+ * not know, the id with its first letter capitalised.
+ */
+export function providerName(id: string): string {
+  const known = providerBrand(id.toLowerCase());
+  if (known !== null) return known;
+  return id.length === 0 ? id : `${id.charAt(0).toUpperCase()}${id.slice(1)}`;
+}
+
+/**
+ * How each identity provider an account sign-in can go through writes its own
+ * name. Not data sources, so they stay out of {@link PROVIDER_BRAND}: a
+ * translator seeing "Apple" in a list of strings has no way to know it is a
+ * company rather than the fruit.
+ */
+export const SIGN_IN_BRAND = {
+  google: 'Google',
+  apple: 'Apple',
+} as const;
 
 /**
  * How Dravr writes its own name.

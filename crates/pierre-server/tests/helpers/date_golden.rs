@@ -33,9 +33,9 @@
 //!   clock once and gives the day in two zones whose offsets never change and
 //!   sit a day apart, so a day computed in UTC is wrong in at least one.
 //!
-//! # Where the chrono is
+//! # Where the date engine is
 //!
-//! The suites name no chrono type and call no chrono method; this file does
+//! The suites name no date type and call no date method; this file does
 //! all of it. [`instant`], [`day`] and [`epoch`] build the seeded values;
 //! [`utc_days_before_today`], [`Today`], [`Instant`] and [`CLOCK_DIGITS`]
 //! read the clock; [`noon_in`] places a session on an
@@ -46,9 +46,9 @@
 //! only as a value these functions gave it: it compares two, orders two, and
 //! hands them back here or to a fixture.
 //!
-//! A migration off chrono rewrites this file and leaves the suites' tables
-//! untouched. After it, [`restamp`] writes whatever the new type's sqlx
-//! encoding produces, which is part of what the restamped goldens compare.
+//! A change of date engine rewrites this file and leaves the suites' tables
+//! untouched. [`restamp`] writes whatever the date type's sqlx encoding
+//! produces, which is part of what the restamped goldens compare.
 
 use std::future::Future;
 use std::panic::{panic_any, resume_unwind, AssertUnwindSafe};
@@ -57,9 +57,7 @@ use std::sync::{Arc, LazyLock};
 use axum::body::{to_bytes, Body};
 use axum::http::{Request, StatusCode};
 use axum::Router;
-use chrono::{
-    DateTime, Datelike, Days, Duration, FixedOffset, NaiveDate, NaiveDateTime, SubsecRound, Utc,
-};
+use dravr_tronc::dates::{CivilDate, CivilDateTime, CivilTime, Elapsed, Timestamp, Zone};
 use futures_util::FutureExt;
 use pierre_core::models::{CreateUserMcpTokenRequest, Tenant, TenantId, User, UserStatus};
 use pierre_core::permissions::scopes::OAuthScope;
@@ -103,29 +101,30 @@ static STAMP: LazyLock<Regex> = LazyLock::new(|| {
 static FRACTION: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\.\d+").unwrap());
 
 /// A UTC instant from `2026-08-28T02:59:03.500`, with any fraction or none.
-pub(crate) fn instant(text: &str) -> DateTime<Utc> {
-    NaiveDateTime::parse_from_str(text, "%Y-%m-%dT%H:%M:%S%.f")
+pub(crate) fn instant(text: &str) -> Timestamp {
+    CivilDateTime::parse_from_str(text, "%Y-%m-%dT%H:%M:%S%.f")
         .unwrap()
         .and_utc()
+        .unwrap()
 }
 
 /// Seconds since the epoch of `2026-08-29T00:00:00`, for the tools that take
 /// an instant as a number.
 pub(crate) fn epoch(text: &str) -> i64 {
-    instant(text).timestamp()
+    instant(text).epoch_seconds()
 }
 
 /// The UTC calendar dates each of `days` days before today, as `2026-11-16`,
 /// from one reading of the clock: for the few reads that only serve rows of
 /// the last days, where the day cannot be chosen and the time of day can.
 pub(crate) fn utc_days_before_today<const N: usize>(days: [u64; N]) -> [String; N] {
-    let today = Utc::now().date_naive();
-    days.map(|back| (today - Days::new(back)).to_string())
+    let today = Timestamp::now().utc_date();
+    days.map(|back| (today - Elapsed::days(i64::try_from(back).unwrap())).to_string())
 }
 
 /// A calendar date from `2026-08-28`.
-pub(crate) fn day(text: &str) -> NaiveDate {
-    NaiveDate::parse_from_str(text, "%Y-%m-%d").unwrap()
+pub(crate) fn day(text: &str) -> CivilDate {
+    CivilDate::parse_from_str(text, "%Y-%m-%d").unwrap()
 }
 
 /// What a stamp looks like with its value taken out: every digit is `d`, the
@@ -147,7 +146,7 @@ fn digits_out(text: &str) -> String {
 /// microseconds (macOS), 9 where it counts nanoseconds (Linux). Read from the
 /// clock itself, not from the platform's name.
 pub(crate) static CLOCK_DIGITS: LazyLock<usize> = LazyLock::new(|| {
-    let nanos = (0..256).any(|_| !Utc::now().timestamp_subsec_nanos().is_multiple_of(1_000));
+    let nanos = (0..256).any(|_| !Timestamp::now().subsec_nanos().is_multiple_of(1_000));
     if nanos {
         9
     } else {
@@ -226,21 +225,20 @@ where
 /// plus `days` and `after` plus `days`: a lifetime counted from a reading of
 /// now the test cannot choose, pinned between two readings of its own.
 pub(crate) fn lies_days_after(at: &str, before: Instant, after: Instant, days: i64) -> bool {
-    lies_after(at, before, after, Duration::days(days))
+    lies_after(at, before, after, Elapsed::days(days))
 }
 
 /// [`lies_days_after`], for a lifetime counted in minutes.
 pub(crate) fn lies_minutes_after(at: &str, before: Instant, after: Instant, minutes: i64) -> bool {
-    lies_after(at, before, after, Duration::minutes(minutes))
+    lies_after(at, before, after, Elapsed::minutes(minutes))
 }
 
-fn lies_after(at: &str, before: Instant, after: Instant, span: Duration) -> bool {
-    let at = DateTime::parse_from_rfc3339(at)
-        .unwrap()
-        .with_timezone(&Utc);
+fn lies_after(at: &str, before: Instant, after: Instant, span: Elapsed) -> bool {
+    let at = Timestamp::parse_from_rfc3339(at).unwrap();
     // The first reading cut to its microsecond: a stamp stored in
     // PostgreSQL comes back cut so.
-    before.0.trunc_subsecs(6) + span <= at && at <= after.0 + span
+    let cut = before.0.trunc_subsecs(6);
+    cut + span <= at && at <= after.0 + span
 }
 
 /// Whether `at` (an instant as a response writes it) lies between two
@@ -248,22 +246,19 @@ fn lies_after(at: &str, before: Instant, after: Instant, span: Duration) -> bool
 /// its own reading to the microsecond or the millisecond, so `at` can sit
 /// just under a reading of nanoseconds taken before it.
 pub(crate) fn lies_between(at: &str, before: Instant, after: Instant) -> bool {
-    let at = DateTime::parse_from_rfc3339(at)
-        .unwrap()
-        .with_timezone(&Utc);
-    let floor =
-        before.0 - Duration::nanoseconds(i64::from(before.0.timestamp_subsec_nanos() % 1_000_000));
+    let at = Timestamp::parse_from_rfc3339(at).unwrap();
+    let floor = before.0.trunc_subsecs(3);
     floor <= at && at <= after.0
 }
 
 /// One reading of the wall clock, held to compare with an instant a handler
 /// stamped.
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct Instant(DateTime<Utc>);
+pub(crate) struct Instant(Timestamp);
 
 impl Instant {
     pub(crate) fn now() -> Self {
-        Self(Utc::now())
+        Self(Timestamp::now())
     }
 }
 
@@ -278,20 +273,20 @@ pub(crate) const WEST_OF_THE_DATE_LINE: &str = "Etc/GMT+12";
 /// them is not UTC's day.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Today {
-    pub(crate) utc: NaiveDate,
-    pub(crate) kiritimati: NaiveDate,
-    pub(crate) west: NaiveDate,
+    pub(crate) utc: CivilDate,
+    pub(crate) kiritimati: CivilDate,
+    pub(crate) west: CivilDate,
 }
 
 impl Today {
     pub(crate) fn read() -> Self {
-        let now = Utc::now();
-        let ahead = FixedOffset::east_opt(14 * 3_600).unwrap();
-        let behind = FixedOffset::west_opt(12 * 3_600).unwrap();
+        let now = Timestamp::now();
+        let ahead = Zone::fixed(14 * 3_600).unwrap();
+        let behind = Zone::fixed(-12 * 3_600).unwrap();
         let today = Self {
-            utc: now.date_naive(),
-            kiritimati: now.with_timezone(&ahead).date_naive(),
-            west: now.with_timezone(&behind).date_naive(),
+            utc: now.utc_date(),
+            kiritimati: ahead.date_at(now),
+            west: behind.date_at(now),
         };
         assert_ne!(
             today.kiritimati, today.west,
@@ -308,7 +303,7 @@ impl Today {
     }
 
     /// The day in one of the two zones.
-    pub(crate) fn in_zone(&self, zone: &str) -> NaiveDate {
+    pub(crate) fn in_zone(&self, zone: &str) -> CivilDate {
         match zone {
             KIRITIMATI => self.kiritimati,
             WEST_OF_THE_DATE_LINE => self.west,
@@ -322,56 +317,54 @@ impl Today {
 /// (`2026-11-15T22:00:00.500250` for Kiritimati's 2026-11-16): a session
 /// seeded on the athlete's own day, so how far it lies behind their today
 /// does not hang on the hour the suite runs.
-pub(crate) fn noon_in(date: NaiveDate, zone: &str) -> String {
+pub(crate) fn noon_in(date: CivilDate, zone: &str) -> String {
     let hours_ahead = match zone {
         KIRITIMATI => 14,
         WEST_OF_THE_DATE_LINE => -12,
         other => panic!("{other} is not one of the two fixed-offset zones"),
     };
-    let at =
-        date.and_hms_micro_opt(12, 0, 0, 500_250).unwrap().and_utc() - Duration::hours(hours_ahead);
-    at.format("%Y-%m-%dT%H:%M:%S%.6f").to_string()
+    let at = date
+        .and_time(CivilTime::from_hms_micro(12, 0, 0, 500_250).unwrap())
+        .and_utc()
+        .unwrap()
+        - Elapsed::hours(hours_ahead);
+    at.format("%Y-%m-%dT%H:%M:%S%.6f").unwrap()
 }
 
 /// `date` moved by `days`, as `2026-11-16`.
-pub(crate) fn shifted(date: NaiveDate, days: i64) -> String {
-    let moved = if days < 0 {
-        date - Days::new(days.unsigned_abs())
-    } else {
-        date + Days::new(days.unsigned_abs())
-    };
-    moved.to_string()
+pub(crate) fn shifted(date: CivilDate, days: i64) -> String {
+    (date + Elapsed::days(days)).to_string()
 }
 
 /// The days from `from` to `to`, negative when `to` is the earlier.
-pub(crate) fn days_between(from: NaiveDate, to: NaiveDate) -> i64 {
+pub(crate) fn days_between(from: CivilDate, to: CivilDate) -> i64 {
     (to - from).num_days()
 }
 
 /// The Sunday on or before `date`.
-pub(crate) fn sunday_of(date: NaiveDate) -> NaiveDate {
-    date - Days::new(u64::from(date.weekday().num_days_from_sunday()))
+pub(crate) fn sunday_of(date: CivilDate) -> CivilDate {
+    date - Elapsed::days(i64::from(date.weekday().num_days_from_sunday()))
 }
 
 /// The first day of `date`'s month.
-pub(crate) fn first_of_month(date: NaiveDate) -> NaiveDate {
-    NaiveDate::from_ymd_opt(date.year(), date.month(), 1).unwrap()
+pub(crate) fn first_of_month(date: CivilDate) -> CivilDate {
+    CivilDate::from_ymd(date.year(), date.month(), 1).unwrap()
 }
 
 /// The instant `minutes` before a reading of the clock, for a row whose age
 /// a handler measures against now.
-pub(crate) fn minutes_before_now(minutes: i64) -> DateTime<Utc> {
-    Utc::now() - Duration::minutes(minutes)
+pub(crate) fn minutes_before_now(minutes: i64) -> Timestamp {
+    Timestamp::now() - Elapsed::minutes(minutes)
 }
 
 /// The first day of the month after `date`'s.
-pub(crate) fn first_of_next_month(date: NaiveDate) -> NaiveDate {
+pub(crate) fn first_of_next_month(date: CivilDate) -> CivilDate {
     let (year, month) = if date.month() == 12 {
         (date.year() + 1, 1)
     } else {
         (date.year(), date.month() + 1)
     };
-    NaiveDate::from_ymd_opt(year, month, 1).unwrap()
+    CivilDate::from_ymd(year, month, 1).unwrap()
 }
 
 /// The weekday of `date` (`2026-11-16`) as the activity list writes it in
@@ -399,8 +392,8 @@ pub(crate) fn weekday_name(date: &str) -> &'static str {
 }
 
 /// The Monday of the week `date` falls in.
-pub(crate) fn monday_of(date: NaiveDate) -> NaiveDate {
-    date - Days::new(u64::from(date.weekday().num_days_from_monday()))
+pub(crate) fn monday_of(date: CivilDate) -> CivilDate {
+    date - Elapsed::days(i64::from(date.weekday().num_days_from_monday()))
 }
 
 /// Every date in `body`, as `(JSON pointer, text)`, sorted by pointer.
@@ -532,10 +525,9 @@ pub(crate) fn as_stored(database: &Database, stamp: &str) -> String {
         DatabaseBackend::SQLite(_) => stamp.to_owned(),
         #[cfg(feature = "postgresql")]
         DatabaseBackend::PostgreSQL(_) => {
-            let kept = DateTime::parse_from_rfc3339(stamp)
+            let parsed = Timestamp::parse_from_rfc3339(stamp).unwrap();
+            let kept = Timestamp::from_epoch_micros(parsed.epoch_micros())
                 .unwrap()
-                .with_timezone(&Utc)
-                .trunc_subsecs(6)
                 .to_rfc3339();
             if stamp.ends_with('Z') {
                 kept.replace("+00:00", "Z")
@@ -614,8 +606,8 @@ pub(crate) async fn seed_account(
     resources: &Arc<ServerContext>,
     label: &str,
     role: UserRole,
-    created: DateTime<Utc>,
-    last_active: DateTime<Utc>,
+    created: Timestamp,
+    last_active: Timestamp,
 ) -> Athlete {
     let mut user = User::new(
         format!("{label}-{}@example.com", Uuid::new_v4()),
@@ -663,7 +655,7 @@ pub(crate) async fn seed_account(
 pub(crate) async fn restamp(
     database: &Database,
     sql: &'static str,
-    at: DateTime<Utc>,
+    at: Timestamp,
     id: &str,
     tenant: Option<TenantId>,
 ) {

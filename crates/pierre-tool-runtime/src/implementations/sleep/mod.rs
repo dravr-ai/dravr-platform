@@ -94,29 +94,6 @@ impl McpTool<dyn ToolRuntime> for AnalyzeSleepQualityTool {
                 ..Default::default()
             },
         );
-        properties.insert(
-            "recent_hrv_values".to_owned(),
-            PropertySchema {
-                property_type: "array".to_owned(),
-                description: Some(
-                    "Array of recent HRV values (RMSSD, ms) for trend analysis".to_owned(),
-                ),
-                items: Some(Box::new(PropertySchema {
-                    property_type: "number".to_owned(),
-                    description: Some("HRV RMSSD value in milliseconds".to_owned()),
-                    ..Default::default()
-                })),
-                ..Default::default()
-            },
-        );
-        properties.insert(
-            "baseline_hrv".to_owned(),
-            PropertySchema {
-                property_type: "number".to_owned(),
-                description: Some("User's baseline HRV (RMSSD, ms) for comparison".to_owned()),
-                ..Default::default()
-            },
-        );
         let schema = object_schema_with_format(properties, None);
         answers_with::<Formatted<SleepQualityResult>>(tool_definition(
             "analyze_sleep_quality",
@@ -196,27 +173,6 @@ impl McpTool<dyn ToolRuntime> for CalculateRecoveryScoreTool {
                     "Manual sleep data, used instead of a fetch when no `sleep_provider` is \
                      named. {SLEEP_DATA_FIELDS}"
                 )),
-                ..Default::default()
-            },
-        );
-        properties.insert(
-            "recent_hrv_values".to_owned(),
-            PropertySchema {
-                property_type: "array".to_owned(),
-                description: Some("Array of recent HRV values (RMSSD, ms)".to_owned()),
-                items: Some(Box::new(PropertySchema {
-                    property_type: "number".to_owned(),
-                    description: Some("HRV RMSSD value in milliseconds".to_owned()),
-                    ..Default::default()
-                })),
-                ..Default::default()
-            },
-        );
-        properties.insert(
-            "baseline_hrv".to_owned(),
-            PropertySchema {
-                property_type: "number".to_owned(),
-                description: Some("User's baseline HRV (RMSSD, ms)".to_owned()),
                 ..Default::default()
             },
         );
@@ -304,27 +260,6 @@ impl McpTool<dyn ToolRuntime> for SuggestRestDayTool {
                     "Manual data for last night's sleep, used instead of a fetch when no \
                      `sleep_provider` is named. {SLEEP_DATA_FIELDS}"
                 )),
-                ..Default::default()
-            },
-        );
-        properties.insert(
-            "recent_hrv_values".to_owned(),
-            PropertySchema {
-                property_type: "array".to_owned(),
-                description: Some("Recent HRV values (RMSSD, ms) for trend analysis".to_owned()),
-                items: Some(Box::new(PropertySchema {
-                    property_type: "number".to_owned(),
-                    description: Some("HRV RMSSD value in milliseconds".to_owned()),
-                    ..Default::default()
-                })),
-                ..Default::default()
-            },
-        );
-        properties.insert(
-            "baseline_hrv".to_owned(),
-            PropertySchema {
-                property_type: "number".to_owned(),
-                description: Some("User's baseline HRV (RMSSD, ms)".to_owned()),
                 ..Default::default()
             },
         );

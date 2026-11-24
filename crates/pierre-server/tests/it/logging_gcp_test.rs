@@ -16,7 +16,7 @@ use std::sync::{Arc, Mutex};
 
 use axum::body::Body;
 use axum::http::Request;
-use chrono::DateTime;
+use dravr_tronc::dates::Timestamp;
 use pierre_logging::gcp::GcpFormatter;
 use pierre_logging::span_fields::SpanFieldStorage;
 use pierre_mcp_server::mcp::multitenant::ProviderToolRouter;
@@ -115,7 +115,7 @@ fn info_event_has_rfc3339_time_and_labels() {
 
     let entry = &buf.lines()[0];
     let time = entry["time"].as_str().expect("time is string");
-    DateTime::parse_from_rfc3339(time).expect("time is RFC 3339");
+    Timestamp::parse_from_rfc3339(time).expect("time is RFC 3339");
 
     let labels = &entry["logging.googleapis.com/labels"];
     assert_eq!(labels["service.name"], "pierre-mcp-server");

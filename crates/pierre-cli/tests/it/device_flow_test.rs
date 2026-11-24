@@ -24,7 +24,7 @@ fn intro_when_not_launched_asks_to_open_the_url() {
     let line = approval_intro(false, false);
     assert!(
         line.contains("open this URL in your browser"),
-        "copy-paste intro must ask the operator to open the URL: {line}"
+        "copy-paste intro must ask the admin to open the URL: {line}"
     );
     assert!(
         !line.contains("Opening your browser"),

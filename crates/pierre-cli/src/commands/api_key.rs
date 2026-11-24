@@ -4,13 +4,53 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use chrono::{Duration, Utc};
+use clap::Subcommand;
+use dravr_tronc::dates::{Elapsed, Timestamp};
+use pierre_core::civil_time::UTC_MINUTE;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_database::RepositoryRegistry;
 
 use super::tool::lookup_user;
 
 type Result<T> = AppResult<T>;
+
+/// `pierre-cli api-key`: a user's API keys, and the tools one key called.
+#[non_exhaustive]
+#[derive(Subcommand)]
+pub(crate) enum ApiKeyCommand {
+    /// List a user's API keys, revoked ones marked
+    List {
+        /// Email of the key owner
+        #[arg(long)]
+        email: String,
+    },
+
+    /// Show one key's requests and the tools it called, most-called first
+    Usage {
+        /// Email of the key owner; the key must be theirs
+        #[arg(long)]
+        email: String,
+
+        /// API key id (from `api-key list`)
+        key_id: String,
+
+        /// Window in days, ending now
+        #[arg(long, default_value_t = 30)]
+        days: u32,
+    },
+}
+
+/// Run one `api-key` verb.
+pub(crate) async fn dispatch(repos: &RepositoryRegistry, action: ApiKeyCommand) -> Result<()> {
+    match action {
+        ApiKeyCommand::List { email } => list(repos, email).await,
+        ApiKeyCommand::Usage {
+            email,
+            key_id,
+            days,
+        } => usage(repos, email, key_id, days).await,
+    }
+}
 
 /// List every API key a user owns, revoked ones included and marked.
 pub(crate) async fn list(repos: &RepositoryRegistry, email: String) -> Result<()> {
@@ -29,10 +69,9 @@ pub(crate) async fn list(repos: &RepositoryRegistry, email: String) -> Result<()
     );
     for key in keys {
         let state = if key.is_active { "active" } else { "revoked" };
-        let last_used = key.last_used_at.map_or_else(
-            || "never".to_owned(),
-            |at| at.format("%Y-%m-%d %H:%M UTC").to_string(),
-        );
+        let last_used = key
+            .last_used_at
+            .map_or_else(|| "never".to_owned(), |at| at.format_with(&UTC_MINUTE));
         println!(
             "{:<38}  {:<24}  {:<16}  {:<7}  {last_used}",
             key.id, key.name, key.key_prefix, state
@@ -61,9 +100,9 @@ pub(crate) async fn usage(
     if days == 0 {
         return Err(AppError::invalid_input("--days must be at least 1"));
     }
-    let end = Utc::now();
-    let start = Duration::try_days(i64::from(days))
-        .and_then(|window| end.checked_sub_signed(window))
+    let end = Timestamp::now();
+    let start = Elapsed::try_days(i64::from(days))
+        .and_then(|window| end.checked_sub(window))
         .ok_or_else(|| {
             AppError::invalid_input(format!(
                 "--days {days} reaches past the earliest representable date"

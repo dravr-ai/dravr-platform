@@ -7,10 +7,13 @@
 //! Remote management of the per-provider connect order (carnet#1472,
 //! carnet#1494).
 //!
-//! `sign-in` first (the default): the account sign-in whatever the seats,
-//! the OAuth staying open to whoever starts it. `oauth` first, the kill
-//! switch: a new connection goes through the provider's OAuth while a seat is
-//! free, then the account sign-in. Existing connections are never re-routed.
+//! `extension` first (the default): the account sign-in whatever the seats,
+//! a web client with the Dravr sign-in extension installed starting it
+//! before the credentials form. `sign-in` first: the same, the credentials
+//! form shown first and the extension offered beside it. Under both the OAuth
+//! stays open to whoever starts it. `oauth` first, the kill switch: a new
+//! connection goes through the provider's OAuth while a seat is free, then
+//! the account sign-in. Existing connections are never re-routed.
 
 use clap::{Subcommand, ValueEnum};
 use pierre_auth::connect_order::{ConnectOrder, CONNECT_ORDER_PROVIDERS};
@@ -49,17 +52,21 @@ impl OrderProvider {
 /// Which way a new connection goes first.
 #[derive(Clone, Copy, Debug, ValueEnum)]
 pub(crate) enum FirstWay {
+    /// The account sign-in, whatever the seats, through the Dravr sign-in
+    /// extension first where a web client has it installed (the default)
+    Extension,
+    /// The account sign-in, whatever the seats, the credentials form first
+    SignIn,
     /// The provider's OAuth while a seat is free, then the account sign-in
     Oauth,
-    /// The account sign-in, whatever the seats
-    SignIn,
 }
 
 impl FirstWay {
     const fn order(self) -> ConnectOrder {
         match self {
-            Self::Oauth => ConnectOrder::OAuthFirst,
+            Self::Extension => ConnectOrder::ExtensionFirst,
             Self::SignIn => ConnectOrder::SignInFirst,
+            Self::Oauth => ConnectOrder::OAuthFirst,
         }
     }
 }
@@ -111,12 +118,13 @@ fn set_body(provider: OrderProvider, first: FirstWay) -> Value {
     json!({ "provider": provider.wire(), "order": first.order().as_str() })
 }
 
-/// The operator's words for a stored order; a form this build does not know
+/// The admin's words for a stored order; a form this build does not know
 /// is shown as it came.
 fn first_label(order: &str) -> &str {
     match ConnectOrder::parse(order) {
         Some(ConnectOrder::OAuthFirst) => "OAuth",
         Some(ConnectOrder::SignInFirst) => "sign-in",
+        Some(ConnectOrder::ExtensionFirst) => "extension",
         None => order,
     }
 }
@@ -151,6 +159,11 @@ mod tests {
             json!({ "provider": "coros", "order": "sign_in_first" }),
             "bug: --provider coros --first sign-in sends another body"
         );
+        assert_eq!(
+            set_body(OrderProvider::Trainingpeaks, FirstWay::Extension),
+            json!({ "provider": "trainingpeaks", "order": "extension_first" }),
+            "bug: --provider trainingpeaks --first extension sends another body"
+        );
     }
 
     /// Every provider the server orders is one the CLI can name.
@@ -182,6 +195,11 @@ mod tests {
             first_label("sign_in_first"),
             "sign-in",
             "bug: the sign-in-first order is mislabelled"
+        );
+        assert_eq!(
+            first_label("extension_first"),
+            "extension",
+            "bug: the extension-first order is mislabelled"
         );
         assert_eq!(first_label("?"), "?", "bug: an unknown form is hidden");
     }

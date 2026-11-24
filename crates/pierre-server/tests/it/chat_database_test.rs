@@ -7,7 +7,7 @@
 // Test files: allow missing_docs (rustc lint) and unwrap (valid in tests per CLAUDE.md guidelines)
 #![allow(missing_docs, clippy::unwrap_used)]
 
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::admin::scope::AdminScope;
 use pierre_core::errors::ErrorCode;
 use pierre_core::models::agents::{AgentCategory, AgentVisibility, CreateSystemAgentRequest};
@@ -120,10 +120,9 @@ async fn seed_user(db: &Database, role: &str) -> String {
         user_status: UserStatus::Active,
         role: UserRole::User,
         approved_by: None,
-        approved_at: Some(Utc::now()),
-        created_at: Utc::now(),
-        last_active: Utc::now(),
-        strava_token: None,
+        approved_at: Some(Timestamp::now()),
+        created_at: Timestamp::now(),
+        last_active: Timestamp::now(),
         firebase_uid: None,
         auth_provider: String::new(),
         analytics_consent: false,
@@ -168,6 +167,7 @@ async fn add_row(
             channel_type: None,
             about_user_id: None,
             turn_attempted_write: None,
+            ai_consent_sources: &[],
         })
         .await
         .unwrap()
@@ -227,8 +227,9 @@ async fn test_list_rows_carry_agent_group_preview_and_unread() {
                 is_active: true,
                 channel_type: None,
                 channel_chat_id: None,
-                created_at: Utc::now(),
-                updated_at: Utc::now(),
+                chat_connection: None,
+                created_at: Timestamp::now(),
+                updated_at: Timestamp::now(),
             },
         )
         .await
@@ -967,7 +968,7 @@ impl HeldInsert {
     /// Write a `user` row holding `content` into `conversation_id`, uncommitted.
     async fn open(db: &Database, conversation_id: &str, content: &str) -> Self {
         let id = Uuid::new_v4().to_string();
-        let now = Utc::now();
+        let now = Timestamp::now();
         match db.backend() {
             DatabaseBackend::SQLite(inner) => {
                 let mut tx = inner.pool().begin().await.unwrap();
@@ -1103,6 +1104,7 @@ async fn test_add_message() {
             channel_type: None,
             about_user_id: None,
             turn_attempted_write: None,
+            ai_consent_sources: &[],
         })
         .await
         .unwrap();
@@ -1148,6 +1150,7 @@ async fn test_add_assistant_message_with_finish_reason() {
             channel_type: None,
             about_user_id: None,
             turn_attempted_write: None,
+            ai_consent_sources: &[],
         })
         .await
         .unwrap();
@@ -1193,6 +1196,7 @@ async fn test_get_messages() {
             channel_type: None,
             about_user_id: None,
             turn_attempted_write: None,
+            ai_consent_sources: &[],
         })
         .await
         .unwrap();
@@ -1212,6 +1216,7 @@ async fn test_get_messages() {
             channel_type: None,
             about_user_id: None,
             turn_attempted_write: None,
+            ai_consent_sources: &[],
         })
         .await
         .unwrap();
@@ -1231,6 +1236,7 @@ async fn test_get_messages() {
             channel_type: None,
             about_user_id: None,
             turn_attempted_write: None,
+            ai_consent_sources: &[],
         })
         .await
         .unwrap();
@@ -1283,6 +1289,7 @@ async fn test_get_recent_messages() {
                 channel_type: None,
                 about_user_id: None,
                 turn_attempted_write: None,
+                ai_consent_sources: &[],
             })
             .await
             .unwrap();
@@ -1344,6 +1351,7 @@ async fn test_message_updates_conversation_tokens() {
             channel_type: None,
             about_user_id: None,
             turn_attempted_write: None,
+            ai_consent_sources: &[],
         })
         .await
         .unwrap();
@@ -1363,6 +1371,7 @@ async fn test_message_updates_conversation_tokens() {
             channel_type: None,
             about_user_id: None,
             turn_attempted_write: None,
+            ai_consent_sources: &[],
         })
         .await
         .unwrap();
@@ -1412,6 +1421,7 @@ async fn test_cascade_delete_messages() {
             channel_type: None,
             about_user_id: None,
             turn_attempted_write: None,
+            ai_consent_sources: &[],
         })
         .await
         .unwrap();
@@ -1431,6 +1441,7 @@ async fn test_cascade_delete_messages() {
             channel_type: None,
             about_user_id: None,
             turn_attempted_write: None,
+            ai_consent_sources: &[],
         })
         .await
         .unwrap();
@@ -1496,6 +1507,7 @@ async fn test_persist_tool_round_messages() {
             channel_type: None,
             about_user_id: None,
             turn_attempted_write: None,
+            ai_consent_sources: &[],
         })
         .await
         .unwrap();
@@ -1519,6 +1531,7 @@ async fn test_persist_tool_round_messages() {
             channel_type: None,
             about_user_id: None,
             turn_attempted_write: None,
+            ai_consent_sources: &[],
         })
         .await
         .unwrap();
@@ -1539,6 +1552,7 @@ async fn test_persist_tool_round_messages() {
             channel_type: None,
             about_user_id: None,
             turn_attempted_write: None,
+            ai_consent_sources: &[],
         })
         .await
         .unwrap();
@@ -1591,6 +1605,7 @@ async fn test_persist_tool_round_with_assistant_preamble() {
             channel_type: None,
             about_user_id: None,
             turn_attempted_write: None,
+            ai_consent_sources: &[],
         })
         .await
         .unwrap();
@@ -1611,6 +1626,7 @@ async fn test_persist_tool_round_with_assistant_preamble() {
             channel_type: None,
             about_user_id: None,
             turn_attempted_write: None,
+            ai_consent_sources: &[],
         })
         .await
         .unwrap();
@@ -1632,6 +1648,7 @@ async fn test_persist_tool_round_with_assistant_preamble() {
             channel_type: None,
             about_user_id: None,
             turn_attempted_write: None,
+            ai_consent_sources: &[],
         })
         .await
         .unwrap();
@@ -1684,6 +1701,7 @@ async fn seed_conversation_with_message(
             channel_type: None,
             about_user_id: None,
             turn_attempted_write: None,
+            ai_consent_sources: &[],
         })
         .await
         .unwrap();
@@ -1943,6 +1961,7 @@ async fn test_added_participant_reads_and_posts_like_the_owner() {
             channel_type: None,
             about_user_id: None,
             turn_attempted_write: None,
+            ai_consent_sources: &[],
         })
         .await;
     assert!(refused.is_err());
@@ -1997,6 +2016,7 @@ async fn test_added_participant_reads_and_posts_like_the_owner() {
             channel_type: None,
             about_user_id: None,
             turn_attempted_write: None,
+            ai_consent_sources: &[],
         })
         .await
         .unwrap();
@@ -2465,7 +2485,7 @@ async fn the_capped_create_and_the_archive_read_follow_the_active_count() {
 
 #[tokio::test]
 async fn admin_listing_renders_a_conversation_as_its_own_read_does() {
-    // The operator console lists the newest conversations across every
+    // The admin console lists the newest conversations across every
     // tenant. Each row it returns is the same row `get_conversation` returns
     // to the athlete, rendered the same way on both engines: the timestamps
     // are RFC 3339 with an offset, as every other conversation read gives
@@ -2501,7 +2521,7 @@ async fn admin_listing_renders_a_conversation_as_its_own_read_does() {
     assert_eq!(row.created_at, own_read.created_at);
     assert_eq!(row.updated_at, own_read.updated_at);
     assert!(
-        chrono::DateTime::parse_from_rfc3339(&row.created_at).is_ok(),
+        Timestamp::parse_from_rfc3339(&row.created_at).is_ok(),
         "created_at is RFC 3339: {}",
         row.created_at
     );
@@ -2581,7 +2601,7 @@ async fn assistant_messages_walk_in_order_past_the_cursor() {
         )
         .await
         .unwrap();
-    let before = Utc::now() - Duration::seconds(5);
+    let before = Timestamp::now() - Elapsed::seconds(5);
     let mut ids = Vec::new();
     for (role, content) in [
         ("user", "question"),
@@ -2604,6 +2624,7 @@ async fn assistant_messages_walk_in_order_past_the_cursor() {
                 channel_type: None,
                 about_user_id: None,
                 turn_attempted_write: None,
+                ai_consent_sources: &[],
             })
             .await
             .unwrap();
@@ -2645,7 +2666,7 @@ async fn assistant_messages_walk_in_order_past_the_cursor() {
         vec![ids[1].clone(), ids[2].clone()]
     );
     assert_eq!(walk(Some(before), None, 10).await.len(), 2);
-    let got = walk(Some(Utc::now() + Duration::hours(1)), None, 10).await;
+    let got = walk(Some(Timestamp::now() + Elapsed::hours(1)), None, 10).await;
     assert!(got.is_empty(), "expected empty, got {got:?}");
     assert_eq!(walk(None, None, 1).await, vec![ids[1].clone()]);
     assert_eq!(

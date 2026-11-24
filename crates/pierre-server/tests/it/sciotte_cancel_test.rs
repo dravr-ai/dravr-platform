@@ -27,9 +27,7 @@ use crate::common;
 use crate::helpers;
 
 use std::collections::HashMap;
-use std::fmt::Debug as FmtDebug;
 use std::net::TcpListener as StdTcpListener;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{mpsc, Arc, Mutex, OnceLock};
 use std::thread;
 use std::time::Duration;
@@ -47,15 +45,12 @@ use pierre_core::models::TenantId;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_middleware::provider_link_token::{mint_link_token, MintProviderLinkTokenArgs};
 use pierre_routes_auth::{remember_remote_flow, require_remote_flow, AuthRoutes};
+use pierre_test_support::log_capture::{self, CapturedLog};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use tokio::net::TcpListener;
 use tokio::runtime::Builder;
 use tokio::time::sleep;
-use tracing::field::{Field, Visit};
-use tracing::span::{Attributes, Id, Record};
-use tracing::subscriber::{set_default, DefaultGuard};
-use tracing::{Event, Metadata, Subscriber};
 use uuid::Uuid;
 
 /// The header a step names its cancel key in — a wire value the scraper
@@ -572,7 +567,7 @@ async fn a_step_the_cancel_ended_is_a_quiet_409() {
     let attempt_id = attempt();
     let from = email(CANCELLED);
 
-    let (events, guard) = setup_capture();
+    let (events, guard) = log_capture::capture_events();
     let (status, body) = athlete.login(&from, &attempt_id).await;
     let (errors, sync_failed) = system_failure_signals(&events);
     let noted = saw_cancel_note(&events, "credential_login");
@@ -581,7 +576,7 @@ async fn a_step_the_cancel_ended_is_a_quiet_409() {
     assert!(noted, "the capture saw the handler's cancel note");
     assert_eq!(status, 409, "{body}");
     assert_eq!(body["details"]["reason"], LOGIN_CANCELLED_REASON, "{body}");
-    assert_eq!(errors, 0, "a cancelled login is no operator alert");
+    assert_eq!(errors, 0, "a cancelled login is no admin alert");
     assert_eq!(sync_failed, 0, "a cancelled login is not a sync.failed");
     assert!(
         !athlete.holds_a_flow().await,
@@ -594,7 +589,7 @@ async fn a_code_step_the_cancel_ended_drops_the_flow_quietly() {
     let athlete = Athlete::new().await;
     athlete.remember_flow("flow-1300").await;
 
-    let (events, guard) = setup_capture();
+    let (events, guard) = log_capture::capture_events();
     let (status, body) = athlete
         .post(
             "/api/providers/sciotte/submit-otp",
@@ -627,7 +622,7 @@ async fn a_cancel_that_cannot_reach_the_service_still_refuses_the_attempt() {
     let athlete = Athlete::on(&format!("http://{unbound}")).await;
     let attempt_id = attempt();
 
-    let (events, guard) = setup_capture();
+    let (events, guard) = log_capture::capture_events();
     let (status, body) = athlete.cancel(&attempt_id).await;
     let (errors, sync_failed) = system_failure_signals(&events);
     drop(guard);
@@ -688,7 +683,7 @@ async fn a_step_that_outlived_its_cancel_links_nothing() {
     let key = expected_key(athlete.tenant_id, athlete.user_id, &attempt_id);
     let from = email(OUTLIVED);
 
-    let (events, guard) = setup_capture();
+    let (events, guard) = log_capture::capture_events();
     let login = athlete.login(&from, &attempt_id);
     let cancel = async {
         while login_keys_of(&from).is_empty() {
@@ -804,91 +799,25 @@ async fn a_hosted_pages_link_token_reaches_the_cancel() {
 
 // ── Capture of what the platform logs ──
 
-#[derive(Clone, Debug)]
-struct CapturedEvent {
-    level: tracing::Level,
-    fields: HashMap<String, String>,
-}
-
-#[derive(Default)]
-struct FieldVisitor {
-    fields: HashMap<String, String>,
-}
-
-impl Visit for FieldVisitor {
-    fn record_debug(&mut self, field: &Field, value: &dyn FmtDebug) {
-        self.fields
-            .insert(field.name().to_owned(), format!("{value:?}"));
-    }
-
-    fn record_str(&mut self, field: &Field, value: &str) {
-        self.fields
-            .insert(field.name().to_owned(), value.to_owned());
-    }
-}
-
-/// Records every event and keeps no span state: sqlx's worker threads drop
-/// spans created on the test thread, which a span-tracking registry
-/// installed with `set_default` can panic on (see
-/// `sciotte_login_challenge_test`).
-#[derive(Default)]
-struct CaptureSubscriber {
-    events: Arc<Mutex<Vec<CapturedEvent>>>,
-    next_span: AtomicU64,
-}
-
-impl Subscriber for CaptureSubscriber {
-    fn enabled(&self, _metadata: &Metadata<'_>) -> bool {
-        true
-    }
-
-    fn new_span(&self, _span: &Attributes<'_>) -> Id {
-        Id::from_u64(self.next_span.fetch_add(1, Ordering::Relaxed) + 1)
-    }
-
-    fn record(&self, _span: &Id, _values: &Record<'_>) {}
-
-    fn record_follows_from(&self, _span: &Id, _follows: &Id) {}
-
-    fn event(&self, event: &Event<'_>) {
-        let mut visitor = FieldVisitor::default();
-        event.record(&mut visitor);
-        self.events.lock().unwrap().push(CapturedEvent {
-            level: *event.metadata().level(),
-            fields: visitor.fields,
-        });
-    }
-
-    fn enter(&self, _span: &Id) {}
-
-    fn exit(&self, _span: &Id) {}
-}
-
-fn setup_capture() -> (Arc<Mutex<Vec<CapturedEvent>>>, DefaultGuard) {
-    let capture = CaptureSubscriber::default();
-    let events = Arc::clone(&capture.events);
-    let guard = set_default(capture);
-    (events, guard)
-}
-
 /// Whether the capture saw the handler's own cancel note for `stage`, which
 /// proves it was listening while the handler ran.
-fn saw_cancel_note(events: &Arc<Mutex<Vec<CapturedEvent>>>, stage: &str) -> bool {
-    events.lock().unwrap().iter().any(|e| {
-        e.level == tracing::Level::INFO && e.fields.get("stage").map(String::as_str) == Some(stage)
-    })
+fn saw_cancel_note(events: &CapturedLog, stage: &str) -> bool {
+    events
+        .events()
+        .iter()
+        .any(|e| e.level == tracing::Level::INFO && e.field("stage") == Some(stage))
 }
 
 /// The `ERROR` events and `sync.failed` business events among `events`.
-fn system_failure_signals(events: &Arc<Mutex<Vec<CapturedEvent>>>) -> (usize, usize) {
-    let events = events.lock().unwrap();
+fn system_failure_signals(events: &CapturedLog) -> (usize, usize) {
+    let events = events.events();
     let errors = events
         .iter()
         .filter(|e| e.level == tracing::Level::ERROR)
         .count();
     let sync_failed = events
         .iter()
-        .filter(|e| e.fields.get("event").map(String::as_str) == Some("sync.failed"))
+        .filter(|e| e.field("event") == Some("sync.failed"))
         .count();
     (errors, sync_failed)
 }

@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::periodization::{
     EvidenceTier, Frames, PhaseFit, Progression, Regression, WorkoutParams,
@@ -79,7 +79,7 @@ macro_rules! template_columns {
 /// a native `uuid` on Postgres. `duration_minutes` binds as `i32` (Postgres
 /// `INTEGER` is four bytes). `is_compiled_in` is the literal `FALSE`, which
 /// `SQLite` reads as 0 in its `INTEGER` column. `updated_at` binds as
-/// `DateTime<Utc>`: RFC3339 text on `SQLite`, `TIMESTAMPTZ` on Postgres.
+/// `Timestamp`: RFC3339 text on `SQLite`, `TIMESTAMPTZ` on Postgres.
 /// The seven `*_json` columns bind as [`Value`], which sqlx stores as
 /// `TEXT` on `SQLite` and `jsonb` on Postgres: the stored JSON is an opaque
 /// blob whose only reader is [`template_from_row`], which parses each back
@@ -196,7 +196,7 @@ where
     String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     i32: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     bool: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    DateTime<Utc>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Timestamp: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     Value: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     UuidColumn: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     TenantId: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
@@ -247,7 +247,7 @@ where
     let is_compiled_in: bool = row
         .try_get("is_compiled_in")
         .map_err(|e| AppError::database(format!("read is_compiled_in: {e}")))?;
-    let updated_at: DateTime<Utc> = row
+    let updated_at: Timestamp = row
         .try_get("updated_at")
         .map_err(|e| AppError::database(format!("read updated_at: {e}")))?;
 

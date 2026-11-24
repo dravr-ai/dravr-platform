@@ -16,9 +16,6 @@ import { messagingApi, userApi } from '../../services/api';
 import { ChatAppPicker } from './ChatAppPicker';
 import { ChatAppConnect } from './ChatAppConnect';
 
-/** The query the sheet and the group card share for what the workspace offers. */
-export const AVAILABLE_CHANNELS_KEY = ['messaging-available-channels'] as const;
-
 const EMPTY: AvailableChannel[] = [];
 
 interface ChatAppSheetProps {
@@ -40,7 +37,7 @@ export function ChatAppSheet({ visible, initialChannel, onClose }: ChatAppSheetP
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const { data, isLoading } = useQuery({
-    queryKey: AVAILABLE_CHANNELS_KEY,
+    queryKey: QUERY_KEYS.messaging.availableChannels(),
     queryFn: () => messagingApi.getAvailableChannels(),
     enabled: visible,
     staleTime: 0,

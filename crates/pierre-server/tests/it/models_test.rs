@@ -7,15 +7,14 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::coverage::{Coverage, CoverageWindow};
 use pierre_core::models::CoachingPersona;
 use pierre_core::models::{
-    Activity, ActivityBuilder, Athlete, EncryptedToken, HeartRateZone, PeriodTotals, PowerZone,
-    SegmentEffort, SportType, Stats, Tenant, TenantId, User, UserStatus, UserTier,
+    Activity, ActivityBuilder, Athlete, HeartRateZone, PeriodTotals, PowerZone, SegmentEffort,
+    SportType, Stats, Tenant, TenantId, User, UserStatus, UserTier,
 };
 use pierre_core::permissions::UserRole;
-use secrecy::{ExposeSecret, SecretString};
 use uuid::Uuid;
 
 /// Test data for creating sample activities
@@ -24,7 +23,7 @@ fn create_sample_activity() -> Activity {
         "12345",
         "Morning Run",
         SportType::Run,
-        Utc::now(),
+        Timestamp::now(),
         1800,
         "strava",
     )
@@ -272,7 +271,7 @@ fn test_activity_optional_fields() {
         "123",
         "Quick Walk",
         SportType::Walk,
-        Utc::now(),
+        Timestamp::now(),
         600,
         "manual",
     )
@@ -343,7 +342,7 @@ fn test_user_status_serialization() {
 
 #[test]
 fn test_user_creation_with_required_fields() {
-    let now = Utc::now();
+    let now = Timestamp::now();
     let user_id = Uuid::new_v4();
 
     let user = User {
@@ -352,7 +351,6 @@ fn test_user_creation_with_required_fields() {
         display_name: Some("Test User".to_owned()),
         password_hash: "hashed_password".to_owned(),
         tier: UserTier::Professional,
-        strava_token: None,
         is_active: true,
         user_status: UserStatus::Active,
         role: UserRole::User,
@@ -382,7 +380,7 @@ fn test_user_creation_with_required_fields() {
 
 #[test]
 fn test_tenant_creation() {
-    let now = Utc::now();
+    let now = Timestamp::now();
     let tenant_id = TenantId::generate();
 
     let tenant = Tenant {
@@ -409,7 +407,7 @@ fn test_tenant_creation() {
 /// we keep: the emitted JSON carries every field with the expected shape.
 #[test]
 fn test_tenant_serializes_with_expected_field_shape() {
-    let now = Utc::now();
+    let now = Timestamp::now();
     let tenant_id = TenantId::generate();
     let owner_user_id = Uuid::new_v4();
     let tenant = Tenant {
@@ -468,74 +466,13 @@ fn test_power_zone_creation() {
     assert_eq!(zone.time_in_zone, 15);
 }
 
-#[test]
-fn test_encrypted_token_creation() {
-    let now = Utc::now();
-    let token = EncryptedToken {
-        access_token: SecretString::from("encrypted_access_12345"),
-        refresh_token: SecretString::from("encrypted_refresh_67890"),
-        expires_at: now + chrono::Duration::hours(1),
-        scope: "read write".to_owned(),
-    };
-
-    assert_eq!(token.access_token.expose_secret(), "encrypted_access_12345");
-    assert_eq!(
-        token.refresh_token.expose_secret(),
-        "encrypted_refresh_67890"
-    );
-    assert_eq!(token.scope, "read write");
-    assert!(token.expires_at > now);
-}
-
-#[test]
-fn test_user_with_encrypted_tokens() {
-    let now = Utc::now();
-    let user = User {
-        id: Uuid::new_v4(),
-        email: "tokenuser@example.com".to_owned(),
-        display_name: Some("Token User".to_owned()),
-        password_hash: "secure_hash".to_owned(),
-        tier: UserTier::Professional,
-        strava_token: Some(EncryptedToken {
-            access_token: SecretString::from("strava_encrypted_access"),
-            refresh_token: SecretString::from("strava_encrypted_refresh"),
-            expires_at: now + chrono::Duration::hours(6),
-            scope: "read_all,activity:read".to_owned(),
-        }),
-        is_active: true,
-        user_status: UserStatus::Active,
-        role: UserRole::User,
-        approved_by: Some(Uuid::new_v4()),
-        approved_at: Some(now),
-        created_at: now,
-        last_active: now,
-        firebase_uid: None,
-        auth_provider: String::new(),
-        analytics_consent: false,
-        analytics_consent_at: None,
-        locale: "fr".to_owned(),
-        coaching_persona: CoachingPersona::Casual,
-        manages_roster: false,
-        timezone: None,
-        theme: None,
-    };
-
-    // Verify the token is present
-    assert!(user.strava_token.is_some());
-
-    if let Some(strava_token) = &user.strava_token {
-        assert_eq!(strava_token.scope, "read_all,activity:read");
-        assert!(strava_token.expires_at > now);
-    }
-}
-
 /// Create test activity with detailed segment efforts for validation
 fn create_test_activity_with_segments() -> Activity {
     ActivityBuilder::new(
         "test_123",
         "Trail Run with Segments",
         SportType::Run,
-        Utc::now(),
+        Timestamp::now(),
         3600,
         "strava",
     )
@@ -572,7 +509,7 @@ fn create_test_activity_with_segments() -> Activity {
             name: "Steep Climb".into(),
             elapsed_time: 600,
             moving_time: Some(590),
-            start_date: Utc::now(),
+            start_date: Timestamp::now(),
             distance: 1200.0,
             average_heart_rate: Some(170),
             max_heart_rate: Some(185),
@@ -590,7 +527,7 @@ fn create_test_activity_with_segments() -> Activity {
             name: "Fast Descent".into(),
             elapsed_time: 300,
             moving_time: Some(295),
-            start_date: Utc::now(),
+            start_date: Timestamp::now(),
             distance: 1500.0,
             average_heart_rate: Some(145),
             max_heart_rate: Some(160),
@@ -692,7 +629,7 @@ fn test_activity_detailed_fields_serialization() {
         name: "Test Segment".into(),
         elapsed_time: 180,
         moving_time: Some(175),
-        start_date: Utc::now(),
+        start_date: Timestamp::now(),
         distance: 800.0,
         average_heart_rate: Some(160),
         max_heart_rate: Some(175),
@@ -709,7 +646,7 @@ fn test_activity_detailed_fields_serialization() {
         "serialize_test",
         "Serialization Test",
         SportType::Run,
-        Utc::now(),
+        Timestamp::now(),
         1800,
         "strava",
     )
@@ -772,7 +709,7 @@ fn test_activity_without_detailed_fields() {
         "basic_test",
         "Basic Activity",
         SportType::Ride,
-        Utc::now(),
+        Timestamp::now(),
         3600,
         "garmin",
     )

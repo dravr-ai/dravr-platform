@@ -6,13 +6,22 @@
 
 //! OAuth provider constants
 //!
-//! Note: For dynamic provider discovery, prefer using `ProviderRegistry::supported_providers()`
-//! instead of the static `all()` function. The registry respects feature flags and includes
-//! externally registered providers.
+//! Which providers a build serves is the provider registry's answer
+//! (`ProviderRegistry::supported_providers()`), which respects feature flags
+//! and includes externally registered providers.
 
 use serde::Serialize;
 
 use crate::ai_policy::SourceClass;
+
+mod notices;
+
+pub use notices::{
+    ai_consent_backends, consent_key, is_consent_class, offered_at_connect, provider_notice,
+    provider_terms_version, sensitive_display_name, AtConnect, NoticeAudience, NoticeKind,
+    ProviderNotice, CONSENT_CLASSES, GARMIN_PRIVACY_URL, GARMIN_WORKOUT_TRANSFER, PROVIDER_NOTICES,
+    SENSITIVE_T2, SENSITIVE_T3,
+};
 
 /// Strava fitness provider identifier
 /// Note: Provider name constants are always available for configuration;
@@ -145,7 +154,7 @@ pub const SCIOTTE_COROS: &str = "sciotte_coros";
 /// Every mirror pair: a user-facing provider and its sciotte backend.
 ///
 /// The one table routing, status, the hosted sign-in, the reconnect copy and
-/// the operator's connect order read (carnet#1494), so a provider added here
+/// the admin's connect order read (carnet#1494), so a provider added here
 /// is known to all of them at once.
 pub const MIRROR_PAIRS: [(&str, &str); 4] = [
     (STRAVA, SCIOTTE),
@@ -172,107 +181,6 @@ pub const MIRRORED_PROVIDERS: [&str; MIRROR_PAIRS.len()] = {
 // LIMITATION(registre#713): no `VEKTA` provider identifier, descriptor or factory exists, so a
 // coach or athlete whose sessions, CP/W' and sleep live in Vekta (bearer-key API at
 // api.joinvekta.com) cannot connect it.
-
-/// Which accounts a provider's notice is asked of.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum NoticeAudience {
-    /// Every account that connects the provider, whatever its feature flags:
-    /// the provider's own terms bind every connection, so no operator switch
-    /// can waive the notice.
-    EveryAccount,
-    /// Only the accounts the `provider_exposure_notice` feature flag arms,
-    /// per tenant or per user; an account the flag leaves off is never asked.
-    FlagArmedAccounts,
-}
-
-/// A notice a provider requires the account to accept before connecting.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ProviderNotice {
-    /// The backend the notice guards.
-    pub backend: &'static str,
-    /// The notice's dated version; an acceptance of any other version is no
-    /// acceptance of this one.
-    pub version: &'static str,
-    /// Which accounts are asked for it.
-    pub audience: NoticeAudience,
-    /// What accepting it gives Dravr, and so whether it can be withdrawn.
-    pub kind: NoticeKind,
-}
-
-/// What accepting a provider's notice gives Dravr.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum NoticeKind {
-    /// An acknowledgement of a risk the provider's terms of use create. It
-    /// gates the connect and nothing after it, so there is nothing to
-    /// withdraw: a disconnect ends the exposure.
-    TermsExposure,
-    /// Consent to hand the provider's data to an AI model, which the
-    /// provider's terms let the athlete withdraw at any time, as simply as it
-    /// was given. While it is not given, or once it is withdrawn, no model
-    /// reads that provider's data; the athlete still sees what is stored and
-    /// the connection stays live.
-    AiConsent,
-}
-
-impl ProviderNotice {
-    /// Whether the account can withdraw its acceptance once given: only a
-    /// consent to AI use can be.
-    #[must_use]
-    pub const fn withdrawable(&self) -> bool {
-        matches!(self.kind, NoticeKind::AiConsent)
-    }
-}
-
-/// Every notice a provider requires the account to accept before connecting,
-/// by the backend it guards.
-///
-/// Two kinds of notice share this table and the one acceptance record behind
-/// it:
-///
-/// - **Terms-of-use exposure.** A provider read by signing in with the
-///   athlete's own account, against its terms of use, states the risk before
-///   the credentials: TrainingPeaks (Terms of Use section 13) and COROS (Terms
-///   of Service sections 4 and 7). Asked of the accounts the
-///   `provider_exposure_notice` flag arms
-///   ([`NoticeAudience::FlagArmedAccounts`]). A [`NoticeKind::TermsExposure`]:
-///   nothing to withdraw.
-/// - **Owner authorization.** WHOOP's API Terms of Use (section 4, effective
-///   2026-10-06) let Dravr store WHOOP Data, compute from it and hand it to
-///   the coach only as the data's owner expressly authorizes; the athlete
-///   gives that authorization before the WHOOP OAuth flow begins, and health
-///   sync keeps no WHOOP record for an account that has not. The terms bind
-///   every WHOOP connection, so it is asked of every account
-///   ([`NoticeAudience::EveryAccount`]). A [`NoticeKind::AiConsent`]: the
-///   athlete withdraws it from the privacy settings or the connection card,
-///   after which no model reads WHOOP data and health sync keeps no new WHOOP
-///   record until it is given again (carnet#726).
-///
-/// A connect to one of these backends — a credential login or the start of an
-/// OAuth flow — is refused until an account asked for the notice accepts its
-/// current version; the web and mobile connect surfaces and the hosted pages
-/// show it. An account that accepted a version connects again without being
-/// asked. Bump a provider's version whenever its notice text changes on any
-/// surface or in any locale, so every account is asked again.
-pub const PROVIDER_NOTICES: [ProviderNotice; 3] = [
-    ProviderNotice {
-        backend: SCIOTTE_TRAININGPEAKS,
-        version: "2026-09-24",
-        audience: NoticeAudience::FlagArmedAccounts,
-        kind: NoticeKind::TermsExposure,
-    },
-    ProviderNotice {
-        backend: SCIOTTE_COROS,
-        version: "2026-09-24",
-        audience: NoticeAudience::FlagArmedAccounts,
-        kind: NoticeKind::TermsExposure,
-    },
-    ProviderNotice {
-        backend: WHOOP,
-        version: "2026-09-25",
-        audience: NoticeAudience::EveryAccount,
-        kind: NoticeKind::AiConsent,
-    },
-];
 
 /// The attribution shown beside data a Garmin device recorded.
 ///
@@ -435,31 +343,6 @@ fn device_label(device_name: &str) -> String {
         .to_owned()
 }
 
-/// The backends whose notice is a consent to AI use
-/// ([`NoticeKind::AiConsent`]): while an account has not given it, or once it
-/// withdrew it, no model reads that backend's data.
-pub fn ai_consent_backends() -> impl Iterator<Item = &'static str> {
-    PROVIDER_NOTICES
-        .iter()
-        .filter(|notice| notice.kind == NoticeKind::AiConsent)
-        .map(|notice| notice.backend)
-}
-
-/// The notice `backend` requires, or `None` when the provider asks for none.
-#[must_use]
-pub fn provider_notice(backend: &str) -> Option<&'static ProviderNotice> {
-    PROVIDER_NOTICES
-        .iter()
-        .find(|notice| notice.backend == backend)
-}
-
-/// The current notice version for `backend`, or `None` when the provider
-/// asks for no notice.
-#[must_use]
-pub fn provider_terms_version(backend: &str) -> Option<&'static str> {
-    provider_notice(backend).map(|notice| notice.version)
-}
-
 /// The source key of activities the athlete uploaded as a `.fit` file
 /// (carnet#818).
 ///
@@ -496,9 +379,28 @@ pub const GARMIN_ARCHIVE: &str = "garmin_archive";
 /// Health export, held by dravr-barrage.
 ///
 /// Its activities are served from the activity cache, its sleep, resting heart
-/// rate and HRV from the wellness stores. No connection shares it: Apple
-/// Health has no live provider here, so nothing names it as a companion.
+/// rate and HRV from the wellness stores. It is [`APPLE_HEALTH`]'s companion:
+/// a read pinned to the athlete's iPhone also serves the export they imported.
 pub const APPLE_HEALTH_ARCHIVE: &str = "apple_health_archive";
+
+/// The source key of what the athlete's iPhone syncs from Apple Health.
+///
+/// The companion app reads `HealthKit` and sends it into dravr-barrage's
+/// `LiveSource::AppleHealth`. Apple Health is a relay: it holds what the athlete's watch and apps wrote
+/// into it, so a workout names its recorder as its `source`. Like an archive,
+/// the copy is the athlete's own, under their own terms: never expired, kept
+/// across every disconnect, and readable by AI, MCP, A2A and API keys alike,
+/// the tier consent narrowing that for T2 and T3. No connection backs it:
+/// the phone pushes it, nothing fetches, refreshes or revokes it.
+pub const APPLE_HEALTH: &str = "apple_health";
+
+/// The source key of what the athlete's Android phone syncs from Health
+/// Connect.
+///
+/// The companion app sends it into dravr-barrage's
+/// `LiveSource::HealthConnect`: a relay under the athlete's own terms, as
+/// [`APPLE_HEALTH`] is.
+pub const HEALTH_CONNECT: &str = "health_connect";
 
 /// The source key of a history the athlete imported from their own COROS
 /// export, held by dravr-barrage. It is apart from [`COROS`], the live
@@ -524,8 +426,8 @@ pub const ATHLETE: &str = "athlete";
 ///
 /// Every SQL statement that names user-provided keys lists exactly these, a
 /// rule `activity_cache::sql`'s tests hold the literals to. The list is
-/// dravr-barrage's archive sources plus its upload source, which
-/// `pierre_services::retention_policy`'s tests pin it to.
+/// dravr-barrage's archive sources, its upload source and its two on-device
+/// stores, which `pierre_services::retention_policy`'s tests pin it to.
 pub const USER_PROVIDED_PROVIDERS: &[&str] = &[
     UPLOAD,
     STRAVA_ARCHIVE,
@@ -533,6 +435,8 @@ pub const USER_PROVIDED_PROVIDERS: &[&str] = &[
     APPLE_HEALTH_ARCHIVE,
     COROS_ARCHIVE,
     WHOOP_ARCHIVE,
+    APPLE_HEALTH,
+    HEALTH_CONNECT,
 ];
 
 /// Whether `provider` is a key the athlete brought data in under
@@ -544,8 +448,9 @@ pub fn is_user_provided(provider: &str) -> bool {
 
 /// The [`SourceClass`] of an item served under the key `provider`.
 ///
-/// A device's own connection, an uploaded file and every archive the athlete
-/// imported are the device's record; a reading the athlete typed in is
+/// A device's own connection, an uploaded file, every archive the athlete
+/// imported and what their phone's health store syncs are the device's
+/// record; a reading the athlete typed in is
 /// theirs. A scrape mirror ([`MIRROR_PAIRS`]) relays the service it mirrors,
 /// so its items take that service's class: Strava read through sciotte is the
 /// device's record, as Strava over `OAuth` is, and TrainingPeaks read the same
@@ -570,12 +475,13 @@ pub fn source_class_of(provider: &str) -> SourceClass {
 /// The keys an athlete's own copies of `provider`'s activities are held under.
 ///
 /// Asking for `strava` also reads the Strava history they imported, and
-/// `garmin`, `coros` and `whoop` theirs. Apple Health has no live key to ask
-/// for.
+/// `garmin`, `coros` and `whoop` theirs. Asking for `apple_health`, what the
+/// athlete's iPhone syncs, also reads the Apple Health export they imported.
 #[must_use]
 pub fn companion_keys(provider: &str) -> &'static [&'static str] {
     match provider {
         STRAVA => &[STRAVA_ARCHIVE],
+        APPLE_HEALTH => &[APPLE_HEALTH_ARCHIVE],
         GARMIN => &[GARMIN_ARCHIVE],
         COROS => &[COROS_ARCHIVE],
         WHOOP => &[WHOOP_ARCHIVE],
@@ -614,35 +520,6 @@ pub const SYNTHETIC_SLEEP: &str = "synthetic_sleep";
 #[must_use]
 pub fn is_credential_free(provider: &str) -> bool {
     matches!(provider, SYNTHETIC | SYNTHETIC_SLEEP)
-}
-
-/// Get statically-known OAuth providers
-///
-/// **Deprecated**: Use `crate::providers::get_supported_providers()` instead,
-/// which respects feature flags and includes externally registered providers.
-#[must_use]
-#[deprecated(
-    since = "0.2.0",
-    note = "Use crate::providers::get_supported_providers() for dynamic provider discovery"
-)]
-pub const fn all() -> &'static [&'static str] {
-    // This is a compile-time constant, so we include all potential providers
-    // For runtime checking, use the registry
-    &["strava", "garmin", "whoop", "coros", "synthetic", "sciotte"]
-}
-
-/// Check if a provider is statically known
-///
-/// **Deprecated**: Use `crate::providers::is_provider_supported()` instead,
-/// which respects feature flags and includes externally registered providers.
-#[must_use]
-#[deprecated(
-    since = "0.2.0",
-    note = "Use crate::providers::is_provider_supported() for dynamic provider validation"
-)]
-#[allow(deprecated)]
-pub fn is_supported(provider: &str) -> bool {
-    all().contains(&provider)
 }
 
 /// Token type recorded in `user_oauth_tokens.token_type` for sciotte
@@ -711,6 +588,46 @@ mod tests {
         activity_attribution, garmin_contribution, garmin_recorded, garmin_service_attribution,
         workout_attribution, GarminContribution,
     };
+
+    mod device_stores {
+        use super::super::{
+            companion_keys, is_user_provided, source_class_of, APPLE_HEALTH, APPLE_HEALTH_ARCHIVE,
+            HEALTH_CONNECT,
+        };
+        use crate::ai_policy::SourceClass;
+
+        /// A phone's health store is the athlete's own copy of their devices'
+        /// records: kept as an archive is, and classed as the device's.
+        #[test]
+        fn a_phones_health_store_is_the_athletes_own_device_record() {
+            for key in [APPLE_HEALTH, HEALTH_CONNECT] {
+                assert!(
+                    is_user_provided(key),
+                    "bug: {key} would expire or go with a disconnect"
+                );
+                assert_eq!(
+                    source_class_of(key),
+                    SourceClass::Device,
+                    "bug: {key} relays a device's own record"
+                );
+            }
+        }
+
+        /// A read pinned to the iPhone's Apple Health also reads the export
+        /// the athlete imported; Health Connect has no export to read.
+        #[test]
+        fn apple_health_reads_its_export_beside_it() {
+            assert_eq!(
+                companion_keys(APPLE_HEALTH),
+                [APPLE_HEALTH_ARCHIVE],
+                "bug: the iPhone's lane does not read the imported export"
+            );
+            assert!(
+                companion_keys(HEALTH_CONNECT).is_empty(),
+                "bug: Health Connect names a companion it has none of"
+            );
+        }
+    }
 
     mod source_class {
         use super::super::{

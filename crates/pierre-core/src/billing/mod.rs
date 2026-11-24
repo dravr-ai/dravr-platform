@@ -18,7 +18,7 @@
 use std::collections::HashMap;
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use serde::{Deserialize, Serialize};
 
 use crate::errors::AppResult;
@@ -117,7 +117,7 @@ pub enum BillingEvent {
         /// Provider-side subscription identifier whose row to mark canceled.
         provider_subscription_id: String,
         /// Optional cancellation timestamp; defaults to now if `None`.
-        canceled_at: Option<DateTime<Utc>>,
+        canceled_at: Option<Timestamp>,
     },
     /// A billing payment failed — mark the subscription past-due.
     /// Tier downgrade happens after the dunning grace window, not here.
@@ -149,15 +149,15 @@ pub struct SubscriptionEventPayload {
     /// [`crate::models::SubscriptionStatus::from_str`].
     pub status: String,
     /// Start of the current billing period.
-    pub current_period_start: Option<DateTime<Utc>>,
+    pub current_period_start: Option<Timestamp>,
     /// End of the current billing period.
-    pub current_period_end: Option<DateTime<Utc>>,
+    pub current_period_end: Option<Timestamp>,
     /// Whether the subscription is set to not auto-renew.
     pub cancel_at_period_end: bool,
     /// Timestamp of the cancellation event, if scheduled or applied.
-    pub canceled_at: Option<DateTime<Utc>>,
+    pub canceled_at: Option<Timestamp>,
     /// Trial end timestamp if the subscription is trialing.
-    pub trial_end: Option<DateTime<Utc>>,
+    pub trial_end: Option<Timestamp>,
     /// Free-form provider metadata persisted on the row for audit.
     pub metadata: Option<serde_json::Value>,
 }
@@ -177,7 +177,7 @@ pub struct EventEnvelope {
     /// When the provider says the event happened (Stripe's `created`).
     /// Providers neither deliver events in order nor stop retrying a failed
     /// one, so this, not arrival, orders the events of one subscription.
-    pub occurred_at: DateTime<Utc>,
+    pub occurred_at: Timestamp,
 }
 
 /// One row from a [`BillingProvider::list_invoices`] response.

@@ -12,7 +12,6 @@ import { storeApi, coachesApi } from '../services/api';
 import { track } from '../services/analytics';
 import { SearchField, TabHeader, Alert } from './ui';
 import { NotificationBell } from './notifications/NotificationBell';
-import { QUERY_KEYS } from '../constants/queryKeys';
 import CoachEditSheet from './discover/CoachEditSheet';
 import PostInstallHint from './discover/PostInstallHint';
 import { homeConversationRoute } from './home/homeRoute';
@@ -27,6 +26,7 @@ import {
   countKey,
   INSTALL_COUNT_KEYS,
   isCoachFacing,
+  QUERY_KEYS,
 } from '@pierre/shared-constants';
 import { describeApiError } from '@pierre/ui-logic';
 import type { StoreAgent, StoreAgentDetail } from '@pierre/shared-types';
@@ -627,7 +627,7 @@ interface CoachCardProps {
 const CoachCard = memo(function CoachCard({ coach, onClick, pick }: CoachCardProps) {
   const { t, language } = useTranslation();
   // An agent's pillar is a dot beside its category word — meaning, not a
-  // coloured chip (DESIGN.md §2).
+  // coloured chip (DESIGN.md "Status").
   const categoryDot = coachCategoryDotClass(coach.category);
   const rowClass =
     'group flex min-h-[64px] w-full items-center gap-3.5 border-t ghost-border-faint py-3 text-left transition-colors first:border-t-0';
@@ -793,7 +793,7 @@ function CoachDetailView({
   }
 
   // An agent's pillar is a dot beside its category word — meaning, not a
-  // coloured chip (DESIGN.md §2).
+  // coloured chip (DESIGN.md "Status").
   const categoryDot = coachCategoryDotClass(coach.category);
 
   return (

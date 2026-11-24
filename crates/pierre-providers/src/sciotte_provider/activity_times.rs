@@ -1,4 +1,4 @@
-// ABOUTME: Splits a scraped activity's duration fields into elapsed time and moving time
+// ABOUTME: Splits the duration fields of an activity read through sciotte into elapsed time and moving time
 // ABOUTME: A detail page reads moving time as its duration; the platform's duration is elapsed time
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0

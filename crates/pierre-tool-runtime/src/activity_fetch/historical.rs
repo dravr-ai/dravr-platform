@@ -7,7 +7,7 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::refresh::DataFreshness;
 use pierre_core::models::{Activity, RefreshConfig, TenantId};
 use pierre_providers::core::ActivityQueryParams;
@@ -62,7 +62,7 @@ pub async fn refresh_stale_head(
     before: Option<i64>,
     served: &mut Vec<Activity>,
 ) -> Option<StaleReason> {
-    if before_bounds_a_closed_window(before, Utc::now().timestamp()) {
+    if before_bounds_a_closed_window(before, Timestamp::now().epoch_seconds()) {
         return None;
     }
     // A push-only provider has no live head to top up from: the window
@@ -88,7 +88,7 @@ pub async fn refresh_stale_head(
         .latest_activity_fetch_failure(user_id, &tenant_id, provider_slug)
         .await
         .unwrap_or(None);
-    if let Some(retry_at) = sync_backoff_until(failure, last_sync, Utc::now()) {
+    if let Some(retry_at) = sync_backoff_until(failure, last_sync, Timestamp::now()) {
         info!(
             user_id = %user_id,
             provider = %provider_slug,
@@ -135,7 +135,8 @@ pub async fn serve_historical_window(
     coverage_before: Option<i64>,
     mut served: Vec<Activity>,
 ) -> HistoricalServe {
-    if let Some(head_after) = historical_head_slice(before, coverage_before, Utc::now().timestamp())
+    if let Some(head_after) =
+        historical_head_slice(before, coverage_before, Timestamp::now().epoch_seconds())
     {
         let head_params = ActivityQueryParams {
             after: Some(head_after),

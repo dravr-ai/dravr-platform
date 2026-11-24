@@ -6,7 +6,7 @@
 
 #![allow(missing_docs, clippy::unwrap_used)]
 
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
 use pierre_core::models::{Dossier, DossierFact, Pillar};
 use pierre_core::tokens::estimate_context_tokens;
@@ -26,7 +26,7 @@ fn fact(object: &str) -> DossierFact {
         object: object.to_owned(),
         confidence: 0.9,
         source: "onboarding".to_owned(),
-        updated_at: Utc::now(),
+        updated_at: Timestamp::now(),
         valid_until: None,
         stale: false,
     }
@@ -114,7 +114,7 @@ fn north_star_survives_tight_budget() {
 fn stale_fact_is_flagged() {
     let mut d = empty_dossier();
     let mut f = fact("sleeps 7h");
-    f.valid_until = Some(Utc::now() - Duration::days(1));
+    f.valid_until = Some(Timestamp::now() - Elapsed::days(1));
     f.stale = true;
     d.pillars.insert(Pillar::SleepAndRecovery, vec![f]);
     let bundle = render_okf_bundle_default(
@@ -134,7 +134,7 @@ fn medical_section_rendered() {
         object: "chest pain during exercise (PAR-Q)".to_owned(),
         confidence: 1.0,
         source: "onboarding".to_owned(),
-        updated_at: Utc::now(),
+        updated_at: Timestamp::now(),
         valid_until: None,
         stale: false,
     }];

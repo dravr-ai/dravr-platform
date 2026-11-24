@@ -83,7 +83,7 @@ export interface HostedPalette {
 /**
  * One scheme's palette, every value read from the shared tokens.
  *
- * The card is the one place the schemes take different tiers (DESIGN.md §4):
+ * The card is the one place the schemes take different tiers (DESIGN.md "Cards / Containers"):
  * light lifts to `surface-container-lowest` (white, separated from the paper
  * by its hairline), dark to `surface-container-high`, because dark's
  * `lowest` sits below the canvas and would sink the card instead of lifting it.
@@ -152,6 +152,8 @@ export function measurePairings(scheme: ColorScheme): Measurement[] {
     row('checkbox edge (outline) on the notice', hexToRgb(p.outline), notice, GRAPHIC_FLOOR),
     row('checked checkbox fill on the notice', hexToRgb(p.primary), notice, GRAPHIC_FLOOR),
     row('checkmark on the checked fill', hexToRgb(p.onPrimary), hexToRgb(p.primary), GRAPHIC_FLOOR),
+    row('radio edge (outline) on the card', hexToRgb(p.outline), card, GRAPHIC_FLOOR),
+    row('selected radio dot on its field', hexToRgb(p.primary), hexToRgb(p.field), GRAPHIC_FLOOR),
     row('field underline (outline) on the card', hexToRgb(p.outline), card, GRAPHIC_FLOOR),
     row('focus ring and spinner arc on the card', hexToRgb(p.primary), card, GRAPHIC_FLOOR),
     row('mark on the card', hexToRgb(p.mark), card, GRAPHIC_FLOOR),
@@ -232,7 +234,7 @@ function monoStack(face: string): string {
 }
 
 /**
- * The Google Fonts request for the faces a hosted page sets (DESIGN.md §3).
+ * The Google Fonts request for the faces a hosted page sets (DESIGN.md "Typography").
  * A face costs a download only where a page draws text in it, so the mono
  * face rides along for the one page that shows a code.
  */
@@ -545,7 +547,7 @@ code {
   gap: 8px;
 }
 
-/* The notice: the warning tint under its bound ink (DESIGN.md §2, bound ink). */
+/* The notice: the warning tint under its bound ink (DESIGN.md "The Bound Ink Rule"). */
 .callout {
   margin-bottom: 20px;
   padding: 12px;
@@ -600,6 +602,34 @@ code {
 }
 
 .check input[type="checkbox"]:focus-visible {
+  outline: 2px solid rgb(var(--color-primary));
+  outline-offset: 2px;
+}
+
+/* A radio drawn like the checkbox: the outline token is its edge, the
+   selected one a primary dot on the field ring (WCAG 1.4.11). Centred on the
+   first line of its 23px label: (23px - 16px) / 2. */
+.check input[type="radio"] {
+  -webkit-appearance: none;
+  appearance: none;
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  margin: 3.5px 0 0;
+  border: 1px solid rgb(var(--color-outline));
+  border-radius: 50%;
+  background-color: rgb(var(--color-field));
+  accent-color: rgb(var(--color-primary));
+  cursor: pointer;
+}
+
+.check input[type="radio"]:checked {
+  border-color: rgb(var(--color-primary));
+  background-color: rgb(var(--color-primary));
+  box-shadow: inset 0 0 0 3px rgb(var(--color-field));
+}
+
+.check input[type="radio"]:focus-visible {
   outline: 2px solid rgb(var(--color-primary));
   outline-offset: 2px;
 }
@@ -844,6 +874,53 @@ ${glyphRules}
   height: 8px;
   border-radius: 50%;
   background: rgb(var(--color-primary));
+}
+
+/* The grant picker: the scope box's neutral frame, its title inside the box
+   rather than on the edge, one radio per choice with its hint under the
+   label (16px radio + 12px gap). */
+.grant-choice {
+  min-width: 0;
+}
+
+.grant-choice legend {
+  float: left;
+  width: 100%;
+  padding: 0;
+}
+
+.grant-choice legend + * {
+  clear: both;
+}
+
+.grant-option + .grant-option {
+  margin-top: 16px;
+}
+
+.grant-label {
+  color: rgb(var(--color-on-surface));
+  font-weight: 600;
+}
+
+.grant-hint {
+  margin: 4px 0 0 28px;
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.grant-option .callout {
+  margin: 12px 0 0 28px;
+}
+
+/* A request's own details: the same neutral frame, information rather than a warning. */
+.grant-requested p {
+  font-size: 14px;
+  line-height: 21px;
+}
+
+.grant-requested p + p,
+.grant-requested p + ul {
+  margin-top: 8px;
 }
 
 /* What the athlete consents to, in the words the law asks for: body text,

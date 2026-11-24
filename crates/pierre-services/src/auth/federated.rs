@@ -19,7 +19,7 @@
 //! credential it held before: whoever registered that address first proved
 //! nothing about it, so their password and sessions end here.
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use secrecy::SecretString;
 use tracing::{info, warn};
 use uuid::Uuid;
@@ -36,6 +36,7 @@ use pierre_database::repositories::FederatedLink;
 use pierre_middleware::mask_email;
 
 use super::{invalid_credentials, AuthService};
+use dravr_tronc::dates::Elapsed;
 
 /// Where a federated account was created, as the `user.signed_up` notify
 /// event's `source` reports it.
@@ -351,7 +352,7 @@ impl AuthService {
 
         let sessions = repos
             .session_refresh_tokens
-            .revoke_user_tokens(user.id, Utc::now())
+            .revoke_user_tokens(user.id, Timestamp::now())
             .await?;
         let user_id = user.id.to_string();
 
@@ -431,27 +432,26 @@ impl AuthService {
     }
 
     /// Create a new account for `identity`, under the registration approval
-    /// posture and the operator's sign-up bounds, with its personal workspace.
+    /// posture and the admin's sign-up bounds, with its personal workspace.
     /// A first Google sign-in is a self-serve door like the register form, so
     /// a closed kill switch or a reached ceiling refuses it.
     async fn create_federated_user(&self, identity: &FederatedIdentity<'_>) -> AppResult<User> {
         self.admit_self_signup().await?;
         let email = identity.email.as_str();
-        let (user_status, approved_at, approved_by) = self.determine_approval_status(email).await;
+        let (user_status, approved_at, approved_by) = self.determine_approval_status(email).await?;
         let user_id = Uuid::new_v4();
         let display_name = identity
             .display_name
             .unwrap_or_else(|| email.split('@').next().unwrap_or("user"));
 
         // Step 1: Create user first - tenant membership managed via tenant_users table
-        let now = Utc::now();
+        let now = Timestamp::now();
         let new_user = User {
             id: user_id,
             email: email.to_owned(),
             display_name: identity.display_name.map(str::to_owned),
             password_hash: FEDERATED_ONLY_PASSWORD_HASH.to_owned(),
             tier: UserTier::Starter,
-            strava_token: None,
             created_at: now,
             last_active: now,
             is_active: true,
@@ -513,7 +513,7 @@ impl AuthService {
             .generate_token_with_tenant(user, &self.jwks_manager, active_tenant_id)
             .map_err(|e| AppError::internal(format!("Failed to generate token: {e}")))?;
 
-        let expires_at = Utc::now() + chrono::Duration::hours(limits::DEFAULT_SESSION_HOURS);
+        let expires_at = Timestamp::now() + Elapsed::hours(limits::DEFAULT_SESSION_HOURS);
 
         self.data.repos().users.update_last_active(user.id).await?;
 

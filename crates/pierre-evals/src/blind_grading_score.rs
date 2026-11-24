@@ -1,5 +1,5 @@
 // ABOUTME: Scores blind grades against the key — silent-miss and false-positive rates with Wilson intervals, Cohen's kappa
-// ABOUTME: Joins graders' CSV sheets to the operator's key; a disagreement waits for adjudication instead of being guessed
+// ABOUTME: Joins graders' CSV sheets to the admin's key; a disagreement waits for adjudication instead of being guessed
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -84,7 +84,7 @@ impl Grade {
 /// One grader's grades, by item id.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GraderGrades {
-    /// The grader's name, as the operator gave it.
+    /// The grader's name, as the admin gave it.
     pub grader: String,
     /// Their grade per item id; an item left blank is absent.
     pub grades: BTreeMap<String, Grade>,
@@ -436,7 +436,7 @@ impl GradingReport {
 mod tests {
     use std::slice;
 
-    use chrono::{TimeZone, Utc};
+    use dravr_tronc::dates::Timestamp;
     use pierre_memory::claims::{ClaimCategory, ClaimStatus, GradingWithheld};
 
     use super::*;
@@ -452,7 +452,7 @@ mod tests {
             agent_id: None,
             conversation_id: None,
             message_id: None,
-            claimed_at: Utc.with_ymd_and_hms(2026, 10, 1, 0, 0, 0).unwrap(),
+            claimed_at: Timestamp::parse_from_rfc3339("2026-10-01T00:00:00Z").unwrap(),
             locale: "fr".to_owned(),
             claim_text: "claim".to_owned(),
             category: ClaimCategory::AthleteData,
@@ -466,7 +466,7 @@ mod tests {
         GradingKey {
             tenant_id: "t".to_owned(),
             seed: 1,
-            window_start: Utc.with_ymd_and_hms(2026, 9, 1, 0, 0, 0).unwrap(),
+            window_start: Timestamp::parse_from_rfc3339("2026-09-01T00:00:00Z").unwrap(),
             window_days: 30,
             in_window: i64::try_from(items.len()).unwrap(),
             withheld: GradingWithheld::default(),

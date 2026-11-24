@@ -32,10 +32,10 @@ use std::sync::Arc;
 use axum::extract::connect_info::MockConnectInfo;
 use axum::http::StatusCode;
 use axum::Router;
-use chrono::{Duration, Utc};
 use common::{
     acting_on, create_test_server_resources, create_test_user_with_plan, generate_test_token,
 };
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use helpers::axum_test::AxumTestRequest;
 use helpers::notify_capture::{capture_logs_and_spans, capture_notify, named};
 use pierre_config::constants::oauth_rate_limiting::SIGNUP_CODE_ATTEMPTS;
@@ -263,7 +263,7 @@ async fn an_invalid_code_fails_the_registration_and_creates_nothing() {
 }
 
 // ---------------------------------------------------------------------------
-// 2. The operator's bounds
+// 2. The admin's bounds
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
@@ -277,7 +277,7 @@ async fn a_code_gets_past_the_daily_ceiling_but_not_past_a_closed_switch() {
         .common
         .repos
         .users
-        .count_created_since(Utc::now() - Duration::hours(24))
+        .count_created_since(Timestamp::now() - Elapsed::hours(24))
         .await
         .unwrap();
     set_policy(
@@ -341,7 +341,7 @@ async fn a_used_up_revoked_or_expired_code_is_refused_like_an_unknown_one() {
         .unwrap();
     assert!(repos
         .signup_codes
-        .revoke(revoked.record.id, Utc::now())
+        .revoke(revoked.record.id, Timestamp::now())
         .await
         .unwrap());
     let (status, body) = register(
@@ -361,7 +361,7 @@ async fn a_used_up_revoked_or_expired_code_is_refused_like_an_unknown_one() {
             "ODE1",
             None,
             None,
-            Some(Utc::now() - Duration::minutes(1)),
+            Some(Timestamp::now() - Elapsed::minutes(1)),
             None,
         )
         .await
@@ -857,7 +857,7 @@ async fn a_coachs_code_approves_the_account_and_joins_the_coachs_group() {
     assert_eq!(coach_code.redeemed_by.len(), 1);
 }
 
-/// An address an operator already allowed registers active on its own; the
+/// An address an admin already allowed registers active on its own; the
 /// coach's code it also carries must still join the coach's group, and count
 /// as used, rather than being refused as "already active" and dropped.
 #[tokio::test]
@@ -1101,7 +1101,7 @@ async fn the_reset_restarts_the_daily_count_and_keeps_the_limit() {
         .common
         .repos
         .users
-        .count_created_since(Utc::now() - Duration::hours(24))
+        .count_created_since(Timestamp::now() - Elapsed::hours(24))
         .await
         .unwrap();
     set_policy(
@@ -1204,7 +1204,7 @@ async fn a_reset_older_than_a_day_changes_nothing() {
         .common
         .repos
         .users
-        .count_created_since(Utc::now() - Duration::hours(24))
+        .count_created_since(Timestamp::now() - Elapsed::hours(24))
         .await
         .unwrap();
     assert!(day_count >= 1, "fixture precondition");
@@ -1213,7 +1213,7 @@ async fn a_reset_older_than_a_day_changes_nothing() {
         .database
         .set_system_setting(
             SETTING_SIGNUP_DAILY_LIMIT_RESET_AT,
-            &(Utc::now() - Duration::hours(25)).to_rfc3339(),
+            &(Timestamp::now() - Elapsed::hours(25)).to_rfc3339(),
         )
         .await
         .unwrap();
@@ -1256,7 +1256,7 @@ async fn a_code_never_reaches_the_logs() {
     assert_eq!(status, 200);
     drop(guard);
 
-    let lines = logs.lock().unwrap().clone();
+    let lines = logs.events();
     assert!(
         lines
             .iter()
@@ -1274,7 +1274,7 @@ async fn a_code_never_reaches_the_logs() {
                 );
             }
         }
-        for (field, value) in spans.lock().unwrap().iter() {
+        for (field, value) in &spans.recorded_fields() {
             assert!(
                 !value.contains(code.as_str()) && !value.contains(&normalized),
                 "a span recorded the code under {field}"

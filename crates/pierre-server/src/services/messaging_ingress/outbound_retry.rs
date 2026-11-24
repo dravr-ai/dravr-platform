@@ -4,8 +4,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use chrono::{DateTime, Utc};
 use dravr_canot::channel::MessagingChannel;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::AppError;
 use pierre_core::models::messaging::OutgoingMessage;
 use pierre_core::models::TenantId;
@@ -49,7 +49,7 @@ pub(crate) struct FailedOutbound<'a> {
     pub channel: &'a str,
     /// Instant after which the message must not be re-sent, because a link it
     /// carries has expired by then. `None` when nothing in it expires.
-    pub expires_at: Option<DateTime<Utc>>,
+    pub expires_at: Option<Timestamp>,
     /// Set on a reconnect notice: the provider connection the notice is about.
     /// The worker re-sends only while that connection is still `needs_reauth`.
     pub reauth: Option<OutboundReauthGuard<'a>>,

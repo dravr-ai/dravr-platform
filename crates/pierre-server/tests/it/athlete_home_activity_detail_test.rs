@@ -25,7 +25,7 @@ use std::sync::Arc;
 
 use axum::body::{to_bytes, Body};
 use axum::http::{Request, StatusCode};
-use chrono::{DateTime, Duration, NaiveTime, Utc};
+use dravr_tronc::dates::{CivilTime, Elapsed, Timestamp};
 use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::models::{
     Activity, ActivityBuilder, Lap, Split, SportType, Tenant, TenantId, User,
@@ -172,18 +172,19 @@ async fn cache(
 }
 
 /// A fixed hour `days` days back.
-fn days_ago(days: i64) -> DateTime<Utc> {
-    Utc::now()
-        .date_naive()
-        .and_hms_opt(6, 0, 0)
+fn days_ago(days: i64) -> Timestamp {
+    Timestamp::now()
+        .utc_date()
+        .and_hms(6, 0, 0)
         .unwrap()
         .and_utc()
-        - Duration::days(days)
+        .unwrap()
+        - Elapsed::days(days)
 }
 
 /// A 10 km tempo run as a detailed read caches it: heart rate, speed, power,
 /// cadence, energy, two kilometre splits and one lap.
-fn detailed_run(started: DateTime<Utc>) -> Activity {
+fn detailed_run(started: Timestamp) -> Activity {
     ActivityBuilder::new(
         "tempo-10k",
         "Tempo 10k",
@@ -270,7 +271,7 @@ async fn the_view_carries_every_figure_split_and_lap_the_cache_holds() {
     assert_eq!(row["elevation_gain_meters"], 64.0);
     assert_eq!(row["has_gps"], true);
     assert_eq!(
-        DateTime::parse_from_rfc3339(row["start_date"].as_str().unwrap()).unwrap(),
+        Timestamp::parse_from_rfc3339(row["start_date"].as_str().unwrap()).unwrap(),
         started
     );
     assert_eq!(body["average_heart_rate"], 158);
@@ -354,8 +355,8 @@ async fn a_figure_the_cache_does_not_hold_is_null_and_no_split_is_made_up() {
 
 /// The 2026-09-28 run as jf@dravr.ai's Strava mirror caches it: a manual
 /// entry and the watch's recording of the same run.
-fn manual_and_recorded_run(day: DateTime<Utc>) -> [Activity; 2] {
-    let at = |h, m, s| day.date_naive().and_hms_opt(h, m, s).unwrap().and_utc();
+fn manual_and_recorded_run(day: Timestamp) -> [Activity; 2] {
+    let at = |h, m, s| day.utc_date().and_hms(h, m, s).unwrap().and_utc().unwrap();
     [
         ActivityBuilder::new(
             "bug-de-fougeres",
@@ -430,7 +431,11 @@ async fn the_view_states_the_recording_s_offset_and_the_home_row_does_not() {
 async fn a_date_only_session_states_no_clock_even_when_a_recording_gave_it_an_offset() {
     let resources = common::create_test_server_resources().await.unwrap();
     let athlete = seed_athlete(&resources, "detail-date-only").await;
-    let day = days_ago(1).date_naive().and_time(NaiveTime::MIN).and_utc();
+    let day = days_ago(1)
+        .utc_date()
+        .and_time(CivilTime::MIDNIGHT)
+        .and_utc()
+        .unwrap();
     // Garmin's capture, read date-only, stands for the workout over Strava's
     // copy; the merge fills its missing offset from that copy's recording.
     let capture = ActivityBuilder::new(
@@ -450,7 +455,7 @@ async fn a_date_only_session_states_no_clock_even_when_a_recording_gave_it_an_of
         "888",
         "Evening ride",
         SportType::Ride,
-        day + Duration::hours(17),
+        day + Elapsed::hours(17),
         3_600,
         oauth_providers::STRAVA,
     )
@@ -536,8 +541,8 @@ async fn another_users_or_tenants_activity_and_an_unknown_one_are_not_found() {
             domain: None,
             plan: "starter".to_owned(),
             owner_user_id: owner.user_id,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         })
         .await
         .unwrap();

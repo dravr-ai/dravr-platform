@@ -19,7 +19,7 @@ export function hexToRgb(hex: string): Rgb {
   return [parseInt(match[1], 16), parseInt(match[2], 16), parseInt(match[3], 16)];
 }
 
-/** `#rrggbb` as the bare `r g b` triple every `--color-*` variable holds (DESIGN.md §2). */
+/** `#rrggbb` as the bare `r g b` triple every `--color-*` variable holds (DESIGN.md "The Alpha Rule"). */
 export function triple(hex: string): string {
   return hexToRgb(hex).join(' ');
 }

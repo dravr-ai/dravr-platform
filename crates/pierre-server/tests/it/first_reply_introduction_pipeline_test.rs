@@ -30,7 +30,7 @@ use pierre_core::transport::TransportPolicy;
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use futures_util::stream;
 use uuid::Uuid;
 
@@ -253,7 +253,7 @@ async fn custom_agent(fx: &Fixture, title: &str) -> String {
 /// sync.
 async fn catalogue_agent(fx: &Fixture) -> String {
     let id = Uuid::new_v4().to_string();
-    let now = Utc::now();
+    let now = Timestamp::now();
     let seeder = &fx.resources.common.repos.seeder;
     seeder
         .seed_insert_agent(&SeedAgent {
@@ -382,6 +382,7 @@ async fn turn_prompt(
             ambient_group_fallback: false,
             command_persistence: CommandPersistence::Always,
             sender_id: None,
+            caller: None,
             hooks: PipelineHooks::none(),
             grant: OAuthScope::self_grant(),
         },
@@ -618,6 +619,7 @@ async fn platform_rows_do_not_stand_in_for_the_introduction() {
             channel_type: None,
             about_user_id: None,
             turn_attempted_write: None,
+            ai_consent_sources: &[],
         })
         .await
         .unwrap();
@@ -725,7 +727,7 @@ async fn a_room_hears_its_agent_introduce_itself_once() {
     .unwrap();
 
     let group_id = Uuid::new_v4();
-    let now = Utc::now();
+    let now = Timestamp::now();
     let groups = &fx.resources.common.repos.groups;
     groups
         .create_group(
@@ -745,6 +747,7 @@ async fn a_room_hears_its_agent_introduce_itself_once() {
                 is_active: true,
                 channel_type: None,
                 channel_chat_id: None,
+                chat_connection: None,
                 created_at: now,
                 updated_at: now,
             },
@@ -885,7 +888,7 @@ async fn athlete_with_cached_activities(fx: &Fixture) {
         "strava-run-long".to_owned(),
         "Sortie longue".to_owned(),
         SportType::Run,
-        Utc::now() - Duration::days(2),
+        Timestamp::now() - Elapsed::days(2),
         7_200,
         "strava".to_owned(),
     )
@@ -895,7 +898,7 @@ async fn athlete_with_cached_activities(fx: &Fixture) {
         "strava-run-tempo".to_owned(),
         "Tempo".to_owned(),
         SportType::Run,
-        Utc::now() - Duration::days(4),
+        Timestamp::now() - Elapsed::days(4),
         3_600,
         "strava".to_owned(),
     )
@@ -971,6 +974,7 @@ async fn a_first_reply_on_a_surface_without_a_list_panel_introduces_the_agent_be
             ambient_group_fallback: false,
             command_persistence: CommandPersistence::Always,
             sender_id: None,
+            caller: None,
             hooks: PipelineHooks::none(),
             grant: OAuthScope::self_grant(),
         },

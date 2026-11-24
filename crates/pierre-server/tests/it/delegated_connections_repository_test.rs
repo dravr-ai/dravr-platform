@@ -18,8 +18,8 @@
 use crate::common;
 use pierre_test_support::account::delete_account;
 
-use chrono::{DateTime, Duration, Utc};
 use common::{create_test_database, create_test_user_with_plan};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::errors::ErrorCode;
 use pierre_core::models::groups::{
@@ -101,7 +101,7 @@ async fn fixture() -> Fixture {
 impl Fixture {
     /// An active group the fixture's coach coaches.
     async fn group(&self, name: &str) -> Uuid {
-        let now = Utc::now();
+        let now = Timestamp::now();
         let group = self
             .repos
             .groups
@@ -122,6 +122,7 @@ impl Fixture {
                     is_active: true,
                     channel_type: None,
                     channel_chat_id: None,
+                    chat_connection: None,
                     created_at: now,
                     updated_at: now,
                 },
@@ -148,7 +149,7 @@ impl Fixture {
 
     /// `user` joins `group` as a member.
     async fn join(&self, user: Uuid, tenant: TenantId, group: Uuid) {
-        let now = Utc::now();
+        let now = Timestamp::now();
         self.repos
             .groups
             .add_member(&GroupMember {
@@ -204,7 +205,7 @@ impl Fixture {
         let link = self.proposed(group, member, athlete).await;
         self.repos
             .delegated_connections
-            .confirm(link.id, member, member_tenant, Utc::now())
+            .confirm(link.id, member, member_tenant, Timestamp::now())
             .await
             .unwrap()
             .expect("the member confirms their own proposal")
@@ -218,7 +219,7 @@ async fn a_proposal_round_trips_every_column_to_both_participants() {
     let (member, _) = f.member("m1@delegation.test", group).await;
     let (stranger, _) = f.member("stranger@delegation.test", group).await;
     let mut wanted = f.proposal(group, member, "900001");
-    wanted.proposed_at = Utc::now() - Duration::minutes(5);
+    wanted.proposed_at = Timestamp::now() - Elapsed::minutes(5);
     let repo = &f.repos.delegated_connections;
 
     let stored = repo.propose(&wanted).await.unwrap().expect("stored");
@@ -240,8 +241,8 @@ async fn a_proposal_round_trips_every_column_to_both_participants() {
     );
     assert_eq!(stored.status, DelegationStatus::Proposed);
     assert_eq!(
-        stored.proposed_at.timestamp_micros(),
-        wanted.proposed_at.timestamp_micros(),
+        stored.proposed_at.epoch_micros(),
+        wanted.proposed_at.epoch_micros(),
         "proposed_at survives the round trip to the microsecond"
     );
     assert_eq!(stored.confirmed_at, None);
@@ -332,7 +333,7 @@ async fn one_live_link_per_member_in_a_group_and_per_coach_athlete() {
         f.coach,
         Some(f.coach),
         DelegationEndReason::Withdrawn,
-        Utc::now(),
+        Timestamp::now(),
     )
     .await
     .unwrap()
@@ -351,7 +352,7 @@ async fn confirm_moves_only_the_members_own_proposal() {
     let other_group = f.group("Other").await;
     let (member, member_tenant) = f.member("m1@delegation.test", group).await;
     let (other, other_tenant) = f.member("m2@delegation.test", group).await;
-    let now = Utc::now();
+    let now = Timestamp::now();
     f.repos
         .groups
         .add_member(&GroupMember {
@@ -389,8 +390,8 @@ async fn confirm_moves_only_the_members_own_proposal() {
     assert_eq!(confirmed.status, DelegationStatus::Confirmed);
     assert_eq!(confirmed.member_tenant_id, Some(member_tenant));
     assert_eq!(
-        confirmed.confirmed_at.map(|t| t.timestamp_micros()),
-        Some(now.timestamp_micros())
+        confirmed.confirmed_at.map(Timestamp::epoch_micros),
+        Some(now.epoch_micros())
     );
     assert_eq!(confirmed.proposed_at, link.proposed_at);
     assert!(
@@ -426,8 +427,8 @@ async fn confirm_moves_only_the_members_own_proposal() {
     );
 }
 
-fn micros(at: Option<DateTime<Utc>>) -> Option<i64> {
-    at.map(|t| t.timestamp_micros())
+fn micros(at: Option<Timestamp>) -> Option<i64> {
+    at.map(Timestamp::epoch_micros)
 }
 
 /// `member`'s coach consents in `group`, as stored on their membership.
@@ -450,7 +451,7 @@ async fn a_member_sets_their_coach_consents_on_their_own_membership() {
     let (other, _) = f.member("m2@delegation.test", group).await;
     let groups = &f.repos.groups;
     let key = group.to_string();
-    let t1 = Utc::now() - Duration::minutes(10);
+    let t1 = Timestamp::now() - Elapsed::minutes(10);
 
     assert_eq!(
         consents_of(&f, group, member).await,
@@ -475,10 +476,7 @@ async fn a_member_sets_their_coach_consents_on_their_own_membership() {
         .expect("the member grants")
         .coach_consents;
     assert!(granted.calendar_write);
-    assert_eq!(
-        micros(granted.calendar_write_at),
-        Some(t1.timestamp_micros())
-    );
+    assert_eq!(micros(granted.calendar_write_at), Some(t1.epoch_micros()));
     assert!(!granted.wellness_read, "a consent left out stands");
     assert_eq!(granted.wellness_read_at, None);
     assert_eq!(
@@ -492,7 +490,7 @@ async fn a_member_sets_their_coach_consents_on_their_own_membership() {
         "another member's consents are their own"
     );
 
-    let t2 = t1 + Duration::minutes(1);
+    let t2 = t1 + Elapsed::minutes(1);
     let again = groups
         .set_coach_consents(&key, member, Some(true), Some(true), t2)
         .await
@@ -501,13 +499,13 @@ async fn a_member_sets_their_coach_consents_on_their_own_membership() {
         .coach_consents;
     assert_eq!(
         micros(again.calendar_write_at),
-        Some(t1.timestamp_micros()),
+        Some(t1.epoch_micros()),
         "a consent set to what it already was keeps when it was granted"
     );
     assert!(again.wellness_read);
-    assert_eq!(micros(again.wellness_read_at), Some(t2.timestamp_micros()));
+    assert_eq!(micros(again.wellness_read_at), Some(t2.epoch_micros()));
 
-    let t3 = t2 + Duration::minutes(1);
+    let t3 = t2 + Elapsed::minutes(1);
     let revoked = groups
         .set_coach_consents(&key, member, Some(false), None, t3)
         .await
@@ -515,20 +513,14 @@ async fn a_member_sets_their_coach_consents_on_their_own_membership() {
         .unwrap()
         .coach_consents;
     assert!(!revoked.calendar_write);
-    assert_eq!(
-        micros(revoked.calendar_write_at),
-        Some(t3.timestamp_micros())
-    );
+    assert_eq!(micros(revoked.calendar_write_at), Some(t3.epoch_micros()));
     assert!(revoked.wellness_read);
-    assert_eq!(
-        micros(revoked.wellness_read_at),
-        Some(t2.timestamp_micros())
-    );
+    assert_eq!(micros(revoked.wellness_read_at), Some(t2.epoch_micros()));
 
     // A wellness grant is the member agreeing to the consent as it reads
     // now, so it is stamped even over a standing one; a revoke, like every
     // calendar change, only when it changes the value.
-    let t4 = t3 + Duration::minutes(1);
+    let t4 = t3 + Elapsed::minutes(1);
     let regranted = groups
         .set_coach_consents(&key, member, None, Some(true), t4)
         .await
@@ -538,16 +530,16 @@ async fn a_member_sets_their_coach_consents_on_their_own_membership() {
     assert!(regranted.wellness_read);
     assert_eq!(
         micros(regranted.wellness_read_at),
-        Some(t4.timestamp_micros()),
+        Some(t4.epoch_micros()),
         "a wellness grant over a standing one is stamped again"
     );
     assert_eq!(
         micros(regranted.calendar_write_at),
-        Some(t3.timestamp_micros()),
+        Some(t3.epoch_micros()),
         "a consent left out keeps its stamp"
     );
-    let t5 = t4 + Duration::minutes(1);
-    let t6 = t5 + Duration::minutes(1);
+    let t5 = t4 + Elapsed::minutes(1);
+    let t6 = t5 + Elapsed::minutes(1);
     for at in [t5, t6] {
         groups
             .set_coach_consents(&key, member, None, Some(false), at)
@@ -559,7 +551,7 @@ async fn a_member_sets_their_coach_consents_on_their_own_membership() {
     assert!(!withdrawn.wellness_read);
     assert_eq!(
         micros(withdrawn.wellness_read_at),
-        Some(t5.timestamp_micros()),
+        Some(t5.epoch_micros()),
         "a repeated revoke keeps when it was revoked"
     );
 
@@ -671,7 +663,7 @@ async fn the_read_path_finds_a_confirmed_link_only_while_the_group_relation_hold
         member,
         Some(member),
         DelegationEndReason::RevokedByMember,
-        Utc::now(),
+        Timestamp::now(),
     )
     .await
     .unwrap()
@@ -787,7 +779,7 @@ async fn a_scheduled_pass_lists_every_confirmed_link_the_group_relation_backs() 
         revoked,
         Some(revoked),
         DelegationEndReason::RevokedByMember,
-        Utc::now(),
+        Timestamp::now(),
     )
     .await
     .unwrap()
@@ -823,7 +815,7 @@ async fn ends_return_exactly_the_rows_they_ended() {
     let (m3, t3) = f.member("m3@delegation.test", group).await;
     let confirmed = f.confirmed(group, m1, t1, "900001").await;
     let proposed = f.proposed(group, m2, "900002").await;
-    let now = Utc::now();
+    let now = Timestamp::now();
 
     // One participant ends one link; a stranger cannot.
     assert!(repo
@@ -852,8 +844,8 @@ async fn ends_return_exactly_the_rows_they_ended() {
     );
     assert_eq!(ended[0].revoked_by, Some(m1));
     assert_eq!(
-        ended[0].revoked_at.map(|t| t.timestamp_micros()),
-        Some(now.timestamp_micros())
+        ended[0].revoked_at.map(Timestamp::epoch_micros),
+        Some(now.epoch_micros())
     );
     assert_eq!(
         ended[0].confirmed_at, confirmed.confirmed_at,
@@ -915,7 +907,7 @@ async fn a_coach_disconnect_ends_the_links_its_session_serves_and_no_others() {
             PROVIDER,
             Some(f.coach),
             DelegationEndReason::CoachDisconnected,
-            Utc::now(),
+            Timestamp::now(),
         )
         .await
         .unwrap();
@@ -944,7 +936,7 @@ async fn the_member_ends_their_confirmed_link_and_keeps_their_proposals() {
     let group = f.group("Squad").await;
     let other_group = f.group("Other").await;
     let (member, tenant) = f.member("m1@delegation.test", group).await;
-    let now = Utc::now();
+    let now = Timestamp::now();
     f.repos
         .groups
         .add_member(&GroupMember {

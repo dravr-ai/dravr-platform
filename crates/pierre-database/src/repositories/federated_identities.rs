@@ -123,7 +123,7 @@ macro_rules! impl_federated_identity_repository {
                     .bind(provider)
                     .bind(subject)
                     .bind($bind_id(user_id))
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .execute(self.pool())
                     .await
                     .map_err(|e| {

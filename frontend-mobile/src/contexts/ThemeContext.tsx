@@ -80,7 +80,7 @@ export interface ThemeColors {
     warning: string;
   };
   error: string;
-  /** Informational tint (DESIGN.md §2). */
+  /** Informational tint (DESIGN.md "Feedback and pillars"). */
   info: string;
 }
 
@@ -144,12 +144,12 @@ function buildPalette(scheme: ColorScheme): ThemeColors {
     // shared-constants both carried the Product tier `#b08326`. The phone
     // therefore answered with two different ambers for one token depending on
     // whether a component read a NativeWind class or this hook — which is the
-    // same drift DESIGN.md §2 records mobile carrying for months, fixed in the
+    // same drift mobile carried for months, fixed in the
     // other two mirrors and missed here.
     ...(scheme === 'dark' ? SEMANTIC_COLORS_DARK : SEMANTIC_COLORS),
     // The ink each of those hues binds when it is drawn as a tint. Without
     // these a label sits on a tint of its own hue, which measures as low as
-    // 2.79:1 — the pairing DESIGN.md §8 exists to forbid.
+    // 2.79:1 — the pairing DESIGN.md "The Bound Ink Rule" exists to forbid.
     ink: scheme === 'dark' ? CONTAINER_INKS_DARK : CONTAINER_INKS,
     error: tokens.error,
   };

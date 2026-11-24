@@ -160,7 +160,7 @@ macro_rules! impl_uploaded_activity_file_repository {
                     .bind(file_sha256)
                     .bind(i64::try_from(byte_size).unwrap_or(i64::MAX))
                     .bind(origin)
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .execute(self.pool())
                     .await
                     .map_err(|e| AppError::database(format!("record_uploaded_file: {e}")))?;

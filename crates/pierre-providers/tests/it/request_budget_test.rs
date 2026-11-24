@@ -16,11 +16,10 @@ use secrecy::SecretString;
 use std::sync::Arc;
 use std::time::Duration;
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::ErrorCode;
 use pierre_core::models::{ConnectionType, TenantId, User, UserOAuthToken, API_KEY_TOKEN_TYPE};
 use pierre_database::RepositoryRegistry;
-use pierre_providers::registry::ProviderRegistry;
 use pierre_providers::request_budget::{
     api_key_counter_key, budget_counter_key, budget_period, detail_walk_athlete_counter_key,
     detail_walk_counter_key, in_background, in_detail_walk, is_background, refused_before_send,
@@ -28,6 +27,7 @@ use pierre_providers::request_budget::{
     ONE_DAY, PLATFORM_SCOPE,
 };
 use pierre_test_support::db::create_test_db;
+use pierre_test_support::providers::offline_provider_registry;
 use tokio::time::sleep;
 use uuid::Uuid;
 
@@ -117,7 +117,7 @@ async fn strava_has_a_fifteen_minute_budget_of_one_hundred_by_default() {
     let counters = Arc::clone(&repos.usage_counters);
     let limiter = limiter_over(&repos);
     let key = budget_counter_key("strava", APP);
-    let now = Utc::now();
+    let now = Timestamp::now();
     counters
         .increment_counter(
             PLATFORM_SCOPE,
@@ -160,7 +160,7 @@ async fn strava_has_a_daily_budget_of_one_thousand_by_default() {
     let counters = Arc::clone(&repos.usage_counters);
     let limiter = limiter_over(&repos);
     let key = budget_counter_key("strava", APP);
-    let now = Utc::now();
+    let now = Timestamp::now();
     counters
         .increment_counter(
             PLATFORM_SCOPE,
@@ -260,7 +260,7 @@ async fn a_spent_window_refuses_until_it_ends() {
     let limiter = fresh_limiter().await;
     limiter.set_budgets("strava", &[(2, window)]);
     // Start at the top of a window, so the three requests share one.
-    let into_window = u64::try_from(Utc::now().timestamp_millis().rem_euclid(1_000)).unwrap();
+    let into_window = u64::try_from(Timestamp::now().epoch_millis().rem_euclid(1_000)).unwrap();
     sleep(Duration::from_millis(1_000 - into_window + 20)).await;
 
     assert_eq!(
@@ -309,7 +309,7 @@ async fn each_signing_app_spends_its_own_windows() {
     );
 }
 
-/// A tenant's own app carries the daily budget its operator registered, in
+/// A tenant's own app carries the daily budget its admin registered, in
 /// place of the provider's, and keeps the provider's other windows.
 #[tokio::test]
 async fn a_tenant_apps_own_daily_limit_replaces_the_providers() {
@@ -339,7 +339,7 @@ async fn a_tenant_apps_own_daily_limit_replaces_the_providers() {
     );
     // The refusal gave back the fifteen-minute slot it took first.
     let key = budget_counter_key("strava", "tenant-app");
-    let period = budget_period(Utc::now(), FIFTEEN_MINUTES);
+    let period = budget_period(Timestamp::now(), FIFTEEN_MINUTES);
     assert_eq!(
         counters
             .get_counter(PLATFORM_SCOPE, PLATFORM_SCOPE, &key, &period)
@@ -411,7 +411,7 @@ async fn spend(repos: &RepositoryRegistry, key: &str, window: Duration, value: i
             PLATFORM_SCOPE,
             PLATFORM_SCOPE,
             key,
-            &budget_period(Utc::now(), window),
+            &budget_period(Timestamp::now(), window),
             value,
         )
         .await
@@ -426,7 +426,7 @@ async fn spent(repos: &RepositoryRegistry, key: &str, window: Duration) -> i64 {
             PLATFORM_SCOPE,
             PLATFORM_SCOPE,
             key,
-            &budget_period(Utc::now(), window),
+            &budget_period(Timestamp::now(), window),
         )
         .await
         .unwrap()
@@ -453,7 +453,7 @@ async fn link_athletes(repos: &RepositoryRegistry, athletes: u32, token_type: &s
             ))
             .await
             .unwrap();
-        let now = Utc::now();
+        let now = Timestamp::now();
         repos
             .oauth_tokens
             .upsert_token(&UserOAuthToken {
@@ -574,7 +574,7 @@ async fn an_intervals_apps_fifteen_minute_bucket_holds_half_the_rolling_limit() 
 async fn two_athletes_of_one_app_spend_one_pool() {
     let repos = database().await;
     grant_server_app(&repos, 2).await;
-    let registry = ProviderRegistry::new().with_request_limiter(Arc::new(limiter_over(&repos)));
+    let registry = offline_provider_registry().with_request_limiter(Arc::new(limiter_over(&repos)));
     let first = registry.request_budget(APP, None).expect("a counted app");
     let second = registry.request_budget(APP, None).expect("a counted app");
     let app = budget_counter_key(INTERVALS, APP);
@@ -612,7 +612,7 @@ async fn a_backfill_stops_at_a_quarter_of_the_pool_and_reads_keep_the_rest() {
     assert_eq!(spent(&repos, &app, ONE_DAY).await, 1_251);
 }
 
-/// A tenant's own Intervals.icu app carries the daily budget its operator
+/// A tenant's own Intervals.icu app carries the daily budget its admin
 /// registered in place of the pool the server's app grants size.
 #[tokio::test]
 async fn a_tenant_apps_registered_day_replaces_the_pool() {
@@ -752,7 +752,7 @@ async fn an_api_key_is_held_to_no_app_window() {
 #[tokio::test]
 async fn a_key_with_no_account_shares_no_windows() {
     let repos = database().await;
-    let registry = ProviderRegistry::new().with_request_limiter(Arc::new(limiter_over(&repos)));
+    let registry = offline_provider_registry().with_request_limiter(Arc::new(limiter_over(&repos)));
 
     assert!(registry.api_key_budget("").is_none());
     registry
@@ -1117,7 +1117,7 @@ async fn a_detail_walk_refusal_waits_until_the_athletes_day_ends() {
         "bug: a walk call past the athlete's day is not the limiter's own refusal"
     );
     assert!(refused_before_send(&refused), "nothing was sent");
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     let to_midnight = i64::try_from(ONE_DAY.as_secs()).unwrap() - now.rem_euclid(86_400);
     let wait = i64::try_from(
         refused

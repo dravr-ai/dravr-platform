@@ -31,10 +31,12 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::middleware::from_fn;
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use chrono::Utc;
 use common::{
     create_test_server_resources_with_sciotte, create_test_user_with_plan, generate_test_token,
 };
+use dravr_barrage::record_log::entry::EntryKind;
+use dravr_barrage::{LiveSource, Scope, SourceKey};
+use dravr_tronc::dates::Timestamp;
 use helpers::axum_test::AxumTestRequest;
 use pierre_auth::api_keys::{ApiKey, ApiKeyManager, ApiKeyTier};
 use pierre_core::constants::oauth::providers as oauth_providers;
@@ -271,7 +273,7 @@ async fn world(roster_reads: Calls, dropped: Dropped, url: &str) -> World {
         .unwrap()
         .id
         .to_string();
-    let now = Utc::now();
+    let now = Timestamp::now();
     let group = repos
         .groups
         .create_group(
@@ -291,6 +293,7 @@ async fn world(roster_reads: Calls, dropped: Dropped, url: &str) -> World {
                 is_active: true,
                 channel_type: None,
                 channel_chat_id: None,
+                chat_connection: None,
                 created_at: now,
                 updated_at: now,
             },
@@ -369,7 +372,7 @@ async fn world(roster_reads: Calls, dropped: Dropped, url: &str) -> World {
 }
 
 fn session_token(user: Uuid, tenant: TenantId, session_id: &str) -> UserOAuthToken {
-    let now = Utc::now();
+    let now = Timestamp::now();
     UserOAuthToken {
         id: Uuid::new_v4().to_string(),
         user_id: user,
@@ -709,7 +712,7 @@ async fn the_roster_read_grants_the_coach_and_is_cached(w: &World) {
 
     // The role is recorded once, when it is learned: a live read of an
     // account already recorded as a coach's writes nothing, so it does not
-    // re-grant a permission an operator took back since.
+    // re-grant a permission an admin took back since.
     repos
         .users
         .set_manages_roster(w.coach.id, false)
@@ -904,7 +907,8 @@ async fn only_the_named_member_confirms_without_a_login_of_their_own(w: &World, 
 }
 
 /// The confirm registers the member's delegated connection in the tenant
-/// they confirmed in, and tells the coach.
+/// they confirmed in, logs the connect in their log (carnet#1542), and tells
+/// the coach.
 async fn the_confirm_registers_the_link_and_tells_the_coach(w: &World, link: &str) {
     let (status, body) = w.confirm(link, &w.m1).await;
     assert_eq!(status, StatusCode::OK, "{body}");
@@ -915,6 +919,24 @@ async fn the_confirm_registers_the_link_and_tells_the_coach(w: &World, link: &st
         Some(ConnectionType::Delegated)
     );
     assert_eq!(w.stored(link).await.member_tenant_id, Some(w.m1.tenant));
+    let connects: Vec<_> = w
+        .res
+        .common
+        .activity_records
+        .log_entries(&Scope::new(w.m1.tenant.as_uuid(), w.m1.id), 0, 10)
+        .await
+        .expect("the log reads")
+        .into_iter()
+        .filter(|entry| entry.kind == EntryKind::Connect)
+        .collect();
+    let [connect] = connects.as_slice() else {
+        panic!("bug: the confirm did not log exactly one connect: {connects:?}");
+    };
+    assert_eq!(
+        connect.source,
+        SourceKey::Live(LiveSource::SciotteTrainingpeaks),
+        "bug: the connect was logged under the wrong source"
+    );
     let (status, _) = w.confirm(link, &w.m1).await;
     assert_eq!(status, StatusCode::NOT_FOUND, "no longer a proposal");
 
@@ -1037,7 +1059,7 @@ async fn api_key(res: &Arc<ServerContext>, user_id: Uuid) -> String {
         is_active: true,
         last_used_at: None,
         expires_at: None,
-        created_at: Utc::now(),
+        created_at: Timestamp::now(),
     };
     res.common.repos.api_keys.create(&key).await.unwrap();
     data.full_key

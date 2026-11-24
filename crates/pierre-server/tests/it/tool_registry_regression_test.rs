@@ -21,7 +21,7 @@ fn test_user_visible_tool_count_above_threshold() {
     let mut registry = ToolRegistry::new();
     register_builtin_tools(&mut registry);
 
-    let user_schemas = registry.user_visible_schemas();
+    let user_schemas = registry.athlete_audience_schemas();
     let count = user_schemas.len();
 
     assert!(
@@ -139,7 +139,7 @@ fn test_chat_callable_surface_includes_group_peer_fetch() {
 #[test]
 fn test_chat_callable_surface_excludes_admin_and_management_tools() {
     // Tools that should NOT be callable from chat: agent create/delete/assign
-    // (UI actions), store install/uninstall (UI actions), admin_* (operator),
+    // (UI actions), store install/uninstall (UI actions), admin_* (admin),
     // config write/delete (admin-ish), verify_claim (debug). The LLM should
     // not fire these on natural-language input.
     let mut registry = ToolRegistry::new();
@@ -384,7 +384,7 @@ fn chat_tools_are_never_offered_an_output_format_and_mcp_tools_still_are() {
     );
 
     let get_activities = registry
-        .user_visible_schemas()
+        .athlete_audience_schemas()
         .into_iter()
         .find(|schema| schema.name == "get_activities")
         .expect("get_activities is registered");

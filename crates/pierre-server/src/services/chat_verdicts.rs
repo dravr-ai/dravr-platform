@@ -22,7 +22,7 @@ use axum::{
 
 use pierre_core::errors::AppError;
 use pierre_middleware::extract_auth_from_headers;
-use pierre_runtime_context::{resolve_tenant, tenant::require, TenantMode};
+use pierre_runtime_context::require_tenant;
 use pierre_services::chat_verdicts::list_for_conversation;
 use pierre_tool_runtime::derived_content;
 
@@ -51,7 +51,7 @@ pub async fn get_verdicts_handler(
     Path(conversation_id): Path<String>,
 ) -> Result<Response, AppError> {
     let auth = extract_auth_from_headers(&headers, &resources).await?;
-    let tenant_id = require(resolve_tenant(&resources, &auth, TenantMode::Required).await?)?;
+    let tenant_id = require_tenant(&resources, &auth).await?;
     // An outside client is not served a coach's thread about a member who
     // does not share (EFVP 9.4c). A build without chat has no such thread.
     #[cfg(feature = "client-chat")]

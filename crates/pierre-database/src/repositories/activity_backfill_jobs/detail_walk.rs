@@ -166,8 +166,9 @@ pub struct DetailWalkRow {
     /// the walk named it: a widen never moves it, and it stays once the walk
     /// ends.
     pub window_top_ts: Option<i64>,
-    /// When the walk ended walked (unix ms); `None` while it is owed, or
-    /// when it ended any other way.
+    /// When the walk ended walked, or a history walk ended incomplete on a
+    /// failed last attempt (unix ms); `None` while it is owed, or when it
+    /// ended any other way.
     pub ended_at_ms: Option<i64>,
     /// The sport the walk reads; `None` for every sport.
     pub walk_sport: Option<String>,

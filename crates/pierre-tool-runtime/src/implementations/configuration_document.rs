@@ -21,7 +21,7 @@
 
 use std::collections::BTreeMap;
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_config::constants::configuration_system::AVAILABLE_PARAMETERS_COUNT;
 use pierre_core::config::profiles::{ConfigProfile, ProfileTemplates};
 use pierre_core::errors::{AppError, AppResult};
@@ -109,12 +109,18 @@ fn saved_overrides(saved: &Value) -> Map<String, Value> {
 #[must_use]
 pub fn read_document(stored: Option<&Value>) -> ConfigurationDocument {
     stored.map_or_else(
-        || compose(ConfigProfile::Default, Map::new(), Utc::now().to_rfc3339()),
+        || {
+            compose(
+                ConfigProfile::Default,
+                Map::new(),
+                Timestamp::now().to_rfc3339(),
+            )
+        },
         |saved| {
             let last_modified = saved
                 .get("last_modified")
                 .and_then(Value::as_str)
-                .map_or_else(|| Utc::now().to_rfc3339(), str::to_owned);
+                .map_or_else(|| Timestamp::now().to_rfc3339(), str::to_owned);
             compose(saved_profile(saved), saved_overrides(saved), last_modified)
         },
     )
@@ -240,7 +246,7 @@ pub fn updated_document(
             overrides.insert(key.clone(), value.clone());
         }
     }
-    let document = compose(template, overrides, Utc::now().to_rfc3339());
+    let document = compose(template, overrides, Timestamp::now().to_rfc3339());
     let stored = json!({
         "active_profile": document.active_profile(),
         "profile": document.profile,

@@ -31,8 +31,8 @@
 
 use std::cmp::Reverse;
 
-use chrono::{Duration, Utc};
 use dravr_cageux::config::intelligence::AlgorithmConfig;
+use dravr_tronc::dates::{Elapsed, Timestamp, Zone};
 use pierre_core::models::{Activity, ActivityBuilder, SportType};
 use pierre_fitness_compute::AthleteInputs;
 use pierre_tool_runtime::implementations::analytics::calculate_fitness_metrics;
@@ -54,7 +54,7 @@ fn run(days_ago: i64, duration_seconds: u64) -> Activity {
         format!("run-{days_ago}"),
         format!("run {days_ago}d ago"),
         SportType::Run,
-        Utc::now() - Duration::days(days_ago),
+        Timestamp::now() - Elapsed::days(days_ago),
         duration_seconds,
         "test".to_owned(),
     )
@@ -92,6 +92,7 @@ fn an_improving_athlete_does_not_score_zero_for_performance() {
         "quarter",
         &AthleteInputs::default(),
         &AlgorithmConfig::default(),
+        &Zone::utc(),
         providers(),
     );
 
@@ -119,9 +120,28 @@ fn the_scoring_window_does_not_truncate_chronic_load() {
     let activities = newest_first((0..40).map(|i| run(120 - i * 3, 3600)).collect());
     let config = AlgorithmConfig::default();
 
-    let athlete = AthleteInputs::default();
-    let wide = calculate_fitness_metrics(&activities, "all_time", &athlete, &config, providers());
-    let narrow = calculate_fitness_metrics(&activities, "month", &athlete, &config, providers());
+    // A run is scored against the athlete's own threshold pace: without one
+    // (and no heart-rate thresholds or session RPE) it carries no stress.
+    let athlete = AthleteInputs {
+        threshold_pace_s_per_km: Some(300.0),
+        ..AthleteInputs::default()
+    };
+    let wide = calculate_fitness_metrics(
+        &activities,
+        "all_time",
+        &athlete,
+        &config,
+        &Zone::utc(),
+        providers(),
+    );
+    let narrow = calculate_fitness_metrics(
+        &activities,
+        "month",
+        &athlete,
+        &config,
+        &Zone::utc(),
+        providers(),
+    );
 
     let (FitnessScoreResult::Scored(wide), FitnessScoreResult::Scored(narrow)) = (wide, narrow)
     else {
@@ -165,6 +185,7 @@ fn the_ctl_sentence_comes_from_config_not_a_hardcoded_42() {
         "quarter",
         &AthleteInputs::default(),
         &config,
+        &Zone::utc(),
         providers(),
     );
     let FitnessScoreResult::Scored(detail) = result else {

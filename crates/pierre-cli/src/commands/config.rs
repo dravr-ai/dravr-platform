@@ -4,12 +4,12 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! Operator access to runtime configuration.
+//! Admin access to runtime configuration.
 //!
 //! Overrides resolve most-specific-first — per-user, then per-tenant, then
 //! the `.envrc` pin, then the system-wide row, then the parameter's default
 //! — and every listing reports which of those rungs supplied the value
-//! rather than leaving the operator to infer it.
+//! rather than leaving the admin to infer it.
 //!
 //! `--user` takes an email or a UUID; an email is resolved through the admin
 //! API before the write, so a typo fails with "user not found" instead of
@@ -17,8 +17,8 @@
 
 use std::collections::BTreeMap;
 
-use chrono::Utc;
 use clap::Subcommand;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use serde_json::{json, Value};
 
@@ -167,7 +167,7 @@ impl Scope {
         }
     }
 
-    /// Operator-facing name of the scope in play.
+    /// Admin-facing name of the scope in play.
     fn label(&self) -> String {
         match (&self.tenant, &self.user) {
             (Some(t), Some(u)) => format!("user {u} in tenant {t}"),
@@ -179,7 +179,7 @@ impl Scope {
 }
 
 fn client() -> AppResult<RemoteClient> {
-    let creds = CachedCredentials::require(Utc::now().timestamp())?;
+    let creds = CachedCredentials::require(Timestamp::now().epoch_seconds())?;
     RemoteClient::from_cached(&creds)
 }
 
@@ -241,10 +241,10 @@ fn flatten_catalog(body: &Value, category: Option<&str>) -> Vec<Param> {
     rows
 }
 
-/// The value `config set` sends for what the operator typed.
+/// The value `config set` sends for what the admin typed.
 ///
 /// A bare `500` is a number and `true` a boolean. Anything that is not valid
-/// JSON is the operator typing a plain string. No parameter takes an object or
+/// JSON is the admin typing a plain string. No parameter takes an object or
 /// an array as such: a map-valued parameter holds the map as its text (e.g.
 /// `activity_retention.provider_days`), so those are sent as typed too.
 fn parse_set_value(value: &str) -> Value {

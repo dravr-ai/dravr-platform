@@ -7,7 +7,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::permissions::UserRole;
 use pierre_database::backends::factory::{Database, DatabaseBackend};
 use pierre_database::seed_models::SeedDemoUser;
@@ -57,7 +57,7 @@ enum Arg<'a> {
 
 /// Run `sql` with `args` straight on the pool, past the repository.
 async fn write(db: &Database, sql: &str, args: &[Arg<'_>]) {
-    let now = Utc::now();
+    let now = Timestamp::now();
     match db.backend() {
         DatabaseBackend::SQLite(backend) => {
             let mut query = sqlx::query(sql);
@@ -350,7 +350,7 @@ async fn the_repository_writes_the_role_and_the_column_follows() {
             status: "active".to_owned(),
             role,
             locale: "en".to_owned(),
-            created_at: Utc::now(),
+            created_at: Timestamp::now(),
         };
         db.repositories()
             .seeder
@@ -422,7 +422,7 @@ async fn the_sqlite_triggers_terminate_with_recursive_triggers_on() {
         .await
         .unwrap();
 
-    let now = Utc::now();
+    let now = Timestamp::now();
     let inserted = Uuid::new_v4();
     sqlx::query(INSERT_BOTH_SQL)
         .bind(inserted.to_string())

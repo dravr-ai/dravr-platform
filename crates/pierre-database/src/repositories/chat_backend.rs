@@ -4,29 +4,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-/// Emit the whole [`ChatRepository`](super::chat::ChatRepository) implementation
-/// for one backend type.
-/// The body is written once here; each backend's shell invokes it with its
-/// own type, its driver's row type, and its uuid codec from
-/// [`super::uuid_columns`] — how that backend binds an id the caller holds
-/// as text against its `user_id`/`group_id`/`added_by` columns and reads one
-/// back. The row parsers are emitted inside the macro, by
-/// [`impl_chat_row_parsers!`](super::chat_rows::impl_chat_row_parsers),
-/// because those id reads are the one thing in them that differs per driver;
-/// sqlx resolves the driver from `self.pool()` per expansion.
-///
-/// `$lock` is the backend's clause for the owner slot lock (see
-/// `owner_slot_lock_sql!`): `FOR NO KEY UPDATE` on `PostgreSQL`, `""` on
-/// single-writer `SQLite`. `$begin` is the statement a slot decision's
-/// transaction opens with: `BEGIN IMMEDIATE` on `SQLite`, which takes the
-/// write lock up front, and a plain `BEGIN` on `PostgreSQL`, where the row
-/// lock does that job. `$row_lock` is the clause that locks a conversation
-/// row before it is deleted only while empty (see `chat_delete`'s
-/// `conversation_row_lock_sql!`): `FOR UPDATE` on `PostgreSQL`, `""` on
-/// `SQLite`.
-///
-/// The body names its consts, helpers and types unqualified, so the invoking
-/// shell must `use` every one of them.
 macro_rules! impl_chat_repository {
     ($ty:ty, $row:ty, $ids:ident, $lock:literal, $begin:literal, $row_lock:literal) => {
         $crate::repositories::chat_rows::impl_chat_row_parsers!($row, $ids);
@@ -114,7 +91,7 @@ macro_rules! impl_chat_repository {
                 let id = new
                     .id
                     .map_or_else(|| Uuid::new_v4().to_string(), ToOwned::to_owned);
-                let now = Utc::now();
+                let now = Timestamp::now();
                 let user = $ids::bind_text(new.user_id)?;
                 let group = $ids::bind_text_opt(new.group_id)?;
                 let tenant = new.tenant_id.to_string();
@@ -361,7 +338,7 @@ macro_rules! impl_chat_repository {
                 let Some(row) = row else {
                     return Ok(false);
                 };
-                let target: Option<DateTime<Utc>> = row
+                let target: Option<Timestamp> = row
                     .try_get("target")
                     .map_err(|e| chat_column_error("target", &e))?;
                 let Some(target) = target else {
@@ -424,7 +401,7 @@ macro_rules! impl_chat_repository {
             ) -> AppResult<bool> {
                 let result = sqlx::query(UPDATE_TITLE_SQL)
                     .bind(title)
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .bind(conversation_id)
                     .bind($ids::bind_text(user_id)?)
                     .bind(tenant_id.to_string())
@@ -478,7 +455,7 @@ macro_rules! impl_chat_repository {
 
             async fn add_message(&self, params: &AddMessageParams<'_>) -> AppResult<MessageRecord> {
                 let id = Uuid::new_v4().to_string();
-                let now = Utc::now();
+                let now = Timestamp::now();
                 let tenant = params.tenant_id.to_string();
 
                 let result = sqlx::query(ADD_MESSAGE_SQL)
@@ -498,6 +475,7 @@ macro_rules! impl_chat_repository {
                     .bind(params.channel_type)
                     .bind($ids::bind_opt(params.about_user_id))
                     .bind(params.turn_attempted_write)
+                    .bind(consent_sources_column(params.ai_consent_sources))
                     .execute(self.pool())
                     .await
                     .map_err(|e| AppError::database(format!("Failed to add message: {e}")))?;
@@ -550,6 +528,7 @@ macro_rules! impl_chat_repository {
                     channel_type: params.channel_type.map(ToOwned::to_owned),
                     about_user_id: params.about_user_id,
                     turn_attempted_write: params.turn_attempted_write,
+                    ai_consent_sources: params.ai_consent_sources.to_vec(),
                 })
             }
 
@@ -636,7 +615,7 @@ macro_rules! impl_chat_repository {
             async fn list_assistant_messages_after(
                 &self,
                 tenant_id: TenantId,
-                since: Option<DateTime<Utc>>,
+                since: Option<Timestamp>,
                 after_message_id: Option<&str>,
                 limit: i64,
             ) -> AppResult<Vec<AssistantMessage>> {
@@ -1104,7 +1083,7 @@ macro_rules! impl_chat_repository {
                     .bind(tenant_id.to_string())
                     .bind(thread_id)
                     .bind(agent_id)
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .execute(self.pool())
                     .await
                     .map_err(|e| {
@@ -1123,7 +1102,7 @@ macro_rules! impl_chat_repository {
                     AppError::database(format!("Failed to write the agent welcome: {e}"))
                 };
                 let id = Uuid::new_v4().to_string();
-                let now = Utc::now();
+                let now = Timestamp::now();
                 let tenant = params.tenant_id.to_string();
                 let mut tx = self.pool().begin_with($begin).await.map_err(failed)?;
                 let stamped = sqlx::query(RECORD_AGENT_INTRODUCTION_SQL)
@@ -1155,6 +1134,7 @@ macro_rules! impl_chat_repository {
                     .bind(params.channel_type)
                     .bind($ids::bind_opt(params.about_user_id))
                     .bind(params.turn_attempted_write)
+                    .bind(consent_sources_column(params.ai_consent_sources))
                     .execute(&mut *tx)
                     .await
                     .map_err(failed)?;
@@ -1187,6 +1167,7 @@ macro_rules! impl_chat_repository {
                     channel_type: params.channel_type.map(ToOwned::to_owned),
                     about_user_id: params.about_user_id,
                     turn_attempted_write: params.turn_attempted_write,
+                    ai_consent_sources: params.ai_consent_sources.to_vec(),
                 }))
             }
         }

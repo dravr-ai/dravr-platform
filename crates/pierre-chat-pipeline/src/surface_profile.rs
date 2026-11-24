@@ -41,7 +41,7 @@ const MESSAGING_MAX_TOOL_ITERATIONS: usize = 5;
 /// Identifier for the surface a turn originated from.
 ///
 /// Telemetry only. Every pipeline span carries it as the `channel` field, and
-/// the auth-recovery link-token mint stamps it so an operator can tell which
+/// the auth-recovery link-token mint stamps it so an admin can tell which
 /// surface a reconnect came from. No pipeline decision reads it — decisions
 /// read [`RenderCapabilities`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

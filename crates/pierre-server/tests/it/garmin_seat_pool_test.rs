@@ -32,7 +32,7 @@ use crate::reconnect_prompt_on_served_turn_test::{
 
 use std::sync::Arc;
 
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_config::environment::ServerConfig;
 use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::models::{ConnectionStatus, ConnectionType, UserOAuthToken};
@@ -146,7 +146,7 @@ async fn an_existing_usr_pwd_connection_re_signs_with_a_seat_free() {
             tenant,
             oauth_providers::SCIOTTE_GARMIN,
             Some("session_expired"),
-            Utc::now(),
+            Timestamp::now(),
         )
         .await
         .unwrap();
@@ -252,7 +252,7 @@ async fn the_daily_grant_check_flags_a_grant_garmin_will_not_renew() {
     let (dead, _u, dead_tenant, _t) = athlete(&resources).await;
     hold_grant(&resources, dead, dead_tenant).await;
     // Expired, with nothing to renew it with: the token path hands back none.
-    let now = Utc::now();
+    let now = Timestamp::now();
     resources
         .common
         .repos
@@ -265,7 +265,7 @@ async fn the_daily_grant_check_flags_a_grant_garmin_will_not_renew() {
             access_token: SecretString::from("garmin-access-do-not-log".to_owned()),
             refresh_token: None,
             token_type: "Bearer".to_owned(),
-            expires_at: Some(now - Duration::hours(1)),
+            expires_at: Some(now - Elapsed::hours(1)),
             scope: None,
             provider_user_id: Some(format!("garmin-{dead}")),
             oauth_app_client_id: None,
@@ -436,7 +436,7 @@ async fn a_sign_in_over_a_dead_grant_ends_connected_with_the_pool_full() {
             tenant,
             oauth_providers::GARMIN,
             Some("refresh_refused"),
-            Utc::now(),
+            Timestamp::now(),
         )
         .await
         .unwrap();

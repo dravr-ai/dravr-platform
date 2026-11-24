@@ -27,7 +27,7 @@ use crate::helpers;
 use std::sync::Arc;
 
 use axum::http::StatusCode;
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use serde_json::{json, Value};
 use uuid::Uuid;
 
@@ -83,7 +83,7 @@ async fn setup(email: &str) -> Fixture {
             user_id,
             tenant_id,
             flow,
-            Utc::now().date_naive(),
+            Timestamp::now().utc_date(),
             "web_chat",
         )
         .await
@@ -301,7 +301,7 @@ async fn a_room_created_without_an_agent_stays_unbound() {
         .set_selected_agent(fx.tenant_id, fx.user_id, Some(&selected))
         .await
         .unwrap();
-    let now = Utc::now();
+    let now = Timestamp::now();
     let group_id = Uuid::new_v4();
     repos
         .groups
@@ -322,6 +322,7 @@ async fn a_room_created_without_an_agent_stays_unbound() {
                 is_active: true,
                 channel_type: None,
                 channel_chat_id: None,
+                chat_connection: None,
                 created_at: now,
                 updated_at: now,
             },

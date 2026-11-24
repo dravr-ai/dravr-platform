@@ -94,6 +94,8 @@ pub mod fitness_config;
 pub mod garmin_push_inbox;
 /// Health persistence: data sources, sleep, recovery, health snapshots
 pub mod health_persistence;
+/// Health records: self-reports, clinical records and lab documents (carnet#1544).
+pub mod health_records;
 /// Admin impersonation session audit records.
 pub mod impersonation;
 /// Import tombstones (`Postgres`) backing `ImportTombstoneRepository`.
@@ -121,6 +123,8 @@ mod oauth_client_state;
 pub mod oauth_notifications;
 /// One-time password reset tokens issued by admins and the self-service flow
 pub mod password_reset_tokens;
+/// A member's record of their peers' reads (`PostgreSQL`)
+pub mod peer_data_reads;
 /// The persona-held notifications each digest returned (`PostgreSQL`)
 pub mod persona_digest_returns;
 /// Personal bests at the standard running distances and the runs scanned for them (`PostgreSQL`)
@@ -225,7 +229,7 @@ use crate::repositories::system_settings::{
     UPDATE_SYSTEM_SETTING_IF_UNCHANGED_SQL,
 };
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::config::database::PostgresPoolConfig;
 use pierre_core::errors::{AppError, AppResult};
 use sha2::{Digest, Sha256};

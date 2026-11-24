@@ -37,7 +37,7 @@ use axum::http::request::Parts;
 use axum::http::{HeaderMap, StatusCode};
 use axum::routing::post;
 use axum::Router;
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use secrecy::{ExposeSecret, SecretString};
 use tracing::{error, info, warn};
 use uuid::Uuid;
@@ -206,7 +206,7 @@ async fn store(
 ) -> Result<(GarminPushInboxRow, JobLease), StatusCode> {
     // The envelope parsed as JSON, so the body is UTF-8.
     let payload = String::from_utf8(body.to_vec()).map_err(|_| StatusCode::BAD_REQUEST)?;
-    let now_ms = Utc::now().timestamp_millis();
+    let now_ms = Timestamp::now().epoch_millis();
     let lease = JobLease {
         id: Uuid::new_v4().to_string(),
         token: Uuid::new_v4().to_string(),

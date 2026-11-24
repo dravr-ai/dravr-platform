@@ -11,6 +11,7 @@ use axum::{
     Json,
 };
 use pierre_auth::config::oauth::DIALED_HOST_HEADERS;
+use pierre_auth::oauth2_server::authorization_details::AUTHORIZATION_DETAILS_TYPES;
 use pierre_core::permissions::scopes::OAuthScope;
 use tokio::task::spawn_blocking;
 
@@ -41,6 +42,13 @@ impl OAuth2Routes {
                 "grant_types_supported": ["authorization_code", "client_credentials", "refresh_token"],
                 "response_types_supported": ["code"],
                 "revocation_endpoint": format!("{issuer_url}/oauth2/revoke"),
+                // RFC 9126: a client may push its request first; none has to.
+                "pushed_authorization_request_endpoint": format!("{issuer_url}/oauth2/par"),
+                "require_pushed_authorization_requests": false,
+                // RFC 7662: for the resource servers named in
+                // OAUTH2_INTROSPECTION_CLIENTS, which authenticate with a secret.
+                "introspection_endpoint": format!("{issuer_url}/oauth2/introspect"),
+                "introspection_endpoint_auth_methods_supported": ["client_secret_basic", "client_secret_post"],
                 "token_endpoint_auth_methods_supported": ["none", "client_secret_basic", "client_secret_post"],
                 "scopes_supported": OAuthScope::advertised_as_str(),
                 "response_modes_supported": ["query"],
@@ -49,7 +57,9 @@ impl OAuth2Routes {
                 "authorization_response_iss_parameter_supported": true,
                 // OAuth Client ID Metadata Documents: an https URL `client_id`
                 // is fetched and validated instead of registered.
-                "client_id_metadata_document_supported": true
+                "client_id_metadata_document_supported": true,
+                // RFC 9396: the detail types this server resolves.
+                "authorization_details_types_supported": AUTHORIZATION_DETAILS_TYPES
             })
         })
         .await

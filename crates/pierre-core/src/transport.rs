@@ -135,9 +135,16 @@ impl Transport {
     /// The transport of work started inside a call that already serves
     /// `self`: `inner` labels it, but an external call stays external — a
     /// declaration can only narrow where data may go, never widen it.
+    ///
+    /// An external `inner` inside an external `self` names the call: the
+    /// REST layer declares a request carrying an API key or an MCP token
+    /// [`Self::ApiKey`] before any route runs, and `/mcp` then declares
+    /// [`Self::McpHttp`]. Both withhold the same data, so relabeling widens
+    /// nothing, and every record of the call (its usage row, the admin trail,
+    /// a coach's or peer's read) names the one door it came in by.
     #[must_use]
     pub const fn narrowed_by(self, inner: Self) -> Self {
-        if self.is_first_party() {
+        if self.is_first_party() || !inner.is_first_party() {
             inner
         } else {
             self
@@ -337,8 +344,18 @@ mod tests {
             "an external call stays external"
         );
         assert_eq!(
-            Transport::ApiKey.narrowed_by(Transport::A2a),
-            Transport::ApiKey
+            Transport::ApiKey.narrowed_by(Transport::McpHttp),
+            Transport::McpHttp,
+            "an external door inside an external call names it, and stays external"
         );
+        let external = Transport::ALL.into_iter().filter(|t| !t.is_first_party());
+        for outer in external {
+            for inner in Transport::ALL {
+                assert!(
+                    !outer.narrowed_by(inner).is_first_party(),
+                    "bug: {outer:?} widened to {inner:?}"
+                );
+            }
+        }
     }
 }

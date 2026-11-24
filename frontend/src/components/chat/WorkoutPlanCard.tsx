@@ -4,12 +4,19 @@
 // ABOUTME: Renders the workout_plan block — the saved plan's season and fortnight — as the thread's one hairline card.
 // ABOUTME: Reads the projection the platform built from the rows save_training_plan wrote; the agent's prose never feeds it.
 
-import type { ReactNode } from 'react';
+import { useId, type ReactNode } from 'react';
 import { useTranslation } from '@pierre/i18n';
 import type { TFunction } from '@pierre/i18n';
 import { fuelParts, stepDuration } from '@pierre/chat-utils';
 import { countKey, PLAN_HARD_PER_WEEK_KEYS, PLAN_MORE_WEEKS_KEYS } from '@pierre/shared-constants';
-import { civilDayMonth, formatCivilDate, ROW_DATE, sportLabel } from '@pierre/ui-logic';
+import {
+  civilDayMonth,
+  dayIsUncheckedEdit,
+  formatCivilDate,
+  ROW_DATE,
+  SESSION_EDITOR_KEYS,
+  sportLabel,
+} from '@pierre/ui-logic';
 import { BADGE_TONE, Badge } from '../ui';
 import { EvidenceChip } from './EvidenceChip';
 import type {
@@ -20,10 +27,30 @@ import type {
   WorkoutPlan,
 } from '@pierre/shared-types';
 
+/** Where one entry sits on the card, for the action drawn under it. */
+export interface PlanEntryPlace {
+  /** The id of the date's cell, on the date's first row, for the action to be described by. */
+  dateId: string;
+  /** The id of the entry's own title (or its rest word), telling a date's entries apart. */
+  sessionId: string;
+  /** Every entry on the date, in order, this one included. */
+  entries: readonly PlanDay[];
+  /** The entry's place among them, from 0. */
+  position: number;
+}
+
+/**
+ * What a card draws at the end of one entry, rest days included — the coach's
+ * "Edit day" in their plan thread, and "Add a session" under a date's last.
+ */
+export type PlanDayAction = (day: PlanDay, place: PlanEntryPlace) => ReactNode;
+
 interface WorkoutPlanCardProps {
   plan: WorkoutPlan;
   /** Drawn under the plan, inside the card — a coach's draft controls. */
   children?: ReactNode;
+  /** Drawn at the end of every entry; absent on every card but a coach's in their plan thread. */
+  dayAction?: PlanDayAction;
 }
 
 /**
@@ -39,6 +66,24 @@ function planDate(date: string, language: string): string {
 function stepText(step: PlanStep): string {
   const text = [step.label, stepDuration(step.duration_seconds), step.target_zone].join(' · ');
   return step.repeat !== undefined && step.repeat > 1 ? `${text} ×${step.repeat}` : text;
+}
+
+/**
+ * A session's steps, each as "label · Nm · zone ×repeat", its note on hover.
+ * One list for the plan card's day and the day editor's preview, so a
+ * step reads the same in both. `className` lays the list out: inline on the
+ * card's day, one step a line in the editor.
+ */
+export function PlanStepList({ steps, className }: { steps: readonly PlanStep[]; className?: string }) {
+  return (
+    <ol className={className}>
+      {steps.map((step, index) => (
+        <li key={`${step.label}-${index}`} title={step.note}>
+          {stepText(step)}
+        </li>
+      ))}
+    </ol>
+  );
 }
 
 /**
@@ -128,25 +173,93 @@ function Season({ plan }: { plan: WorkoutPlan }) {
 }
 
 /**
- * One day of the fortnight: the date, the sport, and the session — its text,
- * duration and intensity, then the steps, the template and the fuel it
- * carries. A rest day is the one word.
- *
- * A table row: the card lays a week out as a table, and the Home page's day
- * detail renders the same row in a one-row table, so a day reads the same in
- * both places.
+ * A week's entries by date, in the order the dates come, each date's entries
+ * in the order they are done: a date may hold several (carnet#1716).
  */
-export function DayRow({ day }: { day: PlanDay }) {
+function entriesByDate(days: readonly PlanDay[]): PlanDay[][] {
+  const byDate = new Map<string, PlanDay[]>();
+  for (const day of days) {
+    const entries = byDate.get(day.date);
+    if (entries) entries.push(day);
+    else byDate.set(day.date, [day]);
+  }
+  return [...byDate.values()];
+}
+
+/**
+ * One date of the fortnight: a row per entry, in order, the date's cell on
+ * its first row spanning the others. A row's keys and test ids carry its
+ * place among the date's entries, which is its position (carnet#1716).
+ *
+ * The card lays a week out as a table, and the Home page's day detail draws
+ * the same rows in a table of their own, so a date reads the same in both
+ * places. `action` is drawn last in each entry's session cell.
+ */
+export function PlanDateRows({ entries, action }: { entries: readonly PlanDay[]; action?: PlanDayAction }) {
+  const dateId = useId();
+  return (
+    <>
+      {entries.map((day, position) => (
+        <DayRow
+          key={`${day.date}-${position}`}
+          day={day}
+          place={{ dateId, entries, position }}
+          action={action}
+        />
+      ))}
+    </>
+  );
+}
+
+/**
+ * One entry of a date: the date on the date's first row, the sport, and the
+ * session — its text, duration and intensity, then the steps, the template
+ * and the fuel it carries. A rest entry is the one word. An entry the coach
+ * edited in their draft carries "Edited", one they added "Added", and a
+ * session they wrote by hand says it was not checked against a family's
+ * evidence (carnet#1714, #1716).
+ */
+function DayRow({
+  day,
+  place,
+  action,
+}: {
+  day: PlanDay;
+  place: Omit<PlanEntryPlace, 'sessionId'>;
+  action?: PlanDayAction;
+}) {
   const { t, language } = useTranslation();
+  const sessionId = useId();
+  const { dateId, entries, position } = place;
   const meta = [day.duration_min !== undefined ? `${day.duration_min} min` : null, day.intensity].filter(
     (part): part is string => typeof part === 'string' && part.length > 0,
   );
   const steps = day.steps ?? [];
+  // An added session is the coach's own from the start: "Added" says more than "Edited".
+  const mark = day.added ? (
+    <Badge variant="neutral" className="ml-2" data-testid="plan-day-added">
+      {t(SESSION_EDITOR_KEYS.added)}
+    </Badge>
+  ) : (
+    day.edited && (
+      <Badge variant="neutral" className="ml-2" data-testid="plan-day-edited">
+        {t(SESSION_EDITOR_KEYS.edited)}
+      </Badge>
+    )
+  );
   return (
-    <tr className="border-b ghost-border-faint align-top last:border-0">
-      <td className="whitespace-nowrap py-1.5 pr-3 font-mono text-xs text-on-surface-variant">
-        {formatCivilDate(day.date, language, ROW_DATE)}
-      </td>
+    <tr className="border-b ghost-border-faint align-top last:border-0" data-testid={`plan-day-${day.date}-${position}`}>
+      {/* The date once, on its first entry, spanning the rest: the later
+          entries' actions are described by this cell. */}
+      {position === 0 && (
+        <td
+          id={action ? dateId : undefined}
+          rowSpan={entries.length > 1 ? entries.length : undefined}
+          className="whitespace-nowrap py-1.5 pr-3 font-mono text-xs text-on-surface-variant"
+        >
+          {formatCivilDate(day.date, language, ROW_DATE)}
+        </td>
+      )}
       {/* The sport in the athlete's words; a rest day has none, its one word
           is in the next cell. */}
       <td className="whitespace-nowrap py-1.5 pr-3 text-xs text-on-surface-variant">
@@ -154,16 +267,24 @@ export function DayRow({ day }: { day: PlanDay }) {
       </td>
       <td className="w-full py-1.5">
         {day.rest ? (
-          <span className="text-on-surface-variant">{t('chat.restDay')}</span>
+          <>
+            <span id={sessionId} className="text-on-surface-variant">
+              {t('chat.restDay')}
+            </span>
+            {mark}
+          </>
         ) : (
           <>
-            <span className="font-medium text-on-surface">{day.workout}</span>
+            <span id={sessionId} className="font-medium text-on-surface">
+              {day.workout}
+            </span>
             {meta.length > 0 && (
               <span className="text-on-surface-variant">
                 {' · '}
                 {meta.join(' · ')}
               </span>
             )}
+            {mark}
             {day.outside_evidence && (
               <Badge variant="warning" className="ml-2">
                 {day.outside_evidence}
@@ -175,18 +296,17 @@ export function DayRow({ day }: { day: PlanDay }) {
                 {day.counts_as}
               </div>
             )}
+            {dayIsUncheckedEdit(day) && (
+              <div className="mt-0.5 text-xs text-on-surface-variant" data-testid="plan-day-unchecked">
+                {t(SESSION_EDITOR_KEYS.unchecked)}
+              </div>
+            )}
           </>
         )}
         {steps.length > 0 && (
           <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-on-surface-variant">
             <span className="font-medium text-on-surface">{t('plan.card.steps')}</span>
-            <ol className="contents">
-              {steps.map((step, index) => (
-                <li key={`${step.label}-${index}`} title={step.note}>
-                  {stepText(step)}
-                </li>
-              ))}
-            </ol>
+            <PlanStepList steps={steps} className="contents" />
           </div>
         )}
         {day.template_slug && (
@@ -212,6 +332,7 @@ export function DayRow({ day }: { day: PlanDay }) {
             {t('chat.fuelWithheld')}
           </div>
         )}
+        {action && <div className="mt-1">{action(day, { dateId, sessionId, entries, position })}</div>}
       </td>
     </tr>
   );
@@ -242,14 +363,14 @@ export function WeekHeading({ week, index, currentIndex }: { week: PlanWeek; ind
   );
 }
 
-export default function WorkoutPlanCard({ plan, children }: WorkoutPlanCardProps) {
+export default function WorkoutPlanCard({ plan, children, dayAction }: WorkoutPlanCardProps) {
   const { t, language } = useTranslation();
   const currentIndex = plan.weeks.findIndex((week) => week.current);
 
   return (
     <div className="my-2 overflow-hidden rounded-[10px] border ghost-border bg-surface-container-lowest">
       {/* Header — the plan is a data object inside the agent's turn, the one
-          place a hairline card survives in the thread (DESIGN.md §5). */}
+          place a hairline card survives in the thread (DESIGN.md "Chat surfaces"). */}
       <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 border-b ghost-border-faint px-3 py-2.5">
         <span className="text-sm font-semibold text-on-surface">{t('chat.trainingPlanTitle')}</span>
         <span className="text-xs text-on-surface-variant">
@@ -281,8 +402,8 @@ export default function WorkoutPlanCard({ plan, children }: WorkoutPlanCardProps
               <WeekHeading week={week} index={index} currentIndex={currentIndex} />
               <table className="w-full text-sm">
                 <tbody>
-                  {week.days.map((day) => (
-                    <DayRow key={day.date} day={day} />
+                  {entriesByDate(week.days).map((entries) => (
+                    <PlanDateRows key={entries[0]?.date} entries={entries} action={dayAction} />
                   ))}
                 </tbody>
               </table>

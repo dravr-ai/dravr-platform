@@ -24,7 +24,7 @@
 //! - Treating a cache miss as a contradiction calls the agent a liar over our
 //!   own sync lag.
 
-use chrono::NaiveDate;
+use dravr_tronc::dates::CivilDate;
 use pierre_core::models::SportType;
 use pierre_evals::athlete_data::{check, AthleteRecord, RecordedActivity};
 use pierre_evals::claim_extractor::{ClaimSource, ExtractedClaim};
@@ -87,7 +87,7 @@ fn a_vague_statement_with_no_provider_is_unverifiable_not_contradicted() {
 /// else, so a figures-only fixture keeps them out of the way.
 fn session(distance_km: Option<f64>, duration_min: f64) -> RecordedActivity {
     RecordedActivity {
-        date: NaiveDate::from_ymd_opt(2026, 9, 1).expect("valid date"),
+        date: CivilDate::from_ymd(2026, 9, 1).expect("valid date"),
         sport: SportType::Run,
         name: String::new(),
         distance_km,
@@ -100,8 +100,8 @@ fn session(distance_km: Option<f64>, duration_min: f64) -> RecordedActivity {
 /// The athlete's current day for these fixtures. Every session here is dated
 /// 2026-09-01, so no relative-day word in a claim can attach to one by accident;
 /// the relative-day check has its own file.
-fn fixture_today() -> NaiveDate {
-    NaiveDate::from_ymd_opt(2026, 9, 7).expect("valid date")
+fn fixture_today() -> CivilDate {
+    CivilDate::from_ymd(2026, 9, 7).expect("valid date")
 }
 
 /// A figure that matches a held activity is supported.
@@ -391,7 +391,7 @@ fn ordinary_replies_to_a_connected_athlete_are_never_actionable() {
 ///
 /// The scanner used to stop at the comma, drop `21`, re-enter at `4`, and record
 /// a **4 km** figure the athlete never said — matched against the wrong
-/// activity and printed back in the operator explanation. The platform's default
+/// activity and printed back in the admin explanation. The platform's default
 /// locale is French, so this is the common spelling, not an edge case.
 #[test]
 fn a_comma_decimal_is_one_figure() {
@@ -414,7 +414,7 @@ fn a_comma_decimal_is_one_figure() {
     );
     assert!(
         outcome.explanation.contains("21.4"),
-        "the operator explanation must name the figure actually asserted, got: {}",
+        "the admin explanation must name the figure actually asserted, got: {}",
         outcome.explanation
     );
     assert!(
@@ -428,7 +428,7 @@ fn a_comma_decimal_is_one_figure() {
 ///
 /// "5:00 min/km" used to parse the seconds half as its own `0 min` figure, which
 /// can never match anything, so it broke the all-figures-must-match rule and
-/// surfaced as "0 min" in operator-facing text.
+/// surfaced as "0 min" in admin-facing text.
 #[test]
 fn a_pace_expression_injects_no_phantom_figure() {
     let record = AthleteRecord {

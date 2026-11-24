@@ -55,7 +55,7 @@ export default function CoachingPersonaTab() {
         type: 'success',
         text: t('app.coachingStyleUpdated', { style: nameOf(result.persona) }),
       });
-      void queryClient.invalidateQueries({ queryKey: ['user'] });
+      void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.user.all });
       setTimeout(() => setMessage(null), 3000);
     },
     onError: (_, attempted) => {

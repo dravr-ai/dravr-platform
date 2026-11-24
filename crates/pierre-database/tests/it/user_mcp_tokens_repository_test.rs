@@ -14,7 +14,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::errors::ErrorCode;
 use pierre_core::models::{CreateUserMcpTokenRequest, User, ValidatedUserMcpToken};
 use pierre_database::RepositoryRegistry;
@@ -67,7 +67,7 @@ async fn a_minted_token_reads_back_and_validates_to_its_owner() {
     assert!(!stored.is_revoked);
     assert_eq!(stored.last_used_at, None);
     let expires_at = stored.expires_at.expect("a 30-day token carries an expiry");
-    let expected = Utc::now() + Duration::days(30);
+    let expected = Timestamp::now() + Elapsed::days(30);
     assert!(
         (expires_at - expected).num_seconds().abs() < 60,
         "expiry lands 30 days out, got {expires_at}"

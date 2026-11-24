@@ -23,7 +23,6 @@
 //! * [`coaching`] — The seam a text message reaches the coaching pipeline through
 //! * [`client_types`] — Client registration, credentials, usage types
 //! * [`events`] — Per-task event bus backing streaming (SSE) subscriptions
-//! * [`jsonrpc`] — Minimal JSON-RPC 2.0 types for A2A type aliases
 //! * [`protocol`] — A2A 1.0 JSON-RPC server (`PascalCase` spec methods)
 //! * [`protocol_types`] — A2A 1.0 wire data model and error types
 //! * [`push`] — Push notification (webhook) delivery with SSRF validation
@@ -45,8 +44,6 @@ pub mod client_types;
 pub mod coaching;
 /// Per-task event bus for streaming subscriptions
 pub mod events;
-/// Minimal JSON-RPC 2.0 types for A2A protocol
-pub mod jsonrpc;
 /// A2A protocol JSON-RPC server implementation
 pub mod protocol;
 /// A2A 1.0 wire data model and error definitions
@@ -63,7 +60,18 @@ pub use client::A2AClientManager;
 pub use client_types::{
     A2ARateLimitStatus, ClientCredentials, ClientRegistrationRequest, ClientUsageStats, DailyUsage,
 };
-pub use jsonrpc::{JsonRpcError, JsonRpcRequest, JsonRpcResponse, JSONRPC_VERSION};
+/// Its standard error codes are dravr-tronc's too, so every A2A surface names
+/// the same constants instead of repeating the numbers.
+pub use dravr_tronc::error::{
+    INTERNAL_ERROR, INVALID_PARAMS, INVALID_REQUEST, METHOD_NOT_FOUND, PARSE_ERROR,
+    SERVER_ERROR_START,
+};
+/// The JSON-RPC 2.0 envelope A2A speaks is dravr-tronc's: the transport
+/// sets the `auth` token from the `Authorization` header, and a request body
+/// never can, since those extension fields are never deserialized.
+pub use dravr_tronc::mcp::protocol::{
+    JsonRpcError, JsonRpcRequest, JsonRpcResponse, JSONRPC_VERSION,
+};
 pub use protocol::A2AServer;
 pub use protocol_types::{
     A2AError, A2ASpecError, Artifact, Message, Part, PartContent, Role, SendMessageRequest,
@@ -75,8 +83,6 @@ pub use protocol_types::{
 pub type A2ARequest = JsonRpcRequest;
 /// A2A protocol response (JSON-RPC 2.0 response)
 pub type A2AResponse = JsonRpcResponse;
-/// A2A protocol error response (JSON-RPC 2.0 error)
-pub type A2AErrorResponse = JsonRpcError;
 
 /// Helper function for mapping database errors to A2A errors
 pub fn map_db_error(context: &str) -> impl Fn(errors::AppError) -> A2AError + '_ {

@@ -148,6 +148,8 @@ use crate::common;
 use common::placeholder_llm_chain;
 use secrecy::SecretString;
 
+use dravr_tronc::dates::Elapsed;
+use dravr_tronc::dates::Timestamp;
 use pierre_auth::{auth::AuthManager, tenant::TenantOAuthCredentials};
 use pierre_config::environment::{
     AppBehaviorConfig, AuthConfig, BackupConfig, CacheConfig as EnvCacheConfig, CorsConfig,
@@ -155,8 +157,8 @@ use pierre_config::environment::{
     GarminApiConfig, GoalManagementConfig, HttpClientConfig, LogLevel, LoggingConfig, McpConfig,
     MonitoringConfig, OAuth2ServerConfig, OAuthConfig, OAuthProviderConfig, PostgresPoolConfig,
     ProtocolConfig, RateLimitConfig, SciotteServiceConfig, SecurityConfig, SecurityHeadersConfig,
-    ServerConfig, SleepToolParamsConfig, SseConfig, StravaApiConfig, TlsConfig, TokioRuntimeConfig,
-    TrainingZonesConfig,
+    ServerConfig, SessionCookieConfig, SleepToolParamsConfig, StravaApiConfig, TlsConfig,
+    TokioRuntimeConfig, TrainingZonesConfig,
 };
 use pierre_core::models::CoachingPersona;
 use pierre_core::models::{Tenant, TenantId, User, UserStatus, UserTier};
@@ -252,13 +254,7 @@ async fn test_oauth_flow_through_mcp() {
             },
         },
         external_services: ExternalServicesConfig {
-            strava_api: StravaApiConfig {
-                base_url: "https://www.strava.com/api/v3".to_owned(),
-                auth_url: "https://www.strava.com/oauth/authorize".to_owned(),
-                token_url: "https://www.strava.com/oauth/token".to_owned(),
-                revoke_url: "https://www.strava.com/oauth/revoke".to_owned(),
-                ..Default::default()
-            },
+            strava_api: StravaApiConfig::default(),
             ..Default::default()
         },
         app_behavior: AppBehaviorConfig {
@@ -274,7 +270,7 @@ async fn test_oauth_flow_through_mcp() {
                 server_version: env!("CARGO_PKG_VERSION").to_owned(),
             },
         },
-        sse: SseConfig::default(),
+        session_cookie: SessionCookieConfig::default(),
         oauth2_server: OAuth2ServerConfig::default(),
         host: "localhost".to_owned(),
         base_url: "http://localhost:8081".to_owned(),
@@ -330,6 +326,8 @@ async fn test_oauth_flow_through_mcp() {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                lab_reader: None,
+                pdf_text_bin: None,
                 #[cfg(feature = "client-messaging")]
                 channel_adapters: common::offline_adapters(),
             },
@@ -418,9 +416,8 @@ async fn test_oauth_callback_error_handling() {
         display_name: Some("Admin".to_owned()),
         password_hash: "hash".to_owned(),
         tier: UserTier::Starter,
-        strava_token: None,
-        created_at: chrono::Utc::now(),
-        last_active: chrono::Utc::now(),
+        created_at: Timestamp::now(),
+        last_active: Timestamp::now(),
         is_active: true,
         user_status: UserStatus::Active,
         role: UserRole::User,
@@ -451,8 +448,8 @@ async fn test_oauth_callback_error_handling() {
         domain: None,
         plan: "starter".to_owned(),
         owner_user_id: admin_id,
-        created_at: chrono::Utc::now(),
-        updated_at: chrono::Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
     };
     database
         .repositories()
@@ -468,9 +465,8 @@ async fn test_oauth_callback_error_handling() {
         display_name: Some("Test User".to_owned()),
         password_hash: "hash".to_owned(),
         tier: UserTier::Starter,
-        strava_token: None,
-        created_at: chrono::Utc::now(),
-        last_active: chrono::Utc::now(),
+        created_at: Timestamp::now(),
+        last_active: Timestamp::now(),
         is_active: true,
         user_status: UserStatus::Active,
         role: UserRole::User,
@@ -560,23 +556,11 @@ async fn test_oauth_callback_error_handling() {
             },
         },
         external_services: ExternalServicesConfig {
-            strava_api: StravaApiConfig {
-                base_url: "https://www.strava.com/api/v3".to_owned(),
-                auth_url: "https://www.strava.com/oauth/authorize".to_owned(),
-                token_url: "https://www.strava.com/oauth/token".to_owned(),
-                revoke_url: "https://www.strava.com/oauth/revoke".to_owned(),
-                ..Default::default()
-            },
-            garmin_api: GarminApiConfig {
-                base_url: "https://apis.garmin.com/wellness-api/rest".to_owned(),
-                auth_url: "https://connect.garmin.com/oauth2Confirm".to_owned(),
-                token_url: "https://diauth.garmin.com/di-oauth2-service/oauth/token".to_string(),
-                revoke_url: "https://apis.garmin.com/wellness-api/rest/user/registration"
-                    .to_owned(),
-                ..Default::default()
-            },
+            strava_api: StravaApiConfig::default(),
+            garmin_api: GarminApiConfig::default(),
             sciotte: SciotteServiceConfig::default(),
             meta_graph_api_base: None,
+            overpass_api_base: None,
         },
         app_behavior: AppBehaviorConfig {
             max_activities_fetch: 100,
@@ -591,7 +575,7 @@ async fn test_oauth_callback_error_handling() {
                 server_version: env!("CARGO_PKG_VERSION").to_owned(),
             },
         },
-        sse: SseConfig::default(),
+        session_cookie: SessionCookieConfig::default(),
         oauth2_server: OAuth2ServerConfig::default(),
         host: "localhost".to_owned(),
         base_url: "http://localhost:8081".to_owned(),
@@ -646,6 +630,8 @@ async fn test_oauth_callback_error_handling() {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                lab_reader: None,
+                pdf_text_bin: None,
                 #[cfg(feature = "client-messaging")]
                 channel_adapters: common::offline_adapters(),
             },
@@ -671,7 +657,7 @@ async fn test_oauth_callback_error_handling() {
     // a state this server stored gives back the redirect it was minted with.
     {
         use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
-        use chrono::Utc;
+        use dravr_tronc::dates::Timestamp;
         use pierre_core::models::OAuthClientState;
 
         let redirect = "dravr://oauth-callback";
@@ -693,8 +679,8 @@ async fn test_oauth_callback_error_handling() {
                 scope: None,
                 pkce_code_verifier: None,
                 oauth_app_client_id: None,
-                created_at: Utc::now(),
-                expires_at: Utc::now() + chrono::Duration::minutes(10),
+                created_at: Timestamp::now(),
+                expires_at: Timestamp::now() + Elapsed::minutes(10),
                 used: false,
             })
             .await
@@ -745,9 +731,8 @@ async fn test_oauth_state_csrf_protection() {
         display_name: Some("Admin".to_owned()),
         password_hash: "hash".to_owned(),
         tier: UserTier::Starter,
-        strava_token: None,
-        created_at: chrono::Utc::now(),
-        last_active: chrono::Utc::now(),
+        created_at: Timestamp::now(),
+        last_active: Timestamp::now(),
         is_active: true,
         user_status: UserStatus::Active,
         role: UserRole::User,
@@ -779,8 +764,8 @@ async fn test_oauth_state_csrf_protection() {
         domain: None,
         plan: "starter".to_owned(),
         owner_user_id: admin_id,
-        created_at: chrono::Utc::now(),
-        updated_at: chrono::Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
     };
     database
         .repositories()
@@ -873,23 +858,11 @@ async fn test_oauth_state_csrf_protection() {
             },
         },
         external_services: ExternalServicesConfig {
-            strava_api: StravaApiConfig {
-                base_url: "https://www.strava.com/api/v3".to_owned(),
-                auth_url: "https://www.strava.com/oauth/authorize".to_owned(),
-                token_url: "https://www.strava.com/oauth/token".to_owned(),
-                revoke_url: "https://www.strava.com/oauth/revoke".to_owned(),
-                ..Default::default()
-            },
-            garmin_api: GarminApiConfig {
-                base_url: "https://apis.garmin.com/wellness-api/rest".to_owned(),
-                auth_url: "https://connect.garmin.com/oauth2Confirm".to_owned(),
-                token_url: "https://diauth.garmin.com/di-oauth2-service/oauth/token".to_string(),
-                revoke_url: "https://apis.garmin.com/wellness-api/rest/user/registration"
-                    .to_owned(),
-                ..Default::default()
-            },
+            strava_api: StravaApiConfig::default(),
+            garmin_api: GarminApiConfig::default(),
             sciotte: SciotteServiceConfig::default(),
             meta_graph_api_base: None,
+            overpass_api_base: None,
         },
         app_behavior: AppBehaviorConfig {
             max_activities_fetch: 100,
@@ -904,7 +877,7 @@ async fn test_oauth_state_csrf_protection() {
                 server_version: env!("CARGO_PKG_VERSION").to_owned(),
             },
         },
-        sse: SseConfig::default(),
+        session_cookie: SessionCookieConfig::default(),
         oauth2_server: OAuth2ServerConfig::default(),
         host: "localhost".to_owned(),
         base_url: "http://localhost:8081".to_owned(),
@@ -959,6 +932,8 @@ async fn test_oauth_state_csrf_protection() {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                lab_reader: None,
+                pdf_text_bin: None,
                 #[cfg(feature = "client-messaging")]
                 channel_adapters: common::offline_adapters(),
             },
@@ -1052,13 +1027,7 @@ async fn test_connection_status_tracking() {
             },
         },
         external_services: ExternalServicesConfig {
-            strava_api: StravaApiConfig {
-                base_url: "https://www.strava.com/api/v3".to_owned(),
-                auth_url: "https://www.strava.com/oauth/authorize".to_owned(),
-                token_url: "https://www.strava.com/oauth/token".to_owned(),
-                revoke_url: "https://www.strava.com/oauth/revoke".to_owned(),
-                ..Default::default()
-            },
+            strava_api: StravaApiConfig::default(),
             ..Default::default()
         },
         app_behavior: AppBehaviorConfig {
@@ -1074,7 +1043,7 @@ async fn test_connection_status_tracking() {
                 server_version: env!("CARGO_PKG_VERSION").to_owned(),
             },
         },
-        sse: SseConfig::default(),
+        session_cookie: SessionCookieConfig::default(),
         oauth2_server: OAuth2ServerConfig::default(),
         host: "localhost".to_owned(),
         base_url: "http://localhost:8081".to_owned(),
@@ -1129,6 +1098,8 @@ async fn test_connection_status_tracking() {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                lab_reader: None,
+                pdf_text_bin: None,
                 #[cfg(feature = "client-messaging")]
                 channel_adapters: common::offline_adapters(),
             },

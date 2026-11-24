@@ -13,7 +13,8 @@
 //! with its definition from the FIT profile (Garmin's FIT SDK, Profile.xlsx):
 //! global message numbers, field numbers, base types and scales.
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Elapsed;
+use dravr_tronc::dates::Timestamp;
 
 /// Seconds between the Unix epoch and FIT's (1989-12-31T00:00:00Z).
 const FIT_EPOCH_OFFSET: i64 = 631_065_600;
@@ -51,7 +52,7 @@ impl FitSport {
 #[derive(Debug, Clone, Copy)]
 pub struct FitWorkout {
     /// When the first sample was recorded.
-    pub start: DateTime<Utc>,
+    pub start: Timestamp,
     /// How many one-second samples it holds.
     pub seconds: u32,
     /// The sport its session names.
@@ -69,7 +70,7 @@ pub struct FitWorkout {
 impl FitWorkout {
     /// A ride of `seconds` one-second samples with a position, from `start`.
     #[must_use]
-    pub const fn ride(start: DateTime<Utc>, seconds: u32) -> Self {
+    pub const fn ride(start: Timestamp, seconds: u32) -> Self {
         Self {
             start,
             seconds,
@@ -110,7 +111,7 @@ impl FitWorkout {
 
 /// A FIT course file: valid, but not a completed activity.
 #[must_use]
-pub fn course_file(created: DateTime<Utc>) -> Vec<u8> {
+pub fn course_file(created: Timestamp) -> Vec<u8> {
     let mut data = Vec::new();
     file_id(&mut data, 6, created);
     fit_file(&data)
@@ -126,7 +127,7 @@ pub const BLOATED_FIELDS_PER_MESSAGE: u8 = 100;
 /// checksum holds, so only a decoder that bounds what it decodes
 /// refuses it before decoding all of it.
 #[must_use]
-pub fn bloated_file(created: DateTime<Utc>, bytes: usize) -> Vec<u8> {
+pub fn bloated_file(created: Timestamp, bytes: usize) -> Vec<u8> {
     let message_bytes = 1 + usize::from(BLOATED_FIELDS_PER_MESSAGE);
     let mut data = Vec::with_capacity(bytes);
     file_id(&mut data, 4, created);
@@ -193,8 +194,8 @@ fn define(data: &mut Vec<u8>, local: u8, global: u16, fields: &[(u8, u8, u8)]) {
     }
 }
 
-fn fit_time(at: DateTime<Utc>) -> u32 {
-    u32::try_from(at.timestamp() - FIT_EPOCH_OFFSET).unwrap_or(0)
+fn fit_time(at: Timestamp) -> u32 {
+    u32::try_from(at.epoch_seconds() - FIT_EPOCH_OFFSET).unwrap_or(0)
 }
 
 #[allow(clippy::cast_possible_truncation)]
@@ -237,7 +238,7 @@ pub const fn power(second: u32) -> u16 {
 }
 
 /// `file_id`: type, manufacturer (255, development), time created.
-fn file_id(data: &mut Vec<u8>, kind: u8, created: DateTime<Utc>) {
+fn file_id(data: &mut Vec<u8>, kind: u8, created: Timestamp) {
     define(data, 0, 0, &[(0, 1, ENUM), (1, 2, UINT16), (4, 4, UINT32)]);
     data.push(0);
     data.push(kind);
@@ -265,7 +266,7 @@ fn records(data: &mut Vec<u8>, workout: &FitWorkout) {
     let speed = workout.sport.speed();
     for second in 0..workout.seconds {
         data.push(1);
-        let at = workout.start + chrono::Duration::seconds(i64::from(second));
+        let at = workout.start + Elapsed::seconds(i64::from(second));
         data.extend_from_slice(&fit_time(at).to_le_bytes());
         if workout.with_position {
             let lost = workout

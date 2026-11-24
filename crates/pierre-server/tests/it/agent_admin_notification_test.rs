@@ -17,8 +17,8 @@
 use crate::common;
 use crate::helpers;
 
-use chrono::Utc;
 use common::{create_test_server_resources, generate_test_token};
+use dravr_tronc::dates::Timestamp;
 use helpers::axum_test::AxumTestRequest;
 use pierre_core::models::{Tenant, TenantId, User, UserStatus};
 use pierre_core::permissions::UserRole;
@@ -62,7 +62,7 @@ async fn administrator(resources: &Arc<ServerContext>) -> (Uuid, TenantId, Strin
     user.role = UserRole::Admin;
     user.user_status = UserStatus::Active;
     user.approved_by = Some(user.id);
-    user.approved_at = Some(Utc::now());
+    user.approved_at = Some(Timestamp::now());
     resources.common.repos.users.create(&user).await.unwrap();
 
     let tenant_id = TenantId::generate();
@@ -77,8 +77,8 @@ async fn administrator(resources: &Arc<ServerContext>) -> (Uuid, TenantId, Strin
             domain: None,
             plan: "starter".to_owned(),
             owner_user_id: user.id,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         })
         .await
         .unwrap();
@@ -102,7 +102,7 @@ async fn athlete_in(resources: &Arc<ServerContext>, tenant_id: TenantId) -> Uuid
         Some("Assigned Athlete".to_owned()),
     );
     resources.common.repos.users.create(&user).await.unwrap();
-    let now = Utc::now();
+    let now = Timestamp::now();
     match resources.agent.database.backend() {
         DatabaseBackend::SQLite(db) => {
             sqlx::query(INSERT_MEMBER)

@@ -11,7 +11,7 @@
 //! - Limit checking with warning thresholds and burst zones
 //! - Counter pruning for old periods
 
-use chrono::{Datelike, Duration, Utc, Weekday};
+use dravr_tronc::dates::{Elapsed, Timestamp, Weekday};
 use serde::Serialize;
 use std::fmt;
 use tracing::debug;
@@ -267,8 +267,8 @@ impl<'a> UsageCounterService<'a> {
     /// # Errors
     /// Returns an error if repository operations fail.
     pub async fn prune_old_counters(&self, days: i64) -> AppResult<u64> {
-        let cutoff = Utc::now() - Duration::days(days);
-        let cutoff_str = cutoff.format("%Y-%m-%d").to_string();
+        let cutoff = Timestamp::now() - Elapsed::days(days);
+        let cutoff_str = cutoff.utc_date().to_string();
         let deleted = self.repo.delete_old_counters(&cutoff_str).await?;
         Ok(deleted)
     }
@@ -343,20 +343,41 @@ pub async fn increment_counter(
     Ok(record.value)
 }
 
+/// The value of a usage counter in its current period, `0` when it has no row.
+///
+/// Read without an [`AdminConfigLookup`] in scope: the counter
+/// [`increment_counter`] writes, for a caller that holds its own limit (a
+/// consent grant's daily row budget).
+///
+/// # Errors
+/// Returns an error if the repository read fails.
+pub async fn current_counter(
+    repo: &dyn UsageCounterRepository,
+    tenant_id: &str,
+    user_id: &str,
+    counter_type: &str,
+) -> AppResult<i64> {
+    let period = current_period(counter_type);
+    let record = repo
+        .get_counter(tenant_id, user_id, counter_type, &period)
+        .await?;
+    Ok(record.value)
+}
+
 /// Compute the current period string for a counter type
 ///
 /// - `daily_*` → `YYYY-MM-DD` (today)
 /// - `weekly_*` → `YYYY-MM-DD` (most recent Sunday, or today if Sunday)
 fn current_period(counter_type: &str) -> String {
-    let now = Utc::now();
+    let now = Timestamp::now();
 
     if counter_type.starts_with("weekly_") {
-        let days_since_sunday = now.weekday().num_days_from_sunday();
-        let sunday = now - Duration::days(i64::from(days_since_sunday));
-        sunday.format("%Y-%m-%d").to_string()
+        let days_since_sunday = now.utc_date().weekday().num_days_from_sunday();
+        let sunday = now - Elapsed::days(i64::from(days_since_sunday));
+        sunday.utc_date().to_string()
     } else {
         // Default to daily period for daily_* and any unrecognized prefix
-        now.format("%Y-%m-%d").to_string()
+        now.utc_date().to_string()
     }
 }
 
@@ -413,10 +434,10 @@ pub fn default_limit(counter_type: &str, tier: &UserTier) -> i64 {
 /// - `daily_*` → next midnight UTC
 /// - `weekly_*` → next Sunday midnight UTC
 fn next_reset_time(counter_type: &str) -> String {
-    let now = Utc::now();
+    let now = Timestamp::now();
 
     let days_ahead = if counter_type.starts_with("weekly_") {
-        match now.weekday() {
+        match now.utc_date().weekday() {
             Weekday::Sun => 7,
             other => 7 - other.num_days_from_sunday(),
         }
@@ -424,6 +445,6 @@ fn next_reset_time(counter_type: &str) -> String {
         1
     };
 
-    let reset_date = (now + Duration::days(i64::from(days_ahead))).date_naive();
+    let reset_date = (now + Elapsed::days(i64::from(days_ahead))).utc_date();
     format!("{reset_date}T00:00:00Z")
 }

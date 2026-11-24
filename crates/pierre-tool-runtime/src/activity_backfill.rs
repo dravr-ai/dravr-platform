@@ -43,7 +43,7 @@ use std::fmt;
 use std::sync::Arc;
 use std::time::Duration as StdDuration;
 
-use chrono::{Duration, TimeZone, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::constants::provider_capture::current_capture_version;
 use pierre_core::errors::AppResult;
 use pierre_core::models::{Activity, TenantId};
@@ -52,6 +52,7 @@ use pierre_database::repositories::{
 };
 use pierre_providers::core::{ActivityQueryParams, FitnessProvider};
 use pierre_providers::request_budget::{in_background, is_background};
+use pierre_services::lease_guard::{keep_lease, LeaseGuard};
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
@@ -68,6 +69,8 @@ use crate::training_history_compute::{
 };
 use pierre_providers::ai_scope;
 
+/// The walks a session's head refresh asks, from the capture sweep and a chat read
+pub(crate) mod after_refresh;
 /// A detail walk: the segment efforts of a window's stored activities read in
 pub mod detail_walk;
 /// A history walk: the athlete's whole history paged into the store
@@ -119,11 +122,9 @@ fn historical_backfill_threshold_days() -> i64 {
 /// test suite.
 #[must_use]
 pub fn is_historical_backfill_window(after_ts: i64) -> bool {
-    Utc.timestamp_opt(after_ts, 0)
-        .single()
-        .is_some_and(|after| {
-            after < Utc::now() - Duration::days(historical_backfill_threshold_days())
-        })
+    Timestamp::from_epoch_seconds(after_ts).is_ok_and(|after| {
+        after < Timestamp::now() - Elapsed::days(historical_backfill_threshold_days())
+    })
 }
 
 /// The depth a completed backfill may claim as covered, in unix seconds.
@@ -167,6 +168,9 @@ pub const BACKFILL_LEASE_RENEWAL: StdDuration = StdDuration::from_mins(2);
 /// How many runs one job gets — the spawn plus two resumes — before the
 /// ledger stops offering it. A job that keeps dying is a provider that keeps
 /// failing, and the athlete's next ask starts a fresh one.
+///
+/// A history walk that ended incomplete is resumed from its cursor instead
+/// (`history_walk::resume`).
 pub const MAX_BACKFILL_ATTEMPTS: i64 = 3;
 
 /// The tenant string provider authentication takes for a job's tenant.
@@ -619,54 +623,35 @@ async fn run_recorded_backfill(job: &ActivityBackfillJob, row_id: &JobLease, att
     drop(renewal);
 }
 
-/// The lease renewal a running backfill keeps alive; aborted when dropped.
-struct LeaseRenewal(JoinHandle<()>);
-
-impl Drop for LeaseRenewal {
-    fn drop(&mut self) {
-        self.0.abort();
-    }
-}
-
 /// Renew the job's lease every [`BACKFILL_LEASE_RENEWAL`] until the guard
 /// drops. A renewal the ledger refuses means the row is gone or another
 /// runner leased it past this one — the run still finishes, because its
 /// writes are idempotent and only the follow-up push has a dedup claim of
 /// its own; the renewals just stop.
-fn keep_backfill_lease(job: &ActivityBackfillJob, row_id: &JobLease) -> LeaseRenewal {
-    let resources = job.resources.clone();
-    let row_id = row_id.clone();
-    let user_id = job.user_id;
-    let provider = job.provider_name.clone();
-    LeaseRenewal(tokio::spawn(async move {
-        loop {
-            sleep(BACKFILL_LEASE_RENEWAL).await;
-            match resources
+fn keep_backfill_lease(job: &ActivityBackfillJob, row_id: &JobLease) -> LeaseGuard {
+    let resources = Arc::clone(&job.resources);
+    let lease = row_id.clone();
+    let renew = move || {
+        let resources = Arc::clone(&resources);
+        let lease = lease.clone();
+        async move {
+            resources
                 .repos()
                 .activity_backfill_jobs
-                .renew_backfill_job_lease(&row_id, now_ms().saturating_add(lease_ms()))
+                .renew_backfill_job_lease(&lease, now_ms().saturating_add(lease_ms()))
                 .await
-            {
-                Ok(true) => {}
-                Ok(false) => {
-                    warn!(
-                        user_id = %user_id,
-                        provider = %provider,
-                        row_id = %row_id,
-                        "Activity backfill: job is no longer this runner's; letting the run finish anyway"
-                    );
-                    return;
-                }
-                Err(e) => {
-                    warn!(row_id = %row_id, error = %e, "Activity backfill: lease could not be renewed");
-                }
-            }
         }
-    }))
+    };
+    keep_lease(
+        "activity backfill job",
+        row_id.to_string(),
+        BACKFILL_LEASE_RENEWAL,
+        renew,
+    )
 }
 
 fn now_ms() -> i64 {
-    Utc::now().timestamp_millis()
+    Timestamp::now().epoch_millis()
 }
 
 fn lease_ms() -> i64 {
@@ -926,7 +911,7 @@ async fn record_backfill_coverage(
     let Some(oldest) = activities.iter().map(Activity::start_date).min() else {
         return;
     };
-    let oldest_reached_ts = oldest.timestamp();
+    let oldest_reached_ts = oldest.epoch_seconds();
     let fetch_limit = job.query_params.limit.unwrap_or(usize::MAX);
     let coverage = BackfillCoverage {
         oldest_reached_ts: backfill_covered_floor_ts(
@@ -986,7 +971,7 @@ async fn run_activity_backfill(job: &ActivityBackfillJob) -> BackfillRunOutcome 
         UniversalExecutor::new(job.resources.clone()).with_scopes(OAuthScope::self_grant());
     // Taken before the fetch reads the session: a reconnect that lands during
     // a long scrape is newer than the failure the scrape reports.
-    let attempt_started_at = Utc::now();
+    let attempt_started_at = Timestamp::now();
     let activities = match fetch_backfill_activities(job, &executor).await {
         BackfillFetch::Activities(activities) => activities,
         BackfillFetch::AuthRequired => {

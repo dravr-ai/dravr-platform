@@ -76,6 +76,11 @@ def leaf_keys(node, prefix=""):
 
 
 keys = leaf_keys(catalogue)
+# i18next resolves t('a.b', { count }) to a.b_one, a.b_other (and the other
+# CLDR forms, or _ordinal_<form>): a key carrying only plural forms resolves
+# under its stem.
+PLURAL = re.compile(r"(?:_ordinal)?_(?:zero|one|two|few|many|other)$")
+keys |= {PLURAL.sub("", key) for key in keys if PLURAL.search(key)}
 
 BLOCK_COMMENT = re.compile(r"/\*.*?\*/", re.S)
 LINE_COMMENT = re.compile(r"^\s*(//|\*).*$", re.M)

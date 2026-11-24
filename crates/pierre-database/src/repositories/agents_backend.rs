@@ -14,12 +14,6 @@
 //! share: `agents.user_id` and every `users(id)` reference are `uuid` on
 //! Postgres and TEXT on `SQLite`.
 
-/// Emit the whole `AgentsRepository` implementation for one backend type.
-///
-/// `$row` is the driver's row type and `$ids` the backend's uuid codec
-/// (`SqliteRow` + `TextUuid`, `PgRow` + `NativeUuid`). The body names its
-/// consts, helpers, decoders and types unqualified, so the invoking shell
-/// must `use` every one of them.
 macro_rules! impl_agents_repository {
     ($ty:ty, $row:ty, $ids:ident) => {
         /// Decode an `agent_assignments` row joined to the user's email.
@@ -40,7 +34,7 @@ macro_rules! impl_agents_repository {
                 tenant_id: TenantId,
                 request: &CreateAgentRequest,
             ) -> AppResult<Agent> {
-                let now = Utc::now();
+                let now = Timestamp::now();
                 let id = Uuid::new_v4();
                 // Structured `instructions`, when given, are the runtime prompt.
                 let effective_system_prompt = request
@@ -306,7 +300,7 @@ macro_rules! impl_agents_repository {
                     .bind(serde_json::to_string(tags)?)
                     .bind(serde_json::to_string(sample_prompts)?)
                     .bind(token_count_bind(token_count))
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .bind(agent_id)
                     .bind($ids::bind(user_id))
                     .bind(tenant_id)
@@ -360,7 +354,7 @@ macro_rules! impl_agents_repository {
                 self.ensure_agent_assignment(agent_id, user_id, false)
                     .await?;
                 sqlx::query(RECORD_USAGE_SQL)
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .bind(agent_id)
                     .bind($ids::bind(user_id))
                     .execute(self.pool())
@@ -496,7 +490,7 @@ macro_rules! impl_agents_repository {
                 tenant_id: TenantId,
                 request: &CreateSystemAgentRequest,
             ) -> AppResult<Agent> {
-                let now = Utc::now();
+                let now = Timestamp::now();
                 let id = Uuid::new_v4();
                 let token_count = estimate_prompt_tokens(&request.system_prompt);
                 sqlx::query(INSERT_SYSTEM_AGENT_SQL)
@@ -635,7 +629,7 @@ macro_rules! impl_agents_repository {
                     .bind(serde_json::to_string(tags)?)
                     .bind(serde_json::to_string(sample_prompts)?)
                     .bind(token_count_bind(estimate_prompt_tokens(system_prompt)))
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .bind(agent_id)
                     .bind(tenant_id)
                     .execute(self.pool())
@@ -701,7 +695,7 @@ macro_rules! impl_agents_repository {
                     .bind(agent_id)
                     .bind($ids::bind(user_id))
                     .bind($ids::bind(assigned_by))
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .execute(self.pool())
                     .await
                     .map_err(|e| AppError::database(format!("Failed to assign coach: {e}")))?;
@@ -764,7 +758,7 @@ macro_rules! impl_agents_repository {
                     .bind(Uuid::new_v4().to_string())
                     .bind($ids::bind(user_id))
                     .bind(agent_id)
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .execute(self.pool())
                     .await
                     .map_err(|e| AppError::database(format!("Failed to hide coach: {e}")))?;
@@ -819,7 +813,7 @@ macro_rules! impl_agents_repository {
                     .bind(compute_content_hash(&content_snapshot))
                     .bind(content_snapshot.to_string())
                     .bind(change_summary)
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .bind($ids::bind(user_id))
                     .execute(self.pool())
                     .await
@@ -930,7 +924,7 @@ macro_rules! impl_agents_repository {
                     .bind(serde_json::to_string(&tags)?)
                     .bind(serde_json::to_string(&sample_prompts)?)
                     .bind(token_count_bind(estimate_prompt_tokens(system_prompt)))
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .bind(agent_id)
                     .bind($ids::bind(user_id))
                     .bind(tenant_id)

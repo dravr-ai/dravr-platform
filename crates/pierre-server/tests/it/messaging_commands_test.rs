@@ -22,7 +22,8 @@ mod command_tests {
     use crate::common::create_test_server_resources;
     use crate::helpers::axum_test::AxumTestRequest;
     use axum::http::StatusCode;
-    use chrono::Utc;
+    use dravr_tronc::dates::Elapsed;
+    use dravr_tronc::dates::Timestamp;
     use pierre_core::models::agents::Agent;
     use pierre_core::models::ConnectionType;
     use pierre_core::models::{Tenant, TenantId, User, UserStatus};
@@ -58,7 +59,7 @@ mod command_tests {
         );
         user.user_status = UserStatus::Active;
         user.approved_by = Some(user.id);
-        user.approved_at = Some(Utc::now());
+        user.approved_at = Some(Timestamp::now());
 
         let user_id = user.id;
         resources.common.repos.users.create(&user).await.unwrap();
@@ -71,8 +72,8 @@ mod command_tests {
             domain: None,
             plan: "professional".to_owned(),
             owner_user_id: user_id,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         };
         resources
             .common
@@ -687,7 +688,7 @@ mod command_tests {
     /// chat-bound group.
     #[tokio::test]
     async fn test_group_consent_uses_conversation_group_id() {
-        use chrono::Utc;
+        use dravr_tronc::dates::Timestamp;
         use pierre_commands::group_consent::GroupConsentHandler;
         use pierre_commands::{CommandHandler, ConversationRotation, PlatformCommandContext};
         use pierre_core::models::agents::{
@@ -733,7 +734,7 @@ mod command_tests {
         // miss the update under the buggy code path.
         let chat_group_id = Uuid::new_v4();
         let other_group_id = Uuid::new_v4();
-        let now = Utc::now();
+        let now = Timestamp::now();
         let mk_group = |id: Uuid, name: &str, updated_at| CoachingGroup {
             id,
             tenant_id: tenant_id.to_string(),
@@ -749,17 +750,14 @@ mod command_tests {
             is_active: true,
             channel_type: None,
             channel_chat_id: None,
+            chat_connection: None,
             created_at: now,
             updated_at,
         };
         let chat_group = mk_group(chat_group_id, "Chat-bound group", now);
         // Other group has a *later* updated_at — it would win under
         // `list_groups_for_user.first()`.
-        let other_group = mk_group(
-            other_group_id,
-            "Other group",
-            now + chrono::Duration::seconds(60),
-        );
+        let other_group = mk_group(other_group_id, "Other group", now + Elapsed::seconds(60));
         resources
             .common
             .repos
@@ -1015,8 +1013,8 @@ mod command_tests {
             domain: None,
             plan: "professional".to_owned(),
             owner_user_id: user_id,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         };
         resources
             .common
@@ -1046,7 +1044,7 @@ mod command_tests {
             .await
             .unwrap();
 
-        let now = Utc::now();
+        let now = Timestamp::now();
         let chat_group_id = Uuid::new_v4();
         let other_group_id = Uuid::new_v4();
         let mk_group = |id: Uuid, name: &str, owner_tenant: TenantId, updated_at| CoachingGroup {
@@ -1064,6 +1062,7 @@ mod command_tests {
             is_active: true,
             channel_type: None,
             channel_chat_id: None,
+            chat_connection: None,
             created_at: now,
             updated_at,
         };
@@ -1079,7 +1078,7 @@ mod command_tests {
             other_group_id,
             "Member's own group",
             member_tenant_id,
-            now + chrono::Duration::seconds(60),
+            now + Elapsed::seconds(60),
         );
         resources
             .common
@@ -1168,8 +1167,8 @@ mod command_tests {
     }
 
     #[tokio::test]
-    async fn group_coach_command_sets_group_ai_coach() {
-        use pierre_commands::group::GroupCoachHandler;
+    async fn group_agent_command_sets_the_group_agent() {
+        use pierre_commands::group::GroupAgentHandler;
         use pierre_commands::{CommandHandler, ConversationRotation, PlatformCommandContext};
         use pierre_core::models::agents::{
             AgentCategory, AgentVisibility, CreateSystemAgentRequest,
@@ -1181,7 +1180,7 @@ mod command_tests {
 
         let resources = create_test_server_resources().await.unwrap();
         let (_router, user_id, tenant_id) = setup_linked_user(&resources).await;
-        let now = Utc::now();
+        let now = Timestamp::now();
 
         let mk_system = |title: &str| CreateSystemAgentRequest {
             title: title.to_owned(),
@@ -1223,6 +1222,7 @@ mod command_tests {
             is_active: true,
             channel_type: None,
             channel_chat_id: None,
+            chat_connection: None,
             created_at: now,
             updated_at: now,
         };
@@ -1261,7 +1261,7 @@ mod command_tests {
             tenant_id,
             channel_type: "telegram".to_owned(),
             args: vec!["5k".to_owned(), "marathon".to_owned()],
-            raw_text: "/group coach 5k marathon".to_owned(),
+            raw_text: "/group agent 5k marathon".to_owned(),
             ctx: Arc::<ServerContext>::clone(&resources),
             locale: "en".to_owned(),
             is_direct_message: false,
@@ -1272,10 +1272,10 @@ mod command_tests {
             rotation: ConversationRotation::default(),
             tool_runtime: Arc::<ServerContext>::clone(&resources),
         };
-        let response = GroupCoachHandler.execute(&ctx).await.unwrap();
+        let response = GroupAgentHandler.execute(&ctx).await.unwrap();
         assert!(
             response.text.contains("5K Marathon") && response.text.contains("Run Club"),
-            "confirmation should name the group and the new coach, got: {}",
+            "confirmation should name the group and the new agent, got: {}",
             response.text
         );
 
@@ -1290,16 +1290,16 @@ mod command_tests {
         assert_eq!(
             updated.agent_id,
             target.id.to_string(),
-            "group coach_id should now point at the 5K Marathon coach"
+            "the group's agent_id should now point at the 5K Marathon agent"
         );
 
         // Unknown name leaves the agent unchanged.
         let ctx_miss = PlatformCommandContext {
             args: vec!["Nonexistent".to_owned()],
-            raw_text: "/group coach Nonexistent".to_owned(),
+            raw_text: "/group agent Nonexistent".to_owned(),
             ..ctx
         };
-        let miss = GroupCoachHandler.execute(&ctx_miss).await.unwrap();
+        let miss = GroupAgentHandler.execute(&ctx_miss).await.unwrap();
         assert!(
             miss.text.to_lowercase().contains("no agent"),
             "unknown agent name should report not found, got: {}",
@@ -1316,7 +1316,7 @@ mod command_tests {
         assert_eq!(
             after.agent_id,
             target.id.to_string(),
-            "coach_id must be unchanged after an unmatched name"
+            "agent_id must be unchanged after an unmatched name"
         );
     }
 
@@ -1325,8 +1325,8 @@ mod command_tests {
     /// documented as "detach" and zero production callers — the capability was
     /// built and never reachable.
     #[tokio::test]
-    async fn group_coach_detach_clears_the_human_coach() {
-        use pierre_commands::group::GroupCoachHandler;
+    async fn group_agent_detach_clears_the_human_coach() {
+        use pierre_commands::group::GroupAgentHandler;
         use pierre_commands::{CommandHandler, ConversationRotation, PlatformCommandContext};
         use pierre_core::models::agents::{
             AgentCategory, AgentVisibility, CreateSystemAgentRequest,
@@ -1338,7 +1338,7 @@ mod command_tests {
 
         let resources = create_test_server_resources().await.unwrap();
         let (_router, user_id, tenant_id) = setup_linked_user(&resources).await;
-        let now = Utc::now();
+        let now = Timestamp::now();
 
         let persona = resources
             .common
@@ -1385,6 +1385,7 @@ mod command_tests {
                     is_active: true,
                     channel_type: None,
                     channel_chat_id: None,
+                    chat_connection: None,
                     created_at: now,
                     updated_at: now,
                 },
@@ -1418,7 +1419,7 @@ mod command_tests {
             tenant_id,
             channel_type: "telegram".to_owned(),
             args: vec!["detach".to_owned()],
-            raw_text: "/group coach detach".to_owned(),
+            raw_text: "/group agent detach".to_owned(),
             ctx: Arc::<ServerContext>::clone(&resources),
             locale: "en".to_owned(),
             is_direct_message: false,
@@ -1429,7 +1430,7 @@ mod command_tests {
             rotation: ConversationRotation::default(),
             tool_runtime: Arc::<ServerContext>::clone(&resources),
         };
-        let response = GroupCoachHandler.execute(&ctx).await.unwrap();
+        let response = GroupAgentHandler.execute(&ctx).await.unwrap();
         assert_eq!(
             response.text, "Run Club no longer has an attached human coach.",
             "the en confirmation names the group"
@@ -1714,7 +1715,7 @@ mod command_tests {
         peer_data_sharing: bool,
     ) -> Uuid {
         let id = Uuid::new_v4();
-        let now = Utc::now();
+        let now = Timestamp::now();
         let group = CoachingGroup {
             id,
             tenant_id: tenant_id.to_string(),
@@ -1730,6 +1731,7 @@ mod command_tests {
             is_active: true,
             channel_type: None,
             channel_chat_id: None,
+            chat_connection: None,
             created_at: now,
             updated_at: now,
         };
@@ -1752,7 +1754,7 @@ mod command_tests {
         display_name: Option<&str>,
         consent: bool,
     ) {
-        let now = Utc::now();
+        let now = Timestamp::now();
         resources
             .common
             .repos
@@ -2947,7 +2949,7 @@ mod command_tests {
         for trigger in [
             "/group respond",
             "/group digest",
-            "/group coach",
+            "/group agent",
             "/plan share",
             "/calibrate",
             "/season",
@@ -3056,6 +3058,43 @@ mod command_tests {
             assert_eq!(parsed.name, expected_name, "{text} dispatched to the wrong handler");
             assert_eq!(parsed.args, expected_args, "{text} lost or gained arguments");
         }
+    }
+
+    /// `/group agent` is the one spelling that changes the group's AI agent:
+    /// the persona is the agent, the human is the coach. The old
+    /// `/group coach` spelling is gone — it falls through to the bare `/group`
+    /// listing rather than reaching the agent handler.
+    #[test]
+    fn group_agent_reaches_the_agent_handler_and_group_coach_does_not() {
+        use dravr_canot::commands::CommandMatcher;
+
+        let registry = real_command_registry();
+        let matcher = CommandMatcher::from_registry(&registry);
+
+        for (text, expected_args) in [
+            ("/group agent 5K Marathon", vec!["5K", "Marathon"]),
+            ("/group agent detach", vec!["detach"]),
+            ("/group agent", vec![]),
+        ] {
+            let parsed = matcher
+                .try_match(text, &registry)
+                .unwrap_or_else(|| panic!("{text} must match a catalogue command"));
+            assert_eq!(
+                parsed.name, "group-agent",
+                "{text} dispatched to the wrong handler"
+            );
+            assert_eq!(
+                parsed.args, expected_args,
+                "{text} lost or gained arguments"
+            );
+        }
+
+        let retired = matcher.try_match("/group coach 5K Marathon", &registry);
+        assert!(
+            retired.as_ref().is_none_or(|p| p.name != "group-agent"),
+            "/group coach must no longer reach the agent handler, got {:?}",
+            retired.map(|p| p.name)
+        );
     }
 
     /// Seed an owner with a group and return `(user_id, tenant_id, group_id)`.

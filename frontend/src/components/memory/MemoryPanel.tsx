@@ -7,7 +7,7 @@
 import { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { MemoryFactRow } from '@pierre/api-client';
-import { MEMORY_KIND_LABEL_KEY, memoryFactCountLabel } from '@pierre/shared-constants';
+import { MEMORY_KIND_LABEL_KEY, memoryFactCountLabel, QUERY_KEYS } from '@pierre/shared-constants';
 import { MEMORY_FACT_KINDS } from '@pierre/shared-types';
 import { formatDateTime } from '@pierre/chat-utils';
 import { userApi } from '../../services/api';
@@ -15,8 +15,6 @@ import { Section, Button, Badge, ConfirmDialog } from '../ui';
 import MemoryReviewSection from './MemoryReviewSection';
 import { useTranslation } from '@pierre/i18n';
 import { describeApiError } from '@pierre/ui-logic';
-
-const MEMORY_FACTS_QUERY_KEY = ['memory', 'facts'] as const;
 
 // The chips and the group badge read the same shared table, so a kind the
 // server sends is never a translated word in one place and a raw enum in the other.
@@ -46,7 +44,7 @@ export default function MemoryPanel() {
   const [pendingForget, setPendingForget] = useState<MemoryFactRow | null>(null);
 
   const { data, isLoading, isError, error, refetch } = useQuery({
-    queryKey: [...MEMORY_FACTS_QUERY_KEY, kindFilter],
+    queryKey: QUERY_KEYS.memory.factList(kindFilter),
     queryFn: () =>
       userApi.listMemoryFacts({
         kind: kindFilter || undefined,
@@ -59,7 +57,7 @@ export default function MemoryPanel() {
   const forgetMutation = useMutation({
     mutationFn: (factId: string) => userApi.forgetMemoryFact(factId),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: MEMORY_FACTS_QUERY_KEY });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.memory.facts() });
       setPendingForget(null);
     },
     onError: () => {
@@ -93,9 +91,10 @@ export default function MemoryPanel() {
         }
       >
 
-        {/* Text tabs, the filter language of every athlete surface (DESIGN.md
-            §5): sentence-case words under a primary underline, the count in
-            mono beside them. The phone keeps its chips for now. */}
+        {/* Text tabs, the filter language of every athlete surface
+            (DESIGN.md "Page header and text tabs"): sentence-case words under a
+            primary underline, the count in mono beside them. The phone's Memory
+            screen draws the same tabs with `TextTabs`. */}
         <div>
           <div
             role="group"

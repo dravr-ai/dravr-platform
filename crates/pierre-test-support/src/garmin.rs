@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use chrono::{DateTime, Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::constants::oauth::providers::TOKEN_TYPE_SESSION;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{ConnectionType, Tenant, TenantId, UserOAuthToken};
@@ -29,7 +29,7 @@ pub async fn create_athlete(repos: &RepositoryRegistry) -> AppResult<(Uuid, Tena
     let user = create_test_user(&format!("{}@example.com", Uuid::new_v4()), None);
     repos.users.create(&user).await?;
     let tenant = TenantId::generate();
-    let now = Utc::now();
+    let now = Timestamp::now();
     repos
         .tenants
         .create(&Tenant {
@@ -74,9 +74,9 @@ fn token_row(
     backend: &str,
     access_token: String,
     token_type: &str,
-    expires_at: Option<DateTime<Utc>>,
+    expires_at: Option<Timestamp>,
 ) -> UserOAuthToken {
-    let now = Utc::now();
+    let now = Timestamp::now();
     UserOAuthToken {
         id: Uuid::new_v4().to_string(),
         user_id: user,
@@ -135,7 +135,7 @@ pub async fn grant_garmin_push(
         PUSH_BACKEND,
         format!("{PUSH_BACKEND}-access"),
         "Bearer",
-        Some(Utc::now() + Duration::hours(1)),
+        Some(Timestamp::now() + Elapsed::hours(1)),
     );
     connect(repos, tenant, &grant, &ConnectionType::OAuth).await?;
     let grants = vec!["ACTIVITY_EXPORT".to_owned(), "HEALTH_EXPORT".to_owned()];

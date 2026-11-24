@@ -20,8 +20,8 @@
 #[cfg(feature = "tools-groups")]
 mod snapshot_tenant_tests {
     use crate::common::create_test_server_resources;
-    use chrono::{Duration, Utc};
     use dravr_cageux::training_load::TrainingLoadCalculator;
+    use dravr_tronc::dates::{Elapsed, Timestamp};
     use pierre_core::models::{
         Activity, ActivityBuilder, ConnectionType, SportType, Tenant, TenantId, User,
         UserPhysiologicalProfile, UserStatus,
@@ -56,7 +56,7 @@ mod snapshot_tenant_tests {
     /// the mechanism that makes a member belong to multiple tenants.
     async fn create_tenant_owned_by(resources: &ServerContext, owner_id: Uuid) -> TenantId {
         let tenant_id = TenantId::generate();
-        let now = Utc::now();
+        let now = Timestamp::now();
         let tenant = Tenant {
             id: tenant_id,
             name: "Snapshot Tenant".to_owned(),
@@ -82,7 +82,7 @@ mod snapshot_tenant_tests {
             id.to_owned(),
             format!("ride {id}"),
             SportType::Ride,
-            Utc::now() - Duration::days(2),
+            Timestamp::now() - Elapsed::days(2),
             7_200,
             "strava".to_owned(),
         )
@@ -168,7 +168,7 @@ mod snapshot_tenant_tests {
                 tenant_a,
                 "strava",
                 Some("invalid_grant"),
-                Utc::now(),
+                Timestamp::now(),
             )
             .await
             .unwrap();
@@ -210,7 +210,7 @@ mod snapshot_tenant_tests {
                     tenant_a,
                     provider,
                     Some("invalid_grant"),
-                    Utc::now(),
+                    Timestamp::now(),
                 )
                 .await
                 .unwrap();
@@ -328,7 +328,7 @@ mod snapshot_tenant_tests {
                     format!("power-snap-{day}"),
                     format!("ride {day}"),
                     SportType::Ride,
-                    Utc::now() - Duration::days(day),
+                    Timestamp::now() - Elapsed::days(day),
                     3_600,
                     "strava".to_owned(),
                 )
@@ -384,10 +384,10 @@ mod snapshot_tenant_tests {
 
         let calculator = TrainingLoadCalculator::from_config(
             runtime.cageux_config().algorithms.clone(),
-            Utc::now().date_naive(),
+            Timestamp::now().utc_date(),
         );
         let expected = AthleteInputs::from_profile(Some(&profile))
-            .training_load(&calculator, &rides)
+            .training_load(calculator, &rides)
             .unwrap()
             .ctl;
         assert!(

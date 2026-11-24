@@ -26,13 +26,15 @@ use axum::{
     routing::{delete, get, post, put},
     Router,
 };
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_auth::auth::AuthResult;
 use pierre_core::errors::AppError;
 use pierre_core::models::TenantId;
 use pierre_database::backends::StoreListingsRepository;
 use pierre_database::database::repositories::AgentsRepository;
-use pierre_runtime_context::{AgentsCtx, MiddlewareCtx};
+use pierre_runtime_context::{
+    resolve_tenant, tenant::require, AgentsCtx, MiddlewareCtx, TenantMode,
+};
 use pierre_tool_runtime::runtime::ToolRuntime;
 
 pub use types::{
@@ -125,14 +127,19 @@ where
 // Shared Helper Functions
 // ============================================
 
-/// Get tenant ID for an authenticated user.
+/// The tenant an authenticated request acts for, selected by the canonical
+/// resolver: the tenant the session names when the user belongs to it,
+/// otherwise the user's first.
 ///
-/// Extracts `active_tenant_id` from JWT claims (user's selected tenant).
-/// Returns an error if no active tenant is set in the session.
-pub(crate) fn get_user_tenant(auth: &AuthResult) -> Result<TenantId, AppError> {
-    auth.active_tenant_id
-        .map(TenantId::from_uuid)
-        .ok_or_else(|| AppError::auth_invalid("No active tenant in session"))
+/// # Errors
+///
+/// Returns the resolver's error: a claim the user no longer holds, or a user
+/// with no tenant.
+pub(crate) async fn get_user_tenant<C: MiddlewareCtx>(
+    auth: &AuthResult,
+    ctx: &Arc<C>,
+) -> Result<TenantId, AppError> {
+    require(resolve_tenant(ctx, auth, TenantMode::Required).await?)
 }
 
 /// Get agents repository from the runtime context.
@@ -148,7 +155,7 @@ pub(crate) fn get_store_manager<C: AgentsCtx>(ctx: &Arc<C>) -> &dyn StoreListing
 /// Build metadata for agent responses.
 pub(crate) fn build_metadata() -> AgentsMetadata {
     AgentsMetadata {
-        timestamp: Utc::now().to_rfc3339(),
+        timestamp: Timestamp::now().to_rfc3339(),
         api_version: "1.0".to_owned(),
     }
 }

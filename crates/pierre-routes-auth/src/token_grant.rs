@@ -32,6 +32,7 @@ use pierre_auth::dto::auth::{
     LoginResponse, OAuth2ErrorResponse, OAuth2TokenRequest, OAuth2TokenResponse,
 };
 
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_services::auth::{AuthService, SessionOrigin};
 
 /// Handle the first-party `OAuth2` token request.
@@ -157,7 +158,7 @@ pub(crate) async fn handle_oauth2_token(
                 if let Err(refusal) = record_evidence(
                     resources.repos.app_attest_keys.as_ref(),
                     verified,
-                    chrono::Utc::now(),
+                    Timestamp::now(),
                 )
                 .await
                 {
@@ -254,11 +255,9 @@ fn issue_tokens(
         .ok_or_else(|| AppError::internal("JWT token missing from login response"))?;
 
     // Parse expiration to calculate expires_in
-    let expires_at = chrono::DateTime::parse_from_rfc3339(&response.expires_at).map_or_else(
-        |_| chrono::Utc::now() + chrono::Duration::hours(24),
-        |dt| dt.with_timezone(&chrono::Utc),
-    );
-    let expires_in = (expires_at - chrono::Utc::now()).num_seconds();
+    let expires_at = Timestamp::parse_from_rfc3339(&response.expires_at)
+        .unwrap_or_else(|_| Timestamp::now() + Elapsed::hours(24));
+    let expires_in = (expires_at - Timestamp::now()).num_seconds();
 
     // Generate CSRF token for web clients (stateless HMAC — no server storage)
     let user_id = uuid::Uuid::parse_str(&response.user.user_id)
@@ -395,7 +394,7 @@ async fn check_app_attest_evidence(
         evidence,
         code,
         MOBILE_APP_ATTEST_APP_ID,
-        chrono::Utc::now(),
+        Timestamp::now(),
     )
     .await
     .inspect_err(|_| {
@@ -419,7 +418,7 @@ async fn check_play_integrity(
         token,
         code,
         MOBILE_PLAY_PACKAGE_NAME,
-        chrono::Utc::now(),
+        Timestamp::now(),
     )
     .await
     .inspect_err(|_| {

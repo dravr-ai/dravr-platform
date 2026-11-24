@@ -10,7 +10,7 @@
 use crate::db_fixtures;
 use db_fixtures::create_test_db;
 
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::constants::provider_capture::{
     BASELINE_CAPTURE_VERSION, SCIOTTE_STRAVA_CAPTURE_VERSION,
 };
@@ -204,7 +204,7 @@ async fn the_capture_version_follows_the_backfill() {
     assert_eq!(old.capture_version, BASELINE_CAPTURE_VERSION);
 
     // A sixteen-week re-capture through the corrected scraper.
-    let sixteen_weeks = (Utc::now() - Duration::weeks(16)).timestamp();
+    let sixteen_weeks = (Timestamp::now() - Elapsed::weeks(16)).epoch_seconds();
     cache
         .upsert_backfill_coverage(
             user,

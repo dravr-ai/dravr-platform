@@ -327,7 +327,7 @@ test.describe('Registration Page - API Interaction', () => {
 test.describe('Registration Page - Sign-up paused', () => {
   test('a closed sign-up shows the paused notice instead of the form', async ({ page }) => {
     await setupBasicMocks(page);
-    // Registered after the open mock, so this answer wins: an operator paused sign-up.
+    // Registered after the open mock, so this answer wins: an admin paused sign-up.
     await mockSignupConfig(page, { open: false });
     await page.goto('/');
     await waitForLoginScreen(page, 10000);

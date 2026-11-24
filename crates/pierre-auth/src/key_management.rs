@@ -13,7 +13,7 @@ use aes_gcm::{aead::Aead, Aes256Gcm, KeyInit, Nonce};
 use async_trait::async_trait;
 use base64::engine::general_purpose::STANDARD as Base64Standard;
 use base64::Engine as Base64Engine;
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use rand::RngCore;
 use tracing::{error, info};
 
@@ -449,7 +449,7 @@ impl KeyManager {
         if read_legacy_active_version(security).await? != 1 {
             return Ok(());
         }
-        let doc = KeysetDocument::fresh(Utc::now());
+        let doc = KeysetDocument::fresh(Timestamp::now());
         security
             .insert_system_secret_if_absent(KEYSET_SECRET, &doc.to_text()?)
             .await?;
@@ -615,12 +615,12 @@ fn document_key_slots(doc: &KeysetDocument) -> Vec<(KeyFamily, u32)> {
 
 #[cfg(test)]
 mod tests {
-    use chrono::{DateTime, Duration};
+    use dravr_tronc::dates::{Elapsed, Timestamp};
 
     use super::*;
 
-    fn at(minutes: i64) -> DateTime<Utc> {
-        DateTime::from_timestamp(1_800_000_000, 0).unwrap() + Duration::minutes(minutes)
+    fn at(minutes: i64) -> Timestamp {
+        Timestamp::from_epoch_seconds(1_800_000_000).unwrap() + Elapsed::minutes(minutes)
     }
 
     #[test]

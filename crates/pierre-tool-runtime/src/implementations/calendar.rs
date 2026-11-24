@@ -835,6 +835,7 @@ pub(super) fn step_schema() -> PropertySchema {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use pierre_test_support::providers::offline_provider_registry;
 
     fn connection(provider: &str, connection_type: ConnectionType) -> ProviderConnection {
         ProviderConnection::new(
@@ -909,12 +910,16 @@ mod tests {
         let linked = [connection("intervals_icu", ConnectionType::Delegated)];
         assert!(only_through_a_link(&linked, "intervals_icu"));
         assert_eq!(
-            backends_among(&ProviderRegistry::new(), &linked, CalendarConnections::Own),
+            backends_among(
+                &offline_provider_registry(),
+                &linked,
+                CalendarConnections::Own
+            ),
             Vec::<&str>::new()
         );
         assert_eq!(
             backends_among(
-                &ProviderRegistry::new(),
+                &offline_provider_registry(),
                 &linked,
                 CalendarConnections::WithLink
             ),

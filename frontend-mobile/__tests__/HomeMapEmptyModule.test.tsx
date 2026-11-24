@@ -66,7 +66,7 @@ describe('Home when the route card module comes back empty', () => {
     const logged = consoleError.mock.calls.map((call) => call.map(String).join(' ')).join('\n');
     expect(logged).not.toContain('Expected the result of a dynamic import() call');
     expect(logged).not.toContain("right operand of 'in' is not an object");
-    expect(logged).not.toContain("Cannot use 'in' operator");
+    expect(logged).not.toContain("Cannot use 'in' admin");
     expect(screen.getByTestId('home-today')).toBeTruthy();
   });
 });

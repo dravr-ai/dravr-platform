@@ -18,7 +18,7 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 use std::time::Duration as StdDuration;
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_config::environment::ServerConfig;
 use pierre_contremaitre::messaging_strings::{
     KEY_PROVIDER_REAUTH_REQUIRED, KEY_PROVIDER_REAUTH_REQUIRED_NO_LINK,
@@ -59,6 +59,7 @@ use crate::common::{
 use crate::messaging_fixtures::{
     seed_channel_link, seed_conversation, seed_session, strings, CapturingChannel, FakeResolver,
 };
+use dravr_tronc::dates::Elapsed;
 
 /// The secret the notifier under test signs reconnect-link tokens with.
 const LINK_SECRET: &str = "test-jwt-secret";
@@ -152,7 +153,7 @@ impl Fixture {
             provider.to_owned(),
             format!("{provider}-access"),
             Some(format!("{provider}-refresh")),
-            Some(Utc::now() + chrono::Duration::hours(6)),
+            Some(Timestamp::now() + Elapsed::hours(6)),
             None,
         );
         self.runtime
@@ -380,7 +381,7 @@ async fn a_sweep_flag_tells_the_athlete_once_in_the_app_and_on_every_linked_chat
         f.tenant,
         "strava",
         "session_expired",
-        Utc::now(),
+        Timestamp::now(),
     )
     .await
     .unwrap();
@@ -407,7 +408,7 @@ async fn a_scrape_session_notice_links_each_chat_to_its_hosted_login() {
             f.tenant,
             "sciotte_garmin",
             Some("session_expired"),
-            Utc::now(),
+            Timestamp::now(),
         )
         .await
         .unwrap();
@@ -449,7 +450,7 @@ async fn a_reconnect_rearms_the_notice_for_the_next_disconnect() {
             f.tenant,
             "sciotte",
             "session_expired",
-            Utc::now(),
+            Timestamp::now(),
         )
     };
 
@@ -502,7 +503,7 @@ async fn a_backfill_flag_notices_once_and_answers_the_asking_conversation_on_rep
             f.tenant,
             "sciotte_garmin",
             Some(&conversation),
-            Utc::now(),
+            Timestamp::now(),
         )
     };
 
@@ -549,7 +550,7 @@ async fn a_backfill_leaves_a_connection_reconnected_since_it_began() {
     )
     .await;
 
-    let backfill_began = Utc::now();
+    let backfill_began = Timestamp::now();
     sleep(StdDuration::from_millis(10)).await;
     f.connect("sciotte_garmin").await;
     backfill_session_expired(
@@ -571,7 +572,7 @@ async fn a_backfill_leaves_a_connection_reconnected_since_it_began() {
         f.tenant,
         "sciotte_garmin",
         Some(&conversation),
-        Utc::now(),
+        Timestamp::now(),
     )
     .await;
     assert_eq!(
@@ -616,7 +617,7 @@ async fn a_session_beside_a_live_grant_is_told_once_that_its_provider_still_sync
         f.tenant,
         "sciotte_garmin",
         "session_expired",
-        Utc::now(),
+        Timestamp::now(),
     )
     .await
     .unwrap();
@@ -660,7 +661,7 @@ async fn a_session_beside_a_live_grant_is_told_once_that_its_provider_still_sync
             f.tenant,
             only_source,
             "session_expired",
-            Utc::now(),
+            Timestamp::now(),
         )
         .await
         .unwrap();
@@ -700,7 +701,7 @@ async fn a_grant_beside_a_signed_in_session_is_flagged_but_never_told() {
         f.tenant,
         "strava",
         "refresh_refused",
-        Utc::now(),
+        Timestamp::now(),
     )
     .await
     .unwrap();
@@ -824,7 +825,7 @@ async fn a_dead_garmin_grant_beside_a_serving_session_is_told_once_with_its_auth
         f.tenant,
         "garmin",
         "refresh_refused",
-        Utc::now(),
+        Timestamp::now(),
     )
     .await
     .unwrap();
@@ -865,7 +866,7 @@ async fn a_dead_garmin_grant_beside_a_serving_session_is_told_once_with_its_auth
         f.tenant,
         "garmin",
         "refresh_refused",
-        Utc::now(),
+        Timestamp::now(),
     )
     .await
     .unwrap();
@@ -936,7 +937,7 @@ async fn a_dead_grant_beside_a_session_that_died_first_is_told_to_sign_in_again(
             f.tenant,
             session,
             "session_expired",
-            Utc::now(),
+            Timestamp::now(),
         )
         .await
         .unwrap();
@@ -953,7 +954,7 @@ async fn a_dead_grant_beside_a_session_that_died_first_is_told_to_sign_in_again(
             f.tenant,
             grant,
             "refresh_refused",
-            Utc::now(),
+            Timestamp::now(),
         )
         .await
         .unwrap();
@@ -1015,7 +1016,7 @@ async fn a_dead_grant_beside_a_session_that_died_after_it_tells_nothing_more() {
         f.tenant,
         "strava",
         "refresh_refused",
-        Utc::now(),
+        Timestamp::now(),
     )
     .await
     .unwrap();
@@ -1029,7 +1030,7 @@ async fn a_dead_grant_beside_a_session_that_died_after_it_tells_nothing_more() {
         f.tenant,
         "sciotte",
         "session_expired",
-        Utc::now(),
+        Timestamp::now(),
     )
     .await
     .unwrap();
@@ -1046,7 +1047,7 @@ async fn a_dead_grant_beside_a_session_that_died_after_it_tells_nothing_more() {
         f.tenant,
         "strava",
         "refresh_refused",
-        Utc::now(),
+        Timestamp::now(),
     )
     .await
     .unwrap();
@@ -1125,7 +1126,7 @@ async fn a_withdrawn_garmin_grant_with_no_seat_free_tells_nothing() {
         "garmin".to_owned(),
         "holder-access".to_owned(),
         Some("holder-refresh".to_owned()),
-        Some(Utc::now() + chrono::Duration::hours(6)),
+        Some(Timestamp::now() + Elapsed::hours(6)),
         None,
     );
     seat.provider_user_id = Some("garmin-seat-holder".to_owned());
@@ -1182,7 +1183,7 @@ async fn a_withdrawn_grant_beside_a_flagged_session_is_told_to_sign_in_again() {
             f.tenant,
             "sciotte",
             Some("session_expired"),
-            Utc::now(),
+            Timestamp::now(),
         )
         .await
         .unwrap();

@@ -284,7 +284,6 @@ fn bench_auth_hook(c: &mut Criterion) {
                 audience: None,
             },
             &f.member.id,
-            &[],
             Some(f.member_tenant.to_string()),
         )
         .unwrap();

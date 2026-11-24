@@ -9,12 +9,12 @@
 //! Flow:
 //! 1. `POST /admin/device/authorization` (public) — the CLI gets a `device_code`
 //!    + short `user_code` and starts polling.
-//! 2. An admin approves via `POST /admin/device/approve` (super-admin admin
+//! 2. An admin approves via `POST /admin/device/approve` (super-admin
 //!    token), naming the `user_code`. This route's authority is the token, so
 //!    approval reuses `admin_auth_middleware` rather than a cookie session;
 //!    the browser page that signs an admin in is `device_web`.
 //! 3. `POST /admin/device/token` (public) — once approved, the CLI's next poll
-//!    mints a fresh super-admin admin token (the same [`create_token`] path
+//!    mints a fresh super-admin token (the same [`create_token`] path
 //!    `pierre-cli token generate --super-admin` uses) and the row is deleted
 //!    (single-use). The unguessable `device_code` is the bearer secret.
 //!
@@ -29,7 +29,7 @@ use axum::{
     response::{IntoResponse, Response},
     Extension, Json,
 };
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use rand::RngCore;
 use secrecy::SecretString;
 use serde::Serialize;
@@ -61,7 +61,7 @@ const STATUS_APPROVED: &str = "approved";
 const STATUS_DENIED: &str = "denied";
 
 /// Unambiguous `user_code` alphabet — no vowels (avoids words) and no
-/// look-alikes (0/O, 1/I), so the operator can read and type it reliably.
+/// look-alikes (0/O, 1/I), so the admin can read and type it reliably.
 const USER_CODE_ALPHABET: &[u8] = b"BCDFGHJKLMNPQRSTVWXZ23456789";
 
 /// RFC 8628 §3.2 device-authorization response.
@@ -149,7 +149,7 @@ fn device_error(status: StatusCode, error: &str, description: &str) -> Response 
 /// `POST /admin/device/authorization` — begin a device login (public).
 ///
 /// Creates a pending authorization and returns the `device_code`, the short
-/// `user_code` an operator approves, and the polling `interval`.
+/// `user_code` an admin approves, and the polling `interval`.
 ///
 /// # Errors
 /// Returns an error if the authorization cannot be persisted.
@@ -158,7 +158,7 @@ pub async fn handle_device_authorization(
 ) -> AppResult<Response> {
     let device_code = generate_device_code();
     let user_code = generate_user_code();
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
 
     let record = DeviceAuthorization {
         device_code_hash: hash_device_code(&device_code),
@@ -196,7 +196,7 @@ pub async fn handle_device_authorization(
 /// `POST /admin/device/token` — poll for the minted admin token (public).
 ///
 /// Body: `{ grant_type, device_code }`. Returns `authorization_pending` until a
-/// super-admin approves, then a fresh super-admin admin token (single-use: the
+/// super-admin approves, then a fresh super-admin token (single-use: the
 /// row is deleted so a duplicate poll can never mint twice).
 ///
 /// # Errors
@@ -220,7 +220,7 @@ pub async fn handle_device_token(
         .ok_or_else(|| AppError::invalid_input("device_code is required"))?;
 
     let hash = hash_device_code(device_code);
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
 
     let Some(record) = context
         .repos
@@ -275,12 +275,12 @@ pub async fn handle_device_token(
 
 /// Single-use consume: delete the approved row, and only mint if we won the
 /// delete (so concurrent polls can never mint two tokens), then mint a fresh
-/// super-admin admin token that acts as the approver.
+/// super-admin token that acts as the approver.
 ///
 /// `approved_by` is the approving admin's user id, recorded by the
 /// approval; the minted token stores it as its `operator_user_id`, the one
 /// identity the config routes and the pre-approval audit read. An approval
-/// made through a service token names no person, so its token has no operator.
+/// made through a service token names no person, so its token has no admin.
 async fn mint_approved_token(
     context: &Arc<AdminApiContext>,
     hash: &str,
@@ -299,31 +299,31 @@ async fn mint_approved_token(
         ));
     }
 
-    let operator = approved_by
+    let admin = approved_by
         .as_deref()
         .and_then(|id| Uuid::parse_str(id).ok());
-    let request = operator.map_or_else(
+    let request = admin.map_or_else(
         || CreateAdminTokenRequest::super_admin(format!("{DEVICE_CLI_SERVICE_PREFIX}service")),
-        |operator| {
-            CreateAdminTokenRequest::super_admin(format!("{DEVICE_CLI_SERVICE_PREFIX}{operator}"))
-                .operated_by(operator)
+        |admin| {
+            CreateAdminTokenRequest::super_admin(format!("{DEVICE_CLI_SERVICE_PREFIX}{admin}"))
+                .operated_by(admin)
         },
     );
     // The approver's address goes back to the CLI that asked ("approved by"),
     // never into a log. An approval outlives neither its admin's standing nor
     // the account: the token would act as someone who is no longer an admin.
-    let subject = match operator {
-        Some(operator) => {
+    let subject = match admin {
+        Some(admin) => {
             // SECURITY: Global lookup — the approver is an admin, not a tenant member
             let approver = context
                 .repos
                 .users
-                .get_global(operator)
+                .get_global(admin)
                 .await?
                 .filter(User::is_active_admin);
             let Some(approver) = approver else {
                 warn!(
-                    operator_user_id = %operator,
+                    admin_user_id = %admin,
                     "Device login not minted: its approver is no longer an active admin"
                 );
                 return Ok(device_error(
@@ -347,9 +347,9 @@ async fn mint_approved_token(
         .await?;
 
     info!(
-        operator_user_id = ?operator,
+        admin_user_id = ?admin,
         token_id = %minted.token_id,
-        "Device login approved; minted super-admin admin token"
+        "Device login approved; minted super-admin token"
     );
 
     Ok((
@@ -366,9 +366,9 @@ async fn mint_approved_token(
 /// `POST /admin/device/approve` — approve or deny a device login (super-admin).
 ///
 /// Body: `{ user_code, action? }` where `action` is `approve` (default) or
-/// `deny`. Gated on a super-admin admin token; the operator that token acts as
+/// `deny`. Gated on a super-admin token; the admin that token acts as
 /// is recorded, so the minted token acts as the same person. A service token
-/// names no one, and the token its approval mints has no operator.
+/// names no one, and the token its approval mints has no admin.
 ///
 /// An expired login answers 410 only until the next login starts: starting
 /// one deletes the expired rows, and the code then answers 404, as a code
@@ -413,11 +413,11 @@ pub async fn handle_device_approve(
         ));
     };
 
-    if record.expires_at <= Utc::now().timestamp() {
+    if record.expires_at <= Timestamp::now().epoch_seconds() {
         return Ok(admin_json(
             AdminResponse {
                 success: false,
-                message: "This device code has expired; ask the operator to start a new login"
+                message: "This device code has expired; ask the admin to start a new login"
                     .to_owned(),
                 data: None,
             },

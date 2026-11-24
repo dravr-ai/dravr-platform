@@ -1,5 +1,5 @@
 // ABOUTME: Self-serve account deletion — the athlete previews then deletes their own account, re-proving who they are
-// ABOUTME: Runs the operator removal path (provider grants revoked upstream, every owned row gone in one transaction)
+// ABOUTME: Runs the admin removal path (provider grants revoked upstream, every owned row gone in one transaction)
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -8,7 +8,7 @@
 //!
 //! The athlete deletes their own account from the privacy pane on web and
 //! mobile (App Store guideline 5.1.1(v) requires the in-app path). This is
-//! the same removal an operator runs ([`user_removal::remove_user`]), so a
+//! the same removal an admin runs ([`user_removal::remove_user`]), so a
 //! self-serve delete withdraws every provider's grant upstream first, then
 //! deletes in one transaction every row each provider contributed and every
 //! row the user owns, refusing to commit while one survives. Session refresh

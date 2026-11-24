@@ -9,8 +9,9 @@
 
 use crate::common;
 
-use chrono::Utc;
 use common::{create_test_server_resources, create_test_user};
+use dravr_tronc::dates::Elapsed;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::UserOAuthToken;
 
 #[tokio::test]
@@ -109,7 +110,7 @@ async fn strava_seat_usage_is_grouped_by_issuing_app() {
         "strava".to_owned(),
         "acc".to_owned(),
         Some("ref".to_owned()),
-        Some(Utc::now() + chrono::Duration::days(3650)),
+        Some(Timestamp::now() + Elapsed::days(3650)),
         Some("read".to_owned()),
     )
     .with_oauth_app_client_id(Some("201455".to_owned()));

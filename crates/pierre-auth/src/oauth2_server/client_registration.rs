@@ -14,7 +14,7 @@ use argon2::{
     Argon2,
 };
 use base64::{engine::general_purpose, Engine as _};
-use chrono::{DateTime, Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::OAuth2ClientSweep;
 use pierre_core::permissions::scopes::OAuthScope;
@@ -219,14 +219,14 @@ impl ClientRegistrationManager {
             .response_types
             .unwrap_or_else(|| vec!["code".to_owned()]);
 
-        let created_at = Utc::now();
+        let created_at = Timestamp::now();
         // Every registration carries an expiry: it is what marks a row as written
         // here, and the retention sweep and the pending ceiling touch no other.
         // `check_client_expiry` refuses the client from this instant on; the
         // sweep deletes the row once the configured grace has passed as well.
         // Expiry is on inactivity: it slides forward whenever a user
         // authorizes through the client (a refresh token is issued).
-        let expires_at = Some(created_at + Duration::days(INACTIVITY_EXPIRY_DAYS));
+        let expires_at = Some(created_at + Elapsed::days(INACTIVITY_EXPIRY_DAYS));
 
         // Create client record
         let client = OAuth2Client {
@@ -270,11 +270,11 @@ impl ClientRegistrationManager {
         Ok(ClientRegistrationResponse {
             client_id,
             client_secret: SecretString::from(client_secret),
-            client_id_issued_at: Some(created_at.timestamp()),
+            client_id_issued_at: Some(created_at.epoch_seconds()),
             client_secret_expires_at: if public {
                 None
             } else {
-                expires_at.map(|dt| dt.timestamp())
+                expires_at.map(Timestamp::epoch_seconds)
             },
             auth_method,
             redirect_uris: request.redirect_uris,
@@ -320,7 +320,57 @@ impl ClientRegistrationManager {
             ));
         }
         let scope = OAuthScope::render_granted(&OAuthScope::default_grant());
+        let client_secret = self
+            .store_client_credentials_client(client_id, client_name, scope)
+            .await?;
+        info!(client_id = %client_id, "client_credentials registration provisioned");
+        Ok(client_secret)
+    }
 
+    /// Provision the confidential client a resource server introspects
+    /// tokens with (RFC 7662 §2.1), named `client_name`: its new `client_id`
+    /// and secret, which the caller shows once and this server never again.
+    ///
+    /// It authenticates at the token endpoint with HTTP Basic
+    /// (`client_secret_basic`, RFC 7591 §2's default). Its only grant type is
+    /// `client_credentials`, and it has no redirect URI, since a resource
+    /// server never runs a user's authorization. Its registered scope is
+    /// empty: introspection needs only that the client authenticates, and a
+    /// `client_credentials` token request from it is refused `invalid_scope`
+    /// whatever scope it names, so it mints nothing. It never expires
+    /// (`client_secret_expires_at` 0, RFC 7591 §3.2.1), so neither the
+    /// pending ceiling nor the retention sweep counts or deletes it; rotating
+    /// its secret is deleting it and creating another.
+    ///
+    /// # Errors
+    /// Returns an error if the name holds a control character, the system RNG
+    /// or Argon2 fails, or the registration cannot be stored
+    pub async fn register_introspection_client(
+        &self,
+        client_name: &str,
+    ) -> Result<(String, SecretString), OAuth2Error> {
+        if client_name.chars().any(char::is_control) {
+            return Err(OAuth2Error::invalid_client_metadata(
+                "client_name must not contain control characters",
+            ));
+        }
+        let client_id = Self::generate_client_id();
+        let client_secret = self
+            .store_client_credentials_client(&client_id, client_name, String::new())
+            .await?;
+        info!(client_id = %client_id, "introspection client provisioned");
+        Ok((client_id, SecretString::from(client_secret)))
+    }
+
+    /// Store a confidential `client_credentials`-only registration under
+    /// `client_id` with the registered `scope`, no redirect URI and no
+    /// expiry: its secret.
+    async fn store_client_credentials_client(
+        &self,
+        client_id: &str,
+        client_name: &str,
+        scope: String,
+    ) -> Result<String, OAuth2Error> {
         let client_secret = Self::generate_client_secret()?;
         let client = OAuth2Client {
             id: Uuid::new_v4().to_string(),
@@ -332,7 +382,7 @@ impl ClientRegistrationManager {
             client_name: Some(client_name.to_owned()),
             client_uri: None,
             scope: Some(scope),
-            created_at: Utc::now(),
+            created_at: Timestamp::now(),
             expires_at: None,
         };
 
@@ -340,7 +390,6 @@ impl ClientRegistrationManager {
             error!(error = %e, client_id = %client_id, "Failed to store client_credentials registration");
             OAuth2Error::server_error("Failed to store client registration")
         })?;
-        info!(client_id = %client_id, "client_credentials registration provisioned");
         Ok(client_secret)
     }
 
@@ -380,10 +429,10 @@ impl ClientRegistrationManager {
     /// Check if client is expired
     fn check_client_expiry(
         client_id: &str,
-        expires_at: Option<DateTime<Utc>>,
+        expires_at: Option<Timestamp>,
     ) -> Result<(), OAuth2Error> {
         if let Some(expires_at) = expires_at {
-            if Utc::now() > expires_at {
+            if Timestamp::now() > expires_at {
                 warn!("OAuth client {} has expired", client_id);
                 return Err(OAuth2Error::invalid_client());
             }
@@ -434,7 +483,7 @@ impl ClientRegistrationManager {
         if client.expires_at.is_none() {
             return;
         }
-        let expires_at = Utc::now() + Duration::days(INACTIVITY_EXPIRY_DAYS);
+        let expires_at = Timestamp::now() + Elapsed::days(INACTIVITY_EXPIRY_DAYS);
         if let Err(e) = self
             .oauth2
             .extend_client_expiry(&client.client_id, expires_at)
@@ -480,7 +529,7 @@ impl ClientRegistrationManager {
     /// An unknown `client_id` is the caller's mistake, anyone can send one, so
     /// it is a warning. Anything else is the server failing to answer (the
     /// database, or a stored row that no longer decodes) and is an error,
-    /// which is what pages the operators.
+    /// which is what pages the admins.
     pub fn log_lookup_failure(client_id: &str, error: &AppError) {
         if error.code == ErrorCode::ResourceNotFound {
             warn!(client_id = ?client_id, "OAuth2 client refused: unknown client_id");
@@ -489,7 +538,8 @@ impl ClientRegistrationManager {
         }
     }
 
-    /// Delete the registrations the retention policy no longer keeps, as of `now`.
+    /// Delete the registrations the retention policy no longer keeps, as of
+    /// `now`, and the pushed authorization requests expired by then.
     ///
     /// Two kinds go: a registration whose `expires_at` is more than
     /// `expired_grace_secs` before `now`, and one no user ever authorized that
@@ -501,12 +551,13 @@ impl ClientRegistrationManager {
     pub async fn sweep_stale_clients(
         &self,
         retention: &ClientRetentionConfig,
-        now: DateTime<Utc>,
+        now: Timestamp,
     ) -> AppResult<OAuth2ClientSweep> {
         self.oauth2
             .delete_stale_clients(
                 retention_cutoff(now, retention.expired_grace_secs),
                 retention_cutoff(now, retention.abandoned_after_secs),
+                now,
             )
             .await
     }
@@ -747,11 +798,11 @@ impl ClientRegistrationManager {
 /// range both engines' timestamps accept — `PostgreSQL` refuses a year before
 /// 4713 BC outright — so an age reaching back past it keeps every row rather
 /// than failing the sweep or deleting everything.
-fn retention_cutoff(now: DateTime<Utc>, age_secs: u64) -> DateTime<Utc> {
+fn retention_cutoff(now: Timestamp, age_secs: u64) -> Timestamp {
     i64::try_from(age_secs)
         .ok()
-        .and_then(Duration::try_seconds)
-        .and_then(|age| now.checked_sub_signed(age))
-        .unwrap_or(DateTime::UNIX_EPOCH)
-        .max(DateTime::UNIX_EPOCH)
+        .map(Elapsed::seconds)
+        .and_then(|age| now.checked_sub(age))
+        .unwrap_or(Timestamp::UNIX_EPOCH)
+        .max(Timestamp::UNIX_EPOCH)
 }

@@ -33,9 +33,9 @@ export const fontWeight = FONT_WEIGHT;
  * light lifts a card by going UP to white, dark by going up to
  * `surfaceContainerHigh`. `surfaceContainerLowest` is `#0b0e0b` in dark —
  * BELOW the `#11130f` canvas — so the naive "elevated" token sinks the card
- * into the page, which is the trap DESIGN.md §5 names for the coach bubble.
+ * into the page, which is the trap for the coach bubble.
  *
- * No shadow: DESIGN.md §4 is "hairlines lift, shadows float", and a resting
+ * No shadow: DESIGN.md "The Hairlines-Lift Rule" is "hairlines lift, shadows float", and a resting
  * card does not float.
  */
 export function useCardStyle(): ViewStyle {
@@ -65,43 +65,8 @@ export { useTheme, useThemeColors } from '../contexts/ThemeContext';
 import { useTheme, useThemeColors } from '../contexts/ThemeContext';
 import type { ThemeColors } from '../contexts/ThemeContext';
 import type { ViewStyle } from 'react-native';
+import { coachCategoryPillar, type CategoryPillar } from '../../../packages/shared-constants/src/coaches';
 export type { AppearancePref } from '../hooks/useAppearancePref';
-
-/** The pillar a coach category draws its hue from. */
-type CategoryPillar = 'activity' | 'nutrition' | 'recovery' | 'mobility';
-
-/**
- * The one category table: which pillar a coach category belongs to, or none.
- *
- * Three screens each carried their own hardcoded map of this and the three had
- * already drifted apart: recovery was `#0d3b2e` in the editor and `#5e7a82` in
- * the store, `custom` was the retired v1 primary `#00241a`, `recipes` was a
- * stock Tailwind orange, and every value was an **Editorial** tier hex on a
- * Product tier surface. None of them moved with the athlete's appearance
- * setting, because a module-level hex cannot.
- *
- * `category` is the English key stored on the coach and sent to the API, so it
- * is matched as data rather than translated, with its case folded as the web's
- * `coachCategoryPillar` folds it. `custom`, and any key this build
- * has no pillar for, answers `null`; each reader below says what that draws,
- * matching the web element it twins. Recipes are food, so they sit under
- * nutrition — the web's `coachCategoryPillar` does the same.
- */
-function categoryPillar(category: string): CategoryPillar | null {
-  switch (category.toLowerCase()) {
-    case 'training':
-      return 'activity';
-    case 'nutrition':
-    case 'recipes':
-      return 'nutrition';
-    case 'recovery':
-      return 'recovery';
-    case 'mobility':
-      return 'mobility';
-    default:
-      return null;
-  }
-}
 
 /**
  * The fill class of each pillar's dot, as whole class strings so NativeWind
@@ -122,7 +87,7 @@ const PILLAR_DOT_CLASS: Record<CategoryPillar, string> = {
  * needs no ink.
  */
 export function categoryDotClass(category: string): string {
-  const pillar = categoryPillar(category);
+  const pillar = coachCategoryPillar(category);
   return pillar ? PILLAR_DOT_CLASS[pillar] : 'bg-outline-variant';
 }
 
@@ -137,11 +102,11 @@ export function categoryDotClass(category: string): string {
  * (`primary-container` under `on-primary-container`).
  */
 export function categoryInk(colors: ThemeColors, category: string): string {
-  const pillar = categoryPillar(category);
+  const pillar = coachCategoryPillar(category);
   return pillar ? colors.ink[pillar] : colors.tokens.onPrimaryContainer;
 }
 
 export function categoryAccent(colors: ThemeColors, category: string): string {
-  const pillar = categoryPillar(category);
+  const pillar = coachCategoryPillar(category);
   return pillar ? colors.pierre[pillar] : colors.tokens.primary;
 }

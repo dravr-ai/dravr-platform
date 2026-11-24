@@ -8,7 +8,7 @@
 //! (dravr-barrage), projected into `cached_activities`. A disconnect that
 //! deleted only the cache rows would leave the athlete's data held after it,
 //! for a later projection to serve again. These tests drive the disconnect
-//! chokepoint's purge and the operator's termination purge over a server
+//! chokepoint's purge and the admin's termination purge over a server
 //! whose record store they can read, and check that the live source's
 //! records go, an imported Strava archive's records and cache rows stay, the
 //! purge attests once with the caller's reason, and a reconnect's read is
@@ -20,11 +20,11 @@ use std::slice;
 use std::sync::Arc;
 use std::time::Duration as StdDuration;
 
-use chrono::{Duration, Utc};
 use dravr_barrage::record::{StreamsState, SummaryWindow, TotalsFrom};
 use dravr_barrage::store::memory::MemoryActivityRecordStore;
 use dravr_barrage::store::ActivityRecordStore;
 use dravr_barrage::{ActivityId, ActivityRecord, LiveSource, Provenance, Scope, SourceKey};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_auth::auth::AuthManager;
 use pierre_cache::{Cache, CacheConfig};
 use pierre_core::models::{Activity, ActivityBuilder, SportType, TenantId};
@@ -90,7 +90,7 @@ fn ride(id: &str, hours_ago: i64, provider: &str) -> Activity {
         id,
         "Morning ride",
         SportType::Ride,
-        Utc::now() - Duration::hours(hours_ago),
+        Timestamp::now() - Elapsed::hours(hours_ago),
         3_600,
         provider,
     )
@@ -111,7 +111,7 @@ async fn import_archive_ride(
         import_id: None,
         source_activity_id: activity.id().to_owned(),
         source_athlete_id: None,
-        ingested_at: Utc::now(),
+        ingested_at: Timestamp::now(),
         original: None,
         original_sha256: None,
         session_index: None,
@@ -120,6 +120,8 @@ async fn import_archive_ride(
         importer_version: None,
         summary_window: SummaryWindow::default(),
         totals_from: TotalsFrom::default(),
+        legacy_id: None,
+        legacy_original: None,
     };
     let record = ActivityRecord::try_new(
         scope,
@@ -191,7 +193,7 @@ async fn a_disconnect_deletes_the_live_records_and_leaves_the_imported_archive()
             tenant_id,
             STRAVA,
             &[ride("9001", 5, STRAVA)],
-            Utc::now(),
+            Timestamp::now(),
             WriteOrigin::Import,
         )
         .await
@@ -269,7 +271,7 @@ async fn a_disconnect_deletes_the_live_records_and_leaves_the_imported_archive()
             tenant_id,
             STRAVA,
             &[ride("9001", 5, STRAVA)],
-            Utc::now(),
+            Timestamp::now(),
             WriteOrigin::Import,
         )
         .await
@@ -298,7 +300,7 @@ async fn the_termination_purge_deletes_every_athletes_live_records() {
             tenant_id,
             STRAVA,
             &[ride("9001", 5, STRAVA), ride("9002", 30, STRAVA)],
-            Utc::now(),
+            Timestamp::now(),
             WriteOrigin::Import,
         )
         .await
@@ -396,7 +398,7 @@ async fn a_live_read_starting_in_the_future_is_refused_and_counted() {
             tenant_id,
             STRAVA,
             &[ride("9100", -48, STRAVA), ride("9101", 5, STRAVA)],
-            Utc::now(),
+            Timestamp::now(),
             WriteOrigin::Import,
         )
         .await

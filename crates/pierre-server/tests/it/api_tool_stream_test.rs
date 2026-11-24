@@ -87,6 +87,10 @@ enum Close {
     Refuses,
     /// The connection drops mid-stream: an `Err` item, no closing response.
     Breaks,
+    /// The account is dead and says so as a rejected request, the way
+    /// Anthropic words a spent credit: an `Err` item the chain does not fall
+    /// through on.
+    Rejects,
 }
 
 /// One scripted response: its text, streamed a word at a time, and its close.
@@ -108,6 +112,9 @@ struct ScriptedStream {
     name: &'static str,
     script: Mutex<VecDeque<Reply>>,
     fallback: &'static str,
+    /// A dead account: every plain completion, the probe's "ping" included,
+    /// is rejected instead of answered with `fallback`.
+    dead: bool,
     models: Vec<String>,
 }
 
@@ -117,6 +124,19 @@ impl ScriptedStream {
             name,
             script: Mutex::new(script.iter().copied().collect()),
             fallback,
+            dead: false,
+            models: vec!["claude-opus-5-5".to_owned()],
+        })
+    }
+
+    /// An account that rejects its one streamed turn and every plain
+    /// completion after it.
+    fn dead(name: &'static str) -> Arc<Self> {
+        Arc::new(Self {
+            name,
+            script: Mutex::new(VecDeque::from([reply("", Close::Rejects)])),
+            fallback: "unused",
+            dead: true,
             models: vec!["claude-opus-5-5".to_owned()],
         })
     }
@@ -162,6 +182,11 @@ impl ScriptedStream {
                     "stream reset by peer",
                 ))
             }
+            Close::Rejects => {
+                return Err(RunnerError::invalid_request(
+                    "Your credit balance is too low to access the Anthropic API.",
+                ))
+            }
         };
         Ok(ChatResponse {
             replay_blocks: None,
@@ -205,6 +230,9 @@ impl EmbacleLlmProvider for ScriptedStream {
         if request.tools.is_some() {
             let Reply { text, close } = self.next();
             return self.closing(text, close);
+        }
+        if self.dead {
+            return self.closing("", Close::Rejects);
         }
         self.closing(self.fallback, Close::Answers)
     }
@@ -438,6 +466,31 @@ async fn a_stream_that_breaks_is_taken_back_before_the_tail_answers() {
         bubble(&events),
         REPLY,
         "the tail's reply stands alone, never glued to the head's fragment"
+    );
+}
+
+/// The 2026-11-20 outage on the path web chat takes: the streamed tool turn.
+/// A head whose spent credit reads as a rejected request cannot answer the
+/// probe either, so it is benched and the account behind it serves the turn.
+#[tokio::test]
+async fn a_streaming_head_that_rejects_everything_hands_the_turn_to_the_tail() {
+    let head = ScriptedStream::dead("anthropic");
+    let tail = ScriptedStream::new("anthropic#2", &[reply(REPLY, Close::Answers)], REPLY);
+    let provider = ChatProvider::Embacle(
+        EmbacleProvider::chain(
+            vec![anthropic(&head), anthropic(&tail)],
+            QuotaCooldowns::default(),
+        )
+        .unwrap(),
+    );
+
+    let (result, events) = stream_turn(&provider).await;
+
+    assert_eq!(result.content, REPLY, "the tail serves the turn");
+    assert_eq!(bubble(&events), REPLY);
+    assert!(
+        provider.is_tier_benched("anthropic"),
+        "the dead head is benched for the turns that follow"
     );
 }
 

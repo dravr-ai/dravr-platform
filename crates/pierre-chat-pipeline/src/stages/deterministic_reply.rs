@@ -184,6 +184,7 @@ pub async fn deliver(
         // No model ran, but this turn does record the athlete's last interview
         // answer: it is not a reply to offer again.
         turn_attempted_write: None,
+        ai_consent_sources: &ai_scope::derived_consent_sources(),
     };
     let (assistant_message, updated_conversation) = persist_assistant_response(
         ctx.repos.chat.as_ref(),

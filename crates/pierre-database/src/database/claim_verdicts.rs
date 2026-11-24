@@ -11,7 +11,7 @@
 //! RFC3339 here, so a calendar day is the first ten characters of it — cheaper
 //! than `strftime` and free of its parsing quirks.
 
-use chrono::{DateTime, Duration, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::admin::scope::AdminScope;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;

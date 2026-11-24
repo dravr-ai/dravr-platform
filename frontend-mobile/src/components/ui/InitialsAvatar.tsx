@@ -71,7 +71,7 @@ export type AvatarShape = 'circle' | 'square';
 
 /**
  * The corner of a square avatar: the floating-card step of the radius ladder
- * (DESIGN.md §10), which is what "full for a person or an agent, 12 for a room"
+ * (DESIGN.md "Shapes"), which is what "full for a person or an agent, 12 for a room"
  * pins in the Tokens note.
  */
 export const ROOM_AVATAR_RADIUS = 12;

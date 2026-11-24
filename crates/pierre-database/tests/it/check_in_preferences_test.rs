@@ -12,7 +12,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use chrono::{Duration, TimeZone, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::models::{CheckInCadence, PostPurpose, TenantId, User};
 use pierre_database::repositories::CheckInSubscriber;
 use pierre_database::RepositoryRegistry;
@@ -53,7 +53,7 @@ async fn a_choice_reads_back_in_its_tenant_only_and_a_change_replaces_it() {
 
     for cadence in CheckInCadence::ALL {
         prefs
-            .set_check_in_cadence(tenant, user_id, cadence, Utc::now())
+            .set_check_in_cadence(tenant, user_id, cadence, Timestamp::now())
             .await
             .unwrap();
         assert_eq!(
@@ -87,12 +87,17 @@ async fn subscribers_are_the_tenants_athletes_whose_cadence_posts() {
         (off, CheckInCadence::Off),
     ] {
         prefs
-            .set_check_in_cadence(tenant, user, cadence, Utc::now())
+            .set_check_in_cadence(tenant, user, cadence, Timestamp::now())
             .await
             .unwrap();
     }
     prefs
-        .set_check_in_cadence(other_tenant, elsewhere, CheckInCadence::Daily, Utc::now())
+        .set_check_in_cadence(
+            other_tenant,
+            elsewhere,
+            CheckInCadence::Daily,
+            Timestamp::now(),
+        )
         .await
         .unwrap();
 
@@ -122,8 +127,8 @@ async fn a_periodic_claim_is_taken_once_per_period() {
     let claims = &repos.platform_post_claims;
     let user_id = fresh_user(repos).await;
     let tenant = TenantId::generate();
-    let monday = Utc.with_ymd_and_hms(2026, 10, 12, 0, 0, 0).unwrap();
-    let tuesday = monday + Duration::days(1);
+    let monday = Timestamp::parse_from_rfc3339("2026-10-12T00:00:00Z").unwrap();
+    let tuesday = monday + Elapsed::days(1);
 
     let claim = |since, at| {
         claims.claim_platform_post_since(
@@ -136,25 +141,25 @@ async fn a_periodic_claim_is_taken_once_per_period() {
         )
     };
     assert!(
-        claim(monday, monday + Duration::hours(8))
+        claim(monday, monday + Elapsed::hours(8))
             .await
             .unwrap()
             .is_some(),
         "the first claim of Monday is taken"
     );
     assert!(
-        claim(monday, monday + Duration::minutes(510))
+        claim(monday, monday + Elapsed::minutes(510))
             .await
             .unwrap()
             .is_none(),
         "a second tick, or a replica, the same Monday finds it taken"
     );
-    let tuesday_token = claim(tuesday, tuesday + Duration::hours(8))
+    let tuesday_token = claim(tuesday, tuesday + Elapsed::hours(8))
         .await
         .unwrap()
         .expect("Tuesday's period retakes the row Monday's claim left");
     assert!(
-        claim(tuesday, tuesday + Duration::hours(9))
+        claim(tuesday, tuesday + Elapsed::hours(9))
             .await
             .unwrap()
             .is_none(),
@@ -173,7 +178,7 @@ async fn a_periodic_claim_is_taken_once_per_period() {
         .await
         .unwrap());
     assert!(
-        claim(tuesday, tuesday + Duration::hours(10))
+        claim(tuesday, tuesday + Elapsed::hours(10))
             .await
             .unwrap()
             .is_some(),
@@ -188,7 +193,7 @@ async fn a_periodic_claim_is_taken_once_per_period() {
             "check_in",
             PostPurpose::NO_SUBJECT,
             tuesday,
-            tuesday + Duration::hours(10)
+            tuesday + Elapsed::hours(10)
         )
         .await
         .unwrap()
@@ -216,8 +221,8 @@ async fn a_once_claim_is_retaken_only_when_abandoned_past_its_lease() {
     let repos = db.repositories();
     let claims = &repos.platform_post_claims;
     let tenant = TenantId::generate();
-    let noon = Utc.with_ymd_and_hms(2026, 10, 14, 12, 0, 0).unwrap();
-    let lease = Duration::minutes(15);
+    let noon = Timestamp::parse_from_rfc3339("2026-10-14T12:00:00Z").unwrap();
+    let lease = Elapsed::minutes(15);
     let claim = |user_id, at| {
         claims.claim_platform_post_once(
             tenant,
@@ -235,14 +240,14 @@ async fn a_once_claim_is_retaken_only_when_abandoned_past_its_lease() {
         "the first claim is taken"
     );
     assert!(
-        claim(abandoned, noon + Duration::minutes(14))
+        claim(abandoned, noon + Elapsed::minutes(14))
             .await
             .unwrap()
             .is_none(),
         "inside its lease an unposted claim is someone's post under way"
     );
     assert!(
-        claim(abandoned, noon + Duration::minutes(16))
+        claim(abandoned, noon + Elapsed::minutes(16))
             .await
             .unwrap()
             .is_some(),
@@ -261,12 +266,12 @@ async fn a_once_claim_is_retaken_only_when_abandoned_past_its_lease() {
             "first_sync",
             PostPurpose::NO_SUBJECT,
             &posted_token,
-            noon + Duration::minutes(1)
+            noon + Elapsed::minutes(1)
         )
         .await
         .unwrap());
     assert!(
-        claim(posted, noon + Duration::days(30))
+        claim(posted, noon + Elapsed::days(30))
             .await
             .unwrap()
             .is_none(),
@@ -280,7 +285,7 @@ async fn a_once_claim_is_retaken_only_when_abandoned_past_its_lease() {
                 "first_sync",
                 PostPurpose::NO_SUBJECT,
                 &posted_token,
-                noon + Duration::minutes(1)
+                noon + Elapsed::minutes(1)
             )
             .await
             .unwrap(),

@@ -595,8 +595,8 @@ test.describe('Athlete Home', () => {
 
     await expect(page).toHaveURL(/#home$/);
     await expect(page.getByRole('heading', { level: 2, name: 'Home' })).toBeVisible();
-    await expect(page.getByTestId('home-today-session')).toContainText('Tempo run');
-    await expect(page.getByTestId('home-today-session')).toContainText('Build · week 2');
+    await expect(page.getByTestId('home-today-session-0')).toContainText('Tempo run');
+    await expect(page.getByTestId('home-today-session-0')).toContainText('Build · week 2');
     await expect(page.getByTestId('home-tomorrow')).toContainText('Rest');
     await expect(page.getByTestId(`home-week-day-${TODAY}`)).toHaveAttribute('aria-current', 'date');
     await expect(page.getByTestId('home-next-week')).toContainText('absorb the block');
@@ -1187,7 +1187,7 @@ test.describe('Athlete Home', () => {
     await mockConversationCreate(page);
     await login(page);
 
-    const link = page.getByTestId('home-today-route');
+    const link = page.getByTestId('home-today-route-0');
     await expect(link).toHaveText('Find a route for this session');
     await link.click();
     await expect(page.getByPlaceholder('Message Dravr...').first()).toHaveValue(

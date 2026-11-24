@@ -93,8 +93,8 @@ use std::cmp::Reverse;
 use std::sync::{Arc, LazyLock, Mutex as StdMutex, MutexGuard, PoisonError};
 use std::time::Duration as StdDuration;
 
-use chrono::{DateTime, Duration, Utc};
 use dashmap::DashMap;
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_config::timeouts::ServerTimeouts;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{Activity, RouteGeometrySource, TenantId};
@@ -235,9 +235,9 @@ pub type ActivityRouteOutcome = Result<RouteTrack, RouteMiss>;
 
 /// When a stored answer is read again: [`UNREAD_ROUTE_RECHECK_MINUTES`] out
 /// for `unavailable`, never for an answer a read settled.
-fn expires_at(outcome: &ActivityRouteOutcome, now: DateTime<Utc>) -> Option<DateTime<Utc>> {
+fn expires_at(outcome: &ActivityRouteOutcome, now: Timestamp) -> Option<Timestamp> {
     matches!(outcome, Err(RouteMiss::Unavailable))
-        .then(|| now + Duration::minutes(UNREAD_ROUTE_RECHECK_MINUTES))
+        .then(|| now + Elapsed::minutes(UNREAD_ROUTE_RECHECK_MINUTES))
 }
 
 /// The cached activity a route is read for, with the provider key its cached
@@ -290,7 +290,7 @@ struct TurnQueue {
 impl TurnQueue {
     /// Queue a request for the route of an activity that started at
     /// `started`; the turn arrives on the receiver.
-    fn enqueue(&mut self, started: DateTime<Utc>) -> oneshot::Receiver<ProviderTurn> {
+    fn enqueue(&mut self, started: Timestamp) -> oneshot::Receiver<ProviderTurn> {
         let (wake, woken) = oneshot::channel();
         self.arrivals += 1;
         self.waiting.push(TurnWaiter {
@@ -354,7 +354,7 @@ impl RouteAsk {
 /// One request waiting for the athlete's turn.
 struct TurnWaiter {
     /// When the activity whose route it reads started.
-    started: DateTime<Utc>,
+    started: Timestamp,
     /// Its place in arrival order.
     arrival: u64,
     /// Where the turn is handed to it.
@@ -448,7 +448,7 @@ enum TurnClaim {
 pub(crate) async fn take_turn(
     user_id: Uuid,
     tenant_id: TenantId,
-    started: DateTime<Utc>,
+    started: Timestamp,
     entry: TurnEntry,
 ) -> ProviderTurn {
     let key = (user_id, tenant_id);
@@ -492,7 +492,7 @@ pub(crate) async fn take_turn(
 /// How many reads are ahead of one of an activity that started at `started`
 /// in the athlete's turn: the one holding it, and every read still waiting
 /// for an activity that started no earlier — the turn goes to those first.
-fn reads_ahead(key: TurnKey, started: DateTime<Utc>) -> u64 {
+fn reads_ahead(key: TurnKey, started: Timestamp) -> u64 {
     let Some(turns) = PROVIDER_READ_TURNS
         .get(&key)
         .map(|entry| Arc::clone(entry.value()))
@@ -557,7 +557,7 @@ pub async fn activity_route(
 ) -> AppResult<ActivityRouteOutcome> {
     let repos = runtime.repos();
     let asked = StoredAnswer {
-        retry_asked_at: ask.retry.then(Utc::now),
+        retry_asked_at: ask.retry.then(Timestamp::now),
     };
     if let Some(outcome) = stored_route(repos, tenant_id, user_id, cached, asked).await? {
         return Ok(outcome);
@@ -628,7 +628,7 @@ pub async fn activity_route(
 /// before it arrived.
 #[derive(Debug, Clone, Copy)]
 struct StoredAnswer {
-    retry_asked_at: Option<DateTime<Utc>>,
+    retry_asked_at: Option<Timestamp>,
 }
 
 impl StoredAnswer {
@@ -644,7 +644,7 @@ impl StoredAnswer {
             } if reason == UNAVAILABLE => {
                 // An `unavailable` expires a fixed time after its read, so
                 // its expiry names when it was read.
-                *expires_at - Duration::minutes(UNREAD_ROUTE_RECHECK_MINUTES) >= asked_at
+                *expires_at - Elapsed::minutes(UNREAD_ROUTE_RECHECK_MINUTES) >= asked_at
             }
             _ => true,
         }
@@ -785,7 +785,7 @@ async fn settle(
     let read = RouteRead {
         source,
         outcome: outcome.as_ref().map_err(|miss| miss.as_str()),
-        expires_at: expires_at(&outcome, Utc::now()),
+        expires_at: expires_at(&outcome, Timestamp::now()),
     };
     activity_track::store_route_read(
         repos,

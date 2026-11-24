@@ -157,7 +157,7 @@ pub fn amended_summary(activity: &Activity) -> AppResult<Activity> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::{TimeZone, Utc};
+    use dravr_tronc::dates::Timestamp;
     use pierre_core::models::{
         ActivityBuilder, ActivityTag, GearRef, SportType, TagSource, TaggedBy, TimeSeriesData,
     };
@@ -167,9 +167,7 @@ mod tests {
             "ride-1",
             "Morning ride",
             SportType::Ride,
-            Utc.with_ymd_and_hms(2026, 10, 27, 7, 0, 0)
-                .single()
-                .expect("a valid instant"),
+            Timestamp::parse_from_rfc3339("2026-10-27T07:00:00Z").expect("a valid instant"),
             3_600,
             "strava",
         )
@@ -238,9 +236,7 @@ mod tests {
             "run-1",
             "Easy run",
             SportType::Run,
-            Utc.with_ymd_and_hms(2026, 11, 7, 7, 0, 0)
-                .single()
-                .expect("a valid instant"),
+            Timestamp::parse_from_rfc3339("2026-11-07T07:00:00Z").expect("a valid instant"),
             1_800,
             "strava",
         )
@@ -298,9 +294,7 @@ mod tests {
             "run-1",
             "Easy run",
             SportType::Run,
-            Utc.with_ymd_and_hms(2026, 11, 7, 7, 0, 0)
-                .single()
-                .expect("a valid instant"),
+            Timestamp::parse_from_rfc3339("2026-11-07T07:00:00Z").expect("a valid instant"),
             1_800,
             "strava",
         )

@@ -6,13 +6,12 @@
 
 //! The sign-in that runs in the athlete's own browser (carnet#1617).
 //!
-//! A provider can refuse a sign-in from a cloud browser and still serve reads
-//! to the session it signed in: Garmin's SSO has put a reCAPTCHA in front of
-//! every sign-in from Dravr's egress since 2026-11-16 while sciotte's reads
-//! from the same egress pass. So the sign-in moves to the athlete: the Dravr
-//! browser extension, or the app's `WebView`, opens the provider's own sign-in
-//! page, waits for its signed-in landing and hands Dravr that provider's
-//! cookies. sciotte then reads with them as after any sign-in.
+//! The athlete signs in to their provider in their own browser, on the
+//! provider's own sign-in page, and the session is handed to the server with
+//! their consent: the Dravr browser extension, or the app's `WebView`, opens
+//! that page, waits for its signed-in landing and hands Dravr that provider's
+//! cookies. sciotte then reads the athlete's own data with them as after any
+//! sign-in.
 //!
 //! - `GET /api/providers/browser-signin` is sciotte's
 //!   [`BrowserSigninCatalog`]: per provider the page to open, the URLs that
@@ -32,10 +31,10 @@ use axum::extract::{Path, State};
 use axum::http::HeaderMap;
 use axum::response::Response;
 use axum::Json;
-use chrono::Utc;
 use dravr_sciotte::client::ClientError;
 use dravr_sciotte::models::{AuthSession, CookieData};
 use dravr_sciotte::wire::{BrowserSignin, BrowserSigninCatalog};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_providers::sciotte_error;
 use pierre_providers::sciotte_provider::SciotteTarget;
@@ -44,8 +43,9 @@ use serde::Deserialize;
 use tracing::{info, warn};
 use uuid::Uuid;
 
-use crate::sciotte::{require_provider_terms, store_sciotte_session};
+use crate::sciotte::store_sciotte_session;
 use crate::sciotte_caller;
+use crate::sciotte_terms::require_provider_terms;
 use crate::AuthRoutesContext;
 
 /// The most cookies one hand-over may carry. A signed-in provider sets a few
@@ -85,6 +85,10 @@ pub(crate) struct BrowserSigninRequest {
     /// The athlete accepted the provider's exposure notice on this connect.
     #[serde(default)]
     tos_consent: bool,
+    /// The offered consents the athlete ticked on this connect (Garmin's AI
+    /// use and workout transfer).
+    #[serde(default)]
+    consents: Vec<String>,
 }
 
 /// `GET /api/providers/browser-signin`: how each provider is signed in to
@@ -118,7 +122,15 @@ pub(crate) async fn handle_browser_signin(
     )
     .await?;
     let target = target_named(&target)?;
-    require_provider_terms(&resources, user_id, tenant_id, target, request.tos_consent).await?;
+    require_provider_terms(
+        &resources,
+        user_id,
+        tenant_id,
+        target,
+        request.tos_consent,
+        &request.consents,
+    )
+    .await?;
 
     let entry = catalog_entry(&resources, target).await?;
     let session = session_of(&request.cookies, &entry.cookie_domain)?;
@@ -234,7 +246,7 @@ fn session_of(cookies: &[BrowserCookie], cookie_domain: &str) -> Result<AuthSess
     Ok(AuthSession {
         session_id: format!("browser-{}", Uuid::new_v4().simple()),
         cookies: kept,
-        created_at: Utc::now(),
+        created_at: Timestamp::now(),
         expires_at: None,
     })
 }

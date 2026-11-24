@@ -22,6 +22,8 @@ pub(crate) mod harness;
 pub(crate) mod key;
 /// The audit trail row of a command that writes the database directly.
 pub(crate) mod local_audit;
+/// `pierre-cli oauth2-client create`: a resource server's introspection client.
+pub(crate) mod oauth2_client;
 pub(crate) mod provider_data;
 pub(crate) mod seed;
 #[cfg(feature = "e2e-seeded-sessions")]

@@ -364,3 +364,30 @@ pub fn fan_out(message: OutgoingMessage, max_chars: usize) -> Vec<OutgoingMessag
         })
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use pierre_core::models::SUPPORTED_LOCALES;
+
+    use super::*;
+
+    /// `WhatsApp`'s `cta_url` button-label cap, a wire value Meta enforces and
+    /// canot's renderer honours by falling back to text.
+    const CTA_LABEL_MAX: usize = 20;
+
+    #[test]
+    fn reconnect_label_fits_a_whatsapp_cta_url_in_every_locale() {
+        let registry = MessagingStringsRegistry::new();
+        for locale in SUPPORTED_LOCALES {
+            let label = registry.get(KEY_PROVIDER_RECONNECT_CTA, locale);
+            assert!(
+                !label.trim().is_empty(),
+                "{locale} reconnect label is empty"
+            );
+            assert!(
+                label.chars().count() <= CTA_LABEL_MAX,
+                "{locale} {KEY_PROVIDER_RECONNECT_CTA} is {label:?}, past the cta_url label cap"
+            );
+        }
+    }
+}

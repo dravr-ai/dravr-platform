@@ -14,8 +14,8 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use axum::Router;
-use chrono::Utc;
 use common::{create_test_server_resources, generate_test_token};
+use dravr_tronc::dates::Timestamp;
 use helpers::axum_test::AxumTestRequest;
 use pierre_core::models::agents::{AgentCategory, CreateAgentRequest};
 use pierre_core::models::{Tenant, TenantId, User, UserStatus};
@@ -47,7 +47,7 @@ async fn member(
     let mut user = User::new(email, "hash".to_owned(), Some("Member".to_owned()));
     user.user_status = UserStatus::Active;
     user.approved_by = Some(user.id);
-    user.approved_at = Some(Utc::now());
+    user.approved_at = Some(Timestamp::now());
     if admin {
         user.role = UserRole::Admin;
     }
@@ -79,8 +79,8 @@ async fn tenant_owned_by(resources: &Arc<ServerContext>) -> Result<(TenantId, Us
             domain: None,
             plan: "starter".to_owned(),
             owner_user_id: owner.id,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         })
         .await?;
     resources

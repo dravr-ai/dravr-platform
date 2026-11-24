@@ -18,15 +18,18 @@ async-trait = "0.1"
 tokio = { version = "1.54", features = ["rt", "time", "sync"] }
 tracing = "0.1"
 futures-util = "0.3"
-chrono = { version = "0.4", features = ["serde"] }
+dravr-tronc = { workspace = true }
 # quota-redis: the quota router shares its readings and penalties across
 # instances through the deployment's Redis (see router_store.rs).
-embacle = { version = "0.47.0", features = ["copilot-headless", "copilot-sdk", "http-api", "quota-http", "quota-redis"] }
+embacle = { version = "0.47.3", features = ["copilot-headless", "copilot-sdk", "http-api", "quota-http", "quota-redis"] }
 # Compiled-in prompt/config baseline (replaces the vendor/contremaitre submodule).
 # Pinned by rev — the contremaitre-bump workflow advances this to contremaitre main.
 dravr-contremaitre = { workspace = true }
 
 [dev-dependencies]
+# The shared log capture (`log_capture`). Default features only: those reach
+# pierre-core, pierre-database and pierre-memory, never this crate.
+pierre-test-support = { version = "0.3.0", path = "../pierre-test-support" }
 # The fallback chain's decisions are only observable by driving a real
 # `complete()`/`complete_with_tools()` call, both of which are async.
 # `net` and `io-util` serve the loopback OpenAI-shaped endpoint the

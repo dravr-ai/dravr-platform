@@ -10,7 +10,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use chrono::{DateTime, Duration, TimeZone, Utc};
+use dravr_tronc::dates::{CivilDate, CivilDateTime, Elapsed, Timestamp};
 use pierre_core::models::{
     Activity, ActivityBuilder, CachedRowKey, PlaceRef, SportType, TenantId, User,
 };
@@ -46,7 +46,7 @@ impl World {
         self.db.repositories()
     }
 
-    async fn sync(&self, provider: &str, activities: &[Activity], at: DateTime<Utc>) {
+    async fn sync(&self, provider: &str, activities: &[Activity], at: Timestamp) {
         self.repos()
             .activity_cache
             .upsert_activities_synced_at(self.user, &self.tenant, provider, activities, at)
@@ -55,7 +55,11 @@ impl World {
     }
 
     async fn rows(&self) -> Vec<CachedActivityRow> {
-        let query = CachedRowsQuery::window(Utc::now() - Duration::days(4_000), Utc::now(), 100);
+        let query = CachedRowsQuery::window(
+            Timestamp::now() - Elapsed::days(4_000),
+            Timestamp::now(),
+            100,
+        );
         self.repos()
             .activity_cache
             .get_cached_activity_rows(self.user, &self.tenant, &query)
@@ -90,7 +94,7 @@ impl World {
             rows_seen: stamp.rows,
             newest_synced_at: stamp.newest_synced_at,
             version: VERSION,
-            computed_at: Utc::now(),
+            computed_at: Timestamp::now(),
             home_declared_at_seen: None,
             newest_track_at_seen: stamp.newest_track_at,
         }
@@ -109,7 +113,7 @@ impl World {
             .unwrap();
     }
 
-    async fn due(&self, version: u32, now: DateTime<Utc>) -> bool {
+    async fn due(&self, version: u32, now: Timestamp) -> bool {
         self.repos()
             .athlete_places
             .due_users(100, version, now)
@@ -128,14 +132,17 @@ async fn new_user(repos: &RepositoryRegistry) -> Uuid {
     repos.users.create(&user).await.unwrap()
 }
 
-fn ride(id: &str, name: &str, start: DateTime<Utc>) -> Activity {
+fn ride(id: &str, name: &str, start: Timestamp) -> Activity {
     ActivityBuilder::new(id, name, SportType::Ride, start, 3_600, "strava")
         .distance_meters(30_000.0)
         .build()
 }
 
-fn day(year: i32, month: u32, d: u32) -> DateTime<Utc> {
-    Utc.with_ymd_and_hms(year, month, d, 8, 0, 0).unwrap()
+fn day(year: i32, month: u32, d: u32) -> Timestamp {
+    CivilDate::from_ymd(year, month, d)
+        .and_then(|date| date.and_hms(8, 0, 0))
+        .and_then(CivilDateTime::and_utc)
+        .unwrap()
 }
 
 fn key(provider: &str, activity_id: &str) -> CachedRowKey {
@@ -155,8 +162,8 @@ fn place(id: &str, name: Option<(&str, PlaceNameSource)>, count: u32) -> Athlete
         name: name.map(|(name, _)| name.to_owned()),
         name_source: name.map(|(_, source)| source),
         version: VERSION,
-        computed_at: Utc::now(),
-        created_at: Utc::now(),
+        computed_at: Timestamp::now(),
+        created_at: Timestamp::now(),
     }
 }
 
@@ -184,13 +191,12 @@ async fn execute(db: &Database, sql: &str, binds: &[&str]) {
 /// The `(key, id)` of every row a read of `ids` (and `keys`) around `start` returns, sorted.
 async fn read_ids(
     w: &World,
-    start: DateTime<Utc>,
+    start: Timestamp,
     ids: &[&str],
     keys: Option<&[&str]>,
 ) -> Vec<(String, String)> {
-    let mut query =
-        CachedRowsQuery::window(start - Duration::days(1), start + Duration::days(1), 50)
-            .with_ids(ids);
+    let mut query = CachedRowsQuery::window(start - Elapsed::days(1), start + Elapsed::days(1), 50)
+        .with_ids(ids);
     if let Some(keys) = keys {
         query = query.under_keys(keys);
     }
@@ -210,7 +216,7 @@ async fn read_ids(
 #[tokio::test]
 async fn a_list_sync_keeps_the_rows_place_whether_or_not_its_data_changed() {
     let w = World::new().await;
-    let first_sync = Utc::now() - Duration::hours(2);
+    let first_sync = Timestamp::now() - Elapsed::hours(2);
     let (kept, changed) = (key("strava", "kept"), key("strava", "changed"));
     w.sync(
         "strava",
@@ -230,7 +236,7 @@ async fn a_list_sync_keeps_the_rows_place_whether_or_not_its_data_changed() {
     )
     .await;
 
-    let second_sync = Utc::now() - Duration::minutes(1);
+    let second_sync = Timestamp::now() - Elapsed::minutes(1);
     w.sync(
         "strava",
         &[
@@ -265,7 +271,7 @@ async fn a_window_read_annotates_each_row_and_a_gone_place_reads_as_none() {
             ride("city", "Montréal loop", day(2026, 8, 2)),
             ride("bare", "Trainer", day(2026, 8, 3)),
         ],
-        Utc::now(),
+        Timestamp::now(),
     )
     .await;
     w.cluster(
@@ -333,16 +339,16 @@ async fn with_ids_reads_every_copy_of_each_named_activity_and_no_other_row() {
         "strava",
         &[
             ride("a", "A", start),
-            ride("b", "B", start + Duration::hours(1)),
-            ride("c", "C", start + Duration::hours(2)),
+            ride("b", "B", start + Elapsed::hours(1)),
+            ride("c", "C", start + Elapsed::hours(2)),
         ],
-        Utc::now(),
+        Timestamp::now(),
     )
     .await;
     w.sync(
         "sciotte_strava",
         &[ride("a", "A mirror", start)],
-        Utc::now(),
+        Timestamp::now(),
     )
     .await;
 
@@ -377,7 +383,7 @@ async fn a_clustering_never_writes_or_drops_an_athletes_name() {
             ride("a", "A", day(2026, 4, 1)),
             ride("b", "B", day(2026, 4, 2)),
         ],
-        Utc::now(),
+        Timestamp::now(),
     )
     .await;
     w.repos()
@@ -449,8 +455,12 @@ async fn a_clustering_never_writes_or_drops_an_athletes_name() {
 async fn set_name_names_and_clears_only_the_athletes_name_in_its_own_scope() {
     let w = World::new().await;
     let a = key("strava", "a");
-    w.sync("strava", &[ride("a", "A", day(2026, 3, 1))], Utc::now())
-        .await;
+    w.sync(
+        "strava",
+        &[ride("a", "A", day(2026, 3, 1))],
+        Timestamp::now(),
+    )
+    .await;
     w.cluster(
         &[place("p", Some(("Montréal", PlaceNameSource::City)), 3)],
         &[(a, Some("p".to_owned()))],
@@ -511,8 +521,12 @@ async fn set_name_names_and_clears_only_the_athletes_name_in_its_own_scope() {
 #[tokio::test]
 async fn a_place_id_another_user_holds_is_refused_and_nothing_is_written() {
     let w = World::new().await;
-    w.sync("strava", &[ride("a", "A", day(2026, 2, 1))], Utc::now())
-        .await;
+    w.sync(
+        "strava",
+        &[ride("a", "A", day(2026, 2, 1))],
+        Timestamp::now(),
+    )
+    .await;
     w.cluster(
         &[place(
             "p-shared",
@@ -586,11 +600,11 @@ async fn creating_an_athlete_place_needs_a_row_the_user_holds() {
 #[tokio::test]
 async fn due_users_finds_new_rows_age_version_and_erasure_and_nothing_else() {
     let w = World::new().await;
-    let now = Utc::now();
+    let now = Timestamp::now();
     w.sync(
         "strava",
         &[ride("a", "A", day(2026, 1, 1))],
-        now - Duration::hours(1),
+        now - Elapsed::hours(1),
     )
     .await;
     assert!(
@@ -600,27 +614,31 @@ async fn due_users_finds_new_rows_age_version_and_erasure_and_nothing_else() {
 
     w.cluster(&[], &[]).await;
     assert!(
-        !w.due(VERSION, Utc::now()).await,
+        !w.due(VERSION, Timestamp::now()).await,
         "bug: a user just clustered is due"
     );
     assert!(
-        w.due(VERSION + 1, Utc::now()).await,
+        w.due(VERSION + 1, Timestamp::now()).await,
         "bug: a user clustered by another version is not due"
     );
     assert!(
-        w.due(VERSION, Utc::now() + Duration::hours(25)).await,
+        w.due(VERSION, Timestamp::now() + Elapsed::hours(25)).await,
         "bug: a user clustered over 24 hours ago is not due"
     );
 
-    w.sync("strava", &[ride("b", "B", day(2026, 1, 2))], Utc::now())
-        .await;
+    w.sync(
+        "strava",
+        &[ride("b", "B", day(2026, 1, 2))],
+        Timestamp::now(),
+    )
+    .await;
     assert!(
-        w.due(VERSION, Utc::now()).await,
+        w.due(VERSION, Timestamp::now()).await,
         "bug: a user with a new row is not due"
     );
     w.cluster(&[], &[]).await;
     assert!(
-        !w.due(VERSION, Utc::now()).await,
+        !w.due(VERSION, Timestamp::now()).await,
         "bug: a re-clustered user is still due"
     );
 
@@ -632,12 +650,12 @@ async fn due_users_finds_new_rows_age_version_and_erasure_and_nothing_else() {
             .unwrap();
     }
     assert!(
-        w.due(VERSION, Utc::now()).await,
+        w.due(VERSION, Timestamp::now()).await,
         "bug: a user whose rows were all erased is not due, so their places outlive them"
     );
     w.cluster(&[], &[]).await;
     assert!(
-        !w.due(VERSION, Utc::now()).await,
+        !w.due(VERSION, Timestamp::now()).await,
         "bug: a user with no rows, clustered as such, is due forever"
     );
 }

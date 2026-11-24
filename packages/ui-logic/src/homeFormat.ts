@@ -5,7 +5,7 @@
 // ABOUTME: A plan date is a calendar day never shifted by the device timezone; an activity start is an instant in the device's zone, unless date-only: then it is the day it names
 
 import type { CalendarDay, HomeActivity, PlanDay, PlanDayLookup, PlanPhase } from '@pierre/shared-types';
-import { addCivilDays, instantMs, mondayOf, phaseWeekOn, planDayDistanceMeters } from '@pierre/shared-types';
+import { addCivilDays, instantMs, mondayOf, phaseWeekOn, planDayDistanceMeters, planSessionsOf } from '@pierre/shared-types';
 import { activitySportLabelKey, sportHasRoutes, weekMinutesSeconds } from '@pierre/shared-constants';
 import { formatDuration, type VolumeMetric } from '@pierre/domain-utils';
 import { formatElevation, formatSpokenDistance, type DistanceUnit } from '@pierre/chat-utils';
@@ -282,18 +282,15 @@ export function phaseWeekLabel(t: Translate, phases: readonly PlanPhase[], date:
 }
 
 /**
- * The chat draft a tap on a plan day opens, or null for a day the plan does
- * not cover — there is nothing of the plan's to ask about.
+ * The chat draft a tap on one of a date's plan entries opens: its session by
+ * name, or the rest day. A date the plan does not cover has no entry, and so
+ * no draft (carnet#1716: each session of a date has its own).
  */
-export function planDayDraft(t: Translate, language: string, date: string, lookup: PlanDayLookup): string | null {
-  const named = formatCivilDate(date, language, DRAFT_DATE);
-  if (lookup.kind === 'session') {
-    return t('home.plan.dayDraft', { date: named, workout: lookup.day.workout });
-  }
-  if (lookup.kind === 'rest') {
-    return t('home.plan.restDayDraft', { date: named });
-  }
-  return null;
+export function planDayDraft(t: Translate, language: string, day: PlanDay): string {
+  const named = formatCivilDate(day.date, language, DRAFT_DATE);
+  return day.rest
+    ? t('home.plan.restDayDraft', { date: named })
+    : t('home.plan.dayDraft', { date: named, workout: day.workout });
 }
 
 /**
@@ -305,25 +302,30 @@ export function planDayDraft(t: Translate, language: string, date: string, looku
  * agent to ask where the athlete is before it searches. The distance reads
  * in the athlete's `unit` system.
  */
-export function planDayRouteDraft(
-  t: Translate,
-  language: string,
-  date: string,
-  lookup: PlanDayLookup,
-  unit: DistanceUnit,
-): string | null {
-  if (lookup.kind !== 'session' || typeof lookup.day.sport !== 'string' || !sportHasRoutes(lookup.day.sport)) {
+export function planDayRouteDraft(t: Translate, language: string, day: PlanDay, unit: DistanceUnit): string | null {
+  if (day.rest || typeof day.sport !== 'string' || !sportHasRoutes(day.sport)) {
     return null;
   }
-  const named = formatCivilDate(date, language, DRAFT_DATE);
-  const meters = planDayDistanceMeters(lookup.day);
+  const named = formatCivilDate(day.date, language, DRAFT_DATE);
+  const meters = planDayDistanceMeters(day);
   return meters === null
-    ? t('home.plan.routeDraft', { date: named, workout: lookup.day.workout })
+    ? t('home.plan.routeDraft', { date: named, workout: day.workout })
     : t('home.plan.routeDistanceDraft', {
         distance: formatSpokenDistance(meters, unit, language),
         date: named,
-        workout: lookup.day.workout,
+        workout: day.workout,
       });
+}
+
+/**
+ * The minutes a date's sessions add up to, for the week cell's hint: null
+ * when no session states its duration (carnet#1716: a date may hold several).
+ */
+export function planDayMinutes(lookup: PlanDayLookup | null): number | null {
+  const stated = planSessionsOf(lookup)
+    .map((day) => day.duration_min)
+    .filter((minutes): minutes is number => typeof minutes === 'number' && Number.isFinite(minutes));
+  return stated.length === 0 ? null : stated.reduce((total, minutes) => total + minutes, 0);
 }
 
 /** A session's sport, minutes and intensity, in that order, each only when the day carries it. */
@@ -338,12 +340,16 @@ export function sessionFacts(t: Translate, day: PlanDay): string[] {
   return facts.filter((fact): fact is string => typeof fact === 'string' && fact.length > 0);
 }
 
-/** What the plan holds on the day, in words; a past day the plan never reached says nothing of it. */
+/**
+ * What the plan holds on the day, in words, each of its entries named in
+ * order; a past day the plan never reached says nothing of it.
+ */
 function planWords(t: Translate, lookup: PlanDayLookup | null, past: boolean): string | null {
   if (lookup === null || (past && lookup.kind === 'uncovered')) return null;
-  if (lookup.kind === 'rest') return t('chat.restDay');
   if (lookup.kind === 'uncovered') return t('home.plan.notCovered');
-  return [lookup.day.workout, ...sessionFacts(t, lookup.day)].join(' · ');
+  return lookup.days
+    .map((day) => (day.rest ? t('chat.restDay') : [day.workout, ...sessionFacts(t, day)].join(' · ')))
+    .join('; ');
 }
 
 /**

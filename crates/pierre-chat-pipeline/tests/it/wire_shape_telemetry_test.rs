@@ -18,7 +18,7 @@
 //! every turn with nothing logging the loss.
 //!
 //! The logging itself is a side effect and not directly assertable here. What
-//! IS assertable, and what the operator will compare the logged number against,
+//! IS assertable, and what the admin will compare the logged number against,
 //! is the invariant: a prompt built by this pipeline presents exactly one
 //! System message, at index 0. `system_message_count > 1` in production means a
 //! new emitter appeared and its block is being silently dropped.
@@ -44,6 +44,7 @@ fn row(id: &str, role: &str, content: &str) -> MessageRecord {
         channel_type: None,
         about_user_id: None,
         turn_attempted_write: None,
+        ai_consent_sources: Vec::new(),
     }
 }
 

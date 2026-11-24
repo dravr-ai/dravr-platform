@@ -16,7 +16,7 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 /** The repository's root commit: an import, never a screen's origin (carnet#1441). */
 const ROOT_IMPORT = '1b33079e0';
 
-/** Admin screens reached off the rail: the operator's own settings. */
+/** Admin screens reached off the rail: the admin's own settings. */
 const OFF_RAIL_ADMIN_SCREENS = ['settings'];
 
 function git(...args: string[]): string {

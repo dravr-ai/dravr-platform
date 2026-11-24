@@ -18,6 +18,7 @@ use crate::helpers;
 
 use anyhow::Result;
 use common::{create_test_server_resources, generate_test_token};
+use dravr_tronc::dates::Timestamp;
 use helpers::axum_test::AxumTestRequest;
 use pierre_core::models::{ConversationTurnId, InsertLlmUsage, TenantId, TURN_SUMMARY_CALL_TYPE};
 use pierre_core::models::{Tenant, User, UserStatus};
@@ -56,7 +57,7 @@ async fn create_admin_user_and_token(
     user.role = UserRole::Admin;
     user.user_status = UserStatus::Active;
     user.approved_by = Some(user.id);
-    user.approved_at = Some(chrono::Utc::now());
+    user.approved_at = Some(Timestamp::now());
 
     let user_id = user.id;
     resources.common.repos.users.create(&user).await.unwrap();
@@ -69,8 +70,8 @@ async fn create_admin_user_and_token(
         domain: None,
         plan: "starter".to_owned(),
         owner_user_id: user_id,
-        created_at: chrono::Utc::now(),
-        updated_at: chrono::Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
     };
     resources
         .common
@@ -104,7 +105,7 @@ async fn create_regular_user_and_token(
     );
     user.user_status = UserStatus::Active;
     user.approved_by = Some(user.id);
-    user.approved_at = Some(chrono::Utc::now());
+    user.approved_at = Some(Timestamp::now());
 
     let user_id = user.id;
     resources.common.repos.users.create(&user).await.unwrap();
@@ -117,8 +118,8 @@ async fn create_regular_user_and_token(
         domain: None,
         plan: "starter".to_owned(),
         owner_user_id: user_id,
-        created_at: chrono::Utc::now(),
-        updated_at: chrono::Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
     };
     resources
         .common
@@ -138,7 +139,7 @@ async fn create_regular_user_and_token(
     // Demote the user from the default `owner` role that `tenants.create`
     // inserts — the endpoint rejects anything that is not admin or owner,
     // so this lets us exercise that branch.
-    let now = chrono::Utc::now();
+    let now = Timestamp::now();
     match resources.agent.database.backend() {
         DatabaseBackend::SQLite(db) => {
             sqlx::query(DELETE_MEMBERSHIP)

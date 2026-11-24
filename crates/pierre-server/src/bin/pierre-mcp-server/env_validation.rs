@@ -71,6 +71,12 @@ pub(crate) fn validate_required_environment() -> Result<()> {
             description: "Comma-separated resource identifiers of satellite MCP servers (e.g. https://commere.dravr.ai/mcp) the OAuth endpoints also mint audience-bound tokens for, carrying the grant's tenant. The platform's own /mcp refuses those tokens. Unset: none.",
         },
         EnvValidation {
+            name: "OAUTH2_INTROSPECTION_CLIENTS",
+            value: env::var("OAUTH2_INTROSPECTION_CLIENTS").ok(),
+            required: false,
+            description: "Comma-separated client ids of the confidential OAuth clients (resource servers, created with `pierre-cli oauth2-client create --name <resource server>`) allowed to call RFC 7662 /oauth2/introspect. Any other caller is refused 401 invalid_client. Unset: none.",
+        },
+        EnvValidation {
             name: "PROVIDER_LINK_WEBHOOK_URL",
             value: env::var("PROVIDER_LINK_WEBHOOK_URL").ok(),
             required: false,
@@ -92,13 +98,13 @@ pub(crate) fn validate_required_environment() -> Result<()> {
             name: "WHOOP_CLIENT_ID",
             value: credential_env("WHOOP_CLIENT_ID"),
             required: false,
-            description: "Whoop OAuth application client ID for the shared Dravr-owned Whoop app. When set (with WHOOP_CLIENT_SECRET), Whoop connects via one-tap OAuth consent; when unset, Whoop falls back to bring-your-own OAuth app.",
+            description: "WHOOP OAuth application client ID for the shared Dravr-owned WHOOP app. When set (with WHOOP_CLIENT_SECRET), WHOOP connects via one-tap OAuth consent; when unset, WHOOP falls back to bring-your-own OAuth app.",
         },
         EnvValidation {
             name: "WHOOP_CLIENT_SECRET",
             value: credential_env("WHOOP_CLIENT_SECRET"),
             required: false,
-            description: "Whoop OAuth application client secret for the shared Dravr-owned Whoop app.",
+            description: "WHOOP OAuth application client secret for the shared Dravr-owned WHOOP app.",
         },
     ];
 

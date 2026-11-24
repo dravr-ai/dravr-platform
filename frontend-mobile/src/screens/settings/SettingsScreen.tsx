@@ -24,7 +24,7 @@ import { BILLING_ENABLED } from '../../constants/features';
  *
  * Each pane is a plain settings `Row`: its name, the current state as the
  * inline hint, a chevron. No glyph square and no card — the rows sit on the
- * ground and the hairline between them is the only separator (DESIGN.md §10).
+ * ground and the hairline between them is the only separator (DESIGN.md "Phone").
  */
 export function SettingsScreen() {
   const router = useRouter();

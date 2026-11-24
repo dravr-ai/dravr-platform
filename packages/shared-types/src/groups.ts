@@ -264,6 +264,11 @@ export interface CoachRead {
    * connects to Dravr from outside it, whose company received the data.
    */
   served_to_assistant: boolean;
+  /**
+   * Whether a Dravr admin made the read acting as the coach in a support
+   * session, rather than the coach.
+   */
+  support_read: boolean;
 }
 
 /**
@@ -480,6 +485,54 @@ export interface HeldGroupInviteResponse {
  */
 export interface ClaimGroupCoachResponse {
   group: CoachingGroup;
+}
+
+// ========== CHAT APP CONNECTION (a group's room in a chat app's group chat) ==========
+
+/** A chat app whose group chat a coaching group's room can be connected to (carnet#1683). */
+export type GroupChatChannel = 'telegram' | 'whatsapp';
+
+/**
+ * Body of `GET /api/groups/:id/chat-connection`: whether the group's room is
+ * connected to a group chat in a chat app, and whether the caller may connect
+ * or disconnect it (the group's owner or its human coach). Every member reads
+ * it; only `can_manage` callers are offered the controls.
+ */
+export interface GroupChatConnection {
+  connected: boolean;
+  /** The chat app the room is connected to; null while it is not connected. */
+  channel: GroupChatChannel | null;
+  /** The group chat's title as the chat app names it; null when unknown or not connected. */
+  chat_title: string | null;
+  /** When the room was connected (RFC 3339); null while it is not connected. */
+  connected_at: string | null;
+  /** Whether the caller may connect or disconnect the room. */
+  can_manage: boolean;
+}
+
+/** Body of `POST /api/groups/:id/chat-connection`: which chat app to connect the room to. */
+export interface CreateGroupChatConnectionRequest {
+  channel: GroupChatChannel;
+}
+
+/**
+ * Answer to `POST /api/groups/:id/chat-connection`: a one-time code that
+ * connects the room to the group chat the agent's bot is added to. The deep
+ * link opens the chat app's "add to group" picker with the code attached; a
+ * bot already in the chat takes `command` typed there instead. The code stops
+ * working at `expires_at`. A 409 means the room is already connected.
+ */
+export interface GroupChatConnectCode {
+  channel: GroupChatChannel;
+  code: string;
+  /** Opens the chat app on the "add the bot to a group" picker, carrying the code. */
+  deep_link_url: string;
+  /** What to type in a group chat the bot is already in, e.g. `/group link ABC123`. */
+  command: string;
+  /** The deep link as a server-rendered SVG QR code; null when none was drawn. */
+  qr_svg: string | null;
+  /** When the code stops working (RFC 3339). */
+  expires_at: string;
 }
 
 /**
@@ -738,6 +791,30 @@ export interface CoachConsentsResponse {
    * Keeping it is a fresh grant (`wellness_read: true`), which clears this.
    */
   wellness_notice_due: boolean;
+  /**
+   * The member lets the AI assistant their group's human coach connects to
+   * Dravr (an MCP client, an A2A agent) include them in the coach's roster
+   * tools. Off until the member turns it on in Dravr's own app; it does not
+   * govern the coach's reads of the member by name, which coach sharing does.
+   */
+  assistant_read: boolean;
+  /** When the member last turned `assistant_read` on or off (RFC 3339); `null` while they never did. */
+  assistant_read_at: string | null;
+  /** The group has an active human coach other than the member, so the member can be asked for `assistant_read`. */
+  assistant_read_supported: boolean;
+  /**
+   * The coach may read the member's health records (lab results, clinical
+   * records, blood glucose) now: granted and not lapsed. Its own grant, read
+   * only alongside `wellness_read`; the member's own Sensitive health records
+   * switch in Privacy & Data still applies.
+   */
+  sensitive_t2_read: boolean;
+  /** When the member last granted or revoked `sensitive_t2_read` (RFC 3339). */
+  sensitive_t2_read_at: string | null;
+  /** When a `sensitive_t2_read` grant lapses (RFC 3339); `null` while it holds until revoked. */
+  sensitive_t2_read_until: string | null;
+  /** The group has a human coach, so the member can be asked for `sensitive_t2_read`. */
+  sensitive_t2_read_supported: boolean;
 }
 
 /**
@@ -750,6 +827,12 @@ export interface CoachConsentsResponse {
 export interface UpdateCoachConsentsRequest {
   calendar_write?: boolean;
   wellness_read?: boolean;
+  /** Granted only from Dravr's own app; a revoke is accepted from anywhere. */
+  assistant_read?: boolean;
+  /** Grant or revoke the coach's reads of the member's health records. */
+  sensitive_t2_read?: boolean;
+  /** How long a `sensitive_t2_read` grant holds: 30 days, or left out for until revoked. */
+  sensitive_days?: 30;
 }
 
 /**

@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! What an operator reads in the first screen of the log.
+//! What an admin reads in the first screen of the log.
 //!
 //! The binary prints this once, after the router is built, so someone
 //! starting the server locally can see which surfaces exist and where to
@@ -80,19 +80,11 @@ pub const ENDPOINT_CATEGORIES: &[EndpointCategory] = &[
     },
     EndpointCategory {
         name: "Tenant Management:",
-        endpoints: &[
-            ("Create Tenant:", "POST", "/tenants"),
-            ("List Tenants:", "GET", "/tenants"),
-            ("My Tenants:", "GET", "/tenants/my"),
-            ("Switch Tenant:", "POST", "/tenants/switch"),
-        ],
+        endpoints: &[("Switch Tenant:", "POST", "/tenants/switch")],
     },
     EndpointCategory {
         name: "Dashboard & Monitoring:",
-        endpoints: &[
-            ("Health Check:", "GET", "/health"),
-            ("Plugin Status:", "GET", "/health/plugins"),
-        ],
+        endpoints: &[("Health Check:", "GET", "/health")],
     },
     EndpointCategory {
         name: "A2A Protocol:",
@@ -112,18 +104,6 @@ pub const ENDPOINT_CATEGORIES: &[EndpointCategory] = &[
                 "/a2a/clients/{client_id}/rate-limit",
             ),
         ],
-    },
-    EndpointCategory {
-        name: "Fitness Configuration:",
-        endpoints: &[
-            ("Get Fitness Config:", "GET", "/fitness/config"),
-            ("Update Fitness Config:", "PUT", "/fitness/config"),
-            ("Delete Fitness Config:", "DELETE", "/fitness/config"),
-        ],
-    },
-    EndpointCategory {
-        name: "Real-time Notifications:",
-        endpoints: &[("SSE Stream:", "GET", "/notifications/sse/{user_id}")],
     },
 ];
 

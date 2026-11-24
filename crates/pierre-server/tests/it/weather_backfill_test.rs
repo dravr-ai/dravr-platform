@@ -12,8 +12,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use chrono::{TimeZone, Utc};
 use dravr_meteo::{WeatherError, WeatherProvider, WeatherQuery, WeatherSample};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::config::fitness::WeatherApiConfig;
 use pierre_core::models::{Activity, ActivityBuilder, SportType};
 use pierre_fitness_compute::weather_clients::WeatherClients;
@@ -77,7 +77,7 @@ fn build_activity_with_gps(id: &str) -> Activity {
         id.to_owned(),
         "Test Activity".to_owned(),
         SportType::Run,
-        Utc.with_ymd_and_hms(2026, 4, 30, 8, 0, 0).unwrap(),
+        Timestamp::parse_from_rfc3339("2026-04-30T08:00:00Z").unwrap(),
         3600,
         "test",
     )
@@ -91,7 +91,7 @@ fn build_activity_with_temp(id: &str, temp: f32) -> Activity {
         id.to_owned(),
         "Test Activity".to_owned(),
         SportType::Run,
-        Utc.with_ymd_and_hms(2026, 4, 30, 8, 0, 0).unwrap(),
+        Timestamp::parse_from_rfc3339("2026-04-30T08:00:00Z").unwrap(),
         3600,
         "test",
     )
@@ -106,7 +106,7 @@ fn build_activity_no_gps(id: &str) -> Activity {
         id.to_owned(),
         "Indoor Activity".to_owned(),
         SportType::Run,
-        Utc.with_ymd_and_hms(2026, 4, 30, 8, 0, 0).unwrap(),
+        Timestamp::parse_from_rfc3339("2026-04-30T08:00:00Z").unwrap(),
         3600,
         "test",
     )

@@ -117,14 +117,14 @@ jest.mock('../src/screens/chat/useMessages', () => ({
   }),
 }));
 
-jest.mock('../src/screens/chat/useConversations', () => ({
-  useConversations: () => ({
+jest.mock('../src/screens/chat/useOpenConversation', () => ({
+  useOpenConversation: () => ({
     conversations: [{ id: 'conv-1', title: 'Garmin' }],
+    openId: 'conv-1',
     currentConversation: { id: 'conv-1', title: 'Garmin' },
     isLoading: false,
-    error: null,
-    loadConversations: jest.fn(),
-    setCurrentConversation: jest.fn(),
+    refresh: jest.fn(),
+    openConversation: jest.fn(),
     createConversation: jest.fn(),
     switchToConversation: jest.fn(),
     deleteConversation: jest.fn(),
@@ -203,14 +203,16 @@ describe('ChatScreen provider reconnect', () => {
   });
 
   it('reconnects inside the app’s auth session rather than handing off to the browser', async () => {
-    const { getByText } = renderChatScreen();
+    const { getByText, findByTestId } = renderChatScreen();
 
     fireEvent.press(getByText('Reconnect Garmin'));
+    // Garmin's connect asks for its consents first; neither ticked, it goes on.
+    fireEvent.press(await findByTestId('connect-consent-continue'));
 
     await waitFor(() => expect(WebBrowser.openAuthSessionAsync).toHaveBeenCalledTimes(1));
     // A fresh authorization URL minted against the app's own return address:
     // the block's URL was minted for a browser callback and cannot come back.
-    expect(mockInitMobileOAuth).toHaveBeenCalledWith('garmin', RETURN_URL, { tosConsent: false, signInBlocked: false });
+    expect(mockInitMobileOAuth).toHaveBeenCalledWith('garmin', RETURN_URL, { tosConsent: false, signInBlocked: false, consents: [] });
     expect(WebBrowser.openAuthSessionAsync).toHaveBeenCalledWith(AUTHORIZATION_URL, RETURN_URL);
     // Safari never gets it, so there is nothing for the athlete to come back from.
     expect(DeviceLinking.openURL).not.toHaveBeenCalled();
@@ -231,8 +233,10 @@ describe('ChatScreen provider reconnect', () => {
         },
       ],
     });
-    const { getByText, findByText, getByTestId } = renderChatScreen();
-    await waitFor(() => expect(mockGetProvidersStatus).toHaveBeenCalled());
+    const { getByText, findByText, findByTestId, getByTestId } = renderChatScreen();
+    // The cards have been read once the header, which reads the same status, says so:
+    // a reconnect before then has no card to owe a notice.
+    expect(await findByTestId('chat-header-provider-status')).toHaveTextContent('Reconnect needed');
 
     fireEvent.press(getByText('Reconnect WHOOP'));
 
@@ -326,6 +330,7 @@ describe('ChatScreen provider reconnect', () => {
 
     mockGetProvidersStatus.mockResolvedValue(healthy);
     fireEvent.press(getByText('Reconnect Garmin'));
+    fireEvent.press(await findByTestId('connect-consent-continue'));
 
     await waitFor(() => expect(WebBrowser.openAuthSessionAsync).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(queryByTestId('reconnect-banner')).toBeNull(), { timeout: 5000 });

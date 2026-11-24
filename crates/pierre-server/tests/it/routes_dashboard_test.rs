@@ -152,7 +152,7 @@ use crate::common;
 use common::placeholder_llm_chain;
 
 use anyhow::Result;
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use futures_util::{stream, StreamExt, TryStreamExt};
 use pierre_auth::{
     api_keys::{ApiKey, ApiKeyManager, ApiKeyTier, ApiKeyUsage, CreateApiKeyRequest},
@@ -164,7 +164,7 @@ use pierre_config::environment::{
     GoalManagementConfig, HttpClientConfig, LogLevel, LoggingConfig, McpConfig, MonitoringConfig,
     OAuth2ServerConfig, OAuthConfig, OAuthProviderConfig, PostgresPoolConfig, ProtocolConfig,
     RateLimitConfig, SciotteServiceConfig, SecurityConfig, SecurityHeadersConfig, ServerConfig,
-    SleepToolParamsConfig, SseConfig, StravaApiConfig, TlsConfig, TokioRuntimeConfig,
+    SessionCookieConfig, SleepToolParamsConfig, StravaApiConfig, TlsConfig, TokioRuntimeConfig,
     TrainingZonesConfig,
 };
 use pierre_core::admin::scope::AdminScope;
@@ -255,24 +255,11 @@ impl DashboardTestSetup {
                 },
             },
             external_services: ExternalServicesConfig {
-                strava_api: StravaApiConfig {
-                    base_url: "https://www.strava.com/api/v3".to_owned(),
-                    auth_url: "https://www.strava.com/oauth/authorize".to_owned(),
-                    token_url: "https://www.strava.com/oauth/token".to_owned(),
-                    revoke_url: "https://www.strava.com/oauth/revoke".to_owned(),
-                    ..Default::default()
-                },
-                garmin_api: GarminApiConfig {
-                    base_url: "https://apis.garmin.com/wellness-api/rest".to_owned(),
-                    auth_url: "https://connect.garmin.com/oauth2Confirm".to_owned(),
-                    token_url: "https://diauth.garmin.com/di-oauth2-service/oauth/token"
-                        .to_string(),
-                    revoke_url: "https://apis.garmin.com/wellness-api/rest/user/registration"
-                        .to_owned(),
-                    ..Default::default()
-                },
+                strava_api: StravaApiConfig::default(),
+                garmin_api: GarminApiConfig::default(),
                 sciotte: SciotteServiceConfig::default(),
                 meta_graph_api_base: None,
+                overpass_api_base: None,
             },
             app_behavior: AppBehaviorConfig {
                 max_activities_fetch: 100,
@@ -287,7 +274,7 @@ impl DashboardTestSetup {
                     server_version: env!("CARGO_PKG_VERSION").to_owned(),
                 },
             },
-            sse: SseConfig::default(),
+            session_cookie: SessionCookieConfig::default(),
             oauth2_server: OAuth2ServerConfig::default(),
             host: "localhost".to_owned(),
             base_url: "http://localhost:8081".to_owned(),
@@ -345,6 +332,8 @@ impl DashboardTestSetup {
                     archive_imports: None,
                     live_records: None,
                     blobs: None,
+                    lab_reader: None,
+                    pdf_text_bin: None,
                     #[cfg(feature = "client-messaging")]
                     channel_adapters: common::offline_adapters(),
                 },
@@ -415,12 +404,15 @@ impl DashboardTestSetup {
         AuthResult {
             scopes: OAuthScope::self_grant(),
             client_id: None,
+            grant_id: None,
             user_id: self.user_id,
             auth_method: AuthMethod::JwtToken {
                 tier: "premium".to_owned(),
                 impersonation: None,
             },
             active_tenant_id: None,
+            client_grant_id: None,
+            ceiling: None,
         }
     }
 
@@ -442,14 +434,14 @@ impl DashboardTestSetup {
         /// busy; SQLite's single connection serialises regardless.
         const USAGE_WRITE_CONCURRENCY: usize = 8;
 
-        let now = Utc::now();
+        let now = Timestamp::now();
         let mut rows = Vec::new();
 
         // Create some API key usage records for testing
         for (i, api_key) in api_keys.iter().enumerate() {
             // Create usage for the last few days
             for days_ago in 0..7 {
-                let timestamp = now - Duration::days(days_ago);
+                let timestamp = now - Elapsed::days(days_ago);
 
                 // Vary usage patterns by API key tier
                 let base_requests = match api_key.tier {
@@ -467,7 +459,7 @@ impl DashboardTestSetup {
                     rows.push(ApiKeyUsage {
                         id: None,
                         api_key_id: api_key.id.clone(),
-                        timestamp: timestamp + Duration::minutes(i64::from(j) * 2),
+                        timestamp: timestamp + Elapsed::minutes(i64::from(j) * 2),
                         tool_name: match j % 4 {
                             0 => "strava_activities".to_owned(),
                             1 => "whoop_data".to_owned(),
@@ -591,12 +583,15 @@ async fn test_get_usage_analytics_invalid_auth() -> Result<()> {
             AuthResult {
                 scopes: OAuthScope::self_grant(),
                 client_id: None,
+                grant_id: None,
                 user_id: Uuid::nil(),
                 auth_method: AuthMethod::JwtToken {
                     tier: "premium".to_owned(),
                     impersonation: None,
                 },
                 active_tenant_id: None,
+                client_grant_id: None,
+                ceiling: None,
             },
             7,
             empty_scope(),
@@ -610,12 +605,15 @@ async fn test_get_usage_analytics_invalid_auth() -> Result<()> {
             AuthResult {
                 scopes: OAuthScope::self_grant(),
                 client_id: None,
+                grant_id: None,
                 user_id: Uuid::nil(),
                 auth_method: AuthMethod::JwtToken {
                     tier: "premium".to_owned(),
                     impersonation: None,
                 },
                 active_tenant_id: None,
+                client_grant_id: None,
+                ceiling: None,
             },
             7,
             empty_scope(),

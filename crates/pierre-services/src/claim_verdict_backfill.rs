@@ -28,7 +28,7 @@
 
 use std::time::Duration;
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use serde::{Deserialize, Serialize};
 use tokio::time::sleep;
 use tracing::{info, warn};
@@ -47,7 +47,7 @@ use pierre_core::errors::{AppError, AppResult};
 
 /// Maximum number of messages scanned per backfill call.
 ///
-/// Ship the call with `--limit` below this to honor operator wishes;
+/// Ship the call with `--limit` below this to honor admin wishes;
 /// the hard cap is a defensive guard against a runaway wall-clock on
 /// very large tenants.
 pub const MAX_MESSAGES_SCANNED: u64 = 100_000;
@@ -329,13 +329,11 @@ async fn fetch_assistant_messages(
     let since = params
         .since
         .map(|since| {
-            DateTime::parse_from_rfc3339(since)
-                .map(|dt| dt.with_timezone(&Utc))
-                .map_err(|e| {
-                    AppError::invalid_input(format!(
-                        "since must be an RFC 3339 timestamp, got {since:?}: {e}"
-                    ))
-                })
+            Timestamp::parse_from_rfc3339(since).map_err(|e| {
+                AppError::invalid_input(format!(
+                    "since must be an RFC 3339 timestamp, got {since:?}: {e}"
+                ))
+            })
         })
         .transpose()?;
     repos

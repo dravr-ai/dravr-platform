@@ -37,12 +37,12 @@
 # and for Cloud Run's idle window after it (up to ~15 min). The price is a cold
 # start (p95 7.1s plus a Chrome launch) on the first sign-in after a quiet spell,
 # and a parked sign-in lost if Cloud Run stops the idle instance before the code
-# arrives: the athlete is told to start again (ChefFamille chose this over an
-# always-warm instance at about CA$65/mo, 2026-11-15, carnet#1504).
+# arrives: the athlete is told to start again (chosen over an always-warm
+# instance at about CA$65/mo, 2026-11-15, carnet#1504).
 
 locals {
   # Hot-swappable extraction scripts / prompt overrides. Only the sciotte
-  # services mount the bucket: the API pod runs no scraper.
+  # services mount the bucket: the API pod runs no session reader.
   sciotte_gcs_volumes = {
     sciotte-scripts = {
       bucket     = google_storage_bucket.sciotte_scripts.name
@@ -53,7 +53,7 @@ locals {
 
   sciotte_env_vars = {
     # The audience this service requires in an identity token. It refuses to
-    # start without it: a scraper that cannot pin its audience would accept
+    # start without it: a service that cannot pin its audience would accept
     # tokens minted for any other Google service.
     DRAVR_SCIOTTE_AUDIENCE = local.sciotte_audience
 
@@ -85,13 +85,13 @@ locals {
     DRAVR_SCIOTTE_PASSWORD_STEP_TIMEOUT = tostring(var.backend_sciotte_password_step_timeout_secs)
     DRAVR_SCIOTTE_PHONE_TAP_TIMEOUT     = tostring(var.backend_sciotte_phone_tap_timeout_secs)
 
-    # Ceiling on detail-page navigations in one scrape request, ~3.4s each.
+    # Ceiling on detail-page navigations in one read request, ~3.4s each.
     # Every detail pass is opted into per request (carnet#409): the Strava
     # location backfill (detail=missing_location) and PIERRE_SCIOTTE_ENRICH_DETAILS
     # on the API service (detail=every) alike, and a request's own cap is
     # tightened to this. 10 bounds a pass at ~34s, inside the platform's 90s
     # loopback bound; the crate default of 30 (~101s) overran it on 2026-09-08,
-    # when a completed scrape was discarded. 0 disables every detail pass.
+    # when a completed read was discarded. 0 disables every detail pass.
     DRAVR_SCIOTTE_MAX_DETAIL_NAVIGATIONS = "10"
 
     # Hybrid login: selectors first, vision (Copilot screenshot reasoning) on
@@ -99,7 +99,7 @@ locals {
     # COPILOT_HEADLESS_MODEL is the vision model: the service builds its
     # analyzer from embacle's CopilotHeadlessConfig::from_env and sends each
     # screenshot with no per-request model. claude-sonnet-5.5 is the model
-    # the chat chain's copilot_sdk tier runs (JF, 2026-10-01).
+    # the chat chain's copilot_sdk tier runs (2026-10-01).
     DRAVR_SCIOTTE_LOGIN_MODE  = "hybrid"
     COPILOT_HEADLESS_MODEL    = "claude-sonnet-5.5"
     DRAVR_SCIOTTE_SCRIPTS_DIR = "/sciotte-scripts"
@@ -110,27 +110,27 @@ locals {
     # so the model never needs a tool to read one.
     COPILOT_HEADLESS_PERMISSION_POLICY = "deny_all"
 
-    # The launch UA. Unset, dravr-browser falls back to a fixed Chrome/147 Mac
-    # string on a Linux Chromium 155, a mismatch Garmin's SSO may score as a
-    # bot (carnet#1035). Keep the major version in step with the image's
+    # The browser identification string the sign-in service launches with.
+    # It states what the container runs: Chromium 155 on Linux. Unset,
+    # dravr-browser falls back to a fixed string naming another platform and
+    # version (carnet#1035). Keep the major version in step with the image's
     # Chromium when it moves.
     DRAVR_BROWSER_USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36"
 
-    # Credential logins launch headless. Unset, sciotte opens a headed Chrome
-    # for them, which in this display-less container met Garmin's SSO captcha
-    # at page render (button disabled before submit) on every login from
-    # 2026-10-09 to 10-16; headless reached the emailed-code step in 1.5 s on
-    # the first try (carnet#1035).
+    # Credential sign-ins launch without a display, because this container
+    # has none. Unset, sciotte opens a windowed Chrome for them, and the
+    # sign-in page then never became usable here (2026-10-09 to 10-16); with
+    # this set a sign-in reaches the emailed-code step in 1.5 s (carnet#1035).
     DRAVR_SCIOTTE_CREDENTIAL_LOGIN_HEADLESS = "true"
 
-    # The login takeover (ADR-034, carnet#1508) is off: a login asked for one
-    # stops at a challenge with login_challenge, and Chrome runs without the
-    # takeover's lockdown policy. From 2026-11-16 afternoon Garmin's SSO puts
-    # a reCAPTCHA in front of every sign-in from dev (on sciotte v1.4.0 and
-    # v2.1.0 alike, from the reserved NAT address and a fresh one), and the
-    # takeover then served athletes captcha grids that never accepted an
-    # answer. Garmin connects through OAuth first meanwhile (ChefFamille,
-    # 2026-11-16). Needs sciotte >= 3339af3, which reads the flag.
+    # The login takeover (ADR-034, carnet#1508) is off: a sign-in that meets
+    # a verification step stops there with login_challenge, and Chrome runs
+    # without the takeover's lockdown policy. Since 2026-11-16 the athlete
+    # completes that step in their own browser: a provider with a sign-in
+    # connects through the sign-in extension first, then the credentials
+    # form, then OAuth when that fails (carnet#1617). Turning this on puts
+    # the verification step back inside the service, where an athlete could
+    # not complete it. Needs sciotte >= 3339af3, which reads the flag.
     DRAVR_SCIOTTE_TAKEOVER = "false"
   }
 
@@ -153,8 +153,8 @@ module "sciotte_login" {
   service_account_email = module.service_accounts.app_service_account_email
 
   container_port = 3000
-  # Sized as the read service: up to DRAVR_SCIOTTE_MAX_CONCURRENT=3 headless
-  # Chromes (two sign-ins and a takeover) plus the vision LLM subprocess.
+  # Sized as the read service: up to DRAVR_SCIOTTE_MAX_CONCURRENT=3 Chromes
+  # (two sign-ins and a takeover) plus the vision LLM subprocess.
   cpu               = "2"
   memory            = "3Gi"
   cpu_idle          = true
@@ -172,7 +172,7 @@ module "sciotte_login" {
   # may enter, exactly as on the read service.
   ingress = "INGRESS_TRAFFIC_ALL"
 
-  # Garmin SSO scores the sign-in's source address: every sign-in leaves
+  # A stable egress address keeps sign-in reliable: every sign-in leaves
   # through the Cloud NAT's one reserved address, like the read service's.
   vpc_connector_id = module.networking.vpc_connector_id
   vpc_egress       = "ALL_TRAFFIC"

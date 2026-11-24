@@ -8,7 +8,7 @@ export type FeatureFlagMap = Record<string, boolean>;
 export interface KnownFeatureFlag {
   /** Stable storage string, e.g. `api_tokens`. Matches `FeatureKey::as_str`. */
   key: string;
-  /** Operator-facing description of what the flag gates. */
+  /** Admin-facing description of what the flag gates. */
   description: string;
   /** Compile-time default applied when no tenant or user override exists. */
   default_enabled: boolean;

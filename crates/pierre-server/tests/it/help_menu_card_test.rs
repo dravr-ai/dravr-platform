@@ -24,8 +24,8 @@
 //! still answer successfully with a plausible-looking body.
 
 use anyhow::Result;
-use chrono::Utc;
 use dravr_canot::commands::{CommandRegistry, CommandResponse};
+use dravr_tronc::dates::Timestamp;
 use pierre_commands::help::{HelpHandler, PERSONAL_MARKER};
 use pierre_commands::plan::PlanShareHandler;
 use pierre_commands::{
@@ -189,7 +189,7 @@ async fn help_in_a_personal_thread_with_no_starter_left_offers_the_command_short
             .common
             .repos
             .use_case_exposures
-            .record_use_case_tapped(tenant, user_id, id, Utc::now())
+            .record_use_case_tapped(tenant, user_id, id, Timestamp::now())
             .await?;
     }
     // Finish your profile is a recurring first-run flow: a tap never retires
@@ -199,7 +199,7 @@ async fn help_in_a_personal_thread_with_no_starter_left_offers_the_command_short
         user_id,
         tenant,
         FINISH_PROFILE,
-        Utc::now().date_naive(),
+        Timestamp::now().utc_date(),
         "app",
     )
     .await?;
@@ -208,7 +208,7 @@ async fn help_in_a_personal_thread_with_no_starter_left_offers_the_command_short
             .common
             .repos
             .use_case_exposures
-            .record_use_cases_shown(tenant, user_id, &[FINISH_PROFILE], Utc::now())
+            .record_use_cases_shown(tenant, user_id, &[FINISH_PROFILE], Timestamp::now())
             .await?;
     }
 

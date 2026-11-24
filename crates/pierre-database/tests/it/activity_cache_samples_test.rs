@@ -13,7 +13,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use chrono::{Duration, TimeZone, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::models::{ActivityBuilder, SportType, TenantId, TimeSeriesData, User};
 use pierre_test_support::db::create_test_db;
 use uuid::Uuid;
@@ -29,7 +29,7 @@ async fn a_streams_bearing_activity_is_cached_without_its_samples() {
     );
     let user_id = repos.users.create(&user).await.unwrap();
     let tenant_id = TenantId::generate();
-    let start = Utc.with_ymd_and_hms(2026, 10, 27, 7, 0, 0).unwrap();
+    let start = Timestamp::parse_from_rfc3339("2026-10-27T07:00:00Z").unwrap();
     let activity = ActivityBuilder::new(
         "route-1",
         "Lunch run",
@@ -70,8 +70,8 @@ async fn a_streams_bearing_activity_is_cached_without_its_samples() {
             user_id,
             &tenant_id,
             Some("strava"),
-            start - Duration::days(1),
-            start + Duration::days(1),
+            start - Elapsed::days(1),
+            start + Elapsed::days(1),
             10,
         )
         .await

@@ -26,6 +26,7 @@ use pierre_core::models::TenantId;
 use pierre_core::pagination::StoreSortOrder;
 use std::slice;
 
+use dravr_tronc::dates::Timestamp;
 use pierre_database::database::{Agent, AgentCategory, AgentWithListing, StoreListing};
 use pierre_database::repositories::CoachTools;
 use pierre_database::views::AgentRepos;
@@ -85,7 +86,7 @@ impl From<AgentWithListing> for StoreAgent {
             token_count: cwl.agent.token_count,
             install_count: cwl.listing.install_count,
             icon_url: cwl.listing.icon_url,
-            published_at: cwl.listing.published_at.map(|dt| dt.to_rfc3339()),
+            published_at: cwl.listing.published_at.map(Timestamp::to_rfc3339),
             author_id: cwl.listing.author_id,
             handle: cwl.agent.handle,
         }

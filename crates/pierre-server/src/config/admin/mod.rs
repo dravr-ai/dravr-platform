@@ -44,13 +44,13 @@
 //!
 //! // Update configuration
 //! let request = UpdateConfigRequest {
-//!     parameters: [("feature.auto_approval_enabled".to_string(), json!(false))].into(),
-//!     reason: Some("Pausing open sign-ups".to_string()),
+//!     parameters: [("usage_quotas.daily_message_cap".to_string(), json!(40))].into(),
+//!     reason: Some("Tightening the daily message cap".to_string()),
 //! };
 //! let response = service.update_config(&request, admin_id, admin_email, None, None, None).await?;
 //!
 //! // Get specific value
-//! let value = service.get_value("feature.auto_approval_enabled", None).await?;
+//! let value = service.get_value("usage_quotas.daily_message_cap", None).await?;
 //! ```
 
 /// Database-agnostic repository trait for admin configuration, and the one

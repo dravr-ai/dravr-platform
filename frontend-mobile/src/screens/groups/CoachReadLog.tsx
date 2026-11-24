@@ -49,8 +49,14 @@ function ReadRow({ read }: { read: CoachRead }) {
       <Text className="text-xs text-text-tertiary mt-0.5" testID="coach-read-at">
         {formatDateTime(read.read_at, language)}
       </Text>
+      {/* Dravr support read it acting as the coach: said in place of the coach's AI tool line. */}
+      {read.support_read && (
+        <Text className="text-xs text-text-secondary mt-0.5" testID="coach-read-support">
+          {t(COACH_READ_LOG_KEYS.supportRead)}
+        </Text>
+      )}
       {/* The server marked it served to an AI tool the coach connects, whose company received it. */}
-      {read.served_to_assistant && (
+      {read.served_to_assistant && !read.support_read && (
         <Text className="text-xs text-text-secondary mt-0.5" testID="coach-read-served-to-assistant">
           {t(COACH_READ_LOG_KEYS.servedToAssistant)}
         </Text>

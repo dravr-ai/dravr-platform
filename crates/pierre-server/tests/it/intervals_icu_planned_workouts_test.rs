@@ -39,7 +39,7 @@ use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use dravr_tronc::mcp::schema::ToolResponse;
 use dravr_tronc::mcp::tool::{McpTool, ToolContext};
 use pierre_core::constants::oauth::INTERVALS_ICU;
@@ -197,7 +197,7 @@ async fn serve(app: Router) -> String {
 /// the scraper service at `scraper_base`.
 async fn resources_against(intervals_base: String, scraper_base: &str) -> Arc<ServerContext> {
     let resources = create_test_server_resources().await.unwrap();
-    let mut config = offline_provider_config(INTERVALS_ICU);
+    let mut config = offline_provider_config(INTERVALS_ICU).unwrap();
     config.api_base_url = intervals_base;
     // Built as the server builds its registry's sciotte client, so the
     // TrainingPeaks reads reach the scraper stand-in.
@@ -221,7 +221,7 @@ async fn athlete(res: &Arc<ServerContext>, label: &str) -> (Uuid, TenantId) {
 
 /// Link the athlete's own Intervals.icu API key, as the link route does.
 async fn connect_intervals(res: &Arc<ServerContext>, user_id: Uuid, tenant: TenantId, id: &str) {
-    let now = Utc::now();
+    let now = Timestamp::now();
     res.common
         .repos
         .oauth_tokens

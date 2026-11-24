@@ -23,6 +23,7 @@
 
 use std::sync::Arc;
 
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::{MemberFitnessSnapshot, TenantId};
 use pierre_llm::ChatMessage;
 use pierre_tool_runtime::context::{DispatchOrigin, DISPATCH_ORIGIN};
@@ -198,7 +199,7 @@ pub async fn fetch_peer_activities_outcome(
     display_name: &str,
     group_id: Option<&str>,
 ) -> PeerFetchOutcome {
-    let now = chrono::Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     let mut parameters = json!({
         "member": display_name,
         "limit": PEER_FETCH_LIMIT,
@@ -258,7 +259,7 @@ pub async fn fetch_peer_activities_outcome(
 /// kill-switch), an outage, an empty payload — because to the grounding
 /// callers the meaning is the same: there is no peer evidence to ground or
 /// verify with. The decline reason is logged by
-/// [`fetch_peer_activities_outcome`] so operators still see which it was.
+/// [`fetch_peer_activities_outcome`] so admins still see which it was.
 pub async fn fetch_peer_activities(
     executor: &Arc<UniversalExecutor>,
     user_id: &str,

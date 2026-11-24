@@ -25,6 +25,7 @@
 
 use std::collections::HashMap;
 use std::convert::Infallible;
+use std::str;
 use std::sync::Arc;
 
 use axum::{
@@ -47,6 +48,7 @@ use pierre_a2a::{
         RATE_LIMIT_EXCEEDED_REASON,
     },
     A2ARequest, A2AResponse, A2AServer, JsonRpcError, A2A_VERSION, A2A_VERSION_HEADER,
+    INVALID_PARAMS, JSONRPC_VERSION, METHOD_NOT_FOUND, PARSE_ERROR, SERVER_ERROR_START,
 };
 use pierre_auth::config::{www_authenticate_challenge, DIALED_HOST_HEADERS};
 use pierre_core::auth_header::extract_bearer_token;
@@ -180,15 +182,9 @@ fn has_reason(error: &JsonRpcError, reason: &str) -> bool {
 
 /// Build a bare A2A request for a spec method (REST binding path).
 fn wire_request(method: &str, params: Value, auth_token: Option<String>) -> A2ARequest {
-    A2ARequest {
-        jsonrpc: "2.0".into(),
-        method: method.into(),
-        params: Some(params),
-        id: None,
-        auth_token,
-        headers: None,
-        metadata: HashMap::new(),
-    }
+    let mut request = A2ARequest::notification(method, Some(params));
+    request.auth_token = auth_token;
+    request
 }
 
 /// Serialize one stream frame into an SSE event. With `envelope_id` the
@@ -197,7 +193,7 @@ fn wire_request(method: &str, params: Value, auth_token: Option<String>) -> A2AR
 fn frame_event(frame: &StreamResponse, envelope_id: Option<&Value>) -> Event {
     let payload = envelope_id.map_or_else(
         || serde_json::to_value(frame).unwrap_or(Value::Null),
-        |id| json!({ "jsonrpc": "2.0", "id": id, "result": frame }),
+        |id| json!({ "jsonrpc": JSONRPC_VERSION, "id": id, "result": frame }),
     );
     Event::default().data(payload.to_string())
 }
@@ -252,51 +248,52 @@ fn jsonrpc_response(response: A2AResponse) -> Response {
     with_retry_after((status, Json(response)).into_response(), retry_after)
 }
 
-/// JSON-RPC error envelope helper.
-fn jsonrpc_error(code: i32, message: &str, data: Option<Value>, id: Option<Value>) -> A2AResponse {
-    A2AResponse {
-        jsonrpc: "2.0".into(),
-        result: None,
-        error: Some(JsonRpcError {
-            code,
-            message: message.to_owned(),
-            data,
-        }),
-        id,
-    }
+/// Read a `POST /a2a/jsonrpc` body into a request, or the error envelope to
+/// answer with. A body that is not UTF-8 is a parse error (-32700), like
+/// text that is not JSON; the rest is [`A2ARequest::parse`].
+fn parse_jsonrpc_body(body: &[u8]) -> Result<A2ARequest, Box<A2AResponse>> {
+    str::from_utf8(body)
+        .map_err(|e| {
+            Box::new(A2AResponse::error(
+                None,
+                PARSE_ERROR,
+                format!("Parse error: body is not UTF-8: {e}"),
+            ))
+        })
+        .and_then(A2ARequest::parse)
 }
 
 /// Handle the A2A JSON-RPC transport endpoint (`POST /a2a/jsonrpc`).
 ///
 /// Dispatches non-streaming methods to [`A2AServer::handle_request`] and
-/// answers `SendStreamingMessage` / `SubscribeToTask` with SSE. A bearer
-/// token supplied via the `Authorization` header is folded into the
-/// request's `auth` field when the body omits it.
+/// answers `SendStreamingMessage` / `SubscribeToTask` with SSE.
+///
+/// The body is read with [`A2ARequest::parse`], which keeps a parse error
+/// (-32700) apart from an invalid request (-32600) and never deserializes the
+/// `auth`, `headers` or `metadata` extensions. The caller's credential comes
+/// only from the `Authorization` header: a body is written by the client, so
+/// an `auth` member in it is ignored, and a request without a header token is
+/// refused by the protocol layer.
 pub(crate) async fn handle_jsonrpc<C: MiddlewareCtx + A2ACtx>(
     State(state): State<A2ARoutesState<C>>,
     headers: HeaderMap,
     RawQuery(query): RawQuery,
     body: Bytes,
 ) -> Response {
-    let mut request: A2ARequest = match serde_json::from_slice(&body) {
+    let mut request = match parse_jsonrpc_body(&body) {
         Ok(request) => request,
-        Err(e) => {
-            let response = jsonrpc_error(-32700, &format!("Parse error: {e}"), None, None);
-            return (StatusCode::OK, Json(response)).into_response();
-        }
+        Err(response) => return (StatusCode::OK, Json(*response)).into_response(),
     };
 
-    if request.auth_token.is_none() {
-        request.auth_token = bearer_token(&headers);
-    }
+    request.auth_token = bearer_token(&headers);
 
     if !version_supported(&headers, query.as_deref()) {
         let spec_error = A2ASpecError::VersionNotSupported;
-        let response = jsonrpc_error(
+        let response = A2AResponse::error_with_data(
+            request.id.clone(), // Safe: JSON value ownership for the error envelope
             spec_error.code(),
-            &spec_error.to_string(),
-            Some(error_info(spec_error.reason())),
-            request.id.clone(),
+            spec_error.to_string(),
+            error_info(spec_error.reason()),
         );
         return (StatusCode::OK, Json(response)).into_response();
     }
@@ -327,17 +324,26 @@ pub(crate) async fn handle_jsonrpc<C: MiddlewareCtx + A2ACtx>(
 /// Map a JSON-RPC error to the HTTP status + `google.rpc.Code` name of the
 /// v1.0.1 error-mapping table.
 fn rest_error_mapping(error: &JsonRpcError) -> (StatusCode, &'static str) {
+    if let Some(spec_error) = A2ASpecError::from_code(error.code) {
+        return match spec_error {
+            A2ASpecError::TaskNotFound => (StatusCode::NOT_FOUND, "NOT_FOUND"),
+            A2ASpecError::TaskNotCancelable
+            | A2ASpecError::PushNotificationNotSupported
+            | A2ASpecError::UnsupportedOperation
+            | A2ASpecError::ExtendedAgentCardNotConfigured
+            | A2ASpecError::ExtensionSupportRequired
+            | A2ASpecError::VersionNotSupported => (StatusCode::BAD_REQUEST, "FAILED_PRECONDITION"),
+            A2ASpecError::ContentTypeNotSupported => (StatusCode::BAD_REQUEST, "INVALID_ARGUMENT"),
+            _ => (StatusCode::INTERNAL_SERVER_ERROR, "INTERNAL"),
+        };
+    }
     match error.code {
-        -32001 => (StatusCode::NOT_FOUND, "NOT_FOUND"),
-        -32002 | -32003 | -32004 | -32007 | -32008 | -32009 => {
-            (StatusCode::BAD_REQUEST, "FAILED_PRECONDITION")
-        }
-        -32005 | -32602 | -32700 => (StatusCode::BAD_REQUEST, "INVALID_ARGUMENT"),
-        -32601 => (StatusCode::NOT_IMPLEMENTED, "UNIMPLEMENTED"),
-        -32000 if has_reason(error, AUTHENTICATION_REQUIRED) => {
+        INVALID_PARAMS | PARSE_ERROR => (StatusCode::BAD_REQUEST, "INVALID_ARGUMENT"),
+        METHOD_NOT_FOUND => (StatusCode::NOT_IMPLEMENTED, "UNIMPLEMENTED"),
+        SERVER_ERROR_START if has_reason(error, AUTHENTICATION_REQUIRED) => {
             (StatusCode::UNAUTHORIZED, "UNAUTHENTICATED")
         }
-        -32000 if has_reason(error, RATE_LIMIT_EXCEEDED_REASON) => {
+        SERVER_ERROR_START if has_reason(error, RATE_LIMIT_EXCEEDED_REASON) => {
             (StatusCode::TOO_MANY_REQUESTS, "RESOURCE_EXHAUSTED")
         }
         _ => (StatusCode::INTERNAL_SERVER_ERROR, "INTERNAL"),
@@ -706,4 +712,48 @@ pub(crate) async fn rest_extended_card<C: MiddlewareCtx + A2ACtx>(
         return *response;
     }
     rest_dispatch(&state, &headers, "GetExtendedAgentCard", Value::Null).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{parse_jsonrpc_body, PARSE_ERROR};
+
+    #[test]
+    fn a_body_that_is_not_utf8_is_a_parse_error_with_a_null_id() {
+        let refused = parse_jsonrpc_body(&[0xff, 0xfe, b'{'])
+            .expect_err("a non-UTF-8 body must not parse into a request");
+        let error = refused
+            .error
+            .as_ref()
+            .expect("a refused body is answered with an error envelope");
+        assert_eq!(
+            error.code, PARSE_ERROR,
+            "a body that is not UTF-8 is a JSON-RPC parse error (binding bug otherwise)"
+        );
+        assert!(
+            error.message.contains("not UTF-8"),
+            "the parse error names the encoding failure: {}",
+            error.message
+        );
+        assert!(
+            refused.id.is_none(),
+            "an unreadable body has no id to answer with (binding bug otherwise)"
+        );
+    }
+
+    #[test]
+    fn an_auth_member_in_the_body_never_becomes_the_credential() {
+        let request = parse_jsonrpc_body(
+            br#"{"jsonrpc":"2.0","method":"GetTask","id":3,"auth":"body-token"}"#,
+        )
+        .expect("a well-formed request parses");
+        assert_eq!(
+            request.method, "GetTask",
+            "the parsed request keeps its method (parser bug otherwise)"
+        );
+        assert!(
+            request.auth_token.is_none(),
+            "a client-written `auth` member must never fill the credential (binding bug otherwise)"
+        );
+    }
 }

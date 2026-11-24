@@ -27,7 +27,7 @@ import { CoachAccessSettings } from '../../components/CoachAccessPanel';
  *
  * One `Section` holds a `Row` per persona, the selected one marked by a check
  * and followed by its rules and enforcement word — the athlete reads the
- * contract they are on, not every contract at once (DESIGN.md §10).
+ * contract they are on, not every contract at once (DESIGN.md "Phone").
  */
 export function CoachingStyleScreen() {
   const { t, language } = useTranslation();

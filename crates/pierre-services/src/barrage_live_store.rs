@@ -30,7 +30,6 @@ use crate::live_activities::{
     landed_session, LandedSession, LiveActivityStore, LiveIngest, WriteOrigin,
 };
 use async_trait::async_trait;
-use chrono::{DateTime, Duration, Utc};
 use dravr_barrage::blob::BlobStore;
 use dravr_barrage::keyed::Keyed;
 use dravr_barrage::record::{StreamsState, SummaryWindow, TotalsFrom};
@@ -43,6 +42,7 @@ use dravr_barrage::{
     ActivityId, ActivityIngest, ActivityRecord, BarrageError, BarrageStores, LiveSource,
     ProjectionSink, Provenance, RetractReason, Scope, SourceKey, UserId,
 };
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_config::database::DatabaseUrl;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{Activity, ActivityBuilder, SportType, TenantId};
@@ -50,8 +50,9 @@ use pierre_database::backends::factory::Database;
 use pierre_database::repositories::amended_summary;
 use pierre_database::RepositoryRegistry;
 use pierre_providers::deduplication::DedupConfig;
+use pierre_runtime_context::ProviderConnectLog;
 use tokio::fs;
-use tracing::warn;
+use tracing::{debug, warn};
 use uuid::Uuid;
 
 use crate::activity_cache_sink::LiveCacheSink;
@@ -163,7 +164,7 @@ impl BarrageLiveStore {
         user_id: Uuid,
         tenant_id: TenantId,
         origin: WriteOrigin,
-    ) -> Option<Option<DateTime<Utc>>> {
+    ) -> Option<Option<Timestamp>> {
         if origin != WriteOrigin::Live {
             return None;
         }
@@ -191,19 +192,19 @@ impl BarrageLiveStore {
         provider: &str,
         written: &[Activity],
         report: &LiveIngest,
-        held_before: Option<DateTime<Utc>>,
+        held_before: Option<Timestamp>,
     ) -> Option<LandedSession> {
         if !report.newer_session {
             return None;
         }
         let starts = written.iter().map(Activity::start_date);
         let from = match held_before {
-            Some(held) => held - Duration::hours(LANDING_READ_BEFORE_HOURS),
+            Some(held) => held - Elapsed::hours(LANDING_READ_BEFORE_HOURS),
             None => starts.clone().min()?,
         };
         let to = starts
             .max()
-            .map_or_else(Utc::now, |newest| newest.max(Utc::now()));
+            .map_or_else(Timestamp::now, |newest| newest.max(Timestamp::now()));
         let kept_around = match self
             .repos
             .activity_cache
@@ -296,7 +297,7 @@ fn record_of(
     scope: Scope,
     source: SourceKey,
     activity: &Activity,
-    synced_at: DateTime<Utc>,
+    synced_at: Timestamp,
 ) -> Option<ActivityRecord> {
     let id = match ActivityId::try_from(activity.id().to_owned()) {
         Ok(id) => id,
@@ -319,6 +320,8 @@ fn record_of(
         importer_version: None,
         summary_window: SummaryWindow::default(),
         totals_from: TotalsFrom::default(),
+        legacy_id: None,
+        legacy_original: None,
     };
     ActivityRecord::try_new(scope, id, provenance, activity.clone())
         .map_err(|e| warn!(activity_id = activity.id(), error = %e, "activity not kept"))
@@ -335,7 +338,7 @@ fn bare_record(
     id: ActivityId,
     provider: &str,
 ) -> AppResult<ActivityRecord> {
-    let now = Utc::now();
+    let now = Timestamp::now();
     let activity = ActivityBuilder::new(
         id.as_str(),
         "",
@@ -359,6 +362,8 @@ fn bare_record(
         importer_version: None,
         summary_window: SummaryWindow::default(),
         totals_from: TotalsFrom::default(),
+        legacy_id: None,
+        legacy_original: None,
     };
     ActivityRecord::try_new(scope, id, provenance, activity).map_err(|e| store_error(source, &e))
 }
@@ -371,7 +376,7 @@ impl LiveActivityStore for BarrageLiveStore {
         tenant_id: TenantId,
         provider: &str,
         activities: &[Activity],
-        synced_at: DateTime<Utc>,
+        synced_at: Timestamp,
         origin: WriteOrigin,
     ) -> AppResult<LiveIngest> {
         let live = live_source(provider)?;
@@ -400,7 +405,7 @@ impl LiveActivityStore for BarrageLiveStore {
         tenant_id: TenantId,
         provider: &str,
         activity: &Activity,
-        received_at: DateTime<Utc>,
+        received_at: Timestamp,
     ) -> AppResult<LiveIngest> {
         let live = live_source(provider)?;
         let scope = Scope::new(tenant_id.as_uuid(), user_id);
@@ -502,7 +507,7 @@ impl LiveActivityStore for BarrageLiveStore {
                 .activity_cache
                 .get_cached_activity(user_id, &tenant_id, provider, activity_id_text)
                 .await?
-                .and_then(|activity| record_of(scope, source, &activity, Utc::now())),
+                .and_then(|activity| record_of(scope, source, &activity, Timestamp::now())),
         };
         let found = remembered.is_some();
         // A deletion that arrives before any read of the activity — a
@@ -554,8 +559,8 @@ impl LiveActivityStore for BarrageLiveStore {
         user_id: Uuid,
         tenant_id: TenantId,
         provider: &str,
-        start: DateTime<Utc>,
-        end: DateTime<Utc>,
+        start: Timestamp,
+        end: Timestamp,
     ) -> AppResult<u64> {
         let source = SourceKey::Live(live_source(provider)?);
         let scope = Scope::new(tenant_id.as_uuid(), user_id);
@@ -742,7 +747,7 @@ impl LiveActivityStore for BarrageLiveStore {
         // records then go whole. An athlete still connected keeps syncing,
         // so a scope already deleted can show again; it is deleted again,
         // and the walk ends on an empty page or fails after its last pass.
-        let after_every_read = Utc::now() + Duration::days(EVERY_READ_HORIZON_DAYS);
+        let after_every_read = Timestamp::now() + Elapsed::days(EVERY_READ_HORIZON_DAYS);
         let mut deleted: BTreeSet<Scope> = BTreeSet::new();
         for _ in 0..SOURCE_WALK_PASSES {
             let page = self
@@ -770,6 +775,31 @@ impl LiveActivityStore for BarrageLiveStore {
             .delete_user(UserId(user_id))
             .await
             .map_err(|e| AppError::database(format!("activity store, deleting an account: {e}")))
+    }
+}
+
+/// A connect is a `connect` entry in the athlete's log (carnet#1542), under
+/// the live source the provider's records are kept under.
+#[async_trait]
+impl ProviderConnectLog for BarrageLiveStore {
+    async fn log_connect(
+        &self,
+        user_id: Uuid,
+        tenant_id: &TenantId,
+        provider: &str,
+    ) -> AppResult<()> {
+        let Ok(live) = live_source(provider) else {
+            debug!(
+                provider,
+                "no activity store source for this provider: no connect entry"
+            );
+            return Ok(());
+        };
+        let source = SourceKey::Live(live);
+        self.records
+            .log_connect(&Scope::new(tenant_id.as_uuid(), user_id), source)
+            .await
+            .map_err(|e| store_error(source, &e))
     }
 }
 
@@ -828,12 +858,14 @@ impl BarrageLiveStore {
 ///
 /// `records` is the store archive imports write and the export reads too;
 /// `blobs` keeps the originals; the projection goes to `repos`' activity cache.
+/// The same store records the athletes' provider connects
+/// ([`ProviderConnectLog`]).
 #[must_use]
 pub fn live_store(
     records: Arc<dyn ActivityRecordStore>,
     blobs: Option<Arc<dyn BlobStore>>,
     repos: &Arc<RepositoryRegistry>,
-) -> Arc<dyn LiveActivityStore> {
+) -> Arc<BarrageLiveStore> {
     let sink = Arc::new(LiveCacheSink::new(Arc::clone(repos)));
     Arc::new(BarrageLiveStore::new(
         records,

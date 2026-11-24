@@ -9,12 +9,17 @@ use crate::transport::TransportPolicy;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 
-use chrono::{DateTime, NaiveDate, Utc};
 use dravr_cageux::algorithms::training_load::DailyTrainingLoad;
+use dravr_tronc::dates::{CivilDate, Timestamp};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use super::FormReading;
+
+pub use super::group_chat::{
+    ConnectGroupChat, GroupChatConnectCode, GroupChatConnectOutcome, GroupChatConnection,
+    ReleasedGroupChat,
+};
 
 /// Title every group context section in an agent's system prompt opens with
 /// (`--- Group Coaching Context ---`, the admin view qualifying it).
@@ -268,10 +273,16 @@ pub struct CoachingGroup {
     /// chat (Telegram `chat_id`, Slack `channel_id`, Discord `channel_id`).
     /// `None` for REST-created groups.
     pub channel_chat_id: Option<String>,
+    /// Set when the chat binding above was made deliberately, from the web
+    /// app, rather than by the chat's first message (carnet#1683). Such a
+    /// chat is the group's room for its members only. Never serialized: it
+    /// names the bot tenant serving the chat, which no client needs.
+    #[serde(skip)]
+    pub chat_connection: Option<GroupChatConnection>,
     /// When the group was created
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
     /// When the group was last updated
-    pub updated_at: DateTime<Utc>,
+    pub updated_at: Timestamp,
 }
 
 /// The serde default of [`GroupMember::coach_sharing_consent`]: granted.
@@ -284,9 +295,9 @@ const fn coach_sharing_granted() -> bool {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GroupSetupTimeline {
     /// When the group was created.
-    pub group_created_at: DateTime<Utc>,
+    pub group_created_at: Timestamp,
     /// When the group owner's account was created.
-    pub owner_created_at: DateTime<Utc>,
+    pub owner_created_at: Timestamp,
     /// The group's earliest non-owner membership row, left members included,
     /// or `None` while nobody but the owner has joined.
     pub first_member_id: Option<Uuid>,
@@ -306,7 +317,7 @@ pub struct CoachConsents {
     pub calendar_write: bool,
     /// When the member last granted or revoked `calendar_write`; `None` while
     /// it was never granted.
-    pub calendar_write_at: Option<DateTime<Utc>>,
+    pub calendar_write_at: Option<Timestamp>,
     /// The group's coach, through Dravr, may read the member's wellness
     /// (sleep, HRV, resting heart rate, weight, readiness, daily notes) from
     /// every app they connect; a confirmed link that reads wellness through
@@ -314,7 +325,41 @@ pub struct CoachConsents {
     pub wellness_read: bool,
     /// When the member last granted or revoked `wellness_read`, every grant
     /// stamped even over a standing one; `None` while it was never granted.
-    pub wellness_read_at: Option<DateTime<Utc>>,
+    pub wellness_read_at: Option<Timestamp>,
+    /// The AI assistant the group's human coach connects to Dravr (an MCP
+    /// client, an A2A agent, an API key) includes the member in the coach's
+    /// roster tools (carnet#1511). It does not govern a read of the member by
+    /// name, which `coach_sharing_consent` governs, nor anything in Dravr's
+    /// own app.
+    #[serde(default)]
+    pub assistant_read: bool,
+    /// When the member last turned `assistant_read` on or off; `None` while
+    /// they never did.
+    #[serde(default)]
+    pub assistant_read_at: Option<Timestamp>,
+    /// The group's coach may also read the member's health records (owl tier
+    /// T2: labs, clinical records, self-measured glucose) while
+    /// `sensitive_t2_read_until` has not passed. Its own grant: it reaches a
+    /// read only alongside `wellness_read`, and the member's own consent to
+    /// AI use of those records still applies on top (row 64).
+    #[serde(default)]
+    pub sensitive_t2_read: bool,
+    /// When the member last granted or revoked `sensitive_t2_read`; `None`
+    /// while it was never granted.
+    #[serde(default)]
+    pub sensitive_t2_read_at: Option<Timestamp>,
+    /// When a `sensitive_t2_read` grant lapses; `None` while it holds until
+    /// the member revokes it.
+    #[serde(default)]
+    pub sensitive_t2_read_until: Option<Timestamp>,
+}
+
+impl CoachConsents {
+    /// Whether `sensitive_t2_read` is given and has not lapsed at `now`.
+    #[must_use]
+    pub fn sensitive_t2_standing(&self, now: Timestamp) -> bool {
+        self.sensitive_t2_read && self.sensitive_t2_read_until.is_none_or(|until| now < until)
+    }
 }
 
 /// A member within a coaching group
@@ -344,18 +389,18 @@ pub struct GroupMember {
     /// When the member last granted or revoked `coach_sharing_consent`; `None`
     /// when unknown (memberships from before it was recorded).
     #[serde(default)]
-    pub coach_sharing_consent_at: Option<DateTime<Utc>>,
+    pub coach_sharing_consent_at: Option<Timestamp>,
     /// What the member lets the group's coach do beyond reading their
     /// training: write their calendar, sync their wellness through the
     /// coach's account. Each is off until the member grants it.
     #[serde(default)]
     pub coach_consents: CoachConsents,
     /// When consent was given (audit timestamp)
-    pub consent_given_at: DateTime<Utc>,
+    pub consent_given_at: Timestamp,
     /// When the member joined
-    pub joined_at: DateTime<Utc>,
+    pub joined_at: Timestamp,
     /// When the member left (None = still active)
-    pub left_at: Option<DateTime<Utc>>,
+    pub left_at: Option<Timestamp>,
     /// The member's display name, else their email (populated from the user
     /// profile on read, not stored)
     #[serde(default)]
@@ -447,7 +492,7 @@ pub struct GroupTranscriptEntry {
     /// the channel-native message id for ambient rows)
     pub source_message_id: Option<String>,
     /// When the utterance was recorded
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
     /// The author's display name, else their email (populated from the user
     /// profile on read, not stored)
     #[serde(default)]
@@ -493,7 +538,7 @@ pub struct RoomTranscriptEntry {
     /// Who spoke
     pub speaker: TranscriptSpeaker,
     /// When the utterance was recorded
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
     /// What the reader may see of the entry
     pub body: RoomEntryBody,
     /// The entry's stamp (carnet#769): an external reader sees a stamped
@@ -583,7 +628,7 @@ pub struct GroupInvite {
     /// User who created the invite
     pub created_by: Uuid,
     /// When the invite expires (None = never)
-    pub expires_at: Option<DateTime<Utc>>,
+    pub expires_at: Option<Timestamp>,
     /// Maximum number of uses (None = unlimited)
     pub max_uses: Option<i32>,
     /// Current number of uses
@@ -595,7 +640,7 @@ pub struct GroupInvite {
     #[serde(default)]
     pub approves_signup: bool,
     /// When the invite was created
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
 }
 
 impl fmt::Debug for GroupInvite {
@@ -710,7 +755,7 @@ pub struct GroupSummary {
     /// The requesting user's role in this group
     pub my_role: GroupRole,
     /// When the group was created
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
 }
 
 // ============================================================================
@@ -758,7 +803,7 @@ pub struct MemberFitnessSnapshot {
     /// Lets the LLM see "Strava last seen 33 days ago, WHOOP today"
     /// and stop attributing a quiet provider to "not synced" excuses.
     /// Keyed by provider slug (`strava`, `whoop`, `sciotte`, ...).
-    pub last_activity_per_provider: HashMap<String, DateTime<Utc>>,
+    pub last_activity_per_provider: HashMap<String, Timestamp>,
     /// Compact list of recent activities (last 7 days, newest first).
     /// Lets the LLM answer sub-week questions ("Saturday vs Sunday",
     /// "longest ride this week") that aggregate fields alone cannot
@@ -783,7 +828,7 @@ pub struct MemberFitnessSnapshot {
     /// IANA timezone of the member's own user row, `None` when unset.
     ///
     /// The roster card names weekdays, and a weekday only means something on
-    /// somebody's civil clock. Rendering `act.start` — a `DateTime<Utc>` — with
+    /// somebody's civil clock. Rendering `act.start` — a `Timestamp` — with
     /// no conversion printed the UTC weekday, so any session after 20:00
     /// `America/Toronto` was attributed to the following day (registre#200).
     /// Each member carries their own zone because a room's members need not
@@ -799,7 +844,7 @@ pub struct MemberFitnessSnapshot {
     #[serde(default)]
     pub deep_fatigue_mornings: Vec<FormMorning>,
     /// When this snapshot was computed
-    pub computed_at: DateTime<Utc>,
+    pub computed_at: Timestamp,
 }
 
 /// One morning of a run of form readings, counted back from the snapshot's
@@ -819,8 +864,8 @@ impl MemberFitnessSnapshot {
     /// the training load, its form reading and the deep-fatigue mornings
     /// describe (carnet#1640).
     #[must_use]
-    pub fn computed_on(&self) -> NaiveDate {
-        clock_date(self.computed_at, resolve_zone(self.timezone.as_deref()))
+    pub fn computed_on(&self) -> CivilDate {
+        clock_date(self.computed_at, &resolve_zone(self.timezone.as_deref()))
     }
 
     /// The member's form reading, banded by cageux from the `tsb`/`form_ctl`
@@ -851,7 +896,7 @@ impl MemberFitnessSnapshot {
 pub struct RosterActivity {
     /// Workout start time. Date-only sources (e.g. Strava-mirror scrapes)
     /// render at midnight UTC of the workout day.
-    pub start: DateTime<Utc>,
+    pub start: Timestamp,
     /// Sport label as rendered for the LLM (e.g. `TrailRunning`, `Ride`,
     /// `WHOOP run`). Mirrors the serialization of `Activity::sport_type`.
     pub sport: String,
@@ -1082,4 +1127,46 @@ pub struct GroupContext {
     pub requester_is_admin: bool,
     /// The requesting user's ID
     pub requester_user_id: Uuid,
+}
+
+#[cfg(test)]
+mod tests {
+    use dravr_tronc::dates::Elapsed;
+
+    use super::*;
+
+    #[test]
+    fn a_sensitive_grant_stands_until_its_window_passes() {
+        let now = Timestamp::now();
+        let forever = CoachConsents {
+            sensitive_t2_read: true,
+            ..CoachConsents::default()
+        };
+        assert!(
+            forever.sensitive_t2_standing(now + Elapsed::days(400)),
+            "bug: a grant with no window holds until revoked"
+        );
+
+        let windowed = CoachConsents {
+            sensitive_t2_read: true,
+            sensitive_t2_read_until: Some(now + Elapsed::days(30)),
+            ..CoachConsents::default()
+        };
+        assert!(
+            windowed.sensitive_t2_standing(now),
+            "bug: a grant stands inside its window"
+        );
+        assert!(
+            !windowed.sensitive_t2_standing(now + Elapsed::days(30)),
+            "bug: a grant lapses at its window's end"
+        );
+        let revoked = CoachConsents {
+            sensitive_t2_read_until: Some(now + Elapsed::days(30)),
+            ..CoachConsents::default()
+        };
+        assert!(
+            !revoked.sensitive_t2_standing(now),
+            "bug: a revoked grant stands nowhere, whatever window it kept"
+        );
+    }
 }

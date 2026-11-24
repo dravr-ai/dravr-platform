@@ -18,8 +18,8 @@ use crate::helpers;
 use std::sync::Arc;
 
 use axum::http::StatusCode;
-use chrono::{Datelike, NaiveDate, Utc, Weekday};
 use common::{create_test_server_resources, create_test_user_with_plan, generate_test_token};
+use dravr_tronc::dates::{CivilDate, Timestamp, Weekday};
 use helpers::axum_test::AxumTestRequest;
 use pierre_core::errors::ErrorCode;
 use pierre_core::models::groups::GroupRole;
@@ -354,9 +354,9 @@ async fn the_seeded_week_starts_on_this_weeks_monday() {
         .await
         .unwrap();
     assert!(!weeks.is_empty(), "bug: the live season holds no week");
-    let today = Utc::now().date_naive();
+    let today = Timestamp::now().utc_date();
     for week in &weeks {
-        let start = NaiveDate::parse_from_str(&week.week_start, "%Y-%m-%d")
+        let start = CivilDate::parse_from_str(&week.week_start, "%Y-%m-%d")
             .unwrap_or_else(|e| panic!("bug: week_start {:?} is no date: {e}", week.week_start));
         assert_eq!(
             start.weekday(),

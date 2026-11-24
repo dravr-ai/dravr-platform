@@ -12,7 +12,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use chrono::{DateTime, Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_auth::key_management::{DatabaseEncryptionKey, KekProvider, KeyManager};
 use pierre_auth::keyset::secrets::{insert_key_if_absent, ACTIVE_VERSION_SECRET};
 use pierre_auth::keyset::{
@@ -171,7 +171,7 @@ async fn exec(database: &Database, sql: &str, value: &str, key: &str) {
 }
 
 /// Tick the controller at `now` and return the report.
-async fn tick(booted: &Booted, controller: &KeysetController, now: DateTime<Utc>) {
+async fn tick(booted: &Booted, controller: &KeysetController, now: Timestamp) {
     controller.tick(booted.security(), now).await.unwrap();
 }
 
@@ -220,14 +220,14 @@ async fn a_legacy_database_runs_as_before_until_adopted() {
     // The controller does nothing before adoption.
     let controller = legacy.controller(Vec::new());
     let report = controller
-        .tick(legacy.security(), Utc::now() + Duration::days(400))
+        .tick(legacy.security(), Timestamp::now() + Elapsed::days(400))
         .await
         .unwrap();
     assert_eq!(report.transitions, Vec::new());
     assert_eq!(report.resealed, 0);
     assert!(read_keyset(legacy.security()).await.unwrap().is_none());
 
-    // Adoption is the operator's, and happens once.
+    // Adoption is the admin's, and happens once.
     let doc = legacy
         .key_manager
         .adopt(&legacy.database)
@@ -273,14 +273,21 @@ async fn adoption_sweeps_every_row_to_the_primary_then_disables_the_old_key() {
             "kid-sealed",
             "-----BEGIN PRIVATE KEY-----\nAAAA",
             "pub",
-            Utc::now(),
+            Timestamp::now(),
             false,
             2048,
         )
         .await
         .unwrap();
     security
-        .save_rsa_keypair("kid-plain", "placeholder", "pub", Utc::now(), false, 2048)
+        .save_rsa_keypair(
+            "kid-plain",
+            "placeholder",
+            "pub",
+            Timestamp::now(),
+            false,
+            2048,
+        )
         .await
         .unwrap();
     exec(
@@ -303,7 +310,7 @@ async fn adoption_sweeps_every_row_to_the_primary_then_disables_the_old_key() {
         .unwrap()
         .unwrap();
     let controller = legacy.controller(Vec::new());
-    let now = Utc::now();
+    let now = Timestamp::now();
 
     tick(&legacy, &controller, now).await;
     assert!(stored_pool_secret(&legacy.database)
@@ -337,18 +344,18 @@ async fn adoption_sweeps_every_row_to_the_primary_then_disables_the_old_key() {
     assert_eq!(pem, "-----BEGIN PRIVATE KEY-----\nBBBB");
 
     // Disabling waits L + the sign-in cookie's TTL, then two zero counts.
-    tick(&legacy, &controller, now + Duration::minutes(20)).await;
+    tick(&legacy, &controller, now + Elapsed::minutes(20)).await;
     assert_eq!(
         legacy.state(KeyFamily::Data, 1).await,
         KeyState::DecryptOnly
     );
-    tick(&legacy, &controller, now + Duration::minutes(26)).await;
+    tick(&legacy, &controller, now + Elapsed::minutes(26)).await;
     assert_eq!(
         legacy.state(KeyFamily::Data, 1).await,
         KeyState::DecryptOnly,
         "one zero is not enough"
     );
-    tick(&legacy, &controller, now + Duration::minutes(31)).await;
+    tick(&legacy, &controller, now + Elapsed::minutes(31)).await;
     assert_eq!(legacy.state(KeyFamily::Data, 1).await, KeyState::Disabled);
     assert_eq!(
         legacy
@@ -428,21 +435,21 @@ async fn a_row_that_does_not_open_is_reported_and_holds_its_key() {
         .await
         .unwrap();
     let controller = booted.controller(Vec::new());
-    let now = Utc::now() + Duration::minutes(16);
+    let now = Timestamp::now() + Elapsed::minutes(16);
     tick(&booted, &controller, now).await;
     assert_eq!(booted.state(KeyFamily::Data, 2).await, KeyState::Primary);
     let state = SweepState::read(booted.security()).await.unwrap();
     assert_eq!(state.unreadable_under(1), 1);
 
     for minutes in [30, 40, 50] {
-        tick(&booted, &controller, now + Duration::minutes(minutes)).await;
+        tick(&booted, &controller, now + Elapsed::minutes(minutes)).await;
     }
     assert_eq!(
         booted.state(KeyFamily::Data, 1).await,
         KeyState::DecryptOnly
     );
 
-    // The operator deletes the row; the next complete pass clears it.
+    // The admin deletes the row; the next complete pass clears it.
     exec(
         &booted.database,
         "DELETE FROM strava_oauth_app_pool WHERE client_secret_encrypted = $1 AND client_id = $2",
@@ -451,7 +458,7 @@ async fn a_row_that_does_not_open_is_reported_and_holds_its_key() {
     )
     .await;
     for minutes in [60, 65] {
-        tick(&booted, &controller, now + Duration::minutes(minutes)).await;
+        tick(&booted, &controller, now + Elapsed::minutes(minutes)).await;
     }
     assert_eq!(booted.state(KeyFamily::Data, 1).await, KeyState::Disabled);
 }
@@ -463,7 +470,7 @@ impl CiphertextHolder for FailingHolder {
     fn name(&self) -> &'static str {
         "failing"
     }
-    async fn count_sealed_before(&self, _before: DateTime<Utc>) -> AppResult<u64> {
+    async fn count_sealed_before(&self, _before: Timestamp) -> AppResult<u64> {
         Err(AppError::internal("store unreachable"))
     }
 }
@@ -478,9 +485,9 @@ async fn an_external_holder_whose_count_fails_holds_the_key() {
         .await
         .unwrap();
     let controller = booted.controller(vec![Arc::new(FailingHolder)]);
-    let now = Utc::now() + Duration::minutes(16);
+    let now = Timestamp::now() + Elapsed::minutes(16);
     for minutes in [0, 30, 40, 50] {
-        tick(&booted, &controller, now + Duration::minutes(minutes)).await;
+        tick(&booted, &controller, now + Elapsed::minutes(minutes)).await;
     }
     assert_eq!(
         booted.state(KeyFamily::Data, 1).await,
@@ -502,8 +509,8 @@ async fn an_index_rotation_signs_no_one_out() {
         user_id,
         tenant_id: None,
         client_id: None,
-        created_at: Utc::now(),
-        expires_at: Utc::now() + Duration::days(30),
+        created_at: Timestamp::now(),
+        expires_at: Timestamp::now() + Elapsed::days(30),
     };
     repos
         .session_refresh_tokens
@@ -532,20 +539,25 @@ async fn an_index_rotation_signs_no_one_out() {
     // Staged: writes stay on k1, lookups try both.
     assert!(repos
         .session_refresh_tokens
-        .consume_token("before-staging", Utc::now())
+        .consume_token("before-staging", Timestamp::now())
         .await
         .unwrap()
         .is_some());
 
     let controller = booted.controller(Vec::new());
-    tick(&booted, &controller, Utc::now() + Duration::minutes(16)).await;
+    tick(
+        &booted,
+        &controller,
+        Timestamp::now() + Elapsed::minutes(16),
+    )
+    .await;
     assert_eq!(booted.state(KeyFamily::Index, 2).await, KeyState::Primary);
 
     // A token minted under k1 still exchanges after k2 is primary, and its
     // successor is hashed under k2.
     assert!(repos
         .session_refresh_tokens
-        .consume_token("before-promotion", Utc::now())
+        .consume_token("before-promotion", Timestamp::now())
         .await
         .unwrap()
         .is_some());
@@ -558,7 +570,7 @@ async fn an_index_rotation_signs_no_one_out() {
     assert!(hash.starts_with("k2:"));
     assert!(repos
         .session_refresh_tokens
-        .consume_token("after", Utc::now())
+        .consume_token("after", Timestamp::now())
         .await
         .unwrap()
         .is_some());
@@ -566,7 +578,7 @@ async fn an_index_rotation_signs_no_one_out() {
     // A used index key is never retired: k1 stays loaded long after every
     // refresh token under it has expired, and the family does not rotate again.
     for days in [1, 31, 400] {
-        tick(&booted, &controller, Utc::now() + Duration::days(days)).await;
+        tick(&booted, &controller, Timestamp::now() + Elapsed::days(days)).await;
     }
     assert_eq!(
         booted.state(KeyFamily::Index, 1).await,

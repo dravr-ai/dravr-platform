@@ -25,6 +25,7 @@ mod messaging_routes_tests {
     use crate::helpers::axum_test::AxumTestRequest;
     use axum::http::StatusCode;
     use dravr_canot::channels::descriptor_for;
+    use dravr_tronc::dates::Timestamp;
     use pierre_core::models::messaging::ChannelType;
     use pierre_core::models::ConnectionType;
     use pierre_mcp_server::routes::messaging::MessagingRoutes;
@@ -252,7 +253,7 @@ mod messaging_routes_tests {
         let channels = body.as_array().expect("available channels is an array");
 
         // Regression: the filter previously read the wrong JSON key (`enabled` vs
-        // the stored `is_active`), so operator-disabled channels leaked into the
+        // the stored `is_active`), so admin-disabled channels leaked into the
         // onboarding picker. A disabled channel must NOT be advertised.
         assert!(
             !channels.iter().any(|c| c["channel"] == "telegram"),
@@ -767,7 +768,7 @@ mod messaging_routes_tests {
         })
         .to_string();
 
-        let timestamp = chrono::Utc::now().timestamp().to_string();
+        let timestamp = Timestamp::now().epoch_seconds().to_string();
         let signature = compute_slack_sig(signing_secret, &timestamp, &challenge_body);
 
         let router = MessagingRoutes::routes(Arc::clone(&resources));
@@ -836,7 +837,7 @@ mod messaging_routes_tests {
 
         // Build Discord PING payload (interaction type 1)
         let ping_body = json!({"type": 1}).to_string();
-        let timestamp = chrono::Utc::now().timestamp().to_string();
+        let timestamp = Timestamp::now().epoch_seconds().to_string();
         let message = format!("{timestamp}{ping_body}");
         let signature = signing_key.sign(message.as_bytes());
         let signature_hex = hex::encode(signature.to_bytes());

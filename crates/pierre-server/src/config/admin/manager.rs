@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use async_trait::async_trait;
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_config::admin_types::{
     AdminConfigCategory, ConfigDataType, ConfigOverride, ConfigScope,
 };

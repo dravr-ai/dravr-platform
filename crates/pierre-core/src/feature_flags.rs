@@ -43,7 +43,7 @@ pub enum FeatureKey {
     /// Arm persona notification-policy enforcement: a push whose tier falls
     /// above the user's persona floor is persisted for the weekly digest
     /// instead of delivered. Disabled by default — the gate runs in shadow
-    /// mode (verdict logs only) until an operator arms it per tenant or user.
+    /// mode (verdict logs only) until an admin arms it per tenant or user.
     PersonaNotificationPolicy,
     /// State the exposure notice of a provider read through the account's own
     /// signed-in session (`TrainingPeaks`, COROS) before its login, and refuse

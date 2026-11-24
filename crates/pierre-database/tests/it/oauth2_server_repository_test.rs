@@ -16,7 +16,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::models::{
     DeviceAuthorization, OAuth2AuthCode, OAuth2Client, OAuth2RefreshToken, OAuth2State,
     OAuthClientGrant,
@@ -41,7 +41,7 @@ async fn fresh_client(repos: &RepositoryRegistry) -> OAuth2Client {
         client_name: Some("Repository Test Client".to_owned()),
         client_uri: None,
         scope: Some("read write".to_owned()),
-        created_at: Utc::now(),
+        created_at: Timestamp::now(),
         expires_at: None,
     };
     let stored = repos
@@ -102,12 +102,13 @@ async fn an_auth_code_is_exchanged_once_and_only_by_its_client_and_redirect() {
         tenant_id: "tenant-a".to_owned(),
         redirect_uri: "https://app.example/callback".to_owned(),
         scope: Some("read".to_owned()),
-        expires_at: Utc::now() + Duration::minutes(10),
+        expires_at: Timestamp::now() + Elapsed::minutes(10),
         used: false,
         state: Some("xyz".to_owned()),
         code_challenge: Some("E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM".to_owned()),
         code_challenge_method: Some("S256".to_owned()),
         resource: Some("https://mcp.example".to_owned()),
+        client_grant_id: None,
     };
     repos.oauth2_server.store_auth_code(&code).await.unwrap();
 
@@ -118,7 +119,7 @@ async fn an_auth_code_is_exchanged_once_and_only_by_its_client_and_redirect() {
                 &code.code,
                 &client.client_id,
                 "https://elsewhere.example/callback",
-                Utc::now()
+                Timestamp::now()
             )
             .await
             .unwrap()
@@ -128,7 +129,12 @@ async fn an_auth_code_is_exchanged_once_and_only_by_its_client_and_redirect() {
     assert!(
         repos
             .oauth2_server
-            .consume_auth_code(&code.code, "another-client", &code.redirect_uri, Utc::now())
+            .consume_auth_code(
+                &code.code,
+                "another-client",
+                &code.redirect_uri,
+                Timestamp::now()
+            )
             .await
             .unwrap()
             .is_none(),
@@ -141,7 +147,7 @@ async fn an_auth_code_is_exchanged_once_and_only_by_its_client_and_redirect() {
             &code.code,
             &client.client_id,
             &code.redirect_uri,
-            Utc::now(),
+            Timestamp::now(),
         )
         .await
         .unwrap()
@@ -162,8 +168,8 @@ async fn an_auth_code_is_exchanged_once_and_only_by_its_client_and_redirect() {
     );
     assert!(consumed.used, "the returned row is the row after the flip");
     assert_eq!(
-        consumed.expires_at.timestamp(),
-        code.expires_at.timestamp(),
+        consumed.expires_at.epoch_seconds(),
+        code.expires_at.epoch_seconds(),
         "expires_at round-trips to the second"
     );
 
@@ -174,7 +180,7 @@ async fn an_auth_code_is_exchanged_once_and_only_by_its_client_and_redirect() {
                 &code.code,
                 &client.client_id,
                 &code.redirect_uri,
-                Utc::now()
+                Timestamp::now()
             )
             .await
             .unwrap()
@@ -184,7 +190,7 @@ async fn an_auth_code_is_exchanged_once_and_only_by_its_client_and_redirect() {
 
     let expired = OAuth2AuthCode {
         code: format!("code-{}", Uuid::new_v4()),
-        expires_at: Utc::now() - Duration::seconds(1),
+        expires_at: Timestamp::now() - Elapsed::seconds(1),
         ..code
     };
     repos.oauth2_server.store_auth_code(&expired).await.unwrap();
@@ -195,7 +201,7 @@ async fn an_auth_code_is_exchanged_once_and_only_by_its_client_and_redirect() {
                 &expired.code,
                 &client.client_id,
                 &expired.redirect_uri,
-                Utc::now()
+                Timestamp::now()
             )
             .await
             .unwrap()
@@ -217,12 +223,13 @@ async fn a_refresh_token_rotates_once_for_its_client_and_is_stored_hashed() {
         user_id,
         tenant_id: "tenant-b".to_owned(),
         scope: Some("read write".to_owned()),
-        expires_at: Utc::now() + Duration::days(30),
-        created_at: Utc::now(),
+        expires_at: Timestamp::now() + Elapsed::days(30),
+        created_at: Timestamp::now(),
         revoked: false,
         family_id: "test-family".to_owned(),
         family_created_at: None,
         resource: Some("https://mcp.example".to_owned()),
+        client_grant_id: None,
     };
     repos
         .oauth2_server
@@ -250,7 +257,7 @@ async fn a_refresh_token_rotates_once_for_its_client_and_is_stored_hashed() {
     assert!(
         repos
             .oauth2_server
-            .consume_refresh_token(&raw, "another-client", Utc::now())
+            .consume_refresh_token(&raw, "another-client", Timestamp::now())
             .await
             .unwrap()
             .is_none(),
@@ -259,7 +266,7 @@ async fn a_refresh_token_rotates_once_for_its_client_and_is_stored_hashed() {
 
     let rotated = repos
         .oauth2_server
-        .consume_refresh_token(&raw, &client.client_id, Utc::now())
+        .consume_refresh_token(&raw, &client.client_id, Timestamp::now())
         .await
         .unwrap()
         .expect("the owning client rotates the token");
@@ -278,7 +285,7 @@ async fn a_refresh_token_rotates_once_for_its_client_and_is_stored_hashed() {
     assert!(
         repos
             .oauth2_server
-            .consume_refresh_token(&raw, &client.client_id, Utc::now())
+            .consume_refresh_token(&raw, &client.client_id, Timestamp::now())
             .await
             .unwrap()
             .is_none(),
@@ -310,8 +317,8 @@ async fn a_csrf_state_is_redeemed_once_for_its_client_with_its_pkce_pair() {
         scope: Some("read".to_owned()),
         code_challenge: Some("challenge".to_owned()),
         code_challenge_method: Some("S256".to_owned()),
-        created_at: Utc::now(),
-        expires_at: Utc::now() + Duration::minutes(10),
+        created_at: Timestamp::now(),
+        expires_at: Timestamp::now() + Elapsed::minutes(10),
         used: false,
     };
     repos.oauth2_server.store_state(&state).await.unwrap();
@@ -319,7 +326,7 @@ async fn a_csrf_state_is_redeemed_once_for_its_client_with_its_pkce_pair() {
     assert!(
         repos
             .oauth2_server
-            .consume_state(&state.state, "another-client", Utc::now())
+            .consume_state(&state.state, "another-client", Timestamp::now())
             .await
             .unwrap()
             .is_none(),
@@ -328,7 +335,7 @@ async fn a_csrf_state_is_redeemed_once_for_its_client_with_its_pkce_pair() {
 
     let consumed = repos
         .oauth2_server
-        .consume_state(&state.state, &client.client_id, Utc::now())
+        .consume_state(&state.state, &client.client_id, Timestamp::now())
         .await
         .unwrap()
         .expect("the owning client redeems the state");
@@ -342,7 +349,7 @@ async fn a_csrf_state_is_redeemed_once_for_its_client_with_its_pkce_pair() {
     assert!(
         repos
             .oauth2_server
-            .consume_state(&state.state, &client.client_id, Utc::now())
+            .consume_state(&state.state, &client.client_id, Timestamp::now())
             .await
             .unwrap()
             .is_none(),
@@ -358,7 +365,7 @@ async fn a_csrf_state_is_redeemed_once_for_its_client_with_its_pkce_pair() {
     repos.oauth2_server.store_state(&anonymous).await.unwrap();
     let consumed = repos
         .oauth2_server
-        .consume_state(&anonymous.state, &client.client_id, Utc::now())
+        .consume_state(&anonymous.state, &client.client_id, Timestamp::now())
         .await
         .unwrap()
         .expect("a state minted before the user is known still redeems");
@@ -378,16 +385,19 @@ async fn a_client_grant_is_idempotent_and_revocable_by_its_owner_only() {
         tenant_id: "tenant-d".to_owned(),
         client_id: client.client_id.clone(),
         scope: "read".to_owned(),
-        granted_at: Utc::now(),
+        granted_at: Timestamp::now(),
         revoked_at: None,
         consent_version: Some("text-v1".to_owned()),
         consent_locale: Some("fr".to_owned()),
+        authorization_details: None,
+        expires_at: None,
     };
-    repos
+    let stored = repos
         .oauth2_server
         .store_client_grant(&grant)
         .await
         .unwrap();
+    assert_eq!(stored, grant.id, "a new grant is stored under its own id");
     // Approved again under a newer consent text, read in English.
     let again = OAuthClientGrant {
         id: Uuid::new_v4().to_string(),
@@ -395,11 +405,15 @@ async fn a_client_grant_is_idempotent_and_revocable_by_its_owner_only() {
         consent_locale: Some("en".to_owned()),
         ..grant.clone()
     };
-    repos
+    let restored = repos
         .oauth2_server
         .store_client_grant(&again)
         .await
         .unwrap();
+    assert_eq!(
+        restored, grant.id,
+        "a re-consent reports the row that holds the grant, not the id it offered"
+    );
 
     let listed = repos
         .oauth2_server
@@ -420,7 +434,10 @@ async fn a_client_grant_is_idempotent_and_revocable_by_its_owner_only() {
     assert_eq!(listed[0].scope, "read");
     assert_eq!(listed[0].revoked_at, None);
     assert!(
-        (listed[0].granted_at - Utc::now()).num_seconds().abs() < 60,
+        (listed[0].granted_at - Timestamp::now())
+            .num_seconds()
+            .abs()
+            < 60,
         "granted_at is stamped by the database, got {}",
         listed[0].granted_at
     );
@@ -478,7 +495,7 @@ async fn a_client_grant_is_idempotent_and_revocable_by_its_owner_only() {
 async fn a_device_authorization_is_approved_once_and_consumed_once() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     let da = DeviceAuthorization {
         device_code_hash: format!("hash-{}", Uuid::new_v4()),
         user_code: format!("UC-{}", &Uuid::new_v4().to_string()[..8]),
@@ -581,7 +598,7 @@ fn device_authorization(user_code: &str, created_at: i64, expires_at: i64) -> De
 async fn opening_a_device_authorization_sweeps_the_expired_ones_and_no_live_one() {
     let db = create_test_db().await.unwrap();
     let store = &db.repositories().oauth2_server;
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     // All five were opened before any of them expired, so opening one
     // swept none of the others.
     let opened_at = now - 1200;
@@ -654,4 +671,93 @@ async fn opening_a_device_authorization_sweeps_the_expired_ones_and_no_live_one(
         .unwrap()
         .expect("the live approved login");
     assert_eq!(still_approved.status, "approved");
+}
+
+#[tokio::test]
+async fn a_client_grant_keeps_its_details_and_expiry_and_is_read_by_its_owner() {
+    let db = create_test_db().await.unwrap();
+    let repos = db.repositories();
+    let client = fresh_client(repos).await;
+    let user_id = Uuid::new_v4().to_string();
+    let expires_at = Timestamp::now() + Elapsed::days(30);
+    let grant = OAuthClientGrant {
+        id: Uuid::new_v4().to_string(),
+        user_id: user_id.clone(),
+        tenant_id: "tenant-e".to_owned(),
+        client_id: client.client_id.clone(),
+        scope: "read".to_owned(),
+        granted_at: Timestamp::now(),
+        revoked_at: None,
+        consent_version: Some("text-v1".to_owned()),
+        consent_locale: Some("en".to_owned()),
+        authorization_details: Some(r#"{"preset":"sleep_coach"}"#.to_owned()),
+        expires_at: Some(expires_at),
+    };
+    let id = repos
+        .oauth2_server
+        .store_client_grant(&grant)
+        .await
+        .unwrap();
+    // A re-consent offering other details keeps the row's own.
+    repos
+        .oauth2_server
+        .store_client_grant(&OAuthClientGrant {
+            id: Uuid::new_v4().to_string(),
+            authorization_details: None,
+            expires_at: None,
+            ..grant.clone()
+        })
+        .await
+        .unwrap();
+
+    let read = repos
+        .oauth2_server
+        .get_client_grant(&id, &user_id, "tenant-e")
+        .await
+        .unwrap()
+        .expect("the owner reads its grant");
+    assert_eq!(
+        read.authorization_details.as_deref(),
+        Some(r#"{"preset":"sleep_coach"}"#),
+        "bug: the grant's details did not read back"
+    );
+    assert_eq!(
+        read.expires_at.map(Timestamp::epoch_seconds),
+        Some(expires_at.epoch_seconds()),
+        "bug: the grant's expiry did not read back"
+    );
+    for (user, tenant) in [
+        (Uuid::new_v4().to_string(), "tenant-e"),
+        (user_id.clone(), "tenant-other"),
+    ] {
+        assert!(
+            repos
+                .oauth2_server
+                .get_client_grant(&id, &user, tenant)
+                .await
+                .unwrap()
+                .is_none(),
+            "a grant is read only by the user and tenant that hold it"
+        );
+    }
+
+    let standing = repos
+        .oauth2_server
+        .client_grant_standing(&user_id, "tenant-e", &client.client_id)
+        .await
+        .unwrap();
+    assert_eq!(
+        standing.grants.len(),
+        1,
+        "bug: the standing does not list the one live grant"
+    );
+    assert_eq!(
+        standing.grants[0].id, id,
+        "bug: the standing lists another grant"
+    );
+    assert_eq!(
+        standing.grants[0].authorization_details.as_deref(),
+        Some(r#"{"preset":"sleep_coach"}"#),
+        "bug: the standing lost the grant's details"
+    );
 }

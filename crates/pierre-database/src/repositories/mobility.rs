@@ -7,7 +7,7 @@
 use std::fmt::Display;
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::mobility::{
     muscles_in_group, DifficultyLevel, ListStretchingFilter, ListYogaFilter, StretchingCategory,
@@ -54,7 +54,7 @@ pub trait MobilityRepository: Send + Sync {
 //
 // The one thing the two engines spell differently is the case-folding text
 // match: Postgres has `ILIKE`, `SQLite` only `LIKE`, which folds case for
-// ASCII letters alone. Each backend's shell passes its operator as the
+// ASCII letters alone. Each backend's shell passes its match operator as the
 // `$like` macro literal; see [`impl_mobility_repository`].
 
 /// The eighteen columns every read of `stretching_exercises` returns, in the
@@ -356,7 +356,7 @@ where
 /// Convert a catalogue row to a [`StretchingExercise`].
 ///
 /// Generic over the driver: `created_at`/`updated_at` decode as
-/// `DateTime<Utc>` from `SQLite`'s RFC 3339 text and Postgres's
+/// `Timestamp` from `SQLite`'s RFC 3339 text and Postgres's
 /// `TIMESTAMPTZ` alike, and every count column as `i32`.
 ///
 /// # Errors
@@ -367,7 +367,7 @@ where
     for<'a> &'a str: ColumnIndex<R>,
     String: Decode<'r, R::Database> + Type<R::Database>,
     i32: Decode<'r, R::Database> + Type<R::Database>,
-    DateTime<Utc>: Decode<'r, R::Database> + Type<R::Database>,
+    Timestamp: Decode<'r, R::Database> + Type<R::Database>,
 {
     let category: String = column(row, "category")?;
     let difficulty: String = column(row, "difficulty")?;
@@ -406,7 +406,7 @@ where
     for<'a> &'a str: ColumnIndex<R>,
     String: Decode<'r, R::Database> + Type<R::Database>,
     i32: Decode<'r, R::Database> + Type<R::Database>,
-    DateTime<Utc>: Decode<'r, R::Database> + Type<R::Database>,
+    Timestamp: Decode<'r, R::Database> + Type<R::Database>,
 {
     let category: String = column(row, "category")?;
     let difficulty: String = column(row, "difficulty")?;

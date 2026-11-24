@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -125,9 +125,9 @@ pub struct StretchingExercise {
     /// Optional video URL
     pub video_url: Option<String>,
     /// Creation timestamp
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
     /// Last update timestamp
-    pub updated_at: DateTime<Utc>,
+    pub updated_at: Timestamp,
 }
 
 // ============================================================================
@@ -363,9 +363,9 @@ pub struct YogaPose {
     /// Optional video URL
     pub video_url: Option<String>,
     /// Creation timestamp
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
     /// Last update timestamp
-    pub updated_at: DateTime<Utc>,
+    pub updated_at: Timestamp,
 }
 
 /// Filter options for listing yoga poses
@@ -410,7 +410,7 @@ pub struct ActivityMuscleMapping {
     /// Recommended yoga categories
     pub recommended_yoga_categories: Vec<String>,
     /// Creation timestamp
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
     /// Last update timestamp
-    pub updated_at: DateTime<Utc>,
+    pub updated_at: Timestamp,
 }

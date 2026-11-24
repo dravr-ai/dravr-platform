@@ -27,12 +27,12 @@ use std::fmt;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
 use dravr_barrage::cageux::models::TimeSeriesData;
 use dravr_barrage::{
     ActivityId, ActivityRecord, BarrageError, LiveSource, ProjectionSink, RetractReason, Scope,
     SourceKey, WellnessRecords,
 };
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::AppError;
 use pierre_core::models::{Activity, TenantId};
 use pierre_database::RepositoryRegistry;
@@ -66,7 +66,7 @@ pub async fn project_cached_activities(
     user_id: Uuid,
     source: SourceKey,
     activities: &[Activity],
-    synced_at: DateTime<Utc>,
+    synced_at: Timestamp,
 ) -> Result<(), BarrageError> {
     repos
         .activity_cache
@@ -137,6 +137,11 @@ pub async fn retract_activities(
 
 /// Whether a deletion of `source`'s records is the athlete's own, which they
 /// retry when it fails: an imported archive's, or a file they uploaded.
+///
+/// A phone's health store is not one: a workout deleted there is erased
+/// (`LiveActivityStore::erase`, the provider deleted it), never discarded for
+/// the athlete to bring in again, and a whole store's data goes through the
+/// provider purge.
 fn athlete_retries(source: SourceKey) -> bool {
     source.is_archive() || source == SourceKey::Live(LiveSource::Upload)
 }
@@ -190,7 +195,7 @@ impl ProjectionSink for LiveCacheSink {
             .iter()
             .map(|row| row.provenance.ingested_at)
             .max()
-            .unwrap_or_else(Utc::now);
+            .unwrap_or_else(Timestamp::now);
         let activities: Vec<Activity> = rows.iter().map(|row| row.activity.clone()).collect();
         project_cached_activities(
             &self.repos,

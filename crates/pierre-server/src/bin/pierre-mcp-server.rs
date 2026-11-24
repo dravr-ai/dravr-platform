@@ -19,7 +19,6 @@
 use clap::{error::ErrorKind, Parser};
 use dravr_barrage::blob::BlobStore;
 use dravr_barrage::keyed::Signer;
-use dravr_barrage::store::ActivityRecordStore;
 use dravr_tronc::mcp::transport::stdio;
 use pierre_auth::auth::AuthManager;
 use pierre_auth::firebase_identity::FirebaseIdentityDeleter;
@@ -55,6 +54,7 @@ use pierre_mcp_server::{
     },
     utils::http_client::initialize_http_clients,
 };
+use pierre_services::admin_settings::get_auto_approval_settings;
 use pierre_services::agent_package_repair::repair_stored_flavours;
 #[cfg(feature = "client-messaging")]
 use pierre_services::channel_adapters::ConfigChannelAdapters;
@@ -251,7 +251,7 @@ async fn bootstrap_server(config: ServerConfig, stdio_only: bool) -> Result<()> 
 }
 
 fn initialize_global_configs(config: &ServerConfig) -> Result<()> {
-    initialize_http_clients(config.http_client.clone());
+    initialize_http_clients(&config.http_client);
     info!("HTTP client configuration initialized");
 
     init_server_config()?;
@@ -378,20 +378,9 @@ async fn initialize_jwt_secret(
 
     info!("Admin JWT secret ready for secure token generation");
 
-    // Check auto-approval setting
-    // Precedence: env var (if set) > database > default
-    let auto_approve = if config.app_behavior.auto_approve_users_from_env {
-        config.app_behavior.auto_approve_users
-    } else {
-        database
-            .is_auto_approval_enabled()
-            .await
-            .ok()
-            .flatten()
-            .unwrap_or(config.app_behavior.auto_approve_users)
-    };
+    let auto_approval = get_auto_approval_settings(database, &config.app_behavior).await?;
 
-    check_admin_status(repos, auto_approve).await;
+    check_admin_status(repos, auto_approval.enabled).await;
 
     let domains = &config.app_behavior.auto_approve_domains;
     if !domains.is_empty() {
@@ -407,7 +396,10 @@ async fn initialize_jwt_secret(
 fn create_auth_manager(config: &ServerConfig) -> AuthManager {
     #[allow(clippy::cast_possible_wrap)]
     {
-        let auth_manager = AuthManager::new(config.auth.jwt_expiry_hours as i64);
+        // Every `/oauth2/token` access token carries the metadata's `issuer`
+        // (RFC 9068 §2.2); sessions keep the platform's own name.
+        let auth_manager = AuthManager::new(config.auth.jwt_expiry_hours as i64)
+            .with_oauth_issuer(config.oauth2_server.issuer_url.clone());
         info!("Authentication manager initialized with RS256");
         auth_manager
     }
@@ -557,6 +549,8 @@ async fn create_server(
             archive_imports: Some(archive_imports),
             live_records: Some(Arc::clone(&live_records)),
             blobs: Some(blobs.clone()),
+            lab_reader: None,
+            pdf_text_bin: None,
             // The production factory, named by this binary and by no
             // constructor of the options: the adapter each tenant's stored
             // channel config names.
@@ -581,12 +575,18 @@ async fn create_server(
         );
     }
 
-    let resources = spawn_background_workers(
-        resources_instance,
-        live_records,
-        blobs.ok(),
-        checkpoint_signer,
-    );
+    // Every published tool definition is signed by the checkpoint key
+    // (`def_sig`, carnet#1543), installed before the first request; without a
+    // signer, none is.
+    if let Some(signer) = &checkpoint_signer {
+        resources_instance
+            .mcp
+            .tool_def_sigs
+            .install(Arc::clone(signer))?;
+    }
+
+    let resources =
+        spawn_background_workers(resources_instance, &barrage, blobs.ok(), checkpoint_signer);
 
     server_lifecycle::notify_started();
 
@@ -602,7 +602,7 @@ async fn create_server(
 /// rather than booting into a mode that would enqueue turns nowhere.
 #[cfg(feature = "client-messaging")]
 fn select_turn_runner(timeouts: &ServerTimeouts) -> Arc<TurnRunner> {
-    use pierre_mcp_server::services::messaging_ingress::turn_watchdog;
+    use pierre_mcp_server::services::turn_runner::turn_watchdog;
     use std::process;
 
     let runner = TurnRunner::from_env(turn_watchdog(timeouts)).unwrap_or_else(|e| {
@@ -630,7 +630,7 @@ async fn select_original_stores(
 
 fn spawn_background_workers(
     resources_instance: ServerContext,
-    live_records: Arc<dyn ActivityRecordStore>,
+    barrage: &RecordStores,
     blobs: Option<Arc<dyn BlobStore>>,
     checkpoint_signer: Option<Arc<dyn Signer>>,
 ) -> Arc<ServerContext> {
@@ -749,24 +749,26 @@ fn spawn_background_workers(
     // activity_retention.*` holds. Both start unset, so nothing expires (D9).
     {
         use pierre_mcp_server::start_retention_sweep_worker;
-        start_retention_sweep_worker(&resources, Arc::clone(&live_records), blobs);
+        start_retention_sweep_worker(&resources, Arc::clone(&barrage.records), blobs.clone());
     }
 
     // Start the record_log worker (carnet#1542): keys erasures and
-    // tombstones, baselines unlogged records, sweeps orphaned logs, and,
-    // with a signer, cuts the hourly checkpoint anchoring the deletion
-    // receipt chain. Skipped for an in-memory database like the other
-    // ledger workers.
+    // tombstones, baselines unlogged records, renames content-named
+    // originals to their keyed names where a blob store keeps them, sweeps
+    // orphaned logs, and, with a signer, cuts the hourly checkpoint anchoring
+    // the deletion receipt chain. Skipped for an in-memory database like the
+    // other ledger workers.
     if !resources.common.config.database.url.is_memory() {
         use pierre_services::record_log_worker::{start_record_log_worker, RecordLogWorker};
         let repos = &resources.common.repos;
         start_record_log_worker(
             Arc::new(RecordLogWorker::new(
-                live_records,
+                Arc::clone(&barrage.records),
                 Arc::clone(&repos.import_tombstones),
                 Arc::clone(&repos.account_deletion),
                 Arc::clone(&repos.users),
                 checkpoint_signer,
+                blobs.map(|blobs| barrage.with_blobs(blobs)),
             )),
             Arc::clone(&repos.worker_runs),
         );

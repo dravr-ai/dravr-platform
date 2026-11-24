@@ -12,6 +12,7 @@ use tracing::info;
 use pierre_contremaitre::messaging_strings::{KEY_TIMEZONE_INVALID, KEY_TIMEZONE_SET};
 
 use crate::{CommandHandler, PlatformCommandContext};
+use dravr_tronc::dates::Zone;
 
 /// Handler for `/timezone <IANA>` — persist the user's IANA timezone.
 ///
@@ -30,7 +31,7 @@ impl CommandHandler for TimezoneHandler {
         let locale = ctx.locale.as_str();
 
         let tz = ctx.args.first().map_or("", String::as_str).trim();
-        if tz.is_empty() || tz.parse::<chrono_tz::Tz>().is_err() {
+        if tz.is_empty() || tz.parse::<Zone>().is_err() {
             return Ok(CommandResponse::rich_text(reg.render(
                 KEY_TIMEZONE_INVALID,
                 locale,

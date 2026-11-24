@@ -1,5 +1,5 @@
 // ABOUTME: `pierre-cli strava-pool` commands — remote CRUD over the /admin/strava-pool endpoints
-// ABOUTME: Uses the cached device-login token; grows Strava OAuth seat capacity without touching the DB directly
+// ABOUTME: Uses the cached device-login token; registers Strava OAuth applications without touching the DB directly
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -7,11 +7,11 @@
 //! Remote management of the Strava shared-app OAuth pool.
 //!
 //! Thin HTTP wrappers over the `/admin/strava-pool/apps` and `/seats` endpoints, authenticated
-//! with the cached super-admin token from `pierre-cli auth login`. Adding a pool
-//! app here is how an operator restores Strava OAuth capacity when the env app
-//! hits Strava's athlete cap.
+//! with the cached super-admin token from `pierre-cli auth login`. Each
+//! registered Strava application serves a bounded number of athletes; this is
+//! where an admin registers an application and reads the seats each holds.
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::AppResult;
 use serde_json::{json, Value};
 
@@ -21,7 +21,7 @@ const APPS_PATH: &str = "/admin/strava-pool/apps";
 const SEATS_PATH: &str = "/admin/strava-pool/seats";
 
 fn client() -> AppResult<RemoteClient> {
-    let creds = CachedCredentials::require(Utc::now().timestamp())?;
+    let creds = CachedCredentials::require(Timestamp::now().epoch_seconds())?;
     RemoteClient::from_cached(&creds)
 }
 

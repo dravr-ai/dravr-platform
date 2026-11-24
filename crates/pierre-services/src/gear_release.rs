@@ -20,7 +20,7 @@
 //! retraction, so whatever runs the store — the server, or the CLI's seeders —
 //! releases gear the one way.
 
-use chrono::Duration;
+use dravr_tronc::dates::Elapsed;
 use pierre_core::errors::AppResult;
 use pierre_core::models::{Activity, ActivityGearKey, TenantId};
 use pierre_database::repositories::{CachedActivityRow, CachedRowsQuery};
@@ -185,7 +185,7 @@ pub async fn release_activity_gear(
             .await;
     };
     let start = activity.start_date();
-    let window = Duration::hours(WORKOUT_WINDOW_HOURS);
+    let window = Elapsed::hours(WORKOUT_WINDOW_HOURS);
     let held = repos
         .athlete_gear
         .list_gear_attributions(user_id, start - window, start + window)
@@ -212,7 +212,8 @@ pub async fn release_activity_gear(
 
 #[cfg(test)]
 mod tests {
-    use chrono::{TimeZone, Utc};
+    use dravr_tronc::dates::Timestamp;
+    use dravr_tronc::dates::{CivilDate, CivilDateTime};
     use pierre_core::models::{ActivityBuilder, SportType};
 
     use super::*;
@@ -224,7 +225,10 @@ mod tests {
                 id,
                 "Morning run",
                 SportType::Run,
-                Utc.with_ymd_and_hms(2026, 9, 20, 7, minute, 0).unwrap(),
+                CivilDate::from_ymd(2026, 9, 20)
+                    .and_then(|date| date.and_hms(7, minute, 0))
+                    .and_then(CivilDateTime::and_utc)
+                    .unwrap(),
                 3_000,
                 provider,
             )
@@ -249,7 +253,7 @@ mod tests {
                     "s2",
                     "Evening run",
                     SportType::Run,
-                    Utc.with_ymd_and_hms(2026, 9, 20, 18, 0, 0).unwrap(),
+                    Timestamp::parse_from_rfc3339("2026-09-20T18:00:00Z").unwrap(),
                     1_500,
                     "strava",
                 )
@@ -329,7 +333,7 @@ mod tests {
                 "t1",
                 "Treadmill",
                 SportType::VirtualRun,
-                Utc.with_ymd_and_hms(2026, 9, 20, 7, 0, 0).unwrap(),
+                Timestamp::parse_from_rfc3339("2026-09-20T07:00:00Z").unwrap(),
                 1_800,
                 "strava",
             )
@@ -357,7 +361,7 @@ mod tests {
             "s2",
             "Evening run",
             SportType::Run,
-            Utc.with_ymd_and_hms(2026, 9, 20, 18, 0, 0).unwrap(),
+            Timestamp::parse_from_rfc3339("2026-09-20T18:00:00Z").unwrap(),
             1_500,
             "strava",
         )

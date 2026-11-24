@@ -4,7 +4,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use chrono::Datelike;
 use pierre_contremaitre::messaging_strings::{KEY_DETAIL_WALK_COMPLETE, KEY_HISTORY_WALK_COMPLETE};
 use pierre_core::models::TenantId;
 use pierre_core::transport::TransportPolicy;
@@ -40,13 +39,13 @@ impl ServerBackfillNotifier {
             return;
         };
         if !self
-            .claim_walk_post(&owner, tenant_id, provider, oldest.timestamp())
+            .claim_walk_post(&owner, tenant_id, provider, oldest.epoch_seconds())
             .await
         {
             return;
         }
         let locale = self.resolve_locale(user_id, tenant_id, None).await;
-        let year = oldest.year().to_string();
+        let year = oldest.utc_date().year().to_string();
         let count = activity_count.to_string();
         let body = self
             .strings

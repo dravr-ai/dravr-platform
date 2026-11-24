@@ -99,7 +99,7 @@ const PANE_ICONS: Record<SettingsPaneId, ReactNode> = {
 /**
  * Every settings section web serves, in menu order.
  *
- * Read by the athlete menu and the operator strip alike, and derived from
+ * Read by the athlete menu and the admin strip alike, and derived from
  * `SETTINGS_PANES` so the phone's settings list cannot offer a different set
  * of destinations under different names.
  */

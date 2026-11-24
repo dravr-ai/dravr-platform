@@ -20,8 +20,8 @@
 //! source, keyed by the riviere series type, which is where the
 //! continuous-series read finds intraday heart rate and rMSSD.
 
-use chrono::{DateTime, NaiveDate, Utc};
 use dravr_riviere::{DataPoint, SeriesType};
+use dravr_tronc::dates::{CivilDate, Timestamp};
 use pierre_core::errors::AppResult;
 use serde_json::Value;
 
@@ -42,7 +42,7 @@ use crate::wellness_store::{IntradaySeries, WellnessLanded, WellnessStore, Welln
 async fn land_recovery(
     batch: &OwnerBatch<'_>,
     source_id: &str,
-    date: NaiveDate,
+    date: CivilDate,
     readings: RecoveryReadings,
 ) -> AppResult<()> {
     let row = recovery_row(readings, &batch.owner.user_id.to_string(), source_id, date);
@@ -63,7 +63,7 @@ async fn land_recovery(
 async fn land_body(
     batch: &OwnerBatch<'_>,
     source_id: &str,
-    date: NaiveDate,
+    date: CivilDate,
     readings: BodyReadings,
 ) -> AppResult<()> {
     let row = body_row(readings, &batch.owner.user_id.to_string(), source_id, date);
@@ -269,7 +269,9 @@ pub(super) async fn write_body_comps(
         let Some(date) = measurement.measurement_time_in_seconds.and_then(|at| {
             let local =
                 at.checked_add(measurement.measurement_time_offset_in_seconds.unwrap_or(0))?;
-            DateTime::<Utc>::from_timestamp(local, 0).map(|instant| instant.date_naive())
+            Timestamp::from_epoch_seconds(local)
+                .ok()
+                .map(Timestamp::utc_date)
         }) else {
             outcome.unreadable += 1;
             continue;

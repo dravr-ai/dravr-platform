@@ -1019,50 +1019,6 @@ pub fn global_registry() -> Arc<ProviderRegistry> {
         .clone() // Safe: Arc clone for provider registry access
 }
 
-/// Convenience function to create a provider using the global registry
-///
-/// For test isolation, prefer creating a local `ProviderRegistry` instance and calling
-/// `registry.create_provider()` instead of using this global function.
-///
-/// # Errors
-///
-/// Returns an error if the provider is not supported or no default configuration exists.
-pub fn create_provider(provider_name: &str) -> AppResult<Box<dyn FitnessProvider>> {
-    global_registry().create_provider(provider_name)
-}
-
-/// Convenience function to create a tenant provider using the global registry
-///
-/// For test isolation, prefer creating a local `ProviderRegistry` instance and calling
-/// `registry.create_tenant_provider()` instead of using this global function.
-///
-/// # Errors
-///
-/// Returns an error if the provider is not supported or no default configuration exists.
-pub fn create_tenant_provider(
-    provider_name: &str,
-    tenant_id: TenantId,
-    user_id: Uuid,
-) -> AppResult<Box<dyn FitnessProvider>> {
-    global_registry().create_tenant_provider(provider_name, tenant_id, user_id)
-}
-
-/// Convenience function to check if a provider is supported
-///
-/// Uses the global registry. For test isolation, create a local `ProviderRegistry` instance.
-#[must_use]
-pub fn is_provider_supported(provider_name: &str) -> bool {
-    global_registry().is_supported(provider_name)
-}
-
-/// Convenience function to get all supported providers
-///
-/// Uses the global registry. For test isolation, create a local `ProviderRegistry` instance.
-#[must_use]
-pub fn get_supported_providers() -> Vec<&'static str> {
-    global_registry().supported_providers()
-}
-
 /// Create a new provider registry with external provider bundles
 ///
 /// This function creates a new registry instance with both built-in providers
@@ -1094,6 +1050,25 @@ pub fn create_registry_with_external_providers(bundles: Vec<ProviderBundle>) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use pierre_core::constants::oauth_providers::is_consent_class;
+
+    /// A consent class (`sensitive_t2`) rides the AI-consent set beside the
+    /// providers, so no provider may ever be registered under its key.
+    #[test]
+    fn no_registered_provider_is_keyed_as_a_consent_class() {
+        let registry = ProviderRegistry::new();
+        let keys = registry.supported_providers();
+        assert!(
+            !keys.is_empty(),
+            "bug: the built-in registry registers no provider, so the guard checks nothing"
+        );
+        for key in keys {
+            assert!(
+                !is_consent_class(key),
+                "bug: {key} is a consent class, never a provider"
+            );
+        }
+    }
 
     /// A built-in factory that builds delegated reads is read on a coached
     /// athlete's behalf only through its descriptor's `COACH_ROSTER`, so one

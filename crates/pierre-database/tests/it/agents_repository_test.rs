@@ -15,6 +15,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
+use dravr_tronc::dates::Timestamp;
 use pierre_core::field_update::FieldUpdate;
 use pierre_core::models::agents::{Agent, ListAgentsFilter, UpdateAgentRequest};
 use pierre_core::models::{AgentCategory, CreateAgentRequest, Tenant, TenantId, User};
@@ -170,7 +171,7 @@ async fn a_hidden_agent_lists_with_its_startup_query() {
         .find(|a| a.user_id == athlete.to_string())
         .expect("the athlete's assignment lists");
     assert_eq!(athlete_row.assigned_by, Some(owner.to_string()));
-    assert!(chrono::DateTime::parse_from_rfc3339(&athlete_row.assigned_at).is_ok());
+    assert!(Timestamp::parse_from_rfc3339(&athlete_row.assigned_at).is_ok());
 
     // Hidden agents drop out of the default listing and come back with the filter.
     let defaults = repos

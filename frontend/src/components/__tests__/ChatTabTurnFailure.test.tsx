@@ -13,7 +13,7 @@ import { TurnFailedError, TurnRequestError } from '@pierre/api-client';
 import { i18n } from '@pierre/i18n';
 import ChatTab from '../ChatTab';
 import { ToastProvider } from '../ui';
-import { QUERY_KEYS } from '../../constants/queryKeys';
+import { QUERY_KEYS } from '@pierre/shared-constants';
 
 const CONVERSATION_ID = 'conv-1';
 

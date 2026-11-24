@@ -18,7 +18,7 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use chrono::{DateTime, Duration, DurationRound, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use dravr_tronc::mcp::tool::{McpTool, ToolContext};
 use pierre_core::constants::oauth_providers::STRAVA_ARCHIVE;
 use pierre_core::models::{Activity, ActivityBuilder, ConnectionType, SportType, TenantId};
@@ -43,7 +43,7 @@ const FORMER_KEY: &str = "wahoo";
 /// `head_complete` verdict reads.
 async fn scraper_riding(age_days: i64) -> (Arc<AtomicBool>, String) {
     let head_complete = Arc::new(AtomicBool::new(true));
-    let ride_start = (Utc::now() - Duration::days(age_days)).to_rfc3339();
+    let ride_start = (Timestamp::now() - Elapsed::days(age_days)).to_rfc3339();
     let url = spawn_mock_scraper_serving(Arc::clone(&head_complete), ride_start).await;
     (head_complete, url)
 }
@@ -85,19 +85,21 @@ async fn athlete(resources: &Arc<ServerContext>) -> (Uuid, TenantId, ToolContext
 
 /// Noon UTC `days` ago: a window's `after`, mid-day so that a row earlier
 /// on the same civil day falls outside it.
-fn noon_days_ago(days: i64) -> DateTime<Utc> {
-    (Utc::now() - Duration::days(days))
-        .duration_trunc(Duration::days(1))
+fn noon_days_ago(days: i64) -> Timestamp {
+    (Timestamp::now() - Elapsed::days(days))
+        .utc_date()
+        .at_midnight()
+        .and_utc()
         .unwrap()
-        + Duration::hours(12)
+        + Elapsed::hours(12)
 }
 
-fn week_ago_noon() -> DateTime<Utc> {
+fn week_ago_noon() -> Timestamp {
     noon_days_ago(7)
 }
 
 /// A run under `FORMER_KEY` started at `start`, `km` long.
-fn former_run(id: &str, start: DateTime<Utc>, km: f64) -> Activity {
+fn former_run(id: &str, start: Timestamp, km: f64) -> Activity {
     ActivityBuilder::new(
         id,
         format!("run {id}"),
@@ -125,8 +127,8 @@ async fn stored_ids(
             user_id,
             &tenant,
             None,
-            Utc::now() - Duration::days(400),
-            Utc::now() + Duration::days(1),
+            Timestamp::now() - Elapsed::days(400),
+            Timestamp::now() + Elapsed::days(1),
             100,
         )
         .await
@@ -167,7 +169,7 @@ async fn a_complete_live_read_is_stored_before_the_answer_and_counted_whole() {
     let (user_id, tenant, ctx) = athlete(&resources).await;
     let args = json!({
         "provider": "sciotte",
-        "after": week_ago_noon().timestamp(),
+        "after": week_ago_noon().epoch_seconds(),
         "limit": 10,
         "mode": "summary",
     });
@@ -229,14 +231,14 @@ async fn the_window_total_is_the_stores_count_not_the_pages() {
             &tenant,
             FORMER_KEY,
             &[
-                former_run("former-in", after + Duration::days(1), 10.0),
-                former_run("former-same-day-before", after - Duration::hours(1), 5.0),
-                former_run("former-older", after - Duration::days(3), 7.0),
+                former_run("former-in", after + Elapsed::days(1), 10.0),
+                former_run("former-same-day-before", after - Elapsed::hours(1), 5.0),
+                former_run("former-older", after - Elapsed::days(3), 7.0),
             ],
         )
         .await
         .unwrap();
-    let args = json!({ "after": after.timestamp(), "limit": 10, "mode": "summary" });
+    let args = json!({ "after": after.epoch_seconds(), "limit": 10, "mode": "summary" });
 
     let payload = get_activities(&resources, &ctx, args.clone()).await;
 
@@ -284,7 +286,7 @@ async fn a_served_row_the_store_does_not_hold_is_named_unstored() {
     head_complete.store(false, Ordering::SeqCst);
     let args = json!({
         "provider": "sciotte",
-        "after": week_ago_noon().timestamp(),
+        "after": week_ago_noon().epoch_seconds(),
         "limit": 10,
         "mode": "summary",
     });
@@ -341,7 +343,7 @@ async fn a_window_the_response_cache_answers_is_counted_from_the_store() {
         .unwrap();
     let (user_id, tenant, ctx) = athlete(&resources).await;
     let after = noon_days_ago(30);
-    let args = json!({ "after": after.timestamp(), "limit": 10, "mode": "summary" });
+    let args = json!({ "after": after.epoch_seconds(), "limit": 10, "mode": "summary" });
     let first = get_activities(&resources, &ctx, args.clone()).await;
     assert_eq!(
         first["coverage"]["window"]["total"], 1,
@@ -356,7 +358,7 @@ async fn a_window_the_response_cache_answers_is_counted_from_the_store() {
             user_id,
             &tenant,
             FORMER_KEY,
-            &[former_run("former-in", after + Duration::days(2), 10.0)],
+            &[former_run("former-in", after + Elapsed::days(2), 10.0)],
         )
         .await
         .unwrap();
@@ -398,17 +400,13 @@ async fn a_window_the_response_cache_answers_is_counted_from_the_store() {
 /// window's `after`: midnight on the athlete's calendar (UTC: no zone on
 /// file), so the instants asked and the civil days `query_activities` reads
 /// coincide.
-async fn seed_import(
-    resources: &Arc<ServerContext>,
-    user_id: Uuid,
-    tenant: TenantId,
-) -> DateTime<Utc> {
-    let after = noon_days_ago(10) - Duration::hours(12);
+async fn seed_import(resources: &Arc<ServerContext>, user_id: Uuid, tenant: TenantId) -> Timestamp {
+    let after = noon_days_ago(10) - Elapsed::hours(12);
     let imported = ActivityBuilder::new(
         "archive-ride",
         "imported ride",
         SportType::Ride,
-        after + Duration::days(3),
+        after + Elapsed::days(3),
         3_600,
         STRAVA_ARCHIVE,
     )
@@ -426,8 +424,8 @@ async fn seed_import(
             &tenant,
             FORMER_KEY,
             &[
-                former_run("former-in", after + Duration::days(1), 10.0),
-                former_run("former-before", after - Duration::hours(6), 5.0),
+                former_run("former-in", after + Elapsed::days(1), 10.0),
+                former_run("former-before", after - Elapsed::hours(6), 5.0),
             ],
         )
         .await
@@ -451,7 +449,7 @@ async fn an_imported_row_is_served_counted_and_stored_and_query_activities_agree
     let unpinned = get_activities(
         &resources,
         &ctx,
-        json!({ "after": after.timestamp(), "limit": 10, "mode": "summary" }),
+        json!({ "after": after.epoch_seconds(), "limit": 10, "mode": "summary" }),
     )
     .await;
     let mut ids = served_ids(&unpinned);
@@ -468,8 +466,8 @@ async fn an_imported_row_is_served_counted_and_stored_and_query_activities_agree
     );
     let runtime: Arc<dyn ToolRuntime> = resources.clone();
     let asked = parse_query(
-        &json!({ "from": after.date_naive().to_string() }),
-        Utc::now().date_naive(),
+        &json!({ "from": after.utc_date().to_string() }),
+        Timestamp::now().utc_date(),
     )
     .unwrap();
     let counted = query_activities(&runtime, user_id, tenant, &asked, ReadGate::Model)
@@ -496,7 +494,7 @@ async fn an_imported_row_is_served_counted_and_stored_and_query_activities_agree
         &ctx,
         json!({
             "provider": "sciotte",
-            "after": after.timestamp(),
+            "after": after.epoch_seconds(),
             "limit": 10,
             "mode": "summary",
         }),
@@ -536,7 +534,7 @@ async fn a_pinned_list_and_a_pinned_query_count_one_window() {
         &ctx,
         json!({
             "provider": "sciotte",
-            "after": after.timestamp(),
+            "after": after.epoch_seconds(),
             "limit": 10,
             "mode": "summary",
         }),
@@ -550,8 +548,8 @@ async fn a_pinned_list_and_a_pinned_query_count_one_window() {
 
     let runtime: Arc<dyn ToolRuntime> = resources.clone();
     let asked = parse_query(
-        &json!({ "from": after.date_naive().to_string(), "provider": "sciotte" }),
-        Utc::now().date_naive(),
+        &json!({ "from": after.utc_date().to_string(), "provider": "sciotte" }),
+        Timestamp::now().utc_date(),
     )
     .unwrap();
     let counted = query_activities(&runtime, user_id, tenant, &asked, ReadGate::Model)

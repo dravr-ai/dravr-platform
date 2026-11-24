@@ -1,5 +1,5 @@
 // ABOUTME: Memory pane — what the coach remembers, one compact row per fact under a Section per kind, text tabs to filter by kind
-// ABOUTME: Forgetting is the long-press menu or the swipe action, never a button on the row (Boreal v2.2 Phase 4, DESIGN.md §10)
+// ABOUTME: Forgetting is the long-press menu or the swipe action, never a button on the row (DESIGN.md "Phone")
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
@@ -7,7 +7,7 @@ import React, { useMemo, useState } from 'react';
 import { View, Text, ScrollView, ActivityIndicator, Alert, RefreshControl } from 'react-native';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { MemoryFactRow } from '@pierre/api-client';
-import { MEMORY_KIND_LABEL_KEY, formatNotificationTime, memoryFactCountLabel } from '@pierre/shared-constants';
+import { MEMORY_KIND_LABEL_KEY, formatNotificationTime, memoryFactCountLabel, QUERY_KEYS } from '@pierre/shared-constants';
 import { MEMORY_FACT_KINDS } from '@pierre/shared-types';
 import { spacing, useThemeColors } from '../../constants/theme';
 import { EmptyState, Row, Section, SwipeableRow, TextTabs, type SwipeAction } from '../../components/ui';
@@ -17,8 +17,6 @@ import { useTranslation } from '@pierre/i18n';
 import { presentMemoryFactMenu } from './presentMemoryFactMenu';
 import { MemoryReviewSection } from './MemoryReviewSection';
 import { describeApiError } from '@pierre/ui-logic';
-
-const MEMORY_FACTS_QUERY_KEY = ['memory', 'facts'] as const;
 
 /** The tab that stands for "no kind filter"; the server sees `kind: undefined`. */
 const ALL_KINDS_TAB = 'all';
@@ -30,7 +28,7 @@ export function MemoryScreen(): React.JSX.Element {
   const [kindFilter, setKindFilter] = useState<MemoryFactRow['kind'] | ''>('');
 
   const { data, isLoading, isError, error, refetch, isFetching } = useQuery({
-    queryKey: [...MEMORY_FACTS_QUERY_KEY, kindFilter],
+    queryKey: QUERY_KEYS.memory.factList(kindFilter),
     queryFn: () =>
       userApi.listMemoryFacts({
         kind: kindFilter || undefined,
@@ -41,7 +39,7 @@ export function MemoryScreen(): React.JSX.Element {
   const forgetMutation = useMutation({
     mutationFn: (factId: string) => userApi.forgetMemoryFact(factId),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: MEMORY_FACTS_QUERY_KEY });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.memory.facts() });
     },
     onError: (err: unknown) => {
       const msg = describeApiError(err, { t, fallbackKey: 'errors.unknown' });

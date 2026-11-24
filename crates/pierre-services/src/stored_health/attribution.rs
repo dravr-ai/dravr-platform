@@ -7,7 +7,7 @@
 //! The attribution half of [`super`]'s governed reads (carnet#521,
 //! carnet#1154): which Garmin attribution the rows a reader is served owe.
 
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::constants::oauth_providers::{
     activity_attribution, garmin_device, garmin_service_attribution, source_attribution, GARMIN,
     GARMIN_ATTRIBUTION, INTERVALS_ICU,
@@ -40,14 +40,14 @@ async fn intervals_wellness_attribution(
     user_id: Uuid,
     tenant: &TenantId,
 ) -> AppResult<Option<String>> {
-    let end = Utc::now();
+    let end = Timestamp::now();
     let activities = repos
         .activity_cache
         .get_cached_activities(
             user_id,
             tenant,
             Some(INTERVALS_ICU),
-            end - Duration::days(DEVICE_LOOKBACK_DAYS),
+            end - Elapsed::days(DEVICE_LOOKBACK_DAYS),
             end,
             DEVICE_LOOKBACK_ACTIVITIES,
         )
@@ -127,7 +127,7 @@ pub(super) async fn attribution_of(
 
 #[cfg(test)]
 mod tests {
-    use chrono::NaiveDate;
+    use dravr_tronc::dates::CivilDate;
     use pierre_core::models::{DeviceType, StoredRecoveryMetrics};
 
     use super::*;
@@ -157,7 +157,7 @@ mod tests {
             id: Uuid::new_v4().to_string(),
             user_id: Uuid::new_v4().to_string(),
             data_source_id: data_source_id.to_owned(),
-            date: NaiveDate::from_ymd_opt(2026, 9, 30).unwrap(),
+            date: CivilDate::from_ymd(2026, 9, 30).unwrap(),
             recovery_score: None,
             readiness_score: None,
             hrv_ms: None,
@@ -171,7 +171,7 @@ mod tests {
             daily_strain: None,
             athlete_note: None,
             source_name: stored_under.to_owned(),
-            recorded_at: Utc::now(),
+            recorded_at: Timestamp::now(),
         }
     }
 

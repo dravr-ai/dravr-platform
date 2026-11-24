@@ -121,6 +121,9 @@ export function climbGrade(climb: RouteClimb, t: Translate): string | null {
  * found on the open map, or an itinerary joined from several. A route block
  * citing one of them draws a suggestion, never a track the athlete recorded —
  * the platform refuses a proposed route that cites any other tool.
+ *
+ * Held to `@pierre/mcp-types/proposed-route-tools.json`, the list the server
+ * freezes from its route tools and holds its own route gate to.
  */
 export const PROPOSED_ROUTE_TOOLS: readonly string[] = ['discover_routes', 'compose_route'];
 

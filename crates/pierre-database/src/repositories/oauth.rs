@@ -5,15 +5,15 @@
 // Copyright (c) 2026 dravr.ai
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::AppResult;
 
 use pierre_core::models::TenantId;
 use pierre_core::models::{
     ClientGrantStanding, ConnectionType, DeviceAuthorization, OAuth2AuthCode, OAuth2Client,
-    OAuth2ClientSweep, OAuth2RefreshToken, OAuth2State, OAuthClientGrant, OAuthClientState,
-    ProviderAccountRole, ProviderConnection, ReauthMark, StravaPoolApp, StravaSeatHolder,
-    StravaTokenApp, UserOAuthApp, UserOAuthToken,
+    OAuth2ClientSweep, OAuth2PushedRequest, OAuth2RefreshToken, OAuth2State, OAuthClientGrant,
+    OAuthClientState, ProviderAccountRole, ProviderConnection, ReauthMark, StravaPoolApp,
+    StravaSeatHolder, StravaTokenApp, UserOAuthApp, UserOAuthToken,
 };
 use uuid::Uuid;
 
@@ -178,7 +178,7 @@ pub trait OAuthTokenRepository: Send + Sync {
         stored: &UserOAuthToken,
         access_token: &str,
         refresh_token: Option<&str>,
-        expires_at: Option<DateTime<Utc>>,
+        expires_at: Option<Timestamp>,
     ) -> AppResult<bool>;
     /// Store user OAuth app credentials (`client_id`, `client_secret`)
     async fn store_user_oauth_app(
@@ -205,14 +205,14 @@ pub trait OAuthTokenRepository: Send + Sync {
         user_id: Uuid,
         tenant_id: TenantId,
         provider: &str,
-    ) -> AppResult<Option<DateTime<Utc>>>;
+    ) -> AppResult<Option<Timestamp>>;
     /// Update last sync timestamp for a provider within a specific tenant
     async fn update_provider_last_sync(
         &self,
         user_id: Uuid,
         tenant_id: TenantId,
         provider: &str,
-        sync_time: DateTime<Utc>,
+        sync_time: Timestamp,
     ) -> AppResult<()>;
 }
 
@@ -250,11 +250,7 @@ pub trait OAuth2ServerRepository: Send + Sync {
     /// Move the expiry of `client_id` forward to `expires_at`, never back and
     /// never onto a row that has none: a registration that expires on
     /// inactivity stays alive while its users keep authorizing through it.
-    async fn extend_client_expiry(
-        &self,
-        client_id: &str,
-        expires_at: DateTime<Utc>,
-    ) -> AppResult<()>;
+    async fn extend_client_expiry(&self, client_id: &str, expires_at: Timestamp) -> AppResult<()>;
     /// Delete the client registration `client_id` names, with the codes,
     /// refresh tokens and states issued through it and the consent grants that
     /// name it. Returns `true` when a registration was deleted, `false` when
@@ -266,12 +262,14 @@ pub trait OAuth2ServerRepository: Send + Sync {
     /// that were created before `unauthorized_before`. A row without an
     /// `expires_at` was not written by dynamic registration and is never
     /// deleted here. Codes, refresh tokens and states go with their client by
-    /// cascade; consent grants naming a client that no longer exists are
-    /// deleted in the same transaction.
+    /// cascade; consent grants naming a client that no longer exists, and
+    /// the RFC 9126 pushed requests past their expiry at `now`, are deleted
+    /// in the same transaction.
     async fn delete_stale_clients(
         &self,
-        expired_before: DateTime<Utc>,
-        unauthorized_before: DateTime<Utc>,
+        expired_before: Timestamp,
+        unauthorized_before: Timestamp,
+        now: Timestamp,
     ) -> AppResult<OAuth2ClientSweep>;
     /// Get OAuth 2.0 client by `client_id`
     async fn get_client(&self, client_id: &str) -> AppResult<Option<OAuth2Client>>;
@@ -289,7 +287,7 @@ pub trait OAuth2ServerRepository: Send + Sync {
         code: &str,
         client_id: &str,
         redirect_uri: &str,
-        now: DateTime<Utc>,
+        now: Timestamp,
     ) -> AppResult<Option<OAuth2AuthCode>>;
     /// Read the authorization code [`consume_auth_code`](Self::consume_auth_code)
     /// would exchange with these arguments, without consuming it: `None` when
@@ -301,14 +299,14 @@ pub trait OAuth2ServerRepository: Send + Sync {
         code: &str,
         client_id: &str,
         redirect_uri: &str,
-        now: DateTime<Utc>,
+        now: Timestamp,
     ) -> AppResult<Option<OAuth2AuthCode>>;
     /// Atomically consume OAuth 2.0 refresh token (check-and-revoke in single operation)
     async fn consume_refresh_token(
         &self,
         token: &str,
         client_id: &str,
-        now: DateTime<Utc>,
+        now: Timestamp,
     ) -> AppResult<Option<OAuth2RefreshToken>>;
     /// Revoke every live token in the rotation chain `token` belongs to,
     /// returning how many were revoked — zero when the token is unknown.
@@ -330,15 +328,48 @@ pub trait OAuth2ServerRepository: Send + Sync {
         &self,
         state_value: &str,
         client_id: &str,
-        now: DateTime<Utc>,
+        now: Timestamp,
     ) -> AppResult<Option<OAuth2State>>;
     /// Persist a user's consent to an MCP OAuth client.
     ///
     /// Inserts a new active grant with `granted_at = now` and `revoked_at = NULL`.
     /// The caller supplies `grant.id` (a uuid string). If an active grant for the
-    /// same `(user_id, tenant_id, client_id, scope)` already exists, the insert is
-    /// a no-op (the active partial-unique index makes re-consent idempotent).
-    async fn store_client_grant(&self, grant: &OAuthClientGrant) -> AppResult<()>;
+    /// same `(user_id, tenant_id, client_id, scope)` already exists, that row
+    /// keeps its id, details and expiry and takes the new consent text (the
+    /// active partial-unique index makes re-consent idempotent).
+    ///
+    /// Every other live grant the user gave the client in the tenant, whatever
+    /// its scope, is revoked in the same transaction, as
+    /// [`revoke_client_grant`](Self::revoke_client_grant) revokes one: an
+    /// approval leaves the client one live grant.
+    ///
+    /// Returns the id of the row that holds the grant: `grant.id` for a new
+    /// one, the existing row's on a re-consent. That id is what the codes it
+    /// mints carry.
+    async fn store_client_grant(&self, grant: &OAuthClientGrant) -> AppResult<String>;
+    /// Replace the live grant `live_id` with `grant`, whose details differ:
+    /// in one transaction the live row is revoked as
+    /// [`revoke_client_grant`](Self::revoke_client_grant) revokes one (the
+    /// client's refresh tokens and unredeemed codes for the user in the
+    /// tenant, and the support sessions bound to them, end with it) and
+    /// `grant` is inserted. A grant's details never change under it, so a
+    /// re-consent to other details, or onto an expired row, is a new grant.
+    /// The client's other live grants are revoked with it, as
+    /// [`store_client_grant`](Self::store_client_grant) revokes them.
+    /// Returns the id of the grant stored, `grant.id`.
+    async fn replace_client_grant(
+        &self,
+        live_id: &str,
+        grant: &OAuthClientGrant,
+    ) -> AppResult<String>;
+    /// One grant by its id, live or revoked, when `user_id` holds it in
+    /// `tenant_id`; `None` otherwise.
+    async fn get_client_grant(
+        &self,
+        id: &str,
+        user_id: &str,
+        tenant_id: &str,
+    ) -> AppResult<Option<OAuthClientGrant>>;
     /// Find the active grant for a `(user, tenant, client, scope)` tuple.
     ///
     /// Returns the un-revoked grant matching all four fields, or `None` when no
@@ -376,6 +407,35 @@ pub trait OAuth2ServerRepository: Send + Sync {
         id: &str,
         user_id: &str,
         tenant_id: &str,
+    ) -> AppResult<bool>;
+
+    /// Store an RFC 9126 pushed authorization request, keyed by the SHA-256
+    /// of the `request_uri` handed to its client.
+    async fn store_pushed_request(&self, request: &OAuth2PushedRequest) -> AppResult<()>;
+    /// The pushed request `request_uri_hash` names, when `client_id` pushed
+    /// it and it is unused and unexpired at `now`; `None` otherwise.
+    async fn find_pushed_request(
+        &self,
+        request_uri_hash: &str,
+        client_id: &str,
+        now: Timestamp,
+    ) -> AppResult<Option<OAuth2PushedRequest>>;
+    /// Move an unused pushed request's expiry forward to `expires_at`, never
+    /// back: the first resolve gives the athlete time to sign in and consent.
+    async fn extend_pushed_request(
+        &self,
+        request_uri_hash: &str,
+        client_id: &str,
+        expires_at: Timestamp,
+    ) -> AppResult<()>;
+    /// Spend a pushed request: mark it used at `now` when `client_id` pushed
+    /// it and it is unused and unexpired. One statement, so a request mints
+    /// at most one code (RFC 9126 §4). Returns whether it was spent here.
+    async fn consume_pushed_request(
+        &self,
+        request_uri_hash: &str,
+        client_id: &str,
+        now: Timestamp,
     ) -> AppResult<bool>;
 
     /// Where the user's consent to `client_id` stands in `tenant_id`, across
@@ -423,7 +483,7 @@ pub trait OAuth2ServerRepository: Send + Sync {
         &self,
         device_code_hash: &str,
     ) -> AppResult<Option<DeviceAuthorization>>;
-    /// Look up a device authorization by its `user_code` (operator-entered code).
+    /// Look up a device authorization by its `user_code` (admin-entered code).
     async fn get_device_authorization_by_user_code(
         &self,
         user_code: &str,
@@ -458,7 +518,7 @@ pub trait OAuthClientStateRepository: Send + Sync {
         &self,
         state_value: &str,
         provider: &str,
-        now: DateTime<Utc>,
+        now: Timestamp,
     ) -> AppResult<Option<OAuthClientState>>;
     /// Delete the client states that expired without ever being consumed, and
     /// report how many went per provider.
@@ -474,7 +534,7 @@ pub trait OAuthClientStateRepository: Send + Sync {
     /// reaped, never that a provider reaped zero.
     async fn reap_expired_oauth_client_states(
         &self,
-        now: DateTime<Utc>,
+        now: Timestamp,
     ) -> AppResult<Vec<(String, u64)>>;
 }
 
@@ -598,7 +658,7 @@ pub trait ProviderConnectionRepository: Send + Sync {
         tenant_id: TenantId,
         provider: &str,
         error_code: Option<&str>,
-        attempt_started_at: DateTime<Utc>,
+        attempt_started_at: Timestamp,
     ) -> AppResult<ReauthMark>;
     /// Flip the connection `token` belongs to to `needs_reauth` for a refresh
     /// of `token` the provider refused, only while `token` is still its stored
@@ -697,16 +757,16 @@ pub trait ProviderConnectionRepository: Send + Sync {
         user_id: Uuid,
         tenant_id: TenantId,
         provider: &str,
-        due_before: DateTime<Utc>,
+        due_before: Timestamp,
     ) -> AppResult<bool>;
     /// Every connection flagged `needs_reauth` whose retry is due at
     /// `due_before`, under the condition [`Self::claim_reauth_retry`] claims,
     /// longest-flagged first, at most `limit` of them. Crosses users and
-    /// tenants: it feeds the operator capture sweep, which claims each row
+    /// tenants: it feeds the admin capture sweep, which claims each row
     /// before touching it.
     async fn list_reauth_retry_due(
         &self,
-        due_before: DateTime<Utc>,
+        due_before: Timestamp,
         limit: i64,
     ) -> AppResult<Vec<ProviderConnection>>;
     /// Atomically claim the one-time sync-failure notification for an `active`

@@ -20,6 +20,15 @@ name = "pierre-mcp-server"
 path = "src/bin/pierre-mcp-server.rs"
 bench = false
 
+# The child process an uploaded lab report's text is read in (carnet#1544): the
+# server spawns it and never runs the PDF parser itself. Built with the server
+# so every `--bin` build, integration test and image carries it beside the
+# server binary, where the server looks for it.
+[[bin]]
+name = "pierre-pdf-text"
+path = "src/bin/pierre-pdf-text.rs"
+bench = false
+
 # [[bin]]
 # name = "auth-setup"
 # path = "src/bin/auth_setup.rs"
@@ -85,12 +94,7 @@ tools-all = [
 ]
 
 # Individual tool categories
-# `transport-sse` because the refresh tools build a `RefreshService`, whose
-# `SyncNotifier` handle is `ToolRuntime::sync_notifier` — a method the trait
-# only declares under SSE. `pierre-tool-runtime/tools-connection` states the
-# same implication on its side; the host has to state it too, or the impl
-# disappears while the trait method stays.
-tools-connection = ["pierre-tool-runtime/tools-connection", "transport-sse"]      # connect_provider, get_connection_status, disconnect (+ refresh_provider_data, get_data_freshness)
+tools-connection = ["pierre-tool-runtime/tools-connection"]      # connect_provider, get_connection_status, disconnect (+ refresh_provider_data, get_data_freshness)
 tools-data = ["pierre-tool-runtime/tools-data"]            # get_activities, get_athlete, get_stats (+ endurance workouts)
 tools-analytics = ["pierre-tool-runtime/tools-analytics"]       # analyze_activity, calculate_metrics, trends, discover_routes, compose_route
 tools-goals = ["pierre-tool-runtime/tools-goals"]           # set_goal, track_progress, suggest_goals
@@ -123,22 +127,24 @@ protocol-all = ["protocol-rest", "protocol-mcp", "protocol-a2a"]
 # TRANSPORT FEATURES
 # ═══════════════════════════════════════════════════════════════
 transport-http = []
-transport-sse = ["dep:pierre-sse", "pierre-tool-runtime/transport-sse", "pierre-chat-pipeline?/transport-sse"]
 # Local language detection (lingua, ~22 MB of language models), shipped in
 # server-production and server-full so a turn reads its own language without
 # an LLM call; a build without it asks the LLM. carnet#825, carnet#839.
 language-detection = ["pierre-chat-pipeline?/language-detection"]
 transport-stdio = []
 
-transport-all = ["transport-http", "transport-sse", "transport-stdio"]
-transport-web = ["transport-http", "transport-sse"]
+transport-all = ["transport-http", "transport-stdio"]
 
 # ═══════════════════════════════════════════════════════════════
 # GRANULAR CLIENT-WEB FEATURES
 # ═══════════════════════════════════════════════════════════════
 client-dashboard = ["protocol-rest", "dep:pierre-routes-dashboard"]     # dashboard routes (extracted to pierre-routes-dashboard)
 client-settings = ["protocol-rest", "dep:pierre-routes-billing"]      # configuration.rs, fitness.rs
-client-chat = ["protocol-rest", "pierre-tool-runtime/client-chat", "dep:pierre-chat-pipeline", "dep:async-stream", "dep:embacle-tool-host"]  # chat.rs + tool-loop strategies in pierre-tool-runtime; chat pipeline orchestrator extracted to pierre-chat-pipeline
+# The chat pipeline's context holds the group service and the slash-command
+# registries unconditionally (pierre-chat-pipeline turns its own
+# `tools-groups` on by default), so a chat build states both; left implied,
+# they only surface in a build that turns `client-chat` on alone.
+client-chat = ["protocol-rest", "pierre-tool-runtime/client-chat", "dep:pierre-chat-pipeline", "dep:async-stream", "dep:embacle-tool-host", "tools-groups", "slash-commands"]  # chat.rs + tool-loop strategies in pierre-tool-runtime; chat pipeline orchestrator extracted to pierre-chat-pipeline
 client-agents = ["protocol-rest", "tools-agents", "dep:pierre-routes-agents"]  # the agent routes
 client-oauth-apps = ["protocol-rest", "oauth"]       # user_oauth_apps.rs
 
@@ -173,8 +179,14 @@ client-mcp-tokens = ["protocol-mcp"]     # user_mcp_tokens.rs
 
 # Depends on tools-groups: a non-DM chat auto-binds to a coaching group through
 # GroupService, which owns the tier gate and the group.created/joined events.
-client-messaging = ["protocol-rest", "dep:dravr-canot", "dep:pierre-commands", "dep:pierre-routes-agents", "dep:qrcode", "dravr-canot/all-channels", "pierre-services/client-messaging", "tools-groups"]
+client-messaging = ["protocol-rest", "slash-commands", "dep:pierre-routes-agents", "dep:qrcode", "dravr-canot/all-channels", "pierre-services/client-messaging", "tools-groups"]
 client-notifications = ["protocol-rest", "dep:pierre-notifications", "dep:pierre-routes-groups", "pierre-routes-groups?/client-notifications", "pierre-routes-agents?/client-notifications", "pierre-runtime-context/client-notifications", "pierre-tool-runtime/client-notifications"]   # push notification routes (extracted to pierre-routes-groups)
+
+# The `commands/*.md` catalogue and its handlers, which the web chat and every
+# messaging channel answer a `/command` through. Turned on by either surface,
+# never on its own. `tools-groups` because `CommandCtx` hands every handler the
+# group service.
+slash-commands = ["dep:pierre-commands", "dep:dravr-canot", "tools-groups"]
 
 client-all = ["client-web", "client-admin", "client-mobile", "client-mcp-tokens", "client-messaging", "client-notifications"]
 
@@ -190,8 +202,8 @@ server-full = ["protocol-all", "transport-all", "client-all", "client-messaging"
 server-production = ["protocol-all", "transport-all", "client-all", "client-messaging", "oauth", "provider-whoop", "provider-strava", "provider-garmin", "provider-sciotte", "provider-intervals-icu", "provider-wahoo", "tools-all", "toon", "health-sync", "analytics-posthog", "gcp-kms", "language-detection"]
 
 [dependencies]
-embacle = { version = "0.47.0" }
-embacle-tool-host = { version = "0.47.0", optional = true }
+embacle = { version = "0.47.3" }
+embacle-tool-host = { version = "0.47.3", optional = true }
 # Workspace crates (sibling crates under crates/)
 pierre-core = { version = "0.3.0", path = "../pierre-core", features = ["http-response", "all-errors", "sqlx-types", "sqlx-sqlite", "http-client", "billing", "billing-stripe"] }
 pierre-database = { version = "0.3.0", path = "../pierre-database" }
@@ -217,12 +229,17 @@ pierre-routes-groups = { version = "0.3.0", path = "../pierre-routes-groups", op
 pierre-routes-identity = { version = "0.3.0", path = "../pierre-routes-identity", optional = true }
 pierre-routes-web-admin = { version = "0.3.0", path = "../pierre-routes-web-admin", optional = true }
 pierre-services = { version = "0.3.0", path = "../pierre-services" }
-pierre-sse = { version = "0.3.0", path = "../pierre-sse", optional = true }
 dravr-cageux = { workspace = true }
 # Archive imports and the athlete's kept originals: the SQLite record and job
 # stores for local runs, the Fs blob store locally and GCS when deployed, and
 # Postgres (schema `barrage`) under the `postgresql` feature.
 dravr-barrage = { workspace = true, features = ["sqlite", "blob-fs", "blob-gcs"] }
+# The text of an uploaded lab report (carnet#1544), read in the `pierre-pdf-text`
+# child process; the server binary uses only its outcome type and bounds.
+pierre-pdf-text = { version = "0.3.0", path = "../pierre-pdf-text" }
+# The `pierre-pdf-text` binary's capped allocator: an allocation past the bound
+# ends the child, never the server.
+cap = "0.1"
 pierre-fitness-compute = { version = "0.3.0", path = "../pierre-fitness-compute" }
 pierre-llm = { version = "0.3.0", path = "../pierre-llm" }
 pierre-memory = { version = "0.3.0", path = "../pierre-memory" }
@@ -238,10 +255,10 @@ pierre-providers = { version = "0.3.0", path = "../pierre-providers" }
 dravr-contremaitre = { workspace = true }
 # Chart geometry: resolves a persisted dravr-viz spec into a Scene as a message is serialized.
 photograveur = { workspace = true }
-dravr-tronc = { workspace = true, features = ["notifications", "google-iam", "service-client", "http-client"] }
+dravr-tronc = { workspace = true, features = ["notifications", "google-iam", "service-client", "http-client", "zones", "schemars1", "sqlx08-sqlite"] }
 dravr-enforme = { workspace = true, optional = true, features = ["provider-whoop"] }
 
-tokio = { version = "1.54", features = ["rt-multi-thread", "macros", "net", "time", "fs", "signal", "io-std", "io-util", "sync"] }
+tokio = { version = "1.54", features = ["rt-multi-thread", "macros", "net", "time", "fs", "signal", "io-std", "io-util", "sync", "process"] }
 tokio-util = { version = "0.7", features = ["rt"] }
 # Derives the JSON Schemas the endurance tools declare as their outputSchema.
 schemars = "1.2"
@@ -254,13 +271,11 @@ async-stream = { version = "0.3", optional = true }
 tracing = "0.1"
 tower-http = { version = "0.6", features = ["trace", "request-id", "cors", "timeout", "limit", "set-header", "catch-panic", "compression-gzip", "compression-br"] }
 async-trait = "0.1"
-chrono = { version = "0.4", features = ["serde"] }
-chrono-tz = "0.10"
 base64 = "0.22"
 bytes = "1.12"
 clap = { version = "4.6", features = ["derive", "std", "env"], default-features = false }
 uuid = { version = "1.29", features = ["v4", "v5", "serde"] }
-dashmap = "5.5"
+dashmap = "6.1"
 urlencoding = "2.1"
 sha2 = "0.10"
 hmac = "0.12"
@@ -270,7 +285,7 @@ rand = "0.9"
 qrcode = { version = "0.14", default-features = false, features = ["svg"], optional = true }
 # Encryption and database support for multi-tenant
 ring = "0.17"
-sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "sqlite", "chrono", "uuid", "derive", "migrate", "macros"], default-features = false }
+sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "sqlite", "uuid", "derive", "migrate", "macros"], default-features = false }
 hex = "0.4"
 # HTTP framework: Axum (migrated from Warp)
 axum = { version = "0.8", features = ["json", "query", "macros", "tokio", "http2", "form"], default-features = false }
@@ -294,23 +309,19 @@ pierre-chat-pipeline = { version = "0.3.0", path = "../pierre-chat-pipeline", fe
 # Integration tests only — production code uses structured AppError (anyhow is banned in src/)
 anyhow = "1.0"
 # Test fixtures (create_test_db, user fixtures): a dev-dependency only, per ADR-027.
-pierre-test-support = { version = "0.3.0", path = "../pierre-test-support", features = ["sse", "groups"] }
+pierre-test-support = { version = "0.3.0", path = "../pierre-test-support", features = ["providers", "sse", "groups"] }
 # The Garmin API end-to-end suite connects through the dev fixture's Garmin
 # stand-in and receives its pushes, the same code the local stack runs.
 pierre-dev-fixture = { version = "0.3.0", path = "../pierre-dev-fixture" }
 # Test-only: compiles a tool's declared outputSchema and validates the payload
 # the tool actually sends against it. Production only DERIVES schemas.
 jsonschema = { version = "0.46.10", default-features = false }
-embacle = { version = "0.47.0" }
+embacle = { version = "0.47.3" }
 tempfile = "3.27"
 serial_test = "3.5"
 criterion = { version = "0.5", features = ["async_tokio", "html_reports"] }
 serde_urlencoded = "0.7"
 toml = "0.8"
-# The log-capture test subscriber answers `current_span`, so a handler's
-# `Span::current().record(..)` reaches it; `span::Current` is not re-exported
-# by `tracing`. Already in the tree through `tracing`.
-tracing-core = "0.1"
 # Messaging transport test dependencies (crypto verification)
 hmac = "0.12"
 sha2 = "0.10"
@@ -429,10 +440,6 @@ harness = false
 
 [[bench]]
 name = "serialization_bench"
-harness = false
-
-[[bench]]
-name = "sse_concurrency_bench"
 harness = false
 
 [[bench]]

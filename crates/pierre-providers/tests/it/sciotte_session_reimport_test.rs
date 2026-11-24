@@ -30,8 +30,8 @@
 use secrecy::SecretString;
 use std::sync::{Arc, Mutex};
 
-use chrono::{TimeZone, Utc};
 use dravr_sciotte::models::AuthSession;
+use dravr_tronc::dates::Timestamp;
 use pierre_providers::core::{
     ActivityQueryParams, CredentialKind, FitnessProvider, OAuth2Credentials, ProviderConfig,
     ProviderFactory,
@@ -230,7 +230,7 @@ async fn provider_holding(
     let session = AuthSession {
         session_id: session_id.to_owned(),
         cookies: vec![],
-        created_at: Utc.with_ymd_and_hms(2026, 9, 24, 8, 0, 0).unwrap(), // Safe: literal instant
+        created_at: Timestamp::parse_from_rfc3339("2026-09-24T08:00:00Z").unwrap(), // Safe: literal instant
         expires_at: None,
     };
     provider

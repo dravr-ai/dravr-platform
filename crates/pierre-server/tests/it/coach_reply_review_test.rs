@@ -26,8 +26,8 @@ use crate::helpers;
 use std::sync::Arc;
 
 use axum::Router;
-use chrono::Utc;
 use common::{create_test_server_resources, create_test_user_with_plan, generate_test_token};
+use dravr_tronc::dates::Timestamp;
 use helpers::axum_test::AxumTestRequest;
 use pierre_core::models::groups::{
     CoachConsents, CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
@@ -160,7 +160,7 @@ async fn coached_group(
     agent_id: &str,
     name: &str,
 ) -> Uuid {
-    let now = Utc::now();
+    let now = Timestamp::now();
     let group = res
         .common
         .repos
@@ -182,6 +182,7 @@ async fn coached_group(
                 is_active: true,
                 channel_type: None,
                 channel_chat_id: None,
+                chat_connection: None,
                 created_at: now,
                 updated_at: now,
             },
@@ -201,7 +202,7 @@ async fn join_group(
     role: GroupRole,
     shares_with_coach: bool,
 ) {
-    let now = Utc::now();
+    let now = Timestamp::now();
     res.common
         .repos
         .groups
@@ -264,6 +265,7 @@ async fn agent_reply(
             channel_type: None,
             about_user_id: None,
             turn_attempted_write: None,
+            ai_consent_sources: &[],
         })
         .await
         .unwrap();
@@ -866,6 +868,7 @@ async fn deleting_the_athletes_account_reaches_what_their_coach_holds_about_them
             channel_type: None,
             about_user_id: None,
             turn_attempted_write: None,
+            ai_consent_sources: &[],
         })
         .await
         .unwrap();
@@ -985,7 +988,7 @@ async fn athlete_owned_group(
     name: &str,
 ) -> Uuid {
     let agent = group_agent(res, owner).await;
-    let now = Utc::now();
+    let now = Timestamp::now();
     let group = res
         .common
         .repos
@@ -1007,6 +1010,7 @@ async fn athlete_owned_group(
                 is_active: true,
                 channel_type: None,
                 channel_chat_id: None,
+                chat_connection: None,
                 created_at: now,
                 updated_at: now,
             },

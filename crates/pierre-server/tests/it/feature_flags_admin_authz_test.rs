@@ -28,7 +28,7 @@ use std::sync::Arc;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::{Extension, Json};
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_contremaitre::cageux_config::CageuxConfigRegistry;
 use pierre_contremaitre::harness_config_registry::HarnessConfigRegistry;
 use pierre_contremaitre::persona_contracts::PersonaContractRegistry;
@@ -86,14 +86,13 @@ async fn build_context() -> (
 async fn seed_tenant(repos: &pierre_database::RepositoryRegistry) -> TenantId {
     let user_id = Uuid::new_v4();
     let tenant_id = TenantId::generate();
-    let now = Utc::now();
+    let now = Timestamp::now();
     let user = User {
         id: user_id,
         email: format!("owner+{user_id}@example.com"),
         display_name: None,
         password_hash: bcrypt::hash("password123", bcrypt::DEFAULT_COST).unwrap(),
         tier: UserTier::Starter,
-        strava_token: None,
         is_active: true,
         user_status: UserStatus::Active,
         role: UserRole::User,
@@ -237,7 +236,7 @@ async fn tenant_admin_denied_cross_tenant_default_write() {
 
 /// Regression: a cookie super-admin token reads user overrides regardless of
 /// the DB role of the underlying admin. Previously the handler re-loaded the
-/// DB role and returned 403 for an `Admin` (non-`SuperAdmin`) operator.
+/// DB role and returned 403 for an `Admin` (non-`SuperAdmin`) admin.
 #[tokio::test]
 async fn admin_lists_user_overrides_without_db_role_lookup() {
     let (context, _repos) = build_context().await;

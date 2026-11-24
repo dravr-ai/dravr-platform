@@ -140,16 +140,21 @@ pub struct ValidateConfigurationResult {
 /// why `unavailable` on the result exists at all.
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct ZoneInputProfile {
-    /// `VO2max` in ml/kg/min — what the pace zones need.
+    /// `VO2max` in ml/kg/min — what picks the heart-rate zone tier. It never
+    /// sets the pace zones.
     pub vo2_max: Option<f64>,
+    /// VDOT, Daniels' performance index — what the pace zones are cut from:
+    /// this call's, else the athlete's stated VDOT, best recent run or saved
+    /// threshold pace, as `input_sources` names. Absent when none gives one.
+    pub vdot: Option<f64>,
     /// Resting heart rate in bpm.
     pub resting_hr: Option<u16>,
     /// Maximum heart rate in bpm. With `resting_hr`, this gives the HR zones.
     pub max_hr: Option<u16>,
     /// Functional threshold power in watts — what the power zones need.
     pub ftp: Option<u32>,
-    /// Lactate threshold as a fraction of `VO2max` — what places threshold
-    /// pace in the pace zones. Daniels' 0.88 when none is measured, which
+    /// Lactate threshold as a share of VDOT — what places threshold pace in
+    /// the pace zones. Daniels' 0.88 when none is measured, which
     /// `input_sources` then names `daniels_default`.
     pub lactate_threshold: f64,
 }
@@ -205,19 +210,21 @@ pub struct PaceZone {
     pub max_pace: String,
 }
 
-/// The Daniels VDOT pace zones, named for what they are for.
+/// The Daniels VDOT pace zones, named for what they are for. Each edge is the
+/// pace whose oxygen cost on Daniels' curve is a share of the VDOT, or a
+/// predicted race pace.
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct PaceZones {
-    /// Easy running: 59-74 % of velocity at `VO2max` by default.
+    /// Easy running: 59-74 % of VDOT by default.
     pub zone_1_easy: PaceZone,
-    /// Marathon pace, cut from threshold pace.
+    /// Marathon pace: the predicted marathon pace at VDOT -1 to +1.
     pub zone_2_marathon: PaceZone,
-    /// Threshold pace, around the athlete's lactate threshold.
+    /// Threshold pace: the athlete's threshold share of VDOT, ± 0.02.
     pub zone_3_threshold: PaceZone,
-    /// `VO2max` intervals, up to velocity at `VO2max`.
+    /// `VO2max` intervals: 95-100 % of VDOT.
     pub zone_4_vo2max: PaceZone,
-    /// Neuromuscular (repetition) work: the slowest pace of the zone, which
-    /// runs on to any faster pace, as `m:ss` per kilometre.
+    /// Neuromuscular (repetition) work: the predicted mile pace, Daniels' R,
+    /// which runs on to any faster pace, as `m:ss` per kilometre.
     pub zone_5_neuromuscular_max_pace: String,
 }
 
@@ -300,13 +307,19 @@ pub struct PersonalizedZonesResult {
     /// configured max-HR algorithm (named under `max_hr_algorithm`), or
     /// `heart_rate_ratio` for a `VO2max` estimated from the heart rates to
     /// choose the zone tier, or `daniels_default` for a lactate threshold
-    /// none was measured for. An athlete should be able to tell a measured
-    /// number from an estimated one.
+    /// none was measured for; the VDOT is `provided`, `stated`, or an
+    /// estimate (`recent_run_estimate`, `threshold_pace_estimate`). An athlete
+    /// should be able to tell a measured number from an estimated one.
     pub input_sources: Value,
     /// The zones that could be derived.
     pub personalized_zones: PersonalizedZones,
     /// For each zone that could not be derived, which input would unlock it.
     pub unavailable: Value,
+    /// What the athlete should hear about the zones: pace zones cut from a
+    /// VDOT outside Daniels' tables (30-85) are less certain. Absent when
+    /// there is nothing to say.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<String>,
     /// How the heart-rate zones were computed. Absent when they could not be.
     pub zone_calculations: Option<ZoneCalculations>,
 }

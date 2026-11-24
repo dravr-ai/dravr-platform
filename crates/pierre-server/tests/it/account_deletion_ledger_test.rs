@@ -12,19 +12,26 @@
 //! against a real database; the only stand-in is the upstream revocation,
 //! which would otherwise reach a provider.
 
+use std::net::SocketAddr;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration as StdDuration;
 
 use async_trait::async_trait;
-use chrono::{Duration, Utc};
+use bytes::Bytes;
+use dravr_barrage::blob::memory::MemoryBlobStore;
+use dravr_barrage::blob::{BlobId, BlobKey, BlobMeta, BlobStore};
 use dravr_barrage::digest::Sha256 as BarrageSha256;
 use dravr_barrage::keyed::Signer;
 use dravr_barrage::record::{StreamsState, SummaryWindow, TotalsFrom};
 use dravr_barrage::record_log::checkpoint::{verify_note, Anchor};
 use dravr_barrage::record_log::{merkle, RecordLog};
-use dravr_barrage::store::ActivityRecordStore;
+use dravr_barrage::store::memory::MemoryImportJobStore;
+use dravr_barrage::store::{ActivityRecordStore, BarrageStores};
 use dravr_barrage::{ActivityId, ActivityRecord, Provenance, Scope, SourceKey};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_auth::dto::auth::{LoginRequest, RegisterRequest};
+use pierre_auth::oauth2_server::rate_limiting::OAuth2RateLimiter;
 use pierre_cache::{CacheKey, CacheResource};
 use pierre_contremaitre::cageux_config::CageuxConfigRegistry;
 use pierre_contremaitre::harness_config_registry::HarnessConfigRegistry;
@@ -34,7 +41,7 @@ use pierre_contremaitre::{
     TrainingCatalogueRegistry,
 };
 use pierre_core::admin::models::{AdminPermissions, ValidatedAdminToken};
-use pierre_core::errors::{AppResult, ErrorCode};
+use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::agents::{AgentCategory, AgentVisibility, CreateSystemAgentRequest};
 use pierre_core::models::groups::{CoachingGroup, GroupDigestMode, GroupRespondMode};
 use pierre_core::models::{
@@ -43,8 +50,9 @@ use pierre_core::models::{
 };
 use pierre_database::backends::factory::DatabaseBackend;
 use pierre_database::repositories::{
-    email_identity_hash, provider_identity_hash, verify_receipt_chain, AccountDeletionPlan,
-    DeletionActor, DeletionReceipt, PlannedBackend, TombstoneKind, GENESIS_HASH,
+    email_identity_hash, provider_identity_hash, verify_receipt_chain, AccountDeletion,
+    AccountDeletionPlan, AccountDeletionRepository, DeletionActor, DeletionReceipt, PlannedBackend,
+    ReceiptAnchor, TombstoneKind, GENESIS_HASH,
 };
 use pierre_database::RepositoryRegistry;
 use pierre_mcp_server::constants::system_config::STARTER_MONTHLY_LIMIT;
@@ -56,10 +64,12 @@ use pierre_routes_admin::{AdminApiContext, AdminApiContextInit};
 use pierre_routes_auth::AuthRoutes;
 use pierre_services::admin_ops::AccountCaller;
 use pierre_services::analytics::{cache_user_email, resolve_user_email};
-use pierre_services::barrage_keys::{memory_records, LocalSigner};
-use pierre_services::import_tombstones::clear_by_operator;
+use pierre_services::barrage_keys::{
+    checkpoint_signer, memory_records, LocalSigner, PlatformKeyed,
+};
+use pierre_services::import_tombstones::clear_by_admin;
 use pierre_services::provider_revocation::{DisconnectReason, RevocationOutcome};
-use pierre_services::record_log_worker::RecordLogWorker;
+use pierre_services::record_log_worker::{KeyedNamesPage, RecordLogWorker};
 use pierre_services::user_removal::{
     remove_user, ProviderDisconnector, RemovalReport, UserRemoval,
 };
@@ -72,9 +82,12 @@ use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use axum::body::to_bytes;
+use axum::extract::connect_info::MockConnectInfo;
 use axum::extract::{Query, State};
 use axum::http::StatusCode;
-use axum::Extension;
+use axum::{Extension, Router};
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use pierre_routes_identity::oauth2::{OAuth2Context, OAuth2Routes};
 
 use crate::common::{acting_on, create_test_server_resources};
 use crate::helpers::axum_test::AxumTestRequest;
@@ -132,8 +145,8 @@ async fn seed_athlete(repos: &RepositoryRegistry, label: &str) -> (Uuid, TenantI
             domain: None,
             plan: "starter".to_owned(),
             owner_user_id: user_id,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         })
         .await
         .unwrap();
@@ -159,7 +172,7 @@ async fn connect_strava(
         "strava".to_owned(),
         "access-material-do-not-log".to_owned(),
         Some("refresh-material-do-not-log".to_owned()),
-        Some(Utc::now() + Duration::hours(6)),
+        Some(Timestamp::now() + Elapsed::hours(6)),
         Some("read".to_owned()),
     );
     token.provider_user_id = Some(strava_id.to_owned());
@@ -185,7 +198,7 @@ async fn seed_strava_sleep(repos: &RepositoryRegistry, user_id: Uuid, tenant_id:
         )
         .await
         .unwrap();
-    let night = Utc::now() - Duration::days(1);
+    let night = Timestamp::now() - Elapsed::days(1);
     repos
         .sleep
         .upsert_sleep_session(
@@ -196,7 +209,7 @@ async fn seed_strava_sleep(repos: &RepositoryRegistry, user_id: Uuid, tenant_id:
                 data_source_id: source,
                 is_nap: false,
                 start_datetime: night,
-                end_datetime: night + Duration::hours(8),
+                end_datetime: night + Elapsed::hours(8),
                 total_sleep_seconds: Some(25_200),
                 deep_sleep_seconds: None,
                 light_sleep_seconds: None,
@@ -211,7 +224,7 @@ async fn seed_strava_sleep(repos: &RepositoryRegistry, user_id: Uuid, tenant_id:
                 stages: Vec::new(),
                 source_name: "strava".to_owned(),
             },
-            Utc::now(),
+            Timestamp::now(),
         )
         .await
         .unwrap();
@@ -239,7 +252,7 @@ async fn seed_owned_group(repos: &RepositoryRegistry, owner: Uuid, tenant_id: Te
         .unwrap()
         .id
         .to_string();
-    let now = Utc::now();
+    let now = Timestamp::now();
     repos
         .groups
         .create_group(
@@ -259,6 +272,7 @@ async fn seed_owned_group(repos: &RepositoryRegistry, owner: Uuid, tenant_id: Te
                 is_active: true,
                 channel_type: None,
                 channel_chat_id: None,
+                chat_connection: None,
                 created_at: now,
                 updated_at: now,
             },
@@ -323,7 +337,7 @@ async fn receipts(repos: &RepositoryRegistry) -> Vec<DeletionReceipt> {
 }
 
 /// SHA-256 of an account id, computed here rather than through the
-/// production helper, as an operator holding the id would.
+/// production helper, as an admin holding the id would.
 fn sha256_of(user_id: Uuid) -> String {
     format!("{:x}", Sha256::digest(user_id.to_string().as_bytes()))
 }
@@ -346,7 +360,7 @@ async fn a_deletion_failing_part_way_leaves_the_account_and_its_provider_data() 
         .account_deletion
         .delete_account(&AccountDeletionPlan {
             user_id,
-            actor: DeletionActor::Operator,
+            actor: DeletionActor::Admin,
             firebase_project: None,
             backends: vec![PlannedBackend {
                 tenant_id,
@@ -522,7 +536,7 @@ async fn a_deletion_appends_a_receipt_chained_to_the_one_before() {
 
 /// A receipt altered in the database is named as the first broken link by
 /// the verifier `pierre-cli deletion verify-receipts` runs, over the receipts
-/// the operator route serves; a token below super-admin reads none.
+/// the admin route serves; a token below super-admin reads none.
 #[tokio::test]
 async fn a_tampered_receipt_is_named_as_the_first_broken_link() {
     let resources = create_test_server_resources().await.unwrap();
@@ -620,7 +634,7 @@ async fn cache_entries_and_the_cached_email_are_gone_after_the_deletion() {
 
 /// A push event naming a deleted account's Strava id is refused by its
 /// tombstone, even once another account holds that id; cleared by an
-/// operator, the same event reaches the account that holds it now.
+/// admin, the same event reaches the account that holds it now.
 #[tokio::test]
 async fn a_webhook_for_a_tombstoned_provider_account_is_dropped_until_cleared() {
     let resources = create_test_server_resources().await.unwrap();
@@ -649,7 +663,7 @@ async fn a_webhook_for_a_tombstoned_provider_account_is_dropped_until_cleared() 
     };
     assert!(report.ledger.tombstone_ids.contains(&tombstone_id));
 
-    clear_by_operator(
+    clear_by_admin(
         repos.import_tombstones.as_ref(),
         &tombstone_id,
         "test-token",
@@ -823,7 +837,7 @@ fn admin_context(resources: &Arc<ServerContext>) -> Arc<AdminApiContext> {
     }))
 }
 
-/// A super-admin admin token, or one with no permission at all.
+/// A super-admin token, or one with no permission at all.
 fn admin_token(super_admin: bool) -> ValidatedAdminToken {
     ValidatedAdminToken {
         token_id: format!("test:{}", Uuid::new_v4()),
@@ -967,6 +981,7 @@ async fn a_checkpoint_anchors_the_receipt_chain_head() {
         Arc::clone(&repos.account_deletion),
         Arc::clone(&repos.users),
         Some(signer.clone()),
+        None,
     );
 
     let tick = worker.run().await.unwrap();
@@ -1044,9 +1059,497 @@ async fn a_checkpoint_anchors_the_receipt_chain_head() {
     );
 }
 
+/// The `OAuth2` router, which serves the transparency documents, as the
+/// server mounts it.
+fn transparency_routes(resources: &Arc<ServerContext>) -> Router {
+    let context = OAuth2Context {
+        database: resources.agent.database.clone(),
+        oauth2_server: resources.common.repos.oauth2_server.clone(),
+        tenants: resources.common.repos.tenants.clone(),
+        users: resources.common.repos.users.clone(),
+        auth_manager: resources.auth.auth_manager.clone(),
+        jwks_manager: resources.auth.jwks_manager.clone(),
+        config: Arc::new(resources.common.config.oauth2_server.clone()),
+        refresh_token_expiry_days: resources.common.config.auth.refresh_token_expiry_days,
+        session_cookie_max_age_secs: resources.common.config.session_cookie.max_age_secs,
+        csrf_manager: resources.auth.csrf_manager.clone(),
+        accounts: resources.account_service(),
+        google_sign_in: None,
+        strings: Arc::new(MessagingStringsRegistry::new()),
+        first_party_only_sources: Arc::default(),
+        rate_limiter: Arc::new(OAuth2RateLimiter::new(
+            None,
+            OAuth2RateLimiter::local_window_store(),
+            &resources.common.config.rate_limiting,
+        )),
+    };
+    OAuth2Routes::routes(context).layer(MockConnectInfo(SocketAddr::from(([127, 0, 0, 1], 40_000))))
+}
+
+/// `/.well-known/dravr-checkpoint` serves the newest anchored checkpoint as
+/// a C2SP signed note, and `/.well-known/did.json` the key it is signed
+/// with: a verifier holding only the two documents checks the signature
+/// and finds the receipt chain head proven under the signed root
+/// (carnet#1542).
+#[tokio::test]
+async fn the_well_known_documents_publish_a_checkpoint_its_key_verifies() {
+    use base64::Engine as _;
+
+    let resources = create_test_server_resources().await.unwrap();
+    let repos = &resources.common.repos;
+    let routes = transparency_routes(&resources);
+    AxumTestRequest::get("/.well-known/dravr-checkpoint")
+        .send(routes.clone())
+        .await
+        .assert_status(StatusCode::NOT_FOUND);
+
+    // The signer the server boots with: no KMS in tests, so the local key
+    // derived from this database, published for did.json.
+    let signer = checkpoint_signer(&PlatformKeyed::of(&resources.agent.database))
+        .await
+        .unwrap()
+        .expect("premise: a deployment without KMS signs locally");
+    let (gone, _, _) = seed_athlete(repos, "well-known-gone").await;
+    removed(
+        remove_user(
+            repos,
+            None,
+            None,
+            None,
+            &acting_on(repos, &AccountCaller::account_holder(gone), gone).await,
+        )
+        .await
+        .unwrap(),
+    );
+    let (athlete, athlete_tenant, _) = seed_athlete(repos, "well-known-kept").await;
+    let records = Arc::new(memory_records());
+    let kept = Scope::new(Uuid::from(athlete_tenant), athlete);
+    records
+        .upsert(
+            &kept,
+            &[anchor_ride(
+                kept,
+                ActivityId::parse("well-known-ride").unwrap(),
+            )],
+        )
+        .await
+        .unwrap();
+    let anchored = RecordLogWorker::new(
+        records.clone(),
+        Arc::clone(&repos.import_tombstones),
+        Arc::clone(&repos.account_deletion),
+        Arc::clone(&repos.users),
+        Some(signer),
+        None,
+    )
+    .run()
+    .await
+    .unwrap()
+    .anchored
+    .expect("premise: a checkpoint is cut and anchored");
+
+    let did = AxumTestRequest::get("/.well-known/did.json")
+        .send(routes.clone())
+        .await
+        .assert_status(StatusCode::OK);
+    assert!(
+        did.header("content-type")
+            .is_some_and(|value| value.starts_with("application/json")),
+        "bug: did.json is not served as JSON: {:?}",
+        did.header("content-type")
+    );
+    let document: Value = did.json();
+    let method = &document["verificationMethod"][0];
+    assert_eq!(
+        (
+            &method["type"],
+            &method["publicKeyJwk"]["kty"],
+            &method["publicKeyJwk"]["crv"]
+        ),
+        (&json!("JsonWebKey2020"), &json!("OKP"), &json!("Ed25519")),
+        "bug: did.json does not name an Ed25519 JWK"
+    );
+    let public_key: [u8; 32] = URL_SAFE_NO_PAD
+        .decode(
+            method["publicKeyJwk"]["x"]
+                .as_str()
+                .expect("bug: the JWK has no x"),
+        )
+        .unwrap()
+        .try_into()
+        .expect("bug: the published key is not 32 bytes");
+    let key_name = method["c2spKeyName"]
+        .as_str()
+        .expect("bug: did.json names no C2SP key name");
+
+    let checkpoint = AxumTestRequest::get("/.well-known/dravr-checkpoint")
+        .send(routes)
+        .await
+        .assert_status(StatusCode::OK);
+    assert_eq!(
+        checkpoint.header("content-type"),
+        Some("text/plain; charset=utf-8"),
+        "bug: the checkpoint is not served as signed-note text"
+    );
+    let note_text = checkpoint.text();
+    assert_eq!(
+        note_text, anchored.note,
+        "bug: another note than the newest anchor's"
+    );
+    let lines: Vec<&str> = note_text.lines().collect();
+    assert!(
+        lines.len() >= 5
+            && lines[1] == anchored.tree_size.to_string()
+            && lines[3].is_empty()
+            && lines[4].starts_with(&format!("\u{2014} {key_name} ")),
+        "bug: the checkpoint is not a C2SP note (origin, size, root, blank, signature): {note_text}"
+    );
+    let verify = |key: &[u8; 32], message: &[u8], sig: &[u8; 64]| {
+        UnparsedPublicKey::new(&ED25519, key)
+            .verify(message, sig)
+            .is_ok()
+    };
+    let note = verify_note(&note_text, key_name, &public_key, &verify)
+        .expect("bug: the served note does not verify against the published key");
+    let (stored, _, leaves) = records.athlete_checkpoint(&kept).await.unwrap().unwrap();
+    assert_eq!(
+        (note.root, note.size),
+        (stored.root, stored.size),
+        "bug: the note signs another tree"
+    );
+    let head = receipts(repos).await.last().cloned().unwrap();
+    let anchor_leaf = Anchor {
+        seq: u64::try_from(head.seq).unwrap(),
+        hash: BarrageSha256::parse_hex(&head.hash).unwrap(),
+    }
+    .leaf();
+    let path = merkle::inclusion_proof(0, &leaves).unwrap();
+    assert!(
+        merkle::verify_inclusion(0, note.size, &anchor_leaf, &path, &note.root),
+        "bug: the receipt chain head is not proven under the published root"
+    );
+    let mut forged = public_key;
+    forged[0] ^= 1;
+    assert!(
+        verify_note(&note_text, key_name, &forged, &verify).is_err(),
+        "bug: the note verifies against another key"
+    );
+}
+
+/// The receipt repository, with its next anchor write failing: a real
+/// store offers no way to fail one row write between a checkpoint's cut and
+/// its anchor, so every call delegates to it but that one.
+struct FailingAnchorWrite {
+    inner: Arc<dyn AccountDeletionRepository>,
+    fail_next: AtomicBool,
+}
+
+#[async_trait]
+impl AccountDeletionRepository for FailingAnchorWrite {
+    async fn delete_account(&self, plan: &AccountDeletionPlan) -> AppResult<AccountDeletion> {
+        self.inner.delete_account(plan).await
+    }
+
+    async fn list_deletion_receipts(
+        &self,
+        after_seq: i64,
+        limit: i64,
+    ) -> AppResult<Vec<DeletionReceipt>> {
+        self.inner.list_deletion_receipts(after_seq, limit).await
+    }
+
+    async fn receipt_chain_head(&self) -> AppResult<Option<(i64, String)>> {
+        self.inner.receipt_chain_head().await
+    }
+
+    async fn record_anchor(&self, anchor: &ReceiptAnchor) -> AppResult<()> {
+        if self.fail_next.swap(false, Ordering::SeqCst) {
+            return Err(AppError::database("injected: the anchor row write failed"));
+        }
+        self.inner.record_anchor(anchor).await
+    }
+
+    async fn latest_anchor(&self) -> AppResult<Option<ReceiptAnchor>> {
+        self.inner.latest_anchor().await
+    }
+}
+
+/// A cut whose anchor row failed to write is repaired on the next tick,
+/// with no new record and no new checkpoint: the row names the checkpoint
+/// already cut and the chain head it commits to (carnet#1542).
+#[tokio::test]
+async fn a_failed_anchor_write_is_repaired_on_the_next_tick() {
+    let resources = create_test_server_resources().await.unwrap();
+    let repos = &resources.common.repos;
+    let (user_id, _, _) = seed_athlete(repos, "repair-gone").await;
+    removed(
+        remove_user(
+            repos,
+            None,
+            None,
+            None,
+            &acting_on(repos, &AccountCaller::account_holder(user_id), user_id).await,
+        )
+        .await
+        .unwrap(),
+    );
+    let (athlete, athlete_tenant, _) = seed_athlete(repos, "repair-kept").await;
+    let records = Arc::new(memory_records());
+    let scope = Scope::new(Uuid::from(athlete_tenant), athlete);
+    records
+        .upsert(
+            &scope,
+            &[anchor_ride(
+                scope,
+                ActivityId::parse("repair-ride").unwrap(),
+            )],
+        )
+        .await
+        .unwrap();
+    let failing = Arc::new(FailingAnchorWrite {
+        inner: Arc::clone(&repos.account_deletion),
+        fail_next: AtomicBool::new(true),
+    });
+    let worker = RecordLogWorker::new(
+        records.clone(),
+        Arc::clone(&repos.import_tombstones),
+        failing,
+        Arc::clone(&repos.users),
+        Some(Arc::new(LocalSigner::random().unwrap())),
+        None,
+    );
+
+    assert!(
+        worker.run().await.is_err(),
+        "premise: the injected anchor write fails the tick"
+    );
+    let cut = records
+        .latest_checkpoint()
+        .await
+        .unwrap()
+        .expect("premise: the checkpoint is cut before its anchor write");
+    assert!(
+        repos
+            .account_deletion
+            .latest_anchor()
+            .await
+            .unwrap()
+            .is_none(),
+        "premise: no anchor row was written"
+    );
+
+    let repaired = worker
+        .run()
+        .await
+        .unwrap()
+        .anchored
+        .expect("bug: the missing anchor waits for the next change to the tree");
+    let head = receipts(repos).await.last().cloned().unwrap();
+    assert_eq!(
+        (
+            repaired.checkpoint_id,
+            repaired.tree_size,
+            &repaired.tree_root
+        ),
+        (cut.id, i64::try_from(cut.size).unwrap(), &cut.root.to_hex()),
+        "bug: the repair anchors another checkpoint than the one cut"
+    );
+    assert_eq!(
+        (repaired.receipt_seq, &repaired.receipt_hash, &repaired.note),
+        (head.seq, &head.hash, &cut.note),
+        "bug: the repair records another head or note than the checkpoint signs"
+    );
+    assert_eq!(
+        records.latest_checkpoint().await.unwrap().map(|c| c.id),
+        Some(cut.id),
+        "bug: the repair cut a new checkpoint"
+    );
+    assert_eq!(
+        repos
+            .account_deletion
+            .latest_anchor()
+            .await
+            .unwrap()
+            .map(|a| a.checkpoint_id),
+        Some(cut.id),
+        "bug: the repaired anchor is not stored"
+    );
+    assert_eq!(
+        worker.run().await.unwrap().anchored,
+        None,
+        "bug: a recorded anchor is recorded again"
+    );
+}
+
+/// The `record_log` worker renames an original still named by its content
+/// to its keyed name, keeps the old name as the record's legacy original,
+/// counts an original it cannot read, and ends the sweep reporting what
+/// remains (carnet#1542, the done signal for carnet#1550).
+#[tokio::test]
+async fn the_worker_renames_content_named_originals_and_reports_what_remains() {
+    let resources = create_test_server_resources().await.unwrap();
+    let repos = &resources.common.repos;
+    let (athlete, athlete_tenant, _) = seed_athlete(repos, "keyed-names").await;
+    let scope = Scope::new(Uuid::from(athlete_tenant), athlete);
+    let records: Arc<dyn ActivityRecordStore> = Arc::new(memory_records());
+    let blobs = Arc::new(MemoryBlobStore::new());
+    let bytes = Bytes::from_static(b"a FIT recording kept by an older binary");
+    let digest = BarrageSha256::of(&bytes);
+    let content_named = BlobKey::original(scope, digest);
+    blobs
+        .put(
+            &content_named,
+            bytes.clone(),
+            &BlobMeta::new("application/octet-stream"),
+        )
+        .await
+        .unwrap();
+    let kept = ActivityId::parse("kept-ride").unwrap();
+    let lost = ActivityId::parse("lost-ride").unwrap();
+    let lost_digest = BarrageSha256::of(b"bytes no store holds");
+    let mut kept_ride = anchor_ride(scope, kept.clone());
+    kept_ride.provenance.original = Some(content_named);
+    kept_ride.provenance.original_sha256 = Some(digest);
+    let mut lost_ride = anchor_ride(scope, lost);
+    lost_ride.provenance.original = Some(BlobKey::original(scope, lost_digest));
+    lost_ride.provenance.original_sha256 = Some(lost_digest);
+    records
+        .upsert(&scope, &[kept_ride, lost_ride])
+        .await
+        .unwrap();
+    let worker = RecordLogWorker::new(
+        Arc::clone(&records),
+        Arc::clone(&repos.import_tombstones),
+        Arc::clone(&repos.account_deletion),
+        Arc::clone(&repos.users),
+        None,
+        Some(BarrageStores {
+            blobs: blobs.clone(),
+            records: Arc::clone(&records),
+            jobs: Arc::new(MemoryImportJobStore::new()),
+        }),
+    );
+
+    let tick = worker.run().await.unwrap();
+
+    let page = tick.keyed_names.expect("a blob store renames originals");
+    assert_eq!(
+        page,
+        KeyedNamesPage {
+            repointed: 1,
+            unreadable: 1,
+            remaining: 1,
+            sweep_done: true,
+        },
+        "bug: the sweep does not report the unreadable original as what remains"
+    );
+    let stored = records
+        .get(&scope, SourceKey::StravaArchive, &kept)
+        .await
+        .unwrap()
+        .expect("the ride is still held");
+    let keyed = stored
+        .provenance
+        .original
+        .expect("the ride keeps an original");
+    assert!(
+        matches!(keyed.id, BlobId::Keyed(_)),
+        "bug: the original is not renamed to its keyed name: {keyed}"
+    );
+    assert_eq!(
+        stored.provenance.legacy_original,
+        Some(content_named),
+        "bug: the old name is not kept as the legacy original"
+    );
+    assert_eq!(
+        blobs.get(&keyed).await.unwrap(),
+        Some(bytes),
+        "bug: the keyed name does not hold the original's bytes"
+    );
+
+    let without_blobs = RecordLogWorker::new(
+        Arc::clone(&records),
+        Arc::clone(&repos.import_tombstones),
+        Arc::clone(&repos.account_deletion),
+        Arc::clone(&repos.users),
+        None,
+        None,
+    );
+    assert_eq!(
+        without_blobs.run().await.unwrap().keyed_names,
+        None,
+        "bug: a worker without a blob store renames originals"
+    );
+}
+
+/// The keyed-name backfill pages across ticks: a sweep longer than one page
+/// resumes where the last tick stopped, ends on the page that passes the
+/// last record, and the next tick starts a new sweep (carnet#1542).
+#[tokio::test]
+async fn the_keyed_name_backfill_resumes_across_ticks_and_restarts_after_a_sweep() {
+    // One page is 500 records (barrage's LOG_PAGE): one more spills a
+    // second page.
+    const RIDES: u64 = 501;
+    let resources = create_test_server_resources().await.unwrap();
+    let repos = &resources.common.repos;
+    let (athlete, athlete_tenant, _) = seed_athlete(repos, "keyed-pages").await;
+    let scope = Scope::new(Uuid::from(athlete_tenant), athlete);
+    let records: Arc<dyn ActivityRecordStore> = Arc::new(memory_records());
+    let rides: Vec<ActivityRecord> = (0..RIDES)
+        .map(|n| {
+            let digest = BarrageSha256::of(format!("bytes no store holds {n}").as_bytes());
+            let mut ride = anchor_ride(scope, ActivityId::parse(&format!("lost-{n}")).unwrap());
+            ride.provenance.original = Some(BlobKey::original(scope, digest));
+            ride.provenance.original_sha256 = Some(digest);
+            ride
+        })
+        .collect();
+    records.upsert(&scope, &rides).await.unwrap();
+    let worker = RecordLogWorker::new(
+        Arc::clone(&records),
+        Arc::clone(&repos.import_tombstones),
+        Arc::clone(&repos.account_deletion),
+        Arc::clone(&repos.users),
+        None,
+        Some(BarrageStores {
+            blobs: Arc::new(MemoryBlobStore::new()),
+            records: Arc::clone(&records),
+            jobs: Arc::new(MemoryImportJobStore::new()),
+        }),
+    );
+
+    let first = worker.run().await.unwrap().keyed_names;
+    assert_eq!(
+        first,
+        Some(KeyedNamesPage {
+            repointed: 0,
+            unreadable: RIDES - 1,
+            remaining: RIDES,
+            sweep_done: false,
+        }),
+        "bug: a full first page ends the sweep"
+    );
+    let second = worker.run().await.unwrap().keyed_names;
+    assert_eq!(
+        second,
+        Some(KeyedNamesPage {
+            repointed: 0,
+            unreadable: 1,
+            remaining: RIDES,
+            sweep_done: true,
+        }),
+        "bug: the second tick does not resume after the first page"
+    );
+    let third = worker.run().await.unwrap().keyed_names;
+    assert_eq!(
+        third, first,
+        "bug: the tick after a finished sweep does not start a new one"
+    );
+}
+
 /// One archive ride of `scope`.
 fn anchor_ride(scope: Scope, id: ActivityId) -> ActivityRecord {
-    let start = Utc::now() - Duration::days(1);
+    let start = Timestamp::now() - Elapsed::days(1);
     let activity = ActivityBuilder::new(
         id.as_str(),
         "Ride",
@@ -1071,6 +1574,8 @@ fn anchor_ride(scope: Scope, id: ActivityId) -> ActivityRecord {
         importer_version: None,
         summary_window: SummaryWindow::default(),
         totals_from: TotalsFrom::default(),
+        legacy_id: None,
+        legacy_original: None,
     };
     ActivityRecord::try_new(scope, id, provenance, activity).unwrap()
 }

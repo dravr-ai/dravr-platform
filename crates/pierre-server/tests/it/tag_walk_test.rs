@@ -31,7 +31,7 @@ use std::time::{Duration, Instant};
 use axum::extract::{Query, State};
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use chrono::{DateTime, Duration as ChronoDuration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::models::{
     Activity, ActivityBuilder, ActivityTag, ConnectionType, SportType, TagSource, TaggedBy,
     TenantId,
@@ -128,10 +128,9 @@ fn run_id(n: usize) -> String {
     (10_000 + n).to_string()
 }
 
-fn run_start(n: usize) -> DateTime<Utc> {
-    use chrono::TimeZone;
-    Utc.with_ymd_and_hms(2026, 6, 1, 7, 0, 0).unwrap()
-        - ChronoDuration::days(i64::try_from(n).unwrap())
+fn run_start(n: usize) -> Timestamp {
+    Timestamp::parse_from_rfc3339("2026-06-01T07:00:00Z").unwrap()
+        - Elapsed::days(i64::try_from(n).unwrap())
 }
 
 /// Search page row `n`, as the scraper lists it, with the athlete's tag map

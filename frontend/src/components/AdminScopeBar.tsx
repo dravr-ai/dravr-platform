@@ -6,6 +6,7 @@
 
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { QUERY_KEYS } from '@pierre/shared-constants';
 import { adminApi } from '../services/api/admin';
 import { ALL_TENANTS, useAdminScope } from '../hooks/useAdminScope';
 import type { AdminScope } from '../hooks/useAdminScope';
@@ -14,7 +15,7 @@ import { Select } from './ui';
 export default function AdminScopeBar({ scope }: { scope: AdminScope | undefined }) {
   const { requested, pick } = useAdminScope();
   const { data: tenants } = useQuery({
-    queryKey: ['admin', 'scope-tenants'] as const,
+    queryKey: QUERY_KEYS.adminScoped.scopeTenants(),
     queryFn: () => adminApi.listScopeTenants(),
   });
 

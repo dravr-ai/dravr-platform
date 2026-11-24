@@ -52,11 +52,11 @@
 //! sources a gate already lists; outside any gate, from the provider the row
 //! was stored under.
 
-use chrono::{DateTime, Utc};
 use dravr_equilibre_sync::{
     merge_daily_activity, merge_health_metrics, merge_recovery_metrics, merge_sleep_sessions,
     Merged, Source, Sourced,
 };
+use dravr_tronc::dates::Timestamp;
 use pierre_core::ai_policy::ProviderTerms;
 use pierre_core::errors::AppResult;
 use pierre_core::models::{
@@ -77,10 +77,13 @@ mod anchors;
 mod attribution;
 /// Which rows a merged read takes part in, and what of each it keeps.
 mod read_scope;
+/// What of a stored row the tier gate keeps from the reader.
+mod sensitive;
 
 use self::anchors::newest;
 pub use self::anchors::{AnchorMeasurements, Anchors, Measured};
 pub use self::read_scope::{as_stored, RowProjection, SourceFilter};
+use self::sensitive::{withhold_clinical_readings, withhold_daily_notes};
 
 /// Stored health records as a reader may see them, with the attribution
 /// they owe.
@@ -111,11 +114,15 @@ pub(crate) async fn governed_by_sources<T: StoredHealthRecord>(
     records: Vec<T>,
     sources: &[DataSource],
 ) -> AppResult<StoredHealth<T>> {
+    // Under a grant's window, no row dated before it, gate or not.
+    let mut records = records;
+    ai_scope::retain_in_window(&mut records, StoredHealthRecord::dated);
     let records = if records.is_empty() || !ai_scope::policies_apply() {
         records
     } else {
         ai_scope::filter_stored_health(terms, records, sources)
     };
+    ai_scope::note_rows(records.len());
     let garmin = garmin_rows_attribution(&records, sources);
     let attribution =
         attribution_of(repos, user_id, tenant, garmin, serves_intervals(&records)).await?;
@@ -213,7 +220,7 @@ pub async fn merged_sleep(
     terms: &dyn ProviderTerms,
     user_id: Uuid,
     tenant: &TenantId,
-    (start, end): (DateTime<Utc>, DateTime<Utc>),
+    (start, end): (Timestamp, Timestamp),
     filter: SourceFilter<'_>,
     project: RowProjection<StoredSleepSession>,
 ) -> AppResult<StoredHealth<Merged<StoredSleepSession>>> {
@@ -242,14 +249,15 @@ pub async fn merged_recovery(
     terms: &dyn ProviderTerms,
     user_id: Uuid,
     tenant: &TenantId,
-    (start, end): (DateTime<Utc>, DateTime<Utc>),
+    (start, end): (Timestamp, Timestamp),
     filter: SourceFilter<'_>,
     project: RowProjection<StoredRecoveryMetrics>,
 ) -> AppResult<StoredHealth<Merged<StoredRecoveryMetrics>>> {
-    let rows = repos
+    let mut rows = repos
         .recovery
         .get_recovery_metrics(user_id, tenant, start, end)
         .await?;
+    withhold_daily_notes(&mut rows);
     merged(
         repos,
         terms,
@@ -259,18 +267,6 @@ pub async fn merged_recovery(
         merge_recovery_metrics,
     )
     .await
-}
-
-/// Blood pressure and glucose are clinical readings: an external transport
-/// reads the rest of a body record without them, whichever source wrote them.
-fn withhold_clinical_readings(rows: &mut [StoredHealthMetrics]) {
-    if ai_scope::serving_external() {
-        for row in rows {
-            row.systolic_bp = None;
-            row.diastolic_bp = None;
-            row.blood_glucose = None;
-        }
-    }
 }
 
 /// The athlete's body readings inside the window, one per date across the
@@ -286,7 +282,7 @@ pub async fn merged_body(
     terms: &dyn ProviderTerms,
     user_id: Uuid,
     tenant: &TenantId,
-    (start, end): (DateTime<Utc>, DateTime<Utc>),
+    (start, end): (Timestamp, Timestamp),
     filter: SourceFilter<'_>,
     project: RowProjection<StoredHealthMetrics>,
 ) -> AppResult<StoredHealth<Merged<StoredHealthMetrics>>> {
@@ -319,7 +315,7 @@ pub async fn merged_daily_activity(
     terms: &dyn ProviderTerms,
     user_id: Uuid,
     tenant: &TenantId,
-    (start, end): (DateTime<Utc>, DateTime<Utc>),
+    (start, end): (Timestamp, Timestamp),
     filter: SourceFilter<'_>,
     project: RowProjection<StoredDailyActivity>,
 ) -> AppResult<StoredHealth<Merged<StoredDailyActivity>>> {
@@ -418,7 +414,7 @@ pub async fn latest_night_source(
     terms: &dyn ProviderTerms,
     user_id: Uuid,
     tenant: &TenantId,
-    window: (DateTime<Utc>, DateTime<Utc>),
+    window: (Timestamp, Timestamp),
 ) -> AppResult<Option<String>> {
     let all = SourceFilter::All;
     let nights = merged_sleep(repos, terms, user_id, tenant, window, all, as_stored).await?;
@@ -447,11 +443,15 @@ pub async fn holds_recovery_rows(
     terms: &dyn ProviderTerms,
     user_id: Uuid,
     tenant: &TenantId,
-    (start, end): (DateTime<Utc>, DateTime<Utc>),
+    (start, end): (Timestamp, Timestamp),
 ) -> AppResult<bool> {
     // Where the rows came from, never the rows: governing a row needs only
     // its provider and data source, and a yes/no serves no reading, so it
-    // owes no attribution either.
+    // owes no attribution either. Under a grant's window, only rows inside it.
+    let start = ai_scope::window_since().map_or(start, |since| start.max(since));
+    if start > end {
+        return Ok(false);
+    }
     let mut origins = repos
         .recovery
         .recovery_origins(user_id, tenant, start, end)
@@ -474,12 +474,23 @@ pub async fn holds_recovery_rows(
 
 #[cfg(test)]
 mod tests {
+    use dravr_tronc::dates::Zone;
+    use std::collections::BTreeSet;
+    use std::future::Future;
     use std::sync::Arc;
 
     use pierre_core::constants::oauth_providers::{GARMIN_ATTRIBUTION, INTERVALS_ICU};
 
     use super::*;
     use crate::wellness_store::{WellnessStore, WellnessWriteMode};
+    use pierre_providers::ai_scope::with_ai_consent;
+
+    /// `fut` for an athlete who withheld no provider from AI: a real model
+    /// read declares the athlete's consents, and one that declares none
+    /// withholds every AI-consent provider, Garmin included (carnet#1157).
+    fn consented<F: Future>(fut: F) -> impl Future<Output = F::Output> {
+        with_ai_consent(BTreeSet::new(), fut)
+    }
 
     /// Store `night`, when given, and `morning` as a sync writes them.
     async fn store(
@@ -490,15 +501,18 @@ mod tests {
     ) {
         let mut writes = WellnessStore::new(repos).writes("test");
         if let Some(night) = night {
-            writes.sleep(tenant, &night, Utc::now()).await.unwrap();
+            writes
+                .sleep(tenant, &night, Timestamp::now())
+                .await
+                .unwrap();
         }
         let full = WellnessWriteMode::FullDay;
         writes
-            .recovery(tenant, &morning, full, Utc::now())
+            .recovery(tenant, &morning, full, Timestamp::now())
             .await
             .unwrap();
     }
-    use chrono::{Duration, NaiveDate, TimeZone};
+    use dravr_tronc::dates::{CivilDate, Elapsed};
     use pierre_core::ai_policy::{AiUse, SourcePolicy};
     use pierre_core::models::{ActivityBuilder, DataSource, DeviceType, SportType};
     use pierre_core::transport::{Transport, TransportPolicy};
@@ -552,8 +566,8 @@ mod tests {
         terms: &dyn ProviderTerms,
         user_id: Uuid,
         tenant: &TenantId,
-        start: DateTime<Utc>,
-        end: DateTime<Utc>,
+        start: Timestamp,
+        end: Timestamp,
     ) -> AppResult<StoredHealth<StoredSleepSession>> {
         let rows = repos
             .sleep
@@ -574,8 +588,8 @@ mod tests {
         terms: &dyn ProviderTerms,
         user_id: Uuid,
         tenant: &TenantId,
-        start: DateTime<Utc>,
-        end: DateTime<Utc>,
+        start: Timestamp,
+        end: Timestamp,
     ) -> AppResult<StoredHealth<StoredRecoveryMetrics>> {
         let rows = repos
             .recovery
@@ -620,8 +634,8 @@ mod tests {
         repos: Arc<RepositoryRegistry>,
         user_id: Uuid,
         tenant: TenantId,
-        start: DateTime<Utc>,
-        end: DateTime<Utc>,
+        start: Timestamp,
+        end: Timestamp,
     }
 
     fn resting_hr(provider: &str) -> u32 {
@@ -636,7 +650,7 @@ mod tests {
         user_id: Uuid,
         data_source_id: &str,
         provider: &str,
-        night: DateTime<Utc>,
+        night: Timestamp,
     ) -> StoredSleepSession {
         StoredSleepSession {
             id: Uuid::new_v4().to_string(),
@@ -644,7 +658,7 @@ mod tests {
             data_source_id: data_source_id.to_owned(),
             is_nap: false,
             start_datetime: night,
-            end_datetime: night + Duration::hours(8),
+            end_datetime: night + Elapsed::hours(8),
             total_sleep_seconds: Some(7 * 3600),
             deep_sleep_seconds: None,
             light_sleep_seconds: None,
@@ -665,13 +679,13 @@ mod tests {
         user_id: Uuid,
         data_source_id: &str,
         provider: &str,
-        night: DateTime<Utc>,
+        night: Timestamp,
     ) -> StoredRecoveryMetrics {
         StoredRecoveryMetrics {
             id: Uuid::new_v4().to_string(),
             user_id: user_id.to_string(),
             data_source_id: data_source_id.to_owned(),
-            date: NaiveDate::from_ymd_opt(2026, 9, 30).unwrap(),
+            date: CivilDate::from_ymd(2026, 9, 30).unwrap(),
             recovery_score: None,
             readiness_score: None,
             hrv_ms: None,
@@ -685,7 +699,7 @@ mod tests {
             daily_strain: None,
             athlete_note: None,
             source_name: provider.to_owned(),
-            recorded_at: night + Duration::hours(9),
+            recorded_at: night + Elapsed::hours(9),
         }
     }
 
@@ -695,7 +709,7 @@ mod tests {
         let user = create_test_user(&format!("health-{}@example.com", Uuid::new_v4()), None);
         let user_id = repos.users.create(&user).await.unwrap();
         let tenant = TenantId::generate();
-        let night = Utc.with_ymd_and_hms(2026, 9, 29, 22, 0, 0).unwrap();
+        let night = Timestamp::parse_from_rfc3339("2026-09-29T22:00:00Z").unwrap();
 
         for provider in PROVIDERS {
             let data_source_id = repos
@@ -723,8 +737,8 @@ mod tests {
             repos,
             user_id,
             tenant,
-            start: night - Duration::days(1),
-            end: night + Duration::days(1),
+            start: night - Elapsed::days(1),
+            end: night + Elapsed::days(1),
         }
     }
 
@@ -769,7 +783,9 @@ mod tests {
         let athlete = athlete().await;
         let ((nights, mornings), withheld) = serve_over(
             Transport::McpHttp,
-            ai_read(async { (athlete.nights().await, athlete.mornings().await) }),
+            ai_read(consented(async {
+                (athlete.nights().await, athlete.mornings().await)
+            })),
         )
         .await;
 
@@ -777,7 +793,7 @@ mod tests {
         assert!(mornings.iter().all(|m| m.source_name != "coros"));
         assert_eq!(withheld.off_interface, 2, "COROS's night and morning");
 
-        let night = merge_sleep_sessions(sourced(nights), &Utc);
+        let night = merge_sleep_sessions(sourced(nights), &Zone::utc());
         assert_eq!(night.len(), 1);
         assert_eq!(sorted(&night[0].sources), vec!["garmin"]);
         let morning = merge_recovery_metrics(sourced(mornings));
@@ -795,11 +811,13 @@ mod tests {
         let athlete = athlete().await;
         let ((nights, mornings), withheld) = serve_over(
             Transport::WebApp,
-            ai_read(async { (athlete.nights().await, athlete.mornings().await) }),
+            ai_read(consented(async {
+                (athlete.nights().await, athlete.mornings().await)
+            })),
         )
         .await;
 
-        let night = merge_sleep_sessions(sourced(nights), &Utc);
+        let night = merge_sleep_sessions(sourced(nights), &Zone::utc());
         assert_eq!(night.len(), 1, "the permitted sources merge into one night");
         assert_eq!(
             sorted(&night[0].sources),
@@ -820,7 +838,7 @@ mod tests {
         let user = create_test_user(&format!("wellness-{}@example.com", Uuid::new_v4()), None);
         let user_id = repos.users.create(&user).await.unwrap();
         let tenant = TenantId::generate();
-        let night = Utc.with_ymd_and_hms(2026, 9, 29, 22, 0, 0).unwrap();
+        let night = Timestamp::parse_from_rfc3339("2026-09-29T22:00:00Z").unwrap();
         let data_source_id = repos
             .data_sources
             .upsert_data_source(
@@ -845,7 +863,7 @@ mod tests {
             "older",
             "Ride",
             SportType::Ride,
-            night - Duration::days(20),
+            night - Elapsed::days(20),
             3_600,
             INTERVALS_ICU,
         )
@@ -865,8 +883,8 @@ mod tests {
             repos,
             user_id,
             tenant,
-            start: night - Duration::days(1),
-            end: night + Duration::days(1),
+            start: night - Elapsed::days(1),
+            end: night + Elapsed::days(1),
         }
     }
 
@@ -874,7 +892,7 @@ mod tests {
         athlete: &Athlete,
     ) -> (StoredHealth<StoredRecoveryMetrics>, Provenance) {
         let turn = Provenance::new();
-        let (read, _) = ai_read(tracking(
+        let (read, _) = ai_read(consented(tracking(
             turn.clone(),
             recovery_metrics(
                 &athlete.repos,
@@ -884,7 +902,7 @@ mod tests {
                 athlete.start,
                 athlete.end,
             ),
-        ))
+        )))
         .await;
         (read.unwrap(), turn)
     }
@@ -1061,7 +1079,7 @@ mod tests {
         let athlete = athlete().await;
         let (mornings, withheld) = serve_over(
             Transport::McpHttp,
-            ai_read(athlete.merged_mornings(SourceFilter::All)),
+            ai_read(consented(athlete.merged_mornings(SourceFilter::All))),
         )
         .await;
         assert_eq!(mornings.len(), 1, "one served morning");
@@ -1092,13 +1110,13 @@ mod tests {
         .await
         .unwrap();
         assert!(inside, "the stored night and morning sit in the window");
-        let before = athlete.start - Duration::days(30);
+        let before = athlete.start - Elapsed::days(30);
         let earlier = holds_recovery_rows(
             &athlete.repos,
             &Terms,
             athlete.user_id,
             &athlete.tenant,
-            (before - Duration::days(10), before),
+            (before - Elapsed::days(10), before),
         )
         .await
         .unwrap();
@@ -1111,7 +1129,7 @@ mod tests {
     async fn holding_recovery_rows_notes_no_attribution() {
         let athlete = athlete().await;
         let turn = Provenance::new();
-        let (holds, _) = ai_read(tracking(
+        let (holds, _) = ai_read(consented(tracking(
             turn.clone(),
             holds_recovery_rows(
                 &athlete.repos,
@@ -1120,7 +1138,7 @@ mod tests {
                 &athlete.tenant,
                 (athlete.start, athlete.end),
             ),
-        ))
+        )))
         .await;
         assert!(holds.unwrap());
         assert!(
@@ -1137,7 +1155,7 @@ mod tests {
         let user = create_test_user(&format!("zepp-{}@example.com", Uuid::new_v4()), None);
         let user_id = repos.users.create(&user).await.unwrap();
         let tenant = TenantId::generate();
-        let night = Utc.with_ymd_and_hms(2026, 9, 29, 22, 0, 0).unwrap();
+        let night = Timestamp::parse_from_rfc3339("2026-09-29T22:00:00Z").unwrap();
         let data_source_id = repos
             .data_sources
             .upsert_data_source(
@@ -1158,15 +1176,15 @@ mod tests {
         let sleep = night_of(user_id, &data_source_id, "zepp", night);
         let morning = morning_of(user_id, &data_source_id, "zepp", night);
         store(&repos, tenant, Some(sleep), morning).await;
-        let window = (night - Duration::days(1), night + Duration::days(1));
+        let window = (night - Elapsed::days(1), night + Elapsed::days(1));
 
         let own = holds_recovery_rows(&repos, &Terms, user_id, &tenant, window)
             .await
             .unwrap();
         assert!(own, "the athlete's own surfaces see Zepp's rows");
-        let (model, _) = ai_read(holds_recovery_rows(
+        let (model, _) = ai_read(consented(holds_recovery_rows(
             &repos, &Terms, user_id, &tenant, window,
-        ))
+        )))
         .await;
         assert!(!model.unwrap(), "Zepp bars every item from AI");
     }

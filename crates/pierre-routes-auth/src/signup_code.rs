@@ -20,7 +20,7 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use secrecy::{ExposeSecret, SecretString};
 use serde::Deserialize;
 use serde_json::json;
@@ -191,7 +191,8 @@ pub(crate) async fn handle_get_held_group_invite(
     headers: HeaderMap,
 ) -> AppResult<Response> {
     let user = session_reader(&resources, &headers).await?;
-    let held = group_invite_card::held_invite_card(&resources.repos, user.id, Utc::now()).await?;
+    let held =
+        group_invite_card::held_invite_card(&resources.repos, user.id, Timestamp::now()).await?;
     Ok(Json(json!({ "held": held })).into_response())
 }
 

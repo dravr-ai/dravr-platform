@@ -20,6 +20,7 @@ use crate::helpers;
 
 use anyhow::Result;
 use common::{create_test_server_resources, generate_test_token};
+use dravr_tronc::dates::Timestamp;
 use helpers::axum_test::AxumTestRequest;
 use pierre_core::models::{ConnectionType, Tenant, TenantId, User, UserStatus};
 use pierre_database::RepositoryRegistry;
@@ -63,8 +64,8 @@ async fn session(resources: &Arc<ServerContext>, email: &str, name: &str) -> Res
             domain: None,
             plan: "starter".to_owned(),
             owner_user_id: user_id,
-            created_at: chrono::Utc::now(),
-            updated_at: chrono::Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         })
         .await?;
     resources

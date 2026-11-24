@@ -28,6 +28,7 @@ import { SciotteLoginModal } from '../../components/SciotteLoginModal';
 import { IntervalsIcuLinkModal } from '../../components/IntervalsIcuLinkModal';
 import { OAuthAppSetupModal } from '../../components/OAuthAppSetupModal';
 import { ProviderNoticeSheet } from '../../components/ProviderNotice';
+import { ConnectConsentSheet } from '../../components/ConnectConsentSheet';
 import { oauthApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { getOAuthCallbackUrl } from '../../utils/oauth';
@@ -40,7 +41,13 @@ import { useOnboardingStatus } from '../../hooks/useOnboardingStatus';
 import { COACH_SEAT_DONE_PREFIX, useOnboardingFlag } from '../../hooks/useOnboardingFlag';
 import { CoachSeatPanel } from '../../components/CoachSeatPanel';
 import { useSignInModal } from '../../hooks/useSignInModal';
-import { importRouteFor, refusedConnectLine, type RefusedConnect } from '../../utils/connectFlow';
+import { useProviderCards } from '../../hooks/useProviderCards';
+import {
+  importRouteFor,
+  refusedConnectLine,
+  showConnectRefusal,
+  type RefusedConnect,
+} from '../../utils/connectFlow';
 import { useTranslation } from '@pierre/i18n';
 import type { SciotteTarget } from '@pierre/shared-types';
 import {
@@ -50,18 +57,21 @@ import {
   ONBOARDING_LEAD_PROVIDERS,
   cardForSlug,
   cardStatus,
+  connectConsentsFor,
   connectPlan,
   credentialFallbackOnRefusal,
   noticeRequired,
   refusalReloadsCards,
   refusalReturnsToCard,
   sciotteTargetForBackend,
+  QUERY_KEYS,
 } from '@pierre/shared-constants';
 import { useFocusEffect, useRouter } from 'expo-router';
 import {
   cardAwaitingHistory,
   cardExportSource,
   describeApiError,
+  followConnectPlan,
   importTombstoneFromReturn,
   refusalReason,
 } from '@pierre/ui-logic';
@@ -111,8 +121,15 @@ export function OnboardingConnectScreen({ mode = 'connect' }: { mode?: 'connect'
   }, [markSeatDone]);
   const router = useRouter();
   const { data: onboardingStatus } = useOnboardingStatus(isAuthenticated);
-  const [providers, setProviders] = useState<ExtendedProviderStatus[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  // The rows, on the provider-status key every other reader of them shares,
+  // read again each time the step opens. `loadStatus` reads them again and
+  // resolves to the rows read (none when the read failed), so a connect that
+  // just came back can judge the row it landed on.
+  const {
+    providers,
+    isPending: isLoading,
+    reload: loadStatus,
+  } = useProviderCards({ enabled: isAuthenticated, refetchOnMount: 'always' });
   const [connectingProvider, setConnectingProvider] = useState<string | null>(null);
   const [connectError, setConnectError] = useState<string | null>(null);
   const [moreOpen, setMoreOpen] = useState(false);
@@ -139,52 +156,25 @@ export function OnboardingConnectScreen({ mode = 'connect' }: { mode?: 'connect'
     provider: ExtendedProviderStatus;
     devPortalUrl: string;
     tosConsent: boolean;
+    consents?: readonly string[];
   } | null>(null);
   // The OAuth provider whose notice is on screen before its flow starts
   // (WHOOP, until the account accepts its owner authorization).
   const [noticeFor, setNoticeFor] = useState<ExtendedProviderStatus | null>(null);
+  // The card whose consent sheet is on screen before its connect starts
+  // (Garmin's AI use and workout transfer, carnet#1157 / carnet#1390), with
+  // the notice acceptance that led there.
+  const [consentFor, setConsentFor] = useState<{ provider: ExtendedProviderStatus; tosConsent: boolean } | null>(null);
   // Tracks an in-flight OAuth in ASWebAuthenticationSession, by the name the
   // provider's card shows. Shows an "awaiting consent" overlay with a Cancel
   // button so the user is never stranded if they background the app mid-flow.
   const [awaitingOAuthFor, setAwaitingOAuthFor] = useState<string | null>(null);
 
-  // Returns the providers it read (none when the read failed), so a connect
-  // that just came back can judge the row it landed on.
-  const loadStatus = useCallback(async (): Promise<ExtendedProviderStatus[]> => {
-    try {
-      setIsLoading(true);
-      const response = await oauthApi.getProvidersStatus();
-      const served = response.providers || [];
-      setProviders(served);
-      return served;
-    } catch (err) {
-      console.error('Failed to load provider list on onboarding:', err);
-      return [];
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (isAuthenticated) {
-      loadStatus();
-    }
-  }, [isAuthenticated, loadStatus]);
-
-  // The seat panel's re-read while a connection settles the seat: the cards
-  // again, for the account role, without the list's loading state.
-  const reloadProviders = useCallback(() => {
-    oauthApi
-      .getProvidersStatus()
-      .then((response) => setProviders(response.providers || []))
-      .catch(() => {});
-  }, []);
-
   // Back from the import of an export, the step may be done without a
   // connection (an import started): the onboarding status is read again.
   useFocusEffect(
     useCallback(() => {
-      void queryClient.invalidateQueries({ queryKey: ['user-onboarding-status'] });
+      void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.user.onboardingStatus() });
     }, [queryClient]),
   );
 
@@ -192,32 +182,19 @@ export function OnboardingConnectScreen({ mode = 'connect' }: { mode?: 'connect'
   // a second service is one tap away; Continue moves on. The onboarding-status
   // refetch is what lets RootLayoutNav see the first connection.
   const finalizeConnection = useCallback(async () => {
-    await queryClient.invalidateQueries({ queryKey: ['user-onboarding-status'] });
+    await queryClient.invalidateQueries({ queryKey: QUERY_KEYS.user.onboardingStatus() });
     return loadStatus();
   }, [queryClient, loadStatus]);
 
-  /**
-   * Tell the row `cardKey` its connect did not go through. When the
-   * refusal says the row's plan changed under the athlete (the seat it was
-   * shown went), the rows are read again first, and a row that now signs in
-   * opens its sign-in at once.
-   */
+  /** Tell the row `cardKey` its connect did not go through (`showConnectRefusal`). */
   const showRefusal = useCallback(
-    async (
-      cardKey: string,
-      { reload }: { reload: boolean },
-    ) => {
-      if (reload) {
-        const served = await loadStatus();
-        const card = served.find((p) => p.provider === cardKey);
-        const primary = card ? connectPlan(card).primary : null;
-        if (card && primary?.kind === 'sign_in') {
-          openSignIn(primary.target, card);
-          return;
-        }
-      }
-      setRefusedCard({ card: cardKey });
-    },
+    (cardKey: string, options: { reload: boolean; consents?: readonly string[] }) =>
+      showConnectRefusal(cardKey, options, {
+        reloadCards: loadStatus,
+        // The sign-in a changed plan opens carries the consents ticked for the refused connect.
+        openSignIn: (target, card, consents) => openSignIn(target, card, false, false, consents),
+        setRefusedCard,
+      }),
     [loadStatus, openSignIn],
   );
   // Continue opens once a row is connected, or once the server counts the
@@ -227,8 +204,16 @@ export function OnboardingConnectScreen({ mode = 'connect' }: { mode?: 'connect'
   // Standard OAuth flow used by providers with a built-in client_id/secret on
   // the platform (currently only WHOOP once the user has registered a BYO
   // app). Sciotte providers handle their own credential flow via the modal.
+  // `consents` are the keys the athlete ticked on the connect's consent sheet
+  // (Garmin), carried to the start and to any sign-in a refusal opens instead.
   const launchOAuth = useCallback(
-    async (providerId: string, providerName: string, tosConsent = false, signInBlocked = false) => {
+    async (
+      providerId: string,
+      providerName: string,
+      tosConsent = false,
+      signInBlocked = false,
+      consents?: readonly string[],
+    ) => {
       // The row the authorization belongs to: `garmin` and `strava` land on
       // the card of their sign-in backend, whose row shows the spinner.
       const cardKey = cardForSlug(providerId, providers)?.provider ?? providerId;
@@ -237,7 +222,7 @@ export function OnboardingConnectScreen({ mode = 'connect' }: { mode?: 'connect'
         setConnectError(null);
         setAwaitingOAuthFor(providerName);
         const returnUrl = getOAuthCallbackUrl();
-        const oauthResponse = await oauthApi.initMobileOAuth(providerId, returnUrl, { tosConsent, signInBlocked });
+        const oauthResponse = await oauthApi.initMobileOAuth(providerId, returnUrl, { tosConsent, signInBlocked, consents });
         const result = await WebBrowser.openAuthSessionAsync(
           oauthResponse.authorization_url,
           returnUrl,
@@ -260,7 +245,7 @@ export function OnboardingConnectScreen({ mode = 'connect' }: { mode?: 'connect'
               providerName,
               language,
               t,
-              onCleared: () => void launchOAuthRef.current(providerId, providerName, tosConsent),
+              onCleared: () => void launchOAuthRef.current(providerId, providerName, tosConsent, false, consents),
             });
             return;
           }
@@ -282,7 +267,7 @@ export function OnboardingConnectScreen({ mode = 'connect' }: { mode?: 'connect'
             if (fallback) {
               openSignInFor(fallback, providers);
             } else if (refusalReturnsToCard(providerId)) {
-              await showRefusal(cardKey, { reload: error === OAUTH_NO_SEAT });
+              await showRefusal(cardKey, { reload: error === OAUTH_NO_SEAT, consents });
             } else {
               setConnectError(t('app.failedConnectProviderReason', { provider: providerName, reason: error }));
             }
@@ -308,7 +293,7 @@ export function OnboardingConnectScreen({ mode = 'connect' }: { mode?: 'connect'
           return;
         }
         if (refusalReturnsToCard(providerId)) {
-          await showRefusal(cardKey, { reload: refusalReloadsCards(refusalReason(err)) });
+          await showRefusal(cardKey, { reload: refusalReloadsCards(refusalReason(err)), consents });
           return;
         }
         setConnectError(message);
@@ -334,7 +319,20 @@ export function OnboardingConnectScreen({ mode = 'connect' }: { mode?: 'connect'
       setNoticeFor(provider);
       return;
     }
-    continueConnect(provider, false);
+    offerConsents(provider, false);
+  };
+
+  /**
+   * A connect that offers consents it does not require (Garmin) asks for
+   * them on its sheet first, every time; its Continue resumes with the keys
+   * ticked, none included. Any other connect goes on at once.
+   */
+  const offerConsents = (provider: ExtendedProviderStatus, tosConsent: boolean) => {
+    if (connectConsentsFor(provider.provider).length > 0) {
+      setConsentFor({ provider, tosConsent });
+      return;
+    }
+    continueConnect(provider, tosConsent);
   };
 
   // A sign-in that could not complete hands over to its provider's OAuth
@@ -344,38 +342,34 @@ export function OnboardingConnectScreen({ mode = 'connect' }: { mode?: 'connect'
     signIn.close();
     // The sign-in could not complete: the server must not turn this start
     // back into that sign-in (carnet#1667).
-    void launchOAuth(provider, card?.display_name ?? provider, false, true);
+    void launchOAuth(provider, card?.display_name ?? provider, false, true, signIn.consents);
   };
 
-  /** The connect `handleConnect` resumes once any OAuth notice is accepted. */
-  const continueConnect = (provider: ExtendedProviderStatus, tosConsent: boolean) => {
+  /**
+   * The connect `handleConnect` resumes once any OAuth notice is accepted and
+   * any consent sheet answered, with the consents ticked there.
+   */
+  const continueConnect = (provider: ExtendedProviderStatus, tosConsent: boolean, consents?: readonly string[]) => {
     // The card's `connectPlan` decides: the Strava and Garmin cards (named for
     // their sign-in backends) go through the provider's authorization while
     // the server recommends it and sign in otherwise; COROS and TrainingPeaks
-    // sign in, after their notice when they have one.
-    const primary = connectPlan(provider).primary;
-    switch (primary.kind) {
-      case 'sign_in':
-        openSignIn(primary.target, provider, false, true);
-        return;
-      case 'intervals':
-        // Intervals.icu leads with the athlete's authorization while the
-        // server offers it, and keeps the coach's API-key form beside it; with
-        // no client to authorize under, the key form is the only way in.
-        setIntervalsSheet({ displayName: provider.display_name, offersAuthorize: primary.path === 'choose' });
-        return;
-      case 'oauth': {
+    // sign in, after their notice when they have one. Intervals.icu goes the
+    // way its card says: an authorized card back to the authorization, a
+    // key-linked card to the key form, and a new link to the sheet that leads
+    // with the authorization and keeps the coach's API-key form beside it.
+    followConnectPlan(provider, {
+      signIn: (target) => openSignIn(target, provider, false, true, consents),
+      intervalsDialog: (offersAuthorize) =>
+        setIntervalsSheet({ displayName: provider.display_name, offersAuthorize }),
+      authorize: (name) => {
         const devPortalUrl = ownAppDevPortal(provider.provider);
         if (provider.own_app_required && devPortalUrl) {
-          setOwnAppSetup({ provider, devPortalUrl, tosConsent });
+          setOwnAppSetup({ provider, devPortalUrl, tosConsent, consents });
           return;
         }
-        void launchOAuth(primary.provider, provider.display_name, tosConsent);
-        return;
-      }
-      case 'none':
-        return;
-    }
+        void launchOAuth(name, provider.display_name, tosConsent, false, consents);
+      },
+    });
   };
 
   // The server withholds the raw `strava` / `garmin` rows a mirror card
@@ -579,7 +573,6 @@ export function OnboardingConnectScreen({ mode = 'connect' }: { mode?: 'connect'
         {seat ? (
           <CoachSeatPanel
             providers={providers}
-            onReloadProviders={reloadProviders}
             onDone={() => void markSeatDone()}
           />
         ) : null}
@@ -631,6 +624,7 @@ export function OnboardingConnectScreen({ mode = 'connect' }: { mode?: 'connect'
         consentRequired={signIn.consentRequired}
         historyMode={signIn.historyMode}
         onFallBackToOAuth={signIn.fallback ? fallBackToOAuth(signIn.fallback) : undefined}
+        consents={signIn.consents}
       />
 
       <IntervalsIcuLinkModal
@@ -657,7 +651,18 @@ export function OnboardingConnectScreen({ mode = 'connect' }: { mode?: 'connect'
         onAccept={() => {
           const accepted = noticeFor;
           setNoticeFor(null);
-          if (accepted) continueConnect(accepted, true);
+          if (accepted) offerConsents(accepted, true);
+        }}
+      />
+
+      <ConnectConsentSheet
+        visible={consentFor !== null}
+        consents={consentFor ? connectConsentsFor(consentFor.provider.provider) : []}
+        onCancel={() => setConsentFor(null)}
+        onContinue={(keys) => {
+          const answered = consentFor;
+          setConsentFor(null);
+          if (answered) continueConnect(answered.provider, answered.tosConsent, keys);
         }}
       />
 
@@ -666,11 +671,11 @@ export function OnboardingConnectScreen({ mode = 'connect' }: { mode?: 'connect'
           visible
           onClose={() => setOwnAppSetup(null)}
           onSaved={() => {
-            const { provider, tosConsent } = ownAppSetup;
+            const { provider, tosConsent, consents } = ownAppSetup;
             setOwnAppSetup(null);
             // BYO credentials are persisted; kick off the standard OAuth dance.
             // launchOAuth handles success → finalizeConnection.
-            void launchOAuth(provider.provider, provider.display_name, tosConsent);
+            void launchOAuth(provider.provider, provider.display_name, tosConsent, false, consents);
           }}
           provider={ownAppSetup.provider.provider}
           displayName={ownAppSetup.provider.display_name}

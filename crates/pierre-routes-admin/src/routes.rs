@@ -276,7 +276,7 @@ impl AdminRoutes {
                 delete(user_removal::handle_disconnect_user_provider),
             )
             // Copy another account's scrape session onto this one (super-admin
-            // only inside the handler): operator e2e testing on a deployed env.
+            // only inside the handler): admin e2e testing on a deployed env.
             .route(
                 "/admin/users/{user_id}/providers/{provider}/clone",
                 post(provider_clone::handle_clone_user_provider),

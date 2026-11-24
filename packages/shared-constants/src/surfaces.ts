@@ -40,7 +40,7 @@ export interface UserSurface {
   /**
    * Sidebar label a regular user clicks to reach this surface on web, or null
    * when it is not a top-level web destination — reached through the settings
-   * gear, through the header bell, or operator-only.
+   * gear, through the header bell, or admin-only.
    *
    * Not decoration: the design sweep walks exactly these, and it used to walk a
    * third hand-written list of its own that nothing kept in step with either
@@ -142,7 +142,7 @@ export const USER_SURFACES: readonly UserSurface[] = [
     mobile: null,
     webNav: null,
     blocks: NO_BLOCKS,
-    why: 'Operator surface. Deliberately web-only — there is no mobile operator workflow. The design sweep walks it with the other admin surfaces, not the athlete ones.',
+    why: 'Admin surface. Deliberately web-only — there is no mobile admin workflow. The design sweep walks it with the other admin surfaces, not the athlete ones.',
   },
 ] as const;
 
@@ -180,6 +180,7 @@ export type SettingsSectionId =
   | 'usage'
   | 'security'
   | 'connected-mcp-apps'
+  | 'health-records'
   | 'sign-out'
   | 'version'
   | 'help'
@@ -346,6 +347,10 @@ export const SETTINGS_PANES: readonly SettingsPane[] = [
     hintKey: 'settingsTabs.privacyHint',
     web: 'privacy',
     mobile: '/(app)/(tabs)/(settings)/privacy',
+    // The athlete's health records (owl phase 5): web renders them inline in
+    // the pane; the phone pushes them as a screen of their own from a row.
+    // Privacy groups nothing else, so it names no `holds`.
+    mobileScreens: { 'health-records': '/(app)/(tabs)/(settings)/health-records' },
     flag: null,
   },
   {
@@ -379,7 +384,7 @@ export const SETTINGS_PANES: readonly SettingsPane[] = [
 ];
 
 /**
- * Panes an operator does not get: provider connections, physiology, the gear
+ * Panes an admin does not get: provider connections, physiology, the gear
  * ledger, messaging, About, coaching style, notification preferences, memory
  * and privacy all describe an athlete's own account. Profile and Account stay:
  * Account holds security and sign-out. Gated on `role`, as the Dashboard gates.

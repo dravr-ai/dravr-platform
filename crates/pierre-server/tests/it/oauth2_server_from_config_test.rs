@@ -70,6 +70,8 @@ fn web_request(redirect_uri: String, resource: Option<&str>) -> AuthorizeRequest
         ),
         code_challenge_method: Some("S256".to_owned()),
         resource: resource.map(str::to_owned),
+        request_uri: None,
+        authorization_details: None,
     }
 }
 

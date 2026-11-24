@@ -36,8 +36,10 @@
 //! asked again for the connection (it is asked only once the connection's
 //! history walk, when it has one, has ended, so the store holds the whole
 //! history the list is read against); a dead session ends it incomplete, and
-//! the next ask records it again. It is asked by the nightly capture sweep
-//! once a connection's head refresh succeeds ([`ask_tag_walk`]).
+//! the next ask records it again. It is asked once a connection's head
+//! refresh succeeds ([`ask_tag_walk`]): by the nightly capture sweep, and by
+//! a chat turn's live read of the session's list head, both through
+//! `activity_backfill::after_refresh`.
 //!
 //! **What it writes.** Through
 //! [`ActivityCacheRepository::amend_listed_reads`](pierre_database::repositories::ActivityCacheRepository::amend_listed_reads)
@@ -48,7 +50,7 @@
 use std::sync::Arc;
 use std::time::Instant;
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::provider_context::ProviderActivitySearch;
 use pierre_core::models::Activity;
@@ -109,8 +111,8 @@ pub enum TagWalkAsked {
 ///
 /// A connection whose walk is owed or ended walked is left alone; one that
 /// ended incomplete (its session died, its budget left no call) is recorded
-/// again. Asked by the capture sweep after a head refresh that succeeded, so
-/// the session is live.
+/// again. Asked after a head refresh that succeeded, so the session is live:
+/// by the capture sweep, and by a chat turn's live read of the list head.
 pub async fn ask_tag_walk(
     runtime: &Arc<dyn ToolRuntime>,
     user_id: Uuid,
@@ -220,7 +222,7 @@ pub(super) async fn run_tag_walk(job: &ActivityBackfillJob, recorded: Option<(Jo
         return;
     };
     let renewal = keep_backfill_lease(job, &lease);
-    let attempt_started_at = Utc::now();
+    let attempt_started_at = Timestamp::now();
     let step = walk_step(job).await;
     settle(job, &lease, attempts, step, attempt_started_at).await;
     drop(renewal);
@@ -470,7 +472,7 @@ async fn settle(
     lease: &JobLease,
     attempts: i64,
     step: Step,
-    attempt_started_at: DateTime<Utc>,
+    attempt_started_at: Timestamp,
 ) {
     let ledger = &job.resources.repos().activity_backfill_jobs;
     match step {

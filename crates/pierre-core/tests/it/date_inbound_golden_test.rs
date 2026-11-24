@@ -39,56 +39,51 @@ use pierre_core::pagination::{Cursor, StoreCursor, StoreSortOrder};
 
 /// Everything in this file that names the date engine.
 mod engine {
-    use chrono::{DateTime, NaiveDate, NaiveTime, Utc, Weekday};
+    use dravr_tronc::dates::{CivilDate, CivilTime, Timestamp, Weekday};
 
     const REJECTED: &str = "rejected";
 
     /// The instant at nanosecond precision in UTC, the shape every verdict is
     /// written in.
-    pub(super) fn canonical(value: DateTime<Utc>) -> String {
-        value.format("%Y-%m-%dT%H:%M:%S%.9fZ").to_string()
+    pub(super) fn canonical(value: Timestamp) -> String {
+        value.format("%Y-%m-%dT%H:%M:%S%.9fZ").unwrap()
     }
 
     /// The lenient path: the text as a JSON string into an instant field.
     pub(super) fn json_instant(text: &str) -> String {
         let quoted = serde_json::Value::String(text.to_owned()).to_string();
-        serde_json::from_str::<DateTime<Utc>>(&quoted)
-            .map_or_else(|_| REJECTED.to_owned(), canonical)
+        serde_json::from_str::<Timestamp>(&quoted).map_or_else(|_| REJECTED.to_owned(), canonical)
     }
 
     /// Any JSON document into an instant field: a number, `null`, an object.
     pub(super) fn json_document_instant(document: &str) -> String {
-        serde_json::from_str::<DateTime<Utc>>(document)
-            .map_or_else(|_| REJECTED.to_owned(), canonical)
+        serde_json::from_str::<Timestamp>(document).map_or_else(|_| REJECTED.to_owned(), canonical)
     }
 
     /// The strict path: `parse_from_rfc3339`, read as a UTC instant.
     pub(super) fn strict_instant(text: &str) -> String {
-        DateTime::parse_from_rfc3339(text).map_or_else(
-            |_| REJECTED.to_owned(),
-            |parsed| canonical(parsed.with_timezone(&Utc)),
-        )
+        Timestamp::parse_from_rfc3339(text).map_or_else(|_| REJECTED.to_owned(), canonical)
     }
 
     /// The text as a JSON string into a calendar-date field.
     pub(super) fn json_date(text: &str) -> String {
         let quoted = serde_json::Value::String(text.to_owned()).to_string();
-        serde_json::from_str::<NaiveDate>(&quoted)
+        serde_json::from_str::<CivilDate>(&quoted)
             .map_or_else(|_| REJECTED.to_owned(), |date| date.to_string())
     }
 
     /// The hand parser for a calendar date: `parse_from_str` with `%Y-%m-%d`.
     pub(super) fn pattern_date(text: &str) -> String {
-        NaiveDate::parse_from_str(text, "%Y-%m-%d")
+        CivilDate::parse_from_str(text, "%Y-%m-%d")
             .map_or_else(|_| REJECTED.to_owned(), |date| date.to_string())
     }
 
     /// The text as a JSON string into a time-of-day field.
     pub(super) fn json_time(text: &str) -> String {
         let quoted = serde_json::Value::String(text.to_owned()).to_string();
-        serde_json::from_str::<NaiveTime>(&quoted).map_or_else(
+        serde_json::from_str::<CivilTime>(&quoted).map_or_else(
             |_| REJECTED.to_owned(),
-            |time| time.format("%H:%M:%S%.9f").to_string(),
+            |time| time.format("%H:%M:%S%.9f").unwrap(),
         )
     }
 
@@ -231,8 +226,8 @@ const JSON_VERDICTS: [(&str, &str); 54] = [
     ("2026-11-17T10:00:05,123Z", REJECTED),
     ("2026-11-17T10:00:05.Z", REJECTED),
     // A leap second, and values that are not on the calendar.
-    ("2016-12-31T23:59:60Z", "2016-12-31T23:59:60.000000000Z"),
-    ("2026-11-17T10:00:60Z", "2026-11-17T10:00:60.000000000Z"),
+    ("2016-12-31T23:59:60Z", "2016-12-31T23:59:59.000000000Z"),
+    ("2026-11-17T10:00:60Z", "2026-11-17T10:00:59.000000000Z"),
     ("2026-11-17T24:00:00Z", REJECTED),
     ("2026-02-30T10:00:05Z", REJECTED),
     ("2025-02-29T10:00:05Z", REJECTED),
@@ -342,8 +337,8 @@ const STRICT_VERDICTS: [(&str, &str); 54] = [
     ),
     ("2026-11-17T10:00:05,123Z", REJECTED),
     ("2026-11-17T10:00:05.Z", REJECTED),
-    ("2016-12-31T23:59:60Z", "2016-12-31T23:59:60.000000000Z"),
-    ("2026-11-17T10:00:60Z", "2026-11-17T10:00:60.000000000Z"),
+    ("2016-12-31T23:59:60Z", "2016-12-31T23:59:59.000000000Z"),
+    ("2026-11-17T10:00:60Z", "2026-11-17T10:00:59.000000000Z"),
     ("2026-11-17T24:00:00Z", REJECTED),
     ("2026-02-30T10:00:05Z", REJECTED),
     ("2025-02-29T10:00:05Z", REJECTED),
@@ -442,7 +437,7 @@ fn json_into_a_time_of_day_accepts_these_shapes() {
             ("10:00:05.123456789", "10:00:05.123456789"),
             ("7:05:03", "07:05:03.000000000"),
             ("7:5:3", "07:05:03.000000000"),
-            ("23:59:60", "23:59:60.000000000"),
+            ("23:59:60", "23:59:59.000000000"),
             ("24:00:00", REJECTED),
             ("10", REJECTED),
             ("10:00:05Z", REJECTED),

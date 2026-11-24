@@ -31,7 +31,7 @@ mod messaging_welcome {
     use std::sync::atomic::Ordering;
     use std::sync::Arc;
 
-    use chrono::{Duration, Utc};
+    use dravr_tronc::dates::{Elapsed, Timestamp};
     use serde_json::json;
     use serial_test::serial;
     use uuid::Uuid;
@@ -447,7 +447,7 @@ mod messaging_welcome {
                     }),
                     deny_reason: "awaiting_confirmation".to_owned(),
                 },
-                Utc::now() + Duration::minutes(10),
+                Timestamp::now() + Elapsed::minutes(10),
             )
             .await
             .unwrap();

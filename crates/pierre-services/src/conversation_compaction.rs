@@ -35,6 +35,7 @@ use std::fmt;
 use std::sync::Arc;
 
 use pierre_core::config::CompactionConfig;
+use pierre_core::constants::oauth_providers::{names_kept_out_source, union_consent_sources};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
 use pierre_core::narration::scrub_replayed_narration;
@@ -56,7 +57,7 @@ pub const COMPACTION_MARKER: &str = "[pierre:compaction]\n";
 /// Which bound sent the thread to the sliding-window drop.
 ///
 /// Only the log distinguishes these, and that is the point: one shared message
-/// reporting `tokens`/`window` on all three sent operators looking at the token
+/// reporting `tokens`/`window` on all three sent admins looking at the token
 /// cliff while the message cap was what actually breached (registre#198).
 #[derive(Debug, Clone, Copy)]
 enum SlideReason {
@@ -66,6 +67,8 @@ enum SlideReason {
     MessageCapBackstop,
     /// A summary was attempted and did not come back usable.
     SummarizationFailed,
+    /// Every row of the oldest run is kept out of summaries (carnet#1158).
+    KeptOutOfSummaries,
 }
 
 /// Fewest real turns worth summarizing into a block.
@@ -104,8 +107,9 @@ pub enum CompactionOutcome {
         estimated_tokens_before: u32,
         /// Estimated prompt tokens after the compactor replaced the range.
         estimated_tokens_after: u32,
-        /// Persisted block describing what was compacted.
-        block: CompactionBlock,
+        /// Persisted block describing what was compacted, boxed: the other
+        /// outcomes carry three numbers.
+        block: Box<CompactionBlock>,
     },
     /// Emergency sliding window — oldest turns dropped without summarization.
     SlidingWindow {
@@ -121,9 +125,9 @@ pub enum CompactionOutcome {
 impl CompactionOutcome {
     /// Returns the compaction block if the outcome persisted one.
     #[must_use]
-    pub const fn block(&self) -> Option<&CompactionBlock> {
+    pub fn block(&self) -> Option<&CompactionBlock> {
         match self {
-            Self::Summarized { block, .. } => Some(block),
+            Self::Summarized { block, .. } => Some(&**block),
             Self::NoOp { .. } | Self::SlidingWindow { .. } => None,
         }
     }
@@ -169,6 +173,8 @@ struct SummaryPlan {
     original_tokens: u32,
     /// The one group member the replaced rows read, if any (carnet#1174).
     about_user_id: Option<Uuid>,
+    /// The AI-consent keys of the rows summarized (carnet#1157).
+    ai_consent_sources: Vec<String>,
 }
 
 /// The conversation compactor.
@@ -243,6 +249,52 @@ impl ConversationCompactor {
         }
     }
 
+    /// Log why the sliding window runs, naming the bound that breached.
+    ///
+    /// This warned "above emergency threshold" with `tokens` and `window` on
+    /// every path, including the message-cap backstop — so an admin reading
+    /// `tokens=25118, window=1000000` on a jammed thread saw compaction
+    /// misfiring on a prompt at 2.5% of its window and had no way to reach
+    /// the real cause (registre#198). Every line now carries every bound and
+    /// says which one ran it; the rows kept out of summaries are expected,
+    /// so that one is not a warning (carnet#1158).
+    fn log_slide(&self, llm_messages: &[ChatMessage], before: u32, reason: SlideReason) {
+        let message = match reason {
+            SlideReason::TokenCliff => {
+                "Conversation above the emergency token threshold — sliding window fallback"
+            }
+            SlideReason::MessageCapBackstop => {
+                "Over the message cap and nothing could be summarized — sliding window \
+                 backstop; history is dropped without a compaction block"
+            }
+            SlideReason::SummarizationFailed => {
+                "Summarization did not produce a usable block — sliding window fallback"
+            }
+            SlideReason::KeptOutOfSummaries => {
+                "The oldest turns are kept out of summaries — sliding window; history is \
+                 dropped without a compaction block"
+            }
+        };
+        let non_system = non_system_count(llm_messages);
+        if matches!(reason, SlideReason::KeptOutOfSummaries) {
+            info!(
+                tokens = before,
+                window = self.config.window_tokens,
+                non_system_count = non_system,
+                max_messages = self.config.max_messages,
+                "{message}"
+            );
+        } else {
+            warn!(
+                tokens = before,
+                window = self.config.window_tokens,
+                non_system_count = non_system,
+                max_messages = self.config.max_messages,
+                "{message}"
+            );
+        }
+    }
+
     /// Emergency sliding-window fallback. Drops the oldest turns and
     /// returns the resulting outcome.
     fn run_emergency_sliding(
@@ -251,31 +303,7 @@ impl ConversationCompactor {
         before: u32,
         reason: SlideReason,
     ) -> CompactionOutcome {
-        // The bound that actually breached, named. This warned "above emergency
-        // threshold" with `tokens` and `window` on every path, including the
-        // message-cap backstop — so an operator reading `tokens=25118,
-        // window=1000000` on a jammed thread saw compaction misfiring on a
-        // prompt at 2.5% of its window and had no way to reach the real cause
-        // (registre#198).
-        match reason {
-            SlideReason::TokenCliff => warn!(
-                tokens = before,
-                window = self.config.window_tokens,
-                "Conversation above the emergency token threshold — sliding window fallback"
-            ),
-            SlideReason::MessageCapBackstop => warn!(
-                non_system_count = non_system_count(llm_messages),
-                max_messages = self.config.max_messages,
-                tokens = before,
-                "Over the message cap and nothing could be summarized — sliding window backstop; \
-                 history is dropped without a compaction block"
-            ),
-            SlideReason::SummarizationFailed => warn!(
-                non_system_count = non_system_count(llm_messages),
-                tokens = before,
-                "Summarization did not produce a usable block — sliding window fallback"
-            ),
-        }
+        self.log_slide(llm_messages, before, reason);
         let dropped = self.sliding_window(llm_messages);
         let after = estimate_messages_tokens(llm_messages);
         CompactionOutcome::SlidingWindow {
@@ -297,6 +325,15 @@ impl ConversationCompactor {
                 estimated_tokens: before,
             });
         };
+        // Every row of the range is kept out of summaries (carnet#1158):
+        // there is nothing to summarize, and the rows are dropped instead.
+        if plan.combined.is_empty() {
+            return Ok(self.run_emergency_sliding(
+                ctx.llm_messages,
+                before,
+                SlideReason::KeptOutOfSummaries,
+            ));
+        }
 
         let summary = match summarize_turns(ctx, &plan.combined).await {
             Ok(s) => s,
@@ -343,6 +380,7 @@ impl ConversationCompactor {
         // same way.
         if ctx.source_ids.len() != ctx.llm_messages.len()
             || ctx.source_members.len() != ctx.source_ids.len()
+            || ctx.source_consents.len() != ctx.source_ids.len()
         {
             return None;
         }
@@ -353,7 +391,15 @@ impl ConversationCompactor {
             .find_map(|member| *member);
         let history_range =
             history_range_for(ctx.source_ids, ctx.llm_messages, range.start, range.end)?;
-        let combined = extract_range_text(ctx.llm_messages, &range);
+        // A row drawn from data kept out of the agent's memory is replaced
+        // with the rest, but none of it reaches the summary (carnet#1158).
+        let summarized = |i: usize| !names_kept_out_source(&ctx.source_consents[i]);
+        let combined = extract_range_text(ctx.llm_messages, &range, summarized);
+        let ai_consent_sources = (range.start..range.end)
+            .filter(|i| summarized(*i))
+            .fold(Vec::new(), |sources, i| {
+                union_consent_sources(&sources, &ctx.source_consents[i])
+            });
         Some(SummaryPlan {
             combined,
             range,
@@ -361,6 +407,7 @@ impl ConversationCompactor {
             last_id: history_range.last_id.to_owned(),
             original_tokens: history_range.original_tokens,
             about_user_id,
+            ai_consent_sources,
         })
     }
 
@@ -391,6 +438,9 @@ impl ConversationCompactor {
                 // The member its rows read, so the block goes where they go
                 // (carnet#1174).
                 about_user_id: plan.about_user_id,
+                // The keys of the rows it summarizes, so a withdrawal reaches
+                // it (carnet#1157).
+                ai_consent_sources: &plan.ai_consent_sources,
             })
             .await?;
 
@@ -422,7 +472,7 @@ impl ConversationCompactor {
         Ok(CompactionOutcome::Summarized {
             estimated_tokens_before: before,
             estimated_tokens_after: after,
-            block,
+            block: Box::new(block),
         })
     }
 
@@ -657,6 +707,12 @@ pub struct CompactionContext<'a, R: HarnessMemoryRepository + ?Sized> {
     /// nobody (carnet#1174). A block covers rows of at most one member, and
     /// names them.
     pub source_members: &'a [Option<Uuid>],
+    /// The AI-consent keys each `source_ids` row names, index-aligned with it
+    /// (carnet#1157): none for the system prompt and a spliced summary. A row
+    /// naming a key kept out of the agent's memory is covered by the block but
+    /// left out of what it summarizes (carnet#1158), and the block names the
+    /// keys of the rows it does summarize.
+    pub source_consents: &'a [Vec<String>],
     /// The LLM message list being assembled; the compactor mutates it in place.
     pub llm_messages: &'a mut Vec<ChatMessage>,
     /// Renders the summary for the message spliced into `llm_messages`; the
@@ -676,6 +732,7 @@ impl<R: HarnessMemoryRepository + ?Sized> fmt::Debug for CompactionContext<'_, R
             .field("conversation_id", &self.conversation_id)
             .field("source_ids", &self.source_ids)
             .field("source_members", &self.source_members)
+            .field("source_consents", &self.source_consents)
             .field("llm_messages", &self.llm_messages.len())
             .finish_non_exhaustive()
     }
@@ -693,9 +750,18 @@ pub fn estimate_messages_tokens(messages: &[ChatMessage]) -> u32 {
         .sum()
 }
 
-fn extract_range_text(messages: &[ChatMessage], range: &CompactRange) -> String {
+/// The `role: content` text of the messages in `range` that `summarized`
+/// keeps, by index.
+fn extract_range_text(
+    messages: &[ChatMessage],
+    range: &CompactRange,
+    summarized: impl Fn(usize) -> bool,
+) -> String {
     let mut out = String::new();
-    for msg in &messages[range.start..range.end] {
+    for msg in (range.start..range.end)
+        .filter(|i| summarized(*i))
+        .map(|i| &messages[i])
+    {
         let role = match msg.role {
             MessageRole::User => "user",
             MessageRole::Assistant => "assistant",

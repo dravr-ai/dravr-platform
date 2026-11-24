@@ -32,9 +32,9 @@ use std::future::{ready, Ready};
 
 use super::super::ActivityBackfillJob;
 #[cfg(feature = "health-sync")]
-use chrono::{Days, NaiveDate, Utc};
-#[cfg(feature = "health-sync")]
 use dravr_enforme::error::{EnformeError, EnformeResult};
+#[cfg(feature = "health-sync")]
+use dravr_tronc::dates::{CivilDate, Timestamp};
 #[cfg(feature = "health-sync")]
 use pierre_core::models::ConnectionType;
 use pierre_database::repositories::JobLease;
@@ -70,7 +70,7 @@ enum WellnessCopy {
     /// A session-read cap refused a day: the copy resumes from `resume_day`
     /// once the refusing window ends, at `retry_at_ms` (unix ms).
     Paused {
-        resume_day: NaiveDate,
+        resume_day: CivilDate,
         retry_at_ms: i64,
     },
 }
@@ -254,7 +254,7 @@ async fn mark_first_filled(job: &ActivityBackfillJob, lease: Option<&JobLease>) 
     };
     let ledger = &job.resources.repos().activity_backfill_jobs;
     let marked = ledger
-        .mark_wellness_first_filled(lease, job.tenant_id, Utc::now().timestamp_millis())
+        .mark_wellness_first_filled(lease, job.tenant_id, Timestamp::now().epoch_millis())
         .await;
     match marked {
         Ok(true) => {
@@ -272,7 +272,7 @@ async fn mark_first_filled(job: &ActivityBackfillJob, lease: Option<&JobLease>) 
 /// The copy paused at `resume_day` until the window that refused `capped`
 /// ends.
 #[cfg(feature = "health-sync")]
-fn paused(resume_day: NaiveDate, capped: CappedDay) -> WellnessCopy {
+fn paused(resume_day: CivilDate, capped: CappedDay) -> WellnessCopy {
     WellnessCopy::Paused {
         resume_day,
         retry_at_ms: retry_at_after(Some(capped.retry_after_secs)),
@@ -314,7 +314,7 @@ fn copy_outcome(
 /// the whole window, as a walk the ledger could not record, or whose day
 /// cannot be read, does.
 #[cfg(feature = "health-sync")]
-async fn resume_day(job: &ActivityBackfillJob, lease: Option<&JobLease>) -> Option<NaiveDate> {
+async fn resume_day(job: &ActivityBackfillJob, lease: Option<&JobLease>) -> Option<CivilDate> {
     let ledger = &job.resources.repos().activity_backfill_jobs;
     match ledger.wellness_resume_day(lease?, job.tenant_id).await {
         Ok(day) => day,
@@ -330,9 +330,9 @@ async fn resume_day(job: &ActivityBackfillJob, lease: Option<&JobLease>) -> Opti
 /// when nothing of it is left.
 #[cfg(feature = "health-sync")]
 fn resumed_window(
-    (start, end): (NaiveDate, NaiveDate),
-    resume_day: Option<NaiveDate>,
-) -> Option<(NaiveDate, NaiveDate)> {
+    (start, end): (CivilDate, CivilDate),
+    resume_day: Option<CivilDate>,
+) -> Option<(CivilDate, CivilDate)> {
     let start = resume_day.map_or(start, |day| day.max(start));
     (start <= end).then_some((start, end))
 }
@@ -354,10 +354,10 @@ fn resumed_window(
 /// before it can have failed.
 #[cfg(feature = "health-sync")]
 fn paused_at(
-    (start, end): (NaiveDate, NaiveDate),
+    (start, end): (CivilDate, CivilDate),
     capped: CappedDay,
     unread: Result<u32, &EnformeError>,
-) -> Option<NaiveDate> {
+) -> Option<CivilDate> {
     match unread {
         Ok(unread) => {
             let after_refusal = (end - capped.day).num_days().saturating_add(1).max(0);
@@ -392,17 +392,17 @@ fn wellness_copy_of(result: EnformeResult<(u32, u32)>) -> Result<(u32, u32), Str
 /// ([`dravr_enforme::orchestrator::backfill::MAX_BACKFILL_WINDOW_DAYS`]).
 /// Older days are left on the account.
 #[cfg(feature = "health-sync")]
-const WELLNESS_HISTORY_DAYS: u64 = 365;
+const WELLNESS_HISTORY_DAYS: i64 = 365;
 
 /// The inclusive day window a walk reads wellness over: the
 /// [`WELLNESS_HISTORY_DAYS`] ending the day before `pushed_from`, the grant's
 /// first day, which the push holds on. `None` when no day precedes it.
 #[cfg(feature = "health-sync")]
-fn wellness_window(pushed_from: NaiveDate) -> Option<(NaiveDate, NaiveDate)> {
-    let end = pushed_from.checked_sub_days(Days::new(1))?;
+fn wellness_window(pushed_from: CivilDate) -> Option<(CivilDate, CivilDate)> {
+    let end = pushed_from.checked_sub_days(1)?;
     let start = end
-        .checked_sub_days(Days::new(WELLNESS_HISTORY_DAYS - 1))
-        .unwrap_or(NaiveDate::MIN);
+        .checked_sub_days(WELLNESS_HISTORY_DAYS - 1)
+        .unwrap_or(CivilDate::MIN);
     Some((start, end))
 }
 
@@ -416,7 +416,7 @@ fn wellness_window(pushed_from: NaiveDate) -> Option<(NaiveDate, NaiveDate)> {
 /// them. `None` when the connection or the stored rows cannot be read, or
 /// the connection is not there, so no day can be told apart from the push's.
 #[cfg(feature = "health-sync")]
-async fn pushed_from(job: &ActivityBackfillJob, provider: &str) -> Option<NaiveDate> {
+async fn pushed_from(job: &ActivityBackfillJob, provider: &str) -> Option<CivilDate> {
     let repos = job.resources.repos();
     let connected = match repos
         .provider_connections
@@ -426,7 +426,7 @@ async fn pushed_from(job: &ActivityBackfillJob, provider: &str) -> Option<NaiveD
         Ok(connections) => connections
             .iter()
             .filter(|c| c.provider == provider && c.connection_type != ConnectionType::Delegated)
-            .map(|c| c.connected_at.date_naive())
+            .map(|c| c.connected_at.utc_date())
             .min(),
         Err(e) => {
             warn!(user_id = %job.user_id, error = %e, "History walk: the grant's connection could not be read; copying no wellness");
@@ -456,16 +456,16 @@ mod tests {
 
     #[test]
     fn the_wellness_window_is_the_year_ending_the_day_before_the_grant() {
-        let grant = NaiveDate::from_ymd_opt(2026, 11, 5).unwrap();
+        let grant = CivilDate::from_ymd(2026, 11, 5).unwrap();
         let (start, end) = wellness_window(grant).unwrap();
         assert_eq!(
             end,
-            NaiveDate::from_ymd_opt(2026, 11, 4).unwrap(),
+            CivilDate::from_ymd(2026, 11, 4).unwrap(),
             "the grant's own day is the push's"
         );
         assert_eq!(
             start,
-            NaiveDate::from_ymd_opt(2025, 11, 5).unwrap(),
+            CivilDate::from_ymd(2025, 11, 5).unwrap(),
             "bug: the window starts a year before the grant"
         );
         let days = (end - start).num_days() + 1;
@@ -479,14 +479,14 @@ mod tests {
     #[test]
     fn no_day_precedes_a_grant_on_the_oldest_day() {
         assert_eq!(
-            wellness_window(NaiveDate::MIN),
+            wellness_window(CivilDate::MIN),
             None,
             "bug: no day precedes the oldest representable day"
         );
     }
 
-    fn day(month: u32, day: u32) -> NaiveDate {
-        NaiveDate::from_ymd_opt(2026, month, day).unwrap()
+    fn day(month: u32, day: u32) -> CivilDate {
+        CivilDate::from_ymd(2026, month, day).unwrap()
     }
 
     #[test]
@@ -509,12 +509,12 @@ mod tests {
         );
         // The grant's first day moved: the window moved with it.
         assert_eq!(
-            resumed_window(window, NaiveDate::from_ymd_opt(2025, 3, 1)),
+            resumed_window(window, CivilDate::from_ymd(2025, 3, 1).ok()),
             Some(window),
             "bug: a resume day before the window reads days the window leaves out"
         );
         assert_eq!(
-            resumed_window(window, NaiveDate::from_ymd_opt(2027, 1, 1)),
+            resumed_window(window, CivilDate::from_ymd(2027, 1, 1).ok()),
             None,
             "bug: a resume day past the window reads something"
         );

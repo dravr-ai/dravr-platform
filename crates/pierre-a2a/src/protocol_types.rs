@@ -4,7 +4,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use crate::jsonrpc::JsonRpcError;
+use crate::JsonRpcError;
+use dravr_tronc::error::{INTERNAL_ERROR, INVALID_PARAMS, SERVER_ERROR_START};
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
@@ -116,6 +117,26 @@ pub enum A2ASpecError {
 }
 
 impl A2ASpecError {
+    /// Every spec error, in code order.
+    const ALL: [Self; 9] = [
+        Self::TaskNotFound,
+        Self::TaskNotCancelable,
+        Self::PushNotificationNotSupported,
+        Self::UnsupportedOperation,
+        Self::ContentTypeNotSupported,
+        Self::InvalidAgentResponse,
+        Self::ExtendedAgentCardNotConfigured,
+        Self::ExtensionSupportRequired,
+        Self::VersionNotSupported,
+    ];
+
+    /// The spec error a JSON-RPC error code names, or `None` for a code
+    /// outside the A2A-specific set.
+    #[must_use]
+    pub fn from_code(code: i32) -> Option<Self> {
+        Self::ALL.into_iter().find(|error| error.code() == code)
+    }
+
     /// JSON-RPC error code (spec §5.4)
     #[must_use]
     pub const fn code(self) -> i32 {
@@ -220,22 +241,37 @@ pub enum A2AError {
 impl From<A2AError> for JsonRpcError {
     fn from(error: A2AError) -> Self {
         let (code, message) = match error {
-            A2AError::InvalidRequest(msg) => (-32602, format!("Invalid params: {msg}")),
-            A2AError::InternalError(msg) => (-32603, format!("Internal error: {msg}")),
+            A2AError::InvalidRequest(msg) => (INVALID_PARAMS, format!("Invalid params: {msg}")),
+            A2AError::InternalError(msg) => (INTERNAL_ERROR, format!("Internal error: {msg}")),
             A2AError::AuthenticationFailed(msg) => {
-                (-32000, format!("Authentication failed: {msg}"))
+                (SERVER_ERROR_START, format!("Authentication failed: {msg}"))
             }
-            A2AError::ClientNotRegistered(msg) => (-32000, format!("Client not registered: {msg}")),
-            A2AError::DatabaseError(msg) => (-32000, format!("Database error: {msg}")),
-            A2AError::ClientDeactivated(msg) => (-32000, format!("Client deactivated: {msg}")),
-            A2AError::RateLimitExceeded(msg) => (-32000, format!("Rate limit exceeded: {msg}")),
-            A2AError::SessionExpired(msg) => (-32000, format!("Session expired: {msg}")),
-            A2AError::InvalidSessionToken(msg) => (-32000, format!("Invalid session token: {msg}")),
-            A2AError::InsufficientPermissions(msg) => {
-                (-32000, format!("Insufficient permissions: {msg}"))
+            A2AError::ClientNotRegistered(msg) => {
+                (SERVER_ERROR_START, format!("Client not registered: {msg}"))
             }
-            A2AError::ResourceNotFound(msg) => (-32000, format!("Resource not found: {msg}")),
-            A2AError::ServiceUnavailable(msg) => (-32000, format!("Service unavailable: {msg}")),
+            A2AError::DatabaseError(msg) => (SERVER_ERROR_START, format!("Database error: {msg}")),
+            A2AError::ClientDeactivated(msg) => {
+                (SERVER_ERROR_START, format!("Client deactivated: {msg}"))
+            }
+            A2AError::RateLimitExceeded(msg) => {
+                (SERVER_ERROR_START, format!("Rate limit exceeded: {msg}"))
+            }
+            A2AError::SessionExpired(msg) => {
+                (SERVER_ERROR_START, format!("Session expired: {msg}"))
+            }
+            A2AError::InvalidSessionToken(msg) => {
+                (SERVER_ERROR_START, format!("Invalid session token: {msg}"))
+            }
+            A2AError::InsufficientPermissions(msg) => (
+                SERVER_ERROR_START,
+                format!("Insufficient permissions: {msg}"),
+            ),
+            A2AError::ResourceNotFound(msg) => {
+                (SERVER_ERROR_START, format!("Resource not found: {msg}"))
+            }
+            A2AError::ServiceUnavailable(msg) => {
+                (SERVER_ERROR_START, format!("Service unavailable: {msg}"))
+            }
         };
 
         Self {
@@ -628,4 +664,34 @@ pub struct TaskPushNotificationConfig {
     /// Webhook authentication material
     #[serde(skip_serializing_if = "Option::is_none")]
     pub authentication: Option<PushNotificationAuthenticationInfo>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{A2ASpecError, INTERNAL_ERROR, SERVER_ERROR_START};
+
+    #[test]
+    fn every_spec_error_round_trips_through_its_code() {
+        for error in A2ASpecError::ALL {
+            assert_eq!(
+                A2ASpecError::from_code(error.code()),
+                Some(error),
+                "{error:?} must be recovered from its own code"
+            );
+        }
+    }
+
+    #[test]
+    fn a_standard_or_server_code_is_not_a_spec_error() {
+        assert_eq!(
+            A2ASpecError::from_code(SERVER_ERROR_START),
+            None,
+            "the generic server error is not an A2A spec error (code table bug)"
+        );
+        assert_eq!(
+            A2ASpecError::from_code(INTERNAL_ERROR),
+            None,
+            "a standard JSON-RPC code is not an A2A spec error (code table bug)"
+        );
+    }
 }

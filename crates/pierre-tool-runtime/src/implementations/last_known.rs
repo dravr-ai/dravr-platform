@@ -25,7 +25,7 @@ use std::future::Future;
 use std::time::Duration;
 
 #[cfg(feature = "tools-data")]
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 #[cfg(feature = "tools-data")]
 use pierre_cache::{Cache, CacheKey};
 use pierre_config::timeouts::ServerTimeouts;
@@ -57,7 +57,7 @@ pub(super) struct LastKnown<T> {
     /// What the provider answered.
     pub value: T,
     /// When it answered.
-    pub synced_at: DateTime<Utc>,
+    pub synced_at: Timestamp,
 }
 
 #[cfg(feature = "tools-data")]
@@ -65,7 +65,7 @@ pub(super) struct LastKnown<T> {
 pub(super) async fn remember<T: Serialize + Send + Sync>(cache: &Cache, key: &CacheKey, value: &T) {
     let copy = LastKnown {
         value,
-        synced_at: Utc::now(),
+        synced_at: Timestamp::now(),
     };
     if let Err(e) = cache.set(key, &copy, key.resource.recommended_ttl()).await {
         warn!(error = %e, "failed to keep the last-known copy of a provider read");
@@ -199,7 +199,7 @@ pub(super) fn failed_read(error: &ProtocolError) -> UniversalResponse {
 ///
 /// The model reads the error's tool-facing message ([`AppError::tool_message`]),
 /// which names the provider the athlete knows and never a backend, a service
-/// or a request id; an operator reads the whole error in the log line.
+/// or a request id; an admin reads the whole error in the log line.
 ///
 /// A session-read cap's refusal (carnet#1661) is tagged with its wait under
 /// [`META_READ_LIMIT_RETRY_AFTER_SECS`], so a copy standing in says the live
@@ -616,9 +616,7 @@ mod tests {
 
     #[test]
     fn the_caveat_says_why_and_when() {
-        let at = DateTime::parse_from_rfc3339("2026-10-19T08:30:00Z")
-            .unwrap()
-            .with_timezone(&Utc);
+        let at = Timestamp::parse_from_rfc3339("2026-10-19T08:30:00Z").unwrap();
         let note = caveat("strava", "profile", StaleReason::Timeout, Some(at));
         assert_eq!(note["reason"], "timeout");
         assert_eq!(note["last_synced_at"], "2026-10-19T08:30:00+00:00");

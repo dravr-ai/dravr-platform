@@ -43,6 +43,7 @@ fn fact_params<'a>(
         valid_until: None,
         source_msg_id: None,
         transport_policy: TransportPolicy::AnyTransport,
+        ai_consent_sources: &[],
     }
 }
 

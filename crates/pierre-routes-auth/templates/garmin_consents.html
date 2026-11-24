@@ -1,0 +1,10 @@
+<!-- ABOUTME: Garmin's two connect consents (AI use, workout transfer) as unticked boxes, spliced into the hosted connect and sign-in pages -->
+<!-- ABOUTME: Strings come from the shared catalogue keys the app's connect dialog reads; the connect goes through with neither ticked -->
+<div class="callout" role="group" id="connect-consents"{{CONNECT_CONSENTS_HIDDEN}}>
+    <p class="callout-title">{{t:providers.garminConsent.title}}</p>
+    <p>{{t:providers.garminConsent.intro}}</p>
+    <label class="check"><input type="checkbox" data-consent-key="{{GARMIN_AI_CONSENT_KEY}}"> <span>{{t:providers.garminConsent.aiLabel}}</span></label>
+    <p class="fineprint">{{t:providers.garminConsent.aiHint}}</p>
+    <label class="check"><input type="checkbox" data-consent-key="{{GARMIN_TRANSFER_CONSENT_KEY}}"> <span>{{t:providers.garminConsent.transferLabel}}</span></label>
+    <p class="fineprint">{{t:providers.garminConsent.transferHint}} <a href="{{GARMIN_PRIVACY_URL}}" target="_blank" rel="noopener noreferrer">{{t:providers.garminConsent.privacyLink}}</a></p>
+</div>

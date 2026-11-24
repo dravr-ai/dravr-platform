@@ -145,7 +145,7 @@ async function signIn(page: Page, plan: unknown, needsReauth = false) {
 
 /**
  * Colour contrast stays ON. The one region left out is MapLibre's own canvas
- * and control chrome — third-party, left as it ships (DESIGN.md §2 treats it
+ * and control chrome — third-party, left as it ships (DESIGN.md "Brand colour" treats it
  * like a provider's brand colour); the figure's caption, distance and source
  * line around it are the page's own and are scanned.
  */
@@ -169,7 +169,7 @@ test.describe('Home accessibility', () => {
   for (const theme of ['light', 'dark'] as const) {
     test(`the planned week with activities has no WCAG 2.1 AA violations (${theme})`, async ({ page }) => {
       await signIn(page, PLAN);
-      await expect(page.getByTestId('home-today-session')).toBeVisible();
+      await expect(page.getByTestId('home-today-session-0')).toBeVisible();
       await expect(page.getByTestId('home-activity-row')).toHaveCount(1);
       // Open a day so the reused plan-card row is measured too.
       await page.getByTestId(`home-week-day-${TODAY}`).click();

@@ -40,7 +40,7 @@ use super::tool_surface::HostedToolBridge;
 use dravr_canot::ChannelRegistry;
 use pierre_database::backends::StoreListingsRepository;
 use pierre_database::database::repositories::AgentsRepository;
-use pierre_services::operator_mail::PendingSignupMail;
+use pierre_services::admin_mail::PendingSignupMail;
 #[cfg(feature = "health-sync")]
 use pierre_services::personal_bests::PersonalBests;
 #[cfg(feature = "health-sync")]
@@ -212,14 +212,13 @@ impl ServerContext {
         PersonalBests::new(&self.common.repos, service)
     }
 
-    /// Build an [`pierre_routes_auth::AuthRoutesContext`] view over this
-    /// `ServerContext` — collects every Arc handle the auth route group
-    /// needs (auth manager, JWKS, CSRF, repos, config, data, optional
-    /// Firebase / Resend, OAuth notification sender, tenant OAuth client,
-    /// provider registry, sync notifier, optional sync orchestrator,
-    /// cache, string catalogue, admin JWT secret, the `OAuth2` rate limiter, the
-    /// import sources offered here, and — under `provider-sciotte` — the
-    /// hosted-login rate limiter and nonce store).
+    /// Build an [`pierre_routes_auth::AuthRoutesContext`] view over this `ServerContext`.
+    ///
+    /// Collects every Arc handle the auth route group needs (auth manager, JWKS, CSRF, repos,
+    /// config, data, optional Firebase / Resend, OAuth notification sender, tenant OAuth client,
+    /// provider registry, optional sync orchestrator, cache, string catalogue, admin JWT secret,
+    /// the `OAuth2` rate limiter, the import sources offered here, and — under `provider-sciotte` —
+    /// the hosted-login rate limiter and nonce store).
     #[must_use]
     pub fn auth_routes_context(&self) -> pierre_routes_auth::AuthRoutesContext {
         pierre_routes_auth::AuthRoutesContext {
@@ -233,7 +232,6 @@ impl ServerContext {
             firebase_auth: self.auth.firebase_auth.clone(),
             email_service: self.common.email_service.clone(),
             provider_registry: self.fitness.provider_registry.clone(),
-            sync_notifier: self.sse.sse_manager.clone(),
             #[cfg(feature = "health-sync")]
             sync_orchestrator: self.fitness.sync_orchestrator.clone(),
             #[cfg(feature = "health-sync")]
@@ -355,7 +353,6 @@ impl ServerContext {
             cageux_config_registry: self.fitness.cageux_config_registry.clone(),
             harness_config_registry: self.fitness.harness_config_registry.clone(),
             persona_contract_registry: self.fitness.persona_contract_registry.clone(),
-            sse_manager: self.sse.sse_manager.clone(),
             #[cfg(feature = "health-sync")]
             sync_orchestrator: self.fitness.sync_orchestrator.clone(),
             #[cfg(feature = "tools-groups")]

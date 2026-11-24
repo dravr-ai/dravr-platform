@@ -20,20 +20,20 @@
 
 use crate::common;
 
-use chrono::{DateTime, Duration, TimeZone, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::models::{Activity, ActivityBuilder, SportType, TenantId};
 use pierre_database::backends::factory::{Database, DatabaseBackend};
 use sqlx::Row;
 
 fn activity(id: &str, provider: &str, age_days: i64) -> Activity {
-    let start = Utc::now() - Duration::days(age_days);
+    let start = Timestamp::now() - Elapsed::days(age_days);
     activity_at(id, provider, start)
 }
 
 /// Build an activity with an explicit `start_date`, so tests can place rows at a
 /// fixed point in a historical window (e.g. the 2022 season) independent of the
 /// current time.
-fn activity_at(id: &str, provider: &str, start: DateTime<Utc>) -> Activity {
+fn activity_at(id: &str, provider: &str, start: Timestamp) -> Activity {
     ActivityBuilder::new(
         id.to_owned(),
         format!("activity {id}"),
@@ -55,8 +55,8 @@ async fn activity_cache_upsert_read_filter_prune_round_trip() {
     let tenant_id = TenantId::generate();
     let repo = &repos.activity_cache;
 
-    let window_start = Utc::now() - Duration::days(90);
-    let now = Utc::now();
+    let window_start = Timestamp::now() - Elapsed::days(90);
+    let now = Timestamp::now();
 
     // 1. Upsert two Strava activities.
     let acts = vec![activity("s1", "strava", 1), activity("s2", "strava", 3)];
@@ -137,8 +137,8 @@ async fn activity_cache_is_tenant_isolated() {
         .await
         .unwrap();
 
-    let window_start = Utc::now() - Duration::days(90);
-    let now = Utc::now();
+    let window_start = Timestamp::now() - Elapsed::days(90);
+    let now = Timestamp::now();
 
     let in_a = repos
         .activity_cache
@@ -192,8 +192,8 @@ async fn activity_cache_upsert_count_is_distinct_not_input_length() {
     );
 
     // And the durable table holds exactly those 3 distinct rows.
-    let window_start = Utc::now() - Duration::days(90);
-    let now = Utc::now();
+    let window_start = Timestamp::now() - Elapsed::days(90);
+    let now = Timestamp::now();
     let stored = repo
         .get_cached_activities(user_id, &tenant_id, Some("strava"), window_start, now, 100)
         .await
@@ -224,7 +224,8 @@ async fn activity_cache_historical_window_read_is_deterministic_and_complete() {
     let mut acts = Vec::with_capacity(K);
     for i in 0..K {
         let week = i64::try_from(i).unwrap();
-        let start = Utc.with_ymd_and_hms(2022, 1, 1, 12, 0, 0).unwrap() + Duration::weeks(week);
+        let start =
+            Timestamp::parse_from_rfc3339("2022-01-01T12:00:00Z").unwrap() + Elapsed::weeks(week);
         acts.push(activity_at(&format!("h{i}"), "strava", start));
     }
     let persisted = repo
@@ -237,8 +238,8 @@ async fn activity_cache_historical_window_read_is_deterministic_and_complete() {
         "all 50 distinct rows persisted"
     );
 
-    let after = Utc.with_ymd_and_hms(2022, 1, 1, 0, 0, 0).unwrap();
-    let before = Utc.with_ymd_and_hms(2023, 1, 1, 0, 0, 0).unwrap();
+    let after = Timestamp::parse_from_rfc3339("2022-01-01T00:00:00Z").unwrap();
+    let before = Timestamp::parse_from_rfc3339("2023-01-01T00:00:00Z").unwrap();
     // A high read limit (mirrors the gate's window read limit) so the full
     // window comes back rather than a small display limit truncating it.
     let read_limit = 2_000;
@@ -300,7 +301,7 @@ async fn activity_cache_other_sport_type_populates_indexed_column() {
     let tenant_id = TenantId::generate();
     let repo = &repos.activity_cache;
 
-    let start = Utc.with_ymd_and_hms(2022, 7, 1, 8, 0, 0).unwrap();
+    let start = Timestamp::parse_from_rfc3339("2022-07-01T08:00:00Z").unwrap();
     let named = ActivityBuilder::new(
         "named".to_owned(),
         "named run".to_owned(),
@@ -385,7 +386,7 @@ async fn fetch_mark_advances_freshness_without_rows() {
     );
 
     // A fetch that returned zero activities still recorded that it happened.
-    let fetched_at = Utc::now();
+    let fetched_at = Timestamp::now();
     repo.record_activity_fetch(user_id, &tenant_id, "strava", fetched_at)
         .await
         .unwrap();
@@ -395,13 +396,13 @@ async fn fetch_mark_advances_freshness_without_rows() {
         .await
         .unwrap()
         .expect("the mark alone is a freshness signal");
-    assert_eq!(per_provider.timestamp(), fetched_at.timestamp());
+    assert_eq!(per_provider.epoch_seconds(), fetched_at.epoch_seconds());
     let any = repo
         .latest_activity_sync_any(user_id, &tenant_id)
         .await
         .unwrap()
         .expect("the cross-provider read sees the mark too");
-    assert_eq!(any.timestamp(), fetched_at.timestamp());
+    assert_eq!(any.epoch_seconds(), fetched_at.epoch_seconds());
 
     // The mark is provider-scoped: garmin has still never been fetched.
     assert_eq!(
@@ -431,7 +432,7 @@ async fn fetch_mark_advances_freshness_without_rows() {
     );
 
     // An overwriting mark newer than the rows wins the other way.
-    let much_later = Utc::now() + Duration::hours(2);
+    let much_later = Timestamp::now() + Elapsed::hours(2);
     repo.record_activity_fetch(user_id, &tenant_id, "strava", much_later)
         .await
         .unwrap();
@@ -440,7 +441,7 @@ async fn fetch_mark_advances_freshness_without_rows() {
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(re_marked.timestamp(), much_later.timestamp());
+    assert_eq!(re_marked.epoch_seconds(), much_later.epoch_seconds());
 }
 
 /// A row's segments read only when its stored detail carries the
@@ -463,13 +464,13 @@ async fn a_row_reads_as_segment_read_only_from_its_stored_detail() {
         "listed-efforts",
         "Listed",
         SportType::Ride,
-        Utc::now() - Duration::days(4),
+        Timestamp::now() - Elapsed::days(4),
         3_600,
         "strava",
     )
     .segment_efforts_opt(Some(vec![]))
     .build();
-    let listed_start = Utc::now() - Duration::days(5);
+    let listed_start = Timestamp::now() - Elapsed::days(5);
     let listed_then_detailed = ActivityBuilder::new(
         "listed-then-detailed",
         "Listed, then detailed",
@@ -484,7 +485,7 @@ async fn a_row_reads_as_segment_read_only_from_its_stored_detail() {
         name: "Remembrance".to_owned(),
         elapsed_time: 412,
         moving_time: Some(412),
-        start_date: listed_start + Duration::minutes(10),
+        start_date: listed_start + Elapsed::minutes(10),
         distance: 1_820.5,
         average_heart_rate: None,
         max_heart_rate: None,
@@ -532,7 +533,7 @@ async fn a_row_reads_as_segment_read_only_from_its_stored_detail() {
         .get_cached_activity_rows(
             user_id,
             &tenant_id,
-            &CachedRowsQuery::window(Utc::now() - Duration::days(10), Utc::now(), 10),
+            &CachedRowsQuery::window(Timestamp::now() - Elapsed::days(10), Timestamp::now(), 10),
         )
         .await
         .unwrap();
@@ -581,23 +582,23 @@ async fn mirrored_window(
     database: &Database,
     user_id: uuid::Uuid,
     tenant_id: TenantId,
-) -> DateTime<Utc> {
+) -> Timestamp {
     let repo = &database.repositories().activity_cache;
-    let shared = Utc::now() - Duration::days(5);
-    let at = |id: &str, provider: &str, start: DateTime<Utc>| activity_at(id, provider, start);
+    let shared = Timestamp::now() - Elapsed::days(5);
+    let at = |id: &str, provider: &str, start: Timestamp| activity_at(id, provider, start);
     for (key, rows) in [
         (
             "strava",
             vec![
                 at("100", "strava", shared),
-                at("101", "strava", shared + Duration::days(1)),
+                at("101", "strava", shared + Elapsed::days(1)),
             ],
         ),
         (
             "sciotte",
             vec![
                 at("100", "sciotte", shared),
-                at("102", "sciotte", shared - Duration::days(1)),
+                at("102", "sciotte", shared - Elapsed::days(1)),
             ],
         ),
         ("strava_archive", vec![at("103", "strava", shared)]),
@@ -621,7 +622,8 @@ async fn a_rows_read_takes_only_the_keys_it_names() {
     let tenant_id = TenantId::generate();
     mirrored_window(&database, user_id, tenant_id).await;
     let repo = &database.repositories().activity_cache;
-    let window = CachedRowsQuery::window(Utc::now() - Duration::days(30), Utc::now(), 50);
+    let window =
+        CachedRowsQuery::window(Timestamp::now() - Elapsed::days(30), Timestamp::now(), 50);
 
     let every = repo
         .get_cached_activity_rows(user_id, &tenant_id, &window)
@@ -676,8 +678,8 @@ async fn paging_below_a_cursor_reads_every_row_once_in_its_tenant() {
     mirrored_window(&database, user_id, elsewhere).await;
     let repo = &database.repositories().activity_cache;
     let keys = ["strava", "sciotte"];
-    let window =
-        CachedRowsQuery::window(Utc::now() - Duration::days(30), Utc::now(), 2).under_keys(&keys);
+    let window = CachedRowsQuery::window(Timestamp::now() - Elapsed::days(30), Timestamp::now(), 2)
+        .under_keys(&keys);
 
     let mut pages: Vec<Vec<(String, String)>> = Vec::new();
     let mut below: Option<CachedRowCursor> = None;

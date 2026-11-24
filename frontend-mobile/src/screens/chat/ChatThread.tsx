@@ -19,8 +19,18 @@ import {
   trustedActionUrl,
   verdictSupportReference,
 } from '@pierre/chat-utils';
-import { cardForSlug, connectPlan, noticeRequired, sciotteTargetForBackend } from '@pierre/shared-constants';
-import { privateSendFailureText, type PlanThreadDraft, type UsePrivateLaneResult } from '@pierre/ui-logic';
+import {
+  cardForSlug,
+  connectConsentsFor,
+  noticeRequired,
+  sciotteTargetForBackend,
+} from '@pierre/shared-constants';
+import {
+  followConnectPlan,
+  privateSendFailureText,
+  type PlanThreadDraft,
+  type UsePrivateLaneResult,
+} from '@pierre/ui-logic';
 import type {
   ChatMessageAction,
   ClaimVerdict,
@@ -38,12 +48,15 @@ import { SciotteLoginModal } from '../../components/SciotteLoginModal';
 import { useSignInModal } from '../../hooks/useSignInModal';
 import { OAuthCredentialsSection } from '../../components/OAuthCredentialsSection';
 import { ProviderNoticeSheet } from '../../components/ProviderNotice';
+import { ConnectConsentSheet } from '../../components/ConnectConsentSheet';
 import { openExternal } from '../../utils/openExternal';
 import { ChatInputBar, type ComposerAudience, type ComposerQuote } from './ChatInputBar';
 import { MessageList, type MessageListPrivateLane } from './MessageList';
 import { UsageWarningBanner } from './UsageWarningBanner';
 import { VerdictSheet, type VerdictSource } from './VerdictSheet';
 import PlanThreadOpenDraft from './PlanThreadOpenDraft';
+import SessionEditorSheet from './SessionEditorSheet';
+import type { SessionEditorTarget } from './WorkoutPlanCard';
 import { useChatVoiceInput } from './useChatVoiceInput';
 import type { useMessages } from './useMessages';
 import type { useProviderStatus } from './useProviderStatus';
@@ -176,10 +189,17 @@ export function ChatThread({
   // The provider whose notice is on screen before a reconnect starts its
   // OAuth flow (WHOOP, until the account accepts its owner authorization).
   const [noticeFor, setNoticeFor] = useState<string | null>(null);
+  // The provider a reply's reconnect names whose consent sheet is on screen
+  // before the connect starts (Garmin's AI use and workout transfer,
+  // carnet#1157 / carnet#1390).
+  const [consentFor, setConsentFor] = useState<string | null>(null);
   // The Intervals.icu sheet a reconnect opened, and whether it leads with the
   // authorization (`intervalsConnectPath` answered `'choose'`) or is the key
   // form alone.
   const [intervalsSheet, setIntervalsSheet] = useState<{ offersAuthorize: boolean } | null>(null);
+  // What the coach's day editor is open on — an entry to edit, or a date to
+  // add a session to — or `null` while it is closed.
+  const [editing, setEditing] = useState<SessionEditorTarget | null>(null);
   // The provider sign-in a reply's reconnect opens for a card that signs in
   // (COROS, TrainingPeaks, Strava or Garmin with no seat).
   const signIn = useSignInModal();
@@ -401,7 +421,7 @@ export function ChatThread({
    * to Safari, where the callback has nowhere to return to. A card that signs
    * in opens the sign-in window here.
    */
-  const handleConnectProvider = useCallback(async (provider: string) => {
+  const connectProvider = useCallback(async (provider: string, consents?: readonly string[]) => {
     const cards = providerStatus.connectedProviders;
     const card = cardForSlug(provider, cards) ?? cards.find((p) => p.provider === provider);
     if (!card) {
@@ -409,46 +429,57 @@ export function ChatThread({
       // is the authorization of the slug itself.
       const target = sciotteTargetForBackend(provider);
       if (target) {
-        openSignIn(target, undefined);
+        openSignIn(target, undefined, false, false, consents);
         return;
       }
-      await providerStatus.handleConnectProvider(provider);
+      await providerStatus.handleConnectProvider(provider, undefined, false, false, consents);
       return;
     }
-    const primary = connectPlan(card).primary;
-    // Intervals.icu reconnects the way its card was linked, and never through
-    // an own-app setup: a key-linked card (a coach's — only the key reads the
-    // athletes they coach) reopens the key form, an authorized card goes back
-    // to the authorization, and with no client to authorize under the key
-    // form is the only way in.
-    if (primary.kind === 'intervals') {
-      if (primary.path !== 'authorize') {
-        setIntervalsSheet({ offersAuthorize: primary.path === 'choose' });
+    // The authorization of `name`, behind what the card owes first; `started`
+    // is the flow it began, which the caller waits on.
+    let started: Promise<void> | undefined;
+    const authorize = (name: string) => {
+      // No app of the server's can authorize the provider for this athlete:
+      // the credentials sheet asks for their own before any notice.
+      if (card.own_app_required) {
+        providerStatus.setNeedsCredentialsProvider(card.provider);
         return;
       }
-      await providerStatus.handleConnectProvider(card.provider);
-      return;
-    }
-    if (primary.kind === 'sign_in') {
-      // The card's own plan: a sign-in-first card's sign-in that cannot
-      // complete falls back to its OAuth (carnet#1477).
-      openSignIn(primary.target, card, false, true);
-      return;
-    }
-    // No app of the server's can authorize the provider for this athlete:
-    // the credentials sheet asks for their own before any notice.
-    if (card.own_app_required) {
-      providerStatus.setNeedsCredentialsProvider(card.provider);
-      return;
-    }
-    // A provider whose notice the account has not accepted (WHOOP's owner
-    // authorization) states it first; its Continue starts the flow.
-    if (noticeRequired(card.provider, card.consent_required)) {
-      setNoticeFor(card.provider);
-      return;
-    }
-    await providerStatus.handleConnectProvider(primary.kind === 'oauth' ? primary.provider : card.provider);
+      // A provider whose notice the account has not accepted (WHOOP's owner
+      // authorization) states it first; its Continue starts the flow.
+      if (noticeRequired(card.provider, card.consent_required)) {
+        setNoticeFor(card.provider);
+        return;
+      }
+      started = providerStatus.handleConnectProvider(name, undefined, false, false, consents);
+    };
+    // The step every surface takes for this card. Intervals.icu reconnects
+    // the way its card was linked: a key-linked card (a coach's — only the
+    // key reads the athletes they coach) reopens the key form, an authorized
+    // card goes back to the authorization, and with no client to authorize
+    // under the key form is the only way in. A sign-in the card's own plan
+    // opens falls back to its OAuth when it cannot complete (carnet#1477).
+    // The consents the sheet returned travel with whichever step it takes.
+    followConnectPlan(card, {
+      signIn: (target) => openSignIn(target, card, false, true, consents),
+      intervalsDialog: (offersAuthorize) => setIntervalsSheet({ offersAuthorize }),
+      authorize,
+      none: () => authorize(card.provider),
+    });
+    await started;
   }, [providerStatus, openSignIn]);
+
+  // A connect that offers consents it does not require (Garmin, by its card
+  // or its slug) asks for them on its sheet first; its Continue resumes with
+  // the keys ticked, none included. Any other reconnect goes on at once.
+  const handleConnectProvider = useCallback(async (provider: string) => {
+    const card = cardForSlug(provider, providerStatus.connectedProviders);
+    if (connectConsentsFor(card?.provider ?? provider).length > 0) {
+      setConsentFor(provider);
+      return;
+    }
+    await connectProvider(provider);
+  }, [connectProvider, providerStatus.connectedProviders]);
 
   // A sign-in that could not complete hands over to its provider's OAuth
   // (carnet#1477): the window closes and the authorization starts instead.
@@ -456,9 +487,9 @@ export function ChatThread({
     (provider: SciotteTarget) => () => {
       closeSignIn();
       // The sign-in could not complete: never turned back into it (carnet#1667).
-      void providerStatus.handleConnectProvider(provider, undefined, false, true);
+      void providerStatus.handleConnectProvider(provider, undefined, false, true, signIn.consents);
     },
-    [closeSignIn, providerStatus],
+    [closeSignIn, providerStatus, signIn.consents],
   );
 
   // An app saved in the credentials sheet changes the status the gate above
@@ -535,21 +566,29 @@ export function ChatThread({
   // saving reply may be elsewhere, or not there at all. A row read back
   // carries no block list on the wire: its blocks are decoded from the row,
   // as its bubble decodes them.
-  const openDraftId = planDraftRead.open?.draft.draft_id ?? null;
+  const openDraftState = planDraftRead.open?.draft ?? null;
   const { messageBlocks } = messagesHook;
   const draftCarried = useMemo(
     () =>
-      openDraftId !== null &&
+      openDraftState !== null &&
       threadCarriesDraft(
         threadMessages.map((message) => messageBlocks[message.id] ?? transcriptBlocks(message)),
-        openDraftId,
+        openDraftState,
       ),
-    [openDraftId, threadMessages, messageBlocks],
+    [openDraftState, threadMessages, messageBlocks],
   );
   const openDraft = draftCarried ? null : planDraftRead.open;
+  // "Edit day" on every entry of the thread's plan cards, and "Add a session"
+  // on every date with room (carnet#1515, #1714, #1716), on the condition the
+  // open draft is drawn on: a plan thread whose
+  // subject-plan read answered, which the server answers only for the
+  // thread's owner, about an athlete still sharing.
+  const buildsDays =
+    planSubjectName !== null && conversationId !== null && (planDraftRead.open !== null || planDraftRead.noDraft);
+  const onBuildPlanDay = buildsDays ? setEditing : undefined;
   const planDraft =
     openDraft !== null && conversationId !== null ? (
-      <PlanThreadOpenDraft conversationId={conversationId} open={openDraft} />
+      <PlanThreadOpenDraft conversationId={conversationId} open={openDraft} onBuildDay={onBuildPlanDay} />
     ) : null;
   // The empty plan thread's one-tap start while the coach holds no draft:
   // the plan request, sent in the coach's words under its label.
@@ -618,6 +657,7 @@ export function ChatThread({
         loadingEarlier={messagesHook.loadingEarlier}
         onReachStart={() => void messagesHook.loadEarlier()}
         privateLane={listLane}
+        onBuildPlanDay={onBuildPlanDay}
       />
 
       <UsageWarningBanner level={usageStatus.level} message={usageStatus.message} />
@@ -662,6 +702,17 @@ export function ChatThread({
         }}
       />
 
+      <ConnectConsentSheet
+        visible={consentFor !== null}
+        consents={consentFor ? connectConsentsFor(cardForSlug(consentFor, providerStatus.connectedProviders)?.provider ?? consentFor) : []}
+        onCancel={() => setConsentFor(null)}
+        onContinue={(keys) => {
+          const answered = consentFor;
+          setConsentFor(null);
+          if (answered) void connectProvider(answered, keys);
+        }}
+      />
+
       <IntervalsIcuLinkModal
         visible={intervalsSheet !== null}
         onClose={() => setIntervalsSheet(null)}
@@ -692,8 +743,18 @@ export function ChatThread({
           target={signIn.target}
           consentRequired={signIn.consentRequired}
           onFallBackToOAuth={signIn.fallback ? fallBackToOAuth(signIn.fallback) : undefined}
+          consents={signIn.consents}
         />
       )}
+
+      {buildsDays && planSubjectName !== null && conversationId !== null ? (
+        <SessionEditorSheet
+          conversationId={conversationId}
+          athleteName={planSubjectName}
+          target={editing}
+          onClose={() => setEditing(null)}
+        />
+      ) : null}
 
       <Sheet
         visible={providerStatus.needsCredentialsProvider !== null}

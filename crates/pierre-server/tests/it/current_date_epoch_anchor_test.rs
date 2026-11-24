@@ -16,8 +16,8 @@
 //! LLMs botch — so the scrape returned year-old activities. The fix carries
 //! the exact epoch so the model copies it instead of computing one.
 
-use chrono::Utc;
-use chrono_tz::America::Toronto;
+use dravr_tronc::dates::Timestamp;
+use dravr_tronc::dates::Zone;
 use pierre_chat_pipeline::stages::turn_clock::format_current_date;
 
 /// Mirrors `NOW_QUANTUM_SECS` in `turn_clock`. Duplicated deliberately:
@@ -38,13 +38,13 @@ fn epoch_for(rendered: &str, label: &str) -> i64 {
 
 #[test]
 fn anchor_carries_a_current_unix_epoch() {
-    let before = Utc::now().timestamp();
+    let before = Timestamp::now().epoch_seconds();
     let rendered = format_current_date(Some("America/Toronto"), "fr");
-    let after = Utc::now().timestamp();
+    let after = Timestamp::now().epoch_seconds();
 
     assert!(rendered.contains("America/Toronto"), "got: {rendered}");
     assert!(
-        rendered.contains(&Utc::now().format("%Y").to_string()),
+        rendered.contains(&Timestamp::now().format("%Y").unwrap()),
         "anchor must show the current year; got: {rendered}"
     );
 
@@ -103,31 +103,32 @@ fn anchor_carries_the_common_window_boundaries_ordered() {
 /// Sunday and never a 24-hour multiple that misses local midnight.
 #[test]
 fn the_week_starts_on_the_local_monday_at_midnight() {
-    use chrono::{Datelike, TimeZone, Timelike, Weekday};
+    use dravr_tronc::dates::Weekday;
 
     let rendered = format_current_date(Some("America/Toronto"), "en");
     let today0 = epoch_for(&rendered, "start of today");
     let week0 = epoch_for(&rendered, "start of this week");
 
     let local = |epoch: i64| {
-        Utc.timestamp_opt(epoch, 0)
-            .single()
-            .unwrap_or_else(|| panic!("bug: {epoch} is not an instant"))
-            .with_timezone(&Toronto)
+        Zone::from_name("America/Toronto").unwrap().civil_at(
+            Timestamp::from_epoch_seconds(epoch)
+                .ok()
+                .unwrap_or_else(|| panic!("bug: {epoch} is not an instant")),
+        )
     };
-    let today = local(today0).date_naive();
+    let today = local(today0).date();
     let mut monday = today;
     while monday.weekday() != Weekday::Mon {
-        monday = monday.pred_opt().expect("a day before");
+        monday = monday.pred().expect("a day before");
     }
     let week_start = local(week0);
     assert_eq!(
-        week_start.date_naive(),
+        week_start.date(),
         monday,
         "bug: the week starts on {week_start}, not on the Monday of {today}"
     );
     assert_eq!(
-        (week_start.hour(), week_start.minute()),
+        (week_start.time().hour(), week_start.time().minute()),
         (0, 0),
         "bug: the week does not start at local midnight: {week_start}"
     );
@@ -153,7 +154,7 @@ fn anchor_instructs_to_copy_not_compute_epochs() {
 /// This block is interpolated as `{{CURRENT_DATE}}` into the platform contract,
 /// which LEADS the system prompt. Prompt caching is a prefix match: one changed
 /// byte invalidates everything after it, and the render order is tools, then
-/// system, then messages. Carrying the raw `Utc::now().timestamp()` here moved
+/// system, then messages. Carrying the raw `Timestamp::now().epoch_seconds()` here moved
 /// the front of the prefix on every single request, so no provider could reuse
 /// any of the prompt behind it — including providers that cache implicitly on a
 /// stable prefix, with no `cache_control` needed.
@@ -223,14 +224,14 @@ fn the_clock_is_quantized_so_the_prefix_holds() {
 /// the answer, so the server says it.
 #[test]
 fn the_anchor_names_the_weekday() {
-    use chrono::Datelike;
-
     let rendered = format_current_date(Some("America/Toronto"), "fr");
-    let expected = ["lun", "mar", "mer", "jeu", "ven", "sam", "dim"][Utc::now()
-        .with_timezone(&Toronto)
-        .weekday()
-        .num_days_from_monday()
-        as usize];
+    let expected =
+        ["lun", "mar", "mer", "jeu", "ven", "sam", "dim"][Zone::from_name("America/Toronto")
+            .unwrap()
+            .date_at(Timestamp::now())
+            .weekday()
+            .num_days_from_monday()
+            as usize];
 
     assert!(
         rendered.contains(expected),
@@ -242,10 +243,9 @@ fn the_anchor_names_the_weekday() {
 /// The weekday follows the chat locale, like every other word the agent reads.
 #[test]
 fn the_anchor_weekday_is_localized() {
-    use chrono::Datelike;
-
-    let idx = Utc::now()
-        .with_timezone(&Toronto)
+    let idx = Zone::from_name("America/Toronto")
+        .unwrap()
+        .date_at(Timestamp::now())
         .weekday()
         .num_days_from_monday() as usize;
 

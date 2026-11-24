@@ -16,6 +16,8 @@
 //! without the change it pins.
 
 use crate::common;
+use crate::tier_consent_test::allow_outside_memory;
+use pierre_core::constants::oauth_providers::NoticeKind;
 
 use std::collections::BTreeSet;
 use std::sync::Arc;
@@ -23,7 +25,8 @@ use std::sync::Arc;
 use axum::body::{to_bytes, Body};
 use axum::http::{Request, StatusCode};
 use axum::Router;
-use chrono::{DateTime, Duration, NaiveTime, TimeZone, Utc};
+use dravr_tronc::dates::{CivilTime, Elapsed, Timestamp};
+use pierre_core::constants::oauth::providers::SENSITIVE_T2;
 use pierre_core::models::{DataSource, DeviceType, StoredHealthMetrics, TenantId};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::{Transport, TransportPolicy};
@@ -34,6 +37,7 @@ use pierre_mcp_server::routes::athlete_home::athlete_home_routes;
 use pierre_memory::{FactKind, FactSource};
 use pierre_providers::ai_scope;
 use pierre_services::parq;
+use pierre_services::provider_notice::grant_consent;
 use pierre_test_support::fit::FitWorkout;
 use pierre_tool_runtime::first_party_tools::FIRST_PARTY_SURFACE_ERROR_CODE;
 use pierre_tool_runtime::protocol::{UniversalExecutor, UniversalRequest, UniversalResponse};
@@ -200,6 +204,7 @@ fn assert_no_medical_fact(answer: &Value) {
 async fn recall_over_mcp_never_returns_a_medical_fact() {
     let res = common::create_test_server_resources().await.unwrap();
     let who = athlete(&res).await;
+    allow_outside_memory(&res.common.repos, who.tenant.as_uuid(), who.id).await;
     seed_parq(&res, &who).await;
     let app = ProviderToolRouter::build_http_app(&res);
     let authorization = grant(&res, &who);
@@ -223,6 +228,7 @@ async fn recall_over_mcp_never_returns_a_medical_fact() {
 async fn export_dossier_over_mcp_has_no_medical_bucket() {
     let res = common::create_test_server_resources().await.unwrap();
     let who = athlete(&res).await;
+    allow_outside_memory(&res.common.repos, who.tenant.as_uuid(), who.id).await;
     seed_parq(&res, &who).await;
     let app = ProviderToolRouter::build_http_app(&res);
 
@@ -262,7 +268,7 @@ async fn every_external_read_of_the_fact_lists_leaves_medical_rows_out() {
                     who.tenant,
                     who.id,
                     ai_scope::readable_policy(),
-                    &ai_scope::admit_derived,
+                    &ai_scope::admit_memory,
                 )
                 .await
                 .unwrap()
@@ -333,12 +339,12 @@ async fn blood_pressure_and_glucose_stay_off_external_transports() {
         )
         .await
         .unwrap();
-    let date = Utc::now() - Duration::days(1);
+    let date = Timestamp::now() - Elapsed::days(1);
     let reading = StoredHealthMetrics {
         id: String::new(),
         user_id: who.id.to_string(),
         data_source_id: source_id,
-        date: date.date_naive(),
+        date: date.utc_date(),
         weight_kg: Some(72.5),
         body_fat_pct: None,
         muscle_mass_kg: None,
@@ -359,7 +365,7 @@ async fn blood_pressure_and_glucose_stay_off_external_transports() {
             &who.tenant,
             &reading,
             WellnessWriteMode::FullDay,
-            Utc::now(),
+            Timestamp::now(),
         )
         .await
         .unwrap();
@@ -446,8 +452,12 @@ async fn an_external_client_cannot_store_a_medical_fact() {
     assert!(drafts.is_empty(), "{drafts:?}");
 }
 
+/// An admin's list follows the grant (carnet#1511, Q14 and Q25): a delegated
+/// connection, which holds no `admin`, adds the coach tools and nothing kept
+/// in the app; the admin's own API key, whose grant holds `admin`, lists the
+/// admin tools and the first-party-only ones too, and never an app-only one.
 #[tokio::test]
-async fn a_global_admin_holds_the_public_profile_on_mcp() {
+async fn a_global_admins_list_follows_the_grant_on_mcp() {
     let res = common::create_test_server_resources().await.unwrap();
     let who = athlete(&res).await;
     let app = ProviderToolRouter::build_http_app(&res);
@@ -462,21 +472,37 @@ async fn a_global_admin_holds_the_public_profile_on_mcp() {
         .await
         .unwrap();
     let as_admin = listed(&app, &authorization).await;
-    assert_eq!(
-        as_admin, as_athlete,
-        "the listing must not move with the role"
-    );
     assert!(
         !as_admin.iter().any(|name| name.starts_with("admin_")),
-        "{as_admin:?}"
+        "a delegated grant holds no admin: {as_admin:?}"
+    );
+    for hidden in HIDDEN_TOOLS {
+        assert!(
+            !as_admin.contains(hidden),
+            "{hidden} needs admin in the grant"
+        );
+    }
+    assert!(as_admin.contains("get_roster_overview"), "{as_admin:?}");
+    assert!(
+        as_athlete.iter().all(|name| as_admin.contains(name)),
+        "an admin is listed everything an athlete is"
     );
 
-    // An API key carries the self grant, `admin` scope included: the listing is
-    // the same for it too.
     let key = common::issue_test_api_key(&res.agent.database, who.id, "admin key")
         .await
         .unwrap();
-    assert_eq!(listed(&app, &format!("Bearer {key}")).await, as_athlete);
+    let with_key = listed(&app, &format!("Bearer {key}")).await;
+    assert!(
+        with_key.iter().any(|name| name.starts_with("admin_")),
+        "{with_key:?}"
+    );
+    for hidden in HIDDEN_TOOLS {
+        assert!(
+            with_key.contains(hidden),
+            "{hidden} is listed to an admin's key"
+        );
+    }
+    assert!(!with_key.contains("publish_training_plan"), "{with_key:?}");
 }
 
 #[tokio::test]
@@ -510,9 +536,11 @@ async fn the_a2a_card_offers_none_of_the_first_party_tools() {
 }
 
 /// 07:00 UTC `days_ago` days before today.
-fn morning(days_ago: i64) -> DateTime<Utc> {
-    let day = Utc::now().date_naive() - Duration::days(days_ago);
-    Utc.from_utc_datetime(&day.and_time(NaiveTime::from_hms_opt(7, 0, 0).unwrap()))
+fn morning(days_ago: i64) -> Timestamp {
+    let day = Timestamp::now().utc_date() - Elapsed::days(days_ago);
+    (day.and_time(CivilTime::from_hms(7, 0, 0).unwrap()))
+        .and_utc()
+        .unwrap()
 }
 
 /// Upload the ride of `days_ago` through the athlete's own route; its id.
@@ -640,7 +668,7 @@ async fn a_deep_upload_history_reads_its_rows_over_mcp() {
         &app,
         &grant(&res, &who),
         "get_training_history",
-        json!({"from": (Utc::now() - Duration::days(14)).format("%Y-%m-%d").to_string()}),
+        json!({"from": (Timestamp::now() - Elapsed::days(14)).utc_date().to_string()}),
     )
     .await;
     assert_eq!(answer["result"]["isError"], false, "{answer}");
@@ -653,4 +681,59 @@ async fn a_deep_upload_history_reads_its_rows_over_mcp() {
     );
     assert_eq!(result["coverage"]["complete"], true, "{answer}");
     assert!(result["coverage"]["note"].is_null(), "{answer}");
+}
+
+/// carnet#1544, slice 2: `get_health_records` declares a T2 stream, so an
+/// outside client is refused it for every kind, even with both of the
+/// athlete's tier consents given, and told the records are not served over
+/// this interface; Dravr's own agent reads it.
+#[tokio::test]
+async fn an_mcp_client_is_refused_every_kind_of_health_record() {
+    let res = common::create_test_server_resources().await.unwrap();
+    let who = athlete(&res).await;
+    allow_outside_memory(&res.common.repos, who.tenant.as_uuid(), who.id).await;
+    grant_consent(
+        &res.common.repos,
+        who.tenant.as_uuid(),
+        who.id,
+        SENSITIVE_T2,
+        NoticeKind::AiConsent,
+        "Health records",
+    )
+    .await
+    .unwrap();
+    let app = ProviderToolRouter::build_http_app(&res);
+    let authorization = grant(&res, &who);
+
+    for kind in ["labs", "clinical", "glucose", "self_reports"] {
+        let answer = mcp_call(
+            &app,
+            &authorization,
+            "get_health_records",
+            json!({ "kind": kind }),
+        )
+        .await;
+        assert_eq!(
+            answer["result"]["isError"], true,
+            "bug: {kind} was served over MCP: {answer}"
+        );
+        // An error result carries its payload as the second content part.
+        let refusal: Value = serde_json::from_str(
+            answer["result"]["content"][1]["text"]
+                .as_str()
+                .unwrap_or("null"),
+        )
+        .unwrap();
+        assert_eq!(
+            refusal["error_code"], "sensitive_tier_withheld",
+            "{kind}: {answer}"
+        );
+        assert_eq!(
+            refusal["tier"], "T2",
+            "{kind}: the lowest refused tier: {answer}"
+        );
+    }
+
+    let own = in_app(&res, &who, "get_health_records", json!({ "kind": "labs" })).await;
+    assert!(own.success, "bug: Dravr's own agent was refused: {own:?}");
 }

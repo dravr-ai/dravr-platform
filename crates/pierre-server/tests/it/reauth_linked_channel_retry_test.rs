@@ -20,11 +20,11 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
-use chrono::{Duration, Utc};
 use dravr_canot::channel::MessagingChannel;
 use dravr_canot::error::{MessagingError, MessagingResult};
 use dravr_canot::models::MAX_RETRY_ATTEMPTS;
 use dravr_canot::turn::ConversationTurnId;
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use http::HeaderMap;
 use pierre_core::models::messaging::{
     ChannelConfig, ChannelType, DeliveryReceipt, DeliveryStatus, IncomingMessage, MessageContent,
@@ -110,7 +110,7 @@ impl ScriptedChannel {
             message_id: "scripted".to_owned(),
             channel_message_id: None,
             status: DeliveryStatus::Sent,
-            timestamp: Utc::now(),
+            timestamp: Timestamp::now(),
             turn_id,
         }
     }
@@ -366,7 +366,7 @@ impl Fixture {
                 self.tenant,
                 provider,
                 Some("session_expired"),
-                Utc::now(),
+                Timestamp::now(),
             )
             .await
             .unwrap();
@@ -454,7 +454,7 @@ impl Fixture {
         let sql = "UPDATE messaging_outbound_queue SET next_retry_at = $1 WHERE id = $2";
         let changed = match self.database.backend() {
             DatabaseBackend::SQLite(sqlite) => sqlx::query(sql)
-                .bind(Utc::now())
+                .bind(Timestamp::now())
                 .bind(entry_id)
                 .execute(sqlite.pool())
                 .await
@@ -462,7 +462,7 @@ impl Fixture {
                 .rows_affected(),
             #[cfg(feature = "postgresql")]
             DatabaseBackend::PostgreSQL(pg) => sqlx::query(sql)
-                .bind(Utc::now())
+                .bind(Timestamp::now())
                 .bind(entry_id)
                 .execute(pg.pool())
                 .await
@@ -559,12 +559,10 @@ async fn a_refused_linked_chat_is_delivered_once_on_retry_with_a_valid_link() {
     assert_eq!(entry["user_id"], f.user_id.to_string());
     assert_eq!(entry["reauth_provider"], "sciotte_garmin");
     assert_eq!(entry["reauth_tenant_id"], f.tenant.to_string());
-    let send_by = chrono::DateTime::parse_from_rfc3339(entry["expires_at"].as_str().unwrap())
-        .unwrap()
-        .with_timezone(&Utc);
-    let remaining = send_by - Utc::now();
+    let send_by = Timestamp::parse_from_rfc3339(entry["expires_at"].as_str().unwrap()).unwrap();
+    let remaining = send_by - Timestamp::now();
     assert!(
-        remaining > Duration::hours(22) && remaining < Duration::hours(24),
+        remaining > Elapsed::hours(22) && remaining < Elapsed::hours(24),
         "the entry stops being sent an hour before the 24 h link dies: {remaining}"
     );
     let entry_id = entry["id"].as_str().unwrap().to_owned();
@@ -733,7 +731,7 @@ async fn an_entry_past_its_link_expiry_is_given_up_unsent() {
             user_id: Some(&user_id),
             channel_type: "whatsapp",
             payload: r#"{"to":"15145550653","text":"https://app.test/r/expired"}"#,
-            expires_at: Some(Utc::now() - Duration::minutes(1)),
+            expires_at: Some(Timestamp::now() - Elapsed::minutes(1)),
             reauth: Some(OutboundReauthGuard {
                 tenant_id: f.tenant,
                 provider: "sciotte_garmin",
@@ -779,11 +777,9 @@ async fn a_withdrawn_grants_refused_chat_is_retried_after_its_rows_are_deleted()
     );
     let queued = f.pending().await;
     assert_eq!(queued.len(), 1, "the refused chat is queued: {queued:?}");
-    let send_by = chrono::DateTime::parse_from_rfc3339(queued[0]["expires_at"].as_str().unwrap())
-        .unwrap()
-        .with_timezone(&Utc);
+    let send_by = Timestamp::parse_from_rfc3339(queued[0]["expires_at"].as_str().unwrap()).unwrap();
     assert!(
-        send_by - Utc::now() < Duration::hours(24),
+        send_by - Timestamp::now() < Elapsed::hours(24),
         "the queued copy stops before its link dies: {send_by}"
     );
 

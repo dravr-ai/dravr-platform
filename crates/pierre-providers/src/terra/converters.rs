@@ -14,7 +14,6 @@ use crate::models::{
     Activity, ActivityBuilder, SportType, StoredDailyActivity, StoredHealthMetrics,
     StoredRecoveryMetrics, StoredSleepSession,
 };
-use chrono::{DateTime, FixedOffset, Utc};
 use dravr_equilibre::{SleepStage, SleepStageType};
 use uuid::Uuid;
 
@@ -34,7 +33,7 @@ use super::constants::{
 };
 use super::models::{
     TerraActivity, TerraBody, TerraDaily, TerraSleep, TerraSleepDurations, TerraSleepStage,
-    TerraUser,
+    TerraTime, TerraUser,
 };
 
 /// Converter utilities for Terra to Pierre models
@@ -130,16 +129,12 @@ impl TerraConverters {
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     pub fn activity_from_terra(terra: &TerraActivity, terra_user: &TerraUser) -> Option<Activity> {
         let metadata = terra.metadata.as_ref()?;
-        let start_date = metadata.start_time?.with_timezone(&Utc);
+        let start_date = metadata.start_time?.at;
         let summary_id = metadata.summary_id.clone()?;
         let end_time = metadata.end_time;
 
         let duration_seconds = end_time
-            .map(|end| {
-                (end.with_timezone(&Utc) - start_date)
-                    .num_seconds()
-                    .unsigned_abs()
-            })
+            .map(|end| (end.at - start_date).num_seconds().unsigned_abs())
             .or_else(|| {
                 terra
                     .active_durations_data
@@ -202,8 +197,8 @@ impl TerraConverters {
     #[must_use]
     pub fn night_from_terra(terra: &TerraSleep) -> Option<StoredSleepSession> {
         let metadata = terra.metadata.as_ref()?;
-        let start = metadata.start_time?.with_timezone(&Utc);
-        let end = metadata.end_time?.with_timezone(&Utc);
+        let start = metadata.start_time?.at;
+        let end = metadata.end_time?.at;
         let durations = terra.sleep_durations_data.as_ref();
         let seconds = |field: fn(&TerraSleepDurations) -> Option<f64>| {
             durations.and_then(field).and_then(whole_seconds)
@@ -351,7 +346,7 @@ impl TerraConverters {
             id: Uuid::new_v4().to_string(),
             user_id: String::new(),
             data_source_id: String::new(),
-            date: start.date_naive(),
+            date: start.local_date(),
             steps: terra
                 .distance_data
                 .as_ref()
@@ -361,7 +356,7 @@ impl TerraConverters {
             total_kcal: calories.and_then(|c| c.total_burned_calories),
             intensity_minutes,
             source_name: TERRA.to_owned(),
-            recorded_at: start.with_timezone(&Utc),
+            recorded_at: start.at,
         };
         (day.steps.is_some()
             || day.active_kcal.is_some()
@@ -387,7 +382,7 @@ impl TerraConverters {
             id: Uuid::new_v4().to_string(),
             user_id: String::new(),
             data_source_id: String::new(),
-            date: start.date_naive(),
+            date: start.local_date(),
             weight_kg: m.weight_kg,
             body_fat_pct: m.body_fat_percentage,
             muscle_mass_kg: m.muscle_mass_kg,
@@ -399,7 +394,7 @@ impl TerraConverters {
             blood_glucose: m.blood_glucose_mg_per_dl,
             vo2_max: None,
             source_name: TERRA.to_owned(),
-            recorded_at: start.with_timezone(&Utc),
+            recorded_at: start.at,
         };
         (body.weight_kg.is_some()
             || body.body_fat_pct.is_some()
@@ -491,12 +486,12 @@ fn score(value: f64) -> Option<u32> {
 
 /// A recovery day on `at`'s local date, holding no reading yet: unstamped,
 /// named `terra`.
-fn empty_recovery(at: DateTime<FixedOffset>) -> StoredRecoveryMetrics {
+fn empty_recovery(at: TerraTime) -> StoredRecoveryMetrics {
     StoredRecoveryMetrics {
         id: Uuid::new_v4().to_string(),
         user_id: String::new(),
         data_source_id: String::new(),
-        date: at.date_naive(),
+        date: at.local_date(),
         recovery_score: None,
         readiness_score: None,
         hrv_ms: None,
@@ -510,7 +505,7 @@ fn empty_recovery(at: DateTime<FixedOffset>) -> StoredRecoveryMetrics {
         daily_strain: None,
         athlete_note: None,
         source_name: TERRA.to_owned(),
-        recorded_at: at.with_timezone(&Utc),
+        recorded_at: at.at,
     }
 }
 

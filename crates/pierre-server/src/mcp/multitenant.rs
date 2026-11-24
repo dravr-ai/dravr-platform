@@ -32,16 +32,19 @@ use tracing::field::Empty;
 use tracing::{error, info, info_span, Level, Span};
 
 use crate::constants::service_names::PIERRE_MCP_SERVER;
+use crate::routes::access_feed::AccessFeedRoutes;
 #[cfg(feature = "tools-groups")]
 use crate::routes::coach_attention::CoachAttentionRoutes;
 #[cfg(feature = "tools-groups")]
 use crate::routes::coach_roster::CoachRosterRoutes;
 use crate::routes::contremaitre_webhook::routes as contremaitre_webhook_routes;
 use crate::routes::oauth_grants::OAuthGrantsRoutes;
+use crate::routes::request_support::declare_support_session;
 use crate::routes::request_transport::declare_request_transport;
 #[cfg(feature = "client-settings")]
 use crate::routes::{
-    athlete_gear, athlete_home, imports, user_profile::routes as user_profile_routes,
+    athlete_gear, athlete_home, device_health, health_records, imports,
+    user_profile::routes as user_profile_routes,
 };
 use crate::routes::{
     calendar_preference::CalendarPreferenceRoutes, check_in::CheckInRoutes,
@@ -55,8 +58,9 @@ use axum::extract::Request;
 use axum::middleware;
 use axum::response::Response;
 use axum::Router;
+use dravr_tronc::server::trace_context::TraceContext;
 use pierre_llm::health::{LlmHealthSnapshot, LlmHealthState, LlmHealthStatus};
-use pierre_logging::request_trace::{self, CLOUD_TRACE_CONTEXT_HEADER, TRACEPARENT_HEADER};
+use pierre_logging::request_trace::{self, CLOUD_TRACE_CONTEXT_HEADER};
 #[cfg(feature = "telemetry")]
 use pierre_middleware::telemetry_middleware;
 use pierre_middleware::{
@@ -109,11 +113,12 @@ fn http_request_span(request: &Request<Body>) -> Span {
         .get::<RequestId>()
         .map(|id| id.0.as_str());
     let headers = request.headers();
-    let header = |name: &str| headers.get(name).and_then(|value| value.to_str().ok());
-    let cloud_trace_id = request_trace::inbound_trace_id(
-        header(TRACEPARENT_HEADER),
-        header(CLOUD_TRACE_CONTEXT_HEADER),
-    );
+    let trace_context = TraceContext::from_headers(headers);
+    let cloud_trace_context = headers
+        .get(CLOUD_TRACE_CONTEXT_HEADER)
+        .and_then(|value| value.to_str().ok());
+    let cloud_trace_id =
+        request_trace::inbound_trace_id(trace_context.as_ref(), cloud_trace_context);
     info_span!(
         "request",
         method = %request.method(),
@@ -370,8 +375,6 @@ impl ProviderToolRouter {
         use crate::routes::api_keys::ApiKeyRoutes;
         #[cfg(feature = "client-messaging")]
         use crate::routes::commands::CommandRoutes;
-        #[cfg(feature = "client-settings")]
-        use crate::routes::fitness::FitnessConfigurationRoutes;
         #[cfg(feature = "protocol-mcp")]
         use crate::routes::mcp::McpRoutes;
         #[cfg(all(feature = "client-chat", feature = "client-messaging"))]
@@ -403,8 +406,6 @@ impl ProviderToolRouter {
         use pierre_routes_identity::UserOAuthAppRoutes;
         #[cfg(feature = "client-admin-ui")]
         use pierre_routes_web_admin::WebAdminRoutes;
-        #[cfg(feature = "transport-sse")]
-        use pierre_sse::SseRoutes;
 
         #[cfg(feature = "client-admin-api")]
         use crate::config::routes::{admin_config_router, AdminConfigState};
@@ -481,7 +482,7 @@ impl ProviderToolRouter {
                 admin_context.approval_notifier = Some(ApprovalNotifier::from_context(resources));
             }
             // The same chokepoint the athlete's own disconnect runs through, so
-            // an operator disconnect or delete revokes every grant upstream.
+            // an admin disconnect or delete revokes every grant upstream.
             admin_context.provider_disconnector = Some(Arc::new(OAuthService::new(
                 resources.data(),
                 resources.common.config.clone(),
@@ -498,7 +499,7 @@ impl ProviderToolRouter {
             // An account reset asked to delete the groups the account owns
             // archives each through the owner's own delete.
             admin_context.group_service = Some(Arc::clone(&resources.common.group_service));
-            // The operator clone stores a scrape session through the same
+            // The admin clone stores a scrape session through the same
             // write and data warm-up a sciotte login runs.
             #[cfg(all(feature = "provider-sciotte", feature = "protocol-rest"))]
             {
@@ -595,6 +596,7 @@ impl ProviderToolRouter {
                 config: Arc::new(resources.common.config.oauth2_server.clone()),
                 rate_limiter: resources.auth.oauth2_rate_limiter.clone(),
                 refresh_token_expiry_days: resources.common.config.auth.refresh_token_expiry_days,
+                session_cookie_max_age_secs: resources.common.config.session_cookie.max_age_secs,
                 csrf_manager: resources.auth.csrf_manager.clone(),
                 accounts: resources.account_service(),
                 google_sign_in: resources.oauth2_google_sign_in(),
@@ -634,22 +636,6 @@ impl ProviderToolRouter {
         };
 
         // ═══════════════════════════════════════════════════════════════
-        // TRANSPORT ROUTES
-        // ═══════════════════════════════════════════════════════════════
-
-        #[cfg(feature = "transport-sse")]
-        let app = {
-            // Upcast Arc<ServerContext> → Arc<dyn SseCtx>. The turbofish pins
-            // `clone` to the concrete type so the binding can coerce it.
-            let sse_ctx: Arc<dyn pierre_runtime_context::SseCtx> =
-                Arc::<ServerContext>::clone(resources);
-            app.merge(SseRoutes::routes(
-                Arc::clone(&resources.sse.sse_manager),
-                sse_ctx,
-            ))
-        };
-
-        // ═══════════════════════════════════════════════════════════════
         // CLIENT-WEB ROUTES
         // ═══════════════════════════════════════════════════════════════
 
@@ -659,12 +645,13 @@ impl ProviderToolRouter {
 
         #[cfg(feature = "client-settings")]
         let app = app
-            .merge(FitnessConfigurationRoutes::routes(Arc::clone(resources)))
             .merge(pierre_routes_billing::billing_routes().with_state(Arc::clone(resources)))
             .merge(athlete_home::athlete_home_routes().with_state(Arc::clone(resources)))
             .merge(athlete_gear::athlete_gear_routes().with_state(Arc::clone(resources)))
+            .merge(health_records::health_records_routes().with_state(Arc::clone(resources)))
             .merge(imports::import_routes().with_state(Arc::clone(resources)))
             .merge(imports::internal_import_routes(resources).with_state(Arc::clone(resources)))
+            .merge(device_health::device_health_routes().with_state(Arc::clone(resources)))
             .merge(user_profile_routes().with_state(Arc::clone(resources)));
 
         // Webhook routes for provider-pushed health data (WHOOP, Garmin, Oura)
@@ -682,6 +669,8 @@ impl ProviderToolRouter {
 
         // Connected-apps management: list/revoke a user's MCP OAuth client grants.
         let app = app.merge(OAuthGrantsRoutes::routes(Arc::clone(resources)));
+        // The owner feed: who read the athlete's data, beside its Revoke.
+        let app = app.merge(AccessFeedRoutes::routes(Arc::clone(resources)));
 
         #[cfg(feature = "client-chat")]
         let app = app
@@ -845,7 +834,18 @@ impl ProviderToolRouter {
         // names: an API key is a caller outside Dravr's apps, so a provider
         // whose terms keep its data first-party is withheld from it
         // (carnet#724).
-        app.layer(middleware::from_fn(declare_request_transport))
+        let app = app.layer(middleware::from_fn(declare_request_transport));
+
+        // ═══════════════════════════════════════════════════════════════
+        // SUPPORT SESSION LAYER
+        // ═══════════════════════════════════════════════════════════════
+        // A request an admin makes acting as a user on the web is served in
+        // its support session, so every read it records on a member's record
+        // names the admin, not the coach (carnet#1511).
+        app.layer(from_fn_with_state(
+            Arc::clone(&resources.auth.auth_middleware),
+            declare_support_session,
+        ))
     }
 
     /// Create health check routes for Axum.
@@ -859,10 +859,10 @@ impl ProviderToolRouter {
     /// * `/ready` — readiness probe gated on the LLM startup probe.
     ///   Returns 200 while the probe is in flight (status `Unknown`) or
     ///   has succeeded, and 503 once the probe has reported `Unhealthy`.
-    ///   Operators who want a hard gate on LLM availability can point
+    ///   Admins who want a hard gate on LLM availability can point
     ///   Cloud Run's startup probe at this path instead of `/health`.
     /// * `/health/llm` — JSON snapshot of the latest LLM probe outcome
-    ///   for operator introspection (provider, error, timestamp).
+    ///   for admin introspection (provider, error, timestamp).
     fn create_axum_health_routes(llm_health: Arc<LlmHealthState>) -> Router {
         use axum::extract::State;
         use axum::http::StatusCode;
@@ -873,13 +873,6 @@ impl ProviderToolRouter {
             Json(serde_json::json!({
                 "status": "ok",
                 "service": PIERRE_MCP_SERVER
-            }))
-        }
-
-        async fn plugins_health_handler() -> Json<serde_json::Value> {
-            Json(serde_json::json!({
-                "status": "ok",
-                "plugins": []
             }))
         }
 
@@ -907,7 +900,6 @@ impl ProviderToolRouter {
 
         Router::new()
             .route("/health", get(health_handler))
-            .route("/health/plugins", get(plugins_health_handler))
             .route("/ready", get(ready_handler))
             .route("/health/llm", get(llm_health_handler))
             .with_state(llm_health)

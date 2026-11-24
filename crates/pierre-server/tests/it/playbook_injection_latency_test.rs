@@ -34,7 +34,7 @@ use std::hint::black_box;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::{Activity, ActivityBuilder, SportType, TenantId};
 use pierre_database::repositories::{ArchetypePriorUpsert, RecordedOutcome};
 use pierre_database::RepositoryRegistry;
@@ -48,6 +48,7 @@ use uuid::Uuid;
 
 use crate::db_fixtures;
 use db_fixtures::{create_test_db, seed_user};
+use dravr_tronc::dates::Elapsed;
 
 /// Iterations per scenario — enough for a stable average on sub-millisecond ops.
 const ITERS: u32 = 300;
@@ -128,8 +129,8 @@ async fn time_one_injection(
     if playbooks.is_empty() {
         let t = Instant::now();
         if let (Ok(uuid), Ok(tenant)) = (Uuid::parse_str(user_id), TenantId::parse_str(tenant_id)) {
-            let end = Utc::now();
-            let start = end - chrono::Duration::days(120);
+            let end = Timestamp::now();
+            let start = end - Elapsed::days(120);
             if let Ok(acts) = repos
                 .activity_cache
                 .get_cached_activities(uuid, &tenant, None, start, end, 100)
@@ -196,8 +197,9 @@ async fn seed_playbooks(repos: &RepositoryRegistry, tenant: &str, user: &str, n:
                 intervention: &intervention,
                 outcome_metric: &metric,
                 label,
-                at: Utc::now(),
+                at: Timestamp::now(),
                 transport_policy: TransportPolicy::AnyTransport,
+                ai_consent_sources: &[],
             };
             repos
                 .playbooks
@@ -252,7 +254,7 @@ fn activity(i: usize) -> Activity {
         format!("act-{i}"),
         format!("Run {i}"),
         SportType::Run,
-        Utc::now() - chrono::Duration::days(i64::try_from(i % 100).unwrap_or(0) + 1),
+        Timestamp::now() - Elapsed::days(i64::try_from(i % 100).unwrap_or(0) + 1),
         3_600,
         "strava".to_owned(),
     )

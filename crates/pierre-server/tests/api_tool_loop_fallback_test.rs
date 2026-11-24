@@ -25,7 +25,9 @@
 //! - (c) a second Anthropic account behind the first keeps the API loop;
 //! - (d) an empty answer from the head is a lost turn the tail serves;
 //! - (e) a head that spends its iteration budget is not rerouted;
-//! - (f) a head error that is not a provider fault is not rerouted;
+//! - (f) a head that rejects one request and answers the probe is not rerouted;
+//! - (m) a head that rejects every request, the probe included, is benched and
+//!   the tail serves, on the API loop and on the headless loop;
 //! - (g) driven through the chat pipeline, an Anthropic head opens the turn's
 //!   MCP tool session for the Copilot tier behind it;
 //! - (h) an API head refused on quota is not asked again while its cooldown in
@@ -84,6 +86,9 @@ const ROUND_TRIP_TOOL: &str = "get_connection_status";
 /// What the Copilot-shaped tail answers.
 const TAIL_ANSWER: &str = "Tu es connecté à Strava.";
 
+/// What a dead account answers every request with, worded as a rejection.
+const DEAD_ACCOUNT: &str = "Your credit balance is too low to access the API.";
+
 /// The MCP server name the turn hands the Copilot runtime.
 const TURN_MCP_SERVER: &str = PLATFORM_MCP_SERVER_NAME;
 
@@ -95,8 +100,9 @@ enum Step {
     /// An HTTP 503 from the provider: a provider fault that is not a quota
     /// refusal, so the turn falls to the tail but no cooldown starts.
     Unavailable,
-    /// An HTTP 400 the provider read and refused: the caller's fault, not the
-    /// provider's, so no other tier would answer it differently.
+    /// An HTTP 400 the provider read and refused. From a live account it is
+    /// the caller's fault and no other tier would answer it differently; from
+    /// a dead one (Anthropic's spent credit is a 400) it is every answer.
     Rejects,
     /// A structured call of `ROUND_TRIP_TOOL`.
     CallsTool,
@@ -265,6 +271,9 @@ struct ScriptedSdk {
     /// Whether those failures are quota refusals (`RateLimit`) or a provider
     /// fault that is not one (`ExternalService`).
     refuses_on_quota: bool,
+    /// A dead account whose every answer, to a turn and to the probe alike,
+    /// is a rejected request.
+    rejects_everything: bool,
     conversed: Mutex<Vec<ChatRequest>>,
     completes: AtomicUsize,
     models: Vec<String>,
@@ -287,11 +296,26 @@ impl ScriptedSdk {
         Self::failing(name, faults, false)
     }
 
+    /// A tier that rejects every request as invalid, the probe included.
+    fn rejecting(name: &'static str) -> Arc<Self> {
+        Self::built(name, 0, false, true)
+    }
+
     fn failing(name: &'static str, failures: usize, on_quota: bool) -> Arc<Self> {
+        Self::built(name, failures, on_quota, false)
+    }
+
+    fn built(
+        name: &'static str,
+        failures: usize,
+        on_quota: bool,
+        rejects_everything: bool,
+    ) -> Arc<Self> {
         Arc::new(Self {
             name,
             refusals_left: AtomicUsize::new(failures),
             refuses_on_quota: on_quota,
+            rejects_everything,
             conversed: Mutex::new(Vec::new()),
             completes: AtomicUsize::new(0),
             models: vec!["claude-sonnet-5.5".to_owned()],
@@ -327,6 +351,9 @@ impl EmbacleLlmProvider for ScriptedSdk {
         // What embacle's chain used to do with the head's tool-carrying
         // request: a session with no tools, answering without data.
         self.completes.fetch_add(1, Ordering::SeqCst);
+        if self.rejects_everything {
+            return Err(RunnerError::invalid_request(DEAD_ACCOUNT));
+        }
         Ok(ChatResponse {
             replay_blocks: None,
             content: "ungrounded".to_owned(),
@@ -351,6 +378,9 @@ impl EmbacleLlmProvider for ScriptedSdk {
 impl HeadlessTurnProvider for ScriptedSdk {
     async fn converse(&self, request: &ChatRequest) -> Result<HeadlessToolResponse, RunnerError> {
         self.conversed.lock().unwrap().push(request.clone());
+        if self.rejects_everything {
+            return Err(RunnerError::invalid_request(DEAD_ACCOUNT));
+        }
         let refused = self
             .refusals_left
             .try_update(Ordering::SeqCst, Ordering::SeqCst, |left| {
@@ -898,11 +928,16 @@ async fn a_cli_turn_that_runs_out_of_iterations_logs_the_cap() {
     );
 }
 
-/// (f) A head error that is not a provider fault comes back as it is: the
-/// request was refused as malformed, which no other tier would answer.
+/// (f) A head error that is not a provider fault comes back as it is when the
+/// head answers the probe: the request was refused as malformed, which no
+/// other tier would answer. The second opinion costs that one probe.
 #[tokio::test]
 async fn a_head_error_that_is_not_a_provider_fault_stays_on_the_head() {
-    let head = ScriptedApi::new("anthropic", vec![Step::Rejects]);
+    let head = ScriptedApi::scripted(
+        "anthropic",
+        vec![Step::Rejects],
+        Some(Step::Answers("pong")),
+    );
     let tail = ScriptedSdk::new();
     let chain = ChatProvider::Embacle(
         EmbacleProvider::chain(
@@ -945,6 +980,85 @@ async fn a_head_error_that_is_not_a_provider_fault_stays_on_the_head() {
         "a caller-side refusal never reaches the tail"
     );
     assert_eq!(tail.completes.load(Ordering::SeqCst), 0);
+    assert_eq!(
+        head.calls.load(Ordering::SeqCst),
+        2,
+        "the turn, then the probe the head answered"
+    );
+    assert!(!chain.is_tier_benched("anthropic"));
+}
+
+/// (m) The 2026-11-20 outage on the API loop: an Anthropic head whose spent
+/// credit reads as a rejected request, on every call. It cannot answer the
+/// probe either, so it is benched, the Copilot tail serves the turn, and the
+/// next turn does not ask it.
+#[tokio::test]
+async fn an_api_head_that_rejects_everything_is_benched_and_the_tail_serves() {
+    let head = ScriptedApi::scripted("anthropic", Vec::new(), Some(Step::Rejects));
+    let tail = ScriptedSdk::new();
+    let chain = ChatProvider::Embacle(
+        EmbacleProvider::chain(
+            vec![api_tier(&head), sdk_tier(&tail)],
+            QuotaCooldowns::default(),
+        )
+        .unwrap(),
+    );
+    let turns = TurnContext::new().await;
+
+    let (first, _) = turns.run(&chain).await;
+
+    assert_eq!(first.content, TAIL_ANSWER, "the tail served the turn");
+    assert_eq!(
+        head.calls.load(Ordering::SeqCst),
+        2,
+        "the head is asked the turn, then the probe"
+    );
+    assert!(chain.is_tier_benched("anthropic"));
+
+    let (second, _) = turns.run(&chain).await;
+
+    assert_eq!(second.content, TAIL_ANSWER);
+    assert_eq!(
+        head.calls.load(Ordering::SeqCst),
+        2,
+        "a benched head is passed over on the next turn"
+    );
+    assert_eq!(tail.conversed.lock().unwrap().len(), 2);
+}
+
+/// (m) The same on the headless loop: a Copilot head that rejects every turn
+/// and cannot answer the probe hands the turn to the API tier behind it.
+#[tokio::test]
+async fn a_headless_head_that_rejects_everything_is_benched_and_the_tail_serves() {
+    let head = ScriptedSdk::rejecting("copilot_sdk");
+    let tail = ScriptedApi::scripted(
+        "anthropic",
+        Vec::new(),
+        Some(Step::Answers("Réponse du second palier.")),
+    );
+    let chain = ChatProvider::Embacle(
+        EmbacleProvider::chain(
+            vec![sdk_tier(&head), api_tier(&tail)],
+            QuotaCooldowns::default(),
+        )
+        .unwrap(),
+    );
+    let turns = TurnContext::new().await;
+
+    let (first, _) = turns.run(&chain).await;
+
+    assert_eq!(first.content, "Réponse du second palier.");
+    assert!(chain.is_tier_benched("copilot_sdk"));
+    assert_eq!(head.conversed.lock().unwrap().len(), 1);
+
+    let (second, _) = turns.run(&chain).await;
+
+    assert_eq!(second.content, "Réponse du second palier.");
+    assert_eq!(
+        head.conversed.lock().unwrap().len(),
+        1,
+        "a benched head is passed over on the next turn"
+    );
 }
 
 /// (g) Through the chat pipeline: an Anthropic head opens the turn's MCP tool
@@ -1018,6 +1132,7 @@ async fn the_pipeline_opens_the_tool_session_for_a_copilot_tier_behind_an_api_he
             ambient_group_fallback: false,
             command_persistence: CommandPersistence::Always,
             sender_id: None,
+            caller: None,
             hooks: PipelineHooks::none(),
             grant: OAuthScope::self_grant(),
         },

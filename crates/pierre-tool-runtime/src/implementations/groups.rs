@@ -85,6 +85,7 @@ use super::group_member_plan::GetGroupMemberPlanStatusTool;
 use super::group_roster::GetRosterOverviewTool;
 use super::provider_roster::GetProviderRosterTool;
 use crate::activity_fetch::{connection_grant_beside_session, fetch_provider_activities};
+use crate::coach_assistant;
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
     answers_with, object_schema, ok_typed, task_capable, tool_definition, tool_result_to_response,
@@ -416,6 +417,9 @@ struct AuthorizedRead {
     /// What the coaching gates answered, when the requester reads them as
     /// that group's human coach; `None` for a peer's read.
     as_coach: Option<CoachedAthleteAccess>,
+    /// The membership the read is authorized through: whose record, in
+    /// which group, a peer's read goes on.
+    membership: GroupMember,
 }
 
 /// Authorize the requester's read of the member `rows` hold, trying each row
@@ -449,6 +453,7 @@ async fn authorize(
                         display_name: access.display_name.clone(),
                         group_name: access.group.name.clone(),
                         as_coach: Some(access),
+                        membership: row.member.clone(),
                     }));
                 }
                 // The two gates that fail before the member is shown to be
@@ -461,6 +466,7 @@ async fn authorize(
                 display_name: row.display_name.clone(),
                 group_name: row.group_name.clone(),
                 as_coach: None,
+                membership: row.member.clone(),
             }));
         } else {
             ToolResult::error(peer_refusal(row))
@@ -638,9 +644,9 @@ impl McpTool<dyn ToolRuntime> for GetGroupMemberActivitiesTool {
 
         answers_with::<GroupMemberActivitiesResult>(task_capable(tool_definition(
             "get_group_member_activities",
-            "Fetch a CONSENTING group member's recent or past activities. This is the ONLY way to \
-             read a peer's data in a group chat — `get_activities` always returns YOUR own data, \
-             never a peer's. Returns an error (not data), whose `reason` says why, if the member \
+            "Fetch a CONSENTING group member's recent or past activities. In a group chat this is \
+             how you read a peer's data: `get_activities` there returns YOUR own data, never a \
+             peer's. Returns an error (not data), whose `reason` says why, if the member \
              has not shared their data with you: with the group via `/group consent yes`, or \
              with you as the group's coach (joining grants it, `/group consent coach no` \
              revokes it).",
@@ -693,10 +699,11 @@ impl McpTool<dyn ToolRuntime> for GetGroupMemberActivitiesTool {
                 Err(refused) => return Ok(refused),
             };
             let Scan {
-                matches,
+                mut matches,
                 requester_matched,
                 coach_access_off,
             } = scan_shared_rosters(&data, requester, &query_lower, scope.pin()).await?;
+            let for_coach_assistant = coach_assistant::serving_coach_assistant();
 
             // A self-lookup used to fall through to the generic "no member
             // matching" error — a dead end with no gradient out, since no
@@ -726,6 +733,29 @@ impl McpTool<dyn ToolRuntime> for GetGroupMemberActivitiesTool {
                 ));
             }
 
+            // The AI assistant a coach connects reads a member as their coach
+            // only, and only one who allowed it (carnet#1511): a peer's
+            // in-group sharing never reaches an outside assistant, and a
+            // member left out answers as no one, so it never learns which.
+            if for_coach_assistant {
+                matches.retain(|row| row.requester_is_coach && coach_assistant::includes(&row.member));
+                if matches.is_empty() {
+                    let mut message = coach_assistant::not_included_message(member_query);
+                    // The no-group note is for an admin who leads no active
+                    // group (Q24); an admin who leads one just missed a name.
+                    if ctx.is_admin
+                        && matches!(
+                            roster_access(data.repos(), requester).await?,
+                            RosterAccess::NotACoach
+                        )
+                    {
+                        message.push(' ');
+                        message.push_str(coach_assistant::ADMIN_NO_GROUP_NOTE);
+                    }
+                    return Ok(ToolResult::error(json!({ "reason": "no_match", "error": message })));
+                }
+            }
+
             let rows = match resolve_unique_peer(&matches, member_query, &scope) {
                 Ok(rows) => rows,
                 Err(payload) => return Ok(ToolResult::error(payload)),
@@ -745,8 +775,9 @@ impl McpTool<dyn ToolRuntime> for GetGroupMemberActivitiesTool {
                 in_room = matches!(scope, ScanScope::Room(_)),
                 "get_group_member_activities: authorized consent-gated member fetch"
             );
-            // A coach's read of their athlete goes on the athlete's own record
-            // before anything of theirs is read (carnet#1445).
+            // The read goes on the member's own record before anything of
+            // theirs is read: a coach's as a coach read (carnet#1445), a
+            // fellow member's as a peer read (carnet#1543).
             if let Some(access) = &resolved.as_coach {
                 read_subject::record_coach_read(
                     data.repos(),
@@ -754,6 +785,14 @@ impl McpTool<dyn ToolRuntime> for GetGroupMemberActivitiesTool {
                     requester,
                     TOOL_NAME,
                     CoachReadClass::Training,
+                )
+                .await?;
+            } else {
+                read_subject::record_peer_read(
+                    data.repos(),
+                    &resolved.membership,
+                    requester,
+                    TOOL_NAME,
                 )
                 .await?;
             }
@@ -879,20 +918,22 @@ impl McpTool<dyn ToolRuntime> for GetGroupMemberActivitiesTool {
 // Guardian security classifications (see `crate::security`). Co-located here so
 // each impl sits under this module's existing feature gate; the compiler forces
 // every registered tool to classify (the registry stores `Arc<dyn RuntimeTool>`).
-// A coach's tool over other athletes' data: Dravr's own surfaces list and run
-// it, an MCP client or an A2A agent never sees it (`crate::first_party_tools`).
-crate::declare_security!(GetGroupMemberActivitiesTool => empty; first_party_only);
+// A coach's tool over other members' data: listed and run over every
+// transport for a human coach or an admin (`crate::tool_access`), and
+// externally it shows only the members who allowed their coach's assistant
+// (`crate::coach_assistant`).
+crate::declare_security!(GetGroupMemberActivitiesTool => empty; coach);
 
 #[cfg(test)]
 mod tests {
-    use chrono::{TimeZone, Utc};
+    use dravr_tronc::dates::Timestamp;
     use pierre_core::models::{ActivityBuilder, SportType};
 
     use super::*;
 
     #[test]
     fn a_peer_activity_carries_its_exact_duration() {
-        let start = Utc.with_ymd_and_hms(2026, 10, 13, 17, 0, 0).unwrap();
+        let start = Timestamp::parse_from_rfc3339("2026-10-13T17:00:00Z").unwrap();
         let run = ActivityBuilder::new("r1", "Course", SportType::Run, start, 3_239, "strava")
             .distance_meters(6_100.0)
             .build();
@@ -901,7 +942,7 @@ mod tests {
 
     #[test]
     fn a_scraped_peer_activity_names_the_service_not_the_backend() {
-        let start = Utc.with_ymd_and_hms(2026, 10, 13, 17, 0, 0).unwrap();
+        let start = Timestamp::parse_from_rfc3339("2026-10-13T17:00:00Z").unwrap();
         for origin in ["garmin", "strava", "coros", "trainingpeaks"] {
             let ride =
                 ActivityBuilder::new("g1", "Sortie", SportType::Ride, start, 3_600, "sciotte")

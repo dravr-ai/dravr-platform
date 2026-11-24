@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-import type { OnboardingProgressItem, OnboardingStepStatus } from '../onboarding/steps';
+import type { OnboardingProgressItem, OnboardingStepStatus } from '@pierre/shared-constants/onboarding';
 import { settledByInviteLine, settledByInviteSegments } from '@pierre/shared-constants';
 import { useTranslation } from '@pierre/i18n';
 

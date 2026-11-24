@@ -13,7 +13,7 @@ use crate::common;
 use common::placeholder_llm_chain;
 use secrecy::ExposeSecret;
 
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_auth::api_keys::{ApiKeyTier, CreateApiKeyRequest};
 use pierre_auth::auth::{AuthManager, AuthMethod, AuthResult};
 use pierre_config::environment::{
@@ -22,7 +22,7 @@ use pierre_config::environment::{
     GoalManagementConfig, HttpClientConfig, LogLevel, LoggingConfig, McpConfig, MonitoringConfig,
     OAuth2ServerConfig, OAuthConfig, OAuthProviderConfig, PostgresPoolConfig, ProtocolConfig,
     RateLimitConfig, SciotteServiceConfig, SecurityConfig, SecurityHeadersConfig, ServerConfig,
-    SleepToolParamsConfig, SseConfig, StravaApiConfig, TlsConfig, TokioRuntimeConfig,
+    SessionCookieConfig, SleepToolParamsConfig, StravaApiConfig, TlsConfig, TokioRuntimeConfig,
     TrainingZonesConfig,
 };
 use pierre_core::models::User;
@@ -41,12 +41,15 @@ fn create_test_auth_result(user_id: Uuid) -> AuthResult {
     AuthResult {
         scopes: OAuthScope::self_grant(),
         client_id: None,
+        grant_id: None,
         user_id,
         auth_method: AuthMethod::JwtToken {
             tier: "free".to_owned(),
             impersonation: None,
         },
         active_tenant_id: None,
+        client_grant_id: None,
+        ceiling: None,
     }
 }
 
@@ -152,25 +155,11 @@ async fn create_test_setup() -> (ApiKeyRoutes, Uuid, AuthResult) {
                         },
                     },
                     external_services: ExternalServicesConfig {
-                        strava_api: StravaApiConfig {
-                            base_url: "https://www.strava.com/api/v3".to_owned(),
-                            auth_url: "https://www.strava.com/oauth/authorize".to_owned(),
-                            token_url: "https://www.strava.com/oauth/token".to_owned(),
-                            revoke_url: "https://www.strava.com/oauth/revoke".to_owned(),
-                            ..Default::default()
-                        },
-                        garmin_api: GarminApiConfig {
-                            base_url: "https://apis.garmin.com/wellness-api/rest".to_owned(),
-                            auth_url: "https://connect.garmin.com/oauth2Confirm".to_owned(),
-                            token_url: "https://diauth.garmin.com/di-oauth2-service/oauth/token"
-                                .to_owned(),
-                            revoke_url:
-                                "https://apis.garmin.com/wellness-api/rest/user/registration"
-                                    .to_owned(),
-                            ..Default::default()
-                        },
+                        strava_api: StravaApiConfig::default(),
+                        garmin_api: GarminApiConfig::default(),
                         sciotte: SciotteServiceConfig::default(),
                         meta_graph_api_base: None,
+                        overpass_api_base: None,
                     },
                     app_behavior: AppBehaviorConfig {
                         max_activities_fetch: 100,
@@ -185,7 +174,7 @@ async fn create_test_setup() -> (ApiKeyRoutes, Uuid, AuthResult) {
                             server_version: env!("CARGO_PKG_VERSION").to_owned(),
                         },
                     },
-                    sse: SseConfig::default(),
+                    session_cookie: SessionCookieConfig::default(),
                     oauth2_server: OAuth2ServerConfig::default(),
                     host: "localhost".to_owned(),
                     base_url: "http://localhost:8081".to_owned(),
@@ -233,6 +222,8 @@ async fn create_test_setup() -> (ApiKeyRoutes, Uuid, AuthResult) {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                lab_reader: None,
+                pdf_text_bin: None,
                 #[cfg(feature = "client-messaging")]
                 channel_adapters: common::offline_adapters(),
             },
@@ -366,7 +357,7 @@ async fn test_deactivate_api_key() {
         .unwrap();
 
     assert!(deactivate_response.message.contains("deactivated"));
-    assert!(deactivate_response.deactivated_at <= Utc::now());
+    assert!(deactivate_response.deactivated_at <= Timestamp::now());
 
     // Verify key is no longer active in the list
     let list_response = api_key_routes.list_api_keys(&auth).await.unwrap();
@@ -412,8 +403,8 @@ async fn test_get_api_key_usage_stats() {
     let key_id = &create_response.key_info.id;
 
     // Get usage stats (should be empty for new key)
-    let start_date = Utc::now() - Duration::days(30);
-    let end_date = Utc::now();
+    let start_date = Timestamp::now() - Elapsed::days(30);
+    let end_date = Timestamp::now();
 
     let usage_response = api_key_routes
         .get_api_key_usage(&auth, key_id, start_date, end_date)
@@ -435,8 +426,8 @@ async fn test_get_usage_stats_unauthorized_key() {
     // Auth is already AuthResult, no need for Bearer token
     let fake_key_id = "some_other_users_key";
 
-    let start_date = Utc::now() - Duration::days(30);
-    let end_date = Utc::now();
+    let start_date = Timestamp::now() - Elapsed::days(30);
+    let end_date = Timestamp::now();
 
     let result = api_key_routes
         .get_api_key_usage(&auth, fake_key_id, start_date, end_date)
@@ -496,7 +487,7 @@ async fn test_api_key_expiration() {
     // Verify expiration is set correctly
     assert!(response.key_info.expires_at.is_some());
     let expires_at = response.key_info.expires_at.unwrap();
-    let expected_expiry = Utc::now() + Duration::days(7);
+    let expected_expiry = Timestamp::now() + Elapsed::days(7);
 
     // Should be within 1 minute of expected (to account for test execution time)
     let diff = (expires_at - expected_expiry).num_seconds().abs();

@@ -15,10 +15,10 @@ use pierre_core::permissions::scopes::OAuthScope;
 use secrecy::SecretString;
 
 use anyhow::Result;
-use chrono::Utc;
 use dravr_cageux::analyzer::ActivityAnalyzer;
 use dravr_cageux::insights::ActivityContext;
 use dravr_cageux::metrics::MetricsCalculator;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::intelligence::{
     FitnessLevel, TimeAvailability, UserFitnessProfile, UserPreferences,
 };
@@ -31,6 +31,7 @@ use uuid::Uuid;
 
 use crate::common;
 use common::*;
+use dravr_tronc::dates::Elapsed;
 
 /// Test data flow from tool execution through intelligence analysis
 #[tokio::test]
@@ -85,7 +86,7 @@ async fn test_activity_analysis_through_universal_tools() -> Result<()> {
         "test_activity_001",
         "Morning Tempo Run",
         SportType::Run,
-        Utc::now() - chrono::Duration::hours(2),
+        Timestamp::now() - Elapsed::hours(2),
         3600, // 60 minutes
         "strava",
     )
@@ -256,7 +257,7 @@ async fn test_recommendation_engine_integration() -> Result<()> {
         "cycling_test_001",
         "Threshold Intervals",
         SportType::Ride,
-        Utc::now() - chrono::Duration::hours(1),
+        Timestamp::now() - Elapsed::hours(1),
         4500, // 75 minutes
         "strava",
     )
@@ -346,8 +347,8 @@ async fn test_goal_tracking_integration() -> Result<()> {
         "current_value": 0.0,
         "time_period": "monthly",
         "sport_type": "run",
-        "created_date": Utc::now().to_rfc3339(),
-        "target_date": (Utc::now() + chrono::Duration::days(30)).to_rfc3339()
+        "created_date": Timestamp::now().to_rfc3339(),
+        "target_date": (Timestamp::now() + Elapsed::days(30)).to_rfc3339()
     });
 
     let repos = database.repositories();
@@ -449,7 +450,7 @@ async fn test_track_progress_finds_a_goal_created_by_set_goal() -> Result<()> {
     // The dispatch chokepoint refuses provider-requiring tools for an athlete
     // with no data source at all, which would short-circuit before the goal
     // lookup this test is about.
-    let now = Utc::now();
+    let now = Timestamp::now();
     database
         .repositories()
         .oauth_tokens
@@ -461,7 +462,7 @@ async fn test_track_progress_finds_a_goal_created_by_set_goal() -> Result<()> {
             access_token: SecretString::from("test_access_token"),
             refresh_token: Some(SecretString::from("test_refresh_token")),
             token_type: "Bearer".to_owned(),
-            expires_at: Some(now + chrono::Duration::hours(6)),
+            expires_at: Some(now + Elapsed::hours(6)),
             scope: Some("activity:read_all".to_owned()),
             provider_user_id: None,
             oauth_app_client_id: None,
@@ -550,7 +551,7 @@ async fn test_set_goal_defaults_its_timeframe_and_refuses_what_it_cannot_measure
     let database = resources.agent.database.clone();
     let (user_id, _user, tenant_id) =
         create_test_user_with_plan(&database, "goal-defaults@example.com", "starter").await?;
-    let now = Utc::now();
+    let now = Timestamp::now();
     database
         .repositories()
         .oauth_tokens
@@ -562,7 +563,7 @@ async fn test_set_goal_defaults_its_timeframe_and_refuses_what_it_cannot_measure
             access_token: SecretString::from("test_access_token"),
             refresh_token: Some(SecretString::from("test_refresh_token")),
             token_type: "Bearer".to_owned(),
-            expires_at: Some(now + chrono::Duration::hours(6)),
+            expires_at: Some(now + Elapsed::hours(6)),
             scope: Some("activity:read_all".to_owned()),
             provider_user_id: None,
             oauth_app_client_id: None,
@@ -704,7 +705,7 @@ const POSTGRES_GOAL_ID_BACKFILL_SQL: &str =
 async fn plant_goal_row(db: &Database, id: &str, user_id: Uuid, goal_data: &serde_json::Value) {
     const SQL: &str = "INSERT INTO goals (id, user_id, goal_data, created_at, updated_at) \
                        VALUES ($1, $2, $3, $4, $4)";
-    let now = Utc::now();
+    let now = Timestamp::now();
     match db.backend() {
         DatabaseBackend::SQLite(d) => {
             sqlx::query(SQL)
@@ -838,7 +839,7 @@ fn create_test_activity(id: &str, sport_type: &SportType, distance: f64) -> Acti
         id,
         format!("Test {sport_type:?}"),
         sport_type.clone(),
-        Utc::now() - chrono::Duration::hours(1),
+        Timestamp::now() - Elapsed::hours(1),
         1800, // 30 minutes
         "test",
     )

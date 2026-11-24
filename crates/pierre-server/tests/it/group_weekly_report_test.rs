@@ -14,7 +14,7 @@ use crate::helpers;
 use std::sync::Arc;
 
 use axum::http::StatusCode;
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::models::agents::CreateAgentRequest;
 use pierre_core::models::groups::{CoachConsents, GroupMember, GroupRole};
 use pierre_core::models::CreateGroupRequest;
@@ -67,7 +67,7 @@ fn ride(days_ago: i64, secs: u32) -> Activity {
         format!("ride-{days_ago}"),
         format!("ride {days_ago}"),
         SportType::Ride,
-        Utc::now() - Duration::days(days_ago),
+        Timestamp::now() - Elapsed::days(days_ago),
         u64::from(secs),
         "strava".to_owned(),
     )
@@ -125,7 +125,7 @@ async fn add_member_consents(
     peer: bool,
     coach: bool,
 ) {
-    let now = Utc::now();
+    let now = Timestamp::now();
     res.common
         .repos
         .groups
@@ -287,15 +287,14 @@ async fn report_names_the_fresh_member_with_their_form_share_and_tsb() {
     // Yesterday evening's CTL minus ATL, as a share of yesterday's CTL: the
     // same numbers a reading taken tonight, after a ride today, would give.
     //
-    // An hour's ride here scores T = 51.84 TSS: cageux's pace fallback reads
-    // 8 m/s (125 s/km) against cycling's 120 s/km baseline as IF
-    // 120/125 x 0.75 = 0.72, and T = 1 h x 0.72^2 x 100. Forty minutes score
-    // 2T/3. The snapshot reads 60 days, and the
-    // series' first 42 are all hour rides, so CTL and ATL are seeded at T and
-    // held there until the taper. Seven days of 2T/3 then leave
-    // CTL = T(2/3 + (1/3)(41/42)^7) = 49.158 and
-    // ATL = T(2/3 + (1/3)(6/7)^7) = 40.434: TSB 8.724, 17.75% of CTL.
-    let hour = 0.72_f64.powi(2) * 100.0;
+    // An hour's ride here scores T = 42.25 TSS: with no power, heart rate or
+    // provider TSS, cageux scores a ride on its duration alone at IF 0.65,
+    // T = 1 h x 0.65^2 x 100. Forty minutes score 2T/3. The snapshot reads
+    // 60 days, and the series' first 42 are all hour rides, so CTL and ATL are
+    // seeded at T and held there until the taper. Seven days of 2T/3 then
+    // leave CTL = T(2/3 + (1/3)(41/42)^7) = 40.064 and
+    // ATL = T(2/3 + (1/3)(6/7)^7) = 32.954: TSB 7.110, 17.75% of CTL.
+    let hour = 0.65_f64.powi(2) * 100.0;
     let after_taper = |n: f64| {
         let keep = (1.0 - 1.0 / n).powi(7);
         hour * (2.0 / 3.0 + keep / 3.0)

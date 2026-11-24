@@ -21,15 +21,15 @@
 //! - [`PierreMethodHandler`] — serves the protocol areas the engine leaves open:
 //!   `resources/*` and `prompts/*`.
 
-use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
 use dravr_tronc::mcp::auth::{AuthError, AuthHook};
-use dravr_tronc::mcp::host::{CallToolOutcome, MethodHandler, ToolDispatcher};
-use dravr_tronc::mcp::protocol::{JsonRpcRequest, JsonRpcResponse};
+use dravr_tronc::mcp::canonical::to_canonical_value;
+use dravr_tronc::mcp::host::{CallToolOutcome, ToolDispatcher};
+use dravr_tronc::mcp::protocol::JsonRpcRequest;
 use dravr_tronc::mcp::schema::{
     OAuth2Capability, PromptsCapability, ResourcesCapability, ServerCapabilities, TaskSupport,
     Tool, ToolResponse, ToolSchema, ToolsCapability,
@@ -47,43 +47,45 @@ use pierre_core::auth_header::is_api_key_format;
 use pierre_core::models::TenantId;
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::Transport;
-use pierre_database::repositories::CoachTools;
 use pierre_mcp_transport::tenant_isolation::{extract_tenant_context_internal, log_tenant_failure};
-use pierre_middleware::rate_limiting::report_request_operation;
-use pierre_tool_runtime::coach_listing;
-use pierre_tool_runtime::context::AuthMethod;
+use pierre_middleware::rate_limiting::{
+    report_request_ceiling, report_request_credential, report_request_operation,
+};
+use pierre_providers::ai_scope;
+use pierre_tool_runtime::context::{AuthMethod, SUPPORT_SESSION};
 use pierre_tool_runtime::deployment_tools;
-use pierre_tool_runtime::first_party_tools;
 use pierre_tool_runtime::protocol::provider_offer::accept_no_provider_answer;
 use pierre_tool_runtime::protocol::{record_refused_admin_call, RefusedAdminCall};
+use pierre_tool_runtime::registry::ToolRegistry as RuntimeToolRegistry;
 use pierre_tool_runtime::runtime::ToolRuntime;
-use pierre_tool_runtime::schema_canonical::to_canonical_value;
 use pierre_tool_runtime::scopes::missing_scope;
+use pierre_tool_runtime::support_session::{CALLER_CREDENTIAL, END_TOOL};
 use pierre_tool_runtime::task_cancellation::scoped_with_cancel_flag;
+use pierre_tool_runtime::tool_access::{self, Caller, CallerRole};
 use serde_json::{Map, Value};
 use tokio::task::{JoinError, JoinHandle};
 use tokio::time::{sleep, timeout};
 use tracing::{debug, error, warn, Instrument};
 use uuid::Uuid;
 
-use super::prompt_templates::{self, PromptGetOutcome};
 use super::request_span::{record_caller, RequestSpanObserver};
-use super::resource_catalog;
 use super::resources::ServerContext;
 use super::task_signals::TaskSignals;
 use super::task_store::{PierreTaskStore, MCP_TASK_POLL_INTERVAL_MS, MCP_TASK_TTL_MS};
 use super::tool_handlers::ToolHandlers;
-use crate::constants::errors::{
-    ERROR_INTERNAL_ERROR, ERROR_INVALID_PARAMS, ERROR_RESOURCE_NOT_FOUND,
-};
+use crate::constants::errors::ERROR_INTERNAL_ERROR;
 use crate::constants::get_server_config;
 use crate::constants::protocol::{server_name_multitenant, SERVER_VERSION};
 
 /// RFC 6750 / RFC 9728 challenges and the transport refusal an auth failure maps to
 mod auth_challenge;
-mod scope_listing;
+/// The handler for the methods the engine leaves open: `resources/*` and `prompts/*`
+mod method_handler;
+/// An admin's support session through their assistant, as `/mcp` serves it (carnet#1511)
+mod support;
 
 use auth_challenge::{auth_refusal, insufficient_scope_challenge};
+pub use method_handler::PierreMethodHandler;
 
 /// Supported MCP protocol revisions advertised by the platform server, in
 /// preference order.
@@ -183,6 +185,27 @@ fn schema_to_tool(schema: ToolSchema) -> Tool {
     tool
 }
 
+/// The definition `tools/list` publishes for `schema`: the engine's [`Tool`],
+/// with a tool that needs a provider declaring the no-provider answer it may
+/// give instead of its declared output.
+///
+/// The one place a listed definition is shaped, so the hash a client pins
+/// (`Tool::def_hash`) and the one the catalog records are taken over the same
+/// definition (carnet#1543).
+pub(crate) fn published_tool(registry: &RuntimeToolRegistry, schema: ToolSchema) -> Tool {
+    let answers_no_provider = registry.get(&schema.name).is_some_and(|tool| {
+        tool.capabilities()
+            .contains(ToolCapabilities::REQUIRES_PROVIDER)
+    });
+    let mut tool = schema_to_tool(schema);
+    if answers_no_provider {
+        tool.output_schema = tool
+            .output_schema
+            .map(|declared| to_canonical_value(&accept_no_provider_answer(declared)));
+    }
+    tool
+}
+
 /// Resolves the instructions advertised in `initialize` from the prompt
 /// registry, on every handshake.
 ///
@@ -258,6 +281,8 @@ impl PierreAuthHook {
         let Some(tool_name) = called_tool(request) else {
             return;
         };
+        // Recorded once the credential was admitted; a refused one names none.
+        let credential = support::credential();
         record_refused_admin_call(
             &*self.resources,
             &RefusedAdminCall {
@@ -266,6 +291,7 @@ impl PierreAuthHook {
                 tenant_id: tenant,
                 transport: Transport::McpHttp,
                 protocol: "mcp",
+                credential: credential.as_ref(),
             },
         )
         .await;
@@ -355,6 +381,13 @@ impl AuthHook<dyn ToolRuntime> for PierreAuthHook {
         // The usage row an API key's request writes names the tool it
         // called, not `POST /mcp`, which serves every tool.
         report_request_operation(mcp_operation(request));
+        // The credential the audit trail names and a support session binds
+        // to (carnet#1511), which the engine's context cannot carry to the
+        // dispatcher.
+        report_request_credential(auth_result.caller_credential());
+        // And the ceiling of the consent grant it was admitted under, which
+        // the listing and the call read back (plan slice 3).
+        report_request_ceiling(auth_result.ceiling.clone());
 
         match extract_tenant_context_internal(
             &self.resources.common.repos,
@@ -679,26 +712,19 @@ impl PierreToolDispatcher {
                     .map(|t| t.tool_name)
                     .collect();
 
+                // Every enabled tool, the admin tools included: who is offered
+                // which is the access predicate's, run on the whole listing.
                 let mut schemas = self
                     .resources
                     .mcp
                     .tool_registry
                     .list_schemas_by_name_set(&enabled_names);
-                schemas.retain(|s| {
-                    self.resources
-                        .mcp
-                        .tool_registry
-                        .get(&s.name)
-                        .is_none_or(|tool| {
-                            !tool.capabilities().contains(ToolCapabilities::ADMIN_ONLY)
-                        })
-                });
 
                 let uncatalogued = self
                     .resources
                     .mcp
                     .tool_registry
-                    .uncatalogued_user_schemas(&all_catalogued_names);
+                    .uncatalogued_schemas(&all_catalogued_names);
                 schemas.extend(uncatalogued);
                 // Each half comes out of the registry in name order, but the
                 // concatenation does not: re-sort so a non-admin `tools/list`
@@ -709,10 +735,13 @@ impl PierreToolDispatcher {
             }
             Err(e) => {
                 warn!(
-                    "tools/list: failed to get tenant tools for {}: {}, falling back to user-visible",
+                    "tools/list: failed to get tenant tools for {}: {}, falling back to the athlete tools",
                     tenant_id, e
                 );
-                self.resources.mcp.tool_registry.user_visible_schemas()
+                // The athlete tools alone, the access predicate run after: an
+                // admin or a coach on a failed catalogue read is offered no
+                // more than an athlete, which fails closed.
+                self.resources.mcp.tool_registry.athlete_audience_schemas()
             }
         }
     }
@@ -722,6 +751,19 @@ impl PierreToolDispatcher {
 impl ToolDispatcher<dyn ToolRuntime> for PierreToolDispatcher {
     async fn list_tools(&self, state: &Arc<dyn ToolRuntime>, ctx: &ToolContext) -> Vec<Tool> {
         record_caller(ctx);
+        // A support session started through this connection lists the user's
+        // tools, and the one that ends it (carnet#1511). A session that cannot
+        // be read lists nothing rather than the admin's own tools.
+        let credential = support::credential();
+        let support = match support::live(&self.resources, ctx, credential.as_ref()).await {
+            Ok(support) => support,
+            Err(e) => {
+                error!(error = %e, "tools/list: the support-session lookup failed; listing nothing");
+                return Vec::new();
+            }
+        };
+        let as_user = support.as_ref().map(|live| support::as_user(ctx, live));
+        let ctx = as_user.as_ref().unwrap_or(ctx);
         let tenant_id = ctx.tenant_id.as_deref().and_then(parse_tenant_id);
         let user_id = ctx.user_id.as_deref().and_then(|s| Uuid::parse_str(s).ok());
         let mut schemas = match (tenant_id, user_id) {
@@ -729,23 +771,11 @@ impl ToolDispatcher<dyn ToolRuntime> for PierreToolDispatcher {
             // (`run_dispatch`), so such a caller — the stdio transport, which
             // carries no bearer — is offered nothing to invoke.
             (None, _) | (_, None) => Vec::new(),
-            // A global admin is listed the same public profile: this dispatcher
-            // only ever serves external transports. `ADMIN_ONLY` still gates a
-            // call that names an operator tool.
+            // The role decides what is offered of this listing, below.
             (Some(tenant_id), Some(user_id)) => {
                 self.tenant_filtered_schemas(tenant_id, Some(user_id)).await
             }
         };
-
-        // Every caller of this dispatcher is an MCP client outside Dravr's own
-        // surfaces, whatever its role or credential — the same declaration
-        // `route_tool_call` makes for its calls. A tool kept on Dravr's own
-        // surfaces is left out here and refused if it is called anyway.
-        first_party_tools::retain_served_over(
-            &self.resources.mcp.tool_registry,
-            &mut schemas,
-            Transport::McpHttp,
-        );
 
         // A tool this deployment can only fail is not offered.
         deployment_tools::retain_answerable(
@@ -754,23 +784,34 @@ impl ToolDispatcher<dyn ToolRuntime> for PierreToolDispatcher {
             state.config(),
         );
 
-        // The credential's grant narrows the listing too: a token holding
-        // `fitness:read` is shown no write tool, because the call path would
-        // refuse it with the very same derivation.
-        scope_listing::retain_granted(&self.resources.mcp.tool_registry, &mut schemas, &ctx.scopes);
-
-        // `athlete=` and the coach-only tools go to a group's human coach alone
-        // (carnet#1426). One coach lookup per listing, kept nowhere: `/mcp`
-        // holds no session and the list is `ttlMs: 0`, `cacheScope: private`.
-        // A caller with no user is listed nothing above and nothing here.
+        // Who is asking decides the rest (carnet#1511): every caller of this
+        // dispatcher is an MCP client outside Dravr's own surfaces, the same
+        // declaration `route_tool_call` makes for its calls; the credential's
+        // grant narrows it; and the role, read live from the user and kept
+        // nowhere, adds the coach tools for a human coach and every tool for
+        // an admin. `/mcp` holds no session and the list is `ttlMs: 0`,
+        // `cacheScope: private`. A caller with no user is listed nothing
+        // above, so nothing is resolved here.
         if let Some(user_id) = user_id {
-            let is_coach =
-                coach_listing::is_human_coach(&self.resources.common.repos, user_id).await;
-            coach_listing::retain_for_audience(
-                &self.resources.mcp.tool_registry,
-                &mut schemas,
-                is_coach,
+            let granted = OAuthScope::parse_granted(&ctx.scopes.join(" "));
+            let ceiling = support::ceiling();
+            let caller = Caller {
+                role: CallerRole::resolve(&self.resources.common.repos, user_id).await,
+                grant: &granted,
+                transport: Some(Transport::McpHttp),
+                support_session: support.is_some(),
+                ceiling: ceiling.as_ref(),
+            };
+            tool_access::retain_offered(&self.resources.mcp.tool_registry, &mut schemas, &caller);
+        }
+        if support.is_some() {
+            schemas.extend(
+                self.resources
+                    .mcp
+                    .tool_registry
+                    .list_schemas_by_name_set(&[END_TOOL.to_owned()]),
             );
+            schemas.sort_by(|a, b| a.name.cmp(&b.name));
         }
 
         // A guided flow does not narrow this listing: it is the same whether or
@@ -778,22 +819,13 @@ impl ToolDispatcher<dyn ToolRuntime> for PierreToolDispatcher {
         // starting and ending (carnet#1256). `save_training_plan` refuses a
         // mid-walk save on every path, this one included.
         let registry = &self.resources.mcp.tool_registry;
-        schemas
+        let tools = schemas
             .into_iter()
-            .map(|schema| {
-                let answers_no_provider = registry.get(&schema.name).is_some_and(|tool| {
-                    tool.capabilities()
-                        .contains(ToolCapabilities::REQUIRES_PROVIDER)
-                });
-                let mut tool = schema_to_tool(schema);
-                if answers_no_provider {
-                    tool.output_schema = tool
-                        .output_schema
-                        .map(|declared| to_canonical_value(&accept_no_provider_answer(declared)));
-                }
-                tool
-            })
-            .collect()
+            .map(|schema| published_tool(registry, schema))
+            .collect();
+        // Signed over the definition as served, after every narrowing above:
+        // a narrowed variant has its own hash and its own signature.
+        self.resources.mcp.tool_def_sigs.stamp(tools).await
     }
 
     async fn call_tool(
@@ -812,6 +844,50 @@ impl ToolDispatcher<dyn ToolRuntime> for PierreToolDispatcher {
             return CallToolOutcome::UnknownTool;
         }
 
+        // A support session started through this connection serves the call
+        // as the user, inside the session (carnet#1511); the two session
+        // tools run as the admin. The connection is declared either way, for
+        // the session tools to bind to.
+        let credential = support::credential();
+        let (call_ctx, session) = match support::live(&self.resources, ctx, credential.as_ref())
+            .await
+        {
+            Ok(Some(live)) if !support::runs_as_admin(name) => {
+                (support::as_user(ctx, &live), Some(live.grant()))
+            }
+            Ok(_) => (ctx.clone(), None),
+            Err(e) => {
+                error!(tool = name, error = %e, "tools/call: the support-session lookup failed");
+                return CallToolOutcome::Immediate(Box::new(ToolResponse::error(
+                    "Whether this connection is in a support session could not be read; please \
+                     retry"
+                        .to_owned(),
+                )));
+            }
+        };
+        let ctx = &call_ctx;
+        // Captured by value, as the credential is: a task-local does not
+        // cross the spawn of a call converted into a task.
+        let ceiling = support::ceiling();
+        let dispatch = |resources: Arc<ServerContext>, state: Arc<dyn ToolRuntime>| {
+            CALLER_CREDENTIAL.scope(
+                credential.clone(),
+                SUPPORT_SESSION.scope(
+                    session.clone(),
+                    ai_scope::under_grant(
+                        ceiling.clone(),
+                        run_dispatch(
+                            resources,
+                            state,
+                            ctx.clone(),
+                            name.to_owned(),
+                            arguments.clone(),
+                        ),
+                    ),
+                ),
+            )
+        };
+
         // The asynchronous path is opt-in twice over: the client must declare
         // the tasks extension on this request, and the tool must have declared
         // task support on its own definition. Everything else answers inline.
@@ -828,14 +904,7 @@ impl ToolDispatcher<dyn ToolRuntime> for PierreToolDispatcher {
         };
         if !(ctx.supports_tasks() && declares_tasks) {
             return CallToolOutcome::Immediate(Box::new(
-                run_dispatch(
-                    self.resources.clone(),
-                    state.clone(),
-                    ctx.clone(),
-                    name.to_owned(),
-                    arguments,
-                )
-                .await,
+                dispatch(self.resources.clone(), state.clone()).await,
             ));
         }
 
@@ -851,13 +920,7 @@ impl ToolDispatcher<dyn ToolRuntime> for PierreToolDispatcher {
         let mut work = tokio::spawn(
             scoped_with_cancel_flag(
                 cancel_flag.clone(),
-                run_dispatch(
-                    self.resources.clone(),
-                    state.clone(),
-                    ctx.clone(),
-                    name.to_owned(),
-                    arguments,
-                ),
+                dispatch(self.resources.clone(), state.clone()),
             )
             .in_current_span(),
         );
@@ -900,164 +963,6 @@ impl ToolDispatcher<dyn ToolRuntime> for PierreToolDispatcher {
 /// Parse a tenant id string into a [`TenantId`], or `None` when malformed.
 fn parse_tenant_id(value: &str) -> Option<TenantId> {
     Uuid::parse_str(value).ok().map(TenantId::from_uuid)
-}
-
-/// Handler for the JSON-RPC methods the generic engine leaves open.
-///
-/// Serves `resources/*` and `prompts/*`; `initialize`/`ping`/`tools/*` are
-/// served by the engine. Anything else is left to the engine's -32601.
-#[derive(Debug)]
-pub struct PierreMethodHandler {
-    /// Shared server resources backing resources/prompts.
-    pub resources: Arc<ServerContext>,
-}
-
-#[async_trait]
-impl MethodHandler<dyn ToolRuntime> for PierreMethodHandler {
-    async fn handle(
-        &self,
-        method: &str,
-        id: Option<Value>,
-        params: Option<Value>,
-        _state: &Arc<dyn ToolRuntime>,
-        ctx: &ToolContext,
-    ) -> Option<JsonRpcResponse> {
-        record_caller(ctx);
-        match method {
-            "resources/list" => Some(self.handle_resources_list(id).await),
-            "resources/read" => Some(self.handle_resources_read(id, params.as_ref()).await),
-            "resources/templates/list" => Some(JsonRpcResponse::success(
-                id,
-                resource_catalog::list_resource_templates(),
-            )),
-            "prompts/list" => Some(JsonRpcResponse::success(
-                id,
-                prompt_templates::list_prompts(),
-            )),
-            "prompts/get" => Some(Self::handle_prompts_get(id, params.as_ref())),
-            _ => None,
-        }
-    }
-}
-
-impl PierreMethodHandler {
-    /// Serve `resources/list` — the global, publicly-published agent catalog.
-    async fn handle_resources_list(&self, id: Option<Value>) -> JsonRpcResponse {
-        debug!("Handling resources/list request");
-
-        match self
-            .resources
-            .store_listings_repository()
-            // A public catalogue with no viewer to ask: coach-facing agents
-            // are left out, as for any athlete.
-            .get_published_agents(
-                None,
-                CoachTools::Exclude,
-                None,
-                Some(resource_catalog::list_limit()),
-                Some(0),
-            )
-            .await
-        {
-            Ok(published) => {
-                JsonRpcResponse::success(id, resource_catalog::list_resources(&published))
-            }
-            Err(e) => {
-                error!("resources/list: failed to load published coaches: {e}");
-                JsonRpcResponse::error(id, ERROR_INTERNAL_ERROR, "Failed to load coach catalog")
-            }
-        }
-    }
-
-    /// Serve `resources/read` — a single published agent by `dravr://agents/{id}` URI.
-    async fn handle_resources_read(
-        &self,
-        id: Option<Value>,
-        params: Option<&Value>,
-    ) -> JsonRpcResponse {
-        debug!("Handling resources/read request");
-
-        let Some(uri) = params.and_then(|p| p.get("uri")).and_then(Value::as_str) else {
-            return JsonRpcResponse::error(id, ERROR_INVALID_PARAMS, "Missing 'uri' parameter");
-        };
-
-        let Some(agent_id) = resource_catalog::agent_id_from_uri(uri) else {
-            return JsonRpcResponse::error(
-                id,
-                ERROR_INVALID_PARAMS,
-                "Unsupported resource URI scheme",
-            );
-        };
-
-        let published = match self
-            .resources
-            .store_listings_repository()
-            .get_published_agent(agent_id)
-            .await
-        {
-            Ok(Some(agent_with_listing)) => agent_with_listing,
-            Ok(None) => {
-                return JsonRpcResponse::error(id, ERROR_RESOURCE_NOT_FOUND, "Resource not found");
-            }
-            Err(e) => {
-                error!("resources/read: failed to load coach: {e}");
-                return JsonRpcResponse::error(id, ERROR_INTERNAL_ERROR, "Failed to load coach");
-            }
-        };
-
-        match resource_catalog::read_resource(&published.agent) {
-            Ok(result) => JsonRpcResponse::success(id, result),
-            Err(e) => {
-                error!("resources/read: failed to render coach markdown: {e}");
-                JsonRpcResponse::error(id, ERROR_INTERNAL_ERROR, "Failed to render resource")
-            }
-        }
-    }
-
-    /// Serve `prompts/get` — assemble a curated prompt template's messages.
-    fn handle_prompts_get(id: Option<Value>, params: Option<&Value>) -> JsonRpcResponse {
-        debug!("Handling prompts/get request");
-
-        let Some(name) = params.and_then(|p| p.get("name")).and_then(Value::as_str) else {
-            return JsonRpcResponse::error(id, ERROR_INVALID_PARAMS, "Missing 'name' parameter");
-        };
-
-        let arguments = extract_prompt_arguments(params);
-
-        match prompt_templates::get_prompt(name, &arguments) {
-            PromptGetOutcome::Found(result) => JsonRpcResponse::success(id, result),
-            PromptGetOutcome::UnknownPrompt(prompt) => JsonRpcResponse::error(
-                id,
-                ERROR_INVALID_PARAMS,
-                format!("Unknown prompt: {prompt}"),
-            ),
-            PromptGetOutcome::MissingArgument { prompt, argument } => JsonRpcResponse::error(
-                id,
-                ERROR_INVALID_PARAMS,
-                format!("Prompt '{prompt}' requires argument '{argument}'"),
-            ),
-        }
-    }
-}
-
-/// Extract the `arguments` object from a prompts/get request into a string map.
-///
-/// Non-string argument values are stringified so templates always receive a
-/// usable value; missing or malformed `arguments` yields an empty map.
-fn extract_prompt_arguments(params: Option<&Value>) -> HashMap<String, String> {
-    params
-        .and_then(|p| p.get("arguments"))
-        .and_then(Value::as_object)
-        .map_or_default(|map| {
-            map.iter()
-                .map(|(key, value)| {
-                    let text = value
-                        .as_str()
-                        .map_or_else(|| value.to_string(), str::to_owned);
-                    (key.clone(), text)
-                })
-                .collect()
-        })
 }
 
 /// Build the platform's rich [`ServerCapabilities`] for `initialize`/`discover`.
@@ -1169,6 +1074,9 @@ mod tests {
             active_tenant_id: None,
             scopes,
             client_id: client_id.map(str::to_owned),
+            grant_id: None,
+            client_grant_id: None,
+            ceiling: None,
         }
     }
 

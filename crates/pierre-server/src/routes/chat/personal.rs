@@ -21,7 +21,7 @@ use pierre_services::personal_thread::{
 use uuid::Uuid;
 
 use crate::mcp::resources::ServerContext;
-use crate::services::messaging_ingress::fresh_title_fallback;
+use crate::services::conversation_title::fresh_title_fallback;
 
 use super::common::{conversation_response, get_tenant_id};
 use super::conversations::post_welcome_best_effort;

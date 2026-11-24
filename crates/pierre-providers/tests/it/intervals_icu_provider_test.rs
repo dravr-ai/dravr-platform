@@ -14,7 +14,7 @@ use secrecy::SecretString;
 use std::collections::BTreeMap;
 use std::time::Duration as StdDuration;
 
-use chrono::{Duration, NaiveDate, NaiveDateTime, Timelike, Utc};
+use dravr_tronc::dates::{CivilDate, CivilDateTime, Elapsed, Timestamp};
 use pierre_core::constants::oauth_providers::activity_attribution;
 use pierre_providers::core::{
     stream_sample_count, ActivityQueryParams, CredentialKind, FitnessProvider, OAuth2Credentials,
@@ -29,7 +29,7 @@ use pierre_providers::models::{
     WorkoutTargetZones, WorkoutTemplate,
 };
 use pierre_providers::pagination::PaginationParams;
-use pierre_providers::ProviderRegistry;
+use pierre_test_support::providers::offline_provider_registry;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
@@ -74,7 +74,7 @@ fn sample_template() -> WorkoutTemplate {
         constraints: Vec::new(),
         regression: Regression::default(),
         frame: Frames::default(),
-        updated_at: Utc::now(),
+        updated_at: Timestamp::now(),
     }
 }
 
@@ -216,7 +216,7 @@ async fn registry_registers_intervals_icu_as_an_oauth_provider() {
     // The provider is registered (factory + descriptor) and links through the
     // shared OAuth flow; the pasted API key stays a second way in, which the
     // credential's kind selects per call rather than the registry.
-    let registry = ProviderRegistry::new();
+    let registry = offline_provider_registry();
     assert!(
         registry.is_supported("intervals_icu"),
         "intervals_icu must be registered"
@@ -251,7 +251,7 @@ async fn registry_registers_intervals_icu_as_an_oauth_provider() {
 #[tokio::test]
 async fn push_planned_session_requires_credentials() {
     let provider = IntervalsIcuProvider::new();
-    let date = NaiveDate::from_ymd_opt(2026, 6, 10).expect("valid date");
+    let date = CivilDate::from_ymd(2026, 6, 10).expect("valid date");
     let session =
         PlannedSession::from_template(&sample_template(), date, "dravr:rx:test".to_owned());
     let err = provider
@@ -453,8 +453,8 @@ async fn every_athlete_scoped_call_uses_the_literal_api_key_username() {
         .await
         .expect("set creds");
 
-    let from = NaiveDate::from_ymd_opt(2026, 6, 1).expect("valid from date");
-    let to = NaiveDate::from_ymd_opt(2026, 6, 10).expect("valid to date");
+    let from = CivilDate::from_ymd(2026, 6, 1).expect("valid from date");
+    let to = CivilDate::from_ymd(2026, 6, 10).expect("valid to date");
     let events = provider
         .list_calendar_events(from, to)
         .await
@@ -595,16 +595,17 @@ async fn activity_list_pads_the_lower_bound_against_a_local_reading() {
         .await
         .expect("set creds");
 
-    let asked = NaiveDate::from_ymd_opt(2026, 6, 1)
+    let asked = CivilDate::from_ymd(2026, 6, 1)
         .expect("valid date")
-        .and_hms_opt(12, 0, 0)
+        .and_hms(12, 0, 0)
         .expect("valid time")
-        .and_utc();
+        .and_utc()
+        .unwrap();
 
     provider
         .get_activities_with_params(&ActivityQueryParams::with_time_range(
             None,
-            Some(asked.timestamp()),
+            Some(asked.epoch_seconds()),
         ))
         .await
         .expect("get_activities_with_params succeeds");
@@ -615,13 +616,14 @@ async fn activity_list_pads_the_lower_bound_against_a_local_reading() {
         .split(['?', '&'])
         .find_map(|part| part.strip_prefix("oldest="))
         .expect("oldest bound is present");
-    let sent = NaiveDateTime::parse_from_str(oldest, "%Y-%m-%dT%H:%M:%S")
+    let sent = CivilDateTime::parse_from_str(oldest, "%Y-%m-%dT%H:%M:%S")
         .expect("oldest is a local date-time")
-        .and_utc();
+        .and_utc()
+        .unwrap();
 
     let slack = asked - sent;
     assert!(
-        slack >= Duration::hours(12),
+        slack >= Elapsed::hours(12),
         "oldest must precede the requested bound by at least the widest western \
          UTC offset, or a local reading of it silently drops activities: asked \
          {asked}, sent {sent}, slack {}h",
@@ -691,17 +693,16 @@ async fn a_deep_request_pages_past_the_single_response_cap() {
     // the provider defaults the window to the last 90 days, and a fixture older
     // than that is outside it - the walk correctly stops at the window floor and
     // the test would be measuring the window, not the paging.
-    let base = (Utc::now() - Duration::days(2))
-        .naive_utc()
-        .with_nanosecond(0)
-        .expect("nanosecond truncation is in range")
-        .with_second(0)
-        .expect("second truncation is in range");
+    let base = (Timestamp::now() - Elapsed::days(2)).utc_datetime();
+    let base = base
+        .date()
+        .and_hms(base.time().hour(), base.time().minute(), 0)
+        .expect("a minute is in range");
     let row = |id: &str, hours_back: i64| {
-        let ts = base - Duration::hours(hours_back);
+        let ts = base - Elapsed::hours(hours_back);
         format!(
             r#"{{"id":"{id}","start_date_local":"{}"}}"#,
-            ts.format("%Y-%m-%dT%H:%M:%S")
+            ts.format("%Y-%m-%dT%H:%M:%S").unwrap()
         )
     };
 
@@ -742,9 +743,9 @@ async fn a_deep_request_pages_past_the_single_response_cap() {
     // several activities can share a start time and a page boundary can fall
     // between them, so stepping past it would drop rows the id filter cannot
     // recover. The duplicate this costs is what the id filter is for.
-    let resume = (base - Duration::hours(199))
+    let resume = (base - Elapsed::hours(199))
         .format("%Y-%m-%dT%H:%M:%S")
-        .to_string();
+        .unwrap();
     let second = request_target(&heads[1]).replace("%3A", ":");
     assert!(
         second.contains(&format!("newest={resume}")),
@@ -1170,7 +1171,7 @@ async fn detail_read_carries_the_self_report_and_the_comment_thread() {
     );
     assert_eq!(comments[1].author.as_deref(), Some("Coach Marie"));
     assert_eq!(
-        comments[0].created_at.map(|t| t.to_rfc3339()).as_deref(),
+        comments[0].created_at.map(Timestamp::to_rfc3339).as_deref(),
         Some("2026-09-20T18:10:00+00:00")
     );
 }
@@ -1220,9 +1221,9 @@ async fn list_read_maps_the_whole_inverted_feel_scale() {
     let row = |id: &str, feel: i64, rpe: i64| {
         serde_json::json!({
             "id": id,
-            "start_date_local": (Utc::now() - Duration::days(2))
+            "start_date_local": (Timestamp::now() - Elapsed::days(2))
                 .format("%Y-%m-%dT%H:%M:%S")
-                .to_string(),
+                .unwrap(),
             "feel": feel,
             "icu_rpe": rpe
         })
@@ -1288,9 +1289,9 @@ async fn list_read_maps_the_whole_inverted_feel_scale() {
 /// attribution wherever it is shown; another device's upload has no upstream.
 #[tokio::test]
 async fn list_read_marks_garmin_recorded_activities_garmin_sourced() {
-    let started = (Utc::now() - Duration::days(1))
+    let started = (Timestamp::now() - Elapsed::days(1))
         .format("%Y-%m-%dT%H:%M:%S")
-        .to_string();
+        .unwrap();
     let body = serde_json::json!([
         { "id": "g-upload", "start_date_local": started, "source": "UPLOAD",
           "device_name": "Garmin Forerunner 965" },
@@ -1332,9 +1333,9 @@ async fn list_read_marks_garmin_recorded_activities_garmin_sourced() {
 /// (carnet#521).
 #[tokio::test]
 async fn list_read_carries_the_recording_device() {
-    let started = (Utc::now() - Duration::days(1))
+    let started = (Timestamp::now() - Elapsed::days(1))
         .format("%Y-%m-%dT%H:%M:%S")
-        .to_string();
+        .unwrap();
     let body = serde_json::json!([
         { "id": "via-strava", "start_date_local": started, "source": "STRAVA",
           "device_name": "Garmin Edge 840" },
@@ -1418,8 +1419,8 @@ async fn the_calendar_read_asks_for_every_category() {
     // every plan push.
     let (base_url, stub) = stub_once("[]").await;
     let provider = provider_against(base_url).await;
-    let from = NaiveDate::from_ymd_opt(2026, 9, 28).expect("valid date");
-    let to = NaiveDate::from_ymd_opt(2026, 10, 4).expect("valid date");
+    let from = CivilDate::from_ymd(2026, 9, 28).expect("valid date");
+    let to = CivilDate::from_ymd(2026, 10, 4).expect("valid date");
     provider
         .list_calendar_events(from, to)
         .await
@@ -1435,8 +1436,8 @@ async fn the_calendar_read_asks_for_every_category() {
 async fn a_planned_read_asks_for_workouts_and_races_then_who_completed_them() {
     let (base_url, stub) = stub_pages(vec![planned_calendar_body(), PAIRING_BODY.to_owned()]).await;
     let provider = provider_against(base_url).await;
-    let from = NaiveDate::from_ymd_opt(2026, 9, 28).expect("valid date");
-    let to = NaiveDate::from_ymd_opt(2026, 10, 4).expect("valid date");
+    let from = CivilDate::from_ymd(2026, 9, 28).expect("valid date");
+    let to = CivilDate::from_ymd(2026, 10, 4).expect("valid date");
 
     let planned = provider
         .list_planned_workouts(from, to)
@@ -1478,7 +1479,7 @@ async fn a_planned_read_asks_for_workouts_and_races_then_who_completed_them() {
     assert_eq!(ride.sport_type(), &SportType::Ride);
     assert_eq!(
         ride.date(),
-        NaiveDate::from_ymd_opt(2026, 9, 29).expect("valid date")
+        CivilDate::from_ymd(2026, 9, 29).expect("valid date")
     );
     assert_eq!(ride.planned_duration_seconds(), Some(3600));
     assert_eq!(ride.description(), Some("Hold the line."));
@@ -1503,8 +1504,8 @@ async fn an_oauth_planned_read_addresses_the_tokens_own_athlete() {
         .set_credentials(bearer_credentials())
         .await
         .expect("set creds");
-    let from = NaiveDate::from_ymd_opt(2026, 9, 28).expect("valid date");
-    let to = NaiveDate::from_ymd_opt(2026, 10, 4).expect("valid date");
+    let from = CivilDate::from_ymd(2026, 9, 28).expect("valid date");
+    let to = CivilDate::from_ymd(2026, 10, 4).expect("valid date");
 
     let planned = provider
         .list_planned_workouts(from, to)
@@ -1528,14 +1529,14 @@ async fn an_oauth_planned_read_addresses_the_tokens_own_athlete() {
 async fn a_future_window_or_an_empty_plan_spends_no_pairing_request() {
     // One connection each: a second request would find no listener and fail
     // the read.
-    let today = Utc::now().date_naive();
+    let today = Timestamp::now().utc_date();
     let (base_url, stub) = stub_once(
         r#"[{"id":7,"category":"WORKOUT","name":"Long ride","start_date_local":"2099-01-03"}]"#,
     )
     .await;
     let provider = provider_against(base_url).await;
     let planned = provider
-        .list_planned_workouts(today + Duration::days(3), today + Duration::days(10))
+        .list_planned_workouts(today + Elapsed::days(3), today + Elapsed::days(10))
         .await
         .expect("a future window reads the plan alone");
     stub.await.expect("stub task joins");
@@ -1545,7 +1546,7 @@ async fn a_future_window_or_an_empty_plan_spends_no_pairing_request() {
     let (base_url, stub) = stub_once("[]").await;
     let provider = provider_against(base_url).await;
     let planned = provider
-        .list_planned_workouts(today - Duration::days(7), today)
+        .list_planned_workouts(today - Elapsed::days(7), today)
         .await
         .expect("an empty calendar reads");
     stub.await.expect("stub task joins");
@@ -1562,8 +1563,8 @@ async fn a_failed_pairing_read_fails_the_planned_read() {
     ])
     .await;
     let provider = provider_against(base_url).await;
-    let from = NaiveDate::from_ymd_opt(2026, 9, 28).expect("valid date");
-    let to = NaiveDate::from_ymd_opt(2026, 10, 4).expect("valid date");
+    let from = CivilDate::from_ymd(2026, 9, 28).expect("valid date");
+    let to = CivilDate::from_ymd(2026, 10, 4).expect("valid date");
     let error = provider
         .list_planned_workouts(from, to)
         .await

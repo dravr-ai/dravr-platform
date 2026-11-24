@@ -5,7 +5,7 @@
 // ABOUTME: Frames render at their size, typed and pasted text arrives exact, statuses show, the outcome connects, leaving closes
 
 import { test, expect, type Page, type WebSocketRoute } from '@playwright/test';
-import { loginToDashboard, setupDashboardMocks } from './test-helpers';
+import { answerConnectConsents, loginToDashboard, setupDashboardMocks } from './test-helpers';
 import { mockSetupStatus, mockSignedOut, takeoverToken } from './auth-mocks';
 
 const TOKEN = takeoverToken();
@@ -212,6 +212,9 @@ test.describe('Login takeover in the sign-in window', () => {
     await page.getByRole('button', { name: 'Settings', exact: true }).first().click();
     await page.getByRole('button', { name: 'Data Providers' }).click();
     await page.getByTestId('provider-row-sciotte_garmin').getByRole('button', { name: 'Connect', exact: true }).click();
+    // The connect asks its offered consents first; nothing ticked, the
+    // sign-in sends none.
+    await answerConnectConsents(page);
 
     const dialog = page.getByRole('dialog');
     await dialog.getByLabel(/email/i).fill('athlete@example.com');
@@ -223,6 +226,7 @@ test.describe('Login takeover in the sign-in window', () => {
     );
     expect(takeover.token()).toBe(TOKEN);
     expect(logins[0]?.attempt_id).toEqual(expect.stringMatching(/^[0-9a-f-]{36}$/));
+    expect(logins[0]).not.toHaveProperty('consents');
     const canvas = dialog.getByRole('img', { name: 'Garmin sign-in page' });
     await expect.poll(() => canvas.evaluate((c: HTMLCanvasElement) => c.width)).toBe(FRAME.width);
 

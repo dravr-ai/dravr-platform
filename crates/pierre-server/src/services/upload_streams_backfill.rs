@@ -33,8 +33,8 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use chrono::Utc;
 use dravr_barrage::parse::fit::FitActivityFile;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::constants::oauth_providers::UPLOAD;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
@@ -195,7 +195,7 @@ async fn backfill_file(
         user_id,
         sha,
         &series,
-        Utc::now(),
+        Timestamp::now(),
     )
     .await?;
     Ok(series.len())

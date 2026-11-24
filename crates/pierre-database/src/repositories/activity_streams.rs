@@ -26,7 +26,7 @@
 //! throughout: sqlx accepts them on `SQLite` as well as Postgres. `user_id`
 //! is `uuid` on Postgres (a foreign key to `users`) and `TEXT` on `SQLite`;
 //! it binds the hyphenated string on both, cast on Postgres. `synced_at`
-//! binds as `DateTime<Utc>`, which sqlx stores as RFC 3339 text on `SQLite`
+//! binds as `Timestamp`, which sqlx stores as RFC 3339 text on `SQLite`
 //! and as `TIMESTAMPTZ` on Postgres.
 //!
 //! A provider purge deletes only `origin = 'push'` rows of that provider:
@@ -40,7 +40,7 @@
 //! row, and which returns each one with the tenant and user it is held for.
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{TenantId, TimeSeriesData};
 use uuid::Uuid;
@@ -72,7 +72,8 @@ pub enum StreamOrigin {
     /// `source_ref`; deleted with the activity, the athlete or the account.
     Upload,
     /// Decoded from an original kept by an archive import (dravr-barrage),
-    /// whose SHA-256 is the row's `source_ref`; deleted with the activity,
+    /// whose blob name (keyed, or its content digest while not yet renamed)
+    /// is the row's `source_ref`; deleted with the activity,
     /// the imported source or the account.
     Archive,
 }
@@ -121,7 +122,7 @@ pub struct ActivityStreamsWrite<'a> {
     /// The samples.
     pub streams: &'a TimeSeriesData,
     /// When they were received.
-    pub synced_at: DateTime<Utc>,
+    pub synced_at: Timestamp,
 }
 
 /// The one per-activity sample store.

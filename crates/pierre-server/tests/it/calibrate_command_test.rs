@@ -20,7 +20,7 @@
 //! A genuinely new athlete (`Ok(None)`) still opens an interview.
 
 use anyhow::Result;
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_commands::calibration::CalibrateHandler;
 use pierre_commands::{CommandHandler, ConversationRotation, PlatformCommandContext};
 use pierre_core::models::{GuidedFlow, OnboardingState, TenantId};
@@ -115,7 +115,7 @@ fn ctx(
 async fn plant_unreadable_profile(db: &Database, user_id: Uuid) -> Result<String> {
     match db.backend() {
         DatabaseBackend::SQLite(sqlite) => {
-            let now = Utc::now().to_rfc3339();
+            let now = Timestamp::now().to_rfc3339();
             sqlx::query(
                 "INSERT INTO user_profiles (user_id, profile_data, created_at, updated_at)
                  VALUES ($1, $2, $3, $4)",

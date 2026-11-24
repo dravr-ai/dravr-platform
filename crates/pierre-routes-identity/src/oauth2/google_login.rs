@@ -32,7 +32,7 @@ use axum::{
     http::{header, HeaderMap, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
 };
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_auth::google_oidc::{
     google_callback_url, GoogleIdentity, GoogleOidcClient, GOOGLE_PROVIDER, GOOGLE_SIGN_IN_TTL,
 };
@@ -154,7 +154,7 @@ impl GoogleSignIn {
         else {
             return OpenedTransaction::Refused;
         };
-        if transaction.expires_at <= Utc::now().timestamp() {
+        if transaction.expires_at <= Timestamp::now().epoch_seconds() {
             return OpenedTransaction::Expired;
         }
         if !state.is_some_and(|s| secrets_equal(s.as_bytes(), transaction.state.as_bytes())) {
@@ -182,7 +182,12 @@ impl OAuth2Routes {
             return no_store(Self::google_unavailable(&text));
         };
 
-        let request = match Self::parse_authorize_request(&params) {
+        // A pushed request (RFC 9126) is read from the store; the sealed
+        // request carries its `request_uri`, which the return resolves again.
+        let request = match Self::resolve_authorize_params(&context, params)
+            .await
+            .and_then(|resolved| Self::parse_authorize_request(&resolved.params))
+        {
             Ok(request) => request,
             Err(error) => return no_store(Self::render_oauth_error_response(&error, &text)),
         };
@@ -206,7 +211,7 @@ impl OAuth2Routes {
             Ok(start) => start,
             Err(e) => return no_store(Self::google_refusal(&e, &text)),
         };
-        let expires_at = Utc::now().timestamp()
+        let expires_at = Timestamp::now().epoch_seconds()
             + i64::try_from(GOOGLE_SIGN_IN_TTL.as_secs()).unwrap_or(i64::MAX);
         let transaction = GoogleSignInTransaction {
             state: start.state,
@@ -425,13 +430,13 @@ impl OAuth2Routes {
     }
 
     /// The page for a sign-in that failed: a server fault is logged at
-    /// ERROR and shown as such; a first sign-in the operator's sign-up bounds
+    /// ERROR and shown as such; a first sign-in the admin's sign-up bounds
     /// refused (kill switch closed, 24-hour ceiling reached) is told sign-up
     /// is paused, since nothing about the account is wrong; anything else is
     /// a refusal of this account, logged at WARN. No page carries the reason.
     fn google_refusal(error: &AppError, text: &ConsentText<'_>) -> Response {
         if signup_policy::is_signup_paused(error) {
-            warn!("Google sign-up refused: the operator's sign-up bounds admit no new account");
+            warn!("Google sign-up refused: the admin's sign-up bounds admit no new account");
             return Self::render_oauth_error_response(
                 &OAuth2Error::too_many_requests(SIGNUP_PAUSED),
                 text,

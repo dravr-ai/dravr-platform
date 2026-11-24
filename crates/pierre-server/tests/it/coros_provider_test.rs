@@ -13,11 +13,11 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use crate::common;
-use chrono::Utc;
+use dravr_tronc::dates::Elapsed;
+use dravr_tronc::dates::Timestamp;
 use pierre_mcp_server::constants::oauth_providers;
 use pierre_providers::core::{CredentialKind, FitnessProvider, OAuth2Credentials, ProviderConfig};
 use pierre_providers::coros_provider::CorosProvider;
-use pierre_providers::registry::{get_supported_providers, global_registry};
 use secrecy::SecretString;
 
 fn ensure_http_clients_initialized() {
@@ -87,7 +87,7 @@ async fn test_coros_provider_authentication_lifecycle() {
         client_secret: SecretString::from("test_client_secret"),
         access_token: Some(SecretString::from("test_access_token")),
         refresh_token: Some(SecretString::from("test_refresh_token")),
-        expires_at: Some(Utc::now() + chrono::Duration::hours(1)),
+        expires_at: Some(Timestamp::now() + Elapsed::hours(1)),
         scopes: vec!["read:workouts".to_owned(), "read:sleep".to_owned()],
         kind: CredentialKind::OAuthBearer,
         request_budget: None,
@@ -113,7 +113,7 @@ async fn test_coros_provider_expired_token() {
         client_secret: SecretString::from("test_client_secret"),
         access_token: Some(SecretString::from("expired_token")),
         refresh_token: Some(SecretString::from("test_refresh_token")),
-        expires_at: Some(Utc::now() - chrono::Duration::hours(1)), // Already expired
+        expires_at: Some(Timestamp::now() - Elapsed::hours(1)), // Already expired
         scopes: vec!["read:workouts".to_owned()],
         kind: CredentialKind::OAuthBearer,
         request_budget: None,
@@ -190,8 +190,7 @@ fn test_coros_provider_endpoints() {
 #[test]
 fn test_coros_registered_in_registry() {
     ensure_http_clients_initialized();
-    let _registry = global_registry();
-    let providers = get_supported_providers();
+    let providers = common::offline_provider_registry().supported_providers();
 
     assert!(
         providers.contains(&oauth_providers::COROS),
@@ -202,7 +201,7 @@ fn test_coros_registered_in_registry() {
 #[test]
 fn test_coros_provider_capabilities() {
     ensure_http_clients_initialized();
-    let registry = global_registry();
+    let registry = common::offline_provider_registry();
 
     // Sleep and recovery come from synced rows. The COROS health sync reads
     // the Training Hub session on `sciotte_coros`; the partner API this

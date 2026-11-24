@@ -10,7 +10,7 @@
 //! opens whichever `DATABASE_URL` names, so these run on `SQLite` and
 //! `PostgreSQL` alike.
 
-use chrono::{NaiveDate, Utc};
+use dravr_tronc::dates::{CivilDate, Timestamp};
 use pierre_core::models::TenantId;
 use pierre_database::backends::factory::{Database, DatabaseBackend};
 use pierre_database::repositories::{
@@ -22,11 +22,11 @@ use sqlx::Row;
 use uuid::Uuid;
 
 fn now_ms() -> i64 {
-    Utc::now().timestamp_millis()
+    Timestamp::now().epoch_millis()
 }
 
-fn day(month: u32, day: u32) -> NaiveDate {
-    NaiveDate::from_ymd_opt(2026, month, day).unwrap()
+fn day(month: u32, day: u32) -> CivilDate {
+    CivilDate::from_ymd(2026, month, day).unwrap()
 }
 
 /// A Garmin history walk owed for `user` in `tenant`, recorded ten minutes

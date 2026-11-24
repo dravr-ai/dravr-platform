@@ -79,6 +79,10 @@ interface QuotaDetails {
   reason?: unknown;
   /** The coaching platform a delegated-link refusal is about. */
   provider?: unknown;
+  /** The 1-based step a coach editor refusal is about (carnet#1727). */
+  step?: unknown;
+  /** The step target a coach editor refusal is about, as written. */
+  target?: unknown;
 }
 
 /** The `details.reason` of a cap refusal for a turn into an archived thread. */
@@ -237,6 +241,18 @@ export function isCoachInviteNotForAccount(err: unknown): boolean {
 export function refusalProvider(err: unknown): string | undefined {
   const provider = (err as AxiosShape | null | undefined)?.response?.data?.details?.provider;
   return typeof provider === 'string' ? provider : undefined;
+}
+
+/**
+ * The step a coach editor refusal names, from `details.step` (1-based) and
+ * `details.target` — a hand-written step whose target the calendar cannot
+ * read. `undefined` when the refusal names none.
+ */
+export function refusalStep(err: unknown): { step: number; target: string } | undefined {
+  const details = (err as AxiosShape | null | undefined)?.response?.data?.details;
+  const step = details?.step;
+  const target = details?.target;
+  return typeof step === 'number' && typeof target === 'string' ? { step, target } : undefined;
 }
 
 /**

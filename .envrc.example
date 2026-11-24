@@ -474,33 +474,16 @@ export REDIS_INITIAL_RETRY_DELAY_MS="500"
 # ============================================================================
 
 # HTTP Client Timeouts (seconds)
-export HTTP_CLIENT_TIMEOUT_SECS="30"
-export HTTP_CLIENT_CONNECT_TIMEOUT_SECS="10"
 export OAUTH_CLIENT_TIMEOUT_SECS="15"
 export OAUTH_CLIENT_CONNECT_TIMEOUT_SECS="5"
 export API_CLIENT_TIMEOUT_SECS="60"
 export API_CLIENT_CONNECT_TIMEOUT_SECS="10"
-export HEALTH_CHECK_TIMEOUT_SECS="5"
-
-# HTTP Client Retry Configuration
-export HTTP_CLIENT_ENABLE_RETRIES="true"
-export HTTP_CLIENT_MAX_RETRIES="3"
-export HTTP_CLIENT_RETRY_BASE_DELAY_MS="100"
-export HTTP_CLIENT_RETRY_MAX_DELAY_MS="5000"
-export HTTP_CLIENT_RETRY_JITTER="true"
 
 # ============================================================================
-# SSE (SERVER-SENT EVENTS) CONFIGURATION
+# SESSION COOKIE CONFIGURATION
 # ============================================================================
 
-export SSE_CLEANUP_INTERVAL_SECS="300"        # 5 minutes
-export SSE_CONNECTION_TIMEOUT_SECS="600"      # 10 minutes
-export SSE_MAX_BUFFER_SIZE="1000"
-export SSE_BUFFER_OVERFLOW_STRATEGY="drop_oldest"  # Options: drop_oldest, drop_new, close_connection
-export SSE_BROADCAST_CHANNEL_SIZE="1000"
-export SSE_MAX_CONNECTIONS_PER_USER="5"
 export SESSION_COOKIE_MAX_AGE_SECS="86400"    # 24 hours
-export SESSION_COOKIE_SECURE="false"          # Set to true in production with HTTPS
 
 # ============================================================================
 # MCP SERVER CONFIGURATION
@@ -599,15 +582,15 @@ export FITNESS_WEATHER_WIND_THRESHOLD="15.0"
 # Whether an activity list is given the ambient temperature its source left
 # out, asked of the weather vendor. Read once at startup; on unless "false".
 export FITNESS_WEATHER_ENABLED="true"
-export FITNESS_WEATHER_CACHE_DURATION_HOURS="24"
-export FITNESS_WEATHER_REQUEST_TIMEOUT_SECONDS="10"
-export FITNESS_WEATHER_RATE_LIMIT_PER_MINUTE="60"
+# Route discovery's Overpass instance, a scheme and authority. Unset, the
+# public instances are asked, overpass-api.de first; leave it unset.
+# export OVERPASS_API_BASE="http://127.0.0.1:9"
 
 # Personal Records Configuration
 export FITNESS_PR_PACE_IMPROVEMENT_THRESHOLD="5.0"
 
 # Algorithm Selection
-# export PIERRE_TSS_ALGORITHM="avg_power"     # Options: avg_power, normalized_power, hybrid
+# export PIERRE_TSS_ALGORITHM="hybrid"        # Options: hybrid (default), normalized_power, avg_power
 # export PIERRE_MAXHR_ALGORITHM="tanaka"      # Options: fox, tanaka, nes, gulati
 
 # ============================================================================
@@ -639,11 +622,6 @@ export FITNESS_PR_PACE_IMPROVEMENT_THRESHOLD="5.0"
 # export INTELLIGENCE_SLEEP_EFFICIENCY_EXCELLENT=""
 # export INTELLIGENCE_SLEEP_EFFICIENCY_GOOD=""
 # export INTELLIGENCE_SLEEP_EFFICIENCY_POOR=""
-
-# HRV Thresholds
-# export INTELLIGENCE_HRV_RMSSD_DECREASE_CONCERN=""
-# export INTELLIGENCE_HRV_RMSSD_INCREASE_GOOD=""
-# export INTELLIGENCE_HRV_BASELINE_DEVIATION_CONCERN=""
 
 # Recovery Scoring
 # export INTELLIGENCE_RECOVERY_EXCELLENT_THRESHOLD=""

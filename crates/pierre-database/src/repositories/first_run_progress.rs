@@ -15,7 +15,7 @@
 //! Every statement is keyed by both `tenant_id` and `user_id`.
 
 use async_trait::async_trait;
-use chrono::{DateTime, NaiveDate, Utc};
+use dravr_tronc::dates::{CivilDate, Timestamp};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
 use uuid::Uuid;
@@ -29,9 +29,9 @@ pub struct FirstRunDay {
     /// The flow's catalogue id.
     pub flow_id: String,
     /// The athlete's civil date the rule was met on.
-    pub local_date: NaiveDate,
+    pub local_date: CivilDate,
     /// When the row was written.
-    pub recorded_at: DateTime<Utc>,
+    pub recorded_at: Timestamp,
 }
 
 /// The days each athlete met each first-run flow's done rule.
@@ -45,8 +45,8 @@ pub trait FirstRunProgressRepository: Send + Sync {
         tenant_id: TenantId,
         user_id: Uuid,
         flow_id: &str,
-        local_date: NaiveDate,
-        recorded_at: DateTime<Utc>,
+        local_date: CivilDate,
+        recorded_at: Timestamp,
     ) -> AppResult<bool>;
 
     /// Every day `user_id` met any first-run flow's done rule, oldest first.
@@ -76,8 +76,9 @@ pub(crate) const FIRST_RUN_DAYS_SQL: &str = r"
 pub(crate) type FirstRunDayRow = (String, String, i64);
 
 /// `local_date` as the text both engines store it as.
-pub(crate) fn local_date_text(date: NaiveDate) -> String {
-    date.format(LOCAL_DATE_FORMAT).to_string()
+pub(crate) fn local_date_text(date: CivilDate) -> String {
+    // `LOCAL_DATE_FORMAT` is the date's own `YYYY-MM-DD` form.
+    date.to_string()
 }
 
 /// A stored row as the day it records.
@@ -88,16 +89,18 @@ pub(crate) fn local_date_text(date: NaiveDate) -> String {
 pub(crate) fn first_run_day_from_row(
     (flow_id, local_date, recorded_at): FirstRunDayRow,
 ) -> AppResult<FirstRunDay> {
-    let local_date = NaiveDate::parse_from_str(&local_date, LOCAL_DATE_FORMAT).map_err(|e| {
+    let local_date = CivilDate::parse_from_str(&local_date, LOCAL_DATE_FORMAT).map_err(|e| {
         AppError::database(format!(
             "first_run_progress.local_date {local_date:?} for {flow_id} is not a date: {e}"
         ))
     })?;
-    let recorded_at = DateTime::from_timestamp_millis(recorded_at).ok_or_else(|| {
-        AppError::database(format!(
-            "first_run_progress.recorded_at {recorded_at} is not a representable instant"
-        ))
-    })?;
+    let recorded_at = Timestamp::from_epoch_millis(recorded_at)
+        .ok()
+        .ok_or_else(|| {
+            AppError::database(format!(
+                "first_run_progress.recorded_at {recorded_at} is not a representable instant"
+            ))
+        })?;
     Ok(FirstRunDay {
         flow_id,
         local_date,
@@ -118,15 +121,15 @@ macro_rules! impl_first_run_progress_repository {
                 tenant_id: TenantId,
                 user_id: Uuid,
                 flow_id: &str,
-                local_date: NaiveDate,
-                recorded_at: DateTime<Utc>,
+                local_date: CivilDate,
+                recorded_at: Timestamp,
             ) -> AppResult<bool> {
                 let written = sqlx::query(RECORD_FIRST_RUN_DAY_SQL)
                     .bind($ids::bind(tenant_id.as_uuid()))
                     .bind($ids::bind(user_id))
                     .bind(flow_id)
                     .bind(local_date_text(local_date))
-                    .bind(recorded_at.timestamp_millis())
+                    .bind(recorded_at.epoch_millis())
                     .execute(self.pool())
                     .await
                     .map_err(|e| {

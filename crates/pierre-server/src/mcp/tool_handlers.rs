@@ -15,8 +15,7 @@ use dravr_tronc::mcp::schema::ToolResponse;
 use dravr_tronc::mcp::tool::ToolContext;
 use pierre_auth::tenant::TenantContext;
 use pierre_core::errors::{AppError, ErrorCode};
-use pierre_core::models::usage::InsertLlmUsage;
-use pierre_core::models::{ConversationTurnId, UserTier};
+use pierre_core::models::UserTier;
 use pierre_core::models::{OAuthNotification, TenantId};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::Transport;
@@ -35,11 +34,11 @@ use pierre_tool_runtime::protocol::{
 use pierre_tool_runtime::protocols::converter::ProtocolConverter;
 use pierre_tool_runtime::protocols::ProtocolError;
 use pierre_tool_runtime::runtime::ToolRuntime;
+use pierre_tool_runtime::support_session;
 // Other trait methods dispatched through repos.tenants / repos.llm_usage / repos.users
 use serde_json::{json, Value};
 use std::fmt::Write;
 use std::sync::Arc;
-use std::time::Instant;
 use tracing::field::Empty;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
@@ -109,6 +108,7 @@ impl ToolHandlers {
         // writes the audit row of every other one: it is written here, so
         // every admin-only call over `/mcp` is on the trail (EFVP 9.4d).
         let refused = |tenant: Option<String>, response: ToolResponse| async move {
+            let credential = support_session::current_credential();
             record_refused_admin_call(
                 &**resources,
                 &RefusedAdminCall {
@@ -117,6 +117,7 @@ impl ToolHandlers {
                     tenant_id: tenant.as_deref(),
                     transport: Transport::McpHttp,
                     protocol: "mcp",
+                    credential: credential.as_ref(),
                 },
             )
             .await;
@@ -171,7 +172,6 @@ impl ToolHandlers {
             .await;
         }
 
-        let start_time = Instant::now();
         let routing_context = ToolRoutingContext {
             resources,
             tenant_context: &tenant_context,
@@ -201,19 +201,10 @@ impl ToolHandlers {
         )
         .await;
 
-        let duration_ms = u64::try_from(start_time.elapsed().as_millis()).unwrap_or(u64::MAX);
-        if response.error.is_none() {
-            Self::record_mcp_tool_usage(
-                resources,
-                &tenant_context,
-                user_id,
-                tool_name,
-                duration_ms,
-            )
-            .await;
-            if tool_name == GET_ACTIVITIES {
-                Self::increment_activity_counters(resources, &tenant_context, user_id, &args).await;
-            }
+        // The call's usage row is written at the dispatch chokepoint, with
+        // whose data it read and through which client (carnet#1543).
+        if response.error.is_none() && tool_name == GET_ACTIVITIES {
+            Self::increment_activity_counters(resources, &tenant_context, user_id, &args).await;
         }
 
         Self::mcp_response_to_tool_response(response)
@@ -334,75 +325,6 @@ impl ToolHandlers {
                 );
                 None
             }
-        }
-    }
-
-    /// Increment usage counters and record `llm_usage` after a successful MCP tool call
-    ///
-    /// Increments `daily_tool_calls` and `weekly_tool_calls` counters (shared budget
-    /// with chat route), and inserts an `llm_usage` record with `call_type = "mcp_tool"`
-    /// for analytics. Errors are logged but never propagated to avoid failing the
-    /// tool response.
-    async fn record_mcp_tool_usage(
-        resources: &Arc<ServerContext>,
-        tenant_context: &TenantContext,
-        user_id: Uuid,
-        tool_name: &str,
-        duration_ms: u64,
-    ) {
-        let tenant_id_str = tenant_context.tenant_id.to_string();
-        let user_id_str = user_id.to_string();
-
-        // The charge is levied at the dispatch chokepoint in
-        // `UniversalExecutor::execute_tool`, which every `/mcp` tool call
-        // passes through; charging again here billed a call twice.
-        Self::insert_tool_llm_usage(
-            resources,
-            &tenant_id_str,
-            &user_id_str,
-            tool_name,
-            duration_ms,
-        )
-        .await;
-    }
-
-    /// Record MCP tool execution in `llm_usage` table for analytics (fire-and-forget)
-    async fn insert_tool_llm_usage(
-        resources: &Arc<ServerContext>,
-        tenant_id: &str,
-        user_id: &str,
-        tool_name: &str,
-        duration_ms: u64,
-    ) {
-        #[allow(clippy::cast_possible_wrap)]
-        let exec_time_ms = duration_ms as i64;
-
-        // A direct MCP tool invocation is its own inbound boundary — no
-        // upstream chat turn exists to propagate from, so the turn id is
-        // generated here and the `tools_called` list carries the single
-        // tool that just executed.
-        let turn_id = ConversationTurnId::new();
-        let tools_called_json =
-            serde_json::to_string(&[tool_name]).unwrap_or_else(|_| "[]".to_owned());
-
-        if let Err(e) = resources
-            .common
-            .repos
-            .llm_usage
-            .insert_llm_usage(&InsertLlmUsage::for_direct_tool_call(
-                tenant_id,
-                user_id,
-                turn_id,
-                tool_name,
-                &tools_called_json,
-                exec_time_ms,
-            ))
-            .await
-        {
-            warn!(
-                tool_name,
-                "Failed to record MCP tool usage in llm_usage: {e}"
-            );
         }
     }
 

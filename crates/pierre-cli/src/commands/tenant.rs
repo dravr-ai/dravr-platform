@@ -1,5 +1,5 @@
 // ABOUTME: Tenant administration commands for pierre-cli (plan, tool overrides, feature flags, OAuth apps)
-// ABOUTME: Operator backdoor for tenant-scoped settings outside the Stripe/web loops
+// ABOUTME: Admin backdoor for tenant-scoped settings outside the Stripe/web loops
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -50,7 +50,7 @@ pub(crate) async fn set_plan(
     Ok(())
 }
 
-/// Resolve the target tenant for an operator command: an explicit `--tenant-id`
+/// Resolve the target tenant for an admin command: an explicit `--tenant-id`
 /// wins; otherwise use the user's sole tenant, erroring if there are zero or
 /// multiple.
 async fn resolve_tenant(
@@ -247,7 +247,7 @@ pub(crate) async fn list_features(
     Ok(())
 }
 
-/// The tenant's own OAuth app for one provider, as an operator configures it.
+/// The tenant's own OAuth app for one provider, as an admin configures it.
 pub(crate) struct OAuthAppSettings {
     /// Provider the app belongs to (`strava`, `whoop`, ...).
     pub provider: String,
@@ -353,7 +353,7 @@ pub(crate) enum TenantCommand {
         #[arg(long)]
         tenant_id: Option<String>,
 
-        /// Operator note recorded on the override
+        /// Admin note recorded on the override
         #[arg(long)]
         reason: Option<String>,
     },
@@ -372,7 +372,7 @@ pub(crate) enum TenantCommand {
         #[arg(long)]
         tenant_id: Option<String>,
 
-        /// Operator note recorded on the override
+        /// Admin note recorded on the override
         #[arg(long)]
         reason: Option<String>,
     },

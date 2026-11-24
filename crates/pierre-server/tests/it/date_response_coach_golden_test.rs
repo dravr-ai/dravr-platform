@@ -61,9 +61,9 @@ use crate::helpers::coach_roster_fixtures::{
     ride_started, router, seed_activities, Person,
 };
 use crate::helpers::date_golden::{
-    dates_in, dates_in_stamped, day, days_between, epoch, get, instant, mcp_call, mcp_refusal,
-    monday_of, noon_in, on_the_clock, restamp_seconds, send, shifted, table, tool_payload,
-    weekday_name, with_values, Athlete, Today, KIRITIMATI, WEST_OF_THE_DATE_LINE,
+    dates_in, dates_in_stamped, day, days_between, epoch, get, instant, mcp_call, monday_of,
+    noon_in, on_the_clock, restamp_seconds, send, shifted, table, tool_payload, weekday_name,
+    with_values, Athlete, Today, KIRITIMATI, WEST_OF_THE_DATE_LINE,
 };
 
 const ZONES: [&str; 2] = [KIRITIMATI, WEST_OF_THE_DATE_LINE];
@@ -128,6 +128,8 @@ async fn thresholds(res: &Arc<ServerContext>, athlete: &Person) {
                 d_prime_meters: None,
                 threshold_provenance: ThresholdProvenance::default(),
                 threshold_stated_on: ThresholdStatedOn::default(),
+                vo2_max_method: None,
+                vdot: None,
                 anchor_provenance: AnchorProvenance::default(),
                 transport_policy: TransportPolicy::AnyTransport,
                 sex: None,
@@ -608,6 +610,7 @@ async fn a_coachs_reads_are_listed_to_the_athlete_at_the_minute_in_utc() {
                 class,
                 read_at: instant(&at),
                 transport: None,
+                impersonator: None,
             })
             .await
             .unwrap();
@@ -680,7 +683,7 @@ async fn a_coachs_reads_are_listed_to_the_athlete_at_the_minute_in_utc() {
 /// client is refused it through `POST /mcp`, so no date of a roster reaches
 /// that wire.
 #[tokio::test]
-async fn the_roster_tool_is_refused_over_mcp_and_answers_no_date_there() {
+async fn the_roster_tool_over_mcp_shows_no_member_who_did_not_allow_it_and_no_date() {
     let res = common::create_test_server_resources().await.unwrap();
     let today = Today::read();
     let roster = roster_in(&res, KIRITIMATI, &today).await;
@@ -692,11 +695,12 @@ async fn the_roster_tool_is_refused_over_mcp_and_answers_no_date_there() {
 
     let envelope = mcp_call(&res, &as_coach, "get_roster_overview", json!({})).await;
 
-    assert_eq!(
-        mcp_refusal(&envelope),
-        "Error: 'get_roster_overview' is not available over this interface: it runs in Dravr's \
-         own app or channels.",
-        "the roster tool is refused on the MCP wire"
+    // The coach's assistant is listed the roster tool (carnet#1511); no
+    // member of this roster allowed it, so it is a count and no date.
+    assert_eq!(envelope["result"]["isError"], false, "{envelope}");
+    assert!(
+        envelope.to_string().contains("have not allowed AI tools"),
+        "{envelope}"
     );
     assert_eq!(dates_in(&envelope), table(&[]), "{envelope}");
 }

@@ -40,7 +40,7 @@ fn the_usage_example_names_the_provision_route_on_the_server_port() {
         "user",
         "create",
         "--email",
-        "operator@example.com",
+        "admin@example.com",
         "--password",
         "correct-horse-battery-staple",
     ]);

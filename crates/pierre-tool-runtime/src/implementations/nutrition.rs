@@ -29,13 +29,15 @@ use crate::context::ToolExecutionContext;
 use crate::conversions::{
     answers_with, object_schema, ok_typed, tool_definition, tool_result_to_response,
 };
+use crate::implementations::nutrition_args::{
+    parse_nutrition_params, parse_planned_session, parse_workout_intensity,
+};
 use crate::implementations::nutrition_gate::{gate_for_call, NutritionAnswer};
 use crate::implementations::usda_shared::{check_ingredient_count, shared_usda_client};
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
 use dravr_cageux::nutrition_calculator::{
-    calculate_daily_nutrition_needs, calculate_nutrient_timing, ActivityLevel,
-    DailyNutritionParams, Gender, TrainingGoal, WorkoutIntensity,
+    calculate_daily_nutrition_needs, calculate_nutrient_timing, TrainingDayLoad,
 };
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
@@ -46,118 +48,7 @@ use pierre_mcp_schema::PropertySchema;
 use pierre_runtime_context::ConfigLookupScope;
 use pierre_tools_core::ToolResult;
 
-// ============================================================================
-// Helper functions
-// ============================================================================
-
-fn parse_gender(s: &str) -> AppResult<Gender> {
-    match s.to_lowercase().as_str() {
-        "male" => Ok(Gender::Male),
-        "female" => Ok(Gender::Female),
-        _ => Err(AppError::invalid_input("Gender must be 'male' or 'female'")),
-    }
-}
-
-fn parse_activity_level(s: &str) -> AppResult<ActivityLevel> {
-    match s.to_lowercase().as_str() {
-        "sedentary" => Ok(ActivityLevel::Sedentary),
-        "lightly_active" => Ok(ActivityLevel::LightlyActive),
-        "moderately_active" => Ok(ActivityLevel::ModeratelyActive),
-        "very_active" => Ok(ActivityLevel::VeryActive),
-        "extra_active" => Ok(ActivityLevel::ExtraActive),
-        _ => Err(AppError::invalid_input(
-            "Invalid activity_level. Must be one of: sedentary, lightly_active, \
-             moderately_active, very_active, extra_active",
-        )),
-    }
-}
-
-fn parse_training_goal(s: &str) -> AppResult<TrainingGoal> {
-    match s.to_lowercase().as_str() {
-        "maintenance" => Ok(TrainingGoal::Maintenance),
-        "weight_loss" => Ok(TrainingGoal::WeightLoss),
-        "muscle_gain" => Ok(TrainingGoal::MuscleGain),
-        "endurance_performance" => Ok(TrainingGoal::EndurancePerformance),
-        _ => Err(AppError::invalid_input(
-            "Invalid training_goal. Must be one of: maintenance, weight_loss, \
-             muscle_gain, endurance_performance",
-        )),
-    }
-}
-
-fn parse_workout_intensity(s: &str) -> AppResult<WorkoutIntensity> {
-    match s.to_lowercase().as_str() {
-        "low" => Ok(WorkoutIntensity::Low),
-        "moderate" => Ok(WorkoutIntensity::Moderate),
-        "high" => Ok(WorkoutIntensity::High),
-        _ => Err(AppError::invalid_input(
-            "Invalid workout_intensity. Must be one of: low, moderate, high",
-        )),
-    }
-}
-
-fn parse_nutrition_params(args: &Value) -> AppResult<DailyNutritionParams> {
-    let weight_kg = args
-        .get("weight_kg")
-        .and_then(Value::as_f64)
-        .ok_or_else(|| {
-            AppError::invalid_input("Missing or invalid required parameter: weight_kg")
-        })?;
-
-    let height_cm = args
-        .get("height_cm")
-        .and_then(Value::as_f64)
-        .ok_or_else(|| {
-            AppError::invalid_input("Missing or invalid required parameter: height_cm")
-        })?;
-
-    let age_u64 = args
-        .get("age")
-        .and_then(Value::as_u64)
-        .ok_or_else(|| AppError::invalid_input("Missing or invalid required parameter: age"))?;
-
-    #[allow(clippy::cast_possible_truncation)]
-    let age = if age_u64 <= 150 {
-        age_u64 as u32
-    } else {
-        return Err(AppError::invalid_input(
-            "Age must be between 0 and 150 years",
-        ));
-    };
-
-    let gender_str = args
-        .get("gender")
-        .and_then(Value::as_str)
-        .ok_or_else(|| AppError::invalid_input("Missing or invalid required parameter: gender"))?;
-    let gender = parse_gender(gender_str)?;
-
-    let activity_level_str = args
-        .get("activity_level")
-        .and_then(Value::as_str)
-        .ok_or_else(|| {
-            AppError::invalid_input("Missing or invalid required parameter: activity_level")
-        })?;
-    let activity_level = parse_activity_level(activity_level_str)?;
-
-    let training_goal_str = args
-        .get("training_goal")
-        .and_then(Value::as_str)
-        .ok_or_else(|| {
-            AppError::invalid_input("Missing or invalid required parameter: training_goal")
-        })?;
-    let training_goal = parse_training_goal(training_goal_str)?;
-
-    Ok(DailyNutritionParams {
-        weight_kg,
-        height_cm,
-        age,
-        gender,
-        activity_level,
-        training_goal,
-    })
-}
-
-/// The operator's athlete protein target for this call's athlete, when one is
+/// The admin's athlete protein target for this call's athlete, when one is
 /// set: the per-user row, then the tenant's, then the fleet's.
 ///
 /// Only an explicit override is read. With none, the kernel's configured
@@ -219,7 +110,7 @@ const DAILY_NUTRITION_GUIDANCE: &[&str] = &[
 /// them. Timing and food choice only (Kerksick et al. 2017; Aragon & Schoenfeld
 /// 2013: the window is flexible and total daily intake matters most).
 const NUTRIENT_TIMING_GUIDANCE: &[&str] = &[
-    "Before the session: an easily digested, carbohydrate-based meal or snack 1-3 hours beforehand (banana, oatmeal, toast).",
+    "Before a session over an hour: an easily digested, carbohydrate-based meal 1-4 hours beforehand, or a small snack in the last hour (banana, oatmeal, toast).",
     "After the session: a meal with protein and carbohydrate within about 2 hours; total daily intake matters more than the exact minute.",
     "Spread protein across 3-4 meals through the day.",
     "How much of each to take is for your clinician to set.",
@@ -234,10 +125,21 @@ pub struct DailyNutritionResult {
     pub tdee: f64,
     /// Daily protein target, grams.
     pub protein_g: f64,
-    /// Daily carbohydrate target, grams.
+    /// Daily carbohydrate, grams: the middle of `carbs_g_range`, the figure
+    /// the fat and percentages are worked from.
     pub carbs_g: f64,
+    /// The day's carbohydrate range, grams (low, high): the 2016 joint ACSM
+    /// table row the day's training falls in.
+    pub carbs_g_range: (f64, f64),
+    /// The table row the day's training was read as.
+    pub carbohydrate_load: TrainingDayLoad,
     /// Daily fat target, grams.
     pub fat_g: f64,
+    /// Energy the protein, carbohydrate and fat add up to, kcal/day: equal to
+    /// `tdee` unless the day's training calls for more carbohydrate than it
+    /// leaves room for (above) or a light day leaves more than fat's ceiling
+    /// (below).
+    pub energy_from_macros_kcal: f64,
     /// Protein share of energy, percent.
     pub protein_percent: f64,
     /// Carbohydrate share of energy, percent.
@@ -251,10 +153,11 @@ pub struct DailyNutritionResult {
 /// The pre-workout half of a nutrient-timing plan.
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct PreWorkoutTiming {
-    /// How long before the session to eat, hours.
+    /// How long before the session the athlete eats, hours: the gap they gave.
     pub timing_hours_before: f64,
-    /// Carbohydrate to take, grams.
-    pub carbs_g: f64,
+    /// Carbohydrate to take, grams; absent for a session of an hour or less,
+    /// or an easy one, which takes no set amount.
+    pub carbs_g: Option<f64>,
     /// What to eat, in the athlete's terms.
     pub recommendations: Vec<String>,
 }
@@ -442,6 +345,27 @@ impl McpTool<dyn ToolRuntime> for CalculateDailyNutritionTool {
                 ..Default::default()
             },
         );
+        properties.insert(
+            "training_minutes".to_owned(),
+            PropertySchema {
+                property_type: "number".to_owned(),
+                description: Some(
+                    "Training minutes that day, planned or done; omit both for a rest day"
+                        .to_owned(),
+                ),
+                ..Default::default()
+            },
+        );
+        properties.insert(
+            "training_intensity".to_owned(),
+            PropertySchema {
+                property_type: "string".to_owned(),
+                description: Some(
+                    "easy (HR zones 1-2), moderate (3), hard (4) or very_hard (5+)".to_owned(),
+                ),
+                ..Default::default()
+            },
+        );
         let schema = object_schema(
             properties,
             Some(vec![
@@ -455,9 +379,10 @@ impl McpTool<dyn ToolRuntime> for CalculateDailyNutritionTool {
         );
         answers_with::<NutritionAnswer<DailyNutritionResult>>(tool_definition(
             "calculate_daily_nutrition",
-            "Calculate daily calorie and macronutrient needs from biometrics and goals. For an \
-             athlete with a medical/PAR-Q flag on file it returns qualitative `guidance` and \
-             `figures_withheld` instead of any amount: their clinician sets those.",
+            "Calculate daily calorie and macronutrient needs from biometrics and goals, \
+             carbohydrate from the day's training. For an athlete with a medical/PAR-Q flag on \
+             file it returns qualitative `guidance` and `figures_withheld` instead of any \
+             amount: their clinician sets those.",
             schema,
             annotations(
                 "Calculate daily nutrition",
@@ -493,7 +418,7 @@ impl McpTool<dyn ToolRuntime> for CalculateDailyNutritionTool {
 
             let cageux_config = context.cageux_config();
             let nutrition_config = &cageux_config.nutrition;
-            // The kernel's macronutrient factors, with the operator's athlete
+            // The kernel's macronutrient factors, with the admin's athlete
             // protein target in place of the compiled one when an admin set it.
             let mut macronutrients = nutrition_config.macronutrients.clone();
             if let Some(g_per_kg) = athlete_protein_override(&context).await? {
@@ -513,7 +438,10 @@ impl McpTool<dyn ToolRuntime> for CalculateDailyNutritionTool {
                         tdee: nutrition.tdee,
                         protein_g: nutrition.protein_g,
                         carbs_g: nutrition.carbs_g,
+                        carbs_g_range: nutrition.carbs_g_range,
+                        carbohydrate_load: nutrition.carbohydrate_load,
                         fat_g: nutrition.fat_g,
+                        energy_from_macros_kcal: nutrition.energy_from_macros_kcal,
                         protein_percent: nutrition.macro_percentages.protein_percent,
                         carbs_percent: nutrition.macro_percentages.carbs_percent,
                         fat_percent: nutrition.macro_percentages.fat_percent,
@@ -566,19 +494,38 @@ impl McpTool<dyn ToolRuntime> for GetNutrientTimingTool {
                 ..Default::default()
             },
         );
+        properties.insert(
+            "session_minutes".to_owned(),
+            PropertySchema {
+                property_type: "number".to_owned(),
+                description: Some("Session length, minutes".to_owned()),
+                ..Default::default()
+            },
+        );
+        properties.insert(
+            "hours_before".to_owned(),
+            PropertySchema {
+                property_type: "number".to_owned(),
+                description: Some("Hours from eating to the session start, 0-24".to_owned()),
+                ..Default::default()
+            },
+        );
         let schema = object_schema(
             properties,
             Some(vec![
                 "workout_intensity".to_owned(),
                 "weight_kg".to_owned(),
                 "daily_protein_g".to_owned(),
+                "session_minutes".to_owned(),
+                "hours_before".to_owned(),
             ]),
         );
         answers_with::<NutritionAnswer<NutrientTimingResult>>(tool_definition(
             "get_nutrient_timing",
-            "Get nutrient timing recommendations around workouts. For an athlete with a \
-             medical/PAR-Q flag on file it returns qualitative `guidance` and `figures_withheld` \
-             instead of any amount: their clinician sets those.",
+            "Get nutrient timing around one session, from its length and how long before it the \
+             athlete eats. For an athlete with a medical/PAR-Q flag on file it returns \
+             qualitative `guidance` and `figures_withheld` instead of any amount: their \
+             clinician sets those.",
             schema,
             annotations("Get nutrient timing", Effect::ReadOnly, Reach::Internal),
         ))
@@ -628,6 +575,7 @@ impl McpTool<dyn ToolRuntime> for GetNutrientTimingTool {
                 })?;
             let (workout_intensity, intensity_source) =
                 (parse_workout_intensity(intensity_str)?, "explicit");
+            let session = parse_planned_session(&args)?;
 
             if let Some(withheld) = gate_for_call(&context).await? {
                 return ok_typed(
@@ -646,6 +594,7 @@ impl McpTool<dyn ToolRuntime> for GetNutrientTimingTool {
                 weight_kg,
                 daily_protein_g,
                 workout_intensity,
+                session,
                 &config.nutrient_timing,
             ) {
                 Ok(timing) => ok_typed(

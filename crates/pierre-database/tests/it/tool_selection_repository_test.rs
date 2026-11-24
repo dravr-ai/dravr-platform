@@ -11,7 +11,7 @@
 //! The repository had no direct test on either backend. The one the catalog
 //! timestamp needed most: `SQLite` used to parse `created_at` as RFC 3339
 //! and, when the row had been stamped by the database's own clock in its
-//! `YYYY-MM-DD HH:MM:SS` form, substitute `Utc::now()` — so every read of a
+//! `YYYY-MM-DD HH:MM:SS` form, substitute `Timestamp::now()` — so every read of a
 //! catalog entry reported it created just now. These run on `SQLite` and on
 //! `PostgreSQL`: `create_test_db` opens whichever `DATABASE_URL` names.
 
@@ -19,7 +19,7 @@
 
 use std::time::Duration;
 
-use chrono::Utc;
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::models::{Tenant, TenantId, TenantPlan, ToolCatalogEntry, ToolCategory, User};
 use pierre_database::RepositoryRegistry;
 use pierre_test_support::db::create_test_db;
@@ -57,8 +57,9 @@ fn entry(category: ToolCategory, min_plan: TenantPlan, enabled: bool) -> ToolCat
         is_enabled_by_default: enabled,
         requires_provider: None,
         min_plan,
-        created_at: Utc::now(),
-        updated_at: Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
+        def_hash: None,
     }
 }
 
@@ -68,7 +69,7 @@ async fn a_catalog_entry_reads_back_with_the_moment_it_was_stored() {
     let repos = db.repositories();
     let repo = &repos.tool_selection;
 
-    let before = Utc::now();
+    let before = Timestamp::now();
     let entry = entry(ToolCategory::Analysis, TenantPlan::Professional, true);
     repo.upsert_tool_catalog_entry(&entry).await.unwrap();
 
@@ -82,7 +83,7 @@ async fn a_catalog_entry_reads_back_with_the_moment_it_was_stored() {
     assert_eq!(first.min_plan, TenantPlan::Professional);
     assert!(first.is_enabled_by_default);
     assert!(
-        first.created_at >= before - chrono::Duration::seconds(1) && first.created_at <= Utc::now(),
+        first.created_at >= before - Elapsed::seconds(1) && first.created_at <= Timestamp::now(),
         "created_at is the database's clock at the write: {}",
         first.created_at
     );
@@ -183,7 +184,7 @@ async fn an_override_round_trips_and_reverts_to_the_default() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
     let repo = &repos.tool_selection;
-    let (tenant_id, operator) = fresh_tenant(repos, "starter").await;
+    let (tenant_id, admin) = fresh_tenant(repos, "starter").await;
 
     let on_by_default = entry(ToolCategory::Goals, TenantPlan::Starter, true);
     let off_by_default = entry(ToolCategory::Goals, TenantPlan::Starter, false);
@@ -203,7 +204,7 @@ async fn an_override_round_trips_and_reverts_to_the_default() {
             tenant_id,
             &off_by_default.tool_name,
             true,
-            Some(operator),
+            Some(admin),
             Some("switched on for the pilot".to_owned()),
         )
         .await
@@ -211,7 +212,7 @@ async fn an_override_round_trips_and_reverts_to_the_default() {
     assert_eq!(stored.tenant_id, tenant_id);
     assert_eq!(stored.tool_name, off_by_default.tool_name);
     assert!(stored.is_enabled);
-    assert_eq!(stored.enabled_by_user_id, Some(operator));
+    assert_eq!(stored.enabled_by_user_id, Some(admin));
     assert_eq!(stored.reason.as_deref(), Some("switched on for the pilot"));
 
     let again = repo

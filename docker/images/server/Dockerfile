@@ -65,7 +65,8 @@ RUN --mount=type=secret,id=git_token \
     git config --global url."https://x-access-token:$(cat /run/secrets/git_token)@github.com/".insteadOf "https://github.com/" \
     && cargo chef cook --profile release-lto --no-default-features --features "server-production,postgresql,sqlx/migrate,telemetry,gcp-kms" --recipe-path recipe.json
 
-# Build the server binary and pierre-cli (which now hosts all seeder subcommands).
+# Build the server binary, pierre-cli (which now hosts all seeder subcommands)
+# and pierre-pdf-text, the child process the server reads uploaded lab reports in.
 # Reruns only when source code changes.
 COPY . .
 # Credential handling as in the planner stage: HOME is a tmpfs mount so the
@@ -75,16 +76,17 @@ RUN --mount=type=secret,id=git_token \
     git config --global url."https://x-access-token:$(cat /run/secrets/git_token)@github.com/".insteadOf "https://github.com/" \
     && cargo build --profile release-lto --no-default-features --features "server-production,postgresql,sqlx/migrate,telemetry,gcp-kms" \
     --bin pierre-mcp-server \
-    --bin pierre-cli
+    --bin pierre-cli \
+    --bin pierre-pdf-text
 
 # Verify binaries were built
-RUN ls -la target/release-lto/pierre-mcp-server target/release-lto/pierre-cli
+RUN ls -la target/release-lto/pierre-mcp-server target/release-lto/pierre-cli target/release-lto/pierre-pdf-text
 
-# Stage 2b: the same two binaries, compiled outside Docker (BINARY_SOURCE=prebuilt).
-# The `prebuilt-bin` context is a directory holding exactly pierre-mcp-server and
-# pierre-cli, built with the builder stage's profile and features.
+# Stage 2b: the same three binaries, compiled outside Docker (BINARY_SOURCE=prebuilt).
+# The `prebuilt-bin` context is a directory holding exactly pierre-mcp-server,
+# pierre-cli and pierre-pdf-text, built with the builder stage's profile and features.
 FROM scratch AS prebuilt
-COPY --from=prebuilt-bin pierre-mcp-server pierre-cli /app/target/release-lto/
+COPY --from=prebuilt-bin pierre-mcp-server pierre-cli pierre-pdf-text /app/target/release-lto/
 
 FROM ${BINARY_SOURCE} AS binaries
 
@@ -188,7 +190,11 @@ WORKDIR /app
 # CVE-2026-69184, CVE-2026-69186, HIGH: use-after-free and DNS denial of
 # service): the dev deploys of 9061a4e4d and 83efc283b were gated on them
 # with "apt security epoch: 2026-11-08" built.
-ARG APT_SECURITY_EPOCH=2026-11-13
+# 2026-11-22: krb5 1.21.3-5+deb13u1 -> +deb13u2 (CVE-2026-107364 and
+# CVE-2026-112315..112323, HIGH; libgssapi-krb5-2, libk5crypto3, libkrb5-3,
+# libkrb5support0): the dev deploy of 9e81bd752 was gated on them with
+# "apt security epoch: 2026-11-13" built.
+ARG APT_SECURITY_EPOCH=2026-11-22
 
 # Upgrade all system packages to patch CVEs, then install runtime dependencies
 # nodejs + npm: needed for copilot CLI and claude-code CLI (LLM providers via embacle)
@@ -297,6 +303,8 @@ RUN npm install -g "@github/copilot-linux-x64@${COPILOT_CLI_VERSION}" \
 # appuser ownership through the merge.
 COPY --link --chown=1001:1001 --from=binaries /app/target/release-lto/pierre-mcp-server /app/pierre-mcp-server
 COPY --link --chown=1001:1001 --from=binaries /app/target/release-lto/pierre-cli /app/pierre-cli
+# The server spawns it from beside its own executable for every uploaded lab report.
+COPY --link --chown=1001:1001 --from=binaries /app/target/release-lto/pierre-pdf-text /app/pierre-pdf-text
 # commands/ is source files, so it comes from the build context, which the
 # builder stage copied it from under the same .dockerignore.
 COPY --link --chown=1001:1001 commands /app/commands

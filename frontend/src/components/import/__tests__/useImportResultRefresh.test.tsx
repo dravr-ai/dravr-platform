@@ -9,7 +9,7 @@ import type { ReactNode } from 'react';
 import { renderHook, act } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { IMPORT_RESULT_STORAGE_KEY } from '@pierre/ui-logic';
-import { QUERY_KEYS } from '../../../constants/queryKeys';
+import { QUERY_KEYS } from '@pierre/shared-constants';
 import { useImportResultRefresh } from '../useImportResultRefresh';
 
 function mount() {
@@ -35,7 +35,6 @@ describe('useImportResultRefresh', () => {
     expect(keys).toEqual(
       expect.arrayContaining([
         QUERY_KEYS.providers.status(),
-        QUERY_KEYS.user.providerConnections(),
         QUERY_KEYS.imports.all,
         QUERY_KEYS.user.onboardingStatus(),
       ]),

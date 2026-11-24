@@ -15,7 +15,7 @@
 use std::fs;
 use std::path::Path;
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::groups::{GroupDigestMode, GroupRespondMode};
 use pierre_core::models::{
     AgentCategory, AgentVisibility, CoachingGroup, CreateSystemAgentRequest, TenantId,
@@ -227,7 +227,7 @@ async fn test_pg_merged_agent_hands_over_and_orphan_group_blocks() {
         .await
         .unwrap()
         .id;
-    let now = Utc::now();
+    let now = Timestamp::now();
     let group_for = |agent: &str| CoachingGroup {
         id: Uuid::new_v4(),
         tenant_id: tenant.to_string(),
@@ -243,6 +243,7 @@ async fn test_pg_merged_agent_hands_over_and_orphan_group_blocks() {
         is_active: true,
         channel_type: None,
         channel_chat_id: None,
+        chat_connection: None,
         created_at: now,
         updated_at: now,
     };

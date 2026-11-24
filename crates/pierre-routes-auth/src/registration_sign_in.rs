@@ -103,6 +103,8 @@ async fn mint_code(
         code_challenge: Some(sign_in.code_challenge.clone()),
         code_challenge_method: sign_in.code_challenge_method.clone(),
         resource: None,
+        request_uri: None,
+        authorization_details: None,
     };
     match authorization_server(resources)
         .authorize(request, Some(user_id), None)

@@ -20,11 +20,13 @@
 //! Index family it carries the version that made it (`k{N}:` before the
 //! base64), and a stored digest is never recomputed. A read binds both of
 //! [`index_lookup`]'s digests, so one written under the key being retired
-//! still matches.
+//! still matches. The one decoded form is [`index_identity`]: the raw MAC of
+//! a name or an id that never moves, under the family's first version, which
+//! carries no version tag.
 //!
 //! **A used key is never retired** (JF, carnet#1347): erasures and
-//! tombstones never expire, so the rotation controller keeps an Index
-//! version loaded while any stored keyed digest still names it.
+//! tombstones never expire, so the rotation controller never disables an
+//! Index version that has been primary, and the family rotates only once.
 
 use pierre_core::errors::AppResult;
 
@@ -88,10 +90,35 @@ pub fn index_lookup(
     Ok(keys.blind_index_lookups(&keyed_message(domain, message)))
 }
 
+/// The raw 32-byte MAC of `message` in `domain` under the Index family's
+/// **first** version.
+///
+/// For a name or an id that never moves (barrage's `Keyed::identity`: keyed
+/// original names, keyed Apple ids, the local checkpoint seed).
+///
+/// Unlike [`index_mac`], an identity must not follow the primary: a name made
+/// once is found again after any rotation, so no stored name is recomputed.
+/// It is keyed under Index version 1 whatever the primary, and version 1 is
+/// never retired (carnet#1347). A rotation therefore does not re-protect
+/// identities: JF accepted that cost on carnet#1542 (2026-11-20).
+///
+/// # Errors
+/// When Index version 1 is not loaded.
+pub fn index_identity(
+    keys: &dyn HasEncryption,
+    domain: KeyedDomain,
+    message: &[u8],
+) -> AppResult<[u8; 32]> {
+    keys.index_identity_mac(&keyed_message(domain, message))
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
     use std::sync::Arc;
+
+    use base64::engine::general_purpose::STANDARD;
+    use base64::Engine as _;
 
     use super::*;
     use crate::backends::shared::keyring::{index_version_of, Keyring, KeyringCell};
@@ -163,6 +190,31 @@ mod tests {
             index_lookup(&old, domain, b"ab").unwrap(),
             [before_rotation.clone(), before_rotation],
             "with one live key a lookup binds the primary twice"
+        );
+    }
+
+    #[test]
+    fn an_identity_stays_under_index_v1_whatever_the_primary() {
+        let domain = KeyedDomain::Barrage("barrage.blob_name");
+        let identity = index_identity(&keys(&[1], 1), domain, b"ab").unwrap();
+        assert_eq!(
+            STANDARD.encode(identity),
+            index_mac(&keys(&[1], 1), domain, b"ab").unwrap(),
+            "bug: an identity is not Index v1's MAC of the keyed message"
+        );
+        assert_eq!(
+            index_identity(&keys(&[1, 2], 2), domain, b"ab").unwrap(),
+            identity,
+            "bug: an identity moved with the Index primary"
+        );
+        assert_ne!(
+            index_identity(&keys(&[1], 1), KeyedDomain::CheckpointSeed, b"ab").unwrap(),
+            identity,
+            "bug: two domains share an identity"
+        );
+        assert!(
+            index_identity(&keys(&[2], 2), domain, b"ab").is_err(),
+            "bug: an identity was keyed without Index v1"
         );
     }
 }

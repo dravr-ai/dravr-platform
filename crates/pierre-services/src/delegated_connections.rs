@@ -50,7 +50,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_cache::{Cache, CacheKey, CacheResource};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::groups::CoachingGroup;
@@ -65,6 +65,7 @@ use pierre_notifications::triggers::{self, LinkPlatform};
 use pierre_notifications::{NotificationService, TenantId as NoticeTenantId};
 use pierre_providers::backend_resolver::user_facing_name;
 use pierre_providers::registry::{global_registry, ProviderRegistry};
+use pierre_runtime_context::ProviderConnectLog;
 use serde_json::json;
 use tracing::{info, warn};
 use uuid::Uuid;
@@ -74,6 +75,7 @@ use crate::coach_platform::{coach_platform, CoachPlatform, RosterRead};
 use crate::delegated_link_states::{assess, shares_with_coach, Assessed, LinkState};
 use crate::delegated_read::{holds_own_connection, own_platform_ids, OwnLogins};
 use crate::delegation_refusal::Refusal;
+use crate::provider_connected::{self, ConnectVia, ProviderConnected};
 use crate::provider_notice::notice_in_force;
 use crate::trainingpeaks_accounts::{email_binding, link_binding, EmailBinding};
 
@@ -355,7 +357,7 @@ pub async fn coach_session_state(
         .await?
         .into_iter()
         .find(|c| c.provider == provider && c.connection_type != ConnectionType::Delegated);
-    let expired = token.expires_at.is_some_and(|at| at <= Utc::now());
+    let expired = token.expires_at.is_some_and(|at| at <= Timestamp::now());
     if expired
         || connection
             .as_ref()
@@ -645,7 +647,9 @@ pub async fn propose(
 /// offers once the link is confirmed ([`crate::coach_consents`]), and none
 /// unless requested.
 /// Their delegated connection is registered there, their other live
-/// proposals for the provider are superseded, and the coach is told.
+/// proposals for the provider are superseded, the connect is announced
+/// through `connect_log` ([`provider_connected::announce`]), and the coach
+/// is told.
 ///
 /// # Errors
 ///
@@ -663,6 +667,7 @@ pub async fn confirm(
     link: &DelegatedConnection,
     member_tenant: TenantId,
     requested: ConsentChange,
+    connect_log: &Arc<dyn ProviderConnectLog>,
 ) -> AppResult<DelegatedConnection> {
     let DelegationServices {
         repos,
@@ -685,7 +690,7 @@ pub async fn confirm(
     }
     let confirmed = repos
         .delegated_connections
-        .confirm(link.id, member, member_tenant, Utc::now())
+        .confirm(link.id, member, member_tenant, Timestamp::now())
         .await?
         .ok_or_else(|| AppError::not_found("Pending link"))?;
     info!(
@@ -711,16 +716,16 @@ pub async fn confirm(
             Some(&json!({ "delegated_connection_id": confirmed.id }).to_string()),
         )
         .await?;
-    info!(
-        target: "notify",
-        event = "provider.connected",
-        provider = %user_facing_name(&confirmed.provider),
-        backend = %confirmed.provider,
-        delegated = true,
-        user_id = %member,
-        tenant_id = %member_tenant,
-        "member confirmed a delegated connection"
-    );
+    provider_connected::announce(
+        Some(connect_log),
+        ProviderConnected {
+            user_id: member,
+            tenant_id: member_tenant,
+            backend: &confirmed.provider,
+            via: ConnectVia::Delegated,
+        },
+    )
+    .await;
     Notices::new(repos, notifications)
         .confirmed(&confirmed, &group.name)
         .await;

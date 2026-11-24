@@ -25,16 +25,17 @@ use crate::repositories::{
     EmailVerificationRepository, EngagementRepository, FeatureFlagsRepository,
     FederatedIdentityRepository, FeedbackMessageRepository, FirebaseIdentityDeletionRepository,
     FirstRunProgressRepository, FitnessConfigRepository, GarminPushInboxRepository,
-    HarnessMemoryRepository, HealthSnapshotRepository, HomePreferencesRepository,
-    ImpersonationRepository, ImportTombstoneRepository, LlmCredentialRepository,
-    LlmUsageRepository, McpTaskRepository, MemoryExtractionJobRepository, MessagingRepository,
-    MobilityRepository, NotificationRepository, OAuth2ServerRepository, OAuthClientStateRepository,
-    OAuthTokenRepository, PasswordResetRepository, PersonaDigestReturnRepository,
-    PersonalBestRepository, PlatformPostClaimRepository, PlaybookRepository,
-    PreApprovedEmailRepository, PrescribedWorkoutRepository, ProfileRepository,
-    ProviderConnectionRepository, ProviderDataRepository, PushedDataRepository, RecipeRepository,
-    RecoveryRepository, ResumableTurnRepository, RouteSummaryRepository, SecurityRepository,
-    SeederRepository, SessionRefreshTokenRepository, ShortLinkRepository, SignupCodeRepository,
+    HarnessMemoryRepository, HealthRecordRepository, HealthSnapshotRepository,
+    HomePreferencesRepository, ImpersonationRepository, ImportTombstoneRepository,
+    LlmCredentialRepository, LlmUsageRepository, McpTaskRepository, MemoryExtractionJobRepository,
+    MessagingRepository, MobilityRepository, NotificationRepository, OAuth2ServerRepository,
+    OAuthClientStateRepository, OAuthTokenRepository, PasswordResetRepository,
+    PeerDataReadRepository, PersonaDigestReturnRepository, PersonalBestRepository,
+    PlatformPostClaimRepository, PlaybookRepository, PreApprovedEmailRepository,
+    PrescribedWorkoutRepository, ProfileRepository, ProviderConnectionRepository,
+    ProviderDataRepository, PushedDataRepository, RecipeRepository, RecoveryRepository,
+    ResumableTurnRepository, RouteSummaryRepository, SecurityRepository, SeederRepository,
+    SessionRefreshTokenRepository, ShortLinkRepository, SignupCodeRepository,
     SignupCohortRepository, SleepRepository, StoreListingsRepository,
     StravaSeatReclaimWarningRepository, SubscriptionsRepository, SyncCursorRepository,
     SystemSettingsRepository, TenantRepository, ToolSelectionRepository, TrainingHistoryRepository,
@@ -100,7 +101,7 @@ pub struct RepositoryRegistry {
     pub pre_approved_emails: Arc<dyn PreApprovedEmailRepository>,
     /// Single-use magic links that open the members part of the dravr.ai docs
     pub website_sign_in_tokens: Arc<dyn WebsiteSignInTokenRepository>,
-    /// Single-use invitations an operator mails to an address with no account
+    /// Single-use invitations an admin mails to an address with no account
     pub user_invitations: Arc<dyn UserInvitationRepository>,
     /// Shareable codes an admin mints so whoever enters one is approved
     pub signup_codes: Arc<dyn SignupCodeRepository>,
@@ -113,6 +114,9 @@ pub struct RepositoryRegistry {
     /// The athlete's record of their human coach's reads of their data, purged
     /// after 12 months (carnet#1445)
     pub coach_data_reads: Arc<dyn CoachDataReadRepository>,
+    /// A member's record of fellow group members reading their data under
+    /// their peer consent, purged with the coach reads (carnet#1543)
+    pub peer_data_reads: Arc<dyn PeerDataReadRepository>,
     /// Recipe CRUD with nutrition
     pub recipes: Arc<dyn RecipeRepository>,
     /// RSA keypairs, key rotation, audit events
@@ -154,6 +158,8 @@ pub struct RepositoryRegistry {
     pub check_in_preferences: Arc<dyn CheckInPreferenceRepository>,
     /// The athletes' in-app feedback threads with the Dravr team (carnet#1235)
     pub feedback_messages: Arc<dyn FeedbackMessageRepository>,
+    /// The T2–T3 health records imports and lab documents yield (carnet#1544)
+    pub health_records: Arc<dyn HealthRecordRepository>,
     /// Durable per-user onboarding step completion state (server-driven onboarding flow)
     pub user_onboarding: Arc<dyn UserOnboardingRepository>,
     /// Store listings for agent marketplace
@@ -204,7 +210,7 @@ pub struct RepositoryRegistry {
     pub subscriptions: Arc<dyn SubscriptionsRepository>,
     /// dravr-meteo persistent weather cache (geographic + hourly buckets)
     pub weather_cache: Arc<dyn WeatherCacheRepository>,
-    /// The operator's key/value settings (`system_settings`), for code that
+    /// The admin's key/value settings (`system_settings`), for code that
     /// holds the registry but no backend handle
     pub system_settings: Arc<dyn SystemSettingsRepository>,
     /// Endurance typed physiological profile (FTP, threshold pace, zones)
@@ -236,7 +242,7 @@ pub struct RepositoryRegistry {
     pub user_rate_limit_overrides: Arc<dyn UserRateLimitOverrideRepository>,
     /// Per-user admin tier override marker. Row presence makes the billing
     /// webhook skip `set_tier`/`set_plan` so a Stripe event cannot clobber a
-    /// manual operator override.
+    /// manual admin override.
     pub user_tier_overrides: Arc<dyn UserTierOverrideRepository>,
     /// Per-user choices Home's layout honours on every device
     pub home_preferences: Arc<dyn HomePreferencesRepository>,
@@ -268,7 +274,7 @@ pub struct RepositoryRegistry {
     /// day rows merge, one-shot files are kept until their samples land.
     pub pushed_data: Arc<dyn PushedDataRepository>,
     /// An account deletion in one transaction with its hash-chained receipt,
-    /// and the receipt chain an operator verifies.
+    /// and the receipt chain an admin verifies.
     pub account_deletion: Arc<dyn AccountDeletionRepository>,
     /// A whole-account reset in one transaction: every row the account owns
     /// wiped, the account and its sign-in kept, no tombstone and no receipt.
@@ -278,7 +284,7 @@ pub struct RepositoryRegistry {
     pub import_tombstones: Arc<dyn ImportTombstoneRepository>,
     /// Parked actions awaiting their owner: the agent drafts of `/agent create`.
     pub agent_drafts: Arc<dyn AgentDraftsRepository>,
-    /// The admin audit trail: one row per operator write through the admin
+    /// The admin audit trail: one row per admin write through the admin
     /// API, or `pierre-cli` straight to the database (carnet#1391).
     pub admin_audit: Arc<dyn AdminAuditRepository>,
     /// The admin Engagement screen's reads, each in one admin scope.
@@ -306,7 +312,7 @@ pub struct RepositoryRegistry {
     /// or failed, until they expire (carnet#1541).
     pub user_export_bundles: Arc<dyn UserExportBundleRepository>,
     /// Deletes every row one provider contributed: one user's on disconnect,
-    /// every tenant's on the operator's termination purge.
+    /// every tenant's on the admin's termination purge.
     pub provider_data: Arc<dyn ProviderDataRepository>,
 }
 
@@ -352,6 +358,7 @@ impl RepositoryRegistry {
             provider_connections: db.clone(),
             calendar_preferences: db.clone(),
             coach_data_reads: db.clone(),
+            peer_data_reads: db.clone(),
             recipes: db.clone(),
             security: db.clone(),
             session_refresh_tokens: db.clone(),
@@ -372,6 +379,7 @@ impl RepositoryRegistry {
             platform_post_claims: db.clone(),
             check_in_preferences: db.clone(),
             feedback_messages: db.clone(),
+            health_records: db.clone(),
             user_onboarding: db.clone(),
             store_listings: db.clone(),
             tenants: db.clone(),
@@ -469,6 +477,7 @@ impl RepositoryRegistry {
             provider_connections: db.clone(),
             calendar_preferences: db.clone(),
             coach_data_reads: db.clone(),
+            peer_data_reads: db.clone(),
             recipes: db.clone(),
             security: db.clone(),
             session_refresh_tokens: db.clone(),
@@ -489,6 +498,7 @@ impl RepositoryRegistry {
             platform_post_claims: db.clone(),
             check_in_preferences: db.clone(),
             feedback_messages: db.clone(),
+            health_records: db.clone(),
             user_onboarding: db.clone(),
             store_listings: db.clone(),
             tenants: db.clone(),

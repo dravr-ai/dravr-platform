@@ -39,8 +39,8 @@ use axum::routing::get;
 use axum::{Json, Router};
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
-use chrono::Utc;
 use common::{create_test_server_resources, create_test_user_with_plan, generate_test_token};
+use dravr_tronc::dates::Timestamp;
 use helpers::axum_test::AxumTestRequest;
 use helpers::notify_capture::{capture_notify, named};
 use pierre_core::constants::oauth::INTERVALS_ICU;
@@ -180,7 +180,7 @@ impl World {
     async fn new() -> Self {
         let api = Api::default();
         let base = spawn_api(api.clone()).await;
-        let mut config = offline_provider_config(INTERVALS_ICU);
+        let mut config = offline_provider_config(INTERVALS_ICU).unwrap();
         config.api_base_url = base;
         let mut registry = offline_provider_registry();
         registry.set_default_config(INTERVALS_ICU, config);
@@ -215,7 +215,7 @@ impl World {
 
     /// `who`'s own Intervals.icu key, stored as the link route stores it.
     async fn connect(&self, who: &Person) {
-        let now = Utc::now();
+        let now = Timestamp::now();
         let repos = &self.res.common.repos;
         repos
             .oauth_tokens
@@ -536,7 +536,7 @@ async fn a_decided_request_is_never_asked_again() {
     };
     decline(repos, asked.id, None, None, None).await.unwrap();
 
-    // Granted, then revoked by an operator: the revoke stands.
+    // Granted, then revoked by an admin: the revoke stands.
     let revoked = w.person("revoked@coach-access.test", true).await;
     let RequestOutcome::Opened(asked_too) =
         request_access(repos, revoked.id, None, CoachAccessOrigin::Asked)

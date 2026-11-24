@@ -45,11 +45,11 @@ import {
   SCIOTTE_LOGIN_FLOW_EXPIRED,
   SCIOTTE_LOGIN_PRESETS,
   SCIOTTE_NUMBER_MATCH_REPOLL_MS,
+  SIGN_IN_BRAND,
   loginIdentifierField,
   signInFallsBackToOAuth,
 } from '@pierre/shared-constants';
 import { useTranslation } from '@pierre/i18n';
-import { PROVIDER_BRAND } from '../constants/brands';
 import {
   describeApiError,
   isSignInPhaseLive,
@@ -104,6 +104,13 @@ interface SciotteLoginModalProps {
    * show theirs, for the athlete to type again.
    */
   onFallBackToOAuth?: () => void;
+  /**
+   * The consents the athlete ticked on the connect's consent sheet before
+   * this window opened (Garmin's AI use and workout transfer): the login
+   * carries them, and the window asks for none itself (carnet#1157,
+   * carnet#1390).
+   */
+  consents?: readonly string[];
 }
 
 /**
@@ -115,7 +122,7 @@ const PLATE_INK = '#FFFFFF';
 
 /**
  * The colours this login draws in — third-party colours, not Boreal tokens
- * (DESIGN.md §2). Each brand hex is read from `PROVIDER_COLORS`, which names
+ * (DESIGN.md "Brand colour"). Each brand hex is read from `PROVIDER_COLORS`, which names
  * its source.
  *
  * `primary` is the brand hex. It fills the solid tile behind a white glyph,
@@ -193,7 +200,7 @@ const METHOD_CONFIGS: Record<LoginMethod, MethodConfig> = {
   google: {
     titleKey: 'app.brandGoogle',
     emailPlaceholderKey: 'app.googleEmail',
-    brandName: PROVIDER_BRAND.google,
+    brandName: SIGN_IN_BRAND.google,
     renderIcon: (size: number) => <GoogleLogo size={size} />,
     brandGradient: BRAND_COLORS.google.gradient,
     bgColor: '#FFFFFF',
@@ -201,7 +208,7 @@ const METHOD_CONFIGS: Record<LoginMethod, MethodConfig> = {
   apple: {
     titleKey: 'app.brandApple',
     emailPlaceholderKey: 'app.appleIdEmail',
-    brandName: PROVIDER_BRAND.apple,
+    brandName: SIGN_IN_BRAND.apple,
     renderIcon: (size: number) => <AppleLogo size={size} color={PLATE_INK} />,
     brandGradient: BRAND_COLORS.apple.gradient,
     bgColor: '#000000',
@@ -243,6 +250,7 @@ export function SciotteLoginModal({
   consentRequired = false,
   historyMode = false,
   onFallBackToOAuth,
+  consents,
 }: SciotteLoginModalProps) {
   const { t } = useTranslation();
   // Closing the window ends the sign-in it started, on the server too.
@@ -429,12 +437,15 @@ export function SciotteLoginModal({
   const handleBrowserSignedIn = useCallback(async (cookies: BrowserSigninCookie[]) => {
     setPhase('logging-in');
     try {
-      applyLoginAnswer(await oauthApi.browserSignin(target, cookies, { tosConsent: consentAccepted }));
+      applyLoginAnswer(await oauthApi.browserSignin(target, cookies, {
+        tosConsent: consentAccepted,
+        ...(consents ? { consents } : {}),
+      }));
     } catch (err) {
       setError(refusalMessage(err, 'auth.loginFailed'));
       setPhase('error');
     }
-  }, [applyLoginAnswer, consentAccepted, refusalMessage, target]);
+  }, [applyLoginAnswer, consentAccepted, consents, refusalMessage, target]);
   const handleBrowserError = useCallback((err: unknown) => {
     setError(refusalMessage(err, 'auth.loginFailed'));
     setPhase('error');
@@ -467,6 +478,7 @@ export function SciotteLoginModal({
         method,
         target,
         ...(notice ? { tos_consent: consentAccepted } : {}),
+        ...(consents ? { consents } : {}),
       }, { signal, attemptId: attemptId() });
       applyLoginAnswer(data);
     } catch (err) {
@@ -476,7 +488,7 @@ export function SciotteLoginModal({
     } finally {
       if (!signal.aborted) setIsLoading(false);
     }
-  }, [email, password, method, target, notice, consentAccepted, platformName, beginRequest, attemptId, applyLoginAnswer, applyLoginRefusal, t]);
+  }, [email, password, method, target, notice, consentAccepted, consents, platformName, beginRequest, attemptId, applyLoginAnswer, applyLoginRefusal, t]);
 
   // What the takeover page says: connected, or over — with the answer it
   // ended with, read as the login's own, or with none, which asks the athlete

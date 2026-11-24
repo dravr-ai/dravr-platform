@@ -24,7 +24,8 @@ use pierre_core::transport::TransportPolicy;
 use std::sync::{Arc, LazyLock};
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Elapsed;
+use dravr_tronc::dates::Timestamp;
 use pierre_contremaitre::registry::PromptRegistry;
 use pierre_core::errors::AppError;
 use pierre_database::repositories::PlaybookRepository;
@@ -123,6 +124,9 @@ pub struct CapturedTurn {
     /// The assistant reply's stamp (carnet#769): advice captured from it
     /// carries it.
     pub transport_policy: TransportPolicy,
+    /// The AI-consent keys of what the reply was drawn from (carnet#1157):
+    /// advice captured from it names them.
+    pub ai_consent_sources: Vec<String>,
 }
 
 /// Pluggable mechanism for turning a finished turn into zero or more
@@ -201,7 +205,7 @@ pub fn looks_like_recommendation(reply: &str) -> bool {
 pub fn raw_to_pending(
     raw: &RawAdvicePublic,
     turn: &CapturedTurn,
-    now: DateTime<Utc>,
+    now: Timestamp,
 ) -> Option<PendingAdvice> {
     let window_days = raw.window_days.clamp(MIN_WINDOW_DAYS, MAX_WINDOW_DAYS);
     let trigger = TriggerPattern {
@@ -218,7 +222,7 @@ pub fn raw_to_pending(
         window_days,
         sanitize_sport_slug(raw.outcome_sport.as_deref()),
     );
-    let due_by = now + chrono::Duration::days(i64::from(window_days));
+    let due_by = now + Elapsed::days(i64::from(window_days));
     Some(PendingAdvice {
         id: Uuid::new_v4().to_string(),
         tenant_id: turn.tenant_id.clone(),
@@ -236,6 +240,7 @@ pub fn raw_to_pending(
         source_msg_id: turn.source_msg_id.clone(),
         created_at: now,
         transport_policy: turn.transport_policy,
+        ai_consent_sources: turn.ai_consent_sources.clone(),
     })
 }
 
@@ -312,7 +317,7 @@ impl AdviceCaptureStrategy for HeuristicGatedLlmExtraction {
                     return Vec::new();
                 }
             };
-        let now = Utc::now();
+        let now = Timestamp::now();
         raw.into_iter()
             .filter_map(|r| raw_to_pending(&RawAdvicePublic::from(r), turn, now))
             .collect()

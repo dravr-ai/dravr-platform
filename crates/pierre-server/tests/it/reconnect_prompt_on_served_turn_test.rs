@@ -41,7 +41,7 @@ use secrecy::SecretString;
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use dravr_tronc::mcp::tool::{McpTool, ToolContext};
 use embacle::types::{RunnerError, ToolCallRequest};
 use futures_util::stream;
@@ -94,6 +94,7 @@ use crate::common::{
     create_test_server_resources, create_test_server_resources_with_chat_provider_and_config,
     create_test_server_resources_with_config, create_test_user, test_server_config_usr_pwd_garmin,
 };
+use crate::helpers::garmin_consent::give_garmin_ai_consent;
 
 /// The agent's own answer over the sibling's data. Every assertion about what
 /// survives compares against this exact string.
@@ -189,7 +190,7 @@ async fn athlete_with_a_dead_primary(resources: &Arc<ServerContext>) -> (Uuid, T
         "strava-ride-1".to_owned(),
         "Sortie longue".to_owned(),
         SportType::Ride,
-        Utc::now() - Duration::days(2),
+        Timestamp::now() - Elapsed::days(2),
         7_200,
         "strava".to_owned(),
     )
@@ -199,7 +200,7 @@ async fn athlete_with_a_dead_primary(resources: &Arc<ServerContext>) -> (Uuid, T
         "strava-run-1".to_owned(),
         "Tempo".to_owned(),
         SportType::Run,
-        Utc::now() - Duration::days(4),
+        Timestamp::now() - Elapsed::days(4),
         3_600,
         "strava".to_owned(),
     )
@@ -220,6 +221,9 @@ async fn athlete_with_a_dead_primary(resources: &Arc<ServerContext>) -> (Uuid, T
         .register_connection(user_id, tenant, "garmin", &ConnectionType::OAuth, None)
         .await
         .unwrap();
+    // A model's read elects Garmin, and so fails on it, only under the
+    // athlete's Garmin AI consent (carnet#1157).
+    give_garmin_ai_consent(&resources.common.repos, user_id, tenant).await;
 
     (user_id, tenant)
 }
@@ -1407,26 +1411,28 @@ async fn a_headless_turn_that_streamed_only_its_block_sends_no_retraction() {
     );
 }
 
-/// A headless reply handed to the text loop keeps the headless contract and
-/// carries no activity list, though its block fetched the athlete's
-/// activities: a surface without a list card would fold the list ahead of the
-/// reply (carnet#1032).
+/// A headless reply handed to the text loop carries the activity list its
+/// block fetched, as a headless turn that called the tool natively does: the
+/// list is what the data answer refers to, on every path.
 #[tokio::test]
-async fn a_headless_turn_handed_to_the_text_loop_folds_no_activity_list() {
+async fn a_headless_turn_handed_to_the_text_loop_carries_its_activity_list() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, tenant) = athlete_with_a_dead_primary(&resources).await;
     let acp_turn = Uuid::new_v4().to_string();
 
-    // The same call the block makes carries a list the text loop's extractor
-    // captures, so an absent list below is the hand-off dropping it.
-    let payload = loopback_get_activities(&resources, user_id, tenant, &acp_turn).await;
+    // The same call the block makes carries the list the text loop's
+    // extractor captures, so the turn's list below is the one it served. Made
+    // under a turn of its own: under the turn below, the block's identical
+    // call would be answered as a repeat, with no list to carry.
+    let probe_turn = Uuid::new_v4().to_string();
+    let payload = loopback_get_activities(&resources, user_id, tenant, &probe_turn).await;
+    let served = extract_activity_list(&[FunctionResponse {
+        name: "get_activities".to_owned(),
+        response: payload,
+    }]);
     assert!(
-        extract_activity_list(&[FunctionResponse {
-            name: "get_activities".to_owned(),
-            response: payload,
-        }])
-        .is_some(),
-        "get_activities serves a list the text loop would capture"
+        served.is_some(),
+        "get_activities serves a list the text loop captures"
     );
 
     let reply = HeadlessToolResponse {
@@ -1451,9 +1457,9 @@ async fn a_headless_turn_handed_to_the_text_loop_folds_no_activity_list() {
         vec!["get_activities".to_owned()],
         "the reply's own block fetched the activities"
     );
-    assert!(
-        result.activity_list.is_none(),
-        "a handed-off headless turn folds no list ahead of its reply"
+    assert_eq!(
+        result.activity_list, served,
+        "a handed-off headless turn keeps the list its block fetched"
     );
 }
 
@@ -1473,6 +1479,7 @@ fn stored_message(id: &str, role: &str, content: &str) -> MessageRecord {
         channel_type: None,
         about_user_id: None,
         turn_attempted_write: None,
+        ai_consent_sources: Vec::new(),
     }
 }
 

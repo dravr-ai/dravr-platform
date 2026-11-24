@@ -11,7 +11,7 @@
 //! socket stands in for Strava so the request the provider sends is the one
 //! asserted, query string and all.
 
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_providers::core::{FitnessProvider, OAuth2Credentials};
 use pierre_providers::errors::ErrorCode;
 use pierre_providers::strava_provider::StravaProvider;
@@ -73,7 +73,7 @@ async fn provider(base_url: String) -> StravaProvider {
             client_secret: SecretString::from("secret"),
             access_token: Some(SecretString::from(TOKEN.to_owned())),
             refresh_token: Some(SecretString::from("refresh")),
-            expires_at: Some(Utc::now() + Duration::hours(2)),
+            expires_at: Some(Timestamp::now() + Elapsed::hours(2)),
             scopes: vec![],
             kind: pierre_providers::CredentialKind::OAuthBearer,
             request_budget: None,

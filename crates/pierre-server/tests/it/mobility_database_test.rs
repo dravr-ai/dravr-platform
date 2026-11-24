@@ -13,7 +13,7 @@
 
 #![allow(missing_docs, clippy::unwrap_used, clippy::expect_used)]
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::mobility::{
     DifficultyLevel, ListStretchingFilter, ListYogaFilter, StretchingCategory, YogaCategory,
     YogaPoseType,
@@ -54,7 +54,7 @@ async fn insert_test_stretch(
     category: &str,
     difficulty: &str,
 ) {
-    let now = Utc::now();
+    let now = Timestamp::now();
     execute_on!(
         db,
         r#"
@@ -81,7 +81,7 @@ async fn insert_test_pose(
     difficulty: &str,
     recovery: &str,
 ) {
-    let now = Utc::now();
+    let now = Timestamp::now();
     execute_on!(
         db,
         r#"

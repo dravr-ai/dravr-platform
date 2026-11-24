@@ -1,15 +1,16 @@
-// ABOUTME: Covers own_loops: the athlete's past loops at a place, ranked for effort, never from home, never another's
+// ABOUTME: Covers own_loops: the athlete's past loops at a place, ranked for effort, home's through their area, never another's
 // ABOUTME: Drives the places pass and the loops search against a real database, on the places test's world
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
 //! The athlete's own loops (carnet#1665), on the world of
-//! `athlete_places_test`: sixteen loops from the door make home, and the
-//! rides at `SUTTON` make a place. Every search is made the way the
+//! `athlete_places_test`: sixteen loops around the block from the door make
+//! home, the rides at `SUTTON` make a place, and rides from the door into an
+//! area make an area place (carnet#1723). Every search is made the way the
 //! `discover_routes` tool makes it.
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::ai_policy::{ProviderTerms, SourcePolicy};
 use pierre_core::models::{ActivityBuilder, SportType, TenantId};
 use pierre_core::transport::TransportPolicy;
@@ -18,7 +19,7 @@ use pierre_services::athlete_loops::{own_loops, Effort, LoopSearch, OwnLoop};
 use pierre_services::athlete_places::{declare_home, HomeChoice, PlaceTarget};
 use uuid::Uuid;
 
-use crate::athlete_places_test::{loop_from, meters, World, DOOR, SUTTON};
+use crate::athlete_places_test::{loop_from, meters, trip_to, World, DOOR, SUTTON};
 
 /// Terms that keep nothing from a model: every stored row is served.
 struct OpenTerms;
@@ -48,9 +49,16 @@ fn search(spot: (f64, f64), effort: Option<Effort>) -> LoopSearch {
 impl World {
     /// The loops `user` in `tenant` is offered by `search`.
     async fn loops_of(&self, tenant: &TenantId, user: Uuid, search: &LoopSearch) -> Vec<OwnLoop> {
-        own_loops(self.repos(), &OpenTerms, tenant, user, search, Utc::now())
-            .await
-            .unwrap()
+        own_loops(
+            self.repos(),
+            &OpenTerms,
+            tenant,
+            user,
+            search,
+            Timestamp::now(),
+        )
+        .await
+        .unwrap()
     }
 
     /// The loops this athlete is offered by `search`.
@@ -215,28 +223,112 @@ async fn no_loop_without_a_stored_track_and_no_ride_that_ends_elsewhere() {
     );
 }
 
+/// Home's loops around the block, three rides from the door into an area
+/// 2.6 km east-north-east (carnet#1723), and two trail runs into the same
+/// area; placed. Returns the rides and the runs.
+async fn rides_from_home_into_an_area(world: &World) -> (Vec<String>, Vec<String>) {
+    world.home_rides().await;
+    let mut rides = Vec::new();
+    let distances_km = [12.0, 30.0, 62.0].into_iter().enumerate();
+    for (i, km) in distances_km {
+        let path = trip_to(DOOR, 650.0, 2_500.0, i as f64);
+        rides.push(
+            world
+                .ride_along(&path, |b| {
+                    b.distance_meters(km * 1_000.0).elevation_gain(km * 10.0)
+                })
+                .await,
+        );
+    }
+    let mut runs = Vec::new();
+    for i in 0..2 {
+        let id = Uuid::new_v4().simple().to_string();
+        let path = trip_to(DOOR, 650.0, 2_500.0, f64::from(i) + 0.5);
+        world
+            .store(
+                &world.tenant,
+                "strava",
+                ActivityBuilder::new(
+                    &id,
+                    "Trail",
+                    SportType::TrailRunning,
+                    world.next_start(),
+                    3_600,
+                    "strava",
+                )
+                .distance_meters(8_000.0)
+                .summary_polyline(encode_polyline(&path))
+                .build(),
+            )
+            .await;
+        runs.push(id);
+    }
+    world.pass().await;
+    (rides, runs)
+}
+
 #[tokio::test]
-async fn a_loop_from_home_is_never_offered_inferred_or_declared() {
+async fn a_loop_from_home_is_offered_through_its_area_inferred_or_declared() {
     let world = World::new().await;
-    let [easy, ..] = three_sutton_loops(&world).await;
+    let (rides, runs) = rides_from_home_into_an_area(&world).await;
+    let area = world
+        .places()
+        .await
+        .into_iter()
+        .find(|place| meters((place.centroid_lat, place.centroid_lon), DOOR) > 700.0)
+        .expect("bug: precondition: the rides from the door must make an area");
+    // The search is centred where discover_routes centres it with no place
+    // asked: on a place's centroid, the area's, never the door.
+    let centre = (area.centroid_lat, area.centroid_lon);
 
-    assert!(
-        world.loops(&search(DOOR, None)).await.is_empty(),
-        "bug: the sixteen loops from the inferred home are offered"
-    );
+    for declared in [false, true] {
+        if declared {
+            declare_home(
+                world.repos(),
+                &world.tenant,
+                world.user,
+                HomeChoice::Here(PlaceTarget::Activity(rides[0].clone())),
+            )
+            .await
+            .unwrap()
+            .unwrap();
+        }
+        let loops = world.loops(&search(centre, Some(Effort::Easy))).await;
+        assert_eq!(
+            ids(&loops),
+            rides.iter().map(String::as_str).collect::<Vec<_>>(),
+            "bug: the rides from home into the area are not offered, easiest first (declared: {declared})"
+        );
+        for found in &loops {
+            assert_eq!(
+                found.place.id, area.id,
+                "bug: a loop from home carries the area's place, never home's"
+            );
+            assert!(
+                found.line.len() > 2 && meters(found.line[0], DOOR) >= 150.0,
+                "bug: the line is the privacy-trimmed track, never starting at the door: {:?}",
+                found.line.first()
+            );
+            assert!(
+                !runs.contains(&found.activity_id),
+                "bug: a trail run is offered for a ride"
+            );
+        }
+    }
+}
 
-    declare_home(
-        world.repos(),
-        &world.tenant,
-        world.user,
-        HomeChoice::Here(PlaceTarget::Activity(easy)),
-    )
-    .await
-    .unwrap()
-    .unwrap();
-    assert!(
-        world.loops(&search(SUTTON, None)).await.is_empty(),
-        "bug: loops from the declared home are offered"
+#[tokio::test]
+async fn a_loop_around_the_block_from_home_is_never_offered() {
+    let world = World::new().await;
+    let (rides, _) = rides_from_home_into_an_area(&world).await;
+    let walks = world.loops(&search(DOOR, None)).await;
+    let mut offered = ids(&walks);
+    offered.sort_unstable();
+    let mut expected: Vec<&str> = rides.iter().map(String::as_str).collect();
+    expected.sort_unstable();
+    assert_eq!(
+        offered, expected,
+        "bug: only the three rides into the area are loops; a walk around the block is offered: {walks:?}"
     );
 }
 

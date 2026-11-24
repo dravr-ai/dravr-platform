@@ -7,7 +7,8 @@
 use std::str::FromStr;
 
 use bcrypt::{hash, DEFAULT_COST};
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
+use pierre_core::civil_time::UTC_MINUTE;
 use pierre_core::constants::tiers;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::feature_flags::FeatureKey;
@@ -166,14 +167,13 @@ async fn update_existing_user(
         password_hash: hash(password, DEFAULT_COST)
             .map_err(|e| AppError::internal(format!("bcrypt error: {e}")))?,
         tier,
-        strava_token: existing_user.strava_token,
         is_active: true,
         user_status: UserStatus::Active,
         role,
         approved_by: existing_user.approved_by,
         approved_at: existing_user.approved_at,
         created_at: existing_user.created_at,
-        last_active: Utc::now(),
+        last_active: Timestamp::now(),
         firebase_uid: existing_user.firebase_uid,
         auth_provider: existing_user.auth_provider,
         analytics_consent: existing_user.analytics_consent,
@@ -197,7 +197,7 @@ fn display_existing_user_error(existing_user: &User) {
         "Email: {}\nName: {:?}\nCreated: {}",
         mask_email(&existing_user.email),
         existing_user.display_name,
-        existing_user.created_at.format("%Y-%m-%d %H:%M UTC")
+        existing_user.created_at.format_with(&UTC_MINUTE)
     );
 
     error!(
@@ -263,8 +263,8 @@ async fn create_and_link_personal_tenant(
         domain: None,
         plan: plan.to_owned(),
         owner_user_id: user_id,
-        created_at: Utc::now(),
-        updated_at: Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
     };
 
     repos.tenants.create(&tenant).await?;
@@ -291,14 +291,13 @@ fn build_user(
         display_name: Some(name.to_owned()),
         password_hash,
         tier: created_tier(role),
-        strava_token: None,
         is_active: true,
         user_status: UserStatus::Active,
         role,
         approved_by: None,
-        approved_at: Some(Utc::now()),
-        created_at: Utc::now(),
-        last_active: Utc::now(),
+        approved_at: Some(Timestamp::now()),
+        created_at: Timestamp::now(),
+        last_active: Timestamp::now(),
         firebase_uid: None,
         auth_provider: "email".to_owned(),
         analytics_consent: false,

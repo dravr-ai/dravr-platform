@@ -98,7 +98,9 @@ const authorizeUrl = vi.fn((provider: string) => `/api/oauth/authorize/${provide
 const getProvidersStatus = vi.fn().mockResolvedValue({ providers: [] });
 const disconnectProvider = vi.fn().mockResolvedValue(undefined);
 const withdrawAiConsent = vi.fn().mockResolvedValue(undefined);
+const listConnectedApps = vi.fn().mockResolvedValue([]);
 const getImports = vi.fn().mockResolvedValue({ imports: [] });
+const revokeConnectedApp = vi.fn().mockResolvedValue(undefined);
 
 // Mock API service - factory must be self-contained (vi.mock is hoisted)
 vi.mock('../../services/api', () => ({
@@ -128,6 +130,8 @@ vi.mock('../../services/api', () => ({
     disconnectProvider: (...args: unknown[]) => disconnectProvider(...args),
     withdrawAiConsent: (...args: unknown[]) => withdrawAiConsent(...args),
     disconnectIntervalsIcu: vi.fn().mockResolvedValue(undefined),
+    listConnectedApps: (...args: unknown[]) => listConnectedApps(...args),
+    revokeConnectedApp: (...args: unknown[]) => revokeConnectedApp(...args),
   },
   pierreApi: {
     adapter: {
@@ -161,17 +165,20 @@ vi.mock('../SciotteLoginModal', () => ({
     consentRequired,
     historyMode,
     onFallBackToOAuth,
+    consents,
   }: {
     isOpen: boolean;
     target: string;
     consentRequired?: boolean;
     historyMode?: boolean;
     onFallBackToOAuth?: () => void;
+    consents?: readonly string[];
   }) =>
     isOpen ? (
       <div
         data-testid="sciotte-modal"
         data-consent={String(Boolean(consentRequired))}
+        data-consents={(consents ?? []).join(',')}
         data-history-mode={String(Boolean(historyMode))}
       >
         {target}
@@ -221,6 +228,12 @@ function stubConnectNavigation() {
   vi.stubGlobal('location', { ...window.location, assign });
   vi.stubGlobal('open', vi.fn());
   return assign;
+}
+
+// A Garmin connect asks its offered consents first (ConnectConsentDialog);
+// Continue goes on with none ticked, as the athlete may.
+async function continueConsents(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(await screen.findByTestId('connect-consent-continue'));
 }
 
 describe('UserSettings Component', () => {
@@ -452,7 +465,7 @@ describe('UserSettings Component', () => {
       });
     });
 
-    it('names no model in About: which one answers is an operator reading (carnet#1147)', async () => {
+    it('names no model in About: which one answers is an admin reading (carnet#1147)', async () => {
       const user = userEvent.setup();
 
       await act(async () => {
@@ -494,6 +507,44 @@ describe('UserSettings Component', () => {
   });
 
   describe('Account Tab', () => {
+    // A test that pins the clock for a grant's expiry hands it back.
+    afterEach(() => {
+      vi.mocked(Date.now).mockRestore?.();
+    });
+
+    // The Account pane's Connected apps and the privacy pane's access feed
+    // share one key and one revoke (carnet#1543): revoking here rereads the
+    // list through that key, so the app leaves.
+    it('revokes a connected app through the shared revoke, and the reread list drops it', async () => {
+      const user = userEvent.setup();
+      const claude = {
+        id: 'g1',
+        client_id: 'client-claude',
+        client_name: 'Claude',
+        client_host: 'claude.ai',
+        scope: 'fitness:read',
+        granted_at: '2026-11-01T10:00:00Z',
+        preset: null,
+        max_tier: null,
+        expires_at: null,
+      };
+      listConnectedApps.mockResolvedValueOnce([claude]).mockResolvedValue([]);
+
+      await act(async () => {
+        renderUserSettings({ initialTab: 'account' });
+      });
+
+      const section = await screen.findByTestId('account-section-connected-mcp-apps');
+      await waitFor(() => expect(within(section).getByText('Claude')).toBeInTheDocument());
+      await user.click(within(section).getByRole('button', { name: 'Revoke' }));
+      await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Revoke' }));
+
+      await waitFor(() => expect(revokeConnectedApp).toHaveBeenCalledWith('g1'));
+      await waitFor(() => expect(within(section).queryByText('Claude')).not.toBeInTheDocument());
+      expect(listConnectedApps).toHaveBeenCalledTimes(2);
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    });
+
     it('should display member since date', async () => {
       const user = userEvent.setup();
 
@@ -527,6 +578,71 @@ describe('UserSettings Component', () => {
       } finally {
         await i18n.changeLanguage('en');
       }
+    });
+
+    it("says when a connected app's grant expires, and nothing of expiry for one that never does", async () => {
+      // Before the grant's end, so it reads as live.
+      vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-08-15T00:00:00Z'));
+      const grant = {
+        id: 'grant-1',
+        client_id: 'mcp_client_0123456789abcdef',
+        client_name: 'Sleep coach app',
+        client_host: 'coach.example',
+        scope: 'fitness:read',
+        granted_at: '2026-08-01T10:00:00Z',
+        preset: 'sleep_coach',
+        max_tier: 'T1',
+        expires_at: '2026-09-01T10:00:00Z',
+      };
+      listConnectedApps.mockResolvedValueOnce([
+        grant,
+        { ...grant, id: 'grant-2', client_name: 'Plain app', preset: null, max_tier: null, expires_at: null },
+      ]);
+      await act(async () => {
+        renderUserSettings({ initialTab: 'account' });
+      });
+
+      expect(await screen.findByTestId('connected-app-expiry-grant-1')).toHaveTextContent(
+        i18n.t('apiKeys.expiresOn', { date: 'Sep 1, 2026' }),
+      );
+      expect(screen.getByText('Plain app')).toBeInTheDocument();
+      expect(screen.queryByTestId('connected-app-expiry-grant-2')).not.toBeInTheDocument();
+      // A preset grant is named by its preset, a plain one by its scope.
+      const sleep = i18n.t('tokens.connectedAppsPresetSleepCoach');
+      expect(sleep).not.toEqual('tokens.connectedAppsPresetSleepCoach');
+      expect(screen.getByText(sleep)).toBeInTheDocument();
+      expect(screen.getByText('fitness:read')).toBeInTheDocument();
+    });
+
+    it("shows a grant whose end has passed as expired, muted, with Revoke kept", async () => {
+      vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-11-22T00:00:00Z'));
+      listConnectedApps.mockResolvedValueOnce([
+        {
+          id: 'grant-old',
+          client_id: 'mcp_client_0123456789abcdef',
+          client_name: 'Sleep coach app',
+          client_host: 'coach.example',
+          scope: 'fitness:read',
+          granted_at: '2026-08-01T10:00:00Z',
+          preset: 'sleep_coach',
+          max_tier: 'T1',
+          expires_at: '2026-09-01T10:00:00Z',
+        },
+      ]);
+      await act(async () => {
+        renderUserSettings({ initialTab: 'account' });
+      });
+
+      const expiry = await screen.findByTestId('connected-app-expiry-grant-old');
+      const expired = i18n.t('providers.expired');
+      expect(expired).not.toEqual('providers.expired');
+      expect(expiry).toHaveTextContent(expired);
+      expect(expiry).toHaveAttribute('data-expired', 'true');
+      expect(expiry).toHaveClass('text-outline');
+      expect(expiry).not.toHaveTextContent(i18n.t('apiKeys.expiresOn', { date: 'Sep 1, 2026' }));
+      expect(screen.getByText('Sleep coach app')).toHaveClass('text-on-surface-variant');
+      const section = screen.getByTestId('account-section-connected-mcp-apps');
+      expect(within(section).getByRole('button', { name: i18n.t('settingsUi.revoke') })).toBeInTheDocument();
     });
 
     it('should show change password button', async () => {
@@ -1033,6 +1149,7 @@ describe('UserSettings Component', () => {
       });
 
       await user.click(await screen.findByRole('button', { name: 'Connect' }));
+      await continueConsents(user);
 
       await waitFor(() => expect(assign).toHaveBeenCalledWith('/api/oauth/authorize/garmin'));
       expect(window.open).not.toHaveBeenCalled();
@@ -1050,10 +1167,53 @@ describe('UserSettings Component', () => {
       });
 
       await user.click(await screen.findByRole('button', { name: 'Reconnect' }));
+      await continueConsents(user);
 
       expect(await screen.findByTestId('sciotte-modal')).toHaveTextContent('garmin');
       expect(assign).not.toHaveBeenCalled();
       expect(window.open).not.toHaveBeenCalled();
+    });
+
+    it('asks the Garmin consents first, and the authorization carries the boxes ticked (carnet#1157, carnet#1390)', async () => {
+      getProvidersStatus.mockResolvedValue({ providers: [garminCard('oauth')] });
+      const user = userEvent.setup();
+      await act(async () => {
+        renderUserSettings({ initialTab: 'connections', hideTabNav: true });
+      });
+
+      await user.click(await screen.findByRole('button', { name: 'Connect' }));
+      expect(assign).not.toHaveBeenCalled();
+      const ai = await screen.findByTestId('connect-consent-garmin');
+      const transfer = screen.getByTestId('connect-consent-garmin_workout_transfer');
+      expect(ai).not.toBeChecked();
+      expect(transfer).not.toBeChecked();
+      await user.click(transfer);
+      await continueConsents(user);
+
+      await waitFor(() => expect(assign).toHaveBeenCalledWith('/api/oauth/authorize/garmin'));
+      expect(authorizeUrl).toHaveBeenCalledWith('garmin', {
+        tosConsent: false,
+        consents: ['garmin_workout_transfer'],
+      });
+    });
+
+    it('hands the Garmin consents ticked to its credential login', async () => {
+      getProvidersStatus.mockResolvedValue({ providers: [garminCard('mirror')] });
+      const user = userEvent.setup();
+      await act(async () => {
+        renderUserSettings({ initialTab: 'connections', hideTabNav: true });
+      });
+
+      await user.click(await screen.findByRole('button', { name: 'Connect' }));
+      await user.click(await screen.findByTestId('connect-consent-garmin'));
+      await user.click(screen.getByTestId('connect-consent-garmin_workout_transfer'));
+      await continueConsents(user);
+
+      expect(await screen.findByTestId('sciotte-modal')).toHaveAttribute(
+        'data-consents',
+        'garmin,garmin_workout_transfer',
+      );
+      expect(assign).not.toHaveBeenCalled();
     });
 
     it('opens the Garmin credential login once the Garmin pool is exhausted', async () => {
@@ -1064,6 +1224,7 @@ describe('UserSettings Component', () => {
       });
 
       await user.click(await screen.findByRole('button', { name: 'Connect' }));
+      await continueConsents(user);
 
       expect(await screen.findByTestId('sciotte-modal')).toHaveTextContent('garmin');
       expect(assign).not.toHaveBeenCalled();
@@ -1224,6 +1385,7 @@ describe('UserSettings Component', () => {
       const user = userEvent.setup();
 
       await user.click(screen.getByTestId('provider-connect-sciotte_garmin'));
+      await continueConsents(user);
       expect(await screen.findByTestId('sciotte-modal')).toHaveTextContent('garmin');
       await user.click(screen.getByTestId('sign-in-unavailable'));
 
@@ -1483,7 +1645,9 @@ describe('UserSettings Component', () => {
       expect(await screen.findByTestId('provider-reconnect-needed-sciotte_garmin')).toHaveTextContent(
         'Reconnect needed',
       );
-      await userEvent.setup().click(screen.getByRole('button', { name: 'Reconnect' }));
+      const user = userEvent.setup();
+      await user.click(screen.getByRole('button', { name: 'Reconnect' }));
+      await continueConsents(user);
 
       expect(await screen.findByTestId('sciotte-modal')).toHaveTextContent('garmin');
       expect(assign).not.toHaveBeenCalled();

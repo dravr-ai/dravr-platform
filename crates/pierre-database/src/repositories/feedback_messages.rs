@@ -14,7 +14,7 @@
 //! Every statement is keyed by `tenant_id` and `user_id`.
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
 use uuid::Uuid;
@@ -131,7 +131,7 @@ pub struct NewFeedbackMessage<'req> {
     /// The screenshot attached to it, already kept in the blob store.
     pub image: Option<&'req FeedbackImage>,
     /// When it was sent.
-    pub at: DateTime<Utc>,
+    pub at: Timestamp,
 }
 
 /// One stored message of a feedback thread, as the athlete sees it again.
@@ -148,7 +148,7 @@ pub struct FeedbackMessage {
     /// The screenshot attached to it, if any.
     pub image: Option<FeedbackImage>,
     /// When it was sent, to the millisecond.
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
 }
 
 /// The athletes' feedback threads with the Dravr team.
@@ -188,7 +188,7 @@ pub trait FeedbackMessageRepository: Send + Sync {
         &self,
         tenant_id: TenantId,
         user_id: Uuid,
-        at: DateTime<Utc>,
+        at: Timestamp,
     ) -> AppResult<u64>;
 }
 
@@ -233,10 +233,10 @@ pub(crate) const MARK_TEAM_REPLIES_READ_SQL: &str = r"
 /// A stored epoch-millisecond stamp as the instant it records.
 ///
 /// # Errors
-/// Returns a database error for a value outside chrono's range, which only a
-/// hand-edited row can hold.
-pub(crate) fn instant_from_millis(millis: i64) -> AppResult<DateTime<Utc>> {
-    DateTime::from_timestamp_millis(millis).ok_or_else(|| {
+/// Returns a database error for a value outside the range the date types hold,
+/// which only a hand-edited row can hold.
+pub(crate) fn instant_from_millis(millis: i64) -> AppResult<Timestamp> {
+    Timestamp::from_epoch_millis(millis).ok().ok_or_else(|| {
         AppError::database(format!(
             "feedback_messages.created_at_ms {millis} is out of range"
         ))
@@ -322,7 +322,7 @@ macro_rules! impl_feedback_message_repository {
                     .bind(message.about.map(|a| a.message_id.as_str()))
                     .bind(message.image.map(|i| i.sha256.as_str()))
                     .bind(message.image.map(|i| i.media_type.as_str()))
-                    .bind(message.at.timestamp_millis())
+                    .bind(message.at.epoch_millis())
                     .execute(self.pool())
                     .await
                     .map_err(|e| {
@@ -334,7 +334,7 @@ macro_rules! impl_feedback_message_repository {
                     body: message.body.to_owned(),
                     about: message.about.cloned(),
                     image: message.image.cloned(),
-                    created_at: instant_from_millis(message.at.timestamp_millis())?,
+                    created_at: instant_from_millis(message.at.epoch_millis())?,
                 })
             }
 
@@ -401,12 +401,12 @@ macro_rules! impl_feedback_message_repository {
                 &self,
                 tenant_id: TenantId,
                 user_id: Uuid,
-                at: DateTime<Utc>,
+                at: Timestamp,
             ) -> AppResult<u64> {
                 let done = sqlx::query(MARK_TEAM_REPLIES_READ_SQL)
                     .bind($ids::bind(tenant_id.as_uuid()))
                     .bind($ids::bind(user_id))
-                    .bind(at.timestamp_millis())
+                    .bind(at.epoch_millis())
                     .execute(self.pool())
                     .await
                     .map_err(|e| {

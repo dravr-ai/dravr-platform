@@ -41,7 +41,7 @@ import { useTranslation } from '@pierre/i18n';
  *   with that and offers a resend, because telling someone to "wait for an
  *   administrator" when the actual blocker is an unopened email is how people
  *   give up on a product.
- * - **Confirmed, awaiting review** — the ball is with an operator. Nothing for
+ * - **Confirmed, awaiting review** — the ball is with an admin. Nothing for
  *   the user to do, so the page says so plainly and confirms the address is done.
  *
  * `email_verified` is optional on purpose: absent means the server didn't resolve

@@ -7,7 +7,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_tool_runtime::implementations::stored_data::parse_date_range;
 use serde_json::json;
 
@@ -16,10 +16,10 @@ fn omitted_range_defaults_to_the_last_thirty_days() {
     let (start, end) = parse_date_range(&json!({})).unwrap();
     let span = end - start;
     assert!(
-        span >= Duration::days(29) && span <= Duration::days(31),
+        span >= Elapsed::days(29) && span <= Elapsed::days(31),
         "got {span}"
     );
-    assert!((Utc::now() - end).num_seconds().abs() < 5);
+    assert!((Timestamp::now() - end).num_seconds().abs() < 5);
 }
 
 #[test]
@@ -40,7 +40,7 @@ fn a_span_wider_than_a_year_is_clipped_to_the_most_recent_year() {
     });
     let (start, end) = parse_date_range(&args).unwrap();
     assert_eq!(end.to_rfc3339(), "2026-01-01T00:00:00+00:00");
-    assert_eq!(end - start, Duration::days(366), "clipped to the cap");
+    assert_eq!(end - start, Elapsed::days(366), "clipped to the cap");
 }
 
 /// Naming only the end of a past window reads the 30 days before it. The

@@ -8,7 +8,7 @@ use axum::extract::{Form, Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::{Extension, Json};
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_auth::http::oauth_client;
 use pierre_core::errors::messaging::MessagingError;
 use pierre_core::models::messaging::{ChannelType, LinkingMethod, LINK_CODE_TTL_MINUTES};
@@ -33,8 +33,10 @@ mod oauth_link;
 
 use super::templates;
 use crate::mcp::resources::ServerContext;
+use crate::services::ops_slack::SLACK_API_ORIGIN;
 use destination::build_linking_url;
 pub(crate) use destination::can_complete_a_link;
+pub(crate) use destination::telegram_add_to_group_url;
 use link_account::resolve_user_from_form;
 pub(crate) use oauth_link::complete_app_link;
 use oauth_link::{
@@ -132,7 +134,7 @@ pub(crate) struct ChannelLinkResponse {
 /// Resolve tenant via the canonical resolver. Verifies membership when
 /// `active_tenant_id` is claimed; errors if the user has no tenants.
 /// No user-id fallback.
-async fn resolve_tenant_id(
+pub(crate) async fn resolve_tenant_id(
     auth: &AuthResult,
     resources: &Arc<ServerContext>,
 ) -> Result<TenantId, AppError> {
@@ -154,7 +156,7 @@ pub(crate) fn generate_link_code() -> String {
 /// failure. Only deep-link channels (Telegram / `WhatsApp`) get a QR — it bridges the
 /// desktop→phone gap when the user onboards on a laptop but runs the chat app only
 /// on their phone. Failure is non-fatal: the tappable `linking_url` still works.
-fn qr_svg_for(url: &str) -> Option<String> {
+pub(crate) fn qr_svg_for(url: &str) -> Option<String> {
     use qrcode::render::svg;
     use qrcode::QrCode;
     let code = QrCode::new(url.as_bytes()).ok()?;
@@ -221,7 +223,7 @@ pub(crate) async fn init_channel_link(
         _ => None,
     };
     let code = generate_link_code();
-    let expires_at = Utc::now() + Duration::minutes(LINK_CODE_TTL_MINUTES);
+    let expires_at = Timestamp::now() + Elapsed::minutes(LINK_CODE_TTL_MINUTES);
     let id = Uuid::new_v4().to_string();
 
     let db: &dyn MessagingRepository = resources.common.repos.messaging.as_ref();
@@ -784,9 +786,6 @@ async fn exchange_oauth_identity(
     )
     .await
 }
-
-/// Slack's own origin, where an `OpenID` Connect link is exchanged.
-const SLACK_API_ORIGIN: &str = "https://slack.com";
 
 /// Discord's own origin, where an `OAuth2` link is exchanged.
 const DISCORD_API_ORIGIN: &str = "https://discord.com";

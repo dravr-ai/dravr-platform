@@ -247,7 +247,7 @@ mod tests {
             let overtaken = push_fed_error(&repos, user).await;
             let backfill = HealthBackfill {
                 orchestrator: storage
-                    .build_orchestrator(None, WellnessOrigins::default())
+                    .build_orchestrator(None, WellnessOrigins::default(), None)
                     .unwrap(),
                 repos: Arc::clone(&repos),
                 notices: notices.clone(),

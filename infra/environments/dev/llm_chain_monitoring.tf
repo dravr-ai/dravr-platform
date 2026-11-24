@@ -57,7 +57,7 @@ resource "google_logging_metric" "llm_tier_quota" {
   # limited or out of quota: anthropic#2: credit balance exhausted: ...").
   # The extractor reads the tier from either shape, so a spent Anthropic
   # credit (HTTP 402, a RateLimit since embacle 0.35) is labelled with the
-  # pool account that refused: anthropic, anthropic#2, ...
+  # credential that refused: anthropic, anthropic#2, ...
   filter = <<-EOT
     resource.type="cloud_run_revision"
     resource.labels.service_name="${var.service_name}-api"
@@ -82,6 +82,25 @@ resource "google_logging_metric" "llm_tier_quota" {
   }
 }
 
+# The chain's head tier is left out of this alert (JF, 2026-11-23). The head
+# is an Anthropic organization whose credit is spent on purpose, with no
+# auto-reload: every time its 15-minute quota cooldown runs out under traffic
+# it refuses one call and the turn falls through, which opened this incident
+# four times an hour and buried a real refusal on any other tier. A head that
+# stops answering altogether is still caught: dravr-llm-startup-probe-failed
+# when no tier answers, dravr-llm-chain-fallthrough on a burst of skips.
+#
+# The head's name is read from PIERRE_LLM_CHAIN in main.tf, the one place the
+# chain is written (the live incident eval lane reads that same line), so a
+# reordered chain moves the exclusion with it. Rotating which organization is
+# the head (bin/rotate-llm-head.sh) does not change the name: the tier is
+# `anthropic` whichever key it holds.
+locals {
+  # Anchored at a line start, as the eval lane's grep is, so a comment that
+  # quotes `PIERRE_LLM_CHAIN = "…"` cannot win over the real assignment.
+  llm_chain_head = regex("(?m)^[ \\t]*PIERRE_LLM_CHAIN[ \\t]*=[ \\t]*\"([^=#,\"]+)", file("${path.module}/main.tf"))[0]
+}
+
 resource "google_monitoring_alert_policy" "llm_tier_rate_limited" {
   project      = var.project_id
   display_name = "dravr-llm-tier-rate-limited"
@@ -91,7 +110,9 @@ resource "google_monitoring_alert_policy" "llm_tier_rate_limited" {
     content   = <<-EOT
       An LLM tier answered with a quota or rate limit in the last 5 minutes.
       The tier label names it, read from the error text. This is the platform's account for that
-      provider, not an athlete's budget.
+      provider, not an athlete's budget. The chain's head (${local.llm_chain_head})
+      is not watched here: its credit is spent on purpose and the chain passes
+      over it.
 
       With a runtime chain configured the next tier is serving the turns;
       without one, athletes are failing right now — reorder PIERRE_LLM_CHAIN
@@ -114,7 +135,7 @@ resource "google_monitoring_alert_policy" "llm_tier_rate_limited" {
     display_name = "LLM tier quota or rate limit in 5min window"
 
     condition_threshold {
-      filter          = "resource.type=\"cloud_run_revision\" AND metric.type=\"logging.googleapis.com/user/${google_logging_metric.llm_tier_quota.name}\""
+      filter          = "resource.type=\"cloud_run_revision\" AND metric.type=\"logging.googleapis.com/user/${google_logging_metric.llm_tier_quota.name}\" AND metric.label.tier != \"${local.llm_chain_head}\""
       duration        = "0s"
       comparison      = "COMPARISON_GT"
       threshold_value = 0
@@ -149,7 +170,7 @@ resource "google_logging_metric" "llm_startup_probe_failed" {
   project = var.project_id
   name    = "dravr-llm-startup-probe-failed"
 
-  description = "Counts 'LLM startup probe failed' lines on the API service: a revision started with a chat primary that could not complete its first turn."
+  description = "Counts 'LLM startup probe failed' lines on the API service: an instance started and no tier of the chain answered its probe, so every chat turn is refused until one does."
 
   filter = <<-EOT
     resource.type="cloud_run_revision"
@@ -163,8 +184,11 @@ resource "google_logging_metric" "llm_startup_probe_failed" {
     unit        = "1"
 
     labels {
-      key         = "provider"
-      value_type  = "STRING"
+      key        = "provider"
+      value_type = "STRING"
+      # A label's description cannot change in place: rewording it destroys
+      # and recreates the metric. It names the chain's head; the line is
+      # about the whole chain, as the alert's documentation says.
       description = "The primary provider whose startup probe failed"
     }
   }
@@ -181,14 +205,16 @@ resource "google_monitoring_alert_policy" "llm_startup_probe_failed" {
 
   documentation {
     content   = <<-EOT
-      A new API revision came up and its chat primary failed the startup
-      probe (provider label). Every turn now depends on the runtime chain;
-      if the chain is empty or also failing, athletes are dead-ending.
+      An API instance started and no tier of the LLM chain answered its
+      probe. Chat refuses every turn on that instance until a tier answers;
+      the instance asks again every 5 minutes and recovers by itself when one
+      does. The provider label is the chain's head, not the tier at fault.
 
-        gcloud logging read 'resource.labels.service_name="${var.service_name}-api" AND jsonPayload.message:"startup probe"' --project=${var.project_id} --freshness=30m --limit=10
+        gcloud logging read 'resource.labels.service_name="${var.service_name}-api" AND jsonPayload.message:"LLM chain tier"' --project=${var.project_id} --freshness=30m --limit=30
 
-      The probe's error line right above it names the cause (a spent quota,
-      a rejected token, an unreachable runtime).
+      Those lines give one verdict per tier, each with its cause (a spent
+      quota, a rejected token, an unreachable runtime). A single failing tier
+      does not fire this alert: the chain passes over it.
     EOT
     mime_type = "text/markdown"
   }

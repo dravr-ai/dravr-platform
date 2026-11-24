@@ -3,8 +3,10 @@
 
 import { describe, expect, it } from 'vitest';
 import type { RouteBounds, RouteClimb } from '@pierre/scene-types';
+import PROPOSED_ROUTE_TOOL_LIST from '@pierre/mcp-types/proposed-route-tools.json';
 import {
   MIN_SPAN_DEGREES,
+  PROPOSED_ROUTE_TOOLS,
   alignedSeries,
   climbGeometry,
   climbGradient,
@@ -154,6 +156,16 @@ describe('proposed routes', () => {
     for (const source of ['get_activities', 'get_activity_route', 'strava', 'Discover_Routes']) {
       expect(isProposedRoute({ source_tool: source })).toBe(false);
     }
+  });
+
+  // The list is frozen from the server's route tools
+  // (`proposed_route_tools_fixture_test` in crates/pierre-server), and the
+  // platform's own route gate is held to the same file, so the two cannot
+  // disagree on which tools propose a route.
+  it('names exactly the tools the server says store a proposed route', () => {
+    const listed: readonly string[] = PROPOSED_ROUTE_TOOL_LIST;
+    expect(listed.length).toBeGreaterThan(0);
+    expect([...PROPOSED_ROUTE_TOOLS].sort()).toEqual([...listed].sort());
   });
 
   it('labels a proposed map as proposed and a recorded one as recorded, caption or not', () => {

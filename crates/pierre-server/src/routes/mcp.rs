@@ -28,6 +28,7 @@ use axum::{
 use dravr_tronc::mcp::auth::{AuthError, AuthHook};
 use dravr_tronc::mcp::host::ToolDispatcher;
 use dravr_tronc::mcp::protocol::JsonRpcRequest;
+use dravr_tronc::mcp::schema::Tool;
 use dravr_tronc::mcp::transport::http::{bearer_token, mcp_router, origin_allowed};
 use pierre_tool_runtime::runtime::ToolRuntime;
 use serde_json::json;
@@ -78,7 +79,7 @@ impl McpRoutes {
     /// Authenticates the caller through [`PierreAuthHook`] and lists tools
     /// through [`PierreToolDispatcher`], so the returned set is identical to
     /// what JSON-RPC `tools/list` returns for the same bearer: the tenant-filtered
-    /// set minus operator tools and what is kept on Dravr's own surfaces, for a global admin as for
+    /// set minus admin tools and what is kept on Dravr's own surfaces, for a global admin as for
     /// anyone else, and callers with no valid bearer get a 401 carrying
     /// the RFC 9728 `WWW-Authenticate` challenge instead of the catalog. A
     /// credential over its request budget gets the 429 and `Retry-After`
@@ -170,7 +171,15 @@ impl McpRoutes {
         };
 
         let dispatcher = PierreToolDispatcher::new(state.resources);
-        let tools = dispatcher.list_tools(&runtime, &ctx).await;
+        // Each definition carries its hash, as `tools/list` serves it
+        // (carnet#1543); taken on the definition as listed, after every
+        // rewrite `list_tools` makes.
+        let tools: Vec<_> = dispatcher
+            .list_tools(&runtime, &ctx)
+            .await
+            .into_iter()
+            .map(Tool::with_def_hash)
+            .collect();
         let body = json!({ "tools": tools });
 
         // Cache validator over the rendered catalog. Meaningful only because

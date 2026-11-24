@@ -11,6 +11,7 @@ import { QUERY_KEYS } from '@pierre/shared-constants';
 import type { CreateConversationOptions, OpenTopicOptions } from '@pierre/api-client';
 import { classifyApiError, describeApiError, type ApiErrorTranslate } from '@pierre/ui-logic';
 import { chatApi } from '../../services/api';
+import { addCachedConversation } from '../conversations/useConversationList';
 
 /**
  * Find the athlete's personal thread, by id, or `null` when they have none.
@@ -64,13 +65,20 @@ export function useOpenPersonalTopic(): (options?: OpenTopicOptions) => Promise<
  * a thread of its own, bound to the agent `options` names or the athlete's
  * selected one, whose welcome the server has posted before it is read. The
  * personal thread is left as it was — no divider, no rebind — so the athlete
- * can talk to more than one agent. The list is re-read to show the new row.
+ * can talk to more than one agent.
+ *
+ * The one way this app creates a conversation: the composer that opens its
+ * thread on the first send, an activity's thread, "+" and a Store pick all
+ * come through here. The created row is put in the cached list at once, so a
+ * screen that opens the thread by id finds it there, and the list is then
+ * re-read.
  */
 export function useCreateConversation(): (options?: CreateConversationOptions) => Promise<string> {
   const queryClient = useQueryClient();
   return useCallback(
     async (options?: CreateConversationOptions) => {
       const created = await chatApi.createConversation(options);
+      addCachedConversation(queryClient, created);
       void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.chat.conversations() });
       return created.id;
     },

@@ -21,7 +21,7 @@
 
 use std::time::Duration;
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::constants::oauth::providers::SCIOTTE_TRAININGPEAKS;
 use pierre_core::models::{ConnectionStatus, ConnectionType, ProviderAccountRole, TenantId};
 use tokio::time::sleep;
@@ -204,7 +204,7 @@ async fn rank_for_election_refuses_to_elect_a_connection_needing_reauth() {
             tenant_id,
             "whoop",
             Some("invalid_grant"),
-            Utc::now(),
+            Timestamp::now(),
         )
         .await
         .unwrap();
@@ -258,7 +258,7 @@ async fn rank_for_election_still_returns_a_flagged_connection_when_all_are_dead(
             tenant_id,
             "strava",
             Some("invalid_grant"),
-            Utc::now(),
+            Timestamp::now(),
         )
         .await
         .unwrap();
@@ -269,7 +269,7 @@ async fn rank_for_election_still_returns_a_flagged_connection_when_all_are_dead(
             tenant_id,
             "whoop",
             Some("invalid_grant"),
-            Utc::now(),
+            Timestamp::now(),
         )
         .await
         .unwrap();
@@ -419,7 +419,7 @@ async fn rank_for_election_elects_a_coach_account_after_every_other_healthy_one(
             tenant_id,
             "strava",
             Some("invalid_grant"),
-            Utc::now(),
+            Timestamp::now(),
         )
         .await
         .unwrap();

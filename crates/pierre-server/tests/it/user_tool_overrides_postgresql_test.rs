@@ -12,7 +12,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![cfg(feature = "postgresql")]
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::{CoachingPersona, User, UserStatus, UserTier};
 use pierre_core::permissions::UserRole;
 use pierre_database::backends::factory::Database;
@@ -32,10 +32,9 @@ async fn seed_pg_user(db: &Database) -> Uuid {
         user_status: UserStatus::Active,
         role: UserRole::User,
         approved_by: None,
-        approved_at: Some(Utc::now()),
-        created_at: Utc::now(),
-        last_active: Utc::now(),
-        strava_token: None,
+        approved_at: Some(Timestamp::now()),
+        created_at: Timestamp::now(),
+        last_active: Timestamp::now(),
         firebase_uid: None,
         auth_provider: String::new(),
         analytics_consent: false,
@@ -59,7 +58,7 @@ async fn test_pg_user_tool_override_crud_uuid_binds() {
     let admin_id = seed_pg_user(&db).await;
 
     // Upsert with a non-NULL set_by exercises both UUID bind positions.
-    let now = Utc::now();
+    let now = Timestamp::now();
     let row = UserToolOverride {
         user_id,
         tool_name: "get_activities".to_owned(),
@@ -100,8 +99,8 @@ async fn test_pg_user_tool_override_crud_uuid_binds() {
     assert!(refetched.is_enabled);
     assert_eq!(refetched.set_by, None, "NULL set_by bind must round-trip");
     assert_eq!(
-        refetched.created_at.timestamp(),
-        original_created_at.timestamp(),
+        refetched.created_at.epoch_seconds(),
+        original_created_at.epoch_seconds(),
         "created_at must be preserved across upserts"
     );
 

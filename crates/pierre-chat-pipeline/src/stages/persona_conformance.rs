@@ -53,7 +53,7 @@
 //!
 //! Every rule-bearing field on [`PersonaContract`] has a check here. That is a
 //! standing invariant, not a coincidence: a contract field with no check is a
-//! rule an operator can set in contremaitre and watch do nothing, which is
+//! rule an admin can set in contremaitre and watch do nothing, which is
 //! worse than an absent field because the YAML implies enforcement. The
 //! 2026-06-03 due-diligence review caught eight such fields; they are
 //! implemented here and the pre-push phantom-surface scan now fails on any new
@@ -82,9 +82,11 @@ use pierre_contremaitre::PromptRegistry;
 use super::peer_grounding::PEER_FETCH_TOOL;
 
 mod repair;
+mod softeners;
 mod text;
 
 use repair::repair_instruction;
+use softeners::check_softeners;
 pub use text::{
     athlete_citations, contains_standalone_word, count_words, decimal_tokens,
     detects_label_value_block, find_standalone_word, first_use_is_unglossed, has_unglossed_acronym,
@@ -169,12 +171,22 @@ fn style_violations(
     violations
 }
 
-/// Tools whose every result is a coached athlete's data: the roster overview,
-/// the coaching-platform roster, which names the coach's members, and the
-/// consent-gated member fetch. The member fetch is also the name the
-/// pipeline records when it fetches a named peer itself
-/// ([`super::peer_grounding`], [`super::capability_subject`]), so
-/// `tools_called` carries it whichever side made the call.
+/// Tools after which a data block in a coach's reply is about a roster athlete rather than the
+/// coach, so it must say whose it is.
+///
+/// Two of them return a coached athlete's sessions: the roster overview and the consent-gated
+/// member fetch. The coaching-platform roster returns no session: it names the Dravr members on the
+/// coach's platform roster with where each stands with the coach's groups, and counts every other
+/// athlete by state and access, so a block built from it still lists athletes.
+///
+/// All three read through the caller's own coach standing, which is why the
+/// server's tool-data table declares them as the caller's own reads; this
+/// list says whose data the reply then shows, a different fact.
+///
+/// The member fetch is also the name the pipeline records when it fetches a
+/// named peer itself ([`super::peer_grounding`],
+/// [`super::capability_subject`]), so `tools_called` carries it whichever
+/// side made the call.
 const ROSTER_READ_TOOLS: &[&str] = &[
     "get_roster_overview",
     "get_provider_roster",
@@ -616,27 +628,6 @@ fn check_tool_call_narration(
         out.push(ContractViolation {
             rule: "forbid_tool_call_narration",
             detail: format!("tool-narration phrase '{phrase}' detected"),
-        });
-    }
-}
-
-/// Enforce [`PersonaContract::forbid_softeners`]. Each entry is a
-/// case-insensitive substring; the first match per check is reported
-/// rather than all so the log line stays short — the reader will see
-/// repeat hits surface across multiple turns.
-fn check_softeners(reply: &str, contract: &PersonaContract, out: &mut Vec<ContractViolation>) {
-    if contract.forbid_softeners.is_empty() {
-        return;
-    }
-    let lower = reply.to_lowercase();
-    if let Some(softener) = contract
-        .forbid_softeners
-        .iter()
-        .find(|s| lower.contains(&s.to_lowercase()))
-    {
-        out.push(ContractViolation {
-            rule: "forbid_softeners",
-            detail: format!("softener '{softener}' detected"),
         });
     }
 }

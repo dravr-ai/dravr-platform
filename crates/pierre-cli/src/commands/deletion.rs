@@ -10,14 +10,14 @@
 //! recomputes the chain itself (`verify_receipt_chain`): each `seq` follows
 //! the one before it, each `prev_hash` is the previous `hash`, and each `hash`
 //! is the one the receipt's own fields produce. It prints the head, which an
-//! operator records somewhere the database cannot reach, and on a broken
+//! admin records somewhere the database cannot reach, and on a broken
 //! chain names the first broken link and exits non-zero. It then checks the
 //! newest anchor, the receipt a signed `record_log` checkpoint holds: that
 //! receipt must be the chain's own, or the chain was cut or rewritten below
 //! what a signature outside the database vouches for (carnet#1542).
 //!
 //! `tombstones` lists the import tombstones deleted accounts left, and
-//! `clear-tombstone` clears one as the operator, when the person who holds
+//! `clear-tombstone` clears one as the admin, when the person who holds
 //! the identity asks for it and cannot clear it themselves.
 
 use clap::Subcommand;
@@ -344,7 +344,7 @@ mod tests {
 
     use pierre_database::repositories::{verify_receipt_chain, DeletionReceipt, GENESIS_HASH};
 
-    use chrono::Utc;
+    use dravr_tronc::dates::Timestamp;
     use pierre_database::repositories::ReceiptAnchor;
 
     use super::{anchor_from, anchor_lines, receipts_from, verification_lines};
@@ -410,7 +410,7 @@ mod tests {
             tree_size: 3,
             tree_root: "ab".to_owned(),
             note: "note".to_owned(),
-            anchored_at: Utc::now(),
+            anchored_at: Timestamp::now(),
         };
         assert!(
             anchor_lines(Some(&anchor), &receipts).fault.is_none(),

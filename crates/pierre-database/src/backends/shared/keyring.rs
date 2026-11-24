@@ -36,7 +36,7 @@ use std::time::Duration;
 use arc_swap::ArcSwap;
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::errors::{AppError, AppResult};
 use ring::aead::{Aad, LessSafeKey, Nonce, UnboundKey, AES_256_GCM};
 use ring::hmac;
@@ -378,6 +378,25 @@ impl Keyring {
         [primary, other]
     }
 
+    /// The raw 32-byte MAC of `token` under Index version 1, never the
+    /// primary.
+    ///
+    /// For a name or an id that must never move (barrage's identities): a
+    /// used index key is never retired (JF, carnet#1347), so version 1 stays
+    /// loaded for good and an identity made once is found after any rotation.
+    ///
+    /// # Errors
+    ///
+    /// When Index version 1 is not loaded.
+    pub fn identity_mac(&self, token: &str) -> AppResult<[u8; 32]> {
+        let key = self.index.get(&1).ok_or_else(|| {
+            AppError::internal("Index v1 is not loaded, so an identity cannot be keyed")
+        })?;
+        let tag = hmac::sign(&hmac::Key::new(hmac::HMAC_SHA256, &key.0), token.as_bytes());
+        <[u8; 32]>::try_from(tag.as_ref())
+            .map_err(|_| AppError::internal("an HMAC-SHA256 tag is not 32 bytes"))
+    }
+
     fn mac_with(key: &KeyBytes, token: &str) -> String {
         let tag = hmac::sign(&hmac::Key::new(hmac::HMAC_SHA256, &key.0), token.as_bytes());
         STANDARD.encode(tag.as_ref())
@@ -422,7 +441,7 @@ impl KeyringCell {
     pub fn new(ring: Keyring) -> Arc<Self> {
         Arc::new(Self {
             ring: ArcSwap::from_pointee(ring),
-            confirmed_at_ms: AtomicI64::new(Utc::now().timestamp_millis()),
+            confirmed_at_ms: AtomicI64::new(Timestamp::now().epoch_millis()),
             stale_alerted_at_ms: AtomicI64::new(0),
         })
     }
@@ -434,22 +453,22 @@ impl KeyringCell {
     }
 
     /// Replace the keyring, confirmed as of `read_issued_at`.
-    pub fn install(&self, ring: Keyring, read_issued_at: DateTime<Utc>) {
+    pub fn install(&self, ring: Keyring, read_issued_at: Timestamp) {
         self.ring.store(Arc::new(ring));
         self.confirm(read_issued_at);
     }
 
     /// Record that a keyset read issued at `read_issued_at` found the
     /// keyring current. A confirmation never moves the time back.
-    pub fn confirm(&self, read_issued_at: DateTime<Utc>) {
+    pub fn confirm(&self, read_issued_at: Timestamp) {
         self.confirmed_at_ms
-            .fetch_max(read_issued_at.timestamp_millis(), Ordering::AcqRel);
+            .fetch_max(read_issued_at.epoch_millis(), Ordering::AcqRel);
     }
 
     /// When the keyring was last confirmed current.
     #[must_use]
-    pub fn confirmed_at(&self) -> DateTime<Utc> {
-        DateTime::from_timestamp_millis(self.confirmed_at_ms.load(Ordering::Acquire))
+    pub fn confirmed_at(&self) -> Timestamp {
+        Timestamp::from_epoch_millis(self.confirmed_at_ms.load(Ordering::Acquire))
             .unwrap_or_default()
     }
 
@@ -495,7 +514,7 @@ impl KeyringCell {
     /// so the repeats log `WARN` under the same event (the metric still counts
     /// each one) rather than flooding the error notifier.
     fn admit_stale_alert(&self) -> bool {
-        let now = Utc::now().timestamp_millis();
+        let now = Timestamp::now().epoch_millis();
         let window = i64::try_from(STALE_ALERT_WINDOW.as_millis()).unwrap_or(i64::MAX);
         let last = self.stale_alerted_at_ms.load(Ordering::Acquire);
         now.saturating_sub(last) >= window
@@ -509,8 +528,8 @@ impl KeyringCell {
         if !ring.adopted() {
             return Ok(());
         }
-        let age = Utc::now() - self.confirmed_at();
-        let window = chrono::Duration::from_std(FLEET_WINDOW).unwrap_or(chrono::Duration::MAX);
+        let age = Timestamp::now() - self.confirmed_at();
+        let window = Elapsed::from_std(FLEET_WINDOW).unwrap_or(Elapsed::MAX);
         if age <= window {
             return Ok(());
         }
@@ -539,6 +558,8 @@ impl KeyringCell {
 
 #[cfg(test)]
 mod tests {
+    use pierre_core::errors::ErrorCode;
+
     use super::*;
 
     const AAD: &str = "tenant|user|strava|user_oauth_tokens";
@@ -563,6 +584,48 @@ mod tests {
             true,
         )
         .unwrap()
+    }
+
+    #[test]
+    fn sealing_twice_never_repeats_a_ciphertext() {
+        let ring = ring(&[1], 1, &[1], 1);
+        assert_ne!(
+            ring.seal(DOMAIN, "same", AAD).unwrap(),
+            ring.seal(DOMAIN, "same", AAD).unwrap(),
+            "bug: a nonce was reused"
+        );
+    }
+
+    #[test]
+    fn another_context_another_key_or_a_malformed_value_is_refused() {
+        let sealed = ring(&[1], 1, &[1], 1).seal(DOMAIN, "secret", AAD).unwrap();
+        let code = |r: AppResult<String>| r.map_err(|e| e.code);
+
+        let moved = ring(&[1], 1, &[1], 1).open(DOMAIN, &sealed, "tenant-b|user|strava|t");
+        assert_eq!(
+            code(moved),
+            Err(ErrorCode::InternalError),
+            "bug: AAD not bound"
+        );
+
+        let other_key = Keyring::single(key(9)).open(DOMAIN, &sealed, AAD);
+        assert_eq!(code(other_key), Err(ErrorCode::InternalError));
+
+        let ring = ring(&[1], 1, &[1], 1);
+        let unknown = ring.open(DOMAIN, "v7:AAAA", AAD).unwrap_err();
+        assert!(
+            unknown
+                .message
+                .contains("No DEK available for ciphertext version 7"),
+            "{}",
+            unknown.message
+        );
+        let short = ring.open(DOMAIN, "v1:AAAA", AAD).unwrap_err();
+        assert_eq!(short.message, "Invalid encrypted data: too short");
+        assert_eq!(
+            code(ring.open(DOMAIN, "v1:not base64!", AAD)),
+            Err(ErrorCode::InternalError)
+        );
     }
 
     #[test]
@@ -669,12 +732,12 @@ mod tests {
 
     #[test]
     fn a_stale_cell_refuses_to_seal_and_hash_only_once_adopted() {
-        let long_ago = Utc::now() - chrono::Duration::hours(1);
+        let long_ago = Timestamp::now() - Elapsed::hours(1);
 
         let legacy = KeyringCell::new(Keyring::single(key(1)));
         legacy
             .confirmed_at_ms
-            .store(long_ago.timestamp_millis(), Ordering::Release);
+            .store(long_ago.epoch_millis(), Ordering::Release);
         assert!(
             legacy.seal(DOMAIN, "secret", AAD).is_ok(),
             "before adoption a stale ring still seals"
@@ -688,7 +751,7 @@ mod tests {
         let sealed = adopted.seal(DOMAIN, "secret", AAD).unwrap();
         adopted
             .confirmed_at_ms
-            .store(long_ago.timestamp_millis(), Ordering::Release);
+            .store(long_ago.epoch_millis(), Ordering::Release);
         assert!(
             adopted.seal(DOMAIN, "secret", AAD).is_err(),
             "once adopted a stale ring refuses to seal"
@@ -709,7 +772,7 @@ mod tests {
             "lookups never refuse"
         );
 
-        adopted.confirm(Utc::now());
+        adopted.confirm(Timestamp::now());
         assert!(
             adopted.seal(DOMAIN, "secret", AAD).is_ok(),
             "a confirmed ring seals again"
@@ -730,7 +793,7 @@ mod tests {
             "a repeat inside the window does not"
         );
         cell.stale_alerted_at_ms.store(
-            (Utc::now() - chrono::Duration::minutes(6)).timestamp_millis(),
+            (Timestamp::now() - Elapsed::minutes(6)).epoch_millis(),
             Ordering::Release,
         );
         assert!(cell.admit_stale_alert(), "the next window alerts again");
@@ -740,7 +803,7 @@ mod tests {
     fn install_reaches_every_holder_of_the_cell() {
         let cell = KeyringCell::new(Keyring::single(key(1)));
         let other = Arc::clone(&cell);
-        cell.install(ring(&[1, 2], 2, &[1], 1), Utc::now());
+        cell.install(ring(&[1, 2], 2, &[1], 1), Timestamp::now());
         assert_eq!(
             other.current().data_primary(),
             2,

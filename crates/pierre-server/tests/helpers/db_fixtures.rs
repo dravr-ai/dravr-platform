@@ -13,7 +13,7 @@
     clippy::uninlined_format_args
 )]
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::{Tenant, TenantId, User};
 use pierre_database::backends::factory::Database;
 use pierre_test_support::db::create_test_db_with_key;
@@ -41,7 +41,7 @@ pub(crate) async fn seed_user(db: &Database) -> (Uuid, TenantId) {
     db.repositories().users.create(&user).await.unwrap();
 
     let tenant_id = TenantId::generate();
-    let now = Utc::now();
+    let now = Timestamp::now();
     let tenant = Tenant {
         id: tenant_id,
         name: format!("Test Tenant {tenant_id}"),

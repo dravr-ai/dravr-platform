@@ -72,6 +72,11 @@ pub struct Provenance {
     /// Read by the trust label on a result whose caller writes its own reply.
     /// Shared the same way as the flag.
     source_classes: Arc<Mutex<BTreeSet<SourceClass>>>,
+    /// The AI-consent keys of the provider data served (carnet#1157): what a
+    /// row derived from it names, so the athlete's withdrawal of one reaches
+    /// the row. Handed up to the enclosing derivation like the attributions,
+    /// and shared the same way as the flag.
+    consent_sources: Arc<Mutex<BTreeSet<String>>>,
 }
 
 impl Provenance {
@@ -135,8 +140,8 @@ impl Provenance {
     }
 
     /// Hand this derivation's first-party-only and grounding marks, its
-    /// attributions and the members it read to `enclosing`, the one it ran
-    /// inside.
+    /// attributions, the members it read and the consent keys of what it
+    /// served to `enclosing`, the one it ran inside.
     ///
     /// Content derived inside derived content taints both, and a tool call's
     /// grounding mark reaches the call that enclosed it. Where what it served
@@ -153,6 +158,24 @@ impl Provenance {
         for member in self.members_read() {
             enclosing.note_member(member);
         }
+        for key in self.consent_sources() {
+            enclosing.note_consent_source(&key);
+        }
+    }
+
+    /// Record that data whose AI consent is `key` was served.
+    pub fn note_consent_source(&self, key: &str) {
+        if let Ok(mut sources) = self.consent_sources.lock() {
+            sources.insert(key.to_ascii_lowercase());
+        }
+    }
+
+    /// The AI-consent keys of everything served so far, sorted.
+    #[must_use]
+    pub fn consent_sources(&self) -> Vec<String> {
+        self.consent_sources
+            .lock()
+            .map_or_default(|sources| sources.iter().cloned().collect())
     }
 
     /// Record that an item of `class` was served.

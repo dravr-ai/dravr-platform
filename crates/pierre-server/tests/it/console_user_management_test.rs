@@ -27,6 +27,7 @@ use secrecy::ExposeSecret;
 
 use anyhow::Result;
 use common::{create_test_server_resources, generate_test_token};
+use dravr_tronc::dates::Timestamp;
 use helpers::axum_test::AxumTestRequest;
 use pierre_config::mcp::AppBehaviorConfig;
 use pierre_core::admin::models::{
@@ -107,7 +108,7 @@ async fn session_with_role(
     user.role = role;
     user.user_status = UserStatus::Active;
     user.approved_by = Some(user.id);
-    user.approved_at = Some(chrono::Utc::now());
+    user.approved_at = Some(Timestamp::now());
 
     let user_id = user.id;
     resources.common.repos.users.create(&user).await?;
@@ -120,8 +121,8 @@ async fn session_with_role(
         domain: None,
         plan: "starter".to_owned(),
         owner_user_id: user_id,
-        created_at: chrono::Utc::now(),
-        updated_at: chrono::Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
     };
     resources.common.repos.tenants.create(&tenant).await?;
     resources
@@ -951,7 +952,7 @@ async fn a_system_prompt_is_edited_by_an_admin_and_by_no_user() -> Result<()> {
 /// (carnet#1428).
 #[tokio::test]
 #[serial]
-async fn an_operator_reads_an_agent_prompt_by_locale() -> Result<()> {
+async fn an_admin_reads_an_agent_prompt_by_locale() -> Result<()> {
     let resources = create_test_server_resources().await?;
     let registry = &resources.mcp.prompt_registry;
     for locale in ["en", "fr", "es"] {
@@ -1170,7 +1171,7 @@ async fn an_admin_grants_and_revokes_the_group_coach_permission() -> Result<()> 
     let body: Value = granted.json();
     assert_eq!(body["data"]["manages_roster"], json!(true), "{body}");
     assert_eq!(
-        body["data"]["manages_roster_operator_grant"]["granted_by"],
+        body["data"]["manages_roster_admin_grant"]["granted_by"],
         json!(admin.user_id.to_string()),
         "{body}"
     );
@@ -1184,9 +1185,9 @@ async fn an_admin_grants_and_revokes_the_group_coach_permission() -> Result<()> 
     );
     let grant = repos
         .users
-        .manages_roster_operator_grant(coach)
+        .manages_roster_admin_grant(coach)
         .await?
-        .expect("the operator grant is recorded");
+        .expect("the admin grant is recorded");
     assert_eq!(grant.granted_by, Some(admin.user_id));
 
     let revoked = AxumTestRequest::post(&path)
@@ -1197,7 +1198,7 @@ async fn an_admin_grants_and_revokes_the_group_coach_permission() -> Result<()> 
     assert_eq!(revoked.status(), 200);
     let body: Value = revoked.json();
     assert_eq!(body["data"]["manages_roster"], json!(false), "{body}");
-    assert_eq!(body["data"]["manages_roster_operator_grant"], Value::Null);
+    assert_eq!(body["data"]["manages_roster_admin_grant"], Value::Null);
     assert!(
         !repos
             .users
@@ -1206,16 +1207,13 @@ async fn an_admin_grants_and_revokes_the_group_coach_permission() -> Result<()> 
             .expect("coach")
             .manages_roster
     );
-    assert_eq!(
-        repos.users.manages_roster_operator_grant(coach).await?,
-        None
-    );
+    assert_eq!(repos.users.manages_roster_admin_grant(coach).await?, None);
     Ok(())
 }
 
 /// `pierre-cli user set --manages-roster` reaches the admin-token mount, and
 /// `pierre-cli user get` reads the grant back from the same mount. A service
-/// token names no operator, so its grant records none.
+/// token names no admin, so its grant records none.
 #[tokio::test]
 #[serial]
 async fn the_cli_mount_grants_the_group_coach_permission_and_reads_it_back() -> Result<()> {
@@ -1238,7 +1236,7 @@ async fn the_cli_mount_grants_the_group_coach_permission_and_reads_it_back() -> 
     assert_eq!(read.status(), 200);
     let body: Value = read.json();
     assert_eq!(body["data"]["manages_roster"], json!(true), "{body}");
-    let grant = &body["data"]["manages_roster_operator_grant"];
+    let grant = &body["data"]["manages_roster_admin_grant"];
     assert!(grant["granted_at"].is_string(), "{body}");
     assert_eq!(grant["granted_by"], Value::Null, "{body}");
     Ok(())

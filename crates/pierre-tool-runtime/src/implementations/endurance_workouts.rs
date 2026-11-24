@@ -12,7 +12,7 @@ use std::slice;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use chrono::{NaiveDate, Utc};
+use dravr_tronc::dates::{CivilDate, Timestamp};
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::periodization::{
     EvidenceTier, Frames, InstanceRequest, PhaseFit, PhaseKind, Progression, Regression,
@@ -223,7 +223,7 @@ async fn authored_template(
         constraints: Vec::new(),
         regression: Regression::default(),
         frame: Frames::default(),
-        updated_at: Utc::now(),
+        updated_at: Timestamp::now(),
     })
 }
 
@@ -695,9 +695,9 @@ impl McpTool<dyn ToolRuntime> for PrescribeWorkoutTool {
              adds a new calendar entry unless replaces names a prescription_id (from \
              an earlier call or get_training_plan's calendar block), which changes \
              that entry in place on its own provider; withdraw_prescribed_workout \
-             removes one. A group's human coach prescribes for a consenting athlete \
-             with `athlete`, through the athlete's Intervals.icu link once they allow \
-             calendar writes on it.",
+             removes one. In Dravr's app or channels a group's human coach can prescribe for a \
+             consenting athlete through their Intervals.icu link once they allow calendar \
+             writes on it; elsewhere a prescription is the caller's own.",
             schema,
             annotations(
                 "Prescribe workout",
@@ -727,7 +727,7 @@ impl McpTool<dyn ToolRuntime> for PrescribeWorkoutTool {
                 .get("date")
                 .and_then(Value::as_str)
                 .ok_or_else(|| AppError::invalid_input("date is required"))?;
-            let date = NaiveDate::parse_from_str(date_str, "%Y-%m-%d")
+            let date = CivilDate::parse_from_str(date_str, "%Y-%m-%d")
                 .map_err(|e| AppError::invalid_input(format!("date must be YYYY-MM-DD: {e}")))?;
             let arg_agent = args
                 .get("agent_id")
@@ -789,7 +789,7 @@ impl McpTool<dyn ToolRuntime> for PrescribeWorkoutTool {
                     let note = scope.passed_over_note(&context, &chosen).await?;
                     (chosen.backend, note)
                 };
-                let provider = match scope.calendar_writer(&context, &target).await? {
+                let provider = match scope.calendar_sender(&context, &target).await? {
                     Ok(provider) => provider,
                     Err(refused) => return Ok(refused),
                 };
@@ -878,7 +878,7 @@ impl McpTool<dyn ToolRuntime> for PrescribeWorkoutTool {
                     }
                     _ => Ok(()),
                 };
-                let now = Utc::now();
+                let now = Timestamp::now();
                 let prescribed = PrescribedWorkout {
                     id: prescription_id,
                     tenant_id: tenant_id.as_uuid(),
@@ -944,7 +944,7 @@ impl McpTool<dyn ToolRuntime> for PrescribeWorkoutTool {
                         template_slug: prescribed_slug,
                         name: template.name.clone(),
                         duration_minutes: template.duration_minutes,
-                        scheduled_for: date.format("%Y-%m-%d").to_string(),
+                        scheduled_for: date.to_string(),
                         status: PrescribedWorkout::STATUS_PUSHED.to_owned(),
                         calendar_note,
                         envelope,
@@ -989,8 +989,8 @@ impl McpTool<dyn ToolRuntime> for WithdrawPrescribedWorkoutTool {
              provider and mark the prescription withdrawn. Only for single \
              prescriptions: an entry the training plan put there is removed by \
              adjusting the plan — save_training_plan, or a coach's \
-             publish_training_plan, updates the calendar. A group's human coach passes `athlete` as for \
-             prescribe_workout.",
+             publish_training_plan, updates the calendar. A coach withdraws for an athlete where \
+             prescribe_workout lets them prescribe.",
             schema,
             annotations(
                 "Withdraw prescribed workout",
@@ -1094,7 +1094,7 @@ impl McpTool<dyn ToolRuntime> for WithdrawPrescribedWorkoutTool {
                         provider: row.provider.clone(),
                         provider_event_id: event_id,
                         name: row.template_slug.clone(),
-                        scheduled_for: row.prescribed_for_date.format("%Y-%m-%d").to_string(),
+                        scheduled_for: row.prescribed_for_date.to_string(),
                         status: PrescribedWorkout::STATUS_WITHDRAWN.to_owned(),
                     },
                 )

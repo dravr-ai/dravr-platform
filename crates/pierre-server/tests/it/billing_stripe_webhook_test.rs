@@ -13,7 +13,7 @@
 
 use std::collections::HashMap;
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use hmac::{Hmac, Mac};
 use pierre_core::billing::stripe::{StripePriceConfig, StripeProvider};
 use pierre_core::billing::{BillingProvider, EventEnvelope, WebhookPayload};
@@ -44,7 +44,7 @@ fn provider() -> StripeProvider {
 
 /// Sign a webhook body the way Stripe does: HMAC-SHA256 over "{t}.{body}".
 fn signed_header(body: &[u8]) -> String {
-    let ts = Utc::now().timestamp();
+    let ts = Timestamp::now().epoch_seconds();
     let mut mac = Hmac::<Sha256>::new_from_slice(WEBHOOK_SECRET.as_bytes()).unwrap();
     mac.update(ts.to_string().as_bytes());
     mac.update(b".");
@@ -57,7 +57,7 @@ async fn seed_starter_user_and_tenant(db: &Database) -> (Uuid, TenantId) {
     let repos = db.repositories();
     let user_id = Uuid::new_v4();
     let tenant_id = TenantId::generate();
-    let now = Utc::now();
+    let now = Timestamp::now();
 
     let user = User {
         id: user_id,
@@ -65,7 +65,6 @@ async fn seed_starter_user_and_tenant(db: &Database) -> (Uuid, TenantId) {
         display_name: Some("Stripe Webhook Test".to_owned()),
         password_hash: bcrypt::hash("password123", bcrypt::DEFAULT_COST).unwrap(),
         tier: UserTier::Starter,
-        strava_token: None,
         is_active: true,
         user_status: UserStatus::Active,
         role: UserRole::User,
@@ -192,7 +191,7 @@ async fn stripe_subscription_created_webhook_flips_tier() {
 #[tokio::test]
 async fn stripe_webhook_with_bad_signature_is_rejected() {
     let body = br#"{"id":"evt_x","type":"customer.subscription.created","data":{"object":{}}}"#;
-    let ts = Utc::now().timestamp();
+    let ts = Timestamp::now().epoch_seconds();
     let mut headers = HashMap::new();
     headers.insert("stripe-signature".to_owned(), format!("t={ts},v1=deadbeef"));
 
@@ -313,7 +312,7 @@ async fn a_late_update_never_revives_a_canceled_subscription() {
         .unwrap()
         .unwrap();
     assert_eq!(row.status, SubscriptionStatus::Canceled);
-    assert_eq!(row.last_event_at.map(|at| at.timestamp()), Some(t2));
+    assert_eq!(row.last_event_at.map(Timestamp::epoch_seconds), Some(t2));
     let user = repos.users.get_global(user_id).await.unwrap().unwrap();
     assert_eq!(
         user.tier,

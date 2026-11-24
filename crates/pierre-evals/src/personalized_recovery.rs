@@ -55,7 +55,7 @@
 //! duration: these readings are nights, and the athlete-data layer still
 //! declines sleep claims against activity records.
 
-use chrono::{Duration, NaiveDate};
+use dravr_tronc::dates::{CivilDate, Elapsed};
 
 use crate::personalized::{verdict_from_call, PersonalizedContext, ToleranceCall};
 use crate::verdict_engine::VerdictOutcome;
@@ -139,9 +139,9 @@ impl NightlyMetric {
     /// a positive number, are ignored. `None` when neither a recent night nor
     /// a trusted mean remains.
     #[must_use]
-    pub fn from_daily(readings: &[(NaiveDate, f64)], today: NaiveDate) -> Option<Self> {
-        let first_day = today - Duration::days(BASELINE_DAYS - 1);
-        let mut week: Vec<(NaiveDate, f64)> = readings
+    pub fn from_daily(readings: &[(CivilDate, f64)], today: CivilDate) -> Option<Self> {
+        let first_day = today - Elapsed::days(BASELINE_DAYS - 1);
+        let mut week: Vec<(CivilDate, f64)> = readings
             .iter()
             .copied()
             .filter(|&(day, value)| {
@@ -413,7 +413,7 @@ impl Band {
 
 #[cfg(test)]
 mod tests {
-    use chrono::NaiveDate;
+    use dravr_tronc::dates::CivilDate;
 
     use super::*;
     use crate::claim_extractor::{ClaimSource, ExtractedClaim};
@@ -421,13 +421,13 @@ mod tests {
     use crate::{ConservativeStrategy, PersonalizedContext, TightStrategy, ToleranceStrategy};
     use pierre_memory::{ClaimCategory, ClaimStatus, VerdictLayer};
 
-    fn day(d: u32) -> NaiveDate {
-        NaiveDate::from_ymd_opt(2026, 10, d).unwrap()
+    fn day(d: u32) -> CivilDate {
+        CivilDate::from_ymd(2026, 10, d).unwrap()
     }
 
     /// Six nights of `earlier` from the 3rd, then `last` on the 9th (today).
     fn series(earlier: f64, last: f64) -> Option<NightlyMetric> {
-        let mut daily: Vec<(NaiveDate, f64)> = (3..=8).map(|d| (day(d), earlier)).collect();
+        let mut daily: Vec<(CivilDate, f64)> = (3..=8).map(|d| (day(d), earlier)).collect();
         daily.push((day(9), last));
         NightlyMetric::from_daily(&daily, day(9))
     }
@@ -495,7 +495,7 @@ mod tests {
     /// 60 ms but Tuesday the 6th at 42 ms; last night (the 9th) is ordinary.
     fn a_week_with_one_odd_night() -> RecoveryReadings {
         let odd = |usual: f64, odd_day: u32, odd: f64| {
-            let daily: Vec<(NaiveDate, f64)> = (3..=9)
+            let daily: Vec<(CivilDate, f64)> = (3..=9)
                 .map(|d| (day(d), if d == odd_day { odd } else { usual }))
                 .collect();
             NightlyMetric::from_daily(&daily, day(9))

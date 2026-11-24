@@ -24,7 +24,7 @@
 //!
 //! The decision is an admin's, made in the admin console
 //! (`pierre_routes_admin` coach-access handlers). Logic lives in
-//! [`pierre_services::coach_access`], the operator email included; this
+//! [`pierre_services::coach_access`], the admin email included; this
 //! module is the HTTP boundary, handing that email the server's email
 //! service.
 
@@ -38,9 +38,10 @@ use axum::{
     Json, Router,
 };
 use pierre_core::errors::AppError;
-use pierre_core::models::{CoachAccessRequest, TenantId};
+use pierre_core::models::CoachAccessRequest;
 use pierre_email::templates::CoachAccessOrigin;
 use pierre_middleware::extractors::AuthenticatedUser;
+use pierre_runtime_context::require_tenant;
 use pierre_services::coach_access::{self, CoachAccessNotices, RequestOutcome};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -88,7 +89,7 @@ pub async fn handle_get(
 /// # Errors
 ///
 /// Returns `AppError` when authentication fails, the group id is malformed or
-/// named without an active tenant, the group is not the caller's or already
+/// named by an account with no tenant, the group is not the caller's or already
 /// has a coach, the caller already holds coach access, or persistence fails.
 pub async fn handle_post(
     State(resources): State<Arc<ServerContext>>,
@@ -111,10 +112,8 @@ pub async fn handle_post(
         Some(raw) => {
             let group_id = Uuid::parse_str(raw)
                 .map_err(|e| AppError::invalid_input(format!("Invalid group id: {e}")))?;
-            let tenant = auth.active_tenant_id.ok_or_else(|| {
-                AppError::invalid_input("Naming a group requires an active tenant")
-            })?;
-            Some((group_id, TenantId::from_uuid(tenant)))
+            let tenant = require_tenant(&resources, &auth).await?;
+            Some((group_id, tenant))
         }
     };
 

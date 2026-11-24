@@ -1109,6 +1109,23 @@ export async function openGroups(page: Page) {
 }
 
 /**
+ * Answers the consents a Garmin connect asks before it starts
+ * (`ConnectConsentDialog`, carnet#1157/#1390) the way an athlete does: tick
+ * the boxes named by their consent key (`garmin`, `garmin_workout_transfer`),
+ * none by default, then press Continue. The dialog loads on the tap, so this
+ * waits for it, and returns once it is gone.
+ */
+export async function answerConnectConsents(page: Page, ticked: readonly string[] = []) {
+  const list = page.getByTestId('connect-consent-list');
+  await list.waitFor({ state: 'visible', timeout: APP_SHELL_TIMEOUT_MS });
+  for (const key of ticked) {
+    await page.getByTestId(`connect-consent-${key}`).check();
+  }
+  await page.getByTestId('connect-consent-continue').click();
+  await list.waitFor({ state: 'detached' });
+}
+
+/**
  * Navigates to a specific dashboard tab by clicking the sidebar button.
  */
 export async function navigateToTab(page: Page, tabName: string) {

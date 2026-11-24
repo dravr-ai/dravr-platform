@@ -16,13 +16,12 @@
 //! work. Before consolidation only the (now-deleted) REST builder computed it;
 //! these tests pin the canonical builder's behavior.
 
-use chrono::{Duration, TimeZone, Utc};
-use chrono_tz::Tz;
+use dravr_tronc::dates::{Elapsed, Timestamp, Zone};
 use pierre_core::models::{ActivityBuilder, SportType};
 use pierre_tool_runtime::group_fitness::compute_weekly_metrics;
 
-fn now() -> chrono::DateTime<Utc> {
-    Utc.with_ymd_and_hms(2026, 5, 22, 12, 0, 0).unwrap()
+fn now() -> Timestamp {
+    Timestamp::parse_from_rfc3339("2026-05-22T12:00:00Z").unwrap()
 }
 
 #[test]
@@ -34,7 +33,7 @@ fn previous_week_volume_is_some_when_prior_week_has_activity() {
             "cur",
             "This week ride",
             SportType::Ride,
-            now - Duration::days(3),
+            now - Elapsed::days(3),
             3600,
             "strava",
         )
@@ -45,7 +44,7 @@ fn previous_week_volume_is_some_when_prior_week_has_activity() {
             "prev",
             "Last week ride",
             SportType::Ride,
-            now - Duration::days(10),
+            now - Elapsed::days(10),
             5400,
             "strava",
         )
@@ -53,7 +52,7 @@ fn previous_week_volume_is_some_when_prior_week_has_activity() {
         .build(),
     ];
 
-    let metrics = compute_weekly_metrics(&activities, now, Tz::UTC);
+    let metrics = compute_weekly_metrics(&activities, now, &Zone::utc());
 
     assert!((metrics.volume_km - 10.0).abs() < 1e-6, "current week km");
     assert_eq!(
@@ -74,14 +73,14 @@ fn previous_week_volume_is_none_when_no_prior_week_activity() {
         "cur",
         "This week run",
         SportType::Run,
-        now - Duration::days(2),
+        now - Elapsed::days(2),
         1800,
         "strava",
     )
     .distance_meters(5000.0)
     .build()];
 
-    let metrics = compute_weekly_metrics(&activities, now, Tz::UTC);
+    let metrics = compute_weekly_metrics(&activities, now, &Zone::utc());
 
     assert_eq!(
         metrics.previous_week_volume_km, None,
@@ -96,14 +95,14 @@ fn activity_older_than_two_weeks_is_excluded_from_both_windows() {
         "old",
         "Three weeks ago",
         SportType::Run,
-        now - Duration::days(21),
+        now - Elapsed::days(21),
         1800,
         "strava",
     )
     .distance_meters(8000.0)
     .build()];
 
-    let metrics = compute_weekly_metrics(&activities, now, Tz::UTC);
+    let metrics = compute_weekly_metrics(&activities, now, &Zone::utc());
 
     assert!(
         (metrics.volume_km - 0.0).abs() < 1e-6,

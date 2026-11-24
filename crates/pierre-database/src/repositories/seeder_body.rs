@@ -529,7 +529,7 @@ macro_rules! impl_seeder_repository {
                 id: Uuid,
                 tenant_id: Uuid,
                 user_id: Uuid,
-                now: DateTime<Utc>,
+                now: Timestamp,
             ) -> AppResult<()> {
                 sqlx::query(INSERT_TENANT_USER_SQL)
                     .bind($ids::bind(id))
@@ -565,7 +565,7 @@ macro_rules! impl_seeder_repository {
                 tenant_id: &str,
                 group_id: Uuid,
                 user_id: Uuid,
-                joined_at: DateTime<Utc>,
+                joined_at: Timestamp,
             ) -> AppResult<()> {
                 sqlx::query(BACKDATE_MEMBERSHIP_SQL)
                     .bind(joined_at)

@@ -20,8 +20,9 @@ use crate::helpers;
 use std::sync::Arc;
 
 use axum::http::StatusCode;
-use chrono::{Datelike, Days, NaiveDate, Utc};
 use common::{create_test_server_resources, create_test_user_with_plan, generate_test_token};
+use dravr_tronc::dates::Elapsed;
+use dravr_tronc::dates::{CivilDate, Timestamp};
 use dravr_tronc::mcp::tool::{McpTool, ToolContext};
 use helpers::axum_test::AxumTestRequest;
 use pierre_core::models::groups::{
@@ -78,21 +79,21 @@ async fn person(res: &Arc<ServerContext>, label: &str, name: &str) -> Person {
     }
 }
 
-fn monday(weeks: u64) -> NaiveDate {
-    let today = Utc::now().date_naive();
-    let this = today - Days::new(u64::from(today.weekday().num_days_from_monday()));
-    this + Days::new(7 * weeks)
+fn monday(weeks: i64) -> CivilDate {
+    let today = Timestamp::now().utc_date();
+    let this = today - Elapsed::days(i64::from(today.weekday().num_days_from_monday()));
+    this + Elapsed::days(7 * weeks)
 }
 
-fn ymd(date: NaiveDate) -> String {
-    date.format("%Y-%m-%d").to_string()
+fn ymd(date: CivilDate) -> String {
+    date.to_string()
 }
 
-fn week(start: NaiveDate, workout: &str) -> Value {
+fn week(start: CivilDate, workout: &str) -> Value {
     let days: Vec<Value> = (0..7)
         .map(|offset| {
             json!({
-                "date": ymd(start + Days::new(offset)),
+                "date": ymd(start + Elapsed::days(offset)),
                 "sport": "run",
                 "workout": workout,
                 "duration_min": 40,
@@ -135,7 +136,7 @@ impl Fixture {
         let agent_id = create_group_agent(repos, owner.id, owner.tenant)
             .await
             .unwrap();
-        let now = Utc::now();
+        let now = Timestamp::now();
         let group = repos
             .groups
             .create_group(
@@ -155,6 +156,7 @@ impl Fixture {
                     is_active: true,
                     channel_type: None,
                     channel_chat_id: None,
+                    chat_connection: None,
                     created_at: now,
                     updated_at: now,
                 },
@@ -281,7 +283,7 @@ impl Fixture {
 }
 
 async fn join(repos: &RepositoryRegistry, group: &CoachingGroup, who: &Person) {
-    let now = Utc::now();
+    let now = Timestamp::now();
     repos
         .groups
         .add_member(&GroupMember {
@@ -321,7 +323,7 @@ async fn the_read_shows_the_live_plan_and_the_draft_in_the_home_shape() {
         body["athlete"],
         json!({ "user_id": fx.subject.id, "display_name": SUBJECT_NAME })
     );
-    assert_eq!(body["today"], ymd(Utc::now().date_naive()));
+    assert_eq!(body["today"], ymd(Timestamp::now().utc_date()));
     assert_eq!(body["live"]["goal_race"]["name"], "Athlete Race", "{body}");
     assert!(body["live"]["weeks"]
         .as_array()
@@ -346,7 +348,7 @@ async fn the_read_shows_the_live_plan_and_the_draft_in_the_home_shape() {
     assert_eq!(state["season_relaid"], false);
     assert!(state["updated_at"]
         .as_str()
-        .is_some_and(|at| chrono::DateTime::parse_from_rfc3339(at).is_ok()));
+        .is_some_and(|at| Timestamp::parse_from_rfc3339(at).is_ok()));
 
     // The card's draft state and the read's come from one serialiser.
     let read = call(
@@ -581,7 +583,7 @@ async fn every_gate_runs_again_on_each_request_with_its_reason() {
     );
 
     // An athlete in two tenants has no one place for their plan.
-    let now = Utc::now();
+    let now = Timestamp::now();
     let second = TenantId::generate();
     fx.repos()
         .tenants

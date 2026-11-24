@@ -29,6 +29,7 @@ export type ConnectPlanCard = Pick<
   | 'recommended_backend'
   | 'seats_left'
   | 'history'
+  | 'connect_order'
 >;
 
 /**
@@ -68,7 +69,7 @@ interface ConnectPlan {
  * A reconnect signs in, whichever backend the card is connected through: a
  * dead OAuth grant reconnects only through the hosted sign-in, as a dead
  * session does (carnet#1494). A new connection follows the server's
- * recommendation: its authorization only while the operator puts the OAuth
+ * recommendation: its authorization only while the admin puts the OAuth
  * first and a seat is free, its sign-in otherwise.
  */
 function dualBackendPrimary(card: ConnectPlanCard, target: SciotteTarget): ConnectPrimary {
@@ -206,6 +207,17 @@ export function oauthFallbackTarget(
   }
   const target = sciotteTargetForBackend(card.provider);
   return target && DUAL_BACKEND_TARGETS.has(target) ? target : null;
+}
+
+/**
+ * Whether the account sign-in of `card` starts with the Dravr sign-in
+ * extension where it is installed (JF, carnet#1617): the extension, then the
+ * credentials, then the OAuth. Every order but `sign_in_first` puts it first,
+ * and so does a card that names none (an older server, or no card at all),
+ * since `extension_first` is the default.
+ */
+export function signInStartsWithExtension(card: Pick<ConnectPlanCard, 'connect_order'> | undefined): boolean {
+  return card?.connect_order !== 'sign_in_first';
 }
 
 /**

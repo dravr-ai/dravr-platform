@@ -27,6 +27,7 @@
 use std::collections::HashMap;
 use std::time::Duration as StdDuration;
 
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_config::admin_definitions::{
     register_tokio_runtime, register_usage_quotas, ParameterDefinition,
 };
@@ -127,8 +128,8 @@ async fn seed_tenant(db: &Database, owner_user_id: &str) -> String {
         domain: None,
         plan: "starter".to_owned(),
         owner_user_id: owner,
-        created_at: chrono::Utc::now(),
-        updated_at: chrono::Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
     };
     db.repositories().tenants.create(&tenant).await.unwrap();
     tenant_id.to_string()
@@ -434,7 +435,7 @@ async fn repeated_user_writes_upsert_rather_than_accumulate() {
     assert_eq!(
         row.config_value.as_i64(),
         Some(650),
-        "the surviving row must hold the operator's latest value"
+        "the surviving row must hold the admin's latest value"
     );
 }
 
@@ -505,7 +506,7 @@ async fn an_override_reads_back_its_author_and_the_instant_it_was_written() {
     let repo = repository(&db);
     let admin = seed_user(&db, "author").await;
 
-    let before = chrono::Utc::now() - chrono::TimeDelta::seconds(1);
+    let before = Timestamp::now() - Elapsed::seconds(1);
     write(repo.as_ref(), &admin, ConfigScope::Global, 40).await;
     let first = repo
         .get_override(CATEGORY, KEY, ConfigScope::Global)
@@ -515,7 +516,7 @@ async fn an_override_reads_back_its_author_and_the_instant_it_was_written() {
     assert_eq!(first.created_by, admin);
     assert_eq!(first.user_id, None);
     assert_eq!(first.config_value, serde_json::json!(40));
-    assert!(first.created_at >= before && first.created_at <= chrono::Utc::now());
+    assert!(first.created_at >= before && first.created_at <= Timestamp::now());
     assert_eq!(first.created_at, first.updated_at);
 
     sleep(StdDuration::from_millis(1100)).await;
@@ -533,7 +534,7 @@ async fn an_override_reads_back_its_author_and_the_instant_it_was_written() {
 /// A stored timestamp that is not a timestamp fails the read rather than
 /// reading as the reader's clock. `SQLite` holds the column as TEXT, so a bad
 /// value can reach it and the read must refuse it (it used to substitute
-/// `Utc::now()`); Postgres's `TIMESTAMPTZ` refuses the value at the write.
+/// `Timestamp::now()`); Postgres's `TIMESTAMPTZ` refuses the value at the write.
 #[tokio::test]
 async fn a_stored_timestamp_that_is_not_one_fails_instead_of_reading_as_now() {
     const CORRUPT: &str = "UPDATE admin_config_overrides SET created_at = 'not a time' \

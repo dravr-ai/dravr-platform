@@ -9,7 +9,7 @@ use pierre_providers::ai_scope;
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use tracing::{debug, field, info, trace, warn, Span};
 
 use crate::ChatPipelineContext;
@@ -46,8 +46,10 @@ use pierre_groups::service::MemberCards;
 
 mod placeholders;
 mod stable_head;
+mod startup_query;
 use placeholders::interpolate_prompt_placeholders;
 use stable_head::mark_stable_head;
+use startup_query::localize_startup_query;
 
 /// Identity anchor appended to the tail of every assembled system prompt.
 ///
@@ -339,7 +341,7 @@ pub(crate) async fn resolve_user_persona(
 pub(crate) async fn resolve_user_persona_and_created_at(
     users: &dyn UserRepository,
     user_id: &str,
-) -> (CoachingPersona, Option<DateTime<Utc>>) {
+) -> (CoachingPersona, Option<Timestamp>) {
     read_asker(users, user_id).await.map_or_else(
         || (CoachingPersona::default(), None),
         |user| (user.coaching_persona, Some(user.created_at)),
@@ -445,7 +447,7 @@ pub(crate) struct PromptTurn<'a> {
     pub conv: &'a ConversationRecord,
     /// Who the turn is about, named once when the conversation resolved.
     pub standing: TurnStanding,
-    /// What an operator switched off for the sender, left out of the index.
+    /// What an admin switched off for the sender, left out of the index.
     pub switched_off: &'a SwitchedOff,
     /// Whether tools beyond the core go out deferred; the index says how to load one.
     pub defer_tools: bool,
@@ -593,7 +595,7 @@ pub(crate) async fn assemble_prompt_and_messages(
     //
     // This stage used to generate a second list here: one prose line per tool,
     // 11,763 characters, restating names the model was already given. It was
-    // built from `user_visible_schemas()` while the declarations were built
+    // built from `all_schemas()` while the declarations were built
     // from `chat_callable_schemas()`, so it advertised every non-chat-callable
     // category — agent CRUD, config writes, claim verification — as though the
     // agent could call them. Two lists from two sources cannot help drifting;
@@ -605,7 +607,7 @@ pub(crate) async fn assemble_prompt_and_messages(
     // The names — and only the names — come back with it, from
     // `offered_schemas`. That is the source the declarations are built
     // from, which is the half the deleted list got wrong: it read
-    // `user_visible_schemas()` and advertised tools the agent could not call.
+    // `all_schemas()` and advertised tools the agent could not call.
     // One source cannot drift against itself, and names-only is ~2 KB against
     // the 11,763 characters that were removed.
     //
@@ -616,7 +618,7 @@ pub(crate) async fn assemble_prompt_and_messages(
     // only place the model sees the deferred names, and says to load one by
     // name rather than guess its parameters (carnet#406). It names what
     // `offered_schemas` offers, as the declarations and loopback do: nothing
-    // the seat withholds (carnet#742, carnet#1070) or an operator switched off.
+    // the seat withholds (carnet#742, carnet#1070) or an admin switched off.
     let tool_names: Vec<String> = chat_catalogue::offered_schemas(
         &ctx.tool_registry,
         seat,
@@ -773,7 +775,8 @@ pub(crate) async fn assemble_prompt_and_messages(
     let plan_withheld = interview_owns_turn || !input.is_direct_message;
     let base_prompt = match subject_turn.as_ref() {
         None => {
-            let athlete_today = clock_date(Utc::now(), resolve_zone(user_timezone.as_deref()));
+            let athlete_today =
+                clock_date(Timestamp::now(), &resolve_zone(user_timezone.as_deref()));
             inject_training_plan(
                 ctx.plan_prompt_sources(),
                 &input.tool_tenant_id.to_string(),
@@ -942,7 +945,7 @@ pub(crate) async fn assemble_prompt_and_messages(
         Some(turn) => format!("{raw_system_prompt}{}", super::onboarding::directive(turn)),
         None if super::onboarding::just_completed_interview(
             conv.onboarding_state.as_deref(),
-            Utc::now(),
+            Timestamp::now(),
         ) =>
         {
             format!(
@@ -1053,6 +1056,9 @@ pub(crate) async fn assemble_prompt_and_messages(
             // A summary of first-party-only turns is withheld from an external
             // turn, which then reads the raw rows it is served (carnet#769).
             ai_scope::retain_admitted(&mut blocks, |block| block.transport_policy);
+            // Nor one naming a withdrawn consent, or data kept out of AI
+            // memory (carnet#1157, #1158); its rows are then replayed alone.
+            ai_scope::retain_consented(&mut blocks, |block| &block.ai_consent_sources, true);
             // A summary of a group member's rows replays only while their rows
             // do: the sender may still read that member (carnet#1174).
             blocks.retain(|block| {
@@ -1082,7 +1088,7 @@ pub(crate) async fn assemble_prompt_and_messages(
     );
 
     // Trace-level dump of the full hardened system prompt and the flattened
-    // message list. Operators bump `RUST_LOG=...=trace` to see exactly what
+    // message list. Admins bump `RUST_LOG=...=trace` to see exactly what
     // the LLM will receive; otherwise the events are filtered out.
     if tracing::enabled!(tracing::Level::TRACE) {
         trace!(
@@ -1119,21 +1125,27 @@ pub(crate) async fn assemble_prompt_and_messages(
 /// shared messaging room reads the athlete's copy rather than looking for it
 /// under the bot's tenant. Otherwise the conversation's bound agent resolves
 /// under the conversation's tenant, as every turn did before mentions existed.
+///
+/// `locale` is the turn's resolved locale: the startup query a catalogue
+/// agent opens with is read in it, English when the locale has none.
 pub(crate) async fn resolve_turn_agent_ctx(
     ctx: &ChatPipelineContext,
     input: &TurnInput,
     conv: &ConversationRecord,
+    locale: &str,
 ) -> AppResult<Option<AgentRuntimeContext>> {
-    if let Some(mention) = &input.mentioned_agent {
-        return Ok(Some(mention.runtime.clone()));
+    let mut agent = if let Some(mention) = &input.mentioned_agent {
+        Some(mention.runtime.clone())
+    } else if let Some(agent_id) = conv.agent_id.as_deref() {
+        ctx.repos
+            .agents
+            .get_agent_runtime_context(agent_id, input.conversation_tenant_id)
+            .await?
+    } else {
+        None
+    };
+    if let Some(agent) = agent.as_mut() {
+        localize_startup_query(&ctx.prompt_registry, agent, locale);
     }
-    match conv.agent_id.as_deref() {
-        Some(agent_id) => {
-            ctx.repos
-                .agents
-                .get_agent_runtime_context(agent_id, input.conversation_tenant_id)
-                .await
-        }
-        None => Ok(None),
-    }
+    Ok(agent)
 }

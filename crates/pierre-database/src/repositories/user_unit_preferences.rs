@@ -90,7 +90,7 @@ macro_rules! impl_unit_preferences_repository {
                 sqlx::query(UPSERT_UNITS_SQL)
                     .bind($ids::bind(user_id))
                     .bind(units.as_str())
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .execute(self.pool())
                     .await
                     .map_err(|e| unit_preferences_error("store", e))?;

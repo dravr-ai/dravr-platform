@@ -302,11 +302,135 @@ export const AI_CONSENT_KEYS = {
   failed: 'providers.aiConsent.failed',
 } as const;
 
+/**
+ * The consent class of the athlete's health records (lab results, clinical
+ * records, blood glucose): a consent to AI use with no provider card, read
+ * and changed through the same `ai-consent` endpoints as a provider's.
+ */
+export const SENSITIVE_T2_CONSENT = 'sensitive_t2';
+
+/**
+ * The consent class of the athlete's intimate health records (cycle
+ * tracking, mental and reproductive health). It also lets AI apps the athlete
+ * connects (Claude, ChatGPT) read their notes and their agent's memory, which
+ * Dravr's own agent and the human coach read either way (carnet#1544).
+ */
+export const SENSITIVE_T3_CONSENT = 'sensitive_t3';
+
+/** The privacy settings' Sensitive health records block, shown to every account. */
+export const SENSITIVE_CONSENT_KEYS = {
+  title: 'providers.aiConsent.sensitive.title',
+  blurb: 'providers.aiConsent.sensitive.blurb',
+  t2Label: 'providers.aiConsent.sensitive.t2Label',
+  t3Label: 'providers.aiConsent.sensitive.t3Label',
+  t3Hint: 'providers.aiConsent.sensitive.t3Hint',
+  allowed: 'providers.aiConsent.sensitive.allowed',
+  withdrawn: 'providers.aiConsent.sensitive.withdrawn',
+} as const;
+
+/**
+ * The key of Garmin's consent to AI use, as the server records it: one
+ * consent for the official API and the sign-in alike (carnet#1157).
+ */
+export const GARMIN_AI_CONSENT = 'garmin';
+
+/**
+ * The key of the athlete's consent to Dravr sending their planned workouts to
+ * the Garmin Connect calendar (Garmin's agreement §4.5, carnet#1390).
+ */
+export const GARMIN_WORKOUT_TRANSFER_CONSENT = 'garmin_workout_transfer';
+
+/** Garmin's privacy policy, which the transfer box links to (§4.5). */
+export const GARMIN_PRIVACY_URL = 'https://www.garmin.com/privacy/connect';
+
+/** The catalogue keys of the Garmin connect's two consent boxes. */
+export const GARMIN_CONSENT_KEYS = {
+  title: 'providers.garminConsent.title',
+  intro: 'providers.garminConsent.intro',
+  aiLabel: 'providers.garminConsent.aiLabel',
+  aiHint: 'providers.garminConsent.aiHint',
+  transferLabel: 'providers.garminConsent.transferLabel',
+  transferHint: 'providers.garminConsent.transferHint',
+  privacyLink: 'providers.garminConsent.privacyLink',
+  continue: 'providers.garminConsent.continue',
+} as const;
+
+/** One box a connect offers without requiring it. */
+export interface ConnectConsent {
+  /** The key the server records the consent under, sent in `consents`. */
+  key: string;
+  labelKey: string;
+  hintKey: string;
+  /** A policy the box links to, beside its hint. */
+  linkUrl?: string;
+  linkKey?: string;
+}
+
+const GARMIN_CONNECT_CONSENTS: readonly ConnectConsent[] = [
+  {
+    key: GARMIN_AI_CONSENT,
+    labelKey: GARMIN_CONSENT_KEYS.aiLabel,
+    hintKey: GARMIN_CONSENT_KEYS.aiHint,
+  },
+  {
+    key: GARMIN_WORKOUT_TRANSFER_CONSENT,
+    labelKey: GARMIN_CONSENT_KEYS.transferLabel,
+    hintKey: GARMIN_CONSENT_KEYS.transferHint,
+    linkUrl: GARMIN_PRIVACY_URL,
+    linkKey: GARMIN_CONSENT_KEYS.privacyLink,
+  },
+];
+
+/**
+ * The boxes a connect offers without requiring them, by the card or backend
+ * id (`offered_at_connect` in
+ * `crates/pierre-core/src/constants/oauth/providers.rs`). Garmin's two: AI
+ * use of its data and sending planned workouts to its calendar. Both start
+ * unticked and the connect goes through with neither (JF 2026-11-23).
+ */
+export const CONNECT_CONSENTS: Readonly<Record<string, readonly ConnectConsent[]>> = {
+  garmin: GARMIN_CONNECT_CONSENTS,
+  sciotte_garmin: GARMIN_CONNECT_CONSENTS,
+};
+
+/** The boxes a connect to `provider` offers, or none. */
+export function connectConsentsFor(provider: string): readonly ConnectConsent[] {
+  return CONNECT_CONSENTS[provider] ?? [];
+}
+
+/**
+ * The catalogue keys of the transfer-consent switch in the privacy settings
+ * (carnet#1390).
+ */
+export const TRANSFER_CONSENT_KEYS = {
+  title: 'providers.transferConsent.title',
+  blurb: 'providers.transferConsent.blurb',
+  label: 'providers.transferConsent.label',
+  allowed: 'providers.transferConsent.allowed',
+  withdrawn: 'providers.transferConsent.withdrawn',
+  failed: 'providers.transferConsent.failed',
+} as const;
+
 /** The fields of a provider card the AI-consent controls read. */
 export interface AiConsentCard {
   provider: string;
   connected: boolean;
   ai_consent?: boolean;
+}
+
+/** The fields of a provider card the transfer-consent controls read. */
+export interface TransferConsentCard {
+  provider: string;
+  connected: boolean;
+  transfer_consent?: boolean;
+}
+
+/**
+ * The cards whose transfer consent the athlete can give or withdraw: the
+ * connected providers whose card carries `transfer_consent` (Garmin).
+ */
+export function transferConsentCards<T extends TransferConsentCard>(cards: readonly T[]): T[] {
+  return cards.filter((card) => card.connected && typeof card.transfer_consent === 'boolean');
 }
 
 /**

@@ -7,7 +7,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use chrono::{Duration, NaiveDate};
+use dravr_tronc::dates::{CivilDate, Elapsed};
 use pierre_core::models::{DailyTrainingState, TenantId};
 use pierre_database::backends::factory::{Database, DatabaseBackend};
 use pierre_database::DatabaseProvider;
@@ -21,7 +21,7 @@ async fn insert_as_an_older_binary(
     db: &Database,
     tenant_id: TenantId,
     user_id: Uuid,
-    date: NaiveDate,
+    date: CivilDate,
 ) {
     const SQL: &str =
         "INSERT INTO training_history (tenant_id, user_id, date, ctl, atl, tsb, daily_load) \
@@ -57,15 +57,15 @@ async fn make_test_db() -> Database {
     db
 }
 
-fn anchor() -> NaiveDate {
-    NaiveDate::from_ymd_opt(2026, 4, 1).unwrap()
+fn anchor() -> CivilDate {
+    CivilDate::from_ymd(2026, 4, 1).unwrap()
 }
 
 /// A day whose CTL rose by one overnight: form (`tsb`) is yesterday's
 /// balance, read against yesterday's CTL (`form_ctl = ctl - 1`).
 fn synthetic_state(day_offset: i64, ctl: f64, atl: f64, daily_load: f64) -> DailyTrainingState {
     DailyTrainingState {
-        date: anchor() + Duration::days(day_offset),
+        date: anchor() + Elapsed::days(day_offset),
         ctl,
         atl,
         tsb: ctl - atl,
@@ -95,8 +95,8 @@ async fn upsert_and_fetch_single_day_round_trips() {
         .get_training_history(
             tenant_id,
             user_id,
-            anchor() - Duration::days(3650),
-            anchor() + Duration::days(3650),
+            anchor() - Elapsed::days(3650),
+            anchor() + Elapsed::days(3650),
         )
         .await
         .expect("latest")
@@ -135,7 +135,7 @@ async fn a_row_stored_without_form_ctl_is_never_served() {
     let rows = db
         .repositories()
         .training_history
-        .get_training_history(tenant_id, user_id, anchor(), anchor() + Duration::days(1))
+        .get_training_history(tenant_id, user_id, anchor(), anchor() + Elapsed::days(1))
         .await
         .expect("range");
     assert_eq!(
@@ -185,8 +185,8 @@ async fn upsert_overwrites_existing_day() {
         .get_training_history(
             tenant_id,
             user_id,
-            anchor() - Duration::days(3650),
-            anchor() + Duration::days(3650),
+            anchor() - Elapsed::days(3650),
+            anchor() + Elapsed::days(3650),
         )
         .await
         .expect("latest")
@@ -218,7 +218,7 @@ async fn batch_upsert_and_range_query_return_chronological_order() {
         .await
         .expect("batch upsert");
     let from = anchor();
-    let to = anchor() + Duration::days(29);
+    let to = anchor() + Elapsed::days(29);
     let rows = repos
         .training_history
         .get_training_history(tenant_id, user_id, from, to)
@@ -252,14 +252,14 @@ async fn range_query_excludes_rows_outside_window() {
         .get_training_history(
             tenant_id,
             user_id,
-            anchor() + Duration::days(5),
-            anchor() + Duration::days(10),
+            anchor() + Elapsed::days(5),
+            anchor() + Elapsed::days(10),
         )
         .await
         .expect("range");
     assert_eq!(rows.len(), 6);
-    assert_eq!(rows.first().unwrap().date, anchor() + Duration::days(5));
-    assert_eq!(rows.last().unwrap().date, anchor() + Duration::days(10));
+    assert_eq!(rows.first().unwrap().date, anchor() + Elapsed::days(5));
+    assert_eq!(rows.last().unwrap().date, anchor() + Elapsed::days(10));
 }
 
 #[tokio::test]
@@ -286,8 +286,8 @@ async fn training_history_is_tenant_scoped() {
         .get_training_history(
             tenant_a,
             user_id,
-            anchor() - Duration::days(3650),
-            anchor() + Duration::days(3650),
+            anchor() - Elapsed::days(3650),
+            anchor() + Elapsed::days(3650),
         )
         .await
         .expect("read A")
@@ -298,8 +298,8 @@ async fn training_history_is_tenant_scoped() {
         .get_training_history(
             tenant_b,
             user_id,
-            anchor() - Duration::days(3650),
-            anchor() + Duration::days(3650),
+            anchor() - Elapsed::days(3650),
+            anchor() + Elapsed::days(3650),
         )
         .await
         .expect("read B")
@@ -314,8 +314,8 @@ async fn training_history_is_tenant_scoped() {
         .get_training_history(
             tenant_a,
             other_user,
-            anchor() - Duration::days(3650),
-            anchor() + Duration::days(3650),
+            anchor() - Elapsed::days(3650),
+            anchor() + Elapsed::days(3650),
         )
         .await
         .expect("read")
@@ -333,8 +333,8 @@ async fn empty_history_returns_no_rows() {
         .get_training_history(
             TenantId::generate(),
             Uuid::new_v4(),
-            anchor() - Duration::days(3650),
-            anchor() + Duration::days(3650),
+            anchor() - Elapsed::days(3650),
+            anchor() + Elapsed::days(3650),
         )
         .await
         .expect("read");

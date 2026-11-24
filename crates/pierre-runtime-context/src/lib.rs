@@ -36,11 +36,14 @@ pub mod data;
 /// Canonical per-request tenant resolution (see [`tenant`]).
 pub mod tenant;
 
-pub use data::DataContext;
+pub use data::{DataContext, ProviderConnectLog};
 /// Re-exported so a host can name it in its [`BillingCtx`] impl whether or
 /// not it links the group coaching routes.
 pub use pierre_groups::AthleteBilling;
-pub use tenant::{analytics_read_scope, resolve_tenant, scope_caller, TenantMode};
+pub use tenant::{
+    analytics_read_scope, require_tenant, require_tenant_in, resolve_tenant, resolve_tenant_in,
+    scope_caller, TenantMode,
+};
 
 use std::future::Future;
 use std::pin::Pin;
@@ -102,9 +105,10 @@ pub trait DashboardCtx: Send + Sync + 'static {
 
 /// Slice of runtime state the middleware layer needs.
 ///
-/// Covers what `tenant`, `extractors`, `admin_guard`, and `csrf` actually pull
-/// from pierre-server's `ServerContext`: the auth manager + JWKS for JWT claim
-/// validation, the repository registry for tenant + user lookups, the CSRF
+/// Covers what `extractors`, `admin_guard`, and `csrf` actually pull
+/// from pierre-server's `ServerContext`, and what [`resolve_tenant`] reads: the
+/// auth manager + JWKS for JWT claim validation, the repository registry for
+/// tenant + user lookups, the CSRF
 /// token manager for state-changing-request validation, and a delegating
 /// `authenticate_request` entry point that dispatches into the auth-middleware
 /// pipeline (token type detection, rate limiting, user status enforcement).
@@ -134,7 +138,7 @@ pub trait MiddlewareCtx: Send + Sync + 'static {
 
     /// The tronc `allowlist` fetch policy a user-supplied LLM `base_url` (the
     /// `local`/OpenAI-compatible provider) must pass: the host must be on the
-    /// operator's list, and an empty list denies every custom `base_url`, closing the
+    /// admin's list, and an empty list denies every custom `base_url`, closing the
     /// SSRF where a tenant points the server's outbound LLM call at an internal host
     /// (T3MP3ST F2 / CWE-918). Sourced from `pierre_config::security::llm_base_url_policy`;
     /// typed by tronc so this crate stays free of a `pierre-config` dependency.
@@ -496,6 +500,10 @@ pub trait GroupsCtx: Send + Sync + 'static {
     /// reports, and health-flag computation over fitness snapshots.
     fn group_service(&self) -> &Arc<pierre_groups::GroupService>;
 
+    /// Where a confirmed delegated link's connect is recorded, in the
+    /// member's log in the activity store (carnet#1542).
+    fn connect_log(&self) -> &Arc<dyn ProviderConnectLog>;
+
     /// Messaging strings registry — the notification feed renders each row's
     /// title, body and action labels through it, in the reader's own locale,
     /// from the event and parameters the row stores.
@@ -512,58 +520,4 @@ pub trait GroupsCtx: Send + Sync + 'static {
         key: &str,
         tenant_id: Option<&str>,
     ) -> Option<serde_json::Value>;
-}
-
-/// Buffer-overflow strategy for SSE broadcast channels.
-///
-/// Mirrors `pierre_config::environment::SseBufferStrategy` as a primitive
-/// the SSE layer can read through `SseCtx` without forcing this crate to
-/// depend on `pierre-config` (which would create a cycle:
-/// `pierre-config` → `pierre-middleware` → `pierre-runtime-context`).
-///
-/// The composition root in `pierre-server` maps its `SseBufferStrategy`
-/// enum onto this primitive in its `SseCtx::sse_buffer_overflow_strategy`
-/// implementation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SseBufferOverflowStrategy {
-    /// Drop the oldest queued messages when the broadcast channel lags
-    /// (matches the default `tokio::sync::broadcast` behaviour).
-    DropOldest,
-    /// Configured as "drop newest"; broadcast channels inherently drop
-    /// oldest, so the SSE layer logs a warning when this strategy is
-    /// observed at runtime.
-    DropNew,
-    /// Close the SSE connection when the broadcast channel lags.
-    CloseConnection,
-}
-
-/// Slice of runtime state the Server-Sent Events (SSE) layer needs.
-///
-/// Covers what `pierre-sse::routes` pulls from pierre-server's
-/// `ServerContext`: the configured SSE buffer-overflow strategy (consulted by
-/// the notification route when the broadcast channel lags) and the delegating
-/// `authenticate_request` entry point that runs an inbound `Authorization`
-/// header through the full auth-middleware pipeline.
-///
-/// The trait is intentionally narrow. It also carried an auth/JWKS/repository
-/// triple used only by the session-keyed MCP protocol stream; revision
-/// 2026-07-28 removed protocol sessions, that stream went with them, and the
-/// accessors went with it.
-#[async_trait]
-pub trait SseCtx: Send + Sync + 'static {
-    /// Configured SSE buffer-overflow strategy, mapped from
-    /// `pierre_config::environment::SseConfig::buffer_overflow_strategy`.
-    /// Read by the notification SSE route when the broadcast channel lags.
-    fn sse_buffer_overflow_strategy(&self) -> SseBufferOverflowStrategy;
-
-    /// Run an inbound `Authorization` header value through the full
-    /// auth-middleware pipeline (token type detection, rate limiting, user
-    /// status enforcement, refusal of a delegated OAuth grant). The
-    /// notification SSE route uses this to gate the stream.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when the header is missing/invalid or the user
-    /// fails policy checks.
-    async fn authenticate_request(&self, auth_header: Option<&str>) -> AppResult<AuthResult>;
 }

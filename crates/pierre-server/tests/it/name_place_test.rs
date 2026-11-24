@@ -26,7 +26,7 @@
 use crate::coach_athlete_reads_test::{fixture, ok, Fixture, Person, UPLOAD};
 use crate::get_activities_place_test::{assert_no_location, city_places, row, CITY_NAME};
 
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::models::{Activity, ActivityBuilder, SportType};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::Transport;
@@ -47,10 +47,12 @@ const TRAILHEAD_CITY: &str = "Saint-Bruno";
 /// Degrees of latitude per ~100 m.
 const STEP_LAT: f64 = 0.0009;
 
-/// Out 1.5 km north from `origin` and back on the same road: the trimmed
-/// start and end sit on one spot, so each run's two endpoints count once.
+/// Out 600 m north from `origin` and back on the same road: the trimmed
+/// start and end sit on one spot, so each run's two endpoints count once,
+/// and a run from the door never goes far enough for an area to place it
+/// (carnet#1723), so the door stays home.
 fn out_and_back(origin: (f64, f64)) -> Vec<(f64, f64)> {
-    let out: Vec<(f64, f64)> = (0..=15)
+    let out: Vec<(f64, f64)> = (0..=6)
         .map(|i| (f64::from(i).mul_add(STEP_LAT, origin.0), origin.1))
         .collect();
     out.iter()
@@ -65,7 +67,7 @@ fn tracked_run(id: &str, days_ago: i64, origin: (f64, f64), city: Option<&str>) 
         id.to_owned(),
         format!("{id} session"),
         SportType::Run,
-        Utc::now() - Duration::days(days_ago),
+        Timestamp::now() - Elapsed::days(days_ago),
         3_600,
         UPLOAD.to_owned(),
     )
@@ -379,7 +381,9 @@ async fn trailhead_place(f: &Fixture) -> String {
         )
     }));
     upload(f, &runs).await;
-    places_pass(f.repos(), Utc::now(), 1_000).await.unwrap();
+    places_pass(f.repos(), Timestamp::now(), 1_000)
+        .await
+        .unwrap();
 
     let listed = own_list(f).await;
     for i in 0..5 {

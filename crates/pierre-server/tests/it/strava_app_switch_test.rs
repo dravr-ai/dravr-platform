@@ -32,11 +32,13 @@ use axum::routing::post;
 use axum::{Json, Router};
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine;
-use chrono::{Duration, Utc};
+use dravr_barrage::record_log::entry::EntryKind;
+use dravr_barrage::{LiveSource, Scope, SourceKey};
 #[cfg(feature = "health-sync")]
 use dravr_enforme::error::EnformeError;
 #[cfg(feature = "health-sync")]
 use dravr_enforme::traits::credential_store::CredentialStore;
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use dravr_tronc::mcp::tool::{McpTool, ToolContext};
 #[cfg(feature = "client-chat")]
 use pierre_chat_pipeline::stages::prefetch::{
@@ -206,7 +208,7 @@ async fn mock_strava() -> (String, Arc<MockStrava>) {
                                     &row,
                                     CONCURRENT_ACCESS,
                                     Some("refresh-of-a-concurrent-refresh"),
-                                    Some(Utc::now() + Duration::hours(6)),
+                                    Some(Timestamp::now() + Elapsed::hours(6)),
                                 )
                                 .await
                                 .unwrap();
@@ -228,7 +230,7 @@ async fn mock_strava() -> (String, Arc<MockStrava>) {
                         "refresh_token": "refresh-of-the-new-grant",
                         "token_type": "Bearer",
                         "expires_in": 21_600,
-                        "expires_at": (Utc::now() + Duration::hours(6)).timestamp(),
+                        "expires_at": (Timestamp::now() + Elapsed::hours(6)).epoch_seconds(),
                         "athlete": { "id": 4242 }
                     }))
                     .into_response()
@@ -281,6 +283,7 @@ async fn service_pointed_at(base: &str) -> (Arc<ServerContext>, OAuthService) {
         "strava",
         ProviderEndpointOverride {
             token_url: Some(format!("{base}/oauth/token")),
+            revoke_url: Some(format!("{base}/oauth/revoke")),
             ..ProviderEndpointOverride::default()
         },
     );
@@ -288,9 +291,7 @@ async fn service_pointed_at(base: &str) -> (Arc<ServerContext>, OAuthService) {
     let resources = common::create_test_server_resources_with_config(config)
         .await
         .unwrap();
-    let mut config = (*resources.common.config).clone();
-    config.external_services.strava_api.revoke_url = format!("{base}/oauth/revoke");
-    let service = OAuthService::new(resources.data(), Arc::new(config));
+    let service = OAuthService::new(resources.data(), Arc::clone(&resources.common.config));
     (resources, service)
 }
 
@@ -313,7 +314,7 @@ async fn connect(repos: &RepositoryRegistry, user_id: Uuid, tenant: TenantId, ap
         "strava".to_owned(),
         "access-of-the-replaced-grant".to_owned(),
         Some(REPLACED_REFRESH.to_owned()),
-        Some(Utc::now() + Duration::hours(6)),
+        Some(Timestamp::now() + Elapsed::hours(6)),
         Some("read".to_owned()),
     )
     .with_oauth_app_client_id(app.map(str::to_owned));
@@ -392,7 +393,13 @@ async fn a_dead_athlete_moved_to_the_pool_has_the_env_grant_revoked_first() {
     connect(repos, user_id, tenant, None).await;
     repos
         .provider_connections
-        .mark_needs_reauth(user_id, tenant, "strava", Some("invalid_grant"), Utc::now())
+        .mark_needs_reauth(
+            user_id,
+            tenant,
+            "strava",
+            Some("invalid_grant"),
+            Timestamp::now(),
+        )
         .await
         .unwrap();
     fill_env_app(repos).await;
@@ -441,7 +448,7 @@ async fn a_dead_athlete_moved_to_the_pool_has_the_env_grant_revoked_first() {
     assert_eq!(connection[0].status, ConnectionStatus::Active);
 }
 
-/// An athlete on a pool app an operator disabled reconnects onto the env app,
+/// An athlete on a pool app an admin disabled reconnects onto the env app,
 /// and the disabled app's grant is revoked under that app's own client: its
 /// secret still resolves, which is what lets the grant be withdrawn.
 #[tokio::test]
@@ -507,6 +514,36 @@ async fn a_reconnect_on_the_same_app_revokes_nothing() {
         "access-of-the-new-grant"
     );
     assert_eq!(token.oauth_app_client_id, None);
+}
+
+/// A completed callback logs one `connect` entry in the athlete's log, under
+/// the source the stored connection reads from (carnet#1542).
+#[tokio::test]
+async fn a_completed_callback_logs_the_connect_under_its_source() {
+    let (base, _mock) = mock_strava().await;
+    let (resources, service) = service_pointed_at(&base).await;
+    let (user_id, tenant) = athlete(&resources, "first-connect").await;
+
+    reconnect(&service, user_id, tenant).await;
+
+    let connects: Vec<_> = resources
+        .common
+        .activity_records
+        .log_entries(&Scope::new(tenant.as_uuid(), user_id), 0, 10)
+        .await
+        .unwrap()
+        .into_iter()
+        .filter(|entry| entry.kind == EntryKind::Connect)
+        .collect();
+    let [connect] = connects.as_slice() else {
+        panic!("bug: the callback did not log exactly one connect: {connects:?}");
+    };
+    assert_eq!(
+        connect.source,
+        SourceKey::Live(LiveSource::Strava),
+        "bug: the connect was logged under the wrong source"
+    );
+    assert_eq!(connect.record_key, None, "a connect names no record");
 }
 
 /// A user in two tenants whose token a pool app issued in the second one
@@ -643,7 +680,7 @@ async fn connect_expired(
         "strava".to_owned(),
         "access-of-the-replaced-grant".to_owned(),
         Some(REPLACED_REFRESH.to_owned()),
-        Some(Utc::now() - Duration::hours(1)),
+        Some(Timestamp::now() - Elapsed::hours(1)),
         Some("read".to_owned()),
     )
     .with_oauth_app_client_id(app.map(str::to_owned));
@@ -654,7 +691,13 @@ async fn connect_expired(
 async fn kill(repos: &RepositoryRegistry, user_id: Uuid, tenant: TenantId) {
     repos
         .provider_connections
-        .mark_needs_reauth(user_id, tenant, "strava", Some("invalid_grant"), Utc::now())
+        .mark_needs_reauth(
+            user_id,
+            tenant,
+            "strava",
+            Some("invalid_grant"),
+            Timestamp::now(),
+        )
         .await
         .unwrap();
 }
@@ -803,7 +846,7 @@ async fn a_reconnect_that_loses_a_race_stores_nothing_and_revokes_its_own_grant(
         "strava".to_owned(),
         "access-of-the-racing-grant".to_owned(),
         Some("refresh-of-the-racing-grant".to_owned()),
-        Some(Utc::now() + Duration::hours(6)),
+        Some(Timestamp::now() + Elapsed::hours(6)),
         Some("read".to_owned()),
     )
     .with_oauth_app_client_id(Some("910014".to_owned()));
@@ -1149,7 +1192,7 @@ async fn a_refresh_in_flight_does_not_overwrite_the_token_a_reconnect_stored() {
         "strava".to_owned(),
         "access-of-the-reconnect".to_owned(),
         Some("refresh-of-the-reconnect".to_owned()),
-        Some(Utc::now() + Duration::hours(6)),
+        Some(Timestamp::now() + Elapsed::hours(6)),
         Some("read".to_owned()),
     );
     let reconnect_id = reconnect.id.clone();
@@ -1210,7 +1253,7 @@ async fn a_refresh_refused_after_a_reconnect_leaves_the_new_connection_active() 
         "strava".to_owned(),
         "access-of-the-reconnect".to_owned(),
         Some("refresh-of-the-reconnect".to_owned()),
-        Some(Utc::now() + Duration::hours(6)),
+        Some(Timestamp::now() + Elapsed::hours(6)),
         Some("read".to_owned()),
     );
     let reconnect_id = reconnect.id.clone();
@@ -1383,7 +1426,7 @@ async fn a_needs_reauth_over_our_client_elsewhere_is_a_live_grant_left_alone() {
             second,
             "strava",
             Some("invalid_client"),
-            Utc::now(),
+            Timestamp::now(),
         )
         .await
         .unwrap();
@@ -1426,7 +1469,9 @@ async fn a_provider_built_for_a_pool_token_refreshes_under_its_own_app() {
         "strava".to_owned(),
         "access-of-the-replaced-grant".to_owned(),
         Some(REPLACED_REFRESH.to_owned()),
-        Some(Utc::now() + Duration::minutes(TOKEN_REFRESH_WINDOW_MINUTES) + Duration::seconds(2)),
+        Some(
+            Timestamp::now() + Elapsed::minutes(TOKEN_REFRESH_WINDOW_MINUTES) + Elapsed::seconds(2),
+        ),
         Some("read".to_owned()),
     )
     .with_oauth_app_client_id(Some("910021".to_owned()));
@@ -1704,7 +1749,7 @@ async fn a_rate_limited_primary_serves_the_window_its_sibling_holds() {
         "whoop-ride-1".to_owned(),
         "Sortie".to_owned(),
         SportType::Ride,
-        Utc::now() - Duration::days(2),
+        Timestamp::now() - Elapsed::days(2),
         5_400,
         "whoop".to_owned(),
     )
@@ -1780,7 +1825,7 @@ async fn a_rate_limited_primary_is_named_in_the_prefetched_window() {
         "whoop-ride-2".to_owned(),
         "Sortie du matin".to_owned(),
         SportType::Ride,
-        Utc::now() - Duration::days(2),
+        Timestamp::now() - Elapsed::days(2),
         5_400,
         "whoop".to_owned(),
     )
@@ -2076,7 +2121,7 @@ async fn an_expired_token_no_refresh_here_renews_asks_for_a_reconnect() {
         "garmin".to_owned(),
         "access-of-an-expired-garmin-grant".to_owned(),
         Some("refresh-of-an-expired-garmin-grant".to_owned()),
-        Some(Utc::now() - Duration::hours(1)),
+        Some(Timestamp::now() - Elapsed::hours(1)),
         Some("read".to_owned()),
     );
     resources
@@ -2179,7 +2224,7 @@ async fn a_lost_race_leaves_a_fresh_grant_the_athlete_holds_elsewhere() {
         "strava".to_owned(),
         "access-of-the-racing-grant".to_owned(),
         Some("refresh-of-the-racing-grant".to_owned()),
-        Some(Utc::now() + Duration::hours(6)),
+        Some(Timestamp::now() + Elapsed::hours(6)),
         Some("read".to_owned()),
     )
     .with_oauth_app_client_id(Some("910024".to_owned()));

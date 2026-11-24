@@ -15,7 +15,7 @@
 //! key-rotation sweep seals them.
 //!
 //! Nothing here differs per backend once the binds are chosen: `$n`
-//! placeholders serve both drivers; timestamps bind as [`DateTime<Utc>`]
+//! placeholders serve both drivers; timestamps bind as [`Timestamp`]
 //! (`TIMESTAMPTZ` on Postgres, RFC 3339 text on `SQLite`, which orders
 //! correctly under `ORDER BY created_at DESC` because every value shares one
 //! offset and width); `is_active` binds and reads as `bool` (`BOOLEAN` on
@@ -27,7 +27,7 @@
 use std::fmt;
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::AppResult;
 
 use crate::backends::shared::key_material::StoredSecretKind;
@@ -47,14 +47,12 @@ pub trait SecurityRepository: Send + Sync {
         kid: &str,
         private_key_pem: &str,
         public_key_pem: &str,
-        created_at: DateTime<Utc>,
+        created_at: Timestamp,
         is_active: bool,
         key_size_bits: i32,
     ) -> AppResult<()>;
     /// Load all RSA keypairs from database
-    async fn load_rsa_keypairs(
-        &self,
-    ) -> AppResult<Vec<(String, String, String, DateTime<Utc>, bool)>>;
+    async fn load_rsa_keypairs(&self) -> AppResult<Vec<(String, String, String, Timestamp, bool)>>;
     /// Get or create system secret (generates if not exists)
     ///
     /// Only a definite not-found mints a value, and the mint is
@@ -133,7 +131,7 @@ pub trait SecurityRepository: Send + Sync {
         &self,
         message: &str,
         metadata: serde_json::Value,
-        at: DateTime<Utc>,
+        at: Timestamp,
     ) -> AppResult<()>;
     /// The latest `limit` key lifecycle transitions, newest first.
     async fn list_key_lifecycle(&self, limit: i64) -> AppResult<Vec<KeyLifecycleEvent>>;
@@ -161,7 +159,7 @@ pub trait SecurityRepository: Send + Sync {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct KeyLifecycleEvent {
     /// When it happened, by the writer's clock.
-    pub at: DateTime<Utc>,
+    pub at: Timestamp,
     /// What happened, e.g. "data v2 promoted".
     pub message: String,
     /// The family, version and from/to states.
@@ -356,7 +354,7 @@ macro_rules! impl_security_repository {
                 kid: &str,
                 private_key_pem: &str,
                 public_key_pem: &str,
-                created_at: DateTime<Utc>,
+                created_at: Timestamp,
                 is_active: bool,
                 key_size_bits: i32,
             ) -> AppResult<()> {
@@ -378,7 +376,7 @@ macro_rules! impl_security_repository {
 
             async fn load_rsa_keypairs(
                 &self,
-            ) -> AppResult<Vec<(String, String, String, DateTime<Utc>, bool)>> {
+            ) -> AppResult<Vec<(String, String, String, Timestamp, bool)>> {
                 let rows = sqlx::query(LOAD_RSA_KEYPAIRS_SQL)
                     .fetch_all(self.pool())
                     .await
@@ -408,7 +406,7 @@ macro_rules! impl_security_repository {
                     let public_key_pem: String = row.try_get("public_key_pem").map_err(|e| {
                         AppError::database(format!("Failed to get public_key_pem: {e}"))
                     })?;
-                    let created_at: DateTime<Utc> = row.try_get("created_at").map_err(|e| {
+                    let created_at: Timestamp = row.try_get("created_at").map_err(|e| {
                         AppError::database(format!("Failed to get created_at: {e}"))
                     })?;
                     let is_active: bool = row
@@ -466,7 +464,7 @@ macro_rules! impl_security_repository {
                 secret_type: &str,
                 value: &str,
             ) -> AppResult<String> {
-                let now = Utc::now();
+                let now = Timestamp::now();
                 sqlx::query(INSERT_SYSTEM_SECRET_IF_ABSENT_SQL)
                     .bind(secret_type)
                     .bind(value)
@@ -484,7 +482,7 @@ macro_rules! impl_security_repository {
                 secret_type: &str,
                 new_value: &str,
             ) -> AppResult<()> {
-                let now = Utc::now();
+                let now = Timestamp::now();
                 sqlx::query(UPSERT_SYSTEM_SECRET_SQL)
                     .bind(secret_type)
                     .bind(new_value)
@@ -521,7 +519,7 @@ macro_rules! impl_security_repository {
                     .bind(secret_type)
                     .bind(expected)
                     .bind(new_value)
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .execute(self.pool())
                     .await
                     .map_err(|e| AppError::database(format!("Database operation failed: {e}")))?;
@@ -545,7 +543,7 @@ macro_rules! impl_security_repository {
             ) -> AppResult<bool> {
                 let failed =
                     |e: sqlx::Error| AppError::database(format!("Failed to adopt the keyset: {e}"));
-                let now = Utc::now();
+                let now = Timestamp::now();
                 let mut tx = self.pool().begin().await.map_err(failed)?;
                 let inserted = sqlx::query(INSERT_SYSTEM_SECRET_IF_ABSENT_SQL)
                     .bind(keyset_secret)
@@ -654,7 +652,7 @@ macro_rules! impl_security_repository {
                 &self,
                 message: &str,
                 metadata: serde_json::Value,
-                at: DateTime<Utc>,
+                at: Timestamp,
             ) -> AppResult<()> {
                 sqlx::query(RECORD_KEY_LIFECYCLE_SQL)
                     .bind(uuid::Uuid::new_v4().to_string())

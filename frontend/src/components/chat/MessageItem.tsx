@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import type { ChatMessageAction, ClaimVerdict, ReplyBlock } from '@pierre/shared-types';
 import {
+  parsePlanSubject,
   parseWorkoutPlan,
   summarizeVerdicts,
   verdictChipSeverity,
@@ -54,6 +55,7 @@ import { linkifyUrls } from './utils';
 import { SceneView } from './SceneView';
 import CoachAvatar from './CoachAvatar';
 import WorkoutPlanCard from './WorkoutPlanCard';
+import CoachPlanCard from './CoachPlanCard';
 import EnvelopeNotice from './EnvelopeNotice';
 import PlanDraftControls from './PlanDraftControls';
 import { verdictBadgeTone } from './verdictBadgeTone';
@@ -71,6 +73,13 @@ interface MessageItemProps {
    * on that thread's draft; without it the card shows the plan alone.
    */
   conversationId?: string | null;
+  /**
+   * The host is a coach's plan thread on one athlete: a plan card naming
+   * that athlete offers "Edit day" on each day, to the thread's
+   * owner. False everywhere else — the athlete's own threads, Home, a room
+   * and the private rows drawn in it.
+   */
+  editsPlanDays?: boolean;
   message: Message;
   metadata?: MessageMetadata;
   feedback?: MessageFeedback;
@@ -191,7 +200,7 @@ function FeedbackReasonForm({
  * The action-row icon buttons share one shape; only the active feedback tones
  * differ. 18px on a fine pointer at desktop width; `touch-target` grows the
  * button to 44px elsewhere, and the flex centring keeps the 14px icon in the
- * middle of that growth (DESIGN.md §8).
+ * middle of that growth (DESIGN.md "Layout").
  */
 const ACTION_BUTTON_SHAPE = 'touch-target flex items-center justify-center p-0.5 transition-colors';
 const ACTION_TONE_IDLE = 'text-outline hover:text-on-surface';
@@ -199,6 +208,7 @@ const ACTION_BUTTON = `${ACTION_BUTTON_SHAPE} ${ACTION_TONE_IDLE}`;
 
 const MessageItem = memo(function MessageItem({
   conversationId = null,
+  editsPlanDays = false,
   message,
   metadata,
   feedback,
@@ -327,11 +337,23 @@ const MessageItem = memo(function MessageItem({
         // A coach's draft for the thread's athlete carries its controls on
         // the card; the controls decide for themselves who may see them.
         const shown = conversationId === null ? null : planCardDraft(block);
+        const controls =
+          shown && conversationId !== null ? (
+            <PlanDraftControls conversationId={conversationId} subject={shown.subject} draft={shown.draft} />
+          ) : null;
+        // In a coach's plan thread, a card naming its athlete offers the
+        // family editor on each day; the card decides who may see it.
+        const subject = editsPlanDays && conversationId !== null ? parsePlanSubject(block.subject) : null;
+        if (subject !== null && conversationId !== null) {
+          return (
+            <CoachPlanCard key={key} conversationId={conversationId} subject={subject} plan={plan}>
+              {controls}
+            </CoachPlanCard>
+          );
+        }
         return (
           <WorkoutPlanCard key={key} plan={plan}>
-            {shown && conversationId !== null ? (
-              <PlanDraftControls conversationId={conversationId} subject={shown.subject} draft={shown.draft} />
-            ) : null}
+            {controls}
           </WorkoutPlanCard>
         );
       }

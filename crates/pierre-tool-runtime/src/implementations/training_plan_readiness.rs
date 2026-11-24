@@ -25,10 +25,12 @@
 
 use std::cmp::Reverse;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::slice;
 use std::sync::Arc;
 
-use chrono::{DateTime, Duration, NaiveDate, TimeZone, Utc};
+use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp};
 use pierre_core::ai_policy::ProviderTerms;
+use pierre_core::constants::time_constants::SECONDS_PER_HOUR_F64;
 use pierre_core::models::periodization::alerts::BASELINE_DAYS;
 use pierre_core::models::periodization::{
     alerts, ladder, readiness_level, substitute, AlertInput, DayReadinessInput, DaySubstitution,
@@ -47,11 +49,9 @@ use crate::implementations::training_plans_output::{
 };
 use crate::runtime::ToolRuntime;
 use crate::training_history_compute::history_rows_for_model;
+use dravr_tronc::dates::Zone;
 use pierre_services::athlete_clock::athlete_zone;
 use pierre_services::stored_health::{self, SourceFilter};
-
-/// Seconds in an hour, for the nightly sleep total.
-const SECONDS_PER_HOUR: f64 = 3600.0;
 
 /// Whether the ladder reads the athlete's recovery series: their sleep, HRV
 /// and resting heart rate.
@@ -119,7 +119,7 @@ pub(super) async fn read_ladder(
         return None;
     };
 
-    let today = Utc::now().date_naive();
+    let today = Timestamp::now().utc_date();
     let input = gather(state, repos, tenant, user_id, today, recovery).await;
     let raised = alerts(&input.alert_input);
     let level = readiness_level(&ReadinessInput {
@@ -134,6 +134,7 @@ pub(super) async fn read_ladder(
     });
     let bank = Bank {
         catalogue: &catalogue,
+        flavour: &flavour,
         level,
         allowed: ladder(&flavour)
             .get(&level)
@@ -260,6 +261,8 @@ fn week_days(
 /// read against the level the athlete cleared today.
 struct Bank<'a> {
     catalogue: &'a PackagedCatalogue<'a>,
+    /// The plan's flavour, whose ladder the kernel reads.
+    flavour: &'a Flavour,
     level: ReadinessLevel,
     /// The purposes the flavour's ladder opens at `level`.
     allowed: &'a [WorkoutPurpose],
@@ -269,10 +272,11 @@ impl Bank<'_> {
     /// Each substitution the kernel made, with what the bank offers in its
     /// place.
     ///
-    /// The kernel keeps the week's order and skips only days no template
-    /// resolved for, so one walk over the days pairs each substitution with
-    /// the template its day resolved to — by position, which still holds on a
-    /// date that carries two sessions.
+    /// The kernel reports the days it moves in the week's order, one entry
+    /// each, and moves a day on that day alone. So the days it moves, asked
+    /// one at a time, are the substitutions in order, and each is paired with
+    /// the template of the day at its own position: on a date with two
+    /// sessions of one purpose, only the one the kernel moved (carnet#1716).
     fn answer(
         &self,
         substitutions: Vec<DaySubstitution>,
@@ -281,13 +285,11 @@ impl Bank<'_> {
         phase: Option<PhaseKind>,
         preferred: &[WorkoutPurpose],
     ) -> Vec<ReadinessSubstitution> {
-        let mut walk = days.iter().zip(templates);
+        let moved = self.moved_templates(&substitutions, days, templates, preferred);
         substitutions
             .into_iter()
-            .map(|day| {
-                let template = walk
-                    .find(|(input, _)| input.date == day.date && input.purpose == Some(day.from))
-                    .and_then(|(_, template)| template.as_ref());
+            .zip(moved)
+            .map(|(day, template)| {
                 let replacement = match (day.reason, template) {
                     (SubstitutionReason::TemplateAboveLevel, Some(template)) => {
                         Some(self.replacement(template, phase, preferred))
@@ -295,6 +297,31 @@ impl Bank<'_> {
                     _ => None,
                 };
                 ReadinessSubstitution { day, replacement }
+            })
+            .collect()
+    }
+
+    /// The template of the day behind each of `substitutions`: the days the
+    /// kernel moves, asked one at a time, in the week's order.
+    fn moved_templates<'t>(
+        &self,
+        substitutions: &[DaySubstitution],
+        days: &[DayReadinessInput],
+        templates: &'t [Option<WorkoutTemplate>],
+        preferred: &[WorkoutPurpose],
+    ) -> Vec<Option<&'t WorkoutTemplate>> {
+        let mut moved = days.iter().zip(templates).filter(|(day, _)| {
+            !substitute(self.flavour, self.level, slice::from_ref(*day), preferred)
+                .substitutions
+                .is_empty()
+        });
+        substitutions
+            .iter()
+            .map(|day| {
+                moved
+                    .next()
+                    .filter(|(input, _)| input.date == day.date)
+                    .and_then(|(_, template)| template.as_ref())
             })
             .collect()
     }
@@ -375,10 +402,10 @@ async fn gather(
     repos: &RepositoryRegistry,
     tenant: TenantId,
     user_id: Uuid,
-    today: NaiveDate,
+    today: CivilDate,
     recovery: RecoveryRead,
 ) -> Gathered {
-    let from = today - Duration::days(i64::from(BASELINE_DAYS));
+    let from = today - Elapsed::days(i64::from(BASELINE_DAYS));
     let history = history_rows_for_model(state, tenant, user_id, from, today)
         .await
         .unwrap_or_else(|e| {
@@ -444,7 +471,7 @@ async fn gather(
 }
 
 /// Whole days from `date` to `judged`; `None` for a date after it.
-fn days_ago(judged: NaiveDate, date: NaiveDate) -> Option<u32> {
+fn days_ago(judged: CivilDate, date: CivilDate) -> Option<u32> {
     u32::try_from(judged.signed_duration_since(date).num_days()).ok()
 }
 
@@ -455,12 +482,15 @@ async fn recovery_series(
     terms: &dyn ProviderTerms,
     tenant: TenantId,
     user_id: Uuid,
-    today: NaiveDate,
-    from: NaiveDate,
+    today: CivilDate,
+    from: CivilDate,
 ) -> Vec<RecoveryDay> {
     let (Some(start), Some(end)) = (
-        from.and_hms_opt(0, 0, 0).map(|t| t.and_utc()),
-        today.and_hms_opt(23, 59, 59).map(|t| t.and_utc()),
+        from.at_midnight().and_utc().ok(),
+        today
+            .and_hms(23, 59, 59)
+            .ok()
+            .and_then(|t| t.and_utc().ok()),
     ) else {
         return Vec::new();
     };
@@ -484,7 +514,7 @@ async fn recovery_series(
     );
     // One day per date: two providers reporting the same morning are one
     // reading, not two days of evidence (merged by the read).
-    let mut days: BTreeMap<NaiveDate, RecoveryDay> = BTreeMap::new();
+    let mut days: BTreeMap<CivilDate, RecoveryDay> = BTreeMap::new();
     for merged in metrics {
         let m = merged.record;
         if let Some(days_ago) = days_ago(today, m.date) {
@@ -525,9 +555,9 @@ async fn sleep_by_night(
     terms: &dyn ProviderTerms,
     tenant: TenantId,
     user_id: Uuid,
-    start: DateTime<Utc>,
-    end: DateTime<Utc>,
-) -> HashMap<NaiveDate, f64> {
+    start: Timestamp,
+    end: Timestamp,
+) -> HashMap<CivilDate, f64> {
     let sessions = stored_health::merged_sleep(
         repos,
         terms,
@@ -553,11 +583,11 @@ async fn sleep_by_night(
 ///
 /// Merged by the read, so one night two wearables both recorded counts once
 /// instead of being summed into a double night.
-fn hours_by_night<Z: TimeZone>(
+fn hours_by_night(
     sessions: Vec<Merged<StoredSleepSession>>,
-    zone: &Z,
-) -> HashMap<NaiveDate, f64> {
-    let mut by_night: HashMap<NaiveDate, f64> = HashMap::new();
+    zone: &Zone,
+) -> HashMap<CivilDate, f64> {
+    let mut by_night: HashMap<CivilDate, f64> = HashMap::new();
     for merged in sessions {
         let session = merged.record;
         if session.is_nap {
@@ -570,7 +600,7 @@ fn hours_by_night<Z: TimeZone>(
         // a sleep starting before midnight belongs to the morning it ended
         // on, whatever the athlete's distance from UTC.
         let night = session.night_date(zone);
-        *by_night.entry(night).or_insert(0.0) += f64::from(seconds) / SECONDS_PER_HOUR;
+        *by_night.entry(night).or_insert(0.0) += f64::from(seconds) / SECONDS_PER_HOUR_F64;
     }
     by_night
 }
@@ -611,17 +641,16 @@ fn report(week: &WeekReadiness, raised: &BTreeSet<TrainingAlert>) {
 /// A week already run is history: substituting a session the athlete
 /// completed on Tuesday helps nobody. Only days from today forward can be
 /// changed, so a week that ended before today is skipped.
-pub(super) fn week_is_actionable(week: &PlanWeek, today: NaiveDate) -> bool {
-    parse_plan_date(&week.week_start).is_some_and(|start| start + Duration::days(6) >= today)
+pub(super) fn week_is_actionable(week: &PlanWeek, today: CivilDate) -> bool {
+    parse_plan_date(&week.week_start).is_some_and(|start| start + Elapsed::days(6) >= today)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::FixedOffset;
     use pierre_providers::precedence::wellness_source;
 
-    fn merged_night(start: DateTime<Utc>, hours: u32) -> Merged<StoredSleepSession> {
+    fn merged_night(start: Timestamp, hours: u32) -> Merged<StoredSleepSession> {
         Merged {
             record: StoredSleepSession {
                 id: "night".to_owned(),
@@ -629,7 +658,7 @@ mod tests {
                 data_source_id: "ds".to_owned(),
                 is_nap: false,
                 start_datetime: start,
-                end_datetime: start + Duration::hours(i64::from(hours)),
+                end_datetime: start + Elapsed::hours(i64::from(hours)),
                 total_sleep_seconds: Some(hours * 3600),
                 deep_sleep_seconds: None,
                 light_sleep_seconds: None,
@@ -655,10 +684,10 @@ mod tests {
     /// sleep tools do, not by the UTC date it ended on (carnet#1281).
     #[test]
     fn a_night_far_from_utc_is_dated_by_the_athletes_morning() {
-        let brisbane = FixedOffset::east_opt(10 * 3600).unwrap();
-        let start = Utc.with_ymd_and_hms(2026, 10, 28, 13, 0, 0).unwrap();
+        let brisbane = Zone::fixed(10 * 3600).unwrap();
+        let start = Timestamp::parse_from_rfc3339("2026-10-28T13:00:00Z").unwrap();
         let nights = hours_by_night(vec![merged_night(start, 8)], &brisbane);
-        let morning = NaiveDate::from_ymd_opt(2026, 10, 29).unwrap();
+        let morning = CivilDate::from_ymd(2026, 10, 29).unwrap();
         assert_eq!(nights.get(&morning), Some(&8.0), "{nights:?}");
         assert_eq!(nights.len(), 1, "one night, one date");
     }
@@ -702,12 +731,68 @@ mod tests {
         assert!(inputs.iter().all(|d| d.counts_as_quality == Some(true)));
     }
 
+    /// Two sessions of one purpose on one date, only the second above the
+    /// level: its substitution is paired with its own template, not the
+    /// first one's (carnet#1716).
+    #[test]
+    fn a_substitution_is_paired_with_the_session_the_kernel_moved() {
+        let registry = pierre_contremaitre::TrainingCatalogueRegistry::new();
+        let catalogue = PackagedCatalogue::catalogue_only(&registry);
+        let (flavour, purpose) = registry
+            .flavours()
+            .into_iter()
+            .find_map(|flavour| {
+                let purpose = ladder(&flavour)
+                    .get(&ReadinessLevel::P2)?
+                    .purposes
+                    .first()
+                    .copied()?;
+                Some((flavour, purpose))
+            })
+            .expect("a compiled-in flavour opens a purpose at P2");
+        let mut workouts = registry.workouts().into_iter();
+        let first = workouts.next().expect("a compiled-in workout");
+        let second = workouts.next().expect("a second compiled-in workout");
+        let session = |floor: ReadinessLevel| DayReadinessInput {
+            date: "2026-11-18".to_owned(),
+            purpose: Some(purpose),
+            readiness_min: Some(floor),
+            counts_as_quality: None,
+        };
+        let days = [session(ReadinessLevel::P2), session(ReadinessLevel::P3)];
+        let templates = [Some(first), Some(second.clone())];
+        let verdict = substitute(&flavour, ReadinessLevel::P2, &days, &[]);
+        assert_eq!(
+            verdict.substitutions.len(),
+            1,
+            "fixture: the kernel moves only the session above the level"
+        );
+        let bank = Bank {
+            catalogue: &catalogue,
+            flavour: &flavour,
+            level: ReadinessLevel::P2,
+            allowed: &[],
+        };
+        let paired = bank.moved_templates(&verdict.substitutions, &days, &templates, &[]);
+        assert_eq!(
+            paired
+                .iter()
+                .map(|t| t.map(|t| t.slug.as_str()))
+                .collect::<Vec<_>>(),
+            [Some(second.slug.as_str())],
+            "bug: the substitution is paired with the second session's template"
+        );
+    }
+
     #[test]
     fn a_nap_is_not_a_night() {
-        let mut nap = merged_night(Utc.with_ymd_and_hms(2026, 10, 29, 3, 0, 0).unwrap(), 1);
+        let mut nap = merged_night(
+            Timestamp::parse_from_rfc3339("2026-10-29T03:00:00Z").unwrap(),
+            1,
+        );
         nap.record.is_nap = true;
         assert_eq!(
-            hours_by_night(vec![nap], &Utc).len(),
+            hours_by_night(vec![nap], &Zone::utc()).len(),
             0,
             "a nap is no night"
         );

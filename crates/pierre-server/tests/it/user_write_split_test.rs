@@ -137,8 +137,8 @@ async fn update_writes_the_whole_mutable_row() {
     assert!(after.manages_roster);
     assert_eq!(after.timezone, Some("America/Montreal".to_owned()));
     assert_eq!(
-        after.created_at.timestamp(),
-        created.created_at.timestamp(),
+        after.created_at.epoch_seconds(),
+        created.created_at.epoch_seconds(),
         "created_at is not a mutable fact"
     );
 }

@@ -32,6 +32,7 @@
 //! `ci-postgres` these assertions run against `PostgresAdminConfigManager`'s own
 //! SQL rather than a `SQLite` stand-in.
 
+use dravr_tronc::dates::Timestamp;
 use pierre_config::admin_types::{ConfigDataType, ConfigScope};
 use pierre_core::models::{Tenant, TenantId, User};
 use pierre_database::backends::factory::{Database, DatabaseBackend};
@@ -87,8 +88,8 @@ async fn seed_tenant(db: &Database, owner_user_id: &str) -> String {
         domain: None,
         plan: "starter".to_owned(),
         owner_user_id: owner,
-        created_at: chrono::Utc::now(),
-        updated_at: chrono::Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
     };
     db.repositories().tenants.create(&tenant).await.unwrap();
     tenant_id.to_string()
@@ -173,7 +174,7 @@ async fn system_wide_save_updates_in_place_instead_of_appending_a_row() {
         .expect("the system-wide override must exist after two saves");
     assert_eq!(
         read_back.config_value, admins_only,
-        "the read must return the operator's latest value, not the first one written"
+        "the read must return the admin's latest value, not the first one written"
     );
 
     // The precedence walk itself now lives in `AdminConfigService` (it has an

@@ -16,7 +16,7 @@
 //! caller's bytes (carnet#436's decision: the stored JSON is an opaque blob,
 //! and every reader parses it). The configuration stays the caller's text,
 //! as both backends always kept it. Timestamps bind as
-//! [`DateTime<Utc>`](chrono::DateTime).
+//! [`Timestamp`](dravr_tronc::dates::Timestamp).
 
 use async_trait::async_trait;
 use pierre_core::errors::AppResult;
@@ -97,7 +97,7 @@ macro_rules! impl_profile_repository {
                 sqlx::query(UPSERT_USER_PROFILE_SQL)
                     .bind($ids::bind(user_id))
                     .bind(&profile_data)
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .execute(self.pool())
                     .await
                     .map_err(|e| {
@@ -132,7 +132,7 @@ macro_rules! impl_profile_repository {
                     .bind(&goal_id)
                     .bind($ids::bind(user_id))
                     .bind(&goal_data)
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .execute(self.pool())
                     .await
                     .map_err(|e| AppError::database(format!("Failed to create goal: {e}")))?;
@@ -174,7 +174,7 @@ macro_rules! impl_profile_repository {
                 sqlx::query(SAVE_USER_CONFIGURATION_SQL)
                     .bind($ids::bind_text(user_id)?)
                     .bind(config_json)
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .execute(self.pool())
                     .await
                     .map_err(|e| {

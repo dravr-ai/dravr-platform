@@ -17,7 +17,7 @@
 //! is warned about each.
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{StravaSeatReclaimWarning, TenantId};
 use uuid::Uuid;
@@ -40,7 +40,7 @@ pub trait StravaSeatReclaimWarningRepository: Send + Sync {
         &self,
         user_id: Uuid,
         tenant_id: TenantId,
-        warned_at: DateTime<Utc>,
+        warned_at: Timestamp,
         reached: bool,
     ) -> AppResult<()>;
 
@@ -76,10 +76,10 @@ pub(crate) const CLEAR_SEAT_RECLAIM_WARNING_SQL: &str = r"
 /// A stored `warned_at_ms` as the instant it records.
 ///
 /// # Errors
-/// Returns a database error for a value outside chrono's representable range,
+/// Returns a database error for a value outside the range the date types hold,
 /// which only a hand-edited row can hold.
-pub(crate) fn warned_at_from_ms(ms: i64) -> AppResult<DateTime<Utc>> {
-    DateTime::from_timestamp_millis(ms).ok_or_else(|| {
+pub(crate) fn warned_at_from_ms(ms: i64) -> AppResult<Timestamp> {
+    Timestamp::from_epoch_millis(ms).ok().ok_or_else(|| {
         AppError::database(format!(
             "strava_seat_reclaim_warnings.warned_at_ms {ms} is not a representable instant"
         ))
@@ -120,13 +120,13 @@ macro_rules! impl_strava_seat_reclaim_warning_repository {
                 &self,
                 user_id: Uuid,
                 tenant_id: TenantId,
-                warned_at: DateTime<Utc>,
+                warned_at: Timestamp,
                 reached: bool,
             ) -> AppResult<()> {
                 sqlx::query(RECORD_SEAT_RECLAIM_WARNING_SQL)
                     .bind($ids::bind(user_id))
                     .bind($ids::bind(tenant_id.as_uuid()))
-                    .bind(warned_at.timestamp_millis())
+                    .bind(warned_at.epoch_millis())
                     .bind(reached)
                     .execute(self.pool())
                     .await

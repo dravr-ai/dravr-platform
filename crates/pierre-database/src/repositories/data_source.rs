@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use async_trait::async_trait;
-use chrono::NaiveDate;
+use dravr_tronc::dates::CivilDate;
 use pierre_core::errors::AppResult;
 
 use pierre_core::models::DataSource;
@@ -38,5 +38,5 @@ pub trait DataSourceRepository: Send + Sync {
         tenant_id: &TenantId,
         provider: &str,
         source: &str,
-    ) -> AppResult<Option<NaiveDate>>;
+    ) -> AppResult<Option<CivilDate>>;
 }

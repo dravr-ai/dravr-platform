@@ -20,7 +20,7 @@ use crate::common;
 
 use std::sync::Arc;
 
-use chrono::{DateTime, Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::models::{Activity, ActivityBuilder, SportType, TenantId};
 use pierre_database::repositories::BackfillJobKind;
 use pierre_mcp_server::constants::oauth_providers;
@@ -37,7 +37,7 @@ fn pushed(id: &str, days_ago: i64) -> Activity {
         id,
         "Pushed",
         SportType::Run,
-        Utc::now() - Duration::days(days_ago),
+        Timestamp::now() - Elapsed::days(days_ago),
         2_400,
         oauth_providers::GARMIN,
     )
@@ -57,12 +57,8 @@ async fn runtime_and_user() -> (Arc<dyn ToolRuntime>, Uuid, TenantId) {
 }
 
 /// The pushes, received three days ago.
-async fn seed_pushes(
-    runtime: &Arc<dyn ToolRuntime>,
-    user_id: Uuid,
-    tenant: TenantId,
-) -> DateTime<Utc> {
-    let received = Utc::now() - Duration::days(3);
+async fn seed_pushes(runtime: &Arc<dyn ToolRuntime>, user_id: Uuid, tenant: TenantId) -> Timestamp {
+    let received = Timestamp::now() - Elapsed::days(3);
     runtime
         .repos()
         .activity_cache
@@ -91,7 +87,7 @@ async fn a_live_read_of_a_push_only_provider_serves_its_pushes_without_restampin
         tenant_id: tenant,
     });
     let params = ActivityQueryParams {
-        after: Some((Utc::now() - Duration::days(30)).timestamp()),
+        after: Some((Timestamp::now() - Elapsed::days(30)).epoch_seconds()),
         before: None,
         limit: Some(50),
         offset: None,
@@ -106,7 +102,7 @@ async fn a_live_read_of_a_push_only_provider_serves_its_pushes_without_restampin
             user_id,
             tenant_id: Some(&tenant_str),
             params: &params,
-            attempt_started_at: Utc::now(),
+            attempt_started_at: Timestamp::now(),
         },
         Some(tenant),
     )
@@ -124,8 +120,8 @@ async fn a_live_read_of_a_push_only_provider_serves_its_pushes_without_restampin
         .unwrap()
         .expect("the pushes recorded a sync");
     assert_eq!(
-        last_sync.timestamp(),
-        received.timestamp(),
+        last_sync.epoch_seconds(),
+        received.epoch_seconds(),
         "freshness is the last push, not the read"
     );
     assert!(
@@ -161,7 +157,7 @@ async fn an_empty_push_only_window_is_an_honest_zero_not_a_failed_sync() {
             user_id,
             tenant_id: Some(&tenant_str),
             params: &params,
-            attempt_started_at: Utc::now(),
+            attempt_started_at: Timestamp::now(),
         },
         Some(tenant),
     )
@@ -196,7 +192,7 @@ async fn no_history_capture_is_started_for_a_push_only_provider() {
         tenant_id_str: Some(tenant.to_string()),
         provider_name: oauth_providers::GARMIN.to_owned(),
         query_params: ActivityQueryParams {
-            after: Some((Utc::now() - Duration::days(365)).timestamp()),
+            after: Some((Timestamp::now() - Elapsed::days(365)).epoch_seconds()),
             ..ActivityQueryParams::default()
         },
         pierre_conversation_id: None,
@@ -224,7 +220,7 @@ async fn no_history_capture_is_started_for_a_push_only_provider() {
             .latest_activity_sync(user_id, &tenant, oauth_providers::GARMIN)
             .await
             .unwrap()
-            .map(|at| at.timestamp()),
-        Some(received.timestamp())
+            .map(Timestamp::epoch_seconds),
+        Some(received.epoch_seconds())
     );
 }

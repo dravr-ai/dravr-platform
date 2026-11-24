@@ -19,7 +19,7 @@ use axum::extract::{Query, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::Extension;
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_contremaitre::cageux_config::CageuxConfigRegistry;
 use pierre_contremaitre::harness_config_registry::HarnessConfigRegistry;
 use pierre_contremaitre::persona_contracts::PersonaContractRegistry;
@@ -52,7 +52,7 @@ fn other_tenant() -> TenantId {
 
 /// A tenant row and its owner, so the agents table's foreign keys hold.
 async fn seed_tenant_owner(repos: &RepositoryRegistry, tenant_id: TenantId) -> Uuid {
-    let now = Utc::now();
+    let now = Timestamp::now();
     let password_hash = bcrypt::hash("password123", bcrypt::DEFAULT_COST).unwrap();
     let mut user = User::new(
         format!("owner+{tenant_id}@example.com"),
@@ -160,7 +160,7 @@ async fn dispose(
             reason,
             note: None,
             disposed_by: "support@example.com",
-            disposed_at: Utc::now(),
+            disposed_at: Timestamp::now(),
         })
         .await
         .unwrap();
@@ -398,10 +398,7 @@ async fn health_rolls_a_known_mix_into_exact_totals_and_breakdowns() -> Result<(
 
     // Daily: everything landed now, so one bucket carrying the whole window.
     assert_eq!(stats.daily.len(), 1, "{:?}", stats.daily);
-    assert_eq!(
-        stats.daily[0].date,
-        Utc::now().format("%Y-%m-%d").to_string()
-    );
+    assert_eq!(stats.daily[0].date, Timestamp::now().utc_date().to_string());
     assert_eq!(stats.daily[0].flagged, 6);
     assert_eq!(stats.daily[0].false_positives, 3);
     Ok(())

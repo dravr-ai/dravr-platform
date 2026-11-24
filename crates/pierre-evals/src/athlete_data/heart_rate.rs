@@ -30,8 +30,6 @@
 //! contradiction. A session we hold without a heart rate is unverifiable,
 //! never a miss read as an invention.
 
-use chrono::Datelike;
-
 use super::{
     agrees, describe, find_word, sole_weekday, trim_float, AssertedFigure, AthleteRecord,
     RecordedActivity,

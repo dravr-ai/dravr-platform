@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -23,15 +23,15 @@ pub struct UserMcpToken {
     /// First 8 characters of the token for identification
     pub token_prefix: String,
     /// Optional expiration timestamp
-    pub expires_at: Option<DateTime<Utc>>,
+    pub expires_at: Option<Timestamp>,
     /// Last time the token was used
-    pub last_used_at: Option<DateTime<Utc>>,
+    pub last_used_at: Option<Timestamp>,
     /// Number of times the token has been used
     pub usage_count: u32,
     /// Whether the token has been revoked
     pub is_revoked: bool,
     /// Creation timestamp
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
 }
 
 /// A presented token that resolved to a live row: which token, and whose.
@@ -72,15 +72,15 @@ pub struct UserMcpTokenInfo {
     /// First 8 characters of the token for identification
     pub token_prefix: String,
     /// Optional expiration timestamp
-    pub expires_at: Option<DateTime<Utc>>,
+    pub expires_at: Option<Timestamp>,
     /// Last time the token was used
-    pub last_used_at: Option<DateTime<Utc>>,
+    pub last_used_at: Option<Timestamp>,
     /// Number of times the token has been used
     pub usage_count: u32,
     /// Whether the token has been revoked
     pub is_revoked: bool,
     /// Creation timestamp
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
 }
 
 impl From<UserMcpToken> for UserMcpTokenInfo {

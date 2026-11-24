@@ -26,8 +26,9 @@ use pierre_core::errors::AppError;
 use pierre_llm::chain_guard::{copilot_headroom_checker, RateLimitTransition, CHAIN_GUARD};
 use pierre_llm::config::LlmChain;
 use pierre_llm::health::{LlmHealthState, LlmHealthStatus, TierProbe};
-use pierre_llm::{http_env, ChatMessage, ChatProvider, ChatRequest, LlmProvider};
-use tokio::time::interval;
+use pierre_llm::tier_bench::{probe_request, BENCH_REPROBE_INTERVAL};
+use pierre_llm::{http_env, ChatProvider, LlmProvider};
+use tokio::time::{interval, MissedTickBehavior};
 use tracing::{debug, error, info, warn};
 
 /// Return the [`ChatProvider`] singleton resolved from the two provider
@@ -99,6 +100,15 @@ const DEFAULT_LLM_PROBE_INTERVAL_SECS: u64 = 1800;
 /// Spawn the LLM probe task — runs once at startup, then re-probes on a
 /// configurable interval (default 30 minutes).
 ///
+/// Startup asks every tier alone first and benches the ones that cannot
+/// answer ([`pierre_llm::tier_bench`]), then asks the chain, which passes the
+/// benched tiers over. `Unhealthy` therefore means no tier answers, never
+/// that the head is dead in front of tiers that would serve. A second task
+/// ([`recover_while_degraded`]) re-asks benched tiers, and the chain while it
+/// is `Unhealthy`, so an instance recovers without a new revision; it makes
+/// no call while nothing is benched and the chain is healthy, and it runs
+/// whatever the interval is.
+///
 /// On every periodic tick, the task first checks whether a real chat turn
 /// already proved the provider live within the interval (via
 /// [`LlmHealthState::since_last_success`], stamped by the chat pipeline). If
@@ -115,13 +125,13 @@ const DEFAULT_LLM_PROBE_INTERVAL_SECS: u64 = 1800;
 /// * On `Healthy -> Unhealthy` (or `Unknown -> Unhealthy`) transitions,
 ///   emits an `error!` line — the [`pierre_logging::ErrorNotificationLayer`]
 ///   wired in `init_from_env` auto-routes that line to the
-///   `SLACK_ERROR_CHANNEL` so an operator pages without extra plumbing.
+///   `SLACK_ERROR_CHANNEL` so an admin pages without extra plumbing. A
+///   failure at startup pages like any other: the chat pipeline refuses
+///   every turn while the status reads `Unhealthy`.
 /// * On `Unhealthy -> Healthy` transitions, emits an `info!` recovery line.
 ///
 /// The task is fire-and-forget; failures only surface via the dedicated
-/// readiness route + Slack alert. Restoring health after a transient
-/// failure is the request-time fallback chain's responsibility, not this
-/// probe's.
+/// readiness route + Slack alert.
 pub fn spawn_llm_health_probe(
     llm_chain: &LlmChain,
     health_state: Arc<LlmHealthState>,
@@ -141,23 +151,13 @@ pub fn spawn_llm_health_probe(
             "Starting LLM health probe task"
         );
 
-        // First probe runs immediately so /ready reflects boot-time state
-        // within the first round-trip; subsequent probes follow the
-        // interval. When interval_secs is 0, we run a single probe and
-        // exit.
-        run_one_probe(
-            &provider_name,
-            &health_state,
-            chat_provider.as_ref(),
-            ProbeKind::Startup,
-        )
-        .await;
+        run_startup_probe(&provider_name, &health_state, chat_provider.as_ref()).await;
 
-        // Then each tier alone, once. The probe above goes through the chain,
-        // so it proves only that somebody answers; a dead tier behind a live
-        // one stays invisible until it is the only one left. Startup only — it
-        // costs one billed completion per tier, which a periodic tick must not.
-        probe_chain_tiers_at_startup(chat_provider.as_ref()).await;
+        tokio::spawn(recover_while_degraded(
+            provider_name.clone(),
+            Arc::clone(&health_state),
+            chat_provider.clone(),
+        ));
 
         if interval_secs == 0 {
             info!(
@@ -252,7 +252,7 @@ async fn refresh_health_from_real_traffic(provider_name: &str, health_state: &Ll
 /// for Copilot's next session refresh; a tier on another credential is
 /// never passed over for it. The endpoint itself does NOT count
 /// against the core budget. Emits notify events in `#dravr-signal` on
-/// threshold transitions so operators see the degradation before users do.
+/// threshold transitions so admins see the degradation before users do.
 ///
 /// Fail-closed: a read that fails is recorded as a low budget, so the chain
 /// skips the Copilot tiers until a read succeeds. Each skip already raises
@@ -334,22 +334,114 @@ impl Display for ProbeKind {
     }
 }
 
-/// Ask every tier of the runtime-fallback chain, alone, for one completion and
-/// log what each did. A no-op when no provider is wired or it is not a chain.
-async fn probe_chain_tiers_at_startup(chat_provider: Option<&Arc<ChatProvider>>) {
-    let Some(provider) = chat_provider else {
-        return;
-    };
-    for probe in provider.probe_chain_tiers(&probe_request()).await {
-        log_tier_probe(&probe);
+/// The boot-time probe: every tier alone, then the chain.
+///
+/// The tiers go first. Each is asked on its own, once — a call through the
+/// chain proves only that somebody answers, so a dead tier behind a live one
+/// stays invisible until it is the only one left — and each one that rejects
+/// the probe is benched (`ChatProvider::probe_and_bench_chain_tiers`). The
+/// chain is asked second, so its verdict is the verdict of the tiers that can
+/// serve: a dead head in front of a live tier reads `Healthy`, served by that
+/// tier, and turns are admitted.
+///
+/// Startup only for the per-tier pass: it costs one billed completion per
+/// tier, which a periodic tick must not.
+async fn run_startup_probe(
+    provider_name: &str,
+    health_state: &LlmHealthState,
+    chat_provider: Option<&Arc<ChatProvider>>,
+) {
+    if let Some(provider) = chat_provider {
+        for probe in provider.probe_and_bench_chain_tiers().await {
+            log_tier_probe(&probe, provider.is_tier_benched(probe.provider));
+        }
+    }
+    run_one_probe(
+        provider_name,
+        health_state,
+        chat_provider,
+        ProbeKind::Startup,
+    )
+    .await;
+}
+
+/// Re-ask what is out of service, every [`BENCH_REPROBE_INTERVAL`], for the
+/// life of the process.
+///
+/// Without it a bad boot is permanent wherever the periodic probe is disabled
+/// (`PIERRE_LLM_HEALTH_PROBE_INTERVAL_SECS=0`, dev's setting): nothing else
+/// writes the status again, the gate refuses every turn, and so no turn can
+/// prove the instance healthy. On 2026-11-21 that kept every instance that
+/// booted `Unhealthy` refusing turns for close to 14 hours.
+async fn recover_while_degraded(
+    provider_name: String,
+    health_state: Arc<LlmHealthState>,
+    chat_provider: Option<Arc<ChatProvider>>,
+) {
+    let mut ticker = interval(BENCH_REPROBE_INTERVAL);
+    // A pass that outlasts the interval (several benched tiers each running
+    // into their own timeout) must not be followed by the ticks it missed,
+    // back to back: the next pass waits a full interval.
+    ticker.set_missed_tick_behavior(MissedTickBehavior::Delay);
+    ticker.tick().await; // consume the immediate first tick
+    loop {
+        ticker.tick().await;
+        run_recovery_tick(&provider_name, &health_state, chat_provider.as_ref()).await;
     }
 }
 
-/// A healthy tier is an `info!` naming who answered. A dead one is a `warn!`
-/// plus the `llm.tier_unhealthy` notify event: the chain still serves, so this
-/// is not the pageable `llm.provider_unhealthy`, but it is shallower than
-/// configured and an operator should know before the primary has a bad day.
-fn log_tier_probe(probe: &TierProbe) {
+/// One recovery pass: the benched tiers are asked again, and the chain is
+/// asked again while its status reads `Unhealthy`.
+///
+/// A healthy chain with nothing benched makes no call here, which is what
+/// keeps this inside the 2026-09-21 "startup only" decision: that decision is
+/// about a billed ping on an account that works, and the only calls made here
+/// go to a tier that last refused, or to a chain no tier of which answered.
+async fn run_recovery_tick(
+    provider_name: &str,
+    health_state: &LlmHealthState,
+    chat_provider: Option<&Arc<ChatProvider>>,
+) {
+    let Some(provider) = chat_provider else {
+        return;
+    };
+    for probe in provider.reprobe_benched_tiers().await {
+        log_tier_reprobe(&probe);
+    }
+    if health_state.snapshot().await.status == LlmHealthStatus::Unhealthy {
+        run_one_probe(
+            provider_name,
+            health_state,
+            chat_provider,
+            ProbeKind::Periodic,
+        )
+        .await;
+    }
+}
+
+/// A benched tier that answers again is an `info!`; one that stays dead is a
+/// `debug!`, since its bench was already reported once.
+fn log_tier_reprobe(probe: &TierProbe) {
+    match &probe.outcome {
+        Ok(served_by) => info!(
+            tier = probe.provider,
+            position = probe.position,
+            served_by,
+            "LLM chain tier answers the probe again; back in the chain"
+        ),
+        Err(error) => debug!(
+            tier = probe.provider,
+            position = probe.position,
+            error,
+            "LLM chain tier still cannot answer the probe; stays benched"
+        ),
+    }
+}
+
+/// A healthy tier is an `info!` naming who answered. One that failed its
+/// probe is reported with the `llm.tier_unhealthy` notify event and a log
+/// line that says whether it was `benched` (see [`log_failed_tier`]).
+fn log_tier_probe(probe: &TierProbe, benched: bool) {
     match &probe.outcome {
         Ok(served_by) => info!(
             tier = probe.provider,
@@ -358,12 +450,7 @@ fn log_tier_probe(probe: &TierProbe) {
             "LLM chain tier healthy"
         ),
         Err(error) => {
-            warn!(
-                tier = probe.provider,
-                position = probe.position,
-                error,
-                "LLM chain tier failed its startup probe; the chain is shallower than configured"
-            );
+            log_failed_tier(probe, error, benched);
             info!(
                 target: "notify",
                 event = "llm.tier_unhealthy",
@@ -376,18 +463,50 @@ fn log_tier_probe(probe: &TierProbe) {
     }
 }
 
+/// The log line for a tier that failed its startup probe.
+///
+/// A tier that failed with a provider fault stays in the chain, which falls
+/// through it on that fault: a `warn!`, as a slow cold start must not page on
+/// every instance start. A benched tier rejected the probe itself and is
+/// passed over until it answers: a `warn!` behind the head, and an `error!`,
+/// which pages, for the head, since every turn is then served by a fallback.
+fn log_failed_tier(probe: &TierProbe, error: &str, benched: bool) {
+    if !benched {
+        warn!(
+            tier = probe.provider,
+            position = probe.position,
+            error,
+            "LLM chain tier failed its startup probe; the chain is shallower than configured"
+        );
+        return;
+    }
+    log_benched_tier(probe, error);
+}
+
+fn log_benched_tier(probe: &TierProbe, error: &str) {
+    if probe.position == 0 {
+        error!(
+            tier = probe.provider,
+            position = probe.position,
+            error,
+            "LLM chain tier failed its startup probe; it is the head, benched: later tiers serve every turn until it answers"
+        );
+    } else {
+        warn!(
+            tier = probe.provider,
+            position = probe.position,
+            error,
+            "LLM chain tier failed its startup probe; benched, the chain is shallower than configured"
+        );
+    }
+}
+
 /// Run one probe round and log the outcome.
 ///
-/// Splits the logging policy by probe kind:
-///
-/// * Startup probes don't escalate: the readiness route is the operator
-///   signal — a boot-time failure is expected to be transient if the
-///   fallback chain is configured, and we don't want to page on every
-///   container start.
-/// * Periodic probes escalate on `Healthy -> Unhealthy` transitions
-///   (paging-worthy: the provider became unavailable while traffic was
-///   landing) and clear with an `info!` recovery line on
-///   `Unhealthy -> Healthy`.
+/// Every transition into `Unhealthy` escalates, at startup included: the
+/// chain has already passed its benched tiers over, so a failure here means
+/// no tier answers and the chat pipeline is refusing every turn.
+/// `Unhealthy -> Healthy` clears with an `info!` recovery line.
 async fn run_one_probe(
     provider_name: &str,
     health_state: &LlmHealthState,
@@ -438,21 +557,6 @@ async fn run_one_probe(
             log_probe_outcome(provider_name, kind, previous, None, Some(&msg));
         }
     }
-}
-
-/// The probe's request: one user message, "ping", temperature 0, no output
-/// cap.
-///
-/// The cap used to be one token, "the cheapest possible check". Claude Code
-/// treats an output cap the answer exceeds as an error — the CLI reports
-/// `Claude's response exceeded the 1 output token maximum`, sets `is_error`
-/// and exits 1 — so with it the probe failed on Claude at every instance
-/// start, the chain's later tiers answered "ping" for it, and the verdict
-/// still read healthy. The answer to "ping" is one sentence; the prompt is
-/// the cost, and it is the same with or without a cap.
-#[must_use]
-pub fn probe_request() -> ChatRequest {
-    ChatRequest::new(vec![ChatMessage::user("ping".to_owned())]).with_temperature(0.0)
 }
 
 /// End-to-end check that the configured LLM chain is actually able to serve
@@ -511,10 +615,9 @@ fn log_steady_state(provider: &str, kind: ProbeKind, served_by: Option<&str>, er
     }
 }
 
-/// Escalate a status transition. The `Healthy -> Unhealthy` and
-/// `Unknown -> Unhealthy` (periodic only) paths emit `error!` so the
-/// tronc [`ErrorNotificationLayer`] auto-routes the line to Slack;
-/// recoveries log at `info!`.
+/// Escalate a status transition. A transition into `Unhealthy` emits
+/// `error!` so the tronc [`ErrorNotificationLayer`] auto-routes the line to
+/// Slack; recoveries log at `info!`.
 fn log_transition(
     provider: &str,
     kind: ProbeKind,
@@ -529,24 +632,26 @@ fn log_transition(
     }
 }
 
+/// The startup line keeps the words "LLM startup probe failed": the
+/// `dravr-llm-startup-probe-failed` log-based alert
+/// (`infra/environments/dev/llm_chain_monitoring.tf`) filters on them.
 fn log_failure_transition(provider: &str, kind: ProbeKind, previous: LlmHealthStatus, error: &str) {
-    let pageable = matches!(previous, LlmHealthStatus::Healthy)
-        || (matches!(previous, LlmHealthStatus::Unknown) && matches!(kind, ProbeKind::Periodic));
-    if pageable {
-        log_pageable_failure(provider, kind, previous, error);
-    } else {
-        log_startup_failure(provider, kind, error);
+    match kind {
+        ProbeKind::Startup => error!(
+            provider,
+            %kind,
+            previous = %previous,
+            error,
+            "LLM startup probe failed: no tier of the chain answers, every chat turn is refused until one does"
+        ),
+        ProbeKind::Periodic => error!(
+            provider,
+            %kind,
+            previous = %previous,
+            error,
+            "LLM probe transitioned to Unhealthy; every chat turn is refused until a tier answers"
+        ),
     }
-}
-
-fn log_pageable_failure(provider: &str, kind: ProbeKind, previous: LlmHealthStatus, error: &str) {
-    error!(
-        provider,
-        %kind,
-        previous = %previous,
-        error,
-        "LLM probe transitioned to Unhealthy; chat traffic at risk"
-    );
     // Operationally distinct from the all-errors firehose: route the
     // transition through NotifyLayer so it lands in #dravr-signal with
     // a stable event name + structured fields. See ADR-014.
@@ -560,18 +665,9 @@ fn log_pageable_failure(provider: &str, kind: ProbeKind, previous: LlmHealthStat
     );
 }
 
-fn log_startup_failure(provider: &str, kind: ProbeKind, error: &str) {
-    warn!(
-        provider,
-        %kind,
-        error,
-        "LLM startup probe failed; relying on runtime fallback if configured"
-    );
-}
-
 /// `served_by` names the tier that answered. The first probe of a process is
 /// always a transition (`Unknown -> Healthy`), so this is the line an
-/// operator reads at every instance start.
+/// admin reads at every instance start.
 fn log_recovery_transition(
     provider: &str,
     kind: ProbeKind,
@@ -585,7 +681,7 @@ fn log_recovery_transition(
             served_by,
             "LLM probe Unhealthy -> Healthy; chat traffic recovered"
         );
-        // Pair with llm.provider_unhealthy so operators can close the
+        // Pair with llm.provider_unhealthy so admins can close the
         // incident loop in #dravr-signal without reading logs.
         info!(
             target: "notify",
@@ -674,14 +770,255 @@ pub fn chat_provider_from_credentials(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::sync::Arc;
+
+    use async_trait::async_trait;
+    use embacle::types::{
+        ChatRequest as RunnerRequest, ChatResponse as RunnerResponse, ChatStream as RunnerStream,
+        LlmCapabilities, LlmProvider as RunnerProvider, RunnerError,
+    };
     use pierre_auth::tenant::llm_manager::{
         CredentialSource, LlmCredentials, LlmProvider as TenantLlmProvider,
     };
     use pierre_core::models::TenantId;
+    use pierre_llm::chain_guard::CHAIN_GUARD;
+    use pierre_llm::health::{LlmHealthState, LlmHealthStatus};
+    use pierre_llm::{ChatProvider, EmbacleProvider, QuotaCooldowns};
     use secrecy::SecretString;
+    use tokio::sync::{Mutex, MutexGuard};
     use uuid::Uuid;
 
-    use super::{builds_from_credentials, chat_provider_from_credentials};
+    use super::{
+        builds_from_credentials, chat_provider_from_credentials, run_recovery_tick,
+        run_startup_probe,
+    };
+
+    /// A tier that rejects every request as invalid while `alive` is unset —
+    /// the shape Anthropic gave a spent credit on 2026-11-20 — and answers
+    /// once it is set.
+    struct Account {
+        label: &'static str,
+        alive: Arc<AtomicBool>,
+        calls: Arc<AtomicUsize>,
+        models: Vec<String>,
+    }
+
+    /// What a test reads and flips on an [`Account`] the chain owns.
+    struct Handle {
+        alive: Arc<AtomicBool>,
+        calls: Arc<AtomicUsize>,
+    }
+
+    impl Handle {
+        fn calls(&self) -> usize {
+            self.calls.load(Ordering::SeqCst)
+        }
+    }
+
+    fn account(label: &'static str, alive: bool) -> (EmbacleProvider, Handle) {
+        let alive = Arc::new(AtomicBool::new(alive));
+        let calls = Arc::new(AtomicUsize::new(0));
+        let runner = Account {
+            label,
+            alive: Arc::clone(&alive),
+            calls: Arc::clone(&calls),
+            models: vec![format!("{label}-model")],
+        };
+        (
+            EmbacleProvider::from_runner(Box::new(runner), label),
+            Handle { alive, calls },
+        )
+    }
+
+    #[async_trait]
+    impl RunnerProvider for Account {
+        fn name(&self) -> &'static str {
+            self.label
+        }
+
+        fn display_name(&self) -> &str {
+            self.label
+        }
+
+        fn capabilities(&self) -> LlmCapabilities {
+            LlmCapabilities::SYSTEM_MESSAGES
+        }
+
+        fn default_model(&self) -> &str {
+            &self.models[0]
+        }
+
+        fn available_models(&self) -> &[String] {
+            &self.models
+        }
+
+        async fn complete(&self, _request: &RunnerRequest) -> Result<RunnerResponse, RunnerError> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            if !self.alive.load(Ordering::SeqCst) {
+                return Err(RunnerError::invalid_request(
+                    "Your credit balance is too low to access the Anthropic API.",
+                ));
+            }
+            Ok(RunnerResponse {
+                replay_blocks: None,
+                content: "pong".to_owned(),
+                model: self.models[0].clone(),
+                usage: None,
+                finish_reason: Some("stop".to_owned()),
+                warnings: None,
+                tool_calls: None,
+            })
+        }
+
+        async fn complete_stream(
+            &self,
+            _request: &RunnerRequest,
+        ) -> Result<RunnerStream, RunnerError> {
+            Err(RunnerError::internal("not streamed in this test"))
+        }
+
+        async fn health_check(&self) -> Result<bool, RunnerError> {
+            Ok(true)
+        }
+    }
+
+    /// `CHAIN_GUARD`'s circuit breaker is one per process and counts a
+    /// primary's faults, so the tests that run a chain hold this for their
+    /// whole body and start from a closed circuit.
+    async fn fresh_chain_guard() -> MutexGuard<'static, ()> {
+        static CHAIN_GUARD_USERS: Mutex<()> = Mutex::const_new(());
+        let held = CHAIN_GUARD_USERS.lock().await;
+        CHAIN_GUARD.record_primary_success();
+        held
+    }
+
+    fn chain_of(tiers: Vec<EmbacleProvider>) -> Arc<ChatProvider> {
+        Arc::new(ChatProvider::Embacle(
+            EmbacleProvider::chain(tiers, QuotaCooldowns::default()).expect("tiers"),
+        ))
+    }
+
+    /// Revisions 01830 to 01841 on 2026-11-21: the head was dead at every
+    /// boot and six tiers behind it answered. The instance must come up
+    /// `Healthy`, served by the first live tier, so the gate admits turns.
+    #[tokio::test]
+    async fn a_dead_head_at_boot_leaves_the_chain_healthy_and_benched() {
+        let _chain_guard = fresh_chain_guard().await;
+        let (head_tier, head) = account("anthropic", false);
+        let (second_tier, _) = account("anthropic#2", true);
+        let chain = chain_of(vec![head_tier, second_tier]);
+        let health = LlmHealthState::new();
+
+        run_startup_probe("anthropic", &health, Some(&chain)).await;
+
+        let snapshot = health.snapshot().await;
+        assert_eq!(snapshot.status, LlmHealthStatus::Healthy);
+        assert_eq!(snapshot.served_by.as_deref(), Some("anthropic#2-model"));
+        assert!(chain.is_tier_benched("anthropic"));
+        assert_eq!(
+            head.calls(),
+            1,
+            "the head is asked once, alone; the chain probe passes it over"
+        );
+    }
+
+    /// A boot that finds no tier alive is `Unhealthy`, and stays so only
+    /// until a tier answers again: the next recovery tick brings the instance
+    /// back without a new revision.
+    #[tokio::test]
+    async fn an_instance_that_booted_unhealthy_recovers_when_a_tier_answers() {
+        let _chain_guard = fresh_chain_guard().await;
+        let (head_tier, head) = account("anthropic", false);
+        let (last_tier, last) = account("copilot_sdk", false);
+        let chain = chain_of(vec![head_tier, last_tier]);
+        let health = LlmHealthState::new();
+
+        run_startup_probe("anthropic", &health, Some(&chain)).await;
+        assert_eq!(
+            health.snapshot().await.status,
+            LlmHealthStatus::Unhealthy,
+            "no tier answers"
+        );
+
+        run_recovery_tick("anthropic", &health, Some(&chain)).await;
+        assert_eq!(
+            health.snapshot().await.status,
+            LlmHealthStatus::Unhealthy,
+            "still nobody"
+        );
+
+        last.alive.store(true, Ordering::SeqCst);
+        run_recovery_tick("anthropic", &health, Some(&chain)).await;
+
+        let snapshot = health.snapshot().await;
+        assert_eq!(snapshot.status, LlmHealthStatus::Healthy);
+        assert_eq!(snapshot.served_by.as_deref(), Some("copilot_sdk-model"));
+        assert!(
+            chain.is_tier_benched("anthropic"),
+            "the head is still dead and stays benched"
+        );
+        assert!(!chain.is_tier_benched("copilot_sdk"));
+
+        head.alive.store(true, Ordering::SeqCst);
+        run_recovery_tick("anthropic", &health, Some(&chain)).await;
+        assert!(
+            !chain.is_tier_benched("anthropic"),
+            "the head answers again and is reinstated"
+        );
+    }
+
+    /// A provider that is not a chain has no tier to bench, and recovers the
+    /// same way: the recovery tick asks it again while it reads `Unhealthy`,
+    /// and stops asking once it answers.
+    #[tokio::test]
+    async fn a_solo_provider_that_booted_unhealthy_recovers_when_it_answers() {
+        let (solo_tier, solo) = account("anthropic", false);
+        let provider = Arc::new(ChatProvider::Embacle(solo_tier));
+        let health = LlmHealthState::new();
+
+        run_startup_probe("anthropic", &health, Some(&provider)).await;
+        assert_eq!(
+            health.snapshot().await.status,
+            LlmHealthStatus::Unhealthy,
+            "the only provider cannot answer"
+        );
+
+        solo.alive.store(true, Ordering::SeqCst);
+        run_recovery_tick("anthropic", &health, Some(&provider)).await;
+
+        let snapshot = health.snapshot().await;
+        assert_eq!(snapshot.status, LlmHealthStatus::Healthy);
+        assert_eq!(snapshot.served_by.as_deref(), Some("anthropic-model"));
+
+        let calls_once_healthy = solo.calls();
+        run_recovery_tick("anthropic", &health, Some(&provider)).await;
+        assert_eq!(
+            solo.calls(),
+            calls_once_healthy,
+            "a healthy provider is not asked again"
+        );
+    }
+
+    /// The 2026-09-21 "startup only" decision: nothing is spent on a probe
+    /// while the chain works. A recovery tick on a healthy chain with nothing
+    /// benched asks nobody.
+    #[tokio::test]
+    async fn a_recovery_tick_on_a_healthy_chain_makes_no_call() {
+        let _chain_guard = fresh_chain_guard().await;
+        let (head_tier, head) = account("anthropic", true);
+        let (second_tier, second) = account("copilot_sdk", true);
+        let chain = chain_of(vec![head_tier, second_tier]);
+        let health = LlmHealthState::new();
+
+        run_startup_probe("anthropic", &health, Some(&chain)).await;
+        let (head_at_boot, second_at_boot) = (head.calls(), second.calls());
+
+        run_recovery_tick("anthropic", &health, Some(&chain)).await;
+
+        assert_eq!(head.calls(), head_at_boot);
+        assert_eq!(second.calls(), second_at_boot);
+    }
 
     /// The predicate the BYO resolver asks is the factory's own answer, for
     /// every provider a tenant can store a key for.

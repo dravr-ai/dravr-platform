@@ -5,6 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 import { useQuery } from '@tanstack/react-query';
+import { QUERY_KEYS } from '@pierre/shared-constants';
 import type { AvailableChannel } from '@pierre/api-client';
 import { messagingLinkApi } from '../services/api';
 
@@ -31,7 +32,7 @@ export function useAvailableChannels({
   staleTime?: number;
 } = {}) {
   const query = useQuery({
-    queryKey: ['messaging-available-channels'],
+    queryKey: QUERY_KEYS.messaging.availableChannels(),
     queryFn: () => messagingLinkApi.getAvailableChannels(),
     enabled,
     staleTime,

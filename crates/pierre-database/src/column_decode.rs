@@ -10,7 +10,7 @@
 //! default turns it into something worse than an error: a plausible value. A nil
 //! UUID is a *wrong* identity rather than a missing one — it silently matches
 //! nothing, or matches another row that also defaulted — and a timestamp
-//! defaulted to `Utc::now()` is indistinguishable from a real reading.
+//! defaulted to `Timestamp::now()` is indistinguishable from a real reading.
 //!
 //! These live here rather than in each backend because `SQLite` and `Postgres`
 //! decode the same columns and must agree on what a bad one means.

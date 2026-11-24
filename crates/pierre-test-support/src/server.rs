@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::{CoachingPersona, User, UserStatus, UserTier};
 use pierre_core::permissions::UserRole;
 use uuid::Uuid;
@@ -18,14 +18,13 @@ pub fn create_test_admin_user(email: &str, display_name: Option<String>) -> User
         display_name,
         password_hash: "test_password_hash".to_owned(),
         tier: UserTier::Enterprise,
-        strava_token: None,
         is_active: true,
         user_status: UserStatus::Active,
         role: UserRole::Admin,
         approved_by: None,
-        approved_at: Some(Utc::now()),
-        created_at: Utc::now(),
-        last_active: Utc::now(),
+        approved_at: Some(Timestamp::now()),
+        created_at: Timestamp::now(),
+        last_active: Timestamp::now(),
         firebase_uid: None,
         auth_provider: String::new(),
         analytics_consent: false,
@@ -47,14 +46,13 @@ pub fn create_test_user(email: &str, display_name: Option<String>) -> User {
         display_name,
         password_hash: "test_password_hash".to_owned(),
         tier: UserTier::Starter,
-        strava_token: None,
         is_active: true,
         user_status: UserStatus::Active,
         role: UserRole::User,
         approved_by: None,
-        approved_at: Some(Utc::now()),
-        created_at: Utc::now(),
-        last_active: Utc::now(),
+        approved_at: Some(Timestamp::now()),
+        created_at: Timestamp::now(),
+        last_active: Timestamp::now(),
         firebase_uid: None,
         auth_provider: String::new(),
         analytics_consent: false,

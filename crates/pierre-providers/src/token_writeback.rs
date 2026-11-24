@@ -6,13 +6,13 @@
 
 //! The one write-back of a token a provider changed on its own.
 //!
-//! An OAuth provider refreshes its pair when a call is refused; a scraped
-//! provider's session can come back from a read with a rotated cookie
+//! An OAuth provider refreshes its pair when a call is refused; a signed-in
+//! provider session can come back from a read with a rotated cookie
 //! (Garmin logs the old value out). [`StoredTokenRow::write_back`] is that
 //! write, whoever holds the token. It goes over the one row the provider's
 //! credentials were read from, and only while that row still stands: it must
 //! still carry the `id` it was read with (a reconnect writes a fresh one),
-//! and a scrape session row must still carry the session's `session_id`.
+//! and a signed-in session row must still carry the session's `session_id`.
 //! The write is a compare-and-swap on the row exactly as it was just read
 //! ([`OAuthTokenRepository::refresh_token`]), scoped to that row's user,
 //! tenant and provider. No other row is written, an admin's clone of the
@@ -20,7 +20,7 @@
 
 use std::sync::Arc;
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::constants::oauth::providers::TOKEN_TYPE_SESSION;
 use pierre_database::repositories::OAuthTokenRepository;
 use secrecy::ExposeSecret;
@@ -157,7 +157,7 @@ impl StoredTokenRow {
         &self,
         tokens: &dyn OAuthTokenRepository,
         session_json: &str,
-        expires_at: Option<DateTime<Utc>>,
+        expires_at: Option<Timestamp>,
     ) {
         if let Some(stored) = self.standing(tokens).await {
             self.write_session_over(tokens, &stored, session_json, expires_at)
@@ -172,7 +172,7 @@ impl StoredTokenRow {
         tokens: &dyn OAuthTokenRepository,
         stored: &UserOAuthToken,
         session_json: &str,
-        expires_at: Option<DateTime<Utc>>,
+        expires_at: Option<Timestamp>,
     ) {
         let Some(session_id) = session_id_of(session_json) else {
             warn!(provider = %self.provider, "a rotated sciotte session names no session id; nothing stored");

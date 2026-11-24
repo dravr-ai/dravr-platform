@@ -46,6 +46,7 @@ pub(crate) enum FeedbackSource {
     /// A thumb on an agent reply in the web or mobile app.
     Thumbs,
     /// An emoji reaction on a messaging channel's copy of a reply.
+    #[cfg(feature = "client-messaging")]
     Reaction,
     /// A message in the in-app feedback thread.
     Thread,
@@ -57,6 +58,7 @@ impl FeedbackSource {
     pub(crate) const fn as_str(self) -> &'static str {
         match self {
             Self::Thumbs => "thumbs",
+            #[cfg(feature = "client-messaging")]
             Self::Reaction => "reaction",
             Self::Thread => "thread",
         }
@@ -258,6 +260,7 @@ mod tests {
     fn sources_spell_the_catalogue_values() {
         for (source, wire) in [
             (FeedbackSource::Thumbs, "thumbs"),
+            #[cfg(feature = "client-messaging")]
             (FeedbackSource::Reaction, "reaction"),
             (FeedbackSource::Thread, "thread"),
         ] {

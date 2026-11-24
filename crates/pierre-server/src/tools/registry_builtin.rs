@@ -294,7 +294,7 @@ fn register_playbook_tools(registry: &mut ToolRegistry) {
 /// Register athlete-commitment tools.
 ///
 /// Category `memory` so the agent can reach them on a chat turn — the sweep is
-/// worthless if the only surface that can record a promise is an operator one.
+/// worthless if the only surface that can record a promise is an admin one.
 #[cfg(feature = "tools-memory")]
 fn register_commitment_tools(registry: &mut ToolRegistry) {
     use pierre_tool_runtime::implementations::commitments::create_commitment_tools;
@@ -474,7 +474,7 @@ fn register_config_tools(registry: &mut ToolRegistry) {
 /// Category `physiology` rather than `configuration`: the category is what
 /// `ToolRegistry::chat_callable_schemas` gates on, and an athlete stating
 /// their FTP mid-conversation is self-report the agent must be able to save
-/// on that turn — not an operator configuration write.
+/// on that turn — not an admin configuration write.
 #[cfg(feature = "tools-config")]
 fn register_physiology_tools(registry: &mut ToolRegistry) {
     use pierre_tool_runtime::implementations::physiology::create_physiology_tools;

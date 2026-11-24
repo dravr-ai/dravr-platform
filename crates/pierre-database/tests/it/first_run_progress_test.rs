@@ -11,7 +11,7 @@
 //! `DATABASE_URL` names, so the same assertions cover `SQLite` and
 //! `PostgreSQL`.
 
-use chrono::{DateTime, Duration, NaiveDate, TimeZone, Utc};
+use dravr_tronc::dates::{CivilDate, CivilDateTime, Elapsed, Timestamp};
 use pierre_core::models::{PostPurpose, TenantId};
 use pierre_database::repositories::FirstRunDay;
 use pierre_database::RepositoryRegistry;
@@ -28,12 +28,15 @@ async fn fresh_user(repos: &RepositoryRegistry) -> Uuid {
     repos.users.create(&user).await.unwrap()
 }
 
-fn day(d: u32) -> NaiveDate {
-    NaiveDate::from_ymd_opt(2026, 10, d).unwrap()
+fn day(d: u32) -> CivilDate {
+    CivilDate::from_ymd(2026, 10, d).unwrap()
 }
 
-fn at(d: u32, hour: u32) -> DateTime<Utc> {
-    Utc.with_ymd_and_hms(2026, 10, d, hour, 30, 0).unwrap()
+fn at(d: u32, hour: u32) -> Timestamp {
+    CivilDate::from_ymd(2026, 10, d)
+        .and_then(|date| date.and_hms(hour, 30, 0))
+        .and_then(CivilDateTime::and_utc)
+        .unwrap()
 }
 
 #[tokio::test]
@@ -82,7 +85,7 @@ async fn a_day_is_written_once_and_reads_back_oldest_first() {
         .unwrap());
 
     let days = progress.first_run_days(tenant, user_id).await.unwrap();
-    let read: Vec<(&str, NaiveDate, DateTime<Utc>)> = days
+    let read: Vec<(&str, CivilDate, Timestamp)> = days
         .iter()
         .map(|d| (d.flow_id.as_str(), d.local_date, d.recorded_at))
         .collect();
@@ -169,7 +172,7 @@ async fn the_check_in_landing_reads_back_per_tenant() {
         "a claim whose post has not landed reads as not posted"
     );
 
-    let landed = morning + Duration::seconds(3);
+    let landed = morning + Elapsed::seconds(3);
     assert!(claims
         .mark_platform_post_posted(
             tenant,

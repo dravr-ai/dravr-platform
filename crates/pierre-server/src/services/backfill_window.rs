@@ -11,7 +11,7 @@
 //! each provider's terms decide which sessions, and which of their fields,
 //! the list may name.
 
-use chrono::{Duration, TimeZone, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::ai_policy::{ProviderTerms, Withheld};
 use pierre_core::models::{Activity, TenantId};
 use pierre_core::transport::Transport;
@@ -52,11 +52,10 @@ pub(crate) async fn read_warmed_window(
     after_ts: i64,
     transport: Transport,
 ) -> (Vec<Activity>, Withheld) {
-    let now = Utc::now();
-    let start = Utc
-        .timestamp_opt(after_ts, 0)
-        .single()
-        .unwrap_or_else(|| now - Duration::days(BACKFILL_FALLBACK_WINDOW_DAYS));
+    let now = Timestamp::now();
+    let start = Timestamp::from_epoch_seconds(after_ts)
+        .ok()
+        .unwrap_or_else(|| now - Elapsed::days(BACKFILL_FALLBACK_WINDOW_DAYS));
     let read = async {
         match repos
             .activity_cache
@@ -87,9 +86,11 @@ mod tests {
     use std::sync::Arc;
 
     use pierre_core::ai_policy::SourcePolicy;
+    use pierre_core::constants::oauth_providers::{NoticeKind, GARMIN};
     use pierre_core::models::{ActivityBuilder, SportType};
     use pierre_core::transport::TransportPolicy;
     use pierre_providers::provider_terms::{NOLIO, NOLIO_TRANSPORT};
+    use pierre_services::provider_notice::grant_consent;
     use pierre_test_support::db::create_test_db;
     use pierre_test_support::server::create_test_user;
 
@@ -116,7 +117,7 @@ mod tests {
             id,
             name,
             SportType::Run,
-            Utc::now() - Duration::days(days_ago),
+            Timestamp::now() - Elapsed::days(days_ago),
             3_600,
             RELAY,
         )
@@ -132,6 +133,18 @@ mod tests {
         let user = create_test_user(&format!("{}@relay.test", Uuid::new_v4()), None);
         let user_id = repos.users.create(&user).await.unwrap();
         let tenant_id = TenantId::parse_str(&Uuid::new_v4().to_string()).unwrap();
+        // The relay's sessions name Garmin, which no model reads until the
+        // athlete gives Garmin's AI consent (carnet#1157).
+        grant_consent(
+            &repos,
+            tenant_id.as_uuid(),
+            user_id,
+            GARMIN,
+            NoticeKind::AiConsent,
+            "Garmin",
+        )
+        .await
+        .unwrap();
         repos
             .activity_cache
             .upsert_activities(
@@ -147,7 +160,7 @@ mod tests {
             .await
             .unwrap();
 
-        let after = (Utc::now() - Duration::days(10)).timestamp();
+        let after = (Timestamp::now() - Elapsed::days(10)).epoch_seconds();
         let (warmed, withheld) = read_warmed_window(
             &repos,
             &NolioTerms,

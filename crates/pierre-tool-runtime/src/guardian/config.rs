@@ -35,7 +35,7 @@
 use std::sync::Arc;
 
 use arc_swap::ArcSwap;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_database::backends::factory::Database;
 use serde::{Deserialize, Serialize};
@@ -140,7 +140,7 @@ pub struct GuardianConfigSnapshot {
     /// Effective guard: defaults with the document over them, pre-built per snapshot.
     pub guardian: Arc<Guardian>,
     /// When the snapshot was installed.
-    pub loaded_at: DateTime<Utc>,
+    pub loaded_at: Timestamp,
     /// Why this snapshot does not reflect the stored row: the row could not be
     /// read or parsed, so the policy in force is the one held before that, or
     /// the defaults at boot.
@@ -369,7 +369,7 @@ fn build_snapshot(document: GuardianConfigDocument) -> GuardianConfigSnapshot {
     GuardianConfigSnapshot {
         document: Arc::new(document),
         guardian: Arc::new(Guardian::new(policy)),
-        loaded_at: Utc::now(),
+        loaded_at: Timestamp::now(),
         load_failure: None,
         refused_fields,
     }
@@ -444,46 +444,29 @@ fn resolve(doc: &GuardianConfigDocument) -> (GuardianPolicy, Vec<String>) {
 
 #[cfg(test)]
 mod tests {
-    use std::io::{Result as IoResult, Write};
-    use std::sync::Mutex;
-
-    use tracing::subscriber::with_default;
-    use tracing_subscriber::fmt::{fmt as log_fmt, MakeWriter};
+    use pierre_test_support::log_capture::{capture_events_while, CapturedEvent};
+    use tracing::Level;
 
     use super::*;
 
-    /// In-memory sink for the lines one call logs. The `Arc` is shared by every
-    /// writer the subscriber makes and by the test that reads it back.
-    #[derive(Clone, Default)]
-    struct LogSink(Arc<Mutex<Vec<u8>>>);
-
-    impl Write for LogSink {
-        fn write(&mut self, buf: &[u8]) -> IoResult<usize> {
-            self.0.lock().expect("sink lock").extend_from_slice(buf);
-            Ok(buf.len())
-        }
-        fn flush(&mut self) -> IoResult<()> {
-            Ok(())
-        }
+    /// What `build` logged at INFO and above, and what it returned.
+    fn logged<T>(build: impl FnOnce() -> T) -> (T, Vec<CapturedEvent>) {
+        let (returned, events) = capture_events_while(build);
+        let shown = events
+            .into_iter()
+            .filter(|event| event.level <= Level::INFO)
+            .collect();
+        (returned, shown)
     }
 
-    impl<'a> MakeWriter<'a> for LogSink {
-        type Writer = Self;
-        fn make_writer(&'a self) -> Self::Writer {
-            self.clone()
-        }
+    /// Whether any field of `event`, its message included, holds `text`.
+    fn says(event: &CapturedEvent, text: &str) -> bool {
+        event.fields.values().any(|value| value.contains(text))
     }
 
-    /// What `build` logged, and what it returned.
-    fn logged<T>(build: impl FnOnce() -> T) -> (T, String) {
-        let sink = LogSink::default();
-        let subscriber = log_fmt()
-            .with_writer(sink.clone())
-            .with_ansi(false)
-            .finish();
-        let returned = with_default(subscriber, build);
-        let bytes = sink.0.lock().expect("sink lock");
-        (returned, String::from_utf8_lossy(&bytes).into_owned())
+    /// Whether any of `events` [`says`] `text`.
+    fn mentions(events: &[CapturedEvent], text: &str) -> bool {
+        events.iter().any(|event| says(event, text))
     }
 
     /// carnet#1407: legal, and never quiet.
@@ -497,12 +480,14 @@ mod tests {
 
         let (_, from_row) = logged(|| GuardianConfigRegistry::with_document(zero));
         assert!(
-            from_row.contains(" WARN ") && from_row.contains(line),
-            "{from_row}"
+            from_row
+                .iter()
+                .any(|event| event.level == Level::WARN && says(event, line)),
+            "{from_row:?}"
         );
 
         let (_, defaults) = logged(GuardianConfigRegistry::bootstrap);
-        assert!(!defaults.contains(line), "{defaults}");
+        assert!(!mentions(&defaults, line), "{defaults:?}");
     }
 
     /// carnet#1471: a row written before `mode` and `schema_version` were
@@ -528,12 +513,12 @@ mod tests {
             "bug: the stored write cap is not in force"
         );
         assert!(
-            !lines.contains(" ERROR "),
-            "bug: a retired key logged an error: {lines}"
+            !lines.iter().any(|event| event.level == Level::ERROR),
+            "bug: a retired key logged an error: {lines:?}"
         );
         assert!(
-            lines.contains("retired fields"),
-            "bug: the retired keys were ignored silently: {lines}"
+            mentions(&lines, "retired fields"),
+            "bug: the retired keys were ignored silently: {lines:?}"
         );
 
         let persisted = parse_persisted_document(row).expect("today's row parses");

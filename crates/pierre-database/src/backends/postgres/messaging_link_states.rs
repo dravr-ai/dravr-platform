@@ -13,7 +13,7 @@
 //! Postgres pool. The `MessagingRepository` impl in `messaging.rs` delegates
 //! to these free functions.
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::messaging::MessagingError;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;

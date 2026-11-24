@@ -430,7 +430,7 @@ jobs:
       - name: Boreal Generated Stylesheets
         run: ./scripts/ci/check-hosted-css.sh
 
-      # carnet#1207: the scraping backend's name must never reach an athlete or
+      # carnet#1207: the session-read backend's name must never reach an athlete or
       # coach. Fails when a translation value or a served hosted-page template
       # names it (provider ids, i18n keys and the /api/providers/<id>/ routes
       # are identifiers and stay). Python and grep only, like the rest of this
@@ -438,6 +438,13 @@ jobs:
       # without core.hooksPath skips it.
       - name: Backend Name Exposure
         run: ./scripts/ci/check-backend-name-exposure.sh
+
+      # carnet#1644: say admin, never operator. Fails when "operator" names an
+      # admin anywhere under crates/, frontend/, frontend-mobile/ or packages/
+      # outside the script's justified allowlist. git grep and Python only. The
+      # pre-push Tier 1b-admin runs the same script.
+      - name: Admin Vocabulary
+        run: ./scripts/ci/check-admin-vocabulary.sh
 
       # pierre-database implements each repository trait twice, once per backend,
       # and every local gate runs SQLite — so an edit that lands on one side and
@@ -566,6 +573,7 @@ jobs:
           ./scripts/ci/check-workflow-test-targets.test.sh
           ./scripts/ci/check-hosted-css.test.sh
           ./scripts/ci/check-backend-name-exposure.test.sh
+          ./scripts/ci/check-admin-vocabulary.test.sh
           ./scripts/ci/check-log-email-redaction.test.sh
           ./scripts/ci/check-secret-fields.test.sh
           ./scripts/ci/check-merge-risk.test.sh
@@ -1571,7 +1579,7 @@ jobs:
         uses: $/.github/actions/server-binaries
         with:
           deps-token: ${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}
-          bins: ${{ github.ref == 'refs/heads/main' && 'pierre-mcp-server pierre-cli' || 'pierre-mcp-server' }}
+          bins: ${{ github.ref == 'refs/heads/main' && 'pierre-mcp-server pierre-cli pierre-pdf-text' || 'pierre-mcp-server' }}
 
       - name: Verify release binary exists
         run: |
@@ -1651,10 +1659,28 @@ jobs:
           # 44307715156). ChefFamille chose to raise both ceilings by 2MB
           # (2026-11-18): shipped 123, thin 152.
           #
+          # Back to 122 on 2026-11-19 (carnet#1645), the first ceiling moved
+          # down by a cut rather than up: main read 122MB (run 44564706605,
+          # `ls` 123M). The OTLP exporters dropped their own reqwest 0.13 for
+          # the workspace's 0.12 (reqwest 0.13, its h2 and hyper-util copies
+          # leave the binary), dashmap 5 went for the 6 lingua links, and the
+          # locale catalogue embeds brotli-compressed (1.5MB of JSON to
+          # 370KB). Same tree, same build on macOS: 109,468,016 to
+          # 107,847,984 bytes stripped, -1.55MiB, so about 121MB here. The
+          # ceiling keeps Phil's ~1.5MB of headroom over that.
+          #
+          # carnet#1702 (a plan saved in batches reaches the calendar once:
+          # the turn-end hand-off, no new dependency) read 123MB against 122
+          # (run 44944310962), with main exactly on 122 before it (run
+          # 44934381147) and the thin build at 150 against 151 (run
+          # 44944310948). ChefFamille chose to raise the shipped ceiling to
+          # 125 (2026-11-21), back to about 1.5MB of headroom, and then the
+          # thin ceiling to 153, the same headroom scaled to that build.
+          #
           # server-e2e.yml checks the thin binary against this ceiling
-          # scaled to that build (152), so a branch push that skips this job
+          # scaled to that build (153), so a branch push that skips this job
           # is still sized against it. Move both together.
-          MAX_SIZE_MB=123
+          MAX_SIZE_MB=125
           # Warn band at 95% of the ceiling. A bare pass/fail cliff gives no
           # signal until the build is already broken, and one fat dependency
           # can still cross the gap in a single change.

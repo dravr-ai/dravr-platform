@@ -25,7 +25,7 @@
 
 use std::fmt;
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use photograveur::Locale;
 use pierre_config::constants::usage_quotas::{
     DEFAULT_MAX_ACTIVE_CONVERSATIONS, UNLIMITED_CONVERSATIONS,
@@ -752,7 +752,7 @@ pub async fn maybe_start_pillar_walk(
             tenant_id,
             user_uuid,
             ai_scope::readable_policy(),
-            &ai_scope::admit_derived,
+            &ai_scope::admit_memory,
         )
         .await
     else {
@@ -850,28 +850,26 @@ pub async fn repoint_messaging_session(
 /// ticks in the same five locales — so a title and a chart never disagree on
 /// how a month is abbreviated.
 #[must_use]
-pub fn dated_title(
-    prefix: &str,
-    locale: &str,
-    timezone: Option<&str>,
-    now: DateTime<Utc>,
-) -> String {
-    let local = now.with_timezone(&resolve_zone(timezone));
-    let date = Locale::from_tag(locale).format_date(&local.date_naive().to_string());
-    format!("{prefix} {date} {}", local.format("%H:%M"))
+pub fn dated_title(prefix: &str, locale: &str, timezone: Option<&str>, now: Timestamp) -> String {
+    let local = resolve_zone(timezone).civil_at(now);
+    let date = Locale::from_tag(locale).format_date(&local.date().to_string());
+    format!(
+        "{prefix} {date} {:02}:{:02}",
+        local.time().hour(),
+        local.time().minute()
+    )
 }
 
 #[cfg(test)]
 mod tests {
-    use chrono::TimeZone;
 
     use pierre_test_support::log_capture::{capture_target, drain};
 
     use super::*;
 
     /// 2026-10-01T05:28Z — 01:28 in Toronto, 14:28 in Tokyo.
-    fn at() -> DateTime<Utc> {
-        Utc.with_ymd_and_hms(2026, 10, 1, 5, 28, 0).unwrap()
+    fn at() -> Timestamp {
+        Timestamp::parse_from_rfc3339("2026-10-01T05:28:00Z").unwrap()
     }
 
     #[test]

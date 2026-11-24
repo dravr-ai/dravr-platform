@@ -32,11 +32,11 @@
 
 use std::collections::BTreeMap;
 
-use chrono::NaiveDate;
 use dravr_cageux::periodization::{
     AnchorConfidence, AnchorValue, AthleteAnchors, RelativeIntensity, SportAnchors, SportFamily,
     ThresholdBasis, WorkoutStep,
 };
+use dravr_tronc::dates::CivilDate;
 use serde::{Deserialize, Serialize};
 
 use super::measurement::{
@@ -422,7 +422,7 @@ impl ProfileTwin {
 fn threshold_anchor(
     value: f64,
     import: Option<&MetricProvenance>,
-    stated_on: Option<NaiveDate>,
+    stated_on: Option<CivilDate>,
 ) -> AnchorValue {
     let (origin, as_of) = import.map_or_else(
         || (AnchorOrigin::Athlete.as_str().to_owned(), stated_on),
@@ -450,7 +450,7 @@ fn provenanced_anchor<T>(value: f64, stored: &ProvenancedValue<T>) -> AnchorValu
 
 /// An anchor read off the profile row: a point with no stated range or
 /// method, at low confidence.
-fn row_anchor(value: f64, origin: Option<String>, as_of: Option<NaiveDate>) -> AnchorValue {
+fn row_anchor(value: f64, origin: Option<String>, as_of: Option<CivilDate>) -> AnchorValue {
     // A physiological magnitude far inside f32.
     #[allow(clippy::cast_possible_truncation)]
     let value = value as f32;
@@ -621,8 +621,10 @@ mod tests {
 
     type TestResult = Result<(), Box<dyn Error>>;
 
-    fn day(year: i32, month: u32, date: u32) -> Result<NaiveDate, Box<dyn Error>> {
-        NaiveDate::from_ymd_opt(year, month, date).ok_or_else(|| "fixture date".into())
+    fn day(year: i32, month: u32, date: u32) -> Result<CivilDate, Box<dyn Error>> {
+        CivilDate::from_ymd(year, month, date)
+            .ok()
+            .ok_or_else(|| "fixture date".into())
     }
 
     fn stored(

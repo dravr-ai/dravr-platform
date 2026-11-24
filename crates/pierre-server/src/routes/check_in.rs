@@ -22,16 +22,16 @@ use std::sync::Arc;
 use axum::extract::State;
 use axum::routing::get;
 use axum::{Json, Router};
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::AppResult;
 use pierre_core::models::check_in::CHECK_IN_HOUR;
 use pierre_core::models::CheckInCadence;
 use pierre_middleware::extractors::AuthenticatedUser;
+use pierre_runtime_context::require_tenant;
 use serde::{Deserialize, Serialize};
 use tracing::info;
 
 use crate::mcp::resources::ServerContext;
-use crate::routes::onboarding::active_tenant;
 
 /// Body of `GET` and `PUT /api/me/check-in`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -64,7 +64,7 @@ async fn get_check_in(
     State(resources): State<Arc<ServerContext>>,
     auth: AuthenticatedUser,
 ) -> AppResult<Json<CheckInBody>> {
-    let tenant_id = active_tenant(&auth)?;
+    let tenant_id = require_tenant(&resources, &auth).await?;
     let cadence = resources
         .common
         .repos
@@ -80,12 +80,12 @@ async fn put_check_in(
     auth: AuthenticatedUser,
     Json(update): Json<CheckInUpdate>,
 ) -> AppResult<Json<CheckInBody>> {
-    let tenant_id = active_tenant(&auth)?;
+    let tenant_id = require_tenant(&resources, &auth).await?;
     resources
         .common
         .repos
         .check_in_preferences
-        .set_check_in_cadence(tenant_id, auth.user_id, update.cadence, Utc::now())
+        .set_check_in_cadence(tenant_id, auth.user_id, update.cadence, Timestamp::now())
         .await?;
     info!(
         target: "notify",

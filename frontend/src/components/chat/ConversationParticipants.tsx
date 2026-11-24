@@ -8,7 +8,7 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Users, UserPlus, X } from 'lucide-react';
 import { chatApi } from '../../services/api';
-import { QUERY_KEYS } from '../../constants/queryKeys';
+import { QUERY_KEYS } from '@pierre/shared-constants';
 import { BADGE_TONE, Input, useErrorToast, useSuccessToast } from '../ui';
 import type { ConversationParticipant } from '@pierre/shared-types';
 import { useTranslation } from '@pierre/i18n';

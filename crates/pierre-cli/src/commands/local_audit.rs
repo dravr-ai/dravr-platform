@@ -8,7 +8,7 @@
 //! it does, and those calls are recorded by the server's audit layer. The
 //! commands below open the database themselves instead, so they write their
 //! own row of the same trail (carnet#1391), with the source `cli_database`:
-//! there is no signed-in operator, so the row names the machine's account
+//! there is no signed-in admin, so the row names the machine's account
 //! (`$USER`) in its metadata, and never a password.
 //!
 //! Not covered, because they run before the repository registry this module
@@ -27,9 +27,11 @@ use tracing::warn;
 
 #[cfg(feature = "tools-verification")]
 use crate::commands::harness::HarnessCommand;
+use crate::commands::oauth2_client::Oauth2ClientCommand;
 use crate::commands::tenant::TenantCommand;
+use crate::commands::tool::ToolCommand;
 use crate::commands::zones::ZonesCommand;
-use crate::{Command, TokenCommand, ToolCommand, UserCommand};
+use crate::{Command, TokenCommand, UserCommand};
 
 /// What one write command will record.
 #[derive(Debug)]
@@ -56,6 +58,13 @@ pub(crate) fn describe(command: &Command) -> Option<LocalAudit> {
         Command::Token { action } => describe_token(action),
         Command::Tool { action } => describe_tool(action),
         Command::Tenant { action } => describe_tenant(action),
+        Command::Oauth2Client {
+            action: Oauth2ClientCommand::Create { name },
+        } => Some(LocalAudit::new(
+            "oauth2_client.create",
+            format!("Created introspection OAuth client '{name}'"),
+            json!({ "client_name": name }),
+        )),
         Command::Zones {
             action:
                 ZonesCommand::Backfill {

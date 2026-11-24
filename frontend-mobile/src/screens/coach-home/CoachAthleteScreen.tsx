@@ -16,6 +16,7 @@ import {
   COACH_UNVERIFIED_KEYS,
   FORM_BAND_LABEL_KEY,
   countKey,
+  providerName,
 } from '@pierre/shared-constants';
 import { formatList } from '@pierre/chat-utils';
 import { useTranslation } from '@pierre/i18n';
@@ -32,7 +33,6 @@ import {
   endedPlan,
   formatSyncTime,
   localToday,
-  providerName,
   sourceChips,
   type QueueEntry,
 } from '@pierre/ui-logic';
@@ -344,7 +344,7 @@ function AgentBlock({ athlete, destinations }: { athlete: CoachRosterAthlete; de
               {t(countKey(replies.count, language, COACH_AGENT_COUNT_KEYS), { count: replies.count, verified: replies.verified })}
               {replies.capped ? ` · ${t('coachHome.detail.agentCapped')}` : ''}
             </Text>
-            {/* A status is an 8px dot beside the word that says it (DESIGN.md §10). */}
+            {/* A status is an 8px dot beside the word that says it (DESIGN.md "Status"). */}
             <View testID="coach-agent-verdict" className="flex-row items-center gap-1.5">
               <StatusDot tone={replies.unmatched_figures > 0 ? 'warning' : 'success'} />
               <Text className="text-xs font-medium text-text-primary">

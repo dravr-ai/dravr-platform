@@ -46,7 +46,8 @@ use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::routing::get;
 use axum::{Json, Router};
-use chrono::{Duration, TimeZone, Utc};
+use dravr_tronc::dates::SecondsFormat;
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::constants::provider_capture::current_capture_version;
 use pierre_core::models::{
@@ -131,7 +132,7 @@ fn listed_efforts() -> Value {
             "elapsed_time": 400,
             "moving_time": 398,
             "distance": 1_820.5,
-            "start_date": Utc.timestamp_opt(at + 600, 0).unwrap().to_rfc3339(),
+            "start_date": Timestamp::from_epoch_seconds(at + 600).unwrap().to_rfc3339(),
             "pr_rank": 1,
             "activity": { "id": at },
             "segment": { "id": 611_413, "name": LA_BETE, "distance": 1_820.5, "activity_type": "Ride" }
@@ -161,10 +162,9 @@ async fn held_detail(
 /// answers it: one effort on the climb.
 fn detailed_ride(at: i64) -> Value {
     let stamp = |secs: i64| {
-        Utc.timestamp_opt(secs, 0)
+        Timestamp::from_epoch_seconds(secs)
             .unwrap()
-            .format("%Y-%m-%dT%H:%M:%SZ")
-            .to_string()
+            .to_rfc3339_opts(SecondsFormat::Secs, true)
     };
     json!({
         "id": at,
@@ -246,9 +246,11 @@ async fn stored_to_its_end(
 /// The start of the ride `days` ago at 07:00 UTC; its Strava id is that
 /// start, as an epoch second.
 fn start(days: i64) -> i64 {
-    let day = (Utc::now() - Duration::days(days)).date_naive();
-    Utc.from_utc_datetime(&day.and_hms_opt(7, 0, 0).unwrap())
-        .timestamp()
+    let day = (Timestamp::now() - Elapsed::days(days)).utc_date();
+    (day.and_hms(7, 0, 0).unwrap())
+        .and_utc()
+        .unwrap()
+        .epoch_seconds()
 }
 
 /// The ride started at `at` as `key` lists it, to build on: the session's
@@ -263,7 +265,7 @@ fn sport_builder(key: &str, at: i64, sport: SportType) -> ActivityBuilder {
         at.to_string(),
         "Morning ride",
         sport,
-        Utc.timestamp_opt(at, 0).unwrap(),
+        Timestamp::from_epoch_seconds(at).unwrap(),
         3_600,
         key,
     )
@@ -288,7 +290,7 @@ fn effort(at: i64, segment: &str, name: &str, elapsed: u64) -> SegmentEffort {
         name: name.to_owned(),
         elapsed_time: elapsed,
         moving_time: Some(elapsed),
-        start_date: Utc.timestamp_opt(at + 600, 0).unwrap(),
+        start_date: Timestamp::from_epoch_seconds(at + 600).unwrap(),
         distance: 1_820.5,
         average_heart_rate: Some(161),
         max_heart_rate: None,
@@ -313,7 +315,14 @@ async fn store_rides(
     let runtime: Arc<dyn ToolRuntime> = resources.clone();
     runtime
         .live_activities()
-        .ingest(user_id, tenant, key, rides, Utc::now(), WriteOrigin::Import)
+        .ingest(
+            user_id,
+            tenant,
+            key,
+            rides,
+            Timestamp::now(),
+            WriteOrigin::Import,
+        )
         .await
         .unwrap();
 }
@@ -561,7 +570,7 @@ async fn a_session_copy_listed_at_its_day_is_the_grant_copy_it_stands_for() {
         at.to_string(),
         "Morning ride",
         SportType::Ride,
-        Utc.timestamp_opt(midnight, 0).unwrap(),
+        Timestamp::from_epoch_seconds(midnight).unwrap(),
         3_600,
         SESSION,
     )
@@ -626,7 +635,7 @@ async fn owe_history_walk(
         before_ts: None,
         fetch_limit: Some(2_000),
         conversation_id: None,
-        created_at_ms: Utc::now().timestamp_millis(),
+        created_at_ms: Timestamp::now().epoch_millis(),
         leased_until_ms: 0,
         attempts: 1,
         lease_token: None,
@@ -1177,7 +1186,7 @@ async fn a_walk_the_ledger_cannot_record_never_reads_as_unreadable() {
         &[ride(oauth_providers::STRAVA, start(5))],
     )
     .await;
-    refuse_walk_rows_on(&resources, "INSERT").await;
+    refuse_walk_rows_on(&resources, BackfillJobKind::DetailWalk, "INSERT").await;
 
     let payload = call(
         &resources,
@@ -1220,7 +1229,7 @@ async fn an_ask_that_cannot_widen_the_owed_walk_reads_it_walking() {
         first["coverage"]["incomplete_reason"], "segment_detail_walking",
         "{first}"
     );
-    refuse_walk_rows_on(&resources, "UPDATE").await;
+    refuse_walk_rows_on(&resources, BackfillJobKind::DetailWalk, "UPDATE").await;
 
     let again = call(
         &resources,
@@ -1376,7 +1385,7 @@ async fn a_grant_needing_reauth_reads_strava_unavailable() {
             tenant,
             oauth_providers::STRAVA,
             Some("invalid_grant"),
-            Utc::now(),
+            Timestamp::now(),
         )
         .await
         .unwrap();
@@ -1404,7 +1413,7 @@ async fn a_grant_needing_reauth_reads_strava_unavailable() {
 
 /// Give the athlete a live Strava session and its connection.
 async fn hold_session(resources: &Arc<ServerContext>, user_id: Uuid, tenant: TenantId) {
-    let now = Utc::now();
+    let now = Timestamp::now();
     let repos = &resources.common.repos;
     repos
         .oauth_tokens
@@ -1416,7 +1425,7 @@ async fn hold_session(resources: &Arc<ServerContext>, user_id: Uuid, tenant: Ten
             access_token: SecretString::from(format!("sciotte_session_token_{:0>30}", 7)),
             refresh_token: None,
             token_type: "Bearer".to_owned(),
-            expires_at: Some(now + Duration::days(30)),
+            expires_at: Some(now + Elapsed::days(30)),
             scope: None,
             provider_user_id: Some("4242".to_owned()),
             oauth_app_client_id: None,
@@ -1766,11 +1775,11 @@ async fn a_wider_ask_widens_the_walk_owed() {
         ],
     )
     .await;
-    let from = (Utc::now() - Duration::days(30)).date_naive();
+    let from = (Timestamp::now() - Elapsed::days(30)).utc_date();
     let first = call(
         &resources,
         (user_id, tenant),
-        json!({ "segment_name": LA_BETE, "from": from.format("%Y-%m-%d").to_string() }),
+        json!({ "segment_name": LA_BETE, "from": from.to_string() }),
     )
     .await;
     assert_eq!(
@@ -1944,7 +1953,7 @@ async fn walk_calls_today(resources: &Arc<ServerContext>, user_id: Uuid) -> i64 
                 &budget_counter_key(oauth_providers::STRAVA, "walk_client"),
                 user_id,
             ),
-            &budget_period(Utc::now(), ONE_DAY),
+            &budget_period(Timestamp::now(), ONE_DAY),
         )
         .await
         .unwrap()

@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use chrono::NaiveDate;
+use dravr_tronc::dates::CivilDate;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::TenantId;
 use pierre_memory::training_plans::{parse_plan_date, PlanWeek};
@@ -36,7 +36,7 @@ use super::training_plans_output::{
     CalendarBlock, CalendarEntry, CalendarPreview, CalendarPushOutcome, CalendarPusher,
     NO_CALENDAR, PUSH_FAILED,
 };
-use crate::context::ToolExecutionContext;
+use crate::context::{DispatchOrigin, ToolExecutionContext};
 use crate::conversions::{
     answers_with, object_schema, ok_typed, task_capable, tool_definition, tool_result_to_response,
 };
@@ -44,6 +44,7 @@ use crate::guardian::{caller_tool_enabled, tenant_disabled_message, TENANT_DISAB
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
 use crate::task_cancellation::current_task_cancel_flag;
+use crate::turn_end::{Handoff, TurnEnd, TurnEndDispatch};
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use pierre_mcp_schema::PropertySchema;
@@ -71,7 +72,7 @@ pub(super) async fn calendar_block(
     context: &ToolExecutionContext,
     scope: &PlanScope,
     active_weeks: &[PlanWeek],
-    today: NaiveDate,
+    today: CivilDate,
 ) -> AppResult<CalendarBlock> {
     let repos = context.resources.repos();
     let (tenant, user_id) = (scope.tenant, scope.user_id);
@@ -114,7 +115,7 @@ pub(super) async fn calendar_block(
                 .or_else(|| row.template_slug.clone());
             CalendarEntry {
                 prescription_id: row.id,
-                date: row.prescribed_for_date.format("%Y-%m-%d").to_string(),
+                date: row.prescribed_for_date.to_string(),
                 source: row.source,
                 name,
                 provider_event_id: row.provider_event_id.clone(),
@@ -165,7 +166,7 @@ pub(super) async fn calendar_preview_after_save(
     context: &ToolExecutionContext,
     scope: &PlanScope,
     plan_id: &str,
-    today: NaiveDate,
+    today: CivilDate,
 ) -> Option<CalendarPreview> {
     let repos = context.resources.repos();
     let (tenant, user_id) = (scope.tenant, scope.user_id);
@@ -223,6 +224,13 @@ pub(super) async fn calendar_preview_after_save(
 /// was not — and, when nothing was pushed, what a push would now change
 /// ([`calendar_preview_after_save`]).
 ///
+/// In a chat turn the push waits for the turn's end (carnet#1702): a plan
+/// written in batches is saved several times in one turn, and the calendar
+/// takes it once, after the reply, with one destructive charge. The save
+/// checks the push's gates now, so a refusal is still relayed in the reply,
+/// and reports the push queued when they pass. A one-shot MCP or A2A save has
+/// no turn end and pushes itself.
+///
 /// Two refusals say nothing at all, since they would repeat on every save: an
 /// athlete with no calendar Dravr writes is not nagged about one, and one
 /// whose tenant switched `push_training_plan` off is not told so each time
@@ -231,27 +239,55 @@ pub(super) async fn calendar_after_own_save(
     context: &ToolExecutionContext,
     scope: &PlanScope,
     plan_id: &str,
-    today: NaiveDate,
+    today: CivilDate,
 ) -> (Option<CalendarPushOutcome>, Option<CalendarPreview>) {
+    let turn_end = TurnEnd::here();
+    let step = if turn_end.is_some() {
+        PushStep::CheckOnly
+    } else {
+        PushStep::Run
+    };
     let pushed = Box::pin(push_after_write(
         context,
         &json!({}),
-        "save_training_plan",
+        SAVE_TOOL,
         AthleteNotice::Tell,
+        step,
     ))
     .await;
+    // In a chat turn the save pushes nothing itself, so its destructive charge
+    // comes back whatever the gates said; the push, when they passed, is the
+    // turn end's.
+    if let Some(end) = &turn_end {
+        let handoff = if matches!(pushed, CalendarPushOutcome::Queued { .. }) {
+            Handoff::CarriedBy(SAVE_PUSH)
+        } else {
+            Handoff::NothingToCarry
+        };
+        end.hand_over(handoff);
+    }
     let unsaid = [NO_CALENDAR, TENANT_DISABLED_REASON]
         .iter()
         .any(|code| pushed.refused_for(code));
     let calendar_push = (!unsaid).then_some(pushed);
     let preview = match &calendar_push {
-        Some(CalendarPushOutcome::Pushed { .. }) => None,
+        Some(CalendarPushOutcome::Pushed { .. } | CalendarPushOutcome::Queued { .. }) => None,
         Some(CalendarPushOutcome::NotPushed { .. }) | None => {
             calendar_preview_after_save(context, scope, plan_id, today).await
         }
     };
     (calendar_push, preview)
 }
+
+/// The save whose push a chat turn runs at its end.
+const SAVE_TOOL: &str = "save_training_plan";
+
+/// What an athlete's own save hands its turn's end: one push of their plan,
+/// reported as the save's.
+const SAVE_PUSH: TurnEndDispatch = TurnEndDispatch {
+    tool: PUSH_TOOL,
+    trigger: SAVE_TOOL,
+};
 
 /// The note a read of `ledger` carries when it passed the athlete's chosen
 /// calendar over; `None` when it did not.
@@ -336,10 +372,10 @@ impl McpTool<dyn ToolRuntime> for PushTrainingPlanTool {
              dates before today. save_training_plan and publish_training_plan already push \
              (their calendar_push says what landed): call this only when the athlete or coach \
              asks, e.g. once what stopped that push is fixed. Needs a saved plan and a connected \
-             calendar-writing provider. A group's human \
-             coach pushes a consenting athlete's plan with `athlete`, through their \
-             Intervals.icu link: they must allow calendar writes on it, and Intervals.icu must \
-             list the coach as their coach. Only the published plan is pushed, never a coach's \
+             calendar-writing provider. In Dravr's app or channels a group's human coach can push a \
+             consenting athlete's plan through their Intervals.icu link: they must allow \
+             calendar writes on it, and Intervals.icu must list the coach as their coach; \
+             elsewhere a push is the caller's own. Only the published plan is pushed, never a coach's \
              unpublished draft (the reply's unpublished_draft flags one).",
             schema,
             annotations(
@@ -364,12 +400,19 @@ impl McpTool<dyn ToolRuntime> for PushTrainingPlanTool {
         args: Value,
     ) -> ToolResponse {
         let context = ToolExecutionContext::from_tronc(state, ctx);
-        let result = push_active_plan_for(&context, &args, PUSH_TOOL, AthleteNotice::Tell)
-            .await
-            .and_then(|push| match push {
-                PlanPush::Pushed(report) => ok_typed("push_training_plan", &report),
-                PlanPush::Refused(refused) => Ok(refused),
-            });
+        // A push a turn's end runs for the saves that handed it over is
+        // reported as theirs (carnet#1702).
+        let trigger = DispatchOrigin::current().trigger().unwrap_or(PUSH_TOOL);
+        let result =
+            push_active_plan_for(&context, &args, trigger, AthleteNotice::Tell, PushStep::Run)
+                .await
+                .and_then(|push| match push {
+                    PlanPush::Pushed(report) => ok_typed("push_training_plan", &report),
+                    PlanPush::Refused(refused) => Ok(refused),
+                    PlanPush::Ready { .. } => Err(AppError::internal(
+                        "push_training_plan ran its gates without pushing",
+                    )),
+                });
         tool_result_to_response(result)
     }
 }
@@ -385,10 +428,25 @@ pub(super) enum AthleteNotice {
     ToldByPublish,
 }
 
+/// How far putting an athlete's active plan on their calendar goes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum PushStep {
+    /// Through the gates and onto the calendar.
+    Run,
+    /// Through the gates only, for a save whose push its turn's end runs.
+    CheckOnly,
+}
+
 /// What putting an athlete's active plan on their calendar came to.
 pub(super) enum PlanPush {
     /// The push ran: what it changed.
     Pushed(PushReport),
+    /// Every gate passed and, as [`PushStep::CheckOnly`] asked, nothing was
+    /// read or written on the calendar `provider` names.
+    Ready {
+        /// The calendar backend the push would write.
+        provider: String,
+    },
     /// A gate refused it before anything on the athlete's calendar was read
     /// or written: the refusal, in the tool's error shape.
     Refused(ToolResult),
@@ -405,7 +463,7 @@ pub(super) enum PlanPush {
 /// outside a room whatever triggered the write, and the athlete's tenant is
 /// held to its own `push_training_plan` setting. The athlete is told when
 /// their coach wrote their calendar, as `notice` says; the notify events
-/// name `trigger`.
+/// name `trigger`. [`PushStep::CheckOnly`] stops once every gate has passed.
 ///
 /// # Errors
 ///
@@ -417,6 +475,7 @@ pub(super) async fn push_active_plan_for(
     args: &Value,
     trigger: &str,
     notice: AthleteNotice,
+    step: PushStep,
 ) -> AppResult<PlanPush> {
     // Whose calendar: the caller's own, or a coached athlete's; the ledger,
     // the plan and "today" are the athlete's.
@@ -447,10 +506,13 @@ pub(super) async fn push_active_plan_for(
         };
         let calendar_note = scope.passed_over_note(context, &chosen).await?;
         let target = chosen.backend;
-        let provider = match scope.calendar_writer(context, &target).await? {
+        let provider = match scope.calendar_sender(context, &target).await? {
             Ok(provider) => provider,
             Err(refused) => return Ok(PlanPush::Refused(refused)),
         };
+        if step == PushStep::CheckOnly {
+            return Ok(PlanPush::Ready { provider: target });
+        }
 
         // When this call runs behind an MCP task handle the dispatcher
         // scoped a cancel flag around it; handing it to the push loop is what
@@ -551,12 +613,14 @@ const COACHING_GATE: &str = "coaching_gate";
 /// tool. A refusal is reported by its gate's reason, an athlete with no
 /// calendar Dravr writes as [`NO_CALENDAR`], and a push that failed as
 /// [`PUSH_FAILED`], each in the words a tool reply would carry. A coach's
-/// push tells the athlete as `notice` says.
+/// push tells the athlete as `notice` says. [`PushStep::CheckOnly`] reports a
+/// push whose gates passed as queued for the turn's end.
 pub(super) async fn push_after_write(
     context: &ToolExecutionContext,
     args: &Value,
     trigger: &str,
     notice: AthleteNotice,
+    step: PushStep,
 ) -> CalendarPushOutcome {
     if let Ok(tenant) = context.require_tenant() {
         let tenant = TenantId::from_uuid(tenant);
@@ -567,8 +631,14 @@ pub(super) async fn push_after_write(
             };
         }
     }
-    match push_active_plan_for(context, args, trigger, notice).await {
+    match push_active_plan_for(context, args, trigger, notice, step).await {
         Ok(PlanPush::Pushed(report)) => CalendarPushOutcome::Pushed { report },
+        Ok(PlanPush::Ready { provider }) => CalendarPushOutcome::Queued {
+            message: format!(
+                "The plan goes onto the athlete's {provider} calendar once this reply is sent."
+            ),
+            provider,
+        },
         Ok(PlanPush::Refused(refused)) => refused_outcome(&refused),
         Err(error) if error.code == ErrorCode::NoProviderConnected => {
             CalendarPushOutcome::NotPushed {

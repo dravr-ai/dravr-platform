@@ -23,7 +23,7 @@
 use crate::common::{create_test_server_resources, create_test_tenant};
 use crate::helpers::axum_test::AxumTestRequest;
 
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_auth::oauth2_server::first_party::MOBILE_CHANNEL_LINK_URI;
 use pierre_auth::security::cookies::auth_cookie_name;
 use pierre_core::models::{TenantId, User};
@@ -77,7 +77,7 @@ impl Fixture {
         let db: &dyn MessagingRepository = &*self.resources.common.repos.messaging;
         let code = Uuid::new_v4().to_string();
         let starter = self.starter.id.to_string();
-        let expires_at = (Utc::now() + Duration::minutes(10)).to_rfc3339();
+        let expires_at = (Timestamp::now() + Elapsed::minutes(10)).to_rfc3339();
         db.create_link_state(&CreateLinkStateParams {
             id: &Uuid::new_v4().to_string(),
             tenant_id: self.tenant_id,
@@ -388,7 +388,7 @@ async fn a_code_not_started_as_an_oauth_link_is_refused() {
     let db: &dyn MessagingRepository = &*f.resources.common.repos.messaging;
     let code = Uuid::new_v4().to_string();
     let starter = f.starter.id.to_string();
-    let expires_at = (Utc::now() + Duration::minutes(10)).to_rfc3339();
+    let expires_at = (Timestamp::now() + Elapsed::minutes(10)).to_rfc3339();
     db.create_link_state(&CreateLinkStateParams {
         id: &Uuid::new_v4().to_string(),
         tenant_id: f.tenant_id,

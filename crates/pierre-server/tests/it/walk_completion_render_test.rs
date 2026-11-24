@@ -32,7 +32,7 @@ use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::TransportPolicy;
 use std::sync::Arc;
 
-use chrono::{Datelike, Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use uuid::Uuid;
 
 use common::{create_test_server_resources, create_test_user_with_plan};
@@ -125,6 +125,7 @@ impl Athlete {
                     valid_until: None,
                     source_msg_id: None,
                     transport_policy: TransportPolicy::AnyTransport,
+                    ai_consent_sources: &[],
                 })
                 .await
                 .unwrap();
@@ -244,7 +245,7 @@ fn dated_goal_dossier() -> Dossier {
             object: "a spring marathon".to_owned(),
             confidence: 0.9,
             source: "onboarding".to_owned(),
-            updated_at: Utc::now(),
+            updated_at: Timestamp::now(),
             valid_until: None,
             stale: false,
         }],
@@ -254,12 +255,12 @@ fn dated_goal_dossier() -> Dossier {
 
 /// An interview that began an hour ago: every fact landed since counts.
 fn an_hour_ago() -> String {
-    (Utc::now() - Duration::hours(1)).to_rfc3339()
+    (Timestamp::now() - Elapsed::hours(1)).to_rfc3339()
 }
 
 /// An interview that begins after the seeded facts: none of them count.
 fn after_the_facts() -> String {
-    (Utc::now() + Duration::minutes(1)).to_rfc3339()
+    (Timestamp::now() + Elapsed::minutes(1)).to_rfc3339()
 }
 
 const CORE_ASKED: usize = CalibrationTopic::CORE.len();
@@ -616,11 +617,11 @@ impl Athlete {
     /// A season laid out from this Monday, with `weeks` written weeks — two
     /// cover the fortnight the rail drafts.
     async fn season(&self, weeks: usize) {
-        let today = Utc::now().date_naive();
-        let monday = today - Duration::days(i64::from(today.weekday().num_days_from_monday()));
+        let today = Timestamp::now().utc_date();
+        let monday = today - Elapsed::days(i64::from(today.weekday().num_days_from_monday()));
         let race = GoalRace {
             name: "Gran Fondo".to_owned(),
-            date: (monday + Duration::weeks(12)).to_string(),
+            date: (monday + Elapsed::weeks(12)).to_string(),
             discipline: "road".to_owned(),
             priority: RacePriority::A,
         };
@@ -640,7 +641,7 @@ impl Athlete {
             skeleton_id: None,
         }];
         let starts: Vec<String> = (0..weeks)
-            .map(|week| (monday + Duration::weeks(i64::try_from(week).unwrap())).to_string())
+            .map(|week| (monday + Elapsed::weeks(i64::try_from(week).unwrap())).to_string())
             .collect();
         let days: Vec<[PlannedDay; 1]> = starts
             .iter()
@@ -658,6 +659,8 @@ impl Athlete {
                     template_source: None,
                     template_preset: None,
                     envelope: None,
+                    coach_original: None,
+                    coach_added: false,
                 }]
             })
             .collect();
@@ -935,6 +938,7 @@ impl Athlete {
                 channel_type: None,
                 about_user_id: None,
                 turn_attempted_write: None,
+                ai_consent_sources: &[],
             })
             .await
             .unwrap();

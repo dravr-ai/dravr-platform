@@ -19,7 +19,8 @@ use std::error::Error;
 use std::fmt::{self, Display, Formatter};
 use std::iter;
 
-use chrono::{DateTime, Duration, Utc};
+use dravr_tronc::date_pattern;
+use dravr_tronc::dates::{Elapsed, Pattern, Timestamp};
 use jsonwebtoken::{
     decode, encode,
     errors::{Error as JwtError, ErrorKind},
@@ -31,19 +32,25 @@ use uuid::Uuid;
 
 use crate::admin::jwks::JwksManager;
 use crate::oauth2_server::first_party::names_third_party;
+use crate::oauth2_server::grant_ceiling::GrantCeiling;
 use pierre_core::constants::{
-    limits::{OAUTH_ACCESS_TOKEN_EXPIRY_HOURS, USER_SESSION_EXPIRY_HOURS},
     service_names::{MCP, OAUTH2_AUTHORIZE, PIERRE_MCP_SERVER},
     time_constants::SECONDS_PER_HOUR,
 };
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{AuthRequest, AuthResponse, User, UserSession};
+use pierre_core::permissions::impersonation::SESSION_MINUTES;
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::uuid_utils::parse_uuid;
 use pierre_database::backends::UserRepository;
 
+/// `2026-11-17 10:00:05 UTC`: when a token expired.
+const EXPIRED_AT: Pattern<Timestamp> = date_pattern!(Timestamp, "%Y-%m-%d %H:%M:%S UTC");
+
+mod delegated_token;
 mod method;
 mod session_token;
+pub use delegated_token::TokenLineage;
 pub use method::{
     refuse_support_session, AuthMethod, ImpersonationGrant, IMPERSONATION_REFUSED_ACTION,
     IMPERSONATION_WRITE_REFUSED,
@@ -63,7 +70,7 @@ pub struct SetupStatusResponse {
 }
 
 /// Convert a duration to a human-readable format
-fn humanize_duration(duration: Duration) -> String {
+fn humanize_duration(duration: Elapsed) -> String {
     let total_secs = duration.num_seconds().abs();
     let hours = total_secs / i64::from(SECONDS_PER_HOUR);
     let minutes = (total_secs % i64::from(SECONDS_PER_HOUR)) / 60;
@@ -110,9 +117,9 @@ pub enum JwtValidationError {
     /// Token has expired
     TokenExpired {
         /// When the token expired
-        expired_at: DateTime<Utc>,
+        expired_at: Timestamp,
         /// Current time for reference
-        current_time: DateTime<Utc>,
+        current_time: Timestamp,
     },
     /// Token signature is invalid
     TokenInvalid {
@@ -139,21 +146,21 @@ impl Display for JwtValidationError {
                         f,
                         "JWT token expired {} minutes ago at {}",
                         duration_expired.num_minutes(),
-                        expired_at.format("%Y-%m-%d %H:%M:%S UTC")
+                        expired_at.format_with(&EXPIRED_AT)
                     )
-                } else if duration_expired.num_hours() < USER_SESSION_EXPIRY_HOURS {
+                } else if duration_expired.num_days() < 1 {
                     write!(
                         f,
                         "JWT token expired {} hours ago at {}",
                         duration_expired.num_hours(),
-                        expired_at.format("%Y-%m-%d %H:%M:%S UTC")
+                        expired_at.format_with(&EXPIRED_AT)
                     )
                 } else {
                     write!(
                         f,
                         "JWT token expired {} days ago at {}",
                         duration_expired.num_days(),
-                        expired_at.format("%Y-%m-%d %H:%M:%S UTC")
+                        expired_at.format_with(&EXPIRED_AT)
                     )
                 }
             }
@@ -188,15 +195,15 @@ pub struct Claims {
     pub iss: String,
     /// JWT ID (unique identifier for this token)
     pub jti: String,
-    /// Available fitness providers
-    pub providers: Vec<String>,
     /// Audience (who the token is intended for): the platform audience `mcp`,
     /// or the RFC 8707 resource an OAuth access token was bound to — which only
     /// that resource server accepts
     pub aud: String,
-    /// Active tenant `ID` for this session (user can belong to multiple tenants)
-    /// This is the tenant context for all operations in this session.
-    /// Use POST /api/tenants/switch to change the active tenant.
+    /// The tenant this session asks to act in (a user can belong to several).
+    ///
+    /// It is honoured only after `pierre_runtime_context::tenant::resolve_tenant` finds a
+    /// membership row for it; a session naming none acts in the account's first tenant. `POST
+    /// /tenants/switch` changes it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub active_tenant_id: Option<String>,
     /// Original user ID when impersonating (the admin)
@@ -213,11 +220,6 @@ pub struct Claims {
     /// "this caller predates scopes" without one, and would have to let the
     /// second through to keep the first working.
     ///
-    /// Before this claim existed, `generate_oauth_access_token` wrote the grant
-    /// into [`Self::providers`] — a field that everywhere else holds fitness
-    /// provider slugs — so an OAuth-minted token reported `fitness:read` as one
-    /// of the athlete's connected providers.
-    ///
     /// `#[serde(default)]` so a token minted before this claim still decodes;
     /// it decodes to the empty grant, which the gate refuses for any tool that
     /// reads or writes. That is the intended direction for an expiring
@@ -231,6 +233,23 @@ pub struct Claims {
     /// a token minted before this claim existed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub client_id: Option<String>,
+    /// The OAuth grant a delegated access token was minted under: the
+    /// refresh-token family its authorization started, which every token
+    /// rotated from it keeps. One authorization is one family, so two
+    /// connections of the same application hold two. A support session an
+    /// admin's assistant starts is bound to it (carnet#1511). `None` on any
+    /// other token, and on one minted before this claim existed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grant_id: Option<String>,
+    /// The consent grant a delegated access token was minted under: the
+    /// `oauth_client_grants` row the athlete approved, which the code, every
+    /// refresh token of its family and every access token minted from them
+    /// name. `/mcp` and A2A admit the token only while that grant is live.
+    /// Not [`Self::grant_id`], the refresh family. `None` on any other token,
+    /// and on one minted before this claim existed, which is admitted as
+    /// before.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_grant_id: Option<String>,
 }
 
 impl Claims {
@@ -311,20 +330,28 @@ pub struct AuthResult {
     /// `None` for an API key, a personal MCP token or a channel link, which
     /// no registered client holds, and for a session no client signed in to.
     pub client_id: Option<String>,
+    /// The OAuth grant a delegated token was minted under
+    /// ([`Claims::grant_id`]); `None` for every other credential.
+    pub grant_id: Option<String>,
+    /// The consent grant a delegated token was minted under
+    /// ([`Claims::client_grant_id`]); `None` for every other credential, and
+    /// for a delegated token minted before the claim existed.
+    pub client_grant_id: Option<String>,
+    /// What a delegated token under a detailed consent grant may reach;
+    /// `None` for a plain grant and every other credential.
+    pub ceiling: Option<GrantCeiling>,
 }
 
 /// Authentication manager for `JWT` tokens and user sessions
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct AuthManager {
     token_expiry_hours: i64,
-}
-
-impl Clone for AuthManager {
-    fn clone(&self) -> Self {
-        Self {
-            token_expiry_hours: self.token_expiry_hours,
-        }
-    }
+    /// The authorization server's issuer identifier, its metadata's `issuer`
+    /// (`OAuth2ServerConfig::issuer_url`), which every `/oauth2/token` access
+    /// token carries as `iss` (RFC 9068 §2.2). `None` on a manager built
+    /// without it (the CLI, benches, tests), which mints and accepts only
+    /// [`PIERRE_MCP_SERVER`], the name sessions and impersonation tokens keep.
+    oauth_issuer: Option<String>,
 }
 
 impl AuthManager {
@@ -342,7 +369,45 @@ impl AuthManager {
     /// Create a new authentication manager
     #[must_use]
     pub const fn new(token_expiry_hours: i64) -> Self {
-        Self { token_expiry_hours }
+        Self {
+            token_expiry_hours,
+            oauth_issuer: None,
+        }
+    }
+
+    /// The manager minting OAuth access tokens under `issuer`, the
+    /// authorization server's metadata `issuer`, and accepting it on them.
+    #[must_use]
+    pub fn with_oauth_issuer(mut self, issuer: impl Into<String>) -> Self {
+        self.oauth_issuer = Some(issuer.into());
+        self
+    }
+
+    /// The `iss` an OAuth access token is minted with: the authorization
+    /// server's issuer, or [`PIERRE_MCP_SERVER`] on a manager without one.
+    fn oauth_token_issuer(&self) -> &str {
+        self.oauth_issuer.as_deref().unwrap_or(PIERRE_MCP_SERVER)
+    }
+
+    /// Every `iss` a token this manager validates may carry, before its kind
+    /// is read ([`Self::issuer_fits_kind`]).
+    fn accepted_issuers(&self) -> Vec<&str> {
+        iter::once(PIERRE_MCP_SERVER)
+            .chain(self.oauth_issuer.as_deref())
+            .collect()
+    }
+
+    /// Whether `claims.iss` is one the token's kind may carry. A session or an
+    /// impersonation token carries [`PIERRE_MCP_SERVER`] only. An OAuth
+    /// access token (a third party's delegation, or a client's own
+    /// client-credentials token) carries the authorization server's issuer,
+    /// or [`PIERRE_MCP_SERVER`] when an older binary minted it.
+    fn issuer_fits_kind(claims: &Claims) -> bool {
+        if claims.iss == PIERRE_MCP_SERVER {
+            return true;
+        }
+        claims.impersonator_id.is_none()
+            && (claims.is_delegated() || claims.client_credentials_client().is_some())
     }
 
     /// Generate a `JWT` token for a user with RS256 asymmetric signing
@@ -446,23 +511,24 @@ impl AuthManager {
             ));
         }
 
-        let now = Utc::now();
-        let expiry = now + Duration::hours(self.token_expiry_hours);
+        let now = Timestamp::now();
+        let expiry = now + Elapsed::hours(self.token_expiry_hours);
 
         let claims = Claims {
             sub: user.id.to_string(),
             email: user.email.clone(),
-            iat: now.timestamp(),
-            exp: expiry.timestamp(),
+            iat: now.epoch_seconds(),
+            exp: expiry.epoch_seconds(),
             iss: PIERRE_MCP_SERVER.to_owned(),
             jti: Uuid::new_v4().to_string(),
-            providers: user.available_providers(),
             scope: Self::session_scope(),
             aud: audience.to_owned(),
             active_tenant_id,
             impersonator_id: None,
             impersonation_session_id: None,
             client_id: client_id.map(str::to_owned),
+            grant_id: None,
+            client_grant_id: None,
         };
 
         // Get active RSA key from JWKS manager
@@ -496,7 +562,7 @@ impl AuthManager {
         active_tenant_id: Option<String>,
     ) -> AppResult<String> {
         // Impersonation tokens have shorter expiry (1 hour)
-        let expiry = (Utc::now() + Duration::hours(1)).timestamp();
+        let expiry = (Timestamp::now() + Elapsed::minutes(SESSION_MINUTES)).epoch_seconds();
         Self::impersonation_token(
             target_user,
             impersonator_id,
@@ -508,7 +574,7 @@ impl AuthManager {
     }
 
     /// Re-mint the impersonation token `grant` names for `target_user`, with
-    /// another active tenant: the same operator and session, and an expiry no
+    /// another active tenant: the same admin and session, and an expiry no
     /// later than the token it replaces, so a tenant switch never stretches an
     /// impersonation past its hour or out of its session's revocation.
     ///
@@ -522,8 +588,8 @@ impl AuthManager {
         jwks_manager: &JwksManager,
         active_tenant_id: Option<String>,
     ) -> AppResult<String> {
-        let expiry = (Utc::now() + Duration::hours(1))
-            .timestamp()
+        let expiry = (Timestamp::now() + Elapsed::minutes(SESSION_MINUTES))
+            .epoch_seconds()
             .min(grant.expires_at);
         Self::impersonation_token(
             target_user,
@@ -545,22 +611,23 @@ impl AuthManager {
         jwks_manager: &JwksManager,
         active_tenant_id: Option<String>,
     ) -> AppResult<String> {
-        let now = Utc::now();
+        let now = Timestamp::now();
         let claims = Claims {
             sub: target_user.id.to_string(),
             email: target_user.email.clone(),
-            iat: now.timestamp(),
+            iat: now.epoch_seconds(),
             exp: expiry,
             iss: PIERRE_MCP_SERVER.to_owned(),
             jti: Uuid::new_v4().to_string(),
-            providers: target_user.available_providers(),
             scope: Self::session_scope(),
             aud: MCP.to_owned(),
             active_tenant_id,
             impersonator_id: Some(impersonator_id.to_string()),
             impersonation_session_id: Some(session_id.to_owned()),
-            // An operator acting as the athlete, through no client.
+            // An admin acting as the athlete, through no client.
             client_id: None,
+            grant_id: None,
+            client_grant_id: None,
         };
 
         // Get active RSA key from JWKS manager
@@ -595,11 +662,7 @@ impl AuthManager {
         token: &str,
         jwks_manager: &JwksManager,
     ) -> AppResult<Claims> {
-        Self::require_session(Self::validate_token_for(
-            token,
-            jwks_manager,
-            &[OAUTH2_AUTHORIZE],
-        )?)
+        Self::require_session(self.validate_token_for(token, jwks_manager, &[OAUTH2_AUTHORIZE])?)
     }
 
     /// `claims` when they are a session ([`Claims::is_session`]); a token a
@@ -626,7 +689,7 @@ impl AuthManager {
     /// - JWKS manager doesn't have the specified key
     /// - Token claims cannot be deserialized
     pub fn validate_token(&self, token: &str, jwks_manager: &JwksManager) -> AppResult<Claims> {
-        Self::validate_token_for(token, jwks_manager, &[MCP])
+        self.validate_token_for(token, jwks_manager, &[MCP])
     }
 
     /// Validate a RS256 JWT token as the protected resource known by each of
@@ -643,11 +706,13 @@ impl AuthManager {
         jwks_manager: &JwksManager,
         resources: &[&str],
     ) -> AppResult<Claims> {
-        Self::validate_token_for(token, jwks_manager, &resource_audiences(resources))
+        self.validate_token_for(token, jwks_manager, &resource_audiences(resources))
     }
 
-    /// Validate a RS256 JWT token whose audience is one of `audiences`.
+    /// Validate a RS256 JWT token whose audience is one of `audiences`, and
+    /// whose issuer is one this manager accepts for the token's kind.
     fn validate_token_for(
+        &self,
         token: &str,
         jwks_manager: &JwksManager,
         audiences: &[&str],
@@ -673,7 +738,7 @@ impl AuthManager {
         let mut validation = Validation::new(Algorithm::RS256);
         validation.validate_exp = true;
         validation.set_audience(audiences);
-        validation.set_issuer(&[PIERRE_MCP_SERVER]);
+        validation.set_issuer(&self.accepted_issuers());
 
         let token_data = decode::<Claims>(token, &decoding_key, &validation).map_err(|e| {
             if is_presented_token_fault(e.kind()) {
@@ -684,16 +749,23 @@ impl AuthManager {
             AppError::auth_invalid(format!("JWT validation failed: {e}"))
         })?;
 
+        if !Self::issuer_fits_kind(&token_data.claims) {
+            warn!(issuer = %token_data.claims.iss, "A session token carries the OAuth issuer");
+            return Err(AppError::auth_invalid(
+                "JWT validation failed: InvalidIssuer",
+            ));
+        }
+
         Ok(token_data.claims)
     }
 
     /// Check if token is expired and return error if so
     fn check_token_expiry(
         claims: &Claims,
-        current_time: DateTime<Utc>,
-        expired_at: DateTime<Utc>,
+        current_time: Timestamp,
+        expired_at: Timestamp,
     ) -> Result<(), JwtValidationError> {
-        if current_time.timestamp() > claims.exp {
+        if current_time.epoch_seconds() > claims.exp {
             let time_since_expiry = current_time.signed_duration_since(expired_at);
             warn!(
                 "JWT token expired for user: {} - Expired {} ago at {}",
@@ -757,7 +829,7 @@ impl AuthManager {
         token: &str,
         jwks_manager: &JwksManager,
     ) -> Result<Claims, JwtValidationError> {
-        Self::validate_detailed_for(token, jwks_manager, &[MCP])
+        self.validate_detailed_for(token, jwks_manager, &[MCP])
     }
 
     /// Validate a RS256 JWT token as the protected resource known by each of
@@ -775,19 +847,20 @@ impl AuthManager {
         jwks_manager: &JwksManager,
         resources: &[&str],
     ) -> Result<Claims, JwtValidationError> {
-        Self::validate_detailed_for(token, jwks_manager, &resource_audiences(resources))
+        self.validate_detailed_for(token, jwks_manager, &resource_audiences(resources))
     }
 
     /// Validate a RS256 JWT token whose audience is one of `audiences`, with
     /// detailed error information.
     fn validate_detailed_for(
+        &self,
         token: &str,
         jwks_manager: &JwksManager,
         audiences: &[&str],
     ) -> Result<Claims, JwtValidationError> {
         debug!("Validating RS256 JWT token (length: {} chars)", token.len());
 
-        let claims = Self::decode_token_claims(token, jwks_manager, audiences)?;
+        let claims = self.decode_token_claims(token, jwks_manager, audiences)?;
         Self::validate_claims_expiry(&claims)?;
 
         debug!(
@@ -798,8 +871,10 @@ impl AuthManager {
     }
 
     /// Decode RS256 JWT token claims without expiration validation, accepting
-    /// a token whose audience is one of `audiences`
+    /// a token whose audience is one of `audiences` and whose issuer is one
+    /// this manager accepts for the token's kind
     fn decode_token_claims(
+        &self,
         token: &str,
         jwks_manager: &JwksManager,
         audiences: &[&str],
@@ -834,23 +909,34 @@ impl AuthManager {
         let mut validation_no_exp = Validation::new(Algorithm::RS256);
         validation_no_exp.validate_exp = false;
         validation_no_exp.set_audience(audiences);
-        validation_no_exp.set_issuer(&[PIERRE_MCP_SERVER]);
+        validation_no_exp.set_issuer(&self.accepted_issuers());
 
-        decode::<Claims>(token, &decoding_key, &validation_no_exp)
+        let claims = decode::<Claims>(token, &decoding_key, &validation_no_exp)
             .map(|token_data| token_data.claims)
-            .map_err(|e| Self::convert_jwt_error(&e))
+            .map_err(|e| Self::convert_jwt_error(&e))?;
+        if Self::issuer_fits_kind(&claims) {
+            Ok(claims)
+        } else {
+            warn!(issuer = %claims.iss, "A session token carries the OAuth issuer");
+            Err(JwtValidationError::TokenInvalid {
+                reason: "Token validation failed: InvalidIssuer".to_owned(),
+            })
+        }
     }
 
     /// Validate claims expiration with detailed logging
     fn validate_claims_expiry(claims: &Claims) -> Result<(), JwtValidationError> {
-        let current_time = Utc::now();
-        let expired_at = DateTime::from_timestamp(claims.exp, 0).unwrap_or_else(Utc::now);
+        let current_time = Timestamp::now();
+        let expired_at = Timestamp::from_epoch_seconds(claims.exp)
+            .ok()
+            .unwrap_or_else(Timestamp::now);
 
         debug!(
             "Token validation details - User: {}, Issued: {}, Expires: {}, Current: {}",
             claims.sub,
-            DateTime::from_timestamp(claims.iat, 0)
-                .map_or_else(|| "unknown".into(), |d| d.to_rfc3339()),
+            Timestamp::from_epoch_seconds(claims.iat)
+                .ok()
+                .map_or_else(|| "unknown".into(), Timestamp::to_rfc3339),
             expired_at.to_rfc3339(),
             current_time.to_rfc3339()
         );
@@ -873,14 +959,13 @@ impl AuthManager {
         jwks_manager: &JwksManager,
     ) -> AppResult<UserSession> {
         let jwt_token = self.generate_token(user, jwks_manager)?;
-        let expires_at = Utc::now() + Duration::hours(self.token_expiry_hours);
+        let expires_at = Timestamp::now() + Elapsed::hours(self.token_expiry_hours);
 
         Ok(UserSession {
             user_id: user.id,
             jwt_token: SecretString::from(jwt_token),
             expires_at,
             email: user.email.clone(),
-            available_providers: user.available_providers(),
         })
     }
 
@@ -893,7 +978,6 @@ impl AuthManager {
                     authenticated: true,
                     user_id: Some(user_id),
                     error: None,
-                    available_providers: claims.providers,
                 },
                 Err(e) => {
                     warn!(
@@ -906,7 +990,6 @@ impl AuthManager {
                         authenticated: false,
                         user_id: None,
                         error: Some("Invalid user ID in token".into()),
-                        available_providers: vec![],
                     }
                 }
             },
@@ -914,7 +997,6 @@ impl AuthManager {
                 authenticated: false,
                 user_id: None,
                 error: Some(jwt_error.to_string()),
-                available_providers: vec![],
             },
         }
     }
@@ -937,9 +1019,10 @@ impl AuthManager {
     ) -> AppResult<String> {
         // First validate the old token signature (even if expired)
         // This ensures the refresh request is legitimate
-        Self::decode_token_claims(old_token, jwks_manager, &[MCP]).map_err(|e| -> AppError {
-            AppError::auth_invalid(format!("Failed to validate old token for refresh: {e}"))
-        })?;
+        self.decode_token_claims(old_token, jwks_manager, &[MCP])
+            .map_err(|e| -> AppError {
+                AppError::auth_invalid(format!("Failed to validate old token for refresh: {e}"))
+            })?;
 
         // Generate new token - atomic counter ensures uniqueness
         self.generate_token(user, jwks_manager)
@@ -995,67 +1078,6 @@ impl AuthManager {
         }
     }
 
-    /// Generate OAuth access token with RS256 asymmetric signing
-    ///
-    /// This method uses RSA private key from JWKS manager for token signing.
-    /// Clients can verify tokens using the public key from /.well-known/jwks.json
-    ///
-    /// `grant` is what the authorization server decided: the registered
-    /// client the token is issued to, which it carries in
-    /// [`Claims::client_id`], its scope, and its audience.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    /// - JWT token generation fails
-    /// - System time is unavailable
-    /// - JWKS manager has no active key
-    pub fn generate_oauth_access_token(
-        &self,
-        jwks_manager: &JwksManager,
-        grant: &DelegatedGrant<'_>,
-        user_id: &Uuid,
-        providers: &[String],
-        active_tenant_id: Option<String>,
-    ) -> AppResult<String> {
-        let now = Utc::now();
-        let expiry = now + Duration::hours(OAUTH_ACCESS_TOKEN_EXPIRY_HOURS);
-
-        let claims = Claims {
-            sub: user_id.to_string(),
-            email: format!("oauth_{user_id}@system.local"),
-            iat: now.timestamp(),
-            exp: expiry.timestamp(),
-            iss: PIERRE_MCP_SERVER.to_owned(),
-            jti: Uuid::new_v4().to_string(),
-            // The athlete's connected fitness providers — what this field
-            // means everywhere else it is written. It used to receive `scopes`
-            // here, so a token minted at the token endpoint reported
-            // `fitness:read` as a connected provider; the grant now rides in
-            // `scope`, where a resource server can read it.
-            providers: providers.to_vec(),
-            scope: grant.scopes.join(" "),
-            aud: grant.audience.unwrap_or(MCP).to_owned(),
-            active_tenant_id,
-            impersonator_id: None,
-            impersonation_session_id: None,
-            client_id: Some(grant.client_id.to_owned()),
-        };
-
-        // Get active RSA key from JWKS manager
-        let active_key = jwks_manager.get_active_key()?;
-        let encoding_key = active_key.encoding_key()?;
-
-        // Create RS256 header with kid
-        let mut header = Header::new(Algorithm::RS256);
-        header.kid = Some(active_key.kid.clone());
-
-        let token = encode(&header, &claims, &encoding_key)
-            .map_err(|e| AppError::internal(format!("Failed to encode JWT token: {e}")))?;
-
-        Ok(token)
-    }
-
     /// Generate client credentials token with RS256 asymmetric signing
     ///
     /// This method uses RSA private key from JWKS manager for token signing.
@@ -1082,26 +1104,24 @@ impl AuthManager {
         active_tenant_id: Option<String>,
         audience: Option<&str>,
     ) -> AppResult<String> {
-        let now = Utc::now();
-        let expiry = now + Duration::hours(1); // 1 hour for client credentials
+        let now = Timestamp::now();
+        let expiry = now + Elapsed::hours(1); // 1 hour for client credentials
 
         let claims = Claims {
             sub: client_id.to_owned(),
             email: "client_credentials".to_owned(),
-            iat: now.timestamp(),
-            exp: expiry.timestamp(),
-            iss: PIERRE_MCP_SERVER.to_owned(),
+            iat: now.epoch_seconds(),
+            exp: expiry.epoch_seconds(),
+            iss: self.oauth_token_issuer().to_owned(),
             jti: Uuid::new_v4().to_string(),
-            // Empty because a client-credentials token belongs to a machine
-            // client, not to an athlete, so there are no connected providers to
-            // report — not a placeholder. The grant rides in `scope`.
-            providers: Vec::new(),
             scope: scopes.join(" "),
             aud: audience.unwrap_or(MCP).to_owned(),
             active_tenant_id,
             impersonator_id: None,
             impersonation_session_id: None,
             client_id: Some(client_id.to_owned()),
+            grant_id: None,
+            client_grant_id: None,
         };
 
         // Get active RSA key from JWKS manager

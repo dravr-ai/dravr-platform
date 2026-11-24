@@ -16,7 +16,7 @@ use async_trait::async_trait;
 use axum::body::{to_bytes, Body};
 use axum::http::{Request, StatusCode};
 use axum::Router;
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::ai_policy::SourcePolicy;
 use pierre_core::config::profiles::FitnessLevel;
 use pierre_core::errors::{AppError, AppResult};
@@ -45,6 +45,7 @@ use tower::ServiceExt;
 use uuid::Uuid;
 
 use crate::common::{create_test_server_resources, create_test_user_with_plan};
+use crate::helpers::garmin_consent::give_garmin_ai_consent;
 
 /// A provider whose terms let its data travel over every transport.
 const OPEN: &str = "openrunner";
@@ -149,7 +150,7 @@ fn long_run() -> Activity {
         "o-long",
         "Riverside Loop",
         SportType::Run,
-        Utc::now() - Duration::days(1),
+        Timestamp::now() - Elapsed::days(1),
         6_300,
         OPEN,
     )
@@ -164,7 +165,7 @@ fn relay_ride() -> Activity {
         "n-ride",
         "Col Climb",
         SportType::Ride,
-        Utc::now() - Duration::days(2),
+        Timestamp::now() - Elapsed::days(2),
         9_000,
         RELAY,
     )
@@ -289,7 +290,7 @@ async fn connect(resources: &ServerContext, athlete: &Rider, provider: &str) {
         provider.to_owned(),
         format!("{provider}-access"),
         Some(format!("{provider}-refresh")),
-        Some(Utc::now() + Duration::hours(6)),
+        Some(Timestamp::now() + Elapsed::hours(6)),
         None,
     );
     repos.oauth_tokens.upsert_token(&token).await.unwrap();
@@ -654,6 +655,10 @@ async fn verify_claim_never_rests_on_data_the_transport_withholds() {
     let rider = athlete(&resources).await;
     connect(&resources, &rider, RELAY).await;
     hold(&resources, &rider, RELAY, &[relay_ride()]).await;
+    // The relayed ride is a Garmin recording, which reaches a model only under
+    // the athlete's Garmin AI consent (carnet#1157): given, so what MCP and
+    // A2A miss below is the transport's doing alone.
+    give_garmin_ai_consent(&resources.common.repos, rider.user_id, rider.tenant).await;
     let claim = "Your ride two days ago covered 63 km.";
 
     // Over MCP and A2A the relay's ride is withheld before the layer sees
@@ -698,6 +703,8 @@ fn profile(user_id: Uuid) -> UserPhysiologicalProfile {
         d_prime_meters: None,
         threshold_provenance: ThresholdProvenance::default(),
         threshold_stated_on: ThresholdStatedOn::default(),
+        vo2_max_method: None,
+        vdot: None,
         anchor_provenance: AnchorProvenance::default(),
         transport_policy: TransportPolicy::AnyTransport,
         sex: None,
@@ -713,7 +720,7 @@ fn training_days() -> Vec<Activity> {
                 format!("o-day-{days_ago}"),
                 format!("Endurance {days_ago}"),
                 SportType::Ride,
-                Utc::now() - Duration::days(days_ago),
+                Timestamp::now() - Elapsed::days(days_ago),
                 3_600,
                 OPEN,
             )

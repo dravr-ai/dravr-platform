@@ -11,7 +11,7 @@
 
 use dravr_cageux::config::intelligence::IntelligenceConfig;
 use pierre_auth::config::oauth::provider_callback_uri;
-use pierre_core::config::fitness::FitnessConfig;
+use pierre_core::config::fitness::{FitnessConfig, WeatherApiConfig};
 use pierre_core::constants::limits::DEFAULT_ACTIVITIES_LIMIT;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::redaction::redact_url;
@@ -48,7 +48,7 @@ pub use crate::logging::LoggingConfig;
 // MCP
 pub use crate::mcp::{AppBehaviorConfig, McpConfig, ProtocolConfig, TokioRuntimeConfig};
 // Network
-pub use crate::network::{CorsConfig, HttpClientConfig, SseBufferStrategy, SseConfig, TlsConfig};
+pub use crate::network::{CorsConfig, HttpClientConfig, SessionCookieConfig, TlsConfig};
 // OAuth (canonical types live in pierre-auth)
 pub use pierre_auth::config::oauth::{
     default_provider, FirebaseConfig, OAuth2ServerConfig, OAuthConfig, OAuthProviderConfig,
@@ -64,7 +64,13 @@ pub use dravr_cageux::config::intelligence::TrainingZonesConfig;
 pub use crate::types::{Environment, LlmProviderType, LogLevel};
 
 /// Server configuration for HTTP and MCP protocols
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+///
+/// A deployment builds it with [`Self::from_env`]. [`Self::default`] is a
+/// configuration no deployment runs, for a caller that builds one by hand:
+/// its weather vendors are asked at [`Self::REFUSED_ORIGIN`] with the
+/// activity list's temperature backfill off, so a context built on it
+/// reaches no weather host.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServerConfig {
     /// Server port (handles both MCP and HTTP)
     pub http_port: u16,
@@ -96,8 +102,8 @@ pub struct ServerConfig {
     pub app_behavior: AppBehaviorConfig,
     /// HTTP client timeout configuration
     pub http_client: HttpClientConfig,
-    /// SSE connection management configuration
-    pub sse: SseConfig,
+    /// The OAuth session cookie's lifetime
+    pub session_cookie: SessionCookieConfig,
     /// Server host
     pub host: String,
     /// Base URL for OAuth and external URLs
@@ -143,7 +149,7 @@ pub struct ServerConfig {
     /// settings view, the health probe — is handed this value; nothing reads
     /// the variable again per request.
     pub llm_chain: LlmChain,
-    /// Request-path time bounds the operator retuned
+    /// Request-path time bounds the admin retuned
     pub timeouts: ServerTimeouts,
     /// How a chat turn sends its tool catalogue
     pub chat_tools: ChatToolSettings,
@@ -174,11 +180,81 @@ pub struct ServerConfig {
     /// writes that document (`set_fitness_config`, the fitness configuration
     /// routes), so an origin read from it would let them aim the server's
     /// requests at a host of their choosing.
-    #[serde(default)]
+    ///
+    /// [`ServerConfig::default`], and a serialized configuration that names
+    /// none, carry [`unloaded_fitness`].
+    #[serde(default = "unloaded_fitness")]
     pub fitness: FitnessConfig,
 }
 
+/// The fitness configuration of a [`ServerConfig`] no deployment loaded:
+/// [`FitnessConfig::default`] with every weather vendor asked at
+/// [`ServerConfig::REFUSED_ORIGIN`] and the activity list's temperature
+/// backfill off.
+///
+/// [`FitnessConfig::default`] names the vendors' own hosts, as a deployment
+/// runs, so a configuration built by hand would otherwise reach them from
+/// whatever test or tool built it (carnet#1626).
+fn unloaded_fitness() -> FitnessConfig {
+    FitnessConfig {
+        weather_api: Some(WeatherApiConfig {
+            base_url: ServerConfig::REFUSED_ORIGIN.to_owned(),
+            enabled: false,
+        }),
+        ..FitnessConfig::default()
+    }
+}
+
+impl Default for ServerConfig {
+    fn default() -> Self {
+        Self {
+            http_port: u16::default(),
+            frontend_url: None,
+            log_level: LogLevel::default(),
+            logging: LoggingConfig::default(),
+            database: DatabaseConfig::default(),
+            auth: AuthConfig::default(),
+            firebase: FirebaseConfig::default(),
+            oauth: OAuthConfig::default(),
+            oauth2_server: OAuth2ServerConfig::default(),
+            security: SecurityConfig::default(),
+            external_services: ExternalServicesConfig::default(),
+            usda_api_key: None,
+            app_behavior: AppBehaviorConfig::default(),
+            http_client: HttpClientConfig::default(),
+            session_cookie: SessionCookieConfig::default(),
+            host: String::new(),
+            base_url: String::new(),
+            website_base_url: String::new(),
+            mcp: McpConfig::default(),
+            cors: CorsConfig::default(),
+            cache: CacheConfig::default(),
+            rate_limiting: RateLimitConfig::default(),
+            sleep_tool_params: SleepToolParamsConfig::default(),
+            activity_fetch_limit: usize::default(),
+            goal_management: GoalManagementConfig::default(),
+            training_zones: TrainingZonesConfig::default(),
+            tokio_runtime: TokioRuntimeConfig::default(),
+            monitoring: MonitoringConfig::default(),
+            resend_api_key: None,
+            resend_from_email: None,
+            llm_chain: LlmChain::default(),
+            timeouts: ServerTimeouts::default(),
+            chat_tools: ChatToolSettings::default(),
+            webhooks: WebhookSecrets::default(),
+            channels: ChannelCredentials::default(),
+            coach_home: CoachHomeConfig::default(),
+            fitness: unloaded_fitness(),
+        }
+    }
+}
+
 impl ServerConfig {
+    /// An origin no request reaches: nothing listens on port 1 of the
+    /// loopback, so a connection there is refused at once and nothing is
+    /// sent. [`Self::default`] asks the weather vendors here.
+    pub const REFUSED_ORIGIN: &'static str = "http://127.0.0.1:1";
+
     /// Load configuration from environment variables
     ///
     /// # Errors
@@ -210,7 +286,7 @@ impl ServerConfig {
             usda_api_key: usda_key_from(env::var("USDA_API_KEY").ok().as_deref()),
             app_behavior: AppBehaviorConfig::from_env()?,
             http_client: HttpClientConfig::from_env(),
-            sse: SseConfig::from_env()?,
+            session_cookie: SessionCookieConfig::from_env()?,
             host: env::var("HOST").unwrap_or_else(|_| "localhost".to_owned()),
             // Unset, the server is reached on its own port on this host.
             base_url: env::var("BASE_URL")
@@ -315,7 +391,7 @@ impl ServerConfig {
         // snapshot is owned by `ServerContext::cageux_config_registry`,
         // which applies the same layered stack plus the contremaitre YAML
         // overlay on startup; this call exists purely so startup fails fast
-        // if an operator has supplied a bad env override.
+        // if an admin has supplied a bad env override.
         let intelligence_config = IntelligenceConfig::load()
             .map_err(|e| AppError::internal(format!("Intelligence config load failed: {e}")))?;
         info!(
@@ -387,12 +463,6 @@ impl ServerConfig {
         &self.external_services.strava_api
     }
 
-    /// Get Garmin API configuration
-    #[must_use]
-    pub const fn garmin_api_config(&self) -> &GarminApiConfig {
-        &self.external_services.garmin_api
-    }
-
     /// Check if CI mode is enabled
     #[must_use]
     pub const fn is_ci_mode(&self) -> bool {
@@ -438,7 +508,7 @@ impl ServerConfig {
 /// `BASE_URL` on one of those hosts is reachable only while that tunnel is up,
 /// so every OAuth callback and provider reconnect link built from it expires
 /// with the process — which is worth saying out loud at startup. A durable
-/// host, whether a deployment or an operator's own tunnel, is not this.
+/// host, whether a deployment or an admin's own tunnel, is not this.
 ///
 /// The match is on the host's suffix, matching `is_ephemeral_tunnel_base_url`
 /// in `bin/tunnel-env.sh` so the startup log and the script that resets
@@ -499,7 +569,7 @@ fn usda_key_from(value: Option<&str>) -> Option<SecretString> {
 /// process exits, so a `BASE_URL` still naming one is reported at WARN and is
 /// greppable in `logs/pierre-server.log` instead of surfacing only as "server
 /// can't be found" in a browser. The value goes through the canonical
-/// log-boundary redactor: `BASE_URL` is operator-set and the URL grammar admits
+/// log-boundary redactor: `BASE_URL` is admin-set and the URL grammar admits
 /// `https://user:pass@host`.
 pub fn log_effective_base_url(base_url: &str) {
     if is_ephemeral_tunnel_base_url(base_url) {
@@ -518,8 +588,8 @@ pub fn log_effective_base_url(base_url: &str) {
 #[cfg(test)]
 mod tests {
     use super::{
-        usda_key_from, website_base_url_from, DatabaseUrl, OAuthProviderConfig, ServerConfig,
-        DEFAULT_WEBSITE_BASE_URL,
+        usda_key_from, website_base_url_from, DatabaseUrl, FitnessConfig, OAuthProviderConfig,
+        ServerConfig, WeatherApiConfig, DEFAULT_WEBSITE_BASE_URL,
     };
     use secrecy::{ExposeSecret, SecretString};
 
@@ -671,5 +741,50 @@ mod tests {
         assert_eq!(website_base_url_from(None), DEFAULT_WEBSITE_BASE_URL);
         assert_eq!(website_base_url_from(Some("  ")), DEFAULT_WEBSITE_BASE_URL);
         assert_eq!(website_base_url_from(Some("/")), DEFAULT_WEBSITE_BASE_URL);
+    }
+
+    #[test]
+    fn a_configuration_built_by_hand_asks_no_weather_vendor() {
+        let weather_api = ServerConfig::default()
+            .fitness
+            .weather_api
+            .expect("a hand-built configuration names where weather is asked");
+        assert_eq!(
+            weather_api.base_url,
+            ServerConfig::REFUSED_ORIGIN,
+            "bug: a hand-built configuration asks a weather vendor"
+        );
+        assert!(
+            !weather_api.enabled,
+            "a hand-built configuration backfills no temperature"
+        );
+
+        // One that names no fitness configuration reads the same.
+        let mut serialized = serde_json::to_value(ServerConfig::default()).unwrap();
+        serialized.as_object_mut().unwrap().remove("fitness");
+        let read: ServerConfig = serde_json::from_value(serialized).unwrap();
+        let read_weather = read.fitness.weather_api.unwrap();
+        assert_eq!(
+            read_weather.base_url,
+            ServerConfig::REFUSED_ORIGIN,
+            "bug: a configuration naming no fitness section asks a weather vendor"
+        );
+        assert!(
+            !read_weather.enabled,
+            "bug: a configuration naming no fitness section backfills temperatures"
+        );
+
+        // The fitness configuration a deployment loads starts from its own
+        // default, the vendors' hosts, never from this one.
+        let deployment = FitnessConfig::default().weather_api.unwrap();
+        assert_eq!(
+            deployment.base_url,
+            WeatherApiConfig::DEFAULT_BASE_URL,
+            "bug: a deployment's fitness default no longer names the vendors' hosts"
+        );
+        assert!(
+            deployment.enabled,
+            "bug: a deployment's fitness default turned the temperature backfill off"
+        );
     }
 }

@@ -17,12 +17,10 @@
 // (`messaging_channel_configs`, `messaging_messages`,
 // `messaging_delivery_receipts`, `messaging_outbound_queue.tenant_id`) the
 // tenant binds as its hyphenated string. Timestamps bind and read as
-// `DateTime<Utc>` on both: `TIMESTAMPTZ` on Postgres, and on `SQLite` the
+// `Timestamp` on both: `TIMESTAMPTZ` on Postgres, and on `SQLite` the
 // RFC 3339 text these tables already hold. `TRUE`/`FALSE`, `ON CONFLICT …
 // DO NOTHING` and `NULLS FIRST` are accepted by both engines.
 
-/// The full channel-config projection, secrets included: what the webhook
-/// authenticator and the per-tenant read need.
 macro_rules! channel_config_columns {
     () => {
         "id, tenant_id, channel_type, api_key, api_secret, webhook_secret, \

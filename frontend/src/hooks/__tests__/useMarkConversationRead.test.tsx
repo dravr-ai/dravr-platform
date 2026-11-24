@@ -11,7 +11,7 @@ import type { ReactNode } from 'react';
 import type { Conversation } from '@pierre/shared-types';
 import { useMarkConversationRead } from '../useMarkConversationRead';
 import { cachedConversations, useConversationList } from '../useConversationList';
-import { QUERY_KEYS } from '../../constants/queryKeys';
+import { QUERY_KEYS } from '@pierre/shared-constants';
 
 const getConversations = vi.fn();
 const markConversationRead = vi.fn();

@@ -28,7 +28,7 @@ mod bot_links_settings {
     use axum::response::IntoResponse;
     use axum::routing::get;
     use axum::{Json, Router};
-    use chrono::{Duration, Utc};
+    use dravr_tronc::dates::{Elapsed, Timestamp};
     use hmac::{Hmac, Mac};
     use pierre_config::environment::ChannelCredentials;
     use pierre_core::models::{TenantId, UserStatus};
@@ -293,7 +293,7 @@ mod bot_links_settings {
             channel_user_id: Some(&tg_sender_str),
             sender_name: Some("Athlete"),
             app_return_uri: None,
-            expires_at: &(Utc::now() + Duration::minutes(10)).to_rfc3339(),
+            expires_at: &(Timestamp::now() + Elapsed::minutes(10)).to_rfc3339(),
         })
         .await
         .unwrap();
@@ -464,7 +464,7 @@ mod bot_links_settings {
                     channel_user_id: Some(chat),
                     sender_name: Some("Page Athlete"),
                     app_return_uri: None,
-                    expires_at: &(Utc::now() + Duration::minutes(10)).to_rfc3339(),
+                    expires_at: &(Timestamp::now() + Elapsed::minutes(10)).to_rfc3339(),
                 })
                 .await
                 .unwrap();

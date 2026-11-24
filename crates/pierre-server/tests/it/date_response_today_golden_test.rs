@@ -159,6 +159,8 @@ fn planned(date: String) -> PlannedDay {
         template_source: None,
         template_preset: None,
         envelope: None,
+        coach_original: None,
+        coach_added: false,
     }
 }
 

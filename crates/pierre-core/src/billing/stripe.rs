@@ -31,11 +31,11 @@ use std::collections::HashMap;
 use std::env;
 
 use async_trait::async_trait;
-use chrono::{DateTime, TimeZone, Utc};
 use dravr_stripe::{
     CheckoutParams, ItemQuantityChange, PortalParams, StripeClient, StripeError, StripeEvent,
     StripeEventData, SubscriptionEvent,
 };
+use dravr_tronc::dates::Timestamp;
 use tracing::info;
 
 use crate::billing::{
@@ -351,6 +351,6 @@ fn map_invoice(inv: dravr_stripe::StripeInvoice) -> Invoice {
 }
 
 /// Convert a Unix epoch (seconds) to a UTC datetime, dropping invalid values.
-fn unix_to_datetime(epoch: i64) -> Option<DateTime<Utc>> {
-    Utc.timestamp_opt(epoch, 0).single()
+fn unix_to_datetime(epoch: i64) -> Option<Timestamp> {
+    Timestamp::from_epoch_seconds(epoch).ok()
 }

@@ -22,12 +22,14 @@ interface ButtonProps {
   fullWidth?: boolean;
   style?: ViewStyle;
   textStyle?: TextStyle;
+  /** What the button waits for or does, read after its name (a Save that waits says why). */
+  accessibilityHint?: string;
   testID?: string;
 }
 
 // 44 is the thumb's floor and the only height; radius 8 is the ladder's step
 // for buttons and fields. A resting button casts no shadow — hairlines lift,
-// shadows float (DESIGN.md §4).
+// shadows float (DESIGN.md "The Hairlines-Lift Rule").
 const baseClasses = 'flex-row items-center justify-center rounded-lg h-11 px-6';
 
 const variantClasses: Record<ButtonVariant, string> = {
@@ -56,6 +58,7 @@ export function Button({
   fullWidth = false,
   style,
   textStyle,
+  accessibilityHint,
   testID,
 }: ButtonProps) {
   const colors = useThemeColors();
@@ -91,6 +94,7 @@ export function Button({
       onPress={onPress}
       disabled={isDisabled}
       activeOpacity={0.7}
+      accessibilityHint={accessibilityHint}
       testID={testID}
     >
       {loading ? (

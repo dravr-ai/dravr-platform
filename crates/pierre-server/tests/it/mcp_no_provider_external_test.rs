@@ -61,7 +61,6 @@ fn token_with_scopes(
                 audience: None,
             },
             &user_id,
-            &[],
             Some(tenant_id.to_owned()),
         )
         .unwrap();

@@ -7,7 +7,7 @@
 import { queryOptions } from '@tanstack/react-query';
 import { dashboardApi, adminUsageApi } from '../services/api';
 import type { AdminTimeRange } from '../hooks/useAdminTimeRange';
-import { QUERY_KEYS } from '../constants/queryKeys';
+import { QUERY_KEYS } from '@pierre/shared-constants';
 import type { AnalyticsData } from '../types/chart';
 import type { LlmConsumptionResponse, ToolUsageResponse } from '../services/api/usage';
 
@@ -30,7 +30,7 @@ export function llmConsumptionQuery(days: AdminTimeRange, tenantId?: string) {
 /** Per-tool run counts and latency for the Tool Usage panel. */
 export function toolUsageQuery(days: AdminTimeRange, tenantId?: string) {
   return queryOptions<ToolUsageResponse>({
-    queryKey: ['admin', 'tool-usage', days, tenantId],
+    queryKey: QUERY_KEYS.adminScoped.toolUsage(days, tenantId),
     queryFn: () => adminUsageApi.getAdminToolUsage(days, tenantId),
     // Degrade gracefully — never propagate to the error boundary (which would
     // blank the whole Analytics tab if this endpoint is unavailable).

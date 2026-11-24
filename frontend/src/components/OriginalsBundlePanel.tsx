@@ -6,6 +6,7 @@
 
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { formatDate } from '@pierre/chat-utils';
 import { useTranslation } from '@pierre/i18n';
 import { QUERY_KEYS } from '@pierre/shared-constants';
 import {
@@ -64,7 +65,7 @@ export default function OriginalsBundlePanel() {
   });
   const current = latest.data ?? null;
   const followed = useQuery({
-    queryKey: ['originals-bundle', current?.bundleId],
+    queryKey: QUERY_KEYS.account.originalsBundle(current?.bundleId),
     queryFn: async () => remember(await originalsApi.getOriginals(current!.bundleId)),
     enabled: originalsStillBuilding(current),
     refetchInterval: (query) =>
@@ -91,7 +92,7 @@ export default function OriginalsBundlePanel() {
 
   const sealOk = sealPassphraseAccepted(passphrase);
   const building = originalsStillBuilding(bundle);
-  const expires = bundle ? new Date(bundle.expiresAt).toLocaleDateString(i18n.language) : '';
+  const expires = bundle ? formatDate(bundle.expiresAt, i18n.language) : '';
 
   return (
     <div className="mt-6 border-t border-outline-variant pt-4" data-testid="originals-bundle-panel">

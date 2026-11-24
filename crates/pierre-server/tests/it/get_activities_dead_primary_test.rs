@@ -20,7 +20,7 @@
 
 use std::sync::Arc;
 
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use dravr_tronc::mcp::tool::{McpTool, ToolContext};
 use pierre_core::models::{ActivityBuilder, ConnectionType, ReauthMark, SportType};
 use pierre_tool_runtime::implementations::data::GetActivitiesTool;
@@ -62,7 +62,7 @@ async fn a_dead_primary_serves_the_window_its_healthy_sibling_holds() {
         "strava-ride-1".to_owned(),
         "Sortie longue".to_owned(),
         SportType::Ride,
-        Utc::now() - Duration::days(2),
+        Timestamp::now() - Elapsed::days(2),
         7_200,
         "strava".to_owned(),
     )
@@ -72,7 +72,7 @@ async fn a_dead_primary_serves_the_window_its_healthy_sibling_holds() {
         "strava-run-1".to_owned(),
         "Tempo".to_owned(),
         SportType::Run,
-        Utc::now() - Duration::days(4),
+        Timestamp::now() - Elapsed::days(4),
         3_600,
         "strava".to_owned(),
     )
@@ -194,7 +194,7 @@ async fn a_pinned_dead_provider_is_never_substituted_by_a_sibling() {
         "strava-ride-1".to_owned(),
         "Sortie longue".to_owned(),
         SportType::Ride,
-        Utc::now() - Duration::days(2),
+        Timestamp::now() - Elapsed::days(2),
         7_200,
         "strava".to_owned(),
     )
@@ -336,7 +336,7 @@ async fn a_sibling_flagged_for_reconnect_still_serves_its_cached_rides() {
         "strava-ride-1".to_owned(),
         "Sortie longue".to_owned(),
         SportType::Ride,
-        Utc::now() - Duration::days(2),
+        Timestamp::now() - Elapsed::days(2),
         7_200,
         "strava".to_owned(),
     )
@@ -358,7 +358,7 @@ async fn a_sibling_flagged_for_reconnect_still_serves_its_cached_rides() {
             tenant,
             "strava",
             Some("session_expired"),
-            Utc::now(),
+            Timestamp::now(),
         )
         .await
         .unwrap();

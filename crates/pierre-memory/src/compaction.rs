@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::transport::TransportPolicy;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -39,7 +39,7 @@ pub struct CompactionBlock {
     /// Inclusive ID of the last message this block replaces.
     pub last_message_id: String,
     /// When the block was generated.
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
     /// Where this row may be served (carnet#769): first-party-only when what it
     /// was derived from was. Rows written before the stamp read as unstamped.
     #[serde(default, skip_serializing)]
@@ -49,6 +49,11 @@ pub struct CompactionBlock {
     /// goes with the member's account. `None` for a summary about nobody.
     #[serde(default, skip_serializing)]
     pub about_user_id: Option<Uuid>,
+    /// The AI-consent keys of the provider data the summarized rows were drawn
+    /// from (carnet#1157): once the athlete withdraws one, no prompt replays
+    /// the summary. Empty for rows written before the column.
+    #[serde(default, skip_serializing)]
+    pub ai_consent_sources: Vec<String>,
 }
 
 impl CompactionBlock {

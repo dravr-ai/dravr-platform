@@ -31,16 +31,14 @@ import { useThemeColors } from '../constants/theme';
  *
  * Both connections settle the seat off their connect request, so while one is
  * connected the panel reads the server again for a short while — the session
- * for `manages_roster`, the request, the cards for the account role
- * (`onReloadProviders`) — before saying a connection produced nothing.
+ * for `manages_roster`, the request, the cards for the account role — before
+ * saying a connection produced nothing.
  */
 export function CoachSeatPanel({
   providers,
-  onReloadProviders,
   onDone,
 }: {
   providers: readonly CoachSeatProvider[];
-  onReloadProviders: () => void;
   onDone: () => void;
 }) {
   const { t, language } = useTranslation();
@@ -56,14 +54,13 @@ export function CoachSeatPanel({
     onSuccess: (data) => queryClient.setQueryData(QUERY_KEYS.user.coachAccessRequest(), data),
   });
 
-  // The one seat probe (carnet#1529): the session, the request and — through
-  // `onReloadProviders`, since the connect screen holds its cards outside the
-  // query cache — the cards for the account role, read again for the check
-  // window. A platform there on arrival opens it too: the way back from a
-  // sign-in may remount the screen.
+  // The one seat probe (carnet#1529): the session, the request and the cards
+  // for the account role (the provider-status key the connect screen reads
+  // them on), read again for the check window. A platform there on arrival
+  // opens it too: the way back from a sign-in may remount the screen.
   const probe = useSeatAfterPlatformLink(
     providers.filter((p) => p.connected).map((p) => p.provider),
-    { fromFirstRead: true, onRead: onReloadProviders },
+    { fromFirstRead: true },
   );
   const seat = coachSeatStepState({
     managesRoster,

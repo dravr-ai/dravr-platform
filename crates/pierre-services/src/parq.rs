@@ -26,7 +26,7 @@
 //! athlete's own language, and a flag records the id — the same value on
 //! every surface and in every locale.
 
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::errors::AppResult;
 use pierre_core::models::TenantId;
 use pierre_core::transport::TransportPolicy;
@@ -82,7 +82,7 @@ pub async fn persist_parq_flags<R>(
 where
     R: HarnessMemoryRepository + ?Sized,
 {
-    let valid_until = Some(Utc::now() + Duration::days(PARQ_VALID_DAYS));
+    let valid_until = Some(Timestamp::now() + Elapsed::days(PARQ_VALID_DAYS));
     let mut raised = 0u64;
     for id in yes_question_ids {
         if !is_parq_question(id) {
@@ -104,6 +104,7 @@ where
                 source_msg_id: None,
                 // The athlete's own answers, derived from no provider data.
                 transport_policy: TransportPolicy::AnyTransport,
+                ai_consent_sources: &[],
             })
             .await?;
         delete_parq_flag(repo, tenant_id, user_id, id, Some(&flag.id)).await?;

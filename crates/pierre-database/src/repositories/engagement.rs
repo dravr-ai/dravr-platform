@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! What the admin Engagement screen counts, read in the scope the operator
+//! What the admin Engagement screen counts, read in the scope the admin
 //! reads it in.
 //!
 //! A tenant's members are its `tenant_users` rows, the membership
@@ -14,7 +14,7 @@
 use std::collections::HashMap;
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::admin::scope::AdminScope;
 use pierre_core::errors::AppResult;
 
@@ -23,10 +23,7 @@ use pierre_core::errors::AppResult;
 pub trait EngagementRepository: Send + Sync {
     /// The last activity of every user in scope: the tenant's members, or
     /// every user. `None` for a user never seen active.
-    async fn last_active_in_scope(
-        &self,
-        scope: AdminScope,
-    ) -> AppResult<Vec<Option<DateTime<Utc>>>>;
+    async fn last_active_in_scope(&self, scope: AdminScope) -> AppResult<Vec<Option<Timestamp>>>;
 
     /// Uses per agent id, summed over the scope's users, all time.
     async fn agent_uses_in_scope(&self, scope: AdminScope) -> AppResult<HashMap<String, u32>>;
@@ -48,8 +45,8 @@ pub(crate) const PUBLISHED_LISTINGS_SQL: &str = "SELECT CAST(COUNT(*) AS BIGINT)
      FROM store_listings WHERE publish_status = 'published' AND ($1 IS NULL OR tenant_id = $1)";
 
 /// Emit [`EngagementRepository`] for one backend type. The invoking shell
-/// brings into scope `AdminScope`, `AppError`, `AppResult`, `DateTime`,
-/// `HashMap`, `Row`, `Utc`, [`EngagementRepository`], the statements above and
+/// brings into scope `AdminScope`, `AppError`, `AppResult`, `Timestamp`,
+/// `HashMap`, `Row`, [`EngagementRepository`], the statements above and
 /// the agents' `AGENT_USE_TOTALS_SQL`.
 macro_rules! impl_engagement_repository {
     ($ty:ty) => {
@@ -58,7 +55,7 @@ macro_rules! impl_engagement_repository {
             async fn last_active_in_scope(
                 &self,
                 scope: AdminScope,
-            ) -> AppResult<Vec<Option<DateTime<Utc>>>> {
+            ) -> AppResult<Vec<Option<Timestamp>>> {
                 sqlx::query(USERS_LAST_ACTIVE_SQL)
                     .bind(scope.tenant_filter())
                     .fetch_all(self.pool())
@@ -66,7 +63,7 @@ macro_rules! impl_engagement_repository {
                     .map_err(|e| AppError::database(format!("Failed to read last activity: {e}")))?
                     .iter()
                     .map(|row| {
-                        row.try_get::<Option<DateTime<Utc>>, _>("last_active")
+                        row.try_get::<Option<Timestamp>, _>("last_active")
                             .map_err(|e| AppError::database(format!("users last_active: {e}")))
                     })
                     .collect()

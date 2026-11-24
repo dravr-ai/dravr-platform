@@ -37,7 +37,7 @@ describe('AboutScreen', () => {
     }
   });
 
-  it('names no model: which one answers is an operator reading, never an athlete one', async () => {
+  it('names no model: which one answers is an admin reading, never an athlete one', async () => {
     const { getByTestId, queryByTestId, queryByText } = renderAbout();
     await waitFor(() => {
       expect(getByTestId('about-screen')).toBeTruthy();

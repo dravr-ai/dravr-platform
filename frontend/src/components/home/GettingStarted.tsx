@@ -78,7 +78,7 @@ function useRowHints(enabled: boolean): (row: GettingStartedRow) => ReactNode {
   // The chat-app sheet and Settings read the same two entries.
   const { channels } = useAvailableChannels({ enabled });
   const links = useQuery({
-    queryKey: ['messaging-links'],
+    queryKey: QUERY_KEYS.messaging.links(),
     queryFn: () => messagingLinkApi.listLinks(),
     enabled,
   });

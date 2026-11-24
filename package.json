@@ -22,5 +22,8 @@
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "@types/react": "~19.2.10"
+  },
+  "patchedDependencies": {
+    "@react-native-cookies/cookies@6.2.1": "patches/@react-native-cookies%2Fcookies@6.2.1.patch"
   }
 }

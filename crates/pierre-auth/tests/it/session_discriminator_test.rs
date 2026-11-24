@@ -136,7 +136,6 @@ fn delegated(scopes: &[OAuthScope]) -> String {
                 audience: None,
             },
             &Uuid::new_v4(),
-            &[],
             None,
         )
         .unwrap()

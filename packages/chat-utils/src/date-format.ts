@@ -7,7 +7,7 @@
  *
  * Every client surface that shows when something was saved reads it here —
  * memory facts, verdicts, group invites and the admin coach and user tables.
- * Hand-written copies hard-coded `'en-US'`, so an operator reading French saw
+ * Hand-written copies hard-coded `'en-US'`, so an admin reading French saw
  * English dates on every admin table.
  *
  * An unparseable stamp comes back verbatim rather than as `Invalid Date`: the

@@ -222,48 +222,18 @@ impl LlmCallRecorder for UsageRepoCallRecorder {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
-    use std::fmt::Debug;
-    use std::sync::{Mutex, PoisonError};
-
     use pierre_test_support::db::create_test_db;
-    use tracing::callsite::rebuild_interest_cache;
-    use tracing::field::{Field, Visit};
-    use tracing::subscriber::set_default;
-    use tracing::{Event, Subscriber};
-    use tracing_subscriber::layer::{Context, Layer, SubscriberExt};
-    use tracing_subscriber::Registry;
+    use pierre_test_support::log_capture::{capture_events, CapturedEvent, CapturedLog};
 
     use super::*;
     use crate::pricing::cost_for_record;
 
-    /// The fields of every `llm call cost` event logged while installed.
-    #[derive(Clone, Default)]
-    struct CostLines(Arc<Mutex<Vec<BTreeMap<String, String>>>>);
-
-    struct FieldText<'a>(&'a mut BTreeMap<String, String>);
-
-    impl Visit for FieldText<'_> {
-        fn record_debug(&mut self, field: &Field, value: &dyn Debug) {
-            self.0.insert(field.name().to_owned(), format!("{value:?}"));
-        }
-
-        fn record_str(&mut self, field: &Field, value: &str) {
-            self.0.insert(field.name().to_owned(), value.to_owned());
-        }
-    }
-
-    impl<S: Subscriber> Layer<S> for CostLines {
-        fn on_event(&self, event: &Event<'_>, _ctx: Context<'_, S>) {
-            let mut fields = BTreeMap::new();
-            event.record(&mut FieldText(&mut fields));
-            if fields.get("message").map(String::as_str) == Some("llm call cost") {
-                self.0
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .push(fields);
-            }
-        }
+    /// The `llm call cost` lines the capture saw, leaving none behind.
+    fn cost_lines(log: &CapturedLog) -> Vec<CapturedEvent> {
+        log.drain()
+            .into_iter()
+            .filter(|event| event.message() == Some("llm call cost"))
+            .collect()
     }
 
     /// The cost line names the turn, the call and the cache split it was
@@ -283,9 +253,7 @@ mod tests {
             turn_id,
             "chat",
         );
-        let lines = CostLines::default();
-        let _guard = set_default(Registry::default().with(lines.clone()));
-        rebuild_interest_cache();
+        let (log, _guard) = capture_events();
 
         recorder.record(LlmCallRecord {
             provider: "anthropic".to_owned(),
@@ -305,15 +273,11 @@ mod tests {
         writes.close();
         writes.wait().await;
 
-        let lines = lines
-            .0
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .clone();
+        let lines = cost_lines(&log);
         let [line] = lines.as_slice() else {
             panic!("expected one cost line, got {lines:?}"); // Safe: test assertion
         };
-        let field = |name: &str| line.get(name).map(String::as_str);
+        let field = |name: &str| line.field(name);
         let expected = [
             ("provider", "anthropic".to_owned()),
             ("model", "claude-opus-5-5".to_owned()),
@@ -384,9 +348,7 @@ mod tests {
             ConversationTurnId::new(),
             "chat",
         );
-        let lines = CostLines::default();
-        let _guard = set_default(Registry::default().with(lines.clone()));
-        rebuild_interest_cache();
+        let (log, _guard) = capture_events();
         recorder.record(LlmCallRecord {
             provider: "anthropic".to_owned(),
             model: "claude-opus-5-5".to_owned(),
@@ -404,12 +366,12 @@ mod tests {
         });
         writes.close();
         writes.wait().await;
-        let lines = lines.0.lock().unwrap_or_else(PoisonError::into_inner);
+        let lines = cost_lines(&log);
         let [line] = lines.as_slice() else {
             panic!("expected one cost line, got {lines:?}"); // Safe: test assertion
         };
         assert!(
-            !line.contains_key("conversation_id"),
+            !line.fields.contains_key("conversation_id"),
             "bug: a call outside any conversation must log no conversation_id: {line:?}"
         );
     }

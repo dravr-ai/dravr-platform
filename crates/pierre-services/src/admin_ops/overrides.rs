@@ -1,10 +1,10 @@
-// ABOUTME: Operator overrides on a user or tenant: tier, plan, manages_roster, tool and rate-limit overrides
+// ABOUTME: Admin overrides on a user or tenant: tier, plan, manages_roster, tool and rate-limit overrides
 // ABOUTME: Shared by pierre-cli, the web admin console and the admin token API
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::AppError;
 use pierre_core::models::{Tenant, TenantId, TenantPlan, User, UserTier};
 use pierre_database::repositories::{UserRateLimitOverride, UserTierOverride, UserToolOverride};
@@ -40,7 +40,7 @@ pub async fn set_user_tier(
         .await
         .map_err(|e| AppError::internal(format!("Failed to set user tier: {e}")))?;
 
-    let now = Utc::now();
+    let now = Timestamp::now();
     let override_row = UserTierOverride {
         user_id,
         tier,
@@ -83,13 +83,13 @@ pub async fn clear_user_tier_override(
     Ok(removed)
 }
 
-/// Grant or revoke a user's `manages_roster` permission as an operator.
+/// Grant or revoke a user's `manages_roster` permission as an admin.
 ///
 /// This is how a coach with no `TrainingPeaks` coach account becomes able to
 /// coach a group. Single shared implementation behind the admin-token route,
 /// the console route and `pierre-cli user set --manages-roster`.
 ///
-/// A grant records `operator` (the acting admin, `None` for a service token)
+/// A grant records `admin` (the acting admin, `None` for a service token)
 /// and the time on the user row; that record is the audit trail, and the
 /// `TrainingPeaks` reconciler never takes back a grant that carries one. A
 /// revoke clears the grant and its record; a bound `TrainingPeaks` coach
@@ -104,11 +104,11 @@ pub async fn set_user_manages_roster(
     repos: &RepositoryRegistry,
     user_id: Uuid,
     manages_roster: bool,
-    operator: Option<Uuid>,
+    admin: Option<Uuid>,
 ) -> Result<User, AppError> {
     repos
         .users
-        .set_manages_roster_by_operator(user_id, manages_roster, operator)
+        .set_manages_roster_by_admin(user_id, manages_roster, admin)
         .await?;
     let updated = repos
         .users
@@ -118,7 +118,7 @@ pub async fn set_user_manages_roster(
     info!(
         target_user_id = %user_id,
         target_user_email = %mask_email(&updated.email),
-        operator_user_id = ?operator,
+        admin_user_id = ?admin,
         manages_roster,
         "Admin manages_roster change applied"
     );
@@ -128,7 +128,7 @@ pub async fn set_user_manages_roster(
 /// Set a tenant's plan (`starter` / `professional` / `enterprise`), which gates
 /// plan-restricted tools via `tool_catalog.min_plan`.
 ///
-/// Distinct from the Stripe billing webhook — this is the operator backdoor
+/// Distinct from the Stripe billing webhook — this is the admin backdoor
 /// shared by `pierre-cli tenant set-plan` and the web admin route.
 ///
 /// # Errors
@@ -185,7 +185,7 @@ pub async fn set_user_tool_override(
         .map_err(|e| AppError::internal(format!("Failed to read tool catalog: {e}")))?
         .ok_or_else(|| AppError::not_found(format!("Tool '{tool_name}'")))?;
 
-    let now = Utc::now();
+    let now = Timestamp::now();
     let row = UserToolOverride {
         user_id,
         tool_name: tool_name.to_owned(),
@@ -281,7 +281,7 @@ pub async fn set_user_rate_limit_override(
         .map_err(|e| AppError::internal(format!("Failed to fetch user: {e}")))?
         .ok_or_else(|| AppError::not_found("User not found"))?;
 
-    let now = Utc::now();
+    let now = Timestamp::now();
     let row = UserRateLimitOverride {
         user_id: target_user_id,
         monthly_limit,

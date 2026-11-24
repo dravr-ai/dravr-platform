@@ -10,7 +10,7 @@
 //! the tracker cannot measure is refused where it is written instead of being
 //! saved and reported as `unknown` on every later reading.
 
-use chrono::{DateTime, FixedOffset};
+use dravr_tronc::dates::Timestamp;
 use serde_json::{from_value, Map, Value};
 
 use pierre_core::errors::{AppError, AppResult, JsonResultExt};
@@ -121,7 +121,7 @@ pub(crate) struct GoalDetails {
     pub(crate) goal_type: String,
     pub(crate) goal_target: f64,
     pub(crate) timeframe: String,
-    pub(crate) created_at: Option<DateTime<FixedOffset>>,
+    pub(crate) created_at: Option<Timestamp>,
     /// The sport the goal counts; `None` counts every activity.
     pub(crate) sport: Option<SportType>,
 }
@@ -152,7 +152,7 @@ pub(crate) fn extract_goal_details(goal: &Map<String, Value>) -> Option<GoalDeta
     let created_at = goal
         .get("created_at")
         .and_then(Value::as_str)
-        .and_then(|s| DateTime::parse_from_rfc3339(s).ok());
+        .and_then(|s| Timestamp::parse_from_rfc3339(s).ok());
     let sport = goal.get("sport").and_then(Value::as_str).and_then(|s| {
         from_value::<SportType>(Value::String(s.to_owned()))
             .ok()
@@ -176,7 +176,7 @@ pub(crate) fn extract_goal_details(goal: &Map<String, Value>) -> Option<GoalDeta
 #[must_use]
 pub fn activities_toward_goal<'a>(
     activities: &'a [Activity],
-    created_at: Option<DateTime<FixedOffset>>,
+    created_at: Option<Timestamp>,
     sport: Option<&SportType>,
 ) -> Vec<&'a Activity> {
     activities

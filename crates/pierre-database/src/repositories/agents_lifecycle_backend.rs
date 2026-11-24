@@ -11,10 +11,6 @@
 //! the body names its consts, helpers and types unqualified, so the invoking
 //! shell must `use` every one of them.
 
-/// Emit the fork and delete bodies for one backend type.
-///
-/// `$ids` is the backend's uuid codec (`TextUuid` on `SQLite`, `NativeUuid`
-/// on Postgres).
 macro_rules! impl_agent_lifecycle {
     ($ty:ty, $ids:ident) => {
         impl $ty {
@@ -55,7 +51,7 @@ macro_rules! impl_agent_lifecycle {
                     .bind(&copy_id)
                     .bind($ids::bind(user_id))
                     .bind(tenant_id)
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .bind(AgentVisibility::Private.as_str())
                     .bind(origin_id)
                     .execute(&mut *tx)
@@ -75,7 +71,7 @@ macro_rules! impl_agent_lifecycle {
                         AppError::database(format!("Failed to fork coach translations: {e}"))
                     })?;
                 sqlx::query(COUNT_FORK_AS_INSTALL_SQL)
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .bind(origin_id)
                     .bind($ids::bind(user_id))
                     .execute(&mut *tx)
@@ -95,7 +91,7 @@ macro_rules! impl_agent_lifecycle {
                         .bind(Uuid::new_v4().to_string())
                         .bind(&copy_id)
                         .bind($ids::bind(user_id))
-                        .bind(Utc::now())
+                        .bind(Timestamp::now())
                         .bind(true)
                         .execute(&mut *tx)
                         .await
@@ -191,7 +187,7 @@ macro_rules! impl_agent_lifecycle {
                 // A copy counted as one install of its origin.
                 if let Some(origin) = origin.as_deref() {
                     sqlx::query(DECREMENT_INSTALLS_SQL)
-                        .bind(Utc::now())
+                        .bind(Timestamp::now())
                         .bind(origin)
                         .execute(&mut *tx)
                         .await

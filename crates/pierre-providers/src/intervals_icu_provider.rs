@@ -72,8 +72,9 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use chrono::{DateTime, Duration, NaiveDate, Utc};
 use dravr_enforme::providers::intervals_icu::auth as intervals_auth;
+use dravr_tronc::date_pattern;
+use dravr_tronc::dates::{CivilDate, Elapsed, Pattern, Timestamp};
 use reqwest::header::AUTHORIZATION;
 use reqwest::{Response, StatusCode};
 use serde::de::DeserializeOwned;
@@ -159,6 +160,9 @@ const MAX_PAGE_LIMIT: usize = api_provider_limits::intervals_icu::MAX_ACTIVITIES
 /// [`parse_local_dt`] reads responses back with this exact pattern.
 const QUERY_DATETIME_FORMAT: &str = "%Y-%m-%dT%H:%M:%S";
 
+/// [`QUERY_DATETIME_FORMAT`], checked when the crate is built, for writing.
+const QUERY_DATETIME_PATTERN: Pattern<Timestamp> = date_pattern!(Timestamp, QUERY_DATETIME_FORMAT);
+
 /// How far back an activity list reaches when the caller names no lower bound.
 ///
 /// Intervals.icu requires a bounded range — an unbounded list is a 422, not a
@@ -195,14 +199,11 @@ const QUERY_LOCAL_OFFSET_SLACK_DAYS: i64 = 1;
 /// disagreed: [`FitnessProvider::get_activities_with_params`] defaulted both
 /// bounds while `get_activities_cursor` passed `None, None` straight through
 /// and asked Intervals.icu for an unbounded range.
-fn activity_window(
-    after: Option<DateTime<Utc>>,
-    before: Option<DateTime<Utc>>,
-) -> (DateTime<Utc>, DateTime<Utc>) {
-    let now = Utc::now();
+fn activity_window(after: Option<Timestamp>, before: Option<Timestamp>) -> (Timestamp, Timestamp) {
+    let now = Timestamp::now();
     (
-        after.unwrap_or_else(|| now - Duration::days(DEFAULT_LOOKBACK_DAYS)),
-        before.unwrap_or_else(|| now + Duration::days(DEFAULT_LOOKAHEAD_DAYS)),
+        after.unwrap_or_else(|| now - Elapsed::days(DEFAULT_LOOKBACK_DAYS)),
+        before.unwrap_or_else(|| now + Elapsed::days(DEFAULT_LOOKAHEAD_DAYS)),
     )
 }
 
@@ -586,8 +587,8 @@ impl IntervalsIcuProvider {
     /// HTTP call fails, or the response cannot be deserialised.
     async fn list_activities(
         &self,
-        oldest: DateTime<Utc>,
-        newest: DateTime<Utc>,
+        oldest: Timestamp,
+        newest: Timestamp,
         limit: usize,
     ) -> AppResult<Vec<Activity>> {
         let auth = self.require_credentials().await?;
@@ -595,13 +596,12 @@ impl IntervalsIcuProvider {
             ("limit".to_owned(), limit.min(MAX_PAGE_LIMIT).to_string()),
             (
                 "oldest".to_owned(),
-                (oldest - Duration::days(QUERY_LOCAL_OFFSET_SLACK_DAYS))
-                    .format(QUERY_DATETIME_FORMAT)
-                    .to_string(),
+                (oldest - Elapsed::days(QUERY_LOCAL_OFFSET_SLACK_DAYS))
+                    .format_with(&QUERY_DATETIME_PATTERN),
             ),
             (
                 "newest".to_owned(),
-                newest.format(QUERY_DATETIME_FORMAT).to_string(),
+                newest.format_with(&QUERY_DATETIME_PATTERN),
             ),
         ];
         let url = self.athlete_url(&auth, "/activities");
@@ -652,8 +652,8 @@ impl IntervalsIcuProvider {
     /// an exhausted window, or the shared ceiling from [`pages_for`].
     async fn list_activities_paged(
         &self,
-        oldest: DateTime<Utc>,
-        newest: DateTime<Utc>,
+        oldest: Timestamp,
+        newest: Timestamp,
         limit: usize,
     ) -> AppResult<Vec<Activity>> {
         let mut collected: Vec<Activity> = Vec::new();
@@ -671,7 +671,7 @@ impl IntervalsIcuProvider {
             }
             let page = self.list_activities(oldest, cursor, MAX_PAGE_LIMIT).await?;
             let page_len = page.len();
-            let mut oldest_in_page: Option<DateTime<Utc>> = None;
+            let mut oldest_in_page: Option<Timestamp> = None;
             let mut added = 0_usize;
             for activity in page {
                 let start = activity.start_date();
@@ -860,13 +860,13 @@ impl IntervalsIcuProvider {
     /// HTTP call fails.
     async fn get_events<T: DeserializeOwned>(
         &self,
-        oldest: NaiveDate,
-        newest: NaiveDate,
+        oldest: CivilDate,
+        newest: CivilDate,
         categories: Option<&str>,
     ) -> AppResult<Vec<T>> {
         let mut query = vec![
-            ("oldest", oldest.format("%Y-%m-%d").to_string()),
-            ("newest", newest.format("%Y-%m-%d").to_string()),
+            ("oldest", oldest.to_string()),
+            ("newest", newest.to_string()),
         ];
         query.extend(categories.map(|categories| ("category", categories.to_owned())));
         self.get_athlete_json("get_events", "/events", &query, Target::Athlete)
@@ -966,10 +966,10 @@ impl FitnessProvider for IntervalsIcuProvider {
         let (oldest, newest) = activity_window(
             params
                 .after
-                .and_then(|ts| DateTime::<Utc>::from_timestamp(ts, 0)),
+                .and_then(|ts| Timestamp::from_epoch_seconds(ts).ok()),
             params
                 .before
-                .and_then(|ts| DateTime::<Utc>::from_timestamp(ts, 0)),
+                .and_then(|ts| Timestamp::from_epoch_seconds(ts).ok()),
         );
         self.list_activities_paged(oldest, newest, limit).await
     }
@@ -1048,8 +1048,8 @@ impl FitnessProvider for IntervalsIcuProvider {
     // week notes Dravr pushes are NOTE events.
     async fn list_calendar_events(
         &self,
-        from: NaiveDate,
-        to: NaiveDate,
+        from: CivilDate,
+        to: CivilDate,
     ) -> AppResult<Vec<CalendarEventRef>> {
         self.get_events::<IntervalsIcuEvent>(from, to, None)
             .await?
@@ -1060,8 +1060,8 @@ impl FitnessProvider for IntervalsIcuProvider {
 
     async fn list_planned_workouts(
         &self,
-        after: NaiveDate,
-        before: NaiveDate,
+        after: CivilDate,
+        before: CivilDate,
     ) -> AppResult<Vec<PlannedWorkout>> {
         self.planned_workouts(after, before).await
     }

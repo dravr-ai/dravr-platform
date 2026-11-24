@@ -28,6 +28,7 @@ use std::{path::PathBuf, sync::Arc};
 use uuid::Uuid;
 
 use crate::common;
+use dravr_tronc::dates::{Elapsed, Timestamp};
 
 /// Create test user without saving to database (local helper)
 fn create_test_user(email: &str, display_name: Option<String>) -> User {
@@ -84,13 +85,7 @@ fn create_test_config() -> Arc<ServerConfig> {
             },
         },
         external_services: ExternalServicesConfig {
-            strava_api: StravaApiConfig {
-                base_url: "https://www.strava.com/api/v3".to_owned(),
-                auth_url: "https://www.strava.com/oauth/authorize".to_owned(),
-                token_url: "https://www.strava.com/oauth/token".to_owned(),
-                revoke_url: "https://www.strava.com/oauth/revoke".to_owned(),
-                ..Default::default()
-            },
+            strava_api: StravaApiConfig::default(),
             ..Default::default()
         },
         app_behavior: AppBehaviorConfig {
@@ -106,7 +101,7 @@ fn create_test_config() -> Arc<ServerConfig> {
                 server_version: "0.1.0".to_owned(),
             },
         },
-        sse: SseConfig::default(),
+        session_cookie: SessionCookieConfig::default(),
         oauth2_server: OAuth2ServerConfig::default(),
         ..Default::default()
     })
@@ -147,6 +142,8 @@ async fn create_test_executor() -> Result<UniversalToolExecutor> {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                lab_reader: None,
+                pdf_text_bin: None,
                 #[cfg(feature = "client-messaging")]
                 channel_adapters: common::offline_adapters(),
             },
@@ -185,6 +182,8 @@ async fn create_executor_no_oauth() -> Result<UniversalToolExecutor> {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                lab_reader: None,
+                pdf_text_bin: None,
                 #[cfg(feature = "client-messaging")]
                 channel_adapters: common::offline_adapters(),
             },
@@ -269,7 +268,7 @@ async fn test_invalid_provider_tokens() -> Result<()> {
     executor.resources.repos().users.create(&user).await?;
 
     // Store an invalid/expired token
-    let expires_at = chrono::Utc::now() - chrono::Duration::hours(1); // Expired
+    let expires_at = Timestamp::now() - Elapsed::hours(1); // Expired
     let oauth_token = UserOAuthToken::new(
         user_id,
         "00000000-0000-0000-0000-000000000000".to_owned(), // tenant_id

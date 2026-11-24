@@ -1,4 +1,4 @@
-# ABOUTME: Brings the third Anthropic organization's API key secret, created by hand, under terraform
+# ABOUTME: Brings the primary tier's third API key secret, created by hand, under terraform
 # ABOUTME: An import block, so the apply adopts the existing secret and its real key instead of recreating it
 #
 # SPDX-License-Identifier: MIT OR Apache-2.0

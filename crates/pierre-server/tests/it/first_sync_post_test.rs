@@ -23,7 +23,7 @@ use pierre_config::environment::ServerConfig;
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
-use chrono::{DateTime, Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_contremaitre::messaging_strings::KEY_PLATFORM_POST_FIRST_SYNC_PROMPT;
 use pierre_core::models::messaging::{ChannelType, MessageContent};
 use pierre_core::models::{AddMessageParams, PostPurpose, TenantId, SUPPORTED_LOCALES};
@@ -126,7 +126,7 @@ async fn conversations(fx: &Fixture) -> Vec<String> {
 
 /// A `WhatsApp` DM the athlete wrote from `last_inbound`, with its own
 /// conversation stamped as the channel's. Returns the DM's conversation id.
-async fn whatsapp_dm(fx: &Fixture, last_inbound: DateTime<Utc>) -> String {
+async fn whatsapp_dm(fx: &Fixture, last_inbound: Timestamp) -> String {
     let db = &fx.resources.agent.database;
     let user = fx.user_id.to_string();
     let conversation = seed_conversation(db, &user, fx.tenant_id).await;
@@ -155,7 +155,7 @@ async fn whatsapp_dm(fx: &Fixture, last_inbound: DateTime<Utc>) -> String {
 /// Set when a session's athlete last wrote — the one thing no repository
 /// method exposes: `touch_session` only ever stamps "now", and the window has
 /// to be tested shut as well as open.
-async fn backdate_session(db: &Database, session_id: &str, last_message_at: DateTime<Utc>) {
+async fn backdate_session(db: &Database, session_id: &str, last_message_at: Timestamp) {
     const SQL: &str = "UPDATE messaging_sessions SET last_message_at = $1 WHERE id = $2";
     match db.backend() {
         DatabaseBackend::SQLite(inner) => {
@@ -207,6 +207,7 @@ async fn the_first_landing_posts_once_into_the_athletes_own_thread() {
             channel_type: None,
             about_user_id: None,
             turn_attempted_write: None,
+            ai_consent_sources: &[],
         })
         .await
         .unwrap();
@@ -313,6 +314,7 @@ impl PlatformPost for OvertakenPost {
                 channel_type: None,
                 about_user_id: None,
                 turn_attempted_write: None,
+                ai_consent_sources: &[],
             })
             .await
             .unwrap();
@@ -408,7 +410,7 @@ async fn an_athlete_with_no_thread_gets_one_for_the_post() {
 #[tokio::test]
 async fn an_open_dm_gets_its_own_post() {
     let fx = fixture(RecordingPost::posting(true)).await;
-    let dm = whatsapp_dm(&fx, Utc::now() - Duration::hours(2)).await;
+    let dm = whatsapp_dm(&fx, Timestamp::now() - Elapsed::hours(2)).await;
 
     fx.poster
         .data_landed(fx.user_id, fx.tenant_id, "whoop")
@@ -447,7 +449,7 @@ async fn an_open_dm_gets_its_own_post() {
 #[tokio::test]
 async fn a_dm_writing_into_the_personal_thread_gets_one_post() {
     let fx = fixture(RecordingPost::posting(true)).await;
-    let dm = whatsapp_dm(&fx, Utc::now() - Duration::hours(2)).await;
+    let dm = whatsapp_dm(&fx, Timestamp::now() - Elapsed::hours(2)).await;
     assert!(fx
         .resources
         .common
@@ -484,7 +486,7 @@ async fn a_dm_writing_into_the_personal_thread_gets_one_post() {
 #[tokio::test]
 async fn a_dm_whose_window_closed_gets_nothing() {
     let fx = fixture(RecordingPost::posting(true)).await;
-    whatsapp_dm(&fx, Utc::now() - Duration::hours(30)).await;
+    whatsapp_dm(&fx, Timestamp::now() - Elapsed::hours(30)).await;
 
     fx.poster
         .data_landed(fx.user_id, fx.tenant_id, "whoop")
@@ -498,9 +500,9 @@ async fn a_dm_whose_window_closed_gets_nothing() {
 
 /// Take the athlete's first-sync claim `age` ago, as a trigger that is still
 /// posting, or died posting, holds it; marked posted when `posted`.
-async fn seed_first_sync_claim(fx: &Fixture, age: Duration, posted: bool) {
+async fn seed_first_sync_claim(fx: &Fixture, age: Elapsed, posted: bool) {
     let claims = &fx.resources.common.repos.platform_post_claims;
-    let at = Utc::now() - age;
+    let at = Timestamp::now() - age;
     let token = claims
         .claim_platform_post_once(
             fx.tenant_id,
@@ -535,7 +537,7 @@ async fn seed_first_sync_claim(fx: &Fixture, age: Duration, posted: bool) {
 async fn a_claim_abandoned_past_its_lease_is_retaken_and_posts() {
     let fx = fixture(RecordingPost::posting(true)).await;
     // An hour old: well past the quarter-hour lease.
-    seed_first_sync_claim(&fx, Duration::hours(1), false).await;
+    seed_first_sync_claim(&fx, Elapsed::hours(1), false).await;
 
     fx.poster
         .data_landed(fx.user_id, fx.tenant_id, "whoop")
@@ -556,7 +558,7 @@ async fn a_claim_abandoned_past_its_lease_is_retaken_and_posts() {
 #[tokio::test]
 async fn a_claim_whose_post_landed_is_never_retaken() {
     let fx = fixture(RecordingPost::posting(true)).await;
-    seed_first_sync_claim(&fx, Duration::days(30), true).await;
+    seed_first_sync_claim(&fx, Elapsed::days(30), true).await;
 
     fx.poster
         .data_landed(fx.user_id, fx.tenant_id, "whoop")
@@ -569,7 +571,7 @@ async fn a_claim_whose_post_landed_is_never_retaken() {
 #[tokio::test]
 async fn a_claim_inside_its_lease_is_a_post_under_way() {
     let fx = fixture(RecordingPost::posting(true)).await;
-    seed_first_sync_claim(&fx, Duration::minutes(1), false).await;
+    seed_first_sync_claim(&fx, Elapsed::minutes(1), false).await;
 
     fx.poster
         .data_landed(fx.user_id, fx.tenant_id, "whoop")
@@ -672,7 +674,7 @@ mod strava {
             },
         );
         let fx = fixture_over(RecordingPost::posting(true), config).await;
-        let now = Utc::now();
+        let now = Timestamp::now();
         fx.resources
             .common
             .repos
@@ -687,7 +689,7 @@ mod strava {
                 access_token: SecretString::from("strava_access_token_0123456789abcdef0123456789"),
                 refresh_token: Some(SecretString::from("strava_refresh")),
                 token_type: "Bearer".to_owned(),
-                expires_at: Some(now + Duration::hours(6)),
+                expires_at: Some(now + Elapsed::hours(6)),
                 scope: Some("activity:read_all".to_owned()),
                 provider_user_id: Some("4242424".to_owned()),
                 oauth_app_client_id: None,
@@ -708,7 +710,7 @@ mod strava {
             "name": "Lunch Ride",
             "type": "Ride",
             "sport_type": "Ride",
-            "start_date": Utc::now().to_rfc3339(),
+            "start_date": Timestamp::now().to_rfc3339(),
             "distance": 32_000.0,
             "elapsed_time": 4_200,
             "total_elevation_gain": 310.0
@@ -777,7 +779,7 @@ mod strava {
             "name": "Morning Run",
             "type": "Run",
             "sport_type": "Run",
-            "start_date": (Utc::now() - Duration::days(3)).to_rfc3339(),
+            "start_date": (Timestamp::now() - Elapsed::days(3)).to_rfc3339(),
             "distance": 10_000.0,
             "elapsed_time": 3_000,
             "total_elevation_gain": 40.0
@@ -802,8 +804,8 @@ mod strava {
 
         // 113 rather than 114: the floor is the athlete's civil day at
         // midnight UTC, up to a day short of `now - 114 days`.
-        let deep_floor = (Utc::now() - Duration::days(113)).timestamp();
-        let recent_floor = (Utc::now() - Duration::days(31)).timestamp();
+        let deep_floor = (Timestamp::now() - Elapsed::days(113)).epoch_seconds();
+        let recent_floor = (Timestamp::now() - Elapsed::days(31)).epoch_seconds();
         let mut reached = false;
         for _ in 0..100 {
             if afters

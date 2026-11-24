@@ -36,7 +36,7 @@
 //!
 //! Traces deliberately share the scenario format — the only fields
 //! added are `captured_at` (provenance) and an optional
-//! `assistant_reply_seen` per turn for the operator's reference,
+//! `assistant_reply_seen` per turn for the admin's reference,
 //! which the asserter pipeline ignores so we don't accidentally
 //! snapshot LLM output as a golden (the gap-analysis document
 //! explicitly calls this out as an anti-pattern).
@@ -76,7 +76,7 @@ pub(crate) struct TraceTurn {
     pub trigger_sync_before_turn: bool,
     /// What the bot actually said at this turn in the captured
     /// conversation. **Reference only** — the runner ignores this
-    /// field. Persisted so operators triaging a failure can compare
+    /// field. Persisted so admins triaging a failure can compare
     /// the current LLM reply against the captured one without
     /// digging up the original screenshot.
     #[serde(default)]
@@ -202,7 +202,7 @@ mod tests {
         assert_eq!(scenario.turns.len(), 1);
         assert!(scenario.turns[0].trigger_sync_before_turn);
         assert_eq!(scenario.turns[0].assertions.len(), 1);
-        // captured_at should be appended to notes for operator triage
+        // captured_at should be appended to notes for admin triage
         assert!(scenario.notes.contains("captured 2026-05-18"));
     }
 

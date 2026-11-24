@@ -12,6 +12,7 @@ use crate::helpers;
 
 use axum::http::StatusCode;
 use common::{create_test_server_resources, generate_test_token};
+use dravr_tronc::dates::Timestamp;
 use helpers::agent_fixtures::{
     publish_catalogue_agent, publish_catalogue_agent_in, select_own_agent,
 };
@@ -93,8 +94,8 @@ async fn seed_user_tenant(
         domain: None,
         plan: plan.to_owned(),
         owner_user_id: user_id,
-        created_at: chrono::Utc::now(),
-        updated_at: chrono::Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
     };
     // tenants.create() files the owner in tenant_users with the owner role.
     resources
@@ -135,7 +136,7 @@ async fn seed_tenant_member(
     // Membership rows are written by the invitation flows in production; the
     // repository exposes no direct writer, so the fixture files the row the
     // way those flows do.
-    let now = chrono::Utc::now();
+    let now = Timestamp::now();
     match resources.agent.database.backend() {
         DatabaseBackend::SQLite(db) => {
             sqlx::query(INSERT_MEMBER)
@@ -178,7 +179,7 @@ async fn active_user(email: &str, manages_roster: bool) -> User {
     );
     user.user_status = UserStatus::Active;
     user.approved_by = Some(user.id);
-    user.approved_at = Some(chrono::Utc::now());
+    user.approved_at = Some(Timestamp::now());
     user.manages_roster = manages_roster;
     user
 }
@@ -971,6 +972,7 @@ async fn group_create_in_a_thread_with_history_files_a_group_conversation_beside
             channel_type: None,
             about_user_id: None,
             turn_attempted_write: None,
+            ai_consent_sources: &[],
         })
         .await
         .unwrap();
@@ -1346,7 +1348,7 @@ async fn group_create_by_a_non_coach_leaves_the_group_coachless() {
     let repos = &resources.common.repos;
     for (email, is_admin) in [
         ("group-athlete@test.com", false),
-        ("group-operator@test.com", true),
+        ("group-admin@test.com", true),
     ] {
         let (user_id, tenant_id, auth) = seed_user_tenant(&resources, email, "professional").await;
         repos
@@ -1378,7 +1380,7 @@ async fn group_create_by_a_coach_awaiting_access_names_it_on_their_request() {
         .open(&CoachAccessRequest::pending(
             user_id,
             None,
-            chrono::Utc::now()
+            Timestamp::now()
         ))
         .await
         .unwrap());
@@ -1680,11 +1682,11 @@ async fn group_join_with_a_coach_invite_attaches_an_eligible_roster_coach_only()
 }
 
 /// A coach with no TrainingPeaks coach account — an Intervals.icu coach — is
-/// refused a group's coach invite until an operator grants `manages_roster`
+/// refused a group's coach invite until an admin grants `manages_roster`
 /// (carnet#643), is attached once it is granted, and keeps the grant through
 /// the reconciler's revoke a TrainingPeaks disconnect runs.
 #[tokio::test]
-async fn an_operator_grant_lets_a_coach_without_trainingpeaks_join_as_coach() {
+async fn an_admin_grant_lets_a_coach_without_trainingpeaks_join_as_coach() {
     let resources = create_test_server_resources().await.unwrap();
     let (owner_id, owner_tenant, _owner_auth) =
         seed_user_tenant(&resources, "granted-owner@test.com", "professional").await;
@@ -1739,7 +1741,7 @@ async fn an_operator_grant_lets_a_coach_without_trainingpeaks_join_as_coach() {
     assert_eq!(group.coach_user_id, Some(coach_user_id));
 
     // The revoke a TrainingPeaks disconnect runs takes back only what a coach
-    // connection earned; this grant is the operator's.
+    // connection earned; this grant is the admin's.
     revoke_roster_for_coach_connection(repos, coach_user_id, owner_tenant)
         .await
         .unwrap();
@@ -1751,7 +1753,7 @@ async fn an_operator_grant_lets_a_coach_without_trainingpeaks_join_as_coach() {
             .unwrap()
             .unwrap()
             .manages_roster,
-        "the TrainingPeaks reconciler never revokes an operator grant"
+        "the TrainingPeaks reconciler never revokes an admin grant"
     );
 }
 

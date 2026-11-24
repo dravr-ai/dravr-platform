@@ -17,7 +17,7 @@
 use crate::common;
 use crate::helpers;
 
-use chrono::{DateTime, Datelike, Duration, NaiveTime, Utc};
+use dravr_tronc::dates::{CivilTime, Elapsed, Timestamp};
 use helpers::axum_test::AxumTestRequest;
 use pierre_a2a::client::USAGE_HISTORY_DAYS;
 use pierre_config::environment::{
@@ -81,6 +81,8 @@ async fn create_a2a_test_resources() -> Arc<ServerContext> {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                lab_reader: None,
+                pdf_text_bin: None,
                 #[cfg(feature = "client-messaging")]
                 channel_adapters: common::offline_adapters(),
             },
@@ -233,6 +235,59 @@ async fn test_a2a_jsonrpc_rejects_unknown_version() {
     assert_eq!(response.status(), 200);
     let envelope: serde_json::Value = response.json();
     assert_eq!(envelope["error"]["code"], -32009);
+}
+
+/// The envelope is validated the way every JSON-RPC transport validates it:
+/// text that is not JSON is a parse error (-32700), and JSON that is not a
+/// request object is an invalid request (-32600), each answered with a null id.
+#[tokio::test]
+async fn test_a2a_jsonrpc_keeps_parse_and_invalid_request_apart() {
+    let resources = create_a2a_test_resources().await;
+
+    let not_json = AxumTestRequest::post("/a2a/jsonrpc")
+        .header("A2A-Version", "1.0")
+        .text("{not json")
+        .send(a2a_router_from(&resources))
+        .await;
+    assert_eq!(
+        not_json.status(),
+        200,
+        "a JSON-RPC parse error rides HTTP 200 (server bug otherwise)"
+    );
+    let envelope: serde_json::Value = not_json.json();
+    assert_eq!(
+        envelope["error"]["code"], -32700,
+        "text that is not JSON must be a parse error: {envelope:?}"
+    );
+    assert!(
+        envelope["id"].is_null(),
+        "an unreadable request has no id to answer with: {envelope:?}"
+    );
+
+    for body in [
+        serde_json::json!([{ "jsonrpc": "2.0", "method": "GetTask", "id": 1 }]),
+        serde_json::json!({ "jsonrpc": "2.0", "method": "GetTask", "id": null }),
+    ] {
+        let invalid = AxumTestRequest::post("/a2a/jsonrpc")
+            .header("A2A-Version", "1.0")
+            .json(&body)
+            .send(a2a_router_from(&resources))
+            .await;
+        assert_eq!(
+            invalid.status(),
+            200,
+            "an invalid request rides HTTP 200 (server bug otherwise): {body}"
+        );
+        let envelope: serde_json::Value = invalid.json();
+        assert_eq!(
+            envelope["error"]["code"], -32600,
+            "JSON that is not a request object must be an invalid request: {body}: {envelope:?}"
+        );
+        assert!(
+            envelope["id"].is_null(),
+            "a malformed request's id cannot be trusted: {body}: {envelope:?}"
+        );
+    }
 }
 
 #[tokio::test]
@@ -394,6 +449,82 @@ async fn test_a2a_refuses_a_first_party_session_token() {
         .send(a2a_router_from(&resources))
         .await;
     assert_eq!(rest.status(), 401);
+}
+
+/// The credential travels only in the `Authorization` header (carnet#1287):
+/// an `auth` member in the request body is a client-written field, so a
+/// valid grant placed there authenticates nothing, and a header grant is
+/// served even when the body names a different credential.
+#[tokio::test]
+async fn test_a2a_jsonrpc_ignores_an_auth_member_in_the_body() {
+    let resources = create_a2a_test_resources().await;
+    let (user, session) = common::create_test_tenant(&resources, "a2a-body-auth@example.com")
+        .await
+        .expect("seed user + tenant + session JWT");
+    let grant = common::generate_delegated_test_token(&resources, &user).await;
+
+    let body_only = serde_json::json!({
+        "jsonrpc": "2.0",
+        "method": "GetExtendedAgentCard",
+        "id": 10,
+        "auth": grant,
+    });
+    let refused = AxumTestRequest::post("/a2a/jsonrpc")
+        .header("A2A-Version", "1.0")
+        .json(&body_only)
+        .send(a2a_router_from(&resources))
+        .await;
+    assert_eq!(
+        refused.status(),
+        401,
+        "a grant in the body must not authenticate"
+    );
+    let envelope: serde_json::Value = refused.json();
+    assert!(
+        envelope["result"].is_null(),
+        "an unauthenticated call must not be served: {envelope:?}"
+    );
+    assert_eq!(
+        envelope["id"], 10,
+        "the envelope still parses: {envelope:?}"
+    );
+    assert_eq!(
+        envelope["error"]["message"], "Authentication token required",
+        "the body field is ignored, not taken as a credential: {envelope:?}"
+    );
+    assert_eq!(
+        envelope["error"]["data"][0]["reason"], "AUTHENTICATION_REQUIRED",
+        "the refusal must carry the reason the binding maps to 401: {envelope:?}"
+    );
+
+    // The header grant is served; a refused credential in the body is not
+    // read, so it neither overrides nor spoils the header.
+    let header_and_body = serde_json::json!({
+        "jsonrpc": "2.0",
+        "method": "GetExtendedAgentCard",
+        "id": 11,
+        "auth": session,
+    });
+    let served = AxumTestRequest::post("/a2a/jsonrpc")
+        .header("A2A-Version", "1.0")
+        .header("Authorization", &format!("Bearer {grant}"))
+        .json(&header_and_body)
+        .send(a2a_router_from(&resources))
+        .await;
+    assert_eq!(
+        served.status(),
+        200,
+        "a delegated grant in the Authorization header must be served"
+    );
+    let envelope: serde_json::Value = served.json();
+    assert!(
+        envelope["error"].is_null(),
+        "the body's `auth` must not override the header grant: {envelope:?}"
+    );
+    assert_eq!(
+        envelope["result"]["capabilities"]["extendedAgentCard"], true,
+        "the served result is the extended card: {envelope:?}"
+    );
 }
 
 #[tokio::test]
@@ -1001,7 +1132,7 @@ async fn test_registered_contact_email_reads_back_normalized() {
 }
 
 /// One `a2a_usage` row for `client_id`, stamped `at` and answered `status_code`.
-fn usage_row(client_id: &str, at: DateTime<Utc>, status_code: u16) -> A2AUsage {
+fn usage_row(client_id: &str, at: Timestamp, status_code: u16) -> A2AUsage {
     A2AUsage {
         id: None,
         client_id: client_id.to_owned(),
@@ -1049,13 +1180,14 @@ async fn test_client_usage_counts_the_clients_calls_by_day() {
     // call, inside the window because that day is counted whole. The day
     // before it, a second before its end, and forty days back: one call
     // each, outside the breakdown but still part of the client's total.
-    let now = Utc::now();
-    let yesterday = now - Duration::days(1);
-    let oldest_day = now.date_naive() - Duration::days(i64::from(USAGE_HISTORY_DAYS - 1));
-    let oldest_day_dawn = oldest_day.and_time(NaiveTime::MIN).and_utc() + Duration::seconds(1);
+    let now = Timestamp::now();
+    let yesterday = now - Elapsed::days(1);
+    let oldest_day = now.utc_date() - Elapsed::days(i64::from(USAGE_HISTORY_DAYS - 1));
+    let oldest_day_dawn =
+        oldest_day.and_time(CivilTime::MIDNIGHT).and_utc().unwrap() + Elapsed::seconds(1);
     let day_before_window_dusk =
-        oldest_day.and_time(NaiveTime::MIN).and_utc() - Duration::seconds(1);
-    let long_ago = now - Duration::days(40);
+        oldest_day.and_time(CivilTime::MIDNIGHT).and_utc().unwrap() - Elapsed::seconds(1);
+    let long_ago = now - Elapsed::days(40);
     let rows = [
         (now, 200),
         (now, 200),
@@ -1102,11 +1234,12 @@ async fn test_client_usage_counts_the_clients_calls_by_day() {
     let body: serde_json::Value = response.json();
 
     let month_start = now
-        .date_naive()
+        .utc_date()
         .with_day(1)
         .expect("the first of the month exists")
-        .and_time(NaiveTime::MIN)
-        .and_utc();
+        .and_time(CivilTime::MIDNIGHT)
+        .and_utc()
+        .unwrap();
     let this_month = rows.iter().filter(|(at, _)| *at >= month_start).count();
 
     assert_eq!(body["client_id"], client_id.as_str());
@@ -1116,22 +1249,26 @@ async fn test_client_usage_counts_the_clients_calls_by_day() {
         body["total_requests"], 7,
         "every call the client made: {body}"
     );
-    let last_request_at: DateTime<Utc> = body["last_request_at"]
+    let last_request_at: Timestamp = body["last_request_at"]
         .as_str()
         .expect("last_request_at is an RFC 3339 string")
         .parse()
         .expect("last_request_at parses");
-    assert_eq!(last_request_at.timestamp(), now.timestamp(), "{body}");
+    assert_eq!(
+        last_request_at.epoch_seconds(),
+        now.epoch_seconds(),
+        "{body}"
+    );
     assert_eq!(
         body["daily_usage"],
         serde_json::json!([
             {
-                "date": now.date_naive().to_string(),
+                "date": now.utc_date().to_string(),
                 "success_count": 2,
                 "error_count": 1
             },
             {
-                "date": yesterday.date_naive().to_string(),
+                "date": yesterday.utc_date().to_string(),
                 "success_count": 1,
                 "error_count": 0
             },

@@ -57,12 +57,14 @@ export type {
   EmailConfirmationResponse,
   FirebaseLoginResponse,
   SessionResponse,
+  ConnectOrder,
   ExtendedProviderStatus,
   ProviderDelegation,
   HistoryState,
   HistoryStatus,
   SciotteTarget,
   ProvidersStatusResponse,
+  AiConsentStateResponse,
   OAuthApp,
   OAuthAppCredentials,
   OAuthProvider,
@@ -181,6 +183,7 @@ export type {
   PlanFueling,
   PlanDay,
   PlanDayEvidence,
+  PlanDayEdit,
   PlanWeek,
   WorkoutPlan,
 } from './workout-plan.js';
@@ -206,6 +209,7 @@ export type {
   PublishSubjectPlanResult,
 } from './coach-plan.js';
 export {
+  cardShowsOpenDraft,
   parseDraftState,
   parsePlanSubject,
   parseSubjectPlanResponse,
@@ -214,6 +218,32 @@ export {
   parsePlanPublishConflict,
 } from './coach-plan.js';
 
+// A coach's "build from family" editor: the family catalogue, a session's preview, the draft-day write (carnet#1515)
+export type {
+  SessionSport,
+  SessionParamKey,
+  SessionParams,
+  SessionParamRange,
+  FamilyPreset,
+  WorkoutFamily,
+  FamilyCatalogueResponse,
+  SessionBuild,
+  SessionPreviewRequest,
+  SessionDerived,
+  SessionFinding,
+  SessionPreview,
+  DraftDayRequest,
+  HandDayRequest,
+  SessionExpect,
+  AddedSession,
+} from './session-editor.js';
+export {
+  SESSION_SPORTS,
+  SESSION_PARAM_KEYS,
+  parseFamilyCatalogueResponse,
+  parseSessionPreview,
+} from './session-editor.js';
+
 // Civil-date reads over a plan card: session, rest day, or a date the plan does not cover
 export type { PlanDayLookup } from './plan-calendar.js';
 export {
@@ -221,6 +251,7 @@ export {
   mondayOf,
   planDayOn,
   planWeeksDayOn,
+  planSessionsOf,
   planDayDistanceMeters,
   phaseWeekOn,
 } from './plan-calendar.js';
@@ -305,6 +336,56 @@ export {
   parseStartedImportUpload,
 } from './imports.js';
 
+// The athlete's health records: served records by kind, the lab review queue, uploaded lab reports (owl phase 5)
+export type {
+  FlatObservation,
+  GlucoseDay,
+  GlucoseReading,
+  HealthRecordKind,
+  HealthRecordsPage,
+  LabDocument,
+  LabDocumentStatus,
+  LabDocumentView,
+  LabRecord,
+  LabReviewDecision,
+  ObservationComponent,
+  ServedClinicalRecord,
+  ServedSelfReport,
+} from './health-records.js';
+export {
+  HEALTH_RECORD_KINDS,
+  LAB_DOCUMENT_MAX_BYTES,
+  parseFlatObservation,
+  parseHealthRecordReview,
+  parseHealthRecordsPage,
+  parseLabDocumentList,
+  parseLabDocumentView,
+  parseLabRecord,
+} from './health-records.js';
+
+// The on-device health stores (HealthKit, Health Connect): the raw samples the phone sends and the counts it gets back
+export type {
+  DeviceCategorySample,
+  DeviceDaySample,
+  DeviceDeletedSamples,
+  DeviceHealthCounts,
+  DeviceHealthSource,
+  DeviceMeasure,
+  DeviceQuantitySample,
+  DeviceQuantityWindow,
+  DeviceRecorder,
+  DeviceSamples,
+  DeviceSleepWindow,
+  DeviceStateOfMindSample,
+  DeviceWorkoutSample,
+} from './device-health.js';
+export {
+  DEVICE_HEALTH_SOURCES,
+  DEVICE_SAMPLES_MAX,
+  deviceSamplesCount,
+  parseDeviceHealthCounts,
+} from './device-health.js';
+
 // The athlete's originals bundle: the files the data export leaves out, built on request
 export type {
   OriginalsBundle,
@@ -334,6 +415,18 @@ export {
   parseDataAccessRequest,
   parseDataAccessRequestList,
 } from './data-access-request.js';
+
+// The athlete's "Who read your data" feed: outside apps' reads and the coach's reads per day (carnet#1543)
+export type {
+  AccessFeed,
+  AccessFeedApiKeyDay,
+  AccessFeedAppRead,
+  AccessFeedCoachDay,
+  AccessFeedCredential,
+  AccessFeedPeerDay,
+  AccessFeedReadKind,
+  AccessFeedTransport,
+} from './access-feed.js';
 
 // The athlete's gear ledger: the shoes they declare, their distance, the pair one activity was run in
 export type {
@@ -518,6 +611,10 @@ export type {
   HeldGroupInviteState,
   HeldGroupInviteResponse,
   ClaimGroupCoachResponse,
+  GroupChatChannel,
+  GroupChatConnection,
+  CreateGroupChatConnectionRequest,
+  GroupChatConnectCode,
   DelegationStatus,
   DelegationViewer,
   DelegatedConnection,

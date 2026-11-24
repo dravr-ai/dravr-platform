@@ -9,7 +9,7 @@ import { Minus } from 'lucide-react';
 import { formatListTimestamp } from '@pierre/chat-utils';
 import { useTranslation } from '@pierre/i18n';
 import { topicsApi, type ThreadTopic } from '../../services/api';
-import { QUERY_KEYS } from '../../constants/queryKeys';
+import { QUERY_KEYS } from '@pierre/shared-constants';
 import { useConversationList, usePersonalConversation } from '../../hooks/useConversationList';
 
 interface PersonalTopicsProps {

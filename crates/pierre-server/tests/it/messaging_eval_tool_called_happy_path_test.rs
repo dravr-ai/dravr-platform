@@ -35,7 +35,7 @@ mod tool_called_happy_path {
     use crate::helpers::axum_test::AxumTestRequest;
     use crate::helpers::messaging_eval::assert_tool_called;
     use axum::http::StatusCode;
-    use chrono::Utc;
+    use dravr_tronc::dates::Timestamp;
     use pierre_core::models::usage::{InsertLlmUsage, TURN_SUMMARY_CALL_TYPE};
     use pierre_core::models::ConversationTurnId;
     use pierre_core::models::{Tenant, TenantId, User, UserStatus};
@@ -64,7 +64,7 @@ mod tool_called_happy_path {
         user.role = UserRole::Admin;
         user.user_status = UserStatus::Active;
         user.approved_by = Some(user.id);
-        user.approved_at = Some(Utc::now());
+        user.approved_at = Some(Timestamp::now());
         let user_id = user.id;
         resources.common.repos.users.create(&user).await.unwrap();
 
@@ -76,8 +76,8 @@ mod tool_called_happy_path {
             domain: None,
             plan: "starter".to_owned(),
             owner_user_id: user_id,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         };
         resources
             .common

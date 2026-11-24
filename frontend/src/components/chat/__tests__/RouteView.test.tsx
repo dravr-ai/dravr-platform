@@ -255,7 +255,7 @@ describe('route layers', () => {
     const climb = paintFor('route-climb');
     expect(climb['line-color']).toBe(ROUTE_INK.climb);
     // The dash is the signal that survives a colourblind reader and a
-    // greyscale screenshot — DESIGN.md §8.
+    // greyscale screenshot — DESIGN.md "Do's and Don'ts".
     expect(climb['line-dasharray']).toEqual([1.4, 1.1]);
     // Heavier than the track it is laid over, so the accent shows in the gaps.
     expect(Number(climb['line-width'])).toBeGreaterThan(

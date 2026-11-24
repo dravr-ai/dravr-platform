@@ -184,7 +184,7 @@ async fn coach_seat(
     (owns && is_coach(repos, sender, user_id).await).then_some(seat)
 }
 
-/// Whether the account coaches: the operator grant, or the coach-only answer
+/// Whether the account coaches: the admin grant, or the coach-only answer
 /// recorded at onboarding.
 async fn is_coach(repos: &RepositoryRegistry, sender: Uuid, user_id: &str) -> bool {
     match repos.users.get_global(sender).await {

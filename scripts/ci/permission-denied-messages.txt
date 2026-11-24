@@ -40,7 +40,10 @@ crates/pierre-core/src/error_helpers.rs:User state error: {message}
 crates/pierre-core/src/errors/mod.rs:Permission denied for '{tool_name}': {reason}
 crates/pierre-core/src/errors/mod.rs:Tool '{tool_name}' is not available for this tenant
 crates/pierre-core/src/errors/mod.rs:Tool '{tool_name}' requires admin privileges
+crates/pierre-core/src/permissions/impersonation.rs:Cannot impersonate another admin
 crates/pierre-groups/src/athlete_billing.rs:Your plan does not include group coaching
+crates/pierre-groups/src/chat_connect.rs:Only the group's owner or coach can connect it to a chat
+crates/pierre-groups/src/chat_connect.rs:Only the group's owner or coach can disconnect its chat
 crates/pierre-groups/src/creation_policy.rs:Group creation is not enabled for your account.
 crates/pierre-groups/src/creation_policy.rs:Group creation requires admin privileges. Contact your tenant administrator.
 crates/pierre-groups/src/service.rs:Your plan does not include group coaching
@@ -57,7 +60,6 @@ crates/pierre-routes-admin/src/handlers/admin_scope.rs:Only an admin can list ev
 crates/pierre-routes-admin/src/handlers/admin_scope.rs:Token is scoped to tenant {own}; {subject} platform-wide, and it cannot {act}
 crates/pierre-routes-admin/src/handlers/feature_flags.rs:Feature-flag admin endpoints require cookie authentication
 crates/pierre-routes-admin/src/handlers/impersonation.rs:Admin privileges required for impersonation
-crates/pierre-routes-admin/src/handlers/impersonation.rs:Cannot impersonate another admin
 crates/pierre-routes-admin/src/handlers/llm_consumption.rs:Admin role required for consumption analytics
 crates/pierre-routes-admin/src/handlers/llm_consumption.rs:Admin role required for tool-usage analytics
 crates/pierre-routes-admin/src/handlers/user_removal.rs:Token is scoped to tenant {tenant_id}; the user belongs to or holds a provider in a tenant outside it
@@ -84,6 +86,7 @@ crates/pierre-routes-groups/src/groups.rs:Only a coach with coach access can cre
 crates/pierre-routes-groups/src/groups.rs:Only the owner can promote members to admin or owner
 crates/pierre-routes-groups/src/groups.rs:Owner cannot leave the group. Transfer ownership or delete the group instead.
 crates/pierre-routes-groups/src/groups.rs:Owner role required for this operation
+crates/pierre-server/src/routes/access_feed.rs:Who read your data is not served to outside apps. The athlete sees it in Dravr.
 crates/pierre-server/src/routes/athlete_home/physiology/edit.rs:Editing thresholds is turned off in this athlete's workspace
 crates/pierre-server/src/routes/athlete_home/physiology/edit.rs:Editing thresholds is turned off in your workspace
 crates/pierre-server/src/routes/chat/athlete_plan.rs:Training plans are turned off in {athlete}'s workspace
@@ -93,14 +96,18 @@ crates/pierre-server/src/routes/chat/participants.rs:Cannot add a user who is no
 crates/pierre-server/src/routes/chat/room_quote.rs:That message is not shared with you
 crates/pierre-server/src/routes/coach_roster.rs:Only a coach attached to a group can read a roster
 crates/pierre-server/src/routes/coach_roster.rs:Your coach access is off, so you cannot read a roster
+crates/pierre-server/src/routes/device_health.rs:A phone's health data is synced and deleted only from Dravr's own app
+crates/pierre-server/src/routes/health_records.rs:Health records are not served to outside apps. The athlete sees them in Dravr.
 crates/pierre-server/src/routes/imports.rs:Imports are started and managed only from Dravr's own apps
 crates/pierre-server/src/routes/imports.rs:The import link names an account outside its tenant
 crates/pierre-server/src/routes/imports.rs:This origin may not upload
 crates/pierre-server/src/routes/messaging/config.rs:Only tenant owners or administrators can manage messaging channel configuration
+crates/pierre-server/src/routes/messaging/group_connect.rs:Only the group's owner or coach can connect it to a chat
 crates/pierre-server/src/routes/messaging/linking/oauth_link.rs:This link was started from another Dravr account, or from a browser that is not signed in to it. Start the link again from the Dravr app you want to link.
 crates/pierre-server/src/routes/messaging/slack_actions/ops_card.rs:A tier is raised only by an active admin
 crates/pierre-server/src/routes/messaging/slack_actions/ops_card.rs:Coach access is decided only by an active admin
 crates/pierre-server/src/services/archive_import/upload.rs:This origin may not upload
+crates/pierre-server/src/services/memory_facts.rs:The athlete keeps their agent's memory from outside AI apps. Only they can allow it, in Dravr under Settings, Privacy & Data, Sensitive health records.
 crates/pierre-services/src/admin_ops/caller.rs:Acting on an admin account requires a super-admin token
 crates/pierre-services/src/admin_ops/caller.rs:An account holder acts on its own account only
 crates/pierre-services/src/auth.rs:User state error: User already exists
@@ -113,4 +120,11 @@ crates/pierre-services/src/group_coach_claim.rs:Only the group's owner, with coa
 crates/pierre-services/src/group_invite_hold.rs:This coach link is not for your account.
 crates/pierre-tool-runtime/src/context.rs:Admin privileges required for this operation
 crates/pierre-tool-runtime/src/context.rs:Tenant context required for this operation
+crates/pierre-tool-runtime/src/implementations/admin_support.rs:A support session through an assistant runs over MCP or A2A only; in Dravr's own app, use the admin console
 crates/pierre-tool-runtime/src/implementations/plan_scope.rs:A coach writes an athlete's {object} from Dravr's own app or channels, not over this interface.
+crates/pierre-tool-runtime/src/support_session.rs:A support session through an assistant is ended from that assistant's own connection; in Dravr's own app, end it from the admin console
+crates/pierre-tool-runtime/src/support_session.rs:A support session through an assistant starts from that assistant's own MCP or A2A connection; in Dravr's own app, start it from the admin console
+crates/pierre-tool-runtime/src/support_session.rs:Admin privileges required for a support session
+crates/pierre-tool-runtime/src/support_session.rs:That user belongs to no tenant, so there is nothing to act as
+crates/pierre-tool-runtime/src/support_session.rs:The user this support session acts as belongs to no tenant
+crates/pierre-tool-runtime/src/support_session.rs:This connection's authorization was revoked or has run out: connect again to start a support session

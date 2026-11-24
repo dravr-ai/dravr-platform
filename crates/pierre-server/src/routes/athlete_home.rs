@@ -118,13 +118,14 @@ mod volume;
 
 use pierre_core::ai_policy::first_party_only;
 use pierre_core::transport::TransportPolicy;
+use pierre_runtime_context::require_tenant;
 use std::iter;
 use std::sync::Arc;
 
 use axum::extract::{Path, Query, State};
 use axum::routing::{get, put};
 use axum::{Json, Router};
-use chrono::{DateTime, Duration, NaiveDate, Utc};
+use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp};
 use photograveur::{RouteBounds as ViewBounds, RouteView};
 use pierre_core::civil_time::{clock_date, resolve_zone};
 use pierre_core::constants::oauth_providers::{garmin_recorded, workout_attribution};
@@ -238,7 +239,7 @@ pub struct HomeActivity {
     /// The sport, as the activity cache's own `sport_type` column spells it.
     pub sport_type: String,
     /// When the activity started.
-    pub start_date: DateTime<Utc>,
+    pub start_date: Timestamp,
     /// Elapsed time in seconds.
     pub duration_seconds: u64,
     /// Distance in metres, when recorded.
@@ -408,7 +409,7 @@ pub struct RecentActivitiesResponse {
     /// When a provider fetch last succeeded for the athlete in this tenant,
     /// across every provider; `null` when none ever has. For display: it is
     /// not what staleness is judged by.
-    pub as_of: Option<DateTime<Utc>>,
+    pub as_of: Option<Timestamp>,
     /// `true` when this load started, or found running, a refresh of a
     /// provider that needs one: past the freshness bands (or never fetched),
     /// judged by that provider's own last fetch, or whose last refresh failed
@@ -434,9 +435,9 @@ pub struct SyncFailure {
     /// The provider's name as the athlete reads it (`Strava`).
     pub provider_name: String,
     /// When the refresh failed.
-    pub failed_at: DateTime<Utc>,
+    pub failed_at: Timestamp,
     /// When that provider last synced well; `null` when it never has.
-    pub last_synced_at: Option<DateTime<Utc>>,
+    pub last_synced_at: Option<Timestamp>,
 }
 
 /// Body of `GET /api/me/activities/{provider}/{activity_id}/route`: exactly
@@ -521,7 +522,7 @@ pub struct TrainingPlanResponse {
     /// when the athlete has no active plan.
     pub plan: Option<PlanCard>,
     /// The athlete's civil date the plan is projected on, `YYYY-MM-DD`.
-    pub today: NaiveDate,
+    pub today: CivilDate,
 }
 
 /// Build the Athlete Home router.
@@ -567,12 +568,12 @@ async fn get_recent_activities(
     Query(query): Query<RecentActivitiesQuery>,
 ) -> AppResult<Json<RecentActivitiesResponse>> {
     let user_id = auth.user_id;
-    let tenant_id = active_tenant(&auth)?;
+    let tenant_id = require_tenant(&resources, &auth).await?;
     let limit = query.limit.map_or(DEFAULT_RECENT_LIMIT, |limit| {
         limit.clamp(MIN_RECENT_LIMIT, MAX_RECENT_LIMIT)
     });
     let repos = resources.repos();
-    let now = Utc::now();
+    let now = Timestamp::now();
     let connections = repos
         .provider_connections
         .get_for_user(user_id, Some(tenant_id))
@@ -622,12 +623,12 @@ async fn recent_workouts(
     resources: &ServerContext,
     user_id: Uuid,
     tenant_id: &TenantId,
-    now: DateTime<Utc>,
+    now: Timestamp,
     limit: usize,
     first_read: i64,
     sport: Option<&str>,
 ) -> AppResult<Vec<HomeActivity>> {
-    let since = now - Duration::days(CACHED_ACTIVITY_LOOKBACK_DAYS);
+    let since = now - Elapsed::days(CACHED_ACTIVITY_LOOKBACK_DAYS);
     let mut read = first_read.max(1);
     loop {
         let rows = resources
@@ -739,7 +740,7 @@ async fn get_activity_route(
     Query(query): Query<ActivityRouteQuery>,
 ) -> AppResult<Json<ActivityRouteResponse>> {
     let user_id = auth.user_id;
-    let tenant_id = active_tenant(&auth)?;
+    let tenant_id = require_tenant(&resources, &auth).await?;
     let (stored_provider, activity) =
         owned_cached_activity(&resources, user_id, tenant_id, &provider, &activity_id).await?;
     let runtime = into_runtime(&resources);
@@ -786,7 +787,7 @@ async fn get_activity_detail(
     Path((provider, activity_id)): Path<(String, String)>,
 ) -> AppResult<Json<ActivityDetailResponse>> {
     let user_id = auth.user_id;
-    let tenant_id = active_tenant(&auth)?;
+    let tenant_id = require_tenant(&resources, &auth).await?;
     // The ownership check: the caller's own row, in this tenant, or 404.
     let (stored_provider, activity) =
         owned_cached_activity(&resources, user_id, tenant_id, &provider, &activity_id).await?;
@@ -875,7 +876,7 @@ struct ActivityAsked<'a> {
     provider: &'a str,
     activity_id: &'a str,
     /// When the caller's cached copy of it started.
-    start: DateTime<Utc>,
+    start: Timestamp,
 }
 
 /// The view of the workout holding the asked activity, read from the cache.
@@ -903,7 +904,7 @@ async fn activity_view(
     // The workout's other copies start within the merger's window of this
     // one, so the rows around it merge into the same session the Home list
     // shows for it.
-    let window = Duration::hours(DETAIL_MERGE_WINDOW_HOURS);
+    let window = Elapsed::hours(DETAIL_MERGE_WINDOW_HOURS);
     let rows = resources
         .repos()
         .activity_cache
@@ -960,7 +961,7 @@ async fn put_activity_conversation(
     Json(link): Json<ActivityConversationLink>,
 ) -> AppResult<Json<ActivityConversationLink>> {
     let user_id = auth.user_id;
-    let tenant_id = active_tenant(&auth)?;
+    let tenant_id = require_tenant(&resources, &auth).await?;
     let (stored_provider, activity) =
         owned_cached_activity(&resources, user_id, tenant_id, &provider, &activity_id).await?;
     // The thread is about the activity throughout: it carries the activity's
@@ -1065,14 +1066,14 @@ async fn get_training_plan(
     Query(query): Query<TrainingPlanQuery>,
 ) -> AppResult<Json<TrainingPlanResponse>> {
     let user_id = auth.user_id;
-    let tenant_id = active_tenant(&auth)?;
+    let tenant_id = require_tenant(&resources, &auth).await?;
     let repos = resources.repos();
     let user = repos.users.get_global(user_id).await?;
     // The athlete's civil day, the one `/plan` projects the plan on: a 23:30
     // EDT visit shows today's session, not tomorrow's.
     let today = clock_date(
-        Utc::now(),
-        resolve_zone(user.as_ref().and_then(|u| u.timezone.as_deref())),
+        Timestamp::now(),
+        &resolve_zone(user.as_ref().and_then(|u| u.timezone.as_deref())),
     );
     let locale = resolve_persona_locale(query.locale.as_deref(), Some(&user_locale(user.as_ref())));
     // The athlete's one season, whichever agent laid it — the plan `/plan`
@@ -1094,25 +1095,15 @@ async fn get_training_status(
     auth: AuthenticatedUser,
 ) -> AppResult<Json<TrainingStatus>> {
     let user_id = auth.user_id;
-    let tenant_id = active_tenant(&auth)?;
+    let tenant_id = require_tenant(&resources, &auth).await?;
     let user = resources.repos().users.get_global(user_id).await?;
     // The athlete's civil day: form on a day is read at the end of the day
     // before, so the server's date would show a different reading for every
     // zone away from UTC.
     let today = clock_date(
-        Utc::now(),
-        resolve_zone(user.as_ref().and_then(|u| u.timezone.as_deref())),
+        Timestamp::now(),
+        &resolve_zone(user.as_ref().and_then(|u| u.timezone.as_deref())),
     );
     let status = training_status(&into_runtime(&resources), tenant_id, user_id, today).await?;
     Ok(Json(status))
-}
-
-fn active_tenant(auth: &AuthenticatedUser) -> AppResult<TenantId> {
-    auth.active_tenant_id
-        .map(TenantId::from_uuid)
-        .ok_or_else(|| {
-            AppError::auth_invalid(
-                "Home endpoints require an active tenant in the JWT — switch tenant first",
-            )
-        })
 }

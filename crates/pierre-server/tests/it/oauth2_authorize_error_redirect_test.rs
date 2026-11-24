@@ -55,6 +55,7 @@ fn oauth2_routes(resources: &Arc<ServerContext>) -> axum::Router {
         jwks_manager: resources.auth.jwks_manager.clone(),
         config: Arc::new(resources.common.config.oauth2_server.clone()),
         refresh_token_expiry_days: 30,
+        session_cookie_max_age_secs: 86_400,
         csrf_manager: resources.auth.csrf_manager.clone(),
         accounts: resources.account_service(),
         google_sign_in: None,
@@ -183,8 +184,11 @@ async fn an_unknown_scope_is_redirected_to_the_client_with_its_state() {
     );
 }
 
+/// `admin` is offered on the consent screen to an admin, never asked for: a
+/// request naming it is checked without it, so a non-admin is shown the
+/// screen for the rest and is never offered it (carnet#1511, Q20).
 #[tokio::test]
-async fn admin_is_refused_to_the_client_even_with_a_session() {
+async fn admin_is_dropped_from_a_non_admins_request_never_refused() {
     let resources = create_test_server_resources().await.unwrap();
     let client_id = register(&resources, REDIRECT).await;
     let (_, user) =
@@ -202,13 +206,24 @@ async fn admin_is_refused_to_the_client_even_with_a_session() {
     .send(oauth2_routes(&resources))
     .await;
 
-    let (_, query) = redirect_target(&response);
     assert_eq!(
-        param(&query, "error"),
-        Some("invalid_scope"),
-        "no consent screen for a grant that cannot be issued"
+        response.status(),
+        200,
+        "the screen for the rest, no invalid_scope"
     );
-    assert_eq!(param(&query, "state"), Some(STATE));
+    let page = response.body_text();
+    assert!(
+        page.contains(r#"name="scope" value="fitness:read""#),
+        "the form carries the request without admin: {page}"
+    );
+    assert!(
+        !page.contains("<li>admin"),
+        "admin is never a scope line: {page}"
+    );
+    assert!(
+        !page.contains("admin_access"),
+        "a non-admin is never offered Admin access: {page}"
+    );
 }
 
 #[tokio::test]

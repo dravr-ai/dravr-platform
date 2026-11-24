@@ -22,12 +22,12 @@ use pierre_providers::ai_scope;
 use std::sync::Arc;
 
 use anyhow::Result;
-use chrono::{Duration, TimeZone, Utc};
 use dravr_cageux::nutrition_calculator::{
     ExerciseEnergyExpenditure, Gender, HeartRateEnergyInputs,
 };
 use dravr_cageux::training_load::FormBand;
 use dravr_cageux::zones::HrZones;
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::models::{
     Activity, ActivityBuilder, PhysiologicalSex, SportType, TenantId, UserPhysiologicalProfile,
 };
@@ -267,9 +267,10 @@ async fn a_tool_raised_or_stale_medical_flag_still_gates() -> Result<()> {
             object: "type 1 diabetes",
             confidence: 0.9,
             source: FactSource::Coach,
-            valid_until: Some(Utc::now() - Duration::days(30)),
+            valid_until: Some(Timestamp::now() - Elapsed::days(30)),
             source_msg_id: None,
             transport_policy: TransportPolicy::AnyTransport,
+            ai_consent_sources: &[],
         })
         .await?;
 
@@ -398,7 +399,10 @@ async fn a_flagged_athlete_still_gets_input_errors() -> Result<()> {
 // ============================================================================
 
 fn timing_params() -> Value {
-    json!({ "workout_intensity": "high", "weight_kg": 70.0, "daily_protein_g": 126.0 })
+    json!({
+        "workout_intensity": "high", "weight_kg": 70.0, "daily_protein_g": 126.0,
+        "session_minutes": 90, "hours_before": 2
+    })
 }
 
 #[tokio::test]
@@ -731,7 +735,7 @@ fn hard_long_ride() -> Activity {
         "ride-1".to_owned(),
         "Long ride".to_owned(),
         SportType::Ride,
-        Utc.with_ymd_and_hms(2026, 9, 28, 8, 0, 0).single().unwrap(),
+        Timestamp::parse_from_rfc3339("2026-09-28T08:00:00Z").unwrap(),
         2 * 3600,
         "strava".to_owned(),
     )
@@ -900,7 +904,7 @@ fn the_session_intensity_is_read_on_the_athletes_zones_and_absent_without_them()
         "ride-3".to_owned(),
         "Ride without a strap".to_owned(),
         SportType::Ride,
-        Utc.with_ymd_and_hms(2026, 9, 30, 8, 0, 0).single().unwrap(),
+        Timestamp::parse_from_rfc3339("2026-09-30T08:00:00Z").unwrap(),
         7200,
         "strava".to_owned(),
     )
@@ -922,7 +926,7 @@ fn the_session_intensity_is_read_on_the_athletes_zones_and_absent_without_them()
         "ride-2".to_owned(),
         "Easy spin".to_owned(),
         SportType::Ride,
-        Utc.with_ymd_and_hms(2026, 9, 29, 8, 0, 0).single().unwrap(),
+        Timestamp::parse_from_rfc3339("2026-09-29T08:00:00Z").unwrap(),
         3600,
         "strava".to_owned(),
     )
@@ -981,7 +985,7 @@ fn the_days_carbohydrate_target_follows_the_position_table() {
         "ride-2".to_owned(),
         "Easy spin".to_owned(),
         SportType::Ride,
-        Utc.with_ymd_and_hms(2026, 9, 29, 8, 0, 0).single().unwrap(),
+        Timestamp::parse_from_rfc3339("2026-09-29T08:00:00Z").unwrap(),
         3600,
         "strava".to_owned(),
     )
@@ -998,7 +1002,7 @@ fn the_days_carbohydrate_target_follows_the_position_table() {
         "ride-4".to_owned(),
         "Tempo hour".to_owned(),
         SportType::Ride,
-        Utc.with_ymd_and_hms(2026, 10, 1, 8, 0, 0).single().unwrap(),
+        Timestamp::parse_from_rfc3339("2026-10-01T08:00:00Z").unwrap(),
         3600,
         "strava".to_owned(),
     )
@@ -1016,7 +1020,7 @@ fn the_days_carbohydrate_target_follows_the_position_table() {
         "ride-5".to_owned(),
         "Epic ride".to_owned(),
         SportType::Ride,
-        Utc.with_ymd_and_hms(2026, 10, 2, 8, 0, 0).single().unwrap(),
+        Timestamp::parse_from_rfc3339("2026-10-02T08:00:00Z").unwrap(),
         4 * 3600,
         "strava".to_owned(),
     )
@@ -1050,7 +1054,7 @@ fn ride_without_calories() -> Activity {
         "ride-3".to_owned(),
         "Steady ride".to_owned(),
         SportType::Ride,
-        Utc.with_ymd_and_hms(2026, 9, 30, 8, 0, 0).single().unwrap(),
+        Timestamp::parse_from_rfc3339("2026-09-30T08:00:00Z").unwrap(),
         3600,
         "strava".to_owned(),
     )

@@ -18,7 +18,7 @@
 
 use std::sync::Arc;
 
-use chrono::{DateTime, Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::models::{Activity, RefreshConfig, TenantId};
 use pierre_runtime_context::DataContext;
 use tokio::time::timeout;
@@ -96,8 +96,8 @@ pub(crate) async fn fetch_member_activities(
         return (Vec::new(), false);
     }
 
-    let now = Utc::now();
-    let window_start = now - Duration::days(CACHED_ACTIVITY_LOOKBACK_DAYS);
+    let now = Timestamp::now();
+    let window_start = now - Elapsed::days(CACHED_ACTIVITY_LOOKBACK_DAYS);
     let read_limit = i64::try_from(
         runtime
             .config()
@@ -172,13 +172,13 @@ async fn refresh_stale_cache(
     providers: &[String],
     user_id: Uuid,
     tenant_id: TenantId,
-    now: DateTime<Utc>,
+    now: Timestamp,
     cached: Vec<Activity>,
 ) -> (Vec<Activity>, bool) {
     let completed = revalidate_within_budget(runtime, providers.to_vec(), user_id, tenant_id).await;
 
     let data = runtime.data();
-    let window_start = now - Duration::days(CACHED_ACTIVITY_LOOKBACK_DAYS);
+    let window_start = now - Elapsed::days(CACHED_ACTIVITY_LOOKBACK_DAYS);
     let read_limit = i64::try_from(
         runtime
             .config()
@@ -239,9 +239,9 @@ async fn activity_cache_is_stale(
     user_id: Uuid,
     tenant_id: TenantId,
     providers: &[String],
-    now: DateTime<Utc>,
+    now: Timestamp,
 ) -> bool {
-    let fresh_cutoff = now - Duration::seconds(ACTIVITY_CACHE_FRESH_SECS);
+    let fresh_cutoff = now - Elapsed::seconds(ACTIVITY_CACHE_FRESH_SECS);
     for provider in providers {
         let last_sync = data
             .repos()

@@ -14,14 +14,15 @@
 
 use std::collections::HashMap;
 
-use chrono::{TimeZone, Utc};
+use dravr_tronc::dates::Elapsed;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::{ActivityBuilder, SportType};
 use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
 use pierre_tool_runtime::implementations::activity_list_render::format_activities_as_list;
 
 #[test]
 fn the_note_names_both_providers_and_the_fields_the_session_took() {
-    let start = Utc.with_ymd_and_hms(2026, 8, 22, 12, 0, 0).unwrap();
+    let start = Timestamp::parse_from_rfc3339("2026-08-22T12:00:00Z").unwrap();
     let recordings = vec![
         ActivityBuilder::new("s-1", "Long ride", SportType::Ride, start, 24_000, "strava")
             .distance_meters(200_000.0)
@@ -38,7 +39,7 @@ fn the_note_names_both_providers_and_the_fields_the_session_took() {
         Some(&report),
         "en",
         None,
-        Utc.with_ymd_and_hms(2026, 8, 25, 12, 0, 0).unwrap(),
+        Timestamp::parse_from_rfc3339("2026-08-25T12:00:00Z").unwrap(),
     );
 
     assert!(
@@ -59,7 +60,7 @@ fn the_note_names_both_providers_and_the_fields_the_session_took() {
 
 #[test]
 fn no_note_when_nothing_was_merged() {
-    let start = Utc.with_ymd_and_hms(2026, 8, 22, 12, 0, 0).unwrap();
+    let start = Timestamp::parse_from_rfc3339("2026-08-22T12:00:00Z").unwrap();
     let (sessions, report) = merge_duplicates(
         vec![
             ActivityBuilder::new("s-1", "Run", SportType::Run, start, 1_800, "strava")
@@ -74,7 +75,7 @@ fn no_note_when_nothing_was_merged() {
         Some(&report),
         "en",
         None,
-        Utc.with_ymd_and_hms(2026, 8, 25, 12, 0, 0).unwrap(),
+        Timestamp::parse_from_rfc3339("2026-08-25T12:00:00Z").unwrap(),
     );
     assert!(!rendered.contains("[Note]"), "{rendered}");
 }
@@ -84,7 +85,7 @@ fn a_long_page_of_merged_sessions_lists_ten_and_counts_the_rest() {
     let mut recordings = Vec::new();
     for day in 0..14_i64 {
         let start =
-            Utc.with_ymd_and_hms(2026, 8, 1, 12, 0, 0).unwrap() + chrono::Duration::days(day);
+            Timestamp::parse_from_rfc3339("2026-08-01T12:00:00Z").unwrap() + Elapsed::days(day);
         recordings.push(
             ActivityBuilder::new(
                 format!("s-{day}"),
@@ -119,7 +120,7 @@ fn a_long_page_of_merged_sessions_lists_ten_and_counts_the_rest() {
         Some(&report),
         "en",
         None,
-        Utc.with_ymd_and_hms(2026, 8, 30, 12, 0, 0).unwrap(),
+        Timestamp::parse_from_rfc3339("2026-08-30T12:00:00Z").unwrap(),
     );
 
     assert_eq!(

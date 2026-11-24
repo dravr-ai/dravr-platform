@@ -26,10 +26,10 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use chrono::{DateTime, Utc};
 use dravr_canot::channel::MessagingChannel;
 use dravr_canot::retry::{compute_retry_update, RetryDecision};
 use dravr_canot::turn::ConversationTurnId as CanotTurnId;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::AppError;
 use pierre_core::models::messaging::{ChannelConfig, ChannelType};
 use pierre_core::models::{ConnectionStatus, TenantId};
@@ -163,7 +163,7 @@ struct EntryFields<'a> {
     /// predate turn-id threading.
     turn_id: CanotTurnId,
     /// Last instant the payload may be sent, when it carries an expiring link.
-    expires_at: Option<DateTime<Utc>>,
+    expires_at: Option<Timestamp>,
     /// The connection a reconnect notice is about, when the entry is one.
     reauth: ReauthGuard<'a>,
 }
@@ -215,8 +215,7 @@ fn parse_entry_fields(entry: &Value) -> EntryFields<'_> {
         turn_id: CanotTurnId::from_uuid(turn_uuid),
         expires_at: entry["expires_at"]
             .as_str()
-            .and_then(|raw| DateTime::parse_from_rfc3339(raw).ok())
-            .map(|at| at.with_timezone(&Utc)),
+            .and_then(|raw| Timestamp::parse_from_rfc3339(raw).ok()),
         reauth: parse_reauth_target(entry),
     }
 }
@@ -248,7 +247,7 @@ async fn sendability(
     connections: &dyn ProviderConnectionRepository,
     fields: &EntryFields<'_>,
 ) -> Sendability {
-    if fields.expires_at.is_some_and(|at| at <= Utc::now()) {
+    if fields.expires_at.is_some_and(|at| at <= Timestamp::now()) {
         return Sendability::Expired;
     }
     let (user_id, tenant_id, provider) = match fields.reauth {

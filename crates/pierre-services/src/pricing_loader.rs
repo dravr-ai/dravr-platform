@@ -12,11 +12,11 @@ use serde::Deserialize;
 use std::collections::HashMap;
 use tracing::{info, warn};
 
-/// JSON shape that operators write into `admin_config_overrides.config_value`
+/// JSON shape that admins write into `admin_config_overrides.config_value`
 /// for `category = 'cat_llm_pricing'`.
 ///
 /// Keys mirror [`embacle::pricing::ModelPricing`] but the JSON form is
-/// a contract surface — operators edit it through the admin UI — so the
+/// a contract surface — admins edit it through the admin UI — so the
 /// fields are renamed for clarity in the audit log.
 #[derive(Debug, Deserialize)]
 struct PricingOverridePayload {
@@ -33,14 +33,14 @@ struct PricingOverridePayload {
     cache_write_multiplier: Option<f64>,
     /// Fraction of the input rate at which a write to a 1-hour cache entry
     /// bills (Anthropic 2.0). Omitted, the compile-time table's rate for the
-    /// same row carries over, as `long_prompt` does: an operator repricing
+    /// same row carries over, as `long_prompt` does: an admin repricing
     /// Opus's base rates must not quietly bill its 1-hour writes at the
     /// 5-minute rate.
     cache_write_1h_multiplier: Option<f64>,
     /// The second rate card above a prompt-length threshold
     /// (`{"above_prompt_tokens", "input_per_million", "output_per_million"}`).
     /// Omitted, the compile-time table's card for the same row carries over:
-    /// an operator repricing Haiku 5.5's base rates must not silently bill
+    /// an admin repricing Haiku 5.5's base rates must not silently bill
     /// its prompts over 100K tokens at the base card.
     long_prompt: Option<LongPromptRates>,
 }
@@ -125,7 +125,7 @@ pub async fn load_pricing_overrides(repo: &dyn LlmCredentialRepository) {
 /// Parse a batch of admin override rows into global + per-tenant maps.
 ///
 /// Each malformed row (bad `config_key` shape, bad `config_value` JSON)
-/// is logged and skipped — never fatal — so a single bad operator edit
+/// is logged and skipped — never fatal — so a single bad admin edit
 /// can't take the server out at boot.
 fn bucket_overrides(rows: Vec<AdminConfigOverrideRow>) -> OverrideBuckets {
     let mut buckets = OverrideBuckets {

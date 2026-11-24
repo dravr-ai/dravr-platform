@@ -37,10 +37,11 @@ use axum::{
 use pierre_core::admin::models::{AdminPermission, ValidatedAdminToken};
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::feature_flags::FeatureKey;
+use pierre_core::models::TenantId;
 use pierre_database::repositories::FeatureFlagRow;
-use pierre_database::{AuthRepos, UsageRepos};
+use pierre_database::UsageRepos;
 use pierre_middleware::extract_auth_from_headers;
-use pierre_runtime_context::MiddlewareCtx;
+use pierre_runtime_context::{resolve_tenant, MiddlewareCtx, TenantMode};
 use serde::{Deserialize, Serialize};
 use tracing::info;
 use uuid::Uuid;
@@ -171,9 +172,10 @@ pub async fn handle_self_get<C: MiddlewareCtx>(
     headers: HeaderMap,
 ) -> Result<Response, AppError> {
     let auth_session = extract_auth_from_headers(&headers, &resources).await?;
-    let auth_view = resources.repos().auth_repos();
+    // A user not yet tied to any tenant still reads the compile-time defaults.
+    let tenant = resolve_tenant(&resources, &auth_session, TenantMode::Optional).await?;
     let usage_view = resources.repos().usage_repos();
-    let flags = resolve_self_flags(&auth_view, &usage_view, auth_session.user_id).await?;
+    let flags = resolve_self_flags(&usage_view, tenant, auth_session.user_id).await?;
     Ok((
         StatusCode::OK,
         Json(MeFeaturesResponse {
@@ -362,22 +364,13 @@ impl FeatureFlagsRoutes {
 /// Backs `GET /api/me/features`. When the user has no tenant rows the map
 /// still contains every known key with its compile-time default.
 async fn resolve_self_flags(
-    auth: &AuthRepos,
     usage: &UsageRepos,
+    tenant: Option<TenantId>,
     user_id: Uuid,
 ) -> Result<EffectiveFlags, AppError> {
-    // Multi-tenant memberships exist in this codebase but a user has one
-    // primary working tenant from the admin's perspective, the account's first
-    // tenant. A user not yet tied to any tenant gets `None`, and the flags fall
-    // back to their compile-time defaults.
-    let tenant_uuid = auth
-        .tenants
-        .first_for_user(user_id)
-        .await
-        .map_err(|e| AppError::internal(format!("Failed to look up user tenants: {e}")))?
-        .map(|tenant_id| tenant_id.as_uuid());
-
-    let resolved = match tenant_uuid {
+    // `tenant` is the one the request acts for. A user not yet tied to any
+    // tenant has `None`, and the flags fall back to their compile-time defaults.
+    let resolved = match tenant.map(|tenant_id| tenant_id.as_uuid()) {
         Some(tid) => usage
             .feature_flags
             .resolve_for_user(tid, user_id)

@@ -44,7 +44,8 @@
 use std::collections::HashMap;
 use std::fmt;
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::date_pattern;
+use dravr_tronc::dates::{Pattern, Timestamp};
 use jsonwebtoken::{
     decode, decode_header, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation,
 };
@@ -61,6 +62,9 @@ use pierre_database::backends::shared::key_material::{
 };
 use pierre_database::backends::SecurityRepository;
 use tracing::{error, info};
+
+/// `20261117_100005`: the stamp a rotated key's id carries.
+const KEY_ID_STAMP: Pattern<Timestamp> = date_pattern!(Timestamp, "%Y%m%d_%H%M%S");
 
 /// RSA key size in bits for RS256 (2048 bits minimum, 4096 bits recommended)
 pub const RSA_KEY_SIZE: usize = 4096;
@@ -112,7 +116,7 @@ pub struct RsaKeyPair {
     /// Public key for verification
     pub public_key: RsaPublicKey,
     /// Key creation timestamp
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
     /// Whether this is the currently active signing key
     pub is_active: bool,
 }
@@ -162,7 +166,7 @@ impl RsaKeyPair {
             kid: kid.to_owned(),
             private_key,
             public_key,
-            created_at: Utc::now(),
+            created_at: Timestamp::now(),
             is_active: true,
         })
     }
@@ -232,7 +236,7 @@ impl RsaKeyPair {
             kid: kid.to_owned(),
             private_key,
             public_key,
-            created_at: Utc::now(),
+            created_at: Timestamp::now(),
             is_active: false, // Imported keys start inactive
         })
     }
@@ -343,7 +347,7 @@ impl JwksManager {
         &mut self,
         kid: &str,
         private_key_pem: &str,
-        created_at: DateTime<Utc>,
+        created_at: Timestamp,
         is_active: bool,
     ) -> AppResult<()> {
         let mut key_pair = RsaKeyPair::import_private_key_pem(kid, private_key_pem)?;
@@ -370,7 +374,7 @@ impl JwksManager {
     /// Returns error if key import fails
     pub fn load_keys_from_database(
         &mut self,
-        keypairs: Vec<(String, String, String, DateTime<Utc>, bool)>,
+        keypairs: Vec<(String, String, String, Timestamp, bool)>,
     ) -> AppResult<()> {
         for (kid, private_key_pem, _public_key_pem, created_at, is_active) in keypairs {
             self.register_keypair_from_pem(&kid, &private_key_pem, created_at, is_active)?;
@@ -415,7 +419,7 @@ impl JwksManager {
     /// # Errors
     /// Returns error if key generation fails
     pub fn rotate_keys_with_size(&mut self, key_size_bits: usize) -> AppResult<String> {
-        let new_kid = format!("key_{}", Utc::now().format("%Y%m%d_%H%M%S"));
+        let new_kid = format!("key_{}", Timestamp::now().format_with(&KEY_ID_STAMP));
 
         self.generate_rsa_key_pair_with_size(&new_kid, key_size_bits)?;
 
@@ -548,10 +552,7 @@ async fn count_ciphertext_before_mint(security: &dyn SecurityRepository) -> AppR
 
 /// Say so when the store read back holds a racing instance's first keypair
 /// rather than the one generated here.
-fn report_first_keypair_stored(
-    stored: &[(String, String, String, DateTime<Utc>, bool)],
-    ours: &str,
-) {
+fn report_first_keypair_stored(stored: &[(String, String, String, Timestamp, bool)], ours: &str) {
     let won = stored
         .iter()
         .any(|(kid, _, public_key_pem, _, _)| kid == FIRST_KEYPAIR_KID && public_key_pem == ours);
@@ -571,7 +572,7 @@ fn report_first_keypair_stored(
 async fn adopt_racing_keypair_or_refuse(
     security: &dyn SecurityRepository,
     encrypted_rows: i64,
-) -> AppResult<Vec<(String, String, String, DateTime<Utc>, bool)>> {
+) -> AppResult<Vec<(String, String, String, Timestamp, bool)>> {
     let keypairs = load_rsa_keypairs_or_page(security).await?;
     if keypairs.is_empty() {
         error!(
@@ -594,7 +595,7 @@ async fn adopt_racing_keypair_or_refuse(
 /// aborts before the in-process notifier flushes, so the event is its page.
 async fn load_rsa_keypairs_or_page(
     security: &dyn SecurityRepository,
-) -> AppResult<Vec<(String, String, String, DateTime<Utc>, bool)>> {
+) -> AppResult<Vec<(String, String, String, Timestamp, bool)>> {
     security.load_rsa_keypairs().await.inspect_err(|e| {
         if let Some(event) = key_read_event(e, RSA_KEYPAIR_LOAD_FAILED) {
             error!(

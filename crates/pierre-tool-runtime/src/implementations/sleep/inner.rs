@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use tracing::{debug, warn};
 
 use super::activity_source::{training_load_activities, training_load_of};
@@ -17,7 +17,7 @@ use super::activity_source::{training_load_activities, training_load_of};
 use super::recovery_notice::fire_low_recovery_notification;
 #[cfg(feature = "client-notifications")]
 use crate::context::scoped_read_subject;
-use crate::protocol::sleep_helpers::{latest_sleep_data, sleep_history_data};
+use crate::protocol::sleep_helpers::{hrv_trend, latest_sleep_data, sleep_history_data};
 use crate::protocol::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
 use crate::protocols::ProtocolError;
 use dravr_cageux::algorithms::RecoveryAggregationAlgorithm;
@@ -34,23 +34,13 @@ use crate::implementations::sleep::output::{
 };
 use crate::protocol::format::{apply_format_typed, extract_output_format};
 
-/// The recovery aggregation the tenant configured.
-///
-/// Weighted-average with its recovery-scoring weights unless another
-/// algorithm is selected.
-fn configured_recovery_algorithm(
+/// The recovery aggregation: the weighted average on the tenant's
+/// recovery-scoring weights, the one aggregation recovery is scored with
+/// (carnet#1693).
+const fn configured_recovery_algorithm(
     cageux: &IntelligenceConfig<true>,
 ) -> RecoveryAggregationAlgorithm {
-    let scoring = &cageux.sleep_recovery.recovery_scoring;
-    cageux
-        .algorithms
-        .recovery_algorithm(RecoveryAggregationAlgorithm::WeightedAverage {
-            tsb_weight_full: scoring.tsb_weight_full,
-            sleep_weight_full: scoring.sleep_weight_full,
-            hrv_weight_full: scoring.hrv_weight_full,
-            tsb_weight_no_hrv: scoring.tsb_weight_no_hrv,
-            sleep_weight_no_hrv: scoring.sleep_weight_no_hrv,
-        })
+    RecoveryAggregationAlgorithm::from_scoring(&cageux.sleep_recovery.recovery_scoring)
 }
 
 /// Nights `track_sleep_trends` reads when the caller names no window.
@@ -71,8 +61,6 @@ pub(super) const MAX_TREND_DAYS: u32 = 366;
 /// # Parameters
 /// - `sleep_provider` (optional): Read only this source's synced sleep (e.g., "whoop", "garmin")
 /// - `sleep_data` (optional): Manual sleep data JSON (used if `sleep_provider` not specified)
-/// - `recent_hrv_values` (optional): Array of recent HRV values for trend analysis
-/// - `baseline_hrv` (optional): User's baseline HRV for comparison
 ///
 /// # Errors
 /// Returns `ProtocolError` if sleep data is missing or invalid
@@ -130,39 +118,18 @@ pub(crate) fn handle_analyze_sleep_quality(
             })?;
 
         // Analyze HRV if available
-        let hrv_analysis = if let Some(rmssd) = sleep_data.hrv_rmssd_ms {
-            // Get recent HRV values if provided
-            let recent_hrv = request
-                .parameters
-                .get("recent_hrv_values")
-                .and_then(|v| {
-                    serde_json::from_value::<Vec<f64>>(v.clone())
-                        .inspect_err(|e| {
-                            debug!(
-                                error = %e,
-                                "Failed to deserialize recent_hrv_values, using empty default"
-                            );
-                        })
-                        .ok()
-                })
-                .unwrap_or_default();
-
-            let baseline_hrv = request
-                .parameters
-                .get("baseline_hrv")
-                .and_then(serde_json::Value::as_f64);
-
-            Some(
-                SleepAnalyzer::analyze_hrv_trends(rmssd, &recent_hrv, baseline_hrv, config)
-                    .map_err(|e| {
-                        ProtocolError::InternalError(format!(
-                            "sleep_analyzer: HRV analysis failed: {e}"
-                        ))
-                    })?,
-            )
-        } else {
-            None
-        };
+        let hrv_analysis = hrv_trend(
+            executor,
+            parse_user_id_for_protocol(&request.user_id).ok(),
+            request.tenant_id.as_deref(),
+            source,
+            &sleep_data,
+            config,
+        )
+        .await
+        .map_err(|e| {
+            ProtocolError::InternalError(format!("sleep_analyzer: HRV analysis failed: {e}"))
+        })?;
 
         let payload = SleepQualityResult {
             sleep_quality,
@@ -178,7 +145,7 @@ pub(crate) fn handle_analyze_sleep_quality(
                 let mut map = HashMap::new();
                 map.insert(
                     "analysis_timestamp".into(),
-                    serde_json::Value::String(Utc::now().to_rfc3339()),
+                    serde_json::Value::String(Timestamp::now().to_rfc3339()),
                 );
                 map.insert(
                     "scientific_references".into(),
@@ -213,8 +180,6 @@ pub(crate) fn handle_analyze_sleep_quality(
 /// - `activity_provider` (optional): Provider for activities (default: the athlete's elected provider)
 /// - `sleep_provider` (optional): Read only this source's synced sleep (e.g., "whoop", "garmin")
 /// - `sleep_data` (optional): Manual sleep data JSON (used if `sleep_provider` not specified)
-/// - `recent_hrv_values` (optional): Array of recent HRV values
-/// - `baseline_hrv` (optional): User's baseline HRV
 ///
 /// # Errors
 /// Returns `ProtocolError` if required data is missing or calculation fails
@@ -305,38 +270,20 @@ pub(crate) fn handle_calculate_recovery_score(
                     })?;
 
                 // Get HRV analysis if available
-                let hrv_analysis = if let Some(rmssd) = sleep_data.hrv_rmssd_ms {
-                    let recent_hrv = request
-                        .parameters
-                        .get("recent_hrv_values")
-                        .and_then(|v| {
-                            serde_json::from_value::<Vec<f64>>(v.clone())
-                            .inspect_err(|e| {
-                                debug!(
-                                    error = %e,
-                                    "Failed to deserialize recent_hrv_values, using empty default"
-                                );
-                            })
-                            .ok()
-                        })
-                        .unwrap_or_default();
-
-                    let baseline_hrv = request
-                        .parameters
-                        .get("baseline_hrv")
-                        .and_then(serde_json::Value::as_f64);
-
-                    Some(
-                        SleepAnalyzer::analyze_hrv_trends(rmssd, &recent_hrv, baseline_hrv, config)
-                            .map_err(|e| {
-                                ProtocolError::InternalError(format!(
-                                    "sleep_analyzer: HRV analysis failed: {e}"
-                                ))
-                            })?,
-                    )
-                } else {
-                    None
-                };
+                let hrv_analysis = hrv_trend(
+                    executor,
+                    Some(user_uuid),
+                    request.tenant_id.as_deref(),
+                    source,
+                    &sleep_data,
+                    config,
+                )
+                .await
+                .map_err(|e| {
+                    ProtocolError::InternalError(format!(
+                        "sleep_analyzer: HRV analysis failed: {e}"
+                    ))
+                })?;
 
                 let algorithm = configured_recovery_algorithm(&executor.cageux_config());
 
@@ -408,7 +355,7 @@ pub(crate) fn handle_calculate_recovery_score(
                 let mut map = HashMap::new();
                 map.insert(
                     "calculation_timestamp".into(),
-                    serde_json::Value::String(Utc::now().to_rfc3339()),
+                    serde_json::Value::String(Timestamp::now().to_rfc3339()),
                 );
                 map.insert(
                     "components_used".into(),
@@ -538,38 +485,20 @@ pub(crate) fn handle_suggest_rest_day(
                     })?;
 
                 // HRV analysis
-                let hrv_analysis = if let Some(rmssd) = sleep_data.hrv_rmssd_ms {
-                    let recent_hrv = request
-                        .parameters
-                        .get("recent_hrv_values")
-                        .and_then(|v| {
-                            serde_json::from_value::<Vec<f64>>(v.clone())
-                                .inspect_err(|e| {
-                                    debug!(
-                                        error = %e,
-                                        "Failed to deserialize recent_hrv_values, using empty default"
-                                    );
-                                })
-                                .ok()
-                        })
-                        .unwrap_or_default();
-
-                    let baseline_hrv = request
-                        .parameters
-                        .get("baseline_hrv")
-                        .and_then(serde_json::Value::as_f64);
-
-                    Some(
-                        SleepAnalyzer::analyze_hrv_trends(rmssd, &recent_hrv, baseline_hrv, config)
-                            .map_err(|e| {
-                                ProtocolError::InternalError(format!(
-                                    "sleep_analyzer: HRV analysis failed: {e}"
-                                ))
-                            })?,
-                    )
-                } else {
-                    None
-                };
+                let hrv_analysis = hrv_trend(
+                    executor,
+                    Some(user_uuid),
+                    request.tenant_id.as_deref(),
+                    source,
+                    &sleep_data,
+                    config,
+                )
+                .await
+                .map_err(|e| {
+                    ProtocolError::InternalError(format!(
+                        "sleep_analyzer: HRV analysis failed: {e}"
+                    ))
+                })?;
 
                 let algorithm = configured_recovery_algorithm(&executor.cageux_config());
 
@@ -646,7 +575,7 @@ pub(crate) fn handle_suggest_rest_day(
                 let mut map = HashMap::new();
                 map.insert(
                     "recommendation_timestamp".into(),
-                    serde_json::Value::String(Utc::now().to_rfc3339()),
+                    serde_json::Value::String(Timestamp::now().to_rfc3339()),
                 );
                 // Only include confidence if it's a valid f64 value
                 if let Some(confidence_number) =
@@ -868,7 +797,7 @@ pub(crate) fn handle_track_sleep_trends(
                 let mut map = HashMap::new();
                 map.insert(
                     "analysis_timestamp".into(),
-                    serde_json::Value::String(Utc::now().to_rfc3339()),
+                    serde_json::Value::String(Timestamp::now().to_rfc3339()),
                 );
                 map.insert(
                     "days_analyzed".into(),
@@ -1036,7 +965,7 @@ pub(crate) fn handle_optimize_sleep_schedule(
                 let mut map = HashMap::new();
                 map.insert(
                     "calculation_timestamp".into(),
-                    serde_json::Value::String(Utc::now().to_rfc3339()),
+                    serde_json::Value::String(Timestamp::now().to_rfc3339()),
                 );
                 map
             }),

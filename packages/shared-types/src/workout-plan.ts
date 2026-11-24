@@ -1,6 +1,8 @@
 // ABOUTME: TypeScript shape of the workout_plan block — the saved plan projected for a card, never a document the model wrote.
 // ABOUTME: Mirrors pierre_services::plan_card::PlanCard; consumed by the web and mobile plan cards.
 
+import type { SessionParams, SessionSport } from './session-editor.js';
+
 /** The phase kinds the periodization kernel knows. */
 export type PlanPhaseKind =
   | 'prep'
@@ -88,6 +90,12 @@ export interface PlanFuelingWithheld {
 export interface PlanDay {
   /** `YYYY-MM-DD`. */
   date: string;
+  /**
+   * Where the entry sits among its date's entries, from 0, a rest entry
+   * included: a date may hold several sessions, in the order they are done
+   * (carnet#1716). Absent on a card written before it, which reads as 0.
+   */
+  position?: number;
   sport: string;
   workout: string;
   duration_min?: number;
@@ -98,6 +106,12 @@ export interface PlanDay {
   fueling_withheld?: PlanFuelingWithheld;
   template_slug?: string;
   template_source?: PlanTemplateSource;
+  /** The family preset the day resolved to, when its template is a family (carnet#1515). */
+  template_preset?: string;
+  /** The values the day states on its family preset, by key (carnet#1515). */
+  template_params?: SessionParams;
+  /** The day's sport as a family preset reads it, when it is one of them (carnet#1515). */
+  family_sport?: SessionSport;
   /**
    * The warning the card marks the day with when the envelope check found the
    * session outside its family's evidence, resolved by the server in the
@@ -113,6 +127,21 @@ export interface PlanDay {
   evidence?: PlanDayEvidence;
   /** "Counts as <purpose>", resolved by the server, when an edit relabelled the session. */
   counts_as?: string;
+  /**
+   * The session the coach's edits replaced, when the coach edited this day
+   * of their draft from the plan thread (carnet#1714). Only a draft carries it.
+   */
+  edited?: PlanDayEdit;
+  /** True when the coach added this session to the date in their draft (carnet#1716). */
+  added?: boolean;
+}
+
+/** The session a coach's edits replaced on a day of their draft. */
+export interface PlanDayEdit {
+  /** The replaced session's workout, as the day wrote it. */
+  workout: string;
+  /** Whether the replaced day was a rest day. */
+  rest: boolean;
 }
 
 /** The evidence chip of a plan day. */

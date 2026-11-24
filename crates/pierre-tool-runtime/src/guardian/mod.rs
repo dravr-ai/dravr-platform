@@ -18,7 +18,7 @@
 //!
 //! Two kinds of gate live here, both always enforced:
 //! - **Tool-disable** ([`caller_tool_enabled`], [`tenant_tool_enabled`]) — an
-//!   operator explicitly disabled a tool, for the tenant or for the caller.
+//!   admin explicitly disabled a tool, for the tenant or for the caller.
 //! - **Budgets** ([`Guardian::decide`]) — the per-turn destructive and write
 //!   caps. A turn's first block also stops it committing: the athlete's reply
 //!   is settled, so later writes are refused while reads go on.

@@ -36,16 +36,16 @@
 #
 # WHY DISPATCH-ONLY
 #
-# Every turn is a metered call on ChefFamille's Copilot account, the provider he
-# chose for this eval (2026-11-07), and a full run is 14 scenarios x 5 attempts
+# Every turn is a metered call on the fallback tier's credential, the provider
+# chosen for this eval (2026-11-07), and a full run is 14 scenarios x 5 attempts
 # plus a warm-up per pass. The 2026-11-09 baseline found nothing (0 of 60 attack
 # turns on the deployed coach attempted, 0 of 79 across both runs recorded on
-# carnet#1467, controls 10/10), so a nightly would spend that account to
+# carnet#1467, controls 10/10), so a nightly would spend that quota to
 # re-confirm a zero. It is run by hand when something that could move the number
 # lands — a model or chain change, a coach prompt or tool-description change in
 # contremaitre (`contremaitre_ref` grades the ref before it ships), a new tool —
 # and once a gate exists, to show the gate holds. No `push:` and no `schedule:`
-# trigger, on purpose: adding one is a decision about that account's budget.
+# trigger, on purpose: adding one is a decision about that tier's budget.
 #
 # WHOSE MODEL ANSWERS
 #

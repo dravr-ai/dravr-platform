@@ -6,7 +6,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use chrono::{DateTime, Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::models::{Activity, ActivityBuilder as ModelActivityBuilder, SportType};
 use rand::prelude::*;
 use rand_chacha::ChaCha8Rng;
@@ -20,13 +20,13 @@ use rand_chacha::ChaCha8Rng;
 ///
 /// ```
 /// use tests::synthetic_data::SyntheticDataBuilder;
-/// use chrono::Utc;
+/// use dravr_tronc::dates::Timestamp;
 ///
 /// let builder = SyntheticDataBuilder::new(42); // Deterministic seed
 /// let activity = builder.generate_run()
 ///     .duration_minutes(30)
 ///     .distance_km(5.0)
-///     .start_date(Utc::now())
+///     .start_date(Timestamp::now())
 ///     .build();
 /// ```
 #[derive(Debug, Clone)]
@@ -82,12 +82,12 @@ impl SyntheticDataBuilder {
     /// Realistic progression for new runner building fitness
     fn beginner_runner_improving(&mut self) -> Vec<Activity> {
         let mut activities = Vec::new();
-        let base_date = Utc::now() - Duration::days(42); // 6 weeks ago
+        let base_date = Timestamp::now() - Elapsed::days(42); // 6 weeks ago
 
         // Week 1-2: 3 runs/week, 20 min @ 6:30/km pace
         for week in 0..2 {
             for run in 0..3 {
-                let date = base_date + Duration::days(week * 7 + run * 2);
+                let date = base_date + Elapsed::days(week * 7 + run * 2);
                 let activity = self
                     .generate_run()
                     .duration_minutes(20)
@@ -102,7 +102,7 @@ impl SyntheticDataBuilder {
         // Week 3-4: 4 runs/week, 25 min @ 6:00/km pace (improving)
         for week in 2..4 {
             for run in 0..4 {
-                let date = base_date + Duration::days(week * 7 + (run * 2));
+                let date = base_date + Elapsed::days(week * 7 + (run * 2));
                 let activity = self
                     .generate_run()
                     .duration_minutes(25)
@@ -117,7 +117,7 @@ impl SyntheticDataBuilder {
         // Week 5-6: 4 runs/week, 30 min @ 5:30/km pace (improved 35%)
         for week in 4..6 {
             for run in 0..4 {
-                let date = base_date + Duration::days(week * 7 + (run * 2));
+                let date = base_date + Elapsed::days(week * 7 + (run * 2));
                 let activity = self
                     .generate_run()
                     .duration_minutes(30)
@@ -136,12 +136,12 @@ impl SyntheticDataBuilder {
     /// No significant variations, stable FTP and power output
     fn experienced_cyclist_consistent(&mut self) -> Vec<Activity> {
         let mut activities = Vec::new();
-        let base_date = Utc::now() - Duration::days(28); // 4 weeks ago
+        let base_date = Timestamp::now() - Elapsed::days(28); // 4 weeks ago
 
         // 5 rides per week, consistent metrics
         for week in 0..4 {
             for ride in 0..5 {
-                let date = base_date + Duration::days(week * 7 + ride);
+                let date = base_date + Elapsed::days(week * 7 + ride);
 
                 // Mix of easy, tempo, and interval rides
                 let (duration, power, hr) = match ride {
@@ -171,11 +171,11 @@ impl SyntheticDataBuilder {
     /// TSB drops below -30, performance degrades
     fn overtraining_scenario(&mut self) -> Vec<Activity> {
         let mut activities = Vec::new();
-        let base_date = Utc::now() - Duration::days(21); // 3 weeks ago
+        let base_date = Timestamp::now() - Elapsed::days(21); // 3 weeks ago
 
         // Week 1: Normal volume, good performance
         for day in 0..6 {
-            let date = base_date + Duration::days(day);
+            let date = base_date + Elapsed::days(day);
             let activity = self
                 .generate_run()
                 .duration_minutes(45)
@@ -188,7 +188,7 @@ impl SyntheticDataBuilder {
 
         // Week 2: Increased volume, slight performance drop
         for day in 7..14 {
-            let date = base_date + Duration::days(day);
+            let date = base_date + Elapsed::days(day);
             let activity = self
                 .generate_run()
                 .duration_minutes(60)
@@ -201,7 +201,7 @@ impl SyntheticDataBuilder {
 
         // Week 3: High volume, significant performance decline
         for day in 14..21 {
-            let date = base_date + Duration::days(day);
+            let date = base_date + Elapsed::days(day);
             let activity = self
                 .generate_run()
                 .duration_minutes(75)
@@ -219,12 +219,12 @@ impl SyntheticDataBuilder {
     /// Shows realistic return to training after injury
     fn injury_recovery(&mut self) -> Vec<Activity> {
         let mut activities = Vec::new();
-        let base_date = Utc::now() - Duration::days(56); // 8 weeks ago
+        let base_date = Timestamp::now() - Elapsed::days(56); // 8 weeks ago
 
         // Week 1-2: Normal training before injury
         for day in 0..14 {
             if day % 2 == 0 {
-                let date = base_date + Duration::days(day);
+                let date = base_date + Elapsed::days(day);
                 let activity = self
                     .generate_run()
                     .duration_minutes(40)
@@ -242,7 +242,7 @@ impl SyntheticDataBuilder {
         // Week 5-6: Gradual return, easy pace
         for day in 28..42 {
             if day % 3 == 0 {
-                let date = base_date + Duration::days(day);
+                let date = base_date + Elapsed::days(day);
                 let activity = self
                     .generate_run()
                     .duration_minutes(20)
@@ -257,7 +257,7 @@ impl SyntheticDataBuilder {
         // Week 7-8: Building back up
         for day in 42..56 {
             if day % 2 == 0 {
-                let date = base_date + Duration::days(day);
+                let date = base_date + Elapsed::days(day);
                 let activity = self
                     .generate_run()
                     .duration_minutes(30)
@@ -292,7 +292,7 @@ pub(crate) struct ActivityBuilder<'a> {
     rng: &'a mut ChaCha8Rng,
     duration_seconds: Option<u64>,
     distance_meters: Option<f64>,
-    start_date: Option<DateTime<Utc>>,
+    start_date: Option<Timestamp>,
     average_heart_rate: Option<u32>,
     max_heart_rate: Option<u32>,
     average_power: Option<u32>,
@@ -342,7 +342,7 @@ impl<'a> ActivityBuilder<'a> {
 
     /// Set start date/time
     #[must_use]
-    pub(crate) fn start_date(mut self, date: DateTime<Utc>) -> Self {
+    pub(crate) fn start_date(mut self, date: Timestamp) -> Self {
         self.start_date = Some(date);
         self
     }
@@ -414,7 +414,7 @@ impl<'a> ActivityBuilder<'a> {
             id,
             format!("{sport_type:?} Activity"),
             sport_type.clone(),
-            self.start_date.unwrap_or_else(Utc::now),
+            self.start_date.unwrap_or_else(Timestamp::now),
             duration,
             "synthetic",
         );
@@ -593,7 +593,7 @@ mod tests {
 
         // Check that there's a time gap (injury period)
         let dates: Vec<_> = activities.iter().map(Activity::start_date).collect();
-        let mut max_gap = Duration::days(0);
+        let mut max_gap = Elapsed::days(0);
 
         for i in 1..dates.len() {
             let gap = dates[i] - dates[i - 1];

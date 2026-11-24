@@ -8,11 +8,13 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createElement, type ReactNode } from 'react';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { createAiConsentHook } from '../src/aiConsentHook';
+import { createAiConsentHook, createAiConsentStateHook } from '../src/aiConsentHook';
 
 const grantAiConsent = vi.fn<(provider: string) => Promise<void>>();
 const withdrawAiConsent = vi.fn<(provider: string) => Promise<void>>();
+const getAiConsent = vi.fn<(provider: string) => Promise<boolean | null>>();
 const useAiConsent = createAiConsentHook({ grantAiConsent, withdrawAiConsent });
+const useAiConsentState = createAiConsentStateHook({ getAiConsent });
 
 function setup() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
@@ -26,9 +28,10 @@ describe('createAiConsentHook', () => {
   beforeEach(() => {
     grantAiConsent.mockReset();
     withdrawAiConsent.mockReset();
+    getAiConsent.mockReset();
   });
 
-  it('withdraws with one call and rereads both provider reads', async () => {
+  it('withdraws with one call and rereads the provider status and the key\'s own answer', async () => {
     withdrawAiConsent.mockResolvedValue(undefined);
     const { invalidate, wrapper } = setup();
     const { result } = renderHook(() => useAiConsent(), { wrapper });
@@ -38,8 +41,8 @@ describe('createAiConsentHook', () => {
     expect(withdrawAiConsent).toHaveBeenCalledWith('whoop');
     expect(grantAiConsent).not.toHaveBeenCalled();
     expect(invalidate.mock.calls.map(([filters]) => filters?.queryKey)).toEqual([
-      ['provider-connections'],
       ['providers-status'],
+      ['providers-ai-consent', 'whoop'],
     ]);
   });
 
@@ -54,7 +57,7 @@ describe('createAiConsentHook', () => {
     expect(withdrawAiConsent).not.toHaveBeenCalled();
   });
 
-  it('rereads both provider reads after a refused change too', async () => {
+  it('rereads the provider status and the answer after a refused change too', async () => {
     withdrawAiConsent.mockRejectedValue(new Error('refused'));
     const { invalidate, wrapper } = setup();
     const { result } = renderHook(() => useAiConsent(), { wrapper });
@@ -62,6 +65,25 @@ describe('createAiConsentHook', () => {
     act(() => result.current.mutate({ provider: 'whoop', allow: false }));
 
     await waitFor(() => expect(result.current.isError).toBe(true));
-    expect(invalidate).toHaveBeenCalledTimes(2);
+    expect(invalidate.mock.calls.map(([filters]) => filters?.queryKey)).toEqual([
+      ['providers-status'],
+      ['providers-ai-consent', 'whoop'],
+    ]);
+  });
+
+  it('reads a consent class by its key, which has no provider card', async () => {
+    getAiConsent.mockResolvedValue(false);
+    const { wrapper } = setup();
+    const { result } = renderHook(() => useAiConsentState('sensitive_t2'), { wrapper });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(getAiConsent).toHaveBeenCalledWith('sensitive_t2');
+    expect(result.current.data).toBe(false);
+  });
+
+  it('reads nothing while disabled', () => {
+    const { wrapper } = setup();
+    renderHook(() => useAiConsentState('sensitive_t2', false), { wrapper });
+    expect(getAiConsent).not.toHaveBeenCalled();
   });
 });

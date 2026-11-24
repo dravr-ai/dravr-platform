@@ -22,8 +22,8 @@ use std::sync::Arc;
 use std::time::Duration as StdDuration;
 
 use axum::http::StatusCode;
-use chrono::{Duration, Utc};
 use dravr_canot::channel::MessagingChannel;
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::models::messaging::{ChannelType, MessageContent};
 use pierre_core::models::usage::JwtUsage;
 use pierre_core::models::{AddMessageParams, TenantId};
@@ -112,7 +112,7 @@ impl Dm {
             self.tenant,
             &self.conversation,
             "strava",
-            (Utc::now() - Duration::days(30)).timestamp(),
+            (Timestamp::now() - Elapsed::days(30)).epoch_seconds(),
             1,
         )
     }
@@ -178,7 +178,7 @@ impl Dm {
 }
 
 /// A `WhatsApp` DM whose athlete last wrote `last_wrote` ago.
-async fn whatsapp_dm(last_wrote: Duration) -> Dm {
+async fn whatsapp_dm(last_wrote: Elapsed) -> Dm {
     let resources = create_test_server_resources().await.unwrap();
     let db: &Database = &resources.agent.database;
     let (user, tenant) = seed_user(db).await;
@@ -187,7 +187,7 @@ async fn whatsapp_dm(last_wrote: Duration) -> Dm {
     let session = seed_session(db, &owner, tenant, "whatsapp", PHONE, None, &conversation).await;
     seed_channel_link(db, &owner, tenant, "whatsapp", PHONE).await;
     setup_whatsapp_config(&*resources.common.repos.messaging, tenant, WEBHOOK_SECRET).await;
-    backdate_session(db, &session, Utc::now() - last_wrote).await;
+    backdate_session(db, &session, Timestamp::now() - last_wrote).await;
     Dm {
         resources,
         user,
@@ -247,7 +247,7 @@ fn text_of(channel: &CapturingChannel) -> Vec<String> {
 
 #[tokio::test]
 async fn an_open_window_sends_the_backfill_notice_to_whatsapp_and_ledgers_it() {
-    let dm = whatsapp_dm(Duration::hours(2)).await;
+    let dm = whatsapp_dm(Elapsed::hours(2)).await;
     dm.warm_cache().await;
     let channel = whatsapp(&["wamid.notice-1"]);
     let (events, _guard) = capture_notify();
@@ -307,7 +307,7 @@ async fn an_open_window_sends_the_backfill_notice_to_whatsapp_and_ledgers_it() {
 
 #[tokio::test]
 async fn a_closed_window_writes_the_backfill_notice_in_the_app_and_holds_it() {
-    let dm = whatsapp_dm(Duration::hours(30)).await;
+    let dm = whatsapp_dm(Elapsed::hours(30)).await;
     dm.warm_cache().await;
     let channel = whatsapp(&["wamid.never"]);
     let (events, _guard) = capture_notify();
@@ -341,7 +341,7 @@ async fn a_closed_window_writes_the_backfill_notice_in_the_app_and_holds_it() {
 
 #[tokio::test]
 async fn a_closed_window_answers_the_reconnect_in_the_app_without_a_link() {
-    let dm = whatsapp_dm(Duration::hours(30)).await;
+    let dm = whatsapp_dm(Elapsed::hours(30)).await;
     let channel = whatsapp(&["wamid.never"]);
     let (events, _guard) = capture_notify();
 
@@ -376,7 +376,7 @@ async fn a_closed_window_answers_the_reconnect_in_the_app_without_a_link() {
 
 #[tokio::test]
 async fn a_closed_window_writes_the_reconnect_sentence_once_while_it_stands() {
-    let dm = whatsapp_dm(Duration::hours(30)).await;
+    let dm = whatsapp_dm(Elapsed::hours(30)).await;
     let channel = whatsapp(&["wamid.never"]);
     let notifier = dm.notifier(&channel);
     let (events, _guard) = capture_notify();
@@ -414,6 +414,7 @@ async fn a_closed_window_writes_the_reconnect_sentence_once_while_it_stands() {
             channel_type: None,
             about_user_id: None,
             turn_attempted_write: None,
+            ai_consent_sources: &[],
         })
         .await
         .unwrap();
@@ -446,7 +447,7 @@ async fn a_closed_window_writes_the_reconnect_sentence_once_while_it_stands() {
     restamp(
         dm.db(),
         MOVE_MESSAGE,
-        Utc::now() - Duration::hours(25),
+        Timestamp::now() - Elapsed::hours(25),
         &written.id,
         None,
     )
@@ -466,7 +467,7 @@ async fn a_closed_window_writes_the_reconnect_sentence_once_while_it_stands() {
 
 #[tokio::test]
 async fn an_open_window_sends_the_reconnect_answer_to_whatsapp() {
-    let dm = whatsapp_dm(Duration::hours(2)).await;
+    let dm = whatsapp_dm(Elapsed::hours(2)).await;
     let channel = whatsapp(&["wamid.reauth-1"]);
     let (events, _guard) = capture_notify();
 
@@ -507,7 +508,7 @@ async fn an_open_window_sends_the_reconnect_answer_to_whatsapp() {
 
 #[tokio::test]
 async fn a_linked_chat_whose_window_closed_gets_no_reconnect_notice() {
-    let dm = whatsapp_dm(Duration::hours(30)).await;
+    let dm = whatsapp_dm(Elapsed::hours(30)).await;
     let channel = whatsapp(&["wamid.never"]);
     let (events, _guard) = capture_notify();
 
@@ -540,7 +541,7 @@ async fn a_linked_chat_whose_window_closed_gets_no_reconnect_notice() {
 
 #[tokio::test]
 async fn a_linked_chat_inside_its_window_gets_the_reconnect_notice_ledgered() {
-    let dm = whatsapp_dm(Duration::hours(2)).await;
+    let dm = whatsapp_dm(Elapsed::hours(2)).await;
     let channel = whatsapp(&["wamid.linked-1"]);
 
     let reached = dm
@@ -571,7 +572,7 @@ async fn a_linked_chat_inside_its_window_gets_the_reconnect_notice_ledgered() {
 
 #[tokio::test]
 async fn a_late_131047_writes_the_notice_in_the_app_once_and_holds_it() {
-    let dm = whatsapp_dm(Duration::hours(2)).await;
+    let dm = whatsapp_dm(Elapsed::hours(2)).await;
     dm.warm_cache().await;
     let channel = whatsapp(&["wamid.late-1"]);
     dm.notifier(&channel)
@@ -617,7 +618,7 @@ async fn a_late_131047_writes_the_notice_in_the_app_once_and_holds_it() {
 
 #[tokio::test]
 async fn two_racing_deliveries_of_one_131047_write_the_notice_once() {
-    let dm = whatsapp_dm(Duration::hours(2)).await;
+    let dm = whatsapp_dm(Elapsed::hours(2)).await;
     dm.warm_cache().await;
     let channel = whatsapp(&["wamid.race-1"]);
     dm.notifier(&channel)
@@ -644,7 +645,7 @@ async fn two_racing_deliveries_of_one_131047_write_the_notice_once() {
 
 #[tokio::test]
 async fn a_late_131047_reaches_the_app_of_an_athlete_past_their_request_budget() {
-    let dm = whatsapp_dm(Duration::hours(2)).await;
+    let dm = whatsapp_dm(Elapsed::hours(2)).await;
     dm.warm_cache().await;
     let channel = whatsapp(&["wamid.budget-1"]);
     dm.notifier(&channel)
@@ -666,7 +667,7 @@ async fn a_late_131047_reaches_the_app_of_an_athlete_past_their_request_budget()
         .record_jwt_usage(&JwtUsage {
             id: None,
             user_id: dm.user,
-            timestamp: Utc::now(),
+            timestamp: Timestamp::now(),
             endpoint: "messaging:whatsapp".to_owned(),
             method: "AUTH".to_owned(),
             status_code: 200,
@@ -675,6 +676,7 @@ async fn a_late_131047_reaches_the_app_of_an_athlete_past_their_request_budget()
             response_size_bytes: None,
             ip_address: None,
             user_agent: None,
+            client_grant_id: None,
         })
         .await
         .unwrap();
@@ -690,7 +692,7 @@ async fn a_late_131047_reaches_the_app_of_an_athlete_past_their_request_budget()
 
 #[tokio::test]
 async fn a_late_131047_on_a_split_notice_writes_it_whole_on_its_opening_message() {
-    let dm = whatsapp_dm(Duration::hours(2)).await;
+    let dm = whatsapp_dm(Elapsed::hours(2)).await;
     let turn = Uuid::new_v4().to_string();
     dm.ledger_row("wamid.part-1", "First half.", &turn, Some("check_in"))
         .await;
@@ -726,7 +728,7 @@ async fn a_late_131047_on_a_split_notice_writes_it_whole_on_its_opening_message(
 
 #[tokio::test]
 async fn a_late_131047_on_a_reply_is_left_as_logged() {
-    let dm = whatsapp_dm(Duration::hours(2)).await;
+    let dm = whatsapp_dm(Elapsed::hours(2)).await;
     let turn = Uuid::new_v4().to_string();
     dm.ledger_row("wamid.reply-1", "Here is your week.", &turn, None)
         .await;

@@ -23,8 +23,8 @@ use std::fmt;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
 use dravr_barrage::store::ImportJobStore;
+use dravr_tronc::dates::Timestamp;
 use pierre_auth::key_management::KeyManager;
 use pierre_auth::keyset::{
     CiphertextHolder, KeysetController, KeysetLoader, CONTROLLER_PERIOD, CONTROLLER_WORKER,
@@ -67,7 +67,7 @@ impl CiphertextHolder for ArchiveLinkHolder {
         "archive import links"
     }
 
-    async fn count_sealed_before(&self, before: DateTime<Utc>) -> AppResult<u64> {
+    async fn count_sealed_before(&self, before: Timestamp) -> AppResult<u64> {
         self.jobs
             .count_jobs_holding_link_created_before(before)
             .await
@@ -121,14 +121,19 @@ pub fn start_key_rotation(resources: &Arc<ServerContext>) {
     ));
 
     let reloading = (Arc::clone(&database), Arc::clone(&loader));
-    spawn_supervised_loop(RELOAD_LOOP, RELOAD_PERIOD, move || {
-        let (database, loader) = reloading.clone();
-        async move {
-            loader
-                .refresh_or_report(database.as_security_repository())
-                .await;
-        }
-    });
+    spawn_supervised_loop(
+        RELOAD_LOOP,
+        RELOAD_PERIOD,
+        move || {
+            let (database, loader) = reloading.clone();
+            async move {
+                loader
+                    .refresh_or_report(database.as_security_repository())
+                    .await;
+            }
+        },
+        || {},
+    );
 
     let controller = Arc::new(KeysetController::new(
         loader,
@@ -144,7 +149,7 @@ pub fn start_key_rotation(resources: &Arc<ServerContext>) {
             let (database, controller) = (Arc::clone(&database), Arc::clone(&controller));
             async move {
                 controller
-                    .tick(database.as_security_repository(), Utc::now())
+                    .tick(database.as_security_repository(), Timestamp::now())
                     .await
                     .map(|_| ())
             }

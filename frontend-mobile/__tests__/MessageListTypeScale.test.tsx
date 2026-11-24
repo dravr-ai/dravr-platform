@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: A coach reply's markdown renders at steps of the phone's one type ladder, the class ladder of DESIGN.md §10
+// ABOUTME: A coach reply's markdown renders at steps of the phone's one type ladder, the class ladder of DESIGN.md "Phone"
 // ABOUTME: Prose at `base`, headings at `xl` and `lg`, inline code, indented code and table cells at the interface step `sm`
 
 import React from 'react';

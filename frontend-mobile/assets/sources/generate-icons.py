@@ -14,8 +14,9 @@ SOURCES = Path(__file__).resolve().parent
 ASSETS = SOURCES.parent
 MASTER = SOURCES / "boreal-ripple-mark.png"
 
-# Surface token from DESIGN.md §2 / BRAND.md. The splash declares the same value
-# as its backgroundColor, so an opaque icon on this ground has no visible seam.
+# Icon ground, close to the `surface` token (#f7f6f2) but not equal to it. The
+# splash declares the same value as its backgroundColor, so an opaque icon on
+# this ground has no visible seam. The mismatch with `surface` is tracked in carnet#1717.
 SURFACE = (0xF9, 0xF9, 0xF6)
 CANVAS = 1024
 

@@ -7,7 +7,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::{Tenant, TenantId};
 use pierre_test_support::db::create_test_db;
 use pierre_test_support::server::create_test_user;
@@ -22,8 +22,8 @@ fn tenant(slug: &str, owner: Uuid) -> Tenant {
         domain: None,
         plan: "starter".to_owned(),
         owner_user_id: owner,
-        created_at: Utc::now(),
-        updated_at: Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
     }
 }
 

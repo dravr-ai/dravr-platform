@@ -1,15 +1,6 @@
 // ABOUTME: Main entry point for @pierre/ui-logic package
 // ABOUTME: Re-exports the headless UI hooks and the server-state hooks both clients bind
 
-// Button hook
-export {
-  type ButtonVariant,
-  type ButtonSize,
-  type UseButtonProps,
-  type UseButtonReturn,
-  useButton,
-} from './useButton';
-
 // Async action hook
 export {
   type AsyncActionState,
@@ -37,21 +28,8 @@ export {
   useToast,
 } from './useToast';
 
-// Form field hook and validators
-export {
-  type ValidationResult,
-  type Validator,
-  type UseFormFieldProps,
-  type UseFormFieldReturn,
-  useFormField,
-  // Common validators
-  required,
-  minLength,
-  maxLength,
-  email,
-  range,
-  pattern,
-} from './useFormField';
+// The password minimum and the e-mail shape every credential form checks
+export { MIN_PASSWORD_LENGTH, isEmailAddress, isPasswordLongEnough } from './credentialRules';
 
 export { useAbortOnClose } from './useAbortOnClose';
 export { isSignInPhaseLive, useSignInAttempt } from './useSignInAttempt';
@@ -151,6 +129,9 @@ export {
 } from './archiveImport';
 
 export { cardAwaitingHistory, cardExportSource } from './cardHistory';
+export { connectAction, followConnectPlan, type ConnectAction, type ConnectHandlers } from './connectDispatch';
+export { coachAddDraft, coachMention } from './coachDraft';
+export { orderTeam, teamInOrder, type OrderedTeam } from './team';
 
 export type { ImportTombstoneRefusal } from './importTombstone';
 export { describeRegistration } from './registration';
@@ -188,6 +169,112 @@ export {
   createCoachPlanHooks,
   openThreadRefusalText,
 } from './coachPlanHooks';
+// A coach's day editor: the day's own session by hand, or a family build with its live preview, saved into the draft (carnet#1515, #1714)
+export {
+  type DayReplacement,
+  type DerivedRow,
+  type EditorMode,
+  type HandSession,
+  type MissingLine,
+  type SportPick,
+  DATE_FULL_REASON,
+  MAX_SESSIONS_PER_DATE,
+  SESSION_MOVED_REASON,
+  type SessionAt,
+  type SessionEditorApis,
+  SESSION_EDITOR_KEYS,
+  SESSION_PARAM_LABEL_KEY,
+  SESSION_PREVIEW_DEBOUNCE_MS,
+  TARGET_ANCHOR_LABEL_KEY,
+  addSeries,
+  addStep,
+  addStepToSeries,
+  canAddSession,
+  canRemoveSession,
+  createSessionEditorHooks,
+  dayIsUncheckedEdit,
+  dayPosition,
+  derivedRows,
+  duplicateStep,
+  editableParams,
+  editorDirty,
+  familiesForSport,
+  familyBuildChanged,
+  familyOf,
+  formatStepDuration,
+  handDayRequest,
+  handSessionChanged,
+  handSessionComplete,
+  handSessionMissing,
+  handSessionOf,
+  handStatesDuration,
+  handSummary,
+  initialEditorMode,
+  initialSessionBuild,
+  isDateFull,
+  isSessionMoved,
+  flaggedParams,
+  moveStep,
+  newSessionDay,
+  offeredFamilySport,
+  paramValue,
+  parseStepDuration,
+  pickSport,
+  presetOf,
+  presetsForSport,
+  removeStep,
+  replacementLine,
+  restoreLine,
+  selectBuildSport,
+  sessionExpect,
+  selectFamily,
+  selectPreset,
+  selectSport,
+  seriesDefaults,
+  setHand,
+  setParam,
+  setSeriesRepeat,
+  setStepMeasureOf,
+  unresolvedTargetLine,
+  updateStep,
+} from './sessionEditor';
+// The structure of a hand-written session: sets under one ×N, time or distance, targets the chips compose (carnet#1727)
+export {
+  type ProfileBar,
+  type ProfileBlock,
+  type SeriesDefaults,
+  type StepBlock,
+  type StepMeasure,
+  type StepTarget,
+  type TargetAnchor,
+  MAX_TARGET_ZONE,
+  PROFILE_EFFORT_LEVEL,
+  SERIES_DEFAULT_REPEAT,
+  SERIES_MAX_REPEAT,
+  SERIES_MIN_REPEAT,
+  TARGET_ANCHORS,
+  defaultAnchor,
+  parseTarget,
+  percentTarget,
+  profileBlocks,
+  rpeTarget,
+  stepBlocks,
+  stepMeasure,
+  stepMoveTarget,
+  stepsTotalSeconds,
+  targetSpan,
+  zoneTarget,
+} from './sessionSteps';
+// The sports a coach picks for a session: one-tap chips, the day's own word, a sport they name (carnet#1727)
+export {
+  type QuickSport,
+  QUICK_SPORTS,
+  chosenSport,
+  familySportFor,
+  quickSportOf,
+  sameSport,
+  sportChoices,
+} from './sessionSports';
 // A coach's private lane in a one-athlete room: the Everyone / Only <agent> switch, the work
 // thread's rows drawn in the room, "Adjust plan from this" and the private send (carnet#1249).
 export {
@@ -208,7 +295,26 @@ export {
 export { type UseFeatureFlagsResult, createFeatureFlagsHook } from './featureFlagsHook';
 export { type UseHomePreferencesResult, createHomePreferencesHook } from './homePreferencesHook';
 // Consent to AI use of one provider's data: the privacy toggle and the connection card share it (carnet#726).
-export { type AiConsentChange, createAiConsentHook } from './aiConsentHook';
+export {
+  type AiConsentChange,
+  type TransferConsentChange,
+  createAiConsentHook,
+  createAiConsentStateHook,
+  createTransferConsentHook,
+} from './aiConsentHook';
+// The provider cards on the one provider-status key: every screen that connects or disconnects reads them here.
+export { type ProviderCards, type ProviderCardsOptions, createProviderCardsHook } from './providerCardsHook';
+// The "Who read your data" feed, and the one Connected-apps key and revoke it shares with both Connected-apps screens (carnet#1543).
+export {
+  type AccessFeedApiKeyGroup,
+  type AccessFeedAppGroup,
+  createAccessFeedHook,
+  createConnectedAppsHook,
+  createRevokeConnectedAppsHook,
+  groupAccessFeedApiKeyDays,
+  groupAccessFeedApps,
+  revokedInKeySettings,
+} from './accessFeedHook';
 // Statutory access requests to a company: the letter the athlete sends and its legal deadline (carnet#1646).
 export {
   type DataAccessAction,
@@ -291,6 +397,25 @@ export {
   describeActivityUpload,
   isDeletableActivity,
 } from './activityUploadHook';
+export {
+  type HealthRecordsHooks,
+  type LabUploadOutcome,
+  type PickedLabDocument,
+  type ReviewAnswer,
+  type UseLabDocumentUploadResult,
+  HEALTH_RECORDS_KEYS,
+  HEALTH_RECORD_KIND_LABEL_KEY,
+  checkLabel,
+  createHealthRecordsHooks,
+  describeLabUpload,
+  labUploadOutcome,
+  observationName,
+  observationRange,
+  observationValue,
+  selfReportKindLabel,
+  selfReportValue,
+  selfReportValueLabel,
+} from './healthRecordsHook';
 
 // Composer palettes. Platform-free: each composer reads its own key event and
 // hands the palette the key's name.
@@ -357,6 +482,7 @@ export {
   phaseWeekLabel,
   planDayDraft,
   planDayRouteDraft,
+  planDayMinutes,
   planWindow,
   sessionFacts,
   sportLabel,
@@ -426,7 +552,6 @@ export {
   nextPhase,
   planLastDay,
   providerLetter,
-  providerName,
   queueCount,
   queueWhen,
   reasonTitle,

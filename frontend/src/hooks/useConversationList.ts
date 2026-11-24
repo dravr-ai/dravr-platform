@@ -27,7 +27,7 @@ import { useTranslation } from '@pierre/i18n';
 import type { ConversationsResponse } from '@pierre/api-client';
 import type { Conversation } from '@pierre/shared-types';
 import { chatApi } from '../services/api';
-import { QUERY_KEYS } from '../constants/queryKeys';
+import { QUERY_KEYS } from '@pierre/shared-constants';
 
 /** Rows per page — the server clamps the list to `1..=200`, and 50 fills a sidebar many times over. */
 export const CONVERSATION_PAGE_SIZE = 50;
@@ -186,7 +186,7 @@ export interface PersonalConversation {
  * whatever the client has loaded. A look forges nothing: an athlete with no
  * thread yet gets `null`, and Home opens on its empty pane until "+" or a
  * starter opens one — or the coach's own post does, which the next read finds.
- * `enabled` is the athlete check: an operator has no Home conversation, and
+ * `enabled` is the athlete check: an admin has no Home conversation, and
  * the server is never asked for one.
  */
 export function usePersonalConversation(enabled = true): PersonalConversation {

@@ -284,6 +284,15 @@ pub trait HasEncryption {
     fn blind_index_lookups(&self, token: &str) -> [String; 2] {
         self.keyring().lookup_hashes(token)
     }
+
+    /// The raw MAC of `token` under Index version 1, whatever the primary:
+    /// see [`Keyring::identity_mac`](super::keyring::Keyring::identity_mac).
+    ///
+    /// # Errors
+    /// When Index version 1 is not loaded.
+    fn index_identity_mac(&self, token: &str) -> AppResult<[u8; 32]> {
+        self.keyring().current().identity_mac(token)
+    }
 }
 
 /// DEK version assigned to ciphertext written before DEK versioning existed.

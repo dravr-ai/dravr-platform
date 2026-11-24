@@ -21,6 +21,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::periodic::spawn_periodic;
+use dravr_tronc::dates::Timestamp;
 use pierre_database::repositories::{McpTaskRepository, WorkerRunRepository};
 use tracing::debug;
 
@@ -56,5 +57,5 @@ pub fn start_mcp_task_sweeper(
 
 /// Current unix time in milliseconds, the unit `mcp_tasks.expires_at_ms` uses.
 fn now_ms() -> i64 {
-    chrono::Utc::now().timestamp_millis()
+    Timestamp::now().epoch_millis()
 }

@@ -1,4 +1,4 @@
-// ABOUTME: Boreal Editorial Input — bottom-stroke underline, DESIGN.md §5
+// ABOUTME: Boreal Editorial Input — bottom-stroke underline, DESIGN.md "Inputs / Fields"
 // ABOUTME: Matches the web Input so one component reads the same on both platforms
 
 import React, { forwardRef, useState } from 'react';
@@ -67,9 +67,9 @@ export const Input = forwardRef<TextInput, InputProps>(function Input(
     errorText: themeColors.error,
   };
 
-  // Boreal Editorial field, DESIGN.md §5 — the same single bottom stroke the web
+  // Boreal Editorial field, DESIGN.md "Inputs / Fields" — the same single bottom stroke the web
   // Input wears. The two platforms rendered the same component in two languages
-  // (filled box here, underline there) while DESIGN.md described one Product
+  // (filled box here, underline there) while the design spec described one Product
   // Tier covering both.
   //
   // Touch is respected by padding, not by a box: 12pt vertical against a 16pt
@@ -97,7 +97,7 @@ export const Input = forwardRef<TextInput, InputProps>(function Input(
 
   return (
     <View className="mb-4" style={containerStyle}>
-      {/* Sentence case at the label step, no tracking — DESIGN.md §3. The 11px
+      {/* Sentence case at the label step, no tracking — DESIGN.md "The Sentence-Case Rule". The 11px
           caps at 0.08em were the v1 label face; web retired them in the v2 token
           pass and the phone kept them, so the same form read as two products
           depending on which client an athlete opened. */}

@@ -27,7 +27,7 @@ use tracing::info;
 /// conversation tenant, the event dedups per tenant, and keying it on the bot's
 /// tenant collapses leaks from different athletes into one another. On the
 /// 2026-08-05 Telegram break the two differed for a single turn, and an
-/// operator triaging from the alert could not reach the conversation — which is
+/// admin triaging from the alert could not reach the conversation — which is
 /// why the conversation and turn ids ride along.
 #[derive(Debug)]
 pub struct LeakContext<'a> {

@@ -14,7 +14,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use chrono::{NaiveDate, Utc};
+use dravr_tronc::dates::{CivilDate, Timestamp};
 use pierre_core::models::{ApiKey, ApiKeyTier, HomeDeclaration, Tenant, TenantId, User};
 use pierre_database::backends::factory::{Database, DatabaseBackend};
 use pierre_database::repositories::{
@@ -341,7 +341,7 @@ fn api_key(user_id: Uuid, name: &str) -> ApiKey {
         is_active: true,
         last_used_at: None,
         expires_at: None,
-        created_at: Utc::now(),
+        created_at: Timestamp::now(),
     }
 }
 
@@ -458,8 +458,8 @@ async fn export(repos: &RepositoryRegistry, user_id: Uuid) -> BTreeMap<&'static 
     out
 }
 
-fn day(d: u32) -> NaiveDate {
-    NaiveDate::from_ymd_opt(2026, 10, d).unwrap()
+fn day(d: u32) -> CivilDate {
+    CivilDate::from_ymd(2026, 10, d).unwrap()
 }
 
 #[tokio::test]
@@ -480,7 +480,7 @@ async fn an_export_holds_the_athletes_rows_and_no_one_elses() {
     ] {
         repos
             .first_run_progress
-            .record_first_run_day(tenant, user, flow, day(1), Utc::now())
+            .record_first_run_day(tenant, user, flow, day(1), Timestamp::now())
             .await
             .unwrap();
     }
@@ -586,7 +586,7 @@ async fn an_export_carries_the_declared_home_state_and_never_its_seed() {
                 lat: 46.812_345,
                 lon: -71.208_765,
             },
-            Utc::now(),
+            Timestamp::now(),
         )
         .await
         .unwrap();

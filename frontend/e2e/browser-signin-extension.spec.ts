@@ -200,10 +200,11 @@ test.describe('Sign in to Garmin through the Dravr extension (carnet#1617)', () 
   test('the athlete accepts the notice, signs in to Garmin in a tab, and Dravr receives that session', async () => {
     const login = await openGarminSignIn();
 
-    // The extension answered the page: the window offers the browser sign-in.
-    await login.getByRole('button', { name: 'Continue with Garmin' }).click();
-
-    // First use: the notice comes first, and accepting it starts the sign-in.
+    // The extension answered the page, and the card's order puts it first
+    // (extension_first, the default): the window starts the browser sign-in
+    // by itself. First use: the notice comes first, and accepting it starts
+    // the sign-in.
+    await expect(login.getByTestId('sciotte-browser-signin')).toBeVisible({ timeout: 10000 });
     const notice = await tabAt(context, /notice\.html$/);
     await expect(notice.getByRole('heading', { name: 'Before you use Dravr sign-in' })).toBeVisible();
     await notice.getByRole('button', { name: 'I agree' }).click();
@@ -222,10 +223,9 @@ test.describe('Sign in to Garmin through the Dravr extension (carnet#1617)', () 
       .toEqual([]);
   });
 
-  test('closing the notice returns to the Garmin credentials, handing nothing over', async () => {
+  test('closing the notice returns to the Garmin credentials, the extension still offered beside them', async () => {
     const login = await openGarminSignIn();
 
-    await login.getByRole('button', { name: 'Continue with Garmin' }).click();
     const notice = await tabAt(context, /notice\.html$/);
     // "Not now" closes its own page, which can end before Playwright's click
     // settles: the page closing is the click's expected effect, anything else
@@ -241,5 +241,8 @@ test.describe('Sign in to Garmin through the Dravr extension (carnet#1617)', () 
 
     await expect(login.getByLabel(/email/i)).toBeVisible({ timeout: 10000 });
     expect(handedOver).toBeUndefined();
+    // Its own label, never « Continue with Garmin », the OAuth buttons' label.
+    await expect(login.getByRole('button', { name: "Sign in on Garmin's page" })).toBeVisible();
+    await expect(login.getByRole('button', { name: 'Continue with Garmin' })).toHaveCount(0);
   });
 });

@@ -20,9 +20,9 @@
 //! with no threshold at all. Every training-load reader now reads the profile.
 
 use anyhow::Result;
-use chrono::{Duration, Utc};
 use dravr_cageux::algorithms::lthr::max_hr_fraction_at_vo2max_fraction;
 use dravr_cageux::training_load::TrainingLoadCalculator;
+use dravr_tronc::dates::{Elapsed, Timestamp, Zone};
 use pierre_core::models::activity::ActivityBuilder;
 use pierre_core::models::zones::HrZonesUnavailable;
 use pierre_core::models::{
@@ -33,7 +33,7 @@ use pierre_fitness_compute::AthleteInputs;
 use pierre_tool_runtime::implementations::analytics::analyze_detailed_training_load;
 use pierre_tool_runtime::implementations::analytics::output::{FitnessScoreResult, ProvidersUsed};
 use pierre_tool_runtime::implementations::analytics::{
-    calculate_fitness_metrics, generate_training_recommendations, NutritionAthlete,
+    calculate_fitness_metrics, generate_training_recommendations, AthleteReads,
 };
 use pierre_tool_runtime::implementations::stored_physiology::stored_athlete_inputs;
 use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
@@ -295,7 +295,7 @@ async fn the_pace_zones_read_the_saved_lactate_threshold() -> Result<()> {
         &executor,
         user_id,
         &tenant_id,
-        json!({"vo2_max": 55.0, "lactate_threshold_percentage": 0.80}),
+        json!({"vdot": 55.0, "lactate_threshold_percentage": 0.80}),
     )
     .await?;
 
@@ -321,7 +321,12 @@ async fn the_pace_zones_read_the_saved_lactate_threshold() -> Result<()> {
     assert_ne!(
         saved["personalized_zones"]["pace_zones"]["zone_3_threshold"],
         higher["personalized_zones"]["pace_zones"]["zone_3_threshold"],
-        "threshold pace moves with the share of VO2max held at threshold"
+        "threshold pace moves with the share of VDOT held at threshold"
+    );
+    assert_eq!(
+        saved["input_sources"]["vdot"],
+        json!("stated"),
+        "the paces come from the saved VDOT: {saved}"
     );
     Ok(())
 }
@@ -339,7 +344,7 @@ fn heart_rate_rides() -> Vec<Activity> {
                 format!("hr-ride-{day}"),
                 format!("ride {day}"),
                 SportType::Ride,
-                Utc::now() - Duration::days(day),
+                Timestamp::now() - Elapsed::days(day),
                 3_600,
                 "strava".to_owned(),
             )
@@ -358,7 +363,7 @@ fn power_rides() -> Vec<Activity> {
                 format!("power-ride-{day}"),
                 format!("ride {day}"),
                 SportType::Ride,
-                Utc::now() - Duration::days(day),
+                Timestamp::now() - Elapsed::days(day),
                 3_600,
                 "strava".to_owned(),
             )
@@ -382,6 +387,7 @@ async fn analyzed_ctl(
         activities,
         &inputs,
         &executor.cageux_config().algorithms,
+        &Zone::utc(),
         ProvidersUsed {
             activity_provider: "strava".to_owned(),
             sleep_provider: None,
@@ -400,21 +406,22 @@ fn assert_same_ctl(actual: f64, expected: f64, what: &str) {
     );
 }
 
-/// The calculator's own CTL for `activities` at `ftp` and `lthr`, rounded as
-/// the tool rounds it.
+/// The calculator's own CTL for `activities` at `ftp`, `lthr` and
+/// `resting_hr`, rounded as the tool rounds it.
 fn calculator_ctl(
     executor: &UniversalToolExecutor,
     activities: &[Activity],
     ftp: Option<f64>,
     lthr: Option<f64>,
+    resting_hr: Option<f64>,
 ) -> Result<f64> {
     let mut sorted = activities.to_vec();
     sorted.sort_by_key(Activity::start_date);
     Ok(TrainingLoadCalculator::from_config(
         executor.cageux_config().algorithms.clone(),
-        Utc::now().date_naive(),
+        Timestamp::now().utc_date(),
     )
-    .calculate_training_load(&sorted, ftp, lthr, None, None, None)?
+    .calculate_training_load(&sorted, ftp, lthr, None, resting_hr, None)?
     .ctl
     .round())
 }
@@ -425,14 +432,23 @@ async fn a_threshold_heart_rate_saved_with_set_physiology_changes_the_training_l
     let executor = create_executor().await?;
     let (user_id, tenant_id) = create_test_user(&executor).await?;
     let rides = heart_rate_rides();
+    // Heart-rate load reads intensity against the heart-rate reserve, so the
+    // resting heart rate is known before the LTHR is saved.
+    set_physiology(&executor, user_id, &tenant_id, json!({"resting_hr": 50})).await?;
 
     let before = analyzed_ctl(&executor, &tenant_id, user_id, &rides).await?;
-    set_physiology(&executor, user_id, &tenant_id, json!({"threshold_hr": 160})).await?;
+    set_physiology(
+        &executor,
+        user_id,
+        &tenant_id,
+        json!({"threshold_hr": 160, "resting_hr": 50}),
+    )
+    .await?;
     let after = analyzed_ctl(&executor, &tenant_id, user_id, &rides).await?;
 
     assert_same_ctl(
         after,
-        calculator_ctl(&executor, &rides, None, Some(160.0))?,
+        calculator_ctl(&executor, &rides, None, Some(160.0), Some(50.0))?,
         "the rides are scored against the saved LTHR",
     );
     assert!(
@@ -454,7 +470,7 @@ async fn an_ftp_saved_with_set_physiology_changes_the_training_load() -> Result<
 
     assert_same_ctl(
         after,
-        calculator_ctl(&executor, &rides, Some(250.0), None)?,
+        calculator_ctl(&executor, &rides, Some(250.0), None, None)?,
         "the rides are scored against the saved FTP",
     );
     assert!(
@@ -539,6 +555,7 @@ async fn the_fitness_score_reads_the_ftp_saved_with_set_physiology() -> Result<(
         "month",
         inputs,
         config,
+        &Zone::utc(),
         providers(),
     ) {
         FitnessScoreResult::Scored(detail) => detail.metrics.ctl,
@@ -551,7 +568,7 @@ async fn the_fitness_score_reads_the_ftp_saved_with_set_physiology() -> Result<(
 
     assert_same_ctl(
         after,
-        calculator_ctl(&executor, &rides, Some(250.0), None)?,
+        calculator_ctl(&executor, &rides, Some(250.0), None, None)?,
         "the rides are scored against the saved FTP",
     );
     assert_same_ctl(
@@ -578,22 +595,31 @@ async fn the_recovery_recommendations_read_the_threshold_heart_rate_saved_with_s
             Err(&HrZonesUnavailable::NoProfile),
             config,
             None,
-            &NutritionAthlete::default(),
+            &AthleteReads::default(),
         )
         .metrics
         .and_then(|m| m.ctl)
         .expect("the recovery mode reports the CTL it advises on")
     };
 
+    // Heart-rate load reads intensity against the heart-rate reserve, so the
+    // resting heart rate is known before the LTHR is saved.
+    set_physiology(&executor, user_id, &tenant_id, json!({"resting_hr": 50})).await?;
     let before =
         recovery_ctl(&stored_athlete_inputs(&executor.resources, Some(&tenant_id), user_id).await?);
-    set_physiology(&executor, user_id, &tenant_id, json!({"threshold_hr": 160})).await?;
+    set_physiology(
+        &executor,
+        user_id,
+        &tenant_id,
+        json!({"threshold_hr": 160, "resting_hr": 50}),
+    )
+    .await?;
     let after =
         recovery_ctl(&stored_athlete_inputs(&executor.resources, Some(&tenant_id), user_id).await?);
 
     assert_same_ctl(
         after.round(),
-        calculator_ctl(&executor, &rides, None, Some(160.0))?,
+        calculator_ctl(&executor, &rides, None, Some(160.0), Some(50.0))?,
         "the rides are scored against the saved LTHR",
     );
     assert!((after - before).abs() >= 1.0, "{before} both ways");
@@ -625,7 +651,7 @@ async fn seed_and_compute_history(
                 format!("history-run-{days_ago}"),
                 format!("run {days_ago}d ago"),
                 SportType::Run,
-                Utc::now() - Duration::days(days_ago),
+                Timestamp::now() - Elapsed::days(days_ago),
                 3_600,
                 "strava".to_owned(),
             )
@@ -665,11 +691,19 @@ async fn latest_stored_ctl(
 async fn a_threshold_saved_with_set_physiology_recomputes_the_stored_history() -> Result<()> {
     let executor = create_executor().await?;
     let (user_id, tenant_id) = create_test_user(&executor).await?;
+    // Heart-rate load reads intensity against the heart-rate reserve, so the
+    // resting heart rate is known before the LTHR is saved.
+    set_physiology(&executor, user_id, &tenant_id, json!({"resting_hr": 50})).await?;
     seed_and_compute_history(&executor, user_id, &tenant_id).await?;
     let before = latest_stored_ctl(&executor, user_id, &tenant_id).await?;
 
-    let saved =
-        set_physiology(&executor, user_id, &tenant_id, json!({"threshold_hr": 160})).await?;
+    let saved = set_physiology(
+        &executor,
+        user_id,
+        &tenant_id,
+        json!({"threshold_hr": 160, "resting_hr": 50}),
+    )
+    .await?;
     assert_eq!(
         saved["training_history"]["status"],
         json!("recomputed"),

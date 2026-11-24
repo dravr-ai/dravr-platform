@@ -1,11 +1,12 @@
 // ABOUTME: The sciotte clients a server builds at startup and the per-platform factories that share them
-// ABOUTME: Each factory builds a SciotteProvider aimed at one scraped platform (ADR-021)
+// ABOUTME: Each factory builds a SciotteProvider aimed at one platform the athlete signs in to (ADR-021)
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
 //! Building the sciotte clients once at startup, and the [`ProviderFactory`]
-//! for each platform the scraper service reads — Strava, Garmin Connect,
+//! for each platform the sciotte service reads the athlete's own data from,
+//! through their signed-in session and with their consent — Strava, Garmin Connect,
 //! TrainingPeaks and COROS Training Hub.
 
 use std::fmt;

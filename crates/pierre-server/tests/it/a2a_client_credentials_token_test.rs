@@ -24,7 +24,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use axum::extract::connect_info::MockConnectInfo;
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use helpers::axum_test::{AxumTestRequest, AxumTestResponse};
 use pierre_auth::oauth2_server::client_registration::ClientRegistrationManager;
 use pierre_auth::oauth2_server::models::ClientRegistrationRequest;
@@ -62,6 +62,7 @@ fn oauth2_routes(resources: &Arc<ServerContext>) -> axum::Router {
         jwks_manager: resources.auth.jwks_manager.clone(),
         config: Arc::new(resources.common.config.oauth2_server.clone()),
         refresh_token_expiry_days: resources.common.config.auth.refresh_token_expiry_days,
+        session_cookie_max_age_secs: resources.common.config.session_cookie.max_age_secs,
         csrf_manager: resources.auth.csrf_manager.clone(),
         accounts: resources.account_service(),
         google_sign_in: None,
@@ -101,7 +102,10 @@ async fn card_token_path(resources: &Arc<ServerContext>) -> String {
 
 /// Register an A2A client through `POST /a2a/clients` as a fresh user, and
 /// return the user's JWT with the client's id and secret.
-async fn register_client(resources: &Arc<ServerContext>, email: &str) -> (String, String, String) {
+pub(crate) async fn register_client(
+    resources: &Arc<ServerContext>,
+    email: &str,
+) -> (String, String, String) {
     let (_user, jwt) = common::create_test_tenant(resources, email)
         .await
         .expect("seed user + tenant + JWT");
@@ -123,7 +127,7 @@ async fn register_client(resources: &Arc<ServerContext>, email: &str) -> (String
 }
 
 /// `POST` the `client_credentials` grant to `token_path`, form-encoded.
-async fn request_token(
+pub(crate) async fn request_token(
     resources: &Arc<ServerContext>,
     token_path: &str,
     client_id: &str,
@@ -140,7 +144,7 @@ async fn request_token(
 }
 
 /// `GetExtendedAgentCard` over the JSON-RPC binding with `bearer`.
-async fn extended_card(resources: &Arc<ServerContext>, bearer: &str) -> Value {
+pub(crate) async fn extended_card(resources: &Arc<ServerContext>, bearer: &str) -> Value {
     let response = AxumTestRequest::post("/a2a/jsonrpc")
         .header("A2A-Version", "1.0")
         .header("Authorization", &format!("Bearer {bearer}"))
@@ -288,9 +292,9 @@ async fn the_retention_sweep_never_deletes_an_a2a_client_credential() {
         .await
         .unwrap();
 
-    let far_future = Utc::now() + Duration::days(3650);
+    let far_future = Timestamp::now() + Elapsed::days(3650);
     let sweep = oauth2_server
-        .delete_stale_clients(far_future, far_future)
+        .delete_stale_clients(far_future, far_future, Timestamp::now())
         .await
         .unwrap();
     assert_eq!(

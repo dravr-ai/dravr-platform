@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::admin::scope::AdminScope;
 use pierre_core::errors::AppResult;
 
@@ -397,7 +397,7 @@ pub trait ChatRepository: Send + Sync {
     async fn list_assistant_messages_after(
         &self,
         tenant_id: TenantId,
-        since: Option<DateTime<Utc>>,
+        since: Option<Timestamp>,
         after_message_id: Option<&str>,
         limit: i64,
     ) -> AppResult<Vec<AssistantMessage>>;
@@ -765,12 +765,12 @@ macro_rules! conversation_columns {
 }
 pub(crate) use conversation_columns;
 
-/// The fourteen columns every message read returns.
+/// The fifteen columns every message read returns.
 macro_rules! message_columns {
     () => {
         "m.id, m.conversation_id, m.role, m.content, m.token_count, m.prompt_tokens, \
          m.model, m.finish_reason, m.content_blocks, m.created_at, m.first_party_only, \
-         m.channel_type, m.about_user_id, m.turn_attempted_write"
+         m.channel_type, m.about_user_id, m.turn_attempted_write, m.ai_consent_sources"
     };
 }
 pub(crate) use message_columns;
@@ -817,7 +817,7 @@ pub(crate) use participant_scope;
 /// sqlx accepts them on `SQLite` as well as Postgres. Ids the caller holds
 /// as text bind through the backend's codec (`user_id` and `group_id` are
 /// `uuid` columns on Postgres, TEXT on `SQLite`); timestamps bind as
-/// `DateTime<Utc>` on both, which sqlx-sqlite writes as the RFC 3339 text
+/// `Timestamp` on both, which sqlx-sqlite writes as the RFC 3339 text
 /// the columns hold there.
 pub(crate) const CREATE_CONVERSATION_SQL: &str = r"
     INSERT INTO chat_conversations (id, user_id, tenant_id, title, model, agent_id, group_id, total_tokens, created_at, updated_at)
@@ -927,8 +927,8 @@ pub(crate) const SET_CHANNEL_SQL: &str = r"
 /// Insert a message only when the caller is a participant of the
 /// conversation in this tenant.
 pub(crate) const ADD_MESSAGE_SQL: &str = r"
-    INSERT INTO chat_messages (id, conversation_id, role, content, token_count, finish_reason, created_at, prompt_tokens, model, content_blocks, first_party_only, channel_type, about_user_id, turn_attempted_write)
-    SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $12, $13, $14, $15, $16
+    INSERT INTO chat_messages (id, conversation_id, role, content, token_count, finish_reason, created_at, prompt_tokens, model, content_blocks, first_party_only, channel_type, about_user_id, turn_attempted_write, ai_consent_sources)
+    SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $12, $13, $14, $15, $16, $17
     WHERE EXISTS (
         SELECT 1 FROM chat_conversations c
         JOIN conversation_participants p ON p.conversation_id = c.id
@@ -1000,7 +1000,7 @@ macro_rules! owner_slot_lock_sql {
 pub(crate) use owner_slot_lock_sql;
 
 /// The newest conversations of tenant `$1`, or of every tenant when it binds
-/// `NULL`, for the operator console.
+/// `NULL`, for the admin console.
 pub(crate) const RECENT_CONVERSATIONS_ADMIN_SQL: &str = concat!(
     "SELECT ",
     conversation_columns!(),

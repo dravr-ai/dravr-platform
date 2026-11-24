@@ -25,7 +25,7 @@ import { BADGE_TONE, type BadgeVariant } from '../../components/ui';
  * The badge tone for each severity, read through the badge table so each
  * label takes the ink its tint binds. A warning flag is a state and takes the
  * warning tone, never a pillar, which marks a category and nothing else
- * (DESIGN.md "Badges").
+ * (DESIGN.md "Badges and chips").
  */
 const SEVERITY_TONE: Record<HealthFlagSeverity, BadgeVariant> = {
   info: 'info',

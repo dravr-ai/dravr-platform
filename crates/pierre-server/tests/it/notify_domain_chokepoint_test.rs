@@ -9,7 +9,7 @@
 //! `group.created`, `group.joined` and `agent.selected` were emitted from the
 //! HTTP route handlers, so the messaging paths — which carry effectively all
 //! real traffic — emitted nothing. The events had never fired once in
-//! `PostHog`, which read as "nobody uses groups" while the operator was
+//! `PostHog`, which read as "nobody uses groups" while the admin was
 //! creating groups over Telegram daily.
 //!
 //! These tests drive the *chat* entry points, not the routes, and assert on
@@ -352,7 +352,7 @@ async fn returning_sender_emits_nothing() {
 
     assert_eq!(first, second);
     assert!(
-        events.lock().unwrap().is_empty(),
+        events.events().is_empty(),
         "an already-enrolled sender must emit nothing on every subsequent message"
     );
 }
@@ -413,7 +413,7 @@ async fn a_plan_without_group_coaching_refuses_creation_and_writes_nothing() {
         "a refused creation writes no group"
     );
     assert!(
-        events.lock().unwrap().is_empty(),
+        events.events().is_empty(),
         "a refused creation must not emit group.created"
     );
 }
@@ -500,7 +500,7 @@ async fn a_full_group_leaves_the_sender_ungrouped() {
         "a sender who could not be enrolled must not be bound to the group"
     );
     assert!(
-        events.lock().unwrap().is_empty(),
+        events.events().is_empty(),
         "a refused enrolment must not emit group.joined"
     );
 }
@@ -778,7 +778,7 @@ async fn an_invisible_coach_records_nothing_and_emits_nothing() {
         "a coach the tenant cannot see is not a selection"
     );
     assert!(
-        events.lock().unwrap().is_empty(),
+        events.events().is_empty(),
         "nothing was selected, so agent.selected must not fire"
     );
 }

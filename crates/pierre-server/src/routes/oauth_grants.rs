@@ -22,33 +22,17 @@ use axum::{
     routing::{delete, get},
     Json, Router,
 };
+use dravr_tronc::dates::Timestamp;
 use serde::Serialize;
+use tracing::warn;
 
 use crate::mcp::resources::ServerContext;
+use pierre_auth::oauth2_server::authorization_details::{ResolvedDetails, Tier};
 use pierre_auth::oauth2_server::client_registration::client_display_host;
 use pierre_core::errors::AppError;
+use pierre_core::models::OAuthClientGrant;
 use pierre_middleware::extract_auth_from_headers;
-
-/// Resolve the tenant a grant is keyed under: the caller's active tenant when the
-/// session carries one, otherwise their first tenant (mirroring how the consent
-/// flow keys the grant when the OAuth session has no explicit active tenant).
-async fn resolve_tenant_id(
-    resources: &Arc<ServerContext>,
-    user_id: uuid::Uuid,
-    active_tenant_id: Option<uuid::Uuid>,
-) -> Result<String, AppError> {
-    if let Some(tenant_id) = active_tenant_id {
-        return Ok(tenant_id.to_string());
-    }
-    resources
-        .common
-        .repos
-        .tenants
-        .first_for_user(user_id)
-        .await?
-        .map(|tenant_id| tenant_id.to_string())
-        .ok_or_else(|| AppError::auth_invalid("User has no tenant"))
-}
+use pierre_runtime_context::require_tenant;
 
 /// One connected MCP OAuth client in the caller's "connected apps" list.
 #[derive(Serialize)]
@@ -67,6 +51,35 @@ struct GrantView {
     scope: String,
     /// When the grant was made (RFC 3339).
     granted_at: String,
+    /// The preset a detailed grant was approved for (`training_coach`,
+    /// `sleep_coach`); `None` for a plain grant.
+    preset: Option<&'static str>,
+    /// The highest tier a detailed grant reads (`T0` to `T3`); `None` for a
+    /// plain grant.
+    max_tier: Option<Tier>,
+    /// When the grant stops admitting a token (RFC 3339); `None` never
+    /// expires. A past value is an expired grant, listed so it can be
+    /// revoked.
+    expires_at: Option<String>,
+}
+
+/// The preset and tier `grant`'s stored details name, `(None, None)` for a
+/// plain grant.
+///
+/// A document that does not read is logged and listed as neither: this is
+/// the surface the athlete revokes from, so one bad row never hides the
+/// rest. Admission refuses such a grant on its own (the ceiling errs).
+fn preset_and_tier(grant: &OAuthClientGrant) -> (Option<&'static str>, Option<Tier>) {
+    let Some(document) = grant.authorization_details.as_deref() else {
+        return (None, None);
+    };
+    match ResolvedDetails::from_document(document) {
+        Ok(details) => (Some(details.preset().name()), Some(details.max_tier())),
+        Err(error) => {
+            warn!(grant_id = %grant.id, error = %error, "A connected app's grant details do not read");
+            (None, None)
+        }
+    }
 }
 
 /// Response body for `GET /api/me/oauth-grants`.
@@ -82,7 +95,10 @@ async fn handle_list_grants(
     headers: HeaderMap,
 ) -> Result<Response, AppError> {
     let auth = extract_auth_from_headers(&headers, &resources).await?;
-    let tenant_id = resolve_tenant_id(&resources, auth.user_id, auth.active_tenant_id).await?;
+    // The tenant a grant is keyed under: the one the session names when the
+    // account still belongs to it, otherwise the account's first, which is how
+    // the consent flow keys a grant whose session names none.
+    let tenant_id = require_tenant(&resources, &auth).await?.to_string();
     let grants = resources
         .common
         .repos
@@ -99,6 +115,7 @@ async fn handle_list_grants(
             .await?;
         let redirect_uris = client.as_ref().map_or(&[][..], |c| &c.redirect_uris[..]);
         let client_host = client_display_host(&grant.client_id, redirect_uris);
+        let (preset, max_tier) = preset_and_tier(&grant);
         views.push(GrantView {
             id: grant.id,
             client_name: client.and_then(|client| client.client_name),
@@ -106,6 +123,9 @@ async fn handle_list_grants(
             client_id: grant.client_id,
             scope: grant.scope,
             granted_at: grant.granted_at.to_rfc3339(),
+            preset,
+            max_tier,
+            expires_at: grant.expires_at.map(Timestamp::to_rfc3339),
         });
     }
     Ok(Json(GrantsResponse { grants: views }).into_response())
@@ -118,7 +138,10 @@ async fn handle_revoke_grant(
     Path(id): Path<String>,
 ) -> Result<Response, AppError> {
     let auth = extract_auth_from_headers(&headers, &resources).await?;
-    let tenant_id = resolve_tenant_id(&resources, auth.user_id, auth.active_tenant_id).await?;
+    // The tenant a grant is keyed under: the one the session names when the
+    // account still belongs to it, otherwise the account's first, which is how
+    // the consent flow keys a grant whose session names none.
+    let tenant_id = require_tenant(&resources, &auth).await?.to_string();
     let user_id = auth.user_id.to_string();
     let repository = &resources.common.repos.oauth2_server;
     // Named before the revocation: the resource servers hold the client's

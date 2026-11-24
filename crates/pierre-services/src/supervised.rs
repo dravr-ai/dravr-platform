@@ -38,12 +38,20 @@ impl Drop for AbortOnDrop {
 /// Run `tick` at once and then every `period` on this instance.
 ///
 /// It runs in a spawned task until the returned handle is aborted or the
-/// process ends. A panicking tick is logged under `name` and the loop
-/// respawned after one `period`.
-pub fn spawn_supervised_loop<F, Fut>(name: &'static str, period: Duration, tick: F) -> AbortHandle
+/// process ends. A panicking tick is logged under `name`, `on_death` runs,
+/// and the loop is respawned after one `period`. `on_death` is for the state
+/// a tick would have settled had it finished, such as marking a first sync
+/// done so nothing waits on it forever.
+pub fn spawn_supervised_loop<F, Fut, D>(
+    name: &'static str,
+    period: Duration,
+    tick: F,
+    on_death: D,
+) -> AbortHandle
 where
     F: Fn() -> Fut + Send + Sync + 'static,
     Fut: Future<Output = ()> + Send + 'static,
+    D: Fn() + Send + 'static,
 {
     let tick = Arc::new(tick);
     tokio::spawn(async move {
@@ -62,6 +70,7 @@ where
             let died = ticking.await;
             drop(guard);
             let Err(e) = died;
+            on_death();
             error!(
                 worker = name,
                 error = %e,
@@ -84,13 +93,18 @@ mod tests {
     async fn a_panicking_tick_is_respawned_and_keeps_ticking() {
         let ticks = Arc::new(AtomicU32::new(0));
         let counted = Arc::clone(&ticks);
-        let handle = spawn_supervised_loop("test loop", Duration::from_millis(10), move || {
-            let counted = Arc::clone(&counted);
-            async move {
-                let n = counted.fetch_add(1, Ordering::SeqCst);
-                assert!(n != 0, "the first tick panics");
-            }
-        });
+        let handle = spawn_supervised_loop(
+            "test loop",
+            Duration::from_millis(10),
+            move || {
+                let counted = Arc::clone(&counted);
+                async move {
+                    let n = counted.fetch_add(1, Ordering::SeqCst);
+                    assert!(n != 0, "the first tick panics");
+                }
+            },
+            || {},
+        );
         for _ in 0..200 {
             if ticks.load(Ordering::SeqCst) >= 3 {
                 break;
@@ -108,12 +122,17 @@ mod tests {
     async fn aborting_the_handle_stops_the_ticks() {
         let ticks = Arc::new(AtomicU32::new(0));
         let counted = Arc::clone(&ticks);
-        let handle = spawn_supervised_loop("test loop", Duration::from_millis(5), move || {
-            let counted = Arc::clone(&counted);
-            async move {
-                counted.fetch_add(1, Ordering::SeqCst);
-            }
-        });
+        let handle = spawn_supervised_loop(
+            "test loop",
+            Duration::from_millis(5),
+            move || {
+                let counted = Arc::clone(&counted);
+                async move {
+                    counted.fetch_add(1, Ordering::SeqCst);
+                }
+            },
+            || {},
+        );
         for _ in 0..200 {
             if ticks.load(Ordering::SeqCst) >= 2 {
                 break;

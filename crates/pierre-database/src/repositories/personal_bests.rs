@@ -20,11 +20,11 @@
 //! which returns each athlete with the tenant their token lives in. `$n`
 //! placeholders throughout: sqlx accepts them on `SQLite` as well as Postgres.
 //! `achieved_at`, `updated_at`, `scanned_at` and `completed_at` bind as
-//! [`DateTime<Utc>`], which sqlx stores as RFC 3339 text on `SQLite` and as
+//! [`Timestamp`], which sqlx stores as RFC 3339 text on `SQLite` and as
 //! `TIMESTAMPTZ` on Postgres.
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::AppResult;
 use pierre_core::models::TenantId;
 use uuid::Uuid;
@@ -41,7 +41,7 @@ pub struct PersonalBest {
     /// The provider's id for the run that set the best.
     pub activity_id: String,
     /// When that run started.
-    pub achieved_at: DateTime<Utc>,
+    pub achieved_at: Timestamp,
 }
 
 /// How far the one-time walk of an athlete's history at one provider has got.
@@ -53,7 +53,7 @@ pub struct PersonalBestSeed {
     pub cursor_before: Option<i64>,
     /// When a listing past the athlete's oldest activity came back empty, so
     /// every past run was measured; `None` while the walk is under way.
-    pub completed_at: Option<DateTime<Utc>>,
+    pub completed_at: Option<Timestamp>,
 }
 
 /// An athlete whose history walk at a provider is owed, with the tenant the
@@ -103,7 +103,7 @@ pub trait PersonalBestRepository: Send + Sync {
         tenant_id: TenantId,
         provider: &str,
         activity_id: &str,
-        scanned_at: DateTime<Utc>,
+        scanned_at: Timestamp,
     ) -> AppResult<()>;
 
     /// Where the walk of the athlete's history at `provider` stands, or
@@ -291,7 +291,7 @@ macro_rules! impl_personal_best_repository {
                 user_id: Uuid,
                 tenant_id: TenantId,
             ) -> AppResult<Vec<PersonalBest>> {
-                let rows: Vec<(String, f64, String, String, DateTime<Utc>)> =
+                let rows: Vec<(String, f64, String, String, Timestamp)> =
                     sqlx::query_as(LIST_PERSONAL_BESTS_SQL)
                         .bind($ids::bind(user_id))
                         .bind($ids::bind(tenant_id.as_uuid()))
@@ -330,7 +330,7 @@ macro_rules! impl_personal_best_repository {
                     .bind(&best.provider)
                     .bind(&best.activity_id)
                     .bind(best.achieved_at)
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .execute(self.pool())
                     .await
                     .map_err(|e| {
@@ -365,7 +365,7 @@ macro_rules! impl_personal_best_repository {
                 tenant_id: TenantId,
                 provider: &str,
                 activity_id: &str,
-                scanned_at: DateTime<Utc>,
+                scanned_at: Timestamp,
             ) -> AppResult<()> {
                 sqlx::query(RECORD_ACTIVITY_SCAN_SQL)
                     .bind($ids::bind(user_id))
@@ -387,7 +387,7 @@ macro_rules! impl_personal_best_repository {
                 tenant_id: TenantId,
                 provider: &str,
             ) -> AppResult<Option<PersonalBestSeed>> {
-                let row: Option<(Option<i64>, Option<DateTime<Utc>>)> =
+                let row: Option<(Option<i64>, Option<Timestamp>)> =
                     sqlx::query_as(GET_PERSONAL_BEST_SEED_SQL)
                         .bind($ids::bind(user_id))
                         .bind($ids::bind(tenant_id.as_uuid()))
@@ -416,7 +416,7 @@ macro_rules! impl_personal_best_repository {
                     .bind(provider)
                     .bind(seed.cursor_before)
                     .bind(seed.completed_at)
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .execute(self.pool())
                     .await
                     .map_err(|e| {

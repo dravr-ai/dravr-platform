@@ -9,7 +9,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { CoachAccessRequestView } from '@pierre/shared-types';
 import { formatDate } from '@pierre/chat-utils';
 import { coachAccessAdminApi } from '../services/api';
-import { QUERY_KEYS } from '../constants/queryKeys';
+import { QUERY_KEYS } from '@pierre/shared-constants';
 import { Button, EmptyState, Section, Textarea } from './ui';
 import { ADMIN_LOCALE } from '../utils/adminLocale';
 import CoachSeatInvitations from './CoachSeatInvitations';
@@ -17,7 +17,7 @@ import CoachSeatInvitations from './CoachSeatInvitations';
 /**
  * The longest decline reason the field takes: what the server keeps
  * (`DECLINE_REASON_MAX_CHARS` in `pierre_core::models::coach_access`), so the
- * operator never types words the coach would not read.
+ * admin never types words the coach would not read.
  */
 const DECLINE_REASON_MAX_CHARS = 500;
 

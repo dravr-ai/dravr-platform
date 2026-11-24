@@ -16,7 +16,7 @@
 
 use std::sync::Arc;
 
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_contremaitre::messaging_strings::KEY_BACKFILL_READY;
 use pierre_core::models::messaging::MessageContent;
 use pierre_core::models::{Activity, ActivityBuilder, SportType};
@@ -53,7 +53,7 @@ fn activity_with_sport(
         id.to_owned(),
         name.to_owned(),
         sport,
-        Utc::now() - Duration::days(age_days),
+        Timestamp::now() - Elapsed::days(age_days),
         3_600,
         "strava".to_owned(),
     )
@@ -125,7 +125,7 @@ async fn push_warmed_list_renders_sport_display_and_localized_header() {
 
     // `after_ts` = 30 days ago, so the 5- and 8-day-old activities fall inside the
     // `[after_ts, now]` warmed window the notifier reads.
-    let after_ts = (Utc::now() - Duration::days(30)).timestamp();
+    let after_ts = (Timestamp::now() - Elapsed::days(30)).epoch_seconds();
     notifier
         .push_backfill_complete(BackfillCompletion::backfill(
             user_uuid,
@@ -224,7 +224,7 @@ async fn push_empty_cache_nudge_honors_default_locale() {
         BASE_URL.to_owned(),
     );
 
-    let after_ts = (Utc::now() - Duration::days(30)).timestamp();
+    let after_ts = (Timestamp::now() - Elapsed::days(30)).epoch_seconds();
     notifier
         .push_backfill_complete(BackfillCompletion::backfill(
             user_uuid,
@@ -347,8 +347,8 @@ async fn push_warmed_list_dates_activities_on_the_athletes_calendar() {
     .await;
 
     // 02:30 UTC five days ago: the previous calendar day in Toronto.
-    let utc_day = (Utc::now() - Duration::days(5)).date_naive();
-    let start = utc_day.and_hms_opt(2, 30, 0).unwrap().and_utc();
+    let utc_day = (Timestamp::now() - Elapsed::days(5)).utc_date();
+    let start = utc_day.and_hms(2, 30, 0).unwrap().and_utc().unwrap();
     let ride = ActivityBuilder::new(
         "late-ride".to_owned(),
         "Sortie du soir".to_owned(),
@@ -376,7 +376,7 @@ async fn push_warmed_list_dates_activities_on_the_athletes_calendar() {
             tenant_id,
             &conversation_id,
             "strava",
-            (Utc::now() - Duration::days(30)).timestamp(),
+            (Timestamp::now() - Elapsed::days(30)).epoch_seconds(),
             1,
         ))
         .await;
@@ -385,8 +385,8 @@ async fn push_warmed_list_dates_activities_on_the_athletes_calendar() {
     let MessageContent::Text { body } = &sent[0].content else {
         panic!("expected a text notice");
     };
-    let local_day = (utc_day - Duration::days(1)).format("%Y-%m-%d").to_string();
-    let utc_label = utc_day.format("%Y-%m-%d").to_string();
+    let local_day = (utc_day - Elapsed::days(1)).to_string();
+    let utc_label = utc_day.to_string();
     assert!(
         body.contains(&local_day),
         "the ride is dated on the athlete's Toronto calendar ({local_day}): {body}"

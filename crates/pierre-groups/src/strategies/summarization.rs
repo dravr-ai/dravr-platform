@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::fmt::Write;
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::civil_time::{format_local_day, resolve_zone};
 use pierre_core::duration_text::clock;
 use pierre_core::models::FormBand;
@@ -33,13 +33,13 @@ const ROSTER_LOCALE: &str = "en";
 /// as semantic signals. Returns an empty string when the map is empty so the
 /// caller can skip the line entirely instead of emitting `Sources: `.
 fn format_provider_freshness(
-    last_activity_per_provider: &HashMap<String, DateTime<Utc>>,
-    now: DateTime<Utc>,
+    last_activity_per_provider: &HashMap<String, Timestamp>,
+    now: Timestamp,
 ) -> String {
     if last_activity_per_provider.is_empty() {
         return String::new();
     }
-    let mut entries: Vec<(&String, &DateTime<Utc>)> = last_activity_per_provider.iter().collect();
+    let mut entries: Vec<(&String, &Timestamp)> = last_activity_per_provider.iter().collect();
     entries.sort_by(|a, b| a.0.cmp(b.0));
     let mut out = String::with_capacity(entries.len() * 16);
     for (idx, (provider, latest)) in entries.iter().enumerate() {
@@ -244,7 +244,7 @@ impl GroupSummarizationStrategy for WeeklyDigestSummarizer {
                 // `{sport:?}`), and the model renders the athlete's locale from
                 // it. What matters here is that the weekday is stated and
                 // correct, not which language states it.
-                let date = format_local_day(act.start, zone, ROSTER_LOCALE);
+                let date = format_local_day(act.start, &zone, ROSTER_LOCALE);
                 let duration = clock(act.duration_seconds);
                 let dist = match act.distance_km {
                     Some(km) if km > 0.0 => format!(" {km:.1}km"),

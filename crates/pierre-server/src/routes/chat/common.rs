@@ -234,6 +234,9 @@ mod tests {
             active_tenant_id: None,
             scopes: OAuthScope::self_grant(),
             client_id: client_id.map(str::to_owned),
+            grant_id: None,
+            client_grant_id: None,
+            ceiling: None,
         }
     }
 

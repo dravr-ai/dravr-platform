@@ -25,7 +25,7 @@
 #![allow(missing_docs)]
 
 use anyhow::Result;
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::{Tenant, TenantId, User, UserStatus};
 use pierre_core::permissions::scopes::OAuthScope;
@@ -60,7 +60,7 @@ async fn create_admin_user(executor: &UniversalToolExecutor) -> Result<(Uuid, St
     user.role = UserRole::Admin;
     user.user_status = UserStatus::Active;
     user.approved_by = Some(user.id);
-    user.approved_at = Some(Utc::now());
+    user.approved_at = Some(Timestamp::now());
     let user_id = user.id;
     executor.resources.repos().users.create(&user).await?;
 
@@ -72,8 +72,8 @@ async fn create_admin_user(executor: &UniversalToolExecutor) -> Result<(Uuid, St
         domain: None,
         plan: "starter".to_owned(),
         owner_user_id: user_id,
-        created_at: Utc::now(),
-        updated_at: Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
     };
     executor.resources.repos().tenants.create(&tenant).await?;
     executor

@@ -26,11 +26,11 @@
 //! Admin token JWT validation lives in [`auth::AdminAuthService`] /
 //! [`pierre_core::admin::AdminJwtManager`]; these are re-exported from
 //! `pierre-server`'s `admin` module for callers that still use the old
-//! path (notably `routes::auth::login::handle_register`).
+//! path.
 
 #![warn(missing_docs)]
 
-/// The admin audit trail's recorder: one row per operator write (carnet#1391).
+/// The admin audit trail's recorder: one row per admin write (carnet#1391).
 pub mod audit;
 
 /// Admin authentication services (JWT-token and cookie-derived).

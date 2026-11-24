@@ -7,6 +7,7 @@
 use pierre_providers::ai_scope;
 use std::sync::Arc;
 
+use pierre_core::constants::oauth_providers::names_kept_out_source;
 use pierre_core::models::TenantId;
 use pierre_database::database::ConversationRecord;
 use pierre_services::memory_dedup::DedupConfig;
@@ -109,6 +110,14 @@ pub(crate) async fn spawn_turn_extraction(turn: ExtractedTurn<'_>) {
         debug!(seat = ?standing.seat, "the sender is not this turn's subject: nothing it says is extracted");
         return;
     }
+    // A turn drawn from data kept out of the agent's memory files nothing:
+    // Garmin's agreement bars building an AI knowledge base from its data
+    // (v9 §15.11(c), carnet#1158). What it served names the key.
+    let ai_consent_sources = ai_scope::derived_consent_sources();
+    if names_kept_out_source(&ai_consent_sources) {
+        debug!(sources = ?ai_consent_sources, "the turn served data kept out of AI memory: no fact is extracted");
+        return;
+    }
     let (pillar, source, force_kind) = extraction_params_or_default(answered);
     let tenants = ExtractionTenants::for_turn(input);
     // The de-dup tunables are read per turn, so a harness config save reaches
@@ -137,8 +146,12 @@ pub(crate) async fn spawn_turn_extraction(turn: ExtractedTurn<'_>) {
                 force_kind,
                 plan_was_saved,
                 transport_policy: ai_scope::derived_policy(),
+                // The athlete's consents as this turn declared them: the
+                // extractor reads its dedup candidates under them.
+                consent_withheld: Some(ai_scope::ai_consent_withheld().iter().cloned().collect()),
                 conversation_id: Some(input.conversation_id.clone()),
                 turn_id: Some(input.turn_id),
+                ai_consent_sources,
             },
         },
     )

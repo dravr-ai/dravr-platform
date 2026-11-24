@@ -22,18 +22,22 @@
 //! record carries the id, source and time of a source that recorded
 //! something named.
 
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
+use pierre_core::constants::oauth::providers::SENSITIVE_T2;
 use pierre_core::constants::oauth::INTERVALS_ICU;
+use pierre_core::constants::oauth_providers::NoticeKind;
 use pierre_core::models::{
     DataSource, DeviceType, StoredDailyActivity, StoredHealthMetrics, StoredRecoveryMetrics,
     StoredSleepSession,
 };
 use pierre_database::repositories::WellnessWriteMode;
+use pierre_services::provider_notice::grant_consent;
 use serde_json::{json, Value};
 use uuid::Uuid;
 
 use crate::coach_athlete_reads_test::{mentions, ok, refused_reason, Fixture};
 use crate::coach_athlete_wellness_reads_test::{naming_mira, world, NIGHTS};
+use crate::helpers::garmin_consent::give_garmin_ai_consent;
 
 /// What the coach's read says the grant covers.
 const GRANT_NAMES: &str = "Mira Subject shares their sleep, HRV, resting heart rate, weight, \
@@ -72,13 +76,13 @@ async fn file_unnamed_health(f: &Fixture) {
         .upsert_data_source(&athlete.tenant, &data_source("garmin"))
         .await
         .unwrap();
-    let now = Utc::now();
-    let today = now.date_naive();
+    let now = Timestamp::now();
+    let today = now.utc_date();
     let body = |source: &str, source_name: &str, days_ago: i64| StoredHealthMetrics {
         id: String::new(),
         user_id: athlete.id.to_string(),
         data_source_id: source.to_owned(),
-        date: today - Duration::days(days_ago),
+        date: today - Elapsed::days(days_ago),
         weight_kg: None,
         body_fat_pct: None,
         muscle_mass_kg: None,
@@ -163,7 +167,7 @@ async fn file_unnamed_health(f: &Fixture) {
                 id: format!("icu-day-{}", Uuid::new_v4()),
                 user_id: athlete.id.to_string(),
                 data_source_id: icu.clone(),
-                date: today - Duration::days(1),
+                date: today - Elapsed::days(1),
                 recovery_score: None,
                 readiness_score: Some(68),
                 hrv_ms: None,
@@ -184,7 +188,7 @@ async fn file_unnamed_health(f: &Fixture) {
         )
         .await
         .unwrap();
-    let woke = now - Duration::days(NIGHTS) - Duration::minutes(5);
+    let woke = now - Elapsed::days(NIGHTS) - Elapsed::minutes(5);
     repos
         .sleep
         .upsert_sleep_session(
@@ -194,7 +198,7 @@ async fn file_unnamed_health(f: &Fixture) {
                 user_id: athlete.id.to_string(),
                 data_source_id: icu,
                 is_nap: false,
-                start_datetime: woke - Duration::hours(7),
+                start_datetime: woke - Elapsed::hours(7),
                 end_datetime: woke,
                 total_sleep_seconds: Some(25_100),
                 deep_sleep_seconds: Some(5_400),
@@ -216,6 +220,20 @@ async fn file_unnamed_health(f: &Fixture) {
         .unwrap();
 }
 
+/// The athlete allows their health records' AI use (`sensitive_t2`).
+async fn allow_health_records(f: &Fixture) {
+    grant_consent(
+        f.repos(),
+        f.athlete.tenant.as_uuid(),
+        f.athlete.id,
+        SENSITIVE_T2,
+        NoticeKind::AiConsent,
+        "Health records",
+    )
+    .await
+    .unwrap();
+}
+
 /// The rows of `payload[key]`.
 fn rows<'payload>(payload: &'payload Value, key: &str) -> &'payload Vec<Value> {
     payload[key]
@@ -225,7 +243,7 @@ fn rows<'payload>(payload: &'payload Value, key: &str) -> &'payload Vec<Value> {
 
 /// The row of `payload[key]` whose `date` (or night) is `days_ago` days back.
 fn row_on<'payload>(payload: &'payload Value, key: &str, days_ago: i64) -> &'payload Value {
-    let date = (Utc::now().date_naive() - Duration::days(days_ago)).to_string();
+    let date = (Timestamp::now().utc_date() - Elapsed::days(days_ago)).to_string();
     rows(payload, key)
         .iter()
         .find(|row| row["date"] == date.as_str())
@@ -272,6 +290,9 @@ async fn a_coachs_health_snapshot_read_carries_what_the_consent_names_and_the_at
     let f = world().await;
     file_unnamed_health(&f).await;
     f.share_wellness(true).await;
+    // Garmin's weigh-in reaches a model only under the athlete's Garmin AI
+    // consent (carnet#1157); the coach reads under the athlete's consents.
+    give_garmin_ai_consent(f.repos(), f.athlete.id, f.athlete.tenant).await;
 
     let thread = ok(
         f.in_thread("get_health_snapshots", json!({})).await,
@@ -331,6 +352,9 @@ async fn a_coachs_health_snapshot_read_carries_what_the_consent_names_and_the_at
          {merged_day}"
     );
 
+    // Glucose is a T2 record: the athlete's own agent reads it once they
+    // allowed their health records' AI use (J2).
+    allow_health_records(&f).await;
     let own = f
         .own_read(f.athlete, "get_health_snapshots", json!({}))
         .await;
@@ -415,20 +439,20 @@ async fn file_probe_days(f: &Fixture) -> Probe {
             .unwrap();
         source_ids.push((provider, id));
     }
-    let now = Utc::now();
-    let today = now.date_naive();
+    let now = Timestamp::now();
+    let today = now.utc_date();
     let synced = |provider: &str| {
         if provider == "garmin" {
-            now - Duration::hours(2)
+            now - Elapsed::hours(2)
         } else {
-            now - Duration::hours(6)
+            now - Elapsed::hours(6)
         }
     };
     let body = |(provider, id): &(&str, String), days_ago: i64| StoredHealthMetrics {
         id: String::new(),
         user_id: athlete.id.to_string(),
         data_source_id: id.clone(),
-        date: today - Duration::days(days_ago),
+        date: today - Elapsed::days(days_ago),
         weight_kg: None,
         body_fat_pct: None,
         muscle_mass_kg: None,
@@ -446,7 +470,7 @@ async fn file_probe_days(f: &Fixture) -> Probe {
         id: format!("{provider}-probe-{days_ago}"),
         user_id: athlete.id.to_string(),
         data_source_id: id.clone(),
-        date: today - Duration::days(days_ago),
+        date: today - Elapsed::days(days_ago),
         recovery_score: None,
         readiness_score: None,
         hrv_ms: None,
@@ -518,7 +542,7 @@ async fn file_probe_days(f: &Fixture) -> Probe {
             .unwrap();
     }
 
-    let window = (now - Duration::days(30), now + Duration::days(1));
+    let window = (now - Elapsed::days(30), now + Elapsed::days(1));
     let stored_body = repos
         .health_snapshots
         .get_health_snapshots(athlete.id, &athlete.tenant, window.0, window.1)
@@ -529,7 +553,7 @@ async fn file_probe_days(f: &Fixture) -> Probe {
         .get_recovery_metrics(athlete.id, &athlete.tenant, window.0, window.1)
         .await
         .unwrap();
-    let probe_date = today - Duration::days(PROBE_DAY);
+    let probe_date = today - Elapsed::days(PROBE_DAY);
     let body_of = |provider: &str| {
         stored_body
             .iter()
@@ -560,7 +584,7 @@ async fn file_probe_days(f: &Fixture) -> Probe {
 
 /// Whether no row of `payload[key]` is dated `days_ago` days back.
 fn no_row_on(payload: &Value, key: &str, days_ago: i64) -> bool {
-    let date = (Utc::now().date_naive() - Duration::days(days_ago)).to_string();
+    let date = (Timestamp::now().utc_date() - Elapsed::days(days_ago)).to_string();
     rows(payload, key)
         .iter()
         .all(|row| row["date"] != date.as_str())
@@ -586,6 +610,10 @@ async fn a_source_that_recorded_only_unnamed_metrics_never_stands_for_a_coachs_d
     let f = world().await;
     let probe = file_probe_days(&f).await;
     f.share_wellness(true).await;
+    // Under the athlete's Garmin AI consent (carnet#1157), so Garmin's rows
+    // reach the reads below and their absence from the coach's day is the
+    // sharing grant's doing, not the consent's.
+    give_garmin_ai_consent(f.repos(), f.athlete.id, f.athlete.tenant).await;
 
     let icu_stands = |id: &str, data_source_id: &str| {
         json!({
@@ -648,6 +676,9 @@ async fn a_source_that_recorded_only_unnamed_metrics_never_stands_for_a_coachs_d
 
     // The athlete's own read is unchanged: Garmin stands for both days, its
     // unnamed metrics kept, Intervals.icu's filled in, both sources named.
+    // Glucose is a T2 record: the athlete's own agent reads it once they
+    // allowed their health records' AI use (J2).
+    allow_health_records(&f).await;
     let own = f
         .own_read(f.athlete, "get_health_snapshots", json!({}))
         .await;

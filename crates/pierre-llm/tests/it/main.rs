@@ -16,6 +16,7 @@ mod chain_assembly_test;
 mod chain_cooldown_skip_notify_test;
 mod chain_guard_lock;
 mod chain_tier_probe_test;
+mod dead_tier_bench_test;
 mod failed_leg_token_accounting_test;
 mod github_headroom_guard_test;
 mod judge_extract_json_test;

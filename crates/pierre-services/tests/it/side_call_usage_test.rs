@@ -17,7 +17,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use async_trait::async_trait;
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use embacle::types::{
     ChatRequest, ChatResponse, ChatStream, LlmCapabilities, LlmProvider as EmbacleLlmProvider,
     RunnerError, TokenUsage,
@@ -176,6 +176,8 @@ fn payload(user_id: &str, conversation_id: &str, turn: ConversationTurnId) -> Ex
         transport_policy: TransportPolicy::AnyTransport,
         conversation_id: Some(conversation_id.to_owned()),
         turn_id: Some(turn),
+        ai_consent_sources: Vec::new(),
+        consent_withheld: None,
     }
 }
 
@@ -274,7 +276,7 @@ async fn a_resumed_extraction_bills_the_usage_tenant_its_row_recorded() {
     let repos = db.repositories();
     let (provider, log) = copilot_sdk_head("[]");
     let user_id = Uuid::new_v4().to_string();
-    let now = Utc::now().timestamp_millis();
+    let now = Timestamp::now().epoch_millis();
     let stale = |tenant_id: TenantId,
                  usage_tenant_id: Option<TenantId>,
                  turn: ConversationTurnId| MemoryExtractionJobRow {
@@ -348,6 +350,7 @@ async fn advice_capture_bills_its_own_row_to_the_turn_it_read() {
             .to_owned(),
         source_msg_id: Some("m-2".to_owned()),
         transport_policy: TransportPolicy::AnyTransport,
+        ai_consent_sources: Vec::new(),
     };
 
     let advice = HeuristicGatedLlmExtraction::new(Arc::new(PromptRegistry::new()))
@@ -389,6 +392,7 @@ async fn a_reply_the_gate_turns_away_costs_no_call_and_no_row() {
         assistant_reply: "Nice work!".to_owned(),
         source_msg_id: None,
         transport_policy: TransportPolicy::AnyTransport,
+        ai_consent_sources: Vec::new(),
     };
 
     HeuristicGatedLlmExtraction::new(Arc::new(PromptRegistry::new()))

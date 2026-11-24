@@ -13,7 +13,7 @@ import { RowBox, ROW_DIVIDER } from './GroupInfoParts';
 import { useTranslation } from '@pierre/i18n';
 import { useAuth } from '../../hooks/useAuth';
 import { formatDateTime, type Translate } from '@pierre/chat-utils';
-import { countKey, INVITE_EXPIRY_DAY_KEYS, INVITE_USE_LIMIT_KEYS } from '@pierre/shared-constants';
+import { canManageGroup, countKey, INVITE_EXPIRY_DAY_KEYS, INVITE_USE_LIMIT_KEYS } from '@pierre/shared-constants';
 import type {
   GroupRole,
   GroupInvite,
@@ -130,7 +130,7 @@ export default function InviteManager({
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [confirmDeactivate, setConfirmDeactivate] = useState<GroupInvite | null>(null);
 
-  const canManage = currentUserRole === 'owner' || currentUserRole === 'admin';
+  const canManage = canManageGroup(currentUserRole);
   const language = i18n.language;
 
   const handleApprovesSignupChange = (checked: boolean) => {

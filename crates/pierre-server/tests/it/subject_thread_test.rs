@@ -24,10 +24,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use axum::http::StatusCode;
-use chrono::Utc;
 use common::{
     create_test_server_resources, create_test_user_with_plan, generate_test_token, in_web_turn,
 };
+use dravr_tronc::dates::Timestamp;
 use dravr_tronc::mcp::tool::{McpTool, ToolContext};
 use helpers::axum_test::AxumTestRequest;
 use pierre_commands::reset::ResetHandler;
@@ -99,7 +99,7 @@ async fn person(res: &Arc<ServerContext>, label: &str, name: &str) -> (Person, S
 }
 
 async fn join(repos: &RepositoryRegistry, group: &CoachingGroup, who: &Person, shares: bool) {
-    let now = Utc::now();
+    let now = Timestamp::now();
     repos
         .groups
         .add_member(&GroupMember {
@@ -128,7 +128,7 @@ async fn coachless_group(
     agent_id: String,
     name: &str,
 ) -> CoachingGroup {
-    let now = Utc::now();
+    let now = Timestamp::now();
     repos
         .groups
         .create_group(
@@ -148,6 +148,7 @@ async fn coachless_group(
                 is_active: true,
                 channel_type: None,
                 channel_chat_id: None,
+                chat_connection: None,
                 created_at: now,
                 updated_at: now,
             },
@@ -398,7 +399,7 @@ async fn every_gate_refuses_with_its_reason_and_opens_nothing() {
     // An athlete in two tenants has no one place for their plan.
     let (third, _) = person(&fx.res, "third", "Theo Twotenants").await;
     join(fx.repos(), &fx.group, &third, true).await;
-    let now = Utc::now();
+    let now = Timestamp::now();
     let second = TenantId::generate();
     fx.repos()
         .tenants
@@ -785,6 +786,7 @@ async fn reset_in_a_subject_thread_opens_a_topic_and_keeps_the_binding() {
                 channel_type: None,
                 about_user_id: None,
                 turn_attempted_write: None,
+                ai_consent_sources: &[],
             })
             .await
             .unwrap();
@@ -1022,7 +1024,7 @@ async fn the_calendar_tools_in_a_subject_thread_act_for_the_subject() {
 
     // The coach's own Intervals.icu key, and a confirmed link to the subject
     // that does not allow calendar writes.
-    let now = Utc::now();
+    let now = Timestamp::now();
     repos
         .oauth_tokens
         .upsert_token(&UserOAuthToken {

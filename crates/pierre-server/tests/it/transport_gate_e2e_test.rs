@@ -9,6 +9,7 @@
 
 use crate::common;
 use crate::common::offline_provider_registry;
+use crate::tier_consent_test::allow_outside_memory;
 
 use std::sync::Arc;
 use std::time::Duration as StdDuration;
@@ -17,7 +18,7 @@ use async_trait::async_trait;
 use axum::body::{to_bytes, Body};
 use axum::http::{Request, StatusCode};
 use axum::Router;
-use chrono::{Duration, DurationRound, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use embacle_tool_host::ToolSurface;
 use pierre_auth::api_keys::{ApiKey, ApiKeyManager, ApiKeyTier};
 use pierre_chat_pipeline::stages::persistence::get_conversation_history;
@@ -64,6 +65,7 @@ use tower::ServiceExt;
 use uuid::Uuid;
 
 use crate::common::{create_test_server_resources, create_test_user_with_plan};
+use crate::helpers::garmin_consent::give_garmin_ai_consent;
 
 pub(crate) const RELAY: &str = "nolio";
 
@@ -128,7 +130,7 @@ fn session(id: &str, name: &str, days_ago: i64) -> Activity {
         id,
         name,
         SportType::Ride,
-        Utc::now() - Duration::days(days_ago),
+        Timestamp::now() - Elapsed::days(days_ago),
         3_600,
         RELAY,
     )
@@ -239,7 +241,7 @@ pub(crate) async fn athlete_with_relay(resources: &ServerContext) -> Rider {
         RELAY.to_owned(),
         "relay-access".to_owned(),
         Some("relay-refresh".to_owned()),
-        Some(Utc::now() + Duration::hours(6)),
+        Some(Timestamp::now() + Elapsed::hours(6)),
         None,
     );
     repos.oauth_tokens.upsert_token(&token).await.unwrap();
@@ -248,6 +250,10 @@ pub(crate) async fn athlete_with_relay(resources: &ServerContext) -> Rider {
         .register_connection(user_id, tenant, RELAY, &ConnectionType::OAuth, None)
         .await
         .unwrap();
+    // The relay carries Garmin recordings, which a model reads only under the
+    // athlete's Garmin AI consent (carnet#1157): given here, so what is
+    // withheld below is the transport's doing alone.
+    give_garmin_ai_consent(&resources.common.repos, user_id, tenant).await;
     Rider {
         user,
         user_id,
@@ -345,8 +351,8 @@ async fn the_same_call_returns_the_relays_items_only_to_dravrs_own_surfaces() {
             athlete.user_id,
             &athlete.tenant,
             Some(RELAY),
-            Utc::now() - Duration::days(30),
-            Utc::now(),
+            Timestamp::now() - Elapsed::days(30),
+            Timestamp::now(),
             50,
         )
         .await
@@ -451,7 +457,7 @@ async fn api_key(resources: &Arc<ServerContext>, user_id: Uuid) -> String {
         is_active: true,
         last_used_at: None,
         expires_at: None,
-        created_at: Utc::now(),
+        created_at: Timestamp::now(),
     };
     resources.common.repos.api_keys.create(&key).await.unwrap();
     data.full_key
@@ -481,9 +487,10 @@ async fn get(app: &Router, uri: &str, authorization: &str) -> (StatusCode, Value
 /// holds. Only the relay's copy of the shared ride carries a distance, so the
 /// merged workout shows one only when the relay's copy was merged in.
 async fn seed_home(resources: &Arc<ServerContext>, athlete: &Rider) {
-    let start = (Utc::now() - Duration::days(1))
-        .duration_trunc(Duration::minutes(1))
-        .unwrap();
+    let start = Timestamp::from_epoch_seconds(
+        (Timestamp::now() - Elapsed::days(1)).epoch_seconds() / 60 * 60,
+    )
+    .unwrap();
     let relay_copy = ActivityBuilder::new(
         "n-shared",
         "Relay Long Ride",
@@ -499,7 +506,7 @@ async fn seed_home(resources: &Arc<ServerContext>, athlete: &Rider) {
         "n-only",
         "Relay Recovery Spin",
         SportType::Ride,
-        start - Duration::days(1),
+        start - Elapsed::days(1),
         2_400,
         RELAY,
     )
@@ -775,6 +782,8 @@ async fn derived_training_status_leaves_the_relay_out_of_an_api_key_answer() {
                 d_prime_meters: None,
                 threshold_provenance: ThresholdProvenance::default(),
                 threshold_stated_on: ThresholdStatedOn::default(),
+                vo2_max_method: None,
+                vdot: None,
                 anchor_provenance: AnchorProvenance::default(),
                 transport_policy: TransportPolicy::AnyTransport,
                 sex: None,
@@ -790,7 +799,7 @@ async fn derived_training_status_leaves_the_relay_out_of_an_api_key_answer() {
                 format!("n-day-{day}"),
                 format!("Relay Day {day}"),
                 SportType::Ride,
-                Utc::now() - Duration::days(day),
+                Timestamp::now() - Elapsed::days(day),
                 3_600,
                 RELAY,
             )
@@ -930,6 +939,7 @@ async fn write_row(
             channel_type: None,
             about_user_id: None,
             turn_attempted_write: None,
+            ai_consent_sources: &[],
         })
         .await
         .unwrap();
@@ -960,6 +970,7 @@ pub(crate) async fn write_fact(
             valid_until: None,
             source_msg_id: None,
             transport_policy,
+            ai_consent_sources: &[],
         })
         .await
         .unwrap();
@@ -1093,10 +1104,56 @@ async fn a_stamped_message_is_withheld_and_an_unstamped_one_served_over_an_api_k
     );
 }
 
+/// The athlete's memory over REST is the agent's memory like the tool's: an
+/// API key reads it only once the athlete gives `sensitive_t3`, and their own
+/// session reads it either way (JF 2026-11-20, carnet#1544).
+#[tokio::test]
+async fn an_api_key_reads_the_memory_facts_only_under_sensitive_t3() {
+    let resources = server_with_relay().await;
+    let rider = athlete_with_relay(&resources).await;
+    let app = ProviderToolRouter::build_http_app(&resources);
+    let session = format!(
+        "Bearer {}",
+        common::generate_test_token(&resources, &rider.user).await
+    );
+    let key = api_key(&resources, rider.user_id).await;
+    write_fact(
+        &resources,
+        &rider,
+        "morning runs",
+        TransportPolicy::AnyTransport,
+    )
+    .await;
+
+    let (status, refused) = get(&app, "/api/memory/facts", &key).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{refused}");
+    assert!(!refused.to_string().contains("morning runs"), "{refused}");
+    assert!(refused.to_string().contains("Privacy & Data"), "{refused}");
+    let (status, own) = get(&app, "/api/memory/facts", &session).await;
+    assert_eq!(status, StatusCode::OK, "{own}");
+    assert!(own.to_string().contains("morning runs"), "{own}");
+
+    allow_outside_memory(
+        resources.agent.database.repositories(),
+        rider.tenant.as_uuid(),
+        rider.user_id,
+    )
+    .await;
+    let (status, given) = get(&app, "/api/memory/facts", &key).await;
+    assert_eq!(status, StatusCode::OK, "{given}");
+    assert!(given.to_string().contains("morning runs"), "{given}");
+}
+
 #[tokio::test]
 async fn facts_and_the_plan_derived_from_the_relay_are_withheld_and_the_rest_served() {
     let resources = server_with_relay().await;
     let rider = athlete_with_relay(&resources).await;
+    allow_outside_memory(
+        resources.agent.database.repositories(),
+        rider.tenant.as_uuid(),
+        rider.user_id,
+    )
+    .await;
     let app = ProviderToolRouter::build_http_app(&resources);
     let session = format!(
         "Bearer {}",
@@ -1145,9 +1202,8 @@ async fn facts_and_the_plan_derived_from_the_relay_are_withheld_and_the_rest_ser
 
     let goal = GoalRace {
         name: "Relay Gran Fondo".to_owned(),
-        date: (Utc::now() + Duration::days(90))
-            .date_naive()
-            .format("%Y-%m-%d")
+        date: (Timestamp::now() + Elapsed::days(90))
+            .utc_date()
             .to_string(),
         discipline: "road".to_owned(),
         priority: RacePriority::A,
@@ -1201,6 +1257,12 @@ async fn facts_and_the_plan_derived_from_the_relay_are_withheld_and_the_rest_ser
 async fn a_turn_that_served_the_relay_stamps_what_its_tools_write() {
     let resources = server_with_relay().await;
     let rider = athlete_with_relay(&resources).await;
+    allow_outside_memory(
+        resources.agent.database.repositories(),
+        rider.tenant.as_uuid(),
+        rider.user_id,
+    )
+    .await;
     let remember = |object: &str| {
         serde_json::json!({
             "kind": "preference",
@@ -1211,9 +1273,10 @@ async fn a_turn_that_served_the_relay_stamps_what_its_tools_write() {
     };
 
     // The Copilot loop calls from another task: the turn's accumulator rides
-    // the surface there. A first-party turn that read the relay stamps the
-    // fact it then writes. `remember_fact` is refused over the key, so a turn
-    // there writes nothing at all.
+    // the surface there. A first-party turn that read the relay is stamped
+    // first-party. The relay's sessions were recorded by Garmin, and a turn
+    // carrying Garmin data files no memory (JF 2026-11-23, carnet#1158):
+    // `remember_fact` refuses there, as it is refused over the key.
     let object = "long climbs after the relay rides";
     let provenance = ai_scope::Provenance::new();
     let surface = ai_scope::serve_over(
@@ -1233,23 +1296,19 @@ async fn a_turn_that_served_the_relay_stamps_what_its_tools_write() {
     .unwrap();
     assert_eq!(provenance.policy(), TransportPolicy::FirstPartyOnly);
 
-    // Called outside a conversation, remember_fact writes a draft; the stamp is
-    // on it either way, and keeping it keeps the stamp.
     let memory = &resources.common.repos.memory;
     let user = rider.user_id.to_string();
     let drafts = memory
         .list_draft_user_facts(rider.tenant, &user, 50, TransportPolicy::FirstPartyOnly)
         .await
         .unwrap();
-    let fact = drafts
-        .iter()
-        .find(|f| f.object == object)
-        .expect("the tool wrote the fact");
-    assert_eq!(fact.transport_policy, TransportPolicy::FirstPartyOnly);
-    memory
-        .approve_user_fact(&fact.id, rider.tenant, &user)
-        .await
-        .unwrap();
+    assert!(
+        drafts.iter().all(|f| f.object != object),
+        "bug: a turn carrying Garmin data filed a memory: {drafts:?}"
+    );
+    // A first-party fact the athlete's own surfaces wrote, for the key's
+    // read-back below.
+    write_fact(&resources, &rider, object, TransportPolicy::FirstPartyOnly).await;
 
     let provenance = ai_scope::Provenance::new();
     let surface = ai_scope::serve_over(
@@ -1362,6 +1421,12 @@ async fn a_thread_opened_from_a_relay_activity_is_withheld_whole_over_an_api_key
 async fn stamped_rows_filling_the_first_page_still_leave_an_external_page_full() {
     let resources = server_with_relay().await;
     let rider = athlete_with_relay(&resources).await;
+    allow_outside_memory(
+        resources.agent.database.repositories(),
+        rider.tenant.as_uuid(),
+        rider.user_id,
+    )
+    .await;
     let app = ProviderToolRouter::build_http_app(&resources);
     let session = format!(
         "Bearer {}",
@@ -1488,7 +1553,7 @@ async fn a_room_entry_copied_from_a_stamped_reply_keeps_its_place_withheld_over_
         )
         .await
         .unwrap();
-    let now = Utc::now();
+    let now = Timestamp::now();
     let group_id = Uuid::new_v4();
     repos
         .groups
@@ -1509,6 +1574,7 @@ async fn a_room_entry_copied_from_a_stamped_reply_keeps_its_place_withheld_over_
                 is_active: true,
                 channel_type: None,
                 channel_chat_id: None,
+                chat_connection: None,
                 created_at: now,
                 updated_at: now,
             },
@@ -1976,9 +2042,17 @@ async fn an_external_callers_unread_count_leaves_out_first_party_only_rows() {
 async fn an_athlete_without_a_first_party_only_connection_keeps_api_key_access() {
     let resources = server_with_relay().await;
     let email = format!("open-{}@example.com", Uuid::new_v4());
-    let (user_id, _, _) = create_test_user_with_plan(&resources.agent.database, &email, "starter")
-        .await
-        .unwrap();
+    let (user_id, _, tenant) =
+        create_test_user_with_plan(&resources.agent.database, &email, "starter")
+            .await
+            .unwrap();
+    // Memory over a key also needs the athlete's sensitive_t3 (carnet#1544).
+    allow_outside_memory(
+        resources.agent.database.repositories(),
+        tenant.as_uuid(),
+        user_id,
+    )
+    .await;
     let app = ProviderToolRouter::build_http_app(&resources);
     let key = api_key(&resources, user_id).await;
 
@@ -2005,7 +2079,7 @@ mod scraped {
                 id,
                 name,
                 SportType::Run,
-                Utc::now() - Duration::days(days_ago),
+                Timestamp::now() - Elapsed::days(days_ago),
                 2_700,
                 SCIOTTE,
             )
@@ -2126,10 +2200,14 @@ mod scraped {
             SCIOTTE.to_owned(),
             "scraper-session".to_owned(),
             None,
-            Some(Utc::now() + Duration::hours(6)),
+            Some(Timestamp::now() + Elapsed::hours(6)),
             None,
         );
         repos.oauth_tokens.upsert_token(&token).await.unwrap();
+        // The scraped Garmin session reaches a model only under the athlete's
+        // Garmin AI consent (carnet#1157): given, so what MCP and A2A miss
+        // below is the transport's doing alone.
+        give_garmin_ai_consent(&resources.common.repos, user_id, tenant).await;
 
         let call_scraped = |transport: Transport| {
             let resources = Arc::clone(&resources);

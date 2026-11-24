@@ -18,7 +18,7 @@ use axum::http::header::{COOKIE, RETRY_AFTER, SET_COOKIE};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::Response;
 use axum::{Form, Json};
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_contremaitre::cageux_config::CageuxConfigRegistry;
 use pierre_contremaitre::harness_config_registry::HarnessConfigRegistry;
 use pierre_contremaitre::persona_contracts::PersonaContractRegistry;
@@ -86,7 +86,7 @@ async fn make_user(context: &AdminApiContext, email: &str, role: UserRole) -> Uu
 }
 
 async fn create_pending(context: &AdminApiContext) {
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     let record = DeviceAuthorization {
         device_code_hash: hex::encode(Sha256::digest(DEVICE_CODE.as_bytes())),
         user_code: USER_CODE.to_owned(),
@@ -157,7 +157,7 @@ async fn page_renders_signin_and_approve_form() {
     assert!(html.contains("name=\"email\""), "email field present");
     assert!(html.contains("value=\"approve\""), "approve button present");
     assert!(html.contains(USER_CODE), "user_code shown");
-    // The operator's page draws with the shared Boreal sheet like every other
+    // The admin's page draws with the shared Boreal sheet like every other
     // hosted page, not a private dark palette with a stock blue button.
     assert!(
         html.contains(&format!(r#"<div class="user-code">{USER_CODE}</div>"#)),
@@ -173,7 +173,7 @@ async fn page_renders_signin_and_approve_form() {
 #[tokio::test]
 async fn admin_credentials_approve() {
     let context = build_context().await;
-    let operator = make_user(&context, "admin@dravr.ai", UserRole::Admin).await;
+    let admin = make_user(&context, "admin@dravr.ai", UserRole::Admin).await;
     create_pending(&context).await;
 
     let html = approve_web_html(
@@ -194,10 +194,10 @@ async fn admin_credentials_approve() {
     // The approval records who approved by user id, never by email.
     assert_eq!(
         record.approved_by.as_deref(),
-        Some(operator.to_string().as_str())
+        Some(admin.to_string().as_str())
     );
 
-    // The CLI's next poll mints a token that acts as that operator.
+    // The CLI's next poll mints a token that acts as that admin.
     let resp = handle_device_token(
         State(context.clone()),
         Json(json!({ "grant_type": DEVICE_GRANT, "device_code": DEVICE_CODE })),
@@ -219,10 +219,10 @@ async fn admin_credentials_approve() {
         .await
         .unwrap()
         .into_iter()
-        .filter(|token| token.operator_user_id == Some(operator))
+        .filter(|token| token.operator_user_id == Some(admin))
         .collect();
-    assert_eq!(minted.len(), 1, "one token acts as the approving operator");
-    assert_eq!(minted[0].service_name, format!("device-cli:{operator}"));
+    assert_eq!(minted.len(), 1, "one token acts as the approving admin");
+    assert_eq!(minted[0].service_name, format!("device-cli:{admin}"));
     assert!(minted[0].is_super_admin);
 }
 

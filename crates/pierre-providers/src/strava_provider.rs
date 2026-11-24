@@ -32,7 +32,7 @@ use crate::strava_types::{
 };
 use crate::utils;
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::PhysiologicalSex;
 use secrecy::{ExposeSecret, SecretString};
 use serde::Deserialize;
@@ -279,9 +279,8 @@ impl StravaProvider {
     /// # Errors
     /// Returns an error when `start_date` fails to parse as RFC 3339.
     fn strava_activity_builder(activity: StravaActivityResponse) -> AppResult<ActivityBuilder> {
-        let start_date = DateTime::parse_from_rfc3339(&activity.start_date)
-            .map_err(|e| AppError::internal(format!("Failed to parse activity start date: {e}")))?
-            .with_timezone(&Utc);
+        let start_date = Timestamp::parse_from_rfc3339(&activity.start_date)
+            .map_err(|e| AppError::internal(format!("Failed to parse activity start date: {e}")))?;
 
         let duration_seconds = activity.elapsed_time.map_or_else(
             || {
@@ -753,7 +752,9 @@ impl FitnessProvider for StravaProvider {
         // this, an active athlete's freshest activities fall off the
         // end of page 1 and never reach downstream consumers
         // (snapshot, recent-activity rendering, training-load calc).
-        let effective_before = params.before.or_else(|| Some(Utc::now().timestamp()));
+        let effective_before = params
+            .before
+            .or_else(|| Some(Timestamp::now().epoch_seconds()));
 
         info!(
             "Starting get_activities - requested_limit: {}, offset: {}, before: {:?} (effective: {:?}), after: {:?}",
@@ -814,13 +815,13 @@ impl FitnessProvider for StravaProvider {
                         let _ = write!(
                             endpoint,
                             "&after={}&before={}",
-                            timestamp.timestamp(),
-                            Utc::now().timestamp()
+                            timestamp.epoch_seconds(),
+                            Timestamp::now().epoch_seconds()
                         );
                     }
                     // Forward and any future variants default to "before" (most recent first)
                     _ => {
-                        let _ = write!(endpoint, "&before={}", timestamp.timestamp());
+                        let _ = write!(endpoint, "&before={}", timestamp.epoch_seconds());
                     }
                 }
                 info!("Cursor pagination: timestamp={}, id={}", timestamp, id);

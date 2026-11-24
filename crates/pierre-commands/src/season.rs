@@ -84,7 +84,7 @@ impl CommandHandler for SeasonHandler {
                 ctx.tenant_id,
                 ctx.user_id,
                 ai_scope::readable_policy(),
-                &ai_scope::admit_derived,
+                &ai_scope::admit_memory,
             )
             .await
         {

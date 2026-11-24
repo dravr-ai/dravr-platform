@@ -33,21 +33,22 @@ use secrecy::SecretString;
 use std::env;
 use std::sync::{Arc, Mutex};
 
-use chrono::{NaiveDate, TimeZone, Utc};
 use dravr_sciotte::models::AuthSession;
 use dravr_sciotte::wire::{ATHLETE_NOT_ACCESSIBLE, ATHLETE_REQUIRED};
+use dravr_tronc::dates::{CivilDate, Timestamp};
 use pierre_providers::backend_resolver;
 use pierre_providers::core::{
     CredentialKind, FitnessProvider, OAuth2Credentials, ProviderConfig, ProviderFactory,
 };
 use pierre_providers::delegation::{coach_credential_expired, is_coach_credential_expired};
 use pierre_providers::errors::{AppError, ErrorCode};
-use pierre_providers::registry::{global_registry, ProviderRegistry};
+use pierre_providers::registry::ProviderRegistry;
 use pierre_providers::sciotte_error::sciotte_refusal;
 use pierre_providers::sciotte_provider::{
     startup_reads, SciotteGarminProviderFactory, SciotteProviderFactory,
     SciotteTrainingPeaksProviderFactory,
 };
+use pierre_test_support::providers::offline_provider_registry;
 use serde_json::{json, Value};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
@@ -259,15 +260,15 @@ fn spawn_scraper_stub(listener: TcpListener, seen: Arc<Mutex<Vec<String>>>) {
     });
 }
 
-fn day(y: i32, m: u32, d: u32) -> NaiveDate {
-    NaiveDate::from_ymd_opt(y, m, d).expect("valid date literal") // Safe: literal calendar date
+fn day(y: i32, m: u32, d: u32) -> CivilDate {
+    CivilDate::from_ymd(y, m, d).expect("valid date literal") // Safe: literal calendar date
 }
 
 fn credentials(session_id: &str) -> OAuth2Credentials {
     let session = AuthSession {
         session_id: session_id.to_owned(),
         cookies: vec![],
-        created_at: Utc.with_ymd_and_hms(2026, 9, 23, 8, 0, 0).unwrap(), // Safe: literal instant
+        created_at: Timestamp::parse_from_rfc3339("2026-09-23T08:00:00Z").unwrap(), // Safe: literal instant
         expires_at: None,
     };
     OAuth2Credentials {
@@ -621,7 +622,7 @@ async fn a_delegated_read_names_its_athlete_and_reaches_no_other() {
 
     let client = startup_reads(&[String::from(&format!("http://{addr}"))], None)
         .expect("a loopback client needs no audience"); // Safe: loopback URL
-    let registry = ProviderRegistry::new().with_sciotte_reads(Some(client));
+    let registry = offline_provider_registry().with_sciotte_reads(Some(client));
     env::remove_var(ENRICH_DETAILS_ENV);
 
     every_read_names_the_athlete_under_the_coach_session(&registry, &seen).await;
@@ -637,12 +638,12 @@ async fn a_delegated_read_names_its_athlete_and_reaches_no_other() {
 async fn a_provider_with_no_coach_reads_refuses_to_read_for_a_coached_athlete() {
     for other in ["sciotte", "sciotte_garmin", "sciotte_coros", "strava"] {
         assert!(
-            global_registry()
+            offline_provider_registry()
                 .check_delegated_athlete(other, "900001")
                 .is_err(),
             "{other}"
         );
-        let Err(error) = global_registry()
+        let Err(error) = offline_provider_registry()
             .create_delegated_provider(other, "900001", credentials(COACH_SESSION))
             .await
         else {

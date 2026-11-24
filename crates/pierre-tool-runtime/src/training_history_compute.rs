@@ -34,8 +34,8 @@
 use std::future::{ready, Ready};
 use std::sync::Arc;
 
-use chrono::{Duration, NaiveDate, Utc};
 use dravr_cageux::config::intelligence::IntelligenceConfig;
+use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp};
 use serde::Serialize;
 use tracing::{info, warn};
 use uuid::Uuid;
@@ -100,12 +100,12 @@ fn history_handles<'a>(
 #[derive(Debug, Clone)]
 pub struct TrainingHistoryComputed {
     /// First day the caller asked for.
-    pub requested_from: NaiveDate,
+    pub requested_from: CivilDate,
     /// First day actually computed. Equals `requested_from` when the
     /// coverage is complete.
-    pub from: NaiveDate,
+    pub from: CivilDate,
     /// Last day of the window, inclusive.
-    pub to: NaiveDate,
+    pub to: CivilDate,
     /// Daily rows written.
     pub rows_upserted: usize,
     /// How much of the ask the stored history supported, and the history
@@ -145,10 +145,10 @@ impl TrainingHistoryComputed {
 pub async fn default_window(
     resources: &Arc<dyn ToolRuntime>,
     user_id: Uuid,
-) -> AppResult<(NaiveDate, NaiveDate)> {
+) -> AppResult<(CivilDate, CivilDate)> {
     let zone = resolve_zone(user_timezone(resources.repos(), user_id).await?.as_deref());
-    let to = clock_date(Utc::now(), zone);
-    Ok((to - Duration::days(DEFAULT_BACKFILL_DAYS), to))
+    let to = clock_date(Timestamp::now(), &zone);
+    Ok((to - Elapsed::days(DEFAULT_BACKFILL_DAYS), to))
 }
 
 /// Compute and persist daily training-history rows for `[from, to]` from the
@@ -166,8 +166,8 @@ pub async fn compute_and_persist_history(
     resources: &Arc<dyn ToolRuntime>,
     tenant_id: TenantId,
     user_id: Uuid,
-    from: NaiveDate,
-    to: NaiveDate,
+    from: CivilDate,
+    to: CivilDate,
 ) -> AppResult<TrainingHistoryComputed> {
     // The rollup is the athlete's, read by their own surfaces: it is computed
     // from every stored row even when a tool triggers it (carnet#723). What a
@@ -193,8 +193,8 @@ pub(crate) async fn compute_history_after_capture(
     resources: &Arc<dyn ToolRuntime>,
     tenant_id: TenantId,
     user_id: Uuid,
-    from: NaiveDate,
-    to: NaiveDate,
+    from: CivilDate,
+    to: CivilDate,
 ) -> AppResult<TrainingHistoryComputed> {
     ai_scope::unfiltered(compute_and_persist_unfiltered(
         resources,
@@ -210,7 +210,7 @@ async fn compute_and_persist_unfiltered(
     resources: &Arc<dyn ToolRuntime>,
     tenant_id: TenantId,
     user_id: Uuid,
-    (from, to): (NaiveDate, NaiveDate),
+    (from, to): (CivilDate, CivilDate),
     ask: DepthAsk,
 ) -> AppResult<TrainingHistoryComputed> {
     validate_window(from, to)?;
@@ -250,7 +250,7 @@ async fn compute_and_persist_unfiltered(
     // `trustworthy_from` can sit far past `to` on a shallow cache, and a delete
     // reaching that far would take days no caller named — days an earlier run
     // with a wider read window legitimately vouched for.
-    let clear_end = trustworthy_from.min(to + Duration::days(1));
+    let clear_end = trustworthy_from.min(to + Elapsed::days(1));
     let rows_cleared = if complete {
         0
     } else {
@@ -326,8 +326,8 @@ pub async fn read_history_from_cache(
     resources: &Arc<dyn ToolRuntime>,
     tenant_id: TenantId,
     user_id: Uuid,
-    from: NaiveDate,
-    to: NaiveDate,
+    from: CivilDate,
+    to: CivilDate,
 ) -> AppResult<TrainingHistoryRead> {
     let config = resources.cageux_config();
     history_read::read_history_from_cache(
@@ -358,7 +358,7 @@ async fn empty_cache_outcome(
     tenant_id: TenantId,
     user_id: Uuid,
     backends: &[ComputeBackend],
-    (from, to): (NaiveDate, NaiveDate),
+    (from, to): (CivilDate, CivilDate),
     ask: DepthAsk,
 ) -> AppResult<TrainingHistoryComputed> {
     // Nothing stored AND every session has lapsed: each capture would fail on
@@ -387,7 +387,7 @@ async fn empty_cache_outcome(
     // window goes — including rows an earlier path wrote from a provider fetch
     // this one no longer makes.
     let rows_cleared =
-        clear_unvouched_span(resources, tenant_id, user_id, from, to + Duration::days(1)).await?;
+        clear_unvouched_span(resources, tenant_id, user_id, from, to + Elapsed::days(1)).await?;
     info!(
         user_id = %user_id,
         providers = %provider_slugs(backends),
@@ -418,10 +418,10 @@ async fn clear_unvouched_span(
     resources: &Arc<dyn ToolRuntime>,
     tenant_id: TenantId,
     user_id: Uuid,
-    from: NaiveDate,
-    exclusive_end: NaiveDate,
+    from: CivilDate,
+    exclusive_end: CivilDate,
 ) -> AppResult<u64> {
-    let last = exclusive_end - Duration::days(1);
+    let last = exclusive_end - Elapsed::days(1);
     if last < from {
         return Ok(0);
     }
@@ -630,8 +630,8 @@ pub async fn fetch_history_rows(
     data: &DataContext,
     tenant_id: TenantId,
     user_id: Uuid,
-    from: NaiveDate,
-    to: NaiveDate,
+    from: CivilDate,
+    to: CivilDate,
 ) -> AppResult<Vec<DailyTrainingState>> {
     history_read::fetch_history_rows(data.repos(), tenant_id, user_id, from, to).await
 }
@@ -647,8 +647,8 @@ pub async fn history_rows_for_model(
     resources: &Arc<dyn ToolRuntime>,
     tenant_id: TenantId,
     user_id: Uuid,
-    from: NaiveDate,
-    to: NaiveDate,
+    from: CivilDate,
+    to: CivilDate,
 ) -> AppResult<Vec<DailyTrainingState>> {
     let config = resources.cageux_config();
     history_read::history_rows_for_model(
@@ -708,7 +708,7 @@ pub async fn try_recompute_stored_history(
         .get_training_history(
             tenant_id,
             user_id,
-            to - Duration::days(MAX_BACKFILL_DAYS),
+            to - Elapsed::days(MAX_BACKFILL_DAYS),
             to,
         )
         .await?;
@@ -736,8 +736,8 @@ pub async fn recompute_stored_history(
     match try_recompute_stored_history(resources, tenant_id, user_id).await {
         Ok(None) => HistoryRefresh::NothingStored,
         Ok(Some(computed)) => HistoryRefresh::Recomputed {
-            from: computed.from.format("%Y-%m-%d").to_string(),
-            to: computed.to.format("%Y-%m-%d").to_string(),
+            from: computed.from.to_string(),
+            to: computed.to.to_string(),
             rows_upserted: computed.rows_upserted,
         },
         Err(e) => {
@@ -779,7 +779,7 @@ pub async fn rewarm_default_window(
         .is_empty()
     {
         let rows_cleared =
-            clear_unvouched_span(resources, tenant_id, user_id, from, to + Duration::days(1))
+            clear_unvouched_span(resources, tenant_id, user_id, from, to + Elapsed::days(1))
                 .await?;
         return Ok(TrainingHistoryComputed {
             requested_from: from,

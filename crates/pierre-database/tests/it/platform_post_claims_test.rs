@@ -19,7 +19,7 @@
 
 use std::str::FromStr;
 
-use chrono::{DateTime, Duration, TimeZone, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::models::{PostPurpose, TenantId};
 use pierre_database::RepositoryRegistry;
 use pierre_test_support::db::{create_test_db, create_test_db_url};
@@ -268,8 +268,8 @@ async fn fresh_user(repos: &RepositoryRegistry) -> Uuid {
     repos.users.create(&user).await.unwrap()
 }
 
-fn noon() -> DateTime<Utc> {
-    Utc.with_ymd_and_hms(2026, 11, 18, 12, 0, 0).unwrap()
+fn noon() -> Timestamp {
+    Timestamp::parse_from_rfc3339("2026-11-18T12:00:00Z").unwrap()
 }
 
 const LANDED: &str = "activity_landed";
@@ -283,8 +283,8 @@ async fn each_subject_is_claimed_once_and_apart_from_the_others() {
     let claims = &repos.platform_post_claims;
     let user_id = fresh_user(repos).await;
     let tenant = TenantId::generate();
-    let lease = Duration::minutes(15);
-    let claim = |subject, at: DateTime<Utc>| {
+    let lease = Elapsed::minutes(15);
+    let claim = |subject, at: Timestamp| {
         claims.claim_platform_post_once(tenant, user_id, LANDED, subject, at - lease, at)
     };
 
@@ -293,13 +293,13 @@ async fn each_subject_is_claimed_once_and_apart_from_the_others() {
         .unwrap()
         .expect("bug: the morning ride's first claim must be taken");
     assert!(
-        claim(MORNING_RIDE, noon() + Duration::minutes(1))
+        claim(MORNING_RIDE, noon() + Elapsed::minutes(1))
             .await
             .unwrap()
             .is_none(),
         "bug: a second claim of the same ride must find it taken"
     );
-    let evening = claim(EVENING_RIDE, noon() + Duration::minutes(2))
+    let evening = claim(EVENING_RIDE, noon() + Elapsed::minutes(2))
         .await
         .unwrap()
         .expect("bug: another ride's claim must not be blocked by the first ride's row");
@@ -312,7 +312,7 @@ async fn each_subject_is_claimed_once_and_apart_from_the_others() {
                 LANDED,
                 MORNING_RIDE,
                 &morning,
-                noon() + Duration::minutes(3)
+                noon() + Elapsed::minutes(3)
             )
             .await
             .unwrap(),
@@ -326,7 +326,7 @@ async fn each_subject_is_claimed_once_and_apart_from_the_others() {
                 LANDED,
                 MORNING_RIDE,
                 &evening,
-                noon() + Duration::minutes(3)
+                noon() + Elapsed::minutes(3)
             )
             .await
             .unwrap(),
@@ -340,7 +340,7 @@ async fn each_subject_is_claimed_once_and_apart_from_the_others() {
                 LANDED,
                 EVENING_RIDE,
                 &evening,
-                noon() + Duration::hours(6)
+                noon() + Elapsed::hours(6)
             )
             .await
             .unwrap(),
@@ -351,11 +351,11 @@ async fn each_subject_is_claimed_once_and_apart_from_the_others() {
             .platform_post_posted_at(tenant, user_id, LANDED)
             .await
             .unwrap(),
-        Some(noon() + Duration::hours(6)),
+        Some(noon() + Elapsed::hours(6)),
         "bug: posted_at must answer the latest post across every subject"
     );
     assert!(
-        claim(MORNING_RIDE, noon() + Duration::days(2))
+        claim(MORNING_RIDE, noon() + Elapsed::days(2))
             .await
             .unwrap()
             .is_none(),
@@ -370,7 +370,7 @@ async fn the_day_claim_and_a_ride_claim_of_one_purpose_never_block_each_other() 
     let claims = &repos.platform_post_claims;
     let user_id = fresh_user(repos).await;
     let tenant = TenantId::generate();
-    let midnight = Utc.with_ymd_and_hms(2026, 11, 18, 0, 0, 0).unwrap();
+    let midnight = Timestamp::parse_from_rfc3339("2026-11-18T00:00:00Z").unwrap();
 
     let ride = claims
         .claim_platform_post_once(
@@ -378,7 +378,7 @@ async fn the_day_claim_and_a_ride_claim_of_one_purpose_never_block_each_other() 
             user_id,
             LANDED,
             MORNING_RIDE,
-            noon() - Duration::minutes(15),
+            noon() - Elapsed::minutes(15),
             noon(),
         )
         .await
@@ -392,7 +392,7 @@ async fn the_day_claim_and_a_ride_claim_of_one_purpose_never_block_each_other() 
             LANDED,
             PostPurpose::NO_SUBJECT,
             midnight,
-            noon() + Duration::minutes(1),
+            noon() + Elapsed::minutes(1),
         )
         .await
         .unwrap();
@@ -408,7 +408,7 @@ async fn the_day_claim_and_a_ride_claim_of_one_purpose_never_block_each_other() 
                 LANDED,
                 PostPurpose::NO_SUBJECT,
                 midnight,
-                noon() + Duration::minutes(2),
+                noon() + Elapsed::minutes(2),
             )
             .await
             .unwrap()
@@ -422,8 +422,8 @@ async fn the_day_claim_and_a_ride_claim_of_one_purpose_never_block_each_other() 
                 user_id,
                 LANDED,
                 EVENING_RIDE,
-                noon() - Duration::minutes(12),
-                noon() + Duration::minutes(3),
+                noon() - Elapsed::minutes(12),
+                noon() + Elapsed::minutes(3),
             )
             .await
             .unwrap()
@@ -445,7 +445,7 @@ async fn nothing_posted_reads_as_no_landing() {
             user_id,
             LANDED,
             MORNING_RIDE,
-            noon() - Duration::minutes(15),
+            noon() - Elapsed::minutes(15),
             noon(),
         )
         .await

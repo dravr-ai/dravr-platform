@@ -14,8 +14,8 @@ const PID_FILE = path.join(os.tmpdir(), 'pierre-test-server.pid');
 module.exports = async () => {
   // Remove any stale file-backed test DB (and its WAL/SHM sidecars) from a prior
   // run so each run starts hermetic — the catalog/admin state must not leak
-  // across runs. The DB is file-backed (not in-memory) so pierre-cli can promote
-  // the registered test user to a global admin in the same DB the server reads.
+  // across runs. The DB is file-backed (not in-memory) so pierre-cli can seed
+  // the test coach in the same DB the server reads.
   for (const suffix of ['', '-wal', '-shm', '-journal']) {
     try {
       fs.unlinkSync(TestConfig.testDatabaseFile + suffix);

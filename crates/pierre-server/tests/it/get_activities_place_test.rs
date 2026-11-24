@@ -25,7 +25,7 @@ use crate::coach_athlete_reads_test::{fixture, ok, run, Fixture, Person, ATHLETE
 use std::slice;
 use std::sync::Arc;
 
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::models::{Activity, CachedRowKey};
 use pierre_database::repositories::{AthletePlace, PlaceNameSource, PlaceRun};
 use pierre_fitness_compute::places::PLACES_VERSION;
@@ -42,7 +42,7 @@ pub(crate) const CITY_NAME: &str = "Montréal";
 /// A place of `person`'s, `name` from `source`, at no particular point (the
 /// test never reads one back).
 fn place(name: &str, source: PlaceNameSource) -> AthletePlace {
-    let now = Utc::now();
+    let now = Timestamp::now();
     AthletePlace {
         id: Uuid::new_v4().to_string(),
         centroid_lat: 45.5,
@@ -85,7 +85,7 @@ pub(crate) async fn city_places(
         rows_seen: 0,
         newest_synced_at: None,
         version: PLACES_VERSION,
-        computed_at: Utc::now(),
+        computed_at: Timestamp::now(),
         home_declared_at_seen: None,
         newest_track_at_seen: None,
     };
@@ -320,8 +320,8 @@ async fn a_row_past_the_detail_window_carries_its_place() {
     let f = fixture().await;
     let old = upload_run(&f, "athlete-run-old", 40).await;
     let named = athlete_place(&f, f.athlete, UPLOAD, old.id(), ATHLETE_NAME).await;
-    let after = (Utc::now() - Duration::days(60)).timestamp();
-    let before = (Utc::now() - Duration::days(30)).timestamp();
+    let after = (Timestamp::now() - Elapsed::days(60)).epoch_seconds();
+    let before = (Timestamp::now() - Elapsed::days(30)).epoch_seconds();
 
     let listed = ok(
         f.call(

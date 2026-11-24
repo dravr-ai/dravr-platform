@@ -8,6 +8,7 @@ use secrecy::{ExposeSecret, SecretString};
 use std::fmt::{self, Display};
 use std::time::Duration;
 
+use crate::sciotte_terms::require_provider_terms;
 use axum::extract::State;
 use axum::http::HeaderMap;
 use axum::response::{IntoResponse, Response};
@@ -19,7 +20,7 @@ use pierre_core::models::TenantId;
 use pierre_providers::backend_resolver;
 use pierre_providers::registry::global_registry;
 use pierre_providers::sciotte_provider::SciotteTarget;
-use pierre_services::provider_notice::require_notice_accepted;
+use pierre_services::provider_connected::{self, ConnectVia, ProviderConnected};
 use pierre_services::scrape_session::{persist_sciotte_session, StoredSession};
 use serde::{Deserialize, Serialize};
 use tracing::{error, info, warn};
@@ -52,7 +53,7 @@ use pierre_middleware::provider_link_token::CONNECT_PROVIDER;
 /// The parked remote-login state the platform remembers between the initial
 /// login call and its OTP/2FA continuations. The heavy state — parked browser +
 /// permit — lives on the scraper service; the platform keeps only this so a
-/// continuation can name the right server-side flow *and* alert operators with
+/// continuation can name the right server-side flow *and* alert admins with
 /// the right platform on a system failure.
 #[derive(Clone, Serialize, Deserialize)]
 pub(crate) struct RemoteFlowState {
@@ -66,7 +67,7 @@ pub(crate) struct RemoteFlowState {
     /// Backend provider name (`sciotte`, `sciotte_garmin`,
     /// `sciotte_trainingpeaks`, `sciotte_coros`) carried from the login
     /// request. A *system* failure on an OTP/2FA continuation needs it for the
-    /// operator alert + friendly copy, because the outcome only reports the
+    /// admin alert + friendly copy, because the outcome only reports the
     /// provider on success — never on the intermediate steps or on an `Err`.
     provider: String,
 }
@@ -275,7 +276,7 @@ fn login_flow_expired() -> AppError {
 ///
 /// The sign-in service scales to zero between sign-ins, so the instance that
 /// parked a browser can be gone by the time the athlete types the code
-/// (carnet#1504). That is a sign-in to start again, not an operator alert. A
+/// (carnet#1504). That is a sign-in to start again, not an admin alert. A
 /// shed keeps the flow for the retry its `Retry-After` invites; every other
 /// failure ends the attempt, and both login UIs send the athlete back to the
 /// credential screen, so the flow is forgotten and the next login does not
@@ -330,6 +331,11 @@ pub(crate) struct SciotteLoginRequest {
     /// the account has not already accepted the current notice.
     #[serde(default)]
     pub tos_consent: bool,
+    /// The consents the connect offers without requiring them that the
+    /// athlete ticked: Garmin's AI use and workout transfer (carnet#1157,
+    /// carnet#1390). See [`record_connect_consents`].
+    #[serde(default)]
+    pub consents: Vec<String>,
     /// The sign-in window's attempt id, which a cancel names
     /// (`POST /api/providers/sciotte/cancel`); see [`crate::sciotte_cancel`].
     #[serde(default)]
@@ -367,23 +373,29 @@ impl fmt::Debug for SciotteOtpRequest {
     }
 }
 
-/// notify: scrape session established. One helper for both session-write
-/// sites so the emit cannot drift between them. The event carries the
-/// user-facing provider name ("strava"/"garmin"/"trainingpeaks"/"coros") so
-/// the connect/disconnect pair is measured on the same axis as the OAuth
-/// surface (the disconnect chokepoint also emits user-facing names for mirror
-/// backends); `backend` distinguishes the scrape cohort. `user_id`/`tenant_id`
-/// ride inline because the `PostHog` sink drops events it cannot attribute.
-fn notify_sciotte_connected(user_id: Uuid, tenant_id: Uuid, backend: &str) {
-    info!(
-        target: "notify",
-        event = "provider.connected",
-        provider = %backend_resolver::user_facing_name(backend),
-        backend = %backend,
-        user_id = %user_id,
-        tenant_id = %tenant_id,
-        "user connected fitness provider (scrape session)"
-    );
+/// Announce an established scrape session
+/// ([`provider_connected::announce`]): the `provider.connected` event under
+/// the user-facing provider name
+/// ("strava"/"garmin"/"trainingpeaks"/"coros"), so the connect/disconnect
+/// pair is measured on the same axis as the OAuth surface, with `backend`
+/// naming the scrape cohort; and the connect entry in the athlete's log.
+/// Only an athlete's own sign-in announces: an admin's session clone does not.
+async fn notify_sciotte_connected(
+    resources: &AuthRoutesContext,
+    user_id: Uuid,
+    tenant_id: Uuid,
+    backend: &str,
+) {
+    provider_connected::announce(
+        resources.data.connect_log(),
+        ProviderConnected {
+            user_id,
+            tenant_id: TenantId::from_uuid(tenant_id),
+            backend,
+            via: ConnectVia::Scrape,
+        },
+    )
+    .await;
 }
 
 /// Store a successful sciotte session in Pierre's encrypted DB and register the connection.
@@ -408,7 +420,7 @@ pub(crate) async fn store_sciotte_session(
     )
     .await?;
 
-    notify_sciotte_connected(user_id, tenant_id, provider_name);
+    notify_sciotte_connected(resources, user_id, tenant_id, provider_name).await;
     replace_dead_grant(
         resources,
         user_id,
@@ -703,7 +715,7 @@ async fn drop_signed_in_copy(remote: &SciotteClient, session_id: &str, user_id: 
 ///
 /// Splits the failure between two audiences so neither is served the wrong
 /// thing:
-/// * **Operators** — the full technical reason is logged at `error!`, which
+/// * **Admins** — the full technical reason is logged at `error!`, which
 ///   `dravr-tronc` forwards to the `#dev-dravr-errors` Slack channel next to
 ///   the other server-fault alerts (a browser-launch failure blocks *every*
 ///   credential login on the revision, so it belongs there, not the
@@ -784,7 +796,7 @@ pub fn friendly_login_challenge_message(provider: &str) -> String {
 /// `details.reason` for the login UIs to select on.
 ///
 /// A `4xx` on purpose: `response_failure_log_middleware` records a `5xx` that
-/// carries no `Retry-After` at `ERROR`, which pages operators, and the service
+/// carries no `Retry-After` at `ERROR`, which pages admins, and the service
 /// names no wait for a challenge.
 fn login_challenge_refusal(provider: &str) -> AppError {
     let mut refusal = AppError::invalid_input(friendly_login_challenge_message(provider));
@@ -796,7 +808,7 @@ fn login_challenge_refusal(provider: &str) -> AppError {
 
 /// Turn an `Err` from the dedicated scraper service into what the athlete gets
 /// back: a retryable shed response, the cancel or challenge refusal, or the
-/// operator-alerting system failure.
+/// admin-alerting system failure.
 ///
 /// A load-shed is the service's designed answer to a saturated Chrome budget
 /// (`503` + `Retry-After`), so it is deliberately routed *around*
@@ -804,16 +816,16 @@ fn login_challenge_refusal(provider: &str) -> AppError {
 /// `dravr-tronc` forwards to the `#dev-dravr-errors` Slack channel — plus a
 /// `sync.failed` business event, and both would fire once per shed request at
 /// exactly the moment the service is busiest, turning healthy backpressure into
-/// an operator page storm.
+/// an admin page storm.
 ///
-/// A sign-in the provider stopped at a challenge (a captcha) goes around it
-/// too: it is the provider's bot check, which no operator can answer, and the
-/// athlete is told so in [`friendly_login_challenge_message`]'s words. Unlike
+/// A sign-in the provider stopped at a human check raises no such alert
+/// either: only the athlete can answer it, and the athlete is told so in
+/// [`friendly_login_challenge_message`]'s words. Unlike
 /// a shed it ends the attempt — the service stopped the login — so it is an
 /// `Err`, which the continuation handlers answer by dropping the flow.
 ///
 /// A step its own caller cancelled (the sign-in window closed and asked the
-/// service to stop it) goes around it as well: it is a quiet `409`
+/// service to stop it) raises none as well: it is a quiet `409`
 /// ([`login_cancelled_refusal`]), since nobody waits on the answer. It is an
 /// `Err` too, so the continuation handlers drop the flow it ended.
 ///
@@ -885,37 +897,6 @@ fn shed_response(provider: &str, retry_after_secs: u64) -> Response {
     shed.with_retry_after(retry_after_secs).into_response()
 }
 
-/// Refuse a login to a backend whose exposure notice is in force for this
-/// account until it has accepted the current version, recording the
-/// acceptance this attempt carries. A backend with no notice, or an account
-/// the `provider_exposure_notice` flag leaves off, passes.
-///
-/// TrainingPeaks and COROS offer no API Pierre can use, so the scraper reads
-/// through the user's own signed-in session — access their terms prohibit for
-/// third parties, putting the account at risk. Every connect surface (web,
-/// mobile, the hosted page, the channel picker) states this before the
-/// credentials field; this is where that statement becomes a precondition
-/// rather than copy, so no surface can skip it. An account that already
-/// accepted this notice version is not asked again, including on a reconnect
-/// after a disconnect.
-pub(crate) async fn require_provider_terms(
-    resources: &AuthRoutesContext,
-    user_id: Uuid,
-    tenant_id: Uuid,
-    target: SciotteTarget,
-    accepted_now: bool,
-) -> Result<(), AppError> {
-    require_notice_accepted(
-        &resources.repos,
-        tenant_id,
-        user_id,
-        target.provider_name(),
-        target.brand(),
-        accepted_now,
-    )
-    .await
-}
-
 /// Credential-based login via the dedicated dravr-sciotte scraper service (ADR-021)
 pub(crate) async fn handle_sciotte_login(
     State(resources): State<AuthRoutesContext>,
@@ -955,6 +936,7 @@ pub(crate) async fn handle_sciotte_login(
         tenant_id,
         SciotteTarget::from_target_param(target),
         request.tos_consent,
+        &request.consents,
     )
     .await?;
     let backend = SciotteTarget::from_target_param(target).provider_name();
@@ -971,9 +953,9 @@ pub(crate) async fn handle_sciotte_login(
     // login; anything older is replaced by signing in with these credentials.
     // One the platform has observed dead (its expiry is past, or a refused
     // read flagged this caller's connection to the provider `needs_reauth` or
-    // `revoked`) seeds the login browser with its cookies so the provider
-    // sees the device it trusted last time; one not observed dead is never
-    // sent, since its live cookies could sign in to the account a coach is
+    // `revoked`) seeds the login browser with its cookies so the sign-in
+    // continues from the athlete's own earlier session on that device; one
+    // not observed dead is never sent, since its live cookies could sign in to the account a coach is
     // switching away from. The lookups are by this caller's (user, tenant,
     // provider), so no other athlete's session or connection can seed it.
     let prior_session = match stored_session_use(&resources, user_id, tenant_id, provider).await? {
@@ -991,7 +973,7 @@ pub(crate) async fn handle_sciotte_login(
     // session-of-record (it exports + persists the session, keyed by flow_id).
     // A transport/service fault (not a credential rejection, which comes back
     // as `Failed`, nor a load-shed, which comes back as retryable backpressure)
-    // is a *system* failure: alert operators + emit `sync.failed`.
+    // is a *system* failure: alert admins + emit `sync.failed`.
     let remote = resources.provider_registry.require_sciotte_login_client()?;
     info!(
         user_id = %user_id,

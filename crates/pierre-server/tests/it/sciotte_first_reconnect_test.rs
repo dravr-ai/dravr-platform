@@ -41,7 +41,8 @@ use crate::reconnect_prompt_on_served_turn_test::{
 
 use std::sync::Arc;
 
-use chrono::Utc;
+use dravr_tronc::dates::Elapsed;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::models::{ActivityBuilder, ConnectionStatus, SportType, TenantId};
 use pierre_core::permissions::scopes::OAuthScope;
@@ -74,7 +75,7 @@ async fn kill_grant(resources: &Arc<ServerContext>, user_id: Uuid, tenant: Tenan
             tenant,
             oauth_providers::GARMIN,
             Some("refresh_refused"),
-            Utc::now(),
+            Timestamp::now(),
         )
         .await
         .unwrap();
@@ -265,7 +266,7 @@ async fn a_sign_in_over_a_dead_grant_deletes_its_rows_and_keeps_its_data() {
         "garmin-pushed-ride".to_owned(),
         "Pushed ride".to_owned(),
         SportType::Ride,
-        Utc::now() - chrono::Duration::days(3),
+        Timestamp::now() - Elapsed::days(3),
         3600,
         "garmin".to_owned(),
     )
@@ -775,9 +776,7 @@ async fn an_unnamed_prescription_for_a_dead_garmin_grant_gets_its_authorization_
 
     let runtime: Arc<dyn ToolRuntime> = resources.clone();
     let executor = UniversalToolExecutor::new(runtime).with_scopes(OAuthScope::self_grant());
-    let date = (Utc::now() + chrono::Duration::days(3))
-        .date_naive()
-        .to_string();
+    let date = (Timestamp::now() + Elapsed::days(3)).utc_date().to_string();
     let response = executor
         .execute_tool(UniversalRequest {
             tool_name: "prescribe_workout".to_owned(),
@@ -817,9 +816,7 @@ async fn an_unnamed_prescription_for_a_dead_garmin_grant_alone_is_refused() {
 
     let runtime: Arc<dyn ToolRuntime> = resources.clone();
     let executor = UniversalToolExecutor::new(runtime).with_scopes(OAuthScope::self_grant());
-    let date = (Utc::now() + chrono::Duration::days(3))
-        .date_naive()
-        .to_string();
+    let date = (Timestamp::now() + Elapsed::days(3)).utc_date().to_string();
     let response = executor
         .execute_tool(UniversalRequest {
             tool_name: "prescribe_workout".to_owned(),

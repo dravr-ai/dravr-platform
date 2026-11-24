@@ -15,8 +15,6 @@ use serde_json::json;
 use std::str::FromStr;
 use tracing::{error, field, field::Empty, info, warn, Span};
 
-use pierre_routes_admin::auth::service::AdminAuthService;
-
 use crate::email_verification::issue_verification_email;
 use crate::password_attempts::meter_password_attempt;
 use crate::registration_sign_in::{registration_sign_in_code, PublicRegisterResponse};
@@ -28,19 +26,18 @@ use crate::AuthRoutesContext;
 use pierre_auth::password::verify_password;
 use pierre_auth::security::cookies::{clear_auth_cookie, set_auth_cookie, set_csrf_cookie};
 use pierre_config::constants::error_messages;
-use pierre_core::auth_header::extract_bearer_token_owned;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::{CoachingPersona, ColorScheme, TenantId, UserStatus, SUPPORTED_LOCALES};
 use pierre_middleware::PeerAddress;
 
 use pierre_auth::dto::auth::{
     AnalyticsConsentRequest, ChangePasswordRequest, CompleteResetRequest, FirebaseLoginRequest,
-    ForgotPasswordRequest, ForgotPasswordResponse, LogoutRequest, RegisterRequest,
-    RegisterResponse, SessionResponse, UpdateCoachingPersonaRequest, UpdateCoachingRoleRequest,
-    UpdateLocaleRequest, UpdateProfileRequest, UpdateProfileResponse, UpdateThemeRequest, UserInfo,
-    UserStatsResponse,
+    ForgotPasswordRequest, ForgotPasswordResponse, LogoutRequest, RegisterResponse,
+    SessionResponse, UpdateCoachingPersonaRequest, UpdateCoachingRoleRequest, UpdateLocaleRequest,
+    UpdateProfileRequest, UpdateProfileResponse, UpdateThemeRequest, UserInfo, UserStatsResponse,
 };
 
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_email::ResendEmailService;
 use pierre_services::analytics::{analytics, cache_user_email, hash_id};
 use pierre_services::auth::AuthService;
@@ -58,84 +55,6 @@ pub(crate) fn record_new_account(response: &RegisterResponse) {
     let span = Span::current();
     span.record("user_id", field::display(&response.user_id));
     span.record("tenant_id", field::display(response.tenant_id));
-}
-
-/// Handle user registration (admin-authenticated)
-///
-/// REQUIRES: Admin authentication (Bearer token in Authorization header)
-///
-/// Security: Only administrators can create new users to prevent
-/// unauthorized user creation, database pollution, and `DoS` attacks.
-#[tracing::instrument(
-    skip(resources, headers, request),
-    fields(route = "admin_register", user_id = Empty, tenant_id = Empty, source = Empty, success = Empty)
-)]
-pub(crate) async fn handle_register(
-    State(resources): State<AuthRoutesContext>,
-    headers: HeaderMap,
-    Json(request): Json<RegisterRequest>,
-) -> Result<Response, AppError> {
-    // Extract and validate admin token
-    let auth_header = headers
-        .get("authorization")
-        .and_then(|h| h.to_str().ok())
-        .ok_or_else(|| {
-            AppError::auth_invalid(
-                "Missing Authorization header for user registration - admin token required",
-            )
-        })?;
-
-    let token = extract_bearer_token_owned(auth_header)
-        .map_err(|_| AppError::auth_invalid("Invalid Authorization header format"))?;
-
-    // Validate admin token
-    let admin_auth_service = AdminAuthService::new(
-        resources.repos.admin.clone(),
-        resources.repos.users.clone(),
-        resources.jwks_manager.clone(),
-    );
-
-    // Authenticate admin (no specific permission check - any valid admin token can register users)
-    admin_auth_service
-        .authenticate(&token, None)
-        .await
-        .map_err(|e| {
-            if e.is_server_fault() {
-                error!(error = %e, "Admin token check could not complete for user registration");
-            } else {
-                warn!(error = %e, "Failed to authenticate admin token for user registration");
-            }
-            e.into_auth_refusal("Admin authentication failed")
-        })?;
-
-    info!("Admin-authenticated user registration attempt");
-
-    let auth_service = resources.account_service();
-
-    match auth_service.register(request.clone()).await {
-        Ok(response) => {
-            // notify: record the new user and their personal tenant on the current
-            // span so the NotifyLayer attributes the user.signed_up event to that
-            // tenant without re-passing them.
-            record_new_account(&response);
-            info!(
-                target: "notify",
-                event = "user.signed_up",
-                source = "admin",
-                "user account created"
-            );
-            send_post_registration_email(&resources, &request.email, &response, false).await;
-            Ok((StatusCode::CREATED, Json(response)).into_response())
-        }
-        Err(e) => {
-            if e.is_server_fault() {
-                error!("Registration failed: {}", e);
-            } else {
-                warn!("Registration refused: {}", e);
-            }
-            Err(e)
-        }
-    }
 }
 
 /// Fire-and-forget post-registration email dispatch
@@ -207,7 +126,7 @@ async fn send_registration_email(
 /// or sign-up is open to verified addresses and the confirmation link activates them.
 ///
 /// The sign-up guards apply first, cheapest first (carnet#1063): the client
-/// address's window, then the bot check, then the operator's bounds inside
+/// address's window, then the bot check, then the admin's bounds inside
 /// [`pierre_services::auth::AuthService::self_register`].
 #[tracing::instrument(
     skip(resources, headers, body),
@@ -444,7 +363,7 @@ pub(crate) async fn handle_logout(
         resources
             .repos
             .session_refresh_tokens
-            .revoke_token_family(presented.expose_secret(), chrono::Utc::now())
+            .revoke_token_family(presented.expose_secret(), Timestamp::now())
             .await?;
     }
 
@@ -733,7 +652,7 @@ pub(crate) async fn handle_change_password(
     resources
         .repos
         .session_refresh_tokens
-        .revoke_user_tokens(user_id, chrono::Utc::now())
+        .revoke_user_tokens(user_id, Timestamp::now())
         .await?;
 
     Span::current().record("success", true);
@@ -806,7 +725,7 @@ pub(crate) async fn handle_complete_reset(
     resources
         .repos
         .session_refresh_tokens
-        .revoke_user_tokens(user_id, chrono::Utc::now())
+        .revoke_user_tokens(user_id, Timestamp::now())
         .await?;
 
     info!(user_id = %user_id, "Password reset completed via one-time token");
@@ -856,7 +775,7 @@ pub(crate) async fn handle_forgot_password(
     };
 
     // Rate limit: max N codes per hour per user
-    let one_hour_ago = chrono::Utc::now() - chrono::Duration::hours(1);
+    let one_hour_ago = Timestamp::now() - Elapsed::hours(1);
     let recent_count = resources
         .repos
         .password_reset
@@ -950,7 +869,7 @@ pub(crate) async fn handle_user_stats(
     let user = resources.repos.users.get_global(user_id).await?;
     let days_active = match user {
         Some(u) => {
-            let now = chrono::Utc::now();
+            let now = Timestamp::now();
             let duration = now.signed_duration_since(u.created_at);
             duration.num_days().max(1)
         }

@@ -4,7 +4,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::CivilDate;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::TenantId;
 use serde::{Deserialize, Serialize};
 use tracing::warn;
@@ -64,16 +65,16 @@ pub struct Tenant {
     /// Whether tenant is active
     pub is_active: bool,
     /// When tenant was created
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
     /// When tenant was last updated
-    pub updated_at: DateTime<Utc>,
+    pub updated_at: Timestamp,
 }
 
 impl Tenant {
     /// Create a new tenant
     #[must_use]
     pub fn new(name: String, slug: String) -> Self {
-        let now = Utc::now();
+        let now = Timestamp::now();
         Self {
             id: TenantId::generate(),
             name,
@@ -99,7 +100,7 @@ pub struct TenantUser {
     /// User's role in this tenant
     pub role: TenantRole,
     /// When user joined tenant
-    pub joined_at: DateTime<Utc>,
+    pub joined_at: Timestamp,
 }
 
 impl TenantUser {
@@ -111,7 +112,7 @@ impl TenantUser {
             tenant_id,
             user_id,
             role,
-            joined_at: Utc::now(),
+            joined_at: Timestamp::now(),
         }
     }
 }
@@ -126,13 +127,13 @@ pub struct TenantProviderUsage {
     /// Provider name
     pub provider: String,
     /// Usage date
-    pub usage_date: chrono::NaiveDate,
+    pub usage_date: CivilDate,
     /// Number of successful requests
     pub request_count: u32,
     /// Number of failed requests
     pub error_count: u32,
     /// When record was created
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
     /// When record was last updated
-    pub updated_at: DateTime<Utc>,
+    pub updated_at: Timestamp,
 }

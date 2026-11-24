@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: The pill that names a state beside content — neutral, primary, success, warning, error, info — the web's `.badge` family on the phone
-// ABOUTME: One tone table, so a badge and the verdict chip take the same tint and bound ink instead of hand-writing them (DESIGN.md "Badges")
+// ABOUTME: One tone table, so a badge and the verdict chip take the same tint and bound ink instead of hand-writing them (DESIGN.md "Badges and chips")
 
 import React from 'react';
 import { Text, View } from 'react-native';

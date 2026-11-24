@@ -36,7 +36,7 @@ use super::client_registration::{
 };
 use super::models::{OAuth2Client, OAuth2Error};
 use async_trait::async_trait;
-use chrono::{DateTime, Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use dravr_tronc::http_client::guard::{
     url_digest, FetchLimits, FetchPolicy, GuardError, GuardedClient,
 };
@@ -300,7 +300,7 @@ struct MetadataDocument {
 pub fn client_from_document(
     url: &str,
     body: &[u8],
-    now: DateTime<Utc>,
+    now: Timestamp,
 ) -> Result<OAuth2Client, CimdError> {
     let document: MetadataDocument =
         serde_json::from_slice(body).map_err(|_| CimdError::NotADocument)?;
@@ -378,7 +378,7 @@ pub fn client_from_document(
         client_uri: document.client_uri,
         scope: Some(OAuthScope::render_granted(&scope)),
         created_at: now,
-        expires_at: Some(now + Duration::days(INACTIVITY_EXPIRY_DAYS)),
+        expires_at: Some(now + Elapsed::days(INACTIVITY_EXPIRY_DAYS)),
     })
 }
 
@@ -555,9 +555,10 @@ impl MetadataResolver {
         body: &[u8],
         digest: &str,
     ) -> Result<ResolvedClient, CimdError> {
-        let client = client_from_document(client_id, body, Utc::now()).inspect_err(|error| {
-            warn!(url_digest = %digest, error = %error, "client metadata document invalid");
-        })?;
+        let client =
+            client_from_document(client_id, body, Timestamp::now()).inspect_err(|error| {
+                warn!(url_digest = %digest, error = %error, "client metadata document invalid");
+            })?;
         let is_stored = self
             .oauth2
             .update_public_client_metadata(&client)
@@ -631,7 +632,7 @@ mod tests {
     }
 
     fn built(body: &[u8]) -> Result<OAuth2Client, CimdError> {
-        client_from_document(URL, body, Utc::now())
+        client_from_document(URL, body, Timestamp::now())
     }
 
     #[test]
@@ -644,7 +645,7 @@ mod tests {
         let ceiling = OAuthScope::parse_granted(client.scope.as_deref().unwrap());
         assert_eq!(ceiling, OAuthScope::delegable_grant());
         let expires = client.expires_at.unwrap() - client.created_at;
-        assert_eq!(expires, Duration::days(INACTIVITY_EXPIRY_DAYS));
+        assert_eq!(expires, Elapsed::days(INACTIVITY_EXPIRY_DAYS));
     }
 
     #[test]
@@ -713,7 +714,7 @@ mod tests {
         let url = "https://claude.ai/oauth/mcp-oauth-client-metadata";
         let body = br#"{"client_id":"https://claude.ai/oauth/mcp-oauth-client-metadata","client_name":"Claude","client_uri":"https://claude.ai","redirect_uris":["https://claude.ai/api/mcp/auth_callback"],"grant_types":["authorization_code","refresh_token","urn:ietf:params:oauth:grant-type:jwt-bearer"],"response_types":["code"],"token_endpoint_auth_method":"none"}"#;
 
-        let client = client_from_document(url, body, Utc::now()).expect("Claude's document");
+        let client = client_from_document(url, body, Timestamp::now()).expect("Claude's document");
 
         assert_eq!(client.grant_types, ["authorization_code", "refresh_token"]);
         assert_eq!(
@@ -729,7 +730,8 @@ mod tests {
             r#"{{"client_id":"{url}","redirect_uris":["https://client.example/cb"],"grant_types":["authorization_code","client_credentials","password"]}}"#
         );
 
-        let client = client_from_document(url, body.as_bytes(), Utc::now()).expect("document");
+        let client =
+            client_from_document(url, body.as_bytes(), Timestamp::now()).expect("document");
 
         assert_eq!(client.grant_types, ["authorization_code"]);
     }
@@ -743,7 +745,7 @@ mod tests {
             );
             assert!(
                 matches!(
-                    client_from_document(url, body.as_bytes(), Utc::now()),
+                    client_from_document(url, body.as_bytes(), Timestamp::now()),
                     Err(CimdError::Invalid(_))
                 ),
                 "{grants} must be refused"

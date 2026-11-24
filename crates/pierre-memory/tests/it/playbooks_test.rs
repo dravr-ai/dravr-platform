@@ -6,7 +6,7 @@
 
 #![allow(missing_docs)]
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::transport::TransportPolicy;
 use pierre_memory::playbooks::{
     AdviceStatus, Band, Intervention, InterventionKind, LabelSource, OutcomeLabel, OutcomeMetric,
@@ -111,7 +111,7 @@ fn outcome_metric_serde_roundtrip() {
 }
 
 fn sample_playbook() -> Playbook {
-    let now = Utc::now();
+    let now = Timestamp::now();
     Playbook {
         id: "p1".into(),
         tenant_id: "t1".into(),
@@ -138,12 +138,13 @@ fn sample_playbook() -> Playbook {
         created_at: now,
         updated_at: now,
         transport_policy: TransportPolicy::AnyTransport,
+        ai_consent_sources: Vec::new(),
     }
 }
 
 #[test]
 fn wilson_penalizes_small_samples() {
-    let now = Utc::now();
+    let now = Timestamp::now();
     let mut lucky = sample_playbook();
     lucky.record_outcome(OutcomeLabel::Success, now);
     // 1/1 success — high raw rate but low confidence.
@@ -168,7 +169,7 @@ fn wilson_penalizes_small_samples() {
 
 #[test]
 fn neutrals_do_not_move_confidence() {
-    let now = Utc::now();
+    let now = Timestamp::now();
     let mut pb = sample_playbook();
     pb.record_outcome(OutcomeLabel::Success, now);
     let after_success = pb.confidence;

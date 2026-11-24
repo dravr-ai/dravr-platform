@@ -18,31 +18,32 @@
 //! and [`A2AServer::start_task_subscription`], which return the initial task
 //! snapshot plus a live event receiver.
 
-use crate::agent_card::{AgentCard, AgentSkill};
 use crate::coaching::CoachingTurns;
 use crate::events::TASK_EVENTS;
 use crate::protocol_types::{
     error_info, A2ASpecError, Artifact, Message, Part, PartContent, SendMessageRequest,
     StreamResponse, Task, TaskState, WireTaskStatus,
 };
-use crate::{A2AErrorResponse, A2ARequest, A2AResponse};
-use chrono::SecondsFormat;
+use crate::{A2ARequest, A2AResponse, JSONRPC_VERSION};
+use dravr_tronc::dates::SecondsFormat;
+use dravr_tronc::error::{
+    INTERNAL_ERROR, INVALID_PARAMS, INVALID_REQUEST, METHOD_NOT_FOUND, SERVER_ERROR_START,
+};
 use pierre_core::models::a2a::user_task_key;
 pub use pierre_core::models::a2a::{A2ATask, TaskStatus};
-use pierre_core::models::TenantId;
+use pierre_core::permissions::impersonation::CallerCredential;
 use pierre_core::transport::Transport;
 use pierre_mcp_transport::tenant_isolation::{extract_tenant_context_internal, log_tenant_failure};
 use pierre_middleware::McpAuthMiddleware;
 use pierre_runtime_context::A2ACtx;
-use pierre_tool_runtime::coach_listing;
-use pierre_tool_runtime::deployment_tools;
-use pierre_tool_runtime::first_party_tools;
+use pierre_tool_runtime::context::SUPPORT_SESSION;
 use pierre_tool_runtime::protocol::trust_labels::{self, TRUST_LABELS_META_KEY};
 use pierre_tool_runtime::protocol::{
-    guardian_block_reason, record_refused_admin_call, RefusedAdminCall, UniversalRequest,
-    UniversalResponse, UniversalToolExecutor,
+    grant_block, guardian_block_reason, record_refused_admin_call, RefusedAdminCall,
+    UniversalRequest, UniversalResponse, UniversalToolExecutor,
 };
 use pierre_tool_runtime::runtime::ToolRuntime;
+use pierre_tool_runtime::support_session::{self, CALLER_CREDENTIAL};
 use std::fmt;
 // Trait methods dispatched through repos.a2a Arc<dyn Trait>;
 use serde_json::{from_value, json, to_value, Map, Value};
@@ -53,15 +54,20 @@ use tokio::sync::broadcast;
 use tracing::{error, info};
 use uuid::Uuid;
 
+/// `GetExtendedAgentCard`: the live registry's tools as skills, listed per caller
+mod extended_card;
 mod finalize;
 mod params;
 mod principal;
 mod push_config;
+/// An admin's support session through their agent, as A2A serves it (carnet#1511)
+mod support;
 mod tasks;
 mod text_turn;
 use principal::AuthPrincipal;
 use text_turn::AdmittedTextTurn;
 
+use dravr_tronc::dates::Timestamp;
 use params::SubscribeParams;
 
 /// Caller-facing explanation for a message that holds nothing to run: no text
@@ -154,10 +160,12 @@ enum SendOutcome {
     Failure(SendFailure),
 }
 
-/// The Guardian's `error_code` and `reason` when it denied the call, read only
-/// from a response the chokepoint itself stamped: a tool cannot put words here.
+/// The Guardian's `error_code` and `reason` when it denied the call, and the
+/// consent grant's (its ceiling, its daily row budget with `retry_after_secs`),
+/// read only from a response the chokepoint itself stamped: a tool cannot put
+/// words here.
 fn guardian_refusal_data(response: &UniversalResponse) -> Option<Value> {
-    (guardian_block_reason(response) == Some("guardian"))
+    (guardian_block_reason(response) == Some("guardian") || grant_block(response))
         .then(|| response.result.clone())
         .flatten()
 }
@@ -253,12 +261,12 @@ impl A2AServer {
             // SSE-only methods: the HTTP layer intercepts these before
             // non-streaming dispatch; a non-SSE caller lands here.
             "SendStreamingMessage" | "SubscribeToTask" => Self::a2a_error(
-                -32600,
+                INVALID_REQUEST,
                 "Streaming methods require the SSE transport",
                 request.id,
             ),
             _ => Self::a2a_error(
-                -32601,
+                METHOD_NOT_FOUND,
                 format!("Method not found: {}", request.method),
                 request.id,
             ),
@@ -289,23 +297,14 @@ impl A2AServer {
 
     /// Create a standard A2A JSON-RPC error response
     fn a2a_error(code: i32, message: impl Into<String>, request_id: Option<Value>) -> A2AResponse {
-        A2AResponse {
-            jsonrpc: "2.0".into(),
-            result: None,
-            error: Some(A2AErrorResponse {
-                code,
-                message: message.into(),
-                data: None,
-            }),
-            id: request_id,
-        }
+        A2AResponse::error(request_id, code, message)
     }
 
     /// Create an A2A-spec error response (`-32001..-32009`) with the
     /// mandatory `google.rpc.ErrorInfo` detail.
     fn spec_error(err: A2ASpecError, request_id: Option<Value>) -> A2AResponse {
         A2AResponse {
-            jsonrpc: "2.0".into(),
+            jsonrpc: JSONRPC_VERSION.to_owned(),
             result: None,
             error: Some(err.into()),
             id: request_id,
@@ -320,56 +319,42 @@ impl A2AServer {
         message: impl Into<String>,
         request_id: Option<Value>,
     ) -> A2AResponse {
-        A2AResponse {
-            jsonrpc: "2.0".into(),
-            result: None,
-            error: Some(A2AErrorResponse {
-                code: err.code(),
-                message: message.into(),
-                data: Some(error_info(err.reason())),
-            }),
-            id: request_id,
-        }
+        A2AResponse::error_with_data(request_id, err.code(), message, error_info(err.reason()))
     }
 
     /// Create an invalid-params (`-32602`) error response.
     fn invalid_params(message: impl Into<String>, request_id: Option<Value>) -> A2AResponse {
-        Self::a2a_error(-32602, message, request_id)
+        Self::a2a_error(INVALID_PARAMS, message, request_id)
     }
 
     /// Create an authentication-failure response. Carries the
     /// `AUTHENTICATION_REQUIRED` reason so HTTP bindings can map it to 401.
     fn auth_error(message: impl Into<String>, request_id: Option<Value>) -> A2AResponse {
-        A2AResponse {
-            jsonrpc: "2.0".into(),
-            result: None,
-            error: Some(A2AErrorResponse {
-                code: -32000,
-                message: message.into(),
-                data: Some(error_info("AUTHENTICATION_REQUIRED")),
-            }),
-            id: request_id,
-        }
+        A2AResponse::error_with_data(
+            request_id,
+            SERVER_ERROR_START,
+            message,
+            error_info("AUTHENTICATION_REQUIRED"),
+        )
     }
 
     /// Create a standard server-not-configured error response
     fn server_not_configured_error(request_id: Option<Value>) -> A2AResponse {
-        Self::a2a_error(-32000, "A2A server not properly configured", request_id)
+        Self::a2a_error(
+            SERVER_ERROR_START,
+            "A2A server not properly configured",
+            request_id,
+        )
     }
 
     /// Successful JSON-RPC response wrapper.
     fn ok(result: Value, request_id: Option<Value>) -> A2AResponse {
-        A2AResponse {
-            jsonrpc: "2.0".into(),
-            result: Some(result),
-            error: None,
-            id: request_id,
-        }
+        A2AResponse::success(request_id, result)
     }
 
     /// Current instant in the spec's ISO-8601 UTC millisecond format.
     pub(crate) fn now_timestamp() -> String {
-        chrono::Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true)
+        Timestamp::now().to_rfc3339_opts(SecondsFormat::Millis, true)
     }
 
     /// Assemble the wire `Task` from a database record, applying
@@ -430,7 +415,7 @@ impl A2AServer {
             Ok(value) => Self::ok(value, request_id),
             Err(e) => {
                 error!("Failed to serialize A2A task: {e}");
-                Self::a2a_error(-32603, "Failed to serialize task", request_id)
+                Self::a2a_error(INTERNAL_ERROR, "Failed to serialize task", request_id)
             }
         }
     }
@@ -443,63 +428,7 @@ impl A2AServer {
             Ok(value) => Self::ok(json!({ "task": value }), request_id),
             Err(e) => {
                 error!("Failed to serialize A2A task: {e}");
-                Self::a2a_error(-32603, "Failed to serialize task", request_id)
-            }
-        }
-    }
-
-    /// Handle `GetExtendedAgentCard`: the public card enriched with the
-    /// live tool registry exposed as additional skills. This is the
-    /// authenticated, dynamic variant of the discovery card (the public
-    /// card's skills are the curated static subset).
-    ///
-    /// Listed per caller: a tool only a group's human coach can use is a skill
-    /// for a coach alone (carnet#1426).
-    async fn handle_extended_card(
-        &self,
-        request: A2ARequest,
-        principal: AuthPrincipal,
-    ) -> A2AResponse {
-        let Some(resources) = &self.resources else {
-            return Self::server_not_configured_error(request.id);
-        };
-
-        let mut card = AgentCard::new(resources.ctx.oauth2_server_config());
-        let public_skill_ids: Vec<String> =
-            card.skills.iter().map(|skill| skill.id.clone()).collect(); // Safe: String ownership for dedup set
-        let registry = resources.tool_runtime.tool_registry();
-        let mut schemas = registry.user_visible_schemas();
-        let is_coach =
-            coach_listing::is_human_coach(resources.ctx.repos(), principal.user_id).await;
-        coach_listing::retain_for_audience(registry, &mut schemas, is_coach);
-        // An A2A agent is outside Dravr's own surfaces: a tool kept on them is
-        // not offered as a skill, and is refused if the agent names it anyway.
-        first_party_tools::retain_served_over(registry, &mut schemas, Transport::A2a);
-        deployment_tools::retain_answerable(
-            registry,
-            &mut schemas,
-            resources.tool_runtime.config(),
-        );
-        for schema in schemas {
-            if public_skill_ids.contains(&schema.name) {
-                continue;
-            }
-            card.skills.push(AgentSkill {
-                id: schema.name.clone(), // Safe: String ownership for skill id
-                name: schema.name,
-                description: schema.description,
-                tags: vec!["tool".into()],
-                examples: Vec::new(),
-                input_modes: Vec::new(),
-                output_modes: Vec::new(),
-            });
-        }
-
-        match to_value(&card) {
-            Ok(value) => Self::ok(value, request.id),
-            Err(e) => {
-                error!("Failed to serialize A2A extended agent card: {e}");
-                Self::a2a_error(-32603, "Failed to serialize extended card", request.id)
+                Self::a2a_error(INTERNAL_ERROR, "Failed to serialize task", request_id)
             }
         }
     }
@@ -669,14 +598,14 @@ impl A2AServer {
             .map_err(|e| {
                 error!("Failed to resolve client ownership: {e}");
                 Box::new(Self::a2a_error(
-                    -32000,
+                    SERVER_ERROR_START,
                     "Failed to resolve client ownership",
                     request_id.cloned(),
                 ))
             })?;
         owned.into_iter().next().ok_or_else(|| {
             Box::new(Self::a2a_error(
-                -32000,
+                SERVER_ERROR_START,
                 "Failed to resolve client ownership",
                 request_id.cloned(),
             ))
@@ -742,7 +671,7 @@ impl A2AServer {
             let input = to_value(&message).map_err(|e| {
                 error!("Failed to serialize A2A message: {e}");
                 Box::new(Self::a2a_error(
-                    -32603,
+                    INTERNAL_ERROR,
                     "Failed to serialize message",
                     request_id.cloned(),
                 ))
@@ -755,7 +684,7 @@ impl A2AServer {
                 .map_err(|e| {
                     error!("Failed to persist task: {e}");
                     Box::new(Self::a2a_error(
-                        -32000,
+                        SERVER_ERROR_START,
                         "Failed to persist task",
                         request_id.cloned(),
                     ))
@@ -772,7 +701,7 @@ impl A2AServer {
         let history_json = to_value(&history).map_err(|e| {
             error!("Failed to serialize A2A history: {e}");
             Box::new(Self::a2a_error(
-                -32603,
+                INTERNAL_ERROR,
                 "Failed to serialize history",
                 request_id.cloned(),
             ))
@@ -784,7 +713,7 @@ impl A2AServer {
             .map_err(|e| {
                 error!("Failed to persist task history: {e}");
                 Box::new(Self::a2a_error(
-                    -32000,
+                    SERVER_ERROR_START,
                     "Failed to persist task history",
                     request_id.cloned(),
                 ))
@@ -935,7 +864,14 @@ impl A2AServer {
     /// writes the audit row of every other one, is written `refused` here: every
     /// admin-only call over A2A is on the trail (EFVP 9.4d). An unknown tool is
     /// no admin-only one, so it writes nothing.
-    async fn record_refused(tool_runtime: &Arc<dyn ToolRuntime>, user_id: Uuid, tool_name: &str) {
+    /// `credential` is the one the call came through, `None` when the
+    /// credential itself was refused.
+    async fn record_refused(
+        tool_runtime: &Arc<dyn ToolRuntime>,
+        user_id: Uuid,
+        tool_name: &str,
+        credential: Option<&CallerCredential>,
+    ) {
         record_refused_admin_call(
             tool_runtime.as_ref(),
             &RefusedAdminCall {
@@ -944,6 +880,7 @@ impl A2AServer {
                 tenant_id: None,
                 transport: Transport::A2a,
                 protocol: "a2a",
+                credential,
             },
         )
         .await;
@@ -960,7 +897,13 @@ impl A2AServer {
         tool: Option<&str>,
     ) {
         if let Some(tool) = tool {
-            Self::record_refused(&resources.tool_runtime, principal.user_id, tool).await;
+            Self::record_refused(
+                &resources.tool_runtime,
+                principal.user_id,
+                tool,
+                Some(&principal.credential),
+            )
+            .await;
         }
     }
 
@@ -974,19 +917,35 @@ impl A2AServer {
         tool_name: &str,
         tool_params: Value,
     ) -> Result<(Value, Option<Value>), SendFailure> {
-        let user_id = principal.user_id;
+        // A live support session runs the call as its user (carnet#1511).
+        let acting = Self::acting_for(ctx.as_ref(), principal, tool_name)
+            .await
+            .map_err(SendFailure::text)?;
+        let user_id = acting.user_id;
         // Resolve tenant context — required for all A2A tool execution.
-        let tenant = principal.active_tenant_id.map(TenantId::from_uuid);
+        let tenant = acting.tenant;
         let tenant_context =
             match extract_tenant_context_internal(ctx.repos(), user_id, tenant).await {
                 Ok(Some(context)) => context,
                 Ok(None) => {
-                    Self::record_refused(tool_runtime, user_id, tool_name).await;
+                    Self::record_refused(
+                        tool_runtime,
+                        user_id,
+                        tool_name,
+                        Some(&principal.credential),
+                    )
+                    .await;
                     return Err(SendFailure::text("User does not belong to any tenant"));
                 }
                 Err(e) => {
                     log_tenant_failure(user_id, &e);
-                    Self::record_refused(tool_runtime, user_id, tool_name).await;
+                    Self::record_refused(
+                        tool_runtime,
+                        user_id,
+                        tool_name,
+                        Some(&principal.credential),
+                    )
+                    .await;
                     return Err(SendFailure::text("Failed to resolve tenant context"));
                 }
             };
@@ -998,10 +957,6 @@ impl A2AServer {
         // The unified executor: Guardian chokepoint and admin/tenant context as on MCP and
         // chat, under the client's own grant (unbound, it refuses). A2A is outside Dravr's
         // own surfaces (carnet#724), and the agent's reply goes unchecked (carnet#852).
-        let executor = UniversalToolExecutor::new(tool_runtime.clone()) // Safe: Arc clone
-            .with_scopes(principal.scopes.clone())
-            .with_transport(Transport::A2a)
-            .with_caller_writing_reply();
         let request = UniversalRequest {
             tool_name: tool_name.to_owned(),
             parameters: tool_params,
@@ -1009,8 +964,28 @@ impl A2AServer {
             protocol: "a2a".to_owned(),
             tenant_id: Some(tenant_context.tenant_id.to_string()),
         };
+        // Built inside the session's scope: the executor reads the session
+        // when it is built, and carries it into the tool body.
+        let credential = principal.credential.clone();
+        let session = acting
+            .support
+            .as_ref()
+            .map(support_session::LiveSupport::grant);
+        let scopes = acting.scopes;
+        let run = async {
+            UniversalToolExecutor::new(tool_runtime.clone()) // Safe: Arc clone
+                .with_scopes(scopes)
+                .with_ceiling(principal.ceiling.clone())
+                .with_transport(Transport::A2a)
+                .with_caller_writing_reply()
+                .execute_tool(request)
+                .await
+        };
+        let executed = CALLER_CREDENTIAL
+            .scope(Some(credential), SUPPORT_SESSION.scope(session, run))
+            .await;
 
-        match executor.execute_tool(request).await {
+        match executed {
             Ok(response) if response.success => {
                 let labels = trust_labels::labels_of(&response).cloned();
                 let result = response

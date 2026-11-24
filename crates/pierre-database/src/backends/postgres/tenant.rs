@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{Tenant, TenantId, TenantOAuthCredentials};
 use secrecy::ExposeSecret;
@@ -20,9 +20,9 @@ use crate::repositories::tenants::{
     impl_tenant_repository, tenant_from_row, tenant_oauth_aad, tenant_oauth_credentials_from_row,
     TenantRepository, ADD_TENANT_OWNER_SQL, CREATE_TENANT_SQL, GET_ALL_TENANTS_SQL,
     GET_SELECTED_AGENT_SQL, GET_TENANT_BY_ID_SQL, GET_TENANT_BY_SLUG_SQL,
-    GET_TENANT_OAUTH_CREDENTIALS_SQL, GET_TENANT_OAUTH_PROVIDERS_SQL, GET_USER_TENANT_ROLE_SQL,
-    LIST_MEMBERSHIP_TENANT_IDS_SQL, LIST_TENANTS_FOR_USER_SQL, SET_SELECTED_AGENT_SQL,
-    SET_TENANT_PLAN_SQL, STORE_TENANT_OAUTH_CREDENTIALS_SQL,
+    GET_TENANT_OAUTH_CREDENTIALS_SQL, GET_USER_TENANT_ROLE_SQL, LIST_MEMBERSHIP_TENANT_IDS_SQL,
+    LIST_TENANTS_FOR_USER_SQL, SET_SELECTED_AGENT_SQL, SET_TENANT_PLAN_SQL,
+    STORE_TENANT_OAUTH_CREDENTIALS_SQL,
 };
 use crate::repositories::uuid_columns::NativeUuid;
 

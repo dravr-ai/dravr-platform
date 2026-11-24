@@ -44,7 +44,7 @@
 //! [`pierre_services::use_case_rank`], which `/help` reaches too; an empty
 //! thread offers them through [`offer_empty_thread_starters`].
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
 use pierre_contremaitre::use_case_catalogue::{is_use_case_id, UseCaseCatalogue, UseCaseRun};
 use pierre_core::errors::{AppError, AppResult};
@@ -551,7 +551,7 @@ pub(crate) async fn record_tap(
     if let Some(id) = postback.catalogue_id() {
         if let Err(e) = repos
             .use_case_exposures
-            .record_use_case_tapped(exposure_tenant, user, id, Utc::now())
+            .record_use_case_tapped(exposure_tenant, user, id, Timestamp::now())
             .await
         {
             warn!(error = %e, use_case = %id, "a use-case tap could not be recorded");
@@ -725,7 +725,7 @@ pub async fn offer_empty_thread_starters(
     if !ids.is_empty() {
         if let Err(e) = repos
             .use_case_exposures
-            .record_use_cases_shown(offer_to.tenant_id, offer_to.user_id, &ids, Utc::now())
+            .record_use_cases_shown(offer_to.tenant_id, offer_to.user_id, &ids, Timestamp::now())
             .await
         {
             warn!(error = %e, user_id = %offer_to.user_id, "empty-thread starters shown could not be counted");

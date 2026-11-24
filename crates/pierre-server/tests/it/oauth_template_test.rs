@@ -146,10 +146,12 @@ fn google_login_params(
         code_challenge: "challenge_abc",
         code_challenge_method: "S256",
         resource: "https://mcp.example.test",
+        request_uri: "",
         default_email: "",
         default_password: "",
         google_start_url,
         labels: &ENGLISH_LABELS,
+        authorization_details: "",
     }
 }
 
@@ -226,12 +228,15 @@ fn test_consent_page_escapes_the_client_name_and_names_the_account() {
         code_challenge: "challenge_abc",
         code_challenge_method: "S256",
         resource: "",
+        request_uri: "",
         csrf_token: "token",
         client_label: "<script>alert(1)</script>",
         account_email: "athlete@example.test",
         switch_account_url: "/oauth2/login?client_id=mcp_client_1&state=s",
         first_party_only_sources: &["Strava"],
         text: &ConsentText::new(&STRINGS, "en"),
+        role: pierre_routes_identity::ConsentRole::default(),
+        grant_choice: None,
     });
 
     assert!(!html.contains("<script>"), "{html}");
@@ -272,12 +277,15 @@ fn test_consent_page_names_the_host_the_browser_goes_to() {
             code_challenge: "challenge_abc",
             code_challenge_method: "S256",
             resource: "",
+            request_uri: "",
             csrf_token: "token",
             client_label: "Claude",
             account_email: "athlete@example.test",
             switch_account_url: "/oauth2/login?client_id=mcp_client_1&state=s",
             first_party_only_sources: &[],
             text: &ConsentText::new(&STRINGS, "en"),
+            role: pierre_routes_identity::ConsentRole::default(),
+            grant_choice: None,
         })
     };
 
@@ -321,12 +329,15 @@ fn test_consent_page_names_the_data_that_stays_inside_dravr() {
             code_challenge: "challenge_abc",
             code_challenge_method: "S256",
             resource: "",
+            request_uri: "",
             csrf_token: "token",
             client_label: "Claude",
             account_email: "athlete@example.test",
             switch_account_url: "/oauth2/login?client_id=mcp_client_1&state=s",
             first_party_only_sources: sources,
             text: &ConsentText::new(&STRINGS, "en"),
+            role: pierre_routes_identity::ConsentRole::default(),
+            grant_choice: None,
         })
     };
 
@@ -375,12 +386,15 @@ fn test_consent_page_states_the_client_trust_and_the_data_obligations() {
             code_challenge: "challenge_abc",
             code_challenge_method: "S256",
             resource: "",
+            request_uri: "",
             csrf_token: "token",
             client_label: label,
             account_email: "athlete@example.test",
             switch_account_url: "/oauth2/login?client_id=x&state=s",
             first_party_only_sources: &[],
             text: &ConsentText::new(&STRINGS, "en"),
+            role: pierre_routes_identity::ConsentRole::default(),
+            grant_choice: None,
         })
     };
 
@@ -443,10 +457,12 @@ async fn test_generate_login_html() {
         code_challenge: test_challenge,
         code_challenge_method: test_method,
         resource: test_resource,
+        request_uri: "",
         default_email: test_email,
         default_password: test_password,
         google_start_url: None,
         labels: &ENGLISH_LABELS,
+        authorization_details: "",
     });
 
     // Verify all placeholders were replaced with actual values
@@ -560,10 +576,12 @@ async fn test_generate_login_html_empty_scope() {
         code_challenge: "challenge",
         code_challenge_method: "S256",
         resource: "",
+        request_uri: "",
         default_email: "test@example.com",
         default_password: "",
         google_start_url: None,
         labels: &ENGLISH_LABELS,
+        authorization_details: "",
     });
 
     // An empty request renders the grant it will actually be ISSUED —
@@ -678,10 +696,12 @@ async fn test_templates_use_boreal_design_system() {
         code_challenge: "challenge",
         code_challenge_method: "S256",
         resource: "",
+        request_uri: "",
         default_email: "",
         default_password: "",
         google_start_url: None,
         labels: &ENGLISH_LABELS,
+        authorization_details: "",
     });
     let dark_at = html
         .find("@media (prefers-color-scheme: dark)")
@@ -838,10 +858,12 @@ async fn test_login_html_escapes_xss_in_state() {
         code_challenge: "challenge",
         code_challenge_method: "S256",
         resource: "",
+        request_uri: "",
         default_email: "",
         default_password: "",
         google_start_url: None,
         labels: &ENGLISH_LABELS,
+        authorization_details: "",
     });
 
     // The XSS payload should NOT appear unescaped
@@ -871,10 +893,12 @@ async fn test_login_html_escapes_xss_in_redirect_uri() {
         code_challenge: "challenge",
         code_challenge_method: "S256",
         resource: "",
+        request_uri: "",
         default_email: "",
         default_password: "",
         google_start_url: None,
         labels: &ENGLISH_LABELS,
+        authorization_details: "",
     });
 
     // The attribute breakout should NOT appear unescaped
@@ -903,10 +927,12 @@ async fn test_oauth_login_page_integration() {
         code_challenge: "integration_challenge",
         code_challenge_method: "S256",
         resource: "",
+        request_uri: "",
         default_email: "test@pierre.test",
         default_password: "test123",
         google_start_url: None,
         labels: &ENGLISH_LABELS,
+        authorization_details: "",
     });
 
     // Verify complete HTML structure
@@ -992,12 +1018,15 @@ fn consent_in(locale: &str, client_id: &str, redirect_uri: &str, scope: &str) ->
         code_challenge: "challenge_abc",
         code_challenge_method: "S256",
         resource: "",
+        request_uri: "",
         csrf_token: "token",
         client_label: "Agent",
         account_email: "athlete@example.test",
         switch_account_url: "/oauth2/login?client_id=x&state=s",
         first_party_only_sources: &["Strava", "Garmin", "WHOOP"],
         text: &ConsentText::new(&STRINGS, locale),
+        role: pierre_routes_identity::ConsentRole::default(),
+        grant_choice: None,
     })
 }
 
@@ -1100,12 +1129,31 @@ fn every_consent_flow_key_has_text_and_the_slots_english_has_in_every_locale() {
 /// reads in French on a French page, and no English line is left behind.
 #[test]
 fn a_french_consent_page_says_every_line_in_french() {
+    // The grant picker's lines and a preset grant's own lines are read in the
+    // athlete's language where those screens are served, in
+    // oauth2_grant_details_test; this page is the plain screen.
     let keys: Vec<&str> = consent_flow_keys()
         .into_iter()
-        .filter(|key| key.starts_with("oauth.consent."))
+        .filter(|key| {
+            key.starts_with("oauth.consent.")
+                && !key.starts_with("oauth.consent.grant")
+                && !key.ends_with("Preset")
+        })
         .collect();
     let french = every_consent_line_in("fr");
-    let bodies = [page_body(&french[0]), page_body(&french[1])];
+    // The role lines are shown to a coach and an admin alone.
+    let both_roles = consent_for_role(
+        pierre_routes_identity::ConsentRole {
+            coach: true,
+            admin: true,
+        },
+        "fr",
+    );
+    let bodies = [
+        page_body(&french[0]),
+        page_body(&french[1]),
+        page_body(&both_roles),
+    ];
     for html in &french {
         assert!(html.contains("<html lang=\"fr\">"), "{html}");
         assert!(
@@ -1209,12 +1257,15 @@ fn a_french_consent_page_escapes_what_the_client_supplies() {
         code_challenge: "c",
         code_challenge_method: "S256",
         resource: "",
+        request_uri: "",
         csrf_token: "token",
         client_label: "<script>alert(1)</script>{1}{{T_ALLOW}}",
         account_email: "<i>a</i>@example.test",
         switch_account_url: "/oauth2/login",
         first_party_only_sources: &["<u>x</u>"],
         text: &ConsentText::new(&STRINGS, "fr"),
+        role: pierre_routes_identity::ConsentRole::default(),
+        grant_choice: None,
     });
     for raw in ["<script>", "<b>scope", "<i>a", "<u>x"] {
         assert!(!html.contains(raw), "{raw}: {html}");
@@ -1264,4 +1315,193 @@ async fn a_failed_provider_callback_reads_in_the_browsers_language() {
         .await
         .body_text();
     assert!(!french.contains("Connection Failed"), "{french}");
+}
+
+/// The consent page Claude is shown for `role` in `locale`.
+fn consent_for_role(role: pierre_routes_identity::ConsentRole, locale: &str) -> String {
+    OAuth2Routes::generate_consent_html(pierre_routes_identity::ConsentHtmlParams {
+        client_id: "mcp_client_1",
+        redirect_uri: "https://claude.ai/api/mcp/auth_callback",
+        response_type: "code",
+        state: "s",
+        scope: "fitness:read",
+        code_challenge: "challenge_abc",
+        code_challenge_method: "S256",
+        resource: "",
+        request_uri: "",
+        csrf_token: "token",
+        client_label: "Claude",
+        account_email: "coach@example.test",
+        switch_account_url: "/oauth2/login?client_id=mcp_client_1&state=s",
+        first_party_only_sources: &["Strava"],
+        text: &ConsentText::new(&STRINGS, locale),
+        role,
+        grant_choice: None,
+    })
+}
+
+/// A coach and an admin are shown a role line naming what their role adds,
+/// with the client in its slot (carnet#1511); an athlete sees neither.
+#[test]
+fn a_coach_and_an_admin_read_their_role_line_and_an_athlete_none() {
+    let render = |role| consent_for_role(role, "en");
+    // The client arrives in its slot as markup, as on every disclosure line.
+    let line = |key: &str| {
+        STRINGS
+            .get_exact(key, "en")
+            .unwrap_or_else(|| panic!("the catalogue carries {key}"))
+            .replace('\'', "&#x27;")
+            .replace("{0}", r#"<span class="client">Claude</span>"#)
+    };
+    let (coach_line, admin_line) = (
+        line("oauth.consent.roleCoach"),
+        line("oauth.consent.roleAdmin"),
+    );
+    let athlete = render(pierre_routes_identity::ConsentRole::default());
+    let coach = render(pierre_routes_identity::ConsentRole {
+        coach: true,
+        admin: false,
+    });
+    let admin = render(pierre_routes_identity::ConsentRole {
+        coach: false,
+        admin: true,
+    });
+    for html in [&athlete, &coach, &admin] {
+        assert!(!html.contains("oauth.consent.role"), "{html}");
+    }
+    assert!(
+        !athlete.contains(&coach_line) && !athlete.contains(&admin_line),
+        "{athlete}"
+    );
+    assert!(
+        coach.contains(&coach_line) && !coach.contains(&admin_line),
+        "{coach}"
+    );
+    assert!(
+        admin.contains(&admin_line) && !admin.contains(&coach_line),
+        "{admin}"
+    );
+}
+
+/// The consent template places the grant choice inside the form, above the
+/// Admin access box and the buttons, and a page rendered without one leaves
+/// no placeholder behind.
+#[test]
+fn the_consent_template_places_the_grant_choice_in_the_form() {
+    // A scanner over a template, the data under test: where a placeholder
+    // sits in the form is the template's own layout, which no render shows
+    // apart from the lines that fill it.
+    let template = include_str!("../../../pierre-routes-identity/templates/oauth_consent.html");
+    let form = template
+        .split("<form method=\"post\" action=\"/oauth2/consent\">")
+        .nth(1)
+        .and_then(|rest| rest.split("</form>").next())
+        .expect("the consent form");
+    let choice = form
+        .find("{{GRANT_CHOICE}}")
+        .expect("the grant choice is in the form");
+    let admin = form
+        .find("{{ADMIN_ACCESS}}")
+        .expect("the Admin access box is in the form");
+    let allow = form.find("{{T_ALLOW}}").expect("the Allow button");
+    assert!(
+        choice < admin && admin < allow,
+        "choice, then admin box, then the buttons"
+    );
+
+    for locale in ["en", "fr"] {
+        let page = consent_in(
+            locale,
+            "mcp_client_1",
+            "https://client.example.test/cb",
+            "fitness:read",
+        );
+        assert!(
+            !page.contains("{{"),
+            "no placeholder survives the render: {page}"
+        );
+        assert!(
+            !page.contains("name=\"grant\""),
+            "no choice was given to render"
+        );
+    }
+}
+
+/// A request's `authorization_details` ride the login page as a hidden
+/// field, escaped, so the request the form sends back still carries them.
+#[tokio::test]
+async fn the_login_page_carries_the_requests_authorization_details() {
+    let details = r#"[{"type":"https://pdpp.dev/data-access","purpose_description":"<b>x</b>"}]"#;
+    let html = OAuth2Routes::generate_login_html(pierre_routes_identity::LoginHtmlParams {
+        client_id: "mcp_client_1",
+        redirect_uri: "https://client.example.test/cb",
+        response_type: "code",
+        state: "s",
+        scope: "fitness:read",
+        code_challenge: "challenge_abc",
+        code_challenge_method: "S256",
+        resource: "",
+        request_uri: "",
+        authorization_details: details,
+        default_email: "",
+        default_password: "",
+        google_start_url: None,
+        labels: &ENGLISH_LABELS,
+    });
+    assert!(
+        html.contains(&format!(
+            "name=\"authorization_details\" value=\"{}\"",
+            escape_html_attribute(details)
+        )),
+        "{html}"
+    );
+    assert!(!html.contains("<b>x</b>"), "the client's markup is escaped");
+}
+
+/// The rule of `selector` in the consent page's stylesheet, up to its `}`.
+fn css_rule<'page>(page: &'page str, selector: &str) -> &'page str {
+    let start = page
+        .find(&format!("{selector} {{"))
+        .unwrap_or_else(|| panic!("the consent page's sheet styles {selector}"));
+    let end = page[start..].find('}').map_or(page.len(), |at| start + at);
+    &page[start..end]
+}
+
+/// The grant picker the consent page can carry is styled by the sheet it
+/// embeds: a radio drawn on the page's tokens with an outline-token edge in
+/// both schemes, never the browser's own colours, and a left-aligned hint
+/// indented under its label rather than centred fine print.
+#[test]
+fn the_consent_sheet_draws_the_grant_picker_on_the_page_tokens() {
+    let page = consent_in(
+        "en",
+        "mcp_client_1",
+        "https://client.example.test/cb",
+        "fitness:read",
+    );
+    let radio = css_rule(&page, r#".check input[type="radio"]"#);
+    for declaration in [
+        "appearance: none;",
+        "border: 1px solid rgb(var(--color-outline));",
+        "accent-color: rgb(var(--color-primary));",
+    ] {
+        assert!(radio.contains(declaration), "{declaration}: {radio}");
+    }
+    let checked = css_rule(&page, r#".check input[type="radio"]:checked"#);
+    assert!(checked.contains("background-color: rgb(var(--color-primary));"));
+    let hint = css_rule(&page, ".grant-hint");
+    assert!(hint.contains("margin: 4px 0 0 28px;"), "{hint}");
+    assert!(!hint.contains("text-align: center"), "{hint}");
+    let legend = css_rule(&page, ".grant-choice legend");
+    assert!(
+        legend.contains("float: left;"),
+        "the title sits inside the frame: {legend}"
+    );
+    // The scope box is the neutral, left-aligned frame both the picker and
+    // a request's own details sit in.
+    let frame = css_rule(&page, ".scopes");
+    assert!(
+        frame.contains("border: 1px solid var(--ghost-border);")
+            && frame.contains("text-align: left;")
+    );
 }

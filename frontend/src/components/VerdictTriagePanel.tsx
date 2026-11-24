@@ -1,5 +1,5 @@
 // ABOUTME: The admin triage panel one verdict card carries — the knob to adjust, and the control recording support's call
-// ABOUTME: Operator chrome (English by decision); reached only from ClaimVerdictsTab, never from the chat surface's drawer
+// ABOUTME: Admin chrome (English by decision); reached only from ClaimVerdictsTab, never from the chat surface's drawer
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -50,7 +50,7 @@ const KNOB_KIND_LABEL: Record<VerdictKnob['kind'], string> = {
 
 /** The line naming who wrote the disposition on the row, when someone has. */
 function DisposedBy({ verdict }: { verdict: ClaimVerdict }) {
-  // The panel's copy is English by decision (operator chrome), and so is its
+  // The panel's copy is English by decision (admin chrome), and so is its
   // date, as on every admin-only screen.
   if (!verdict.disposed_by || !verdict.disposed_at) return null;
   return (

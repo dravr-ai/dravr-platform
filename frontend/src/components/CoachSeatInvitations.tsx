@@ -9,7 +9,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { formatDate } from '@pierre/chat-utils';
 import { adminApi, coachSeatInvitationsApi } from '../services/api';
 import type { CoachSeatInvitation, CoachSeatInviteResult } from '../services/api/coachSeatInvitations';
-import { QUERY_KEYS } from '../constants/queryKeys';
+import { QUERY_KEYS } from '@pierre/shared-constants';
 import { Badge, Button, EmptyState, Input } from './ui';
 import { ADMIN_LOCALE } from '../utils/adminLocale';
 

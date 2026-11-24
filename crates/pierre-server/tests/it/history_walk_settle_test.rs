@@ -35,7 +35,7 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use chrono::{Duration as ChronoDuration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::feature_flags::FeatureKey;
 use pierre_core::models::{ActivityBuilder, CoachingPersona, SportType, TenantId};
@@ -67,7 +67,7 @@ fn ordinary_row(
     leased_until_ms: i64,
 ) -> ActivityBackfillJobRow {
     ActivityBackfillJobRow {
-        after_ts: Some(Utc::now().timestamp() - 365 * 86_400),
+        after_ts: Some(Timestamp::now().epoch_seconds() - 365 * 86_400),
         fetch_limit: Some(200),
         conversation_id: Some("conversation-that-asked".to_owned()),
         created_at_ms,
@@ -80,7 +80,7 @@ fn ordinary_row(
 
 /// Claim every lapsed row as the sweep would, an hour from now.
 async fn claim_all(resources: &Arc<ServerContext>) -> Vec<ActivityBackfillJobRow> {
-    let now_ms = Utc::now().timestamp_millis() + 3_600_000;
+    let now_ms = Timestamp::now().epoch_millis() + 3_600_000;
     resources
         .common
         .repos
@@ -106,7 +106,7 @@ async fn a_walk_is_recorded_beside_the_ordinary_job_owed_for_its_session() {
     let (user_id, _user, tenant, _token) = athlete(&resources).await;
     hold_grant(&resources, user_id, tenant).await;
     hold_session(&resources, user_id, tenant, LIVE_SESSION).await;
-    let now = Utc::now().timestamp_millis();
+    let now = Timestamp::now().epoch_millis();
     let ordinary = ordinary_row(user_id, tenant, now - 600_000, 0);
     assert!(
         resources
@@ -141,7 +141,7 @@ async fn a_walk_is_recorded_beside_the_ordinary_job_owed_for_its_session() {
         .repos
         .activity_backfill_jobs
         .claim_stale_backfill_jobs(BackfillJobClaim {
-            now_ms: Utc::now().timestamp_millis(),
+            now_ms: Timestamp::now().epoch_millis(),
             queued_older_than_ms: 0,
             lease_ms: 60_000,
             max_attempts: 10,
@@ -179,7 +179,7 @@ async fn a_resumed_ordinary_backfill_beside_a_grant_is_no_walk() {
     let (user_id, _user, tenant, _token) = athlete(&resources).await;
     hold_grant(&resources, user_id, tenant).await;
     hold_session(&resources, user_id, tenant, LIVE_SESSION).await;
-    let long_ago = Utc::now().timestamp_millis() - 600_000;
+    let long_ago = Timestamp::now().epoch_millis() - 600_000;
     let ordinary = ordinary_row(user_id, tenant, long_ago, 0);
     assert!(
         resources
@@ -363,7 +363,7 @@ async fn a_walk_never_sends_the_per_session_digest() {
         "new-ride",
         "Morning ride",
         SportType::Ride,
-        Utc::now() - chrono::Duration::minutes(10),
+        Timestamp::now() - Elapsed::minutes(10),
         3_600,
         oauth_providers::GARMIN,
     )
@@ -400,7 +400,7 @@ async fn a_step_that_fills_its_limit_reads_the_next_below_its_oldest_activity() 
     let (user_id, _user, tenant, _token) = athlete(&resources).await;
     hold_grant(&resources, user_id, tenant).await;
     hold_session(&resources, user_id, tenant, LIVE_SESSION).await;
-    let long_ago = Utc::now().timestamp_millis() - 600_000;
+    let long_ago = Timestamp::now().epoch_millis() - 600_000;
     let mut row = job_row(user_id, tenant, long_ago);
     // The stand-in's first step holds one ride: a limit of one fills.
     row.fetch_limit = Some(1);
@@ -429,7 +429,7 @@ async fn a_step_that_fills_its_limit_reads_the_next_below_its_oldest_activity() 
             .repos
             .activity_backfill_jobs
             .claim_stale_backfill_jobs(BackfillJobClaim {
-                now_ms: Utc::now().timestamp_millis(),
+                now_ms: Timestamp::now().epoch_millis(),
                 queued_older_than_ms: 0,
                 lease_ms: 0,
                 max_attempts: 10,
@@ -451,7 +451,7 @@ async fn a_step_that_fills_its_limit_reads_the_next_below_its_oldest_activity() 
         .await
         .unwrap()
         .expect("the first step landed its ride")
-        .timestamp();
+        .epoch_seconds();
     assert_eq!(
         stepped.before_ts,
         Some(recent),
@@ -533,7 +533,7 @@ async fn a_failed_wellness_copy_keeps_the_session_for_the_next_run() {
 #[tokio::test]
 async fn one_unread_wellness_day_keeps_the_session_for_the_next_run() {
     let switch = ScraperSwitch::default();
-    let hole = Utc::now().date_naive() - ChronoDuration::days(200);
+    let hole = Timestamp::now().utc_date() - Elapsed::days(200);
     *switch.fail_summary_on.lock().unwrap() = Some(hole);
     let (scraper, calls) = spawn_switchable_scraper(switch).await;
     let resources = server(common::test_server_config_with_sciotte(&scraper)).await;
@@ -554,8 +554,8 @@ async fn one_unread_wellness_day_keeps_the_session_for_the_next_run() {
         .get_recovery_metrics(
             user_id,
             &tenant,
-            Utc::now() - ChronoDuration::days(400),
-            Utc::now() + ChronoDuration::days(1),
+            Timestamp::now() - Elapsed::days(400),
+            Timestamp::now() + Elapsed::days(1),
         )
         .await
         .unwrap();

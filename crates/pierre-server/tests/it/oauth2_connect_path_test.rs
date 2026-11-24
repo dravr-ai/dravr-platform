@@ -73,6 +73,7 @@ fn oauth2_routes(resources: &Arc<ServerContext>) -> axum::Router {
             &resources.common.config.rate_limiting,
         )),
         refresh_token_expiry_days: 30,
+        session_cookie_max_age_secs: 86_400,
         csrf_manager: resources.auth.csrf_manager.clone(),
         accounts: resources.account_service(),
         google_sign_in: None,
@@ -210,7 +211,6 @@ async fn a_token_bound_to_the_origin_or_the_path_is_served_at_mcp() {
                     audience: Some(audience),
                 },
                 &user.id,
-                &[],
                 tenant.clone(),
             )
             .unwrap()

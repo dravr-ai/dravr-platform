@@ -22,6 +22,7 @@
 
 #[cfg(feature = "client-messaging")]
 mod slack_athlete_tap {
+    use dravr_tronc::dates::Timestamp;
     use std::sync::Arc;
 
     use axum::http::StatusCode;
@@ -133,7 +134,7 @@ mod slack_athlete_tap {
     async fn post_tap(resources: &Arc<ServerContext>, body: &str) -> Value {
         let adapters: Arc<dyn ChannelAdapterFactory> = Arc::new(OfflineSendAdapters::default());
         let router = MessagingRoutes::routes_with_adapters(Arc::clone(resources), adapters);
-        let timestamp = chrono::Utc::now().timestamp().to_string();
+        let timestamp = Timestamp::now().epoch_seconds().to_string();
         let mut mac = Hmac::<Sha256>::new_from_slice(SIGNING_SECRET.as_bytes()).unwrap();
         mac.update(format!("v0:{timestamp}:{body}").as_bytes());
         let signature = format!("v0={}", hex::encode(mac.finalize().into_bytes()));

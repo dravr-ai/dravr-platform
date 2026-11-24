@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{AgentArtefact, ArtefactKind, PackageArtefact};
 
@@ -73,7 +73,7 @@ pub(crate) const CLEAR_AGENT_ARTEFACTS_SQL: &str =
 
 /// Insert one artefact of the replacement set; `$8` carries both timestamps.
 ///
-/// The timestamp binds a `DateTime<Utc>` on both backends: sqlx-sqlite encodes
+/// The timestamp binds a `Timestamp` on both backends: sqlx-sqlite encodes
 /// it as `to_rfc3339_opts(AutoSi, false)`, which is what `to_rfc3339()`
 /// produces, so the TEXT column keeps the bytes it always held while Postgres
 /// gets its native `TIMESTAMPTZ`.
@@ -111,7 +111,7 @@ pub(crate) const REWRITE_AGENT_ARTEFACT_SQL: &str = r"
 /// only — `Row::get` is `try_get().unwrap()` and panics the whole read path on
 /// a width or NULL surprise.
 ///
-/// `created_at`/`updated_at` decode straight into `DateTime<Utc>` on both:
+/// `created_at`/`updated_at` decode straight into `Timestamp` on both:
 /// Postgres hands back a native `TIMESTAMPTZ`, and sqlx-sqlite's decoder tries
 /// `parse_from_rfc3339` first, which is the format the TEXT column holds.
 ///
@@ -123,13 +123,13 @@ where
     R: sqlx::Row,
     for<'a> &'a str: sqlx::ColumnIndex<R>,
     String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    DateTime<Utc>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Timestamp: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
     let col = |name: &str| -> AppResult<String> {
         row.try_get(name)
             .map_err(|e| AppError::database(format!("read {name}: {e}")))
     };
-    let stamp = |name: &str| -> AppResult<DateTime<Utc>> {
+    let stamp = |name: &str| -> AppResult<Timestamp> {
         row.try_get(name)
             .map_err(|e| AppError::database(format!("read {name}: {e}")))
     };
@@ -172,7 +172,7 @@ macro_rules! impl_agent_artefact_repository {
                     .execute(&mut *tx)
                     .await
                     .map_err(|e| AppError::database(format!("clear coach_artefacts: {e}")))?;
-                let now = Utc::now();
+                let now = Timestamp::now();
                 for artefact in artefacts {
                     sqlx::query(INSERT_AGENT_ARTEFACT_SQL)
                         .bind(Uuid::new_v4().to_string())
@@ -231,7 +231,7 @@ macro_rules! impl_agent_artefact_repository {
                 let result = sqlx::query(REWRITE_AGENT_ARTEFACT_SQL)
                     .bind(content)
                     .bind(sha256)
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .bind(tenant_id)
                     .bind(id)
                     .execute(self.pool())

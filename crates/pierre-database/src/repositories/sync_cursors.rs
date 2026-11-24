@@ -7,12 +7,12 @@
 //! Sync cursors, written once.
 //!
 //! `sync_state` keys on text ids on both backends and its timestamps bind as
-//! [`DateTime<Utc>`], which sqlx-sqlite encodes to the bytes `to_rfc3339()`
+//! [`Timestamp`], which sqlx-sqlite encodes to the bytes `to_rfc3339()`
 //! writes. The one clause the two engines spell differently — how
 //! `user_oauth_tokens.tenant_id` is read for [`ConnectedUserRow`] — is the
 //! macro's second argument.
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{TenantId, UserId};
 
@@ -92,7 +92,7 @@ where
     Option<String>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     i32: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     i64: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    Option<DateTime<Utc>>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Option<Timestamp>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
     Ok(SyncCursorRow {
         id: column(row, "id")?,
@@ -170,7 +170,7 @@ macro_rules! impl_sync_cursor_repository {
             }
 
             async fn upsert_sync_cursor(&self, cursor: &SyncCursorRow) -> AppResult<()> {
-                let now = Utc::now();
+                let now = Timestamp::now();
 
                 sqlx::query(UPSERT_SYNC_CURSOR_SQL)
                     .bind(&cursor.id)

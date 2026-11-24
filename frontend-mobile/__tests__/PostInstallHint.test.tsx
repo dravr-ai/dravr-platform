@@ -4,7 +4,7 @@
 import React from 'react';
 import { render, fireEvent } from '@testing-library/react-native';
 import { PostInstallHint } from '../src/screens/store/PostInstallHint';
-import { coachAddDraft, coachMention } from '../src/screens/store/coachDraft';
+import { coachAddDraft, coachMention } from '@pierre/ui-logic';
 
 describe('PostInstallHint', () => {
   it('teaches /agent add @handle and the @handle mention for the installed agent', () => {

@@ -187,7 +187,4 @@ pub use terra::{
     TerraDescriptor, TerraProvider, TerraProviderFactory, TerraRecords, TerraWebhookHandler,
 };
 
-pub use registry::{
-    create_provider, create_registry_with_external_providers, create_tenant_provider,
-    get_supported_providers, global_registry, is_provider_supported, ProviderRegistry,
-};
+pub use registry::{create_registry_with_external_providers, global_registry, ProviderRegistry};

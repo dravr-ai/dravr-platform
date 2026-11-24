@@ -4,14 +4,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-/// Emit the whole [`ActivityBackfillJobRepository`] implementation for one
-/// backend type. The body is written once here; each backend's shell invokes
-/// it with its own type and its lock clause for [`claim_backfill_jobs_sql!`],
-/// and sqlx resolves the driver from `self.pool()`.
-///
-/// The body names most of its consts, helpers and types unqualified, so the
-/// invoking shell must `use` every one of those; the rest it reaches through
-/// `$crate::repositories::activity_backfill_jobs::…`.
 macro_rules! impl_activity_backfill_job_repository {
     ($ty:ty, $lock:literal) => {
         #[async_trait::async_trait]
@@ -547,6 +539,45 @@ macro_rules! impl_activity_backfill_job_repository {
                 Ok(reopened.rows_affected() == 1)
             }
 
+            async fn fail_history_walk(
+                &self,
+                lease: &JobLease,
+                ended_at_ms: i64,
+            ) -> AppResult<bool> {
+                let ended =
+                    sqlx::query($crate::repositories::activity_backfill_jobs::FAIL_HISTORY_WALK_SQL)
+                        .bind(&lease.id)
+                        .bind(&lease.token)
+                        .bind(incomplete_outcome())
+                        .bind(ended_at_ms)
+                        .execute(self.pool())
+                        .await
+                        .map_err(|e| AppError::database(format!("Failed to end history walk: {e}")))?;
+                Ok(ended.rows_affected() == 1)
+            }
+
+            async fn resume_incomplete_history_walk(
+                &self,
+                user_id: Uuid,
+                tenant_id: TenantId,
+                provider: &str,
+                ended_by_ms: i64,
+            ) -> AppResult<bool> {
+                let resumed = sqlx::query(
+                    $crate::repositories::activity_backfill_jobs::RESUME_INCOMPLETE_HISTORY_WALK_SQL,
+                )
+                .bind(user_id.to_string())
+                .bind(tenant_id)
+                .bind(provider)
+                .bind(BackfillJobKind::HistoryWalk.as_str())
+                .bind(incomplete_outcome())
+                .bind(ended_by_ms)
+                .execute(self.pool())
+                .await
+                .map_err(|e| AppError::database(format!("Failed to resume history walk: {e}")))?;
+                Ok(resumed.rows_affected() == 1)
+            }
+
             async fn settle_purged_history_walk(
                 &self,
                 user_id: Uuid,
@@ -673,7 +704,7 @@ macro_rules! impl_activity_backfill_job_repository {
                 &self,
                 lease: &JobLease,
                 tenant_id: TenantId,
-            ) -> AppResult<Option<chrono::NaiveDate>> {
+            ) -> AppResult<Option<dravr_tronc::dates::CivilDate>> {
                 use sqlx::Row as _;
                 let failed = |e: sqlx::Error| {
                     AppError::database(format!("Failed to read the wellness resume day: {e}"))
@@ -693,7 +724,7 @@ macro_rules! impl_activity_backfill_job_repository {
                     .map_err(failed)?
                     .flatten();
                 day.map(|day| {
-                    day.parse::<chrono::NaiveDate>().map_err(|e| {
+                    day.parse::<dravr_tronc::dates::CivilDate>().map_err(|e| {
                         AppError::database(format!("The wellness resume day is not a date: {e}"))
                     })
                 })
@@ -704,7 +735,7 @@ macro_rules! impl_activity_backfill_job_repository {
                 &self,
                 lease: &JobLease,
                 tenant_id: TenantId,
-                resume_day: chrono::NaiveDate,
+                resume_day: dravr_tronc::dates::CivilDate,
                 pause_until_ms: i64,
             ) -> AppResult<bool> {
                 let paused = sqlx::query(

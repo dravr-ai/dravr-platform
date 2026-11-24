@@ -37,7 +37,7 @@ fn matches_configured_channel_by_name_without_hash() {
 
 #[test]
 fn matches_configured_channel_by_id() {
-    // Operators may configure a raw channel ID instead of a name.
+    // Admins may configure a raw channel ID instead of a name.
     assert!(channel_matches("", "C0ABC123", "C0ABC123"));
 }
 
@@ -138,7 +138,7 @@ fn a_body_without_a_payload_field_is_refused() {
 /// Pierre user.
 mod command_postback_authorization {
     use crate::common::create_test_server_resources;
-    use chrono::Utc;
+    use dravr_tronc::dates::Timestamp;
     use pierre_core::errors::ErrorCode;
     use pierre_core::models::{Tenant, TenantId, User, UserStatus};
     use pierre_database::backends::{CreateChannelLinkParams, MessagingRepository};
@@ -167,7 +167,7 @@ mod command_postback_authorization {
         user.user_status = status;
         if status == UserStatus::Active {
             user.approved_by = Some(user.id);
-            user.approved_at = Some(Utc::now());
+            user.approved_at = Some(Timestamp::now());
         }
         let user_id = user.id;
         resources.common.repos.users.create(&user).await.unwrap();
@@ -180,8 +180,8 @@ mod command_postback_authorization {
             domain: None,
             plan: "starter".to_owned(),
             owner_user_id: user_id,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         };
         resources
             .common

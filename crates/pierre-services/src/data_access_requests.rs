@@ -32,7 +32,7 @@
 //! Whether a sent request is *due soon* (three days or fewer) or *overdue* is
 //! derived when it is read ([`derived_state`]), never stored.
 
-use chrono::{DateTime, Datelike, Days, Months, NaiveDate, Utc};
+use dravr_tronc::dates::{CivilDate, Timestamp};
 use pierre_contremaitre::messaging_strings::{
     MessagingStringsRegistry, KEY_DATA_ACCESS_LETTER_ACCESS, KEY_DATA_ACCESS_LETTER_CLOSING,
     KEY_DATA_ACCESS_LETTER_DATE, KEY_DATA_ACCESS_LETTER_GDPR_COST,
@@ -53,7 +53,7 @@ use pierre_database::RepositoryRegistry;
 use uuid::Uuid;
 
 /// Calendar days a Quebec company has to answer (P-39.1 art. 32).
-const QUEBEC_ANSWER_DAYS: u64 = 30;
+const QUEBEC_ANSWER_DAYS: i64 = 30;
 
 /// Calendar months a GDPR controller has to answer (Art. 12(3)).
 const GDPR_ANSWER_MONTHS: u32 = 1;
@@ -64,7 +64,7 @@ const GDPR_EXTENSION_MONTHS: u32 = 2;
 
 /// How far back a sending date may be entered: a request older than a year
 /// is long past every deadline this tracks.
-const SENT_ON_MAX_AGE_DAYS: u64 = 365;
+const SENT_ON_MAX_AGE_DAYS: i64 = 365;
 
 /// The longest company name a request keeps, in characters.
 const MAX_CONTROLLER_CHARS: usize = 200;
@@ -93,13 +93,13 @@ const REFERENCE_ATTEMPTS: usize = 5;
 #[must_use]
 pub fn due_on(
     law: DataAccessLaw,
-    sent_on: NaiveDate,
-    extended_until: Option<NaiveDate>,
-) -> Option<NaiveDate> {
+    sent_on: CivilDate,
+    extended_until: Option<CivilDate>,
+) -> Option<CivilDate> {
     match law {
-        DataAccessLaw::QuebecP39_1 => sent_on.checked_add_days(Days::new(QUEBEC_ANSWER_DAYS)),
+        DataAccessLaw::QuebecP39_1 => sent_on.checked_add_days(QUEBEC_ANSWER_DAYS),
         DataAccessLaw::Gdpr => {
-            extended_until.or_else(|| sent_on.checked_add_months(Months::new(GDPR_ANSWER_MONTHS)))
+            extended_until.or_else(|| sent_on.checked_add_months(GDPR_ANSWER_MONTHS))
         }
     }
 }
@@ -107,8 +107,8 @@ pub fn due_on(
 /// The latest date a GDPR controller may extend a request sent on `sent_on`
 /// to: one month and the two further ones.
 #[must_use]
-fn latest_extension(sent_on: NaiveDate) -> Option<NaiveDate> {
-    sent_on.checked_add_months(Months::new(GDPR_ANSWER_MONTHS + GDPR_EXTENSION_MONTHS))
+fn latest_extension(sent_on: CivilDate) -> Option<CivilDate> {
+    sent_on.checked_add_months(GDPR_ANSWER_MONTHS + GDPR_EXTENSION_MONTHS)
 }
 
 /// What a sent request reads as on `today`, beyond its stored status.
@@ -134,7 +134,7 @@ impl DerivedState {
 /// Whether `request` is due soon or overdue on `today`; `None` for a request
 /// that is not sent, or sent with more than [`DUE_SOON_DAYS`] days left.
 #[must_use]
-pub fn derived_state(request: &DataAccessRequest, today: NaiveDate) -> Option<DerivedState> {
+pub fn derived_state(request: &DataAccessRequest, today: CivilDate) -> Option<DerivedState> {
     if request.status != DataAccessStatus::Sent {
         return None;
     }
@@ -142,7 +142,7 @@ pub fn derived_state(request: &DataAccessRequest, today: NaiveDate) -> Option<De
     let left = due.signed_duration_since(today).num_days();
     if left < 0 {
         Some(DerivedState::Overdue)
-    } else if left <= i64::try_from(DUE_SOON_DAYS).unwrap_or(i64::MAX) {
+    } else if left <= DUE_SOON_DAYS {
         Some(DerivedState::DueSoon)
     } else {
         None
@@ -327,7 +327,7 @@ impl<'repos> DataAccessRequests<'repos> {
     pub async fn create(
         &self,
         details: &RequestDetails,
-        now: DateTime<Utc>,
+        now: Timestamp,
     ) -> AppResult<DataAccessRequest> {
         let details = validated(details)?;
         for _ in 0..REFERENCE_ATTEMPTS {
@@ -335,7 +335,7 @@ impl<'repos> DataAccessRequests<'repos> {
                 id: Uuid::new_v4(),
                 tenant_id: self.tenant_id,
                 user_id: self.user_id,
-                reference: draw_reference(now.year()),
+                reference: draw_reference(now.utc_date().year()),
                 controller: details.controller.clone(),
                 controller_contact: details.controller_contact.clone(),
                 athlete_identifier: details.athlete_identifier.clone(),
@@ -370,7 +370,7 @@ impl<'repos> DataAccessRequests<'repos> {
         &self,
         id: Uuid,
         edit: &DraftEdit,
-        now: DateTime<Utc>,
+        now: Timestamp,
     ) -> AppResult<DataAccessRequest> {
         let request = self.get(id).await?;
         if request.status != DataAccessStatus::Drafted {
@@ -419,18 +419,18 @@ impl<'repos> DataAccessRequests<'repos> {
     pub async fn mark_sent(
         &self,
         id: Uuid,
-        sent_on: NaiveDate,
-        now: DateTime<Utc>,
+        sent_on: CivilDate,
+        now: Timestamp,
     ) -> AppResult<DataAccessRequest> {
         let request = self.get(id).await?;
         let expected = request.status;
         if !matches!(expected, DataAccessStatus::Drafted | DataAccessStatus::Sent) {
             return Err(wrong_status("marked sent", expected));
         }
-        let today = now.date_naive();
+        let today = now.utc_date();
         let oldest = today
-            .checked_sub_days(Days::new(SENT_ON_MAX_AGE_DAYS))
-            .unwrap_or(NaiveDate::MIN);
+            .checked_sub_days(SENT_ON_MAX_AGE_DAYS)
+            .unwrap_or(CivilDate::MIN);
         if sent_on > today || sent_on < oldest {
             return Err(AppError::invalid_input(
                 "The sending date must be today or within the past year",
@@ -465,8 +465,8 @@ impl<'repos> DataAccessRequests<'repos> {
     pub async fn record_extension(
         &self,
         id: Uuid,
-        extended_until: NaiveDate,
-        now: DateTime<Utc>,
+        extended_until: CivilDate,
+        now: Timestamp,
     ) -> AppResult<DataAccessRequest> {
         let request = self.get(id).await?;
         if request.status != DataAccessStatus::Sent {
@@ -508,15 +508,14 @@ impl<'repos> DataAccessRequests<'repos> {
     pub async fn mark_answered(
         &self,
         id: Uuid,
-        answered_on: NaiveDate,
-        now: DateTime<Utc>,
+        answered_on: CivilDate,
+        now: Timestamp,
     ) -> AppResult<DataAccessRequest> {
         let request = self.get(id).await?;
         if request.status != DataAccessStatus::Sent {
             return Err(wrong_status("marked answered", request.status));
         }
-        if answered_on > now.date_naive() || request.sent_on.is_some_and(|sent| answered_on < sent)
-        {
+        if answered_on > now.utc_date() || request.sent_on.is_some_and(|sent| answered_on < sent) {
             return Err(AppError::invalid_input(
                 "The answer date must fall between the sending date and today",
             ));
@@ -535,7 +534,7 @@ impl<'repos> DataAccessRequests<'repos> {
     /// # Errors
     /// Returns not found, a conflict for one answered or closed already, or
     /// a database error.
-    pub async fn close(&self, id: Uuid, now: DateTime<Utc>) -> AppResult<DataAccessRequest> {
+    pub async fn close(&self, id: Uuid, now: Timestamp) -> AppResult<DataAccessRequest> {
         let request = self.get(id).await?;
         let expected = request.status;
         if !matches!(expected, DataAccessStatus::Drafted | DataAccessStatus::Sent) {
@@ -695,9 +694,9 @@ fn month_names(locale: &str) -> [&'static str; 12] {
 /// "18. November 2026", "18 de novembro de 2026". French for a locale the
 /// platform does not write, as the catalogue falls back.
 #[must_use]
-pub(crate) fn written_date(date: NaiveDate, locale: &str) -> String {
+pub(crate) fn written_date(date: CivilDate, locale: &str) -> String {
     let month = month_names(locale)
-        .get(date.month0() as usize)
+        .get((date.month() - 1) as usize)
         .copied()
         .unwrap_or_default();
     let (day, year) = (date.day(), date.year());
@@ -755,7 +754,7 @@ pub fn render_letter(
     request: &DataAccessRequest,
     locale: &str,
     athlete_name: &str,
-    today: NaiveDate,
+    today: CivilDate,
 ) -> AppResult<Letter> {
     let locale = letter_locale(locale)?;
     let keys = law_keys(request.law);
@@ -791,8 +790,8 @@ pub fn render_letter(
 mod tests {
     use super::*;
 
-    fn day(y: i32, m: u32, d: u32) -> NaiveDate {
-        NaiveDate::from_ymd_opt(y, m, d).unwrap()
+    fn day(y: i32, m: u32, d: u32) -> CivilDate {
+        CivilDate::from_ymd(y, m, d).unwrap()
     }
 
     #[test]
@@ -880,8 +879,8 @@ mod tests {
         );
     }
 
-    fn sent_due(due: NaiveDate) -> DataAccessRequest {
-        let at = Utc::now();
+    fn sent_due(due: CivilDate) -> DataAccessRequest {
+        let at = Timestamp::now();
         DataAccessRequest {
             id: Uuid::new_v4(),
             tenant_id: TenantId::generate(),

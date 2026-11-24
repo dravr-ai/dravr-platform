@@ -7,7 +7,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_auth::oauth2_server::{
     client_registration::ClientRegistrationManager,
     models::{ClientRegistrationRequest, OAuth2State},
@@ -101,8 +101,8 @@ async fn test_state_storage_and_consumption() {
         scope: Some("read write".to_owned()),
         code_challenge: Some("test_challenge".to_owned()),
         code_challenge_method: Some("S256".to_owned()),
-        created_at: Utc::now(),
-        expires_at: Utc::now() + Duration::minutes(10),
+        created_at: Timestamp::now(),
+        expires_at: Timestamp::now() + Elapsed::minutes(10),
         used: false,
     };
 
@@ -122,7 +122,7 @@ async fn test_state_storage_and_consumption() {
     let consumed_state = database
         .repositories()
         .oauth2_server
-        .consume_state(state_value, client_id, Utc::now())
+        .consume_state(state_value, client_id, Timestamp::now())
         .await
         .unwrap();
 
@@ -159,8 +159,8 @@ async fn test_state_replay_attack_prevention() {
         scope: None,
         code_challenge: None,
         code_challenge_method: None,
-        created_at: Utc::now(),
-        expires_at: Utc::now() + Duration::minutes(10),
+        created_at: Timestamp::now(),
+        expires_at: Timestamp::now() + Elapsed::minutes(10),
         used: false,
     };
 
@@ -175,7 +175,7 @@ async fn test_state_replay_attack_prevention() {
     let first_consumption = database
         .repositories()
         .oauth2_server
-        .consume_state(state_value, client_id, Utc::now())
+        .consume_state(state_value, client_id, Timestamp::now())
         .await
         .unwrap();
     assert!(
@@ -187,7 +187,7 @@ async fn test_state_replay_attack_prevention() {
     let second_consumption = database
         .repositories()
         .oauth2_server
-        .consume_state(state_value, client_id, Utc::now())
+        .consume_state(state_value, client_id, Timestamp::now())
         .await
         .unwrap();
     assert!(
@@ -217,8 +217,8 @@ async fn test_expired_state_rejection() {
         scope: None,
         code_challenge: None,
         code_challenge_method: None,
-        created_at: Utc::now() - Duration::minutes(11),
-        expires_at: Utc::now() - Duration::minutes(1), // Expired
+        created_at: Timestamp::now() - Elapsed::minutes(11),
+        expires_at: Timestamp::now() - Elapsed::minutes(1), // Expired
         used: false,
     };
 
@@ -233,7 +233,7 @@ async fn test_expired_state_rejection() {
     let consumption_result = database
         .repositories()
         .oauth2_server
-        .consume_state(state_value, client_id, Utc::now())
+        .consume_state(state_value, client_id, Timestamp::now())
         .await
         .unwrap();
 
@@ -255,7 +255,7 @@ async fn test_state_not_found() {
     let consumption_result = database
         .repositories()
         .oauth2_server
-        .consume_state(invalid_state, client_id, Utc::now())
+        .consume_state(invalid_state, client_id, Timestamp::now())
         .await
         .unwrap();
 
@@ -292,8 +292,8 @@ async fn test_state_client_id_mismatch() {
         scope: None,
         code_challenge: None,
         code_challenge_method: None,
-        created_at: Utc::now(),
-        expires_at: Utc::now() + Duration::minutes(10),
+        created_at: Timestamp::now(),
+        expires_at: Timestamp::now() + Elapsed::minutes(10),
         used: false,
     };
 
@@ -308,7 +308,7 @@ async fn test_state_client_id_mismatch() {
     let attacker_consumption = database
         .repositories()
         .oauth2_server
-        .consume_state(state_value, attacker_client_id, Utc::now())
+        .consume_state(state_value, attacker_client_id, Timestamp::now())
         .await
         .unwrap();
 
@@ -321,7 +321,7 @@ async fn test_state_client_id_mismatch() {
     let legitimate_consumption = database
         .repositories()
         .oauth2_server
-        .consume_state(state_value, correct_client_id, Utc::now())
+        .consume_state(state_value, correct_client_id, Timestamp::now())
         .await
         .unwrap();
 
@@ -353,8 +353,8 @@ async fn test_state_with_pkce_parameters() {
         scope: Some("openid profile".to_owned()),
         code_challenge: Some(code_challenge.to_owned()),
         code_challenge_method: Some(code_challenge_method.to_owned()),
-        created_at: Utc::now(),
-        expires_at: Utc::now() + Duration::minutes(10),
+        created_at: Timestamp::now(),
+        expires_at: Timestamp::now() + Elapsed::minutes(10),
         used: false,
     };
 
@@ -368,7 +368,7 @@ async fn test_state_with_pkce_parameters() {
     let consumed_state = database
         .repositories()
         .oauth2_server
-        .consume_state(state_value, client_id, Utc::now())
+        .consume_state(state_value, client_id, Timestamp::now())
         .await
         .unwrap()
         .unwrap();
@@ -392,7 +392,7 @@ async fn test_state_expiration_boundary() {
 
     let client_id = "boundary_client_789";
     let state_value = "boundary_state_test";
-    let expiry_time = Utc::now() + Duration::seconds(1);
+    let expiry_time = Timestamp::now() + Elapsed::seconds(1);
 
     // Create test OAuth2 client (required for foreign key constraint)
     create_test_client(&database, client_id).await.unwrap();
@@ -406,7 +406,7 @@ async fn test_state_expiration_boundary() {
         scope: None,
         code_challenge: None,
         code_challenge_method: None,
-        created_at: Utc::now(),
+        created_at: Timestamp::now(),
         expires_at: expiry_time,
         used: false,
     };
@@ -425,7 +425,7 @@ async fn test_state_expiration_boundary() {
         .consume_state(
             state_value,
             client_id,
-            expiry_time - Duration::milliseconds(100),
+            expiry_time - Elapsed::milliseconds(100),
         )
         .await
         .unwrap();
@@ -438,7 +438,7 @@ async fn test_state_expiration_boundary() {
     let after_consumption = database
         .repositories()
         .oauth2_server
-        .consume_state(state_value, client_id, Utc::now())
+        .consume_state(state_value, client_id, Timestamp::now())
         .await
         .unwrap();
     assert!(

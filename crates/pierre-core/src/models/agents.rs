@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use uuid::Uuid;
@@ -295,9 +295,9 @@ pub struct Agent {
     /// Estimated token count of system prompt
     pub token_count: u32,
     /// Creation timestamp
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
     /// Last update timestamp
-    pub updated_at: DateTime<Utc>,
+    pub updated_at: Timestamp,
     /// Whether this is a system agent (admin-created)
     #[serde(default)]
     pub is_system: bool,
@@ -501,9 +501,9 @@ pub struct AgentTranslation {
     /// "stale" (reader falls back to English).
     pub source_sha: Option<String>,
     /// Translation row creation timestamp.
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
     /// Last-updated timestamp bumped on retranslation.
-    pub updated_at: DateTime<Utc>,
+    pub updated_at: Timestamp,
 }
 
 impl AgentTranslation {
@@ -656,7 +656,7 @@ pub struct AgentListItem {
     /// Number of times the current user has used this agent
     pub use_count: u32,
     /// Last time the current user used this agent
-    pub last_used_at: Option<DateTime<Utc>>,
+    pub last_used_at: Option<Timestamp>,
 }
 
 /// Request to create a new agent
@@ -800,7 +800,7 @@ pub struct AgentUserState {
     /// How many times the user used it.
     pub use_count: u32,
     /// When the user last used it.
-    pub last_used_at: Option<DateTime<Utc>>,
+    pub last_used_at: Option<Timestamp>,
 }
 
 /// Agent assignment info
@@ -830,13 +830,13 @@ pub struct StoreListing {
     pub publish_status: PublishStatus,
     /// When the agent was published to the store
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub published_at: Option<DateTime<Utc>>,
+    pub published_at: Option<Timestamp>,
     /// When the agent was submitted for review
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub review_submitted_at: Option<DateTime<Utc>>,
+    pub review_submitted_at: Option<Timestamp>,
     /// When admin made the review decision
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub review_decision_at: Option<DateTime<Utc>>,
+    pub review_decision_at: Option<Timestamp>,
     /// Admin user who made the review decision
     #[serde(skip_serializing_if = "Option::is_none")]
     pub review_decision_by: Option<String>,
@@ -853,9 +853,9 @@ pub struct StoreListing {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub author_id: Option<String>,
     /// Creation timestamp
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
     /// Last update timestamp
-    pub updated_at: DateTime<Utc>,
+    pub updated_at: Timestamp,
 }
 
 /// An agent combined with its store listing data (for store-related queries)
@@ -918,7 +918,7 @@ pub struct AgentVersion {
     /// Summary of what changed in this version
     pub change_summary: Option<String>,
     /// When this version was created
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
     /// User who created this version
     pub created_by: Option<Uuid>,
 }

@@ -4,8 +4,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use chrono::Utc;
 use dravr_canot::commands::CommandResponse;
+use dravr_tronc::dates::Timestamp;
 use pierre_contremaitre::messaging_strings::KEY_WALK_PLAN_THREAD;
 use pierre_core::errors::AppError;
 use pierre_core::models::{
@@ -234,6 +234,7 @@ async fn persist_opener(
         channel_type: None,
         about_user_id: None,
         turn_attempted_write: None,
+        ai_consent_sources: &ai_scope::derived_consent_sources(),
     };
     if let Err(e) = ctx.ctx.repos().chat.add_message(&opener).await {
         warn!(error = %e, "failed to persist {command} opener as assistant message");
@@ -269,7 +270,7 @@ pub async fn start_walk(
         AppError::invalid_input(format!("{command} needs an active conversation to run in"))
     })?;
     let user = ctx.user_id.to_string();
-    let started_at = Utc::now().to_rfc3339();
+    let started_at = Timestamp::now().to_rfc3339();
 
     supersede_previous_run(ctx, profile.as_ref(), &spec).await?;
     let snapshot = record_start_and_snapshot(ctx, profile, &spec, &started_at).await;

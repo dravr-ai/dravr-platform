@@ -9,7 +9,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_auth::key_management::{KeyManager, LocalKekProvider, MasterEncryptionKey};
 use pierre_auth::keyset::KeysetController;
 use pierre_database::backends::factory::Database;
@@ -68,7 +68,7 @@ async fn rewrap_kek_preserves_data_and_invalidates_old_kek() {
     )
     .tick(
         database.as_security_repository(),
-        Utc::now() + Duration::minutes(16),
+        Timestamp::now() + Elapsed::minutes(16),
     )
     .await
     .unwrap();
@@ -90,7 +90,7 @@ async fn rewrap_kek_preserves_data_and_invalidates_old_kek() {
         let (mut key_manager, bootstrap_key) = manager_with_mek(0xBB);
         database
             .keyring()
-            .install(Keyring::single(bootstrap_key.to_vec()), Utc::now());
+            .install(Keyring::single(bootstrap_key.to_vec()), Timestamp::now());
         assert!(
             database
                 .as_security_repository()

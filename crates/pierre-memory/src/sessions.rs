@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use serde::{Deserialize, Serialize};
 
 /// Lifecycle state of a [`AgentSession`].
@@ -59,14 +59,14 @@ pub struct AgentSession {
     /// Current lifecycle status.
     pub status: SessionStatus,
     /// When the session first opened.
-    pub opened_at: DateTime<Utc>,
+    pub opened_at: Timestamp,
     /// When the most recent turn happened in any conversation attached to
     /// this session. Used for "continue where you left off" UI.
-    pub last_turn_at: Option<DateTime<Utc>>,
+    pub last_turn_at: Option<Timestamp>,
     /// When the session was archived, if it was.
-    pub archived_at: Option<DateTime<Utc>>,
+    pub archived_at: Option<Timestamp>,
     /// Row metadata.
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
     /// Row metadata.
-    pub updated_at: DateTime<Utc>,
+    pub updated_at: Timestamp,
 }

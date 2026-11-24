@@ -11,6 +11,7 @@ import {
   signInThroughHostedPage,
   SIGN_IN_BUTTON,
   pickViewModeAtSignIn,
+  answerConnectConsents,
 } from './test-helpers';
 
 // Helper to set up mocks for an authenticated user session
@@ -434,7 +435,7 @@ test.describe('Settings Page - User Mode', () => {
     // from the "Privacy & Data" pane and went somewhere else entirely.
     await expect(pane.getByText('Legal documents')).toBeVisible();
     await expect(pane.getByText('Terms & Privacy')).toHaveCount(0);
-    // Which model answers is an operator's reading, never an athlete's (carnet#1147).
+    // Which model answers is an admin's reading, never an athlete's (carnet#1147).
     await expect(pane.getByTestId('about-section-coach-model')).toHaveCount(0);
     // Both external rows go to a page that answers: help to the docs hub,
     // legal to the privacy policy, which links the terms.
@@ -629,6 +630,83 @@ test.describe('Settings Page - User Mode', () => {
     await expect(page.getByTestId('api-key-k1')).toHaveCount(0);
   });
 
+  test('privacy pane lists who read the data, and Revoke cuts off that app (carnet#1543)', async ({ page }) => {
+    await loginAndNavigateToSettings(page);
+    let grants = [
+      { id: 'g1', client_id: 'client-claude', client_name: 'Claude', client_host: 'claude.ai', scope: 'fitness:read', granted_at: '2026-11-01T10:00:00Z' },
+      { id: 'g2', client_id: 'client-claude', client_name: 'Claude', client_host: 'claude.ai', scope: 'fitness:write', granted_at: '2026-11-02T10:00:00Z' },
+    ];
+    const revoked: string[] = [];
+    await page.route('**/api/me/access-feed', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          days: 30,
+          app_reads: [
+            { read_at: '2026-11-20T10:00:00Z', kind: 'tool_call', tool: 'get_activities', tools: ['get_activities'], client_id: 'client-claude', client_name: 'Claude', client_host: 'claude.ai', credential: 'oauth_grant', transport: 'mcp_http', support_read: false },
+            { read_at: '2026-11-19T10:00:00Z', kind: 'tool_call', tool: 'get_sleep_sessions', tools: ['get_sleep_sessions'], client_id: null, client_name: null, client_host: null, credential: 'api_key', transport: 'mcp_http', support_read: false },
+            { read_at: '2026-11-18T10:00:00Z', kind: 'agent_turn', tool: null, tools: ['get_activities', 'get_athlete'], client_id: 'client-bridge', client_name: 'Training bridge', client_host: null, credential: 'a2a_client_credentials', transport: 'a2a', support_read: false },
+          ],
+          coach_days: [
+            { day: '2026-11-20', coach_name: 'Marie', group_id: 'group-1', group_name: 'Run Club', data_class: 'training', reads: 3, views: 0, served_to_assistant: false, support_read: false },
+          ],
+          peer_days: [
+            { day: '2026-11-21', member_name: 'Alice', group_id: 'group-1', group_name: 'Run Club', reads: 2, views: 1, served_to_assistant: true, support_read: false },
+            { day: '2026-11-20', member_name: null, group_id: 'group-2', group_name: null, reads: 1, views: 0, served_to_assistant: false, support_read: true },
+          ],
+          api_key_days: [
+            { day: '2026-11-21', key_id: 'key-1', key_name: 'Garage sync', key_prefix: 'pk_live_ab12', requests: 4 },
+          ],
+        }),
+      })
+    );
+    await page.route('**/api/me/oauth-grants', (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ grants }) })
+    );
+    await page.route('**/api/me/oauth-grants/*', async (route) => {
+      const id = route.request().url().split('/').pop() ?? '';
+      revoked.push(id);
+      grants = grants.filter((grant) => grant.id !== id);
+      await route.fulfill({ status: 204 });
+    });
+
+    await page.getByTestId('settings-menu-privacy').click();
+    const feed = page.getByTestId('access-feed');
+    await expect(feed).toBeVisible();
+    const apps = feed.getByTestId('access-feed-app');
+    await expect(apps).toHaveCount(3);
+    await expect(apps.first().getByTestId('access-feed-app-name')).toHaveText('Claude');
+    await expect(apps.nth(1).getByTestId('access-feed-revoke')).toHaveCount(0);
+    await expect(apps.nth(1).getByTestId('access-feed-key-hint')).toBeVisible();
+    await expect(feed.getByTestId('access-feed-coach-name')).toHaveText('Marie');
+    // An agent turn names no tool; a member's day names them, or its stand-in once they are gone.
+    await expect(apps.nth(2).getByTestId('access-feed-read')).toHaveAttribute('data-kind', 'agent_turn');
+    await expect(apps.nth(2).getByTestId('access-feed-read-tool')).toHaveText("Asked Dravr's agent about your data");
+    const peers = feed.getByTestId('access-feed-peer-line');
+    await expect(peers.first()).toHaveText('Alice read your activities 2 times in Run Club');
+    await expect(peers.nth(1)).toHaveText('A former member read your activities once in a group that no longer exists');
+    const peerDays = feed.getByTestId('access-feed-peer-day');
+    await expect(peerDays.first().getByTestId('access-feed-peer-views')).toHaveText('1 view in Run Club');
+    await expect(peerDays.first().getByTestId('access-feed-peer-served')).toHaveText(
+      'Read by an AI tool this member connects to Dravr. The company that runs it received this data.',
+    );
+    await expect(peerDays.nth(1).getByTestId('access-feed-peer-support')).toHaveText('Read by Dravr support while helping this member.');
+    const key = feed.getByTestId('access-feed-api-key');
+    await expect(key.getByTestId('access-feed-api-key-name')).toHaveText('Garage sync');
+    await expect(key.getByTestId('access-feed-key-hint')).toBeVisible();
+    await expect(key.getByTestId('access-feed-revoke')).toHaveCount(0);
+    await expect(key.getByTestId('access-feed-api-key-requests')).toHaveText('4 requests');
+
+    await apps.first().getByTestId('access-feed-revoke').click();
+    await page.getByRole('dialog').getByRole('button', { name: 'Revoke' }).click();
+
+    // Both of the client's grants go; the reads it already made stay listed.
+    await expect(apps.first().getByTestId('access-feed-revoke')).toHaveCount(0);
+    expect(revoked.sort()).toEqual(['g1', 'g2']);
+    await expect(apps.first().getByTestId('access-feed-app-name')).toHaveText('Claude');
+  });
+
   test('data providers tab displays individual provider names', async ({ page }) => {
     // The API surfaces `sciotte` (Strava-branded), `sciotte_garmin`
     // (Garmin-branded), `sciotte_trainingpeaks` (TrainingPeaks-branded) and `whoop`.
@@ -803,6 +881,9 @@ test.describe('Settings Page - User Mode', () => {
 
     await page.getByRole('button', { name: 'Data Providers' }).click();
     await page.getByTestId('provider-connect-sciotte_garmin').click();
+    // The reconnect asks its offered consents first; the transfer box ticked
+    // there must reach the OAuth the sign-in falls back to.
+    await answerConnectConsents(page, ['garmin_workout_transfer']);
     const dialog = page.getByRole('dialog');
     await dialog.getByLabel(/email/i).fill('athlete@example.com');
     await dialog.getByLabel('Password', { exact: true }).fill('not-a-real-password');
@@ -817,6 +898,7 @@ test.describe('Settings Page - User Mode', () => {
     await tab.waitForLoadState();
     expect(new URL(tab.url()).pathname).toBe('/api/oauth/authorize/garmin');
     expect(new URL(tab.url()).searchParams.get('sign_in_blocked')).toBe('true');
+    expect(new URL(tab.url()).searchParams.get('consents')).toBe('garmin_workout_transfer');
 
     // Settings stays where the athlete was, the window closed.
     await expect(dialog).toBeHidden();

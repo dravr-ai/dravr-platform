@@ -34,7 +34,7 @@
 
 use std::time::Duration;
 
-use pierre_core::admin::models::{DELETED_ACCOUNT_OPERATOR, DEVICE_CLI_SERVICE_PREFIX};
+use pierre_core::admin::models::{DELETED_ACCOUNT_ADMIN, DEVICE_CLI_SERVICE_PREFIX};
 use pierre_database::backends::factory::{Database, DatabaseBackend};
 use pierre_test_support::account::delete_account;
 use pierre_test_support::db::create_concurrent_test_db;
@@ -44,9 +44,8 @@ use sqlx::Postgres;
 use sqlx::Sqlite;
 use tokio::time;
 
-use crate::admin_operator_tokens_test::{
-    account, log_a_request_with_its_caller, mint, requests_of, token,
-};
+use crate::admin_tokens_test::{account, log_a_request_with_its_caller, mint, requests_of, token};
+use dravr_tronc::dates::Timestamp;
 
 /// How long a write that must wait is watched not finishing.
 const WATCHED_WAITING: Duration = Duration::from_millis(400);
@@ -137,7 +136,7 @@ async fn a_log_write_that_meets_an_open_deletion_waits_and_keeps_no_caller() {
     deletion
         .run(
             RETIRE_THE_LOGIN,
-            &[&DELETED_ACCOUNT_OPERATOR.to_string(), &login],
+            &[&DELETED_ACCOUNT_ADMIN.to_string(), &login],
         )
         .await;
 
@@ -150,7 +149,7 @@ async fn a_log_write_that_meets_an_open_deletion_waits_and_keeps_no_caller() {
         tokio::spawn(async move {
             db.repositories()
                 .admin
-                .record_token_use(&login, chrono::Utc::now(), Some("203.0.113.9"))
+                .record_token_use(&login, Timestamp::now(), Some("203.0.113.9"))
                 .await
         })
     };
@@ -246,7 +245,7 @@ async fn a_request_logged_before_its_login_is_retired_is_scrubbed_by_the_deletio
     }
 
     let retired = token(repos, &login).await.expect("the login's row stays");
-    assert_eq!(retired.operator_user_id, Some(DELETED_ACCOUNT_OPERATOR));
+    assert_eq!(retired.operator_user_id, Some(DELETED_ACCOUNT_ADMIN));
     let requests = requests_of(repos, &login).await;
     assert_eq!(requests.len(), 1, "the request's row stays");
     assert_eq!(

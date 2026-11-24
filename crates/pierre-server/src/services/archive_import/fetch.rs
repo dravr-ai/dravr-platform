@@ -14,7 +14,7 @@
 //! resolved to and checked against the deny list, and byte, idle and total
 //! time caps. The allowlist is the deployment's
 //! ([`ENV_ARCHIVE_FETCH_HOSTS`]); with none set, every link is refused, so a
-//! deployment imports nothing until its operator names the hosts a service's
+//! deployment imports nothing until its admin names the hosts a service's
 //! exports are served from.
 //!
 //! Nothing here ever logs or returns the link: tronc's errors carry none of
@@ -437,7 +437,7 @@ mod tests {
         );
         assert!(
             refusal.to_string().contains("s3.amazonaws.com/a/../b/"),
-            "the error names the entry the operator wrote: {refusal}"
+            "the error names the entry the admin wrote: {refusal}"
         );
     }
 

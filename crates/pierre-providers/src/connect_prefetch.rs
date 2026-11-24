@@ -1,5 +1,5 @@
 // ABOUTME: Single-flight for the activity pre-fetch a provider connect starts, one per (tenant, user, provider)
-// ABOUTME: A reader of the same session awaits the read already in flight instead of scraping it again
+// ABOUTME: A reader of the same session awaits the read already in flight instead of reading it again
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -7,10 +7,10 @@
 //! The activity pre-fetch a provider connect starts, shared with every reader
 //! that arrives while it runs.
 //!
-//! A scrape connect fires its own reads at once: the pre-fetch that warms the
+//! A session connect fires its own reads at once: the pre-fetch that warms the
 //! cache, the health backfill, and whatever screen the athlete lands on next
 //! (the web onboarding asks for its coach proposal within a second). Each one
-//! is a browser on the scraper service, which serves a fixed number at a time,
+//! is a browser on the sciotte service, which serves a fixed number at a time,
 //! so on 2026-10-02 a COROS connect shed its own proposal read with a 503 and
 //! failed a daily-summary read with a 500 (carnet#736).
 //!
@@ -117,7 +117,7 @@ impl PrefetchedWindow {
             .zip(
                 self.activities
                     .iter()
-                    .map(|a| a.start_date().timestamp())
+                    .map(|a| a.start_date().epoch_seconds())
                     .min(),
             )
             .is_some_and(|(after, oldest)| oldest <= after);
@@ -125,7 +125,7 @@ impl PrefetchedWindow {
             .activities
             .iter()
             .filter(|a| {
-                let start = a.start_date().timestamp();
+                let start = a.start_date().epoch_seconds();
                 params.after.is_none_or(|after| start > after)
                     && params.before.is_none_or(|before| start < before)
             })
@@ -278,15 +278,15 @@ impl PrefetchWait {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::{DateTime, Duration as ChronoDuration, Utc};
+    use dravr_tronc::dates::{Elapsed, Timestamp};
     use pierre_core::models::{ActivityBuilder, SportType};
 
-    fn ride(id: &str, start: DateTime<Utc>) -> Activity {
+    fn ride(id: &str, start: Timestamp) -> Activity {
         ActivityBuilder::new(id, "ride", SportType::Ride, start, 3600, "sciotte_coros").build()
     }
 
-    fn days_ago(days: i64) -> DateTime<Utc> {
-        Utc::now() - ChronoDuration::days(days)
+    fn days_ago(days: i64) -> Timestamp {
+        Timestamp::now() - Elapsed::days(days)
     }
 
     fn first_page(limit: usize, after: Option<i64>) -> ActivityQueryParams {
@@ -314,7 +314,7 @@ mod tests {
             true,
         );
         let served = window
-            .serve(&first_page(50, Some(days_ago(90).timestamp())))
+            .serve(&first_page(50, Some(days_ago(90).epoch_seconds())))
             .unwrap();
         assert_eq!(
             served.len(),
@@ -332,7 +332,7 @@ mod tests {
         let window = PrefetchedWindow::new(full, 3, true);
         // Its oldest ride is two days old: a 90-day window may hold more.
         assert!(window
-            .serve(&first_page(50, Some(days_ago(90).timestamp())))
+            .serve(&first_page(50, Some(days_ago(90).epoch_seconds())))
             .is_none());
         // The newest two are wholly inside it.
         assert_eq!(window.serve(&first_page(2, None)).unwrap().len(), 2);

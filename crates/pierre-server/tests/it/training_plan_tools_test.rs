@@ -8,7 +8,7 @@
 #![allow(missing_docs)]
 
 use anyhow::Result;
-use chrono::{Datelike, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_contremaitre::TrainingCatalogueRegistry;
 use pierre_core::llm::tool_simulation::generate_tool_catalog;
 use pierre_core::models::{
@@ -19,6 +19,10 @@ use pierre_core::transport::{Transport, TransportPolicy};
 use pierre_database::repositories::UpsertUserFactParams;
 use pierre_llm::FunctionDeclaration;
 use pierre_memory::{FactKind, FactSource, MemoryScope, PredicateCode};
+use pierre_services::agent_package::PackagedCatalogue;
+use pierre_services::plan_fueling::FuelingDisclosure;
+use pierre_services::training_plan_render::render_training_plan_block;
+use pierre_test_support::log_capture::{self, CapturedEvent};
 use pierre_tool_runtime::implementations::training_plans::{
     GetTrainingPlanTool, SaveTrainingPlanTool,
 };
@@ -27,81 +31,12 @@ use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
 use pierre_tool_runtime::scopes::{missing_scope, required_scopes};
 use pierre_tool_runtime::McpTool;
 use serde_json::{json, Value};
-use std::collections::{BTreeSet, HashMap};
-use std::fmt::Debug as FmtDebug;
-use std::sync::{Arc, Mutex};
-use tracing::field::{Field, Visit};
-use tracing::subscriber::DefaultGuard;
-use tracing::Subscriber;
-use tracing_subscriber::layer::{Context, SubscriberExt};
-use tracing_subscriber::registry::LookupSpan;
-use tracing_subscriber::util::SubscriberInitExt;
-use tracing_subscriber::Layer;
+use std::collections::BTreeSet;
+use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::common;
-
-// ============================================================================
-// Notify-event capture
-// ============================================================================
-
-/// One `tracing` event with its structured fields, so a test can assert on the
-/// `notify` events the save emits rather than only on what it returns.
-#[derive(Clone, Debug)]
-struct CapturedEvent {
-    fields: HashMap<String, String>,
-}
-
-impl CapturedEvent {
-    fn field(&self, name: &str) -> Option<&str> {
-        self.fields.get(name).map(String::as_str)
-    }
-}
-
-#[derive(Clone, Default)]
-struct CaptureLayer {
-    events: Arc<Mutex<Vec<CapturedEvent>>>,
-}
-
-#[derive(Default)]
-struct FieldVisitor {
-    fields: HashMap<String, String>,
-}
-
-impl Visit for FieldVisitor {
-    fn record_debug(&mut self, field: &Field, value: &dyn FmtDebug) {
-        self.fields
-            .insert(field.name().to_owned(), format!("{value:?}"));
-    }
-
-    fn record_str(&mut self, field: &Field, value: &str) {
-        self.fields
-            .insert(field.name().to_owned(), value.to_owned());
-    }
-}
-
-impl<S> Layer<S> for CaptureLayer
-where
-    S: Subscriber + for<'a> LookupSpan<'a>,
-{
-    fn on_event(&self, event: &tracing::Event<'_>, _ctx: Context<'_, S>) {
-        let mut visitor = FieldVisitor::default();
-        event.record(&mut visitor);
-        if let Ok(mut events) = self.events.lock() {
-            events.push(CapturedEvent {
-                fields: visitor.fields,
-            });
-        }
-    }
-}
-
-/// Capture every event emitted on this thread until the guard is dropped.
-fn setup_capture() -> (Arc<Mutex<Vec<CapturedEvent>>>, DefaultGuard) {
-    let capture = CaptureLayer::default();
-    let events = Arc::clone(&capture.events);
-    let guard = tracing_subscriber::registry().with(capture).set_default();
-    (events, guard)
-}
+use dravr_tronc::dates::{CivilDate, Elapsed};
 
 async fn create_executor() -> Result<Arc<UniversalToolExecutor>> {
     common::init_server_config();
@@ -234,13 +169,13 @@ async fn assert_no_plan(
 
 /// `weeks` consecutive weeks from the Monday of this week, one rest day each.
 fn season_from_this_week(weeks: i64) -> Value {
-    let monday = Utc::now().date_naive()
-        - chrono::Duration::days(i64::from(
-            Utc::now().date_naive().weekday().num_days_from_monday(),
+    let monday = Timestamp::now().utc_date()
+        - Elapsed::days(i64::from(
+            Timestamp::now().utc_date().weekday().num_days_from_monday(),
         ));
     let weeks: Vec<Value> = (0..weeks)
         .map(|n| {
-            let start = (monday + chrono::Duration::weeks(n)).to_string();
+            let start = (monday + Elapsed::weeks(n)).to_string();
             json!({
                 "week_start": start,
                 "focus": format!("week {n}"),
@@ -253,7 +188,7 @@ fn season_from_this_week(weeks: i64) -> Value {
         "outline": {
             "goal_race": {
                 "name": "Season opener",
-                "date": (monday + chrono::Duration::weeks(6)).to_string(),
+                "date": (monday + Elapsed::weeks(6)).to_string(),
                 "discipline": "gravel",
                 "priority": "A"
             },
@@ -374,7 +309,7 @@ async fn a_step_outside_the_zone_grammar_is_rejected_with_no_write() -> Result<(
     )
     .await;
     assert!(
-        message.contains("day 2026-07-16 steps[1].target_zone"),
+        message.contains("day 2026-07-16 session 1 steps[1].target_zone"),
         "the rejection names the step: {message}"
     );
     assert!(
@@ -397,7 +332,9 @@ async fn a_day_whose_duration_contradicts_its_steps_is_rejected() -> Result<()> 
     )
     .await;
     assert!(
-        message.contains("day 2026-07-16 duration_min 45 contradicts its steps, which total 61"),
+        message.contains(
+            "day 2026-07-16 session 1 duration_min 45 contradicts its steps, which total 61"
+        ),
         "the rejection names the total: {message}"
     );
     assert_no_plan(&executor, user_id, &tenant_id).await
@@ -493,7 +430,7 @@ async fn a_rest_day_cannot_carry_steps() -> Result<()> {
     )
     .await;
     assert!(
-        message.contains("day 2026-07-16 is a rest day and carries steps"),
+        message.contains("day 2026-07-16 session 1 is a rest day and carries steps"),
         "got: {message}"
     );
     assert_no_plan(&executor, user_id, &tenant_id).await
@@ -577,7 +514,7 @@ async fn a_structured_day_shows_its_steps_in_the_prompt() -> Result<()> {
         .await?;
     assert!(save.success, "save failed: {:?}", save.error);
 
-    let today = chrono::NaiveDate::from_ymd_opt(2026, 7, 14).expect("valid date");
+    let today = CivilDate::from_ymd(2026, 7, 14).expect("valid date");
     let prompt = inject_training_plan(
         PlanPromptSources {
             repos: executor.resources.repos(),
@@ -678,7 +615,7 @@ async fn save_full_plan_then_get_roundtrip_with_goal_fact_writeback() -> Result<
             TenantId::from_uuid(Uuid::parse_str(&tenant_id)?),
             user_id,
             TransportPolicy::FirstPartyOnly,
-            &|_| true,
+            &|_, _| true,
         )
         .await?;
     let has_goal = format!("{dossier:?}").contains("Big Red");
@@ -744,7 +681,26 @@ async fn adjust_single_week_without_outline_supersedes_that_week() -> Result<()>
         weeks[0]["adjustment_reason"],
         "legs heavy Tuesday — tempo moved to Wednesday",
     );
-    assert_eq!(weeks[0]["days"][1]["date"], "2026-07-15");
+    let days: Vec<(&str, &str)> = weeks[0]["days"]
+        .as_array()
+        .expect("days")
+        .iter()
+        .map(|day| {
+            (
+                day["date"].as_str().unwrap_or_default(),
+                day["workout"].as_str().unwrap_or_default(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        days,
+        [
+            ("2026-07-13", "off — legs up"),
+            ("2026-07-14", "endurance easy"),
+            ("2026-07-15", "tempo 3x8min"),
+        ],
+        "the save stores the week in date order, the tempo on Wednesday (carnet#1716)"
+    );
     assert_eq!(weeks[1]["focus"], "moderate build", "week 2 untouched");
     Ok(())
 }
@@ -849,7 +805,7 @@ async fn saved_plan_is_injected_into_the_system_prompt() -> Result<()> {
         ))
         .await?;
 
-    let today = chrono::NaiveDate::from_ymd_opt(2026, 7, 14).expect("valid date");
+    let today = CivilDate::from_ymd(2026, 7, 14).expect("valid date");
     let prompt = inject_training_plan(
         PlanPromptSources {
             repos: executor.resources.repos(),
@@ -1137,6 +1093,7 @@ async fn a_real_but_non_goal_fact_id_is_not_linked() -> Result<()> {
             valid_until: None,
             source_msg_id: None,
             transport_policy: TransportPolicy::AnyTransport,
+            ai_consent_sources: &[],
         })
         .await?;
 
@@ -1503,6 +1460,7 @@ async fn seed_agnostic_goal_fact(
             valid_until: None,
             source_msg_id: None,
             transport_policy: TransportPolicy::AnyTransport,
+            ai_consent_sources: &[],
         })
         .await?;
     Ok(fact.id)
@@ -1604,6 +1562,7 @@ async fn a_goal_fact_ranked_below_the_list_cap_is_still_the_athletes_own() -> Re
                 valid_until: None,
                 source_msg_id: None,
                 transport_policy: TransportPolicy::AnyTransport,
+                ai_consent_sources: &[],
             })
             .await?;
     }
@@ -1656,7 +1615,7 @@ async fn seed_one_hour_per_week_baseline(
                 format!("baseline-{i}"),
                 format!("baseline ride {i}"),
                 SportType::Ride,
-                Utc::now() - chrono::Duration::days(2 + i * 7),
+                Timestamp::now() - Elapsed::days(2 + i * 7),
                 3_600,
                 "strava",
             )
@@ -1725,7 +1684,7 @@ async fn the_ramp_check_grades_the_earliest_week_not_the_first_in_the_payload() 
     let (user_id, tenant_id) = create_test_user(&executor).await?;
     seed_one_hour_per_week_baseline(&executor, &tenant_id, user_id).await?;
 
-    let (events, guard) = setup_capture();
+    let (events, guard) = log_capture::capture_events();
     let save = executor
         .execute_tool(make_request(
             "save_training_plan",
@@ -1734,7 +1693,7 @@ async fn the_ramp_check_grades_the_earliest_week_not_the_first_in_the_payload() 
             Some(&tenant_id),
         ))
         .await?;
-    let captured = events.lock().expect("capture lock").clone();
+    let captured = events.events();
     drop(guard);
 
     assert!(save.success, "save failed: {:?}", save.error);
@@ -1753,11 +1712,11 @@ async fn the_ramp_check_grades_the_earliest_week_not_the_first_in_the_payload() 
         planned.contains("1.0"),
         "the earliest week (1.0 h) must be the one measured, got {planned}"
     );
-    assert!(
-        checked[0]
-            .field("baseline_hours")
-            .is_some_and(|b| b.contains("1.0")),
-        "the seeded baseline must be the comparison: {captured:?}"
+    assert_eq!(
+        checked[0].field("baseline_hours"),
+        Some("<3"),
+        "the seeded one-hour baseline is the comparison, reported as its band \
+         and never as the athlete's exact weekly hours: {captured:?}"
     );
     Ok(())
 }
@@ -1781,7 +1740,7 @@ async fn a_week_only_adjustment_is_not_graded_as_an_opening_week() -> Result<()>
         ))
         .await?;
 
-    let (events, guard) = setup_capture();
+    let (events, guard) = log_capture::capture_events();
     let adjust = executor
         .execute_tool(make_request(
             "save_training_plan",
@@ -1801,7 +1760,7 @@ async fn a_week_only_adjustment_is_not_graded_as_an_opening_week() -> Result<()>
             Some(&tenant_id),
         ))
         .await?;
-    let captured = events.lock().expect("capture lock").clone();
+    let captured = events.events();
     drop(guard);
 
     assert!(adjust.success, "adjust failed: {:?}", adjust.error);
@@ -1838,11 +1797,10 @@ async fn a_week_only_adjustment_is_not_graded_as_an_opening_week() -> Result<()>
 
 #[tokio::test]
 async fn a_date_outside_the_calendar_domain_is_rejected_with_no_write() -> Result<()> {
-    // F17: `%Y` accepts a signed, unlimited-digit year and NaiveDate's Display
-    // re-emits it, so "+262142-12-31" round-trips through the format check.
-    // Stored, it panics the renderers on every later turn — a plan is
-    // re-rendered into the system prompt for the rest of the athlete's chat
-    // history. Every date the payload carries is bounded at save time.
+    // F17: a plan is re-rendered into the system prompt for the rest of the
+    // athlete's chat history, so every date the payload carries is bounded at
+    // save time. "+262142-12-31" lies past the years the date types hold and
+    // must still be refused for its year, as "0999-08-08" is.
     let executor = create_executor().await?;
     let (user_id, tenant_id) = create_test_user(&executor).await?;
 
@@ -1852,6 +1810,8 @@ async fn a_date_outside_the_calendar_domain_is_rejected_with_no_write() -> Resul
         ("/weeks/0/week_start", "+262142-07-13"),
         ("/weeks/0/days/0/date", "+262142-07-13"),
         ("/outline/goal_race/date", "0999-08-08"),
+        // Year 9999 holds weeks that cannot be closed inside the calendar.
+        ("/weeks/0/week_start", "9999-12-27"),
     ] {
         let mut payload = full_plan_payload();
         *payload
@@ -1863,7 +1823,7 @@ async fn a_date_outside_the_calendar_domain_is_rejected_with_no_write() -> Resul
         )
         .await;
         assert!(
-            message.contains("is outside 1000-9999"),
+            message.contains("is outside 1000-9998"),
             "the rejection of {pointer} must name the calendar bound it broke, \
              not a shape it satisfies: {message}"
         );
@@ -1888,6 +1848,79 @@ async fn a_date_outside_the_calendar_domain_is_rejected_with_no_write() -> Resul
     Ok(())
 }
 
+/// The latest week the save path accepts reaches the prompt. Its start,
+/// `9998-12-31`, is the last day of the last plan year, and the week closes on
+/// `9999-01-06`, inside the calendar. Were year 9999 accepted, a week starting
+/// after `9999-12-25` would save and then be silently skipped by every render.
+#[tokio::test]
+async fn the_latest_accepted_week_is_saved_and_rendered() -> Result<()> {
+    let executor = create_executor().await?;
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+    let payload = json!({
+        "agent_id": "endurance-coach",
+        "outline": {
+            "goal_race": {
+                "name": "Last Light",
+                "date": "9998-12-31",
+                "discipline": "gravel",
+                "priority": "A"
+            },
+            "strategy": "one week at the far edge of the plan calendar",
+            "phases": [
+                {"kind": "taper", "start": "9998-12-31", "weeks": 1, "intent": "edge of the plan years"}
+            ]
+        },
+        "weeks": [{
+            "week_start": "9998-12-31",
+            "focus": "the last plan week",
+            "days": [
+                {"date": "9998-12-31", "sport": "gravel", "workout": "edge-of-calendar ride", "duration_min": 60, "intensity": "Z2"}
+            ]
+        }]
+    });
+    let saved = executor
+        .execute_tool(make_request(
+            "save_training_plan",
+            payload,
+            user_id,
+            Some(&tenant_id),
+        ))
+        .await?;
+    assert!(
+        saved.success,
+        "the latest week must save: {:?}",
+        saved.error
+    );
+
+    // Read back as the chat pipeline reads it, and render as it renders.
+    let plans = executor.resources.repos().training_plans.clone();
+    let plan = plans
+        .get_active_plan(&tenant_id, &user_id.to_string())
+        .await?
+        .expect("an active plan");
+    let weeks = plans
+        .list_plan_weeks(&tenant_id, &user_id.to_string(), &plan.id, false)
+        .await?;
+    assert_eq!(weeks.len(), 1, "the week is stored");
+    let block = render_training_plan_block(
+        &plan,
+        &weeks,
+        CivilDate::from_ymd(9998, 12, 31)?,
+        &PackagedCatalogue::catalogue_only(&TrainingCatalogueRegistry::new()),
+        &FuelingDisclosure::Shown,
+    )
+    .expect("an active plan renders a block");
+    assert!(
+        block.contains("This week (starting 9998-12-31) — focus: the last plan week"),
+        "the latest accepted week must render, not be skipped: {block}"
+    );
+    assert!(
+        block.contains("9998-12-31") && block.contains("edge-of-calendar ride"),
+        "its day must render: {block}"
+    );
+    Ok(())
+}
+
 #[tokio::test]
 async fn a_hallucinated_week_count_is_rejected_with_no_write() -> Result<()> {
     // F25: every other collection in the payload is capped. An unbounded weeks
@@ -1897,21 +1930,21 @@ async fn a_hallucinated_week_count_is_rejected_with_no_write() -> Result<()> {
     let executor = create_executor().await?;
     let (user_id, tenant_id) = create_test_user(&executor).await?;
 
-    let mut week_start = chrono::NaiveDate::from_ymd_opt(2026, 7, 13).expect("valid date");
+    let mut week_start = CivilDate::from_ymd(2026, 7, 13).expect("valid date");
     let mut weeks = Vec::new();
     for _ in 0..105 {
         weeks.push(json!({
-            "week_start": week_start.format("%Y-%m-%d").to_string(),
+            "week_start": week_start.to_string(),
             "focus": "endurance",
             "days": [{
-                "date": week_start.format("%Y-%m-%d").to_string(),
+                "date": week_start.to_string(),
                 "sport": "gravel",
                 "workout": "endurance",
                 "duration_min": 90,
                 "intensity": "Z2"
             }]
         }));
-        week_start += chrono::Duration::days(7);
+        week_start += Elapsed::days(7);
     }
     let mut payload = full_plan_payload();
     payload["weeks"] = Value::Array(weeks);
@@ -2008,8 +2041,8 @@ async fn save_refuses_mid_walk_even_with_no_conversation_in_scope() -> Result<()
         .set_conversation_onboarding_state(
             &conversation.id,
             Some(
-                &OnboardingState::start(Utc::now().to_rfc3339(), GuidedFlow::Pillars)
-                    .completed(Utc::now().to_rfc3339())
+                &OnboardingState::start(Timestamp::now().to_rfc3339(), GuidedFlow::Pillars)
+                    .completed(Timestamp::now().to_rfc3339())
                     .to_column()?,
             ),
             tenant,
@@ -2171,13 +2204,13 @@ async fn rendered_tool_catalog_exposes_the_nested_field_names() {
 
 /// `YYYY-MM-DD`, `offset` days from today.
 fn day_offset(offset: i64) -> String {
-    let today = Utc::now().date_naive();
+    let today = Timestamp::now().utc_date();
     let d = if offset >= 0 {
-        today + chrono::Days::new(offset.unsigned_abs())
+        today + Elapsed::days(offset.abs())
     } else {
-        today - chrono::Days::new(offset.unsigned_abs())
+        today - Elapsed::days(offset.abs())
     };
-    d.format("%Y-%m-%d").to_string()
+    d.to_string()
 }
 
 /// One week of two real sessions starting `offset` days from today.
@@ -2218,7 +2251,7 @@ async fn every_save_reports_itself_including_a_weeks_only_adjustment() -> Result
     let (user_id, tenant_id) = create_test_user(&executor).await?;
 
     // Outline save: covers today and matches its block exactly.
-    let (events, guard) = setup_capture();
+    let (events, guard) = log_capture::capture_events();
     let first = executor
         .execute_tool(make_request(
             "save_training_plan",
@@ -2231,7 +2264,7 @@ async fn every_save_reports_itself_including_a_weeks_only_adjustment() -> Result
             Some(&tenant_id),
         ))
         .await?;
-    let captured = events.lock().expect("capture lock").clone();
+    let captured = events.events();
     drop(guard);
     assert!(first.success, "outline save failed: {:?}", first.error);
 
@@ -2255,7 +2288,7 @@ async fn every_save_reports_itself_including_a_weeks_only_adjustment() -> Result
     );
 
     // Weeks-only adjustment: the case that used to be silent.
-    let (events2, guard2) = setup_capture();
+    let (events2, guard2) = log_capture::capture_events();
     let second = executor
         .execute_tool(make_request(
             "save_training_plan",
@@ -2267,7 +2300,7 @@ async fn every_save_reports_itself_including_a_weeks_only_adjustment() -> Result
             Some(&tenant_id),
         ))
         .await?;
-    let captured2 = events2.lock().expect("capture lock").clone();
+    let captured2 = events2.events();
     drop(guard2);
     assert!(second.success, "weeks-only save failed: {:?}", second.error);
 
@@ -2301,7 +2334,7 @@ async fn a_plan_that_stopped_covering_the_athlete_reports_an_uncovered_gap() -> 
     let executor = create_executor().await?;
     let (user_id, tenant_id) = create_test_user(&executor).await?;
 
-    let (events, guard) = setup_capture();
+    let (events, guard) = log_capture::capture_events();
     let save = executor
         .execute_tool(make_request(
             "save_training_plan",
@@ -2316,7 +2349,7 @@ async fn a_plan_that_stopped_covering_the_athlete_reports_an_uncovered_gap() -> 
             Some(&tenant_id),
         ))
         .await?;
-    let captured = events.lock().expect("capture lock").clone();
+    let captured = events.events();
     drop(guard);
     assert!(save.success, "save failed: {:?}", save.error);
 
@@ -2348,7 +2381,7 @@ async fn a_plan_that_has_not_started_yet_reports_no_gap() -> Result<()> {
     let executor = create_executor().await?;
     let (user_id, tenant_id) = create_test_user(&executor).await?;
 
-    let (events, guard) = setup_capture();
+    let (events, guard) = log_capture::capture_events();
     let save = executor
         .execute_tool(make_request(
             "save_training_plan",
@@ -2362,7 +2395,7 @@ async fn a_plan_that_has_not_started_yet_reports_no_gap() -> Result<()> {
             Some(&tenant_id),
         ))
         .await?;
-    let captured = events.lock().expect("capture lock").clone();
+    let captured = events.events();
     drop(guard);
     assert!(save.success, "save failed: {:?}", save.error);
 
@@ -2382,7 +2415,7 @@ async fn weeks_that_stop_before_the_outline_ends_report_a_short_gap() -> Result<
     let executor = create_executor().await?;
     let (user_id, tenant_id) = create_test_user(&executor).await?;
 
-    let (events, guard) = setup_capture();
+    let (events, guard) = log_capture::capture_events();
     let save = executor
         .execute_tool(make_request(
             "save_training_plan",
@@ -2396,7 +2429,7 @@ async fn weeks_that_stop_before_the_outline_ends_report_a_short_gap() -> Result<
             Some(&tenant_id),
         ))
         .await?;
-    let captured = events.lock().expect("capture lock").clone();
+    let captured = events.events();
     drop(guard);
     assert!(save.success, "save failed: {:?}", save.error);
 
@@ -2422,7 +2455,7 @@ async fn a_plan_that_covers_today_and_matches_its_outline_reports_no_gap() -> Re
     let executor = create_executor().await?;
     let (user_id, tenant_id) = create_test_user(&executor).await?;
 
-    let (events, guard) = setup_capture();
+    let (events, guard) = log_capture::capture_events();
     let save = executor
         .execute_tool(make_request(
             "save_training_plan",
@@ -2435,7 +2468,7 @@ async fn a_plan_that_covers_today_and_matches_its_outline_reports_no_gap() -> Re
             Some(&tenant_id),
         ))
         .await?;
-    let captured = events.lock().expect("capture lock").clone();
+    let captured = events.events();
     drop(guard);
     assert!(save.success, "save failed: {:?}", save.error);
 
@@ -2646,8 +2679,8 @@ async fn a_day_cannot_name_a_template_nobody_can_read() -> Result<()> {
     .await;
     assert!(
         message.contains(
-            "day 2026-07-14 names template 'hill_repeats_9x9', which is neither in the \
-             catalogue nor among this athlete's saved sessions"
+            "day 2026-07-14 session 1 names template 'hill_repeats_9x9', which is neither in \
+             the catalogue nor among this athlete's saved sessions"
         ),
         "got: {message}"
     );
@@ -2667,7 +2700,8 @@ async fn a_rest_day_cannot_name_a_template() -> Result<()> {
     )
     .await;
     assert!(
-        message.contains("day 2026-07-13 is a rest day and names template recovery_30min"),
+        message
+            .contains("day 2026-07-13 session 1 is a rest day and names template recovery_30min"),
         "got: {message}"
     );
     assert_no_plan(&executor, user_id, &tenant_id).await

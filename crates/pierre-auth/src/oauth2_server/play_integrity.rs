@@ -27,16 +27,16 @@ use std::fmt;
 
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine as _;
-use chrono::{DateTime, Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
 /// How old a token may be when it is redeemed. The app requests it right
 /// before the code exchange; the code itself lives for minutes.
-pub const MAX_TOKEN_AGE: Duration = Duration::minutes(10);
+pub const MAX_TOKEN_AGE: Elapsed = Elapsed::minutes(10);
 
 /// How far ahead of this server's clock a token's timestamp may be.
-pub const MAX_CLOCK_SKEW: Duration = Duration::minutes(1);
+pub const MAX_CLOCK_SKEW: Elapsed = Elapsed::minutes(1);
 
 /// The app verdict of a binary Google Play distributed.
 const PLAY_RECOGNIZED: &str = "PLAY_RECOGNIZED";
@@ -176,7 +176,7 @@ pub fn verify_verdict(
     payload: &TokenPayload,
     expected_request_hash: &str,
     package_name: &str,
-    now: DateTime<Utc>,
+    now: Timestamp,
 ) -> Result<PlayIntegrityVerdict, PlayIntegrityError> {
     let request = &payload.request_details;
     if request.request_package_name != package_name {
@@ -189,7 +189,7 @@ pub fn verify_verdict(
         .timestamp_millis
         .parse::<i64>()
         .ok()
-        .and_then(DateTime::from_timestamp_millis)
+        .and_then(|millis| Timestamp::from_epoch_millis(millis).ok())
         .ok_or(PlayIntegrityError::Malformed("timestampMillis"))?;
     if issued_at > now + MAX_CLOCK_SKEW {
         return Err(PlayIntegrityError::FromTheFuture);
@@ -223,8 +223,8 @@ mod tests {
     const PACKAGE: &str = "ai.dravr.app";
     const CODE: &str = "an-authorization-code";
 
-    fn now() -> DateTime<Utc> {
-        DateTime::from_timestamp_millis(1_675_655_009_345).unwrap()
+    fn now() -> Timestamp {
+        Timestamp::from_epoch_millis(1_675_655_009_345).unwrap()
     }
 
     /// Google's documented example verdict, for this app and [`CODE`],
@@ -263,7 +263,7 @@ mod tests {
 
     fn verify_at(
         payload: &Value,
-        now: DateTime<Utc>,
+        now: Timestamp,
     ) -> Result<PlayIntegrityVerdict, PlayIntegrityError> {
         let payload: TokenPayload = serde_json::from_value(payload.clone()).unwrap();
         verify_verdict(&payload, &request_hash(CODE), PACKAGE, now)
@@ -347,7 +347,7 @@ mod tests {
         let just_in_time = now() + MAX_TOKEN_AGE;
         assert!(verify_at(&documented(), just_in_time).is_ok());
         assert_eq!(
-            verify_at(&documented(), just_in_time + Duration::milliseconds(1)),
+            verify_at(&documented(), just_in_time + Elapsed::milliseconds(1)),
             Err(PlayIntegrityError::Stale)
         );
     }
@@ -357,7 +357,7 @@ mod tests {
         let skewed = now() - MAX_CLOCK_SKEW;
         assert!(verify_at(&documented(), skewed).is_ok());
         assert_eq!(
-            verify_at(&documented(), skewed - Duration::milliseconds(1)),
+            verify_at(&documented(), skewed - Elapsed::milliseconds(1)),
             Err(PlayIntegrityError::FromTheFuture)
         );
     }

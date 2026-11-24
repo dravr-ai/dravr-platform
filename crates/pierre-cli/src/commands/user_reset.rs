@@ -1,5 +1,5 @@
 // ABOUTME: `user reset` — start a whole account over through the admin API: every provider disconnected, every owned row wiped
-// ABOUTME: The account, its sign-in, role, tier and operator overrides stay; without --yes it only says what would happen
+// ABOUTME: The account, its sign-in, role, tier and admin overrides stay; without --yes it only says what would happen
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -64,7 +64,7 @@ const WIPED_LINES: &[&str] = &[
 
 /// What a reset keeps, as the dry run states it.
 const KEPT_NOTE: &str = "  Kept: the account itself (id, email, sign-in, role, tier), its tenant memberships, \
-every operator override, its own API keys and connected MCP clients, threads it \
+every admin override, its own API keys and connected MCP clients, threads it \
 shares with another participant (with everything posted in them), and the ledgers (audit trail, usage, \
 LLM cost, billing). No tombstone and no deletion receipt is written.";
 
@@ -260,12 +260,12 @@ fn print_preview(body: &Value, delete_owned_groups: bool) -> AppResult<()> {
         .any(|entry| entry.get("provider").and_then(Value::as_str) == Some(TRAININGPEAKS));
     if holds_trainingpeaks && user.get("manages_roster").and_then(Value::as_bool) == Some(true) {
         if user
-            .get("manages_roster_operator_grant")
+            .get("manages_roster_admin_grant")
             .is_some_and(|grant| !grant.is_null())
         {
-            println!("  - manages_roster stays: an operator granted it");
+            println!("  - manages_roster stays: an admin granted it");
         } else {
-            println!("  - manages_roster, earned through a TrainingPeaks coach connection, would be revoked with it (an operator grant stays)");
+            println!("  - manages_roster, earned through a TrainingPeaks coach connection, would be revoked with it (an admin grant stays)");
         }
     }
     for line in WIPED_LINES {

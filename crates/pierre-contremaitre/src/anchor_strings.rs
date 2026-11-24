@@ -26,6 +26,7 @@
 //! the athlete's physiology screen lists every stored anchor with them, so
 //! the same anchor never reads two ways.
 
+use pierre_core::constants::time_constants::SECONDS_PER_MINUTE;
 use pierre_core::constants::units::METERS_PER_KM;
 use pierre_core::models::periodization::{AnchorConfidence, AnchorValue, SportFamily};
 use pierre_core::models::{
@@ -38,9 +39,6 @@ use crate::messaging_strings::{
     KEY_ENVELOPE_SOURCE_IMPORTED, KEY_ENVELOPE_SOURCE_OWN, KEY_ENVELOPE_SOURCE_PROMOTED,
     KEY_HUMAN_COACH_ANCHOR_SOURCE_FOR_ATHLETE, KEY_HUMAN_COACH_ANCHOR_SOURCE_FOR_COACH,
 };
-
-/// Seconds in a minute, for writing a pace.
-const SECONDS_PER_MINUTE: u32 = 60;
 
 /// The distance a swim pace is written per, in metres, in either unit system.
 const SWIM_PACE_METRES: f64 = 100.0;
@@ -217,9 +215,9 @@ fn bare(unit: AnchorUnit, sport: SportFamily, units: UnitSystem, value: f32) -> 
         // A kilometre, or a mile: the metres in one of `units`' distance units.
         METERS_PER_KM / units.distance_from_km(1.0)
     };
-    // A pace of at most a few minutes: far inside u32.
+    // A pace of at most a few minutes: far inside u64.
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    let seconds = (per / f64::from(value)).round() as u32;
+    let seconds = (per / f64::from(value)).round() as u64;
     format!(
         "{}:{:02}",
         seconds / SECONDS_PER_MINUTE,

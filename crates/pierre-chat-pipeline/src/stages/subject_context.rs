@@ -96,8 +96,6 @@ pub async fn inject_subject_context(
             registry: &ctx.repos,
             #[cfg(feature = "health-sync")]
             sync_orchestrator: &ctx.sync_orchestrator,
-            #[cfg(feature = "health-sync")]
-            sse_manager: &ctx.sse_manager,
         },
         &input.user_id,
         input.tool_tenant_id,

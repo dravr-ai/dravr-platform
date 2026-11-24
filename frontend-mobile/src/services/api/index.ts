@@ -6,12 +6,20 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 import {
+  createHealthRecordsApi,
   createMobileAdapter,
   createPierreApi,
   ENDPOINTS,
   type LinkCompleteResponse,
   type PierreApiService,
+  requireShape,
 } from '@pierre/api-client';
+import {
+  parseDeviceHealthCounts,
+  type DeviceHealthCounts,
+  type DeviceHealthSource,
+  type DeviceSamples,
+} from '@pierre/shared-types';
 import { getApiUrl } from '../apiUrl';
 
 // Create the mobile platform adapter with secure token storage
@@ -64,6 +72,11 @@ export const gearApi = api.gear;
 // Importing the athlete's own history from a service's export.
 export const importsApi = api.imports;
 export const originalsApi = api.dataExport;
+// The athlete's "Who read your data" feed: outside apps' reads and the coach's reads per day.
+export const accessFeedApi = api.accessFeed;
+// The athlete's health records: served records by kind, the lab review queue, uploaded lab reports.
+// Built here over the shared client: createPierreApi leaves it out for the web's entry budget.
+export const healthRecordsApi = createHealthRecordsApi(api.axios);
 // The athlete's statutory access requests to a company: the letter they send and its legal deadline.
 export const dataAccessRequestsApi = api.dataAccessRequests;
 // The live string catalogue, overlaid on the embedded copy at start-up.
@@ -87,5 +100,30 @@ export const channelLinkApi = {
       { state, code },
     );
     return response.data;
+  },
+};
+
+/** A counts body, or an error naming the endpoint whose answer broke the contract. */
+function deviceHealthCounts(body: unknown, endpoint: string): DeviceHealthCounts {
+  return requireShape(parseDeviceHealthCounts(body), endpoint);
+}
+
+// The phone's own health store (HealthKit, Health Connect, owl phase 9). Only
+// the phone has a store to read, so like channelLinkApi this lives here rather
+// than in a shared domain the web would never call. The body is the samples as
+// the OS handed them over; the server maps them.
+export const deviceHealthApi = {
+  /** One page of samples, at most `DEVICE_SAMPLES_MAX` of them, read from `samples.source`. */
+  async syncDeviceSamples(samples: DeviceSamples): Promise<DeviceHealthCounts> {
+    const endpoint = ENDPOINTS.DEVICE_HEALTH.SYNC(samples.source);
+    const response = await apiClient.post<unknown>(endpoint, samples);
+    return deviceHealthCounts(response.data, endpoint);
+  },
+
+  /** Everything synced from `source`: activities, nights, days and self-reports. */
+  async deleteDeviceData(source: DeviceHealthSource): Promise<DeviceHealthCounts> {
+    const endpoint = ENDPOINTS.DEVICE_HEALTH.DATA(source);
+    const response = await apiClient.delete<unknown>(endpoint);
+    return deviceHealthCounts(response.data, endpoint);
   },
 };

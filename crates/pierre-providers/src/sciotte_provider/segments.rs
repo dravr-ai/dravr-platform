@@ -4,7 +4,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! A scraped Strava activity's segment efforts, mapped to cageux's
+//! The segment efforts of a Strava activity read through the athlete's
+//! signed-in session, mapped to cageux's
 //! [`SegmentEffort`] the way the Strava grant's detail read maps them
 //! (`strava_provider::segments`), so a row read by either backend answers
 //! the segment history alike.

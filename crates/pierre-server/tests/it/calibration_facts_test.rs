@@ -16,7 +16,7 @@
 #![allow(missing_docs)]
 
 use anyhow::Result;
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::models::{Pillar, TenantId};
 use pierre_core::transport::TransportPolicy;
 use pierre_database::backends::factory::Database;
@@ -65,6 +65,7 @@ async fn seed(
             valid_until: None,
             source_msg_id: None,
             transport_policy: TransportPolicy::AnyTransport,
+            ai_consent_sources: &[],
         })
         .await?;
     Ok(fact.id)
@@ -97,7 +98,7 @@ async fn a_re_run_supersedes_only_the_previous_interviews_window() -> Result<()>
     .await?;
 
     // The boundary: everything from here on belongs to the first interview.
-    let window_start = Utc::now();
+    let window_start = Timestamp::now();
 
     let first_interview = seed(
         repos,
@@ -161,7 +162,7 @@ async fn a_re_run_leaves_other_pillars_alone() -> Result<()> {
     let tenant = TenantId::from_uuid(Uuid::new_v4());
     let user = Uuid::new_v4().to_string();
 
-    let window_start = Utc::now();
+    let window_start = Timestamp::now();
     let sleep_answer = seed(
         repos,
         tenant,
@@ -226,7 +227,7 @@ async fn superseded_answers_do_not_refill_the_guaranteed_bundle() -> Result<()> 
     let tenant = TenantId::from_uuid(Uuid::new_v4());
     let user = Uuid::new_v4().to_string();
 
-    let window_start = Utc::now() - Duration::seconds(1);
+    let window_start = Timestamp::now() - Elapsed::seconds(1);
     for i in 0..5 {
         seed(
             repos,
@@ -334,9 +335,12 @@ async fn calibration_answers_survive_a_flood_of_newer_conversation_facts() -> Re
 
     let dossier = repos
         .dossier
-        .compose_dossier(tenant, user_uuid, TransportPolicy::FirstPartyOnly, &|_| {
-            true
-        })
+        .compose_dossier(
+            tenant,
+            user_uuid,
+            TransportPolicy::FirstPartyOnly,
+            &|_, _| true,
+        )
         .await?;
     let objects: Vec<&str> = dossier
         .pillars
@@ -403,9 +407,12 @@ async fn the_by_kind_guarantee_still_covers_agent_authored_medical_facts() -> Re
 
     let dossier = repos
         .dossier
-        .compose_dossier(tenant, user_uuid, TransportPolicy::FirstPartyOnly, &|_| {
-            true
-        })
+        .compose_dossier(
+            tenant,
+            user_uuid,
+            TransportPolicy::FirstPartyOnly,
+            &|_, _| true,
+        )
         .await?;
     assert!(
         dossier

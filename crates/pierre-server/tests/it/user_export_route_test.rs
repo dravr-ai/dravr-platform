@@ -13,7 +13,7 @@
 #![allow(missing_docs)]
 
 use axum::Router;
-use chrono::{Duration, NaiveDate, Utc};
+use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp};
 use secrecy::{ExposeSecret, SecretString};
 use serde_json::Value;
 use uuid::Uuid;
@@ -123,8 +123,8 @@ async fn seed_athlete(repos: &RepositoryRegistry, label: &str) -> (User, TenantI
             domain: None,
             plan: "starter".to_owned(),
             owner_user_id: user.id,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         })
         .await
         .unwrap();
@@ -134,8 +134,8 @@ async fn seed_athlete(repos: &RepositoryRegistry, label: &str) -> (User, TenantI
             tenant_id,
             user.id,
             &format!("flow-{label}"),
-            NaiveDate::from_ymd_opt(2026, 10, 1).unwrap(),
-            Utc::now(),
+            CivilDate::from_ymd(2026, 10, 1).unwrap(),
+            Timestamp::now(),
         )
         .await
         .unwrap();
@@ -158,12 +158,12 @@ async fn connect_strava(repos: &RepositoryRegistry, user: &User, tenant_id: Tena
             access_token: SecretString::from(ACCESS_SECRET),
             refresh_token: None,
             token_type: "Bearer".to_owned(),
-            expires_at: Some(Utc::now() + Duration::hours(6)),
+            expires_at: Some(Timestamp::now() + Elapsed::hours(6)),
             scope: Some("read".to_owned()),
             provider_user_id: None,
             oauth_app_client_id: None,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         })
         .await
         .unwrap();
@@ -288,20 +288,16 @@ async fn an_api_key_or_mcp_token_cannot_export() {
 }
 
 #[tokio::test]
-async fn an_operators_impersonation_token_cannot_export() {
+async fn an_admins_impersonation_token_cannot_export() {
     let setup = Setup::new().await;
     let registry = setup.repos();
     let repos = registry.as_ref();
     let (ana, _) = seed_athlete(repos, "ana").await;
     // An admin opens it: the middleware refuses a session whose opener is
     // not one, which would be a 401 and not the export's own refusal.
-    let (operator, _) = seed_athlete(repos, "operator").await;
-    repos
-        .users
-        .set_admin_status(operator.id, true)
-        .await
-        .unwrap();
-    let session = ImpersonationSession::new(operator.id, ana.id, Some("support".to_owned()));
+    let (admin, _) = seed_athlete(repos, "admin").await;
+    repos.users.set_admin_status(admin.id, true).await.unwrap();
+    let session = ImpersonationSession::new(admin.id, ana.id, Some("support".to_owned()));
     repos.impersonation.create_session(&session).await.unwrap();
     let token = setup
         .resources
@@ -309,7 +305,7 @@ async fn an_operators_impersonation_token_cannot_export() {
         .auth_manager
         .generate_impersonation_token(
             &ana,
-            operator.id,
+            admin.id,
             &session.id,
             &setup.resources.auth.jwks_manager,
             None,
@@ -341,7 +337,6 @@ async fn a_token_an_integration_holds_cannot_export() {
                 audience: None,
             },
             &ana.id,
-            &[],
             Some(tenant.to_string()),
         )
         .unwrap();
@@ -391,7 +386,7 @@ fn barrage_record(
     id: &str,
     original: Option<&[u8]>,
 ) -> ActivityRecord {
-    let start = Utc::now() - Duration::days(3);
+    let start = Timestamp::now() - Elapsed::days(3);
     let activity = ActivityBuilder::new(id, "Ride", SportType::Ride, start, 3600, source.as_str())
         .distance_meters(30_000.0)
         .build();
@@ -401,7 +396,7 @@ fn barrage_record(
         import_id: None,
         source_activity_id: id.to_owned(),
         source_athlete_id: None,
-        ingested_at: Utc::now(),
+        ingested_at: Timestamp::now(),
         original: sha.map(|sha| BlobKey::original(scope, sha)),
         original_sha256: sha,
         session_index: sha.map(|_| 0),
@@ -410,6 +405,8 @@ fn barrage_record(
         importer_version: None,
         summary_window: SummaryWindow::default(),
         totals_from: TotalsFrom::default(),
+        legacy_id: None,
+        legacy_original: None,
     };
     ActivityRecord::try_new(scope, ActivityId::parse(id).unwrap(), provenance, activity).unwrap()
 }
@@ -431,8 +428,8 @@ async fn second_tenant(repos: &RepositoryRegistry, user: &User, label: &str) -> 
             domain: None,
             plan: "starter".to_owned(),
             owner_user_id: user.id,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         })
         .await
         .unwrap();

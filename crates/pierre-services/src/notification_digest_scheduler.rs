@@ -61,7 +61,7 @@ use std::sync::Arc;
 use std::time::Duration as StdDuration;
 
 use crate::periodic::spawn_periodic;
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
 use pierre_core::errors::AppResult;
 use pierre_core::models::{TenantId, User};
@@ -102,7 +102,7 @@ const DIGEST_SCAN_LIMIT: u32 = 500;
 /// consecutive digests sit a little under one period apart on the database
 /// clock; instance clocks differ by a little too. An hour absorbs both and is
 /// far below the shortest period.
-const DUE_TOLERANCE: Duration = Duration::hours(1);
+const DUE_TOLERANCE: Elapsed = Elapsed::hours(1);
 
 /// Outcome of a single scheduler tick — exposed for tests and metrics.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -256,10 +256,10 @@ async fn process_tenant(
 
 /// How long a calendar cadence waits between two digests, or `None` for
 /// `per_session`, which the tick never sends.
-const fn calendar_period(cadence: DigestCadence) -> Option<Duration> {
+const fn calendar_period(cadence: DigestCadence) -> Option<Elapsed> {
     match cadence {
-        DigestCadence::Daily | DigestCadence::PerAthlete => Some(Duration::days(1)),
-        DigestCadence::Weekly => Some(Duration::days(7)),
+        DigestCadence::Daily | DigestCadence::PerAthlete => Some(Elapsed::days(1)),
+        DigestCadence::Weekly => Some(Elapsed::days(7)),
         DigestCadence::PerSession => None,
     }
 }
@@ -273,7 +273,7 @@ async fn digest_when_due(
     user: &User,
     tenant_id: TenantId,
     cadence: DigestCadence,
-    period: Duration,
+    period: Elapsed,
 ) -> AppResult<usize> {
     let held = held_backlog(repos, service, user.id, tenant_id).await?;
     if held.is_empty() {
@@ -283,7 +283,7 @@ async fn digest_when_due(
         .persona_digest_returns
         .last_persona_digest_at(user.id, tenant_id)
         .await?;
-    if previous.is_some_and(|previous| Utc::now() - previous < period - DUE_TOLERANCE) {
+    if previous.is_some_and(|previous| Timestamp::now() - previous < period - DUE_TOLERANCE) {
         return Ok(0);
     }
     Digests::new(repos, service, strings, user, tenant_id)
@@ -414,7 +414,13 @@ impl<'a> Digests<'a> {
         let claimed = self
             .repos
             .persona_digest_returns
-            .claim_persona_digest_items(self.user.id, self.tenant_id, batch_id, &ids, Utc::now())
+            .claim_persona_digest_items(
+                self.user.id,
+                self.tenant_id,
+                batch_id,
+                &ids,
+                Timestamp::now(),
+            )
             .await?;
         if claimed.is_empty() {
             return Ok(false);

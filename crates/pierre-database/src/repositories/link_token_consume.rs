@@ -101,13 +101,13 @@ impl LinkTokenTable {
 /// the claim landed.
 ///
 /// A macro rather than a function because each backend shell expands it
-/// against its own pool and row type. The invoking scope must have `Utc`,
+/// against its own pool and row type. The invoking scope must have `Timestamp`,
 /// `AppError` and `sqlx::Row` in scope, as every token shell already does.
 macro_rules! consume_link_token {
     ($pool:expr, $table:expr, $selector:expr, $verifier_hash:expr) => {
         async {
             let table = $table;
-            let now = Utc::now();
+            let now = Timestamp::now();
             let guessed = sqlx::query(table.guess_sql)
                 .bind($selector)
                 .bind(now)

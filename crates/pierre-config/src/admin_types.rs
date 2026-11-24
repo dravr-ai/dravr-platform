@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -69,7 +69,7 @@ pub struct ParameterRange {
 /// Admin-configurable parameter with full metadata
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AdminConfigParameter {
-    /// Unique key identifier (e.g., `feature.auto_approval_enabled`)
+    /// Unique key identifier (e.g., `usage_quotas.daily_message_cap`)
     pub key: String,
     /// Human-readable display name
     pub display_name: String,
@@ -105,7 +105,7 @@ pub struct AdminConfigParameter {
     /// narrower scope (tenant or user) will win over the pin.
     pub env_pinned: bool,
     /// Which rung supplied `current_value`: `user`, `tenant`, `env`,
-    /// `global`, or `default`. Reported rather than inferred, so operator
+    /// `global`, or `default`. Reported rather than inferred, so admin
     /// tooling never has to guess which scope it is looking at.
     pub value_source: String,
     /// Whether this can be changed at runtime without restart
@@ -117,7 +117,7 @@ pub struct AdminConfigParameter {
 /// Configuration category for organizing parameters in the UI
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AdminConfigCategory {
-    /// Unique identifier (e.g., `feature_flags`)
+    /// Unique identifier (e.g., `usage_quotas`)
     pub id: String,
     /// Internal name for API use
     pub name: String,
@@ -159,9 +159,9 @@ pub struct ConfigOverride {
     /// User who created/updated this override
     pub created_by: String,
     /// When created
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
     /// When last updated
-    pub updated_at: DateTime<Utc>,
+    pub updated_at: Timestamp,
     /// Reason for the override
     pub reason: Option<String>,
 }
@@ -226,7 +226,7 @@ pub enum EnvSource {
     /// layered under per-tenant and per-user overrides.
     ConfigLayer,
     /// A boot-time loader owns this variable. The catalogue displays the
-    /// name for operators; the config layer must not also read it.
+    /// name for admins; the config layer must not also read it.
     BootLoader,
 }
 
@@ -259,7 +259,7 @@ pub fn config_env(name: &str) -> Option<EnvBinding> {
 }
 
 /// Bind a parameter to a variable a boot-time loader owns. Documented for
-/// operators, never read by the config layer — two readers for one variable
+/// admins, never read by the config layer — two readers for one variable
 /// would silently disagree.
 #[must_use]
 pub fn boot_env(name: &str) -> Option<EnvBinding> {
@@ -305,7 +305,7 @@ impl<'a> ConfigScope<'a> {
         }
     }
 
-    /// Stable operator-facing label used in CLI output and audit reasons.
+    /// Stable admin-facing label used in CLI output and audit reasons.
     #[must_use]
     pub const fn label(self) -> &'static str {
         match self {
@@ -422,7 +422,7 @@ pub struct UpdateConfigResponse {
     /// Whether any changes require server restart
     pub requires_restart: bool,
     /// When the changes became effective
-    pub effective_at: DateTime<Utc>,
+    pub effective_at: Timestamp,
     /// Keys whose stored value will not apply because an environment pin
     /// outranks the system-wide scope. The write still succeeded — the row is
     /// stored and takes effect once the variable is unset.

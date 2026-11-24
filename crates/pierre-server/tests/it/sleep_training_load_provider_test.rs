@@ -16,8 +16,8 @@
 //! does.
 
 use anyhow::Result;
-use chrono::{Duration, Utc};
 use dravr_cageux::training_load::TrainingLoadCalculator;
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::models::{ActivityBuilder, ConnectionType, SportType, TenantId};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::Transport;
@@ -181,7 +181,7 @@ async fn the_recovery_tools_score_sessions_against_the_saved_thresholds() -> Res
         "threshold-ride".to_owned(),
         "Threshold ride".to_owned(),
         SportType::Ride,
-        Utc::now() - Duration::days(1),
+        Timestamp::now() - Elapsed::days(1),
         3_600,
         "strava".to_owned(),
     )
@@ -220,7 +220,7 @@ async fn the_recovery_tools_score_sessions_against_the_saved_thresholds() -> Res
 
     let expected = TrainingLoadCalculator::from_config(
         executor.cageux_config().algorithms.clone(),
-        Utc::now().date_naive(),
+        Timestamp::now().utc_date(),
     )
     .calculate_training_load(&[ride], Some(250.0), None, None, None, None)?;
     assert!(

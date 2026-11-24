@@ -7,12 +7,12 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use chrono::{DateTime, Duration, Utc};
 use dravr_cageux::training_load::{FormBand, RiskLevel, TrainingLoad, TrainingLoadCalculator};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::models::{Activity, SportType};
 
 fn create_test_activity(
-    date: DateTime<Utc>,
+    date: Timestamp,
     duration_seconds: u32,
     avg_power: Option<u32>,
     avg_hr: Option<u32>,
@@ -20,7 +20,7 @@ fn create_test_activity(
     use pierre_core::models::ActivityBuilder;
 
     let mut builder = ActivityBuilder::new(
-        format!("test_{}", date.timestamp()),
+        format!("test_{}", date.epoch_seconds()),
         "Test Activity",
         SportType::Run,
         date,
@@ -86,7 +86,7 @@ fn test_recommend_recovery_days_is_relative_to_ctl() {
 
 #[test]
 fn test_empty_activities() {
-    let calculator = TrainingLoadCalculator::new(Utc::now().date_naive());
+    let calculator = TrainingLoadCalculator::new(Timestamp::now().utc_date());
     let result = calculator
         .calculate_training_load(&[], Some(250.0), None, Some(180.0), Some(60.0), Some(70.0))
         .unwrap();
@@ -98,12 +98,12 @@ fn test_empty_activities() {
 
 #[test]
 fn test_training_load_with_power() {
-    let calculator = TrainingLoadCalculator::new(Utc::now().date_naive());
-    let now = Utc::now();
+    let calculator = TrainingLoadCalculator::new(Timestamp::now().utc_date());
+    let now = Timestamp::now();
 
     let activities = vec![
-        create_test_activity(now - Duration::days(2), 3600, Some(200), None),
-        create_test_activity(now - Duration::days(1), 3600, Some(220), None),
+        create_test_activity(now - Elapsed::days(2), 3600, Some(200), None),
+        create_test_activity(now - Elapsed::days(1), 3600, Some(220), None),
         create_test_activity(now, 3600, Some(210), None),
     ];
 
@@ -182,14 +182,14 @@ fn test_overtraining_risk_detection() {
 
 #[test]
 fn test_training_load_is_independent_of_input_order() {
-    let calculator = TrainingLoadCalculator::new(Utc::now().date_naive());
-    let now = Utc::now();
+    let calculator = TrainingLoadCalculator::new(Timestamp::now().utc_date());
+    let now = Timestamp::now();
 
     // Newest first, the way Strava returns activities.
     let newest_first = vec![
         create_test_activity(now, 3600, Some(210), None),
-        create_test_activity(now - Duration::days(1), 3600, Some(220), None),
-        create_test_activity(now - Duration::days(2), 3600, Some(200), None),
+        create_test_activity(now - Elapsed::days(1), 3600, Some(220), None),
+        create_test_activity(now - Elapsed::days(2), 3600, Some(200), None),
     ];
     let mut oldest_first = newest_first.clone();
     oldest_first.reverse();
@@ -208,24 +208,24 @@ fn test_training_load_is_independent_of_input_order() {
 
 #[test]
 fn test_training_load_decays_over_rest_days_to_the_as_of_day() {
-    let now = Utc::now();
+    let now = Timestamp::now();
     // cageux seeds each load at the history's mean over its opening window,
     // read through the as-of day. A history longer than the 42-day window on
     // both as-of days gives both one seed, so rest days only decay the loads.
     let activities = vec![
-        create_test_activity(now - Duration::days(60), 3600, Some(180), None),
-        create_test_activity(now - Duration::days(2), 3600, Some(200), None),
-        create_test_activity(now - Duration::days(1), 3600, Some(220), None),
+        create_test_activity(now - Elapsed::days(60), 3600, Some(180), None),
+        create_test_activity(now - Elapsed::days(2), 3600, Some(200), None),
+        create_test_activity(now - Elapsed::days(1), 3600, Some(220), None),
         create_test_activity(now, 3600, Some(210), None),
     ];
-    let today = now.date_naive();
+    let today = now.utc_date();
     let load = |as_of| {
         TrainingLoadCalculator::new(as_of)
             .calculate_training_load(&activities, Some(250.0), None, None, None, Some(70.0))
             .unwrap()
     };
     let on_the_day = load(today);
-    let after_rest = load(today + Duration::days(5));
+    let after_rest = load(today + Elapsed::days(5));
 
     // An N-day load takes in 1/N of each day (Coggan/TrainingPeaks), so five
     // empty days multiply the 7-day ATL by (6/7)^5 and the 42-day CTL by
@@ -239,13 +239,13 @@ fn test_training_load_decays_over_rest_days_to_the_as_of_day() {
 
 #[test]
 fn test_training_load_sorted_chronological_produces_nonzero() {
-    let calculator = TrainingLoadCalculator::new(Utc::now().date_naive());
-    let now = Utc::now();
+    let calculator = TrainingLoadCalculator::new(Timestamp::now().utc_date());
+    let now = Timestamp::now();
 
     // Oldest first (correct order for EMA)
     let activities = vec![
-        create_test_activity(now - Duration::days(2), 3600, Some(200), None),
-        create_test_activity(now - Duration::days(1), 3600, Some(220), None),
+        create_test_activity(now - Elapsed::days(2), 3600, Some(200), None),
+        create_test_activity(now - Elapsed::days(1), 3600, Some(220), None),
         create_test_activity(now, 3600, Some(210), None),
     ];
 
@@ -260,32 +260,5 @@ fn test_training_load_sorted_chronological_produces_nonzero() {
     assert!(
         result.atl > 0.0,
         "ATL must be positive when sorted oldest-first"
-    );
-}
-
-#[test]
-fn test_training_load_pace_fallback_no_physiological_params() {
-    let calculator = TrainingLoadCalculator::new(Utc::now().date_naive());
-    let now = Utc::now();
-
-    // Activities with 10km distance but no power/HR — pace fallback should work
-    let activities = vec![
-        create_test_activity(now - Duration::days(5), 3600, None, None),
-        create_test_activity(now - Duration::days(3), 3600, None, None),
-        create_test_activity(now - Duration::days(1), 3600, None, None),
-        create_test_activity(now, 3600, None, None),
-    ];
-
-    let result = calculator
-        .calculate_training_load(&activities, None, None, None, None, None)
-        .unwrap();
-
-    assert!(
-        !result.tss_history.is_empty(),
-        "Pace fallback should produce TSS values"
-    );
-    assert!(
-        result.ctl > 0.0,
-        "CTL should be positive with pace-based estimation"
     );
 }

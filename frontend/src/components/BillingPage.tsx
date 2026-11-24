@@ -1,4 +1,4 @@
-// ABOUTME: Phase 5E user-facing billing page — subscription, plan picker, invoices, quota gauges
+// ABOUTME: The user-facing billing page — subscription, plan picker, invoices, quota gauges
 // ABOUTME: Drives /api/billing/checkout, /portal, /subscription, /invoices, /users/me/quota
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0

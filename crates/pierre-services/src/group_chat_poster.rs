@@ -45,22 +45,43 @@ pub trait GroupChatPoster: Send + Sync {
     ) -> usize;
 }
 
+/// A group's chat the platform may post into, and the tenant to post through.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ProactiveChat<'a> {
+    /// The channel the chat is on.
+    pub channel: ChannelType,
+    /// The chat's channel-native id.
+    pub chat_id: &'a str,
+    /// The tenant whose bot serves the chat, which owns the channel
+    /// configuration a post goes through. For a group the chat created that
+    /// is the group's own tenant; for one connected from the web app it is
+    /// the tenant recorded with the connection (carnet#1683).
+    pub tenant_id: TenantId,
+}
+
 /// The chat `group` is bound to, when the platform may post into it unasked.
 ///
 /// That is a Telegram group, a Slack channel or a Discord channel, returned
-/// with its channel-native id. `None` for a group bound to no chat, and for
-/// one bound to `WhatsApp` or Messenger, which refuse a text the platform
-/// starts outside the 24-hour window after a member's last message.
+/// with its channel-native id and serving tenant. `None` for a group bound to
+/// no chat, for one bound to `WhatsApp` or Messenger, which refuse a text the
+/// platform starts outside the 24-hour window after a member's last message,
+/// and for one whose serving tenant cannot be read.
 #[must_use]
-pub fn proactive_chat(group: &CoachingGroup) -> Option<(ChannelType, &str)> {
+pub fn proactive_chat(group: &CoachingGroup) -> Option<ProactiveChat<'_>> {
     let channel = group.channel_type.as_deref()?.parse::<ChannelType>().ok()?;
     let chat_id = group
         .channel_chat_id
         .as_deref()
         .filter(|id| !id.trim().is_empty())?;
-    matches!(
+    if !matches!(
         channel,
         ChannelType::Telegram | ChannelType::Slack | ChannelType::Discord
-    )
-    .then_some((channel, chat_id))
+    ) {
+        return None;
+    }
+    Some(ProactiveChat {
+        channel,
+        chat_id,
+        tenant_id: group.chat_serving_tenant()?,
+    })
 }

@@ -5,7 +5,8 @@
 // Copyright (c) 2026 dravr.ai
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
+use pierre_core::constants::oauth_providers::consent_sources_from_column;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::transport::TransportPolicy;
 use pierre_memory::commitments::{Commitment, CommitmentOutcome, CommitmentStatus};
@@ -25,10 +26,13 @@ pub struct SweptVerdict<'a> {
     /// How many matching sessions were counted.
     pub completed_sessions: u32,
     /// When the sweep ran.
-    pub at: DateTime<Utc>,
+    pub at: Timestamp,
     /// The stamp of the sessions the count read (carnet#769): the commitment
     /// keeps the stricter of its own and this.
     pub transport_policy: TransportPolicy,
+    /// The AI-consent keys of the sessions the count read (carnet#1157): the
+    /// commitment names them beside its own.
+    pub ai_consent_sources: &'a [String],
 }
 
 /// Persistence for athlete commitments.
@@ -93,7 +97,7 @@ pub trait CommitmentRepository: Send + Sync {
         &self,
         tenant_id: &str,
         commitment_id: &str,
-        at: DateTime<Utc>,
+        at: Timestamp,
     ) -> AppResult<bool>;
 
     /// Close a commitment out without a verdict reaching the athlete — the
@@ -114,7 +118,7 @@ pub trait CommitmentRepository: Send + Sync {
         &self,
         tenant_id: &str,
         user_id: &str,
-    ) -> AppResult<Option<DateTime<Utc>>>;
+    ) -> AppResult<Option<Timestamp>>;
 }
 
 /// Build a complete `SELECT` over `athlete_commitments` at compile time.
@@ -130,7 +134,7 @@ macro_rules! select_commitments {
             "SELECT id, tenant_id, user_id, agent_id, conversation_id, statement, sport, ",
             "target_sessions, window_start, window_end, status, outcome, ",
             "completed_sessions, swept_at, reported_at, created_at, updated_at, ",
-            "first_party_only ",
+            "first_party_only, ai_consent_sources ",
             "FROM athlete_commitments ",
             $tail
         )
@@ -148,9 +152,9 @@ pub(crate) const INSERT_COMMITMENT_SQL: &str = r"
     INSERT INTO athlete_commitments (
         id, tenant_id, user_id, agent_id, conversation_id, statement, sport,
         target_sessions, window_start, window_end, status, outcome, completed_sessions,
-        swept_at, reported_at, created_at, updated_at, first_party_only
+        swept_at, reported_at, created_at, updated_at, first_party_only, ai_consent_sources
     )
-    SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NULL, NULL, NULL, NULL, $12, $13, $14
+    SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NULL, NULL, NULL, NULL, $12, $13, $14, $15
     WHERE NOT EXISTS (
         SELECT 1 FROM athlete_commitments
         WHERE tenant_id = $2 AND user_id = $3 AND agent_id = $4
@@ -176,11 +180,21 @@ pub(crate) const LIST_OPEN_COMMITMENTS_SQL: &str = select_commitments!(
 
 /// Record the sweep verdict. The `status = 'open'` predicate makes a racing
 /// second sweep a zero-row no-op instead of a double count. The stamp only
-/// tightens: the verdict counts sessions the commitment did not quote.
+/// tightens: the verdict counts sessions the commitment did not quote. For
+/// the same reason the row names the count's consent sources (`$7`) beside
+/// its own (carnet#1157). A list the column already holds is not appended
+/// again, so the column stays bounded by the consent keys; the reader drops
+/// any repeats.
 pub(crate) const RECORD_VERDICT_SQL: &str = r"
     UPDATE athlete_commitments
     SET status = 'labeled', outcome = $1, completed_sessions = $2, swept_at = $3, updated_at = $3,
-        first_party_only = CASE WHEN $6 THEN $6 ELSE first_party_only END
+        first_party_only = CASE WHEN $6 THEN $6 ELSE first_party_only END,
+        ai_consent_sources = CASE
+            WHEN ai_consent_sources IS NULL THEN $7
+            WHEN $7 IS NULL OR (',' || ai_consent_sources || ',') LIKE ('%,' || $7 || ',%')
+                THEN ai_consent_sources
+            ELSE ai_consent_sources || ',' || $7
+        END
     WHERE id = $4 AND tenant_id = $5 AND status = 'open'
 ";
 
@@ -214,8 +228,8 @@ pub(crate) const LAST_REPORT_SQL: &str = r"
 ";
 
 /// Convert epoch seconds to a UTC timestamp.
-fn epoch_to_dt(secs: i64) -> Option<DateTime<Utc>> {
-    DateTime::from_timestamp(secs, 0)
+fn epoch_to_dt(secs: i64) -> Option<Timestamp> {
+    Timestamp::from_epoch_seconds(secs).ok()
 }
 
 /// Clamp a DB counter (`i64`, always non-negative in our schema) into the `u32`
@@ -272,6 +286,8 @@ pub(crate) struct CommitmentRow {
     pub updated_at: i64,
     /// `first_party_only` stamp (carnet#769).
     pub first_party_only: bool,
+    /// `ai_consent_sources` column (carnet#1157), NULL for none.
+    pub ai_consent_sources: Option<String>,
 }
 
 /// Build a [`Commitment`] from extracted row primitives.
@@ -298,15 +314,16 @@ pub(crate) fn commitment_from_row(row: CommitmentRow) -> AppResult<Commitment> {
         statement: row.statement,
         sport: empty_to_none(row.sport),
         target_sessions: clamp_count(row.target_sessions),
-        window_start: epoch_to_dt(row.window_start).unwrap_or_else(Utc::now),
-        window_end: epoch_to_dt(row.window_end).unwrap_or_else(Utc::now),
+        window_start: epoch_to_dt(row.window_start).unwrap_or_else(Timestamp::now),
+        window_end: epoch_to_dt(row.window_end).unwrap_or_else(Timestamp::now),
         status,
         outcome,
         completed_sessions: row.completed_sessions.map(clamp_count),
         swept_at: row.swept_at.and_then(epoch_to_dt),
         reported_at: row.reported_at.and_then(epoch_to_dt),
-        created_at: epoch_to_dt(row.created_at).unwrap_or_else(Utc::now),
-        updated_at: epoch_to_dt(row.updated_at).unwrap_or_else(Utc::now),
+        created_at: epoch_to_dt(row.created_at).unwrap_or_else(Timestamp::now),
+        updated_at: epoch_to_dt(row.updated_at).unwrap_or_else(Timestamp::now),
         transport_policy: TransportPolicy::from_first_party_only(row.first_party_only),
+        ai_consent_sources: consent_sources_from_column(row.ai_consent_sources.as_deref()),
     })
 }

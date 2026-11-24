@@ -75,10 +75,10 @@ describe('OAuthCallback', () => {
     expect(screen.getByText(/Failed to connect your Strava account/)).toBeInTheDocument()
   })
 
-  it('should capitalize provider name', () => {
+  it('names the provider as its brand spells itself', () => {
     render(<OAuthCallback provider="whoop" onClose={vi.fn()} />)
 
-    expect(screen.getByText(/Failed to connect your Whoop account/)).toBeInTheDocument()
+    expect(screen.getByText(/Failed to connect your WHOOP account/)).toBeInTheDocument()
   })
 
   it('goes back to where the connect started through onClose, in this same tab', async () => {

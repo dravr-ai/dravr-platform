@@ -19,8 +19,8 @@ use crate::helpers;
 
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine as _;
-use chrono::Utc;
 use common::{create_test_server_resources, create_test_user_with_email};
+use dravr_tronc::dates::Timestamp;
 use helpers::axum_test::{AxumTestRequest, AxumTestResponse};
 use helpers::first_party_sign_in::{FirstPartyClient, IssuedCode, SignIn};
 use pierre_auth::oauth2_server::first_party::MOBILE_APP_ATTEST_APP_ID;
@@ -60,7 +60,7 @@ impl Install {
 
     /// Register the key as a verified attestation does.
     async fn register(&self, resources: &ServerContext) {
-        let now = Utc::now();
+        let now = Timestamp::now();
         let registered = resources
             .common
             .repos
@@ -384,7 +384,7 @@ async fn a_key_registers_once_and_keeps_its_first_record() {
     install.register(&resources).await;
 
     let keys = &resources.common.repos.app_attest_keys;
-    let now = Utc::now();
+    let now = Timestamp::now();
     let replayed = keys
         .register_key(&AppAttestKey {
             key_id: install.key_id(),

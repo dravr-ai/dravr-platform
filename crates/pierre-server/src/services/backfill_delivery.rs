@@ -22,9 +22,9 @@
 use pierre_core::transport::TransportPolicy;
 use std::iter::once;
 
-use chrono::{DateTime, Utc};
 use dravr_canot::channel::MessagingChannel;
 use dravr_canot::turn::ConversationTurnId;
+use dravr_tronc::dates::Timestamp;
 use pierre_contremaitre::messaging_strings::{
     MessagingStringsRegistry, KEY_BACKFILL_PUSH_BODY, KEY_BACKFILL_PUSH_TITLE,
 };
@@ -96,7 +96,7 @@ pub(crate) struct ResolvedRoute {
     pub channel_tenant_id: TenantId,
     /// The athlete's last inbound message on the session, which opens the
     /// channel's window for a message they did not ask for.
-    pub last_inbound: Option<DateTime<Utc>>,
+    pub last_inbound: Option<Timestamp>,
 }
 
 impl ResolvedRoute {
@@ -104,7 +104,7 @@ impl ResolvedRoute {
     /// `now` — [`channel_allows_proactive`], the check the check-in and the
     /// commitment verdict pass: Meta's 24-hour window on `WhatsApp` and
     /// Messenger, always on the bot channels.
-    pub(crate) fn window_open(&self, now: DateTime<Utc>) -> bool {
+    pub(crate) fn window_open(&self, now: Timestamp) -> bool {
         channel_allows_proactive(self.channel_type, self.last_inbound, now)
     }
 }
@@ -406,6 +406,7 @@ impl InAppDelivery<'_> {
             channel_type: None,
             about_user_id: None,
             turn_attempted_write: None,
+            ai_consent_sources: &[],
         };
         match self.repos.chat.add_message(&params).await {
             Ok(stored) => {

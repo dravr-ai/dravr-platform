@@ -228,6 +228,100 @@ run "$R" lock-assert dravr-cageux v0.19.0 >/dev/null 2>&1 \
   && bad "lock-assert PASSED a stale git+tag source" || ok "lock-assert fails on a stale git+tag source"
 
 # --------------------------------------------------------------------------
+echo "-- precise lock rewrite: only the bumped crate's two lines move"
+SHA=0123456789abcdef0123456789abcdef01234567
+R=$(fixture lock-rewrite)
+cp "$R/Cargo.lock" "$R/Cargo.lock.before"
+if SATELLITE_PIN_TAG_SHA="$SHA" run "$R" lock-rewrite dravr-cageux v0.19.0 >/dev/null; then
+  run "$R" lock-assert dravr-cageux v0.19.0 >/dev/null && ok "the rewritten lock passes lock-assert" || bad "lock-assert rejected the rewrite"
+  grep -qx "source = \"git+https://github.com/dravr-ai/dravr-cageux.git?tag=v0.19.0#${SHA}\"" "$R/Cargo.lock" \
+    && ok "the source names the tag and its commit, v-prefix kept" || bad "source line wrong" "$(grep '^source' "$R/Cargo.lock")"
+  grep -qx 'version = "0.19.0"' "$R/Cargo.lock" && ok "the version is the tag's bare version" || bad "version line not moved to 0.19.0"
+  CHANGED=$(diff "$R/Cargo.lock.before" "$R/Cargo.lock" | grep -c '^>')
+  [ "$CHANGED" -eq 2 ] && ok "exactly two lines changed (version, source)" || bad "expected 2 changed lines, got ${CHANGED}"
+  [ "$(wc -l < "$R/Cargo.lock")" -eq "$(wc -l < "$R/Cargo.lock.before")" ] \
+    && ok "the last block survives the in-place rewrite" || bad "line count changed: the last block was lost or doubled"
+  grep -qx 'version = "0.26.0"' "$R/Cargo.lock" && ok "other packages' versions are untouched" || bad "another package's version moved"
+else
+  bad "lock-rewrite failed on a git+tag entry" "$(SATELLITE_PIN_TAG_SHA="$SHA" run "$R" lock-rewrite dravr-cageux v0.19.0)"
+fi
+
+R=$(fixture lock-rewrite-crates-io)
+cp "$R/Cargo.lock" "$R/Cargo.lock.before"
+SATELLITE_PIN_TAG_SHA="$SHA" run "$R" lock-rewrite embacle 0.27.0 >/dev/null 2>&1
+[ $? -eq 3 ] && ok "a crates-io satellite exits 3 (needs a checksum: cargo update)" || bad "crates-io did not exit 3"
+cmp -s "$R/Cargo.lock" "$R/Cargo.lock.before" && ok "and leaves the lock untouched" || bad "crates-io refusal still edited the lock"
+
+R=$(fixture lock-rewrite-absent)
+cp "$R/Cargo.lock" "$R/Cargo.lock.before"
+SATELLITE_PIN_TAG_SHA="$SHA" run "$R" lock-rewrite dravr-canot v0.4.29 >/dev/null 2>&1 \
+  && bad "lock-rewrite PASSED a crate with no lock entry" || ok "a crate missing from the lock is a failure"
+cmp -s "$R/Cargo.lock" "$R/Cargo.lock.before" && ok "and leaves the lock untouched" || bad "missing-crate failure still edited the lock"
+
+R=$(fixture lock-rewrite-bad-sha)
+cp "$R/Cargo.lock" "$R/Cargo.lock.before"
+SATELLITE_PIN_TAG_SHA="not-a-commit" run "$R" lock-rewrite dravr-cageux v0.19.0 >/dev/null 2>&1 \
+  && bad "lock-rewrite PASSED a tag that resolved to no commit" || ok "a tag that resolves to no commit is a failure"
+cmp -s "$R/Cargo.lock" "$R/Cargo.lock.before" && ok "and leaves the lock untouched" || bad "bad-sha failure still edited the lock"
+
+R=$(fixture lock-rewrite-patch)
+printf '\n[[patch.unused]]\nname = "dravr-cageux"\nversion = "0.18.0"\nsource = "git+https://github.com/dravr-ai/dravr-cageux.git?tag=v0.18.0#abc1234"\n' >> "$R/Cargo.lock"
+SATELLITE_PIN_TAG_SHA="$SHA" run "$R" lock-rewrite dravr-cageux v0.19.0 >/dev/null
+[ "$(grep -c 'tag=v0.18.0#abc1234' "$R/Cargo.lock")" -eq 1 ] \
+  && ok "a [[patch.unused]] table after the package is not rewritten" || bad "lock-rewrite edited a non-package table"
+
+# The cases above replace `git ls-remote` with SATELLITE_PIN_TAG_SHA. These run the
+# real one against a local repository, offline: an annotated tag must resolve to
+# the commit it peels to (what cargo writes after `#`), never the tag object.
+echo "-- precise lock rewrite: the tag's commit comes from a real git ls-remote"
+REMOTE="${WORK}/remote/dravr-cageux.git"
+git init -q "$REMOTE"
+git -C "$REMOTE" config user.email fixture@example.com
+git -C "$REMOTE" config user.name fixture
+git -C "$REMOTE" config commit.gpgsign false
+git -C "$REMOTE" config tag.gpgsign false
+git -C "$REMOTE" commit -q --allow-empty -m release
+git -C "$REMOTE" tag -a v0.19.0 -m v0.19.0
+git -C "$REMOTE" commit -q --allow-empty -m next
+git -C "$REMOTE" tag v0.20.0
+PEELED=$(git -C "$REMOTE" rev-parse 'v0.19.0^{commit}')
+TAG_OBJECT=$(git -C "$REMOTE" rev-parse v0.19.0)
+LIGHT=$(git -C "$REMOTE" rev-parse v0.20.0)
+
+remote_fixture() { # $1=name $2=remote url -> a fixture whose cageux lock entry points at it
+  local root; root=$(fixture "$1")
+  sed "s|https://github.com/dravr-ai/dravr-cageux.git|$2|" "$root/Cargo.lock" > "$root/Cargo.lock.tmp"
+  mv "$root/Cargo.lock.tmp" "$root/Cargo.lock"
+  printf '%s' "$root"
+}
+
+R=$(remote_fixture lock-rewrite-annotated "file://${REMOTE}")
+OUT=$(run "$R" lock-rewrite dravr-cageux v0.19.0) || bad "lock-rewrite failed against a real remote" "$OUT"
+[ "$PEELED" != "$TAG_OBJECT" ] || bad "fixture tag v0.19.0 is not annotated: the peel is untested"
+grep -qx "source = \"git+file://${REMOTE}?tag=v0.19.0#${PEELED}\"" "$R/Cargo.lock" \
+  && ok "an annotated tag resolves to the commit it peels to" || bad "annotated tag not peeled" "$(grep '^source' "$R/Cargo.lock")"
+
+R=$(remote_fixture lock-rewrite-lightweight "file://${REMOTE}")
+OUT=$(run "$R" lock-rewrite dravr-cageux v0.20.0) || bad "lock-rewrite failed on a lightweight tag" "$OUT"
+grep -qx "source = \"git+file://${REMOTE}?tag=v0.20.0#${LIGHT}\"" "$R/Cargo.lock" \
+  && ok "a lightweight tag resolves to its commit" || bad "lightweight tag wrong" "$(grep '^source' "$R/Cargo.lock")"
+
+R=$(remote_fixture lock-rewrite-no-tag "file://${REMOTE}")
+cp "$R/Cargo.lock" "$R/Cargo.lock.before"
+run "$R" lock-rewrite dravr-cageux v0.99.0 >/dev/null \
+  && bad "lock-rewrite PASSED a tag the remote does not have" || ok "a tag the remote does not have is a failure"
+cmp -s "$R/Cargo.lock" "$R/Cargo.lock.before" && ok "and leaves the lock untouched" || bad "missing-tag failure still edited the lock"
+
+R=$(remote_fixture lock-rewrite-unreachable "file://${WORK}/remote/absent.git")
+cp "$R/Cargo.lock" "$R/Cargo.lock.before"
+if OUT=$(run "$R" lock-rewrite dravr-cageux v0.19.0); then
+  bad "lock-rewrite PASSED with an unreachable remote"
+else
+  says "$OUT" "could not read tag v0.19.0" && ok "an unreachable remote is a failure, named as one" || bad "unreachable remote misreported" "$OUT"
+fi
+cmp -s "$R/Cargo.lock" "$R/Cargo.lock.before" && ok "and leaves the lock untouched" || bad "unreachable-remote failure still edited the lock"
+
+# --------------------------------------------------------------------------
 echo "-- declaration self-policing"
 R=$(fixture toml-guards)
 printf '\n[dravr-typo]\nrepo = "dravr-typo"\nsource = "git-tag"\ngatez = "backend"\n' >> "$R/satellites.toml"

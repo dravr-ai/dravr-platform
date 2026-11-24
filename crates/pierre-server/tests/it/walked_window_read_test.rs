@@ -41,7 +41,7 @@ use crate::history_walk_api_test::{mock_strava, server, strava_athlete, MockStra
 
 use std::sync::Arc;
 
-use chrono::{DateTime, Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use dravr_tronc::mcp::tool::{McpTool, ToolContext};
 use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::constants::provider_capture::current_capture_version;
@@ -84,7 +84,7 @@ async fn walked_athlete() -> (Arc<ServerContext>, Arc<MockStrava>, Uuid, TenantI
 }
 
 /// A two-hour ride starting at `start`, recorded under `key`.
-fn ride(id: &str, start: DateTime<Utc>, key: &str) -> Activity {
+fn ride(id: &str, start: Timestamp, key: &str) -> Activity {
     ActivityBuilder::new(
         id.to_owned(),
         "Sortie longue".to_owned(),
@@ -119,7 +119,7 @@ async fn walked_to(
     resources: &Arc<ServerContext>,
     user_id: Uuid,
     tenant: TenantId,
-    reached: DateTime<Utc>,
+    reached: Timestamp,
 ) {
     walked_through(
         resources,
@@ -138,7 +138,7 @@ async fn walked_through(
     user_id: Uuid,
     tenant: TenantId,
     key: &str,
-    reached: DateTime<Utc>,
+    reached: Timestamp,
 ) {
     resources
         .common
@@ -149,7 +149,7 @@ async fn walked_through(
             &tenant,
             key,
             BackfillCoverage {
-                oldest_reached_ts: reached.timestamp(),
+                oldest_reached_ts: reached.epoch_seconds(),
                 hit_feed_end: false,
                 capture_version: current_capture_version(key),
             },
@@ -176,8 +176,8 @@ async fn ask_window(
     resources: &Arc<ServerContext>,
     user_id: Uuid,
     tenant: TenantId,
-    after: DateTime<Utc>,
-    before: DateTime<Utc>,
+    after: Timestamp,
+    before: Timestamp,
 ) -> Value {
     ask_window_in(resources, user_id, tenant, (after, before), "summary").await
 }
@@ -188,7 +188,7 @@ async fn ask_window_in(
     resources: &Arc<ServerContext>,
     user_id: Uuid,
     tenant: TenantId,
-    (after, before): (DateTime<Utc>, DateTime<Utc>),
+    (after, before): (Timestamp, Timestamp),
     mode: &str,
 ) -> Value {
     let runtime: Arc<dyn ToolRuntime> = resources.clone();
@@ -201,8 +201,8 @@ async fn ask_window_in(
             &runtime,
             &ctx,
             json!({
-                "after": after.timestamp(),
-                "before": before.timestamp(),
+                "after": after.epoch_seconds(),
+                "before": before.epoch_seconds(),
                 "limit": 20,
                 "mode": mode
             }),
@@ -240,31 +240,31 @@ fn served_ids(payload: &Value) -> Vec<String> {
 #[tokio::test]
 async fn a_window_the_session_walked_is_served_without_the_api() {
     let (resources, mock, user_id, tenant) = walked_athlete().await;
-    let now = Utc::now();
+    let now = Timestamp::now();
     store(
         &resources,
         user_id,
         tenant,
         oauth_providers::SCIOTTE,
         &[
-            ride("15550000001", now - Duration::days(700), "sciotte"),
-            ride("15550000002", now - Duration::days(720), "sciotte"),
+            ride("15550000001", now - Elapsed::days(700), "sciotte"),
+            ride("15550000002", now - Elapsed::days(720), "sciotte"),
         ],
     )
     .await;
     // The API holds the same history: a live read would list it.
     mock.serve(vec![
-        (now - Duration::days(700)).timestamp(),
-        (now - Duration::days(720)).timestamp(),
+        (now - Elapsed::days(700)).epoch_seconds(),
+        (now - Elapsed::days(720)).epoch_seconds(),
     ]);
-    walked_to(&resources, user_id, tenant, now - Duration::days(1_000)).await;
+    walked_to(&resources, user_id, tenant, now - Elapsed::days(1_000)).await;
 
     let payload = ask_window(
         &resources,
         user_id,
         tenant,
-        now - Duration::days(800),
-        now - Duration::days(600),
+        now - Elapsed::days(800),
+        now - Elapsed::days(600),
     )
     .await;
 
@@ -288,8 +288,8 @@ async fn a_window_the_session_walked_is_served_without_the_api() {
 #[tokio::test]
 async fn a_window_no_walk_covered_goes_to_the_session_not_the_api() {
     let (resources, mock, user_id, tenant) = walked_athlete().await;
-    let now = Utc::now();
-    let start = now - Duration::days(700);
+    let now = Timestamp::now();
+    let start = now - Elapsed::days(700);
     store(
         &resources,
         user_id,
@@ -298,14 +298,14 @@ async fn a_window_no_walk_covered_goes_to_the_session_not_the_api() {
         &[ride("15550000001", start, "sciotte")],
     )
     .await;
-    mock.serve(vec![start.timestamp()]);
+    mock.serve(vec![start.epoch_seconds()]);
 
     let payload = ask_window(
         &resources,
         user_id,
         tenant,
-        now - Duration::days(800),
-        now - Duration::days(600),
+        now - Elapsed::days(800),
+        now - Elapsed::days(600),
     )
     .await;
 
@@ -332,8 +332,8 @@ async fn a_window_no_walk_covered_goes_to_the_session_not_the_api() {
 #[tokio::test]
 async fn a_window_the_running_walk_has_not_reached_is_served_as_incomplete() {
     let (resources, mock, user_id, tenant) = walked_athlete().await;
-    let now = Utc::now();
-    let start = now - Duration::days(700);
+    let now = Timestamp::now();
+    let start = now - Elapsed::days(700);
     store(
         &resources,
         user_id,
@@ -342,7 +342,7 @@ async fn a_window_the_running_walk_has_not_reached_is_served_as_incomplete() {
         &[ride("15550000001", start, "sciotte")],
     )
     .await;
-    mock.serve(vec![start.timestamp()]);
+    mock.serve(vec![start.epoch_seconds()]);
     let repos = &resources.common.repos;
     owe_history_walk(repos, user_id, tenant, oauth_providers::SCIOTTE).await;
 
@@ -350,8 +350,8 @@ async fn a_window_the_running_walk_has_not_reached_is_served_as_incomplete() {
         &resources,
         user_id,
         tenant,
-        now - Duration::days(800),
-        now - Duration::days(600),
+        now - Elapsed::days(800),
+        now - Elapsed::days(600),
     )
     .await;
 
@@ -405,15 +405,15 @@ async fn a_window_the_running_walk_has_not_reached_is_served_as_incomplete() {
 #[tokio::test]
 async fn a_stored_session_window_serves_both_keys_and_merges_twins() {
     let (resources, mock, user_id, tenant) = walked_athlete().await;
-    let now = Utc::now();
-    let twin_start = now - Duration::days(680);
+    let now = Timestamp::now();
+    let twin_start = now - Elapsed::days(680);
     store(
         &resources,
         user_id,
         tenant,
         oauth_providers::SCIOTTE,
         &[
-            ride("15550000001", now - Duration::days(700), "sciotte"),
+            ride("15550000001", now - Elapsed::days(700), "sciotte"),
             ride("15550000003", twin_start, "sciotte"),
         ],
     )
@@ -424,12 +424,12 @@ async fn a_stored_session_window_serves_both_keys_and_merges_twins() {
         tenant,
         oauth_providers::STRAVA,
         &[
-            ride("15550000002", now - Duration::days(720), "strava"),
+            ride("15550000002", now - Elapsed::days(720), "strava"),
             ride("15550000003", twin_start, "strava"),
         ],
     )
     .await;
-    walked_to(&resources, user_id, tenant, now - Duration::days(1_000)).await;
+    walked_to(&resources, user_id, tenant, now - Elapsed::days(1_000)).await;
 
     // The store holds four recordings in the window: two under each key.
     for key in [oauth_providers::SCIOTTE, oauth_providers::STRAVA] {
@@ -441,8 +441,8 @@ async fn a_stored_session_window_serves_both_keys_and_merges_twins() {
                 user_id,
                 &tenant,
                 Some(key),
-                now - Duration::days(800),
-                now - Duration::days(600),
+                now - Elapsed::days(800),
+                now - Elapsed::days(600),
                 50,
             )
             .await
@@ -454,8 +454,8 @@ async fn a_stored_session_window_serves_both_keys_and_merges_twins() {
         &resources,
         user_id,
         tenant,
-        now - Duration::days(800),
-        now - Duration::days(600),
+        now - Elapsed::days(800),
+        now - Elapsed::days(600),
     )
     .await;
 
@@ -483,28 +483,28 @@ async fn a_stored_session_window_serves_both_keys_and_merges_twins() {
 #[tokio::test]
 async fn a_window_the_api_walked_is_served_to_the_session_from_the_store() {
     let (resources, mock, user_id, tenant) = walked_athlete().await;
-    let now = Utc::now();
+    let now = Timestamp::now();
     store(
         &resources,
         user_id,
         tenant,
         oauth_providers::STRAVA,
         &[
-            ride("15550000001", now - Duration::days(700), "strava"),
-            ride("15550000002", now - Duration::days(720), "strava"),
+            ride("15550000001", now - Elapsed::days(700), "strava"),
+            ride("15550000002", now - Elapsed::days(720), "strava"),
         ],
     )
     .await;
     mock.serve(vec![
-        (now - Duration::days(700)).timestamp(),
-        (now - Duration::days(720)).timestamp(),
+        (now - Elapsed::days(700)).epoch_seconds(),
+        (now - Elapsed::days(720)).epoch_seconds(),
     ]);
     walked_through(
         &resources,
         user_id,
         tenant,
         oauth_providers::STRAVA,
-        now - Duration::days(1_000),
+        now - Elapsed::days(1_000),
     )
     .await;
 
@@ -512,8 +512,8 @@ async fn a_window_the_api_walked_is_served_to_the_session_from_the_store() {
         &resources,
         user_id,
         tenant,
-        now - Duration::days(800),
-        now - Duration::days(600),
+        now - Elapsed::days(800),
+        now - Elapsed::days(600),
     )
     .await;
 
@@ -536,30 +536,30 @@ async fn a_window_the_api_walked_is_served_to_the_session_from_the_store() {
 #[tokio::test]
 async fn a_window_the_session_walked_is_served_to_the_grant_from_the_store() {
     let (resources, mock, user_id, tenant) = grant_athlete().await;
-    let now = Utc::now();
+    let now = Timestamp::now();
     store(
         &resources,
         user_id,
         tenant,
         oauth_providers::SCIOTTE,
         &[
-            ride("15550000001", now - Duration::days(700), "sciotte"),
-            ride("15550000002", now - Duration::days(720), "sciotte"),
+            ride("15550000001", now - Elapsed::days(700), "sciotte"),
+            ride("15550000002", now - Elapsed::days(720), "sciotte"),
         ],
     )
     .await;
     mock.serve(vec![
-        (now - Duration::days(700)).timestamp(),
-        (now - Duration::days(720)).timestamp(),
+        (now - Elapsed::days(700)).epoch_seconds(),
+        (now - Elapsed::days(720)).epoch_seconds(),
     ]);
-    walked_to(&resources, user_id, tenant, now - Duration::days(1_000)).await;
+    walked_to(&resources, user_id, tenant, now - Elapsed::days(1_000)).await;
 
     let payload = ask_window(
         &resources,
         user_id,
         tenant,
-        now - Duration::days(800),
-        now - Duration::days(600),
+        now - Elapsed::days(800),
+        now - Elapsed::days(600),
     )
     .await;
 
@@ -581,15 +581,15 @@ async fn a_window_the_session_walked_is_served_to_the_grant_from_the_store() {
 #[tokio::test]
 async fn a_stored_strava_window_serves_the_session_rows_and_merges_twins() {
     let (resources, mock, user_id, tenant) = grant_athlete().await;
-    let now = Utc::now();
-    let twin_start = now - Duration::days(680);
+    let now = Timestamp::now();
+    let twin_start = now - Elapsed::days(680);
     store(
         &resources,
         user_id,
         tenant,
         oauth_providers::SCIOTTE,
         &[
-            ride("15550000001", now - Duration::days(700), "sciotte"),
+            ride("15550000001", now - Elapsed::days(700), "sciotte"),
             ride("15550000003", twin_start, "sciotte"),
         ],
     )
@@ -600,19 +600,19 @@ async fn a_stored_strava_window_serves_the_session_rows_and_merges_twins() {
         tenant,
         oauth_providers::STRAVA,
         &[
-            ride("15550000002", now - Duration::days(720), "strava"),
+            ride("15550000002", now - Elapsed::days(720), "strava"),
             ride("15550000003", twin_start, "strava"),
         ],
     )
     .await;
-    walked_to(&resources, user_id, tenant, now - Duration::days(1_000)).await;
+    walked_to(&resources, user_id, tenant, now - Elapsed::days(1_000)).await;
 
     let payload = ask_window(
         &resources,
         user_id,
         tenant,
-        now - Duration::days(800),
-        now - Duration::days(600),
+        now - Elapsed::days(800),
+        now - Elapsed::days(600),
     )
     .await;
 
@@ -639,22 +639,22 @@ async fn a_stored_strava_window_serves_the_session_rows_and_merges_twins() {
 #[tokio::test]
 async fn a_window_no_walk_covered_is_read_from_the_api_by_the_grant() {
     let (resources, mock, user_id, tenant) = grant_athlete().await;
-    let now = Utc::now();
-    let start = now - Duration::days(700);
-    mock.serve(vec![start.timestamp()]);
+    let now = Timestamp::now();
+    let start = now - Elapsed::days(700);
+    mock.serve(vec![start.epoch_seconds()]);
 
     let payload = ask_window(
         &resources,
         user_id,
         tenant,
-        now - Duration::days(800),
-        now - Duration::days(600),
+        now - Elapsed::days(800),
+        now - Elapsed::days(600),
     )
     .await;
 
     assert_eq!(
         served_ids(&payload),
-        vec![start.timestamp().to_string()],
+        vec![start.epoch_seconds().to_string()],
         "the grant's uncovered window is the API's answer"
     );
     assert!(
@@ -670,9 +670,9 @@ async fn a_window_no_walk_covered_is_read_from_the_api_by_the_grant() {
 #[tokio::test]
 async fn a_detailed_ask_of_a_walked_window_still_details_through_the_grant() {
     let (resources, mock, user_id, tenant) = grant_athlete().await;
-    let now = Utc::now();
-    let start = now - Duration::days(700);
-    let id = start.timestamp().to_string();
+    let now = Timestamp::now();
+    let start = now - Elapsed::days(700);
+    let id = start.epoch_seconds().to_string();
     store(
         &resources,
         user_id,
@@ -686,7 +686,7 @@ async fn a_detailed_ask_of_a_walked_window_still_details_through_the_grant() {
         user_id,
         tenant,
         oauth_providers::STRAVA,
-        now - Duration::days(1_000),
+        now - Elapsed::days(1_000),
     )
     .await;
 
@@ -694,7 +694,7 @@ async fn a_detailed_ask_of_a_walked_window_still_details_through_the_grant() {
         &resources,
         user_id,
         tenant,
-        (now - Duration::days(800), now - Duration::days(600)),
+        (now - Elapsed::days(800), now - Elapsed::days(600)),
         "detailed",
     )
     .await;

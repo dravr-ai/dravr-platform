@@ -10,6 +10,7 @@
 use crate::common;
 
 use anyhow::Result;
+use dravr_tronc::dates::Timestamp;
 use dravr_tronc::testkit::assert::assert_rpc_error;
 use dravr_tronc::testkit::McpTestClient;
 use pierre_auth::auth::{AuthManager, DelegatedGrant};
@@ -18,7 +19,7 @@ use pierre_config::environment::{
     AppBehaviorConfig, AuthConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment,
     ExternalServicesConfig, HttpClientConfig, LogLevel, LoggingConfig, OAuth2ServerConfig,
     OAuthConfig, PostgresPoolConfig, ProtocolConfig, SecurityConfig, SecurityHeadersConfig,
-    ServerConfig, SseConfig, TlsConfig,
+    ServerConfig, SessionCookieConfig, TlsConfig,
 };
 use pierre_core::models::CoachingPersona;
 use pierre_core::models::{Tenant, TenantId, User, UserStatus, UserTier};
@@ -110,6 +111,8 @@ impl TestServer {
                     archive_imports: None,
                     live_records: None,
                     blobs: None,
+                    lab_reader: None,
+                    pdf_text_bin: None,
                     #[cfg(feature = "client-messaging")]
                     channel_adapters: common::offline_adapters(),
                 },
@@ -182,7 +185,7 @@ impl TestServer {
                     server_version: env!("CARGO_PKG_VERSION").to_owned(),
                 },
             },
-            sse: SseConfig::default(),
+            session_cookie: SessionCookieConfig::default(),
             oauth2_server: OAuth2ServerConfig::default(),
             ..Default::default()
         })
@@ -198,14 +201,13 @@ impl TestServer {
             display_name: Some("Test User".to_owned()),
             password_hash,
             tier: UserTier::Starter,
-            strava_token: None,
             is_active: true,
             user_status: UserStatus::Active,
             role: UserRole::User,
             approved_by: Some(user_id),
-            approved_at: Some(chrono::Utc::now()),
-            created_at: chrono::Utc::now(),
-            last_active: chrono::Utc::now(),
+            approved_at: Some(Timestamp::now()),
+            created_at: Timestamp::now(),
+            last_active: Timestamp::now(),
             firebase_uid: None,
             auth_provider: String::new(),
             analytics_consent: false,
@@ -232,8 +234,8 @@ impl TestServer {
             domain: None,
             plan: "starter".to_owned(),
             owner_user_id: user_id,
-            created_at: chrono::Utc::now(),
-            updated_at: chrono::Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         };
         repos.tenants.create(&tenant).await?;
         repos.users.update_tenant_id(user_id, tenant_id).await?;
@@ -252,7 +254,6 @@ impl TestServer {
                 audience: None,
             },
             &user.id,
-            &[],
             None,
         )?;
 

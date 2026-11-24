@@ -6,6 +6,7 @@
 
 #![allow(missing_docs, clippy::unwrap_used)]
 
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::guided_window::GuidedWindow;
 use pierre_core::models::GuidedFlow;
 use serde_json::json;
@@ -29,7 +30,7 @@ fn stamps(profile: &serde_json::Value, flow: GuidedFlow) -> Option<(String, Opti
     GuidedWindow::last(Some(profile), flow).map(|w| {
         (
             w.started_at.to_rfc3339(),
-            w.completed_at.map(|d| d.to_rfc3339()),
+            w.completed_at.map(Timestamp::to_rfc3339),
         )
     })
 }

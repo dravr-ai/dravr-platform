@@ -28,7 +28,7 @@ pub fn extract_output_format(request: &UniversalRequest) -> OutputFormat {
 /// The format logic itself is [`apply_format`], the single TOON primitive the
 /// tool crate has; this adds only what a `UniversalResponse` carries and a
 /// `ToolResult` does not — the `format` stamp in its metadata, which predates
-/// the envelope and is what an operator reads in a trace.
+/// the envelope and is what an admin reads in a trace.
 ///
 /// A handler that calls this can declare an output schema, because the shape
 /// on the wire is `Formatted<T>` for a `T` the compiler knows. The untyped

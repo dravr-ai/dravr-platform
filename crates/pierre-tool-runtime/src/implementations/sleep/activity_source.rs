@@ -4,11 +4,12 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use chrono::Utc;
 use dravr_cageux::training_load::{TrainingLoad, TrainingLoadCalculator};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::Activity;
 use pierre_providers::core::ActivityQueryParams;
 use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
+use pierre_services::athlete_clock::athlete_zone;
 use serde_json::Value;
 use uuid::Uuid;
 
@@ -110,11 +111,14 @@ pub(super) async fn training_load_of(
                 "sleep_analyzer: reading the saved thresholds failed: {e}"
             ))
         })?;
-    let calculator = TrainingLoadCalculator::from_config(
+    // As of the athlete's today, each session on the day it started where
+    // they live: the days the training history and the roster count.
+    let calculator = TrainingLoadCalculator::as_of_today(
         executor.cageux_config().algorithms.clone(),
-        Utc::now().date_naive(),
+        athlete_zone(executor.resources.repos(), user_uuid).await,
+        Timestamp::now(),
     );
-    physio.training_load(&calculator, activities).map_err(|e| {
+    physio.training_load(calculator, activities).map_err(|e| {
         ProtocolError::InternalError(format!(
             "sleep_analyzer: Training load calculation failed: {e}"
         ))

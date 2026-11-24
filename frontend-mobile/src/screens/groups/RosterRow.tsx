@@ -29,7 +29,7 @@ export interface RosterRowProps {
  *
  * Group info mounts it inside the Members `CollapsibleSection`, which pays no
  * side inset of its own (the host `Sheet` already does), so the row pays none
- * either. The divider is the system hairline (DESIGN.md §10): `border-b`
+ * either. The divider is the system hairline (DESIGN.md "Phone"): `border-b`
  * alone draws a full point.
  */
 export function RosterRow({ avatar, name, nameSuffix, subtitle, trailing, last = false, testID }: RosterRowProps) {

@@ -20,7 +20,7 @@
 use crate::common;
 use crate::helpers;
 
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use helpers::axum_test::AxumTestRequest;
 use pierre_core::constants::oauth_rate_limiting::PASSWORD_LOGIN_ACCOUNT_RPM;
 use pierre_core::models::{Tenant, TenantId, User, UserStatus};
@@ -47,8 +47,8 @@ async fn seed_tenant_with_owner(resources: &ServerContext) -> (Uuid, TenantId) {
         domain: None,
         plan: "starter".to_owned(),
         owner_user_id: user_id,
-        created_at: Utc::now(),
-        updated_at: Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
     };
     resources
         .common
@@ -71,9 +71,9 @@ async fn create_channel_initiated_link_state(
 ) -> String {
     let code = Uuid::new_v4().to_string();
     let expires_at = if expired {
-        (Utc::now() - Duration::minutes(1)).to_rfc3339()
+        (Timestamp::now() - Elapsed::minutes(1)).to_rfc3339()
     } else {
-        (Utc::now() + Duration::minutes(10)).to_rfc3339()
+        (Timestamp::now() + Elapsed::minutes(10)).to_rfc3339()
     };
 
     let params = CreateLinkStateParams {
@@ -605,7 +605,7 @@ async fn test_link_callback_channel_mismatch_rejected() {
 
     // Create a link state for "slack"
     let code = Uuid::new_v4().to_string();
-    let expires_at = (Utc::now() + Duration::minutes(10)).to_rfc3339();
+    let expires_at = (Timestamp::now() + Elapsed::minutes(10)).to_rfc3339();
     let params = CreateLinkStateParams {
         id: &Uuid::new_v4().to_string(),
         tenant_id,
@@ -651,7 +651,7 @@ async fn link_callback_never_links_a_channel_id_named_in_the_query() {
     let owner_id_str = owner_id.to_string();
 
     let code = Uuid::new_v4().to_string();
-    let expires_at = (Utc::now() + Duration::minutes(10)).to_rfc3339();
+    let expires_at = (Timestamp::now() + Elapsed::minutes(10)).to_rfc3339();
     let params = CreateLinkStateParams {
         id: &Uuid::new_v4().to_string(),
         tenant_id,
@@ -720,7 +720,7 @@ async fn callback_resolves_the_link_state_by_state_not_by_the_provider_code() {
     let owner_id_str = owner_id.to_string();
 
     let link_code = Uuid::new_v4().to_string();
-    let expires_at = (Utc::now() + Duration::minutes(10)).to_rfc3339();
+    let expires_at = (Timestamp::now() + Elapsed::minutes(10)).to_rfc3339();
     let params = CreateLinkStateParams {
         id: &Uuid::new_v4().to_string(),
         tenant_id,

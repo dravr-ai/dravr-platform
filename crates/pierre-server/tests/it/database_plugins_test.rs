@@ -6,7 +6,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use chrono::Utc;
+use dravr_tronc::dates::Elapsed;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::CoachingPersona;
 use pierre_core::models::{TenantId, User, UserOAuthToken, UserStatus, UserTier};
 use pierre_core::permissions::UserRole;
@@ -36,10 +37,9 @@ async fn create_test_user(db: &Database) -> Uuid {
         user_status: UserStatus::Active,
         role: UserRole::User,
         approved_by: None,
-        approved_at: Some(Utc::now()),
-        created_at: Utc::now(),
-        last_active: Utc::now(),
-        strava_token: None,
+        approved_at: Some(Timestamp::now()),
+        created_at: Timestamp::now(),
+        last_active: Timestamp::now(),
         firebase_uid: None,
         auth_provider: String::new(),
         analytics_consent: false,
@@ -116,7 +116,7 @@ async fn test_oauth_token_management() {
 
     // Test storing Strava token
     let test_tenant_id = TenantId::from_uuid(Uuid::nil());
-    let expires_at = Utc::now() + chrono::Duration::hours(1);
+    let expires_at = Timestamp::now() + Elapsed::hours(1);
     let oauth_token = UserOAuthToken::new(
         user_id,
         test_tenant_id.to_string(),
@@ -268,14 +268,13 @@ async fn test_database_trait_abstraction() {
                 display_name: Some(format!("Test User {i}")),
                 password_hash: "hashed_password".to_owned(),
                 tier: UserTier::Starter,
-                created_at: Utc::now(),
-                last_active: Utc::now(),
+                created_at: Timestamp::now(),
+                last_active: Timestamp::now(),
                 is_active: true,
                 user_status: UserStatus::Active,
                 role: UserRole::User,
                 approved_by: None,
-                approved_at: Some(Utc::now()),
-                strava_token: None,
+                approved_at: Some(Timestamp::now()),
                 firebase_uid: None,
                 auth_provider: String::new(),
                 analytics_consent: false,

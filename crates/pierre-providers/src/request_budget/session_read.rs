@@ -6,7 +6,7 @@
 
 //! The session-read caps (carnet#1661).
 //!
-//! Every read of an athlete's signed-in session at a scraped provider (the
+//! Every read of an athlete's signed-in session at a provider (the
 //! four [`SESSION_READ_BACKENDS`]) is one request to that provider made as
 //! the athlete, through their own account. Each is admitted against the
 //! athlete's own windows at that backend, sized by their tier
@@ -46,8 +46,8 @@ use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
 use dashmap::DashMap;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::errors::AppError;
 use pierre_core::models::{SessionReadCap, SessionReadCaps, UserTier};
@@ -386,7 +386,7 @@ impl ProviderRateLimiter {
         windows: &[Window],
         refusing: usize,
         retry_after: Duration,
-        now: DateTime<Utc>,
+        now: Timestamp,
     ) {
         let (Some(window), Some(cap)) = (windows.get(refusing), task_caps().get(refusing).copied())
         else {
@@ -450,14 +450,13 @@ impl ProviderRateLimiter {
 
 #[cfg(test)]
 mod tests {
-    use std::io;
     use std::sync::{Mutex, PoisonError};
 
     use pierre_core::errors::ErrorCode;
     use pierre_database::RepositoryRegistry;
     use pierre_test_support::db::create_test_db;
-    use tracing::{callsite, subscriber};
-    use tracing_subscriber::fmt;
+    use pierre_test_support::log_capture::capture_events;
+    use tracing::Level;
 
     use super::super::{
         detail_walk_athlete_counter_key, detail_walk_counter_key, in_detail_walk,
@@ -489,7 +488,7 @@ mod tests {
                 PLATFORM_SCOPE,
                 PLATFORM_SCOPE,
                 key,
-                &budget_period(Utc::now(), window),
+                &budget_period(Timestamp::now(), window),
             )
             .await
             .map_or(0, |counter| counter.value)
@@ -503,7 +502,7 @@ mod tests {
                 PLATFORM_SCOPE,
                 PLATFORM_SCOPE,
                 key,
-                &budget_period(Utc::now(), window),
+                &budget_period(Timestamp::now(), window),
                 i64::from(value),
             )
             .await
@@ -533,38 +532,6 @@ mod tests {
                 .lock()
                 .unwrap_or_else(PoisonError::into_inner)
                 .clone()
-        }
-    }
-
-    /// Log lines written while a test holds the subscriber.
-    #[derive(Clone, Default)]
-    struct Captured(Arc<Mutex<Vec<u8>>>);
-
-    impl io::Write for Captured {
-        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-            self.0
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .extend_from_slice(buf);
-            Ok(buf.len())
-        }
-
-        fn flush(&mut self) -> io::Result<()> {
-            Ok(())
-        }
-    }
-
-    impl Captured {
-        fn lines(&self) -> Vec<String> {
-            let bytes = self
-                .0
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .clone();
-            String::from_utf8_lossy(&bytes)
-                .lines()
-                .map(str::to_owned)
-                .collect()
         }
     }
 
@@ -654,16 +621,16 @@ mod tests {
             budget.admit(GARMIN_SESSION).await.is_ok(),
             "bug: the last read of the Starter day is refused"
         );
-        let before = Utc::now();
+        let before = Timestamp::now();
         let refused = budget
             .admit(GARMIN_SESSION)
             .await
             .expect_err("the read past the Starter day is refused");
         let wait = refused.retry_after_secs().unwrap_or(0);
-        let day_end = before.date_naive().succ_opt().map_or(before, |day| {
-            day.and_hms_opt(0, 0, 0)
-                .map_or(before, |midnight| midnight.and_utc())
-        });
+        let day_end = before
+            .utc_date()
+            .succ()
+            .map_or(before, |day| day.at_midnight().and_utc().unwrap());
         let until_midnight = u64::try_from((day_end - before).num_seconds()).unwrap_or(0);
         assert!(
             wait.abs_diff(until_midnight) <= 2,
@@ -812,18 +779,7 @@ mod tests {
         let athlete = Uuid::new_v4();
         let asked = session_read_counter_key(STRAVA_SESSION, "asked", athlete);
         spend(&repos, &asked, FIFTEEN_MINUTES, starter().asked_15min).await;
-        let captured = Captured::default();
-        let writer = captured.clone();
-        let subscriber = fmt()
-            .with_max_level(tracing::Level::TRACE)
-            .with_ansi(false)
-            .with_writer(move || writer.clone())
-            .finish();
-        let capturing = subscriber::set_default(subscriber);
-        // Another test thread can reach the log site first, with no
-        // subscriber, and cache its interest as "never": rebuild it now that
-        // this thread's subscriber is set, or the line is dropped.
-        callsite::rebuild_interest_cache();
+        let (captured, capturing) = capture_events();
         let refused = read_budget(&limiter, STRAVA_SESSION, athlete)
             .admit(STRAVA_SESSION)
             .await
@@ -838,43 +794,47 @@ mod tests {
             Some(SessionReadKind::Asked),
             "bug: an asked refusal does not name its kind"
         );
-        let lines = captured.lines();
-        let usage: Vec<&String> = lines
+        let events = captured.drain();
+        let usage: Vec<_> = events
             .iter()
-            .filter(|line| line.contains("usage limit reached"))
+            .filter(|event| event.message() == Some("usage limit reached"))
             .collect();
         assert_eq!(
             usage.len(),
             1,
-            "bug: one refusal, one usage line: {lines:?}"
+            "bug: one refusal, one usage line: {events:?}"
         );
-        for field in [
-            "usage.limit_reached",
-            "sciotte_reads.asked_15min.starter",
-            "provider_read",
-            &athlete.to_string(),
-            "window=\"15m\"",
-            "kind=\"asked\"",
-            "tier=\"starter\"",
-            "current=30",
-            "limit=30",
+        let line = usage[0];
+        assert_eq!(line.target, USAGE_TARGET, "bug: {line:?}");
+        let athlete_id = athlete.to_string();
+        for (field, value) in [
+            ("event", LIMIT_REACHED_EVENT),
+            ("limit_type", "sciotte_reads.asked_15min.starter"),
+            ("surface", "provider_read"),
+            ("user_id", athlete_id.as_str()),
+            ("window", "15m"),
+            ("kind", "asked"),
+            ("tier", "starter"),
+            ("current", "30"),
+            ("limit", "30"),
         ] {
-            assert!(
-                usage[0].contains(field),
-                "bug: the usage line lacks {field}: {}",
-                usage[0]
+            assert_eq!(
+                line.field(field),
+                Some(value),
+                "bug: the usage line's {field} is wrong: {line:?}"
             );
         }
-        assert!(
-            usage[0].contains("WARN"),
-            "bug: an asked refusal is not a warning: {}",
-            usage[0]
+        assert_eq!(
+            line.level,
+            Level::WARN,
+            "bug: an asked refusal is not a warning: {line:?}"
         );
         assert!(
-            !lines
-                .iter()
-                .any(|line| line.contains("Provider request budget spent")),
-            "bug: a session-read refusal paged as an app's budget: {lines:?}"
+            !events.iter().any(|event| event
+                .fields
+                .values()
+                .any(|value| value.contains("Provider request budget spent"))),
+            "bug: a session-read refusal paged as an app's budget: {events:?}"
         );
     }
 

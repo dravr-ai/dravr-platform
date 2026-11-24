@@ -11,7 +11,7 @@
 //! which plan days become which calendar entries under which keys, and what
 //! a push would create, update, or remove against a given ledger.
 
-use chrono::{NaiveDate, Utc};
+use dravr_tronc::dates::{CivilDate, Timestamp};
 use pierre_core::models::periodization::{RpeRange, ThresholdBasis};
 use pierre_core::models::{
     CalendarEventSource, CalendarKey, PlannedSession, PlannedSessionKind, PrescribedWorkout,
@@ -27,8 +27,8 @@ use pierre_services::plan_calendar_push::{
 use pierre_services::plan_fueling::FuelingDisclosure;
 use uuid::Uuid;
 
-fn date(s: &str) -> NaiveDate {
-    NaiveDate::parse_from_str(s, "%Y-%m-%d").unwrap()
+fn date(s: &str) -> CivilDate {
+    CivilDate::parse_from_str(s, "%Y-%m-%d").unwrap()
 }
 
 fn day(
@@ -51,6 +51,8 @@ fn day(
         template_source: None,
         template_preset: None,
         envelope: None,
+        coach_original: None,
+        coach_added: false,
     }
 }
 
@@ -91,15 +93,15 @@ fn week(id: &str, week_start: &str, focus: &str, days: Vec<PlannedDay>) -> PlanW
         supersedes_id: None,
         adjustment_reason: String::new(),
         author_agent_id: None,
-        created_at: Utc::now(),
-        updated_at: Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
         phase_index: None,
     }
 }
 
 /// A live ledger row as a push leaves one, carrying the entry's own hash.
 fn live_row(user_id: Uuid, entry: &DesiredEntry) -> PrescribedWorkout {
-    let now = Utc::now();
+    let now = Timestamp::now();
     PrescribedWorkout {
         id: Uuid::new_v4(),
         tenant_id: Uuid::new_v4(),
@@ -376,8 +378,8 @@ fn season_laid_by(author: Option<&str>) -> TrainingPlan {
         status: PlanStatus::Active,
         supersedes_id: None,
         source_conversation_id: None,
-        created_at: Utc::now(),
-        updated_at: Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
         transport_policy: TransportPolicy::AnyTransport,
     }
 }

@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 
 /// The error one column read raises.
@@ -23,9 +23,9 @@ pub(crate) fn stamp_column<R>(row: &R, column: &str) -> AppResult<String>
 where
     R: sqlx::Row,
     for<'a> &'a str: sqlx::ColumnIndex<R>,
-    DateTime<Utc>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Timestamp: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
-    let at: DateTime<Utc> = row
+    let at: Timestamp = row
         .try_get(column)
         .map_err(|e| chat_column_error(column, &e))?;
     Ok(at.to_rfc3339())
@@ -35,9 +35,8 @@ where
 ///
 /// # Errors
 /// Returns an invalid-input error when the text is not an RFC 3339 instant.
-pub(crate) fn instant_from_rfc3339(since: &str) -> AppResult<DateTime<Utc>> {
-    DateTime::parse_from_rfc3339(since)
-        .map(|dt| dt.with_timezone(&Utc))
+pub(crate) fn instant_from_rfc3339(since: &str) -> AppResult<Timestamp> {
+    Timestamp::parse_from_rfc3339(since)
         .map_err(|e| AppError::invalid_input(format!("Invalid RFC 3339 instant '{since}': {e}")))
 }
 
@@ -76,7 +75,7 @@ macro_rules! impl_chat_row_parsers {
                 channel_type: col("channel_type")?,
                 onboarding_state: opt("onboarding_state")?,
                 archived_at: row
-                    .try_get::<Option<DateTime<Utc>>, _>("archived_at")
+                    .try_get::<Option<Timestamp>, _>("archived_at")
                     .map_err(|e| chat_column_error("archived_at", &e))?
                     .map(|t| t.to_rfc3339()),
                 personal: row
@@ -104,7 +103,7 @@ macro_rules! impl_chat_row_parsers {
             };
             let last_message = opt("last_role")?
                 .map(|role| -> AppResult<ConversationLastMessage> {
-                    let last_created_at: Option<DateTime<Utc>> = row
+                    let last_created_at: Option<Timestamp> = row
                         .try_get("last_created_at")
                         .map_err(|e| chat_column_error("last_created_at", &e))?;
                     let last_first_party_only: Option<bool> = row
@@ -140,7 +139,7 @@ macro_rules! impl_chat_row_parsers {
                 group_name: opt("group_name")?,
                 channel_type: opt("channel_type")?,
                 archived_at: row
-                    .try_get::<Option<DateTime<Utc>>, _>("archived_at")
+                    .try_get::<Option<Timestamp>, _>("archived_at")
                     .map_err(|e| chat_column_error("archived_at", &e))?
                     .map(|t| t.to_rfc3339()),
                 personal: row
@@ -187,6 +186,9 @@ macro_rules! impl_chat_row_parsers {
                 turn_attempted_write: row
                     .try_get("turn_attempted_write")
                     .map_err(|e| chat_column_error("turn_attempted_write", &e))?,
+                ai_consent_sources: consent_sources_from_column(
+                    opt("ai_consent_sources")?.as_deref(),
+                ),
             })
         }
 

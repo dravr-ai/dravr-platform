@@ -24,11 +24,11 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use chrono::Utc;
 use common::{create_test_server_resources, create_test_user_with_email};
+use dravr_tronc::dates::Timestamp;
 use helpers::axum_test::{AxumTestRequest, AxumTestResponse};
 use helpers::first_party_sign_in::{FirstPartyClient, IssuedCode, SignIn};
-use helpers::notify_capture::{capture_logs_and_spans, named, recorded};
+use helpers::notify_capture::{capture_logs_and_spans, named};
 use pierre_auth::oauth2_server::first_party::MOBILE_PLAY_PACKAGE_NAME;
 use pierre_auth::oauth2_server::play_integrity::{request_hash, TokenPayload};
 use pierre_auth::oauth2_server::play_integrity_decoder::{DecodeError, PlayIntegrityDecoder};
@@ -87,7 +87,7 @@ fn genuine_verdict(code: &str) -> Value {
         "requestDetails": {
             "requestPackageName": MOBILE_PLAY_PACKAGE_NAME,
             "requestHash": request_hash(code),
-            "timestampMillis": Utc::now().timestamp_millis().to_string()
+            "timestampMillis": Timestamp::now().epoch_millis().to_string()
         },
         "appIntegrity": {
             "appRecognitionVerdict": "PLAY_RECOGNIZED",
@@ -167,7 +167,7 @@ async fn a_genuine_install_signs_in_with_a_verdict_over_its_code() {
     let verified = named(&logs, "Play Integrity verdict verified");
     assert_eq!(verified.len(), 1);
     assert_eq!(verified[0].field("strong_integrity"), "false");
-    assert_eq!(recorded(&spans, "app_attest"), ["play_integrity"]);
+    assert_eq!(spans.recorded("app_attest"), ["play_integrity"]);
     assert_eq!(decodes.load(Ordering::SeqCst), 1);
 }
 
@@ -185,7 +185,7 @@ async fn a_verdict_over_another_code_is_refused_and_the_code_survives() {
     let refused = redeem_with_verdict(&issued, &elsewhere).await;
     drop(guard);
     assert_eq!(error_of(refused), (400, "invalid_client".to_owned()));
-    assert_eq!(recorded(&spans, "app_attest"), ["refused"]);
+    assert_eq!(spans.recorded("app_attest"), ["refused"]);
 
     let retried = redeem_with_verdict(&issued, &genuine_verdict(&issued.code)).await;
     assert_eq!(retried.status(), 200, "{}", retried.body_text());
@@ -217,7 +217,7 @@ async fn a_device_without_device_integrity_is_refused() {
     let refused = redeem_with_verdict(&issued, &rooted).await;
     drop(guard);
     assert_eq!(error_of(refused), (400, "invalid_client".to_owned()));
-    assert_eq!(recorded(&spans, "app_attest"), ["refused"]);
+    assert_eq!(spans.recorded("app_attest"), ["refused"]);
 }
 
 /// A token Google refuses is refused, the span records `refused`, and the
@@ -232,7 +232,7 @@ async fn a_token_google_refuses_is_refused_and_the_code_survives() {
     let refused = redeem_with(&issued, &[("play_integrity_token", REJECTED)]).await;
     drop(guard);
     assert_eq!(error_of(refused), (400, "invalid_client".to_owned()));
-    assert_eq!(recorded(&spans, "app_attest"), ["refused"]);
+    assert_eq!(spans.recorded("app_attest"), ["refused"]);
 
     let retried = redeem_with_verdict(&issued, &genuine_verdict(&issued.code)).await;
     assert_eq!(retried.status(), 200, "{}", retried.body_text());
@@ -252,7 +252,7 @@ async fn google_out_of_reach_signs_in_as_if_no_evidence_was_sent() {
     drop(guard);
 
     assert_eq!(response.status(), 200, "{}", response.body_text());
-    assert_eq!(recorded(&spans, "app_attest"), ["unavailable"]);
+    assert_eq!(spans.recorded("app_attest"), ["unavailable"]);
     assert_eq!(
         named(
             &logs,
@@ -262,8 +262,7 @@ async fn google_out_of_reach_signs_in_as_if_no_evidence_was_sent() {
         1
     );
     let leaked: Vec<_> = logs
-        .lock()
-        .unwrap()
+        .events()
         .iter()
         .filter(|line| {
             line.fields
@@ -335,7 +334,7 @@ async fn an_unknown_code_never_reaches_google() {
 
     assert_eq!(error_of(refused), (400, "invalid_grant".to_owned()));
     assert_eq!(decodes.load(Ordering::SeqCst), 0);
-    let got = recorded(&spans, "app_attest");
+    let got = spans.recorded("app_attest");
     assert!(got.is_empty(), "expected empty, got {got:?}");
 }
 

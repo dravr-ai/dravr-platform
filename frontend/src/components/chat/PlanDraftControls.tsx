@@ -14,7 +14,7 @@ import { useTranslation } from '@pierre/i18n';
 import { useAuth } from '../../hooks/useAuth';
 import { usePlanDraftCard } from '../../hooks/useCoachPlan';
 import { cachedConversations } from '../../hooks/useConversationList';
-import { QUERY_KEYS } from '../../constants/queryKeys';
+import { QUERY_KEYS } from '@pierre/shared-constants';
 import { Badge, Button, ConfirmDialog, useErrorToast, ALERT_TONE } from '../ui';
 
 interface PlanDraftControlsProps {

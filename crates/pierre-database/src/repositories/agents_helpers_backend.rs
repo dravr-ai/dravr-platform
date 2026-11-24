@@ -12,10 +12,6 @@
 //! translation overlays. Like those macros, the body names its consts, helpers
 //! and types unqualified, so the invoking shell must `use` every one of them.
 
-/// Emit the shared inherent helpers for one backend type.
-///
-/// `$row` is the driver's row type and `$ids` the backend's uuid codec
-/// (`SqliteRow` + `TextUuid`, `PgRow` + `NativeUuid`).
 macro_rules! impl_agents_helpers {
     ($ty:ty, $row:ty, $ids:ident) => {
         impl $ty {
@@ -36,7 +32,7 @@ macro_rules! impl_agents_helpers {
                     .bind(Uuid::new_v4().to_string())
                     .bind(agent_id)
                     .bind($ids::bind(user_id))
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .bind(member)
                     .execute(self.pool())
                     .await
@@ -64,7 +60,7 @@ macro_rules! impl_agents_helpers {
                     DECREMENT_INSTALLS_SQL
                 };
                 sqlx::query(sql)
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .bind(agent_id)
                     .execute(self.pool())
                     .await

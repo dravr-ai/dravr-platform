@@ -13,7 +13,7 @@
 
 use crate::common;
 
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_auth::{
     api_keys::{ApiKey, ApiKeyManager, ApiKeyTier, ApiKeyUsage, CreateApiKeyRequest},
     auth::{AuthManager, AuthMethod},
@@ -70,7 +70,7 @@ async fn window_usage(database: &Database, api_key: &ApiKey) -> WindowUsage {
     database
         .repositories()
         .usage
-        .get_api_key_window_usage(&api_key.id, api_key_window_start(api_key, Utc::now()))
+        .get_api_key_window_usage(&api_key.id, api_key_window_start(api_key, Timestamp::now()))
         .await
         .unwrap()
 }
@@ -112,7 +112,7 @@ async fn test_end_to_end_api_key_workflow() {
     // outside any request
     let usage = window_usage(&database, &api_key).await;
     assert_eq!(usage.count, 0);
-    let budget = calculate_api_key_rate_limit(&api_key, &usage, Utc::now());
+    let budget = calculate_api_key_rate_limit(&api_key, &usage, Timestamp::now());
     assert!(!budget.is_exceeded());
     let RequestBudget::Metered { limit, used, .. } = budget else {
         panic!("a professional key is metered, got {budget:?}");
@@ -124,7 +124,7 @@ async fn test_end_to_end_api_key_workflow() {
     let usage = ApiKeyUsage {
         id: None,
         api_key_id: api_key.id.clone(),
-        timestamp: Utc::now(),
+        timestamp: Timestamp::now(),
         tool_name: "get_activities".to_owned(),
         response_time_ms: Some(150),
         status_code: 200,
@@ -146,8 +146,8 @@ async fn test_end_to_end_api_key_workflow() {
     assert_eq!(window_usage(&database, &api_key).await.count, 1);
 
     // Step 6: Get usage statistics
-    let start_date = Utc::now() - Duration::days(1);
-    let end_date = Utc::now() + Duration::days(1);
+    let start_date = Timestamp::now() - Elapsed::days(1);
+    let end_date = Timestamp::now() + Elapsed::days(1);
     let stats = database
         .repositories()
         .usage
@@ -205,7 +205,7 @@ async fn test_api_key_rate_limiting() {
             .record_api_key(&ApiKeyUsage {
                 id: None,
                 api_key_id: api_key.id.clone(),
-                timestamp: Utc::now(),
+                timestamp: Timestamp::now(),
                 tool_name: "GET /api/usage/status".to_owned(),
                 response_time_ms: Some(12),
                 status_code: 200,
@@ -220,7 +220,7 @@ async fn test_api_key_rate_limiting() {
     }
     let usage = window_usage(&database, &api_key).await;
     assert_eq!(usage.count, 2);
-    let budget = calculate_api_key_rate_limit(&api_key, &usage, Utc::now());
+    let budget = calculate_api_key_rate_limit(&api_key, &usage, Timestamp::now());
     assert!(budget.is_exceeded());
     assert_eq!(budget.remaining_after_this_request(), Some(0));
 
@@ -262,7 +262,7 @@ async fn test_enterprise_tier_unlimited_usage() {
         let usage = ApiKeyUsage {
             id: None,
             api_key_id: api_key.id.clone(),
-            timestamp: Utc::now(),
+            timestamp: Timestamp::now(),
             tool_name: format!("bulk_tool_{i}"),
             response_time_ms: Some(50),
             status_code: 200,
@@ -286,7 +286,7 @@ async fn test_enterprise_tier_unlimited_usage() {
 
     // Enterprise tier is never rate limited
     assert_eq!(
-        calculate_api_key_rate_limit(&api_key, &usage, Utc::now()),
+        calculate_api_key_rate_limit(&api_key, &usage, Timestamp::now()),
         RequestBudget::Unlimited
     );
 
@@ -317,7 +317,7 @@ async fn test_api_key_expiration() {
     let (mut api_key, full_key) = api_key_manager.create_api_key(user.id, request).unwrap();
 
     // Manually set expiration to past date
-    api_key.expires_at = Some(Utc::now() - Duration::days(1));
+    api_key.expires_at = Some(Timestamp::now() - Elapsed::days(1));
     database
         .repositories()
         .api_keys
@@ -493,7 +493,7 @@ async fn test_usage_analytics() {
         let usage = ApiKeyUsage {
             id: None,
             api_key_id: api_key.id.clone(),
-            timestamp: Utc::now() - Duration::hours(i as i64),
+            timestamp: Timestamp::now() - Elapsed::hours(i as i64),
             tool_name: tools[i % tools.len()].to_owned(),
             response_time_ms: Some((100 + i * 50) as u32),
             status_code,
@@ -516,8 +516,8 @@ async fn test_usage_analytics() {
     }
 
     // Get usage statistics
-    let start_date = Utc::now() - Duration::days(1);
-    let end_date = Utc::now() + Duration::hours(1);
+    let start_date = Timestamp::now() - Elapsed::days(1);
+    let end_date = Timestamp::now() + Elapsed::hours(1);
     let stats = database
         .repositories()
         .usage

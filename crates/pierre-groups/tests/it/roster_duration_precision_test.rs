@@ -12,7 +12,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use chrono::{Duration as ChronoDuration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::models::groups::{MemberFitnessSnapshot, OvertrainingRiskLevel, RosterActivity};
 use pierre_groups::strategies::summarization::{
     GroupSummarizationStrategy, RosterCardSummarizer, WeeklyDigestSummarizer,
@@ -45,13 +45,13 @@ fn snapshot(weekly_duration_seconds: u64, recent: Vec<RosterActivity>) -> Member
         served_stale: false,
         timezone: None,
         deep_fatigue_mornings: Vec::new(),
-        computed_at: Utc::now(),
+        computed_at: Timestamp::now(),
     }
 }
 
 fn run_of(duration_seconds: u64) -> RosterActivity {
     RosterActivity {
-        start: Utc::now() - ChronoDuration::days(1),
+        start: Timestamp::now() - Elapsed::days(1),
         sport: "Run".to_owned(),
         distance_km: Some(6.1),
         duration_seconds,

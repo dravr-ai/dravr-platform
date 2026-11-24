@@ -12,9 +12,9 @@ import {
   coachSeatMoment,
   coachSeatStepState,
   type CoachSeatStepState,
+  QUERY_KEYS,
 } from '@pierre/shared-constants';
 import { providersApi, userApi } from '../services/api';
-import { QUERY_KEYS } from '../constants/queryKeys';
 import { useAuth } from '../hooks/useAuth';
 import { useSeatAfterPlatformLink } from '../hooks/coachAccessHooks';
 import { BADGE_TONE, Button } from './ui';

@@ -19,7 +19,7 @@
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
-use chrono::{DateTime, Duration, Timelike, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use dravr_tronc::mcp::tool::{McpTool, ToolContext};
 use pierre_core::models::{ActivityBuilder, ConnectionType, SportType};
 use pierre_tool_runtime::implementations::data::GetActivitiesTool;
@@ -37,9 +37,9 @@ async fn a_no_provider_ask_merges_all_connections_and_keeps_the_gps_row() {
     // The ride is dated from today, not a fixed day: the merge reads a window
     // that ends now, so a fixed date ages out of it and both WHOOP rows drop off
     // with it; the twin-dedup assertion would then pass without dedup running.
-    let ride_start: DateTime<Utc> = (Utc::now() - Duration::days(3))
-        .with_nanosecond(0)
-        .expect("zero nanoseconds is valid");
+    let ride_start: Timestamp =
+        Timestamp::from_epoch_seconds((Timestamp::now() - Elapsed::days(3)).epoch_seconds())
+            .unwrap();
     let scraper_url =
         spawn_mock_scraper_serving(Arc::new(AtomicBool::new(true)), ride_start.to_rfc3339()).await;
     let resources = create_test_server_resources_with_sciotte(&scraper_url)
@@ -71,7 +71,7 @@ async fn a_no_provider_ask_merges_all_connections_and_keeps_the_gps_row() {
         "whoop-twin-1".to_owned(),
         "WHOOP Course".to_owned(),
         SportType::Run,
-        ride_start + Duration::minutes(5),
+        ride_start + Elapsed::minutes(5),
         2_400,
         "whoop".to_owned(),
     )
@@ -80,7 +80,7 @@ async fn a_no_provider_ask_merges_all_connections_and_keeps_the_gps_row() {
         "whoop-only-1".to_owned(),
         "WHOOP Workout".to_owned(),
         SportType::Workout,
-        ride_start - Duration::days(1),
+        ride_start - Elapsed::days(1),
         3_600,
         "whoop".to_owned(),
     )

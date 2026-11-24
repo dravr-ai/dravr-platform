@@ -20,7 +20,8 @@
 
 use crate::common;
 
-use chrono::{DateTime, Duration, TimeZone, Timelike, Utc};
+use dravr_tronc::dates::{CivilDate, CivilDateTime};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_auth::{
     api_keys::{
         ApiKey, ApiKeyManager, ApiKeyTier, ApiKeyUsage, CreateApiKeyRequest,
@@ -73,8 +74,8 @@ async fn create_test_setup() -> (Arc<Database>, ApiKeyManager, Arc<McpAuthMiddle
 }
 
 /// A fixed instant, so calculator results are exact rather than racing the clock.
-fn fixed_now() -> DateTime<Utc> {
-    Utc.with_ymd_and_hms(2026, 9, 25, 12, 0, 0).unwrap()
+fn fixed_now() -> Timestamp {
+    Timestamp::parse_from_rfc3339("2026-09-25T12:00:00Z").unwrap()
 }
 
 /// An API key for `full_key`, hashed the way authentication looks it up.
@@ -99,12 +100,12 @@ fn api_key_for(
         is_active: true,
         last_used_at: None,
         expires_at: None,
-        created_at: Utc::now(),
+        created_at: Timestamp::now(),
     }
 }
 
 /// One recorded call for `api_key_id` at `at`.
-fn call(api_key_id: &str, at: DateTime<Utc>, tool_name: &str, status_code: u16) -> ApiKeyUsage {
+fn call(api_key_id: &str, at: Timestamp, tool_name: &str, status_code: u16) -> ApiKeyUsage {
     ApiKeyUsage {
         id: None,
         api_key_id: api_key_id.to_owned(),
@@ -120,7 +121,7 @@ fn call(api_key_id: &str, at: DateTime<Utc>, tool_name: &str, status_code: u16) 
     }
 }
 
-async fn seed_calls(database: &Database, api_key_id: &str, count: u32, at: DateTime<Utc>) {
+async fn seed_calls(database: &Database, api_key_id: &str, count: u32, at: Timestamp) {
     let usage = &database.repositories().usage;
     for i in 0..count {
         usage
@@ -134,7 +135,7 @@ async fn window_usage(database: &Database, api_key: &ApiKey) -> WindowUsage {
     database
         .repositories()
         .usage
-        .get_api_key_window_usage(&api_key.id, api_key_window_start(api_key, Utc::now()))
+        .get_api_key_window_usage(&api_key.id, api_key_window_start(api_key, Timestamp::now()))
         .await
         .unwrap()
 }
@@ -155,7 +156,7 @@ fn budget_under(
     user: &User,
     monthly_override: MonthlyLimitOverride,
     used_this_month: u32,
-    now: DateTime<Utc>,
+    now: Timestamp,
 ) -> RequestBudget {
     calculate_jwt_rate_limit(
         user,
@@ -168,7 +169,7 @@ fn budget_under(
 }
 
 /// `user`'s budget with no override set, `used_this_month` requests counted.
-fn tier_budget(user: &User, used_this_month: u32, now: DateTime<Utc>) -> RequestBudget {
+fn tier_budget(user: &User, used_this_month: u32, now: Timestamp) -> RequestBudget {
     budget_under(user, MonthlyLimitOverride::NotSet, used_this_month, now)
 }
 
@@ -195,7 +196,7 @@ async fn test_starter_tier_rate_limiting() {
 
     // Four calls in the window: the fifth is admitted. Admission itself
     // writes no row, so the window still holds what was seeded.
-    seed_calls(&database, &api_key.id, 4, Utc::now()).await;
+    seed_calls(&database, &api_key.id, 4, Timestamp::now()).await;
     auth_middleware
         .authenticate_request(Some(full_key))
         .await
@@ -208,7 +209,7 @@ async fn test_starter_tier_rate_limiting() {
 
     // The fifth call's row, as the request-budget layer writes it, fills the
     // window.
-    seed_calls(&database, &api_key.id, 1, Utc::now()).await;
+    seed_calls(&database, &api_key.id, 1, Timestamp::now()).await;
 
     // The sixth is refused as a 429 with the seconds until the oldest call
     // leaves the 30-day window.
@@ -286,7 +287,7 @@ async fn test_professional_tier_rate_limiting() {
         .create(&api_key)
         .await
         .unwrap();
-    seed_calls(&database, &api_key.id, 1_000, Utc::now()).await;
+    seed_calls(&database, &api_key.id, 1_000, Timestamp::now()).await;
 
     auth_middleware
         .authenticate_request(Some(full_key))
@@ -295,7 +296,7 @@ async fn test_professional_tier_rate_limiting() {
 
     let usage = window_usage(&database, &api_key).await;
     assert_eq!(usage.count, 1_000, "admission writes no row");
-    let budget = calculate_api_key_rate_limit(&api_key, &usage, Utc::now());
+    let budget = calculate_api_key_rate_limit(&api_key, &usage, Timestamp::now());
     assert!(!budget.is_exceeded());
     assert_eq!(budget.remaining_after_this_request(), Some(98_999));
     let RequestBudget::Metered { limit, used, .. } = budget else {
@@ -325,7 +326,7 @@ async fn test_enterprise_tier_unlimited() {
         .await
         .unwrap();
     // Past its nominal rate_limit_requests: an Enterprise key ignores it.
-    seed_calls(&database, &api_key.id, 10, Utc::now()).await;
+    seed_calls(&database, &api_key.id, 10, Timestamp::now()).await;
 
     for _ in 0..3 {
         auth_middleware
@@ -340,7 +341,7 @@ async fn test_enterprise_tier_unlimited() {
         "an unlimited key is admitted past its nominal limit, and admission writes no row"
     );
     assert_eq!(
-        calculate_api_key_rate_limit(&api_key, &usage, Utc::now()),
+        calculate_api_key_rate_limit(&api_key, &usage, Timestamp::now()),
         RequestBudget::Unlimited
     );
 }
@@ -359,7 +360,7 @@ fn test_api_key_reset_is_the_oldest_call_plus_the_window() {
         3_600,
     );
 
-    let oldest = now - Duration::seconds(600);
+    let oldest = now - Elapsed::seconds(600);
     let budget = calculate_api_key_rate_limit(
         &api_key,
         &WindowUsage {
@@ -373,7 +374,7 @@ fn test_api_key_reset_is_the_oldest_call_plus_the_window() {
         RequestBudget::Metered {
             limit: 100,
             used: 7,
-            resets_at: oldest + Duration::seconds(3_600),
+            resets_at: oldest + Elapsed::seconds(3_600),
         },
         "the first slot frees when the oldest call leaves the one-hour window, not next month"
     );
@@ -391,12 +392,12 @@ fn test_api_key_reset_is_the_oldest_call_plus_the_window() {
         RequestBudget::Metered {
             limit: 100,
             used: 0,
-            resets_at: now + Duration::seconds(3_600),
+            resets_at: now + Elapsed::seconds(3_600),
         }
     );
     assert_eq!(
         api_key_window_start(&api_key, now),
-        now - Duration::seconds(3_600)
+        now - Elapsed::seconds(3_600)
     );
 }
 
@@ -525,7 +526,7 @@ fn test_enforce_request_budget_refuses_with_the_seconds_to_reset() {
     let exceeded = RequestBudget::Metered {
         limit: 5,
         used: 5,
-        resets_at: now + Duration::seconds(90),
+        resets_at: now + Elapsed::seconds(90),
     };
     let refusal = enforce_request_budget(exceeded, now).unwrap_err();
     assert_eq!(refusal.code, ErrorCode::RateLimitExceeded);
@@ -539,7 +540,7 @@ fn test_enforce_request_budget_refuses_with_the_seconds_to_reset() {
     let overshot = RequestBudget::Metered {
         limit: 5,
         used: 7,
-        resets_at: now - Duration::seconds(10),
+        resets_at: now - Elapsed::seconds(10),
     };
     assert_eq!(
         enforce_request_budget(overshot, now)
@@ -551,7 +552,7 @@ fn test_enforce_request_budget_refuses_with_the_seconds_to_reset() {
     let within = RequestBudget::Metered {
         limit: 5,
         used: 4,
-        resets_at: now + Duration::seconds(90),
+        resets_at: now + Elapsed::seconds(90),
     };
     assert!(enforce_request_budget(within, now).is_ok());
     assert!(enforce_request_budget(RequestBudget::Unlimited, now).is_ok());
@@ -578,13 +579,13 @@ async fn test_window_usage_counts_only_calls_inside_the_window() {
         .unwrap();
 
     // Whole seconds, so the oldest call reads back equal on every engine.
-    let now = Utc::now().with_nanosecond(0).unwrap();
+    let now = Timestamp::from_epoch_seconds(Timestamp::now().epoch_seconds()).unwrap();
     let usage = &database.repositories().usage;
     for hours_ago in 0..5 {
         usage
             .record_api_key(&call(
                 &api_key.id,
-                now - Duration::hours(hours_ago),
+                now - Elapsed::hours(hours_ago),
                 "inside_window",
                 200,
             ))
@@ -596,7 +597,7 @@ async fn test_window_usage_counts_only_calls_inside_the_window() {
         usage
             .record_api_key(&call(
                 &api_key.id,
-                now - Duration::days(40) - Duration::hours(hours_ago),
+                now - Elapsed::days(40) - Elapsed::hours(hours_ago),
                 "outside_window",
                 200,
             ))
@@ -612,7 +613,7 @@ async fn test_window_usage_counts_only_calls_inside_the_window() {
         counted,
         WindowUsage {
             count: 5,
-            oldest: Some(now - Duration::hours(4)),
+            oldest: Some(now - Elapsed::hours(4)),
         }
     );
 }
@@ -637,14 +638,14 @@ async fn test_rate_limit_edge_cases() {
         .create(&api_key)
         .await
         .unwrap();
-    let seeded_at = Utc::now() - Duration::days(29);
+    let seeded_at = Timestamp::now() - Elapsed::days(29);
     seed_calls(&database, &api_key.id, 10, seeded_at).await;
 
     // At exactly the limit the budget is spent: nothing remains, and the
     // next request is refused.
     let usage = window_usage(&database, &api_key).await;
     assert_eq!(usage.count, 10);
-    let budget = calculate_api_key_rate_limit(&api_key, &usage, Utc::now());
+    let budget = calculate_api_key_rate_limit(&api_key, &usage, Timestamp::now());
     assert!(budget.is_exceeded());
     assert_eq!(budget.remaining_after_this_request(), Some(0));
 
@@ -688,7 +689,7 @@ async fn test_rate_limit_with_mixed_status_codes() {
             .usage
             .record_api_key(&call(
                 &api_key.id,
-                Utc::now(),
+                Timestamp::now(),
                 &format!("mixed_tool_{i}"),
                 status_code,
             ))
@@ -699,7 +700,7 @@ async fn test_rate_limit_with_mixed_status_codes() {
     // All requests count toward the rate limit, regardless of status code
     let usage = window_usage(&database, &api_key).await;
     assert_eq!(usage.count, 8);
-    let budget = calculate_api_key_rate_limit(&api_key, &usage, Utc::now());
+    let budget = calculate_api_key_rate_limit(&api_key, &usage, Timestamp::now());
     assert!(!budget.is_exceeded());
     assert_eq!(budget.remaining_after_this_request(), Some(99_991));
 
@@ -709,8 +710,8 @@ async fn test_rate_limit_with_mixed_status_codes() {
         .usage
         .get_api_key_stats(
             &api_key.id,
-            Utc::now() - Duration::hours(1),
-            Utc::now() + Duration::hours(1),
+            Timestamp::now() - Elapsed::hours(1),
+            Timestamp::now() + Elapsed::hours(1),
         )
         .await
         .unwrap();
@@ -734,7 +735,7 @@ async fn test_trial_tier_rate_limiting() {
         1_000,
         MONTH_WINDOW_SECS,
     );
-    api_key.expires_at = Some(Utc::now() + Duration::days(14));
+    api_key.expires_at = Some(Timestamp::now() + Elapsed::days(14));
     database
         .repositories()
         .api_keys
@@ -746,11 +747,11 @@ async fn test_trial_tier_rate_limiting() {
         .authenticate_request(Some(full_key))
         .await
         .unwrap();
-    seed_calls(&database, &api_key.id, 1_000, Utc::now()).await;
+    seed_calls(&database, &api_key.id, 1_000, Timestamp::now()).await;
 
     let usage = window_usage(&database, &api_key).await;
     assert_eq!(usage.count, 1_000);
-    assert!(calculate_api_key_rate_limit(&api_key, &usage, Utc::now()).is_exceeded());
+    assert!(calculate_api_key_rate_limit(&api_key, &usage, Timestamp::now()).is_exceeded());
 
     let refusal = auth_middleware
         .authenticate_request(Some(full_key))
@@ -767,7 +768,7 @@ async fn test_tier_conversion_scenarios() {
     let now = fixed_now();
     let half_used = |count| WindowUsage {
         count,
-        oldest: Some(now - Duration::days(1)),
+        oldest: Some(now - Elapsed::days(1)),
     };
 
     let mut trial_key = api_key_for(
@@ -778,7 +779,7 @@ async fn test_tier_conversion_scenarios() {
         1_000,
         MONTH_WINDOW_SECS,
     );
-    trial_key.expires_at = Some(Utc::now() + Duration::days(14));
+    trial_key.expires_at = Some(Timestamp::now() + Elapsed::days(14));
     let starter_key = api_key_for(
         &api_key_manager,
         &user,
@@ -811,7 +812,7 @@ async fn test_tier_conversion_scenarios() {
     assert!(starter_key.expires_at.is_none());
 
     // Each tier's budget at half its limit: remaining counts this request.
-    let resets_at = now - Duration::days(1) + Duration::seconds(i64::from(MONTH_WINDOW_SECS));
+    let resets_at = now - Elapsed::days(1) + Elapsed::seconds(i64::from(MONTH_WINDOW_SECS));
     for (key, used, limit) in [
         (&trial_key, 500, 1_000),
         (&starter_key, 5_000, 10_000),
@@ -926,7 +927,12 @@ async fn test_legacy_conversion_functionality() {
 
 #[test]
 fn test_monthly_reset_calculations() {
-    let at = |y, m, d, h, min, s| Utc.with_ymd_and_hms(y, m, d, h, min, s).unwrap();
+    let at = |y, m, d, h, min, s| {
+        CivilDate::from_ymd(y, m, d)
+            .and_then(|date| date.and_hms(h, min, s))
+            .and_then(CivilDateTime::and_utc)
+            .unwrap()
+    };
 
     // A 29th, 30th or 31st never names a day the next month lacks, the
     // year rolls over in December, and the first instant of a month resets
@@ -941,8 +947,12 @@ fn test_monthly_reset_calculations() {
         (at(2028, 1, 30, 6, 0, 0), at(2028, 2, 1, 0, 0, 0)),
         (at(2026, 9, 1, 0, 0, 0), at(2026, 10, 1, 0, 0, 0)),
     ] {
-        let reset = next_utc_month_start(now + Duration::nanoseconds(123_456_789));
+        let reset = next_utc_month_start(now + Elapsed::nanoseconds(123_456_789));
         assert_eq!(reset, expected, "next month start after {now}");
-        assert_eq!(reset.nanosecond(), 0, "the reset is a whole second");
+        assert_eq!(
+            reset.utc_time().nanosecond(),
+            0,
+            "the reset is a whole second"
+        );
     }
 }

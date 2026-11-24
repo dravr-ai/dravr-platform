@@ -15,9 +15,9 @@ use axum::extract::Path;
 use axum::http::StatusCode;
 use axum::routing::get;
 use axum::{Json, Router};
-use chrono::Utc;
 use dravr_cageux::nutrition_calculator::Gender;
 use dravr_cageux::zones::AerobicThresholdPace;
+use dravr_tronc::dates::Timestamp;
 use dravr_tronc::mcp::tool::{McpTool, ToolContext};
 use pierre_core::constants::oauth::INTERVALS_ICU;
 use pierre_core::models::{
@@ -78,7 +78,7 @@ struct World {
 impl World {
     async fn new(reported_sex: Option<&'static str>) -> Self {
         let base = create_test_server_resources().await.unwrap();
-        let mut config = offline_provider_config(INTERVALS_ICU);
+        let mut config = offline_provider_config(INTERVALS_ICU).unwrap();
         config.api_base_url = spawn_intervals(reported_sex).await;
         let mut registry = offline_provider_registry();
         registry.set_default_config(INTERVALS_ICU, config);
@@ -99,7 +99,7 @@ impl World {
     }
 
     async fn connect(&self, (user, tenant): (Uuid, TenantId)) {
-        let now = Utc::now();
+        let now = Timestamp::now();
         let repos = &self.res.common.repos;
         repos
             .oauth_tokens

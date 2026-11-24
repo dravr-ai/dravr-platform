@@ -14,7 +14,7 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::billing::{
     BillingEvent, CheckoutRequest, CheckoutResponse, Invoice, PortalRequest, PortalResponse,
     SubscriptionEventPayload, WebhookPayload,
@@ -23,7 +23,7 @@ use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{Subscription, SubscriptionStatus, TenantId, TierQuotaConfig, UserTier};
 use pierre_database::views::{AuthRepos, UsageRepos};
 use pierre_middleware::extractors::AuthenticatedUser;
-use pierre_runtime_context::{BillingCtx, MiddlewareCtx};
+use pierre_runtime_context::{resolve_tenant, BillingCtx, MiddlewareCtx, TenantMode};
 use serde::{Deserialize, Serialize};
 use tracing::{error, field, info, instrument, Span};
 use uuid::Uuid;
@@ -209,20 +209,16 @@ async fn plans() -> Json<PlansResponse> {
     })
 }
 
-/// The tenant a billing action applies to: the token's active tenant when
-/// the JWT names one, otherwise the user's first membership — the same
-/// resolution `GET /api/users/me/quota` uses. A user with no tenant at all
-/// has nothing a subscription could attach to, so that is a 404.
-async fn resolve_tenant_id<C: BillingCtx>(
-    resources: &C,
+/// The tenant a billing action applies to, selected by the canonical resolver.
+///
+/// That is the tenant the session names when the user belongs to it, otherwise the user's first membership — the same
+/// resolution `GET /api/users/me/quota` uses. A user with no tenant at all has nothing a
+/// subscription could attach to, so that is a 404.
+async fn resolve_tenant_id<C: BillingCtx + MiddlewareCtx>(
+    resources: &Arc<C>,
     auth: &AuthenticatedUser,
 ) -> AppResult<String> {
-    if let Some(tenant) = auth.active_tenant_id {
-        return Ok(tenant.to_string());
-    }
-    BillingCtx::repos(resources)
-        .tenants
-        .first_for_user(auth.user_id)
+    resolve_tenant(resources, auth, TenantMode::Optional)
         .await?
         .map(|tenant_id| tenant_id.to_string())
         .ok_or_else(|| AppError::not_found("user has no active tenant"))
@@ -266,7 +262,7 @@ async fn checkout<C: BillingCtx + MiddlewareCtx>(
         "start a billing checkout",
     )
     .await?;
-    let tenant_id = resolve_tenant_id(resources.as_ref(), &auth).await?;
+    let tenant_id = resolve_tenant_id(&resources, &auth).await?;
     let req = CheckoutRequest {
         tier: body.tier,
         tenant_id,
@@ -332,8 +328,8 @@ async fn get_subscription<C: BillingCtx + MiddlewareCtx>(
         provider_subscription_id: row.provider_subscription_id,
         status: row.status.as_str().to_owned(),
         plan_tier: row.plan_tier.as_str().to_owned(),
-        current_period_start: row.current_period_start.map(|d| d.to_rfc3339()),
-        current_period_end: row.current_period_end.map(|d| d.to_rfc3339()),
+        current_period_start: row.current_period_start.map(Timestamp::to_rfc3339),
+        current_period_end: row.current_period_end.map(Timestamp::to_rfc3339),
         cancel_at_period_end: row.cancel_at_period_end,
     }))
 }
@@ -517,7 +513,7 @@ pub async fn dispatch_billing_event(
     auth_repos: &AuthRepos,
     usage_repos: &UsageRepos,
     provider: &str,
-    occurred_at: DateTime<Utc>,
+    occurred_at: Timestamp,
     event: &BillingEvent,
 ) -> AppResult<EventOutcome> {
     match event {
@@ -552,7 +548,7 @@ pub async fn dispatch_billing_event(
 /// Log an event the subscription row refused as superseded. `subscription`
 /// is the provider's subscription id, or its customer id when the event names
 /// no subscription (the row is keyed on the customer).
-fn log_superseded(provider: &str, occurred_at: DateTime<Utc>, subscription: &str) {
+fn log_superseded(provider: &str, occurred_at: Timestamp, subscription: &str) {
     tracing::warn!(
         billing_provider = provider,
         occurred_at = %occurred_at,
@@ -688,7 +684,7 @@ async fn handle_subscription_upsert(
     auth_repos: &AuthRepos,
     usage_repos: &UsageRepos,
     provider: &str,
-    occurred_at: DateTime<Utc>,
+    occurred_at: Timestamp,
     payload: &SubscriptionEventPayload,
 ) -> AppResult<EventOutcome> {
     let tenant_id = TenantId::parse_str(&payload.tenant_id)
@@ -709,7 +705,7 @@ async fn handle_subscription_upsert(
         .get_subscription_by_user(user_id)
         .await?;
 
-    let now = Utc::now();
+    let now = Timestamp::now();
     let sub = Subscription {
         id: Uuid::new_v4(),
         tenant_id,
@@ -755,9 +751,9 @@ async fn handle_subscription_canceled(
     auth_repos: &AuthRepos,
     usage_repos: &UsageRepos,
     provider: &str,
-    occurred_at: DateTime<Utc>,
+    occurred_at: Timestamp,
     provider_subscription_id: &str,
-    canceled_at: Option<DateTime<Utc>>,
+    canceled_at: Option<Timestamp>,
 ) -> AppResult<EventOutcome> {
     let mut existing = usage_repos
         .subscriptions
@@ -771,8 +767,8 @@ async fn handle_subscription_canceled(
     existing.status = SubscriptionStatus::Canceled;
     existing.canceled_at = canceled_at
         .or(existing.canceled_at)
-        .or_else(|| Some(Utc::now()));
-    existing.updated_at = Utc::now();
+        .or_else(|| Some(Timestamp::now()));
+    existing.updated_at = Timestamp::now();
     existing.last_event_at = Some(occurred_at);
     let Some(stored) = usage_repos
         .subscriptions
@@ -809,7 +805,7 @@ async fn handle_subscription_canceled(
 async fn handle_payment_failed(
     usage_repos: &UsageRepos,
     provider: &str,
-    occurred_at: DateTime<Utc>,
+    occurred_at: Timestamp,
     provider_subscription_id: &str,
 ) -> AppResult<EventOutcome> {
     let mut existing = usage_repos
@@ -822,7 +818,7 @@ async fn handle_payment_failed(
             ))
         })?;
     existing.status = SubscriptionStatus::PastDue;
-    existing.updated_at = Utc::now();
+    existing.updated_at = Timestamp::now();
     existing.last_event_at = Some(occurred_at);
     if usage_repos
         .subscriptions

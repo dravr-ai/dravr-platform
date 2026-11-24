@@ -43,7 +43,7 @@
 //! pierre-cli seed coach-plan-thread
 //! ```
 
-use chrono::{Days, NaiveDate};
+use dravr_tronc::dates::CivilDate;
 use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
 use pierre_core::civil_time::monday_of;
 use pierre_core::errors::{AppError, AppResult};
@@ -68,6 +68,7 @@ use tracing::info;
 
 use crate::accounts::{account, Account};
 use crate::coached_group::{coaches_group_named, seed_coached_group, GroupSpec};
+use dravr_tronc::dates::Elapsed;
 
 /// The seeded group's name, which the coach's group thread is titled after.
 pub const GROUP_NAME: &str = "Tempo Plan Squad";
@@ -88,8 +89,8 @@ pub const DRAFT_WORKOUT: &str = "Tempo 3 x 10 min";
 pub const QUESTION: &str = "Draft the next training block.";
 
 /// How far past the athlete's today each race is.
-const LIVE_RACE_DAYS_AHEAD: u64 = 120;
-const DRAFT_RACE_DAYS_AHEAD: u64 = 180;
+const LIVE_RACE_DAYS_AHEAD: i64 = 120;
+const DRAFT_RACE_DAYS_AHEAD: i64 = 180;
 
 /// The seeded group, owned by the athlete and coached by the coach.
 const GROUP: GroupSpec<'static> = GroupSpec {
@@ -216,8 +217,8 @@ async fn seed_live_season(
     repos: &RepositoryRegistry,
     access: &CoachedAthleteAccess,
     agent_id: &str,
-    today: NaiveDate,
-    week_start: NaiveDate,
+    today: CivilDate,
+    week_start: CivilDate,
 ) -> AppResult<()> {
     let tenant_id = access.tenant.to_string();
     let athlete_id = access.athlete_user_id.to_string();
@@ -261,8 +262,8 @@ async fn seed_draft(
     target: &CoachDraftTarget,
     agent_id: &str,
     thread_id: &str,
-    today: NaiveDate,
-    week_start: NaiveDate,
+    today: CivilDate,
+    week_start: CivilDate,
 ) -> AppResult<()> {
     let race = race(DRAFT_RACE, today, DRAFT_RACE_DAYS_AHEAD);
     let days = week_days(week_start, DRAFT_WORKOUT, "Z3");
@@ -301,7 +302,7 @@ async fn seed_card_reply(
     model: &str,
     target: &CoachDraftTarget,
     access: CoachedAthleteAccess,
-    today: NaiveDate,
+    today: CivilDate,
 ) -> AppResult<()> {
     let locale = user_locale(repos.users.get_global(coach.id).await?.as_ref());
     let name = access.display_name;
@@ -354,6 +355,7 @@ async fn seed_card_reply(
                 channel_type: None,
                 about_user_id: None,
                 turn_attempted_write: None,
+                ai_consent_sources: &[],
             })
             .await?;
     }
@@ -361,10 +363,10 @@ async fn seed_card_reply(
 }
 
 /// A race `days_ahead` days past `today`, the season's A race.
-fn race(name: &str, today: NaiveDate, days_ahead: u64) -> GoalRace {
+fn race(name: &str, today: CivilDate, days_ahead: i64) -> GoalRace {
     GoalRace {
         name: name.to_owned(),
-        date: ymd(today + Days::new(days_ahead)),
+        date: ymd(today + Elapsed::days(days_ahead)),
         discipline: "road".to_owned(),
         priority: RacePriority::A,
     }
@@ -390,7 +392,7 @@ fn outline<'a>(
 
 /// The week starting `week_start`: `key_session` at `key_intensity` on
 /// Tuesday, an easy run on Thursday and a long run on Saturday.
-fn week_days(week_start: NaiveDate, key_session: &str, key_intensity: &str) -> Vec<PlannedDay> {
+fn week_days(week_start: CivilDate, key_session: &str, key_intensity: &str) -> Vec<PlannedDay> {
     [
         (1, key_session, 50, key_intensity),
         (3, "Easy run, 40 min", 40, "Z2"),
@@ -398,7 +400,7 @@ fn week_days(week_start: NaiveDate, key_session: &str, key_intensity: &str) -> V
     ]
     .into_iter()
     .map(|(offset, workout, minutes, intensity)| PlannedDay {
-        date: ymd(week_start + Days::new(offset)),
+        date: ymd(week_start + Elapsed::days(offset)),
         sport: "run".to_owned(),
         workout: workout.to_owned(),
         duration_min: Some(minutes),
@@ -410,10 +412,12 @@ fn week_days(week_start: NaiveDate, key_session: &str, key_intensity: &str) -> V
         template_source: None,
         template_preset: None,
         envelope: None,
+        coach_original: None,
+        coach_added: false,
     })
     .collect()
 }
 
-fn ymd(date: NaiveDate) -> String {
-    date.format("%Y-%m-%d").to_string()
+fn ymd(date: CivilDate) -> String {
+    date.to_string()
 }

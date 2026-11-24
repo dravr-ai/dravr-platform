@@ -268,7 +268,7 @@ const TURN_DRAIN_GRACE: Duration = Duration::from_secs(5);
 /// replacing the "thinking…" placeholder with the notice.
 const TURN_DRAIN_SIGNAL_WINDOW: Duration = Duration::from_secs(2);
 
-/// Floor on the whole shutdown path, so the operator "stopping" notice has
+/// Floor on the whole shutdown path, so the admin "stopping" notice has
 /// time to leave the process.
 ///
 /// It is an async Slack post with no one left to await it. An instance with no
@@ -528,10 +528,11 @@ mod tests {
         use std::time::Duration;
 
         use async_trait::async_trait;
-        use chrono::{DateTime, Utc};
+        use dravr_tronc::dates::Timestamp;
         use pierre_core::errors::AppResult;
         use pierre_core::models::usage::{
-            InsertLlmUsage, LlmUsageAggregateRow, LlmUsageDailyRow, LlmUsageRecord,
+            DelegatedRead, InsertLlmUsage, LlmUsageAggregateRow, LlmUsageDailyRow, LlmUsageRecord,
+            OutsideRead,
         };
         use pierre_core::models::{ConversationTurnId, TenantId};
         use pierre_database::repositories::{
@@ -562,6 +563,24 @@ mod tests {
             ) -> AppResult<LlmUsageRecord> {
                 sleep(SLOW_INSERT).await;
                 self.0.insert_llm_usage(params).await
+            }
+            async fn insert_delegated_usage(
+                &self,
+                params: &InsertLlmUsage<'_>,
+                read: &DelegatedRead<'_>,
+            ) -> AppResult<()> {
+                self.0.insert_delegated_usage(params, read).await
+            }
+            async fn list_outside_reads(
+                &self,
+                tenant_id: &str,
+                user_id: &str,
+                since: Timestamp,
+                limit: u32,
+            ) -> AppResult<Vec<OutsideRead>> {
+                self.0
+                    .list_outside_reads(tenant_id, user_id, since, limit)
+                    .await
             }
             async fn get_llm_usage_aggregates(
                 &self,
@@ -605,8 +624,8 @@ mod tests {
             async fn get_llm_calls_between(
                 &self,
                 tenant_id: Option<&str>,
-                start: DateTime<Utc>,
-                end: DateTime<Utc>,
+                start: Timestamp,
+                end: Timestamp,
                 limit: i64,
             ) -> AppResult<Vec<LlmUsageRecord>> {
                 self.0
