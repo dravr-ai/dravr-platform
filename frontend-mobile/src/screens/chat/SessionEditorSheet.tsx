@@ -2,15 +2,9 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: The coach's day editor on the phone — a sheet over the plan thread that edits one session of a date, or adds one to it
-// ABOUTME: The footer names what a save replaces, a dirty sheet asks before it closes; a session restores, a date's extra one removes (carnet#1515, #1714, #1716)
+// ABOUTME: One sport row for both modes, a footer that names what a save replaces or what it waits for; a dirty sheet asks before it closes (carnet#1515, #1714, #1716, #1727)
 
-import React, {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -18,76 +12,51 @@ import {
   Platform,
   Pressable,
   ScrollView,
+  Switch,
   Text,
   View,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import Toast from 'react-native-toast-message';
 import { useTranslation } from '@pierre/i18n';
-import type {
-  FamilyCatalogueResponse,
-  PlanDay,
-  SessionBuild,
-  SessionParamKey,
-  SessionParamRange,
-  SessionPreview,
-  SessionSport,
-} from '@pierre/shared-types';
+import type { PlanDay, SessionBuild } from '@pierre/shared-types';
 import {
   API_ERROR_KEYS,
   canRemoveSession,
-  catalogueSports,
   dayPosition,
   type DayReplacement,
-  derivedRows,
   describeApiError,
-  editableParams,
   editorDirty,
   type EditorMode,
-  familiesForSport,
   familyBuildChanged,
-  familyMissingForDaySport,
-  familyOf,
+  familySportFor,
   formatCivilDate,
   handDayRequest,
   handSessionChanged,
-  handSessionComplete,
+  handSessionMissing,
   handSessionOf,
-  handSportOptions,
   initialEditorMode,
   initialSessionBuild,
   isDateFull,
   isSessionMoved,
   MAX_SESSIONS_PER_DATE,
-  flaggedParams,
   newSessionDay,
-  paramValue,
+  offeredFamilySport,
+  pickSport,
   presetOf,
-  presetsForSport,
   replacementLine,
   restoreLine,
+  unresolvedTargetLine,
   ROW_DATE,
-  selectBuildSport,
-  selectFamily,
-  selectPreset,
   SESSION_EDITOR_KEYS,
-  SESSION_PARAM_LABEL_KEY,
   type SessionAt,
   sessionExpect,
-  sessionSportLabelKey,
-  setParam,
+  setHand,
+  sportChoices,
   type Translate,
 } from '@pierre/ui-logic';
 import { useThemeColors } from '../../constants/theme';
-import {
-  ALERT_TONE,
-  alertInkColor,
-  Badge,
-  Button,
-  Input,
-  RadioGroup,
-  Sheet,
-} from '../../components/ui';
+import { ALERT_TONE, alertInkColor, Button, RadioGroup, Sheet, switchColors } from '../../components/ui';
 import {
   useAddDraftSession,
   useRemoveDraftSession,
@@ -98,9 +67,10 @@ import {
   useSessionPreview,
   useSubjectFamilies,
 } from '../../hooks/useSessionEditor';
-import { EvidenceChip } from './EvidenceChip';
+import { FamilyTitleHeader, SessionTitleHeader, SportChips } from './SessionEditorHeader';
+import { SessionFamilyForm } from './SessionFamilyForm';
 import { SessionHandForm } from './SessionHandForm';
-import { Figure, type SessionEditorTarget, StepText } from './WorkoutPlanCard';
+import type { SessionEditorTarget } from './WorkoutPlanCard';
 
 interface SessionEditorSheetProps {
   /** The coach's plan thread on the athlete. */
@@ -193,16 +163,19 @@ interface SessionEditorProps {
 }
 
 /**
- * The sheet's content: the edited-session row, the mode switch, the mode's
- * form, "Remove this session" on a date that holds more than one, and the
- * footer naming what a save replaces over Cancel and Save. Each mode keeps
- * its own state, so switching back finds the coach's work as they left it.
- * A family value outside its tested range is saved as typed and earns a
+ * The sheet's content, top to bottom: the edited-session row, the session's
+ * title over its summary line, the Rest switch, the sport chips, "Write" /
+ * "From an evidence-backed family" when a family is written for the sport,
+ * the mode's form, "Remove this session" on a date that holds more than one,
+ * and the footer naming what a save replaces — or what it still waits for —
+ * over Cancel and Save. One sport pick moves both modes; each mode otherwise
+ * keeps its own state, so switching back finds the coach's work as they left
+ * it. A family value outside its tested range is saved as typed and earns a
  * finding; Save is never held back for one (D3).
  *
  * Adding a session opens on a blank one in the sport of the date's first
  * session: no Rest switch — a date's rest is changed on its own entry — and
- * no footer sentence, since a new session replaces nothing.
+ * no replacement sentence, since a new session replaces nothing.
  *
  * Every write but the add names its session by position and as the card
  * showed it. A write refused because that session moved (409
@@ -218,71 +191,63 @@ function SessionEditor({
   onDirtyChange,
 }: SessionEditorProps) {
   const { t, language } = useTranslation();
+  const colors = useThemeColors();
   const adding = target.mode === 'add';
   // What the editor starts from, and measures a change against: the entry
   // itself, or the blank session a new one starts as.
-  const day = useMemo(
-    () =>
-      adding ? newSessionDay(target.day.date, target.entries) : target.day,
-    [adding, target],
-  );
+  const day = useMemo(() => (adding ? newSessionDay(target.day.date, target.entries) : target.day), [adding, target]);
   // Which session of the date a write is about, as the card showed it.
   const at = useMemo<SessionAt>(
-    () => ({
-      date: day.date,
-      position: dayPosition(day),
-      expect: sessionExpect(day),
-    }),
+    () => ({ date: day.date, position: dayPosition(day), expect: sessionExpect(day) }),
     [day],
   );
   const date = formatCivilDate(day.date, language, ROW_DATE);
   const [mode, setMode] = useState<EditorMode>(() => initialEditorMode(day));
 
-  // "This session": the entry's own session, as the coach edits it by hand.
-  // The sport row is drawn from the opening session, so a pick never
-  // reorders it under the coach's thumb.
+  // "Write": the entry's own session, as the coach edits it by hand. The
+  // sport chips are drawn from the opening session, so a pick never reorders
+  // them under the coach's thumb.
   const openingHand = useMemo(() => handSessionOf(day), [day]);
-  const handSports = useMemo(
-    () => handSportOptions(openingHand),
-    [openingHand],
-  );
-  const [hand, setHand] = useState(openingHand);
+  const choices = useMemo(() => sportChoices(openingHand.sport), [openingHand]);
+  const [hand, updateHand] = useState(openingHand);
+  // Whether the coach is naming a sport of their own under "Other…".
+  const [otherOpen, setOtherOpen] = useState(false);
 
   // "From a family": the build the entry opens on, until the coach changes it.
   const families = useSubjectFamilies(conversationId, language);
   const catalogue = families.data;
-  const opening = useMemo(
-    () => (catalogue ? initialSessionBuild(day, catalogue) : null),
-    [day, catalogue],
-  );
+  const opening = useMemo(() => (catalogue ? initialSessionBuild(day, catalogue) : null), [day, catalogue]);
   const [edited, setEdited] = useState<SessionBuild | null>(null);
   const build = edited ?? opening;
   const preset = catalogue && build ? presetOf(catalogue, build) : undefined;
+
+  // The family mode is offered only for a sport the catalogue has a family
+  // written for, with no note otherwise. While the catalogue is read, a day
+  // a family built stays on its family's loading state; if the read fails,
+  // the switch stays within reach for a family sport so the coach can still
+  // write the session by hand.
+  const familyWord = familySportFor(hand.sport, day);
+  const familySport = offeredFamilySport(catalogue, hand.sport, day);
+  const catalogueOut = catalogue === undefined && familyWord !== undefined;
+  const modeOffered = !hand.rest && (familySport !== undefined || (families.isError && familyWord !== undefined));
+  const shown: EditorMode = mode === 'family' && !hand.rest && (familySport !== undefined || catalogueOut) ? 'family' : 'session';
+
   // Measured only while the family mode is on screen: a hand edit has no preview.
-  const preview = useSessionPreview(
-    conversationId,
-    day.date,
-    mode === 'family' ? build : null,
-    language,
-  );
+  const preview = useSessionPreview(conversationId, day.date, shown === 'family' ? build : null, language);
 
   const handChanged = handSessionChanged(day, hand);
-  const familyChanged =
-    build !== null &&
-    opening !== null &&
-    familyBuildChanged(day, opening, build);
+  const familyChanged = build !== null && opening !== null && familyBuildChanged(day, opening, build);
   let next: DayReplacement | null;
-  if (mode === 'session') {
-    next = !handChanged
-      ? null
-      : hand.rest
-        ? { rest: true }
-        : { rest: false, name: hand.workout.trim() };
+  if (shown === 'session') {
+    next = !handChanged ? null : hand.rest ? { rest: true } : { rest: false, name: hand.workout.trim() };
   } else {
     next = familyChanged && preset ? { rest: false, name: preset.name } : null;
   }
   // A new session replaces nothing, so it has no sentence to say.
   const replacement = adding ? null : replacementLine(day, next);
+  // What the written session still lacks: said in the footer while Save waits.
+  const missing = shown === 'session' ? handSessionMissing(hand) : null;
+  const missingText = missing ? t(missing.key, missing.values) : null;
 
   // A change the coach made in either mode; a family build the coach never
   // touched is not one, even on an entry no family built.
@@ -298,12 +263,38 @@ function SessionEditor({
   // A new session saves once it is whole — in the family mode, once a build
   // exists; an edit saves once it changes something and is whole.
   const canSave = adding
-    ? mode === 'family'
+    ? shown === 'family'
       ? build !== null
-      : handSessionComplete(hand)
-    : next !== null && (mode === 'family' || handSessionComplete(hand));
+      : missing === null
+    : next !== null && (shown === 'family' || missing === null);
   // Why the last save was refused, in the coach's words; `null` until one is.
   const [saveRefusal, setSaveRefusal] = useState<string | null>(null);
+
+  // One sport pick for both modes: the hand session takes the word, the
+  // family build follows it only when it moved (an untouched family mode
+  // never reads as a change), and a sport no family is written for closes
+  // the family mode.
+  const pick = (sport: string) => {
+    const picked = pickSport({ hand, build, mode }, sport, day, catalogue);
+    updateHand(picked.hand);
+    if (picked.build !== build) setEdited(picked.build);
+    setMode(picked.mode);
+  };
+  const pickChip = (sport: string) => {
+    setOtherOpen(false);
+    pick(sport);
+  };
+  // "Other…" opens an empty field whose text is the sport word itself.
+  const openOther = () => {
+    if (otherOpen) return;
+    setOtherOpen(true);
+    pick('');
+  };
+  // A rest day is a session the coach writes, never a family build.
+  const setRest = (rest: boolean) => {
+    updateHand(setHand(hand, { rest }));
+    if (rest) setMode('session');
+  };
 
   const saved = () => {
     onClose();
@@ -321,19 +312,23 @@ function SessionEditor({
     Toast.show({ type: 'info', text1: t(SESSION_EDITOR_KEYS.sessionMoved) });
   };
   // Any other refusal is said in the sheet, which stays open for another try:
-  // an add on a date another write filled meanwhile says the date is full.
+  // a step target the calendar cannot read names its step and target, and an
+  // add on a date another write filled meanwhile says the date is full.
   const refused = (error: unknown) => {
     if (isSessionMoved(error)) {
       moved();
       return;
     }
+    const unresolved = unresolvedTargetLine(error);
     setSaveRefusal(
-      isDateFull(error)
-        ? t(SESSION_EDITOR_KEYS.dateFull, {
-            date,
-            max: String(MAX_SESSIONS_PER_DATE),
-          })
-        : describeApiError(error, { t, fallbackKey: API_ERROR_KEYS.unknown }),
+      unresolved
+        ? t(unresolved.key, unresolved.values)
+        : isDateFull(error)
+          ? t(SESSION_EDITOR_KEYS.dateFull, {
+              date,
+              max: String(MAX_SESSIONS_PER_DATE),
+            })
+          : describeApiError(error, { t, fallbackKey: API_ERROR_KEYS.unknown }),
     );
   };
 
@@ -342,15 +337,12 @@ function SessionEditor({
     setSaveRefusal(null);
     const settle = { onSuccess: saved, onError: refused };
     if (adding) {
-      if (mode === 'session') {
-        add.mutate(
-          { date: day.date, session: { day: handDayRequest(hand) } },
-          settle,
-        );
+      if (shown === 'session') {
+        add.mutate({ date: day.date, session: { day: handDayRequest(hand) } }, settle);
       } else if (build !== null) {
         add.mutate({ date: day.date, session: { build } }, settle);
       }
-    } else if (mode === 'session') {
+    } else if (shown === 'session') {
       saveHand.mutate({ ...at, day: handDayRequest(hand) }, settle);
     } else if (build !== null) {
       saveFamily.mutate({ ...at, build }, settle);
@@ -358,24 +350,15 @@ function SessionEditor({
   };
 
   return (
-    <KeyboardAvoidingView
-      className="shrink"
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-    >
+    <KeyboardAvoidingView className="shrink" behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <Text
         className="mb-3 px-4 text-lg font-semibold text-text-primary"
         accessibilityRole="header"
         testID="session-editor-title"
       >
-        {t(
-          adding ? SESSION_EDITOR_KEYS.addTitle : SESSION_EDITOR_KEYS.editTitle,
-          { date },
-        )}
+        {t(adding ? SESSION_EDITOR_KEYS.addTitle : SESSION_EDITOR_KEYS.editTitle, { date })}
       </Text>
-      <ScrollView
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
-      >
+      <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
         {!adding && (day.edited || day.added) ? (
           <EditedNotice
             conversationId={conversationId}
@@ -386,39 +369,63 @@ function SessionEditor({
             onMoved={moved}
           />
         ) : null}
-        <View className="mb-5 px-4">
-          <RadioGroup
-            layout="segmented"
-            options={[
-              { key: 'session', label: t(SESSION_EDITOR_KEYS.modeSession) },
-              { key: 'family', label: t(SESSION_EDITOR_KEYS.modeFamily) },
-            ]}
-            value={mode}
-            onChange={(key) => setMode(key === 'family' ? 'family' : 'session')}
-            testID="session-editor-mode"
-          />
-        </View>
-        {mode === 'session' ? (
-          <SessionHandForm
-            session={hand}
-            sports={handSports}
-            restOffered={!adding}
-            onChange={setHand}
-          />
+        {hand.rest ? null : shown === 'family' ? (
+          <FamilyTitleHeader presetName={preset?.name} sport={hand.sport} previewMinutes={preview.data?.duration_min} />
         ) : (
-          <FamilyPane
-            athleteName={athleteName}
-            catalogue={catalogue}
-            loadFailed={families.isError}
-            build={build}
-            missingSport={
-              catalogue ? familyMissingForDaySport(day, catalogue) : null
-            }
-            preview={preview.data}
-            measuring={preview.isFetching}
-            previewFailed={preview.isError && !preview.isFetching}
-            onChange={setEdited}
-          />
+          <SessionTitleHeader session={hand} onTitle={(workout) => updateHand(setHand(hand, { workout }))} />
+        )}
+        {adding ? null : (
+          <View className="mb-2 min-h-11 flex-row items-center justify-between gap-4 px-4">
+            <Text className="flex-1 text-base text-text-primary">{t(SESSION_EDITOR_KEYS.restDay)}</Text>
+            <Switch
+              value={hand.rest}
+              onValueChange={setRest}
+              accessibilityLabel={t(SESSION_EDITOR_KEYS.restDay)}
+              {...switchColors(colors.tokens, hand.rest)}
+              testID="session-editor-rest"
+            />
+          </View>
+        )}
+        {hand.rest ? null : (
+          <>
+            <SportChips
+              choices={choices}
+              sport={hand.sport}
+              otherOpen={otherOpen}
+              onPick={pickChip}
+              onOther={openOther}
+              onOtherName={pick}
+            />
+            {modeOffered ? (
+              <View className="mb-5 px-4">
+                <RadioGroup
+                  layout="segmented"
+                  accessibilityLabel={t(SESSION_EDITOR_KEYS.buildHow)}
+                  options={[
+                    { key: 'session', label: t(SESSION_EDITOR_KEYS.modeWrite) },
+                    { key: 'family', label: t(SESSION_EDITOR_KEYS.modeFamilyBacked) },
+                  ]}
+                  value={shown}
+                  onChange={(key) => setMode(key === 'family' ? 'family' : 'session')}
+                  testID="session-editor-mode"
+                />
+              </View>
+            ) : null}
+            {shown === 'session' ? (
+              <SessionHandForm session={hand} familySport={familyWord} onChange={updateHand} />
+            ) : (
+              <SessionFamilyForm
+                athleteName={athleteName}
+                catalogue={catalogue}
+                loadFailed={families.isError}
+                build={build}
+                preview={preview.data}
+                measuring={preview.isFetching}
+                previewFailed={preview.isError && !preview.isFetching}
+                onChange={setEdited}
+              />
+            )}
+          </>
         )}
         {!adding && canRemoveSession(target.entries) ? (
           <RemoveSession
@@ -432,7 +439,15 @@ function SessionEditor({
         ) : null}
       </ScrollView>
       <View className="mt-3 border-t border-border-faint px-4 pt-3">
-        {replacement !== null ? (
+        {missingText !== null ? (
+          <Text
+            className="mb-3 text-sm text-text-secondary"
+            accessibilityLiveRegion="polite"
+            testID="session-editor-missing"
+          >
+            {missingText}
+          </Text>
+        ) : replacement !== null ? (
           <Text
             className="mb-3 text-sm text-text-secondary"
             accessibilityLiveRegion="polite"
@@ -448,12 +463,8 @@ function SessionEditor({
             accessibilityLiveRegion="polite"
             testID="session-editor-save-failed"
           >
-            <Text className={`text-sm font-semibold ${ALERT_TONE.error.ink}`}>
-              {t(SESSION_EDITOR_KEYS.saveFailed)}
-            </Text>
-            <Text className={`mt-0.5 text-sm ${ALERT_TONE.error.ink}`}>
-              {saveRefusal}
-            </Text>
+            <Text className={`text-sm font-semibold ${ALERT_TONE.error.ink}`}>{t(SESSION_EDITOR_KEYS.saveFailed)}</Text>
+            <Text className={`mt-0.5 text-sm ${ALERT_TONE.error.ink}`}>{saveRefusal}</Text>
           </View>
         ) : null}
         <View className="flex-row gap-3">
@@ -468,13 +479,11 @@ function SessionEditor({
           </View>
           <View className="flex-1">
             <Button
-              title={
-                saving
-                  ? t(SESSION_EDITOR_KEYS.saving)
-                  : t(SESSION_EDITOR_KEYS.save)
-              }
+              title={saving ? t(SESSION_EDITOR_KEYS.saving) : t(SESSION_EDITOR_KEYS.save)}
               onPress={onSave}
               disabled={!canSave || saving}
+              // A Save that waits says why, as the footer's sentence does.
+              accessibilityHint={missingText ?? undefined}
               fullWidth
               testID="session-editor-save"
             />
@@ -505,9 +514,11 @@ interface EditedNoticeProps {
 
 /**
  * The quiet row an edited or added session opens with: that the coach
- * edited it, and "Undo your edits" with what it puts back — or, on a session
- * the coach added, that undoing removes it. A restore that lands closes the
- * sheet and says so; one refused is said here, and the sheet stays open.
+ * edited it, and "Back to the original" with what it puts back — or, on a
+ * session the coach added, that going back removes it. It asks first: a
+ * restore throws away every edit, and a session the coach added is asked
+ * about as its remove is. A restore that lands closes the sheet and says so;
+ * one refused is said here, and the sheet stays open.
  */
 function EditedNotice({
   conversationId,
@@ -524,7 +535,7 @@ function EditedNotice({
   const line = restoreLine(day);
   const note = line ? t(line.key, line.values) : undefined;
 
-  const onRestore = () => {
+  const run = () => {
     setRefusal(null);
     restore.mutate(at, {
       onSuccess: () => {
@@ -552,6 +563,21 @@ function EditedNotice({
     });
   };
 
+  const onRestore = () => {
+    if (day.added) {
+      const workout = sessionName(t, day);
+      Alert.alert(t(SESSION_EDITOR_KEYS.removeTitle), t(SESSION_EDITOR_KEYS.removeBody, { workout, date }), [
+        { text: t(SESSION_EDITOR_KEYS.cancel), style: 'cancel' },
+        { text: t(SESSION_EDITOR_KEYS.removeConfirm), style: 'destructive', onPress: run },
+      ]);
+      return;
+    }
+    Alert.alert(t(SESSION_EDITOR_KEYS.restoreTitle), note, [
+      { text: t(SESSION_EDITOR_KEYS.keepEditing), style: 'cancel' },
+      { text: t(SESSION_EDITOR_KEYS.discardConfirm), style: 'destructive', onPress: run },
+    ]);
+  };
+
   return (
     <View className="mb-4 px-4" testID="session-editor-edited">
       <Text className="text-sm text-text-secondary">
@@ -562,7 +588,7 @@ function EditedNotice({
         onPress={onRestore}
         disabled={restore.isPending}
         accessibilityRole="button"
-        accessibilityLabel={t(SESSION_EDITOR_KEYS.restore)}
+        accessibilityLabel={t(SESSION_EDITOR_KEYS.restoreOriginal)}
         accessibilityHint={note}
         accessibilityState={{
           disabled: restore.isPending,
@@ -572,7 +598,7 @@ function EditedNotice({
       >
         <Feather name="rotate-ccw" size={14} color={colors.tokens.primary} />
         <Text className="ml-1.5 text-sm font-medium text-primary">
-          {t(SESSION_EDITOR_KEYS.restore)}
+          {t(SESSION_EDITOR_KEYS.restoreOriginal)}
         </Text>
         {restore.isPending ? (
           <View className="ml-2">
@@ -722,386 +748,6 @@ function RemoveSession({
           </Text>
         </View>
       ) : null}
-    </View>
-  );
-}
-
-interface FamilyPaneProps {
-  athleteName: string;
-  /** The athlete's families; `undefined` until the read answers. */
-  catalogue: FamilyCatalogueResponse | undefined;
-  loadFailed: boolean;
-  build: SessionBuild | null;
-  /** The day's sport when no family has a form in it; the build then opens in another sport. */
-  missingSport: SessionSport | null;
-  preview: SessionPreview | undefined;
-  measuring: boolean;
-  previewFailed: boolean;
-  onChange: (build: SessionBuild) => void;
-}
-
-/**
- * "From a family": the catalogue's loading, failure and empty states live
- * here and nowhere else — the session mode never waits on the catalogue.
- */
-function FamilyPane({
-  athleteName,
-  catalogue,
-  loadFailed,
-  build,
-  missingSport,
-  preview,
-  measuring,
-  previewFailed,
-  onChange,
-}: FamilyPaneProps) {
-  const { t } = useTranslation();
-  const colors = useThemeColors();
-  if (loadFailed) {
-    return (
-      <Text
-        className="px-4 py-6 text-sm text-text-secondary"
-        accessibilityRole="alert"
-        testID="session-editor-load-failed"
-      >
-        {t(SESSION_EDITOR_KEYS.loadFailed)}
-      </Text>
-    );
-  }
-  if (catalogue === undefined) {
-    return (
-      <View className="items-center px-4 py-6" testID="session-editor-loading">
-        <ActivityIndicator color={colors.tokens.primary} />
-        <Text className="mt-2 text-sm text-text-secondary">
-          {t(SESSION_EDITOR_KEYS.loading)}
-        </Text>
-      </View>
-    );
-  }
-  if (build === null) {
-    return (
-      <Text
-        className="px-4 py-6 text-sm text-text-secondary"
-        testID="session-editor-no-families"
-      >
-        {t(SESSION_EDITOR_KEYS.noFamilies, { name: athleteName })}
-      </Text>
-    );
-  }
-  return (
-    <>
-      {missingSport !== null ? (
-        <Text
-          className="mb-4 px-4 text-sm text-text-secondary"
-          testID="session-editor-missing-sport"
-        >
-          {t(SESSION_EDITOR_KEYS.noFamilyForSport, {
-            sport: t(sessionSportLabelKey(missingSport)),
-          })}
-        </Text>
-      ) : null}
-      <BuildForm
-        catalogue={catalogue}
-        build={build}
-        flagged={flaggedParams(preview)}
-        onChange={onChange}
-      />
-      <PreviewPanel
-        preview={preview}
-        measuring={measuring}
-        failed={previewFailed}
-      />
-    </>
-  );
-}
-
-interface BuildFormProps {
-  catalogue: FamilyCatalogueResponse;
-  build: SessionBuild;
-  /** The values the kernel's preview found outside their range: the fields marked. */
-  flagged: ReadonlySet<SessionParamKey>;
-  onChange: (build: SessionBuild) => void;
-}
-
-/**
- * Sport first: the sport among those a family has a form for, then the
- * families with a form in it, the family's formats in it, and each value
- * the format lets the coach state. Picking a sport, a family or a format
- * starts its values at their defaults in that sport.
- */
-function BuildForm({ catalogue, build, flagged, onChange }: BuildFormProps) {
-  const { t } = useTranslation();
-  // What the coach typed into each value, so a field can be emptied and
-  // retyped: an empty field states nothing, and the format's default applies.
-  const [typed, setTyped] = useState<Partial<Record<SessionParamKey, string>>>(
-    {},
-  );
-  const sports = catalogueSports(catalogue);
-  const families = familiesForSport(catalogue, build.sport);
-  const family = familyOf(catalogue, build);
-  const preset = presetOf(catalogue, build);
-  const formats = presetsForSport(family, build.sport);
-
-  const pick = (next: SessionBuild) => {
-    setTyped({});
-    onChange(next);
-  };
-
-  const type = (key: SessionParamKey, text: string) => {
-    // A whole number, nothing more: the range is the findings' business.
-    const digits = text.replace(/[^0-9]/g, '');
-    setTyped((current) => ({ ...current, [key]: digits }));
-    onChange(setParam(build, key, digits === '' ? undefined : Number(digits)));
-  };
-
-  return (
-    <View className="px-4" testID="session-editor-form">
-      <View className="mb-4">
-        <RadioGroup
-          layout="segmented"
-          label={t(SESSION_EDITOR_KEYS.sport)}
-          options={sports.map((sport) => ({
-            key: sport,
-            label: t(sessionSportLabelKey(sport)),
-          }))}
-          value={build.sport}
-          onChange={(key) => {
-            const sport = sports.find((s) => s === key);
-            if (sport) pick(selectBuildSport(catalogue, build, sport));
-          }}
-          testID="session-editor-sport"
-        />
-      </View>
-      {families.length === 0 ? (
-        <Text
-          className="mb-4 text-sm text-text-secondary"
-          testID="session-editor-no-family-for-sport"
-        >
-          {t(SESSION_EDITOR_KEYS.noFamilyForSport, {
-            sport: t(sessionSportLabelKey(build.sport)),
-          })}
-        </Text>
-      ) : (
-        <>
-          <View className="mb-4">
-            <RadioGroup
-              label={t(SESSION_EDITOR_KEYS.family)}
-              options={families.map((f) => ({
-                key: f.slug,
-                label: f.name,
-                description:
-                  f.slug === build.family ? f.purpose_label : undefined,
-              }))}
-              value={build.family}
-              onChange={(slug) => {
-                const next = families.find((f) => f.slug === slug);
-                if (next) pick(selectFamily(next, build.sport));
-              }}
-              testID="session-editor-family"
-            />
-          </View>
-          {formats.length > 0 ? (
-            <View className="mb-4">
-              <RadioGroup
-                label={t(SESSION_EDITOR_KEYS.format)}
-                options={formats.map((p) => ({
-                  key: p.key,
-                  label: p.name,
-                  description: p.key === preset?.key ? p.summary : undefined,
-                }))}
-                value={preset?.key ?? null}
-                onChange={(key) => {
-                  const next = formats.find((p) => p.key === key);
-                  if (next) pick(selectPreset(build, next));
-                }}
-                testID="session-editor-format"
-              />
-            </View>
-          ) : null}
-          {editableParams(preset, build.sport).map(({ key, range }) => (
-            <ParamField
-              key={key}
-              paramKey={key}
-              range={range}
-              text={typed[key] ?? String(paramValue(build, key, range))}
-              outside={flagged.has(key)}
-              onChangeText={(text) => type(key, text)}
-            />
-          ))}
-        </>
-      )}
-    </View>
-  );
-}
-
-interface ParamFieldProps {
-  paramKey: SessionParamKey;
-  range: SessionParamRange;
-  text: string;
-  /** The stated value sits outside the format's tested range. */
-  outside: boolean;
-  onChangeText: (text: string) => void;
-}
-
-/**
- * One stated value on the number pad, with the format's tested range under
- * it. Outside the range the line takes the warning ink and its mark; the
- * value is kept as typed, never clamped.
- */
-function ParamField({ paramKey, range, text, outside, onChangeText }: ParamFieldProps) {
-  const { t } = useTranslation();
-  const colors = useThemeColors();
-  const label = t(SESSION_PARAM_LABEL_KEY[paramKey]);
-  const rangeText = t(SESSION_EDITOR_KEYS.testedRange, { min: range.min, max: range.max });
-  return (
-    <View>
-      <Input
-        label={label}
-        value={text}
-        onChangeText={onChangeText}
-        keyboardType="number-pad"
-        accessibilityLabel={label}
-        accessibilityHint={rangeText}
-        testID={`session-editor-param-${paramKey}`}
-      />
-      <View className="-mt-2 mb-4 flex-row items-center" testID={`session-editor-range-${paramKey}`}>
-        {outside ? (
-          <Feather
-            name="alert-triangle"
-            size={12}
-            color={alertInkColor('warning', colors)}
-            testID={`session-editor-outside-${paramKey}`}
-          />
-        ) : null}
-        <Text className={`text-xs ${outside ? `ml-1 ${ALERT_TONE.warning.ink}` : 'text-text-secondary'}`}>
-          {rangeText}
-        </Text>
-      </View>
-    </View>
-  );
-}
-
-interface PreviewPanelProps {
-  /** The latest preview; the previous one while the next is measured. */
-  preview: SessionPreview | undefined;
-  measuring: boolean;
-  failed: boolean;
-}
-
-/**
- * What the kernel derives from the build on the athlete's anchors, as the
- * server answered it: the day card's marks, the derived values, the steps
- * and the envelope's findings. The previous answer stays while the next one
- * is measured.
- */
-function PreviewPanel({ preview, measuring, failed }: PreviewPanelProps) {
-  const { t } = useTranslation();
-  const colors = useThemeColors();
-  return (
-    <View className="px-4" testID="session-editor-preview">
-      {measuring ? (
-        <View className="mb-2 flex-row items-center" accessibilityLiveRegion="polite" testID="session-editor-measuring">
-          <ActivityIndicator size="small" color={colors.tokens.primary} />
-          <Text className="ml-2 text-sm text-text-secondary">{t(SESSION_EDITOR_KEYS.measuring)}</Text>
-        </View>
-      ) : null}
-      {failed ? (
-        <View
-          className={`mb-2 rounded-lg px-3 py-2 ${ALERT_TONE.error.fill}`}
-          accessibilityRole="alert"
-          testID="session-editor-preview-failed"
-        >
-          <Text className={`text-sm ${ALERT_TONE.error.ink}`}>{t(SESSION_EDITOR_KEYS.previewFailed)}</Text>
-        </View>
-      ) : null}
-      {preview ? <PreviewBody preview={preview} /> : null}
-    </View>
-  );
-}
-
-/** A heading over one part of the preview. */
-function PreviewHeading({ children }: { children: string }) {
-  return (
-    <Text className="mt-4 mb-1 text-sm font-semibold text-text-primary" accessibilityRole="header">
-      {children}
-    </Text>
-  );
-}
-
-function PreviewBody({ preview }: { preview: SessionPreview }) {
-  const { t, language } = useTranslation();
-  const rows = preview.derived
-    ? derivedRows(preview.derived, language, (count) => t(SESSION_EDITOR_KEYS.minutes, { count }))
-    : [];
-  return (
-    <View>
-      {preview.outside_evidence ? (
-        <Badge
-          variant="warning"
-          label={preview.outside_evidence}
-          className="mt-1 self-start"
-          testID="session-editor-outside-evidence"
-        />
-      ) : null}
-      {preview.evidence ? <EvidenceChip evidence={preview.evidence} /> : null}
-      {preview.counts_as ? (
-        <Text className="mt-1 text-sm text-text-secondary" testID="session-editor-counts-as">
-          {preview.counts_as}
-        </Text>
-      ) : null}
-      {preview.anchor ? (
-        <Text className="mt-1 text-sm text-text-secondary" testID="session-editor-anchor">
-          {preview.anchor}
-        </Text>
-      ) : null}
-
-      {rows.length > 0 ? (
-        <View testID="session-editor-derived">
-          <PreviewHeading>{t(SESSION_EDITOR_KEYS.derivedHeading)}</PreviewHeading>
-          {rows.map((row) => (
-            <View key={row.key} className="flex-row py-0.5" testID={`session-editor-derived-${row.key}`}>
-              <Text className="flex-1 text-sm text-text-secondary">{t(row.labelKey, row.labelValues)}</Text>
-              <Text className="ml-3 text-sm text-text-primary">
-                <Figure>{row.value}</Figure>
-              </Text>
-            </View>
-          ))}
-        </View>
-      ) : null}
-
-      {preview.steps.length > 0 ? (
-        <View testID="session-editor-steps">
-          <PreviewHeading>{t(SESSION_EDITOR_KEYS.stepsHeading)}</PreviewHeading>
-          {preview.steps.map((step, index) => (
-            <Text key={`${step.label}-${index}`} className="py-0.5 text-sm text-text-primary">
-              <StepText step={step} />
-            </Text>
-          ))}
-        </View>
-      ) : null}
-
-      <PreviewHeading>{t(SESSION_EDITOR_KEYS.findingsHeading)}</PreviewHeading>
-      {preview.findings.length === 0 ? (
-        <Text className="text-sm text-text-secondary" testID="session-editor-findings-none">
-          {t(SESSION_EDITOR_KEYS.findingsInside)}
-        </Text>
-      ) : (
-        <>
-          <View className={`rounded-lg px-3 py-2 ${ALERT_TONE.warning.fill}`} testID="session-editor-findings">
-            {preview.findings.map((finding, index) => (
-              <Text
-                key={`${finding.code}-${index}`}
-                className={`text-sm ${ALERT_TONE.warning.ink}${index > 0 ? ' mt-1' : ''}`}
-              >
-                {finding.text}
-              </Text>
-            ))}
-          </View>
-          <Text className="mt-1 text-xs text-text-secondary" testID="session-editor-findings-note">
-            {t(SESSION_EDITOR_KEYS.findingsNote)}
-          </Text>
-        </>
-      )}
     </View>
   );
 }

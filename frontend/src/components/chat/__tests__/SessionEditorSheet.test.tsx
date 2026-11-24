@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Tests the coach's day editor on a plan card — who is offered it, the day's own session edited by hand, the family mode,
-// ABOUTME: the footer's line, the guarded close, restore, add and remove per session, and a write that finds its session moved (carnet#1515, #1714, #1716)
+// ABOUTME: Tests the coach's day editor on a plan card — who is offered it, the session written (sport chips, steps, sets, targets), the family mode,
+// ABOUTME: the footer's line, the guarded close, restore, add and remove per session, and a write that finds its session moved (carnet#1515, #1714, #1716, #1727)
 
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest';
 import { act, render, screen, waitFor, within } from '@testing-library/react';
@@ -322,9 +322,20 @@ async function openDay(user: User, index: number, date: string): Promise<Scope> 
 const openEasyRun = (user: User) => openDay(user, 0, 'Mon, Nov 23');
 const openThirtyFifteen = (user: User) => openDay(user, 1, 'Tue, Nov 24');
 
-/** The fields of the `number`th step row. */
+/** The `number`th step, folded to its row or open for editing. */
 function step(editor: Scope, number: number): Scope {
   return within(editor.getByTestId(`session-editor-step-${number}`));
+}
+
+/** Open the `number`th step from its row, and return it. */
+async function openStep(user: User, editor: Scope, number: number, label: string): Promise<Scope> {
+  await user.click(editor.getByRole('button', { name: `Edit step ${number}: ${label}` }));
+  return step(editor, number);
+}
+
+/** The sport chip named `name`. */
+function sportChip(editor: Scope, name: string): HTMLElement {
+  return within(editor.getByRole('group', { name: 'Sport' })).getByRole('button', { name });
 }
 
 describe('"Edit day" on a plan card', () => {
@@ -428,7 +439,7 @@ describe('"Edit day" on a plan card', () => {
     });
   });
 
-  describe('this session, by hand', () => {
+  describe('the session, written', () => {
     it("opens an agent's day on its own session, never waiting on the families", async () => {
       api.getSubjectFamilies.mockReturnValue(new Promise<FamilyCatalogueResponse>(() => {}));
       const user = setupUser();
@@ -436,20 +447,33 @@ describe('"Edit day" on a plan card', () => {
 
       const editor = await openEasyRun(user);
 
-      expect(editor.getByRole('button', { name: 'This session' })).toHaveAttribute('aria-pressed', 'true');
-      expect(editor.getByRole('button', { name: 'From a family' })).toHaveAttribute('aria-pressed', 'false');
+      // No family mode until the catalogue has a family for the sport.
+      expect(editor.queryByRole('group', { name: 'How to build the session' })).toBeNull();
       expect(editor.getByRole('switch', { name: 'Rest day' })).toHaveAttribute('aria-checked', 'false');
       expect(editor.getByLabelText('Title')).toHaveValue('Easy 45 min');
-      expect(editor.getByLabelText('Sport')).toHaveValue('run');
-      // Its steps total its duration, so the minutes are not the coach's to state.
+      expect(editor.getByLabelText('Title')).toHaveAttribute('placeholder', 'Session title');
+      // Its steps total its minutes; their targets mix kinds, so no span.
+      expect(editor.getByTestId('session-editor-summary')).toHaveTextContent('Run · 45 min');
+      expect(sportChip(editor, 'Run')).toHaveAttribute('aria-pressed', 'true');
+      expect(sportChip(editor, 'Ride')).toHaveAttribute('aria-pressed', 'false');
+      expect(
+        within(editor.getByRole('group', { name: 'Sport' }))
+          .getAllByRole('button')
+          .map((chip) => chip.textContent),
+      ).toEqual(['Ride', 'Run', 'Swim', 'Strength training', 'Mobility', 'Yoga', 'CrossFit', 'Other…']);
+      // Its steps total its duration and their targets its intensity: neither is the coach's to state.
       expect(editor.queryByLabelText('Duration (min)')).toBeNull();
-      expect(editor.getByLabelText('Intensity')).toHaveValue('easy');
-      expect(step(editor, 1).getByLabelText('Step')).toHaveValue('Warm-up');
-      expect(step(editor, 1).getByLabelText('Duration (m:ss)')).toHaveValue('10:00');
-      expect(step(editor, 1).getByLabelText('Target')).toHaveValue('easy');
-      expect(step(editor, 2).getByLabelText('Step')).toHaveValue('Steady');
-      expect(step(editor, 2).getByLabelText('Duration (m:ss)')).toHaveValue('35:00');
-      expect(step(editor, 2).getByLabelText('Repeat')).toHaveValue('');
+      expect(editor.queryByLabelText('Intensity')).toBeNull();
+      // Each step folded to its row, named by the button that opens it.
+      expect(editor.getByRole('button', { name: 'Edit step 1: Warm-up' })).toHaveTextContent('Warm-up10:00easy');
+      expect(editor.getByRole('button', { name: 'Edit step 2: Steady' })).toHaveTextContent('Steady35:00Z2');
+      expect(editor.queryByLabelText('Step')).toBeNull();
+      // The profile names every bar it draws.
+      const profile = editor.getByRole('group', { name: 'Session profile' });
+      expect(within(profile).getAllByRole('button').map((bar) => bar.getAttribute('aria-label'))).toEqual([
+        'Step 1: Warm-up, 10:00, easy',
+        'Step 2: Steady, 35:00, Z2',
+      ]);
       expect(editor.getByTestId('session-editor-unchecked')).toHaveTextContent("Not checked against a family's evidence.");
       // Nothing about families in this mode, and nothing measured.
       expect(editor.queryByTestId('session-editor-loading')).toBeNull();
@@ -468,12 +492,14 @@ describe('"Edit day" on a plan card', () => {
 
       const title = editor.getByLabelText('Title');
       await user.clear(title);
-      // A session with no title yet names nothing, and does not save.
+      // A session with no title names nothing: Save says what it waits for.
       expect(editor.queryByTestId('session-editor-replacement')).toBeNull();
+      expect(editor.getByTestId('session-editor-missing')).toHaveTextContent('Add a title to save.');
       expect(save).toBeDisabled();
-      expect(save).not.toHaveAttribute('aria-describedby');
+      expect(save).toHaveAccessibleDescription('Add a title to save.');
       await user.type(title, 'Easy 50 min');
 
+      expect(editor.queryByTestId('session-editor-missing')).toBeNull();
       expect(editor.getByTestId('session-editor-replacement')).toHaveTextContent('Replaces Easy 45 min with Easy 50 min.');
       expect(save).toBeEnabled();
       // Save reads the sentence as its description.
@@ -497,13 +523,13 @@ describe('"Edit day" on a plan card', () => {
 
       await user.click(editor.getByRole('button', { name: 'Add a step' }));
       const strides = step(editor, 3);
-      // The new step's label takes the keyboard.
+      // The new step opens, and its name takes the keyboard.
       expect(strides.getByLabelText('Step')).toHaveFocus();
       await user.type(strides.getByLabelText('Step'), 'Strides');
       await user.clear(strides.getByLabelText('Duration (m:ss)'));
       await user.type(strides.getByLabelText('Duration (m:ss)'), ':20');
-      await user.type(strides.getByLabelText('Target'), 'fast');
-      await user.type(strides.getByLabelText('Repeat'), '6');
+      await user.click(strides.getByRole('button', { name: 'Other' }));
+      await user.type(strides.getByLabelText('Target as written'), 'fast');
 
       await user.click(editor.getByRole('button', { name: 'Save to draft' }));
 
@@ -521,7 +547,7 @@ describe('"Edit day" on a plan card', () => {
             steps: [
               { label: 'Warm-up', duration_seconds: 600, target_zone: 'easy' },
               { label: 'Steady', duration_seconds: 2100, target_zone: 'Z2' },
-              { label: 'Strides', duration_seconds: 20, target_zone: 'fast', repeat: 6 },
+              { label: 'Strides', duration_seconds: 20, target_zone: 'fast' },
             ],
           },
           // The session as the card showed it: a write never lands on another.
@@ -541,7 +567,7 @@ describe('"Edit day" on a plan card', () => {
       renderCard();
 
       const editor = await openEasyRun(user);
-      const field = step(editor, 1).getByLabelText('Duration (m:ss)');
+      const field = (await openStep(user, editor, 1, 'Warm-up')).getByLabelText('Duration (m:ss)');
       await user.clear(field);
       await user.type(field, '12');
       expect(field).toHaveValue('12');
@@ -561,7 +587,7 @@ describe('"Edit day" on a plan card', () => {
       expect(field).toHaveValue('1:07');
     });
 
-    it('saves a rest day as a rest day, the fields hidden', async () => {
+    it('saves a rest day as a rest day, everything under the switch hidden', async () => {
       const user = setupUser();
       renderCard();
 
@@ -569,6 +595,8 @@ describe('"Edit day" on a plan card', () => {
       await user.click(editor.getByRole('switch', { name: 'Rest day' }));
 
       expect(editor.queryByLabelText('Title')).toBeNull();
+      expect(editor.queryByRole('group', { name: 'Sport' })).toBeNull();
+      expect(editor.queryByRole('group', { name: 'How to build the session' })).toBeNull();
       expect(editor.queryByTestId('session-editor-steps')).toBeNull();
       expect(editor.queryByTestId('session-editor-unchecked')).toBeNull();
       expect(editor.getByTestId('session-editor-replacement')).toHaveTextContent('Replaces Easy 45 min with a rest day.');
@@ -591,24 +619,25 @@ describe('"Edit day" on a plan card', () => {
       renderCard();
 
       const editor = await openDay(user, 2, 'Wed, Nov 25');
-      expect(editor.getByRole('button', { name: 'This session' })).toHaveAttribute('aria-pressed', 'true');
       const rest = editor.getByRole('switch', { name: 'Rest day' });
       expect(rest).toHaveAttribute('aria-checked', 'true');
+      expect(editor.queryByLabelText('Title')).toBeNull();
       await user.click(rest);
 
       const save = editor.getByRole('button', { name: 'Save to draft' });
       expect(editor.getByLabelText('Title')).toHaveValue('');
-      expect(editor.getByTestId('session-editor-no-steps')).toHaveTextContent(
-        'No steps: the title and intensity describe the session.',
-      );
+      expect(editor.getByRole('button', { name: 'Write' })).toHaveAttribute('aria-pressed', 'true');
+      expect(sportChip(editor, 'Ride')).toHaveAttribute('aria-pressed', 'true');
       // A session needs its title before it saves.
       expect(save).toBeDisabled();
+      expect(editor.getByTestId('session-editor-missing')).toHaveTextContent('Add a title to save.');
       await user.type(editor.getByLabelText('Title'), 'Recovery spin');
       expect(editor.getByTestId('session-editor-replacement')).toHaveTextContent(
         'Replaces the rest day with Recovery spin.',
       );
       // With no steps, the minutes are the coach's to state.
       await user.type(editor.getByLabelText('Duration (min)'), '40');
+      expect(editor.getByTestId('session-editor-summary')).toHaveTextContent('Ride · 40 min');
       await user.click(save);
 
       await waitFor(() =>
@@ -628,50 +657,73 @@ describe('"Edit day" on a plan card', () => {
       renderCard();
 
       const editor = await openEasyRun(user);
-      expect(editor.getByRole('button', { name: 'Move step 1 up' })).toBeDisabled();
+      await openStep(user, editor, 2, 'Steady');
+      // The last step goes no further down.
       expect(editor.getByRole('button', { name: 'Move step 2 down' })).toBeDisabled();
 
       await user.click(editor.getByRole('button', { name: 'Move step 2 up' }));
       expect(step(editor, 1).getByLabelText('Step')).toHaveValue('Steady');
-      expect(step(editor, 2).getByLabelText('Step')).toHaveValue('Warm-up');
+      expect(editor.getByRole('button', { name: 'Edit step 2: Warm-up' })).toBeInTheDocument();
       // The moved step is first now, where up is spent: focus takes its down.
+      expect(editor.getByRole('button', { name: 'Move step 1 up' })).toBeDisabled();
       expect(editor.getByRole('button', { name: 'Move step 1 down' })).toHaveFocus();
 
       await user.click(editor.getByRole('button', { name: 'Remove step 1' }));
-      expect(step(editor, 1).getByLabelText('Step')).toHaveValue('Warm-up');
-      expect(editor.getByRole('button', { name: 'Remove step 1' })).toHaveFocus();
+      // The row now in its place takes the keyboard.
+      expect(editor.getByRole('button', { name: 'Edit step 1: Warm-up' })).toHaveFocus();
 
+      await openStep(user, editor, 1, 'Warm-up');
       await user.click(editor.getByRole('button', { name: 'Remove step 1' }));
-      expect(editor.getByTestId('session-editor-no-steps')).toBeInTheDocument();
+      expect(editor.queryByTestId('session-editor-profile')).toBeNull();
       expect(editor.getByRole('button', { name: 'Add a step' })).toHaveFocus();
       // With the steps gone the minutes are the coach's again, as the day held them.
       expect(editor.getByLabelText('Duration (min)')).toHaveValue('45');
     });
 
-    it('holds Save until each step has a name, a target and a repeat of at least one', async () => {
+    it('opens a step from its bar on the profile, and copies it in place', async () => {
+      const user = setupUser();
+      renderCard();
+
+      const editor = await openEasyRun(user);
+      await user.click(editor.getByRole('button', { name: 'Step 2: Steady, 35:00, Z2' }));
+      expect(step(editor, 2).getByLabelText('Step')).toHaveFocus();
+      expect(editor.getByRole('button', { name: 'Step 2: Steady, 35:00, Z2' })).toHaveAttribute('aria-pressed', 'true');
+
+      await user.click(editor.getByRole('button', { name: 'Duplicate step 2' }));
+      // The copy opens after its original, its name taking the keyboard; one step is open at a time.
+      expect(step(editor, 3).getByLabelText('Step')).toHaveValue('Steady');
+      expect(step(editor, 3).getByLabelText('Step')).toHaveFocus();
+      expect(editor.getByRole('button', { name: 'Edit step 2: Steady' })).toBeInTheDocument();
+      expect(editor.getAllByLabelText('Step')).toHaveLength(1);
+    });
+
+    it('says what Save waits for, step by step, then "Changes X." when only the steps changed', async () => {
       const user = setupUser();
       renderCard();
 
       const editor = await openEasyRun(user);
       await user.click(editor.getByRole('button', { name: 'Add a step' }));
       const save = editor.getByRole('button', { name: 'Save to draft' });
-
-      expect(editor.getByTestId('session-editor-replacement')).toHaveTextContent(
-        'Replaces Easy 45 min with Easy 45 min.',
-      );
-      expect(save).toBeDisabled();
       const added = step(editor, 3);
+
+      expect(save).toBeDisabled();
+      expect(editor.getByTestId('session-editor-missing')).toHaveTextContent('Name step 3 to save.');
+      expect(save).toHaveAccessibleDescription('Name step 3 to save.');
       await user.type(added.getByLabelText('Step'), 'Cool-down');
-      expect(save).toBeDisabled();
-      await user.type(added.getByLabelText('Target'), 'easy');
+      expect(editor.getByTestId('session-editor-missing')).toHaveTextContent('Pick a target for step 3 to save.');
+      await user.click(added.getByRole('button', { name: 'Z1' }));
+      // The title kept its name: one session, named once.
+      expect(editor.queryByTestId('session-editor-missing')).toBeNull();
+      expect(editor.getByTestId('session-editor-replacement')).toHaveTextContent('Changes Easy 45 min.');
       expect(save).toBeEnabled();
-      await user.type(added.getByLabelText('Repeat'), '0');
+
+      await user.clear(added.getByLabelText('Duration (m:ss)'));
+      await user.type(added.getByLabelText('Duration (m:ss)'), '0');
+      expect(editor.getByTestId('session-editor-missing')).toHaveTextContent('Give step 3 a time to save.');
       expect(save).toBeDisabled();
-      await user.clear(added.getByLabelText('Repeat'));
-      expect(save).toBeEnabled();
     });
 
-    it("says what the server refused in a hand save — the target words it takes — and keeps the sheet open", async () => {
+    it("says what the server refused in a hand save — the target words it takes — in the footer too, and keeps the sheet open", async () => {
       api.saveSubjectDraftHandDay.mockRejectedValue(
         Object.assign(new Error('Request failed with status code 400'), {
           response: {
@@ -690,14 +742,362 @@ describe('"Edit day" on a plan card', () => {
       const editor = await openEasyRun(user);
       await user.click(editor.getByRole('button', { name: 'Add a step' }));
       await user.type(step(editor, 3).getByLabelText('Step'), 'Cruise');
-      await user.type(step(editor, 3).getByLabelText('Target'), 'tempo-ish');
+      await user.click(step(editor, 3).getByRole('button', { name: 'Other' }));
+      await user.type(step(editor, 3).getByLabelText('Target as written'), 'tempo-ish');
+      await user.click(editor.getByRole('button', { name: 'Save to draft' }));
+
+      const sentence = 'Step 3 target "tempo-ish" is not one the calendar knows: easy, steady, tempo, threshold, fast.';
+      expect(await screen.findByText('This session could not be saved.')).toBeInTheDocument();
+      // The toast says it, and the footer keeps it while the coach fixes the step.
+      const refusal = editor.getByTestId('session-editor-refusal');
+      expect(refusal).toHaveAttribute('role', 'alert');
+      expect(refusal).toHaveTextContent(sentence);
+      expect(screen.getAllByText(sentence)).toHaveLength(2);
+      expect(editor.getByRole('button', { name: 'Save to draft' })).toHaveAccessibleDescription(
+        `${sentence} Changes Easy 45 min.`,
+      );
+      expect(screen.getByRole('dialog', { name: 'Edit Mon, Nov 23' })).toBeInTheDocument();
+
+      // The coach changes what was refused: the footer lets it go.
+      await user.clear(step(editor, 3).getByLabelText('Target as written'));
+      await user.type(step(editor, 3).getByLabelText('Target as written'), 'tempo');
+      expect(editor.queryByTestId('session-editor-refusal')).toBeNull();
+    });
+
+    it("words a target the calendar cannot read in the coach's language, naming the step and the target", async () => {
+      api.saveSubjectDraftHandDay.mockRejectedValue(
+        Object.assign(new Error('Request failed with status code 400'), {
+          response: {
+            status: 400,
+            data: {
+              error: 'invalid_input',
+              message: "step 3's target 'seuil' is not one the calendar can resolve",
+              details: { reason: 'unresolvable_target', step: 3, target: 'seuil' },
+            },
+          },
+        }),
+      );
+      const user = setupUser();
+      renderCard();
+
+      const editor = await openEasyRun(user);
+      await user.click(editor.getByRole('button', { name: 'Add a step' }));
+      await user.type(step(editor, 3).getByLabelText('Step'), 'Cruise');
+      await user.click(step(editor, 3).getByRole('button', { name: 'Other' }));
+      await user.type(step(editor, 3).getByLabelText('Target as written'), 'seuil');
       await user.click(editor.getByRole('button', { name: 'Save to draft' }));
 
       expect(await screen.findByText('This session could not be saved.')).toBeInTheDocument();
-      expect(
-        screen.getByText('Step 3 target "tempo-ish" is not one the calendar knows: easy, steady, tempo, threshold, fast.'),
-      ).toBeInTheDocument();
-      expect(screen.getByRole('dialog', { name: 'Edit Mon, Nov 23' })).toBeInTheDocument();
+      expect(editor.getByTestId('session-editor-refusal')).toHaveTextContent(
+        'The target “seuil” of step 3 isn’t one the calendar reads: pick a zone, a % of a threshold or an RPE.',
+      );
+    });
+
+    it('saves with Cmd or Ctrl+Enter once Save would, and not before', async () => {
+      const user = setupUser();
+      renderCard();
+
+      const editor = await openEasyRun(user);
+      const title = editor.getByLabelText('Title');
+      expect(editor.getByRole('button', { name: 'Save to draft' })).toHaveAttribute(
+        'aria-keyshortcuts',
+        'Meta+Enter Control+Enter',
+      );
+      // Nothing changed: the shortcut does nothing, as Save would.
+      await user.click(title);
+      await user.keyboard('{Control>}{Enter}{/Control}');
+      expect(api.saveSubjectDraftHandDay).not.toHaveBeenCalled();
+
+      await user.clear(title);
+      await user.type(title, 'Easy 50 min');
+      await user.keyboard('{Meta>}{Enter}{/Meta}');
+
+      await waitFor(() => expect(api.saveSubjectDraftHandDay).toHaveBeenCalledTimes(1));
+      expect(api.saveSubjectDraftHandDay).toHaveBeenCalledWith(
+        CONVERSATION_ID,
+        '2026-11-23',
+        0,
+        expect.objectContaining({ workout: 'Easy 50 min' }),
+        { sport: 'run', workout: 'Easy 45 min' },
+        'en',
+      );
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    });
+  });
+
+  describe('the sport', () => {
+    it('hides the family mode for a sport no family is written for, with nothing in its place', async () => {
+      const user = setupUser();
+      renderCard();
+
+      const editor = await openEasyRun(user);
+      expect(await editor.findByRole('group', { name: 'How to build the session' })).toBeInTheDocument();
+
+      await user.click(sportChip(editor, 'Strength training'));
+      expect(sportChip(editor, 'Strength training')).toHaveAttribute('aria-pressed', 'true');
+      expect(sportChip(editor, 'Run')).toHaveAttribute('aria-pressed', 'false');
+      expect(editor.queryByRole('group', { name: 'How to build the session' })).toBeNull();
+      expect(editor.getByTestId('session-editor-summary')).toHaveTextContent('Strength training · 45 min');
+
+      // From the family mode, the pick brings the written session back on screen.
+      await user.click(sportChip(editor, 'Run'));
+      await user.click(editor.getByRole('button', { name: 'From an evidence-backed family' }));
+      expect(await editor.findByLabelText('Family')).toBeInTheDocument();
+      await user.click(sportChip(editor, 'Strength training'));
+      expect(editor.queryByLabelText('Family')).toBeNull();
+      expect(editor.queryByRole('group', { name: 'How to build the session' })).toBeNull();
+      expect(editor.getByTestId('session-editor-steps')).toBeInTheDocument();
+    });
+
+    it('saves the sport the coach names under Other…', async () => {
+      const user = setupUser();
+      renderCard();
+
+      const editor = await openEasyRun(user);
+      await user.click(sportChip(editor, 'Other…'));
+      const name = editor.getByLabelText('Name the sport');
+      // The field opens empty and takes the keyboard; a sport with no name does not save.
+      expect(name).toHaveValue('');
+      expect(name).toHaveFocus();
+      expect(sportChip(editor, 'Other…')).toHaveAttribute('aria-pressed', 'true');
+      expect(sportChip(editor, 'Run')).toHaveAttribute('aria-pressed', 'false');
+      expect(editor.getByTestId('session-editor-missing')).toHaveTextContent('Name the sport to save.');
+      expect(editor.getByRole('button', { name: 'Save to draft' })).toBeDisabled();
+
+      await user.type(name, 'Escalade');
+      expect(editor.queryByRole('group', { name: 'How to build the session' })).toBeNull();
+      expect(editor.getByTestId('session-editor-replacement')).toHaveTextContent('Changes Easy 45 min.');
+      await user.click(editor.getByRole('button', { name: 'Save to draft' }));
+
+      await waitFor(() =>
+        expect(api.saveSubjectDraftHandDay).toHaveBeenCalledWith(
+          CONVERSATION_ID,
+          '2026-11-23',
+          0,
+          {
+            rest: false,
+            sport: 'Escalade',
+            workout: 'Easy 45 min',
+            intensity: 'easy',
+            steps: EASY_RUN.steps,
+          },
+          { sport: 'run', workout: 'Easy 45 min' },
+          'en',
+        ),
+      );
+    });
+
+    it("offers the day's own sport word as a chip of its own", async () => {
+      const user = setupUser();
+      renderCard({ blocks: planBlocks(planOf([{ ...EASY_RUN, sport: 'Escalade', family_sport: undefined, steps: [] }])) });
+
+      const editor = await openDay(user, 0, 'Mon, Nov 23');
+      expect(sportChip(editor, 'Escalade')).toHaveAttribute('aria-pressed', 'true');
+      expect(editor.queryByLabelText('Name the sport')).toBeNull();
+    });
+  });
+
+  describe('sets and targets', () => {
+    it('adds a set of an effort and a recovery, five times, and saves them as one numbered set', async () => {
+      const user = setupUser();
+      renderCard();
+
+      const editor = await openEasyRun(user);
+      await user.click(editor.getByRole('button', { name: 'Add a set' }));
+
+      // The effort opens, its name taking the keyboard; the set is drawn under one × 5.
+      expect(step(editor, 3).getByLabelText('Step')).toHaveValue('Effort');
+      expect(step(editor, 3).getByLabelText('Step')).toHaveFocus();
+      expect(editor.getByRole('button', { name: 'Edit step 4: Recovery' })).toHaveTextContent('Recovery2:00Z1');
+      const set = within(editor.getByTestId('session-editor-series-3'));
+      expect(set.getByText('Set')).toBeInTheDocument();
+      expect(set.getByRole('group', { name: 'Repetitions of the set' })).toHaveTextContent('× 5');
+      // Every round drawn; only the first is a stop for the keyboard.
+      const profile = editor.getByRole('group', { name: 'Session profile' });
+      expect(within(profile).getAllByRole('button')).toHaveLength(4);
+      expect(editor.getByTestId('session-editor-summary')).toHaveTextContent('Run · 70 min');
+
+      await user.click(editor.getByRole('button', { name: 'Save to draft' }));
+
+      await waitFor(() =>
+        expect(api.saveSubjectDraftHandDay).toHaveBeenCalledWith(
+          CONVERSATION_ID,
+          '2026-11-23',
+          0,
+          {
+            rest: false,
+            sport: 'run',
+            workout: 'Easy 45 min',
+            intensity: 'easy',
+            steps: [
+              { label: 'Warm-up', duration_seconds: 600, target_zone: 'easy' },
+              { label: 'Steady', duration_seconds: 2100, target_zone: 'Z2' },
+              { label: 'Effort', duration_seconds: 180, target_zone: 'Z4', repeat: 5, repeat_group: 1 },
+              { label: 'Recovery', duration_seconds: 120, target_zone: 'Z1', repeat: 5, repeat_group: 1 },
+            ],
+          },
+          { sport: 'run', workout: 'Easy 45 min' },
+          'en',
+        ),
+      );
+    });
+
+    it('counts a set up and down with its × N stepper, and one round dissolves it into lone steps', async () => {
+      const user = setupUser();
+      renderCard();
+
+      const editor = await openEasyRun(user);
+      await user.click(editor.getByRole('button', { name: 'Add a set' }));
+      const stepper = () => within(editor.getByRole('group', { name: 'Repetitions of the set' }));
+
+      await user.click(stepper().getByRole('button', { name: 'One more repetition' }));
+      expect(stepper().getByText('× 6')).toBeInTheDocument();
+      await user.click(stepper().getByRole('button', { name: 'One fewer repetition' }));
+      await user.click(stepper().getByRole('button', { name: 'One fewer repetition' }));
+      expect(stepper().getByText('× 4')).toBeInTheDocument();
+      // A step added to the set repeats with it.
+      await user.click(editor.getByRole('button', { name: 'Add a step to the set' }));
+      expect(step(editor, 5).getByLabelText('Step')).toHaveFocus();
+      await user.type(step(editor, 5).getByLabelText('Step'), 'Strides');
+      await user.click(step(editor, 5).getByRole('button', { name: 'Z5' }));
+
+      await user.click(editor.getByRole('button', { name: 'Save to draft' }));
+      await waitFor(() => expect(api.saveSubjectDraftHandDay).toHaveBeenCalledTimes(1));
+      const [, , , body] = api.saveSubjectDraftHandDay.mock.calls[0] as [string, string, number, { steps: unknown[] }];
+      expect(body.steps.slice(2)).toEqual([
+        { label: 'Effort', duration_seconds: 180, target_zone: 'Z4', repeat: 4, repeat_group: 1 },
+        { label: 'Recovery', duration_seconds: 120, target_zone: 'Z1', repeat: 4, repeat_group: 1 },
+        { label: 'Strides', duration_seconds: 300, target_zone: 'Z5', repeat: 4, repeat_group: 1 },
+      ]);
+    });
+
+    it('dissolves a set taken down to one round, the keyboard going to its first row', async () => {
+      const user = setupUser();
+      renderCard();
+
+      const editor = await openEasyRun(user);
+      await user.click(editor.getByRole('button', { name: 'Add a set' }));
+      for (let round = 5; round > 1; round -= 1) {
+        await user.click(editor.getByRole('button', { name: 'One fewer repetition' }));
+      }
+      expect(editor.queryByRole('group', { name: 'Repetitions of the set' })).toBeNull();
+      expect(editor.queryByTestId('session-editor-series-3')).toBeNull();
+      expect(editor.getByRole('button', { name: 'Edit step 3: Effort' })).toHaveFocus();
+    });
+
+    it('moves a step measured by time 15 seconds either way, never below zero', async () => {
+      const user = setupUser();
+      renderCard();
+
+      const editor = await openEasyRun(user);
+      const warmUp = await openStep(user, editor, 1, 'Warm-up');
+      const field = warmUp.getByLabelText('Duration (m:ss)');
+      await user.click(warmUp.getByRole('button', { name: '15 seconds more' }));
+      expect(field).toHaveValue('10:15');
+      await user.click(warmUp.getByRole('button', { name: '15 seconds less' }));
+      await user.click(warmUp.getByRole('button', { name: '15 seconds less' }));
+      expect(field).toHaveValue('9:45');
+      // The pressed button keeps the keyboard.
+      expect(warmUp.getByRole('button', { name: '15 seconds less' })).toHaveFocus();
+
+      await user.clear(field);
+      await user.type(field, ':10');
+      await user.tab();
+      await user.click(warmUp.getByRole('button', { name: '15 seconds less' }));
+      expect(field).toHaveValue('0:00');
+      expect(warmUp.getByRole('button', { name: '15 seconds less' })).toBeDisabled();
+      expect(editor.getByTestId('session-editor-missing')).toHaveTextContent('Give step 1 a time to save.');
+
+      // A distance's estimated time is typed, not nudged.
+      await user.click(within(warmUp.getByRole('group', { name: 'Measure the step by' })).getByRole('button', { name: 'Distance' }));
+      expect(warmUp.queryByRole('button', { name: '15 seconds more' })).toBeNull();
+    });
+
+    it('measures a step by distance, saved with the time it is estimated to take', async () => {
+      const user = setupUser();
+      renderCard();
+
+      const editor = await openEasyRun(user);
+      const steady = await openStep(user, editor, 2, 'Steady');
+      const measure = within(steady.getByRole('group', { name: 'Measure the step by' }));
+      expect(measure.getByRole('button', { name: 'Time' })).toHaveAttribute('aria-pressed', 'true');
+      await user.click(measure.getByRole('button', { name: 'Distance' }));
+
+      // A distance not written yet holds Save back.
+      expect(steady.getByLabelText('Distance (m)')).toHaveValue('');
+      expect(editor.getByTestId('session-editor-missing')).toHaveTextContent('Give step 2 a distance to save.');
+      await user.type(steady.getByLabelText('Distance (m)'), '400');
+      const estimate = steady.getByLabelText('Estimated time (m:ss)');
+      expect(estimate).toHaveValue('35:00');
+      await user.clear(estimate);
+      await user.type(estimate, '1:30');
+
+      await user.click(editor.getByRole('button', { name: 'Save to draft' }));
+      await waitFor(() => expect(api.saveSubjectDraftHandDay).toHaveBeenCalledTimes(1));
+      const [, , , body] = api.saveSubjectDraftHandDay.mock.calls[0] as [string, string, number, { steps: unknown[] }];
+      expect(body.steps[1]).toEqual({ label: 'Steady', duration_seconds: 90, distance_meters: 400, target_zone: 'Z2' });
+    });
+
+    it('writes a zone chip as Z4, a percent band as 88-93% FTP, and an RPE as RPE 7', async () => {
+      const user = setupUser();
+      renderCard();
+
+      const editor = await openEasyRun(user);
+      // The agent's "easy" is no chip's: it opens as written under Other.
+      const warmUp = await openStep(user, editor, 1, 'Warm-up');
+      expect(warmUp.getByRole('button', { name: 'Other' })).toHaveAttribute('aria-pressed', 'true');
+      expect(warmUp.getByLabelText('Target as written')).toHaveValue('easy');
+      await user.click(warmUp.getByRole('button', { name: 'Z4' }));
+      expect(warmUp.getByRole('button', { name: 'Z4' })).toHaveAttribute('aria-pressed', 'true');
+      expect(warmUp.queryByLabelText('Target as written')).toBeNull();
+
+      const steady = await openStep(user, editor, 2, 'Steady');
+      expect(steady.getByRole('button', { name: 'Z2' })).toHaveAttribute('aria-pressed', 'true');
+      await user.click(steady.getByRole('button', { name: '% of a threshold' }));
+      // A run's percent starts on its threshold pace; the band waits for its figures.
+      expect(steady.getByLabelText('Threshold')).toHaveValue('threshold_pace');
+      expect(editor.getByTestId('session-editor-missing')).toHaveTextContent('Pick a target for step 2 to save.');
+      await user.type(steady.getByLabelText('From'), '88');
+      await user.type(steady.getByLabelText('To'), '93');
+      await user.selectOptions(steady.getByLabelText('Threshold'), 'ftp');
+
+      await user.click(editor.getByRole('button', { name: 'Add a step' }));
+      const strides = step(editor, 3);
+      await user.type(strides.getByLabelText('Step'), 'Strides');
+      await user.click(strides.getByRole('button', { name: 'RPE' }));
+      await user.type(strides.getByLabelText('RPE (1–10)'), '7');
+      expect(editor.getByRole('button', { name: 'Edit step 2: Steady' })).toHaveTextContent('88-93% FTP');
+
+      await user.click(editor.getByRole('button', { name: 'Save to draft' }));
+      await waitFor(() => expect(api.saveSubjectDraftHandDay).toHaveBeenCalledTimes(1));
+      const [, , , body] = api.saveSubjectDraftHandDay.mock.calls[0] as [string, string, number, { steps: unknown[] }];
+      expect(body.steps).toEqual([
+        { label: 'Warm-up', duration_seconds: 600, target_zone: 'Z4' },
+        { label: 'Steady', duration_seconds: 2100, target_zone: '88-93% FTP' },
+        { label: 'Strides', duration_seconds: 300, target_zone: 'RPE 7' },
+      ]);
+    });
+
+    it('writes the span the targets cover as the intensity when they share a kind', async () => {
+      const user = setupUser();
+      renderCard();
+
+      const editor = await openEasyRun(user);
+      const warmUp = await openStep(user, editor, 1, 'Warm-up');
+      await user.click(warmUp.getByRole('button', { name: 'Z1' }));
+      expect(editor.getByTestId('session-editor-summary')).toHaveTextContent('Run · 45 min · Z1–Z2');
+
+      await user.click(editor.getByRole('button', { name: 'Save to draft' }));
+      await waitFor(() =>
+        expect(api.saveSubjectDraftHandDay).toHaveBeenCalledWith(
+          CONVERSATION_ID,
+          '2026-11-23',
+          0,
+          expect.objectContaining({ intensity: 'Z1–Z2' }),
+          { sport: 'run', workout: 'Easy 45 min' },
+          'en',
+        ),
+      );
     });
   });
 
@@ -750,9 +1150,11 @@ describe('"Edit day" on a plan card', () => {
       renderCard();
 
       const editor = await openEasyRun(user);
-      await user.click(editor.getByRole('button', { name: 'From a family' }));
-      await user.click(await editor.findByLabelText('Ride'));
-      await user.click(editor.getByRole('button', { name: 'This session' }));
+      await user.click(await editor.findByRole('button', { name: 'From an evidence-backed family' }));
+      const reps = await editor.findByLabelText('Reps per set');
+      await user.clear(reps);
+      await user.type(reps, '12');
+      await user.click(editor.getByRole('button', { name: 'Write' }));
       await user.click(editor.getByRole('button', { name: 'Cancel' }));
 
       expect(await screen.findByRole('dialog', { name: 'Discard your changes?' })).toBeInTheDocument();
@@ -763,7 +1165,7 @@ describe('"Edit day" on a plan card', () => {
       renderCard();
 
       const editor = await openEasyRun(user);
-      await user.click(editor.getByRole('button', { name: 'From a family' }));
+      await user.click(await editor.findByRole('button', { name: 'From an evidence-backed family' }));
       await editor.findByLabelText('Family');
       await user.click(editor.getByRole('button', { name: 'Cancel' }));
 
@@ -778,17 +1180,24 @@ describe('"Edit day" on a plan card', () => {
 
       const editor = await openThirtyFifteen(user);
 
-      expect(editor.getByRole('button', { name: 'From a family' })).toHaveAttribute('aria-pressed', 'true');
+      expect(editor.getByRole('button', { name: 'From an evidence-backed family' })).toHaveAttribute('aria-pressed', 'true');
+      expect(editor.getByRole('group', { name: 'How to build the session' })).toBeInTheDocument();
       expect(await editor.findByLabelText('Family')).toHaveValue('vo2max-short');
       expect(editor.getByText('VO2max, short intervals')).toBeInTheDocument();
       expect(editor.getByLabelText('Format')).toHaveValue('ronnestad-30-15');
-      expect(editor.getByLabelText('Ride')).toBeChecked();
-      expect(editor.getByLabelText('Run')).not.toBeChecked();
+      // The sport is the chips': no second sport question in this mode.
+      expect(sportChip(editor, 'Ride')).toHaveAttribute('aria-pressed', 'true');
+      expect(editor.queryByRole('radio')).toBeNull();
       expect(editor.getByLabelText('Reps per set')).toHaveValue('11');
       expect(editor.getByLabelText('Sets')).toHaveValue('3');
       expect(editor.getByTestId('session-editor-range-reps')).toHaveTextContent('Tested range 9–15');
       expect(editor.getByTestId('session-editor-replacement')).toHaveTextContent('No changes yet.');
       expect(editor.getByRole('button', { name: 'Save to draft' })).toBeDisabled();
+      // The head reads the format's name, not editable, and the minutes the kernel measured.
+      expect(editor.queryByLabelText('Title')).toBeNull();
+      const head = editor.getByTestId('session-editor-family-title');
+      expect(head).toHaveTextContent('30/15 (Rønnestad)');
+      await waitFor(() => expect(within(head).getByTestId('session-editor-summary')).toHaveTextContent('Ride · 42 min'));
 
       await waitFor(() =>
         expect(api.previewSubjectSession).toHaveBeenCalledWith(
@@ -826,15 +1235,14 @@ describe('"Edit day" on a plan card', () => {
       expect(editor.queryByTestId('session-editor-outside-evidence')).toBeNull();
     });
 
-    it("puts the day's sport first and offers only the families written for it", async () => {
+    it("builds in the chips' sport and offers only the families written for it", async () => {
       const user = setupUser();
       renderCard();
 
       const editor = await openEasyRun(user);
-      await user.click(editor.getByRole('button', { name: 'From a family' }));
+      await user.click(await editor.findByRole('button', { name: 'From an evidence-backed family' }));
 
       const family = await editor.findByLabelText('Family');
-      expect(editor.getByLabelText('Run')).toBeChecked();
       expect(within(family).getAllByRole('option').map((option) => option.textContent)).toEqual([
         'Short VO2max intervals',
         'Endurance',
@@ -845,31 +1253,34 @@ describe('"Edit day" on a plan card', () => {
       );
       expect(editor.getByRole('button', { name: 'Save to draft' })).toBeEnabled();
 
-      await user.click(editor.getByLabelText('Ride'));
+      await user.click(sportChip(editor, 'Ride'));
       expect(within(editor.getByLabelText('Family')).getAllByRole('option').map((option) => option.textContent)).toEqual([
         'Short VO2max intervals',
         'Sweet spot',
         'Endurance',
       ]);
       // Only the endurance family has a swim: picking it moves the build there.
-      await user.click(editor.getByLabelText('Swim'));
+      await user.click(sportChip(editor, 'Swim'));
       expect(editor.getByLabelText('Family')).toHaveValue('endurance');
       expect(editor.getByLabelText('Format')).toHaveValue('steady');
+      expect(editor.getByTestId('session-editor-family-title')).toHaveTextContent('Swim');
     });
 
-    it("says when no family has the day's sport, above the build it opens on in another", async () => {
+    it("offers no family mode for a sport no family is written for, and says nothing in its place", async () => {
       api.getSubjectFamilies.mockResolvedValue({ families: CATALOGUE.families.filter((f) => f.slug === 'sweet-spot') });
       const user = setupUser();
       renderCard();
 
       const editor = await openEasyRun(user);
-      await user.click(editor.getByRole('button', { name: 'From a family' }));
+      await waitFor(() => expect(api.getSubjectFamilies).toHaveBeenCalled());
+      expect(editor.queryByRole('group', { name: 'How to build the session' })).toBeNull();
+      expect(editor.queryByTestId('session-editor-no-family-for-sport')).toBeNull();
 
-      expect(await editor.findByTestId('session-editor-no-family-for-sport')).toHaveTextContent(
-        'No workout family has a form for this sport: Run.',
-      );
-      expect(editor.getByLabelText('Family')).toHaveValue('sweet-spot');
-      expect(editor.getByLabelText('Ride')).toBeChecked();
+      // A sport the catalogue has a family for brings the mode back.
+      await user.click(sportChip(editor, 'Ride'));
+      expect(await editor.findByRole('group', { name: 'How to build the session' })).toBeInTheDocument();
+      await user.click(editor.getByRole('button', { name: 'From an evidence-backed family' }));
+      expect(await editor.findByLabelText('Family')).toHaveValue('sweet-spot');
     });
 
     it("keeps each mode's work when the coach switches between them", async () => {
@@ -881,16 +1292,16 @@ describe('"Edit day" on a plan card', () => {
       await user.clear(title);
       await user.type(title, 'Easy 50 min');
 
-      await user.click(editor.getByRole('button', { name: 'From a family' }));
+      await user.click(await editor.findByRole('button', { name: 'From an evidence-backed family' }));
       const reps = await editor.findByLabelText('Reps per set');
       await user.clear(reps);
       await user.type(reps, '12');
 
-      await user.click(editor.getByRole('button', { name: 'This session' }));
+      await user.click(editor.getByRole('button', { name: 'Write' }));
       expect(editor.getByLabelText('Title')).toHaveValue('Easy 50 min');
       expect(editor.getByTestId('session-editor-replacement')).toHaveTextContent('Replaces Easy 45 min with Easy 50 min.');
 
-      await user.click(editor.getByRole('button', { name: 'From a family' }));
+      await user.click(editor.getByRole('button', { name: 'From an evidence-backed family' }));
       expect(await editor.findByLabelText('Reps per set')).toHaveValue('12');
     });
 
@@ -967,7 +1378,8 @@ describe('"Edit day" on a plan card', () => {
 
       const editor = await openThirtyFifteen(user);
       // A new sport starts from the format's defaults in that sport: its run form has its own ranges.
-      await user.click(await editor.findByLabelText('Run'));
+      await editor.findByLabelText('Family');
+      await user.click(sportChip(editor, 'Run'));
       await user.click(editor.getByRole('button', { name: 'Save to draft' }));
 
       expect(
@@ -995,52 +1407,115 @@ describe('"Edit day" on a plan card', () => {
       renderCard();
 
       const editor = await openThirtyFifteen(user);
-      await user.click(await editor.findByLabelText('Run'));
+      await editor.findByLabelText('Family');
+      await user.click(sportChip(editor, 'Run'));
       await user.click(editor.getByRole('button', { name: 'Save to draft' }));
 
       expect(await screen.findByText('This session could not be saved.')).toBeInTheDocument();
+      expect(editor.getByTestId('session-editor-refusal')).toHaveAttribute('role', 'alert');
       expect(screen.getByRole('dialog', { name: 'Edit Tue, Nov 24' })).toBeInTheDocument();
     });
 
-    it('says when the families are still loading, when there are none, and when they failed — in this mode alone', async () => {
+    it('offers the Rest day switch in this mode too, and a rest day goes back to Write', async () => {
+      const user = setupUser();
+      renderCard();
+
+      const editor = await openThirtyFifteen(user);
+      await editor.findByLabelText('Family');
+      await user.click(editor.getByRole('switch', { name: 'Rest day' }));
+
+      // A rest day is no family build: everything under the switch goes, and the save is the hand save.
+      expect(editor.queryByLabelText('Family')).toBeNull();
+      expect(editor.queryByRole('group', { name: 'How to build the session' })).toBeNull();
+      expect(editor.queryByTestId('session-editor-family-title')).toBeNull();
+      expect(editor.getByTestId('session-editor-replacement')).toHaveTextContent('Replaces 30/15 intervals with a rest day.');
+
+      await user.click(editor.getByRole('switch', { name: 'Rest day' }));
+      expect(editor.getByRole('button', { name: 'Write' })).toHaveAttribute('aria-pressed', 'true');
+      expect(editor.getByLabelText('Title')).toHaveValue('30/15 intervals');
+
+      await user.click(editor.getByRole('switch', { name: 'Rest day' }));
+      await user.click(editor.getByRole('button', { name: 'Save to draft' }));
+      await waitFor(() =>
+        expect(api.saveSubjectDraftHandDay).toHaveBeenCalledWith(
+          CONVERSATION_ID,
+          '2026-11-24',
+          0,
+          { rest: true },
+          { sport: 'ride', workout: '30/15 intervals' },
+          'en',
+        ),
+      );
+      expect(api.saveSubjectDraftDay).not.toHaveBeenCalled();
+    });
+
+    it('says when the families are still loading or failed, and falls back to Write when there are none', async () => {
       const user = setupUser();
       let answer: (value: FamilyCatalogueResponse) => void = () => {};
       api.getSubjectFamilies.mockReturnValueOnce(new Promise<FamilyCatalogueResponse>((resolve) => (answer = resolve)));
       const { unmount } = renderCard();
 
-      const editor = await openEasyRun(user);
-      expect(editor.queryByTestId('session-editor-loading')).toBeNull();
-      await user.click(editor.getByRole('button', { name: 'From a family' }));
+      // A day a family built opens in that mode, which waits on the catalogue; the mode control waits with it.
+      const editor = await openThirtyFifteen(user);
       expect(editor.getByTestId('session-editor-loading')).toHaveTextContent('Loading families…');
+      expect(editor.queryByRole('group', { name: 'How to build the session' })).toBeNull();
+      // A catalogue that answers with no family for the sport leaves the day on "Write", never stranded.
       await act(async () => answer({ families: [] }));
-      expect(await editor.findByTestId('session-editor-no-families')).toHaveTextContent(
-        'No workout families are available for Alice Runner.',
-      );
+      expect(await editor.findByLabelText('Title')).toHaveValue('30/15 intervals');
+      expect(editor.queryByTestId('session-editor-no-families')).toBeNull();
+      expect(editor.queryByRole('group', { name: 'How to build the session' })).toBeNull();
       unmount();
 
-      api.getSubjectFamilies.mockRejectedValueOnce(new Error('down'));
-      renderCard();
-      const failed = await openEasyRun(user);
-      // The session mode works on without them.
-      expect(failed.getByLabelText('Title')).toHaveValue('Easy 45 min');
-      await user.click(failed.getByRole('button', { name: 'From a family' }));
-      expect(await failed.findByTestId('session-editor-load-failed')).toHaveTextContent(
+      api.getSubjectFamilies.mockRejectedValue(new Error('down'));
+      const failed = renderCard();
+      const written = await openEasyRun(user);
+      // The written mode works on without them.
+      expect(written.getByLabelText('Title')).toHaveValue('Easy 45 min');
+      // A family sport keeps the mode control past the failure, which the family mode says.
+      await user.click(await written.findByRole('button', { name: 'From an evidence-backed family' }));
+      expect(await written.findByTestId('session-editor-load-failed')).toHaveTextContent(
         'The workout families could not be loaded.',
       );
+      await user.click(written.getByRole('button', { name: 'Write' }));
+      // A sport no family is written for offers no family mode at all.
+      await user.click(sportChip(written, 'Yoga'));
+      expect(written.queryByRole('group', { name: 'How to build the session' })).toBeNull();
+      failed.unmount();
+
+      // A day that opened on its family is never stuck on the failure: Write stays one tap away.
+      renderCard();
+      const built = await openThirtyFifteen(user);
+      expect(await built.findByTestId('session-editor-load-failed')).toHaveTextContent(
+        'The workout families could not be loaded.',
+      );
+      await user.click(await built.findByRole('button', { name: 'Write' }));
+      expect(built.getByLabelText('Title')).toHaveValue('30/15 intervals');
     });
   });
 
-  describe('undoing the edits', () => {
-    it('says the day was edited, and puts it back as it stood before the first edit', async () => {
+  describe('going back to the original', () => {
+    it('says the day was edited, asks, and puts it back as it stood before the first edit', async () => {
       const user = setupUser();
       renderCard({ blocks: planBlocks(EDITED_PLAN) });
 
       const editor = await openEasyRun(user);
       expect(editor.getByTestId('session-editor-edited')).toHaveTextContent('You edited this day in your draft.');
-      const restore = editor.getByRole('button', { name: 'Undo your edits' });
+      const restore = editor.getByRole('button', { name: 'Back to the original' });
       expect(restore).toHaveAccessibleDescription('Puts back Easy 45 min, as the day stood before your first edit.');
 
+      // It asks first; keeping the edits writes nothing.
       await user.click(restore);
+      let confirm = within(await screen.findByRole('dialog', { name: 'Discard your edits to this session?' }));
+      expect(confirm.getByText('Puts back Easy 45 min, as the day stood before your first edit.')).toBeInTheDocument();
+      await user.click(confirm.getByRole('button', { name: 'Keep editing' }));
+      await waitFor(() =>
+        expect(screen.queryByRole('dialog', { name: 'Discard your edits to this session?' })).toBeNull(),
+      );
+      expect(api.restoreSubjectDraftDay).not.toHaveBeenCalled();
+
+      await user.click(restore);
+      confirm = within(await screen.findByRole('dialog', { name: 'Discard your edits to this session?' }));
+      await user.click(confirm.getByRole('button', { name: 'Discard changes' }));
 
       await waitFor(() =>
         expect(api.restoreSubjectDraftDay).toHaveBeenCalledWith(
@@ -1061,7 +1536,7 @@ describe('"Edit day" on a plan card', () => {
       renderCard({ blocks: planBlocks(EDITED_PLAN) });
 
       const editor = await openDay(user, 2, 'Thu, Nov 26');
-      expect(editor.getByRole('button', { name: 'Undo your edits' })).toHaveAccessibleDescription(
+      expect(editor.getByRole('button', { name: 'Back to the original' })).toHaveAccessibleDescription(
         'Puts back the rest day, as the day stood before your first edit.',
       );
     });
@@ -1072,19 +1547,25 @@ describe('"Edit day" on a plan card', () => {
       renderCard({ blocks: planBlocks(EDITED_PLAN) });
 
       const editor = await openEasyRun(user);
-      await user.click(editor.getByRole('button', { name: 'Undo your edits' }));
+      await user.click(editor.getByRole('button', { name: 'Back to the original' }));
+      await user.click(
+        within(await screen.findByRole('dialog', { name: 'Discard your edits to this session?' })).getByRole('button', {
+          name: 'Discard changes',
+        }),
+      );
 
       expect(await screen.findByText('This day could not be restored.')).toBeInTheDocument();
+      expect(screen.queryByRole('dialog', { name: 'Discard your edits to this session?' })).toBeNull();
       expect(screen.getByRole('dialog', { name: 'Edit Mon, Nov 23' })).toBeInTheDocument();
     });
 
-    it('offers no undo on a day the coach has not edited', async () => {
+    it('offers no way back on a day the coach has not edited', async () => {
       const user = setupUser();
       renderCard();
 
       const editor = await openEasyRun(user);
       expect(editor.queryByTestId('session-editor-edited')).toBeNull();
-      expect(editor.queryByRole('button', { name: 'Undo your edits' })).toBeNull();
+      expect(editor.queryByRole('button', { name: 'Back to the original' })).toBeNull();
     });
   });
   describe('several sessions on a date (carnet#1716)', () => {
@@ -1161,16 +1642,17 @@ describe('"Edit day" on a plan card', () => {
       renderCard({ blocks: planBlocks(TWO_SESSIONS_PLAN) });
 
       const editor = await openAdd(user);
-      expect(editor.getByRole('button', { name: 'This session' })).toHaveAttribute('aria-pressed', 'true');
+      expect(editor.getByRole('button', { name: 'Write' })).toHaveAttribute('aria-pressed', 'true');
       expect(editor.queryByRole('switch', { name: 'Rest day' })).toBeNull();
       expect(editor.getByLabelText('Title')).toHaveValue('');
       // In the sport of the date's first session.
-      expect(editor.getByLabelText('Sport')).toHaveValue('ride');
+      expect(sportChip(editor, 'Ride')).toHaveAttribute('aria-pressed', 'true');
       expect(editor.queryByTestId('session-editor-edited')).toBeNull();
       expect(editor.queryByTestId('session-editor-remove')).toBeNull();
       expect(editor.queryByTestId('session-editor-replacement')).toBeNull();
       const save = editor.getByRole('button', { name: 'Save to draft' });
       expect(save).toBeDisabled();
+      expect(editor.getByTestId('session-editor-missing')).toHaveTextContent('Add a title to save.');
 
       await user.type(editor.getByLabelText('Title'), 'Core 20 min');
       await user.type(editor.getByLabelText('Duration (min)'), '20');
@@ -1198,7 +1680,7 @@ describe('"Edit day" on a plan card', () => {
       renderCard({ blocks: planBlocks(TWO_SESSIONS_PLAN) });
 
       let editor = await openAdd(user);
-      await user.click(editor.getByRole('button', { name: 'From a family' }));
+      await user.click(await editor.findByRole('button', { name: 'From an evidence-backed family' }));
       await user.click(editor.getByRole('button', { name: 'Cancel' }));
       await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
 
@@ -1214,8 +1696,9 @@ describe('"Edit day" on a plan card', () => {
       renderCard({ blocks: planBlocks(TWO_SESSIONS_PLAN) });
 
       const editor = await openAdd(user);
-      await user.click(editor.getByRole('button', { name: 'From a family' }));
-      expect(await editor.findByLabelText('Ride')).toBeChecked();
+      await user.click(await editor.findByRole('button', { name: 'From an evidence-backed family' }));
+      await editor.findByLabelText('Family');
+      expect(sportChip(editor, 'Ride')).toHaveAttribute('aria-pressed', 'true');
       const save = editor.getByRole('button', { name: 'Save to draft' });
       expect(save).toBeEnabled();
       await user.click(save);
@@ -1285,9 +1768,13 @@ describe('"Edit day" on a plan card', () => {
       renderCard({ blocks: planBlocks(TWO_SESSIONS_PLAN) });
 
       const added = await openTuesday(user, 1);
-      const restore = added.getByRole('button', { name: 'Undo your edits' });
+      const restore = added.getByRole('button', { name: 'Back to the original' });
       expect(restore).toHaveAccessibleDescription('Removes this session: you added it.');
+      // Going back on a session the coach added asks as a remove does.
       await user.click(restore);
+      const confirm = within(await screen.findByRole('dialog', { name: 'Remove this session?' }));
+      expect(confirm.getByText('Run off the bike leaves Tue, Nov 24 in your draft.')).toBeInTheDocument();
+      await user.click(confirm.getByRole('button', { name: 'Remove session' }));
       await waitFor(() =>
         expect(api.restoreSubjectDraftDay).toHaveBeenCalledWith(
           CONVERSATION_ID,
@@ -1367,7 +1854,8 @@ describe('"Edit day" on a plan card', () => {
       await user.click(editor.getByRole('button', { name: 'Save to draft' }));
 
       expect(await screen.findByText('This session could not be saved.')).toBeInTheDocument();
-      expect(screen.getByText('Tue, Nov 24 already holds 5 sessions.')).toBeInTheDocument();
+      expect(editor.getByTestId('session-editor-refusal')).toHaveTextContent('Tue, Nov 24 already holds 5 sessions.');
+      expect(screen.getAllByText('Tue, Nov 24 already holds 5 sessions.')).toHaveLength(2);
       expect(screen.queryByText('2026-11-24 holds 5 entries.')).toBeNull();
       expect(screen.getByRole('dialog', { name: 'Add a session on Tue, Nov 24' })).toBeInTheDocument();
     });

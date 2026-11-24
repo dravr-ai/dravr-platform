@@ -19,13 +19,13 @@ export interface SegmentedControlProps<T extends string> {
   onChange: (value: T) => void;
   /** Names the group, when its options' own words do not say what the choice is about. */
   'aria-label'?: string;
-  /** Fill the row, each option an equal share, 36px tall. */
+  /** Fill the row, each option an equal share, at least 36px tall: a label too long for its share wraps rather than overflows. */
   stretch?: boolean;
   className?: string;
   'data-testid'?: string;
 }
 
-const BUTTON = 'h-7 rounded-lg px-3 text-sm transition-colors focus-ring-visible';
+const BUTTON = 'rounded-lg px-3 text-sm transition-colors focus-ring-visible';
 
 /**
  * The pressed option sits on the lowest surface tier, edged in
@@ -58,7 +58,7 @@ export function SegmentedControl<T extends string>({
           onClick={() => value !== option.value && onChange(option.value)}
           className={clsx(
             BUTTON,
-            stretch && 'h-9 flex-1',
+            stretch ? 'min-h-9 flex-1 py-1 leading-tight' : 'h-7',
             value === option.value
               ? 'bg-surface-container-lowest font-semibold text-on-surface ring-1 ring-outline-variant'
               : 'font-medium text-on-surface-variant hover:text-on-surface',

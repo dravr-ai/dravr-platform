@@ -8,6 +8,17 @@ export type { CheckboxProps } from './Checkbox';
 // A form's single choice: segments for a few short words, a list for named options (never TextTabs, the filter language).
 export { RadioGroup } from './RadioGroup';
 export type { RadioGroupProps, RadioOption } from './RadioGroup';
+// A one-tap pick in a row of words or figures: a sport, a step's target.
+export { Chip } from './Chip';
+export type { ChipProps } from './Chip';
+// A stepper's − and +, and the short figure field they flank (a set's repetitions, a step's m:ss).
+export { SquareIconButton } from './SquareIconButton';
+export type { SquareIconButtonProps } from './SquareIconButton';
+export { StepperField } from './StepperField';
+export type { StepperFieldButton, StepperFieldProps } from './StepperField';
+// A title set as a headline field on a dashed rule.
+export { HeadlineInput } from './HeadlineInput';
+export type { HeadlineInputProps } from './HeadlineInput';
 export { Card } from './Card';
 export { VoiceButton } from './VoiceButton';
 export { PromptDialog } from './PromptDialog';

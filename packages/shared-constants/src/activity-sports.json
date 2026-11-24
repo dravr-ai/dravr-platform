@@ -27,6 +27,7 @@
     "strength_training": "app.sportStrengthTraining",
     "crossfit": "app.sportCrossfit",
     "pilates": "app.sportPilates",
+    "mobility": "app.sportMobility",
     "rock_climbing": "app.sportRockClimbing",
     "trail_running": "app.sportTrailRunning",
     "soccer": "app.sportSoccer",
@@ -51,6 +52,14 @@
     "kayak": "kayaking",
     "canoe": "canoeing",
     "surf": "surfing",
-    "kitesurf": "kitesurfing"
+    "kitesurf": "kitesurfing",
+    "strength": "strength_training",
+    "musculation": "strength_training",
+    "muscu": "strength_training",
+    "stretching": "mobility",
+    "mobilite": "mobility",
+    "mobilité": "mobility",
+    "etirements": "mobility",
+    "étirements": "mobility"
   }
 }

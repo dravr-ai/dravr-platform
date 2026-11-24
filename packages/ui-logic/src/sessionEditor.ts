@@ -8,7 +8,26 @@ import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { QUERY_KEYS } from '@pierre/shared-constants';
 import type { ChatApi } from '@pierre/api-client';
-import { refusalReason } from './apiError';
+import { refusalReason, refusalStep } from './apiError';
+import { familySportFor } from './sessionSports';
+import {
+  appendSeries,
+  appendStep,
+  appendToSeries,
+  duplicateStep as duplicateStepIn,
+  firstStepGap,
+  moveStepAt,
+  patchStepAt,
+  removeStepAt,
+  setSeriesRepeat as setSeriesRepeatIn,
+  setStepMeasure,
+  stepsForSave,
+  stepsTotalSeconds,
+  targetSpan,
+  type SeriesDefaults,
+  type StepMeasure,
+  type TargetAnchor,
+} from './sessionSteps';
 import {
   SESSION_PARAM_KEYS,
   SESSION_SPORTS,
@@ -46,8 +65,6 @@ export const SESSION_EDITOR_KEYS = {
   removeFailed: 'plan.editor.removeFailed',
   added: 'plan.editor.added',
   restoreNoteAdded: 'plan.editor.restoreNoteAdded',
-  modeSession: 'plan.editor.modeSession',
-  modeFamily: 'plan.editor.modeFamily',
   restDay: 'plan.editor.restDay',
   workout: 'plan.editor.workout',
   duration: 'plan.editor.duration',
@@ -55,7 +72,6 @@ export const SESSION_EDITOR_KEYS = {
   stepLabel: 'plan.editor.stepLabel',
   stepDuration: 'plan.editor.stepDuration',
   stepTarget: 'plan.editor.stepTarget',
-  stepRepeat: 'plan.editor.stepRepeat',
   addStep: 'plan.editor.addStep',
   removeStep: 'plan.editor.removeStep',
   moveStepUp: 'plan.editor.moveStepUp',
@@ -66,7 +82,6 @@ export const SESSION_EDITOR_KEYS = {
   format: 'plan.editor.format',
   sport: 'plan.editor.sport',
   testedRange: 'plan.editor.testedRange',
-  noFamilyForSport: 'plan.editor.noFamilyForSport',
   derivedHeading: 'plan.editor.derivedHeading',
   minutes: 'plan.editor.minutes',
   stepsHeading: 'plan.editor.stepsHeading',
@@ -85,7 +100,6 @@ export const SESSION_EDITOR_KEYS = {
   edited: 'plan.editor.edited',
   editedNote: 'plan.editor.editedNote',
   addedNote: 'plan.editor.addedNote',
-  restore: 'plan.editor.restore',
   restoreNote: 'plan.editor.restoreNote',
   restoreNoteRest: 'plan.editor.restoreNoteRest',
   restored: 'plan.editor.restored',
@@ -100,10 +114,53 @@ export const SESSION_EDITOR_KEYS = {
   loadFailed: 'plan.editor.loadFailed',
   cancel: 'common.cancel',
   restDayLabel: 'chat.restDay',
-  sport_ride: 'app.sportRide',
-  sport_run: 'app.sportRun',
-  sport_swim: 'app.sportSwim',
+  // The day editor's sport chips, sets, step targets and footer lines (carnet#1727).
+  modeWrite: 'plan.editor.modeWrite',
+  modeFamilyBacked: 'plan.editor.modeFamilyBacked',
+  buildHow: 'plan.editor.buildHow',
+  sportOther: 'plan.editor.sportOther',
+  sportOtherName: 'plan.editor.sportOtherName',
+  titlePlaceholder: 'plan.editor.titlePlaceholder',
+  addSeries: 'plan.editor.addSeries',
+  series: 'plan.editor.series',
+  seriesRepeat: 'plan.editor.seriesRepeat',
+  seriesFewer: 'plan.editor.seriesFewer',
+  seriesMore: 'plan.editor.seriesMore',
+  seriesWork: 'plan.editor.seriesWork',
+  seriesRecovery: 'plan.editor.seriesRecovery',
+  addStepToSeries: 'plan.editor.addStepToSeries',
+  measure: 'plan.editor.measure',
+  measureTime: 'plan.editor.measureTime',
+  measureDistance: 'plan.editor.measureDistance',
+  stepDistance: 'plan.editor.stepDistance',
+  stepEstimate: 'plan.editor.stepEstimate',
+  targetPercent: 'plan.editor.targetPercent',
+  targetRpe: 'plan.editor.targetRpe',
+  targetOther: 'plan.editor.targetOther',
+  targetFrom: 'plan.editor.targetFrom',
+  targetTo: 'plan.editor.targetTo',
+  targetOf: 'plan.editor.targetOf',
+  targetRpeValue: 'plan.editor.targetRpeValue',
+  targetTyped: 'plan.editor.targetTyped',
+  modifies: 'plan.editor.modifies',
+  restoreOriginal: 'plan.editor.restoreOriginal',
+  restoreTitle: 'plan.editor.restoreTitle',
+  editStep: 'plan.editor.editStep',
+  duplicateStep: 'plan.editor.duplicateStep',
+  profile: 'plan.editor.profile',
+  profileStep: 'plan.editor.profileStep',
+  durationLess: 'plan.editor.durationLess',
+  durationMore: 'plan.editor.durationMore',
+  distanceTag: 'plan.editor.distanceTag',
+  targetUnresolved: 'plan.editor.targetUnresolved',
 } as const;
+
+/** The label key of each percent target's anchor. */
+export const TARGET_ANCHOR_LABEL_KEY: Record<TargetAnchor, string> = {
+  ftp: 'plan.editor.anchorFtp',
+  threshold_hr: 'plan.editor.anchorThresholdHr',
+  threshold_pace: 'plan.editor.anchorThresholdPace',
+};
 
 /** The label key of each stated value. */
 export const SESSION_PARAM_LABEL_KEY: Record<SessionParamKey, string> = {
@@ -114,11 +171,6 @@ export const SESSION_PARAM_LABEL_KEY: Record<SessionParamKey, string> = {
   set_rest_seconds: 'plan.editor.param.setRestSeconds',
   duration_minutes: 'plan.editor.param.durationMinutes',
 };
-
-/** The label key of a sport. */
-export function sessionSportLabelKey(sport: SessionSport): string {
-  return SESSION_EDITOR_KEYS[`sport_${sport}`];
-}
 
 /** The family a build names, when the catalogue offers it. */
 export function familyOf(catalogue: FamilyCatalogueResponse, build: SessionBuild): WorkoutFamily | undefined {
@@ -246,11 +298,6 @@ export function setParam(build: SessionBuild, key: SessionParamKey, value: numbe
   return { ...build, params };
 }
 
-/** The sports a family in the catalogue has a form for, in the editor's order. */
-export function catalogueSports(catalogue: FamilyCatalogueResponse): SessionSport[] {
-  return SESSION_SPORTS.filter((sport) => catalogue.families.some((family) => family.sports.includes(sport)));
-}
-
 /** The families with a form in `sport`; every family when the day reads as none of the three. */
 export function familiesForSport(catalogue: FamilyCatalogueResponse, sport: SessionSport | undefined): WorkoutFamily[] {
   if (sport === undefined) return catalogue.families;
@@ -314,19 +361,50 @@ export function editorDirty(
   return edited !== null && opening !== null && familyBuildChanged(day, opening, edited);
 }
 
-/**
- * The day's sport when no family has a form in it — the family mode then
- * says so above the build it opens on in another sport. `null` when a family
- * has the day's sport, or the day reads as none of the three.
- */
-export function familyMissingForDaySport(day: PlanDay, catalogue: FamilyCatalogueResponse): SessionSport | null {
-  const sport = day.family_sport;
-  if (sport === undefined) return null;
-  return familiesForSport(catalogue, sport).length === 0 ? sport : null;
-}
-
 /** Which way the coach edits the day: its own session by hand, or a build from a family. */
 export type EditorMode = 'session' | 'family';
+
+/**
+ * The family sport the family mode builds in for a session of `sport`, when
+ * the catalogue has a family written for it; `undefined` hides the family
+ * mode, with no note in its place (Phil, carnet#1727).
+ */
+export function offeredFamilySport(
+  catalogue: FamilyCatalogueResponse | undefined,
+  sport: string,
+  opening: PlanDay,
+): SessionSport | undefined {
+  const family = familySportFor(sport, opening);
+  if (family === undefined || catalogue === undefined) return undefined;
+  return familiesForSport(catalogue, family).length > 0 ? family : undefined;
+}
+
+/** The editor's state a sport pick changes: the hand session, the family build, and the mode on screen. */
+export interface SportPick {
+  hand: HandSession;
+  build: SessionBuild | null;
+  mode: EditorMode;
+}
+
+/**
+ * A sport picked once, for both modes: the hand session takes the word, the
+ * family build moves to a family written for it (at that sport's defaults),
+ * and the family mode closes for a sport no family is written for.
+ */
+export function pickSport(
+  state: SportPick,
+  sport: string,
+  opening: PlanDay,
+  catalogue: FamilyCatalogueResponse | undefined,
+): SportPick {
+  const hand = setHand(state.hand, { sport });
+  const family = offeredFamilySport(catalogue, sport, opening);
+  if (family === undefined || catalogue === undefined) return { hand, build: state.build, mode: 'session' };
+  const build = state.build
+    ? selectBuildSport(catalogue, state.build, family)
+    : initialSessionBuild({ ...opening, family_sport: family }, catalogue);
+  return { hand, build, mode: state.mode };
+}
 
 /** The mode a day opens in: a day a family built opens on its family, any other on its own session. */
 export function initialEditorMode(day: PlanDay): EditorMode {
@@ -359,118 +437,152 @@ export function handSessionOf(day: PlanDay): HandSession {
   };
 }
 
-/** The sports the hand editor offers: the day's own word first, then the three a family is written for. */
-export function handSportOptions(session: HandSession): string[] {
-  const options = [session.sport, ...SESSION_SPORTS];
-  return options.filter(
-    (option, index) =>
-      option.trim().length > 0 && options.findIndex((other) => other.toLowerCase() === option.toLowerCase()) === index,
-  );
+/** A session's steps with `steps` swapped in. */
+function withSteps(session: HandSession, steps: PlanStep[]): HandSession {
+  return { ...session, steps };
 }
-
-/** A step a coach adds: five minutes, unnamed, until they write it. */
-const NEW_STEP: PlanStep = { label: '', duration_seconds: 300, target_zone: '' };
 
 /** The session with `patch` applied. */
 export function setHand(session: HandSession, patch: Partial<HandSession>): HandSession {
   return { ...session, ...patch };
 }
 
-/** A step added at the end. */
+/** A lone step added at the end. */
 export function addStep(session: HandSession): HandSession {
-  return { ...session, steps: [...session.steps, { ...NEW_STEP }] };
+  return withSteps(session, appendStep(session.steps));
+}
+
+/**
+ * What a new set's effort and recovery start as in `sport`: zones for a
+ * sport a family is written for, an RPE band for every other, named in the
+ * coach's words.
+ */
+export function seriesDefaults(
+  sport: SessionSport | undefined,
+  labels: { work: string; recovery: string },
+): SeriesDefaults {
+  const endurance = sport !== undefined;
+  return {
+    work: { label: labels.work, target: endurance ? 'Z4' : 'RPE 8' },
+    recovery: { label: labels.recovery, target: endurance ? 'Z1' : 'RPE 2' },
+  };
+}
+
+/** A set of an effort and a recovery added at the end. */
+export function addSeries(session: HandSession, defaults: SeriesDefaults): HandSession {
+  return withSteps(session, appendSeries(session.steps, defaults));
+}
+
+/** A step added at the end of the set that starts at `start`. */
+export function addStepToSeries(session: HandSession, start: number): HandSession {
+  return withSteps(session, appendToSeries(session.steps, start));
+}
+
+/** The set that starts at `start` done `repeat` times; at one, its steps stand alone. */
+export function setSeriesRepeat(session: HandSession, start: number, repeat: number): HandSession {
+  return withSteps(session, setSeriesRepeatIn(session.steps, start, repeat));
+}
+
+/** A copy of the step at `index` right after it, in its set. */
+export function duplicateStep(session: HandSession, index: number): HandSession {
+  return withSteps(session, duplicateStepIn(session.steps, index));
 }
 
 /** The step at `index` removed. */
 export function removeStep(session: HandSession, index: number): HandSession {
-  return { ...session, steps: session.steps.filter((_, at) => at !== index) };
+  return withSteps(session, removeStepAt(session.steps, index));
 }
 
-/** The step at `index` moved by `delta` places, held inside the list. */
+/** The step at `index` moved by `delta`: inside its set, or past the block beside it. */
 export function moveStep(session: HandSession, index: number, delta: -1 | 1): HandSession {
-  const to = index + delta;
-  if (index < 0 || index >= session.steps.length || to < 0 || to >= session.steps.length) return session;
-  const steps = [...session.steps];
-  const [moved] = steps.splice(index, 1);
-  steps.splice(to, 0, moved as PlanStep);
-  return { ...session, steps };
+  return withSteps(session, moveStepAt(session.steps, index, delta));
 }
 
-/** The step at `index` with `patch` applied; `repeat: undefined` drops the repeat. */
+/** The step at `index` with `patch` applied; `distance_meters: undefined` leaves it measured by time. */
 export function updateStep(session: HandSession, index: number, patch: Partial<PlanStep>): HandSession {
-  const steps = session.steps.map((step, at) => {
-    if (at !== index) return step;
-    const next: PlanStep = { ...step, ...patch };
-    if (next.repeat === undefined) delete next.repeat;
-    return next;
-  });
-  return { ...session, steps };
+  return withSteps(session, patchStepAt(session.steps, index, patch));
 }
 
-/** A step's duration as the field shows it: `m:ss` (`90` → `1:30`, `600` → `10:00`). */
-export function formatStepDuration(seconds: number): string {
-  const whole = Math.max(0, Math.round(seconds));
-  const minutes = Math.floor(whole / 60);
-  const rest = whole % 60;
-  return `${minutes}:${String(rest).padStart(2, '0')}`;
+/** The step at `index` measured by time, or by a distance with an estimated time. */
+export function setStepMeasureOf(session: HandSession, index: number, measure: StepMeasure): HandSession {
+  return withSteps(session, setStepMeasure(session.steps, index, measure));
 }
 
-/**
- * A step's duration as typed, in seconds: `m:ss`, `:ss`, or bare minutes
- * (`1:30` → 90, `:20` → 20, `10` → 600). `undefined` for anything else,
- * seconds of 60 or more included.
- */
-export function parseStepDuration(text: string): number | undefined {
-  const trimmed = text.trim();
-  const match = /^(\d*):(\d{1,2})$/.exec(trimmed);
-  if (match) {
-    const seconds = Number(match[2]);
-    if (seconds >= 60) return undefined;
-    return Number(match[1] || '0') * 60 + seconds;
-  }
-  return /^\d+$/.test(trimmed) ? Number(trimmed) * 60 : undefined;
+export { formatStepDuration, parseStepDuration } from './sessionSteps';
+
+/** What the session still lacks before it saves, as the footer's sentence: a key and its values. */
+export interface MissingLine {
+  key: string;
+  values?: Record<string, string>;
 }
+
+const MISSING_KEYS = {
+  sport: 'plan.editor.missingSportName',
+  title: 'plan.editor.missingTitle',
+  label: 'plan.editor.missingStepLabel',
+  duration: 'plan.editor.missingStepDuration',
+  distance: 'plan.editor.missingStepDistance',
+  target: 'plan.editor.missingStepTarget',
+} as const;
 
 /**
- * Whether the hand session is whole enough to save: a session needs its
- * sport and title, and each step a name, a target, a duration and a repeat of
- * at least one. Whether the target is one the calendar resolves is the
- * server's to say; its refusal names the words it takes.
+ * Why the session cannot be saved yet — its sport unnamed, its title empty,
+ * or the first step that lacks a name, a time, a distance it measures by or a
+ * target — as the line the footer shows beside a waiting Save. `null` once it
+ * is whole. Whether a typed target resolves is the server's to say; its
+ * refusal names the words it takes.
  */
+export function handSessionMissing(session: HandSession): MissingLine | null {
+  if (session.rest) return null;
+  if (session.sport.trim().length === 0) return { key: MISSING_KEYS.sport };
+  if (session.workout.trim().length === 0) return { key: MISSING_KEYS.title };
+  const gap = firstStepGap(session.steps);
+  return gap ? { key: MISSING_KEYS[gap.kind], values: { number: String(gap.number) } } : null;
+}
+
+/** Whether the hand session is whole enough to save. */
 export function handSessionComplete(session: HandSession): boolean {
-  if (session.rest) return true;
-  return (
-    session.sport.trim().length > 0 &&
-    session.workout.trim().length > 0 &&
-    session.steps.every(
-      (step) =>
-        step.label.trim().length > 0 &&
-        step.target_zone.trim().length > 0 &&
-        step.duration_seconds > 0 &&
-        (step.repeat === undefined || step.repeat >= 1),
-    )
-  );
+  return handSessionMissing(session) === null;
 }
 
 /**
  * Whether the coach states the session's duration: only while it has no
  * steps. With steps the server writes the duration they total, and refuses
- * a stated one that differs, so the editor hides the field and sends none.
+ * a stated one that differs, so the editor shows their total and sends none.
  */
 export function handStatesDuration(session: HandSession): boolean {
   return !session.rest && session.steps.length === 0;
 }
 
-/** What the hand save sends for the session. */
+/**
+ * The header's line under the title: the session's minutes (its steps'
+ * total, else the minutes stated) and the span its targets cover (else the
+ * intensity as written). Either is `null` when the session has none.
+ */
+export function handSummary(session: HandSession): { minutes: number | null; span: string | null } {
+  if (session.rest) return { minutes: null, span: null };
+  if (session.steps.length > 0) {
+    return { minutes: Math.ceil(stepsTotalSeconds(session.steps) / 60), span: targetSpan(session.steps) };
+  }
+  const intensity = session.intensity.trim();
+  return { minutes: session.duration_min ?? null, span: intensity.length > 0 ? intensity : null };
+}
+
+/**
+ * What the hand save sends for the session. With steps, the intensity is the
+ * span their targets cover when they have one, so the card never reads
+ * "easy" over a session of Z4 efforts; sets go out numbered.
+ */
 export function handDayRequest(session: HandSession): HandDayRequest {
   if (session.rest) return { rest: true };
+  const span = session.steps.length > 0 ? targetSpan(session.steps) : null;
   return {
     rest: false,
     sport: session.sport.trim(),
     workout: session.workout.trim(),
     ...(handStatesDuration(session) && session.duration_min !== undefined ? { duration_min: session.duration_min } : {}),
-    intensity: session.intensity.trim(),
-    steps: session.steps.map((step) => ({ ...step, label: step.label.trim(), target_zone: step.target_zone.trim() })),
+    intensity: span ?? session.intensity.trim(),
+    steps: stepsForSave(session.steps),
   };
 }
 
@@ -484,8 +596,9 @@ export type DayReplacement = { rest: true } | { rest: false; name: string };
 
 /**
  * The footer's sentence: the session the save replaces and what replaces it,
- * as a key and its values. `null` (nothing changed) reads "No changes yet.";
- * a session with no title yet has no sentence until it has one.
+ * as a key and its values, or "Changes X." when the session keeps its name.
+ * `null` (nothing changed) reads "No changes yet."; a session with no title
+ * yet has no sentence until it has one.
  */
 export function replacementLine(
   day: PlanDay,
@@ -494,6 +607,10 @@ export function replacementLine(
   if (next === null || (next.rest && day.rest)) return { key: SESSION_EDITOR_KEYS.noChanges };
   if (!next.rest && next.name.trim().length === 0) return null;
   if (next.rest) return { key: SESSION_EDITOR_KEYS.replacesWithRest, values: { from: day.workout } };
+  // Only its structure, sport or length changed: one session, named once.
+  if (!day.rest && next.name.trim() === day.workout.trim()) {
+    return { key: SESSION_EDITOR_KEYS.modifies, values: { name: day.workout } };
+  }
   if (day.rest) return { key: SESSION_EDITOR_KEYS.replacesRest, values: { to: next.name } };
   return { key: SESSION_EDITOR_KEYS.replacesWith, values: { from: day.workout, to: next.name } };
 }
@@ -534,6 +651,21 @@ export function isSessionMoved(error: unknown): boolean {
   return refusalReason(error) === SESSION_MOVED_REASON;
 }
 
+/** The refusal reason of a hand-written step whose target the calendar cannot read (carnet#1727). */
+const UNRESOLVABLE_TARGET_REASON = 'unresolvable_target';
+
+/**
+ * The sentence for a save refused over a step target the calendar cannot
+ * read, naming the step and the target as written in the coach's language;
+ * `null` for any other refusal, which keeps the server's own sentence.
+ */
+export function unresolvedTargetLine(error: unknown): MissingLine | null {
+  if (refusalReason(error) !== UNRESOLVABLE_TARGET_REASON) return null;
+  const named = refusalStep(error);
+  if (!named) return null;
+  return { key: SESSION_EDITOR_KEYS.targetUnresolved, values: { number: String(named.step), target: named.target } };
+}
+
 /** The refusal reason of an add on a date that already holds `MAX_SESSIONS_PER_DATE` entries (carnet#1716). */
 export const DATE_FULL_REASON = 'date_full';
 
@@ -568,8 +700,17 @@ export function canRemoveSession(entries: readonly PlanDay[]): boolean {
  * written for, with no title yet.
  */
 export function newSessionDay(date: string, entries: readonly PlanDay[]): PlanDay {
-  const sport = entries.find((entry) => !entry.rest)?.sport ?? FIRST_SPORT;
-  return { date, sport, workout: '', intensity: '', rest: false, position: entries.length };
+  const first = entries.find((entry) => !entry.rest);
+  return {
+    date,
+    sport: first?.sport ?? FIRST_SPORT,
+    // The family mode opens in the date's sport, never on the catalogue's first.
+    ...(first ? (first.family_sport ? { family_sport: first.family_sport } : {}) : { family_sport: FIRST_SPORT }),
+    workout: '',
+    intensity: '',
+    rest: false,
+    position: entries.length,
+  };
 }
 
 /** One row of the derived values: its label key, the label's values, and the figure, formatted. */

@@ -5,7 +5,7 @@
 // ABOUTME: Writes name the session by position and as the card showed it; a moved one rereads; a date's extra session removes; the card marks edits
 
 import React from 'react';
-import { Alert, Modal } from 'react-native';
+import { AccessibilityInfo, Alert, Modal } from 'react-native';
 import { act, fireEvent, render, screen, within } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider, defaultScheduler, notifyManager } from '@tanstack/react-query';
 import Toast from 'react-native-toast-message';
@@ -308,6 +308,24 @@ function footer() {
   return screen.getByTestId('session-editor-replacement');
 }
 
+/** Press the destructive button of the last confirm the sheet asked for, and let the write settle. */
+async function confirmLast(alert: jest.SpyInstance) {
+  const [, , buttons] = alert.mock.calls[alert.mock.calls.length - 1] as [
+    string,
+    string,
+    { style?: string; onPress?: () => void }[],
+  ];
+  await act(async () => {
+    buttons.find((b) => b.style === 'destructive')?.onPress?.();
+    await jest.advanceTimersByTimeAsync(0);
+  });
+}
+
+/** Open a step's editor from its collapsed row. */
+function openStep(index: number) {
+  fireEvent.press(screen.getByTestId(`session-editor-step-${index}`));
+}
+
 /** Type into a step's m:ss field the way a thumb does: focus, type, leave. */
 function typeStepDuration(index: number, text: string) {
   const field = screen.getByTestId(`session-editor-step-${index}-duration`);
@@ -344,26 +362,44 @@ describe('the day editor on a session the agent wrote', () => {
     await elapse(300);
 
     expect(screen.getByTestId('session-editor-title')).toHaveTextContent('Edit Thu, Nov 26');
+    // A run has families in the catalogue: "Write" is on, the family mode one tap away.
     expect(screen.getByTestId('session-editor-mode-session')).toHaveProp('accessibilityState', { checked: true });
-    expect(screen.getByTestId('session-editor-mode-session')).toHaveProp('accessibilityRole', 'radio');
+    expect(screen.getByTestId('session-editor-mode-session')).toHaveTextContent('Write');
+    expect(screen.getByTestId('session-editor-mode-family')).toHaveTextContent('From an evidence-backed family');
     expect(screen.getByTestId('session-editor-mode-family')).toHaveProp('accessibilityState', { checked: false });
     expect(screen.getByTestId('session-editor-rest')).toHaveProp('value', false);
-    expect(screen.getByTestId('session-editor-workout')).toHaveProp('value', 'Easy run');
-    // The day's own sport leads the row, in the app's words, then the other two.
-    expect(screen.getByTestId('session-editor-hand-sport-run')).toHaveProp('accessibilityState', { checked: true });
-    expect(screen.getByTestId('session-editor-hand-sport-run')).toHaveTextContent('Run');
-    expect(screen.getByTestId('session-editor-hand-sport-ride')).toBeTruthy();
-    expect(screen.getByTestId('session-editor-hand-sport-swim')).toBeTruthy();
-    // With steps the server writes the duration they total: the coach states none.
+    // The title is the header's headline field, named "Title", over the summary the steps total.
+    const title = screen.getByTestId('session-editor-workout');
+    expect(title).toHaveProp('value', 'Easy run');
+    expect(title).toHaveProp('accessibilityLabel', 'Title');
+    expect(title).toHaveProp('placeholder', 'Session title');
+    expect(screen.getByTestId('session-editor-summary')).toHaveTextContent('Run · 45 min · Z1–Z2');
+    // One chip per one-tap sport, in the card's words, then "Other…"; the day's own is picked.
+    expect(screen.getByTestId('session-editor-sport-run')).toHaveProp('accessibilityState', { selected: true });
+    expect(screen.getByTestId('session-editor-sport-run')).toHaveProp('accessibilityRole', 'button');
+    expect(screen.getByTestId('session-editor-sport-run')).toHaveTextContent('Run');
+    expect(screen.getByTestId('session-editor-sport-ride')).toHaveProp('accessibilityState', { selected: false });
+    expect(screen.getByTestId('session-editor-sport-strength')).toHaveTextContent('Strength training');
+    expect(screen.getByTestId('session-editor-sport-other')).toHaveTextContent('Other…');
+    expect(screen.getByTestId('session-editor-sport-run').props.className).toMatch(/\bmin-h-11\b/);
+    // With steps the server writes the duration they total, and the span is the intensity.
     expect(screen.queryByTestId('session-editor-duration')).toBeNull();
-    expect(screen.getByTestId('session-editor-intensity')).toHaveProp('value', 'easy');
-    expect(screen.getByTestId('session-editor-step-0-label')).toHaveProp('value', 'Warm-up');
-    expect(screen.getByTestId('session-editor-step-0-duration')).toHaveProp('value', '10:00');
-    expect(screen.getByTestId('session-editor-step-1-target')).toHaveProp('value', 'Z2');
-    expect(screen.getByTestId('session-editor-step-2-repeat')).toHaveProp('value', '');
+    expect(screen.queryByTestId('session-editor-intensity')).toBeNull();
+    // Each step at rest is one row: its number, name and tags, the whole row a button.
+    const row = screen.getByTestId('session-editor-step-0');
+    expect(row).toHaveProp('accessibilityLabel', 'Edit step 1: Warm-up');
+    expect(row).toHaveTextContent('1Warm-up10:00Z1');
+    expect(screen.getByTestId('session-editor-step-1')).toHaveTextContent('2Steady30:00Z2');
+    expect(screen.queryByTestId('session-editor-step-0-label')).toBeNull();
+    expect(screen.getByTestId('session-editor-profile')).toHaveProp('accessibilityLabel', 'Session profile');
+    expect(screen.getByTestId('session-editor-profile-step-1')).toHaveProp(
+      'accessibilityLabel',
+      'Step 2: Steady, 30:00, Z2',
+    );
     expect(screen.getByTestId('session-editor-unchecked')).toHaveTextContent("Not checked against a family's evidence.");
     // Nothing changed: the footer says so, and Save waits.
     expect(footer()).toHaveTextContent('No changes yet.');
+    expect(screen.queryByTestId('session-editor-missing')).toBeNull();
     expect(screen.getByTestId('session-editor-save')).toBeDisabled();
     // A hand edit has no preview, and the catalogue's states stay in the family mode.
     expect(mockPreview).not.toHaveBeenCalled();
@@ -371,17 +407,38 @@ describe('the day editor on a session the agent wrote', () => {
     expect(screen.queryByTestId('session-editor-edited')).toBeNull();
   });
 
-  it('names every step control by its number, each a 44pt target, the ends dimmed', async () => {
+  it('opens one step at a time, from its row or its bar in the profile', async () => {
     renderEditor(AGENT_DAY);
     await elapse(0);
 
+    openStep(1);
+    expect(screen.getByTestId('session-editor-step-1-open')).toBeTruthy();
+    expect(screen.getByTestId('session-editor-step-1-label')).toHaveProp('value', 'Steady');
+    expect(screen.getByTestId('session-editor-profile-step-1')).toHaveProp('accessibilityState', { selected: true });
+
+    fireEvent.press(screen.getByTestId('session-editor-profile-step-2'));
+    expect(screen.queryByTestId('session-editor-step-1-open')).toBeNull();
+    expect(screen.getByTestId('session-editor-step-1')).toBeTruthy();
+    expect(screen.getByTestId('session-editor-step-2-label')).toHaveProp('value', 'Cool-down');
+  });
+
+  it('names every step control by its number, each a 44pt target, a move that changes nothing dimmed', async () => {
+    renderEditor(AGENT_DAY);
+    await elapse(0);
+
+    openStep(1);
     const up = screen.getByTestId('session-editor-step-1-up');
     expect(up).toHaveProp('accessibilityLabel', 'Move step 2 up');
     expect(screen.getByTestId('session-editor-step-1-down')).toHaveProp('accessibilityLabel', 'Move step 2 down');
+    expect(screen.getByTestId('session-editor-step-1-duplicate')).toHaveProp('accessibilityLabel', 'Duplicate step 2');
     expect(screen.getByTestId('session-editor-step-1-remove')).toHaveProp('accessibilityLabel', 'Remove step 2');
     expect(up.props.className).toMatch(/\bh-11\b/);
     expect(up.props.className).toMatch(/\bw-11\b/);
+    expect(up).toHaveProp('accessibilityState', { disabled: false });
+
+    openStep(0);
     expect(screen.getByTestId('session-editor-step-0-up')).toHaveProp('accessibilityState', { disabled: true });
+    openStep(2);
     expect(screen.getByTestId('session-editor-step-2-down')).toHaveProp('accessibilityState', { disabled: true });
   });
 
@@ -389,7 +446,10 @@ describe('the day editor on a session the agent wrote', () => {
     renderEditor(AGENT_DAY);
     await elapse(0);
 
+    openStep(0);
     const field = screen.getByTestId('session-editor-step-0-duration');
+    // A text keyboard: a number pad has no colon.
+    expect(field).toHaveProp('keyboardType', 'numbers-and-punctuation');
     fireEvent(field, 'focus');
     // Seconds past 59 are not a duration: the text stays, the step does not move.
     fireEvent.changeText(field, '1:75');
@@ -401,8 +461,28 @@ describe('the day editor on a session the agent wrote', () => {
     typeStepDuration(0, '1:30');
     expect(screen.getByTestId('session-editor-step-0-duration')).toHaveProp('value', '1:30');
     // Bare minutes read as minutes.
+    openStep(1);
     typeStepDuration(1, '25');
     expect(screen.getByTestId('session-editor-step-1-duration')).toHaveProp('value', '25:00');
+  });
+
+  it('moves a step by 15 s with the buttons beside its time, never under zero', async () => {
+    renderEditor({ ...AGENT_DAY, steps: [{ label: 'Strides', duration_seconds: 15, target_zone: 'Z5' }] });
+    await elapse(0);
+
+    openStep(0);
+    const more = screen.getByTestId('session-editor-step-0-duration-more');
+    expect(more).toHaveProp('accessibilityLabel', '15 seconds more');
+    expect(more.props.className).toMatch(/\bh-11\b/);
+    fireEvent.press(more);
+    expect(screen.getByTestId('session-editor-step-0-duration')).toHaveProp('value', '0:30');
+    fireEvent.press(screen.getByTestId('session-editor-step-0-duration-less'));
+    fireEvent.press(screen.getByTestId('session-editor-step-0-duration-less'));
+    expect(screen.getByTestId('session-editor-step-0-duration')).toHaveProp('value', '0:00');
+    expect(screen.getByTestId('session-editor-step-0-duration-less')).toHaveProp('accessibilityState', {
+      disabled: true,
+    });
+    expect(screen.getByTestId('session-editor-missing')).toHaveTextContent('Give step 1 a time to save.');
   });
 
   it('saves a hand edit through the hand mutation with the exact body, closes, and says so', async () => {
@@ -410,15 +490,20 @@ describe('the day editor on a session the agent wrote', () => {
     await elapse(0);
 
     fireEvent.changeText(screen.getByTestId('session-editor-workout'), 'Easy 50 min');
+    openStep(0);
     typeStepDuration(0, '12');
+    openStep(2);
     fireEvent.press(screen.getByTestId('session-editor-step-2-remove'));
+    expect(screen.queryByTestId('session-editor-step-2')).toBeNull();
     fireEvent.press(screen.getByTestId('session-editor-add-step'));
+    // A step just added opens, with the caret in its name.
+    expect(screen.getByTestId('session-editor-step-2-label')).toHaveProp('autoFocus', true);
     fireEvent.changeText(screen.getByTestId('session-editor-step-2-label'), 'Strides');
     typeStepDuration(2, ':20');
-    fireEvent.changeText(screen.getByTestId('session-editor-step-2-target'), 'Z5');
-    fireEvent.changeText(screen.getByTestId('session-editor-step-2-repeat'), '6');
+    fireEvent.press(screen.getByTestId('session-editor-step-2-target-z5'));
     fireEvent.press(screen.getByTestId('session-editor-step-2-up'));
 
+    // The open card follows the step it moved.
     expect(screen.getByTestId('session-editor-step-1-label')).toHaveProp('value', 'Strides');
     expect(footer()).toHaveTextContent('Replaces Easy run with Easy 50 min.');
     const save = screen.getByTestId('session-editor-save');
@@ -427,7 +512,8 @@ describe('the day editor on a session the agent wrote', () => {
     await elapse(0);
 
     // Session 0 of the date, as the card showed it: a position that now holds
-    // another session is refused rather than overwritten.
+    // another session is refused rather than overwritten. The steps' span is
+    // the intensity the card prints.
     expect(mockSaveHandDay).toHaveBeenCalledWith(
       CONVERSATION_ID,
       '2026-11-26',
@@ -436,10 +522,10 @@ describe('the day editor on a session the agent wrote', () => {
         rest: false,
         sport: 'run',
         workout: 'Easy 50 min',
-        intensity: 'easy',
+        intensity: 'Z1–Z5',
         steps: [
           { label: 'Warm-up', duration_seconds: 720, target_zone: 'Z1' },
-          { label: 'Strides', duration_seconds: 20, target_zone: 'Z5', repeat: 6 },
+          { label: 'Strides', duration_seconds: 20, target_zone: 'Z5' },
           { label: 'Steady', duration_seconds: 1800, target_zone: 'Z2' },
         ],
       },
@@ -459,6 +545,9 @@ describe('the day editor on a session the agent wrote', () => {
     await elapse(0);
 
     expect(screen.getByTestId('session-editor-duration')).toHaveProp('value', '45');
+    expect(screen.getByTestId('session-editor-intensity')).toHaveProp('value', 'easy');
+    expect(screen.getByTestId('session-editor-summary')).toHaveTextContent('Run · 45 min · easy');
+    expect(screen.queryByTestId('session-editor-profile')).toBeNull();
     fireEvent.changeText(screen.getByTestId('session-editor-duration'), '50');
     fireEvent.press(screen.getByTestId('session-editor-save'));
     await elapse(0);
@@ -473,23 +562,28 @@ describe('the day editor on a session the agent wrote', () => {
     );
   });
 
-  it('says nothing in the footer while the session has no title, and holds Save', async () => {
+  it('says what Save waits for while the session has no title, instead of a replacement', async () => {
     renderEditor(AGENT_DAY);
     await elapse(0);
 
     fireEvent.changeText(screen.getByTestId('session-editor-workout'), '  ');
     expect(screen.queryByTestId('session-editor-replacement')).toBeNull();
-    expect(screen.getByTestId('session-editor-save')).toBeDisabled();
+    expect(screen.getByTestId('session-editor-missing')).toHaveTextContent('Add a title to save.');
+    const save = screen.getByTestId('session-editor-save');
+    expect(save).toBeDisabled();
+    expect(save).toHaveProp('accessibilityHint', 'Add a title to save.');
   });
 
-  it('saves a rest day as { rest: true }, the session fields hidden', async () => {
+  it('saves a rest day as { rest: true }, everything under the switch hidden', async () => {
     const { onClose } = renderEditor(AGENT_DAY);
     await elapse(0);
 
     fireEvent(screen.getByTestId('session-editor-rest'), 'valueChange', true);
 
     expect(screen.queryByTestId('session-editor-workout')).toBeNull();
-    expect(screen.queryByTestId('session-editor-step-0-label')).toBeNull();
+    expect(screen.queryByTestId('session-editor-sport')).toBeNull();
+    expect(screen.queryByTestId('session-editor-mode')).toBeNull();
+    expect(screen.queryByTestId('session-editor-step-0')).toBeNull();
     expect(screen.queryByTestId('session-editor-unchecked')).toBeNull();
     expect(footer()).toHaveTextContent('Replaces Easy run with a rest day.');
 
@@ -505,16 +599,26 @@ describe('the day editor on a session the agent wrote', () => {
     await elapse(0);
     expect(screen.getByTestId('session-editor-save')).toBeDisabled();
 
-    fireEvent.press(screen.getByTestId('session-editor-hand-sport-ride'));
-    expect(screen.getByTestId('session-editor-hand-sport-ride')).toHaveProp('accessibilityState', { checked: true });
-    // The row keeps its order under the thumb: the day's own sport still leads.
-    expect(
-      within(screen.getByTestId('session-editor-hand-sport'))
-        .getAllByRole('radio')
-        .map((option) => option.props.testID),
-    ).toEqual(['session-editor-hand-sport-run', 'session-editor-hand-sport-ride', 'session-editor-hand-sport-swim']);
+    fireEvent.press(screen.getByTestId('session-editor-sport-ride'));
+    expect(screen.getByTestId('session-editor-sport-ride')).toHaveProp('accessibilityState', { selected: true });
+    expect(screen.getByTestId('session-editor-sport-run')).toHaveProp('accessibilityState', { selected: false });
+    // The row keeps its order under the thumb.
+    const chips = () =>
+      within(screen.getByTestId('session-editor-sport'))
+        .getAllByRole('button')
+        .map((chip) => chip.props.testID);
+    expect(chips()).toEqual([
+      'session-editor-sport-ride',
+      'session-editor-sport-run',
+      'session-editor-sport-swim',
+      'session-editor-sport-strength',
+      'session-editor-sport-mobility',
+      'session-editor-sport-yoga',
+      'session-editor-sport-crossfit',
+      'session-editor-sport-other',
+    ]);
     expect(screen.getByTestId('session-editor-save')).not.toBeDisabled();
-    fireEvent.press(screen.getByTestId('session-editor-hand-sport-run'));
+    fireEvent.press(screen.getByTestId('session-editor-sport-run'));
     expect(screen.getByTestId('session-editor-save')).toBeDisabled();
     expect(footer()).toHaveTextContent('No changes yet.');
 
@@ -532,15 +636,16 @@ describe('the day editor on a session the agent wrote', () => {
     await elapse(0);
 
     expect(screen.getByTestId('session-editor-title')).toHaveTextContent('Edit Wed, Nov 25');
-    expect(screen.getByTestId('session-editor-mode-session')).toHaveProp('accessibilityState', { checked: true });
     expect(screen.getByTestId('session-editor-rest')).toHaveProp('value', true);
     expect(screen.queryByTestId('session-editor-workout')).toBeNull();
+    expect(screen.queryByTestId('session-editor-mode')).toBeNull();
     expect(footer()).toHaveTextContent('No changes yet.');
 
     fireEvent(screen.getByTestId('session-editor-rest'), 'valueChange', false);
     expect(screen.getByTestId('session-editor-no-steps')).toHaveTextContent(
       'No steps: the title and intensity describe the session.',
     );
+    expect(screen.getByTestId('session-editor-sport-ride')).toHaveProp('accessibilityState', { selected: true });
     expect(screen.getByTestId('session-editor-save')).toBeDisabled();
     fireEvent.changeText(screen.getByTestId('session-editor-workout'), 'Tempo');
     expect(footer()).toHaveTextContent('Replaces the rest day with Tempo.');
@@ -565,6 +670,8 @@ describe('the day editor on a session the agent wrote', () => {
     fireEvent.press(screen.getByTestId('session-editor-mode-family'));
     expect(screen.queryByTestId('session-editor-workout')).toBeNull();
     fireEvent.press(screen.getByTestId('session-editor-family-vo2max_short'));
+    // The family mode's header is the format, which the coach does not edit.
+    expect(screen.getByTestId('session-editor-preset-name')).toHaveTextContent('30/15 (Rønnestad)');
     expect(footer()).toHaveTextContent('Replaces Easy run with 30/15 (Rønnestad).');
 
     fireEvent.press(screen.getByTestId('session-editor-mode-session'));
@@ -580,13 +687,373 @@ describe('the day editor on a session the agent wrote', () => {
     const { onClose } = renderEditor(AGENT_DAY);
     await elapse(0);
 
-    fireEvent.changeText(screen.getByTestId('session-editor-intensity'), 'steady');
+    fireEvent.changeText(screen.getByTestId('session-editor-workout'), 'Steady run');
     fireEvent.press(screen.getByTestId('session-editor-save'));
     await elapse(0);
 
     expect(screen.getByTestId('session-editor-save-failed')).toHaveTextContent(/^This session could not be saved\..+/);
     expect(onClose).not.toHaveBeenCalled();
     expect(Toast.show).not.toHaveBeenCalled();
+  });
+
+  it("words a target the calendar cannot read in the coach's language, naming the step and the target", async () => {
+    mockSaveHandDay.mockRejectedValueOnce(
+      Object.assign(new Error('Request failed with status code 400'), {
+        isAxiosError: true,
+        response: {
+          status: 400,
+          data: {
+            error: { code: 'invalid_input', message: "step 2's target 'seuil' is not one the calendar can resolve" },
+            details: { reason: 'unresolvable_target', step: 2, target: 'seuil' },
+          },
+        },
+      }),
+    );
+    renderEditor(AGENT_DAY);
+    await elapse(0);
+
+    fireEvent.changeText(screen.getByTestId('session-editor-workout'), 'Steady run');
+    fireEvent.press(screen.getByTestId('session-editor-save'));
+    await elapse(0);
+
+    expect(screen.getByTestId('session-editor-save-failed')).toHaveTextContent(
+      'This session could not be saved.The target “seuil” of step 2 isn’t one the calendar reads: pick a zone, a % of a threshold or an RPE.',
+    );
+  });
+});
+
+describe('the sport chips', () => {
+  it('closes the family mode for a sport no family is written for, with no note in its place', async () => {
+    renderEditor(AGENT_DAY);
+    await elapse(0);
+
+    fireEvent.press(screen.getByTestId('session-editor-mode-family'));
+    expect(screen.getByTestId('session-editor-form')).toBeTruthy();
+
+    fireEvent.press(screen.getByTestId('session-editor-sport-strength'));
+    expect(screen.getByTestId('session-editor-sport-strength')).toHaveProp('accessibilityState', { selected: true });
+    expect(screen.queryByTestId('session-editor-mode')).toBeNull();
+    expect(screen.queryByTestId('session-editor-form')).toBeNull();
+    expect(screen.getByTestId('session-editor-hand')).toBeTruthy();
+    expect(screen.queryByText(/No workout family/)).toBeNull();
+    expect(screen.getByTestId('session-editor-summary')).toHaveTextContent('Strength training · 45 min · Z1–Z2');
+
+    // Back on a family sport, the mode is offered again.
+    fireEvent.press(screen.getByTestId('session-editor-sport-ride'));
+    expect(screen.getByTestId('session-editor-mode')).toBeTruthy();
+  });
+
+  it('hides the mode switch while the catalogue is read', async () => {
+    mockGetFamilies.mockReturnValue(new Promise(() => undefined));
+    renderEditor(AGENT_DAY);
+    await elapse(0);
+
+    expect(screen.queryByTestId('session-editor-mode')).toBeNull();
+    expect(screen.getByTestId('session-editor-hand')).toBeTruthy();
+  });
+
+  it('saves the sport the coach names under "Other…", and waits until there is one', async () => {
+    renderEditor(AGENT_DAY);
+    await elapse(0);
+
+    fireEvent.press(screen.getByTestId('session-editor-sport-other'));
+    expect(screen.getByTestId('session-editor-sport-other')).toHaveProp('accessibilityState', { selected: true });
+    expect(screen.getByTestId('session-editor-sport-run')).toHaveProp('accessibilityState', { selected: false });
+    const name = screen.getByTestId('session-editor-sport-other-name');
+    expect(name).toHaveProp('value', '');
+    expect(name).toHaveProp('accessibilityLabel', 'Name the sport');
+    expect(screen.getByTestId('session-editor-missing')).toHaveTextContent('Name the sport to save.');
+    expect(screen.getByTestId('session-editor-save')).toBeDisabled();
+    expect(screen.queryByTestId('session-editor-mode')).toBeNull();
+
+    fireEvent.changeText(name, 'Ski touring');
+    expect(screen.getByTestId('session-editor-summary')).toHaveTextContent(/^Ski touring · 45 min/);
+    fireEvent.press(screen.getByTestId('session-editor-save'));
+    await elapse(0);
+
+    expect(mockSaveHandDay).toHaveBeenCalledWith(
+      CONVERSATION_ID,
+      AGENT_DAY.date,
+      0,
+      expect.objectContaining({ sport: 'Ski touring', workout: 'Easy run' }),
+      AGENT_EXPECT,
+      'en',
+    );
+  });
+
+  it("keeps the day's own sport word as a chip of its own", async () => {
+    renderEditor({ ...AGENT_DAY, sport: 'hiking', family_sport: undefined });
+    await elapse(0);
+
+    expect(screen.getByTestId('session-editor-sport-hiking')).toHaveProp('accessibilityState', { selected: true });
+    expect(screen.getByTestId('session-editor-sport-hiking')).toHaveTextContent('hiking');
+    // No family is written for it: no mode switch.
+    expect(screen.queryByTestId('session-editor-mode')).toBeNull();
+  });
+});
+
+describe('steps, sets and targets', () => {
+  it('adds a set of an effort and a recovery done five times, and saves it as one numbered set', async () => {
+    renderEditor(AGENT_DAY);
+    await elapse(0);
+
+    fireEvent.press(screen.getByTestId('session-editor-add-series'));
+    // The set's first step opens, named in the coach's words, the caret in its name.
+    expect(screen.getByTestId('session-editor-step-3-label')).toHaveProp('value', 'Effort');
+    expect(screen.getByTestId('session-editor-step-3-label')).toHaveProp('autoFocus', true);
+    expect(screen.getByTestId('session-editor-step-3-target-z4')).toHaveProp('accessibilityState', { checked: true });
+    expect(screen.getByTestId('session-editor-step-4')).toHaveTextContent('5Recovery2:00Z1');
+    // The set is ruled under its × N stepper; the profile brackets it and draws every round.
+    const repeat = screen.getByTestId('session-editor-set-3-repeat');
+    expect(repeat).toHaveTextContent('× 5');
+    expect(repeat).toHaveProp('accessibilityRole', 'adjustable');
+    expect(repeat).toHaveProp('accessibilityLabel', 'Repetitions of the set');
+    expect(screen.getByTestId('session-editor-set-3-fewer')).toHaveProp('accessibilityLabel', 'One fewer repetition');
+    expect(screen.getByTestId('session-editor-set-3-more')).toHaveProp('accessibilityLabel', 'One more repetition');
+    expect(screen.getByTestId('session-editor-profile-set-3')).toHaveTextContent('× 5');
+    expect(screen.getByTestId('session-editor-profile-step-3')).toHaveProp(
+      'accessibilityLabel',
+      'Step 4: Effort, 3:00, Z4',
+    );
+    expect(screen.getByTestId('session-editor-summary')).toHaveTextContent('Run · 70 min · Z1–Z4');
+
+    fireEvent.press(screen.getByTestId('session-editor-set-3-more'));
+    expect(screen.getByTestId('session-editor-set-3-repeat')).toHaveTextContent('× 6');
+    fireEvent.press(screen.getByTestId('session-editor-set-3-fewer'));
+    expect(screen.getByTestId('session-editor-set-3-repeat')).toHaveTextContent('× 5');
+    // Only the steps changed: the session keeps its name.
+    expect(footer()).toHaveTextContent('Changes Easy run.');
+
+    fireEvent.press(screen.getByTestId('session-editor-save'));
+    await elapse(0);
+    expect(mockSaveHandDay).toHaveBeenCalledWith(
+      CONVERSATION_ID,
+      AGENT_DAY.date,
+      0,
+      {
+        rest: false,
+        sport: 'run',
+        workout: 'Easy run',
+        intensity: 'Z1–Z4',
+        steps: [
+          { label: 'Warm-up', duration_seconds: 600, target_zone: 'Z1' },
+          { label: 'Steady', duration_seconds: 1800, target_zone: 'Z2' },
+          { label: 'Cool-down', duration_seconds: 300, target_zone: 'Z1' },
+          { label: 'Effort', duration_seconds: 180, target_zone: 'Z4', repeat: 5, repeat_group: 1 },
+          { label: 'Recovery', duration_seconds: 120, target_zone: 'Z1', repeat: 5, repeat_group: 1 },
+        ],
+      },
+      AGENT_EXPECT,
+      'en',
+    );
+  });
+
+  it('moves a lone step past a whole set, the card open on it, and dissolves a set at one round', async () => {
+    renderEditor(AGENT_DAY);
+    await elapse(0);
+
+    fireEvent.press(screen.getByTestId('session-editor-add-series'));
+    openStep(2);
+    fireEvent.press(screen.getByTestId('session-editor-step-2-down'));
+    expect(screen.getByTestId('session-editor-step-4-label')).toHaveProp('value', 'Cool-down');
+    expect(screen.getByTestId('session-editor-set-2')).toBeTruthy();
+    expect(screen.getByTestId('session-editor-step-4-down')).toHaveProp('accessibilityState', { disabled: true });
+
+    // Inside a set, a step moves among the set's own steps only.
+    openStep(2);
+    expect(screen.getByTestId('session-editor-step-2-up')).toHaveProp('accessibilityState', { disabled: true });
+    fireEvent.press(screen.getByTestId('session-editor-step-2-down'));
+    expect(screen.getByTestId('session-editor-step-3-label')).toHaveProp('value', 'Effort');
+
+    for (let round = 5; round > 1; round -= 1) fireEvent.press(screen.getByTestId('session-editor-set-2-fewer'));
+    expect(screen.queryByTestId('session-editor-set-2')).toBeNull();
+    expect(screen.getByTestId('session-editor-step-2')).toHaveTextContent('3Recovery2:00Z1');
+  });
+
+  it("keeps a screen reader's focus on the move pressed, and on the step that takes a removed one's place", async () => {
+    const focus = jest.spyOn(AccessibilityInfo, 'sendAccessibilityEvent');
+    renderEditor(AGENT_DAY);
+    await elapse(0);
+
+    /** The control the last focus event landed on, by its test id. */
+    const focused = () => {
+      const [node, event] = focus.mock.calls[focus.mock.calls.length - 1];
+      expect(event).toBe('focus');
+      // Under jest the host instance is the mocked View, which carries its props.
+      return (node as unknown as { props: { testID?: string } }).props.testID;
+    };
+
+    openStep(0);
+    fireEvent.press(screen.getByTestId('session-editor-step-0-down'));
+    expect(focused()).toBe('session-editor-step-1-down');
+    // Moved to the end, its down move is spent: focus goes to its up move.
+    fireEvent.press(screen.getByTestId('session-editor-step-1-down'));
+    expect(focused()).toBe('session-editor-step-2-up');
+    expect(screen.getByTestId('session-editor-step-2-label')).toHaveProp('value', 'Warm-up');
+
+    // A removed step hands focus to the row that takes its place, else the one before.
+    openStep(0);
+    fireEvent.press(screen.getByTestId('session-editor-step-0-remove'));
+    expect(focused()).toBe('session-editor-step-0');
+    openStep(1);
+    fireEvent.press(screen.getByTestId('session-editor-step-1-remove'));
+    expect(focused()).toBe('session-editor-step-0');
+    expect(screen.getByTestId('session-editor-step-0')).toHaveProp('accessibilityLabel', 'Edit step 1: Cool-down');
+    focus.mockRestore();
+  });
+
+  it('adds a step to a set, repeating with it', async () => {
+    renderEditor(AGENT_DAY);
+    await elapse(0);
+
+    fireEvent.press(screen.getByTestId('session-editor-add-series'));
+    fireEvent.press(screen.getByTestId('session-editor-set-3-add-step'));
+    expect(screen.getByTestId('session-editor-step-5-label')).toHaveProp('autoFocus', true);
+    expect(within(screen.getByTestId('session-editor-set-3')).getByTestId('session-editor-step-5-open')).toBeTruthy();
+    fireEvent.changeText(screen.getByTestId('session-editor-step-5-label'), 'Float');
+    fireEvent.press(screen.getByTestId('session-editor-step-5-target-z2'));
+    fireEvent.press(screen.getByTestId('session-editor-save'));
+    await elapse(0);
+
+    const sent = mockSaveHandDay.mock.calls[0][3] as { steps: object[] };
+    expect(sent.steps[5]).toEqual({
+      label: 'Float',
+      duration_seconds: 300,
+      target_zone: 'Z2',
+      repeat: 5,
+      repeat_group: 1,
+    });
+  });
+
+  it('measures a step by distance, and saves the distance with its estimated time', async () => {
+    renderEditor(AGENT_DAY);
+    await elapse(0);
+
+    openStep(1);
+    expect(screen.getByTestId('session-editor-step-1-measure-time')).toHaveProp('accessibilityState', {
+      checked: true,
+    });
+    fireEvent.press(screen.getByTestId('session-editor-step-1-measure-distance'));
+    expect(screen.getByTestId('session-editor-step-1-distance')).toHaveProp('value', '');
+    expect(screen.getByTestId('session-editor-step-1-distance')).toHaveProp('keyboardType', 'number-pad');
+    expect(screen.queryByTestId('session-editor-step-1-duration-more')).toBeNull();
+    expect(screen.getByTestId('session-editor-missing')).toHaveTextContent('Give step 2 a distance to save.');
+    expect(screen.getByTestId('session-editor-save')).toBeDisabled();
+
+    fireEvent.changeText(screen.getByTestId('session-editor-step-1-distance'), '5000');
+    expect(screen.getByTestId('session-editor-step-1-duration')).toHaveProp('accessibilityLabel', 'Estimated time (m:ss)');
+    typeStepDuration(1, '25:00');
+    openStep(0);
+    expect(screen.getByTestId('session-editor-step-1')).toHaveTextContent('2Steady5,000 m25:00Z2');
+    fireEvent.press(screen.getByTestId('session-editor-save'));
+    await elapse(0);
+
+    const sent = mockSaveHandDay.mock.calls[0][3] as { steps: object[] };
+    expect(sent.steps[1]).toEqual({ label: 'Steady', duration_seconds: 1500, target_zone: 'Z2', distance_meters: 5000 });
+  });
+
+  it('writes a zone, a percent of a threshold and an RPE from the target chips', async () => {
+    renderEditor({ ...AGENT_DAY, sport: 'ride', family_sport: 'ride' });
+    await elapse(0);
+
+    openStep(0);
+    const zones = within(screen.getByTestId('session-editor-step-0-target'));
+    expect(zones.getAllByRole('radio').map((chip) => chip.props.accessibilityLabel)).toEqual([
+      'Z1',
+      'Z2',
+      'Z3',
+      'Z4',
+      'Z5',
+      'Z6',
+      'Z7',
+      '% of a threshold',
+      'RPE',
+      'Other',
+    ]);
+    expect(screen.getByTestId('session-editor-step-0-target')).toHaveProp('accessibilityRole', 'radiogroup');
+    expect(screen.getByTestId('session-editor-step-0-target-z1')).toHaveProp('accessibilityState', { checked: true });
+    fireEvent.press(screen.getByTestId('session-editor-step-0-target-z4'));
+    expect(screen.getByTestId('session-editor-step-0-target-z4')).toHaveProp('accessibilityState', { checked: true });
+
+    openStep(1);
+    fireEvent.press(screen.getByTestId('session-editor-step-1-target-percent'));
+    // A picked band with no value yet leaves the step without a target.
+    expect(screen.getByTestId('session-editor-missing')).toHaveTextContent('Pick a target for step 2 to save.');
+    // On the bike a percent starts on FTP.
+    expect(screen.getByTestId('session-editor-step-1-target-anchor-ftp')).toHaveProp('accessibilityState', {
+      checked: true,
+    });
+    fireEvent.changeText(screen.getByTestId('session-editor-step-1-target-from'), '88');
+    fireEvent.changeText(screen.getByTestId('session-editor-step-1-target-to'), '93');
+
+    openStep(2);
+    fireEvent.press(screen.getByTestId('session-editor-step-2-target-rpe'));
+    fireEvent.changeText(screen.getByTestId('session-editor-step-2-target-rpe-value'), '7');
+    openStep(1);
+    expect(screen.getByTestId('session-editor-step-1-target-percent')).toHaveProp('accessibilityState', {
+      checked: true,
+    });
+    expect(screen.getByTestId('session-editor-step-1-target-from')).toHaveProp('value', '88');
+
+    fireEvent.press(screen.getByTestId('session-editor-save'));
+    await elapse(0);
+    const sent = mockSaveHandDay.mock.calls[0][3] as { steps: { target_zone: string }[]; intensity: string };
+    expect(sent.steps.map((step) => step.target_zone)).toEqual(['Z4', '88-93% FTP', 'RPE 7']);
+    // Targets of mixed kinds have no span: the intensity stays as written.
+    expect(sent.intensity).toBe('easy');
+  });
+
+  it('opens a target the chips do not write under "Other", as written', async () => {
+    renderEditor({
+      ...AGENT_DAY,
+      steps: [{ label: 'Block', duration_seconds: 1200, target_zone: 'sweet spot' }],
+    });
+    await elapse(0);
+
+    openStep(0);
+    expect(screen.getByTestId('session-editor-step-0-target-typed')).toHaveProp('accessibilityState', { checked: true });
+    expect(screen.getByTestId('session-editor-step-0-target-text')).toHaveProp('value', 'sweet spot');
+    fireEvent.changeText(screen.getByTestId('session-editor-step-0-target-text'), 'tempo');
+    fireEvent.press(screen.getByTestId('session-editor-save'));
+    await elapse(0);
+    const sent = mockSaveHandDay.mock.calls[0][3] as { steps: { target_zone: string }[] };
+    expect(sent.steps[0].target_zone).toBe('tempo');
+  });
+
+  it("holds Save on the first step's gap, saying which, and points Save at the sentence", async () => {
+    renderEditor(AGENT_DAY);
+    await elapse(0);
+
+    fireEvent.press(screen.getByTestId('session-editor-add-step'));
+    expect(screen.getByTestId('session-editor-missing')).toHaveTextContent('Name step 4 to save.');
+    expect(screen.queryByTestId('session-editor-replacement')).toBeNull();
+    expect(screen.getByTestId('session-editor-save')).toBeDisabled();
+    expect(screen.getByTestId('session-editor-save')).toHaveProp('accessibilityHint', 'Name step 4 to save.');
+
+    fireEvent.changeText(screen.getByTestId('session-editor-step-3-label'), 'Strides');
+    expect(screen.getByTestId('session-editor-missing')).toHaveTextContent('Pick a target for step 4 to save.');
+    fireEvent.press(screen.getByTestId('session-editor-step-3-target-z5'));
+    expect(screen.queryByTestId('session-editor-missing')).toBeNull();
+    expect(footer()).toHaveTextContent('Changes Easy run.');
+    expect(screen.getByTestId('session-editor-save')).not.toBeDisabled();
+    expect(screen.getByTestId('session-editor-save').props.accessibilityHint).toBeUndefined();
+  });
+
+  it('says "Changes X." when only the steps change, and saves them', async () => {
+    renderEditor(AGENT_DAY);
+    await elapse(0);
+
+    openStep(0);
+    fireEvent.press(screen.getByTestId('session-editor-step-0-duration-more'));
+    expect(footer()).toHaveTextContent('Changes Easy run.');
+    fireEvent.press(screen.getByTestId('session-editor-step-0-duplicate'));
+    expect(screen.getByTestId('session-editor-step-1-label')).toHaveProp('value', 'Warm-up');
+    fireEvent.press(screen.getByTestId('session-editor-step-1-remove'));
+    fireEvent.press(screen.getByTestId('session-editor-save'));
+    await elapse(0);
+
+    const sent = mockSaveHandDay.mock.calls[0][3] as { steps: { duration_seconds: number }[] };
+    expect(sent.steps.map((step) => step.duration_seconds)).toEqual([615, 1800, 300]);
   });
 });
 
@@ -675,14 +1142,14 @@ describe('closing a sheet that holds changes', () => {
 });
 
 describe('an edited day', () => {
-  it('says the coach edited it and what "Undo your edits" puts back', async () => {
+  it('says the coach edited it and what "Back to the original" puts back', async () => {
     renderEditor(EDITED_DAY);
     await elapse(0);
 
     expect(screen.getByTestId('session-editor-edited')).toHaveTextContent(/You edited this day in your draft\./);
     // The glyph ahead of the words is a font character; the control is named by its words alone.
-    expect(screen.getByTestId('session-editor-restore')).toHaveTextContent(/Undo your edits$/);
-    expect(screen.getByTestId('session-editor-restore')).toHaveProp('accessibilityLabel', 'Undo your edits');
+    expect(screen.getByTestId('session-editor-restore')).toHaveTextContent(/Back to the original$/);
+    expect(screen.getByTestId('session-editor-restore')).toHaveProp('accessibilityLabel', 'Back to the original');
     expect(screen.getByTestId('session-editor-restore-note')).toHaveTextContent(
       'Puts back Easy run, as the day stood before your first edit.',
     );
@@ -701,12 +1168,30 @@ describe('an edited day', () => {
     );
   });
 
-  it('restores through the restore mutation, closes, and says so', async () => {
+  it('asks first, then restores through the restore mutation, closes, and says so', async () => {
+    const alert = jest.spyOn(Alert, 'alert');
     const { onClose } = renderEditor(EDITED_DAY);
     await elapse(0);
 
     fireEvent.press(screen.getByTestId('session-editor-restore'));
-    await elapse(0);
+    // Going back throws every edit away: nothing is restored until the coach says so.
+    expect(mockRestore).not.toHaveBeenCalled();
+    const [title, body, buttons] = alert.mock.calls[alert.mock.calls.length - 1] as [
+      string,
+      string,
+      { text: string; style?: string; onPress?: () => void }[],
+    ];
+    expect(title).toBe('Discard your edits to this session?');
+    expect(body).toBe('Puts back Easy run, as the day stood before your first edit.');
+    expect(buttons.map((b) => [b.text, b.style])).toEqual([
+      ['Keep editing', 'cancel'],
+      ['Discard changes', 'destructive'],
+    ]);
+    await act(async () => {
+      buttons.find((b) => b.style === 'destructive')?.onPress?.();
+      await jest.advanceTimersByTimeAsync(0);
+    });
+    alert.mockRestore();
 
     expect(mockRestore).toHaveBeenCalledWith(
       CONVERSATION_ID,
@@ -720,13 +1205,36 @@ describe('an edited day', () => {
     expect(Toast.show).toHaveBeenCalledWith({ type: 'success', text1: 'Thu, Nov 26 is back as it was in your draft.' });
   });
 
-  it('says a refused restore in the sheet and stays open', async () => {
-    mockRestore.mockRejectedValueOnce(new Error('refused'));
+  it('restores nothing when the coach keeps editing', async () => {
+    const alert = jest.spyOn(Alert, 'alert');
     const { onClose } = renderEditor(EDITED_DAY);
     await elapse(0);
 
     fireEvent.press(screen.getByTestId('session-editor-restore'));
+    const [, , buttons] = alert.mock.calls[alert.mock.calls.length - 1] as [
+      string,
+      string,
+      { style?: string; onPress?: () => void }[],
+    ];
+    act(() => {
+      buttons.find((b) => b.style === 'cancel')?.onPress?.();
+    });
     await elapse(0);
+
+    expect(mockRestore).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+    alert.mockRestore();
+  });
+
+  it('says a refused restore in the sheet and stays open', async () => {
+    mockRestore.mockRejectedValueOnce(new Error('refused'));
+    const alert = jest.spyOn(Alert, 'alert');
+    const { onClose } = renderEditor(EDITED_DAY);
+    await elapse(0);
+
+    fireEvent.press(screen.getByTestId('session-editor-restore'));
+    await confirmLast(alert);
+    alert.mockRestore();
 
     expect(screen.getByTestId('session-editor-restore-failed')).toHaveTextContent(/^This day could not be restored\..+/);
     expect(onClose).not.toHaveBeenCalled();
@@ -747,10 +1255,12 @@ describe('the family mode', () => {
     expect(screen.getByTestId('session-editor-format-ronnestad_30_15')).toHaveProp('accessibilityState', {
       checked: true,
     });
-    expect(screen.getByTestId('session-editor-sport-run')).toHaveProp('accessibilityState', { checked: true });
-    // The sport row offers the sports a family has a form for, in the app's words.
-    expect(screen.getByTestId('session-editor-sport-ride')).toHaveTextContent('Ride');
-    expect(screen.queryByTestId('session-editor-sport-swim')).toBeNull();
+    // The sport is the sheet's chips: no second sport row in the family form.
+    expect(screen.getByTestId('session-editor-sport-run')).toHaveProp('accessibilityState', { selected: true });
+    expect(within(screen.getByTestId('session-editor-form')).queryByText('Sport')).toBeNull();
+    // The header is the format, which the coach does not edit.
+    expect(screen.queryByTestId('session-editor-workout')).toBeNull();
+    expect(screen.getByTestId('session-editor-preset-name')).toHaveTextContent('30/15 (Rønnestad)');
     // The two values the day states, and the format's defaults for the rest.
     expect(screen.getByTestId('session-editor-param-sets')).toHaveProp('value', '3');
     expect(screen.getByTestId('session-editor-param-reps')).toHaveProp('value', '12');
@@ -773,7 +1283,7 @@ describe('the family mode', () => {
     fireEvent.press(screen.getByTestId('session-editor-mode-family'));
     await elapse(0);
 
-    expect(screen.getByTestId('session-editor-sport-run')).toHaveProp('accessibilityState', { checked: true });
+    expect(screen.getByTestId('session-editor-sport-run')).toHaveProp('accessibilityState', { selected: true });
     expect(screen.getByTestId('session-editor-family-endurance_steady')).toHaveProp('accessibilityState', {
       checked: true,
     });
@@ -822,6 +1332,9 @@ describe('the family mode', () => {
     renderEditor(REST_DAY);
     await elapse(0);
 
+    // A rest day is a session the coach writes; the family mode is under the switch.
+    expect(screen.queryByTestId('session-editor-mode')).toBeNull();
+    fireEvent(screen.getByTestId('session-editor-rest'), 'valueChange', false);
     fireEvent.press(screen.getByTestId('session-editor-mode-family'));
     await elapse(0);
     expect(screen.getByTestId('session-editor-family-endurance_steady')).toHaveProp('accessibilityState', {
@@ -982,14 +1495,14 @@ describe('the family mode', () => {
     expect(screen.getByTestId('session-editor-save')).not.toBeDisabled();
   });
 
-  it("says when the athlete's agent offers no family, and has nothing to save", async () => {
+  it("offers no family mode when the athlete's agent has no family, and the day edits by hand", async () => {
     mockGetFamilies.mockResolvedValue({ families: [] });
     renderEditor();
     await elapse(0);
 
-    expect(screen.getByTestId('session-editor-no-families')).toHaveTextContent(
-      'No workout families are available for Chloé Tremblay.',
-    );
+    expect(screen.queryByTestId('session-editor-mode')).toBeNull();
+    expect(screen.queryByTestId('session-editor-no-families')).toBeNull();
+    expect(screen.getByTestId('session-editor-workout')).toHaveProp('value', '3 × 12 × 30/15');
     expect(screen.getByTestId('session-editor-save')).toBeDisabled();
     expect(screen.getByTestId('session-editor-cancel')).toHaveTextContent('Cancel');
   });
@@ -1178,14 +1691,15 @@ describe('adding a session to a date', () => {
     expect(screen.getByTestId('session-editor-mode-session')).toHaveProp('accessibilityState', { checked: true });
     expect(screen.queryByTestId('session-editor-rest')).toBeNull();
     expect(screen.getByTestId('session-editor-workout')).toHaveProp('value', '');
-    expect(screen.getByTestId('session-editor-hand-sport-run')).toHaveProp('accessibilityState', { checked: true });
+    expect(screen.getByTestId('session-editor-sport-run')).toHaveProp('accessibilityState', { selected: true });
     expect(screen.getByTestId('session-editor-intensity')).toHaveProp('value', '');
     expect(screen.getByTestId('session-editor-no-steps')).toBeTruthy();
     // A new session replaces nothing, and is neither edited nor removable yet.
     expect(screen.queryByTestId('session-editor-replacement')).toBeNull();
     expect(screen.queryByTestId('session-editor-edited')).toBeNull();
     expect(screen.queryByTestId('session-editor-remove')).toBeNull();
-    // Save waits for the session to be whole: a title, at least.
+    // Save waits for the session to be whole, and says so: a title, at least.
+    expect(screen.getByTestId('session-editor-missing')).toHaveTextContent('Add a title to save.');
     expect(screen.getByTestId('session-editor-save')).toBeDisabled();
   });
 
@@ -1194,7 +1708,7 @@ describe('adding a session to a date', () => {
     await elapse(0);
 
     fireEvent.changeText(screen.getByTestId('session-editor-workout'), 'Core circuit');
-    fireEvent.press(screen.getByTestId('session-editor-hand-sport-ride'));
+    fireEvent.press(screen.getByTestId('session-editor-sport-ride'));
     fireEvent.changeText(screen.getByTestId('session-editor-duration'), '20');
     expect(screen.queryByTestId('session-editor-replacement')).toBeNull();
     fireEvent.press(screen.getByTestId('session-editor-save'));
@@ -1215,7 +1729,7 @@ describe('adding a session to a date', () => {
     });
   });
 
-  it('saves a family build through the add once the build exists', async () => {
+  it("saves a family build through the add once the build exists, in the date's sport", async () => {
     const { onClose } = renderEditor(AGENT_DAY, { mode: 'add' });
     await elapse(0);
 
@@ -1230,7 +1744,7 @@ describe('adding a session to a date', () => {
     expect(mockAdd).toHaveBeenCalledWith(
       CONVERSATION_ID,
       '2026-11-26',
-      { build: { family: 'endurance_steady', preset: 'steady', sport: 'ride', params: { duration_minutes: 90 } } },
+      { build: { family: 'endurance_steady', preset: 'steady', sport: 'run', params: { duration_minutes: 90 } } },
       'en',
     );
     expect(onClose).toHaveBeenCalledTimes(1);
@@ -1342,14 +1856,28 @@ describe('removing a session from a date', () => {
 });
 
 describe('a session the coach added', () => {
-  it('opens with "Undo your edits" saying it removes the session, and removes it through the restore', async () => {
+  it('opens with "Back to the original" saying it removes the session, asks as a remove does, and removes it through the restore', async () => {
+    const alert = jest.spyOn(Alert, 'alert');
     const { onClose } = renderEditor(ADDED_DAY, { entries: TWO_SESSIONS });
     await elapse(0);
 
     expect(screen.getByTestId('session-editor-edited')).not.toHaveTextContent(/You edited this day/);
     expect(screen.getByTestId('session-editor-restore-note')).toHaveTextContent('Removes this session: you added it.');
     fireEvent.press(screen.getByTestId('session-editor-restore'));
-    await elapse(0);
+    expect(mockRestore).not.toHaveBeenCalled();
+    const [title, body, buttons] = alert.mock.calls[alert.mock.calls.length - 1] as [
+      string,
+      string,
+      { text: string; style?: string }[],
+    ];
+    expect(title).toBe('Remove this session?');
+    expect(body).toBe('Core circuit leaves Thu, Nov 26 in your draft.');
+    expect(buttons.map((b) => [b.text, b.style])).toEqual([
+      ['Cancel', 'cancel'],
+      ['Remove session', 'destructive'],
+    ]);
+    await confirmLast(alert);
+    alert.mockRestore();
 
     expect(mockRestore).toHaveBeenCalledWith(
       CONVERSATION_ID,

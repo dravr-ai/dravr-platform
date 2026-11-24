@@ -29,6 +29,12 @@ export interface RadioGroupProps {
    */
   label?: string;
   /**
+   * The group's name when nothing on screen shows it (the editor's "How to
+   * build the session" over its two modes): read by a screen reader, never
+   * drawn. Ignored when `label` is given.
+   */
+  accessibilityLabel?: string;
+  /**
    * `segmented`: one row of equal segments, for two to four short words (a
    * mode, a sport). `list`: one row per option with its radio, for names that
    * run long or a set that grows (a family, a format).
@@ -46,7 +52,15 @@ export interface RadioGroupProps {
  * edged in `outline` (the empty radio's only mark, WCAG 1.4.11) and filled
  * with a `primary` dot when checked — the phone's `Checkbox` pairing.
  */
-export function RadioGroup({ options, value, onChange, label, layout = 'list', testID }: RadioGroupProps) {
+export function RadioGroup({
+  options,
+  value,
+  onChange,
+  label,
+  accessibilityLabel,
+  layout = 'list',
+  testID,
+}: RadioGroupProps) {
   const colors = useThemeColors();
   const segmented = layout === 'segmented';
   return (
@@ -56,7 +70,7 @@ export function RadioGroup({ options, value, onChange, label, layout = 'list', t
       ) : null}
       <View
         accessibilityRole="radiogroup"
-        accessibilityLabel={label}
+        accessibilityLabel={label ?? accessibilityLabel}
         className={segmented ? 'flex-row rounded-lg border border-border p-0.5' : undefined}
         style={segmented ? { borderWidth: StyleSheet.hairlineWidth } : undefined}
       >

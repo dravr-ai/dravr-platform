@@ -29,7 +29,6 @@ import {
   selectFamily,
   selectPreset,
   selectSport,
-  sessionSportLabelKey,
   setParam,
   type SessionEditorApis,
 } from '../src/sessionEditor';
@@ -220,12 +219,6 @@ describe('the picks', () => {
   it("resolves a build naming no preset to its family's default", () => {
     expect(presetOf(CATALOGUE, { family: 'vo2max-short', sport: 'ride' })?.key).toBe('ronnestad-30-15');
     expect(presetOf(CATALOGUE, { family: 'unknown', sport: 'ride' })).toBeUndefined();
-  });
-
-  it('names each sport with the app’s own sport words', () => {
-    expect(sessionSportLabelKey('ride')).toBe('app.sportRide');
-    expect(sessionSportLabelKey('run')).toBe('app.sportRun');
-    expect(sessionSportLabelKey('swim')).toBe('app.sportSwim');
   });
 });
 

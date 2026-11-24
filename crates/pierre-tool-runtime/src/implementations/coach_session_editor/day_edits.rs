@@ -32,7 +32,7 @@ use dravr_tronc::dates::CivilDate;
 use pierre_contremaitre::messaging_strings::KEY_PLAN_REST;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::periodization::serde_num::whole_u32_opt;
-use pierre_core::models::WorkoutStep;
+use pierre_core::models::{RelativeIntensity, WorkoutStep};
 use pierre_database::RepositoryRegistry;
 use pierre_memory::training_plans::{PlanWeek, PlannedDay, MAX_SESSIONS_PER_DATE};
 use pierre_providers::ai_scope;
@@ -40,6 +40,7 @@ use pierre_services::athlete_anchors::stored_athlete_anchors;
 use pierre_services::coach_plan_draft::CoachDraftTarget;
 use pierre_services::provider_notice;
 use serde::Deserialize;
+use serde_json::json;
 use tracing::info;
 
 use super::sessions::{
@@ -55,6 +56,36 @@ use crate::runtime::ToolRuntime;
 /// The sport a rest day is written with, as the agent writes one
 /// ([`PlannedDay::is_rest`]).
 const REST_SPORT: &str = "rest";
+
+/// The `details.reason` of a hand-written step whose target the calendar's
+/// intensity grammar does not read; `details.step` (1-based) and
+/// `details.target` name it, so the coach's editor says which step in the
+/// coach's language rather than the server's sentence (carnet#1727).
+const UNRESOLVABLE_TARGET: &str = "unresolvable_target";
+
+/// The first step, 1-based, whose target the calendar's intensity grammar
+/// does not read, with that target. An empty target is the bounds check's to
+/// refuse as a missing one.
+fn unresolvable_step(steps: &[WorkoutStep]) -> Option<(usize, &str)> {
+    steps.iter().enumerate().find_map(|(at, step)| {
+        let target = step.target_zone.trim();
+        (!target.is_empty() && RelativeIntensity::parse(target).is_none())
+            .then_some((at + 1, target))
+    })
+}
+
+/// The refusal of a step whose target the calendar cannot resolve, naming
+/// the step and its target for the client to word.
+fn unresolvable_target(step: usize, target: &str) -> AppError {
+    let mut error = AppError::invalid_input(format!(
+        "step {step}'s target '{target}' is not one the calendar can resolve: use a zone, \
+         a percent of a threshold or an RPE band"
+    ));
+    error.details = Some(Box::new(
+        json!({ "reason": UNRESOLVABLE_TARGET, "step": step, "target": target }),
+    ));
+    error
+}
 
 /// A day the coach writes by hand: a session, or a rest day.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -117,8 +148,9 @@ fn rest_label(words: EditorWords<'_>) -> AppResult<String> {
 ///
 /// # Errors
 ///
-/// Invalid input with `details.reason` `invalid_session` for a day past the
-/// bounds the agent's plan save holds a day to, naming the session.
+/// Invalid input with `details.reason` `unresolvable_target` for a step
+/// whose target the calendar does not read, else `invalid_session` for a day
+/// past the bounds the agent's plan save holds a day to, naming the session.
 fn hand_day(
     request: &HandDay,
     date: CivilDate,
@@ -161,6 +193,8 @@ fn hand_day(
     };
     if day.is_rest() {
         day.fueling = None;
+    } else if let Some((step, target)) = unresolvable_step(&day.steps) {
+        return Err(unresolvable_target(step, target));
     }
     validate_day(&mut day, position).map_err(|error| refused(INVALID_SESSION, error.message))?;
     Ok(day)
@@ -316,10 +350,11 @@ async fn save_edit(
 ///
 /// # Errors
 ///
-/// The refusal of a day past the plan's day bounds or a second rest entry on
-/// the date (`invalid_session`), `UnavailableOverTransport` for a plan an
-/// external caller may not read, and the repository errors of the reads and
-/// the save.
+/// The refusal of a step target the calendar does not read
+/// (`unresolvable_target`), of a day past the plan's day bounds or a second
+/// rest entry on the date (`invalid_session`), `UnavailableOverTransport` for
+/// a plan an external caller may not read, and the repository errors of the
+/// reads and the save.
 pub async fn save_draft_hand_day(
     runtime: &Arc<dyn ToolRuntime>,
     thread: &EditorThread,
@@ -425,8 +460,9 @@ pub async fn remove_draft_day(
 ///
 /// # Errors
 ///
-/// The refusals of [`build_day`] for a family build, of a day past the
-/// plan's day bounds or a second rest entry on the date (`invalid_session`),
+/// The refusals of [`build_day`] for a family build, of a step target the
+/// calendar does not read (`unresolvable_target`), of a day past the plan's
+/// day bounds or a second rest entry on the date (`invalid_session`),
 /// `UnavailableOverTransport` for a plan an external caller may not read, and
 /// the repository errors of the reads and the save.
 pub async fn add_draft_session(
@@ -619,7 +655,7 @@ mod tests {
             json!({ "rest": false, "sport": "run", "workout": "  ", "intensity": "Z2" }),
             json!({ "rest": false, "sport": "run", "workout": "Long", "duration_min": 1441 }),
             json!({ "rest": false, "sport": "run", "workout": "Reps", "steps": [step("Z2", 101)] }),
-            json!({ "rest": false, "sport": "run", "workout": "Reps", "steps": [step("fast", 1)] }),
+            json!({ "rest": false, "sport": "run", "workout": "Reps", "steps": [step(" ", 1)] }),
             json!({ "rest": false, "sport": "run", "workout": "Reps", "steps": many }),
             json!({ "rest": false, "sport": "run", "workout": "Reps", "duration_min": 30,
                     "steps": [step("Z2", 1)] }),
@@ -632,6 +668,29 @@ mod tests {
                 "bug: a day past the plan's day bounds is refused by its reason: {body}: {refused}"
             );
         }
+    }
+
+    #[test]
+    fn a_step_target_the_calendar_cannot_read_is_refused_naming_its_step() {
+        let step = |target: &str| json!({ "label": "Work", "duration_seconds": 60, "target_zone": target });
+        let body = json!({
+            "rest": false, "sport": "run", "workout": "Reps",
+            "steps": [step("Z2"), step("RPE 7"), step("seuil")],
+        });
+        let refused = hand_day(&request(body), date(), 0, None, "rest").unwrap_err();
+        assert_eq!(
+            refused.details.as_deref().cloned(),
+            Some(json!({ "reason": UNRESOLVABLE_TARGET, "step": 3, "target": "seuil" })),
+            "bug: an unreadable target names its 1-based step and the target as written: {refused}"
+        );
+        let readable = json!({
+            "rest": false, "sport": "run", "workout": "Reps",
+            "steps": [step("Z2"), step("88-93% FTP"), step("sweet spot")],
+        });
+        assert!(
+            hand_day(&request(readable), date(), 0, None, "rest").is_ok(),
+            "bug: every target the grammar reads is accepted"
+        );
     }
 
     #[test]

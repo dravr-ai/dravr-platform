@@ -49,8 +49,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{
-    CalendarEventRef, CalendarEventSource, CalendarKey, PlannedSession, PlannedSessionKind,
-    PrescribedWorkout, RelativeIntensity, SportType, TenantId, WorkoutStep,
+    resolve_sport_type, CalendarEventRef, CalendarEventSource, CalendarKey, PlannedSession,
+    PlannedSessionKind, PrescribedWorkout, RelativeIntensity, SportType, TenantId, WorkoutStep,
 };
 use pierre_database::RepositoryRegistry;
 use pierre_memory::training_plans::{parse_plan_date, PlanWeek, PlannedDay, TrainingPlan};
@@ -94,33 +94,17 @@ const MAX_TITLE_CHARS: usize = 60;
 
 /// Sport for a plan day's free-text sport label.
 ///
-/// Coaches write sports the way they say them, in French or English; the
-/// aliases here are the ones the alpha plans used, on top of the canonical
-/// snake-case names [`SportType::from_internal_string`] already reads. An
-/// unknown label is kept as [`SportType::Other`] so the provider files it as
-/// a generic workout rather than guessing a discipline.
+/// Coaches write sports the way they say them, in French or English. The
+/// words are read by the one alias table the activity filters read too
+/// ([`resolve_sport_type`]), then the canonical snake-case names
+/// [`SportType::from_internal_string`] knows. An unknown label is kept as
+/// [`SportType::Other`] so the provider files it as a generic workout
+/// rather than guessing a discipline.
 #[must_use]
 pub fn plan_sport(label: &str) -> SportType {
-    let lowered = label.trim().to_lowercase();
-    match lowered.as_str() {
-        "bike" | "ride" | "cycling" | "vélo" | "velo" | "road" | "route" | "bike_ride" => {
-            SportType::Ride
-        }
-        "mtb" | "mountain bike" | "vtt" | "xco" => SportType::MountainBike,
-        "gravel" => SportType::GravelRide,
-        "trainer" | "indoor" | "zwift" | "home trainer" | "virtual ride" => SportType::VirtualRide,
-        "run" | "running" | "course" | "course à pied" | "jog" | "jogging" => SportType::Run,
-        "trail" | "trail run" | "trail running" => SportType::TrailRunning,
-        "swim" | "swimming" | "natation" | "piscine" => SportType::Swim,
-        "walk" | "walking" | "marche" => SportType::Walk,
-        "hike" | "hiking" | "rando" | "randonnée" => SportType::Hike,
-        "strength" | "gym" | "muscu" | "musculation" | "weights" | "force" | "renfo" => {
-            SportType::StrengthTraining
-        }
-        "ski" | "xc ski" | "ski de fond" | "nordic" | "nordic ski" => SportType::CrossCountrySkiing,
-        "row" | "rowing" | "aviron" => SportType::Rowing,
-        other => SportType::from_internal_string(&other.replace(' ', "_")),
-    }
+    resolve_sport_type(label).unwrap_or_else(|| {
+        SportType::from_internal_string(&label.trim().to_lowercase().replace(' ', "_"))
+    })
 }
 
 /// Truncate to `max` characters, marking the cut with an ellipsis.
@@ -1077,6 +1061,41 @@ impl LedgerWrite<'_> {
 mod tests {
     use super::*;
     use std::slice;
+
+    #[test]
+    fn the_coach_editors_one_tap_sports_file_as_their_discipline() {
+        assert_eq!(
+            plan_sport("strength"),
+            SportType::StrengthTraining,
+            "bug: the Strength chip's word files as strength training"
+        );
+        assert_eq!(
+            plan_sport("crossfit"),
+            SportType::Crossfit,
+            "bug: the CrossFit chip's word files as CrossFit"
+        );
+        assert_eq!(
+            plan_sport("yoga"),
+            SportType::Yoga,
+            "bug: the Yoga chip's word files as yoga"
+        );
+        // Mobility has no discipline of its own on any calendar.
+        assert_eq!(
+            plan_sport("mobility"),
+            SportType::Workout,
+            "bug: the Mobility chip's word files as a generic workout"
+        );
+        assert_eq!(
+            plan_sport("Étirements"),
+            SportType::Workout,
+            "bug: the French word for stretching, capitalised, files as a generic workout"
+        );
+        assert_eq!(
+            plan_sport("stretching"),
+            SportType::Workout,
+            "bug: stretching files as a generic workout"
+        );
+    }
 
     fn week_of(days: &serde_json::Value) -> PlanWeek {
         serde_json::from_value(serde_json::json!({

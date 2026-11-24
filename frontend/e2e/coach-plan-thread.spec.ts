@@ -567,14 +567,16 @@ test.describe("A coach sets an athlete's thresholds from Group info", () => {
 });
 
 // ---------------------------------------------------------------------------
-// carnet#1515, #1714, #1716: in the plan thread, each entry of the plan card
-// opens the day editor. It opens on the session's own words, which the coach
-// edits by hand; "From a family" builds it from a workout family instead, the
+// carnet#1515, #1714, #1716, #1727: in the plan thread, each entry of the plan
+// card opens the day editor. It opens on the session's own words, which the
+// coach writes step by step, sets and targets included; "From an
+// evidence-backed family" builds it from a workout family instead, the
 // kernel's preview following the values, and a value outside the evidence
 // earns a finding and still saves (D3). Every save lands in the coach's draft,
-// an edited session is marked, and "Undo your edits" puts it back. A date may
-// hold several sessions: the coach adds one, removes one, and a write that
-// finds its session moved since the card showed it closes the sheet.
+// an edited session is marked, and "Back to the original" puts it back once
+// confirmed. A date may hold several sessions: the coach adds one, removes
+// one, and a write that finds its session moved since the card showed it
+// closes the sheet.
 // ---------------------------------------------------------------------------
 
 /** The family the thread's agent offers, as `GET …/subject-plan/families` answers it. */
@@ -666,10 +668,10 @@ const savedDraftPlan = {
   ],
 };
 
-/** The steps the coach writes on 20 October: 48 easy minutes, then six 20-second strides. */
+/** The steps the coach writes on 20 October: 48 easy minutes, then a set of six 20-second strides. */
 const handSteps = [
   { label: 'Easy', duration_seconds: 2880, target_zone: 'easy' },
-  { label: 'Strides', duration_seconds: 20, target_zone: 'fast', repeat: 6 },
+  { label: 'Strides', duration_seconds: 20, target_zone: 'fast', repeat: 6, repeat_group: 1 },
 ];
 
 /**
@@ -851,11 +853,14 @@ test.describe("A coach edits a day of the athlete's plan", () => {
     await edit.first().click();
     const editor = page.getByTestId('session-editor');
     await expect(editor.getByRole('heading', { name: 'Edit Tue, Oct 20' })).toBeVisible();
-    await expect(editor.getByRole('button', { name: 'This session' })).toHaveAttribute('aria-pressed', 'true');
+    await expect(editor.getByRole('button', { name: 'Write', exact: true })).toHaveAttribute('aria-pressed', 'true');
 
-    // The family mode starts from the day's sport.
-    await editor.getByRole('button', { name: 'From a family' }).click();
-    await expect(editor.getByRole('radio', { name: 'Run' })).toBeChecked();
+    // The family mode builds in the sport the chips hold: the day's own.
+    await editor.getByRole('button', { name: 'From an evidence-backed family', exact: true }).click();
+    await expect(
+      editor.getByRole('group', { name: 'Sport' }).getByRole('button', { name: 'Run', exact: true }),
+    ).toHaveAttribute('aria-pressed', 'true');
+    await expect(editor.getByRole('radio')).toHaveCount(0);
     await expect(editor.getByTestId('session-editor-family')).toHaveValue('vo2max_short');
     await expect(editor.getByTestId('session-editor-param-sets')).toHaveValue('2');
     await expect(editor.getByTestId('session-editor-range-sets')).toHaveText('Tested range 2–3');
@@ -921,22 +926,36 @@ test.describe("A coach edits a day of the athlete's plan", () => {
     await editor.getByLabel('Title', { exact: true }).fill('Easy 50 min');
     // A session with no steps states its minutes; once it has steps they total them.
     await expect(editor.getByLabel('Duration (min)', { exact: true })).toHaveValue('45');
-    await editor.getByRole('button', { name: 'Add a step' }).click();
+    await editor.getByRole('button', { name: 'Add a step', exact: true }).click();
     await expect(editor.getByLabel('Duration (min)', { exact: true })).toHaveCount(0);
+    // The new step opens, its name taking the keyboard.
     const easy = editor.getByTestId('session-editor-step-1');
     await expect(easy.getByLabel('Step', { exact: true })).toBeFocused();
     await easy.getByLabel('Step', { exact: true }).fill('Easy');
     await easy.getByLabel('Duration (m:ss)', { exact: true }).fill('48');
-    await easy.getByLabel('Target', { exact: true }).fill('easy');
+    // "easy" is no chip's word: it is written as it is, under Other.
+    await easy.getByRole('button', { name: 'Other', exact: true }).click();
+    await easy.getByLabel('Target as written', { exact: true }).fill('easy');
     await expect(easy.getByLabel('Duration (m:ss)', { exact: true })).toHaveValue('48:00');
 
-    await editor.getByRole('button', { name: 'Add a step' }).click();
+    // The strides are a set: added with its effort and recovery, the recovery taken out, counted up to six.
+    await editor.getByRole('button', { name: 'Add a set', exact: true }).click();
     const strides = editor.getByTestId('session-editor-step-2');
+    await expect(strides.getByLabel('Step', { exact: true })).toBeFocused();
     await strides.getByLabel('Step', { exact: true }).fill('Strides');
     await strides.getByLabel('Duration (m:ss)', { exact: true }).fill(':20');
-    await strides.getByLabel('Target', { exact: true }).fill('fast');
-    await strides.getByLabel('Repeat', { exact: true }).fill('6');
+    await strides.getByRole('button', { name: 'Other', exact: true }).click();
+    await strides.getByLabel('Target as written', { exact: true }).fill('fast');
     await expect(strides.getByLabel('Duration (m:ss)', { exact: true })).toHaveValue('0:20');
+    await editor.getByRole('button', { name: 'Edit step 3: Recovery' }).click();
+    await editor.getByRole('button', { name: 'Remove step 3' }).click();
+    const rounds = editor.getByRole('group', { name: 'Repetitions of the set' });
+    await expect(rounds).toContainText('× 5');
+    await rounds.getByRole('button', { name: 'One more repetition' }).click();
+    await expect(rounds).toContainText('× 6');
+    // The head sums it up: the sport, and the minutes the steps total.
+    await expect(editor.getByTestId('session-editor-summary')).toHaveText('Run · 50 min');
+    await expect(editor.getByRole('group', { name: 'Session profile' }).getByRole('button')).toHaveCount(2);
     await expect(editor.getByTestId('session-editor-unchecked')).toHaveText("Not checked against a family's evidence.");
     await expect(editor.getByTestId('session-editor-replacement')).toHaveText('Replaces Easy 45 min with Easy 50 min.');
 
@@ -962,7 +981,7 @@ test.describe("A coach edits a day of the athlete's plan", () => {
     await expect(open.getByTestId('plan-day-unchecked')).toHaveText("Not checked against a family's evidence.");
   });
 
-  test('Edit day on an edited day → Undo your edits → the day is back as it stood', async ({ page }) => {
+  test('Edit day on an edited day → Back to the original → confirm → the day is back as it stood', async ({ page }) => {
     await setupDashboardMocks(page, { role: 'user' });
     await setupPlanThreadMocks(page);
     const sent = await setupFamilyEditorMocks(page, { startEdited: true });
@@ -973,10 +992,14 @@ test.describe("A coach edits a day of the athlete's plan", () => {
     await open.getByRole('button', { name: 'Edit day' }).first().click();
     const editor = page.getByTestId('session-editor');
     await expect(editor.getByTestId('session-editor-edited')).toContainText('You edited this day in your draft.');
-    const restore = editor.getByRole('button', { name: 'Undo your edits' });
+    const restore = editor.getByRole('button', { name: 'Back to the original' });
     await expect(restore).toHaveAccessibleDescription('Puts back Easy 45 min, as the day stood before your first edit.');
 
+    // It asks before it discards the coach's edits.
     await restore.click();
+    const confirm = page.getByRole('dialog', { name: 'Discard your edits to this session?' });
+    await expect(confirm).toContainText('Puts back Easy 45 min, as the day stood before your first edit.');
+    await confirm.getByRole('button', { name: 'Discard changes' }).click();
     await expect(page.getByText('Tue, Oct 20 is back as it was in your draft.')).toBeVisible();
     await expect(page.getByTestId('session-editor')).toHaveCount(0);
     expect(sent.saved).toEqual([

@@ -73,6 +73,24 @@ describe('RadioGroup', () => {
     expect(screen.getByTestId('sport-run').props.accessibilityState).toEqual({ checked: true });
   });
 
+  it('takes a name no label draws, read by a screen reader only', () => {
+    render(
+      <RadioGroup
+        layout="segmented"
+        accessibilityLabel="How to build the session"
+        options={SPORTS}
+        value="run"
+        onChange={jest.fn()}
+        testID="mode"
+      />,
+    );
+    expect(screen.queryByText('How to build the session')).toBeNull();
+    const group = screen
+      .getByTestId('mode')
+      .findAll((node: ReactTestInstance) => typeof node.type === 'string' && node.props.accessibilityRole === 'radiogroup');
+    expect(group[0].props.accessibilityLabel).toBe('How to build the session');
+  });
+
   it('asks for the key pressed, and reaches 44pt in both layouts', () => {
     const onChange = jest.fn();
     const { rerender } = render(

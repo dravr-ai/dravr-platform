@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: The day editor's "From a family" mode — sport first, then the families and formats in it, the values, and the kernel's live preview
+// ABOUTME: The day editor's "From a family" mode — the families and formats in the sport the chips picked, the values, and the kernel's live preview
 // ABOUTME: Every figure, step and finding is the kernel's, read from the preview; the catalogue's loading, error and empty states live here alone
 
 import { useId, useState } from 'react';
@@ -13,12 +13,10 @@ import type {
   SessionParamKey,
   SessionParamRange,
   SessionPreview,
-  SessionSport,
 } from '@pierre/shared-types';
 import {
   SESSION_EDITOR_KEYS,
   SESSION_PARAM_LABEL_KEY,
-  catalogueSports,
   derivedRows,
   editableParams,
   familiesForSport,
@@ -27,15 +25,12 @@ import {
   paramValue,
   presetOf,
   presetsForSport,
-  selectBuildSport,
   selectFamily,
   selectPreset,
-  sessionSportLabelKey,
   setParam,
-  sportLabel,
 } from '@pierre/ui-logic';
 import { useSessionPreview } from '../../hooks/useSessionEditor';
-import { ALERT_TONE, Badge, Input, Radio, Select } from '../ui';
+import { ALERT_TONE, Badge, Input, Select } from '../ui';
 import { EvidenceChip } from './EvidenceChip';
 import { PlanStepList } from './WorkoutPlanCard';
 
@@ -54,15 +49,14 @@ interface SessionEditorFamilyProps {
   catalogueFailed: boolean;
   /** The build on screen: the coach's, else the one the day opens on; `null` while there is no catalogue to build from. */
   build: SessionBuild | null;
-  /** The day's sport when no family has a form in it: the build then opens in another sport, and says so. */
-  familyMissing: SessionSport | null;
   onChange: (build: SessionBuild) => void;
 }
 
 /**
- * The family mode: the catalogue's states, then the sport, the families with
- * a form in it, the format, the values with their tested ranges, and the
- * preview the kernel measures once the typing settles.
+ * The family mode: the catalogue's states, then the families with a form in
+ * the sport the chips picked, the format, the values with their tested
+ * ranges, and the preview the kernel measures once the typing settles. The
+ * sport is the chips' above the mode control; this mode never asks it again.
  */
 export function SessionEditorFamily({
   conversationId,
@@ -71,7 +65,6 @@ export function SessionEditorFamily({
   catalogue,
   catalogueFailed,
   build,
-  familyMissing,
   onChange,
 }: SessionEditorFamilyProps) {
   const { t } = useTranslation();
@@ -97,16 +90,7 @@ export function SessionEditorFamily({
       </p>
     );
   }
-  return (
-    <div className="space-y-5">
-      {familyMissing && (
-        <p className="text-sm text-on-surface-variant" data-testid="session-editor-no-family-for-sport">
-          {t(SESSION_EDITOR_KEYS.noFamilyForSport, { sport: sportLabel(t, familyMissing) })}
-        </p>
-      )}
-      <FamilyBuildForm conversationId={conversationId} date={date} catalogue={catalogue} build={build} onChange={onChange} />
-    </div>
-  );
+  return <FamilyBuildForm conversationId={conversationId} date={date} catalogue={catalogue} build={build} onChange={onChange} />;
 }
 
 interface FamilyBuildFormProps {
@@ -118,15 +102,13 @@ interface FamilyBuildFormProps {
 }
 
 /**
- * The picks in the order a coach thinks of them: the sport the day is in,
- * then the families written for it, then the format. Findings never hold
- * Save back: a session outside its family's evidence is saved as built, and
- * the card marks it (D3).
+ * The picks in the order a coach thinks of them: the families written for
+ * the session's sport, then the format. Findings never hold Save back: a
+ * session outside its family's evidence is saved as built, and the card
+ * marks it (D3).
  */
 function FamilyBuildForm({ conversationId, date, catalogue, build, onChange }: FamilyBuildFormProps) {
   const { t, language } = useTranslation();
-  const sportName = useId();
-  const sports = catalogueSports(catalogue);
   // The families written for the build's sport. A format with no sport list
   // can leave the build in a sport no family names; the select then offers
   // every family rather than none.
@@ -135,31 +117,14 @@ function FamilyBuildForm({ conversationId, date, catalogue, build, onChange }: F
   const family = familyOf(catalogue, build);
   const preset = presetOf(catalogue, build);
   const params = editableParams(preset, build.sport);
+  // Mounted with its build, so the first measure goes out at once; the
+  // sheet's head reads the same measure from the cache for its minutes.
   const preview = useSessionPreview(conversationId, date, build, language);
   // The fields the kernel found outside their range, from the preview it measured.
   const flagged = flaggedParams(preview.data);
 
   return (
     <div className="space-y-5">
-      {sports.length > 0 && (
-        <fieldset data-testid="session-editor-family-sport">
-          <legend className="mb-2 block text-sm font-medium text-on-surface-variant">{t(SESSION_EDITOR_KEYS.sport)}</legend>
-          <div className="flex flex-wrap gap-x-6 gap-y-2">
-            {sports.map((sport) => (
-              <div key={sport}>
-                <Radio
-                  name={sportName}
-                  value={sport}
-                  checked={build.sport === sport}
-                  onChange={() => onChange(selectBuildSport(catalogue, build, sport))}
-                  label={t(sessionSportLabelKey(sport))}
-                />
-              </div>
-            ))}
-          </div>
-        </fieldset>
-      )}
-
       <Select
         label={t(SESSION_EDITOR_KEYS.family)}
         value={build.family}

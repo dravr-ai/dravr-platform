@@ -823,6 +823,19 @@
     border-bottom: 2px solid rgb(var(--color-error)) !important;
   }
 
+  /* A headline written in place — the day editor's session title (carnet#1727):
+     a 2px dashed underline says the words are the coach's to change, and
+     focus turns it into the solid primary stroke every field grows into. The
+     stroke is already 2px, so focus keeps the padding as it is. */
+  .boreal-underline-input--title {
+    border-bottom: 2px dashed rgb(var(--color-outline-variant)) !important;
+  }
+
+  .boreal-underline-input--title:focus {
+    border-bottom: 2px solid rgb(var(--color-primary)) !important;
+    padding-bottom: 0.25rem;
+  }
+
   /* The editorial underline has no enclosing box, so a native select's OS
      dropdown list would inherit the transparent field background and render
      unreadable. The list is painted from the surface tokens instead. */

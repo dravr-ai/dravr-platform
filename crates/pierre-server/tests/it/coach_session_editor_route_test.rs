@@ -1313,7 +1313,6 @@ async fn a_hand_day_past_the_agents_bounds_is_refused_and_writes_nothing() {
     for body in [
         json!({ "rest": false, "sport": "run", "workout": " ", "intensity": "Z2" }),
         json!({ "rest": false, "sport": "run", "workout": "Reps", "steps": [step("Z4", 101)] }),
-        json!({ "rest": false, "sport": "run", "workout": "Reps", "steps": [step("fast", 1)] }),
         json!({ "rest": false, "sport": "run", "workout": "Long", "duration_min": 1441 }),
         json!({ "rest": false, "sport": "run", "workout": "Reps", "duration_min": 30,
                 "steps": [step("Z4", 1)] }),
@@ -1338,6 +1337,30 @@ async fn a_hand_day_past_the_agents_bounds_is_refused_and_writes_nothing() {
             "bug: a day past the agent's day bounds is refused by its reason: {body}: {refused}"
         );
     }
+    // A target the calendar cannot read names its step, for the editor to word.
+    let (status, refused) = fx
+        .put_hand_session(
+            &fx.thread,
+            (&date, 0),
+            json!({ "rest": false, "sport": "run", "workout": "Reps", "steps": [step("fast", 1)] }),
+            &athletes_session(),
+            &fx.coach.auth,
+        )
+        .await;
+    assert_eq!(
+        status,
+        StatusCode::BAD_REQUEST,
+        "bug: an unreadable target is a 400: {refused}"
+    );
+    assert_eq!(
+        (
+            reason(&refused),
+            &refused["details"]["step"],
+            &refused["details"]["target"]
+        ),
+        ("unresolvable_target", &json!(1), &json!("fast")),
+        "bug: an unreadable target is refused naming its step and target: {refused}"
+    );
     assert!(!fx.has_draft().await, "bug: a refused write opened a draft");
 }
 

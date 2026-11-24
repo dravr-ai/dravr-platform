@@ -1,374 +1,288 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: The day editor's "This session" mode on the phone — one session edited in place, or a new one written: rest, title, sport, duration, intensity, steps
-// ABOUTME: Works without the family catalogue; holds only what the coach wrote, through the shared hand-session operations (carnet#1714, #1716)
+// ABOUTME: The day editor's "Write" mode on the phone — the session's duration and intensity, or its steps: a profile, sets under one × N, one step open at a time
+// ABOUTME: Works without the family catalogue; holds only what the coach wrote, through the shared hand-session operations (carnet#1714, #1716, #1727)
 
 import React, { useState } from 'react';
-import { Pressable, StyleSheet, Switch, Text, View } from 'react-native';
+import { type AccessibilityActionEvent, Pressable, Text, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useTranslation } from '@pierre/i18n';
-import type { PlanStep } from '@pierre/shared-types';
+import type { SessionSport } from '@pierre/shared-types';
 import {
+  addSeries,
   addStep,
-  formatStepDuration,
+  addStepToSeries,
+  duplicateStep,
   type HandSession,
   handStatesDuration,
   moveStep,
-  parseStepDuration,
   removeStep,
+  SERIES_MAX_REPEAT,
+  SERIES_MIN_REPEAT,
+  seriesDefaults,
   SESSION_EDITOR_KEYS,
   setHand,
-  sportLabel,
+  setSeriesRepeat,
+  setStepMeasureOf,
+  type StepBlock,
+  stepBlocks,
+  stepMoveTarget,
   updateStep,
 } from '@pierre/ui-logic';
 import { useThemeColors } from '../../constants/theme';
-import { Input, RadioGroup, switchColors } from '../../components/ui';
+import { Input, SquareIconButton } from '../../components/ui';
+import { StepCard, StepRow } from './SessionStepCard';
+import { SessionStepProfile } from './SessionStepProfile';
 
 interface SessionHandFormProps {
   session: HandSession;
-  /** The sports offered, fixed for the sheet's life so a pick never reorders the row under the thumb. */
-  sports: string[];
-  /**
-   * Whether the Rest switch shows: on an entry being edited, not on a session
-   * being added to a date — a date's rest is its own entry (carnet#1716).
-   */
-  restOffered?: boolean;
+  /** The family sport the session's sport reads as (`familySportFor`): a new set's zones, a percent target's anchor. */
+  familySport: SessionSport | undefined;
   onChange: (session: HandSession) => void;
 }
 
-/** Digits only: a duration in minutes or a repeat count, never a sign or a decimal. */
+/** Where a screen reader's focus lands after a reshape: a step's row, or the moved step's move button. */
+type Refocus = { kind: 'row'; index: number } | { kind: 'move'; index: number; delta: -1 | 1 };
+
+/** Digits only: a duration in minutes, never a sign or a decimal. */
 function wholeNumber(text: string): number | undefined {
   const digits = text.replace(/[^0-9]/g, '');
   return digits === '' ? undefined : Number(digits);
 }
 
 /**
- * The entry's own session. On a rest day only the Rest switch shows; switched
- * off, the session's fields come back as they were. A new session has no
- * Rest switch. A session the coach edits names no family, so the form closes
- * on the line saying it is not checked against one.
+ * The session the coach writes. Without steps, its duration and intensity;
+ * with them, the profile over the step list — a lone step a collapsed row, a
+ * set a ruled group under its × N stepper — and one step open at a time. A
+ * step just added opens with the caret in its name. A session the coach
+ * writes names no family, so the form closes on the line saying it is not
+ * checked against one.
  */
-export function SessionHandForm({
-  session,
-  sports,
-  restOffered = true,
-  onChange,
-}: SessionHandFormProps) {
+export function SessionHandForm({ session, familySport, onChange }: SessionHandFormProps) {
   const { t } = useTranslation();
-  const colors = useThemeColors();
-  // The step duration being typed, as typed: the field keeps the coach's
-  // text while it has focus and shows the step's m:ss once it loses it.
-  const [typing, setTyping] = useState<{ index: number; text: string } | null>(
-    null,
-  );
+  const [open, setOpen] = useState<number | null>(null);
+  // The step whose name field takes the caret as it opens: one just added.
+  const [focus, setFocus] = useState<number | null>(null);
+  // Bumped on every reshape, so the rows and the open card are drawn afresh
+  // for the steps now at their indices rather than keeping the text of the
+  // ones that were there.
+  const [shape, setShape] = useState(0);
+  // Where a screen reader's focus goes once a move or a remove reshapes the
+  // list: the moved step's move button, or the step that took a removed one's place.
+  const [refocus, setRefocus] = useState<Refocus | null>(null);
+  const blocks = stepBlocks(session.steps);
 
-  // A step added, moved or removed shifts the rows under the field being
-  // typed into, so its text is let go rather than shown on another step.
-  const reshape = (next: HandSession) => {
-    setTyping(null);
+  const reshape = (next: HandSession, opened: number | null, focused = false, then: Refocus | null = null) => {
+    setShape((current) => current + 1);
+    setOpen(opened);
+    setFocus(focused ? opened : null);
+    setRefocus(then);
     onChange(next);
+  };
+  const openStep = (index: number) => {
+    setOpen(index);
+    setFocus(null);
+    setRefocus(null);
+  };
+  const remove = (index: number) => {
+    const left = session.steps.length - 1;
+    const next = index < left ? index : index - 1;
+    reshape(removeStep(session, index), null, false, next >= 0 ? { kind: 'row', index: next } : null);
+  };
+
+  const repeatSet = (block: Extract<StepBlock, { kind: 'series' }>, repeat: number) =>
+    reshape(setSeriesRepeat(session, block.start, repeat), open);
+
+  const renderStep = (index: number) => {
+    const step = session.steps[index];
+    if (!step) return null;
+    if (open !== index) {
+      return (
+        <StepRow
+          key={`row-${index}-${shape}`}
+          step={step}
+          index={index}
+          focusOnMount={refocus?.kind === 'row' && refocus.index === index}
+          onOpen={() => openStep(index)}
+        />
+      );
+    }
+    const up = stepMoveTarget(session.steps, index, -1);
+    const down = stepMoveTarget(session.steps, index, 1);
+    return (
+      <StepCard
+        key={`open-${index}-${shape}`}
+        step={step}
+        index={index}
+        familySport={familySport}
+        canMoveUp={up !== null}
+        canMoveDown={down !== null}
+        autoFocus={focus === index}
+        focusMove={refocus?.kind === 'move' && refocus.index === index ? refocus.delta : undefined}
+        onChange={(patch) => onChange(updateStep(session, index, patch))}
+        onMeasure={(measure) => onChange(setStepMeasureOf(session, index, measure))}
+        onMove={(delta) => {
+          const to = delta < 0 ? up : down;
+          if (to !== null) reshape(moveStep(session, index, delta), to, false, { kind: 'move', index: to, delta });
+        }}
+        onDuplicate={() => reshape(duplicateStep(session, index), index + 1)}
+        onRemove={() => remove(index)}
+      />
+    );
   };
 
   return (
-    <View testID="session-editor-hand">
-      {restOffered ? (
-        <View className="mb-2 min-h-11 flex-row items-center justify-between gap-4 px-4">
-          <Text className="flex-1 text-base text-text-primary">
-            {t(SESSION_EDITOR_KEYS.restDay)}
-          </Text>
-          <Switch
-            value={session.rest}
-            onValueChange={(rest) => onChange(setHand(session, { rest }))}
-            accessibilityLabel={t(SESSION_EDITOR_KEYS.restDay)}
-            {...switchColors(colors.tokens, session.rest)}
-            testID="session-editor-rest"
-          />
+    <View className="px-4" testID="session-editor-hand">
+      {/* With steps the server writes the duration they total, and the
+          header names the span their targets cover: the coach states both
+          only for a session without steps. */}
+      {handStatesDuration(session) ? (
+        <View className="flex-row gap-4">
+          <View className="w-32">
+            <Input
+              label={t(SESSION_EDITOR_KEYS.duration)}
+              value={session.duration_min === undefined ? '' : String(session.duration_min)}
+              onChangeText={(text) => onChange(setHand(session, { duration_min: wholeNumber(text) }))}
+              keyboardType="number-pad"
+              accessibilityLabel={t(SESSION_EDITOR_KEYS.duration)}
+              testID="session-editor-duration"
+            />
+          </View>
+          <View className="flex-1">
+            <Input
+              label={t(SESSION_EDITOR_KEYS.intensity)}
+              value={session.intensity}
+              onChangeText={(intensity) => onChange(setHand(session, { intensity }))}
+              accessibilityLabel={t(SESSION_EDITOR_KEYS.intensity)}
+              testID="session-editor-intensity"
+            />
+          </View>
         </View>
       ) : null}
 
-      {session.rest ? null : (
-        <View className="px-4">
-          <Input
-            label={t(SESSION_EDITOR_KEYS.workout)}
-            value={session.workout}
-            onChangeText={(workout) => onChange(setHand(session, { workout }))}
-            accessibilityLabel={t(SESSION_EDITOR_KEYS.workout)}
-            returnKeyType="done"
-            testID="session-editor-workout"
-          />
-          <View className="mb-4">
-            <RadioGroup
-              layout="segmented"
-              label={t(SESSION_EDITOR_KEYS.sport)}
-              options={sports.map((sport) => ({
-                key: sport,
-                label: sportLabel(t, sport),
-              }))}
-              value={session.sport}
-              onChange={(sport) => onChange(setHand(session, { sport }))}
-              testID="session-editor-hand-sport"
-            />
-          </View>
-          <View className="flex-row gap-4">
-            {/* With steps the server writes the duration they total, so the
-                coach states it only for a session without steps. */}
-            {handStatesDuration(session) ? (
-              <View className="w-32">
-                <Input
-                  label={t(SESSION_EDITOR_KEYS.duration)}
-                  value={
-                    session.duration_min === undefined
-                      ? ''
-                      : String(session.duration_min)
-                  }
-                  onChangeText={(text) =>
-                    onChange(
-                      setHand(session, { duration_min: wholeNumber(text) }),
-                    )
-                  }
-                  keyboardType="number-pad"
-                  accessibilityLabel={t(SESSION_EDITOR_KEYS.duration)}
-                  testID="session-editor-duration"
+      <Text className="mb-2 mt-1 text-sm font-medium text-text-secondary" accessibilityRole="header">
+        {t(SESSION_EDITOR_KEYS.stepsHeading)}
+      </Text>
+      {session.steps.length === 0 ? (
+        <Text className="pb-2 text-sm text-text-secondary" testID="session-editor-no-steps">
+          {t(SESSION_EDITOR_KEYS.noSteps)}
+        </Text>
+      ) : (
+        <>
+          <SessionStepProfile steps={session.steps} openIndex={open} onOpen={openStep} />
+          {blocks.map((block) => {
+            if (block.kind === 'step') return renderStep(block.index);
+            const indices = Array.from({ length: block.end - block.start }, (_, at) => block.start + at);
+            return (
+              <View
+                key={`set-${block.start}`}
+                className="my-1.5 border-l-2 border-on-surface pl-3"
+                testID={`session-editor-set-${block.start}`}
+              >
+                <View className="min-h-11 flex-row items-center justify-between">
+                  <Text className="text-sm font-semibold text-text-secondary">{t(SESSION_EDITOR_KEYS.series)}</Text>
+                  <View className="flex-row items-center gap-1">
+                    <SquareIconButton
+                      icon="minus"
+                      label={t(SESSION_EDITOR_KEYS.seriesFewer)}
+                      onPress={() => repeatSet(block, block.repeat - 1)}
+                      testID={`session-editor-set-${block.start}-fewer`}
+                    />
+                    <Text
+                      className="w-11 text-center font-mono text-md text-text-primary"
+                      accessible
+                      accessibilityRole="adjustable"
+                      accessibilityLabel={t(SESSION_EDITOR_KEYS.seriesRepeat)}
+                      accessibilityValue={{
+                        min: SERIES_MIN_REPEAT,
+                        max: SERIES_MAX_REPEAT,
+                        now: block.repeat,
+                        text: `× ${block.repeat}`,
+                      }}
+                      accessibilityActions={[{ name: 'increment' }, { name: 'decrement' }]}
+                      onAccessibilityAction={(event: AccessibilityActionEvent) =>
+                        repeatSet(block, block.repeat + (event.nativeEvent.actionName === 'increment' ? 1 : -1))
+                      }
+                      testID={`session-editor-set-${block.start}-repeat`}
+                    >
+                      {`× ${block.repeat}`}
+                    </Text>
+                    <SquareIconButton
+                      icon="plus"
+                      label={t(SESSION_EDITOR_KEYS.seriesMore)}
+                      disabled={block.repeat >= SERIES_MAX_REPEAT}
+                      onPress={() => repeatSet(block, block.repeat + 1)}
+                      testID={`session-editor-set-${block.start}-more`}
+                    />
+                  </View>
+                </View>
+                {indices.map(renderStep)}
+                <AddButton
+                  icon="plus"
+                  label={t(SESSION_EDITOR_KEYS.addStepToSeries)}
+                  onPress={() => reshape(addStepToSeries(session, block.start), block.end, true)}
+                  testID={`session-editor-set-${block.start}-add-step`}
                 />
               </View>
-            ) : null}
-            <View className="flex-1">
-              <Input
-                label={t(SESSION_EDITOR_KEYS.intensity)}
-                value={session.intensity}
-                onChangeText={(intensity) =>
-                  onChange(setHand(session, { intensity }))
-                }
-                accessibilityLabel={t(SESSION_EDITOR_KEYS.intensity)}
-                testID="session-editor-intensity"
-              />
-            </View>
-          </View>
-
-          <Text
-            className="mb-1 mt-2 text-sm font-semibold text-text-primary"
-            accessibilityRole="header"
-          >
-            {t(SESSION_EDITOR_KEYS.stepsHeading)}
-          </Text>
-          {session.steps.length === 0 ? (
-            <Text
-              className="py-2 text-sm text-text-secondary"
-              testID="session-editor-no-steps"
-            >
-              {t(SESSION_EDITOR_KEYS.noSteps)}
-            </Text>
-          ) : (
-            session.steps.map((step, index) => (
-              <StepRow
-                // Steps carry no identity of their own; the typed text is
-                // let go on every reshape, so the index is a safe key.
-                key={index}
-                step={step}
-                index={index}
-                count={session.steps.length}
-                durationText={
-                  typing?.index === index
-                    ? typing.text
-                    : formatStepDuration(step.duration_seconds)
-                }
-                onFocusDuration={() =>
-                  setTyping({
-                    index,
-                    text: formatStepDuration(step.duration_seconds),
-                  })
-                }
-                onChangeDuration={(text) => {
-                  setTyping({ index, text });
-                  const seconds = parseStepDuration(text);
-                  if (seconds !== undefined)
-                    onChange(
-                      updateStep(session, index, { duration_seconds: seconds }),
-                    );
-                }}
-                // Only this step's text is let go: a platform that reports the
-                // next field's focus before this one's blur keeps the new text.
-                onBlurDuration={() =>
-                  setTyping((current) =>
-                    current?.index === index ? null : current,
-                  )
-                }
-                onChange={(patch) =>
-                  onChange(updateStep(session, index, patch))
-                }
-                onMove={(delta) => reshape(moveStep(session, index, delta))}
-                onRemove={() => reshape(removeStep(session, index))}
-              />
-            ))
-          )}
-          <Pressable
-            className="min-h-11 flex-row items-center self-start"
-            accessibilityRole="button"
-            accessibilityLabel={t(SESSION_EDITOR_KEYS.addStep)}
-            onPress={() => reshape(addStep(session))}
-            testID="session-editor-add-step"
-          >
-            <Feather name="plus" size={16} color={colors.tokens.primary} />
-            <Text className="ml-1.5 text-sm font-medium text-primary">
-              {t(SESSION_EDITOR_KEYS.addStep)}
-            </Text>
-          </Pressable>
-
-          <Text
-            className="mt-3 text-sm text-text-secondary"
-            testID="session-editor-unchecked"
-          >
-            {t(SESSION_EDITOR_KEYS.unchecked)}
-          </Text>
-        </View>
+            );
+          })}
+        </>
       )}
+      <View className="flex-row flex-wrap gap-x-5">
+        <AddButton
+          icon="plus"
+          label={t(SESSION_EDITOR_KEYS.addStep)}
+          onPress={() => reshape(addStep(session), session.steps.length, true)}
+          testID="session-editor-add-step"
+        />
+        <AddButton
+          icon="repeat"
+          label={t(SESSION_EDITOR_KEYS.addSeries)}
+          onPress={() =>
+            reshape(
+              addSeries(
+                session,
+                seriesDefaults(familySport, {
+                  work: t(SESSION_EDITOR_KEYS.seriesWork),
+                  recovery: t(SESSION_EDITOR_KEYS.seriesRecovery),
+                }),
+              ),
+              session.steps.length,
+              true,
+            )
+          }
+          testID="session-editor-add-series"
+        />
+      </View>
+
+      <Text className="mt-3 text-sm text-text-secondary" testID="session-editor-unchecked">
+        {t(SESSION_EDITOR_KEYS.unchecked)}
+      </Text>
     </View>
   );
 }
 
-interface StepRowProps {
-  step: PlanStep;
-  index: number;
-  count: number;
-  /** What the duration field shows: the text being typed, else the step's m:ss. */
-  durationText: string;
-  onFocusDuration: () => void;
-  onChangeDuration: (text: string) => void;
-  onBlurDuration: () => void;
-  onChange: (patch: Partial<PlanStep>) => void;
-  onMove: (delta: -1 | 1) => void;
-  onRemove: () => void;
-}
-
-/**
- * One numbered step: its number and its three controls on one line, then the
- * label and target, then the duration in m:ss and the repeat count. Each
- * control is a 44pt target named with the step's number, so a screen reader
- * tells "move step 2 up" from "move step 3 up".
- */
-function StepRow({
-  step,
-  index,
-  count,
-  durationText,
-  onFocusDuration,
-  onChangeDuration,
-  onBlurDuration,
-  onChange,
-  onMove,
-  onRemove,
-}: StepRowProps) {
-  const { t } = useTranslation();
-  const number = index + 1;
-  return (
-    <View
-      className="border-t border-border-faint pt-1"
-      style={{ borderTopWidth: StyleSheet.hairlineWidth }}
-      testID={`session-editor-step-${index}`}
-    >
-      <View className="flex-row items-center">
-        <Text className="flex-1 font-mono text-sm font-semibold text-text-primary">
-          {number}
-        </Text>
-        <StepControl
-          icon="arrow-up"
-          label={t(SESSION_EDITOR_KEYS.moveStepUp, { number })}
-          disabled={index === 0}
-          onPress={() => onMove(-1)}
-          testID={`session-editor-step-${index}-up`}
-        />
-        <StepControl
-          icon="arrow-down"
-          label={t(SESSION_EDITOR_KEYS.moveStepDown, { number })}
-          disabled={index === count - 1}
-          onPress={() => onMove(1)}
-          testID={`session-editor-step-${index}-down`}
-        />
-        <StepControl
-          icon="trash-2"
-          label={t(SESSION_EDITOR_KEYS.removeStep, { number })}
-          onPress={onRemove}
-          testID={`session-editor-step-${index}-remove`}
-        />
-      </View>
-      <View className="flex-row gap-4">
-        <View style={{ flex: 3 }}>
-          <Input
-            label={t(SESSION_EDITOR_KEYS.stepLabel)}
-            value={step.label}
-            onChangeText={(label) => onChange({ label })}
-            accessibilityLabel={t(SESSION_EDITOR_KEYS.stepLabel)}
-            testID={`session-editor-step-${index}-label`}
-          />
-        </View>
-        <View style={{ flex: 2 }}>
-          <Input
-            label={t(SESSION_EDITOR_KEYS.stepTarget)}
-            value={step.target_zone}
-            onChangeText={(target_zone) => onChange({ target_zone })}
-            accessibilityLabel={t(SESSION_EDITOR_KEYS.stepTarget)}
-            autoCapitalize="none"
-            testID={`session-editor-step-${index}-target`}
-          />
-        </View>
-      </View>
-      <View className="flex-row gap-4">
-        <View className="flex-1">
-          <Input
-            label={t(SESSION_EDITOR_KEYS.stepDuration)}
-            value={durationText}
-            onFocus={onFocusDuration}
-            onChangeText={onChangeDuration}
-            onBlur={onBlurDuration}
-            keyboardType="numbers-and-punctuation"
-            accessibilityLabel={t(SESSION_EDITOR_KEYS.stepDuration)}
-            testID={`session-editor-step-${index}-duration`}
-          />
-        </View>
-        <View className="flex-1">
-          <Input
-            label={t(SESSION_EDITOR_KEYS.stepRepeat)}
-            value={step.repeat === undefined ? '' : String(step.repeat)}
-            onChangeText={(text) => onChange({ repeat: wholeNumber(text) })}
-            keyboardType="number-pad"
-            accessibilityLabel={t(SESSION_EDITOR_KEYS.stepRepeat)}
-            testID={`session-editor-step-${index}-repeat`}
-          />
-        </View>
-      </View>
-    </View>
-  );
-}
-
-interface StepControlProps {
-  icon: 'arrow-up' | 'arrow-down' | 'trash-2';
+interface AddButtonProps {
+  icon: 'plus' | 'repeat';
   label: string;
-  disabled?: boolean;
   onPress: () => void;
   testID: string;
 }
 
-/** A 44pt icon control on a step, in the secondary ink; dimmed and inert at the list's ends. */
-function StepControl({
-  icon,
-  label,
-  disabled = false,
-  onPress,
-  testID,
-}: StepControlProps) {
+/** A quiet 44pt add in the primary ink: a step, a set, a step in a set. */
+function AddButton({ icon, label, onPress, testID }: AddButtonProps) {
   const colors = useThemeColors();
   return (
     <Pressable
-      className={`h-11 w-11 items-center justify-center ${disabled ? 'opacity-40' : ''}`}
+      className="min-h-11 flex-row items-center self-start"
       onPress={onPress}
-      disabled={disabled}
       accessibilityRole="button"
       accessibilityLabel={label}
-      accessibilityState={{ disabled }}
       testID={testID}
     >
-      <Feather name={icon} size={18} color={colors.text.secondary} />
+      <Feather name={icon} size={16} color={colors.tokens.primary} />
+      <Text className="ml-1.5 text-sm font-semibold text-primary">{label}</Text>
     </Pressable>
   );
 }

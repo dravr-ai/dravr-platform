@@ -22,6 +22,8 @@ interface ButtonProps {
   fullWidth?: boolean;
   style?: ViewStyle;
   textStyle?: TextStyle;
+  /** What the button waits for or does, read after its name (a Save that waits says why). */
+  accessibilityHint?: string;
   testID?: string;
 }
 
@@ -56,6 +58,7 @@ export function Button({
   fullWidth = false,
   style,
   textStyle,
+  accessibilityHint,
   testID,
 }: ButtonProps) {
   const colors = useThemeColors();
@@ -91,6 +94,7 @@ export function Button({
       onPress={onPress}
       disabled={isDisabled}
       activeOpacity={0.7}
+      accessibilityHint={accessibilityHint}
       testID={testID}
     >
       {loading ? (

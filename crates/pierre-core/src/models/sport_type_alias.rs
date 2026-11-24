@@ -28,7 +28,9 @@ pub fn resolve_sport_type(input: &str) -> Option<SportType> {
         .replace(['_', '-', ' ', '\''], "");
     Some(match normalised.as_str() {
         // Run / Walk / Hike
-        "run" | "running" | "course" | "courseapied" | "courseàpied" | "jogging" => SportType::Run,
+        "run" | "running" | "course" | "courseapied" | "courseàpied" | "jogging" | "jog" => {
+            SportType::Run
+        }
         "trailrun" | "trailrunning" | "trail" | "courseentrail" => SportType::TrailRunning,
         "walk" | "walking" | "marche" | "marcheapied" => SportType::Walk,
         "hike" | "hiking" | "rando" | "randonnée" | "randonnee" => SportType::Hike,
@@ -36,12 +38,12 @@ pub fn resolve_sport_type(input: &str) -> Option<SportType> {
 
         // Cycling
         "ride" | "cycling" | "bike" | "bicycle" | "vélo" | "velo" | "sortieavélo"
-        | "sortieavelo" => SportType::Ride,
-        "mountainbike" | "mountainbikeride" | "mtb" | "vtt" => SportType::MountainBike,
+        | "sortieavelo" | "bikeride" | "road" | "route" => SportType::Ride,
+        "mountainbike" | "mountainbikeride" | "mtb" | "vtt" | "xco" => SportType::MountainBike,
         "gravelride" | "gravel" | "gravelvelo" => SportType::GravelRide,
         "ebikeride" | "ebike" | "véloélectrique" | "veloelectrique" => SportType::EbikeRide,
         "virtualride" | "indoorbike" | "vélointérieur" | "velointerieur" | "trainer"
-        | "homebike" => SportType::VirtualRide,
+        | "homebike" | "hometrainer" | "indoor" | "zwift" => SportType::VirtualRide,
 
         // Winter sports
         "crosscountryskiing" | "crosscountryski" | "xcski" | "xc" | "nordicski"
@@ -57,7 +59,7 @@ pub fn resolve_sport_type(input: &str) -> Option<SportType> {
         "iceskate" | "iceskating" | "patin" | "patinage" => SportType::IceSkating,
 
         // Water sports
-        "swim" | "swimming" | "natation" | "nage" => SportType::Swim,
+        "swim" | "swimming" | "natation" | "nage" | "piscine" => SportType::Swim,
         "kayak" | "kayaking" => SportType::Kayaking,
         "canoe" | "canoeing" => SportType::Canoeing,
         "row" | "rowing" | "aviron" => SportType::Rowing,
@@ -66,14 +68,18 @@ pub fn resolve_sport_type(input: &str) -> Option<SportType> {
         "kitesurf" | "kitesurfing" => SportType::Kitesurfing,
 
         // Strength and fitness
-        "strengthtraining" | "weighttraining" | "weights" | "musculation" | "muscu" => {
-            SportType::StrengthTraining
-        }
+        "strengthtraining" | "weighttraining" | "weights" | "musculation" | "muscu"
+        | "strength" | "gym" | "force" | "renfo" => SportType::StrengthTraining,
         "crossfit" => SportType::Crossfit,
         "yoga" => SportType::Yoga,
         "pilates" => SportType::Pilates,
         "rockclimbing" | "climbing" | "escalade" | "grimpe" => SportType::RockClimbing,
         "workout" | "exercise" | "entrainement" | "entraînement" | "exo" => SportType::Workout,
+        // Mobility and stretching have no discipline of their own on any
+        // calendar or provider: a generic workout, by name.
+        "mobility" | "mobilité" | "mobilite" | "stretching" | "étirements" | "etirements" => {
+            SportType::Workout
+        }
 
         // Team / racket / target sports
         "soccer" | "football" | "foot" => SportType::Soccer,

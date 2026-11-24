@@ -32,9 +32,13 @@ import { gzipSync } from 'node:zlib';
  * coach's family editor (carnet#1515) landed: its sheet loads lazily on first
  * open, but the plan card's "Build from family" on each day, the draft
  * card's sharper open-draft rule and the API client's catalogue and preview
- * parsers run at first paint, about 1 KB, so the budget is 325 KB.
+ * parsers run at first paint, about 1 KB, so the budget is 325 KB. The day
+ * editor's sport chips, sets and step targets (carnet#1727) load lazily with
+ * the sheet, but their 48 French strings (through contremaitre dcb83215) and
+ * the mobility and strength sport labels ship in the entry, which took the CI
+ * build to 325.4 KB, so the budget is 330 KB.
  */
-const BUDGET_BYTES = 325 * 1024;
+const BUDGET_BYTES = 330 * 1024;
 
 const DIST = resolve(import.meta.dirname, '..', 'dist');
 const html = readFileSync(join(DIST, 'index.html'), 'utf8');
