@@ -28,8 +28,6 @@ use tracing::info;
 
 use pierre_tool_runtime::registry::ToolRegistry;
 
-use super::tool_data;
-
 /// Register all built-in tools based on feature flags.
 ///
 /// This is called at startup to register every tool category enabled via
@@ -149,8 +147,6 @@ pub fn register_builtin_tools(registry: &mut ToolRegistry) {
     // Verification tools (bullshit detector)
     #[cfg(feature = "tools-verification")]
     register_verification_tools(registry);
-
-    tool_data::declare_tool_data(registry);
 
     info!("Registered {} built-in tools", registry.len());
 }

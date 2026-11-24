@@ -13,7 +13,6 @@ use crate::common;
 use common::placeholder_llm_chain;
 use secrecy::{ExposeSecret, SecretString};
 
-use dravr_tronc::dates::Timestamp;
 use pierre_auth::auth::AuthManager;
 use pierre_config::environment::{
     AppBehaviorConfig, AuthConfig, BackupConfig, CacheConfig, CorsConfig, DatabaseConfig,
@@ -23,9 +22,6 @@ use pierre_config::environment::{
     SecurityConfig, SecurityHeadersConfig, ServerConfig, SessionCookieConfig,
     SleepToolParamsConfig, StravaApiConfig, TlsConfig, TokioRuntimeConfig, TrainingZonesConfig,
 };
-use pierre_core::models::CoachingPersona;
-use pierre_core::models::{User, UserStatus, UserTier};
-use pierre_core::permissions::UserRole;
 use pierre_database::database::generate_encryption_key;
 use pierre_mcp_server::mcp::resources::{ServerContext, ServerContextOptions};
 use pierre_routes_auth::{AuthService, LoginRequest, RegisterRequest};
@@ -189,7 +185,7 @@ async fn test_email_validation() {
         };
 
         // Should not fail on email validation
-        let result = auth_routes.register(request).await;
+        let result = auth_routes.self_register(request).await;
         // May fail on duplicate email, but not on validation
         if let Err(e) = result {
             let err = e.to_string();
@@ -218,7 +214,7 @@ async fn test_email_validation() {
             display_name: None,
         };
 
-        let result = auth_routes.register(request).await;
+        let result = auth_routes.self_register(request).await;
         assert!(result.is_err(), "Email {email} should be invalid");
         assert!(result
             .unwrap_err()
@@ -375,7 +371,7 @@ async fn test_password_validation() {
         display_name: None,
     };
 
-    let result = auth_routes.register(request).await;
+    let result = auth_routes.self_register(request).await;
     assert!(result.is_err());
     assert!(result
         .unwrap_err()
@@ -390,7 +386,7 @@ async fn test_password_validation() {
         display_name: None,
     };
 
-    let result = auth_routes.register(request).await;
+    let result = auth_routes.self_register(request).await;
     assert!(result.is_ok());
 }
 
@@ -542,11 +538,11 @@ async fn test_duplicate_user_registration() {
     };
 
     // First registration should succeed
-    let result1 = auth_routes.register(request.clone()).await;
+    let result1 = auth_routes.self_register(request.clone()).await;
     assert!(result1.is_ok());
 
     // Second registration with same email should fail
-    let result2 = auth_routes.register(request).await;
+    let result2 = auth_routes.self_register(request).await;
     assert!(result2.is_err());
     assert!(result2.unwrap_err().to_string().contains("already exists"));
 }
@@ -691,55 +687,7 @@ async fn test_login_with_correct_credentials() {
         server_resources.data(),
     );
 
-    // Register user
-    let register_request = RegisterRequest {
-        analytics_consent: None,
-        email: "login_test@example.com".to_owned(),
-        password: SecretString::from("password123"),
-        display_name: Some("Login Test".to_owned()),
-    };
-
-    let register_response = auth_routes.register(register_request).await.unwrap();
-
-    // Create admin user and approve the registered user for testing
-    let user_id = uuid::Uuid::parse_str(&register_response.user_id).unwrap();
-    let admin_id = uuid::Uuid::new_v4();
-    let admin_user = User {
-        id: admin_id,
-        email: "admin@test.com".to_owned(),
-        display_name: Some("Test Admin".to_owned()),
-        password_hash: "$2b$10$hashedpassword".to_owned(),
-        tier: UserTier::Enterprise,
-        is_active: true,
-        user_status: UserStatus::Active,
-        role: UserRole::User,
-        approved_by: None,
-        approved_at: Some(Timestamp::now()),
-        created_at: Timestamp::now(),
-        last_active: Timestamp::now(),
-        firebase_uid: None,
-        auth_provider: String::new(),
-        analytics_consent: false,
-        analytics_consent_at: None,
-        locale: "fr".to_owned(),
-        coaching_persona: CoachingPersona::Casual,
-        manages_roster: false,
-        timezone: None,
-        theme: None,
-    };
-    server_resources
-        .common
-        .repos
-        .users
-        .create(&admin_user)
-        .await
-        .unwrap();
-
-    server_resources
-        .common
-        .repos
-        .users
-        .update_status(user_id, UserStatus::Active, Some(admin_id))
+    common::create_test_user_with_email(&server_resources.agent.database, "login_test@example.com")
         .await
         .unwrap();
 
@@ -759,7 +707,7 @@ async fn test_login_with_correct_credentials() {
         .as_ref()
         .is_some_and(|t| !t.expose_secret().is_empty()));
     assert_eq!(response.user.email, "login_test@example.com");
-    assert_eq!(response.user.display_name, Some("Login Test".to_owned()));
+    assert_eq!(response.user.display_name, Some("Test User".to_owned()));
 }
 
 #[tokio::test]
@@ -902,15 +850,9 @@ async fn test_login_with_wrong_password() {
         server_resources.data(),
     );
 
-    // Register user
-    let register_request = RegisterRequest {
-        analytics_consent: None,
-        email: "wrong_pass@example.com".to_owned(),
-        password: SecretString::from("correctpassword"),
-        display_name: None,
-    };
-
-    auth_routes.register(register_request).await.unwrap();
+    common::create_test_user_with_email(&server_resources.agent.database, "wrong_pass@example.com")
+        .await
+        .unwrap();
 
     // Login with wrong password
     let login_request = LoginRequest {

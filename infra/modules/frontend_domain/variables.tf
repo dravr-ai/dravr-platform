@@ -49,13 +49,13 @@ variable "armor_enabled" {
 }
 
 variable "marketplace_egress_cidrs" {
-  description = "Published egress ranges of the marketplace hosts (e.g. Claude's). They pass the per-address limits, because one range carries many athletes; the per-token throttle and the WAF still apply. IPv4 or IPv6 CIDRs."
+  description = "Published egress ranges of the marketplace hosts. They pass the per-address limits, because one range carries many athletes; the per-token throttle and the WAF still apply. IPv4 or IPv6 CIDRs."
   type        = list(string)
   default     = []
 
   validation {
     condition     = alltrue([for c in var.marketplace_egress_cidrs : can(cidrnetmask(c)) || can(cidrhost(c, 0))])
-    error_message = "marketplace_egress_cidrs must hold CIDR ranges such as 160.79.104.0/21."
+    error_message = "marketplace_egress_cidrs must hold CIDR ranges such as 198.51.100.0/24."
   }
 
   validation {

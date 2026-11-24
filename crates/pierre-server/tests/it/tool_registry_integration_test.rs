@@ -17,6 +17,7 @@
 //! - Capability-based filtering with real tools
 
 use crate::common;
+use pierre_tool_runtime::tool_data::ToolData;
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -697,7 +698,7 @@ async fn test_register_external_tool() {
         }
     }
 
-    pierre_tool_runtime::declare_security!(ExternalTestTool => empty);
+    pierre_tool_runtime::declare_security!(ExternalTestTool => empty, reads: ToolData::own(&[]));
 
     let mut registry = ToolRegistry::new();
     registry.register(Arc::new(ExternalTestTool));
@@ -745,7 +746,7 @@ async fn test_external_tool_with_builtin_tools() {
         }
     }
 
-    pierre_tool_runtime::declare_security!(CustomTool => empty);
+    pierre_tool_runtime::declare_security!(CustomTool => empty, reads: ToolData::own(&[]));
 
     let mut registry = ToolRegistry::new();
     register_builtin_tools(&mut registry);

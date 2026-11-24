@@ -59,6 +59,12 @@ resource "google_logging_metric" "frontend_nginx_faults" {
   }
 }
 
+# The policy's text names its window in minutes; the number is the alignment
+# period itself, so the sentence cannot drift from the setting.
+locals {
+  frontend_nginx_faults_minutes = tonumber(trimsuffix(var.alert_windows["frontend.nginx_faults.alignment_period"], "s")) / 60
+}
+
 resource "google_monitoring_alert_policy" "frontend_nginx_faults" {
   project      = var.project_id
   display_name = "dravr-frontend-nginx-faults"
@@ -66,7 +72,7 @@ resource "google_monitoring_alert_policy" "frontend_nginx_faults" {
 
   documentation {
     content   = <<-EOT
-      The frontend's nginx logged a proxy or server fault in the last 5 minutes.
+      The frontend's nginx logged a proxy or server fault in the last ${local.frontend_nginx_faults_minutes} minutes.
       Requests may still be succeeding: nginx retries the next upstream address,
       so a connect failure can serve a 200 at added latency. That is how a week of
       IPv6 connect failures stayed invisible until 2026-09-26.
@@ -87,23 +93,23 @@ resource "google_monitoring_alert_policy" "frontend_nginx_faults" {
   }
 
   conditions {
-    display_name = "nginx fault on the frontend in 5min window"
+    display_name = "nginx fault on the frontend in ${local.frontend_nginx_faults_minutes}min window"
 
     condition_threshold {
       filter          = "resource.type=\"cloud_run_revision\" AND metric.type=\"logging.googleapis.com/user/${google_logging_metric.frontend_nginx_faults.name}\""
-      duration        = "0s"
+      duration        = var.alert_windows["frontend.nginx_faults.duration"]
       comparison      = "COMPARISON_GT"
-      threshold_value = 0
+      threshold_value = var.alert_thresholds["frontend.nginx_faults.threshold"]
 
       aggregations {
-        alignment_period     = "300s"
+        alignment_period     = var.alert_windows["frontend.nginx_faults.alignment_period"]
         per_series_aligner   = "ALIGN_SUM"
         cross_series_reducer = "REDUCE_SUM"
         group_by_fields      = ["metric.label.level"]
       }
 
       trigger {
-        count = 1
+        count = var.alert_thresholds["frontend.nginx_faults.trigger_count"]
       }
     }
   }
@@ -112,7 +118,7 @@ resource "google_monitoring_alert_policy" "frontend_nginx_faults" {
 
   alert_strategy {
     # A broken upstream keeps logging for as long as it is broken; the
-    # incident stays open while lines keep coming and closes 30 minutes after.
-    auto_close = "1800s"
+    # incident stays open while lines keep coming and closes a while after.
+    auto_close = var.alert_windows["frontend.nginx_faults.auto_close"]
   }
 }

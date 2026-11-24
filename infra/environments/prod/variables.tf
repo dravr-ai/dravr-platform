@@ -257,9 +257,10 @@ variable "frontend_base_url" {
 
 # No default: the frontend nginx config proxies /__/ auth-handler paths to
 # https://<id>.firebaseapp.com, so the value has to name the Firebase project
-# linked to project_id rather than inherit another environment's.
+# linked to project_id rather than inherit another environment's. Its value
+# is set in the private var-file.
 variable "firebase_project_id" {
-  description = "Firebase project ID (linked GCP project with Firebase enabled)"
+  description = "Firebase project ID (linked GCP project with Firebase enabled). Set in the private var-file."
   type        = string
 }
 

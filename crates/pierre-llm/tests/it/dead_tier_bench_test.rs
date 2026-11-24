@@ -29,7 +29,7 @@ use tokio::sync::Barrier;
 
 use crate::chain_guard_lock::fresh_chain_guard;
 
-/// What Anthropic's Messages API answered for the spent organization.
+/// What Anthropic's Messages API answers for a spent credit.
 const SPENT_CREDIT: &str =
     "Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.";
 

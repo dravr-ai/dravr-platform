@@ -53,13 +53,8 @@ The script will guide you through:
 If you don't have a Pierre account yet, create one:
 
 ```bash
-curl -X POST http://localhost:8081/admin/setup \
-  -H "Content-Type: application/json" \
-  -d '{
-    "email": "your-email@example.com",
-    "password": "YourSecurePassword123!",
-    "display_name": "Your Name"
-  }'
+cargo run --bin pierre-cli -- user create \
+  --email your-email@example.com --password 'YourSecurePassword123!'
 ```
 
 Then sign in to the Pierre web app with that account, open Settings → API keys,

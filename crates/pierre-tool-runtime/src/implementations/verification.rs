@@ -27,6 +27,8 @@
 //! surfaces the verdict row is written as before.
 
 use crate::annotations::{annotations, Effect, Reach};
+use crate::tool_data::ToolData;
+use dravr_barrage::Stream;
 use pierre_providers::ai_scope;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -361,4 +363,7 @@ pub fn create_verification_tools() -> Vec<Box<dyn RuntimeTool>> {
 // Guardian security classifications (see `crate::security`). Co-located here so
 // each impl sits under this module's existing feature gate; the compiler forces
 // every registered tool to classify (the registry stores `Arc<dyn RuntimeTool>`).
-crate::declare_security!(VerifyClaimTool => empty);
+crate::declare_security!(
+    VerifyClaimTool => empty,
+    reads: ToolData::own(&[Stream::Workout, Stream::WorkoutRaw, Stream::Fitness, Stream::Profile]),
+);

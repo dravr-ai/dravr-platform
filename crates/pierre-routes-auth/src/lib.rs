@@ -589,24 +589,12 @@ impl AuthRoutes {
                 "/providers/signin/success",
                 get(sciotte_hosted::handle_sciotte_hosted_success_page),
             )
-            .route(
-                "/providers/signin/error",
-                get(sciotte_hosted::handle_sciotte_hosted_error_page),
-            )
-            // The same pages at the paths links were minted with before
+            // The login page at the path links were minted with before
             // carnet#1207: messages and short links already sent still carry
-            // them, so they keep opening.
+            // it, so it keeps opening.
             .route(
                 "/providers/sciotte/login",
                 get(sciotte_hosted::handle_sciotte_hosted_login_page),
-            )
-            .route(
-                "/providers/sciotte/success",
-                get(sciotte_hosted::handle_sciotte_hosted_success_page),
-            )
-            .route(
-                "/providers/sciotte/error",
-                get(sciotte_hosted::handle_sciotte_hosted_error_page),
             )
             // Channel-initiated hosted CONNECT picker: a generic, connect-scoped
             // link-token (minted in-process by the messaging pipeline) lands the

@@ -419,7 +419,7 @@ fn split_account_name(name: &str) -> Option<(&str, Option<usize>)> {
 ///
 /// A pooled account runs its provider's model unless an entry
 /// `provider#N=model` names its own: `anthropic#2=claude-haiku-5-5` puts the
-/// second Anthropic organization on Haiku. It sets the account's model only —
+/// second Anthropic key on Haiku. It sets the account's model only —
 /// the account still sits right behind its provider, and it exists only when
 /// its numbered credential does. It must follow its provider's entry.
 ///

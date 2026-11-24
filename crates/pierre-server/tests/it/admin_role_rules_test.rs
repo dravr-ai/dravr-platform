@@ -19,9 +19,9 @@
 //!   account, refused for good;
 //! - a user who becomes an admin stops being impersonated: the sessions open
 //!   on the account end with the promotion;
-//! - a service token without the super-admin flag suspends a user, approves
-//!   one and is handed one's password reset, and none of it for an admin;
-//!   bound to a tenant, it suspends and approves only a user held within it.
+//! - a service token without the super-admin flag pre-approves no pending
+//!   account; an admin's console session is handed a password reset for a
+//!   user and for another admin.
 //!
 //! The repository's own refusals (the last active admin is neither demoted,
 //! suspended nor deleted) are pinned in `database_users_test` and
@@ -30,7 +30,6 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use crate::admin_user_removal_test::seed_user;
 use crate::common;
 use crate::helpers;
 
@@ -349,15 +348,12 @@ async fn an_admin_does_not_suspend_itself_and_suspends_another_admin() {
     let (peer, _) = account(&resources, "peer@example.com", UserRole::Admin).await;
     let acting_cli = device_login(&resources, &acting.email).await;
 
-    let from_the_console = suspend(&resources, &acting_auth, acting.id).await;
-    let with_its_device_login = suspend_with_token(&resources, &acting_cli, acting.id).await;
-    for (status, body) in [from_the_console, with_its_device_login] {
-        assert_eq!(status, 400, "an admin does not suspend itself: {body}");
-        assert!(
-            body.contains("Cannot suspend yourself"),
-            "the refusal is the self rule's, not the last admin's: {body}"
-        );
-    }
+    let (status, body) = suspend(&resources, &acting_auth, acting.id).await;
+    assert_eq!(status, 400, "an admin does not suspend itself: {body}");
+    assert!(
+        body.contains("Cannot suspend yourself"),
+        "the refusal is the self rule's, not the last admin's: {body}"
+    );
     assert!(
         stored(&resources, acting.id).await.is_active_admin(),
         "the refused suspension wrote nothing"
@@ -724,9 +720,6 @@ async fn service_token(resources: &Arc<ServerContext>, name: &str, super_admin: 
     format!("Bearer {}", minted.jwt_token.expose_secret())
 }
 
-/// What a token without the super-admin flag is answered on an admin account.
-const RANK_REFUSAL: &str = "Acting on an admin account requires a super-admin token";
-
 /// A `ManageUsers` token without the super-admin flag, bound to a desk
 /// tenant every one of `members` is held in and in no other: a token that
 /// reaches those accounts, so that what refuses it on an admin is the rank
@@ -760,132 +753,6 @@ async fn desk_token(resources: &Arc<ServerContext>, members: &[Uuid]) -> String 
         repos.users.update_tenant_id(*member, desk).await.unwrap();
     }
     tenant_bound_token(resources, desk).await
-}
-
-/// Suspend `target` with the admin token `bearer`, as `pierre-cli` does.
-async fn suspend_with_token(
-    resources: &Arc<ServerContext>,
-    bearer: &str,
-    target: Uuid,
-) -> (u16, String) {
-    let response = AxumTestRequest::post(&format!("/admin/suspend-user/{target}"))
-        .header("authorization", bearer)
-        .json(&json!({ "reason": "carnet#1574" }))
-        .send(token_api(resources))
-        .await;
-    (response.status(), response.text())
-}
-
-/// Suspending an admin withdraws the device logins it approved, which is
-/// more than `ManageUsers` holds: a service token suspends an admin only
-/// with the super-admin flag, as it deletes one. Without the flag the same
-/// token still suspends a user. A second admin stays active throughout, so
-/// the last-active-admin guard is never what answers.
-#[tokio::test]
-async fn a_token_without_the_super_admin_flag_suspends_a_user_and_never_an_admin() {
-    let resources = create_test_server_resources().await.unwrap();
-    let (admin, _) = account(&resources, "standing@example.com", UserRole::Admin).await;
-    account(&resources, "peer@example.com", UserRole::Admin).await;
-    let (athlete, _) = account(&resources, "athlete@example.com", UserRole::User).await;
-    let admin_cli = device_login(&resources, &admin.email).await;
-    let manage_users = desk_token(&resources, &[admin.id, athlete.id]).await;
-    let flagged = service_token(&resources, "platform-ops", true).await;
-
-    let (status, body) = suspend_with_token(&resources, &manage_users, admin.id).await;
-    assert_eq!(status, 403, "ManageUsers alone suspends no admin: {body}");
-    assert!(
-        body.contains(RANK_REFUSAL),
-        "the refusal is the rank rule's: {body}"
-    );
-    assert!(
-        stored(&resources, admin.id).await.is_active_admin(),
-        "the refused suspension wrote nothing"
-    );
-    assert_eq!(
-        lists_users(&resources, &admin_cli).await,
-        200,
-        "and the admin keeps its device login"
-    );
-    assert!(revocations_on_the_trail(&resources).await.is_empty());
-
-    // The positive control: the same token, the same route, a plain user.
-    let (status, body) = suspend_with_token(&resources, &manage_users, athlete.id).await;
-    assert_eq!(status, 200, "ManageUsers suspends a user: {body}");
-    assert_eq!(
-        stored(&resources, athlete.id).await.user_status,
-        UserStatus::Suspended
-    );
-
-    // The flag is the rank: the same request from a super-admin token lands.
-    let (status, body) = suspend_with_token(&resources, &flagged, admin.id).await;
-    assert_eq!(status, 200, "a super-admin token suspends an admin: {body}");
-    assert_eq!(
-        stored(&resources, admin.id).await.user_status,
-        UserStatus::Suspended
-    );
-    assert_eq!(
-        lists_users(&resources, &admin_cli).await,
-        401,
-        "and the suspended admin's device login is withdrawn with it"
-    );
-}
-
-/// Approve `target` with the admin token `bearer`, as `pierre-cli` does.
-async fn approve_with_token(
-    resources: &Arc<ServerContext>,
-    bearer: &str,
-    target: Uuid,
-) -> (u16, String) {
-    let response = AxumTestRequest::post(&format!("/admin/approve-user/{target}"))
-        .header("authorization", bearer)
-        .json(&json!({ "reason": "carnet#1574" }))
-        .send(token_api(resources))
-        .await;
-    (response.status(), response.text())
-}
-
-/// A suspended admin approved again holds every power, so approving one
-/// takes the rank suspending one does: without it a `ManageUsers` token
-/// undid the suspension it could not make. The same token still approves a
-/// user. A second admin stays active throughout, so the last-active-admin
-/// guard is never what answers.
-#[tokio::test]
-async fn a_token_without_the_super_admin_flag_approves_a_user_and_never_an_admin() {
-    let resources = create_test_server_resources().await.unwrap();
-    let (admin, _) = account(&resources, "suspended@example.com", UserRole::Admin).await;
-    account(&resources, "peer@example.com", UserRole::Admin).await;
-    let (athlete, _) = account(&resources, "athlete@example.com", UserRole::User).await;
-    let manage_users = desk_token(&resources, &[admin.id, athlete.id]).await;
-    let flagged = service_token(&resources, "platform-ops", true).await;
-    for suspended in [admin.id, athlete.id] {
-        let (status, body) = suspend_with_token(&resources, &flagged, suspended).await;
-        assert_eq!(status, 200, "{body}");
-    }
-
-    let (status, body) = approve_with_token(&resources, &manage_users, admin.id).await;
-    assert_eq!(status, 403, "ManageUsers alone reinstates no admin: {body}");
-    assert!(
-        body.contains(RANK_REFUSAL),
-        "the refusal is the rank rule's: {body}"
-    );
-    assert_eq!(
-        stored(&resources, admin.id).await.user_status,
-        UserStatus::Suspended,
-        "the refused approval wrote nothing"
-    );
-
-    // The positive control: the same token, the same route, a plain user.
-    let (status, body) = approve_with_token(&resources, &manage_users, athlete.id).await;
-    assert_eq!(status, 200, "ManageUsers approves a user: {body}");
-    assert_eq!(
-        stored(&resources, athlete.id).await.user_status,
-        UserStatus::Active
-    );
-
-    // The flag is the rank: the same request from a super-admin token lands.
-    let (status, body) = approve_with_token(&resources, &flagged, admin.id).await;
-    assert_eq!(status, 200, "a super-admin token approves an admin: {body}");
-    assert!(stored(&resources, admin.id).await.is_active_admin());
 }
 
 /// An account still waiting for approval, with `role`: a pending sign-up,
@@ -992,62 +859,6 @@ async fn tenant_bound_token(resources: &Arc<ServerContext>, tenant: TenantId) ->
     format!("Bearer {}", minted.jwt_token.expose_secret())
 }
 
-/// A suspension and an approval change the account in every tenant it is
-/// in, as a delete does, so a token bound to one tenant takes the delete's
-/// rule on both: a user held in another tenant is not found (404, as a
-/// missing account), with nothing written, and a user of its own is
-/// accepted.
-#[tokio::test]
-async fn a_tenant_bound_token_suspends_and_approves_only_inside_its_tenant() {
-    let resources = create_test_server_resources().await.unwrap();
-    let repos = &resources.common.repos;
-    let (inside, tenant, _) = seed_user(repos, "inside").await;
-    let (outside, _, _) = seed_user(repos, "outside").await;
-    let bound = tenant_bound_token(&resources, tenant).await;
-    let flagged = service_token(&resources, "platform-ops", true).await;
-    let refusal = "ResourceNotFound";
-
-    let (status, body) = suspend_with_token(&resources, &bound, outside).await;
-    assert_eq!(status, 404, "another tenant's user is out of scope: {body}");
-    assert!(body.contains(refusal), "{body}");
-    assert_eq!(
-        stored(&resources, outside).await.user_status,
-        UserStatus::Active,
-        "the refused suspension wrote nothing"
-    );
-    let (status, body) = suspend_with_token(&resources, &bound, inside).await;
-    assert_eq!(
-        status, 200,
-        "the token suspends a user of its tenant: {body}"
-    );
-    assert_eq!(
-        stored(&resources, inside).await.user_status,
-        UserStatus::Suspended
-    );
-
-    // Suspended by a token that reaches every tenant, so an approval has
-    // something to undo.
-    let (status, body) = suspend_with_token(&resources, &flagged, outside).await;
-    assert_eq!(status, 200, "{body}");
-    let (status, body) = approve_with_token(&resources, &bound, outside).await;
-    assert_eq!(status, 404, "another tenant's user is out of scope: {body}");
-    assert!(body.contains(refusal), "{body}");
-    assert_eq!(
-        stored(&resources, outside).await.user_status,
-        UserStatus::Suspended,
-        "the refused approval wrote nothing"
-    );
-    let (status, body) = approve_with_token(&resources, &bound, inside).await;
-    assert_eq!(
-        status, 200,
-        "the token approves a user of its tenant: {body}"
-    );
-    assert_eq!(
-        stored(&resources, inside).await.user_status,
-        UserStatus::Active
-    );
-}
-
 /// What stands where an answer carried a reset token.
 const RESET_TOKEN_NOT_QUOTED: &str = "[a reset token, not quoted]";
 
@@ -1104,49 +915,20 @@ async fn complete_reset(resources: &Arc<ServerContext>, reset_token: &str, passw
 }
 
 /// The reset route answers with the reset token itself, and whoever holds it
-/// chooses the account's next password and signs in as the account. Handed
-/// to a `ManageUsers` token for an admin, that was every power in two
-/// requests, and the admin locked out. Such a token is handed a reset for a
-/// user only; a super-admin token and an admin's console session reset an
-/// admin's.
+/// chooses the account's next password and signs in as the account. An
+/// admin's console session is handed a working reset for a user, and one for
+/// another admin.
 #[tokio::test]
-async fn a_token_without_the_super_admin_flag_resets_a_users_password_and_never_an_admins() {
+async fn an_admins_session_resets_a_users_password_and_another_admins() {
     let resources = create_test_server_resources().await.unwrap();
     let (admin, _) = account(&resources, "standing@example.com", UserRole::Admin).await;
     let (_, peer_auth) = account(&resources, "peer@example.com", UserRole::Admin).await;
     let (athlete, _) = account(&resources, "athlete@example.com", UserRole::User).await;
-    let manage_users = desk_token(&resources, &[admin.id, athlete.id]).await;
-    let flagged = service_token(&resources, "platform-ops", true).await;
-    let token_path = |target: Uuid| format!("/admin/users/{target}/reset-password");
+    let console_path = |target: Uuid| format!("/api/admin/users/{target}/reset-password");
 
-    let (status, body, _) =
-        reset_password(token_api(&resources), &token_path(admin.id), &manage_users).await;
-    assert_eq!(status, 403, "ManageUsers alone resets no admin: {body}");
-    assert!(
-        body.contains(RANK_REFUSAL),
-        "the refusal is the rank rule's: {body}"
-    );
-    assert!(
-        !body.contains("reset_token"),
-        "the refusal hands over no reset token: {body}"
-    );
-    assert_eq!(
-        reset_tokens_issued_for(&resources, admin.id).await,
-        0,
-        "and none was issued behind it"
-    );
-    // The admin's password is still the one it chose: it approves a login.
-    device_login(&resources, &admin.email).await;
-
-    // The positive control: the same token, the same route, a plain user,
-    // and the reset it is handed is a working one.
-    let (status, body, reset_token) = reset_password(
-        token_api(&resources),
-        &token_path(athlete.id),
-        &manage_users,
-    )
-    .await;
-    assert_eq!(status, 200, "ManageUsers resets a user: {body}");
+    let (status, body, reset_token) =
+        reset_password(console(&resources), &console_path(athlete.id), &peer_auth).await;
+    assert_eq!(status, 200, "an admin's session resets a user: {body}");
     let reset_token = reset_token.expect("the answer carries the reset token");
     assert_eq!(reset_tokens_issued_for(&resources, athlete.id).await, 1);
     assert_eq!(
@@ -1154,19 +936,10 @@ async fn a_token_without_the_super_admin_flag_resets_a_users_password_and_never_
         200
     );
 
-    // The flag is the rank: a super-admin token is handed an admin's reset,
-    // and so is another admin's console session.
     let (status, body, _) =
-        reset_password(token_api(&resources), &token_path(admin.id), &flagged).await;
-    assert_eq!(status, 200, "a super-admin token resets an admin: {body}");
-    let (status, body, _) = reset_password(
-        console(&resources),
-        &format!("/api/admin/users/{}/reset-password", admin.id),
-        &peer_auth,
-    )
-    .await;
+        reset_password(console(&resources), &console_path(admin.id), &peer_auth).await;
     assert_eq!(status, 200, "an admin's session resets an admin: {body}");
-    assert_eq!(reset_tokens_issued_for(&resources, admin.id).await, 2);
+    assert_eq!(reset_tokens_issued_for(&resources, admin.id).await, 1);
 }
 
 /// An approval is not a token yet: the CLI polls for it. An admin demoted
@@ -1402,7 +1175,7 @@ async fn a_deleted_admin_is_named_by_no_token_row_however_it_was_rotated() {
     // from here on is named from its row: the trail, which the production
     // composition records every admin write on, does not get the id back.
     let (athlete, _) = account(&resources, "athlete@example.com", UserRole::User).await;
-    let response = AxumTestRequest::post(&format!("/admin/suspend-user/{}", athlete.id))
+    let response = AxumTestRequest::post(&format!("/admin/users/{}/onboarding/reset", athlete.id))
         .header("authorization", &replacement_cli)
         .json(&json!({ "reason": "carnet#1574" }))
         .send(ProviderToolRouter::build_http_app(&resources))
@@ -1419,7 +1192,7 @@ async fn a_deleted_admin_is_named_by_no_token_row_however_it_was_rotated() {
         written
             .iter()
             .any(|row| row.metadata["service"] == DEVICE_CLI_DELETED_ACCOUNT_SERVICE),
-        "the suspension is on the trail under the row's name: {written:?}"
+        "the onboarding reset is on the trail under the row's name: {written:?}"
     );
     let named: Vec<&AuditEventRecord> = written
         .iter()

@@ -14,6 +14,7 @@
 //! through the slash commands in `chat_slash_commands_test`.
 
 use crate::common;
+use pierre_tool_runtime::tool_data::ToolData;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -69,7 +70,7 @@ impl McpTool<dyn ToolRuntime> for NoticesARun {
     }
 }
 
-pierre_tool_runtime::declare_security!(NoticesARun => IRREVERSIBLE);
+pierre_tool_runtime::declare_security!(NoticesARun => IRREVERSIBLE, reads: ToolData::own(&[]));
 
 /// A server that registers [`NoticesARun`], and the flag it sets.
 async fn server() -> (Arc<ServerContext>, Arc<AtomicBool>) {

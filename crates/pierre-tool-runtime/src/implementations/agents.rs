@@ -22,6 +22,7 @@
 //! - `ListHiddenAgentsTool` - List hidden agents
 
 use crate::annotations::{annotations, Effect, Reach};
+use crate::tool_data::ToolData;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -852,16 +853,26 @@ pub fn create_agent_tools() -> Vec<Box<dyn RuntimeTool>> {
 // Guardian security classifications (see `crate::security`). Co-located here so
 // each impl sits under this module's existing feature gate; the compiler forces
 // every registered tool to classify (the registry stores `Arc<dyn RuntimeTool>`).
-crate::declare_security!(DeleteAgentTool => IRREVERSIBLE; first_party_only);
-crate::declare_security!(ActivateAgentTool => empty; first_party_only);
-crate::declare_security!(CreateAgentTool => empty; first_party_only);
-crate::declare_security!(DeactivateAgentTool => empty; first_party_only);
-crate::declare_security!(GetActiveAgentTool => empty; first_party_only);
-crate::declare_security!(GetAgentTool => empty; first_party_only);
-crate::declare_security!(HideAgentTool => empty; first_party_only);
-crate::declare_security!(ListAgentsTool => empty; first_party_only);
-crate::declare_security!(ListHiddenAgentsTool => empty; first_party_only);
-crate::declare_security!(SearchAgentsTool => empty; first_party_only);
-crate::declare_security!(ShowAgentTool => empty; first_party_only);
-crate::declare_security!(ToggleAgentFavoriteTool => empty; first_party_only);
-crate::declare_security!(UpdateAgentTool => empty; first_party_only);
+crate::declare_security!(
+    DeleteAgentTool => IRREVERSIBLE; first_party_only,
+    reads: ToolData::own(&[]),
+);
+crate::declare_security!(ActivateAgentTool => empty; first_party_only, reads: ToolData::own(&[]));
+crate::declare_security!(CreateAgentTool => empty; first_party_only, reads: ToolData::own(&[]));
+crate::declare_security!(DeactivateAgentTool => empty; first_party_only, reads: ToolData::own(&[]));
+crate::declare_security!(GetActiveAgentTool => empty; first_party_only, reads: ToolData::own(&[]));
+crate::declare_security!(GetAgentTool => empty; first_party_only, reads: ToolData::own(&[]));
+crate::declare_security!(HideAgentTool => empty; first_party_only, reads: ToolData::own(&[]));
+// The agent catalogue and the caller's own agents.
+crate::declare_security!(ListAgentsTool => empty; first_party_only, reads: ToolData::own(&[]));
+crate::declare_security!(
+    ListHiddenAgentsTool => empty; first_party_only,
+    reads: ToolData::own(&[]),
+);
+crate::declare_security!(SearchAgentsTool => empty; first_party_only, reads: ToolData::own(&[]));
+crate::declare_security!(ShowAgentTool => empty; first_party_only, reads: ToolData::own(&[]));
+crate::declare_security!(
+    ToggleAgentFavoriteTool => empty; first_party_only,
+    reads: ToolData::own(&[]),
+);
+crate::declare_security!(UpdateAgentTool => empty; first_party_only, reads: ToolData::own(&[]));

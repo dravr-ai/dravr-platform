@@ -20,6 +20,7 @@ mod group_weekly_digest_tests {
     };
     use pierre_core::models::UnitSystem;
     use pierre_database::backends::factory::DatabaseBackend;
+    use pierre_groups::strategies::aggregation::{GroupAggregationStrategy, LiveAggregation};
     use pierre_groups::GroupService;
     use pierre_mcp_server::mcp::resources::ServerContext;
     use pierre_notifications::models::NotificationCategory;
@@ -56,10 +57,10 @@ mod group_weekly_digest_tests {
             atl: form.map(|(ctl, tsb)| ctl - tsb),
             tsb: form.map(|(_, tsb)| tsb),
             form_ctl: form.map(|(ctl, _)| ctl),
-            weekly_volume_km: km,
+            weekly_volume_km: Some(km),
             previous_week_volume_km: prev_km,
-            weekly_activity_count: 3,
-            weekly_duration_seconds: 3600,
+            weekly_activity_count: Some(3),
+            weekly_duration_seconds: Some(3600),
             primary_sport: None,
             vdot: None,
             overtraining_risk: OvertrainingRiskLevel::Low,
@@ -84,7 +85,7 @@ mod group_weekly_digest_tests {
         let stats = GroupAggregateStats {
             total_members: 3,
             active_members: 2,
-            avg_weekly_volume_km: 140.833,
+            avg_weekly_volume_km: Some(140.833),
             avg_ctl: Some(100.0),
             flagged_members: 0,
             weekly_trend: GroupTrend::Improving,
@@ -253,7 +254,7 @@ En forme :
         let stats = GroupAggregateStats {
             total_members: 1,
             active_members: 1,
-            avg_weekly_volume_km: 40.0,
+            avg_weekly_volume_km: Some(40.0),
             avg_ctl: None,
             flagged_members: 0,
             weekly_trend: GroupTrend::Stable,
@@ -265,6 +266,40 @@ En forme :
             "{body}"
         );
         assert!(body.contains("Volume du groupe stable"), "{body}");
+    }
+
+    /// A week none of the members' stored histories reach has no average.
+    /// The stored parameter is null, and the digest leaves the summary and
+    /// the trend out instead of writing a zero or an empty slot.
+    #[test]
+    fn a_week_nobody_is_read_for_has_no_average_and_no_summary_line() {
+        let mut unread = snapshot("Phil", 0.0, None, None, Some(2));
+        unread.weekly_volume_km = None;
+        let snapshots = vec![unread];
+        let stats = LiveAggregation.aggregate_stats(&snapshots);
+        assert_eq!(
+            stats.avg_weekly_volume_km, None,
+            "an unread week averaged to a figure"
+        );
+
+        let params = digest_params("Solo", &stats, &snapshots, &[]);
+        assert_eq!(
+            params["avg_volume_km"],
+            Value::Null,
+            "the stored average is absent, never zero: {params}"
+        );
+        assert_eq!(
+            params["members"].as_array().unwrap().len(),
+            0,
+            "a member whose week is unread has no volume line: {params}"
+        );
+
+        let (_, body) = render("fr", &params);
+        assert_eq!(
+            body, "Rien à signaler côté forme et assiduité cette semaine.",
+            "no summary, no trend and no leading blank line"
+        );
+        assert!(!body.contains("km"), "{body}");
     }
 
     fn notification_service(resources: &ServerContext) -> NotificationService {

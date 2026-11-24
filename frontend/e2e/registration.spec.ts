@@ -8,11 +8,10 @@
 import { test, expect, type Page } from '@playwright/test';
 import { createHash } from 'node:crypto';
 import { APP_SHELL_TIMEOUT_MS, loginToDashboard, setupDashboardMocks, waitForLoginScreen } from './test-helpers';
-import { mockSetupStatus, mockSignupConfig } from './auth-mocks';
+import { mockSignupConfig } from './auth-mocks';
 
 // Helper to set up common API mocks for the registration page
 async function setupBasicMocks(page: import('@playwright/test').Page) {
-  await mockSetupStatus(page);
   await mockSignupConfig(page);
 }
 

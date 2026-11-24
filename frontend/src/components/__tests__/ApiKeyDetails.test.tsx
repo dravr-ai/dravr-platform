@@ -13,7 +13,7 @@ import type { AdminToken } from '../../types/api';
 const revokeAdminToken = vi.fn();
 const rotateAdminToken = vi.fn();
 
-// The server serves GET/revoke/rotate under /admin/tokens/{token_id} and nothing
+// The server serves revoke and rotate under /api/admin/tokens/{token_id} and nothing
 // else per token, so the screen's whole API surface is these two mutations.
 // Any other adminApi method the component reached would be undefined here.
 vi.mock('../../services/api', () => ({
@@ -73,7 +73,7 @@ describe('ApiKeyDetails', () => {
   it('shows no panel for per-token data the server does not serve', () => {
     renderDetails();
 
-    // /admin/tokens/{id}/audit, /usage-stats and /provisioned-keys are not
+    // /api/admin/tokens/{id}/audit, /usage-stats and /provisioned-keys are not
     // routes; these panels could only ever render their empty state.
     expect(screen.queryByText('Usage Statistics')).not.toBeInTheDocument();
     expect(screen.queryByText('Recent Activity')).not.toBeInTheDocument();

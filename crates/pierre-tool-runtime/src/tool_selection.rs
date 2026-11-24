@@ -467,15 +467,6 @@ impl ToolSelectionService {
         debug!("Invalidated tool selection cache for tenant {tenant_id}");
     }
 
-    /// Get the tool catalog (all tools regardless of tenant)
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if database operations fail
-    pub async fn get_catalog(&self) -> AppResult<Vec<ToolCatalogEntry>> {
-        self.usage.tool_selection.get_tool_catalog().await
-    }
-
     /// Compute effective tools for a tenant (no caching)
     ///
     /// If the tenant doesn't exist in the database, falls back to catalog defaults

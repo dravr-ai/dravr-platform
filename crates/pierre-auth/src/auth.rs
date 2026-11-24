@@ -42,7 +42,6 @@ use pierre_core::models::{AuthRequest, AuthResponse, User, UserSession};
 use pierre_core::permissions::impersonation::SESSION_MINUTES;
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::uuid_utils::parse_uuid;
-use pierre_database::backends::UserRepository;
 
 /// `2026-11-17 10:00:05 UTC`: when a token expired.
 const EXPIRED_AT: Pattern<Timestamp> = date_pattern!(Timestamp, "%Y-%m-%d %H:%M:%S UTC");
@@ -55,19 +54,6 @@ pub use method::{
     refuse_support_session, AuthMethod, ImpersonationGrant, IMPERSONATION_REFUSED_ACTION,
     IMPERSONATION_WRITE_REFUSED,
 };
-
-/// Response for checking system setup status
-///
-/// Used by admin setup flow to determine if initial configuration is needed.
-#[derive(Debug, Serialize)]
-pub struct SetupStatusResponse {
-    /// Whether the system needs initial setup
-    pub needs_setup: bool,
-    /// Whether an admin user already exists
-    pub admin_user_exists: bool,
-    /// Optional status message
-    pub message: Option<String>,
-}
 
 /// Convert a duration to a human-readable format
 fn humanize_duration(duration: Elapsed) -> String {
@@ -179,8 +165,8 @@ impl Error for JwtValidationError {}
 /// `JWT` claims for user authentication
 ///
 /// The `active_tenant_id` field represents the currently active tenant context
-/// for this session. Users can belong to multiple tenants (via `tenant_users` table)
-/// and switch between them by obtaining a new token with a different `active_tenant_id`.
+/// for this session. Users can belong to multiple tenants (via `tenant_users` table);
+/// sign-in names the tenant a session acts in, and no route changes it afterwards.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Claims {
     /// User `ID`
@@ -202,8 +188,8 @@ pub struct Claims {
     /// The tenant this session asks to act in (a user can belong to several).
     ///
     /// It is honoured only after `pierre_runtime_context::tenant::resolve_tenant` finds a
-    /// membership row for it; a session naming none acts in the account's first tenant. `POST
-    /// /tenants/switch` changes it.
+    /// membership row for it; a session naming none acts in the account's first tenant. Sign-in
+    /// sets it and a session refresh or restore carries it forward.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub active_tenant_id: Option<String>,
     /// Original user ID when impersonating (the admin)
@@ -451,7 +437,7 @@ impl AuthManager {
 
     /// [`Self::generate_token_with_tenant`] for a session a client signed in
     /// to: `client_id` is the first-party app that redeemed the code, or, on
-    /// a refresh, restore or tenant switch, the client the session named.
+    /// a refresh or restore, the client the session named.
     ///
     /// # Errors
     ///
@@ -567,34 +553,6 @@ impl AuthManager {
             target_user,
             impersonator_id,
             session_id,
-            expiry,
-            jwks_manager,
-            active_tenant_id,
-        )
-    }
-
-    /// Re-mint the impersonation token `grant` names for `target_user`, with
-    /// another active tenant: the same admin and session, and an expiry no
-    /// later than the token it replaces, so a tenant switch never stretches an
-    /// impersonation past its hour or out of its session's revocation.
-    ///
-    /// # Errors
-    ///
-    /// As [`Self::generate_impersonation_token`].
-    pub fn reissue_impersonation_token(
-        &self,
-        target_user: &User,
-        grant: &ImpersonationGrant,
-        jwks_manager: &JwksManager,
-        active_tenant_id: Option<String>,
-    ) -> AppResult<String> {
-        let expiry = (Timestamp::now() + Elapsed::minutes(SESSION_MINUTES))
-            .epoch_seconds()
-            .min(grant.expires_at);
-        Self::impersonation_token(
-            target_user,
-            grant.impersonator_id,
-            &grant.session_id,
             expiry,
             jwks_manager,
             active_tenant_id,
@@ -1026,56 +984,6 @@ impl AuthManager {
 
         // Generate new token - atomic counter ensures uniqueness
         self.generate_token(user, jwks_manager)
-    }
-
-    /// Check if initial setup is needed by verifying if any admin user exists
-    ///
-    /// This checks for any active user holding the admin role, consistent with
-    /// how the admin setup endpoint validates existing admin users.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    /// - Database connection fails
-    /// - Database query execution fails
-    /// - User data deserialization fails
-    pub async fn check_setup_status(
-        &self,
-        users: &dyn UserRepository,
-    ) -> AppResult<SetupStatusResponse> {
-        // Check for any active user holding the admin role (consistent with admin setup endpoint)
-        match users.get_by_status("active", None).await {
-            Ok(users) => {
-                let admin_exists = users.iter().any(|u| u.role.is_admin());
-                if admin_exists {
-                    // Admin user exists, setup is complete
-                    Ok(SetupStatusResponse {
-                        needs_setup: false,
-                        admin_user_exists: true,
-                        message: None,
-                    })
-                } else {
-                    // No admin user exists, setup is needed
-                    Ok(SetupStatusResponse {
-                        needs_setup: true,
-                        admin_user_exists: false,
-                        message: Some("Run 'cargo run --bin pierre-cli -- user create' to create default admin credentials".into()),
-                    })
-                }
-            }
-            Err(e) => {
-                // Database error
-                error!("Error checking admin user existence: {}", e);
-                Ok(SetupStatusResponse {
-                    needs_setup: true,
-                    admin_user_exists: false,
-                    message: Some(
-                        "Unable to verify admin user status. Please check database connection."
-                            .to_owned(),
-                    ),
-                })
-            }
-        }
     }
 
     /// Generate client credentials token with RS256 asymmetric signing

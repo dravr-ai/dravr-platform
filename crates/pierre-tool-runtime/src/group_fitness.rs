@@ -20,7 +20,6 @@ use dravr_cageux::training_load::TrainingLoadCalculator;
 use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp, Zone};
 use futures_util::future::join_all;
 use pierre_core::civil_time::{clock_date, local_date, resolve_zone};
-use pierre_core::constants::time_constants::DAYS_PER_WEEK;
 use pierre_core::constants::units::METERS_PER_KM;
 use pierre_core::models::groups::{
     FormMorning, MemberFitnessSnapshot, OvertrainingRiskLevel, RosterActivity,
@@ -44,6 +43,10 @@ use crate::runtime::ToolRuntime;
 use pierre_providers::ai_scope;
 use pierre_providers::backend_resolver;
 use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
+
+mod monday_weeks;
+
+use monday_weeks::read_monday_weeks;
 
 /// Lookback (days of the athlete's calendar, their today included) for the
 /// `recent_activities` roster list rendered into the group context. One week
@@ -319,93 +322,17 @@ fn deep_fatigue_mornings(
     run
 }
 
-/// Aggregated current-week metrics plus the prior week's volume trend input.
-///
-/// `previous_week_volume_km` is `None` when no activity falls in the
-/// 7-to-14-day window — the group trend aggregation treats a missing prior
-/// week as "no trend signal" rather than a zero-volume week.
-#[derive(Debug)]
-pub struct WeeklyMetrics {
-    /// Number of activities in the trailing 7-day window.
-    pub activity_count: i32,
-    /// Distance (km) summed across the trailing 7-day window.
-    pub volume_km: f64,
-    /// Total active duration (seconds) across the trailing 7-day window.
-    pub duration_seconds: u64,
-    /// Distance (km) for the 7-to-14-day window, or `None` when that window
-    /// holds no activities. Feeds the group-level weekly trend.
-    pub previous_week_volume_km: Option<f64>,
-    /// Days on the athlete's calendar from the one their most recent session
-    /// started on to their today, or `None` when there are none.
-    pub days_since_last: Option<i32>,
-}
-
-/// Compute weekly metrics from activities in the past 7 days, plus the prior
-/// week's volume for trend detection.
-///
-/// `duration_seconds` is the sum of `Activity::duration_seconds()` across the
-/// week — preserved separately from `volume_km` so HR/duration-only sources
-/// (WHOOP, indoor trainers) surface as training volume even with no GPS.
-/// `previous_week_volume_km` covers the 7-to-14-day window and feeds the
-/// group-level weekly trend; the 60-day lookback already fetched that data.
-///
-/// Every window counts days of the athlete's calendar in `zone`, the one the
-/// roster lists each session's day on (carnet#1640). This week is their today
-/// and the six days before it, the week before is the seven days before
-/// that, and `days_since_last` is one for a session yesterday where they
-/// live at any hour: never 24-hour spans back from `now`, which move a
-/// session between weeks at the hour of day it started.
-#[must_use]
-pub fn compute_weekly_metrics(
-    activities: &[Activity],
-    now: Timestamp,
-    zone: &Zone,
-) -> WeeklyMetrics {
+/// Days on the athlete's calendar in `zone` from the one their most recent
+/// session started on to their today, or `None` when there are none: one
+/// for a session yesterday where they live at any hour, never 24-hour spans
+/// back from `now` (carnet#1640).
+fn days_since_last(activities: &[Activity], now: Timestamp, zone: &Zone) -> Option<i32> {
     let today = clock_date(now, zone);
-    let days_back = |a: &Activity| days_before(today, a.start_date(), zone);
-    // Days in one week, splitting the current week from the previous one.
-    let week = i64::from(DAYS_PER_WEEK);
-    let weekly_activities: Vec<_> = activities.iter().filter(|a| days_back(a) < week).collect();
-
-    let weekly_activity_count = i32::try_from(weekly_activities.len()).unwrap_or(i32::MAX);
-
-    let weekly_volume_km = weekly_activities
-        .iter()
-        .filter_map(|a| a.distance_meters())
-        .sum::<f64>()
-        / METERS_PER_KM;
-
-    let weekly_duration_seconds: u64 = weekly_activities.iter().map(|a| a.duration_seconds()).sum();
-
-    let previous_week: Vec<_> = activities
-        .iter()
-        .filter(|a| (week..2 * week).contains(&days_back(a)))
-        .collect();
-    let previous_week_volume_km = if previous_week.is_empty() {
-        None
-    } else {
-        Some(
-            previous_week
-                .iter()
-                .filter_map(|a| a.distance_meters())
-                .sum::<f64>()
-                / METERS_PER_KM,
-        )
-    };
-
-    let days_since_last = activities
+    activities
         .iter()
         .map(Activity::start_date)
         .max()
-        .map(|last| i32::try_from(days_before(today, last, zone)).unwrap_or(i32::MAX));
-
-    WeeklyMetrics {
-        activity_count: weekly_activity_count,
-        volume_km: weekly_volume_km,
-        duration_seconds: weekly_duration_seconds,
-        previous_week_volume_km,
-        days_since_last,
-    }
+        .map(|last| i32::try_from(days_before(today, last, zone)).unwrap_or(i32::MAX))
 }
 
 /// The days on the athlete's calendar in `zone` from the one a session
@@ -634,6 +561,19 @@ async fn fetch_single_member_snapshot(
     needs_reauth.sort_unstable();
     needs_reauth.dedup();
     snapshot.needs_reauth_providers = needs_reauth;
+    // The weekly figures are the Monday weeks the member's Home volume card
+    // shows, read in the one tenant that card reads, after the fetch above
+    // wrote its rows through, under the member's own AI consents as their
+    // activities are.
+    let today = clock_date(now, &resolve_zone(snapshot.timezone.as_deref()));
+    Box::pin(under_ai_consent(
+        data.repos(),
+        fallback_tenant_id.as_uuid(),
+        user_id,
+        read_monday_weeks(runtime, user_id, fallback_tenant_id, today),
+    ))
+    .await
+    .fill(&mut snapshot);
     snapshot.served_stale = served_stale;
     snapshot
 }
@@ -683,7 +623,6 @@ fn build_snapshot_from_activities(
     let deep_fatigue_mornings = daily.as_ref().map_or_else(Vec::new, |daily| {
         deep_fatigue_mornings(&algorithm, daily, today, load.as_ref())
     });
-    let weekly = compute_weekly_metrics(activities, now, &zone);
     let primary_sport = determine_primary_sport(activities);
     let overtraining_risk = assess_overtraining_risk(load.as_ref());
     let last_activity_per_provider = compute_last_activity_per_provider(activities);
@@ -696,14 +635,17 @@ fn build_snapshot_from_activities(
         atl: load.as_ref().map(|l| l.atl),
         tsb: load.as_ref().map(|l| l.tsb),
         form_ctl: load.as_ref().map(|l| l.form_ctl),
-        weekly_volume_km: weekly.volume_km,
-        previous_week_volume_km: weekly.previous_week_volume_km,
-        weekly_activity_count: weekly.activity_count,
-        weekly_duration_seconds: weekly.duration_seconds,
+        // Read from the aggregator by the caller (fetch_single_member_snapshot):
+        // the weekly figures are the stored Monday weeks Home counts, never a
+        // sum over this fetched list.
+        weekly_volume_km: None,
+        previous_week_volume_km: None,
+        weekly_activity_count: None,
+        weekly_duration_seconds: None,
         primary_sport,
         vdot: None,
         overtraining_risk,
-        days_since_last_activity: weekly.days_since_last,
+        days_since_last_activity: days_since_last(activities, now, &zone),
         last_activity_per_provider,
         recent_activities,
         // Populated by the caller (fetch_single_member_snapshot), which holds the repos
@@ -722,9 +664,9 @@ fn build_snapshot_from_activities(
 ///
 /// Returns at most `RECENT_ACTIVITIES_LIMIT` activities from the last
 /// `RECENT_ACTIVITIES_LOOKBACK_DAYS` days of the athlete's calendar in
-/// `zone`, their today included, newest first: the days this week's volume
-/// counts. The cap is applied after the day filter so a single heavy week
-/// doesn't push older context into the prompt.
+/// `zone`, their today included, newest first. The cap is applied after the
+/// day filter so a single heavy week doesn't push older context into the
+/// prompt.
 fn compute_recent_activities(
     activities: &[Activity],
     now: Timestamp,
@@ -813,10 +755,10 @@ fn empty_snapshot(
         atl: None,
         tsb: None,
         form_ctl: None,
-        weekly_volume_km: 0.0,
+        weekly_volume_km: None,
         previous_week_volume_km: None,
-        weekly_activity_count: 0,
-        weekly_duration_seconds: 0,
+        weekly_activity_count: None,
+        weekly_duration_seconds: None,
         primary_sport: None,
         vdot: None,
         overtraining_risk: OvertrainingRiskLevel::Low,
@@ -902,10 +844,11 @@ mod tests {
 
         let recent = compute_recent_activities(&activities, now, &Zone::utc());
         let durations: Vec<u64> = recent.iter().map(|a| a.duration_seconds).collect();
-        assert_eq!(durations, [3_239, 1_801]);
-
-        let weekly = compute_weekly_metrics(&activities, now, &Zone::utc());
-        assert_eq!(weekly.duration_seconds, 5_040);
+        assert_eq!(
+            durations,
+            [3_239, 1_801],
+            "bug: a roster duration lost its seconds"
+        );
     }
 
     #[test]
@@ -1157,25 +1100,13 @@ mod tests {
     }
 
     #[test]
-    fn the_weeks_are_the_athletes_calendar_days() {
-        // One 6 km run a day at 12:30 on her calendar, the last on her
-        // yesterday: this week is her today and the six days before it, six
-        // runs; the week before holds the seven before that. Counted as
-        // 24-hour spans back from now, the run seven days back moves into
-        // this week whenever it is before 12:30 where she lives.
+    fn the_recent_list_is_the_athletes_calendar_days() {
+        // One run a day at 12:30 on her calendar, the last on her yesterday:
+        // the list holds her today and the six days before it, never the
+        // 24-hour spans back from now, which move the run seven days back
+        // into it whenever it is before 12:30 where she lives.
         for (now, zone) in readings() {
             let snapshot = snapshot_at(now, zone);
-            assert_eq!(snapshot.weekly_activity_count, 6, "{zone} at {now}");
-            assert!(
-                (snapshot.weekly_volume_km - 36.0).abs() < 1e-9,
-                "{zone} at {now}: {}",
-                snapshot.weekly_volume_km
-            );
-            let previous = snapshot.previous_week_volume_km.unwrap();
-            assert!(
-                (previous - 42.0).abs() < 1e-9,
-                "{zone} at {now}: {previous}"
-            );
             let here = clock_date(now, &resolve_zone(Some(zone)));
             let days: Vec<CivilDate> = snapshot
                 .recent_activities

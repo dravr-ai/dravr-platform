@@ -42,7 +42,8 @@ use helpers::messaging_eval::{
     assert_citation_grounded, assert_guardrail, assert_tool_called, CitationFixture,
     CitationMismatch, Tolerances,
 };
-use serde_json::json;
+use pierre_core::models::usage::LlmUsageRecord;
+use pierre_core::models::{ConversationTurnId, TURN_SUMMARY_CALL_TYPE};
 
 /// Probe class 1: **date-range invention**.
 ///
@@ -132,8 +133,8 @@ fn probe_prereq_bypass_flagged_by_missing_prereq_refusal() {
 ///
 /// Agent narrates a tool it does not have — "let me check your Strava
 /// segments on Google Maps" — without emitting any `<tool_call>` block.
-/// The pipeline executes no tool; the endpoint's `tools_called` array
-/// is empty. The tool-called asserter flags the absence.
+/// The pipeline executes no tool; no row of the turn names one in its
+/// `tools_called`. The tool-called asserter flags the absence.
 ///
 /// The Phase 0+1 defense against this class is the runtime tool list
 /// injected at Stage 7a.2, which tells the LLM exactly which tools
@@ -141,22 +142,37 @@ fn probe_prereq_bypass_flagged_by_missing_prereq_refusal() {
 /// slips, this probe catches it.
 #[test]
 fn probe_fabricated_tool_flagged_by_empty_tools_called() {
-    // Turn summary from a turn where no tool actually ran.
-    let turn_data = json!({
-        "turn_id": "11111111-2222-3333-4444-555555555555",
-        "tenant_id": "t-probe",
-        "user_id": "u-probe",
-        "tools_called": [],
-        "llm_calls": [],
-        "total_tokens": 53_i64,
-        "total_prompt_tokens": 42_i64,
-        "total_completion_tokens": 11_i64,
-        "total_latency_ms": 800_i64,
-        "first_call_at": "2026-04-23T14:00:00Z",
-        "last_call_at": "2026-04-23T14:00:01Z"
-    });
+    // The rows of a turn where no tool actually ran: one LLM call and the
+    // turn's summary, neither naming a tool.
+    let turn_rows: Vec<LlmUsageRecord> = [("chat", 53_i64), (TURN_SUMMARY_CALL_TYPE, 0)]
+        .into_iter()
+        .map(|(call_type, total_tokens)| LlmUsageRecord {
+            id: format!("row-{call_type}"),
+            tenant_id: "t-probe".to_owned(),
+            user_id: "u-probe".to_owned(),
+            conversation_id: None,
+            turn_id: ConversationTurnId::new(),
+            provider: "mock".to_owned(),
+            model: "mock-model".to_owned(),
+            prompt_tokens: total_tokens,
+            completion_tokens: 0,
+            total_tokens,
+            cached_tokens: 0,
+            cached_write_tokens: 0,
+            cached_write_1h_tokens: 0,
+            reasoning_tokens: 0,
+            call_type: call_type.to_owned(),
+            tool_calls_count: 0,
+            tools_called: "[]".to_owned(),
+            execution_time_ms: Some(800),
+            cost_usd: 0.0,
+            call_sequence: None,
+            created_at: "2026-04-23T14:00:00Z".to_owned(),
+            outcome: None,
+        })
+        .collect();
 
-    let err = assert_tool_called(&turn_data, "google_maps_lookup")
+    let err = assert_tool_called(&turn_rows, "google_maps_lookup")
         .expect_err("no tool actually ran; asserter must flag fabricated invocation");
     assert_eq!(err.expected, "google_maps_lookup");
     assert!(

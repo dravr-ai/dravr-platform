@@ -4594,9 +4594,9 @@ fn the_roster_overview_shares_only_the_roster_card_fields() {
                 status: RosterAthleteStatus::Shared,
                 training: Some(RosterTraining {
                     days_since_last_activity: Some(2),
-                    sessions_this_week: 3,
-                    seconds_this_week: 11_100,
-                    km_this_week: 31.5,
+                    sessions_this_week: Some(3),
+                    seconds_this_week: Some(11_100),
+                    km_this_week: Some(31.5),
                     km_previous_week: Some(40.0),
                     primary_sport: Some("Run".to_owned()),
                     ctl: Some(54.0),

@@ -30,6 +30,8 @@
 //! The tool acts for the caller only: it is in no data class, so a coach's
 //! thread about an athlete withholds it.
 
+use crate::tool_data::ToolData;
+use dravr_barrage::Stream;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -303,4 +305,9 @@ pub fn create_place_tools() -> Vec<Box<dyn RuntimeTool>> {
 // Writes a name or a home declaration in Dravr's own database; nothing
 // leaves, a clear brings the automatic name back, and forget the automatic
 // home.
-crate::declare_security!(NamePlaceTool => empty);
+// The places the athlete trains from, by the names they gave them.
+crate::declare_security!(
+    NamePlaceTool => empty,
+    reads: ToolData::own(&[Stream::WorkoutRoute])
+        .with_athlete_text(),
+);

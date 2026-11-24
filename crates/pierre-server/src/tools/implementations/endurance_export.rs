@@ -4,8 +4,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use dravr_barrage::Stream;
 use pierre_providers::ai_scope;
 use pierre_tool_runtime::annotations::{annotations, Effect, Reach};
+use pierre_tool_runtime::read_subject::DataClass;
+use pierre_tool_runtime::tool_data::ToolData;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
@@ -399,5 +402,23 @@ pub fn create_endurance_export_tools() -> Vec<Box<dyn RuntimeTool>> {
 // tools read training data — the snapshot of the athlete the call reads (the
 // caller, or a coached athlete for a coach's read), the dossier of the caller
 // alone — internal, reversible, no egress.
-pierre_tool_runtime::declare_security!(ExportLatestSnapshotTool => empty; export);
-pierre_tool_runtime::declare_security!(ExportDossierTool => empty; export);
+pierre_tool_runtime::declare_security!(
+    ExportLatestSnapshotTool => empty; export,
+    reads: ToolData::of(DataClass::Training, &[Stream::Workout, Stream::WorkoutRoute])
+        .with_incidental_route(),
+);
+// The composed dossier carries the durable facts beside the training and
+// physiology; the claim checker reads the sessions and physiology a
+// claim names.
+pierre_tool_runtime::declare_security!(
+    ExportDossierTool => empty; export,
+    reads: ToolData::own(
+        &[
+            Stream::Workout,
+            Stream::TrainingLoad,
+            Stream::Fitness,
+            Stream::Profile,
+            Stream::RestrictedNotes,
+        ],
+    ),
+);

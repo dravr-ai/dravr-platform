@@ -5,6 +5,8 @@
 // Copyright (c) 2026 dravr.ai
 
 use crate::annotations::{annotations, Effect, Reach};
+use crate::read_subject::DataClass;
+use crate::tool_data::ToolData;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -343,5 +345,9 @@ fn build_refresh_service(context: &ToolExecutionContext) -> RefreshService {
 // Guardian security classifications (see `crate::security`). Co-located here so
 // each impl sits under this module's existing feature gate; the compiler forces
 // every registered tool to classify (the registry stores `Arc<dyn RuntimeTool>`).
-crate::declare_security!(GetDataFreshnessTool => empty);
-crate::declare_security!(RefreshProviderDataTool => empty);
+crate::declare_security!(
+    GetDataFreshnessTool => empty,
+    reads: ToolData::of(DataClass::Training, &[])
+        .with_connection_metadata(),
+);
+crate::declare_security!(RefreshProviderDataTool => empty, reads: ToolData::own(&[]));

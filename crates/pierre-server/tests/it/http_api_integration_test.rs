@@ -325,7 +325,7 @@ async fn test_sdk_user_registration_flow() -> Result<()> {
         display_name: Some("SDK Test User".to_owned()),
     };
 
-    let register_response = auth_routes.register(register_request).await?;
+    let register_response = auth_routes.self_register(register_request).await?;
     assert_ne!(register_response.user_id, "");
     assert!(register_response.message.contains("pending admin approval"));
 
@@ -468,7 +468,7 @@ async fn test_sdk_error_handling() -> Result<()> {
         display_name: Some("Test User".to_owned()),
     };
 
-    let result = auth_routes.register(invalid_email_request).await;
+    let result = auth_routes.self_register(invalid_email_request).await;
     assert!(result.is_err());
     assert!(result
         .unwrap_err()
@@ -483,7 +483,7 @@ async fn test_sdk_error_handling() -> Result<()> {
         display_name: Some("Test User".to_owned()),
     };
 
-    let result = auth_routes.register(short_password_request).await;
+    let result = auth_routes.self_register(short_password_request).await;
     assert!(result.is_err());
     assert!(result
         .unwrap_err()
@@ -498,8 +498,8 @@ async fn test_sdk_error_handling() -> Result<()> {
         display_name: Some("Test User".to_owned()),
     };
 
-    auth_routes.register(valid_request.clone()).await?;
-    let result = auth_routes.register(valid_request).await;
+    auth_routes.self_register(valid_request.clone()).await?;
+    let result = auth_routes.self_register(valid_request).await;
     assert!(result.is_err());
     assert!(result.unwrap_err().to_string().contains("already exists"));
 
@@ -554,7 +554,7 @@ async fn test_sdk_complete_onboarding_simulation() -> Result<()> {
         display_name: Some("Complete Test User".to_owned()),
     };
 
-    let register_response = auth_routes.register(register_request).await?;
+    let register_response = auth_routes.self_register(register_request).await?;
     let user_id = uuid::Uuid::parse_str(&register_response.user_id)?;
 
     // Step 2: Admin approves user (simulated, service token approval)

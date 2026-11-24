@@ -297,9 +297,9 @@ module "backend" {
   # (chat/insights/coach UI hung, rev 00464) and the Discord Gateway.
   # ADR-019 accepts this floor with the Copilot runner as its named owner, and
   # declined splitting that runner into its own service. Its reopen trigger, the
-  # default LLM moving off the ACP runner, fired on 2026-10-19: PIERRE_LLM_CHAIN
-  # now starts with the Anthropic API and Copilot is a fallback (copilot_sdk,
-  # 4th). Whether the floor still has an owner is owed a measurement.
+  # default LLM moving off the ACP runner, fired on 2026-10-19: Copilot is no
+  # longer the head of PIERRE_LLM_CHAIN, only a fallback. Whether the floor
+  # still has an owner is owed a measurement.
   cpu_idle                         = false
   startup_cpu_boost                = true
   min_instances                    = var.backend_min_instances
@@ -396,87 +396,77 @@ module "backend" {
       FIREBASE_PROJECT_ID = var.firebase_project_id
 
       # Email sender configuration
-      RESEND_FROM_EMAIL = "no-reply@dravr.ai"
+      RESEND_FROM_EMAIL = var.resend_from_email
 
       # Auto-approve: disabled globally, but dravr.ai emails bypass approval
       AUTO_APPROVE_USERS   = "false"
       AUTO_APPROVE_DOMAINS = "dravr.ai"
 
-      # LLM provider chain (2026-10-01; Anthropic head 2026-10-19,
-      # carnet#875; Opus head 2026-10-20, carnet#1108; Sonnet 5.5 on every
-      # Anthropic credential 2026-10-29): one ordered list,
-      # PIERRE_LLM_CHAIN, each entry `provider=model`
-      # (crates/pierre-llm/src/config.rs, LlmChain). The first entry serves
-      # every turn; a provider fault or an empty answer moves the turn to the
-      # next one, each tier on its own model. A provider's additional
-      # credentials sit right behind it wherever it is: anthropic is followed
-      # by anthropic#2 (ANTHROPIC_API_KEY_2) and anthropic#3
-      # (ANTHROPIC_API_KEY_3), and claude_code by claude-code#2
-      # (CLAUDE_CODE_OAUTH_TOKEN_2), both bound below — a refused credential
-      # moves the turn to the next one before the chain leaves that provider
-      # (carnet#480, carnet#688). A credential runs its provider's model unless
-      # a `provider#N=model` entry names its own; that entry sets the model
-      # only, never the position. Cohere is out.
+      # LLM provider chain: one ordered list, PIERRE_LLM_CHAIN, each entry
+      # `provider=model` (crates/pierre-llm/src/config.rs, LlmChain). Which
+      # providers, in which order and on which models is var.llm_chain, set in
+      # the private var-file. The first entry serves every turn; a provider
+      # fault or an empty answer moves the turn to the next one, each tier on
+      # its own model. A provider's further credentials sit right behind it
+      # wherever it is, as `provider#N`, each read from that provider's
+      # numbered variable bound in secret_env_vars below: a refused credential
+      # moves the turn to the next one before the chain leaves that provider.
+      # A credential runs its provider's model unless a `provider#N=model`
+      # entry names its own; that entry sets the model only, never the
+      # position.
       #
-      # 1. anthropic = the primary LLM tier: the Anthropic Messages API, with
-      #    additional credentials (ANTHROPIC_API_KEY, ANTHROPIC_API_KEY_2,
-      #    ANTHROPIC_API_KEY_3), each under its own spend limit. All three
-      #    serve the reply on claude-sonnet-5-5 (2026-10-29), so a refused
-      #    credential hands the
-      #    turn to the same model rather than a smaller one. Sonnet is sent
-      #    every tool outside the loaded core deferred (chat_catalogue.rs,
-      #    defers_on): on the live incident corpus it gave 3 findings
-      #    deferred against 6 with every tool loaded. A spent credit
-      #    answers HTTP 400 invalid_request_error ("Your credit balance is
-      #    too low"), not the 402 Anthropic documents; embacle 0.47.1 maps
-      #    that wording to RateLimit, so it falls through like a quota: to
-      #    anthropic#2, then anthropic#3, then copilot_sdk. A credential that
-      #    is dead under any other wording is caught by the probe instead: a
-      #    tier that cannot answer "ping" is benched and passed over
-      #    (crates/pierre-llm/src/tier_bench.rs, carnet#1709). Any quota
-      #    answer fires
-      #    dravr-llm-tier-rate-limited and more than three skips in five
-      #    minutes fire dravr-llm-chain-fallthrough (llm_chain_monitoring.tf).
-      #    Tool-loop iterations run on the turn's own model
-      #    (PIERRE_LLM_MODEL_TOOL_ITERATION = "inherit" below).
-      # 2. copilot_sdk = the first fallback tier: GitHub's Rust Copilot
-      #    runtime over stdio, serving claude-sonnet-5.5. Its quota is
-      #    monthly with no overage (carnet#478). A whole
-      #    turn is capped by EMBACLE_SDK_PROMPT_TIMEOUT_SECS below — a turn
-      #    that ends on "copilot-sdk: turn exceeded 300s" is the signal that
-      #    the model is too slow for that cap.
-      # 3. claude_code = the second fallback tier, on its own credential
-      #    (CLAUDE_CODE_OAUTH_TOKEN). It has no spend cap of its own, so it
-      #    runs Sonnet, then its additional credential.
-      #    `sonnet` is the alias the claude CLI publishes (it lists only
-      #    sonnet, opus, haiku), so the boot model check accepts it; the CLI
-      #    resolves it to its current Sonnet.
-      #    Binding ANTHROPIC_API_KEY does not change which credential it uses:
-      #    since embacle 0.35.0 the claude_code runner withholds the API key
-      #    from every `claude` child that holds an OAuth token (claude_code.rs,
-      #    withholds_api_key).
-      # 4. gemini = the last fallback tier, via GEMINI_API_KEY.
+      # What holds for a tier wherever the chain puts it:
+      #
+      # - anthropic = the Anthropic Messages API. Keeping every credential of
+      #   the tier on one model hands a refused turn to the same model rather
+      #   than a smaller one. A Sonnet model is sent every tool outside the
+      #   loaded core deferred (chat_catalogue.rs, defers_on): on the live
+      #   incident corpus it gave 3 findings deferred against 6 with every
+      #   tool loaded. A spent credit answers HTTP 400 invalid_request_error
+      #   ("Your credit balance is too low"), not the 402 Anthropic
+      #   documents; embacle 0.47.1 maps that wording to RateLimit, so it
+      #   falls through like a quota. A credential that is dead under any
+      #   other wording is caught by the probe instead: a tier that cannot
+      #   answer "ping" is benched and passed over
+      #   (crates/pierre-llm/src/tier_bench.rs). Any quota answer fires
+      #   dravr-llm-tier-rate-limited and repeated skips fire
+      #   dravr-llm-chain-fallthrough (llm_chain_monitoring.tf). Tool-loop
+      #   iterations run on the turn's own model
+      #   (PIERRE_LLM_MODEL_TOOL_ITERATION = "inherit" below).
+      # - copilot_sdk = GitHub's Rust Copilot runtime over stdio. A whole
+      #   turn is capped by EMBACLE_SDK_PROMPT_TIMEOUT_SECS below — a turn
+      #   that ends on "copilot-sdk: turn exceeded 300s" is the signal that
+      #   the model is too slow for that cap.
+      # - claude_code = the claude CLI, on its own credential
+      #   (CLAUDE_CODE_OAUTH_TOKEN). `sonnet` is the alias the claude CLI
+      #   publishes (it lists only sonnet, opus, haiku), so the boot model
+      #   check accepts it; the CLI resolves it to its current Sonnet.
+      #   Binding ANTHROPIC_API_KEY does not change which credential it uses:
+      #   since embacle 0.35.0 the claude_code runner withholds the API key
+      #   from every `claude` child that holds an OAuth token (claude_code.rs,
+      #   withholds_api_key).
+      # - gemini = the Gemini API, via GEMINI_API_KEY.
       #
       # The head's model is also the model every turn asks for and the one a
-      # new conversation records (carnet#824).
+      # new conversation records.
       #
-      # The live incident eval lane reads this value and refuses to run when
-      # its provider list differs from LANE_LLM_PROVIDERS
+      # The live incident eval lane refuses to run when the chain's provider
+      # list differs from its LANE_LLM_PROVIDERS
       # (.github/workflows/live-incident-eval.yml): change both together.
       #
       # PIERRE_LLM_DEFAULT_MODEL is a Gemini model name: the only code that
       # reads it is the Gemini provider built with no model of its own — a
       # `gemini` entry without `=model`, or a BYO-Gemini tenant that stored no
       # model (crates/pierre-llm/src/http_env.rs).
-      PIERRE_LLM_CHAIN         = "anthropic=claude-sonnet-5-5,anthropic#2=claude-sonnet-5-5,anthropic#3=claude-sonnet-5-5,copilot_sdk=claude-sonnet-5.5,claude_code=sonnet,gemini=gemini-flash-lite-latest"
+      PIERRE_LLM_CHAIN         = var.llm_chain
       PIERRE_LLM_DEFAULT_MODEL = "gemini-flash-lite-latest"
 
-      # Every tool-loop iteration runs on the turn's own model (Sonnet), not on
-      # the Haiku default the code picks for an `anthropic` head. Measured on
-      # a plan turn behind an Opus head (carnet#1193): Haiku's first call of
-      # each turn writes the whole 62–97k prefix into its own cache, and only
-      # 41% of its iteration answers were kept since 2026-10-20, so inheriting
-      # charged ~49% less quota for ~8% more USD. Decided 2026-10-26.
+      # Every tool-loop iteration runs on the turn's own model, not on the
+      # smaller default the code picks for an `anthropic` head. Measured on a
+      # plan turn: the smaller model's first call of each turn writes the
+      # whole 62–97k prefix into its own cache, and only 41% of its iteration
+      # answers were kept since 2026-10-20, so inheriting charged ~49% less
+      # quota for ~8% more USD. Decided 2026-10-26.
       PIERRE_LLM_MODEL_TOOL_ITERATION = "inherit"
 
       # The synthetic LLM probe runs once per instance start and never again:
@@ -608,23 +598,25 @@ module "backend" {
       BACKUP_ENABLED = "false"
 
       # Seats the env Strava app (STRAVA_CLIENT_ID) fills before the pool takes
-      # over. 9, not Strava's 10: Strava counted the app full on 2026-10-15 while
-      # only 9 athletes held a token we know of — one grant we no longer hold
-      # still occupies a seat there — and the router sent a new athlete into
-      # Strava's "limit of connected athletes exceeded" page.
-      STRAVA_OAUTH_SEAT_CAP = "9"
+      # over. Kept below the limit Strava grants the app: Strava counted the
+      # app full on 2026-10-15 while fewer athletes held a token we know of —
+      # a grant we no longer hold still occupies a seat there — and the router
+      # sent a new athlete into Strava's "limit of connected athletes
+      # exceeded" page.
+      STRAVA_OAUTH_SEAT_CAP = tostring(var.strava_oauth_seat_cap)
 
-      # WhatsApp non-secret config (phone number ID is not sensitive).
-      # +1 438-839-2708 on the Dravr WhatsApp account. Never a Meta test number:
-      # those deliver only to the recipients on their allow-list.
-      META_WHATSAPP_PHONE_NUMBER_ID = "1504345142752210"
-      META_WHATSAPP_VERIFY_TOKEN    = "5aec2c301a90cf03a31e5f5e638f9e38"
+      # WhatsApp config held as plain environment values: the phone number ID
+      # of the account's WhatsApp number, never a Meta test number (those
+      # deliver only to the recipients on their allow-list), and the token
+      # Meta echoes when it verifies the webhook subscription.
+      META_WHATSAPP_PHONE_NUMBER_ID = var.meta_whatsapp_phone_number_id
+      META_WHATSAPP_VERIFY_TOKEN    = var.meta_whatsapp_verify_token
 
-      # Messenger non-secret config (verify token is the App Secret, not sensitive here)
-      META_MESSENGER_VERIFY_TOKEN = "5aec2c301a90cf03a31e5f5e638f9e38"
+      # Messenger's webhook verification token, held the same way.
+      META_MESSENGER_VERIFY_TOKEN = var.meta_messenger_verify_token
 
       # Admin email for messaging channel seeding (resolves tenant on startup)
-      ADMIN_EMAIL = "admin@dravr.ai"
+      ADMIN_EMAIL = var.admin_email
 
       # Deploy and user-lifecycle Slack routes are no longer configured here.
       # They are notify events (server.started/stopping, user.approved/
@@ -802,13 +794,12 @@ module "backend" {
     GEMINI_API_KEY              = module.secrets.secret_ids["gemini_api_key"]
     COPILOT_GITHUB_TOKEN        = module.secrets.secret_ids["copilot_github_token"]
     CLAUDE_CODE_OAUTH_TOKEN     = module.secrets.secret_ids["claude_code_oauth_token"]
-    # An additional credential for the claude_code tier, tried right behind
-    # the first (claude-code#2). Further ones are _3, _4, … — the platform
-    # reads them in order and stops at the first unset one (carnet#480).
+    # A further credential for the claude_code tier, tried right behind the
+    # first. Further ones take the next number — the platform reads them in
+    # order and stops at the first unset one.
     CLAUDE_CODE_OAUTH_TOKEN_2 = module.secrets.secret_ids["claude_code_oauth_token_2"]
-    # The primary tier's credentials, the chain's head (carnet#875): each key
-    # under its own spend limit. Further keys are _4, _5, … — read in order
-    # until the first unset one.
+    # The anthropic tier's credentials. Further keys take the next number and
+    # are read in order until the first unset one.
     # A head that refuses stays the head on purpose (2026-11-23): the chain's
     # fall-through serves the turn, and that keeps the path exercised in
     # production. Do not reorder these to "fix" a head that refuses.
@@ -951,7 +942,7 @@ module "seed_bootstrap" {
   args    = ["bootstrap"]
 
   env_vars = merge(local.seed_env_vars, {
-    ADMIN_EMAIL = "admin@dravr.ai"
+    ADMIN_EMAIL = var.admin_email
   })
 
   secret_env_vars = merge(local.seed_secret_env_vars, {

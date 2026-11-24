@@ -301,7 +301,11 @@ export interface CreateInviteRequest {
 export interface GroupAggregateStats {
   total_members: number;
   active_members: number;
-  avg_weekly_volume_km: number;
+  /**
+   * Mean kilometres this Monday week over the members whose week is read;
+   * `null` when no member's week is read, which is never a zero.
+   */
+  avg_weekly_volume_km: number | null;
   avg_ctl: number | null;
   flagged_members: number;
   weekly_trend: GroupTrend;

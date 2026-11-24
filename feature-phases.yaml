@@ -94,8 +94,8 @@ features:
     review_by: 2026-11-30
   - name: anthropic-api-chain-head
     surface: infra/environments/dev/main.tf
-    current: the anthropic provider (the Anthropic Messages API, Haiku 5.5 by default, pooled over ANTHROPIC_API_KEY_2, _3 and on as anthropic#2, anthropic#3) is complete and selectable as any PIERRE_LLM_CHAIN entry, and its two Secret Manager slots and the tier-quota alert labels exist, but dev's chain does not name it and the anthropic-api-key secrets are deliberately not bound to the service — embacle's claude_code runner passes ANTHROPIC_API_KEY through to the claude CLI, which would move the claude_code tiers off their subscription (carnet#875 Phase B)
-    advance_when: the organization keys are filled, a Console spend limit is set on every organization before the apply, the claude_code runner no longer passes ANTHROPIC_API_KEY to the CLI, a live tool-loop run shows the head falling through to anthropic#2 and copilot_sdk, and the chat and messaging evals pass on Haiku 5.5 — then the secrets are bound and anthropic=claude-haiku-5-5 leads dev's PIERRE_LLM_CHAIN
+    current: the anthropic provider (the Anthropic Messages API, Haiku 5.5 by default, each further numbered key its own tier right behind the first) is complete and selectable as any PIERRE_LLM_CHAIN entry, and its Secret Manager slots and the tier-quota alert labels exist, but dev's chain does not name it and the anthropic-api-key secrets are deliberately not bound to the service — embacle's claude_code runner passes ANTHROPIC_API_KEY through to the claude CLI, which would move the claude_code tiers off their own credential (carnet#875 Phase B)
+    advance_when: the keys are filled, a spend limit is set on each key before the apply, the claude_code runner no longer passes ANTHROPIC_API_KEY to the CLI, a live tool-loop run shows the head falling through to its next key and to copilot_sdk, and the chat and messaging evals pass on Haiku 5.5 — then the secrets are bound and anthropic=claude-haiku-5-5 leads dev's PIERRE_LLM_CHAIN
     review_by: 2026-11-15
   - name: incident-judge-findings-gate
     surface: crates/pierre-server/tests/helpers/live_incident_corpus.rs

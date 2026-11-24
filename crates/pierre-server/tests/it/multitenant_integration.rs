@@ -359,7 +359,7 @@ async fn test_multitenant_auth_flow() -> Result<()> {
         display_name: Some("Multi-Tenant User".to_owned()),
     };
 
-    let register_response = auth_routes.register(register_request).await?;
+    let register_response = auth_routes.self_register(register_request).await?;
     assert_ne!(register_response.user_id, "");
     assert_eq!(
         register_response.message,
@@ -448,7 +448,7 @@ async fn test_multitenant_auth_flow() -> Result<()> {
         display_name: None,
     };
 
-    let duplicate_result = auth_routes.register(duplicate_request).await;
+    let duplicate_result = auth_routes.self_register(duplicate_request).await;
     assert!(duplicate_result.is_err());
     assert!(duplicate_result
         .unwrap_err()
@@ -853,7 +853,7 @@ async fn test_input_validation() -> Result<()> {
             display_name: None,
         };
 
-        let result = auth_routes.register(request).await;
+        let result = auth_routes.self_register(request).await;
         assert!(
             result.is_err(),
             "Should reject invalid email: {}",
@@ -876,7 +876,7 @@ async fn test_input_validation() -> Result<()> {
             display_name: None,
         };
 
-        let result = auth_routes.register(request).await;
+        let result = auth_routes.self_register(request).await;
         assert!(
             result.is_err(),
             "Should reject short password: {}",
@@ -896,7 +896,7 @@ async fn test_input_validation() -> Result<()> {
         display_name: Some("Valid User".to_owned()),
     };
 
-    let result = auth_routes.register(valid_request).await;
+    let result = auth_routes.self_register(valid_request).await;
     assert!(result.is_ok(), "Should accept valid inputs");
 
     Ok(())

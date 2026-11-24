@@ -1,16 +1,15 @@
 // ABOUTME: Admin diagnostics endpoints for system observability and resource measurement
-// ABOUTME: Tool schema sizing, the tronc-canary probe, capture staleness and the capture refresh
+// ABOUTME: The tronc-canary probe, capture staleness and the capture refresh
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
 //! Admin diagnostics routes for system observability.
 //!
-//! Provides endpoints to inspect tool schema sizes, token budgets, and
-//! other internal metrics useful for capacity planning. Lives in
-//! `pierre-server` rather than `pierre-routes-admin` because the schema
-//! size endpoint depends on the [`pierre_tool_runtime::registry::ToolRegistry`]
-//! type, which is internal to the composition root.
+//! Provides the alerting canary and the provider-capture staleness report
+//! and refresh. Lives in `pierre-server` rather than `pierre-routes-admin`
+//! because the capture refresh runs on the composition root's
+//! [`ToolRuntime`].
 
 use std::fmt;
 use std::sync::Arc;
@@ -37,19 +36,14 @@ use pierre_core::errors::AppResult;
 use pierre_tool_runtime::capture_sweep::{
     capturable, refresh_captures, SweepBudget, SweepSelection,
 };
-use pierre_tool_runtime::chat_catalogue::{build_mcp_tools, measure_catalogue};
-use pierre_tool_runtime::registry::ToolRegistry;
 use pierre_tool_runtime::runtime::ToolRuntime;
 
 /// Focused context for the diagnostics sub-routes.
 ///
-/// Carries the [`ToolRegistry`] needed by
-/// `/admin/diagnostics/tool-schema-size`. Diagnostic routes do not need
-/// the full [`pierre_routes_admin::AdminApiContext`] surface.
+/// Diagnostic routes do not need the full
+/// [`pierre_routes_admin::AdminApiContext`] surface.
 #[derive(Clone)]
 pub struct DiagnosticsContext {
-    /// Tool registry — primary input for schema-size estimation.
-    pub tool_registry: Arc<ToolRegistry>,
     /// Composition-root runtime. Carries the repositories the capture-staleness
     /// report reads and the provider auth the capture refresh fetches through —
     /// one handle rather than two, since `ToolRuntime::repos` already exposes
@@ -60,9 +54,7 @@ pub struct DiagnosticsContext {
 
 impl fmt::Debug for DiagnosticsContext {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("DiagnosticsContext")
-            .field("tool_registry", &self.tool_registry)
-            .finish_non_exhaustive()
+        f.debug_struct("DiagnosticsContext").finish_non_exhaustive()
     }
 }
 
@@ -74,10 +66,6 @@ impl fmt::Debug for DiagnosticsContext {
 pub fn routes(context: DiagnosticsContext, auth_service: AdminAuthService) -> Router {
     let context = Arc::new(context);
     Router::new()
-        .route(
-            "/admin/diagnostics/tool-schema-size",
-            get(handle_tool_schema_size),
-        )
         .route("/admin/diagnostics/tronc-canary", post(handle_tronc_canary))
         .route(
             "/admin/diagnostics/capture-staleness",
@@ -92,27 +80,6 @@ pub fn routes(context: DiagnosticsContext, auth_service: AdminAuthService) -> Ro
             auth_service,
             admin_auth_middleware,
         ))
-}
-
-/// `GET /admin/diagnostics/tool-schema-size`.
-///
-/// Returns the wire size of the chat tool catalogue — the declarations an
-/// athlete's turn sends, with the contremaitre overlay as it stands now —
-/// with its digest and every tool, largest first (carnet#1196).
-///
-/// # Errors
-///
-/// Returns an error when the caller's admin token lacks
-/// [`AdminPermission::ViewConfiguration`].
-pub async fn handle_tool_schema_size(
-    State(context): State<Arc<DiagnosticsContext>>,
-    Extension(admin_token): Extension<ValidatedAdminToken>,
-) -> AppResult<impl IntoResponse> {
-    admin_token.require_permission(&AdminPermission::ViewConfiguration)?;
-
-    let catalogue = measure_catalogue(&build_mcp_tools(&context.tool_registry));
-
-    Ok((StatusCode::OK, Json(catalogue)))
 }
 
 /// `POST /admin/diagnostics/tronc-canary`.

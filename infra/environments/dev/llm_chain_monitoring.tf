@@ -90,15 +90,17 @@ resource "google_logging_metric" "llm_tier_quota" {
 # stops answering altogether is still caught: dravr-llm-startup-probe-failed
 # when no tier answers, dravr-llm-chain-fallthrough on a burst of skips.
 #
-# The head's name is read from PIERRE_LLM_CHAIN in main.tf, the one place the
-# chain is written (the live incident eval lane reads that same line), so a
-# reordered chain moves the exclusion with it. Rotating which organization is
-# the head (bin/rotate-llm-head.sh) does not change the name: the tier is
-# `anthropic` whichever key it holds.
+# The head's name is read from var.llm_chain, the one place the chain is
+# written, so a reordered chain moves the exclusion with it. Rotating which
+# credential the head holds (bin/rotate-llm-head.sh) does not change the name.
 locals {
-  # Anchored at a line start, as the eval lane's grep is, so a comment that
-  # quotes `PIERRE_LLM_CHAIN = "…"` cannot win over the real assignment.
-  llm_chain_head = regex("(?m)^[ \\t]*PIERRE_LLM_CHAIN[ \\t]*=[ \\t]*\"([^=#,\"]+)", file("${path.module}/main.tf"))[0]
+  llm_chain_head = regex("^([^=#,]+)", var.llm_chain)[0]
+
+  # Each policy's text names its window in minutes; the number is the
+  # alignment period itself, so the sentence cannot drift from the setting.
+  llm_chain_tier_rate_limited_minutes    = tonumber(trimsuffix(var.alert_windows["llm_chain.tier_rate_limited.alignment_period"], "s")) / 60
+  llm_chain_startup_probe_failed_minutes = tonumber(trimsuffix(var.alert_windows["llm_chain.startup_probe_failed.alignment_period"], "s")) / 60
+  llm_chain_fallthrough_minutes          = tonumber(trimsuffix(var.alert_windows["llm_chain.chain_fallthrough.alignment_period"], "s")) / 60
 }
 
 resource "google_monitoring_alert_policy" "llm_tier_rate_limited" {
@@ -108,7 +110,7 @@ resource "google_monitoring_alert_policy" "llm_tier_rate_limited" {
 
   documentation {
     content   = <<-EOT
-      An LLM tier answered with a quota or rate limit in the last 5 minutes.
+      An LLM tier answered with a quota or rate limit in the last ${local.llm_chain_tier_rate_limited_minutes} minutes.
       The tier label names it, read from the error text. This is the platform's account for that
       provider, not an athlete's budget. The chain's head (${local.llm_chain_head})
       is not watched here: its credit is spent on purpose and the chain passes
@@ -132,23 +134,23 @@ resource "google_monitoring_alert_policy" "llm_tier_rate_limited" {
   }
 
   conditions {
-    display_name = "LLM tier quota or rate limit in 5min window"
+    display_name = "LLM tier quota or rate limit in ${local.llm_chain_tier_rate_limited_minutes}min window"
 
     condition_threshold {
       filter          = "resource.type=\"cloud_run_revision\" AND metric.type=\"logging.googleapis.com/user/${google_logging_metric.llm_tier_quota.name}\" AND metric.label.tier != \"${local.llm_chain_head}\""
-      duration        = "0s"
+      duration        = var.alert_windows["llm_chain.tier_rate_limited.duration"]
       comparison      = "COMPARISON_GT"
-      threshold_value = 0
+      threshold_value = var.alert_thresholds["llm_chain.tier_rate_limited.threshold"]
 
       aggregations {
-        alignment_period     = "300s"
+        alignment_period     = var.alert_windows["llm_chain.tier_rate_limited.alignment_period"]
         per_series_aligner   = "ALIGN_SUM"
         cross_series_reducer = "REDUCE_SUM"
         group_by_fields      = ["metric.label.tier"]
       }
 
       trigger {
-        count = 1
+        count = var.alert_thresholds["llm_chain.tier_rate_limited.trigger_count"]
       }
     }
   }
@@ -157,8 +159,8 @@ resource "google_monitoring_alert_policy" "llm_tier_rate_limited" {
 
   alert_strategy {
     # A spent quota keeps refusing for hours; the incident stays open while
-    # the lines keep coming and closes 30 minutes after they stop.
-    auto_close = "1800s"
+    # the lines keep coming and closes a while after they stop.
+    auto_close = var.alert_windows["llm_chain.tier_rate_limited.auto_close"]
   }
 }
 
@@ -220,23 +222,23 @@ resource "google_monitoring_alert_policy" "llm_startup_probe_failed" {
   }
 
   conditions {
-    display_name = "LLM startup probe failed in 5min window"
+    display_name = "LLM startup probe failed in ${local.llm_chain_startup_probe_failed_minutes}min window"
 
     condition_threshold {
       filter          = "resource.type=\"cloud_run_revision\" AND metric.type=\"logging.googleapis.com/user/${google_logging_metric.llm_startup_probe_failed.name}\""
-      duration        = "0s"
+      duration        = var.alert_windows["llm_chain.startup_probe_failed.duration"]
       comparison      = "COMPARISON_GT"
-      threshold_value = 0
+      threshold_value = var.alert_thresholds["llm_chain.startup_probe_failed.threshold"]
 
       aggregations {
-        alignment_period     = "300s"
+        alignment_period     = var.alert_windows["llm_chain.startup_probe_failed.alignment_period"]
         per_series_aligner   = "ALIGN_SUM"
         cross_series_reducer = "REDUCE_SUM"
         group_by_fields      = ["metric.label.provider"]
       }
 
       trigger {
-        count = 1
+        count = var.alert_thresholds["llm_chain.startup_probe_failed.trigger_count"]
       }
     }
   }
@@ -244,7 +246,7 @@ resource "google_monitoring_alert_policy" "llm_startup_probe_failed" {
   notification_channels = [google_monitoring_notification_channel.slack_alerts.id]
 
   alert_strategy {
-    auto_close = "1800s"
+    auto_close = var.alert_windows["llm_chain.startup_probe_failed.auto_close"]
   }
 }
 
@@ -298,7 +300,7 @@ resource "google_monitoring_alert_policy" "llm_chain_fallthrough" {
   documentation {
     content   = <<-EOT
       The runtime chain bypassed a tier (provider label) more than three
-      times in 5 minutes. Turns are still being served by the tier behind
+      times in ${local.llm_chain_fallthrough_minutes} minutes. Turns are still being served by the tier behind
       it, so this is the early warning, not the outage: read the bypassed
       tier's errors and act before the next tier runs out too.
 
@@ -308,23 +310,23 @@ resource "google_monitoring_alert_policy" "llm_chain_fallthrough" {
   }
 
   conditions {
-    display_name = "More than 3 chain fallthroughs in 5min window"
+    display_name = "More than ${var.alert_thresholds["llm_chain.chain_fallthrough.threshold"]} chain fallthroughs in ${local.llm_chain_fallthrough_minutes}min window"
 
     condition_threshold {
       filter          = "resource.type=\"cloud_run_revision\" AND metric.type=\"logging.googleapis.com/user/${google_logging_metric.llm_chain_fallthrough.name}\""
-      duration        = "0s"
+      duration        = var.alert_windows["llm_chain.chain_fallthrough.duration"]
       comparison      = "COMPARISON_GT"
-      threshold_value = 3
+      threshold_value = var.alert_thresholds["llm_chain.chain_fallthrough.threshold"]
 
       aggregations {
-        alignment_period     = "300s"
+        alignment_period     = var.alert_windows["llm_chain.chain_fallthrough.alignment_period"]
         per_series_aligner   = "ALIGN_SUM"
         cross_series_reducer = "REDUCE_SUM"
         group_by_fields      = ["metric.label.provider"]
       }
 
       trigger {
-        count = 1
+        count = var.alert_thresholds["llm_chain.chain_fallthrough.trigger_count"]
       }
     }
   }
@@ -332,6 +334,6 @@ resource "google_monitoring_alert_policy" "llm_chain_fallthrough" {
   notification_channels = [google_monitoring_notification_channel.slack_alerts.id]
 
   alert_strategy {
-    auto_close = "1800s"
+    auto_close = var.alert_windows["llm_chain.chain_fallthrough.auto_close"]
   }
 }

@@ -51,6 +51,8 @@ on:
       # .tf file (prod, modules): an infra-only push there must reach the fast
       # gate too.
       - 'infra/**/*.tf'
+      # private-inputs.test.sh runs the script that stages the private terraform inputs.
+      - 'infra/private-inputs.sh'
       - '.github/actions/ci-backend-changes/**'
       - 'scripts/ci/**'
       # check-gh-cli.sh runs at every session start and is in the shellcheck job below.
@@ -139,6 +141,8 @@ on:
       # .tf file (prod, modules): an infra-only push there must reach the fast
       # gate too.
       - 'infra/**/*.tf'
+      # private-inputs.test.sh runs the script that stages the private terraform inputs.
+      - 'infra/private-inputs.sh'
       - '.github/actions/ci-backend-changes/**'
       - 'scripts/ci/**'
       # check-gh-cli.sh runs at every session start and is in the shellcheck job below.
@@ -412,6 +416,12 @@ jobs:
       - name: Phantom Surface Detection
         run: ./scripts/ci/check-phantom-surfaces.sh "${{ steps.gate_base.outputs.sha }}"
 
+      # Whole tree, whatever the diff: every route the server registers has a
+      # caller in the tree or a declared outside caller, so a route that loses
+      # its last caller fails here rather than staying served to nobody.
+      - name: Clientless Route Detection
+        run: ./scripts/ci/check-phantom-surfaces.sh --all-routes
+
       - name: Turn Envelope Convergence
         run: ./scripts/ci/check-turn-envelope.sh "${{ steps.gate_base.outputs.sha }}"
 
@@ -556,6 +566,7 @@ jobs:
           ./scripts/ci/tag-deployed-digest.test.sh
           ./scripts/ci/carry-forward-frontend-assets.test.sh
           ./scripts/ci/terraform-drift.test.sh
+          ./scripts/ci/private-inputs.test.sh
           ./scripts/ci/mobile-e2e-batch.test.sh
           ./scripts/ci/monitor-scheduled-lanes.test.sh
           ./scripts/ci/standing-issue.test.sh

@@ -4,8 +4,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! Response date goldens: `/admin/coach-seat-invitations` and
-//! `/admin/pre-approved-emails` (carnet#1620, gate 3).
+//! Response date goldens: `/api/admin/coach-seat-invitations` and
+//! `/api/admin/pre-approved-emails` (carnet#1620, gate 3).
 //!
 //! An invitation expires a fixed time after it is issued, and its answer says
 //! when twice: `expires_at` as an instant with an offset, and a sentence that
@@ -28,13 +28,11 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use axum::Router;
-use pierre_core::admin::models::CreateAdminTokenRequest;
 use pierre_core::permissions::UserRole;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_routes_admin::{AdminApiContext, AdminApiContextInit, AdminRoutes};
 use pierre_services::invitation::IssuedInvitation;
 use pierre_services::user_approval::UserApprovalNotifier;
-use secrecy::ExposeSecret;
 use serde_json::{json, Value};
 use uuid::Uuid;
 
@@ -105,32 +103,11 @@ impl Console {
             instant("2026-08-01T09:30:00"),
         )
         .await;
-        let token = resources
-            .common
-            .repos
-            .admin
-            .create_token(
-                &CreateAdminTokenRequest {
-                    service_name: format!("console:{}", Uuid::new_v4()),
-                    service_description: None,
-                    permissions: None,
-                    expires_in_days: Some(30),
-                    is_super_admin: true,
-                    tenant_id: None,
-                    operator_user_id: Some(admin.user_id),
-                },
-                &resources.auth.admin_jwt_secret,
-                &resources.auth.jwks_manager,
-            )
-            .await
-            .unwrap()
-            .jwt_token
-            .expose_secret()
-            .to_owned();
+        let app = AdminRoutes::cookie_admin_routes::<ServerContext>(context, &resources);
         Self {
             resources,
-            app: AdminRoutes::routes(context),
-            token,
+            app,
+            token: admin.token,
         }
     }
 
@@ -193,7 +170,7 @@ async fn a_coach_seat_invitation_says_until_which_minute_in_utc_it_works() {
 
         let mailed = console
             .invite(
-                "/admin/coach-seat-invitations",
+                "/api/admin/coach-seat-invitations",
                 &json!({ "email": "mailed-coach@example.com" }),
                 "expires_at",
             )
@@ -211,7 +188,7 @@ async fn a_coach_seat_invitation_says_until_which_minute_in_utc_it_works() {
 
         let linked = console
             .invite(
-                "/admin/coach-seat-invitations",
+                "/api/admin/coach-seat-invitations",
                 &json!({ "email": "linked-coach@example.com", "return_link": true }),
                 "expires_at",
             )
@@ -241,7 +218,7 @@ async fn a_coach_seat_invitation_says_until_which_minute_in_utc_it_works() {
         ] {
             restamp(database, MOVE_INVITATION, instant(at), email, None).await;
         }
-        let listed = console.list("/admin/coach-seat-invitations").await;
+        let listed = console.list("/api/admin/coach-seat-invitations").await;
         assert_eq!(
             dates_in(&listed["data"]),
             table(&[
@@ -263,7 +240,7 @@ async fn a_pre_approval_that_invites_says_until_which_minute_in_utc_the_link_wor
 
         let mailed = console
             .invite(
-                "/admin/pre-approved-emails",
+                "/api/admin/pre-approved-emails",
                 &json!({ "email": "mailed-athlete@example.com", "send_invite": true }),
                 "invitation_expires_at",
             )
@@ -284,7 +261,7 @@ async fn a_pre_approval_that_invites_says_until_which_minute_in_utc_the_link_wor
 
         let linked = console
             .invite(
-                "/admin/pre-approved-emails",
+                "/api/admin/pre-approved-emails",
                 &json!({
                     "email": "linked-athlete@example.com",
                     "send_invite": true,
@@ -312,7 +289,7 @@ async fn a_pre_approval_that_invites_says_until_which_minute_in_utc_the_link_wor
         console
             .expire("mailed-athlete@example.com", "2099-12-31T23:59:03.500250")
             .await;
-        let listed = console.list("/admin/pre-approved-emails").await;
+        let listed = console.list("/api/admin/pre-approved-emails").await;
         let row = listed["data"]["emails"]
             .as_array()
             .unwrap()

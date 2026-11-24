@@ -15,6 +15,8 @@
 //! draws a map from a reference it did not have to copy coordinates into.
 
 use crate::annotations::{annotations, Effect, Reach};
+use crate::read_subject::DataClass;
+use crate::tool_data::ToolData;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -296,4 +298,4 @@ fn unknown_route_ref(route_ref: &str) -> AppError {
 
 // Guardian security classification (see `crate::security`): the answer carries
 // the stretches' names, which volunteers typed into OpenStreetMap.
-crate::declare_security!(ComposeRouteTool => empty);
+crate::declare_security!(ComposeRouteTool => empty, reads: ToolData::of(DataClass::NoSubject, &[]));

@@ -25,7 +25,7 @@ fn live_aggregation_with_no_snapshots_yields_zero_members() {
     assert_eq!(stats.total_members, 0);
     assert_eq!(stats.active_members, 0);
     assert_eq!(stats.flagged_members, 0);
-    assert_eq!(stats.avg_weekly_volume_km, 0.0);
+    assert_eq!(stats.avg_weekly_volume_km, None);
     assert!(stats.avg_ctl.is_none());
 }
 

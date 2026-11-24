@@ -21,6 +21,8 @@
 //! can confirm before saving the outcome through `save_training_plan`.
 
 use crate::annotations::{annotations, Effect, Reach};
+use crate::tool_data::ToolData;
+use dravr_barrage::Stream;
 use pierre_providers::ai_scope;
 use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
@@ -887,4 +889,7 @@ impl McpTool<dyn ToolRuntime> for RecommendPlanFlavourTool {
 // A read of the athlete's own profile and plan, then pure computation over
 // the compiled-in catalogue. Nothing is written, nothing leaves the process,
 // and the response carries only catalogue text and the athlete's own data.
-crate::declare_security!(RecommendPlanFlavourTool => empty);
+crate::declare_security!(
+    RecommendPlanFlavourTool => empty,
+    reads: ToolData::own(&[Stream::Workout, Stream::TrainingLoad]),
+);

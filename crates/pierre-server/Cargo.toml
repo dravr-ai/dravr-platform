@@ -164,12 +164,11 @@ client-web = ["client-dashboard", "client-settings", "client-chat", "client-agen
 client-admin-api = ["protocol-rest"]     # admin.rs
 client-admin-ui = ["protocol-rest", "dep:pierre-routes-web-admin"]      # web_admin.rs (extracted to pierre-routes-web-admin)
 client-api-keys = ["protocol-rest"]      # api_keys.rs
-client-tenants = ["protocol-rest"]       # tenants.rs
 client-impersonation = ["protocol-rest"] # impersonation.rs
 client-llm-settings = ["protocol-rest"]  # llm_settings.rs
 client-tool-selection = ["protocol-mcp"] # tool_selection.rs
 
-client-admin = ["client-admin-api", "client-admin-ui", "client-api-keys", "client-tenants", "client-impersonation", "client-llm-settings", "client-tool-selection"]
+client-admin = ["client-admin-api", "client-admin-ui", "client-api-keys", "client-impersonation", "client-llm-settings", "client-tool-selection"]
 
 # ═══════════════════════════════════════════════════════════════
 # OTHER CLIENT FEATURES

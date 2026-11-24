@@ -9,8 +9,9 @@
 # chat route, messaging ingress, MCP tool handler) through every
 # downstream call that participates in the turn. If any site along the
 # chain generates a fresh `Uuid::new_v4()` into a turn_id / ConversationTurnId
-# field, per-turn queries to `GET /internal/conversation-turn/{id}` will
-# return partial traces.
+# field, the per-turn reads of `llm_usage` (the turn stop in
+# pierre-chat-pipeline/src/turn_stop.rs and the usage recorder in
+# pierre-services/src/llm_usage_recorder.rs) see a partial turn.
 #
 # This gate scans the pierre-server sources for forbidden patterns:
 #   - `turn_id: Uuid::new_v4()`  -> always wrong

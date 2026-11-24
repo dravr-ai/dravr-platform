@@ -21,9 +21,9 @@
 //! `from_env()`.
 //!
 //! Anthropic is the one HTTP provider that pools: each further key
-//! (`ANTHROPIC_API_KEY_2`, `_3`, …, one per Anthropic organization with its
-//! own prepaid credit) is its own tier right behind the first, named
-//! `anthropic#N` — see `anthropic_pooled_accounts`.
+//! (`ANTHROPIC_API_KEY_2`, `_3`, …) is its own tier right behind the first,
+//! tried when the previous one is refused and named `anthropic#N` — see
+//! `anthropic_pooled_accounts`.
 
 use embacle::pool::PooledTier;
 use embacle::types::{ChatMessage, ChatRequest, LlmProvider as EmbacleLlmProvider};
@@ -68,7 +68,7 @@ pub(crate) fn build(
 /// reads, on `model_override` else `ANTHROPIC_DEFAULT_MODEL` else embacle's
 /// default (`claude-haiku-5-5`).
 ///
-/// LIMITATION(registre#1234): `anthropic_from_env` and `anthropic_pooled_accounts` authenticate every organization with a static `ANTHROPIC_API_KEY[_N]`, never a Workload Identity Federation token.
+/// LIMITATION(registre#1234): `anthropic_from_env` and `anthropic_pooled_accounts` authenticate every account with a static `ANTHROPIC_API_KEY[_N]`, never a Workload Identity Federation token.
 fn anthropic_from_env(model_override: Option<&str>) -> Result<EmbacleProvider, AppError> {
     let config = anthropic_config(AnthropicConfig::from_env()?, model_override);
     info!(model = %config.model, "Creating Anthropic provider");
@@ -84,8 +84,8 @@ fn anthropic_from_env(model_override: Option<&str>) -> Result<EmbacleProvider, A
 /// or blank one), every other setting shared with the first, on the model
 /// `entry` gives account N (its `anthropic#N=model`, else the tier's own).
 /// Account N is named `anthropic#N` by [`PooledTier`], so a usage row, an
-/// alert label or a health line says which organization's credit served — and
-/// pricing keys it on the `anthropic` family.
+/// alert label or a health line says which key served — and pricing keys it
+/// on the `anthropic` family.
 ///
 /// Empty when there is no second key, and when the pool cannot be read at
 /// all: an unset `ANTHROPIC_API_KEY` or an invalid `ANTHROPIC_*` setting fails

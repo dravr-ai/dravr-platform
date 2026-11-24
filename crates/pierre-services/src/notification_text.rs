@@ -253,31 +253,14 @@ impl<'a> NotificationTextRenderer<'a> {
     /// true of that set. Either opens with a line saying how many of the
     /// group that is when it is not everyone, and is that line alone when it
     /// is nobody.
+    ///
+    /// A week no covered member's stored history reaches has no average, so
+    /// the summary and the trend drawn from that average are left out rather
+    /// than written around an empty slot.
     fn group_digest_body(&self, params: &Map<String, Value>) -> String {
         let scope = self.digest_scope(params);
         if digest_coverage(params).is_some_and(|(_, covered)| covered == 0) {
             return scope.unwrap_or_default();
-        }
-        let mut lines: Vec<String> = scope
-            .into_iter()
-            .flat_map(|line| [line, String::new()])
-            .collect();
-        lines.push(self.line(
-            KEY_GROUP_DIGEST_SUMMARY_DISTANCE,
-            &[
-                &whole(params.get("active_members")),
-                &whole(params.get("total_members")),
-                &self.distance(params.get("avg_volume_km")),
-            ],
-        ));
-        let trend_key = match params.get("trend").and_then(Value::as_str) {
-            Some("improving") => Some(KEY_GROUP_DIGEST_TREND_IMPROVING),
-            Some("declining") => Some(KEY_GROUP_DIGEST_TREND_DECLINING),
-            Some("stable") => Some(KEY_GROUP_DIGEST_TREND_STABLE),
-            _ => None,
-        };
-        if let Some(key) = trend_key {
-            lines.push(self.line(key, &[]));
         }
 
         let members: Vec<String> = entries(params, "members")
@@ -306,24 +289,57 @@ impl<'a> NotificationTextRenderer<'a> {
         let concerns: Vec<String> = entries(params, "concerns")
             .filter_map(|c| self.concern_line(c))
             .collect();
-
         let all_clear = highlights.is_empty() && concerns.is_empty();
+
+        let mut blocks: Vec<Vec<String>> = vec![scope.into_iter().collect()];
+        blocks.push(self.digest_opening(params));
         for (header, block) in [
             (KEY_GROUP_DIGEST_MEMBERS_HEADER, members),
             (KEY_GROUP_DIGEST_HIGHLIGHTS_HEADER, highlights),
             (KEY_GROUP_DIGEST_CONCERNS_HEADER, concerns),
         ] {
             if !block.is_empty() {
-                lines.push(String::new());
-                lines.push(self.line(header, &[]));
-                lines.extend(block);
+                let mut titled = vec![self.line(header, &[])];
+                titled.extend(block);
+                blocks.push(titled);
             }
         }
         if all_clear {
-            lines.push(String::new());
-            lines.push(self.line(KEY_GROUP_DIGEST_ALL_CLEAR, &[]));
+            blocks.push(vec![self.line(KEY_GROUP_DIGEST_ALL_CLEAR, &[])]);
         }
-        lines.join("\n")
+        let paragraphs: Vec<String> = blocks
+            .into_iter()
+            .filter(|block| !block.is_empty())
+            .map(|block| block.join("\n"))
+            .collect();
+        paragraphs.join("\n\n")
+    }
+
+    /// The digest's opening lines: the summary with the group's average
+    /// distance, then the trend sentence. Empty when the row carries no
+    /// average, which is a week none of the covered members' histories reach.
+    fn digest_opening(&self, params: &Map<String, Value>) -> Vec<String> {
+        let Some(average) = params.get("avg_volume_km").filter(|km| km.is_number()) else {
+            return Vec::new();
+        };
+        let mut lines = vec![self.line(
+            KEY_GROUP_DIGEST_SUMMARY_DISTANCE,
+            &[
+                &whole(params.get("active_members")),
+                &whole(params.get("total_members")),
+                &self.distance(Some(average)),
+            ],
+        )];
+        let trend_key = match params.get("trend").and_then(Value::as_str) {
+            Some("improving") => Some(KEY_GROUP_DIGEST_TREND_IMPROVING),
+            Some("declining") => Some(KEY_GROUP_DIGEST_TREND_DECLINING),
+            Some("stable") => Some(KEY_GROUP_DIGEST_TREND_STABLE),
+            _ => None,
+        };
+        if let Some(key) = trend_key {
+            lines.push(self.line(key, &[]));
+        }
+        lines
     }
 
     /// The line saying how many members this copy of the digest covers, when

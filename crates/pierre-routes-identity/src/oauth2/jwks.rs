@@ -18,7 +18,7 @@ use tracing::{debug, error};
 use super::{OAuth2Context, OAuth2Routes};
 
 impl OAuth2Routes {
-    /// Handle JWKS endpoint (GET /oauth2/jwks or GET /.well-known/jwks.json)
+    /// Handle JWKS endpoint (GET /.well-known/jwks.json)
     pub(super) async fn handle_jwks(
         State(context): State<OAuth2Context>,
         headers: HeaderMap,

@@ -730,22 +730,8 @@ async fn an_api_key_cannot_be_exchanged_for_a_session() {
         "no token in the refusal: {refused}"
     );
 
-    let switch = |authorization: &str| {
-        Request::post("/tenants/switch")
-            .header("content-type", "application/json")
-            .header("authorization", authorization)
-            .body(Body::from(
-                serde_json::json!({ "tenant_id": rider.tenant.to_string() }).to_string(),
-            ))
-            .unwrap()
-    };
-    let response = app.clone().oneshot(switch(&key)).await.unwrap();
-    assert_eq!(response.status(), StatusCode::FORBIDDEN);
-
     let (status, restored) = get(&app, "/api/auth/session", &session).await;
     assert_eq!(status, StatusCode::OK, "{restored}");
-    let response = app.clone().oneshot(switch(&session)).await.unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
 }
 
 #[tokio::test]

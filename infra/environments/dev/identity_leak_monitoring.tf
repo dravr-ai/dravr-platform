@@ -99,8 +99,9 @@ resource "google_logging_metric" "coach_identity_leaks" {
 # so a sustained non-zero rate means the anchor regressed or the underlying
 # provider's refusal behaviour moved.
 #
-# Threshold is >1 per hour rather than >0: a single leak is the expected tail and
-# pages nobody at 3am, while two inside an hour means something changed.
+# The threshold sits above a single leak rather than at any leak: one is the
+# expected tail and pages nobody at 3am, while a repeat inside the window means
+# something changed.
 #
 # The resource address keeps its original name so an apply updates the policy in
 # place instead of replacing it.
@@ -143,11 +144,11 @@ resource "google_monitoring_alert_policy" "coach_identity_leak_survived_reask" {
     condition_threshold {
       filter          = "resource.type=\"cloud_run_revision\" AND metric.type=\"logging.googleapis.com/user/${google_logging_metric.coach_identity_leaks.name}\""
       comparison      = "COMPARISON_GT"
-      threshold_value = 1
-      duration        = "0s"
+      threshold_value = var.alert_thresholds["identity_leak.withheld.threshold"]
+      duration        = var.alert_windows["identity_leak.withheld.duration"]
 
       aggregations {
-        alignment_period   = "3600s"
+        alignment_period   = var.alert_windows["identity_leak.withheld.alignment_period"]
         per_series_aligner = "ALIGN_DELTA"
       }
     }
@@ -161,6 +162,6 @@ resource "google_monitoring_alert_policy" "coach_identity_leak_survived_reask" {
   # Closes itself once the rate settles, so a burst does not need manual
   # acknowledgement to stop nagging.
   alert_strategy {
-    auto_close = "1800s"
+    auto_close = var.alert_windows["identity_leak.withheld.auto_close"]
   }
 }

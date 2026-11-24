@@ -22,15 +22,6 @@ test.describe('ASY-312: Web Admin Mode Visual Tests', () => {
   // ========================================
   test.describe('Login & Authentication', () => {
     test('admin login - renders login screen', async ({ page }) => {
-      // Setup minimal mocks needed for login page to render
-      await page.route('**/admin/setup/status', async (route) => {
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({ needs_setup: false, admin_user_exists: true }),
-        });
-      });
-
       await page.goto('/');
       await waitForLoginScreen(page, VISUAL_TEST_CONFIG.defaultTimeout);
 

@@ -15,6 +15,42 @@ backend_image = "northamerica-northeast1-docker.pkg.dev/dravr-artifacts/dravr-im
 artifacts_project_id = "dravr-artifacts"
 
 # -----------------------------------------------------------------------------
+# Private inputs (no defaults)
+# -----------------------------------------------------------------------------
+# Account ids, addresses, account names and limits have no default and no value
+# in the committed terraform.tfvars. The real values live in a private var-file
+# that infra/private-inputs.sh stages as private.auto.tfvars, which terraform
+# loads after terraform.tfvars. Every value below is a placeholder showing the
+# shape; none is real. The alert_thresholds and alert_windows maps declared in
+# private_inputs.tf come from the same file.
+
+billing_account_id     = "000000-000000-000000"
+monthly_budget_amount  = 100
+budget_alert_fractions = [0.5, 1]
+
+firebase_project_id = "example-firebase-project"
+
+admin_email       = "admin@example.com"
+resend_from_email = "no-reply@example.com"
+
+slack_error_channel         = "#example-alerts"
+notify_batch_window_secs    = 1
+notify_max_messages_per_min = 1
+notify_dedup_window_secs    = 1
+notify_email_from           = "Example Alerts <alerts@example.com>"
+notify_email_to             = "oncall@example.com"
+
+llm_chain = "example_provider=example-model,example_provider#2=example-model"
+
+strava_oauth_seat_cap         = 1
+meta_whatsapp_phone_number_id = "000000000000000"
+meta_whatsapp_verify_token    = "example-verify-token"
+meta_messenger_verify_token   = "example-verify-token"
+
+# RFC 5737 documentation ranges, not real ones.
+marketplace_egress_cidrs = ["198.51.100.0/24", "203.0.113.0/24"]
+
+# -----------------------------------------------------------------------------
 # Optional Variables (defaults shown, uncomment to override)
 # -----------------------------------------------------------------------------
 

@@ -183,17 +183,17 @@ resource "google_monitoring_alert_policy" "claim_verification_panicked" {
     condition_threshold {
       filter          = "resource.type=\"cloud_run_revision\" AND metric.type=\"logging.googleapis.com/user/${google_logging_metric.claim_verification_panicked.name}\""
       comparison      = "COMPARISON_GT"
-      threshold_value = 0
-      duration        = "0s"
+      threshold_value = var.alert_thresholds["claim_verification.panicked.threshold"]
+      duration        = var.alert_windows["claim_verification.panicked.duration"]
 
       aggregations {
-        alignment_period     = "300s"
+        alignment_period     = var.alert_windows["claim_verification.panicked.alignment_period"]
         per_series_aligner   = "ALIGN_DELTA"
         cross_series_reducer = "REDUCE_SUM"
       }
 
       trigger {
-        count = 1
+        count = var.alert_thresholds["claim_verification.panicked.trigger_count"]
       }
     }
   }
@@ -205,7 +205,7 @@ resource "google_monitoring_alert_policy" "claim_verification_panicked" {
   alert_strategy {
     # A panic is per-reply; the incident closes itself once no further reply
     # degrades, which is what a deployed fix looks like.
-    auto_close = "1800s"
+    auto_close = var.alert_windows["claim_verification.panicked.auto_close"]
   }
 
   depends_on = [time_sleep.claim_verification_metric_propagation]
@@ -283,17 +283,17 @@ resource "google_monitoring_alert_policy" "claim_verification_failed" {
     condition_threshold {
       filter          = "resource.type=\"cloud_run_revision\" AND metric.type=\"logging.googleapis.com/user/${google_logging_metric.claim_verification_failed.name}\""
       comparison      = "COMPARISON_GT"
-      threshold_value = 0
-      duration        = "0s"
+      threshold_value = var.alert_thresholds["claim_verification.judge_failed.threshold"]
+      duration        = var.alert_windows["claim_verification.judge_failed.duration"]
 
       aggregations {
-        alignment_period     = "300s"
+        alignment_period     = var.alert_windows["claim_verification.judge_failed.alignment_period"]
         per_series_aligner   = "ALIGN_DELTA"
         cross_series_reducer = "REDUCE_SUM"
       }
 
       trigger {
-        count = 1
+        count = var.alert_thresholds["claim_verification.judge_failed.trigger_count"]
       }
     }
   }
@@ -302,7 +302,7 @@ resource "google_monitoring_alert_policy" "claim_verification_failed" {
 
   alert_strategy {
     # Closes once replies reach the judge and come back with verdicts again.
-    auto_close = "1800s"
+    auto_close = var.alert_windows["claim_verification.judge_failed.auto_close"]
   }
 
   depends_on = [time_sleep.claim_verification_metric_propagation]

@@ -225,7 +225,7 @@ fn llm_provider_validations(
             name: "ANTHROPIC_API_KEY",
             value: env::var("ANTHROPIC_API_KEY").ok(),
             required,
-            description: "Anthropic API key of the first organization in the key pool \
+            description: "Anthropic API key of the anthropic tier \
                           (ANTHROPIC_API_KEY_2, _3, … add one tier each)",
         }],
         LlmProviderType::Cohere => vec![EnvValidation {

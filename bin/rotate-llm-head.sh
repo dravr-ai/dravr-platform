@@ -1,35 +1,34 @@
 #!/usr/bin/env bash
-# ABOUTME: Moves an Anthropic organization to the head of the LLM chain's key pool, in terraform and optionally live
+# ABOUTME: Moves one of the anthropic tier's keys to the head of the LLM chain, in terraform and optionally live
 # ABOUTME: One command instead of gcloud archaeology; terraform stays the source of truth so an apply keeps the order
 #
 # SPDX-License-Identifier: MIT OR Apache-2.0
 # Copyright (c) 2026 dravr.ai
 #
-# The chain's `anthropic` tier reads ANTHROPIC_API_KEY, `anthropic#2` reads
-# ANTHROPIC_API_KEY_2, `anthropic#3` ANTHROPIC_API_KEY_3 (carnet#875). Which
-# organization serves first is therefore which secret each variable is bound
-# to. On 2026-11-21 that was swapped by hand on the live service; the next
-# terraform apply put it back (carnet#1709, post-mortem change 7). This script
-# edits the three bindings in infra/environments/dev/main.tf and, with --live,
-# updates the same three variables on the running API service, so the file and
-# the service agree.
+# The chain's `anthropic` tier reads ANTHROPIC_API_KEY, and each further
+# credential of the tier reads the next numbered variable. Which key serves
+# first is therefore which secret each variable is bound to. On 2026-11-21
+# that was swapped by hand on the live service; the next terraform apply put
+# it back (carnet#1709, post-mortem change 7). This script edits the bindings
+# in infra/environments/dev/main.tf and, with --live, updates the same
+# variables on the running API service, so the file and the service agree.
 #
 # A spent head does not need this: the chain passes over it (quota cooldown, or
-# the tier bench for a dead key). The spent organization stays the head on
-# purpose (JF, 2026-11-23). Use this to choose a different head deliberately.
+# the tier bench for a dead key). A spent key stays the head on purpose
+# (2026-11-23). Use this to choose a different head deliberately.
 #
 # Usage:
 #   bin/rotate-llm-head.sh                    show the order in terraform and live
-#   bin/rotate-llm-head.sh --head <org>       put <org> first in main.tf; the other
-#                                             two keep their relative order
-#   bin/rotate-llm-head.sh --head <org> --live
+#   bin/rotate-llm-head.sh --head <key>       put <key> first in main.tf; the
+#                                             others keep their relative order
+#   bin/rotate-llm-head.sh --head <key> --live
 #                                             also update the running service now
 #   --dry-run                                 print what would change, change nothing
 #
-# <org> is a terraform secret key (anthropic_api_key, anthropic_api_key_2,
-# anthropic_api_key_3) or its Secret Manager id (dravr-mcp-server-anthropic-api-key-phil).
+# <key> is a terraform secret key (anthropic_api_key, anthropic_api_key_2,
+# anthropic_api_key_3) or its Secret Manager id.
 #
-# --live touches only the three ANTHROPIC_API_KEY* variables
+# --live touches only the ANTHROPIC_API_KEY* variables
 # (gcloud --update-secrets, never --set-secrets, which replaces every secret
 # binding) and starts a new revision. Commit and push the main.tf change after,
 # so the next apply keeps the order.
@@ -52,7 +51,7 @@ live=false
 dry_run=false
 while [ $# -gt 0 ]; do
   case "$1" in
-    --head) [ $# -ge 2 ] || die "--head needs an organization"; head_org="$2"; shift 2 ;;
+    --head) [ $# -ge 2 ] || die "--head needs a key"; head_org="$2"; shift 2 ;;
     --live) live=true; shift ;;
     --dry-run) dry_run=true; shift ;;
     -h|--help) sed -n '/^# Usage:/,/^[^#]/{/^#/s/^# \{0,1\}//p;}' "$0"; exit 0 ;;
@@ -121,7 +120,7 @@ fi
 
 [ -n "$head_org" ] || exit 0
 
-# Resolve <org> to a terraform key.
+# Resolve <key> to a terraform key.
 target=""
 target_id=""
 for i in 0 1 2; do
@@ -130,7 +129,7 @@ for i in 0 1 2; do
     target_id="${current_ids[$i]}"
   fi
 done
-[ -n "$target" ] || die "unknown organization '$head_org': give one of ${current[*]} or its Secret Manager id"
+[ -n "$target" ] || die "unknown key '$head_org': give one of ${current[*]} or its Secret Manager id"
 
 new=("$target")
 new_ids=("$target_id")

@@ -45,15 +45,14 @@ public_domains = ["app.dravr.ai", "mcp.dravr.ai"]
 
 # Cloud Armor on that load balancer. Every rule that can refuse a request is in
 # preview until armor_waf_preview / armor_rate_rules_preview are set false here
-# (procedure in public_mcp_monitoring.tf). The ranges are Anthropic's outbound
-# IPv4 list, https://platform.claude.com/docs/en/api/ip-addresses (it publishes
-# no outbound IPv6), checked 2026-11-06.
+# (procedure in public_mcp_monitoring.tf). The ranges allowed past the
+# per-address limits, marketplace_egress_cidrs, are the marketplace hosts'
+# published outbound lists and are set in the private var-file.
 #
 # Off: with every refusing rule in preview the policy refuses nothing and costs
 # its fixed fees (one policy, seven rules, about CA$17 a month, checked
 # 2026-11-16). Set true to bring it back; the rules return in preview.
-armor_enabled            = false
-marketplace_egress_cidrs = ["160.79.104.0/21", "153.61.208.0/20"]
+armor_enabled = false
 
 # The MCP resource identifier (MCP_RESOURCE_URL): the URL a user enters in the
 # client, with the MCP endpoint's path, because claude.ai requires the RFC 9728
@@ -79,7 +78,7 @@ mcp_resource_url = "https://mcp.dravr.ai/mcp"
 backend_cpu    = "2"
 backend_memory = "2Gi"
 # Scale to zero when idle. A warm floor (min=1) combined with cpu_idle=false
-# bills 2 vCPU continuously (~$140/mo — roughly half the 300 CAD/mo budget for
+# bills 2 vCPU continuously (~$140/mo — a large share of the monthly budget for
 # one instance), and it would reverse the single surviving saving from the
 # 2026-06-03 cost cut (2676ccfc7). Not worth it for the contremaitre push
 # webhook's cold start: the webhook retries, and prompts sync on startup anyway.
@@ -138,8 +137,16 @@ backend_max_instance_request_concurrency = 80
 # database_backup_enabled      = false
 
 # Firebase Identity Platform (Google Sign-In)
-# OAuth credentials stored in GCP Secret Manager (google-oauth-client-id, google-oauth-client-secret)
-firebase_project_id = "dravr-dev-8d4a3"
+# OAuth credentials stored in GCP Secret Manager (google-oauth-client-id, google-oauth-client-secret).
+# firebase_project_id is set in the private var-file.
+
+# Inputs with no default and no value here are account ids, addresses, account
+# names and limits: the billing account and budget, the alert senders and
+# recipients, the admin login address, the LLM provider chain, the messaging
+# account identifiers and the marketplace egress ranges. Their values live in
+# the private var-file, loaded after this one on every plan and apply
+# (infra/private-inputs.sh). terraform.tfvars.example lists each with a
+# placeholder.
 
 labels = {
   app         = "dravr"
@@ -177,7 +184,7 @@ backend_sciotte_login_split = true
 
 # carnet#1504 step 3: reads spread over two one-instance read services; every
 # call naming a session goes to the one its id picks. The second scales to
-# zero (ChefFamille, 2026-11-16).
+# zero (decided 2026-11-16).
 sciotte_read_services = 2
 
 # Coach visuals: deploy the photograveur chart-press service (min=0,

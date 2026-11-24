@@ -6,13 +6,12 @@
 
 import { test, expect, type Page, type WebSocketRoute } from '@playwright/test';
 import { answerConnectConsents, loginToDashboard, setupDashboardMocks } from './test-helpers';
-import { mockSetupStatus, mockSignedOut, takeoverToken } from './auth-mocks';
+import { mockSignedOut, takeoverToken } from './auth-mocks';
 
 const TOKEN = takeoverToken();
 const FRAME = { width: 320, height: 568 };
 
 async function setupBasicMocks(page: Page) {
-  await mockSetupStatus(page);
   await mockSignedOut(page);
 }
 

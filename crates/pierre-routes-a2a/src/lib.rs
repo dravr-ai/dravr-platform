@@ -13,7 +13,7 @@
 //!   REST paths (`/a2a/message:send`, `/a2a/tasks/…`), both enforcing
 //!   `A2A-Version` negotiation.
 //!
-//! - Client-management surface (`/a2a/clients/*`, `/a2a/status`,
+//! - Client-management surface (`/a2a/clients/*`,
 //!   `/.well-known/agent-card.json`) implemented as
 //!   free-function handlers attached to [`A2ARoutesState`] — the JWT-auth
 //!   gate is supplied by [`pierre_middleware::AuthenticatedUser`].
@@ -52,13 +52,11 @@ use pierre_a2a::{
 };
 use pierre_auth::auth::AuthResult;
 use pierre_core::errors::AppError;
-use pierre_core::models::OAuthAppCredentials;
 use pierre_middleware::{extract_auth_from_headers, McpAuthMiddleware};
 use pierre_runtime_context::{A2ACtx, MiddlewareCtx};
 use pierre_tool_runtime::runtime::ToolRuntime;
-use secrecy::{ExposeSecret, SecretString};
+use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::fmt;
 use std::future::Future;
 use std::sync::Arc;
@@ -204,14 +202,6 @@ struct CreateA2AClientResponse {
     client_secret: SecretString,
 }
 
-/// Request body of `POST /a2a/credentials`: provider name to OAuth
-/// application credentials for the authenticated user.
-#[derive(Debug, Deserialize)]
-struct StoreCredentialsRequest {
-    /// Provider (e.g. "strava") to credentials map
-    credentials: HashMap<String, OAuthAppCredentials>,
-}
-
 /// A2A routes implementation
 #[derive(Debug)]
 pub struct A2ARoutes;
@@ -231,8 +221,7 @@ impl A2ARoutes {
     /// - GET /.well-known/agent-card.json - Agent card discovery
     ///
     /// Management surface (frontend API expectations):
-    /// - /a2a/status, `/a2a/clients[/{client_id}]`
-    /// - POST /a2a/credentials - store per-user OAuth app credentials
+    /// - `/a2a/clients[/{client_id}]`
     ///
     /// A 401 on the protocol surface carries the `WWW-Authenticate` challenge.
     /// The management surface answers Dravr's own signed-in app, not an agent,
@@ -270,16 +259,11 @@ impl A2ARoutes {
                 binding::challenge_unauthorized::<C>,
             ))
             // Public routes (no auth required)
-            .route("/a2a/status", get(Self::handle_status))
             .route(
                 "/.well-known/agent-card.json",
                 get(Self::handle_agent_card_discovery::<C>),
             )
             // Client management routes (auth required)
-            .route(
-                "/a2a/credentials",
-                post(Self::handle_store_credentials::<C>),
-            )
             .route(
                 "/a2a/clients",
                 get(Self::handle_list_clients::<C>).post(Self::handle_create_client::<C>),
@@ -303,15 +287,6 @@ impl A2ARoutes {
             .with_state(state)
     }
 
-    /// Handle A2A status (public endpoint)
-    async fn handle_status() -> Json<serde_json::Value> {
-        // Yield to scheduler for cooperative multitasking
-        task::yield_now().await;
-        Json(serde_json::json!({
-            "status": "active"
-        }))
-    }
-
     /// Handle agent card discovery endpoint (public endpoint)
     async fn handle_agent_card_discovery<C: MiddlewareCtx + A2ACtx>(
         State(state): State<A2ARoutesState<C>>,
@@ -319,61 +294,6 @@ impl A2ARoutes {
         // Yield to scheduler for cooperative multitasking
         task::yield_now().await;
         Json(AgentCard::new(state.ctx.oauth2_server_config()))
-    }
-
-    /// Store per-user OAuth application credentials supplied by an A2A
-    /// integration (`POST /a2a/credentials`).
-    ///
-    /// This is the management home of the capability the pre-1.0
-    /// `a2a/initialize` handshake carried in its `oauthCredentials` field:
-    /// each entry provisions an OAuth app (client id/secret) for the
-    /// authenticated user with the A2A out-of-band redirect URI.
-    async fn handle_store_credentials<C: MiddlewareCtx + A2ACtx>(
-        State(state): State<A2ARoutesState<C>>,
-        auth: A2AAuth,
-        Json(request): Json<StoreCredentialsRequest>,
-    ) -> Result<Response, AppError> {
-        let auth = auth.into_inner();
-        // An OAuth app outlives the support session that would store it.
-        auth.refuse_impersonation(
-            MiddlewareCtx::repos(&*state.ctx).admin_audit.as_ref(),
-            "store an A2A integration's OAuth app",
-        )
-        .await?;
-        let user_id = auth.user_id;
-
-        if request.credentials.is_empty() {
-            return Err(AppError::invalid_input(
-                "credentials must contain at least one provider entry",
-            ));
-        }
-
-        let mut stored = Vec::with_capacity(request.credentials.len());
-        for (provider, creds) in request.credentials {
-            info!(
-                user_id = %user_id,
-                provider = %provider,
-                "Storing OAuth credentials for A2A integration"
-            );
-            let redirect_uri = format!("urn:ietf:wg:oauth:2.0:oob:{provider}:a2a");
-            A2ACtx::repos(state.ctx.as_ref())
-                .oauth_tokens
-                .store_user_oauth_app(
-                    user_id,
-                    &provider,
-                    &creds.client_id,
-                    creds.client_secret.expose_secret(),
-                    &redirect_uri,
-                )
-                .await?;
-            stored.push(provider);
-        }
-
-        Ok((
-            StatusCode::OK,
-            Json(serde_json::json!({ "stored": stored })),
-        )
-            .into_response())
     }
 
     /// List all A2A clients for authenticated user

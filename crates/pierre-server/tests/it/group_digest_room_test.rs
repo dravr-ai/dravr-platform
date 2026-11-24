@@ -28,7 +28,9 @@ mod group_digest_room_tests {
         MemberFitnessSnapshot, OvertrainingRiskLevel,
     };
     use pierre_core::models::messaging::{ChannelType, MessageContent};
-    use pierre_core::models::{Tenant, TenantId, UnitSystem, User, UserStatus};
+    use pierre_core::models::{
+        Activity, ActivityBuilder, SportType, Tenant, TenantId, UnitSystem, User, UserStatus,
+    };
     use pierre_database::backends::factory::DatabaseBackend;
     use pierre_database::backends::{CreateChannelLinkParams, MessagingRepository};
     use pierre_database::RepositoryRegistry;
@@ -254,6 +256,15 @@ mod group_digest_room_tests {
                 })
                 .await
                 .unwrap();
+            // The owner's home tenant holds their stored history too: a
+            // coach's read of a member reads their weeks there.
+            self.resources
+                .common
+                .repos
+                .activity_cache
+                .upsert_activities(owner, &id, "strava", &[ride_long_ago(owner)])
+                .await
+                .unwrap();
             id
         }
 
@@ -372,8 +383,31 @@ mod group_digest_room_tests {
                 })
                 .await
                 .unwrap();
+            // A ride stored eight weeks back: each member's weeks are ones
+            // their stored history vouches for, so a week without training
+            // is a real 0 km in the digest rather than a week with no figure.
+            repos
+                .activity_cache
+                .upsert_activities(*user_id, &tenant, "strava", &[ride_long_ago(*user_id)])
+                .await
+                .unwrap();
         }
         id
+    }
+
+    /// An hour's ride eight weeks before now, before every week a digest
+    /// reads and after its history's lookback starts.
+    fn ride_long_ago(user_id: Uuid) -> Activity {
+        ActivityBuilder::new(
+            format!("long-ago-{user_id}"),
+            "Sortie".to_owned(),
+            SportType::Ride,
+            Timestamp::now() - Elapsed::weeks(8),
+            3_600,
+            "strava".to_owned(),
+        )
+        .distance_meters(30_000.0)
+        .build()
     }
 
     // ── The group's chat ────────────────────────────────────────────────
@@ -1269,10 +1303,10 @@ mod group_digest_room_tests {
             atl: form.map(|(ctl, tsb)| ctl - tsb),
             tsb: form.map(|(_, tsb)| tsb),
             form_ctl: form.map(|(ctl, _)| ctl),
-            weekly_volume_km: km,
+            weekly_volume_km: Some(km),
             previous_week_volume_km: Some(km),
-            weekly_activity_count: 3,
-            weekly_duration_seconds: 3600,
+            weekly_activity_count: Some(3),
+            weekly_duration_seconds: Some(3600),
             primary_sport: None,
             vdot: None,
             overtraining_risk: OvertrainingRiskLevel::Low,

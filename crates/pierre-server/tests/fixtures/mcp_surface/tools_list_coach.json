@@ -15895,7 +15895,7 @@
                 ]
               },
               "km_previous_week": {
-                "description": "Kilometres the week before, for the trend.",
+                "description": "Kilometres the Monday week before, for the trend; absent when their\nstored history does not reach it.",
                 "format": "double",
                 "type": [
                   "number",
@@ -15903,9 +15903,12 @@
                 ]
               },
               "km_this_week": {
-                "description": "Kilometres this week.",
+                "description": "Kilometres this week; absent as `sessions_this_week` is.",
                 "format": "double",
-                "type": "number"
+                "type": [
+                  "number",
+                  "null"
+                ]
               },
               "last_activity_per_source": {
                 "additionalProperties": {
@@ -15936,15 +15939,21 @@
                 "type": "array"
               },
               "seconds_this_week": {
-                "description": "Active seconds this week, which covers sources with no distance.",
+                "description": "Elapsed seconds this week, which covers sources with no distance;\nabsent as `sessions_this_week` is.",
                 "format": "uint64",
                 "minimum": 0,
-                "type": "integer"
+                "type": [
+                  "integer",
+                  "null"
+                ]
               },
               "sessions_this_week": {
-                "description": "Sessions this week.",
+                "description": "Sessions this week, Monday to Sunday on the athlete's calendar;\nabsent when their stored history does not reach the week yet, which\nis never zero sessions.",
                 "format": "int32",
-                "type": "integer"
+                "type": [
+                  "integer",
+                  "null"
+                ]
               },
               "stale": {
                 "description": "True when the data came from a stale cache that could not be refreshed;\nquiet recent days are then not evidence they stopped training.",
@@ -16017,7 +16026,7 @@
       },
       "_meta": {
         "ai.dravr.vault/tool": {
-          "def_hash": "sha256:175d83e8f0aa8c5ef833106da4d8192dd9a720ec5fe130e6e6fc86658378ff65"
+          "def_hash": "sha256:5b6701c91c5c105a5003005c96ec5345fdbf720c8e55a35890dcc019a548875d"
         }
       }
     },

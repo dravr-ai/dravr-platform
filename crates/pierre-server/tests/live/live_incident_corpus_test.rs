@@ -23,9 +23,9 @@
 //!
 //! Which model answers is the environment's choice. The nightly lane runs
 //! dev's chain: `PIERRE_LLM_CHAIN` with `anthropic` serving the deployed
-//! coaching model at its head (both of dev's organizations), then
-//! `copilot_sdk`, `claude_code` (both of dev's accounts) and `gemini` behind
-//! it, so a turn the head cannot serve — a spent credit, a timeout — is
+//! coaching model at its head, then `copilot_sdk`, `claude_code` and
+//! `gemini` behind it, each followed by its further credentials, so a turn
+//! the head cannot serve — a spent credit, a timeout — is
 //! answered further down the chain exactly as it would be for an athlete. A
 //! finding is therefore a statement about what the athlete would have
 //! received, whichever tier wrote it; the server log marks a turn the chain
@@ -69,10 +69,10 @@
 //! `copilot --version` extracts it, and `COPILOT_RUNTIME_PATH` names its
 //! `copilot-runtime`) with `COPILOT_GITHUB_TOKEN`, the pinned `claude` CLI
 //! (`CLAUDE_CODE_CLI_VERSION`, same file) on `PATH` with
-//! `CLAUDE_CODE_OAUTH_TOKEN` (and `CLAUDE_CODE_OAUTH_TOKEN_2`) for the
+//! `CLAUDE_CODE_OAUTH_TOKEN` (and any numbered further one) for the
 //! fallback tier, `GEMINI_API_KEY` for the tertiary, `USDA_API_KEY` for the
 //! food tools, and the provider selection env the server itself reads. The
-//! three models are dev's, from `infra/environments/dev/main.tf`, and the lane
+//! three models are dev's, from the `llm_chain` terraform input, and the lane
 //! refuses the harness's placeholder model, so each `…` below is dev's value
 //! for that key. On the dev tokens a local run spends the accounts athletes
 //! are served from.

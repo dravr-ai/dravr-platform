@@ -126,6 +126,7 @@ use pierre_core::http_client::api_client;
 use pierre_core::models::messaging::{ChannelType, MessageContent, OutgoingMessage};
 use pierre_core::models::{ActivityBuilder, SportType, TenantId, User, UserOAuthToken, UserStatus};
 use pierre_core::permissions::scopes::OAuthScope;
+use pierre_core::permissions::UserRole;
 use pierre_core::transport::{Transport, TransportPolicy};
 use pierre_database::backends::{
     CreateChannelLinkParams, CreateLinkStateParams, MessagingRepository, UpsertChannelConfigParams,
@@ -421,7 +422,7 @@ async fn ask_for_a_telegram_link(resources: &Arc<ServerContext>, user: &User) ->
 }
 
 /// Put `user` back to waiting for review, then approve the account through
-/// the admin route of the application the server serves, whose notifier
+/// the console's admin route of the application the server serves, whose notifier
 /// posts the approval notice and the consent ask into the linked chat.
 async fn approve_the_linked_user(resources: &Arc<ServerContext>, user: &User) {
     resources
@@ -434,28 +435,17 @@ async fn approve_the_linked_user(resources: &Arc<ServerContext>, user: &User) {
     let app = ProviderToolRouter::build_http_app(resources)
         .layer(MockConnectInfo(SocketAddr::from(([127, 0, 0, 1], 41_600))));
 
-    let setup = Request::post("/admin/setup")
-        .header("content-type", "application/json")
-        .body(Body::from(
-            json!({
-                "email": "egress-guard-admin@example.com",
-                "password": "egress-guard-admin-password",
-                "display_name": "Egress Guard Admin"
-            })
-            .to_string(),
-        ))
-        .unwrap();
-    let response = app.clone().oneshot(setup).await.unwrap();
-    assert_eq!(
-        response.status(),
-        StatusCode::CREATED,
-        "the admin is set up"
+    let mut admin = User::new(
+        "egress-guard-admin@example.com".to_owned(),
+        "hashed".to_owned(),
+        Some("Egress Guard Admin".to_owned()),
     );
-    let body: Value =
-        serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
-    let admin_token = body["data"]["admin_token"].as_str().unwrap().to_owned();
+    admin.role = UserRole::Admin;
+    admin.user_status = UserStatus::Active;
+    resources.common.repos.users.create(&admin).await.unwrap();
+    let admin_token = generate_test_token(resources, &admin).await;
 
-    let approve = Request::post(format!("/admin/approve-user/{}", user.id))
+    let approve = Request::post(format!("/api/admin/approve-user/{}", user.id))
         .header("content-type", "application/json")
         .header("authorization", format!("Bearer {admin_token}"))
         .body(Body::from(json!({ "reason": "egress guard" }).to_string()))

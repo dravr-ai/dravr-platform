@@ -15,6 +15,9 @@
 //! zones with, and names the profile field to save. It never writes — `set_physiology` stays the profile's only writer.
 
 use crate::annotations::{annotations, Effect, Reach};
+use crate::read_subject::DataClass;
+use crate::tool_data::ToolData;
+use dravr_barrage::Stream;
 use pierre_providers::ai_scope;
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -444,4 +447,7 @@ impl McpTool<dyn ToolRuntime> for EstimateLactateThresholdsTool {
 // Pure computation over the stages the athlete states plus a read of their
 // own profile. Nothing is written, nothing leaves the process, and the
 // response carries no third-party text.
-crate::declare_security!(EstimateLactateThresholdsTool => empty);
+crate::declare_security!(
+    EstimateLactateThresholdsTool => empty,
+    reads: ToolData::of(DataClass::Training, &[Stream::Fitness, Stream::Profile]),
+);

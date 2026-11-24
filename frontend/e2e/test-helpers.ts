@@ -526,15 +526,6 @@ export async function setupDashboardMocks(page: Page, userOptions: UserOptions =
   // Theme pin + feature-flag stubs shared with spec-local helpers.
   await applyTestStubs(page);
 
-  // Mock setup status
-  await page.route('**/admin/setup/status', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ needs_setup: false, admin_user_exists: true }),
-    });
-  });
-
   // Mock the first-party token endpoint: the hosted sign-in's code exchange
   // (grant_type=authorization_code), which answers what the password grant did.
   await page.route('**/oauth/token', async (route) => {

@@ -371,7 +371,9 @@ fi
 # a consumer. The standing stock is reported, not blessed — clearing it is a
 # per-surface deletion decision tracked in dravr-ai/carnet (carnet#17). The one
 # whole-tree rule: every web-only service method (frontend/src/services/api)
-# needs a caller, because that stock is zero (carnet#581).
+# needs a caller, because that stock is zero (carnet#581). The other: every
+# route the server registers has a caller in the tree or a declared outside
+# caller (`--all-routes`), because that stock is zero too.
 # Also fires on either client's changes: since the api-client scan is split
 # per surface, a client that drops its last caller of a method the other client
 # still uses is a parity gap this catches — and that change touches neither
@@ -384,6 +386,11 @@ if { [[ "$HAS_RUST_SRC_CHANGES" == "true" ]] || [[ "$HAS_API_CLIENT_CHANGES" == 
     if ! "$PROJECT_ROOT/scripts/ci/check-phantom-surfaces.sh" "$BASE_REF"; then
         echo ""
         echo "FAIL: Phantom surface check failed!"
+        exit 1
+    fi
+    if ! "$PROJECT_ROOT/scripts/ci/check-phantom-surfaces.sh" --all-routes; then
+        echo ""
+        echo "FAIL: Clientless route check failed!"
         exit 1
     fi
     echo ""

@@ -9,8 +9,8 @@
 
 //! Self-serve sign-up stays bounded once it can activate itself:
 //!
-//! 1. the admin's kill switch closes every self-serve door, and the
-//!    unbounded registration the service keeps for an admin stays open;
+//! 1. the admin's kill switch closes every self-serve door, and an admin's
+//!    invitation still opens an account;
 //! 2. the 24-hour ceiling refuses past the accounts it admits;
 //!    both refusals are a 429 reading the paused message;
 //! 3. one client address gets a window of sign-ups, resends and confirmation
@@ -46,11 +46,12 @@ use pierre_config::environment::{
     SecurityHeadersConfig, ServerConfig,
 };
 use pierre_core::admin::models::{AdminPermission, CreateAdminTokenRequest};
-use pierre_core::models::UserStatus;
+use pierre_core::models::{InvitationKind, UserStatus};
 use pierre_mcp_server::constants::system_config::STARTER_MONTHLY_LIMIT;
 use pierre_mcp_server::mcp::resources::{ServerContext, ServerContextOptions};
 use pierre_routes_admin::{AdminApiContext, AdminApiContextInit, AdminRoutes};
 use pierre_routes_auth::AuthRoutes;
+use pierre_services::invitation::{self, InviteOutcome};
 use pierre_services::link_token::generate_link_token;
 use pierre_services::signup_policy::{set_signup_policy, SignupPolicyUpdate, SIGNUP_PAUSED};
 use serde_json::{json, Value};
@@ -232,7 +233,7 @@ async fn a_closed_switch_refuses_the_register_form_and_says_so_up_front() {
 }
 
 #[tokio::test]
-async fn a_closed_switch_closes_the_stranger_doors_but_not_the_admin_door() {
+async fn a_closed_switch_closes_the_stranger_doors_but_not_an_admins_invitation() {
     let resources = context().await;
     set_policy(
         &resources,
@@ -243,23 +244,35 @@ async fn a_closed_switch_closes_the_stranger_doors_but_not_the_admin_door() {
     )
     .await;
     let service = resources.account_service();
-    let request = |email: &str| RegisterRequest {
-        analytics_consent: None,
-        email: email.to_owned(),
-        password: SecretString::from(PASSWORD.to_owned()),
-        display_name: None,
-    };
 
     let refused = service
-        .self_register(request("stranger@example.com"))
+        .self_register(RegisterRequest {
+            analytics_consent: None,
+            email: "stranger@example.com".to_owned(),
+            password: SecretString::from(PASSWORD.to_owned()),
+            display_name: None,
+        })
         .await
         .expect_err("the link page and in-chat sign-up go through self_register");
     assert!(refused.message.ends_with(SIGNUP_PAUSED));
 
-    service
-        .register(request("admin-made@example.com"))
+    let issued = match invitation::issue(
+        &resources.common.repos,
+        "admin-invited@example.com",
+        None,
+        InvitationKind::Account,
+    )
+    .await
+    .expect("issuing must succeed")
+    {
+        InviteOutcome::Issued(issued) => issued,
+        other => panic!("the address has no account and a fresh budget: {other:?}"),
+    };
+    let (response, _) = service
+        .accept_invitation(&issued.token, PASSWORD.to_owned(), None, None)
         .await
-        .expect("an admin's register is not a self-serve sign-up");
+        .expect("an admin's invitation is not a self-serve sign-up");
+    assert_eq!(response.user_status, UserStatus::Active);
 }
 
 #[tokio::test]
@@ -610,27 +623,6 @@ async fn without_self_activation_a_proven_address_still_waits_for_review() {
     assert_eq!(
         status_of(&resources, "reviewed@example.com").await,
         UserStatus::Pending
-    );
-}
-
-#[tokio::test]
-async fn an_admin_made_account_stays_in_review_while_sign_up_self_activates() {
-    let resources = self_activating().await;
-    let response = resources
-        .account_service()
-        .register(RegisterRequest {
-            analytics_consent: None,
-            email: "admin-pending@example.com".to_owned(),
-            password: SecretString::from(PASSWORD.to_owned()),
-            display_name: None,
-        })
-        .await
-        .unwrap();
-    assert_eq!(response.user_status, UserStatus::Pending);
-    assert!(
-        response.message.contains("pending admin approval"),
-        "the admin's door sends no confirmation link, so it is not told to confirm one: {}",
-        response.message
     );
 }
 

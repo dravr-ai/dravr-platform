@@ -20,7 +20,6 @@ use pierre_auth::{
     },
 };
 use pierre_core::models::{AuthRequest, User, UserStatus, UserTier};
-use pierre_core::permissions::UserRole;
 use pierre_core::uuid_utils::parse_uuid;
 use pierre_database::database::generate_encryption_key;
 use pierre_middleware::McpAuthMiddleware;
@@ -605,60 +604,6 @@ fn test_claims_serialization() {
     assert_eq!(claims.iat, deserialized.iat);
     assert_eq!(claims.exp, deserialized.exp);
     assert!(!json.contains("providers"), "{json}");
-}
-
-#[tokio::test]
-async fn test_check_setup_status_admin_exists() {
-    let auth_manager = create_auth_manager();
-
-    // Create in-memory database with admin user
-    let encryption_key = generate_encryption_key().to_vec();
-
-    let database = create_test_db_with_key(encryption_key).await.unwrap();
-
-    // Create admin user
-    let mut admin_user = User::new(
-        "admin@pierre.mcp".into(),
-        "hashed_password".into(),
-        Some("Admin User".into()),
-    );
-    admin_user.role = UserRole::Admin;
-    admin_user.user_status = UserStatus::Active;
-
-    database
-        .repositories()
-        .users
-        .create(&admin_user)
-        .await
-        .unwrap();
-
-    let repos = database.repositories();
-    let setup_status = auth_manager
-        .check_setup_status(&*repos.users)
-        .await
-        .unwrap();
-    assert!(!setup_status.needs_setup);
-    assert!(setup_status.admin_user_exists);
-    assert!(setup_status.message.is_none());
-}
-
-#[tokio::test]
-async fn test_check_setup_status_no_admin() {
-    let auth_manager = create_auth_manager();
-
-    // Create in-memory database without admin user
-    let encryption_key = generate_encryption_key().to_vec();
-
-    let database = create_test_db_with_key(encryption_key).await.unwrap();
-
-    let repos = database.repositories();
-    let setup_status = auth_manager
-        .check_setup_status(&*repos.users)
-        .await
-        .unwrap();
-    assert!(setup_status.needs_setup);
-    assert!(!setup_status.admin_user_exists);
-    assert!(setup_status.message.is_some());
 }
 
 fn create_test_user_with_tier(tier: UserTier) -> User {

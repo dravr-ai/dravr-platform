@@ -29,7 +29,7 @@
 # Verify or backfill a day by hand: start a manual run of the transfer config
 # for run time D+1 (Console › BigQuery › Scheduled queries › Schedule backfill).
 # @run_date drives the day, so a backfill re-evaluates history, including the
-# alert. 2026-10-01 (55.6 GiB) breaches both default thresholds.
+# alert. 2026-10-01 (55.6 GiB) breaches both thresholds.
 #
 # PREREQUISITE — Slack: the channel named by slack_cost_channel must exist and
 # the Dravr Slack app (slack_bot_token) must be a member, or GCP's deliveries
@@ -50,29 +50,19 @@ variable "slack_cost_channel" {
   }
 }
 
-variable "cost_alert_ar_egress_gib" {
-  description = "Alert when Artifact Registry internet egress for a UTC day exceeds this many GiB. Before CI built binaries outside Docker (2026-10-02) every busy day was 25–55 GiB; after it a build pulls ~0.1 GiB, so 10 GiB means the cache pulls are back."
-  type        = number
-  default     = 10
-
-  validation {
-    condition     = var.cost_alert_ar_egress_gib > 0
-    error_message = "cost_alert_ar_egress_gib must be greater than 0; at 0 or below every day with any registry egress alerts."
-  }
-}
-
-variable "cost_alert_daily_cad" {
-  description = "Alert when the billing account's net regular cost for a UTC day exceeds this many CAD (credits applied, tax excluded). September 2026 ran CA$8–14.5/day with ~CA$4–8 of registry egress; without that egress the floor is ~CA$4–9."
-  type        = number
-  default     = 12
-
-  validation {
-    condition     = var.cost_alert_daily_cad > 0
-    error_message = "cost_alert_daily_cad must be greater than 0; at 0 or below every day with any spend alerts."
-  }
-}
-
 locals {
+  # Alert when Artifact Registry internet egress for a UTC day exceeds this
+  # many GiB. Before CI built binaries outside Docker (2026-10-02) every busy
+  # day was 25–55 GiB; after it a build pulls ~0.1 GiB, so the limit sits
+  # where crossing it means the cache pulls are back.
+  cost_alert_ar_egress_gib = var.alert_thresholds["cost.daily_cost.ar_egress_gib"]
+
+  # Alert when the billing account's net regular cost for a UTC day exceeds
+  # this many CAD (credits applied, tax excluded). September 2026 ran
+  # CA$8–14.5/day with ~CA$4–8 of registry egress; without that egress the
+  # floor is ~CA$4–9.
+  cost_alert_daily_cad = var.alert_thresholds["cost.daily_cost.total_cad"]
+
   billing_export_table = "${var.project_id}.${google_bigquery_dataset.billing_export.dataset_id}.gcp_billing_export_v1_${replace(var.billing_account_id, "-", "_")}"
   cost_monitor_table   = "${var.project_id}.${google_bigquery_dataset.cost_monitor.dataset_id}.${google_bigquery_table.cost_monitor_daily.table_id}"
 
@@ -103,8 +93,8 @@ locals {
 
     SET breach_list = ARRAY(
       SELECT b FROM UNNEST([
-        IF(ar_gib > ${var.cost_alert_ar_egress_gib}, FORMAT('registry egress %.1f GiB > ${var.cost_alert_ar_egress_gib} GiB', ar_gib), NULL),
-        IF(total_cad > ${var.cost_alert_daily_cad}, FORMAT('total CA$%.2f > ${var.cost_alert_daily_cad} CAD', total_cad), NULL)
+        IF(ar_gib > ${local.cost_alert_ar_egress_gib}, FORMAT('registry egress %.1f GiB > ${local.cost_alert_ar_egress_gib} GiB', ar_gib), NULL),
+        IF(total_cad > ${local.cost_alert_daily_cad}, FORMAT('total CA$%.2f > ${local.cost_alert_daily_cad} CAD', total_cad), NULL)
       ]) AS b
       WHERE b IS NOT NULL
     );
@@ -226,6 +216,19 @@ resource "google_bigquery_data_transfer_config" "cost_monitor" {
     query = local.cost_monitor_sql
   }
 
+  # A limit at zero or below alerts on every day with any egress or any spend.
+  lifecycle {
+    precondition {
+      condition     = local.cost_alert_ar_egress_gib > 0
+      error_message = "alert_thresholds[\"cost.daily_cost.ar_egress_gib\"] must be greater than 0; at 0 or below every day with any registry egress alerts."
+    }
+
+    precondition {
+      condition     = local.cost_alert_daily_cad > 0
+      error_message = "alert_thresholds[\"cost.daily_cost.total_cad\"] must be greater than 0; at 0 or below every day with any spend alerts."
+    }
+  }
+
   depends_on = [
     google_project_iam_member.cost_monitor_job_user,
     google_bigquery_dataset_iam_member.cost_monitor_reads_billing,
@@ -272,7 +275,7 @@ resource "google_monitoring_alert_policy" "daily_cost" {
       The daily cost-monitor scheduled query (`cost-monitor-daily`, BigQuery in
       ${var.project_id}) found the previous UTC day over a threshold, or found
       no billing rows for it. Limits: registry egress
-      ${var.cost_alert_ar_egress_gib} GiB, total ${var.cost_alert_daily_cad} CAD.
+      ${local.cost_alert_ar_egress_gib} GiB, total ${local.cost_alert_daily_cad} CAD.
 
       * Registry egress over the limit: image builds are pulling layers out of
         Artifact Registry again. Check that publish-images.yml still builds with
@@ -311,8 +314,8 @@ resource "google_monitoring_alert_policy" "daily_cost" {
 
   alert_strategy {
     notification_rate_limit {
-      period = "3600s"
+      period = var.alert_windows["cost.daily_cost.notification_rate_limit"]
     }
-    auto_close = "86400s"
+    auto_close = var.alert_windows["cost.daily_cost.auto_close"]
   }
 }

@@ -29,7 +29,7 @@ use pierre_core::models::{Tenant, TenantId, User, UserStatus, UserTier};
 use pierre_core::permissions::UserRole;
 use pierre_database::{backends::DatabaseProvider, database::generate_encryption_key};
 use pierre_mcp_server::mcp::resources::{ServerContext, ServerContextOptions};
-use pierre_routes_auth::{AuthService, OAuthService, RegisterRequest};
+use pierre_routes_auth::OAuthService;
 use pierre_services::oauth_flow::AuthUrlOptions;
 use pierre_services::provider_revocation::DisconnectReason;
 use pierre_test_support::db::create_test_db_with_key;
@@ -195,12 +195,6 @@ async fn test_oauth_authorization_url_generation() {
         .unwrap(),
     );
 
-    let auth_routes = AuthService::new(
-        server_resources.auth.auth_manager.clone(),
-        server_resources.auth.jwks_manager.clone(),
-        server_resources.common.config.clone(),
-        server_resources.data(),
-    );
     let oauth_routes = OAuthService::new(
         server_resources.data(),
         server_resources.common.config.clone(),
@@ -273,16 +267,9 @@ async fn test_oauth_authorization_url_generation() {
         .await
         .unwrap();
 
-    // Register and login user
-    let register_request = RegisterRequest {
-        analytics_consent: None,
-        email: "oauth_test@example.com".to_owned(),
-        password: SecretString::from("password123"),
-        display_name: Some("OAuth Test User".to_owned()),
-    };
-
-    let register_response = auth_routes.register(register_request).await.unwrap();
-    let user_id = Uuid::parse_str(&register_response.user_id).unwrap();
+    let (user_id, _) = common::create_test_user_with_email(&database, "oauth_test@example.com")
+        .await
+        .unwrap();
 
     // Test Strava OAuth URL generation
     let strava_auth = oauth_routes

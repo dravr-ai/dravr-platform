@@ -8,7 +8,7 @@
 # who only ever taps what the server posted is being steered, not coached, and
 # the goal-setting RCT the plan cites found LLM-written suggestions did not
 # improve what athletes set for themselves. carnet#830 asked for an alarm when
-# tapped turns pass 60% of the turns athletes send.
+# tapped turns pass a set share of the turns athletes send.
 #
 # Every athlete turn already logs `chat.question_asked` with `origin`, how the
 # message was produced (crates/pierre-chat-pipeline/src/lib.rs,
@@ -34,11 +34,15 @@
 # moves with the few who send most turns, which is the population the alarm
 # can act on today.
 #
-# The window is a rolling day rather than carnet#830's week: the incident
-# then opens within a day of the shift and closes a day after it ends, close
-# enough to the change that caused it to read the two together. The floor of
-# 30 turns in that day keeps a quiet day — two taps out of three turns — from
-# reading as 66%.
+# The window is rolling and shorter than the one carnet#830 asked for: the
+# incident then opens within one window of the shift and closes one window
+# after it ends, close enough to the change that caused it to read the two
+# together. The floor on turns inside the window keeps a quiet stretch — a
+# couple of taps among a handful of turns — from reading as a high share.
+#
+# The share is one input, a percentage. The display name and the documentation
+# print it as it is, and the query divides it by a hundred, so the page an
+# admin reads and the comparison that raised it cannot drift apart.
 
 resource "google_logging_metric" "chat_turn_origin" {
   project = var.project_id
@@ -80,14 +84,14 @@ resource "time_sleep" "chat_turn_origin_metric_propagation" {
 
 resource "google_monitoring_alert_policy" "chat_tapped_share" {
   project      = var.project_id
-  display_name = "Tapped suggestions carry more than 60% of athlete turns"
+  display_name = "Tapped suggestions carry more than ${var.alert_thresholds["turn_origin.tapped_share.percent"]}% of athlete turns"
   combiner     = "OR"
 
   documentation {
     content   = <<-EOT
-      Over the last day, more than 60% of the turns athletes sent were a tap
+      Over the last day, more than ${var.alert_thresholds["turn_origin.tapped_share.percent"]}% of the turns athletes sent were a tap
       on a suggestion the server posted (a welcome starter or a next step),
-      across at least 30 turns.
+      across at least ${var.alert_thresholds["turn_origin.tapped_share.min_turns"]} turns.
 
       ## Why it matters
 
@@ -117,20 +121,20 @@ resource "google_monitoring_alert_policy" "chat_tapped_share" {
   }
 
   conditions {
-    display_name = "Tapped share above 60% of at least 30 athlete turns, over a day"
+    display_name = "Tapped share above ${var.alert_thresholds["turn_origin.tapped_share.percent"]}% of at least ${var.alert_thresholds["turn_origin.tapped_share.min_turns"]} athlete turns, over a day"
 
     condition_prometheus_query_language {
       query               = <<-EOT
         (
-          sum(increase(logging_googleapis_com:user_dravr_chat_turn_origin{monitored_resource="cloud_run_revision",origin=~"use_case|next_step"}[1d]))
+          sum(increase(logging_googleapis_com:user_dravr_chat_turn_origin{monitored_resource="cloud_run_revision",origin=~"use_case|next_step"}[${var.alert_windows["turn_origin.tapped_share.query_window"]}]))
           /
-          sum(increase(logging_googleapis_com:user_dravr_chat_turn_origin{monitored_resource="cloud_run_revision",origin!="platform"}[1d]))
-        ) > 0.6
+          sum(increase(logging_googleapis_com:user_dravr_chat_turn_origin{monitored_resource="cloud_run_revision",origin!="platform"}[${var.alert_windows["turn_origin.tapped_share.query_window"]}]))
+        ) > ${var.alert_thresholds["turn_origin.tapped_share.percent"] / 100}
         and
-        sum(increase(logging_googleapis_com:user_dravr_chat_turn_origin{monitored_resource="cloud_run_revision",origin!="platform"}[1d])) >= 30
+        sum(increase(logging_googleapis_com:user_dravr_chat_turn_origin{monitored_resource="cloud_run_revision",origin!="platform"}[${var.alert_windows["turn_origin.tapped_share.query_window"]}])) >= ${var.alert_thresholds["turn_origin.tapped_share.min_turns"]}
       EOT
-      duration            = "3600s"
-      evaluation_interval = "300s"
+      duration            = var.alert_windows["turn_origin.tapped_share.duration"]
+      evaluation_interval = var.alert_windows["turn_origin.tapped_share.evaluation_interval"]
     }
   }
 
@@ -138,7 +142,7 @@ resource "google_monitoring_alert_policy" "chat_tapped_share" {
   notification_channels = [google_monitoring_notification_channel.slack_alerts.id]
 
   alert_strategy {
-    auto_close = "86400s"
+    auto_close = var.alert_windows["turn_origin.tapped_share.auto_close"]
   }
 
   depends_on = [time_sleep.chat_turn_origin_metric_propagation]

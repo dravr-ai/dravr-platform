@@ -109,15 +109,19 @@ export function GroupInsightsSection({
   }
 
   const recommendations = report ? weeklyReportRecommendations(t, report.stats) : [];
+  const summary = report ? weeklyReportSummary(t, language, report.stats, units) : null;
 
   return (
     <View className="mt-4" testID="group-insights-section">
       {report && (
         <View className="mb-4">
           <Text className="text-text-primary text-sm font-semibold mb-2">{t('groups.thisWeek')}</Text>
-          <Text className="text-text-secondary text-sm" testID="group-report-summary">
-            {weeklyReportSummary(t, language, report.stats, units)}
-          </Text>
+          {/* A week no member is read for has no average, so no summary sentence. */}
+          {summary !== null && (
+            <Text className="text-text-secondary text-sm" testID="group-report-summary">
+              {summary}
+            </Text>
+          )}
 
           {report.fresh_members.length > 0 && (
             <View className="mt-3">

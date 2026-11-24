@@ -23,7 +23,6 @@ use std::collections::BTreeMap;
 use dravr_tronc::dates::{CivilDate, Elapsed};
 use pierre_core::civil_time::monday_of;
 use pierre_core::constants::oauth_providers::GarminContribution;
-use pierre_core::models::coverage::IncompleteReason;
 use pierre_tool_runtime::activity_query::{GroupKey, KeyValue, QueryAnswer, QueryMetric};
 use serde::Serialize;
 
@@ -98,17 +97,9 @@ pub fn window_start(today: CivilDate) -> CivilDate {
 /// outside those weeks is left out.
 #[must_use]
 pub fn volume_from_answer(today: CivilDate, answer: &QueryAnswer) -> TrainingVolume {
-    let opens = window_start(today);
-    let coverage = &answer.coverage;
     // An incomplete answer vouches only from the day it names, and for no
     // week when it names none.
-    let first_week = match coverage.completeness.reason() {
-        None => Some(opens),
-        Some(IncompleteReason::NoStoredActivities) => None,
-        Some(_) => coverage
-            .trustworthy_from
-            .map(|day| monday_of(day).max(opens)),
-    };
+    let first_week = answer.first_vouched_week(window_start(today));
     let last_week = monday_of(today);
     let Some(first_week) = first_week.filter(|first| *first <= last_week) else {
         return TrainingVolume {
@@ -170,7 +161,7 @@ pub fn volume_from_answer(today: CivilDate, answer: &QueryAnswer) -> TrainingVol
 mod tests {
     use super::*;
     use dravr_tronc::dates::{Timestamp, Zone};
-    use pierre_core::models::coverage::{Completeness, Coverage, CoverageWindow};
+    use pierre_core::models::coverage::{Completeness, Coverage, CoverageWindow, IncompleteReason};
     use pierre_core::models::{Activity, ActivityBuilder, SportType};
     use pierre_database::repositories::CachedActivityRow;
     use pierre_services::workouts::workouts;

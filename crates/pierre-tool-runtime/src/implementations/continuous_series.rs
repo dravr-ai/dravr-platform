@@ -26,6 +26,9 @@
 //! payload echoes the window that was read.
 
 use crate::annotations::{annotations, Effect, Reach};
+use crate::read_subject::DataClass;
+use crate::tool_data::ToolData;
+use dravr_barrage::Stream;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -414,7 +417,10 @@ impl McpTool<dyn ToolRuntime> for GetHeartRateSeriesTool {
     }
 }
 
-crate::declare_security!(GetHeartRateSeriesTool => empty);
+crate::declare_security!(
+    GetHeartRateSeriesTool => empty,
+    reads: ToolData::of(DataClass::Wellness, &[Stream::CardioRaw]),
+);
 
 #[cfg(test)]
 mod tests {

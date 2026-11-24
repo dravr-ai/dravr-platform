@@ -1153,6 +1153,36 @@ describe('GroupInfoPanel', () => {
     expect(within(screen.getByTestId('group-info-stats')).getByText('of 3 total')).toBeInTheDocument();
   });
 
+  it('shows no average volume, never a zero, while no member week is read', async () => {
+    const unread = {
+      total_members: 3,
+      active_members: 2,
+      avg_weekly_volume_km: null,
+      avg_ctl: 55,
+      flagged_members: 0,
+      weekly_trend: 'stable' as const,
+    };
+    vi.mocked(groupsApi.getStats).mockResolvedValue({
+      stats: unread,
+      scope: { visible_members: 3, roster_members: 3 },
+    });
+    vi.mocked(groupsApi.getWeeklyReport).mockResolvedValue({
+      report: { fresh_members: [], stats: unread },
+      scope: { visible_members: 3, roster_members: 3 },
+    });
+    const user = userEvent.setup();
+    renderPanel();
+
+    await user.click(await screen.findByRole('button', { name: 'This week' }));
+    const volume = await screen.findByTestId('group-info-avg-volume');
+    // The dashes alone: no figure and no unit beside them.
+    expect(volume).toHaveTextContent(/^--$/);
+    expect(within(screen.getByTestId('group-info-stats')).queryByText('0.0')).toBeNull();
+    // The report's opening sentence is built around the average, so it is not written.
+    await screen.findByTestId('group-insights-panel');
+    expect(screen.queryByTestId('group-report-summary')).toBeNull();
+  });
+
   it('prints the group volume in miles for a reader on imperial units', async () => {
     const user = userEvent.setup();
     renderPanel('imperial');

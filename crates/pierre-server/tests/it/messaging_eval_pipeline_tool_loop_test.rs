@@ -25,10 +25,10 @@
 //! 3. The real chat pipeline executes the tool via the registry,
 //!    writes the per-call + terminal-summary `llm_usage` rows with
 //!    `tools_called` populated from the pipeline (not the test).
-//! 4. The endpoint returns the summary and `assert_tool_called`
-//!    asserts the stub's name is grounded in the response.
+//! 4. The turn's rows are read back by its id and `assert_tool_called`
+//!    asserts the stub's name is grounded in them.
 //!
-//! Together with the unit test (hand-crafted JSON), the Phase 1
+//! Together with the unit test (hand-built rows), the Phase 1
 //! inverted-mode integration (no tools invoked), and this one (real
 //! tool invocation), the asserter's behaviour is tested from three
 //! independent angles.
@@ -54,7 +54,7 @@ mod pipeline_tool_loop {
         ChatRequest, ChatResponse, ChatStream, LlmCapabilities, LlmProvider, StreamChunk,
         TokenUsage,
     };
-    use pierre_core::models::ConnectionType;
+    use pierre_core::models::{ConnectionType, ConversationTurnId};
     use pierre_core::models::{Tenant, TenantId, User, UserStatus};
     use pierre_core::permissions::UserRole;
     use pierre_database::backends::factory::DatabaseBackend;
@@ -63,8 +63,8 @@ mod pipeline_tool_loop {
     };
     use pierre_mcp_server::mcp::resources::ServerContext;
     use pierre_mcp_server::routes::messaging::MessagingRoutes;
-    use pierre_routes_admin::LlmConsumptionRoutes;
     use pierre_tool_runtime::runtime::ToolRuntime;
+    use pierre_tool_runtime::tool_data::ToolData;
     use pierre_tool_runtime::RuntimeTool;
     use serde_json::{json, Value};
     use serial_test::serial;
@@ -113,7 +113,7 @@ mod pipeline_tool_loop {
         }
     }
 
-    pierre_tool_runtime::declare_security!(StubTool => empty);
+    pierre_tool_runtime::declare_security!(StubTool => empty, reads: ToolData::own(&[]));
 
     /// Deterministic provider with per-call behaviour.
     ///
@@ -218,7 +218,7 @@ mod pipeline_tool_loop {
     async fn create_admin_user_in_tenant(
         resources: &Arc<ServerContext>,
         email: &str,
-    ) -> (Uuid, TenantId, String) {
+    ) -> (Uuid, TenantId) {
         let password_hash =
             spawn_blocking(|| bcrypt::hash("password123", bcrypt::DEFAULT_COST).unwrap())
                 .await
@@ -280,13 +280,7 @@ mod pipeline_tool_loop {
             )
             .await
             .unwrap();
-
-        let token = resources
-            .auth
-            .auth_manager
-            .generate_token(&user, &resources.auth.jwks_manager)
-            .unwrap();
-        (user_id, tenant_id, format!("Bearer {token}"))
+        (user_id, tenant_id)
     }
 
     /// Poll the `llm_usage` table until a per-call row carrying
@@ -340,7 +334,7 @@ mod pipeline_tool_loop {
         let resources = create_test_server_resources_with_llm_and_tools(mock, vec![stub_tool])
             .await
             .unwrap();
-        let (admin_user_id, tenant_id, admin_auth) =
+        let (admin_user_id, tenant_id) =
             create_admin_user_in_tenant(&resources, "pipeline-tool-loop@example.com").await;
         let db: &dyn MessagingRepository = &*resources.common.repos.messaging;
 
@@ -403,18 +397,18 @@ mod pipeline_tool_loop {
             .await
             .expect("pipeline did not emit a turn_summary row within 10s");
 
-        let router = LlmConsumptionRoutes::routes(Arc::clone(&resources));
-        let resp = AxumTestRequest::get(&format!("/internal/conversation-turn/{turn_id}"))
-            .header("authorization", &admin_auth)
-            .send(router)
-            .await;
-        assert_eq!(resp.status_code(), StatusCode::OK);
-        let endpoint_json: Value = resp.json::<Value>();
+        let rows = resources
+            .common
+            .repos
+            .llm_usage
+            .find_llm_usage_by_turn_id(ConversationTurnId::from_uuid(turn_id))
+            .await
+            .unwrap();
 
         // The happy-path assertion: the asserter returns Ok because
         // the pipeline actually invoked the stub tool via the tool
         // loop, not because the test seeded a row directly.
-        assert_tool_called(&endpoint_json, STUB_TOOL_NAME).expect(
+        assert_tool_called(&rows, STUB_TOOL_NAME).expect(
             "pipeline must have invoked the stub tool and the summary row must record the name",
         );
     }

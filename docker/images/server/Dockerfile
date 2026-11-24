@@ -234,8 +234,8 @@ RUN echo "apt security epoch: ${APT_SECURITY_EPOCH}" \
 # - copilot_headless / copilot_sdk LLM providers: GitHub Copilot CLI in ACP
 #   mode, or the runtime it extracts
 # - claude_code LLM provider: Anthropic Claude Code CLI authenticated via
-#   CLAUDE_CODE_OAUTH_TOKEN (one-year subscription token from
-#   `claude setup-token`; its entry in PIERRE_LLM_CHAIN, dev/main.tf).
+#   CLAUDE_CODE_OAUTH_TOKEN (one-year token from `claude setup-token`),
+#   read by a `claude_code` entry of PIERRE_LLM_CHAIN.
 #
 # After install: remove npm and its transitive deps (node-tar CVEs) since npm
 # is not needed at runtime.

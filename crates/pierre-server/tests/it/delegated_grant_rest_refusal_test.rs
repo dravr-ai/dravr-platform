@@ -55,7 +55,6 @@ use pierre_mcp_server::routes::api_keys::ApiKeyRoutes;
 use pierre_mcp_server::routes::chat::ChatRoutes;
 use pierre_mcp_server::routes::imports::import_routes;
 use pierre_mcp_server::routes::mcp::McpRoutes;
-use pierre_mcp_server::routes::tenants::TenantRoutes;
 use pierre_routes_admin::auth::service::AdminAuthService;
 use pierre_routes_admin::{AdminApiContext, AdminApiContextInit, AdminRoutes, ImpersonationRoutes};
 use pierre_routes_auth::AuthService;
@@ -842,14 +841,6 @@ async fn no_route_an_admins_session_reaches_takes_a_delegation_holding_every_sco
         "Bearer {}",
         first_party_session(&resources, &admin, Some(WEB_CLIENT_ID)).await
     );
-    let tenant = resources
-        .common
-        .repos
-        .tenants
-        .first_for_user(admin.user_id)
-        .await
-        .unwrap()
-        .expect("the fixture gives the admin a tenant");
     // A thread nobody opened: the session is answered that it is not there,
     // which is past the credential check.
     let plan_card = format!("/api/chat/conversations/{}/subject-plan", Uuid::new_v4());
@@ -905,13 +896,6 @@ async fn no_route_an_admins_session_reaches_takes_a_delegation_holding_every_sco
             router: |resources| import_routes().with_state(Arc::clone(resources)),
             path: "/api/imports".to_owned(),
             ask: Ask::Get,
-            session_status: 200,
-        },
-        Reached {
-            what: "POST /tenants/switch",
-            router: |resources| TenantRoutes::routes(Arc::clone(resources)),
-            path: "/tenants/switch".to_owned(),
-            ask: Ask::Post(json!({ "tenant_id": tenant.to_string() })),
             session_status: 200,
         },
         Reached {
@@ -984,14 +968,14 @@ async fn no_route_an_admins_session_reaches_takes_a_delegation_holding_every_sco
 
     // The admin API takes an admin token, a credential of its own kind, and
     // no user's: an application's token is no more one for holding `admin`.
-    let admin_api = AxumTestRequest::get("/admin/token-info")
+    let admin_api = AxumTestRequest::get("/admin/users")
         .header("authorization", &wide)
         .send(AdminRoutes::routes(admin_api_context(&resources)))
         .await;
     assert_eq!(
         admin_api.status(),
         401,
-        "GET /admin/token-info: an application's token is not an admin token"
+        "GET /admin/users: an application's token is not an admin token"
     );
 }
 

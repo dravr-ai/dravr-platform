@@ -172,8 +172,6 @@ use tokio::sync::OnceCell;
 use tokio::time::{sleep, Duration};
 use uuid::Uuid;
 
-const TEST_JWT_SECRET: &str = "test_jwt_secret_for_admin_routes_tests";
-
 /// Test setup helper that creates all necessary components for admin route testing
 struct AdminTestSetup {
     context: AdminApiContext,
@@ -342,7 +340,7 @@ async fn create_approved_user(database: &Database, email: &str) -> Result<User> 
 }
 
 // ============================================================================
-// Health and Setup Status Tests
+// Health Tests
 // ============================================================================
 
 #[tokio::test]
@@ -365,57 +363,16 @@ async fn test_admin_health_endpoint() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
-async fn test_setup_status_endpoint() -> Result<()> {
-    let setup = AdminTestSetup::new().await?;
-    let routes = setup.routes();
-
-    let response = AxumTestRequest::get("/admin/setup/status")
-        .send(routes.clone())
-        .await;
-
-    assert_eq!(response.status(), 200);
-
-    let body: Value = serde_json::from_slice(&response.bytes())?;
-    assert!(body["needs_setup"].is_boolean());
-    assert!(body["admin_user_exists"].is_boolean());
-
-    Ok(())
-}
-
 // ============================================================================
 // Authentication and Authorization Tests
 // ============================================================================
-
-#[tokio::test]
-async fn test_admin_auth_valid_token() -> Result<()> {
-    let setup = AdminTestSetup::new().await?;
-    let routes = setup.routes();
-
-    let response = AxumTestRequest::get("/admin/token-info")
-        .header(
-            "authorization",
-            &setup.auth_header(setup.admin_token.jwt_token.expose_secret()),
-        )
-        .send(routes.clone())
-        .await;
-
-    assert_eq!(response.status(), 200);
-
-    let body: Value = serde_json::from_slice(&response.bytes())?;
-    assert_eq!(body["token_id"], setup.admin_token.token_id);
-    assert_eq!(body["service_name"], "test_admin_service");
-    assert!(!body["is_super_admin"].as_bool().unwrap());
-
-    Ok(())
-}
 
 #[tokio::test]
 async fn test_admin_auth_invalid_token() -> Result<()> {
     let setup = AdminTestSetup::new().await?;
     let routes = setup.routes();
 
-    let response = AxumTestRequest::get("/admin/token-info")
+    let response = AxumTestRequest::get("/admin/users")
         .header("authorization", &setup.auth_header(&setup.invalid_token))
         .send(routes.clone())
         .await;
@@ -441,7 +398,7 @@ async fn test_admin_auth_expired_token() -> Result<()> {
     let setup = AdminTestSetup::new().await?;
     let routes = setup.routes();
 
-    let response = AxumTestRequest::get("/admin/token-info")
+    let response = AxumTestRequest::get("/admin/users")
         .header("authorization", &setup.auth_header(&setup.expired_token))
         .send(routes.clone())
         .await;
@@ -463,7 +420,7 @@ async fn test_admin_auth_missing_header() -> Result<()> {
     let setup = AdminTestSetup::new().await?;
     let routes = setup.routes();
 
-    let response = AxumTestRequest::get("/admin/token-info")
+    let response = AxumTestRequest::get("/admin/users")
         .send(routes.clone())
         .await;
 
@@ -477,7 +434,7 @@ async fn test_admin_auth_malformed_header() -> Result<()> {
     let setup = AdminTestSetup::new().await?;
     let routes = setup.routes();
 
-    let response = AxumTestRequest::get("/admin/token-info")
+    let response = AxumTestRequest::get("/admin/users")
         .header("authorization", "InvalidFormat token")
         .send(routes.clone())
         .await;
@@ -492,8 +449,9 @@ async fn test_admin_auth_insufficient_permissions() -> Result<()> {
     let setup = AdminTestSetup::new().await?;
     let routes = setup.routes();
 
-    // Try to access admin token management with regular admin token (should fail)
-    let response = AxumTestRequest::get("/admin/tokens")
+    // A valid token without ManageUsers passes the middleware and is refused
+    // by the user listing.
+    let response = AxumTestRequest::get("/admin/users")
         .header(
             "authorization",
             &setup.auth_header(setup.admin_token.jwt_token.expose_secret()),
@@ -501,8 +459,10 @@ async fn test_admin_auth_insufficient_permissions() -> Result<()> {
         .send(routes.clone())
         .await;
 
-    // Regular admin should have access to list tokens (ProvisionKeys permission)
-    assert_eq!(response.status(), 200);
+    assert_eq!(response.status(), 403);
+    let body: Value = serde_json::from_slice(&response.bytes())?;
+    assert_eq!(body["success"], false);
+    assert_eq!(body["message"], "Permission denied: ManageUsers required");
 
     Ok(())
 }
@@ -873,579 +833,6 @@ async fn test_revoke_api_key_not_found() -> Result<()> {
 }
 
 // ============================================================================
-// API Key Listing Tests
-// ============================================================================
-
-#[tokio::test]
-async fn test_list_api_keys_success() -> Result<()> {
-    let setup = AdminTestSetup::new().await?;
-    let routes = setup.routes();
-
-    // Create some test API keys
-    let _api_key1 =
-        common::create_and_store_test_api_key(&setup.context.database, setup.user_id, "Test Key 1")
-            .await?;
-
-    let _api_key2 =
-        common::create_and_store_test_api_key(&setup.context.database, setup.user_id, "Test Key 2")
-            .await?;
-
-    let response = AxumTestRequest::get("/admin/list")
-        .header(
-            "authorization",
-            &setup.auth_header(setup.admin_token.jwt_token.expose_secret()),
-        )
-        .send(routes.clone())
-        .await;
-
-    assert_eq!(response.status(), 200);
-
-    let body: Value = serde_json::from_slice(&response.bytes())?;
-    assert_eq!(body["success"], true);
-    assert!(body["data"]["keys"].as_array().unwrap().len() >= 2);
-    assert_eq!(
-        body["data"]["count"],
-        body["data"]["keys"].as_array().unwrap().len()
-    );
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_list_api_keys_with_filters() -> Result<()> {
-    let setup = AdminTestSetup::new().await?;
-    let routes = setup.routes();
-
-    // Create test API key
-    let _api_key = common::create_and_store_test_api_key(
-        &setup.context.database,
-        setup.user_id,
-        "Filtered Key",
-    )
-    .await?;
-
-    let response = AxumTestRequest::get(
-        "/admin/list?user_email=test@example.com&active_only=true&limit=10&offset=0",
-    )
-    .header(
-        "authorization",
-        &setup.auth_header(setup.admin_token.jwt_token.expose_secret()),
-    )
-    .send(routes.clone())
-    .await;
-
-    assert_eq!(response.status(), 200);
-
-    let body: Value = serde_json::from_slice(&response.bytes())?;
-    assert_eq!(body["success"], true);
-    assert_eq!(body["data"]["filters"]["user_email"], "test@example.com");
-    assert_eq!(body["data"]["filters"]["active_only"], true);
-    assert_eq!(body["data"]["filters"]["limit"], 10);
-    assert_eq!(body["data"]["filters"]["offset"], 0);
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_list_api_keys_invalid_filters() -> Result<()> {
-    let setup = AdminTestSetup::new().await?;
-    let routes = setup.routes();
-
-    let response = AxumTestRequest::get("/admin/list?limit=invalid&offset=negative")
-        .header(
-            "authorization",
-            &setup.auth_header(setup.admin_token.jwt_token.expose_secret()),
-        )
-        .send(routes.clone())
-        .await;
-
-    assert_eq!(response.status(), 200); // Should still work with default values
-
-    let body: Value = serde_json::from_slice(&response.bytes())?;
-    assert_eq!(body["success"], true);
-    assert!(body["data"]["filters"]["limit"].is_null());
-
-    Ok(())
-}
-
-// ============================================================================
-// Admin Token Management Tests
-// ============================================================================
-
-#[tokio::test]
-async fn test_list_admin_tokens() -> Result<()> {
-    let setup = AdminTestSetup::new().await?;
-    let routes = setup.routes();
-
-    // The super-admin token is minted on first read — so read it before listing.
-    let super_admin_id = setup.super_admin_token().await?.token_id.clone();
-
-    let listed_ids = |body: &Value| -> Vec<String> {
-        body["data"]["tokens"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .filter_map(|t| t["id"].as_str().map(ToOwned::to_owned))
-            .collect()
-    };
-
-    let response = AxumTestRequest::get("/admin/tokens")
-        .header(
-            "authorization",
-            &setup.auth_header(setup.admin_token.jwt_token.expose_secret()),
-        )
-        .send(routes.clone())
-        .await;
-
-    assert_eq!(response.status(), 200);
-
-    let body: Value = serde_json::from_slice(&response.bytes())?;
-    assert_eq!(body["success"], true);
-    // The setup's admin token manages tokens but is not super-admin, so it is
-    // shown its own kind and not the super-admin token.
-    let ids = listed_ids(&body);
-    assert!(ids.contains(&setup.admin_token.token_id));
-    assert!(!ids.contains(&super_admin_id));
-
-    let response = AxumTestRequest::get("/admin/tokens")
-        .header(
-            "authorization",
-            &setup.auth_header(setup.super_admin_token().await?.jwt_token.expose_secret()),
-        )
-        .send(routes.clone())
-        .await;
-    let body: Value = serde_json::from_slice(&response.bytes())?;
-    let ids = listed_ids(&body);
-    assert!(ids.contains(&setup.admin_token.token_id) && ids.contains(&super_admin_id));
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_create_admin_token() -> Result<()> {
-    let setup = AdminTestSetup::new().await?;
-    let routes = setup.routes();
-
-    let request_body = json!({
-        "service_name": "new_admin_service",
-        "service_description": "New admin service for testing",
-        "is_super_admin": false,
-        "expires_in_days": 90,
-        "permissions": ["provision_keys", "list_keys"]
-    });
-
-    let response = AxumTestRequest::post("/admin/tokens")
-        .header(
-            "authorization",
-            &setup.auth_header(setup.admin_token.jwt_token.expose_secret()),
-        )
-        .header("content-type", "application/json")
-        .json(&request_body)
-        .send(routes.clone())
-        .await;
-
-    assert_eq!(response.status(), 201);
-
-    let body: Value = serde_json::from_slice(&response.bytes())?;
-    assert_eq!(body["success"], true);
-    assert_eq!(body["data"]["service_name"], "new_admin_service");
-    assert!(!body["data"]["is_super_admin"].as_bool().unwrap());
-    assert_ne!(body["data"]["jwt_token"].as_str().unwrap(), "");
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_create_admin_token_refuses_the_device_login_prefix() -> Result<()> {
-    let setup = AdminTestSetup::new().await?;
-
-    // A token named like a device login, as if another admin approved it.
-    let response = AxumTestRequest::post("/admin/tokens")
-        .header(
-            "authorization",
-            &setup.auth_header(setup.admin_token.jwt_token.expose_secret()),
-        )
-        .header("content-type", "application/json")
-        .json(&json!({
-            "service_name": "device-cli:someone-else@example.com",
-            "is_super_admin": false,
-        }))
-        .send(setup.routes())
-        .await;
-
-    assert_eq!(response.status(), 400);
-    let listed = setup.context.repos.admin.list_tokens(true).await?;
-    assert!(
-        listed
-            .iter()
-            .all(|token| !token.service_name.starts_with("device-cli:")),
-        "the refused name was not minted"
-    );
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_create_super_admin_token() -> Result<()> {
-    let setup = AdminTestSetup::new().await?;
-    let routes = setup.routes();
-
-    let request_body = json!({
-        "service_name": "super_admin_service",
-        "service_description": "Super admin service for testing",
-        "is_super_admin": true,
-        "expires_in_days": 0  // Never expires
-    });
-
-    // Creating super-admin tokens requires the caller to be a super-admin
-    let response = AxumTestRequest::post("/admin/tokens")
-        .header(
-            "authorization",
-            &setup.auth_header(setup.super_admin_token().await?.jwt_token.expose_secret()),
-        )
-        .header("content-type", "application/json")
-        .json(&request_body)
-        .send(routes.clone())
-        .await;
-
-    assert_eq!(response.status(), 201);
-
-    let body: Value = serde_json::from_slice(&response.bytes())?;
-    assert_eq!(body["success"], true);
-    assert_eq!(body["data"]["service_name"], "super_admin_service");
-    assert!(body["data"]["is_super_admin"].as_bool().unwrap());
-    assert!(body["data"]["expires_at"].is_null());
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_create_admin_token_invalid_permissions() -> Result<()> {
-    let setup = AdminTestSetup::new().await?;
-    let routes = setup.routes();
-
-    let request_body = json!({
-        "service_name": "invalid_service",
-        "permissions": ["invalid_permission"]
-    });
-
-    let response = AxumTestRequest::post("/admin/tokens")
-        .header(
-            "authorization",
-            &setup.auth_header(setup.admin_token.jwt_token.expose_secret()),
-        )
-        .header("content-type", "application/json")
-        .json(&request_body)
-        .send(routes.clone())
-        .await;
-
-    assert_eq!(response.status(), 400);
-
-    let body: Value = serde_json::from_slice(&response.bytes())?;
-    assert_eq!(body["success"], false);
-    assert!(body["message"]
-        .as_str()
-        .unwrap()
-        .contains("Invalid permission"));
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_get_admin_token_details() -> Result<()> {
-    let setup = AdminTestSetup::new().await?;
-    let routes = setup.routes();
-
-    let path = format!("/admin/tokens/{}", setup.admin_token.token_id);
-
-    let response = AxumTestRequest::get(&path)
-        .header(
-            "authorization",
-            &setup.auth_header(setup.admin_token.jwt_token.expose_secret()),
-        )
-        .send(routes.clone())
-        .await;
-
-    assert_eq!(response.status(), 200);
-
-    let body: Value = serde_json::from_slice(&response.bytes())?;
-    assert_eq!(body["success"], true);
-    assert_eq!(body["data"]["id"], setup.admin_token.token_id);
-    assert_eq!(body["data"]["service_name"], "test_admin_service");
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_get_admin_token_details_not_found() -> Result<()> {
-    let setup = AdminTestSetup::new().await?;
-    let routes = setup.routes();
-
-    let response = AxumTestRequest::get("/admin/tokens/nonexistent_token_id")
-        .header(
-            "authorization",
-            &setup.auth_header(setup.admin_token.jwt_token.expose_secret()),
-        )
-        .send(routes.clone())
-        .await;
-
-    assert_eq!(response.status(), 404);
-
-    let body: Value = serde_json::from_slice(&response.bytes())?;
-    assert_eq!(
-        body["message"].as_str(),
-        Some("The requested resource was not found")
-    );
-    assert_eq!(body["code"], "ResourceNotFound");
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_revoke_admin_token() -> Result<()> {
-    let setup = AdminTestSetup::new().await?;
-    let routes = setup.routes();
-
-    // Create a token to revoke
-    let revoke_request = CreateAdminTokenRequest {
-        service_name: "token_to_revoke".to_owned(),
-        service_description: Some("Token that will be revoked".to_owned()),
-        permissions: Some(vec![AdminPermission::ListKeys]),
-        expires_in_days: Some(30),
-        is_super_admin: false,
-        tenant_id: None,
-        operator_user_id: None,
-    };
-
-    let token_to_revoke = setup
-        .context
-        .repos
-        .admin
-        .create_token(
-            &revoke_request,
-            TEST_JWT_SECRET,
-            &setup.context.jwks_manager,
-        )
-        .await?;
-
-    let path = format!("/admin/tokens/{}/revoke", token_to_revoke.token_id);
-
-    let response = AxumTestRequest::post(&path)
-        .header(
-            "authorization",
-            &setup.auth_header(setup.admin_token.jwt_token.expose_secret()),
-        )
-        .send(routes.clone())
-        .await;
-
-    assert_eq!(response.status(), 200);
-
-    let body: Value = serde_json::from_slice(&response.bytes())?;
-    assert_eq!(body["success"], true);
-    assert!(body["message"]
-        .as_str()
-        .unwrap()
-        .contains("revoked successfully"));
-    assert_eq!(body["data"]["token_id"], token_to_revoke.token_id);
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_rotate_admin_token() -> Result<()> {
-    let setup = AdminTestSetup::new().await?;
-    let routes = setup.routes();
-
-    // Create a token to rotate
-    let rotate_request = CreateAdminTokenRequest {
-        service_name: "token_to_rotate".to_owned(),
-        service_description: Some("Token that will be rotated".to_owned()),
-        permissions: Some(vec![AdminPermission::ListKeys]),
-        expires_in_days: Some(30),
-        is_super_admin: false,
-        tenant_id: None,
-        operator_user_id: None,
-    };
-
-    let token_to_rotate = setup
-        .context
-        .repos
-        .admin
-        .create_token(
-            &rotate_request,
-            TEST_JWT_SECRET,
-            &setup.context.jwks_manager,
-        )
-        .await?;
-
-    let path = format!("/admin/tokens/{}/rotate", token_to_rotate.token_id);
-    let request_body = json!({
-        "expires_in_days": 60
-    });
-
-    let response = AxumTestRequest::post(&path)
-        .header(
-            "authorization",
-            &setup.auth_header(setup.admin_token.jwt_token.expose_secret()),
-        )
-        .header("content-type", "application/json")
-        .json(&request_body)
-        .send(routes.clone())
-        .await;
-
-    assert_eq!(response.status(), 200);
-
-    let body: Value = serde_json::from_slice(&response.bytes())?;
-    assert_eq!(body["success"], true);
-    assert!(body["message"]
-        .as_str()
-        .unwrap()
-        .contains("rotated successfully"));
-    assert_eq!(body["data"]["old_token_id"], token_to_rotate.token_id);
-    assert!(body["data"]["jwt_token"].is_string());
-    assert_ne!(body["data"]["token_id"], token_to_rotate.token_id);
-
-    Ok(())
-}
-
-/// Rotation mints the replacement at the OLD token's privilege level, so a
-/// caller who is not super-admin must not be able to rotate a super-admin token
-/// and receive a super-admin JWT. `ManageAdminTokens` does not imply super-admin:
-/// the convenience constructor only grants it to super-admins, but the create
-/// endpoint accepts an arbitrary permission array, so a least-privilege
-/// "token management, not super-admin" service token is mintable and is exactly
-/// the caller this refuses. The create path refuses the same escalation, and
-/// the console reaches this same handler.
-#[tokio::test]
-async fn rotate_refuses_super_admin_escalation_and_keeps_the_target_active() -> Result<()> {
-    let setup = AdminTestSetup::new().await?;
-    let routes = setup.routes();
-
-    // The caller: token management, deliberately NOT super-admin.
-    let caller = setup
-        .context
-        .repos
-        .admin
-        .create_token(
-            &CreateAdminTokenRequest {
-                service_name: "token_manager_not_super".to_owned(),
-                service_description: Some("Least-privilege token manager".to_owned()),
-                permissions: Some(vec![AdminPermission::ManageAdminTokens]),
-                expires_in_days: Some(30),
-                is_super_admin: false,
-                tenant_id: None,
-                operator_user_id: None,
-            },
-            TEST_JWT_SECRET,
-            &setup.context.jwks_manager,
-        )
-        .await?;
-
-    // The target: a super-admin token whose privilege level rotation would copy.
-    let target = setup
-        .context
-        .repos
-        .admin
-        .create_token(
-            &CreateAdminTokenRequest::super_admin("victim_super_admin".to_owned()),
-            TEST_JWT_SECRET,
-            &setup.context.jwks_manager,
-        )
-        .await?;
-
-    let response = AxumTestRequest::post(&format!("/admin/tokens/{}/rotate", target.token_id))
-        .header(
-            "authorization",
-            &setup.auth_header(caller.jwt_token.expose_secret()),
-        )
-        .header("content-type", "application/json")
-        .json(&json!({ "expires_in_days": 60 }))
-        .send(routes.clone())
-        .await;
-
-    assert_eq!(
-        response.status(),
-        404,
-        "a non-super-admin holding ManageAdminTokens does not find a super-admin token to rotate"
-    );
-
-    let body: Value = serde_json::from_slice(&response.bytes())?;
-    assert!(
-        body.get("data")
-            .is_none_or(|data| data.get("new_token").is_none()),
-        "a refused rotation must not hand back a token: {body}"
-    );
-    assert!(
-        !body.to_string().contains("eyJ"),
-        "nor any credential: {body}"
-    );
-
-    // The load-bearing assertion: a refused rotation claims nothing, so the
-    // admin still holds a working super-admin credential.
-    let still_there = setup
-        .context
-        .repos
-        .admin
-        .get_token_by_id(&target.token_id)
-        .await?
-        .expect("the target token must still exist after a refused rotation");
-    assert!(
-        still_there.is_active,
-        "a refused rotation must leave the existing credential usable"
-    );
-    assert!(
-        still_there.is_super_admin,
-        "the target's privilege level must be untouched"
-    );
-
-    Ok(())
-}
-
-/// The positive half of the pair above: a super-admin caller rotates a
-/// super-admin token, and the replacement keeps the privilege level.
-#[tokio::test]
-async fn rotate_allows_super_admin_to_rotate_a_super_admin_token() -> Result<()> {
-    let setup = AdminTestSetup::new().await?;
-    let routes = setup.routes();
-
-    let target = setup
-        .context
-        .repos
-        .admin
-        .create_token(
-            &CreateAdminTokenRequest::super_admin("rotatable_super_admin".to_owned()),
-            TEST_JWT_SECRET,
-            &setup.context.jwks_manager,
-        )
-        .await?;
-
-    let caller = setup.super_admin_token().await?;
-
-    let response = AxumTestRequest::post(&format!("/admin/tokens/{}/rotate", target.token_id))
-        .header(
-            "authorization",
-            &setup.auth_header(caller.jwt_token.expose_secret()),
-        )
-        .header("content-type", "application/json")
-        .json(&json!({ "expires_in_days": 60 }))
-        .send(routes.clone())
-        .await;
-
-    assert_eq!(
-        response.status(),
-        200,
-        "a super-admin must still be able to rotate a super-admin token"
-    );
-
-    let body: Value = serde_json::from_slice(&response.bytes())?;
-    assert_eq!(body["success"], true);
-    assert_eq!(body["data"]["old_token_id"], target.token_id);
-    assert!(body["data"]["jwt_token"].is_string());
-    assert_eq!(body["data"]["is_super_admin"], true);
-
-    Ok(())
-}
-
-// ============================================================================
 // Error Handling and Edge Cases
 // ============================================================================
 
@@ -1647,10 +1034,10 @@ async fn test_ip_address_extraction() -> Result<()> {
     let setup = AdminTestSetup::new().await?;
     let routes = setup.routes();
 
-    let response = AxumTestRequest::get("/admin/token-info")
+    let response = AxumTestRequest::get("/admin/users")
         .header(
             "authorization",
-            &setup.auth_header(setup.admin_token.jwt_token.expose_secret()),
+            &setup.auth_header(setup.super_admin_token().await?.jwt_token.expose_secret()),
         )
         .header("x-forwarded-for", "192.168.1.100, 10.0.0.1")
         .header("x-real-ip", "172.16.0.1")
@@ -1764,8 +1151,8 @@ async fn test_super_admin_privileges() -> Result<()> {
     let setup = AdminTestSetup::new().await?;
     let routes = setup.routes();
 
-    // Super admin should be able to access token management
-    let response = AxumTestRequest::get("/admin/tokens")
+    // A super-admin token holds ManageUsers, so it lists the users
+    let response = AxumTestRequest::get("/admin/users")
         .header(
             "authorization",
             &setup.auth_header(setup.super_admin_token().await?.jwt_token.expose_secret()),
@@ -1777,31 +1164,6 @@ async fn test_super_admin_privileges() -> Result<()> {
 
     let body: Value = serde_json::from_slice(&response.bytes())?;
     assert_eq!(body["success"], true);
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_super_admin_token_info() -> Result<()> {
-    let setup = AdminTestSetup::new().await?;
-    let routes = setup.routes();
-    let super_admin_token = setup.super_admin_token().await?;
-
-    let response = AxumTestRequest::get("/admin/token-info")
-        .header(
-            "authorization",
-            &setup.auth_header(super_admin_token.jwt_token.expose_secret()),
-        )
-        .send(routes.clone())
-        .await;
-
-    assert_eq!(response.status(), 200);
-
-    let body: Value = serde_json::from_slice(&response.bytes())?;
-    assert_eq!(body["token_id"], super_admin_token.token_id);
-    assert_eq!(body["service_name"], "test_super_admin_service");
-    assert!(body["is_super_admin"].as_bool().unwrap());
-    assert!(body["permissions"].as_array().unwrap().len() > 3); // Should have all permissions
 
     Ok(())
 }

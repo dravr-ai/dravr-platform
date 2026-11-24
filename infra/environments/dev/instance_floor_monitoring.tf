@@ -24,11 +24,17 @@
 # -----------------------------------------------------------------------------
 # Tuning knobs
 # -----------------------------------------------------------------------------
+#
+# The alert fires when one revision of the backend api keeps its instance count
+# above zero continuously for the policy's duration (i.e. it stopped scaling to
+# zero). Real dev traffic is bursty and returns to zero between bursts, so this
+# targets a stuck/pinned instance, not active use. A shorter duration is more
+# sensitive (and more likely to fire during a genuinely busy stretch).
 
-variable "instance_floor_alert_hours" {
-  description = "Fire the idle-floor alert when one revision of the backend api keeps its instance count above zero continuously for this many hours (i.e. it stopped scaling to zero). Real dev traffic is bursty and returns to zero between bursts, so this targets a stuck/pinned instance, not active use. Lower = more sensitive (and more likely to fire during a genuinely busy stretch)."
-  type        = number
-  default     = 4
+locals {
+  # The policy's text names the duration in hours; the number is the duration
+  # itself, so the sentence cannot drift from the setting.
+  instance_floor_alert_hours = tonumber(trimsuffix(var.alert_windows["instance_floor.never_idle.duration"], "s")) / 3600
 }
 
 # -----------------------------------------------------------------------------
@@ -46,7 +52,7 @@ resource "google_monitoring_alert_policy" "instance_never_idle" {
     content   = <<-EOT
       One revision of the backend `${var.service_name}-api` Cloud Run service
       kept at least one instance running continuously for
-      ${var.instance_floor_alert_hours}+ hours without ever scaling to zero. The
+      ${local.instance_floor_alert_hours}+ hours without ever scaling to zero. The
       count is per revision, so back-to-back deploys alone cannot fire it.
 
       Because this service runs with CPU always-allocated (cpu_idle = false), a
@@ -88,12 +94,12 @@ resource "google_monitoring_alert_policy" "instance_never_idle" {
   }
 
   conditions {
-    display_name = "api instance floor stayed above zero for ${var.instance_floor_alert_hours}h"
+    display_name = "api instance floor stayed above zero for ${local.instance_floor_alert_hours}h"
 
     condition_threshold {
-      # Per 30-minute bucket, take the MINIMUM instance count (ALIGN_MIN). If that
+      # Per alignment bucket, take the MINIMUM instance count (ALIGN_MIN). If that
       # minimum is > 0, the revision never scaled to zero in that bucket. The
-      # condition must hold continuously for instance_floor_alert_hours, so a
+      # condition must hold continuously for the whole duration, so a
       # single idle gap (scaled to zero) breaks the streak and suppresses the alert.
       #
       # The sum is taken per revision, never across them. Summed over the whole
@@ -112,19 +118,19 @@ resource "google_monitoring_alert_policy" "instance_never_idle" {
         AND metric.type = "run.googleapis.com/container/instance_count"
       EOT
 
-      duration        = "${var.instance_floor_alert_hours * 3600}s"
+      duration        = var.alert_windows["instance_floor.never_idle.duration"]
       comparison      = "COMPARISON_GT"
-      threshold_value = 0
+      threshold_value = var.alert_thresholds["instance_floor.never_idle.threshold"]
 
       aggregations {
-        alignment_period     = "1800s"
+        alignment_period     = var.alert_windows["instance_floor.never_idle.alignment_period"]
         per_series_aligner   = "ALIGN_MIN"
         cross_series_reducer = "REDUCE_SUM"
         group_by_fields      = ["resource.label.revision_name"]
       }
 
       trigger {
-        count = 1
+        count = var.alert_thresholds["instance_floor.never_idle.trigger_count"]
       }
     }
   }
@@ -135,6 +141,6 @@ resource "google_monitoring_alert_policy" "instance_never_idle" {
     # Auto-close once the floor finally breaks (instance scales to zero) and the
     # metric stops satisfying the condition. Generous window so a brief blip
     # doesn't prematurely resolve a genuinely-stuck instance.
-    auto_close = "3600s"
+    auto_close = var.alert_windows["instance_floor.never_idle.auto_close"]
   }
 }

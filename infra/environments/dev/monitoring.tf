@@ -24,7 +24,8 @@
 #      so there's no second token to load. Grant the existing Slack app
 #      chat:write scope on the alerts channel.
 #   3. google_monitoring_alert_policy — fires when the log metric exceeds
-#      0 in any 5-minute window, routing to the Slack channel above.
+#      its threshold in any one alignment window, routing to the Slack
+#      channel above.
 
 # -----------------------------------------------------------------------------
 # Log-Based Metric — count ERROR+ logs from dravr-mcp-server-* Cloud Run jobs
@@ -101,6 +102,16 @@ resource "google_monitoring_notification_channel" "slack_alerts" {
 # Alert Policy — fires when any dravr-mcp-server-* job emits an ERROR
 # -----------------------------------------------------------------------------
 
+locals {
+  # The job-failures text names its window in minutes; the number is the
+  # alignment period itself, so the sentence cannot drift from the setting.
+  core_job_failures_window_minutes = tonumber(trimsuffix(var.alert_windows["core.job_failures.alignment_period"], "s")) / 60
+
+  # The OAuth text names the count that trips the policy: the first one above
+  # the threshold, since the comparison is strictly greater than.
+  core_oauth_launches_abandoned_trip_count = var.alert_thresholds["core.oauth_launches_abandoned.threshold"] + 1
+}
+
 resource "google_monitoring_alert_policy" "job_failures" {
   project      = var.project_id
   display_name = "dravr-mcp-server-job-failures"
@@ -109,7 +120,7 @@ resource "google_monitoring_alert_policy" "job_failures" {
   documentation {
     content   = <<-EOT
       One or more Cloud Run jobs in the dravr-mcp-server-* family emitted an
-      ERROR log line in the last 5 minutes. Most commonly this is a
+      ERROR log line in the last ${local.core_job_failures_window_minutes} minutes. Most commonly this is a
       non-zero task exit. Check the job's execution history:
 
         gcloud run jobs executions list --job=<job_name> --region=${var.region}
@@ -122,23 +133,23 @@ resource "google_monitoring_alert_policy" "job_failures" {
   }
 
   conditions {
-    display_name = "Cloud Run job ERROR log line in 5min window"
+    display_name = "Cloud Run job ERROR log line in ${local.core_job_failures_window_minutes}min window"
 
     condition_threshold {
       filter          = "resource.type=\"cloud_run_job\" AND metric.type=\"logging.googleapis.com/user/${google_logging_metric.cloud_run_job_failures.name}\""
-      duration        = "0s"
+      duration        = var.alert_windows["core.job_failures.duration"]
       comparison      = "COMPARISON_GT"
-      threshold_value = 0
+      threshold_value = var.alert_thresholds["core.job_failures.threshold"]
 
       aggregations {
-        alignment_period     = "300s"
+        alignment_period     = var.alert_windows["core.job_failures.alignment_period"]
         per_series_aligner   = "ALIGN_SUM"
         cross_series_reducer = "REDUCE_SUM"
         group_by_fields      = ["metric.label.job_name"]
       }
 
       trigger {
-        count = 1
+        count = var.alert_thresholds["core.job_failures.trigger_count"]
       }
     }
   }
@@ -146,11 +157,10 @@ resource "google_monitoring_alert_policy" "job_failures" {
   notification_channels = [google_monitoring_notification_channel.slack_alerts.id]
 
   alert_strategy {
-    # Auto-close the incident after 30 minutes with no further ERROR logs —
-    # most job failures are one-shot (exit on first iteration); we don't
-    # want a stale incident hanging around once the next successful run
-    # passes.
-    auto_close = "1800s"
+    # Auto-close the incident a while after the last ERROR log — most job
+    # failures are one-shot (exit on first iteration); we don't want a stale
+    # incident hanging around once the next successful run passes.
+    auto_close = var.alert_windows["core.job_failures.auto_close"]
   }
 }
 
@@ -276,7 +286,7 @@ resource "google_monitoring_alert_policy" "oauth_launches_abandoned" {
       an hour holds at most four of them. "More than one per hour" is therefore
       two separate passes, at least 15 minutes apart, that each found a dead
       launch — while a burst from one user retrying inside a single 15-minute
-      window collapses into one line and stays silent. It trips at 2 against a
+      window collapses into one line and stays silent. It trips at ${local.core_oauth_launches_abandoned_trip_count} against a
       ceiling of 4, so it has room to fire without needing a flawless outage.
 
       That headroom is the point. This threshold is calibrated against the
@@ -335,15 +345,16 @@ resource "google_monitoring_alert_policy" "oauth_launches_abandoned" {
     display_name = "More than one sweep in an hour found abandoned OAuth launches"
 
     condition_threshold {
-      # >1, not >0: one abandoned launch an hour is a user changing their mind,
-      # and paging on it would train everyone to ignore this channel. Two
-      # separate passes reporting inside one hour is the outage shape. The
-      # sweeper's 15-minute cadence caps an hour at four lines, so this trips at
-      # 2 with real headroom rather than demanding a perfect run of passes.
+      # The threshold sits above a lone report on purpose: a single abandoned
+      # launch inside the window is a user changing their mind, and paging on
+      # it would train everyone to ignore this channel. Separate passes
+      # reporting inside one window is the outage shape. The sweeper's cadence
+      # caps how many lines a window can hold, and the threshold leaves real
+      # headroom under that cap rather than demanding a perfect run of passes.
       filter          = "resource.type=\"cloud_run_revision\" AND metric.type=\"logging.googleapis.com/user/${google_logging_metric.oauth_launches_abandoned.name}\""
       comparison      = "COMPARISON_GT"
-      threshold_value = 1
-      duration        = "0s"
+      threshold_value = var.alert_thresholds["core.oauth_launches_abandoned.threshold"]
+      duration        = var.alert_windows["core.oauth_launches_abandoned.duration"]
 
       aggregations {
         # Summed across series rather than grouped by provider. `providers` is a
@@ -351,13 +362,13 @@ resource "google_monitoring_alert_policy" "oauth_launches_abandoned" {
         # low-count series, none of which reaches the threshold — the alert would
         # get quieter exactly as the breakage got broader. The labels are for
         # triage after the page, not for deciding whether to page.
-        alignment_period     = "3600s"
+        alignment_period     = var.alert_windows["core.oauth_launches_abandoned.alignment_period"]
         per_series_aligner   = "ALIGN_DELTA"
         cross_series_reducer = "REDUCE_SUM"
       }
 
       trigger {
-        count = 1
+        count = var.alert_thresholds["core.oauth_launches_abandoned.trigger_count"]
       }
     }
   }
@@ -370,7 +381,7 @@ resource "google_monitoring_alert_policy" "oauth_launches_abandoned" {
   alert_strategy {
     # Closes once launches start completing again, so a fixed outage stops
     # nagging without someone acknowledging it by hand.
-    auto_close = "1800s"
+    auto_close = var.alert_windows["core.oauth_launches_abandoned.auto_close"]
   }
 
   depends_on = [time_sleep.oauth_abandonment_metric_propagation]

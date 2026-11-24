@@ -160,6 +160,19 @@ describe('group flag and weekly-report phrasing', () => {
     ]);
   });
 
+  it('writes no summary and no trend for a week no member is read for', () => {
+    const t = i18n.getFixedT('en');
+    const unread: GroupAggregateStats = { ...STATS, avg_weekly_volume_km: null, weekly_trend: 'stable' };
+    expect(weeklyReportSummary(t, 'en', unread, 'metric')).toBeNull();
+    expect(weeklyReportRecommendations(t, { ...unread, flagged_members: 0 })).toEqual([]);
+    // The deep-fatigue line does not depend on the volume, so it stays.
+    expect(weeklyReportRecommendations(t, unread)).toHaveLength(1);
+    // A read week nobody moved in is its own zero, and keeps its sentence.
+    expect(weeklyReportSummary(t, 'en', { ...STATS, avg_weekly_volume_km: 0 }, 'metric')).toBe(
+      '2/3 members active this week, averaging 0.0 km each.',
+    );
+  });
+
   it('writes a weekly volume in the reader units, rounded like the server digest', () => {
     expect(weeklyVolume('en', 41.5, 'metric')).toBe('41.5 km');
     expect(weeklyVolume('en', 41.5, 'imperial')).toBe('25.8 mi');

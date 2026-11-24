@@ -178,6 +178,17 @@ resource "time_sleep" "public_mcp_metric_propagation" {
   create_duration = "600s"
 }
 
+# The alert texts state their window in minutes. It is read from the setting
+# the condition aligns on, so the text and the condition cannot disagree.
+locals {
+  public_mcp_window_minutes = {
+    protocol_5xx        = tonumber(trimsuffix(var.alert_windows["public_mcp.protocol_5xx.alignment_period"], "s")) / 60
+    protocol_429        = tonumber(trimsuffix(var.alert_windows["public_mcp.protocol_429.alignment_period"], "s")) / 60
+    tool_quota_exceeded = tonumber(trimsuffix(var.alert_windows["public_mcp.tool_quota_exceeded.alignment_period"], "s")) / 60
+    armor_denied        = tonumber(trimsuffix(var.alert_windows["public_mcp.armor_denied.alignment_period"], "s")) / 60
+  }
+}
+
 resource "google_monitoring_alert_policy" "public_protocol_5xx" {
   project      = var.project_id
   display_name = "Public connector failing: 5xx on /mcp, /a2a or /oauth2"
@@ -185,7 +196,7 @@ resource "google_monitoring_alert_policy" "public_protocol_5xx" {
 
   documentation {
     content   = <<-EOT
-      More than 2 requests in 5 minutes got a 5xx on one of the routes marketplace
+      More than ${var.alert_thresholds["public_mcp.protocol_5xx.threshold"]} requests in ${local.public_mcp_window_minutes.protocol_5xx} minutes got a 5xx on one of the routes marketplace
       clients use. Their users see a generic connector error and nobody tells us.
       /oauth2 also carries Dravr's own sign-in, so there it can be an athlete who
       cannot sign in to the app.
@@ -201,16 +212,16 @@ resource "google_monitoring_alert_policy" "public_protocol_5xx" {
   }
 
   conditions {
-    display_name = "More than 2 public protocol 5xx in 5 minutes on one route"
+    display_name = "More than ${var.alert_thresholds["public_mcp.protocol_5xx.threshold"]} public protocol 5xx in ${local.public_mcp_window_minutes.protocol_5xx} minutes on one route"
 
     condition_threshold {
       filter          = "resource.type=\"cloud_run_revision\" AND metric.type=\"logging.googleapis.com/user/${google_logging_metric.public_protocol_responses.name}\" AND metric.labels.status!=\"429\""
       comparison      = "COMPARISON_GT"
-      threshold_value = 2
-      duration        = "0s"
+      threshold_value = var.alert_thresholds["public_mcp.protocol_5xx.threshold"]
+      duration        = var.alert_windows["public_mcp.protocol_5xx.duration"]
 
       aggregations {
-        alignment_period     = "300s"
+        alignment_period     = var.alert_windows["public_mcp.protocol_5xx.alignment_period"]
         per_series_aligner   = "ALIGN_DELTA"
         cross_series_reducer = "REDUCE_SUM"
         group_by_fields      = ["metric.label.route"]
@@ -221,7 +232,7 @@ resource "google_monitoring_alert_policy" "public_protocol_5xx" {
   notification_channels = [google_monitoring_notification_channel.slack_alerts.id]
 
   alert_strategy {
-    auto_close = "1800s"
+    auto_close = var.alert_windows["public_mcp.protocol_5xx.auto_close"]
   }
 
   depends_on = [time_sleep.public_mcp_metric_propagation]
@@ -234,7 +245,7 @@ resource "google_monitoring_alert_policy" "public_protocol_429" {
 
   documentation {
     content   = <<-EOT
-      More than 20 requests in 5 minutes were refused with 429 on one of the routes
+      More than ${var.alert_thresholds["public_mcp.protocol_429.threshold"]} requests in ${local.public_mcp_window_minutes.protocol_429} minutes were refused with 429 on one of the routes
       marketplace clients use. /oauth2/token is metered per address, and a connector
       host refreshes all its athletes from a few egress addresses, so a large host
       reaching `OAUTH_TOKEN_RATE_LIMIT_RPM` looks exactly like this. /oauth2/authorize,
@@ -251,16 +262,16 @@ resource "google_monitoring_alert_policy" "public_protocol_429" {
   }
 
   conditions {
-    display_name = "More than 20 public protocol 429 in 5 minutes on one route"
+    display_name = "More than ${var.alert_thresholds["public_mcp.protocol_429.threshold"]} public protocol 429 in ${local.public_mcp_window_minutes.protocol_429} minutes on one route"
 
     condition_threshold {
       filter          = "resource.type=\"cloud_run_revision\" AND metric.type=\"logging.googleapis.com/user/${google_logging_metric.public_protocol_responses.name}\" AND metric.labels.status=\"429\""
       comparison      = "COMPARISON_GT"
-      threshold_value = 20
-      duration        = "0s"
+      threshold_value = var.alert_thresholds["public_mcp.protocol_429.threshold"]
+      duration        = var.alert_windows["public_mcp.protocol_429.duration"]
 
       aggregations {
-        alignment_period     = "300s"
+        alignment_period     = var.alert_windows["public_mcp.protocol_429.alignment_period"]
         per_series_aligner   = "ALIGN_DELTA"
         cross_series_reducer = "REDUCE_SUM"
         group_by_fields      = ["metric.label.route"]
@@ -271,7 +282,7 @@ resource "google_monitoring_alert_policy" "public_protocol_429" {
   notification_channels = [google_monitoring_notification_channel.slack_alerts.id]
 
   alert_strategy {
-    auto_close = "1800s"
+    auto_close = var.alert_windows["public_mcp.protocol_429.auto_close"]
   }
 
   depends_on = [time_sleep.public_mcp_metric_propagation]
@@ -305,11 +316,11 @@ resource "google_monitoring_alert_policy" "consent_refused_awaiting_approval" {
     condition_threshold {
       filter          = "resource.type=\"cloud_run_revision\" AND metric.type=\"logging.googleapis.com/user/${google_logging_metric.consent_refused.name}\" AND metric.labels.reason=\"the account awaits approval\""
       comparison      = "COMPARISON_GT"
-      threshold_value = 0
-      duration        = "0s"
+      threshold_value = var.alert_thresholds["public_mcp.consent_refused_awaiting_approval.threshold"]
+      duration        = var.alert_windows["public_mcp.consent_refused_awaiting_approval.duration"]
 
       aggregations {
-        alignment_period   = "300s"
+        alignment_period   = var.alert_windows["public_mcp.consent_refused_awaiting_approval.alignment_period"]
         per_series_aligner = "ALIGN_DELTA"
       }
     }
@@ -318,7 +329,7 @@ resource "google_monitoring_alert_policy" "consent_refused_awaiting_approval" {
   notification_channels = [google_monitoring_notification_channel.slack_alerts.id]
 
   alert_strategy {
-    auto_close = "1800s"
+    auto_close = var.alert_windows["public_mcp.consent_refused_awaiting_approval.auto_close"]
   }
 
   depends_on = [time_sleep.public_mcp_metric_propagation]
@@ -331,7 +342,7 @@ resource "google_monitoring_alert_policy" "mcp_tool_quota_exceeded" {
 
   documentation {
     content   = <<-EOT
-      More than 20 /mcp tool calls in 5 minutes were refused at a usage cap. One
+      More than ${var.alert_thresholds["public_mcp.tool_quota_exceeded.threshold"]} /mcp tool calls in ${local.public_mcp_window_minutes.tool_quota_exceeded} minutes were refused at a usage cap. One
       athlete reaching a cap is ordinary, and a client that keeps calling can reach
       this alone; many accounts doing it at once is farmed accounts, or a cap set
       too low for real use.
@@ -347,16 +358,16 @@ resource "google_monitoring_alert_policy" "mcp_tool_quota_exceeded" {
   }
 
   conditions {
-    display_name = "More than 20 tool quota refusals in 5 minutes"
+    display_name = "More than ${var.alert_thresholds["public_mcp.tool_quota_exceeded.threshold"]} tool quota refusals in ${local.public_mcp_window_minutes.tool_quota_exceeded} minutes"
 
     condition_threshold {
       filter          = "resource.type=\"cloud_run_revision\" AND metric.type=\"logging.googleapis.com/user/${google_logging_metric.mcp_tool_quota_exceeded.name}\""
       comparison      = "COMPARISON_GT"
-      threshold_value = 20
-      duration        = "0s"
+      threshold_value = var.alert_thresholds["public_mcp.tool_quota_exceeded.threshold"]
+      duration        = var.alert_windows["public_mcp.tool_quota_exceeded.duration"]
 
       aggregations {
-        alignment_period     = "300s"
+        alignment_period     = var.alert_windows["public_mcp.tool_quota_exceeded.alignment_period"]
         per_series_aligner   = "ALIGN_DELTA"
         cross_series_reducer = "REDUCE_SUM"
       }
@@ -366,7 +377,7 @@ resource "google_monitoring_alert_policy" "mcp_tool_quota_exceeded" {
   notification_channels = [google_monitoring_notification_channel.slack_alerts.id]
 
   alert_strategy {
-    auto_close = "1800s"
+    auto_close = var.alert_windows["public_mcp.tool_quota_exceeded.auto_close"]
   }
 
   depends_on = [time_sleep.public_mcp_metric_propagation]
@@ -400,11 +411,11 @@ resource "google_monitoring_alert_policy" "mcp_tool_quota_check_failed" {
     condition_threshold {
       filter          = "resource.type=\"cloud_run_revision\" AND metric.type=\"logging.googleapis.com/user/${google_logging_metric.mcp_tool_quota_check_failed.name}\""
       comparison      = "COMPARISON_GT"
-      threshold_value = 0
-      duration        = "0s"
+      threshold_value = var.alert_thresholds["public_mcp.tool_quota_check_failed.threshold"]
+      duration        = var.alert_windows["public_mcp.tool_quota_check_failed.duration"]
 
       aggregations {
-        alignment_period     = "300s"
+        alignment_period     = var.alert_windows["public_mcp.tool_quota_check_failed.alignment_period"]
         per_series_aligner   = "ALIGN_DELTA"
         cross_series_reducer = "REDUCE_SUM"
       }
@@ -414,7 +425,7 @@ resource "google_monitoring_alert_policy" "mcp_tool_quota_check_failed" {
   notification_channels = [google_monitoring_notification_channel.slack_alerts.id]
 
   alert_strategy {
-    auto_close = "1800s"
+    auto_close = var.alert_windows["public_mcp.tool_quota_check_failed.auto_close"]
   }
 
   depends_on = [time_sleep.public_mcp_metric_propagation]
@@ -448,11 +459,11 @@ resource "google_monitoring_alert_policy" "oauth_token_user_limited" {
     condition_threshold {
       filter          = "resource.type=\"cloud_run_revision\" AND metric.type=\"logging.googleapis.com/user/${google_logging_metric.oauth_token_user_limited.name}\""
       comparison      = "COMPARISON_GT"
-      threshold_value = 0
-      duration        = "0s"
+      threshold_value = var.alert_thresholds["public_mcp.oauth_token_user_limited.threshold"]
+      duration        = var.alert_windows["public_mcp.oauth_token_user_limited.duration"]
 
       aggregations {
-        alignment_period     = "300s"
+        alignment_period     = var.alert_windows["public_mcp.oauth_token_user_limited.alignment_period"]
         per_series_aligner   = "ALIGN_DELTA"
         cross_series_reducer = "REDUCE_SUM"
       }
@@ -462,7 +473,7 @@ resource "google_monitoring_alert_policy" "oauth_token_user_limited" {
   notification_channels = [google_monitoring_notification_channel.slack_alerts.id]
 
   alert_strategy {
-    auto_close = "1800s"
+    auto_close = var.alert_windows["public_mcp.oauth_token_user_limited.auto_close"]
   }
 
   depends_on = [time_sleep.public_mcp_metric_propagation]
@@ -503,7 +514,7 @@ resource "google_monitoring_alert_policy" "armor_denied" {
 
   documentation {
     content   = <<-EOT
-      Cloud Armor refused more than 20 requests in 5 minutes on app.dravr.ai or
+      Cloud Armor refused more than ${var.alert_thresholds["public_mcp.armor_denied.threshold"]} requests in ${local.public_mcp_window_minutes.armor_denied} minutes on app.dravr.ai or
       mcp.dravr.ai. Only rules promoted out of preview count. It is either an attack
       or a limit that is too low for real traffic, and a refused client gets no
       Dravr error page and reports nothing to us.
@@ -523,16 +534,16 @@ resource "google_monitoring_alert_policy" "armor_denied" {
   }
 
   conditions {
-    display_name = "More than 20 requests refused by Cloud Armor in 5 minutes"
+    display_name = "More than ${var.alert_thresholds["public_mcp.armor_denied.threshold"]} requests refused by Cloud Armor in ${local.public_mcp_window_minutes.armor_denied} minutes"
 
     condition_threshold {
       filter          = "resource.type=\"network_security_policy\" AND resource.labels.policy_name=\"${module.frontend_domain[0].security_policy_name}\" AND metric.type=\"networksecurity.googleapis.com/https/request_count\" AND metric.labels.blocked=\"true\""
       comparison      = "COMPARISON_GT"
-      threshold_value = 20
-      duration        = "0s"
+      threshold_value = var.alert_thresholds["public_mcp.armor_denied.threshold"]
+      duration        = var.alert_windows["public_mcp.armor_denied.duration"]
 
       aggregations {
-        alignment_period     = "300s"
+        alignment_period     = var.alert_windows["public_mcp.armor_denied.alignment_period"]
         per_series_aligner   = "ALIGN_DELTA"
         cross_series_reducer = "REDUCE_SUM"
       }
@@ -542,6 +553,6 @@ resource "google_monitoring_alert_policy" "armor_denied" {
   notification_channels = [google_monitoring_notification_channel.slack_alerts.id]
 
   alert_strategy {
-    auto_close = "1800s"
+    auto_close = var.alert_windows["public_mcp.armor_denied.auto_close"]
   }
 }

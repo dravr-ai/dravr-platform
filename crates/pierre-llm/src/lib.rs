@@ -41,7 +41,7 @@ mod chain_observer;
 pub mod config;
 /// The one facade over every embacle runner, chain included
 mod embacle_provider;
-/// LLM startup probe state shared with pierre-server's /ready and /health/llm routes
+/// LLM startup probe state the chat pipeline reads before it serves a turn
 pub mod health;
 /// Construction of embacle's HTTP providers from env or tenant credentials
 pub mod http_env;

@@ -868,7 +868,7 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
               <Text className="text-lg font-bold font-mono tabular-nums text-text-primary" testID="group-stat-volume">
                 {isLoadingStats
                   ? '…'
-                  : stats?.avg_weekly_volume_km !== undefined
+                  : stats?.avg_weekly_volume_km != null
                     ? weeklyVolumeFigure(language, stats.avg_weekly_volume_km, units)
                     : '--'}
               </Text>

@@ -6,7 +6,7 @@
 
 //! Hosted Sciotte login for channel-initiated flows.
 //!
-//! This module implements the three public-facing pages the user sees when a
+//! This module implements the two public-facing pages the user sees when a
 //! chat channel (Slack, Discord, Telegram, ...) hands them a login URL:
 //!
 //! - `GET /providers/signin?token=...` — renders the login page. The token
@@ -16,18 +16,18 @@
 //!   with `Authorization: Bearer <token>`.
 //! - `GET /providers/signin/success` — confirmation page, auto-closes and can
 //!   deep-link back to the originating channel.
-//! - `GET /providers/signin/error?message=...` — renders a user-facing error page.
 //!
 //! The paths name no backend, since the athlete reads them in the address bar
 //! (see [`pierre_middleware::provider_link_token::HOSTED_SIGNIN_PATH`]). The
-//! earlier `/providers/sciotte/{login,success,error}` paths are routed to the
-//! same handlers so links already sent keep opening.
+//! earlier `/providers/sciotte/login` path is routed to the same login page
+//! so links already sent keep opening. A link that cannot be served answers
+//! with the error page in place.
 
 use axum::extract::{Query, State};
 use axum::http::HeaderMap;
 use axum::response::{Html, IntoResponse, Response};
 use pierre_contremaitre::hosted_strings::{
-    KEY_HOSTED_ERROR_GENERIC, KEY_HOSTED_ERROR_INVALID_LINK, KEY_HOSTED_ERROR_LINK_ALREADY_OPENED,
+    KEY_HOSTED_ERROR_INVALID_LINK, KEY_HOSTED_ERROR_LINK_ALREADY_OPENED,
     KEY_HOSTED_ERROR_MISSING_TOKEN,
 };
 use secrecy::{ExposeSecret, SecretString};
@@ -56,13 +56,6 @@ pub(crate) struct HostedLoginQuery {
     /// The signed link-token that authorizes this page to call
     /// `/api/providers/sciotte/*` on behalf of a user
     pub token: Option<SecretString>,
-}
-
-/// Query parameters for the hosted error page
-#[derive(Debug, Deserialize)]
-pub(crate) struct HostedErrorQuery {
-    /// User-facing error message
-    pub message: Option<String>,
 }
 
 /// Query parameters for the hosted success page
@@ -186,7 +179,7 @@ pub(crate) async fn handle_sciotte_hosted_login_page(
     .into_response()
 }
 
-/// GET `/providers/signin/success` (and the earlier `/providers/sciotte/success`)
+/// GET `/providers/signin/success`
 pub(crate) async fn handle_sciotte_hosted_success_page(
     State(resources): State<AuthRoutesContext>,
     headers: HeaderMap,
@@ -204,25 +197,6 @@ pub(crate) async fn handle_sciotte_hosted_success_page(
     let strings = PageStrings::new(&resources.messaging_strings, locale);
     Html(sciotte_hosted_templates::render_success_page(
         &strings, channel, target,
-    ))
-    .into_response()
-}
-
-/// GET `/providers/signin/error?message=...` (and the earlier `/providers/sciotte/error`)
-///
-/// The message is the caller's own text and is shown as given; without one
-/// the page words the failure itself, in the browser's language.
-pub(crate) async fn handle_sciotte_hosted_error_page(
-    State(resources): State<AuthRoutesContext>,
-    headers: HeaderMap,
-    Query(query): Query<HostedErrorQuery>,
-) -> Response {
-    let strings = PageStrings::new(&resources.messaging_strings, preferred_locale(&headers));
-    let message = query
-        .message
-        .unwrap_or_else(|| strings.get(KEY_HOSTED_ERROR_GENERIC));
-    Html(sciotte_hosted_templates::render_error_page(
-        &strings, &message,
     ))
     .into_response()
 }

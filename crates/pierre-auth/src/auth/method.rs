@@ -39,9 +39,6 @@ pub struct ImpersonationGrant {
     pub session_id: String,
     /// The admin acting as the user
     pub impersonator_id: Uuid,
-    /// When the token expires (`exp`, seconds since the epoch): a token
-    /// re-minted from it never outlives it
-    pub expires_at: i64,
 }
 
 /// Authentication method used

@@ -75,13 +75,8 @@ cargo run --bin pierre-mcp-server
 
 **Create a Pierre User:**
 ```bash
-curl -X POST http://localhost:8081/admin/setup \
-  -H "Content-Type: application/json" \
-  -d '{
-    "email": "user@example.com",
-    "password": "SecurePass123!",
-    "display_name": "Test User"
-  }'
+cargo run --bin pierre-cli -- user create \
+  --email user@example.com --password 'SecurePass123!'
 ```
 
 **Get Free Gemini API Key:**

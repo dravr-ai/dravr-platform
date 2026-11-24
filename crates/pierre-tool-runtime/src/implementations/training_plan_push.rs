@@ -5,6 +5,8 @@
 // Copyright (c) 2026 dravr.ai
 
 use crate::annotations::{annotations, Effect, Reach};
+use crate::tool_data::ToolData;
+use dravr_barrage::Stream;
 use pierre_providers::ai_scope;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -679,4 +681,7 @@ pub fn create_training_plan_push_tools() -> Vec<Box<dyn RuntimeTool>> {
 // A push deletes calendar entries the plan no longer wants, and a delete on
 // the provider cannot be undone from here — re-pushing recreates the entry,
 // but as a new one. Destructive, so it spends the Guardian's per-turn destructive budget.
-crate::declare_security!(PushTrainingPlanTool => IRREVERSIBLE);
+crate::declare_security!(
+    PushTrainingPlanTool => IRREVERSIBLE,
+    reads: ToolData::own(&[Stream::Workout]),
+);

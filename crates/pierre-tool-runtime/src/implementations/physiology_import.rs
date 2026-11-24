@@ -41,6 +41,8 @@
 //! paired with `critical_power_watts`; the two are not interchangeable.
 
 use crate::annotations::{annotations, Effect, Reach};
+use crate::tool_data::ToolData;
+use dravr_barrage::Stream;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -589,7 +591,10 @@ impl McpTool<dyn ToolRuntime> for ImportProviderThresholdsTool {
 // Guardian security classification (see `crate::security`). The write is the
 // athlete's own profile, correctable with set_physiology; the provider answers
 // numbers only, no third-party text; nothing is sent outbound beyond the read.
-crate::declare_security!(ImportProviderThresholdsTool => empty);
+crate::declare_security!(
+    ImportProviderThresholdsTool => empty,
+    reads: ToolData::own(&[Stream::Fitness, Stream::Profile]),
+);
 
 #[cfg(test)]
 mod tests {

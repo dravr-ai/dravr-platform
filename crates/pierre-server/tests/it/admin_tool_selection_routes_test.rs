@@ -1,26 +1,18 @@
-// ABOUTME: Per-tenant tool selection through one handler set, over the console and admin-token mounts
-// ABOUTME: An admin reaches every tenant, a scoped token its own only, and an override is attributed to its admin
+// ABOUTME: Per-tenant tool selection through the console's session mount
+// ABOUTME: An admin reaches every tenant, a user none, and an override is attributed to its admin
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! The console's tool-availability tab used to have its own handlers in
-//! `pierre-routes-web-admin`, twins of `ToolSelectionRoutes` (carnet#604). The
-//! twins disagreed: the console let a tenant's admins manage its tools, the
-//! token API demanded an admin; and the token API attributed an override
-//! by parsing the token *id* as a user id, which no admin token id is, so every
-//! override it was asked to set failed.
-//!
-//! One handler set now serves `/api/admin/tools` (session) and `/admin/tools`
-//! (admin token). These tests go through the production composition and assert
-//! on the stored overrides.
+//! The console's tool-availability tab: `ToolSelectionRoutes::console_routes`
+//! serves `/api/admin/tools` behind the console's session. These tests go
+//! through the production composition and assert on the stored overrides.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
 use crate::common;
 use crate::helpers;
-use secrecy::ExposeSecret;
 
 use std::sync::Arc;
 
@@ -29,7 +21,6 @@ use axum::Router;
 use common::{create_test_server_resources, generate_test_token};
 use dravr_tronc::dates::Timestamp;
 use helpers::axum_test::AxumTestRequest;
-use pierre_core::admin::models::{CreateAdminTokenRequest, GeneratedAdminToken};
 use pierre_core::models::{Tenant, TenantId, User, UserStatus};
 use pierre_core::permissions::UserRole;
 use pierre_mcp_server::mcp::multitenant::ProviderToolRouter;
@@ -90,33 +81,6 @@ async fn session(resources: &Arc<ServerContext>, email: &str, role: UserRole) ->
         user_id,
         tenant_id,
     })
-}
-
-/// Mint a super-admin token; `admin` makes it the shape a device login mints.
-async fn super_token(
-    resources: &Arc<ServerContext>,
-    service: &str,
-    admin: Option<Uuid>,
-) -> Result<GeneratedAdminToken> {
-    let request = CreateAdminTokenRequest {
-        service_name: service.to_owned(),
-        service_description: None,
-        permissions: None,
-        expires_in_days: Some(1),
-        is_super_admin: true,
-        tenant_id: None,
-        operator_user_id: admin,
-    };
-    Ok(resources
-        .common
-        .repos
-        .admin
-        .create_token(
-            &request,
-            resources.auth.admin_jwt_secret.as_ref(),
-            &resources.auth.jwks_manager,
-        )
-        .await?)
 }
 
 /// The production composition, one per request.
@@ -232,36 +196,6 @@ async fn another_tenants_tools_are_an_admins_and_no_one_elses() -> Result<()> {
         assert_eq!(stored_override(&resources, tenant).await?, None);
     }
 
-    // A service token as `pierre-cli token generate` mints one without
-    // `--super-admin`: it names no tenant and acts for no one.
-    let scoped = resources
-        .common
-        .repos
-        .admin
-        .create_token(
-            &CreateAdminTokenRequest::new("scoped-tools".to_owned()),
-            resources.auth.admin_jwt_secret.as_ref(),
-            &resources.auth.jwks_manager,
-        )
-        .await?;
-    let response =
-        AxumTestRequest::post(&format!("/admin/tools/tenant/{}/override", other.tenant_id))
-            .header(
-                "authorization",
-                &format!("Bearer {}", scoped.jwt_token.expose_secret()),
-            )
-            .json(&json!({ "tool_name": TOOL, "is_enabled": false }))
-            .send(app(&resources))
-            .await;
-    assert_eq!(response.status(), 403);
-    let body: Value = response.json();
-    assert_eq!(
-        body["message"].as_str(),
-        Some("Tool settings of this tenant are managed by its own admins"),
-        "{body}"
-    );
-    assert_eq!(stored_override(&resources, other.tenant_id).await?, None);
-
     // The admin does reach it, and the override is attributed to the admin.
     let response = AxumTestRequest::get(&format!("/api/admin/tools/tenant/{}", other.tenant_id))
         .header("authorization", &admin.auth)
@@ -284,59 +218,6 @@ async fn another_tenants_tools_are_an_admins_and_no_one_elses() -> Result<()> {
     assert_eq!(
         stored_override(&resources, other.tenant_id).await?,
         Some((false, Some(admin.user_id))),
-    );
-    Ok(())
-}
-
-/// The token API parsed the token id as the override's author, so a device
-/// login could not set an override at all. The admin behind the token is
-/// the author now, and a token that acts for no one is told so.
-#[tokio::test]
-#[serial]
-async fn the_token_api_attributes_an_override_to_its_admin() -> Result<()> {
-    let resources = create_test_server_resources().await?;
-    let owner = session(&resources, "tenant-owner@example.com", UserRole::User).await?;
-    let admin = session(&resources, "device-admin@example.com", UserRole::Admin).await?;
-    let device = super_token(&resources, "device-login-shaped", Some(admin.user_id)).await?;
-    let service = super_token(&resources, "service-token", None).await?;
-    let tenant = owner.tenant_id;
-
-    let response = AxumTestRequest::post(&format!("/admin/tools/tenant/{tenant}/override"))
-        .header(
-            "authorization",
-            &format!("Bearer {}", device.jwt_token.expose_secret()),
-        )
-        .json(&json!({ "tool_name": TOOL, "is_enabled": false }))
-        .send(app(&resources))
-        .await;
-    assert_eq!(
-        response.status(),
-        200,
-        "a device-login token sets an override"
-    );
-    assert_eq!(
-        stored_override(&resources, tenant).await?,
-        Some((false, Some(admin.user_id))),
-        "attributed to the approving admin"
-    );
-
-    let response = AxumTestRequest::post(&format!("/admin/tools/tenant/{tenant}/override"))
-        .header(
-            "authorization",
-            &format!("Bearer {}", service.jwt_token.expose_secret()),
-        )
-        .json(&json!({ "tool_name": TOOL, "is_enabled": true }))
-        .send(app(&resources))
-        .await;
-    assert_eq!(
-        response.status(),
-        400,
-        "a token acting for no one is refused"
-    );
-    assert_eq!(
-        stored_override(&resources, tenant).await?,
-        Some((false, Some(admin.user_id))),
-        "the refused write changed nothing"
     );
     Ok(())
 }

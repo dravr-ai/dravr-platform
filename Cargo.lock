@@ -4341,7 +4341,6 @@ name = "pierre-routes-admin"
 version = "0.3.0"
 dependencies = [
  "axum",
- "bcrypt",
  "dravr-tronc",
  "pierre-auth",
  "pierre-cache",

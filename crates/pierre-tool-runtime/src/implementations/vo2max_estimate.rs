@@ -5,6 +5,9 @@
 // Copyright (c) 2026 dravr.ai
 
 use crate::annotations::{annotations, Effect, Reach};
+use crate::read_subject::DataClass;
+use crate::tool_data::ToolData;
+use dravr_barrage::Stream;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -881,4 +884,9 @@ fn implied_threshold_pace(
 // Pure computation over inputs the athlete states plus a read of their own
 // profile. Nothing is written, nothing leaves the process, and the response
 // carries no third-party text.
-crate::declare_security!(EstimateVo2maxTool => empty);
+// Training physiology, the estimates read against it, and the zones and
+// configuration it sets.
+crate::declare_security!(
+    EstimateVo2maxTool => empty,
+    reads: ToolData::of(DataClass::Training, &[Stream::Fitness, Stream::Profile]),
+);

@@ -30,13 +30,12 @@ use helpers::google_token::{FirebaseTokenClaims, TestSigner};
 use helpers::notify_capture::{capture_logs_and_spans, capture_notify, only};
 use pierre_auth::firebase::FirebaseAuth;
 use pierre_config::environment::FirebaseConfig;
-use pierre_core::admin::models::{AdminPermission, CreateAdminTokenRequest};
-use pierre_core::models::TenantId;
+use pierre_core::models::{TenantId, User, UserStatus};
+use pierre_core::permissions::UserRole;
 use pierre_mcp_server::constants::system_config::STARTER_MONTHLY_LIMIT;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_routes_admin::{AdminApiContext, AdminApiContextInit, AdminRoutes};
 use pierre_routes_auth::AuthRoutes;
-use secrecy::ExposeSecret;
 use serde_json::{json, Value};
 use uuid::Uuid;
 
@@ -67,8 +66,9 @@ async fn personal_tenant(resources: &ServerContext, user_id: Uuid) -> TenantId {
         .id
 }
 
+/// The console mount: session auth in front of the admin handlers.
 fn admin_api(resources: &Arc<ServerContext>) -> Router {
-    AdminRoutes::routes(AdminApiContext::new(AdminApiContextInit {
+    let context = AdminApiContext::new(AdminApiContextInit {
         database: resources.agent.database.clone(),
         repos: resources.common.repos.clone(),
         jwt_secret: resources.auth.admin_jwt_secret.to_string(),
@@ -86,33 +86,25 @@ fn admin_api(resources: &Arc<ServerContext>) -> Router {
         training_catalogue_registry: resources.mcp.training_catalogue_registry.clone(),
         contremaitre_config: None,
         app_behavior: resources.common.config.app_behavior.clone(),
-    }))
+    });
+    AdminRoutes::cookie_admin_routes::<ServerContext>(context, resources)
 }
 
+/// A signed-in admin's console session: `"Bearer <jwt>"`. An admin reaches
+/// every tenant, as approving a sign-up needs (carnet#1589).
 async fn admin_bearer(resources: &Arc<ServerContext>) -> String {
-    let token = resources
-        .common
-        .repos
-        .admin
-        .create_token(
-            &CreateAdminTokenRequest {
-                service_name: "signup-attribution".to_owned(),
-                service_description: None,
-                permissions: Some(vec![AdminPermission::ManageUsers]),
-                expires_in_days: Some(1),
-                // A sign-up is approved by a caller that reaches every
-                // tenant: one bound to none without the flag reaches no
-                // account (carnet#1589).
-                is_super_admin: true,
-                tenant_id: None,
-                operator_user_id: None,
-            },
-            resources.auth.admin_jwt_secret.as_ref(),
-            &resources.auth.jwks_manager,
-        )
-        .await
-        .unwrap();
-    format!("Bearer {}", token.jwt_token.expose_secret())
+    let mut admin = User::new(
+        "attribution-admin@example.com".to_owned(),
+        "hashed".to_owned(),
+        Some("Admin".to_owned()),
+    );
+    admin.role = UserRole::Admin;
+    admin.user_status = UserStatus::Active;
+    resources.common.repos.users.create(&admin).await.unwrap();
+    format!(
+        "Bearer {}",
+        common::generate_test_token(resources, &admin).await
+    )
 }
 
 #[tokio::test]
@@ -270,7 +262,7 @@ async fn an_admin_approval_names_the_tenant_the_sign_up_was_attributed_to() {
     let bearer = admin_bearer(&resources).await;
 
     let (events, guard) = capture_notify();
-    let response = AxumTestRequest::post(&format!("/admin/approve-user/{user_id}"))
+    let response = AxumTestRequest::post(&format!("/api/admin/approve-user/{user_id}"))
         .header("Authorization", &bearer)
         .json(&json!({ "reason": "attribution test" }))
         .send(admin_api(&resources))

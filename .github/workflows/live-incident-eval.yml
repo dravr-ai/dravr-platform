@@ -1,5 +1,5 @@
 # ABOUTME: The live-model eval lane — the 2026-08 incident corpus against dev's coaching chain over production's transport
-# ABOUTME: Nightly at 01:37 UTC, one pass, dev's anthropic head with its copilot_sdk, claude_code and gemini tiers behind it (carnet#504, carnet#875)
+# ABOUTME: Nightly at 01:37 UTC, one pass over dev's whole chain, the head and every tier behind it (carnet#504)
 #
 # SPDX-License-Identifier: MIT OR Apache-2.0
 # Copyright (c) 2026 dravr.ai
@@ -14,10 +14,9 @@
 #
 # WHOSE MODEL ANSWERS
 #
-# Dev's chain, PIERRE_LLM_CHAIN read from infra/environments/dev/main.tf so the lane
-# follows it: anthropic serving the coaching model on the Messages API and its additional
-# credentials (anthropic#2, anthropic#3), then copilot_sdk on its own model, then claude_code and
-# its additional credential (claude-code#2), then gemini. Every tier runs on the live dev
+# Dev's chain, llm_chain read from the staged private terraform inputs so the lane
+# follows it: every provider it names, each on its own model and followed by its further
+# credentials. Every tier runs on the live dev
 # credential, from the Secret Manager entry the service reads; the two credential probes
 # check the copilot_sdk and first claude_code ones every morning (copilot-health-probe.yml,
 # claude-health-probe.yml).
@@ -43,7 +42,7 @@
 #
 # The lane sent 186 prompts a night at three passes (run 35502201927). Those were
 # Copilot premium requests while copilot_sdk led the chain; with the anthropic head
-# they are calls on the head's model against the organizations' prepaid credit, and Copilot is
+# they are calls on the head's model against that tier's budget, and Copilot is
 # spent only on a turn Anthropic could not serve. With one pass the reproduce rule
 # (a finding reds only when it reproduces in a majority of passes) is one of one, so
 # every gating finding reds. A dispatch with attempts=3 is the way to tell a defect from a draw.
@@ -89,7 +88,7 @@ on:
   workflow_dispatch:
     inputs:
       attempts:
-        description: "Passes over the whole corpus (a finding reds only when it reproduces in a majority); each pass spends the Anthropic credit like one nightly run"
+        description: "Passes over the whole corpus (a finding reds only when it reproduces in a majority); each pass spends the head tier's budget like one nightly run"
         required: true
         default: "1"
       episodes:
@@ -97,7 +96,7 @@ on:
         required: false
         default: ""
       chain:
-        description: "PIERRE_LLM_CHAIN for this run (provider=model,...), its providers a subset of the lane's; empty runs dev's chain from infra/environments/dev/main.tf"
+        description: "PIERRE_LLM_CHAIN for this run (provider=model,...), its providers a subset of the lane's; empty runs dev's chain, the llm_chain terraform input"
         required: false
         default: ""
       contremaitre_ref:
@@ -223,12 +222,19 @@ jobs:
       # alone. Its providers are then held to a subset of the lane's rather than
       # to equality, which is the same guarantee: every tier it names has its
       # runtime and token provisioned below.
+      - name: Stage private terraform inputs
+        # dev's chain is a private terraform input (infra/environments/dev/private_inputs.tf).
+        uses: ./.github/actions/terraform-private-inputs
+        with:
+          environment: dev
+          token: ${{ secrets.DRAVR_CARNET_TOKEN }}
+
       - name: Read dev's coaching chain
         env:
           CHAIN_INPUT: ${{ inputs.chain || '' }}
         run: |
           set -euo pipefail
-          TF=infra/environments/dev/main.tf
+          TF=infra/environments/dev/private.auto.tfvars
           tf_value() {
             # -m1 rather than a `head` pipe, because pipefail reads a closed
             # pipe as a failed step; `|| true` because a no-match grep exits 1
@@ -241,11 +247,14 @@ jobs:
             CHAIN="${CHAIN_INPUT}"
             SOURCE="the dispatch's chain input"
           else
-            CHAIN=$(tf_value PIERRE_LLM_CHAIN)
+            CHAIN=$(tf_value llm_chain)
             SOURCE="${TF}"
+            # The chain is a private input: keep it out of this public log,
+            # including the environment block each later step prints.
+            [ -z "${CHAIN}" ] || echo "::add-mask::${CHAIN}"
           fi
           if [ -z "${CHAIN}" ]; then
-            echo "::error::could not read PIERRE_LLM_CHAIN from ${TF}" >&2
+            echo "::error::could not read llm_chain from ${TF}" >&2
             exit 1
           fi
           PROVIDERS=""
@@ -277,7 +286,7 @@ jobs:
             exit 1
           fi
           echo "PIERRE_LLM_CHAIN=${CHAIN}" >> "$GITHUB_ENV"
-          echo "PIERRE_LLM_CHAIN: ${CHAIN}"
+          echo "PIERRE_LLM_CHAIN set from ${SOURCE} (${#ENTRIES[@]} entries)"
 
       - name: Read the pinned Copilot and Claude Code versions
         id: pin

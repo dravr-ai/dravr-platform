@@ -120,8 +120,8 @@ const DEFAULT_LLM_PROBE_INTERVAL_SECS: u64 = 1800;
 ///
 /// When the probe does run:
 ///
-/// * Records the outcome onto [`LlmHealthState`] so `/ready` and
-///   `/health/llm` reflect the latest round-trip.
+/// * Records the outcome onto [`LlmHealthState`] so the chat pipeline's
+///   turn gate reflects the latest round-trip.
 /// * On `Healthy -> Unhealthy` (or `Unknown -> Unhealthy`) transitions,
 ///   emits an `error!` line — the [`pierre_logging::ErrorNotificationLayer`]
 ///   wired in `init_from_env` auto-routes that line to the
@@ -225,7 +225,7 @@ async fn refresh_health_from_real_traffic(provider_name: &str, health_state: &Ll
     // Stamp `checked_at` with the real last-success time, not `now`: the skip
     // fires precisely because a real turn proved liveness up to a full interval
     // ago, so pretending the snapshot was just checked would overstate its
-    // freshness on `/health/llm`.
+    // freshness on the snapshot.
     let observed_ago = health_state.since_last_success().unwrap_or_default();
     let previous = health_state
         .record_healthy_observed(provider_name.to_owned(), observed_ago)
@@ -570,7 +570,7 @@ async fn run_one_probe(
 /// silently expired against `api.github.com`, and for Claude Code it is a
 /// `--version` that passes without a login, so the first real chat breaks
 /// for users. This roundtrip catches that class of failure before it
-/// reaches a user-facing turn, which lets `/ready` flip to 503 and gives
+/// reaches a user-facing turn, which lets the turn gate refuse and gives
 /// the runtime fallback chain a chance to log a transition.
 async fn roundtrip_probe(provider: &ChatProvider) -> Result<String, AppError> {
     provider
@@ -702,7 +702,7 @@ fn log_recovery_transition(
 /// credential no provider is built for would otherwise be decrypted and then
 /// dropped on every turn. `OpenAi` and `Anthropic` keys are accepted by the
 /// LLM settings, but pierre-llm builds neither from a tenant's key — the
-/// platform's own Anthropic tier runs on its pooled organizations.
+/// platform's own Anthropic tier runs on the deployment's keys.
 pub(crate) const fn builds_from_credentials(provider: TenantLlmProvider) -> bool {
     match provider {
         TenantLlmProvider::Gemini

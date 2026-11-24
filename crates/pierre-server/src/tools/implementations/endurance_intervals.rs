@@ -4,9 +4,12 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use dravr_barrage::Stream;
 use pierre_providers::ai_scope;
 use pierre_providers::core::stream_sample_count;
 use pierre_tool_runtime::annotations::{annotations, Effect, Reach};
+use pierre_tool_runtime::read_subject::DataClass;
+use pierre_tool_runtime::tool_data::ToolData;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -399,6 +402,15 @@ pub fn create_endurance_intervals_tools() -> Vec<Box<dyn RuntimeTool>> {
 // Guardian security classifications (see `pierre_tool_runtime::security`). These
 // tools export the activity intervals/routes of the athlete the call reads — the
 // caller, or a coached athlete for a coach's read — internal, no egress.
-pierre_tool_runtime::declare_security!(ExportIntervalsTool => empty; export);
-pierre_tool_runtime::declare_security!(ExportRoutesTool => empty; export);
-pierre_tool_runtime::declare_security!(ExtractActivityStreamsTool => empty);
+pierre_tool_runtime::declare_security!(
+    ExportIntervalsTool => empty; export,
+    reads: ToolData::of(DataClass::Training, &[Stream::Workout, Stream::WorkoutRaw]),
+);
+pierre_tool_runtime::declare_security!(
+    ExportRoutesTool => empty; export,
+    reads: ToolData::of(DataClass::Training, &[Stream::WorkoutRoute]),
+);
+pierre_tool_runtime::declare_security!(
+    ExtractActivityStreamsTool => empty,
+    reads: ToolData::of(DataClass::Training, &[Stream::Workout, Stream::WorkoutRaw]),
+);

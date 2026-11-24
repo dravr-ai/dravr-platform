@@ -25,22 +25,6 @@ pub fn refresh_due(expires_at: Timestamp) -> bool {
     expires_at <= Timestamp::now() + Elapsed::minutes(TOKEN_REFRESH_WINDOW_MINUTES)
 }
 
-/// OAuth application credentials for protocol initialization (MCP and A2A)
-///
-/// Transmitted by clients during protocol handshake to provide OAuth
-/// application credentials for specific providers. Used by both the MCP
-/// and A2A protocol initialization flows.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct OAuthAppCredentials {
-    /// OAuth client ID
-    #[serde(rename = "clientId")]
-    pub client_id: String,
-    /// OAuth client secret
-    #[serde(rename = "clientSecret")]
-    #[serde(serialize_with = "crate::secret::serialize_exposed")]
-    pub client_secret: SecretString,
-}
-
 /// The `token_type` a stored row carries when its `access_token` is a personal
 /// API key the athlete pasted rather than an OAuth grant (intervals.icu).
 pub const API_KEY_TOKEN_TYPE: &str = "api_key";

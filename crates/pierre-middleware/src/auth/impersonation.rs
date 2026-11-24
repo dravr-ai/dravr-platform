@@ -79,7 +79,6 @@ impl McpAuthMiddleware {
         Ok(Some(ImpersonationGrant {
             session_id: session_id.to_owned(),
             impersonator_id: self.require_live_impersonation(session_id, user_id).await?,
-            expires_at: claims.exp,
         }))
     }
 

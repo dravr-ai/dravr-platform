@@ -9,13 +9,13 @@
 //! Hosts every admin REST surface that ships with the platform:
 //!
 //! - Programmatic admin-token JWT routes mounted at `/admin/...`
-//!   ([`AdminRoutes::routes`]) — API key provisioning, admin token
-//!   mint/rotate, user lifecycle, system settings, store review, initial
-//!   setup. Consumed by `pierre-cli` and B2B partners.
+//!   ([`AdminRoutes::routes`]) — API key provisioning, user lifecycle,
+//!   system settings. Consumed by `pierre-cli` and B2B partners.
 //!
 //! - Human admin cookie-auth routes mounted at `/api/admin/...`
-//!   ([`AdminRoutes::cookie_admin_routes`]) — claim verdicts, memory worker
-//!   metrics, harness configuration. Powers the admin web UI tabs.
+//!   ([`AdminRoutes::cookie_admin_routes`]) — user approval, admin token
+//!   mint/rotate, claim verdicts, memory worker metrics, harness
+//!   configuration. Powers the admin web UI tabs.
 //!
 //! The cookie-auth surface gates on
 //! [`pierre_middleware::cookie_admin_middleware`], itself generic over
@@ -58,9 +58,8 @@ pub use handlers::feature_flags::FeatureFlagsRoutes;
 pub use handlers::impersonation::ImpersonationRoutes;
 pub use handlers::llm_consumption::LlmConsumptionRoutes;
 pub use handlers::types::{
-    AdminResponse, AdminSetupRequest, AdminSetupResponse, ApproveUserRequest, AutoApprovalResponse,
-    DeleteUserRequest, ListApiKeysQuery, ListUsersQuery, ProvisionApiKeyRequest,
-    ProvisionApiKeyResponse, RateLimitInfo, RevokeKeyRequest, SuspendUserRequest,
-    UpdateAutoApprovalRequest, UserActivityQuery,
+    AdminResponse, ApproveUserRequest, AutoApprovalResponse, DeleteUserRequest, ListUsersQuery,
+    ProvisionApiKeyRequest, ProvisionApiKeyResponse, RateLimitInfo, RevokeKeyRequest,
+    SuspendUserRequest, UpdateAutoApprovalRequest, UserActivityQuery,
 };
 pub use routes::AdminRoutes;

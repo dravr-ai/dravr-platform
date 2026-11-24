@@ -25,6 +25,7 @@
 //! before forwarding to the repository. Both refuse with `PermissionDenied`.
 
 use crate::annotations::{annotations, Effect, Reach};
+use crate::tool_data::ToolData;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -1052,13 +1053,14 @@ pub fn create_admin_tools() -> Vec<Box<dyn RuntimeTool>> {
 // Guardian security classifications (see `crate::security`). Co-located here so
 // each impl sits under this module's existing feature gate; the compiler forces
 // every registered tool to classify (the registry stores `Arc<dyn RuntimeTool>`).
-crate::declare_security!(AdminDeleteSystemAgentTool => IRREVERSIBLE);
-crate::declare_security!(AdminAssignAgentTool => empty);
-crate::declare_security!(AdminCreateSystemAgentTool => empty);
-crate::declare_security!(AdminGetSystemAgentTool => empty);
-crate::declare_security!(AdminListAgentAssignmentsTool => empty);
-crate::declare_security!(AdminListSystemAgentsTool => empty);
+crate::declare_security!(AdminDeleteSystemAgentTool => IRREVERSIBLE, reads: ToolData::own(&[]));
+crate::declare_security!(AdminAssignAgentTool => empty, reads: ToolData::own(&[]));
+crate::declare_security!(AdminCreateSystemAgentTool => empty, reads: ToolData::own(&[]));
+crate::declare_security!(AdminGetSystemAgentTool => empty, reads: ToolData::own(&[]));
+crate::declare_security!(AdminListAgentAssignmentsTool => empty, reads: ToolData::own(&[]));
+// Admin tools over the system agents.
+crate::declare_security!(AdminListSystemAgentsTool => empty, reads: ToolData::own(&[]));
 // Annotated destructive: the assignment is gone and nothing restores it, so it
 // answers to the same per-turn cap as every other such tool.
-crate::declare_security!(AdminUnassignAgentTool => IRREVERSIBLE);
-crate::declare_security!(AdminUpdateSystemAgentTool => empty);
+crate::declare_security!(AdminUnassignAgentTool => IRREVERSIBLE, reads: ToolData::own(&[]));
+crate::declare_security!(AdminUpdateSystemAgentTool => empty, reads: ToolData::own(&[]));

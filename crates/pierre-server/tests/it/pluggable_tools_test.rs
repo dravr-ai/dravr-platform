@@ -11,6 +11,7 @@ use async_trait::async_trait;
 use pierre_core::errors::AppError;
 use pierre_tool_runtime::registry::ToolRegistry;
 use pierre_tool_runtime::runtime::ToolRuntime;
+use pierre_tool_runtime::tool_data::ToolData;
 use pierre_tools_core::{NotificationType, ToolError, ToolNotification, ToolResult};
 use serde::Serialize;
 use serde_json::Value;
@@ -382,7 +383,7 @@ mod audited_tool_tests {
         }
     }
 
-    pierre_tool_runtime::declare_security!(AdminStubTool => empty);
+    pierre_tool_runtime::declare_security!(AdminStubTool => empty, reads: ToolData::own(&[]));
 
     #[test]
     fn test_audited_tool_creation() {
@@ -416,4 +417,4 @@ mod audited_tool_tests {
     }
 }
 
-pierre_tool_runtime::declare_security!(StubTool => empty);
+pierre_tool_runtime::declare_security!(StubTool => empty, reads: ToolData::own(&[]));

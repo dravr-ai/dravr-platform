@@ -112,56 +112,6 @@ async fn a2a_routes() -> axum::Router {
 }
 
 // ============================================================================
-// GET /a2a/status - A2A Status Tests
-// ============================================================================
-
-#[tokio::test]
-async fn test_a2a_status_success() {
-    let routes = a2a_routes().await;
-
-    let response = AxumTestRequest::get("/a2a/status").send(routes).await;
-
-    assert_eq!(response.status(), 200);
-
-    let body: serde_json::Value = response.json();
-    assert_eq!(body["status"], "active");
-}
-
-#[tokio::test]
-async fn test_a2a_status_no_auth_required() {
-    let routes = a2a_routes().await;
-
-    // A2A status endpoint should work without any authentication
-    let response = AxumTestRequest::get("/a2a/status").send(routes).await;
-
-    assert_eq!(response.status(), 200);
-}
-
-#[tokio::test]
-async fn test_a2a_status_concurrent_requests() {
-    // Make multiple A2A status requests concurrently
-    let mut handles = vec![];
-
-    for _ in 0..10 {
-        let handle = tokio::spawn(async {
-            let routes = a2a_routes().await;
-            AxumTestRequest::get("/a2a/status").send(routes).await
-        });
-
-        handles.push(handle);
-    }
-
-    // All requests should succeed
-    for handle in handles {
-        let response = handle.await.expect("Task panicked");
-        assert_eq!(response.status(), 200);
-
-        let body: serde_json::Value = response.json();
-        assert_eq!(body["status"], "active");
-    }
-}
-
-// ============================================================================
 // GET /.well-known/agent-card.json - discovery
 // ============================================================================
 
@@ -1035,45 +985,6 @@ async fn test_plain_text_continuation_fails_the_task_without_echoing() {
         record.status.is_terminal(),
         "the task must reach a terminal state"
     );
-}
-
-#[tokio::test]
-async fn test_a2a_credentials_endpoint_stores_oauth_apps() {
-    let resources = create_a2a_test_resources().await;
-    let (_user, jwt) = common::create_test_tenant(&resources, "a2a-creds@example.com")
-        .await
-        .expect("seed user + tenant + JWT");
-    let routes = a2a_router_from(&resources);
-
-    // Unauthenticated requests are rejected.
-    let body = serde_json::json!({
-        "credentials": {
-            "strava": { "clientId": "app-id-1", "clientSecret": "app-secret-1" }
-        }
-    });
-    let response = AxumTestRequest::post("/a2a/credentials")
-        .json(&body)
-        .send(routes.clone())
-        .await;
-    assert_eq!(response.status(), 401);
-
-    // Authenticated requests store the per-user OAuth app credentials.
-    let response = AxumTestRequest::post("/a2a/credentials")
-        .header("Authorization", &format!("Bearer {jwt}"))
-        .json(&body)
-        .send(routes.clone())
-        .await;
-    assert_eq!(response.status(), 200);
-    let stored: serde_json::Value = response.json();
-    assert_eq!(stored["stored"][0], "strava");
-
-    // An empty map is invalid input.
-    let response = AxumTestRequest::post("/a2a/credentials")
-        .header("Authorization", &format!("Bearer {jwt}"))
-        .json(&serde_json::json!({ "credentials": {} }))
-        .send(routes)
-        .await;
-    assert_eq!(response.status(), 400);
 }
 
 // ============================================================================

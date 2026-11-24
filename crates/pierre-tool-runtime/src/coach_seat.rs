@@ -338,8 +338,6 @@ mod tests {
         use super::super::*;
         use crate::implementations::memory::create_memory_tools;
         use crate::implementations::training_plans::create_training_plan_tools;
-        use crate::read_subject::DataClass;
-        use crate::tool_data::ToolData;
 
         fn registry() -> ToolRegistry {
             let mut registry = ToolRegistry::new();
@@ -394,18 +392,31 @@ mod tests {
             );
         }
 
+        #[cfg(feature = "tools-mobility")]
         #[test]
         fn a_declared_data_class_keeps_a_read_in_the_athlete_thread() {
+            use crate::implementations::mobility::create_mobility_tools;
+            use crate::read_subject::DataClass;
+            use dravr_tronc::mcp::tool::ToolCapabilities;
+
             let mut registry = registry();
-            assert!(
-                registry.declare_data(
-                    "recall_user_memory",
-                    ToolData::of(DataClass::NoSubject, &[])
-                ),
-                "the tool is registered"
+            for tool in create_mobility_tools() {
+                registry.register_with_category(Arc::from(tool), "mobility");
+            }
+            let reference = "list_yoga_poses";
+            assert_eq!(
+                registry.data_class(reference),
+                Some(DataClass::NoSubject),
+                "premise: {reference} declares a class"
             );
             assert!(
-                !TurnSeat::AthleteThread.withholds(&registry, "recall_user_memory"),
+                registry
+                    .get(reference)
+                    .is_some_and(|tool| tool.capabilities().contains(ToolCapabilities::READS_DATA)),
+                "premise: {reference} reads data"
+            );
+            assert!(
+                !TurnSeat::AthleteThread.withholds(&registry, reference),
                 "a read that declares its class answers the same whoever asks"
             );
         }

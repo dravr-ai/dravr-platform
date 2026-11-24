@@ -25,7 +25,6 @@
 use async_trait::async_trait;
 use dravr_tronc::dates::{CivilDate, Timestamp};
 use pierre_core::errors::{AppError, AppResult};
-use std::fmt::Write;
 
 use pierre_core::models::{ApiKey, ApiKeyRequestDay, ApiKeyTier, AGENT_TURN_ROUTE};
 use uuid::Uuid;
@@ -47,14 +46,6 @@ pub trait ApiKeyRepository: Send + Sync {
     /// Get API key by ID, optionally scoped to a specific user for ownership enforcement
     async fn get_by_id(&self, api_key_id: &str, user_id: Option<Uuid>)
         -> AppResult<Option<ApiKey>>;
-    /// Get API keys with optional filters
-    async fn get_filtered(
-        &self,
-        user_email: Option<&str>,
-        active_only: bool,
-        limit: Option<i32>,
-        offset: Option<i32>,
-    ) -> AppResult<Vec<ApiKey>>;
     /// Deactivate every active key whose expiry has passed, returning how many.
     async fn cleanup_expired(&self) -> AppResult<u64>;
     /// The REST requests `user_id`'s keys made at or after `since` that
@@ -232,50 +223,6 @@ pub(crate) const GET_ANY_API_KEY_BY_ID_SQL: &str = concat!(
 
 /// Deactivate every active key whose expiry lies before `$1`.
 pub(crate) const CLEANUP_EXPIRED_API_KEYS_SQL: &str = "UPDATE api_keys SET is_active = false WHERE expires_at IS NOT NULL AND expires_at < $1 AND is_active = true";
-
-/// The admin listing: every key, optionally only one user's (by email,
-/// case aside) and only the active ones, newest first, with an optional row window. The
-/// email, limit and offset bind in that order as `$1..`, each only when
-/// given; `offset` needs `limit`.
-///
-/// # Errors
-/// Returns a database error when a clause cannot be appended.
-pub(crate) fn filtered_api_keys_sql(
-    user_email: Option<&str>,
-    active_only: bool,
-    limit: Option<i32>,
-    offset: Option<i32>,
-) -> AppResult<String> {
-    let mut sql = concat!("SELECT ", api_key_columns!("ak."), " FROM api_keys ak").to_owned();
-    let mut conditions = Vec::new();
-    let mut param_count = 0;
-
-    if user_email.is_some() {
-        sql.push_str(" JOIN users u ON ak.user_id = u.id");
-        param_count += 1;
-        conditions.push(format!("lower(u.email) = lower(${param_count})"));
-    }
-    if active_only {
-        conditions.push("ak.is_active = true".to_owned());
-    }
-    if !conditions.is_empty() {
-        sql.push_str(" WHERE ");
-        sql.push_str(&conditions.join(" AND "));
-    }
-    sql.push_str(" ORDER BY ak.created_at DESC");
-
-    if limit.is_some() {
-        param_count += 1;
-        write!(sql, " LIMIT ${param_count}")
-            .map_err(|e| AppError::database(format!("Failed to write LIMIT clause: {e}")))?;
-        if offset.is_some() {
-            param_count += 1;
-            write!(sql, " OFFSET ${param_count}")
-                .map_err(|e| AppError::database(format!("Failed to write OFFSET clause: {e}")))?;
-        }
-    }
-    Ok(sql)
-}
 
 /// The value a rate-limit column stores for the model's `u32`: the column is
 /// a 32-bit integer on both backends, so an unlimited (`u32::MAX`) key holds
@@ -473,35 +420,6 @@ macro_rules! impl_api_key_repository {
 
                 row.map(|row| api_key_from_row(&row, $ids::read(&row, "user_id")?))
                     .transpose()
-            }
-
-            async fn get_filtered(
-                &self,
-                user_email: Option<&str>,
-                active_only: bool,
-                limit: Option<i32>,
-                offset: Option<i32>,
-            ) -> AppResult<Vec<ApiKey>> {
-                let sql = filtered_api_keys_sql(user_email, active_only, limit, offset)?;
-                let mut query = sqlx::query(&sql);
-                if let Some(email) = user_email {
-                    query = query.bind(normalize_email(email));
-                }
-                if let Some(limit) = limit {
-                    query = query.bind(limit);
-                    if let Some(offset) = offset {
-                        query = query.bind(offset);
-                    }
-                }
-
-                let rows = query
-                    .fetch_all(self.pool())
-                    .await
-                    .map_err(|e| AppError::database(format!("Failed to list API keys: {e}")))?;
-
-                rows.iter()
-                    .map(|row| api_key_from_row(row, $ids::read(row, "user_id")?))
-                    .collect()
             }
 
             async fn cleanup_expired(&self) -> AppResult<u64> {

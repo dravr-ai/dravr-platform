@@ -114,6 +114,34 @@ terraform plan
 terraform apply
 ```
 
+
+## Private inputs
+
+This repository is public, so the values that identify accounts or show at which
+value an alert fires are not in it: the billing account, alert recipients and
+sender, the admin address, the allow-listed egress ranges, the LLM chain, and
+every alert threshold and window (`var.alert_thresholds`, `var.alert_windows`,
+declared in `environments/dev/private_inputs.tf`). None has a default.
+
+Their values live in the private `dravr-savoir` repository under
+`platform/infra/<env>.private.tfvars`. Stage them before a plan or an apply:
+
+```bash
+bash .build/ci/savoir.sh sync      # refresh .savoir/
+infra/private-inputs.sh dev        # writes environments/dev/private.auto.tfvars
+```
+
+Terraform loads `*.auto.tfvars` by itself, after `terraform.tfvars`, and
+`infra/.gitignore` keeps the staged copy out of the tree. The terraform, drift
+and eval workflows stage the same file through
+`.github/actions/terraform-private-inputs`.
+
+To add or change an alert: use a key `<area>.<policy>.<setting>` in the policy,
+add its value to the private file in `dravr-savoir`, push that first, then land
+the policy. A key the file does not define fails the plan. Window values stay
+in whole seconds (`"300s"`): the minutes shown in alert texts are derived from
+them.
+
 ## Post-Apply Steps
 
 ### Get Values for GitHub Secrets

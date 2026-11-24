@@ -192,7 +192,7 @@ pub(crate) async fn handle_public_register(
             // re-passing them. The operational tier keys on the tenant, so
             // without it the event lands on the shared `service` identity.
             // A sign-up left Pending also raises `user.pending_approval` from
-            // inside register(), which is what reaches the admins.
+            // inside self_register(), which is what reaches the admins.
             record_new_account(&response);
             info!(
                 target: "notify",

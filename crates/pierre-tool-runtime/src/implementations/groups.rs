@@ -57,6 +57,8 @@
 //! choice (carnet#1419).
 
 use crate::annotations::{annotations, Effect, Reach};
+use crate::tool_data::ToolData;
+use dravr_barrage::Stream;
 use std::cmp::Reverse;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -922,7 +924,12 @@ impl McpTool<dyn ToolRuntime> for GetGroupMemberActivitiesTool {
 // transport for a human coach or an admin (`crate::tool_access`), and
 // externally it shows only the members who allowed their coach's assistant
 // (`crate::coach_assistant`).
-crate::declare_security!(GetGroupMemberActivitiesTool => empty; coach);
+// A coach's group: its members' sessions by name, and their plans.
+crate::declare_security!(
+    GetGroupMemberActivitiesTool => empty; coach,
+    reads: ToolData::own(&[Stream::Workout, Stream::WorkoutRoute])
+        .with_athlete_text(),
+);
 
 #[cfg(test)]
 mod tests {

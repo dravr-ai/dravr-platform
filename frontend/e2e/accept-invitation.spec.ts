@@ -10,13 +10,6 @@ import { waitForLoginScreen } from './test-helpers';
 const TOKEN = 'AbCd1234EfGh5678.IjKl9012MnOp3456QrSt7890UvWx1234';
 
 async function setupBasicMocks(page: import('@playwright/test').Page) {
-  await page.route('**/admin/setup/status', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ needs_setup: false, admin_user_exists: true, message: 'Admin user configured' }),
-    });
-  });
   await page.route('**/api/auth/session', (route) =>
     route.fulfill({ status: 401, contentType: 'application/json', body: '{}' }),
   );

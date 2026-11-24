@@ -1,21 +1,20 @@
-// ABOUTME: Phase 1 asserters applied to the real /internal/conversation-turn endpoint response
+// ABOUTME: Phase 1 asserters applied to the llm_usage rows a real Slack turn records
 // ABOUTME: Mirrors conversation_turn_e2e_test.rs setup; adds token/latency/tool-called assertions
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! Phase 1 integration: Phase-1 asserters vs. the real endpoint JSON.
+//! Phase 1 integration: Phase-1 asserters vs. the rows a real turn records.
 //!
 //! The existing [`conversation_turn_e2e_test.rs`] already drives the
-//! full Slack webhook → messaging pipeline → `llm_usage` rows →
-//! `/internal/conversation-turn/{turn_id}` round trip. This file
-//! layers the Phase 1 asserters on top of that same round trip so the
-//! pure-function helpers are exercised against a realistic endpoint
-//! response rather than only hand-crafted JSON.
+//! full Slack webhook → messaging pipeline → `llm_usage` rows round
+//! trip. This file layers the Phase 1 asserters on top of that same
+//! round trip so the pure-function helpers are exercised against rows
+//! the pipeline wrote rather than only hand-built ones.
 //!
 //! Three assertions land:
 //!
-//! - [`assert_latency_ms_at_most`] — endpoint's aggregated latency is
+//! - [`assert_latency_ms_at_most`] — the turn's aggregated latency is
 //!   within a generous budget (the mock provider returns instantly).
 //! - [`assert_tokens_at_most`] — the canned
 //!   `prompt=42 completion=11 total=53` usage numbers the mock returns
@@ -52,7 +51,7 @@ mod phase_1_integration {
         ChatRequest, ChatResponse, ChatStream, LlmCapabilities, LlmProvider, StreamChunk,
         TokenUsage,
     };
-    use pierre_core::models::ConnectionType;
+    use pierre_core::models::{ConnectionType, ConversationTurnId};
     use pierre_core::models::{Tenant, TenantId, User, UserStatus};
     use pierre_core::permissions::UserRole;
     use pierre_database::backends::factory::DatabaseBackend;
@@ -61,8 +60,7 @@ mod phase_1_integration {
     };
     use pierre_mcp_server::mcp::resources::ServerContext;
     use pierre_mcp_server::routes::messaging::MessagingRoutes;
-    use pierre_routes_admin::LlmConsumptionRoutes;
-    use serde_json::{json, Value};
+    use serde_json::json;
     use serial_test::serial;
     use sha2::Sha256;
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -153,7 +151,7 @@ mod phase_1_integration {
     async fn create_admin_user_in_tenant(
         resources: &Arc<ServerContext>,
         email: &str,
-    ) -> (Uuid, TenantId, String) {
+    ) -> (Uuid, TenantId) {
         let password_hash =
             spawn_blocking(|| bcrypt::hash("password123", bcrypt::DEFAULT_COST).unwrap())
                 .await
@@ -212,13 +210,7 @@ mod phase_1_integration {
             )
             .await
             .unwrap();
-
-        let token = resources
-            .auth
-            .auth_manager
-            .generate_token(&user, &resources.auth.jwks_manager)
-            .unwrap();
-        (user_id, tenant_id, format!("Bearer {token}"))
+        (user_id, tenant_id)
     }
 
     async fn wait_for_llm_usage_row(
@@ -253,16 +245,16 @@ mod phase_1_integration {
         None
     }
 
-    /// Drive the webhook → pipeline → endpoint round trip, then apply
-    /// every Phase 1 asserter to the endpoint JSON. Proves the
-    /// asserters compose correctly with the real response shape — not
-    /// only with the hand-crafted JSON the unit tests use.
+    /// Drive the webhook → pipeline → `llm_usage` round trip, then apply
+    /// every Phase 1 asserter to the turn's rows. Proves the asserters
+    /// compose correctly with the rows the pipeline writes — not only
+    /// with the hand-built rows the unit tests use.
     #[tokio::test]
     #[serial]
-    async fn phase_1_asserters_against_real_endpoint_response() {
+    async fn phase_1_asserters_against_recorded_turn_rows() {
         let mock = Arc::new(MockLlmProvider::new("Phase 1 mock reply."));
         let resources = create_test_server_resources_with_llm(mock).await.unwrap();
-        let (admin_user_id, tenant_id, admin_auth) =
+        let (admin_user_id, tenant_id) =
             create_admin_user_in_tenant(&resources, "phase-1-integration@example.com").await;
         let db: &dyn MessagingRepository = &*resources.common.repos.messaging;
 
@@ -323,31 +315,34 @@ mod phase_1_integration {
             .await
             .expect("messaging pipeline did not write an llm_usage row within 10s");
 
-        let router = LlmConsumptionRoutes::routes(Arc::clone(&resources));
-        let resp = AxumTestRequest::get(&format!("/internal/conversation-turn/{turn_id}"))
-            .header("authorization", &admin_auth)
-            .send(router)
-            .await;
-        assert_eq!(resp.status_code(), StatusCode::OK);
-        let endpoint_json: Value = resp.json::<Value>();
+        let rows = resources
+            .common
+            .repos
+            .llm_usage
+            .find_llm_usage_by_turn_id(ConversationTurnId::from_uuid(turn_id))
+            .await
+            .unwrap();
+        assert!(
+            !rows.is_empty(),
+            "the turn's llm_usage rows must be readable by its id"
+        );
 
-        // Phase 1 asserters against the real response:
+        // Phase 1 asserters against the recorded rows:
 
         // 1. Latency budget — mock returns instantly; a generous
         //    10-second budget must pass.
-        assert_latency_ms_at_most(&endpoint_json, 10_000)
+        assert_latency_ms_at_most(&rows, 10_000)
             .expect("mock provider latency must be well under 10s");
 
         // 2. Token budget — mock returns 42+11 = 53 tokens; 1_000 is a
         //    comfortable ceiling.
-        assert_tokens_at_most(&endpoint_json, 1_000)
-            .expect("mock provider tokens must be well under 1000");
+        assert_tokens_at_most(&rows, 1_000).expect("mock provider tokens must be well under 1000");
 
         // 3. Tool-called assertion in inverted mode — the mock did not
         //    emit tool_calls, so tools_called is empty. The asserter
         //    MUST flag this. This is the hallucination-detection
         //    behavior we rely on in real-platform scenarios.
-        let err = assert_tool_called(&endpoint_json, "get_activities")
+        let err = assert_tool_called(&rows, "get_activities")
             .expect_err("mock did not invoke any tool; asserter must flag the absence");
         assert_eq!(err.expected, "get_activities");
         assert!(

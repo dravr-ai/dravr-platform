@@ -1030,8 +1030,9 @@ impl GroupService {
                 }
 
                 // Volume drop flag (compare against group baseline)
-                if baseline_volume > 0.0 && s.weekly_volume_km > 0.0 {
-                    let drop_fraction = (baseline_volume - s.weekly_volume_km) / baseline_volume;
+                let volume = s.weekly_volume_km.unwrap_or(0.0);
+                if baseline_volume > 0.0 && volume > 0.0 {
+                    let drop_fraction = (baseline_volume - volume) / baseline_volume;
                     if drop_fraction >= VOLUME_DROP_FRACTION_THRESHOLD {
                         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
                         let pct = (drop_fraction * 100.0).round() as u32;
@@ -1059,8 +1060,8 @@ impl GroupService {
     fn compute_baseline_volume(snapshots: &[MemberFitnessSnapshot]) -> f64 {
         let active: Vec<f64> = snapshots
             .iter()
-            .filter(|s| s.weekly_volume_km > 0.0)
-            .map(|s| s.weekly_volume_km)
+            .filter_map(|s| s.weekly_volume_km)
+            .filter(|km| *km > 0.0)
             .collect();
         if active.is_empty() {
             return 0.0;
@@ -1083,6 +1084,21 @@ impl GroupService {
             let pct = reading.form_pct?;
             (reading.band == FormBand::Fresh).then_some((s, pct))
         })
+    }
+
+    /// Members with this Monday week's kilometres, the most first. A member
+    /// whose stored history does not reach the week has no volume to rank
+    /// and is left out, never ranked at zero.
+    #[must_use]
+    pub fn members_by_volume(
+        snapshots: &[MemberFitnessSnapshot],
+    ) -> Vec<(&MemberFitnessSnapshot, f64)> {
+        let mut ranked: Vec<(&MemberFitnessSnapshot, f64)> = snapshots
+            .iter()
+            .filter_map(|s| s.weekly_volume_km.map(|km| (s, km)))
+            .collect();
+        ranked.sort_by(|(_, a), (_, b)| b.total_cmp(a));
+        ranked
     }
 
     /// Build the weekly report from member snapshots: the aggregate stats and

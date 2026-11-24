@@ -37,6 +37,7 @@
 //!    every other athlete is counted as in none of their groups.
 
 use crate::annotations::{annotations, Effect, Reach};
+use crate::tool_data::ToolData;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
@@ -645,7 +646,10 @@ impl McpTool<dyn ToolRuntime> for GetProviderRosterTool {
 // A coaching-platform tool over people who may not be Dravr members: Dravr's
 // own surfaces list and run it, and externally only an admin whose grant holds
 // `admin` (`crate::first_party_tools`, `crate::tool_access`).
-crate::declare_security!(GetProviderRosterTool => empty; first_party_only);
+crate::declare_security!(
+    GetProviderRosterTool => empty; first_party_only,
+    reads: ToolData::own(&[]),
+);
 
 #[cfg(test)]
 mod tests {

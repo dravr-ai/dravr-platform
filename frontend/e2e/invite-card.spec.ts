@@ -6,7 +6,7 @@
 
 import { test, expect, type Page } from '@playwright/test';
 import type { GroupInvitePreview } from '@pierre/shared-types';
-import { mockSetupStatus, mockSignupConfig, mockSignedOut } from './auth-mocks';
+import { mockSignupConfig, mockSignedOut } from './auth-mocks';
 import { setupDashboardMocks, loginToDashboard, openHome, waitForLoginScreen } from './test-helpers';
 import { mockCoach } from './coach-home-mocks';
 
@@ -38,7 +38,6 @@ async function pinTheme(page: Page, theme: Theme) {
 
 /** The signed-out page a link opens on, with the public preview answering `preview` (or a status). */
 async function openLink(page: Page, answer: GroupInvitePreview | { status: number }) {
-  await mockSetupStatus(page);
   await mockSignupConfig(page);
   await mockSignedOut(page);
   const reads: string[] = [];

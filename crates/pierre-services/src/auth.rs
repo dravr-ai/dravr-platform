@@ -140,7 +140,7 @@ impl AuthService {
     /// whatever the sign-up source.
     ///
     /// The two paths that create an account under the approval posture call
-    /// it: [`Self::create_account`] (password, admin, chat and link-page
+    /// it: [`Self::create_account`] (password, invitation, chat and link-page
     /// sign-ups) and the federated create (Google, Firebase).
     /// `user.pending_approval` is routed to the users room, the only room whose
     /// Approve and Reject taps the Slack interactivity route honours. An
@@ -188,34 +188,19 @@ impl AuthService {
         });
     }
 
-    /// Handle user registration
+    /// Register `request`'s account through a stranger's door.
     ///
     /// Normalizes the email ([`normalize_email`]), validates email/password,
     /// checks uniqueness in any casing, hashes credentials, creates the user
-    /// with appropriate approval status, provisions a personal tenant, and
-    /// raises the `user.signed_up` notify event.
-    ///
-    /// It applies no sign-up bound, and no HTTP route reaches it: a
-    /// stranger's door goes through [`Self::self_register`].
-    ///
-    /// # Errors
-    /// Returns error if user validation fails or database operation fails
-    #[tracing::instrument(skip(self, request), fields(route = "register"))]
-    pub async fn register(&self, request: RegisterRequest) -> AppResult<RegisterResponse> {
-        self.register_through(request, false, false).await
-    }
-
-    /// Register `request`'s account. `self_serve` says a stranger's door
-    /// created it: only such an account activates itself by proving its
-    /// address, so only it skips the admins' review and is told to confirm
-    /// its email. An admin's door sends no confirmation link, so its
-    /// Pending account stays in review whatever the sign-up settings say.
-    /// `code_vouched` says a signup code will activate it once the address is
-    /// proven (carnet#1128), so it is not announced for review either.
+    /// with appropriate approval status and provisions a personal tenant.
+    /// The account activates itself by proving its address when sign-up is
+    /// open to verified addresses, so it skips the admins' review and is told
+    /// to confirm its email. `code_vouched` says a signup code will activate
+    /// it once the address is proven (carnet#1128), so it is not announced
+    /// for review either.
     async fn register_through(
         &self,
         request: RegisterRequest,
-        self_serve: bool,
         code_vouched: bool,
     ) -> AppResult<RegisterResponse> {
         info!("User registration attempt");
@@ -243,9 +228,8 @@ impl AuthService {
         // Check if user should be auto-approved (global setting, domain
         // allow-list, or a per-email pre-approval carrying its admin)
         let approval = self.determine_approval_status(&email).await?;
-        let self_activates = self_serve
-            && ((code_vouched && !email_held(self.data.repos(), &email).await)
-                || self.activates_on_verified(&email).await);
+        let self_activates = (code_vouched && !email_held(self.data.repos(), &email).await)
+            || self.activates_on_verified(&email).await;
         let (user_id, user, tenant_id) = self
             .create_account(
                 &email,

@@ -37,6 +37,9 @@ mod day_reading;
 pub use day_reading::DayReading;
 
 use crate::annotations::{annotations, Effect, Reach};
+use crate::read_subject::DataClass;
+use crate::tool_data::ToolData;
+use dravr_barrage::Stream;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
@@ -636,7 +639,26 @@ impl McpTool<dyn ToolRuntime> for ListDataSourcesTool {
 // Guardian security classifications (see `crate::security`). Co-located here so
 // each impl sits under this module's existing feature gate; the compiler forces
 // every registered tool to classify (the registry stores `Arc<dyn RuntimeTool>`).
-crate::declare_security!(GetSleepSessionsTool => empty);
-crate::declare_security!(GetRecoveryMetricsTool => empty);
-crate::declare_security!(GetHealthSnapshotsTool => empty);
-crate::declare_security!(ListDataSourcesTool => empty);
+// The athlete's wellness: sleep, recovery and readiness — the day's note
+// they typed into their source's log included — health snapshots and
+// intraday heart rate, and what is derived from them.
+crate::declare_security!(
+    GetSleepSessionsTool => empty,
+    reads: ToolData::of(DataClass::Wellness, &[Stream::Sleep]),
+);
+crate::declare_security!(
+    GetRecoveryMetricsTool => empty,
+    reads: ToolData::of(DataClass::Wellness, &[Stream::RecoveryDaily, Stream::CardioDaily])
+        .with_athlete_text(),
+);
+crate::declare_security!(
+    GetHealthSnapshotsTool => empty,
+    reads: ToolData::of(DataClass::Wellness, &[Stream::CardioDaily, Stream::Body]),
+);
+// Which sources are connected and how fresh each is: no stream's row,
+// so a preset grant is offered them.
+crate::declare_security!(
+    ListDataSourcesTool => empty,
+    reads: ToolData::of(DataClass::Training, &[])
+        .with_connection_metadata(),
+);

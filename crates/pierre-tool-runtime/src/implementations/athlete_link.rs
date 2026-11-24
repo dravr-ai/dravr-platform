@@ -32,6 +32,7 @@
 //! on it: no roster name, email or athlete id.
 
 use crate::annotations::{annotations, Effect, Reach};
+use crate::tool_data::ToolData;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -503,7 +504,10 @@ impl McpTool<dyn ToolRuntime> for ProposeAthleteLinkTool {
 // A coaching-platform tool over people who may not be Dravr members: Dravr's
 // own surfaces list and run it, and externally only an admin whose grant holds
 // `admin` (`crate::first_party_tools`, `crate::tool_access`).
-crate::declare_security!(ProposeAthleteLinkTool => empty; first_party_only);
+crate::declare_security!(
+    ProposeAthleteLinkTool => empty; first_party_only,
+    reads: ToolData::own(&[]),
+);
 
 #[cfg(test)]
 mod tests {

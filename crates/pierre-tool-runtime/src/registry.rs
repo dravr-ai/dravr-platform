@@ -101,9 +101,8 @@ pub struct ToolRegistry {
     tools: BTreeMap<String, Arc<dyn RuntimeTool>>,
     /// Tool categories for organization, ordered for the same reason.
     categories: BTreeMap<String, Vec<String>>,
-    /// What each registered tool reads ([`ToolData`]). A tool absent here
-    /// declared nothing: it reads its caller's own data, if any, and its
-    /// result carries no trust label's streams.
+    /// What each registered tool reads ([`ToolData`]), as it declared
+    /// ([`RuntimeTool::tool_data`]), read once at registration.
     tool_data: BTreeMap<String, ToolData>,
     /// External tool description overlays from contremaitre (hot-reloadable)
     tool_descriptions: Option<Arc<ToolDescriptionRegistry>>,
@@ -195,6 +194,7 @@ impl ToolRegistry {
             name,
             tool.capabilities()
         );
+        self.tool_data.insert(name.clone(), tool.tool_data());
         self.tools.insert(name, tool);
         true
     }
@@ -210,20 +210,7 @@ impl ToolRegistry {
         }
     }
 
-    /// Declare what the registered tool `name` reads ([`ToolData`]).
-    ///
-    /// Returns whether `name` is registered; a declaration for a tool this
-    /// build does not register is dropped, as the tool is.
-    pub fn declare_data(&mut self, name: &str, data: ToolData) -> bool {
-        if !self.tools.contains_key(name) {
-            return false;
-        }
-        self.tool_data.insert(name.to_owned(), data);
-        true
-    }
-
-    /// What a tool reads, as it declared; `None` for an unknown tool and for
-    /// one that declared nothing.
+    /// What a tool reads, as it declared; `None` for an unknown tool.
     #[must_use]
     pub(crate) fn tool_data(&self, name: &str) -> Option<&ToolData> {
         self.tool_data.get(name)

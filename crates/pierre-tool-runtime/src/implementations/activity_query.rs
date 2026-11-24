@@ -12,6 +12,9 @@
 //! half of the coverage exactly as `get_segment_history` does
 //! ([`segment_completeness`]), the history half first.
 
+use crate::read_subject::DataClass;
+use crate::tool_data::ToolData;
+use dravr_barrage::Stream;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -235,4 +238,8 @@ impl McpTool<dyn ToolRuntime> for QueryActivitiesTool {
     }
 }
 
-crate::declare_security!(QueryActivitiesTool => empty);
+crate::declare_security!(
+    QueryActivitiesTool => empty,
+    reads: ToolData::of(DataClass::Training, &[Stream::ActivityDaily, Stream::Workout])
+        .with_athlete_text(),
+);

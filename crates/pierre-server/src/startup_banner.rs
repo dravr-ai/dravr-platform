@@ -62,12 +62,7 @@ pub const ENDPOINT_CATEGORIES: &[EndpointCategory] = &[
     },
     EndpointCategory {
         name: "Admin Management:",
-        endpoints: &[
-            ("Admin Setup:", "POST", "/admin/setup"),
-            ("List Users:", "GET", "/admin/users"),
-            ("Generate Token:", "POST", "/admin/tokens"),
-            ("List Tokens:", "GET", "/admin/tokens"),
-        ],
+        endpoints: &[("List Users:", "GET", "/admin/users")],
     },
     EndpointCategory {
         name: "API Key Management:",
@@ -79,17 +74,12 @@ pub const ENDPOINT_CATEGORIES: &[EndpointCategory] = &[
         ],
     },
     EndpointCategory {
-        name: "Tenant Management:",
-        endpoints: &[("Switch Tenant:", "POST", "/tenants/switch")],
-    },
-    EndpointCategory {
         name: "Dashboard & Monitoring:",
         endpoints: &[("Health Check:", "GET", "/health")],
     },
     EndpointCategory {
         name: "A2A Protocol:",
         endpoints: &[
-            ("A2A Status:", "GET", "/a2a/status"),
             ("Agent Card:", "GET", "/.well-known/agent-card.json"),
             ("Clients (list/create):", "GET/POST", "/a2a/clients"),
             (

@@ -129,7 +129,7 @@ async fn resolve_uncached(
     // (PIERRE_LLM_CHAIN). CLI/subprocess runners and the Copilot runtimes don't
     // map to a tenant LlmProvider and so have no BYO. An `anthropic` head does
     // map, but no provider is built from a tenant's Anthropic key — that head
-    // runs on the platform's own pooled organizations — so a stored one is
+    // runs on the deployment's keys — so a stored one is
     // never looked up.
     let provider = LlmProvider::parse_str(&llm_chain.head().provider.to_string())
         .filter(|provider| builds_from_credentials(*provider))?;

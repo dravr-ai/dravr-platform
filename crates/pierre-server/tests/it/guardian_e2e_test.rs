@@ -17,6 +17,7 @@
 
 use crate::common;
 use crate::helpers::notify_capture::{capture_notify, named, only};
+use pierre_tool_runtime::tool_data::ToolData;
 
 use pierre_core::permissions::scopes::OAuthScope;
 
@@ -613,7 +614,7 @@ impl McpTool<dyn ToolRuntime> for NeverAnswers {
     }
 }
 
-pierre_tool_runtime::declare_security!(NeverAnswers => IRREVERSIBLE);
+pierre_tool_runtime::declare_security!(NeverAnswers => IRREVERSIBLE, reads: ToolData::own(&[]));
 
 /// carnet#1405: a caller that drops the dispatch once its tool is running, as the
 /// tool surface's timeout does, cannot know whether the call landed. The write
@@ -721,7 +722,7 @@ impl McpTool<dyn ToolRuntime> for ReturnsAFailure {
     }
 }
 
-pierre_tool_runtime::declare_security!(ReturnsAFailure => IRREVERSIBLE);
+pierre_tool_runtime::declare_security!(ReturnsAFailure => IRREVERSIBLE, reads: ToolData::own(&[]));
 
 /// carnet#1405, the other exit: a call that came back and said it failed did nothing,
 /// so it costs the turn nothing, the destructive slot included.
@@ -786,7 +787,7 @@ impl McpTool<dyn ToolRuntime> for CommitsAnAction {
     }
 }
 
-pierre_tool_runtime::declare_security!(CommitsAnAction => IRREVERSIBLE);
+pierre_tool_runtime::declare_security!(CommitsAnAction => IRREVERSIBLE, reads: ToolData::own(&[]));
 
 /// The default budget through the real chokepoint: one message gets three
 /// irreversible calls and the fourth is denied. What the turn committed is what the

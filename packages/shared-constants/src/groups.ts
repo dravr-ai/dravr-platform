@@ -186,13 +186,20 @@ export function analyticsScopeLine(t: Translate, scope: GroupAnalyticsScope | nu
   });
 }
 
-/** The weekly report's opening sentence: who was active, and how far they went, in the reader's units. */
+/**
+ * The weekly report's opening sentence: who was active, and how far they
+ * went, in the reader's units. `null` when no member's week is read: the
+ * sentence is built around the average, and there is none to write.
+ */
 export function weeklyReportSummary(
   t: Translate,
   language: string,
   stats: GroupAggregateStats,
   units: DistanceUnit,
-): string {
+): string | null {
+  if (stats.avg_weekly_volume_km === null) {
+    return null;
+  }
   return t(WEEKLY_REPORT_KEY.summary, {
     active: stats.active_members,
     total: stats.total_members,
@@ -202,7 +209,9 @@ export function weeklyReportSummary(
 
 /**
  * The weekly report's recommended actions: a look at the members in deep
- * fatigue when there are any, then the group's volume trend.
+ * fatigue when there are any, then the group's volume trend. The trend
+ * compares this week's average with the one before, so a week no member is
+ * read for has no trend line.
  *
  * `flagged_members` counts the members whose form sits past -30% of their own
  * chronic load (the deep-fatigue band, Methodology › Training Load). The line
@@ -214,7 +223,9 @@ export function weeklyReportRecommendations(t: Translate, stats: GroupAggregateS
   if (stats.flagged_members > 0) {
     lines.push(t(WEEKLY_REPORT_KEY.reviewDeepFatigue, { n: stats.flagged_members }));
   }
-  lines.push(t(TREND_KEY[stats.weekly_trend]));
+  if (stats.avg_weekly_volume_km !== null) {
+    lines.push(t(TREND_KEY[stats.weekly_trend]));
+  }
   return lines;
 }
 

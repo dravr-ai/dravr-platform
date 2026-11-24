@@ -167,8 +167,7 @@ resource "google_secret_manager_secret_version" "admin_password_placeholder" {
 }
 
 # The password the bootstrap seeder gives the deployed demo and test
-# accounts (alice@demo.pierre.dev, bob@demo.pierre.dev, phil_test@dravr.ai,
-# jf_test@dravr.ai). Generated here so nobody types it and no file in this
+# accounts. Generated here so nobody types it and no file in this
 # public repository holds it (carnet#1597: the previous values were here);
 # the seed-bootstrap job reads it as BOOTSTRAP_DEMO_PASSWORD, and a session
 # that signs in as one of those accounts reads it from Secret Manager.
@@ -374,9 +373,8 @@ resource "google_secret_manager_secret_version" "gemini_api_key_placeholder" {
   }
 }
 
-# Cohere Command A / Command R family. Out of the dev chain since
-# 2026-10-01 (PIERRE_LLM_CHAIN in infra/environments/dev/main.tf); kept for a
-# `cohere` entry. Real value lives in Secret Manager; this Terraform only
+# Cohere Command A / Command R family, read by a `cohere` entry of
+# PIERRE_LLM_CHAIN. Real value lives in Secret Manager; this Terraform only
 # manages the container. The placeholder
 # is ignored by lifecycle so re-apply doesn't overwrite the gcloud-set
 # value (same pattern as gemini_api_key and the OAuth credentials above).
@@ -484,10 +482,10 @@ resource "google_secret_manager_secret_version" "claude_code_oauth_token_placeho
   }
 }
 
-# An additional credential for the claude_code tier, from `claude
-# setup-token`. The platform tries it right behind the first
-# (claude-code#2, carnet#480): a refused credential moves the turn to the
-# next one before the chain leaves that tier. Filled by hand, like the
+# A further credential for the claude_code tier, from `claude
+# setup-token`. The platform tries it right behind the first: a refused
+# credential moves the turn to the next one before the chain leaves that
+# tier. Filled by hand, like the
 # first — and deliberately WITHOUT a placeholder version: the service binds
 # `latest`, so a placeholder added after the real token would replace
 # it.
@@ -502,14 +500,10 @@ resource "google_secret_manager_secret" "claude_code_oauth_token_2" {
   }
 }
 
-# Anthropic Messages API key of the primary LLM tier, the `anthropic` entry
-# of PIERRE_LLM_CHAIN (carnet#875). Each key carries its own Console spend
-# limit, which is what makes its budget a ceiling: without a limit, spend
-# past the budget is billed instead of refused. Filled by hand; the
-# placeholder is ignored by lifecycle, as
-# for the other API keys. Bound to the service as ANTHROPIC_API_KEY, the
-# chain's head — see the PIERRE_LLM_CHAIN comment in
-# infra/environments/dev/main.tf.
+# Anthropic Messages API key, read by the `anthropic` entry of
+# PIERRE_LLM_CHAIN. Filled by hand; the placeholder is ignored by lifecycle,
+# as for the other API keys. Bound to the service as ANTHROPIC_API_KEY — see
+# the PIERRE_LLM_CHAIN comment in infra/environments/dev/main.tf.
 resource "google_secret_manager_secret" "anthropic_api_key" {
   project   = var.project_id
   secret_id = "${var.service_name}-anthropic-api-key"
@@ -530,11 +524,11 @@ resource "google_secret_manager_secret_version" "anthropic_api_key_placeholder" 
   }
 }
 
-# An additional API key for the primary tier. The platform tries it right
-# behind the first (anthropic#2): a refused key moves the turn to the next
-# one before the chain leaves the tier. Further keys are _3, _4, … — read
-# in order until the first unset
-# one. Filled by hand and deliberately WITHOUT a placeholder version, like
+# A further API key for the anthropic tier. The platform tries it right
+# behind the first: a refused key moves the turn to the next one before the
+# chain leaves the tier. Further keys take the next number and are read in
+# order until the first unset one. Filled by hand and deliberately WITHOUT a
+# placeholder version, like
 # claude_code_oauth_token_2: the service binds `latest`, so a placeholder
 # added after the real key would replace it.
 resource "google_secret_manager_secret" "anthropic_api_key_2" {
@@ -548,8 +542,8 @@ resource "google_secret_manager_secret" "anthropic_api_key_2" {
   }
 }
 
-# A further API key for the primary tier, tried as anthropic#3 right behind
-# the second. The secret was created by hand under the id below,
+# A further API key for the anthropic tier, tried right behind the one
+# before it. The secret was created by hand under the id below,
 # so it keeps that id (a secret cannot be renamed) and is adopted by the import
 # block in environments/dev/anthropic_accounts.tf. No placeholder version, for
 # the same reason as anthropic_api_key_2: the service binds `latest`.
@@ -723,7 +717,7 @@ resource "google_secret_manager_secret_version" "garmin_webhook_token" {
 # strava-webhook subscribe`. Strava does not sign push events, so
 # `/webhooks/strava` refuses every event whose subscription_id is not this one.
 # The id exists only after subscribing, so the secret starts as the placeholder
-# (every event is refused, which is the safe state) until ChefFamille runs the
+# (every event is refused, which is the safe state) until an admin runs the
 # `gcloud secrets versions add` line the CLI prints; ignore_changes keeps the
 # real value once it lands.
 resource "google_secret_manager_secret" "strava_webhook_subscription_id" {

@@ -100,7 +100,7 @@ pub struct ChainTier {
     /// The provider, or why it did not build.
     pub built: Result<EmbacleProvider, AppError>,
     /// The provider's further accounts, in order (`CLAUDE_CODE_OAUTH_TOKEN_2`,
-    /// `ANTHROPIC_API_KEY_2`, …), each its own tier right behind it — a spent
+    /// `ANTHROPIC_API_KEY_2`, …), each its own tier right behind it — a refused
     /// account moves the turn to the next account before the chain leaves
     /// the provider, wherever the provider sits. They go where the tier goes:
     /// a tier that did not build takes its accounts with it, the binary or

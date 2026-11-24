@@ -318,27 +318,3 @@ async fn test_cache_invalidation() {
         "Should return same tools after cache invalidation"
     );
 }
-
-#[tokio::test]
-async fn test_get_catalog() {
-    let db = Arc::new(
-        common::create_test_database()
-            .await
-            .expect("Failed to create test database"),
-    );
-
-    let service = create_test_service(&db);
-
-    let catalog = service.get_catalog().await.expect("Failed to get catalog");
-
-    assert!(!catalog.is_empty(), "Catalog should not be empty");
-
-    // Check catalog entries have required fields
-    for entry in &catalog {
-        assert!(!entry.tool_name.is_empty(), "Tool name should not be empty");
-        assert!(
-            !entry.display_name.is_empty(),
-            "Display name should not be empty"
-        );
-    }
-}

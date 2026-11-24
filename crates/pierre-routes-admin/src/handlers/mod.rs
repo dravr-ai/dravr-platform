@@ -41,6 +41,8 @@ pub mod feature_flags;
 /// Admin endpoints for the Guardian security-policy configuration.
 pub mod guardian_config;
 pub mod harness_config;
+/// The admin API's unauthenticated health check.
+pub mod health;
 pub mod impersonation;
 /// The single-use invitation a pre-approval allow can mail: issue the link,
 /// hand it to the notifier, and report what became of it.
@@ -61,8 +63,6 @@ pub mod provider_data;
 pub mod setting_revision;
 /// Admin endpoints for reading and writing tenant runtime settings.
 pub mod settings;
-/// Admin endpoints driving first-run / bootstrap setup of a tenant.
-pub mod setup;
 /// Signup codes: list, mint, revoke (carnet#1128)
 pub mod signup_codes;
 /// Super-admin endpoints managing the Strava shared-app OAuth credential pool.

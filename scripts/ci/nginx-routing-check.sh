@@ -87,7 +87,6 @@ BACKEND_PATHS=(
     "GET /providers/signin/success"
     "GET /providers/sciotte/login?token=t"            # the same page at the path links sent before carnet#1207 carry
     "GET /r/abc"
-    "POST /tenants/switch"                            # the one tenants route
     "GET /ws"                                         # WebSocket proxy block
     "POST /webhooks/garmin/t/activities"              # Garmin push block (larger body cap)
 )

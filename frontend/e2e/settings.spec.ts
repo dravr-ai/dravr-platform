@@ -24,14 +24,6 @@ async function setupAuthenticatedMocks(page: import('@playwright/test').Page, is
   await applyTestStubs(page);
   // An admin's sign-in opens the console, as this spec's admin cases expect (carnet#1631).
   pickViewModeAtSignIn(page, isAdmin ? 'admin' : 'ask');
-  await page.route('**/admin/setup/status', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ needs_setup: false, admin_user_exists: true }),
-    });
-  });
-
   await page.route('**/api/auth/me', async (route) => {
     await route.fulfill({
       status: 200,

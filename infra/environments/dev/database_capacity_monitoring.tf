@@ -66,6 +66,13 @@ resource "time_sleep" "database_capacity_metric_propagation" {
   create_duration = "600s"
 }
 
+# Each condition's name quotes its window in minutes, read from the same
+# alignment period the condition aggregates over.
+locals {
+  database_capacity_slots_window_minutes     = tonumber(trimsuffix(var.alert_windows["database_capacity.slots_exhausted.alignment_period"], "s")) / 60
+  database_capacity_key_store_window_minutes = tonumber(trimsuffix(var.alert_windows["database_capacity.key_store_unavailable.alignment_period"], "s")) / 60
+}
+
 resource "google_monitoring_alert_policy" "database_capacity" {
   project      = var.project_id
   display_name = "dravr-database-capacity"
@@ -104,43 +111,43 @@ resource "google_monitoring_alert_policy" "database_capacity" {
   }
 
   conditions {
-    display_name = "Postgres connection slots exhausted in 5min window"
+    display_name = "Postgres connection slots exhausted in ${local.database_capacity_slots_window_minutes}min window"
 
     condition_threshold {
       filter          = "resource.type=\"cloudsql_database\" AND metric.type=\"logging.googleapis.com/user/${google_logging_metric.postgres_connection_slots_exhausted.name}\""
-      duration        = "0s"
+      duration        = var.alert_windows["database_capacity.slots_exhausted.duration"]
       comparison      = "COMPARISON_GT"
-      threshold_value = 0
+      threshold_value = var.alert_thresholds["database_capacity.slots_exhausted.threshold"]
 
       aggregations {
-        alignment_period     = "300s"
+        alignment_period     = var.alert_windows["database_capacity.slots_exhausted.alignment_period"]
         per_series_aligner   = "ALIGN_SUM"
         cross_series_reducer = "REDUCE_SUM"
       }
 
       trigger {
-        count = 1
+        count = var.alert_thresholds["database_capacity.slots_exhausted.trigger_count"]
       }
     }
   }
 
   conditions {
-    display_name = "API boot could not read its keys from the database in 5min window"
+    display_name = "API boot could not read its keys from the database in ${local.database_capacity_key_store_window_minutes}min window"
 
     condition_threshold {
       filter          = "resource.type=\"cloud_run_revision\" AND metric.type=\"logging.googleapis.com/user/${google_logging_metric.key_store_unavailable.name}\""
-      duration        = "0s"
+      duration        = var.alert_windows["database_capacity.key_store_unavailable.duration"]
       comparison      = "COMPARISON_GT"
-      threshold_value = 0
+      threshold_value = var.alert_thresholds["database_capacity.key_store_unavailable.threshold"]
 
       aggregations {
-        alignment_period     = "300s"
+        alignment_period     = var.alert_windows["database_capacity.key_store_unavailable.alignment_period"]
         per_series_aligner   = "ALIGN_SUM"
         cross_series_reducer = "REDUCE_SUM"
       }
 
       trigger {
-        count = 1
+        count = var.alert_thresholds["database_capacity.key_store_unavailable.trigger_count"]
       }
     }
   }
@@ -148,7 +155,7 @@ resource "google_monitoring_alert_policy" "database_capacity" {
   notification_channels = [google_monitoring_notification_channel.slack_alerts.id]
 
   alert_strategy {
-    auto_close = "1800s"
+    auto_close = var.alert_windows["database_capacity.policy.auto_close"]
   }
 
   depends_on = [time_sleep.database_capacity_metric_propagation]

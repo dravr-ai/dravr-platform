@@ -6,12 +6,11 @@
 
 //! The console's coach-access queue.
 //!
-//! `GET /admin/coach-access-requests[?status=pending|granted|declined]`,
-//! `POST /admin/coach-access-requests/{id}/grant` and
-//! `POST /admin/coach-access-requests/{id}/decline` (body
-//! `{"reason": "…"}`, optional), mounted for the admin token and, under
-//! `/api/admin/…`, for the console session. A grant is the same admin
-//! decision as `POST /admin/users/{id}/manages-roster`, plus attaching the
+//! `GET /api/admin/coach-access-requests[?status=pending|granted|declined]`,
+//! `POST /api/admin/coach-access-requests/{id}/grant` and
+//! `POST /api/admin/coach-access-requests/{id}/decline` (body
+//! `{"reason": "…"}`, optional), mounted for the console session. A grant is
+//! the same admin decision as `POST /admin/users/{id}/manages-roster`, plus attaching the
 //! coach to every coachless group they own (carnet#1521), so every route here
 //! is super-admin only. Either decision is told to the coach through the
 //! context's [`pierre_services::coach_access::CoachAccessNotices`] when the
@@ -75,7 +74,7 @@ fn parse_request_id(raw: &str) -> AppResult<Uuid> {
         .map_err(|e| AppError::invalid_input(format!("Invalid coach access request id: {e}")))
 }
 
-/// `GET /admin/coach-access-requests` — the queue, oldest first.
+/// `GET /api/admin/coach-access-requests` — the queue, oldest first.
 pub(crate) async fn handle_list_coach_access_requests(
     State(context): State<Arc<AdminApiContext>>,
     Extension(admin_token): Extension<ValidatedAdminToken>,
@@ -116,7 +115,7 @@ pub(crate) async fn handle_list_coach_access_requests(
     .into_response())
 }
 
-/// `POST /admin/coach-access-requests/{id}/grant` — grant coach access and
+/// `POST /api/admin/coach-access-requests/{id}/grant` — grant coach access and
 /// attach the coach to the group they asked from.
 pub(crate) async fn handle_grant_coach_access_request(
     State(context): State<Arc<AdminApiContext>>,
@@ -156,7 +155,7 @@ pub(crate) async fn handle_grant_coach_access_request(
     .into_response())
 }
 
-/// `POST /admin/coach-access-requests/{id}/decline` — decline a request,
+/// `POST /api/admin/coach-access-requests/{id}/decline` — decline a request,
 /// with the reason the admin typed when they typed one.
 pub(crate) async fn handle_decline_coach_access_request(
     State(context): State<Arc<AdminApiContext>>,

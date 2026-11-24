@@ -152,13 +152,8 @@ cd agents/fitness_analyzer
 
 2. **Create a User Account**:
    ```bash
-   curl -X POST http://localhost:8081/admin/setup \
-     -H "Content-Type: application/json" \
-     -d '{
-       "email": "user@example.com",
-       "password": "SecurePass123!",
-       "display_name": "Test User"
-     }'
+   cargo run --bin pierre-cli -- user create \
+     --email user@example.com --password 'SecurePass123!'
    ```
 
 ### Choose Your Path
@@ -182,15 +177,14 @@ python gemini_fitness_assistant.py
 #### Path B: A2A Agent (Autonomous Operation)
 
 ```bash
-# Register A2A client (one-time setup)
-ADMIN_TOKEN=$(curl -s -X POST http://localhost:8081/admin/setup \
-  -H "Content-Type: application/json" \
-  -d '{"email": "admin@example.com", "password": "SecurePass123!", "display_name": "Admin"}' | \
-  jq -r '.admin_token')
+# Register A2A client (one-time setup), with the session token of the
+# account created above: sign in to the web app and copy it, or register the
+# client from the web app's A2A client form instead
+SESSION_TOKEN='<your session token>'
 
 # Register A2A client
 CREDENTIALS=$(curl -s -X POST http://localhost:8081/a2a/clients \
-  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Authorization: Bearer $SESSION_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "name": "Demo Agent",

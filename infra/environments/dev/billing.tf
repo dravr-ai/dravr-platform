@@ -4,44 +4,50 @@
 # Background
 # ----------
 # We had NO automatic cost visibility: the June 2026 idle-/ws-instance leak
-# (~$137/mo) was found only by hand off the cost report, weeks after it started.
+# was found only by hand off the cost report, weeks after it started.
 # This file adds two backstops:
-#   1. google_billing_budget — a monthly budget on the JF Billing account with
-#      50/90/100% threshold alerts. Emails billing admins by default and also
-#      routes to the #dev-dravr-errors Slack channel (reusing the notification
-#      channel from monitoring.tf).
+#   1. google_billing_budget — a monthly budget on the billing account with
+#      threshold alerts at the shares of it budget_alert_fractions lists. It
+#      emails the billing account's admins by default.
 #   2. google_bigquery_dataset — the destination for the standard Cloud Billing
 #      BigQuery cost export, so we get durable per-SKU daily cost history to query.
+#
+# The account, the amount and the alert shares are inputs with no default:
+# their values live in the private var-file.
 #
 # PREREQUISITE — one-time manual IAM bootstrap (chicken-and-egg)
 # -------------------------------------------------------------
 # The terraform-runner service account has NO billing-account IAM (verified
-# 2026-06-11: only user:jf@dravr.ai holds roles/billing.admin). Creating a budget
-# requires billing.budgets.create on the account, and granting that role itself
-# requires billing.admin — which the runner doesn't have. So the grant CANNOT be
-# bootstrapped by the runner. A billing admin must run this once before the first
-# apply (same pattern as the ADR-017 KMS runner-permission bootstrap):
+# 2026-06-11: only a human billing admin holds roles/billing.admin). Creating a
+# budget requires billing.budgets.create on the account, and granting that role
+# itself requires billing.admin — which the runner doesn't have. So the grant
+# CANNOT be bootstrapped by the runner. A billing admin must run this once
+# before the first apply (same pattern as the ADR-017 KMS runner-permission
+# bootstrap):
 #
 #   gcloud billing accounts add-iam-policy-binding ${BILLING_ACCOUNT_ID} \
 #     --member="serviceAccount:${TERRAFORM_RUNNER_SA_EMAIL}" \
 #     --role="roles/billing.costsManager"
 #
 # costsManager (not admin) is the least privilege that can manage budgets. Note
-# this grant is account-wide: the JF Billing account funds every dravr project, so
+# this grant is account-wide: the billing account funds every dravr project, so
 # the runner gains budget-management across all of them. That is an accepted
 # tradeoff for codifying budgets in terraform; if you'd rather keep the runner out
 # of billing entirely, create the budget manually instead (see RUNBOOK note below).
 
 variable "billing_account_id" {
-  description = "Cloud Billing account ID that funds this project (format XXXXXX-XXXXXX-XXXXXX). Used for the cost budget and the BigQuery cost export."
+  description = "Cloud Billing account ID that funds this project (format XXXXXX-XXXXXX-XXXXXX). Used for the cost budget and the BigQuery cost export. Set in the private var-file."
   type        = string
-  default     = "016750-504582-CFEC0E"
 }
 
 variable "monthly_budget_amount" {
-  description = "Monthly cost budget for this project in the billing account's currency (CAD). The budget is an ALERT trigger, not a hard spend cap — Google never stops resources at the limit. Set to 300 (above the ~$250/mo post-free-trial-expiry run-rate) for headroom that still catches a doubling."
+  description = "Monthly cost budget for this project in the billing account's currency (CAD). The budget is an ALERT trigger, not a hard spend cap — Google never stops resources at the limit. Size it above the expected run-rate, with headroom that still catches a doubling. Set in the private var-file."
   type        = number
-  default     = 300
+}
+
+variable "budget_alert_fractions" {
+  description = "Shares of the monthly budget at which actual spend raises an alert, in ascending order (1 is the whole budget). Set in the private var-file."
+  type        = list(number)
 }
 
 # Project number is required by the budget filter (projects/<number>, not the id).
@@ -50,14 +56,14 @@ data "google_project" "current" {
 }
 
 # -----------------------------------------------------------------------------
-# Monthly cost budget + 50/90/100% threshold alerts
+# Monthly cost budget + threshold alerts
 # -----------------------------------------------------------------------------
 
 resource "google_billing_budget" "dev_monthly" {
   billing_account = var.billing_account_id
   display_name    = "dravr-dev monthly cost (${var.monthly_budget_amount} CAD)"
 
-  # Scope the budget to THIS project only — the JF Billing account funds others.
+  # Scope the budget to THIS project only — the billing account funds others.
   budget_filter {
     projects               = ["projects/${data.google_project.current.number}"]
     calendar_period        = "MONTH"
@@ -72,22 +78,18 @@ resource "google_billing_budget" "dev_monthly" {
     }
   }
 
-  # Alert as actual spend crosses 50% / 90% / 100% of the monthly budget.
-  threshold_rules {
-    threshold_percent = 0.5
-    spend_basis       = "CURRENT_SPEND"
-  }
-  threshold_rules {
-    threshold_percent = 0.9
-    spend_basis       = "CURRENT_SPEND"
-  }
-  threshold_rules {
-    threshold_percent = 1.0
-    spend_basis       = "CURRENT_SPEND"
+  # Alert as actual spend crosses each listed share of the monthly budget.
+  dynamic "threshold_rules" {
+    for_each = var.budget_alert_fractions
+
+    content {
+      threshold_percent = threshold_rules.value
+      spend_basis       = "CURRENT_SPEND"
+    }
   }
 
   # No all_updates_rule: the budget falls back to the default notification path,
-  # emailing the billing account's IAM admins (jf@dravr.ai) at each threshold.
+  # emailing the billing account's IAM admins at each threshold.
   # A custom all_updates_rule must specify a monitoring channel or Pub/Sub topic,
   # and budget notifications reject Slack-type Monitoring channels (Error 400) —
   # so real-time Slack cost alerting is handled by the idle-floor monitoring

@@ -16,6 +16,7 @@
 
 use crate::common;
 use crate::helpers;
+use pierre_tool_runtime::tool_data::ToolData;
 
 use pierre_core::transport::TransportPolicy;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -98,7 +99,7 @@ impl McpTool<dyn ToolRuntime> for StubTool {
     }
 }
 
-pierre_tool_runtime::declare_security!(StubTool => empty);
+pierre_tool_runtime::declare_security!(StubTool => empty, reads: ToolData::own(&[]));
 
 /// A provider whose first call asks for a tool — and reports what the call
 /// cost — and whose every later call never returns: a turn stopped after its

@@ -63,7 +63,7 @@ impl AuthService {
     ///
     /// Returns the uniform invalid-code error for a code no one could redeem,
     /// a quota-exceeded error when sign-up is closed, and every error
-    /// [`Self::register`] returns.
+    /// [`Self::self_register`] returns past the sign-up bounds.
     pub async fn self_register_with_code(
         &self,
         request: RegisterRequest,
@@ -75,7 +75,7 @@ impl AuthService {
         }
         admit_signup_code(self.data.database()).await?;
 
-        let mut response = self.register_through(request, true, true).await?;
+        let mut response = self.register_through(request, true).await?;
         let user_id = Uuid::parse_str(&response.user_id)
             .map_err(|e| AppError::internal(format!("Registration returned a bad id: {e}")))?;
         if response.user_status == UserStatus::Active {

@@ -309,17 +309,17 @@ resource "google_monitoring_alert_policy" "turns_abandoned_at_shutdown" {
     condition_threshold {
       filter          = "resource.type=\"cloud_run_revision\" AND metric.type=\"logging.googleapis.com/user/${google_logging_metric.turns_abandoned_at_shutdown.name}\""
       comparison      = "COMPARISON_GT"
-      threshold_value = 0
-      duration        = "0s"
+      threshold_value = var.alert_thresholds["turn_loss.abandoned_at_shutdown.threshold"]
+      duration        = var.alert_windows["turn_loss.abandoned_at_shutdown.duration"]
 
       aggregations {
-        alignment_period     = "300s"
+        alignment_period     = var.alert_windows["turn_loss.abandoned_at_shutdown.alignment_period"]
         per_series_aligner   = "ALIGN_DELTA"
         cross_series_reducer = "REDUCE_SUM"
       }
 
       trigger {
-        count = 1
+        count = var.alert_thresholds["turn_loss.abandoned_at_shutdown.trigger_count"]
       }
     }
   }
@@ -331,7 +331,7 @@ resource "google_monitoring_alert_policy" "turns_abandoned_at_shutdown" {
   alert_strategy {
     # Drains are per-instance events, not a sustained condition; the incident
     # closes itself once no further drain abandons anything.
-    auto_close = "1800s"
+    auto_close = var.alert_windows["turn_loss.abandoned_at_shutdown.auto_close"]
   }
 
   depends_on = [time_sleep.turn_loss_metric_propagation]
@@ -388,17 +388,17 @@ resource "google_monitoring_alert_policy" "messaging_turns_interrupted" {
     condition_threshold {
       filter          = "resource.type=\"cloud_run_revision\" AND metric.type=\"logging.googleapis.com/user/${google_logging_metric.messaging_turns_interrupted.name}\""
       comparison      = "COMPARISON_GT"
-      threshold_value = 0
-      duration        = "0s"
+      threshold_value = var.alert_thresholds["turn_loss.turns_interrupted.threshold"]
+      duration        = var.alert_windows["turn_loss.turns_interrupted.duration"]
 
       aggregations {
-        alignment_period     = "300s"
+        alignment_period     = var.alert_windows["turn_loss.turns_interrupted.alignment_period"]
         per_series_aligner   = "ALIGN_DELTA"
         cross_series_reducer = "REDUCE_SUM"
       }
 
       trigger {
-        count = 1
+        count = var.alert_thresholds["turn_loss.turns_interrupted.trigger_count"]
       }
     }
   }
@@ -406,7 +406,7 @@ resource "google_monitoring_alert_policy" "messaging_turns_interrupted" {
   notification_channels = [google_monitoring_notification_channel.slack_alerts.id]
 
   alert_strategy {
-    auto_close = "1800s"
+    auto_close = var.alert_windows["turn_loss.turns_interrupted.auto_close"]
   }
 
   depends_on = [time_sleep.turn_loss_metric_propagation]
@@ -456,17 +456,17 @@ resource "google_monitoring_alert_policy" "outbound_dead_lettered" {
     condition_threshold {
       filter          = "resource.type=\"cloud_run_revision\" AND metric.type=\"logging.googleapis.com/user/${google_logging_metric.outbound_dead_lettered.name}\""
       comparison      = "COMPARISON_GT"
-      threshold_value = 0
-      duration        = "0s"
+      threshold_value = var.alert_thresholds["turn_loss.dead_lettered.threshold"]
+      duration        = var.alert_windows["turn_loss.dead_lettered.duration"]
 
       aggregations {
-        alignment_period     = "300s"
+        alignment_period     = var.alert_windows["turn_loss.dead_lettered.alignment_period"]
         per_series_aligner   = "ALIGN_DELTA"
         cross_series_reducer = "REDUCE_SUM"
       }
 
       trigger {
-        count = 1
+        count = var.alert_thresholds["turn_loss.dead_lettered.trigger_count"]
       }
     }
   }
@@ -474,7 +474,7 @@ resource "google_monitoring_alert_policy" "outbound_dead_lettered" {
   notification_channels = [google_monitoring_notification_channel.slack_alerts.id]
 
   alert_strategy {
-    auto_close = "1800s"
+    auto_close = var.alert_windows["turn_loss.dead_lettered.auto_close"]
   }
 
   depends_on = [time_sleep.turn_loss_metric_propagation]
@@ -537,22 +537,23 @@ resource "google_monitoring_alert_policy" "cloud_tasks_refused_turns" {
     display_name = "More than one refusal in five minutes"
 
     condition_threshold {
-      # >1, not >0: the sweep re-enqueues a refused turn a minute later, so a
-      # single refusal is a blip the design already absorbs. A structural
-      # fault refuses on every pass and lands several lines inside one window.
+      # Not the first refusal: the sweep re-enqueues a refused turn a minute
+      # later, so a lone refusal is a blip the design already absorbs. A
+      # structural fault refuses on every pass and lands several lines inside
+      # one window.
       filter          = "resource.type=\"cloud_run_revision\" AND metric.type=\"logging.googleapis.com/user/${google_logging_metric.cloud_tasks_refused_turns.name}\""
       comparison      = "COMPARISON_GT"
-      threshold_value = 1
-      duration        = "0s"
+      threshold_value = var.alert_thresholds["turn_loss.cloud_tasks_refused.threshold"]
+      duration        = var.alert_windows["turn_loss.cloud_tasks_refused.duration"]
 
       aggregations {
-        alignment_period     = "300s"
+        alignment_period     = var.alert_windows["turn_loss.cloud_tasks_refused.alignment_period"]
         per_series_aligner   = "ALIGN_DELTA"
         cross_series_reducer = "REDUCE_SUM"
       }
 
       trigger {
-        count = 1
+        count = var.alert_thresholds["turn_loss.cloud_tasks_refused.trigger_count"]
       }
     }
   }
@@ -562,7 +563,7 @@ resource "google_monitoring_alert_policy" "cloud_tasks_refused_turns" {
   alert_strategy {
     # Closes once enqueues succeed again, so a fixed IAM binding stops the
     # nagging without someone acknowledging it by hand.
-    auto_close = "1800s"
+    auto_close = var.alert_windows["turn_loss.cloud_tasks_refused.auto_close"]
   }
 
   depends_on = [time_sleep.turn_loss_metric_propagation]
@@ -620,22 +621,22 @@ resource "google_monitoring_alert_policy" "resume_sweep_unreadable" {
     display_name = "More than one unreadable sweep in five minutes"
 
     condition_threshold {
-      # >1, not >0: the sweep runs every minute, so a single failed pass costs
-      # a minute and heals itself. Two inside one window is a fault that is
-      # staying.
+      # Not the first failed pass: the sweep runs every minute, so a lone
+      # failed pass costs a minute and heals itself. A repeat inside one
+      # window is a fault that is staying.
       filter          = "resource.type=\"cloud_run_revision\" AND metric.type=\"logging.googleapis.com/user/${google_logging_metric.resume_sweep_unreadable.name}\""
       comparison      = "COMPARISON_GT"
-      threshold_value = 1
-      duration        = "0s"
+      threshold_value = var.alert_thresholds["turn_loss.resume_sweep_unreadable.threshold"]
+      duration        = var.alert_windows["turn_loss.resume_sweep_unreadable.duration"]
 
       aggregations {
-        alignment_period     = "300s"
+        alignment_period     = var.alert_windows["turn_loss.resume_sweep_unreadable.alignment_period"]
         per_series_aligner   = "ALIGN_DELTA"
         cross_series_reducer = "REDUCE_SUM"
       }
 
       trigger {
-        count = 1
+        count = var.alert_thresholds["turn_loss.resume_sweep_unreadable.trigger_count"]
       }
     }
   }
@@ -644,7 +645,7 @@ resource "google_monitoring_alert_policy" "resume_sweep_unreadable" {
 
   alert_strategy {
     # Closes once the sweep reads its rows again.
-    auto_close = "1800s"
+    auto_close = var.alert_windows["turn_loss.resume_sweep_unreadable.auto_close"]
   }
 
   depends_on = [time_sleep.turn_loss_metric_propagation]

@@ -19,7 +19,8 @@
 //!
 //! It never reads a provider. A tool's read ([`ReadGate::Model`]) asks a
 //! history walk of a source it counts that was never walked, as the
-//! training history does; Home's read ([`ReadGate::Display`]) asks nothing.
+//! training history does; Home's read ([`ReadGate::Display`]) and a group's
+//! weekly figures ([`ReadGate::Roster`]) ask nothing.
 //!
 //! The core is ungated: Home's volume card builds without `tools-data`. The
 //! segment half of a `has_segment` count is the tool's: the answer carries
@@ -31,11 +32,13 @@ use std::mem;
 use std::sync::Arc;
 
 use dravr_tronc::dates::CivilDate;
-use pierre_core::civil_time::resolve_zone;
+use pierre_core::civil_time::{monday_of, resolve_zone};
 use pierre_core::constants::oauth::providers::{companion_keys, is_user_provided, STRAVA};
 use pierre_core::constants::oauth_providers::{garmin_contribution, GarminContribution};
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::coverage::{Coverage, CoverageWindow, SourceReach, WindowScope};
+use pierre_core::models::coverage::{
+    Coverage, CoverageWindow, IncompleteReason, SourceReach, WindowScope,
+};
 use pierre_core::models::TenantId;
 use pierre_core::untrusted::{display_line, fence_athlete_text};
 use pierre_providers::ai_scope;
@@ -95,6 +98,12 @@ pub enum ReadGate {
     /// What the athlete's own surfaces serve, and Home's vouching rule:
     /// nothing asked.
     Display,
+    /// What a model may read, as [`Self::Model`], under Home's vouching
+    /// rule, as [`Self::Display`]: nothing asked. A group's weekly figures
+    /// for a member, which reach the group's model and its other members:
+    /// Home's weeks, never more of them than the member's consents let a
+    /// model see.
+    Roster,
 }
 
 /// A count asked.
@@ -175,6 +184,25 @@ pub struct QueryAnswer {
     #[serde(skip)]
     #[schemars(skip)]
     pub segments: Option<SegmentCounts>,
+}
+
+impl QueryAnswer {
+    /// The Monday of the first week from `opens` (a Monday) on that the
+    /// answer's coverage vouches for: `opens` when it is complete, the week
+    /// of its `trustworthy_from` when the stored history stops short of it,
+    /// `None` when nothing is stored or an incomplete answer names no such
+    /// day. A week before it holds no figure, never a zero.
+    #[must_use]
+    pub fn first_vouched_week(&self, opens: CivilDate) -> Option<CivilDate> {
+        match self.coverage.completeness.reason() {
+            None => Some(opens),
+            Some(IncompleteReason::NoStoredActivities) => None,
+            Some(_) => self
+                .coverage
+                .trustworthy_from
+                .map(|day| monday_of(day).max(opens)),
+        }
+    }
 }
 
 /// [`GarminContribution`]'s wire shape: `sole`, `part`, or `null`.
@@ -275,7 +303,7 @@ pub async fn query_activities(
         ..CoverageWindow::default()
     };
     let (coverage, coverage_by_source) = match gate {
-        ReadGate::Display => (
+        ReadGate::Display | ReadGate::Roster => (
             coverage::display_coverage(runtime, athlete, window, &reach, span).await?,
             Vec::new(),
         ),
@@ -364,7 +392,9 @@ fn labelled(mut groups: Vec<QueryGroup>, folded: &Folded, gate: ReadGate) -> Vec
             let label = match key {
                 GroupKey::Place => folded.places.get(id).and_then(served_place_name),
                 GroupKey::Gear => folded.gear_names.get(id).and_then(|name| match gate {
-                    ReadGate::Model => fence_athlete_text(name, MAX_GEAR_LABEL_CHARS),
+                    ReadGate::Model | ReadGate::Roster => {
+                        fence_athlete_text(name, MAX_GEAR_LABEL_CHARS)
+                    }
                     ReadGate::Display => Some(display_line(name, MAX_GEAR_LABEL_CHARS)),
                 }),
                 _ => None,

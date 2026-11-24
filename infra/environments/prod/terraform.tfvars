@@ -31,8 +31,9 @@ frontend_min_instances = 0
 frontend_max_instances = 3
 
 # Firebase project linked to project_id — nginx proxies /__/ auth-handler paths
-# to https://<id>.firebaseapp.com. Replace alongside project_id.
-firebase_project_id = "dravr-prod"
+# to https://<id>.firebaseapp.com. firebase_project_id has no value here: it is
+# set in the private var-file, loaded after this one on every plan and apply
+# (infra/private-inputs.sh). Replace it alongside project_id.
 
 labels = {
   app         = "dravr"

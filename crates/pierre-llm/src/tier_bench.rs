@@ -11,7 +11,7 @@
 //! would reject the same request the same way. That rule trusts the vendor's
 //! own classification. On 2026-11-20 Anthropic reported a spent prepaid credit
 //! as `400 invalid_request_error`, the head read as "the request is wrong" on
-//! every call, and six healthy tiers behind it served nothing for 14 hours.
+//! every call, and the healthy tiers behind it served nothing for 14 hours.
 //!
 //! The bench does not read error kinds. A tier that cannot answer
 //! [`probe_request`] — one user message, "ping" — is dead whatever its error

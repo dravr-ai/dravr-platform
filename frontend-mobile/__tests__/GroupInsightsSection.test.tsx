@@ -57,6 +57,7 @@ jest.mock('../src/services/api', () => ({
 }));
 
 import { GroupInsightsSection } from '../src/screens/groups/GroupInsightsSection';
+import { groupsApi } from '../src/services/api';
 
 function renderSection(units: DistanceUnit = 'metric') {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
@@ -105,6 +106,21 @@ describe('GroupInsightsSection', () => {
     });
     expect(getByText('Form at -40% of chronic load (TSB -40), deepest fatigue band')).toBeTruthy();
     expect(getByText('Luc: No activity for 10 days')).toBeTruthy();
+  });
+
+  it('writes no summary and no trend for a week no member is read for', async () => {
+    (groupsApi.getWeeklyReport as jest.Mock).mockResolvedValueOnce({
+      ...mockReport,
+      report: { ...mockReport.report, stats: { ...mockReport.report.stats, avg_weekly_volume_km: null } },
+    });
+    const { getByText, queryByTestId } = renderSection();
+
+    // A flag line proves the section rendered before the absences are read.
+    await waitFor(() => {
+      expect(getByText('Luc: No activity for 10 days')).toBeTruthy();
+    });
+    expect(queryByTestId('group-report-summary')).toBeNull();
+    expect(queryByTestId('group-report-recommendation')).toBeNull();
   });
 
   it('reads the group volume in miles for an admin on imperial units', async () => {

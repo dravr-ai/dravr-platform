@@ -17,6 +17,8 @@
 //! All tools use direct database access for seeded mobility data.
 
 use crate::annotations::{annotations, Effect, Reach};
+use crate::read_subject::DataClass;
+use crate::tool_data::ToolData;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -1157,9 +1159,25 @@ pub fn create_mobility_tools() -> Vec<Box<dyn RuntimeTool>> {
 // Guardian security classifications (see `crate::security`). Co-located here so
 // each impl sits under this module's existing feature gate; the compiler forces
 // every registered tool to classify (the registry stores `Arc<dyn RuntimeTool>`).
-crate::declare_security!(GetStretchingExerciseTool => empty);
-crate::declare_security!(GetYogaPoseTool => empty);
-crate::declare_security!(ListStretchingExercisesTool => empty);
-crate::declare_security!(ListYogaPosesTool => empty);
-crate::declare_security!(SuggestStretchesForActivityTool => empty);
-crate::declare_security!(SuggestYogaSequenceTool => empty);
+// The shared stretching and yoga references.
+crate::declare_security!(
+    GetStretchingExerciseTool => empty,
+    reads: ToolData::of(DataClass::NoSubject, &[]),
+);
+crate::declare_security!(GetYogaPoseTool => empty, reads: ToolData::of(DataClass::NoSubject, &[]));
+crate::declare_security!(
+    ListStretchingExercisesTool => empty,
+    reads: ToolData::of(DataClass::NoSubject, &[]),
+);
+crate::declare_security!(
+    ListYogaPosesTool => empty,
+    reads: ToolData::of(DataClass::NoSubject, &[]),
+);
+crate::declare_security!(
+    SuggestStretchesForActivityTool => empty,
+    reads: ToolData::of(DataClass::NoSubject, &[]),
+);
+crate::declare_security!(
+    SuggestYogaSequenceTool => empty,
+    reads: ToolData::of(DataClass::NoSubject, &[]),
+);

@@ -108,11 +108,11 @@ resource "google_monitoring_alert_policy" "provider_budget_spent" {
     condition_threshold {
       filter          = "resource.type=\"cloud_run_revision\" AND metric.type=\"logging.googleapis.com/user/${google_logging_metric.provider_budget_spent.name}\""
       comparison      = "COMPARISON_GT"
-      threshold_value = 0
-      duration        = "0s"
+      threshold_value = var.alert_thresholds["provider_budget.spent.threshold"]
+      duration        = var.alert_windows["provider_budget.spent.duration"]
 
       aggregations {
-        alignment_period     = "300s"
+        alignment_period     = var.alert_windows["provider_budget.spent.alignment_period"]
         per_series_aligner   = "ALIGN_DELTA"
         cross_series_reducer = "REDUCE_SUM"
         group_by_fields      = ["metric.label.provider", "metric.label.app"]
@@ -123,7 +123,7 @@ resource "google_monitoring_alert_policy" "provider_budget_spent" {
   notification_channels = [google_monitoring_notification_channel.slack_alerts.id]
 
   alert_strategy {
-    auto_close = "1800s"
+    auto_close = var.alert_windows["provider_budget.spent.auto_close"]
   }
 
   depends_on = [time_sleep.provider_budget_spent_metric_propagation]

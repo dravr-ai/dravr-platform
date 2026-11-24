@@ -59,6 +59,7 @@ mod reply_scaffolding_strip {
     use pierre_mcp_server::mcp::resources::ServerContext;
     use pierre_mcp_server::routes::messaging::MessagingRoutes;
     use pierre_tool_runtime::runtime::ToolRuntime;
+    use pierre_tool_runtime::tool_data::ToolData;
     use pierre_tool_runtime::RuntimeTool;
     use serde_json::{json, Value};
     use serial_test::serial;
@@ -113,7 +114,7 @@ mod reply_scaffolding_strip {
         }
     }
 
-    pierre_tool_runtime::declare_security!(StubTool => empty);
+    pierre_tool_runtime::declare_security!(StubTool => empty, reads: ToolData::own(&[]));
 
     /// Deterministic provider that reproduces the c0ce04e34 failure shape.
     ///

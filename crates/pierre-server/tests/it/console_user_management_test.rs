@@ -451,11 +451,13 @@ fn manage_users_permissions() -> AdminPermissions {
 }
 
 /// An admin's reset reaches a user in any tenant. A token bound to one tenant
-/// reaches only that tenant's users: a user elsewhere answers 404, exactly
-/// like a missing one. An account that is not an admin reaches no one.
+/// reaches only that tenant's users: a user elsewhere answers 404 on the
+/// token mount, exactly like a missing one. An account that is not an admin
+/// reaches no one.
 #[tokio::test]
 #[serial]
-async fn a_user_outside_the_tenant_is_reset_by_an_admin_and_not_by_a_scoped_token() -> Result<()> {
+async fn a_user_outside_the_tenant_is_reset_by_an_admin_and_not_reached_by_a_scoped_token(
+) -> Result<()> {
     let resources = create_test_server_resources().await?;
     let admin = session_with_role(&resources, "scoped-admin@example.com", UserRole::Admin).await?;
     let elsewhere =
@@ -468,13 +470,10 @@ async fn a_user_outside_the_tenant_is_reset_by_an_admin_and_not_by_a_scoped_toke
         Some(admin.tenant_id),
     )
     .await?;
-    let response = AxumTestRequest::post(&format!(
-        "/admin/users/{}/reset-password",
-        elsewhere.user_id
-    ))
-    .header("Authorization", &scoped)
-    .send(token_router(&resources))
-    .await;
+    let response = AxumTestRequest::get(&format!("/admin/users/{}", elsewhere.user_id))
+        .header("Authorization", &scoped)
+        .send(token_router(&resources))
+        .await;
     assert_eq!(
         response.status(),
         404,
@@ -606,12 +605,12 @@ async fn an_admin_token_without_manage_users_is_still_refused() -> Result<()> {
         )
         .await?;
 
-    let response = AxumTestRequest::post(&format!("/admin/approve-user/{target}"))
+    let response = AxumTestRequest::post("/admin/pre-approved-emails")
         .header(
             "Authorization",
             &format!("Bearer {}", generated.jwt_token.expose_secret()),
         )
-        .json(&json!({}))
+        .json(&json!({ "email": "still-queued@example.com" }))
         .send(token_router(&resources))
         .await;
     assert_eq!(response.status(), 403, "ManageUsers is required on a token");
@@ -795,16 +794,15 @@ async fn a_user_row_names_its_role_in_the_list_and_on_its_own() -> Result<()> {
     Ok(())
 }
 
-/// `AUTO_APPROVE_USERS` in the environment outranks the stored setting. The
-/// token API read and echoed the stored row, so it reported a toggle that
-/// registration never applied.
+/// `AUTO_APPROVE_USERS` in the environment outranks the stored setting: a
+/// write and a read both report the effective value, never a stored toggle
+/// that registration does not apply.
 #[tokio::test]
 #[serial]
-async fn auto_approval_reports_the_environment_override_on_both_mounts() -> Result<()> {
+async fn auto_approval_reports_the_environment_override() -> Result<()> {
     let resources = create_test_server_resources().await?;
     let admin =
         session_with_role(&resources, "settings-admin@example.com", UserRole::Admin).await?;
-    let cli = super_token(&resources, "cli-settings").await?;
     let env_says_no = AppBehaviorConfig {
         auto_approve_users: false,
         auto_approve_users_from_env: true,
@@ -813,51 +811,32 @@ async fn auto_approval_reports_the_environment_override_on_both_mounts() -> Resu
     };
 
     let console = AdminRoutes::cookie_admin_routes::<ServerContext>(
-        admin_context_with(&resources, env_says_no.clone()),
+        admin_context_with(&resources, env_says_no),
         &resources,
     );
-    let token_api = AdminRoutes::routes(admin_context_with(&resources, env_says_no));
+    let path = "/api/admin/settings/auto-approval";
 
-    for (label, app, auth, path) in [
-        (
-            "console",
-            console,
-            admin.auth.clone(),
-            "/api/admin/settings/auto-approval",
-        ),
-        (
-            "token api",
-            token_api,
-            format!("Bearer {}", cli.jwt_token.expose_secret()),
-            "/admin/settings/auto-approval",
-        ),
-    ] {
-        let response = AxumTestRequest::put(path)
-            .header("authorization", &auth)
-            .json(&json!({ "enabled": true }))
-            .send(app.clone())
-            .await;
-        assert_eq!(response.status(), 200, "{label}");
-        let body: Value = response.json();
-        assert_eq!(
-            body["data"]["enabled"], false,
-            "{label}: the effective value, not the request"
-        );
-        assert_eq!(body["data"]["overridden_by_env"], true, "{label}");
-        assert_eq!(
-            body["data"]["auto_approve_domains"],
-            json!(["dravr.ai"]),
-            "{label}"
-        );
+    let response = AxumTestRequest::put(path)
+        .header("authorization", &admin.auth)
+        .json(&json!({ "enabled": true }))
+        .send(console.clone())
+        .await;
+    assert_eq!(response.status(), 200);
+    let body: Value = response.json();
+    assert_eq!(
+        body["data"]["enabled"], false,
+        "the effective value, not the request"
+    );
+    assert_eq!(body["data"]["overridden_by_env"], true);
+    assert_eq!(body["data"]["auto_approve_domains"], json!(["dravr.ai"]));
 
-        let body: Value = AxumTestRequest::get(path)
-            .header("authorization", &auth)
-            .send(app)
-            .await
-            .json();
-        assert_eq!(body["data"]["enabled"], false, "{label}: a read agrees");
-        assert_eq!(body["data"]["overridden_by_env"], true, "{label}");
-    }
+    let body: Value = AxumTestRequest::get(path)
+        .header("authorization", &admin.auth)
+        .send(console)
+        .await
+        .json();
+    assert_eq!(body["data"]["enabled"], false, "a read agrees");
+    assert_eq!(body["data"]["overridden_by_env"], true);
     Ok(())
 }
 

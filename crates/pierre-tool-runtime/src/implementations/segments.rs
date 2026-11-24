@@ -34,6 +34,9 @@
 //! Rows the transport withheld, and any call over an external transport,
 //! ask no walk of either kind.
 
+use crate::read_subject::DataClass;
+use crate::tool_data::ToolData;
+use dravr_barrage::Stream;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -597,7 +600,12 @@ impl McpTool<dyn ToolRuntime> for GetSegmentHistoryTool {
     }
 }
 
-crate::declare_security!(GetSegmentHistoryTool => empty);
+// One segment's efforts across the sessions, by the segment's name.
+crate::declare_security!(
+    GetSegmentHistoryTool => empty,
+    reads: ToolData::of(DataClass::Training, &[Stream::Workout, Stream::WorkoutRaw])
+        .with_athlete_text(),
+);
 
 #[cfg(test)]
 mod tests {

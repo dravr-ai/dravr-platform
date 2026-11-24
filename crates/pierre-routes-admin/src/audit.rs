@@ -54,14 +54,9 @@ use tracing::{debug, error};
 use crate::auth::service::AdminAuthService;
 
 /// Route prefixes whose writes are not admin actions on the platform: the
-/// device-login handshake (a sign-in), first-run setup, the website's magic
+/// device-login handshake (a sign-in), the website's magic
 /// link, the scheduled canaries.
-const UNAUDITED_PREFIXES: &[&str] = &[
-    "/admin/device/",
-    "/admin/setup",
-    "/admin/website/",
-    "/admin/diagnostics/",
-];
+const UNAUDITED_PREFIXES: &[&str] = &["/admin/device/", "/admin/website/", "/admin/diagnostics/"];
 
 /// What a handler adds to the row its write produces.
 ///
@@ -366,7 +361,7 @@ mod tests {
         let tok = token("t1", "device-cli:a@b.c");
         let kept = build_event(
             &Method::POST,
-            "/admin/suspend-user/{user_id}",
+            "/admin/users/{user_id}/role",
             Some(params.clone()),
             200,
             &tok,
@@ -378,7 +373,7 @@ mod tests {
             "bug: the route params are kept by default"
         );
         assert_eq!(
-            kept.action, "POST /admin/suspend-user/{user_id}",
+            kept.action, "POST /admin/users/{user_id}/role",
             "bug: with no detail the action is the method and route template"
         );
         assert_eq!(

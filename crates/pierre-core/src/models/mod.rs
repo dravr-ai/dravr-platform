@@ -237,10 +237,9 @@ pub use dravr_cageux::periodization::{
 // OAuth domain
 pub use oauth::{
     connection_needs_reauth, refresh_due, AuthRequest, AuthResponse, ConnectionStatus,
-    ConnectionType, OAuthAppCredentials, OAuthNotification, ProviderAccountRole,
-    ProviderConnection, ReauthMark, StravaPoolApp, StravaSeatHolder, StravaSeatReclaimWarning,
-    StravaTokenApp, UserOAuthApp, UserOAuthToken, UserSession, API_KEY_TOKEN_TYPE,
-    PERMISSION_WITHDRAWN,
+    ConnectionType, OAuthNotification, ProviderAccountRole, ProviderConnection, ReauthMark,
+    StravaPoolApp, StravaSeatHolder, StravaSeatReclaimWarning, StravaTokenApp, UserOAuthApp,
+    UserOAuthToken, UserSession, API_KEY_TOKEN_TYPE, PERMISSION_WITHDRAWN,
 };
 
 // OAuth client state for provider authorization flows
@@ -345,10 +344,10 @@ pub use tier_quota::{
 pub mod subscription;
 pub use subscription::{Subscription, SubscriptionStatus};
 pub use usage::{
-    CallOutcome, ConversationTurnLlmCall, ConversationTurnSummary, DelegatedRead, InsertLlmUsage,
-    JwtMonthlyUsage, JwtUsage, LlmUsageAggregateRow, LlmUsageDailyRow, LlmUsageRecord,
-    MonthlyLimitOverride, OutsideRead, OutsideReadKind, RequestLog, ToolUsage, UsageCounterRecord,
-    WindowUsage, DIRECT_TOOL_CALL_TYPE, TURN_SUMMARY_CALL_TYPE,
+    CallOutcome, DelegatedRead, InsertLlmUsage, JwtMonthlyUsage, JwtUsage, LlmUsageAggregateRow,
+    LlmUsageDailyRow, LlmUsageRecord, MonthlyLimitOverride, OutsideRead, OutsideReadKind,
+    RequestLog, ToolUsage, UsageCounterRecord, WindowUsage, DIRECT_TOOL_CALL_TYPE,
+    TURN_SUMMARY_CALL_TYPE,
 };
 
 /// An agent package's training artefacts — flavour, skeleton, workouts — beside its prompt

@@ -101,10 +101,6 @@ pub mod onboarding;
 #[cfg(feature = "client-api-keys")]
 pub mod api_keys;
 
-/// Tenant management routes
-#[cfg(feature = "client-tenants")]
-pub mod tenants;
-
 // ═══════════════════════════════════════════════════════════════
 // OTHER CLIENT FEATURES
 // ═══════════════════════════════════════════════════════════════

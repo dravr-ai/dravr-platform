@@ -5,6 +5,8 @@
 // Copyright (c) 2026 dravr.ai
 
 use crate::annotations::{annotations, Effect, Reach};
+use crate::read_subject::DataClass;
+use crate::tool_data::ToolData;
 use pierre_core::civil_time::zoned_rfc3339;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -727,7 +729,10 @@ pub fn create_weather_forecast_tools() -> Vec<Box<dyn RuntimeTool>> {
 // Guardian security classifications (see `crate::security`). Co-located here so
 // each impl sits under this module's existing feature gate; the compiler forces
 // every registered tool to classify (the registry stores `Arc<dyn RuntimeTool>`).
-crate::declare_security!(GetWeatherForecastTool => empty);
+crate::declare_security!(
+    GetWeatherForecastTool => empty,
+    reads: ToolData::of(DataClass::NoSubject, &[]),
+);
 
 #[cfg(test)]
 mod tests {

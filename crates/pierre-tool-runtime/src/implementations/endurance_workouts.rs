@@ -5,6 +5,9 @@
 // Copyright (c) 2026 dravr.ai
 
 use crate::annotations::{annotations, Effect, Reach};
+use crate::read_subject::DataClass;
+use crate::tool_data::ToolData;
+use dravr_barrage::Stream;
 use pierre_providers::ai_scope;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
@@ -1122,8 +1125,16 @@ pub fn create_endurance_workout_tools() -> Vec<Box<dyn RuntimeTool>> {
 // A prescription — including one that replaces another — is recoverable from
 // the ledger row it superseded, so it is a plain write; a withdrawal deletes
 // the calendar entry on the provider and is the destructive one.
-crate::declare_security!(ListWorkoutTemplatesTool => empty);
+// The caller's own catalogue of workouts, not anyone's training: what a
+// coach prescribes from.
+crate::declare_security!(
+    ListWorkoutTemplatesTool => empty,
+    reads: ToolData::of(DataClass::NoSubject, &[]),
+);
 // Lands on the athlete's provider calendar. Replaceable and withdrawable, so it
 // charges no destructive budget.
-crate::declare_security!(PrescribeWorkoutTool => empty);
-crate::declare_security!(WithdrawPrescribedWorkoutTool => IRREVERSIBLE);
+crate::declare_security!(PrescribeWorkoutTool => empty, reads: ToolData::own(&[Stream::Workout]));
+crate::declare_security!(
+    WithdrawPrescribedWorkoutTool => IRREVERSIBLE,
+    reads: ToolData::own(&[Stream::Workout]),
+);

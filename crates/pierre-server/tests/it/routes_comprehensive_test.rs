@@ -69,6 +69,12 @@ fn create_minimal_test_config(temp_dir: &tempfile::TempDir) -> Arc<ServerConfig>
 }
 
 async fn create_test_auth_routes() -> Result<AuthService> {
+    Ok(create_test_auth_routes_with_database().await?.0)
+}
+
+/// The auth service over a fresh database, with the database so a test can
+/// set accounts up through the fixtures.
+async fn create_test_auth_routes_with_database() -> Result<(AuthService, Arc<Database>)> {
     let database = common::create_test_database().await?;
     let auth_manager = common::create_test_auth_manager();
     let temp_dir = tempfile::tempdir()?;
@@ -103,11 +109,14 @@ async fn create_test_auth_routes() -> Result<AuthService> {
         .unwrap(),
     );
 
-    Ok(AuthService::new(
-        server_resources.auth.auth_manager.clone(),
-        server_resources.auth.jwks_manager.clone(),
-        server_resources.common.config.clone(),
-        server_resources.data(),
+    Ok((
+        AuthService::new(
+            server_resources.auth.auth_manager.clone(),
+            server_resources.auth.jwks_manager.clone(),
+            server_resources.common.config.clone(),
+            server_resources.data(),
+        ),
+        database,
     ))
 }
 
@@ -345,7 +354,7 @@ async fn test_user_registration_success() -> Result<()> {
         display_name: Some("Test User".to_owned()),
     };
 
-    let response = auth_routes.register(request).await?;
+    let response = auth_routes.self_register(request).await?;
 
     assert_ne!(response.user_id, "");
     assert!(response.message.contains("successfully"));
@@ -365,7 +374,7 @@ async fn test_user_registration_invalid_email() -> Result<()> {
         display_name: Some("Test User".to_owned()),
     };
 
-    let result = auth_routes.register(request).await;
+    let result = auth_routes.self_register(request).await;
 
     assert!(result.is_err());
     assert!(result
@@ -388,7 +397,7 @@ async fn test_user_registration_weak_password() -> Result<()> {
         display_name: Some("Test User".to_owned()),
     };
 
-    let result = auth_routes.register(request).await;
+    let result = auth_routes.self_register(request).await;
 
     assert!(result.is_err());
     assert!(result.unwrap_err().to_string().contains("8 characters"));
@@ -409,10 +418,10 @@ async fn test_user_registration_duplicate_email() -> Result<()> {
     };
 
     // First registration should succeed
-    auth_routes.register(request.clone()).await?;
+    auth_routes.self_register(request.clone()).await?;
 
     // Second registration with same email should fail
-    let result = auth_routes.register(request).await;
+    let result = auth_routes.self_register(request).await;
 
     assert!(result.is_err());
     assert!(result.unwrap_err().to_string().contains("already exists"));
@@ -433,7 +442,7 @@ async fn test_user_registration_edge_cases() -> Result<()> {
         display_name: None,
     };
 
-    let response = auth_routes.register(minimal_request).await?;
+    let response = auth_routes.self_register(minimal_request).await?;
     assert_ne!(response.user_id, "");
 
     // Test with very long valid email
@@ -444,7 +453,7 @@ async fn test_user_registration_edge_cases() -> Result<()> {
         display_name: Some("Very Long Display Name For Testing Purposes".to_owned()),
     };
 
-    let response = auth_routes.register(long_email_request).await?;
+    let response = auth_routes.self_register(long_email_request).await?;
     assert_ne!(response.user_id, "");
 
     Ok(())
@@ -614,28 +623,13 @@ async fn test_user_login_success() -> Result<()> {
         server_resources.data(),
     );
 
-    // First register a user
-    let register_request = RegisterRequest {
-        analytics_consent: None,
-        email: "login@example.com".to_owned(),
-        password: SecretString::from("loginpassword123"),
-        display_name: Some("Login User".to_owned()),
-    };
-
-    let register_response = auth_routes.register(register_request).await?;
-    let user_id = Uuid::parse_str(&register_response.user_id)?;
-
-    // Approve the user for testing
-    database
-        .repositories()
-        .users
-        .update_status(user_id, UserStatus::Active, None)
-        .await?;
+    // An active account to sign in to
+    common::create_test_user_with_email(&database, "login@example.com").await?;
 
     // Now test login
     let login_request = LoginRequest {
         email: "login@example.com".to_owned(),
-        password: SecretString::from("loginpassword123"),
+        password: SecretString::from("password123"),
         timezone: None,
     };
 
@@ -647,7 +641,7 @@ async fn test_user_login_success() -> Result<()> {
         .is_some_and(|t| !t.expose_secret().is_empty()));
     assert_ne!(response.expires_at, "");
     assert_eq!(response.user.email, "login@example.com");
-    assert_eq!(response.user.display_name, Some("Login User".to_owned()));
+    assert_eq!(response.user.display_name, Some("Test User".to_owned()));
 
     Ok(())
 }
@@ -677,17 +671,10 @@ async fn test_user_login_invalid_email() -> Result<()> {
 #[tokio::test]
 async fn test_user_login_invalid_password() -> Result<()> {
     common::init_server_config();
-    let auth_routes = create_test_auth_routes().await?;
+    let (auth_routes, database) = create_test_auth_routes_with_database().await?;
 
-    // Register a user first
-    let register_request = RegisterRequest {
-        analytics_consent: None,
-        email: "password_test@example.com".to_owned(),
-        password: SecretString::from("correctpassword123"),
-        display_name: Some("Password User".to_owned()),
-    };
-
-    auth_routes.register(register_request).await?;
+    // An account first
+    common::create_test_user_with_email(&database, "password_test@example.com").await?;
 
     // Try to login with wrong password
     let login_request = LoginRequest {
@@ -710,28 +697,22 @@ async fn test_user_login_invalid_password() -> Result<()> {
 #[tokio::test]
 async fn test_user_login_ignores_email_case() -> Result<()> {
     common::init_server_config();
-    let auth_routes = create_test_auth_routes().await?;
+    let (auth_routes, database) = create_test_auth_routes_with_database().await?;
 
-    // Register with lowercase email
-    let register_request = RegisterRequest {
-        analytics_consent: None,
-        email: "case@example.com".to_owned(),
-        password: SecretString::from("casepassword123"),
-        display_name: Some("Case User".to_owned()),
-    };
-
-    let registered = auth_routes.register(register_request).await?;
+    // An account stored under its lowercase email
+    let (registered_id, _) =
+        common::create_test_user_with_email(&database, "case@example.com").await?;
 
     // Emails are case-insensitive: the uppercase spelling signs in to the
     // same account, which answers with its stored, lowercase address.
     let login_request = LoginRequest {
         email: "CASE@EXAMPLE.COM".to_owned(),
-        password: SecretString::from("casepassword123"),
+        password: SecretString::from("password123"),
         timezone: None,
     };
 
     let response = auth_routes.login(login_request).await?;
-    assert_eq!(response.user.user_id, registered.user_id);
+    assert_eq!(response.user.user_id, registered_id.to_string());
     assert_eq!(response.user.email, "case@example.com");
 
     Ok(())
@@ -901,28 +882,13 @@ async fn test_token_refresh_success() -> Result<()> {
         server_resources.data(),
     );
 
-    // Register and login to get initial token
-    let register_request = RegisterRequest {
-        analytics_consent: None,
-        email: "refresh@example.com".to_owned(),
-        password: SecretString::from("refreshpassword123"),
-        display_name: Some("Refresh User".to_owned()),
-    };
-
-    let register_response = auth_routes.register(register_request).await?;
-    let user_id = register_response.user_id;
-    let user_uuid = Uuid::parse_str(&user_id)?;
-
-    // Approve the user for testing
-    database
-        .repositories()
-        .users
-        .update_status(user_uuid, UserStatus::Active, None)
-        .await?;
+    // An active account, then a login for the initial token
+    let (user_uuid, _) =
+        common::create_test_user_with_email(&database, "refresh@example.com").await?;
 
     let login_request = LoginRequest {
         email: "refresh@example.com".to_owned(),
-        password: SecretString::from("refreshpassword123"),
+        password: SecretString::from("password123"),
         timezone: None,
     };
 
@@ -965,7 +931,7 @@ async fn test_token_refresh_success() -> Result<()> {
         .await?;
     assert_eq!(renewed_claims.client_id.as_deref(), Some(MOBILE_CLIENT_ID));
     assert_eq!(refreshed.login.user.email, "refresh@example.com");
-    assert_eq!(refreshed.login.user.user_id, user_id);
+    assert_eq!(refreshed.login.user.user_id, user_uuid.to_string());
     assert_ne!(
         refreshed.refresh_token.expose_secret(),
         first,
@@ -1160,27 +1126,13 @@ async fn test_token_refresh_suspended_user() -> Result<()> {
         server_resources.data(),
     );
 
-    // Register and login to get a valid token
-    let register_request = RegisterRequest {
-        analytics_consent: None,
-        email: "mismatch@example.com".to_owned(),
-        password: SecretString::from("mismatchpassword123"),
-        display_name: Some("Mismatch User".to_owned()),
-    };
-
-    let register_response = auth_routes.register(register_request).await?;
-    let user_id = Uuid::parse_str(&register_response.user_id)?;
-
-    // Approve the user for testing
-    database
-        .repositories()
-        .users
-        .update_status(user_id, UserStatus::Active, None)
-        .await?;
+    // An active account, then a login for a valid token
+    let (user_id, _) =
+        common::create_test_user_with_email(&database, "mismatch@example.com").await?;
 
     let login_request = LoginRequest {
         email: "mismatch@example.com".to_owned(),
-        password: SecretString::from("mismatchpassword123"),
+        password: SecretString::from("password123"),
         timezone: None,
     };
 
@@ -1424,7 +1376,7 @@ async fn test_email_validation_comprehensive() -> Result<()> {
             display_name: Some("Test User".to_owned()),
         };
 
-        let result = auth_routes.register(request).await;
+        let result = auth_routes.self_register(request).await;
         assert!(result.is_err(), "Email '{email}' should be invalid");
     }
 
@@ -1445,7 +1397,7 @@ async fn test_email_validation_comprehensive() -> Result<()> {
             display_name: Some(format!("Test User {i}")),
         };
 
-        let result = auth_routes.register(request).await;
+        let result = auth_routes.self_register(request).await;
         assert!(result.is_ok(), "Email '{email}' should be valid");
     }
 
@@ -1471,7 +1423,7 @@ async fn test_password_validation_comprehensive() -> Result<()> {
             display_name: Some("Test User".to_owned()),
         };
 
-        let result = auth_routes.register(request).await;
+        let result = auth_routes.self_register(request).await;
         assert!(result.is_err(), "Password '{password}' should be invalid");
     }
 
@@ -1493,7 +1445,7 @@ async fn test_password_validation_comprehensive() -> Result<()> {
             display_name: Some("Test User".to_owned()),
         };
 
-        let result = auth_routes.register(request).await;
+        let result = auth_routes.self_register(request).await;
         assert!(result.is_ok(), "Password should be valid");
     }
 
@@ -1677,7 +1629,7 @@ async fn test_complete_auth_flow() -> Result<()> {
         display_name: Some("Integration User".to_owned()),
     };
 
-    let register_response = auth_routes.register(register_request).await?;
+    let register_response = auth_routes.self_register(register_request).await?;
     let user_id = Uuid::parse_str(&register_response.user_id)?;
 
     // Approve the user for testing
@@ -1800,7 +1752,7 @@ async fn test_concurrent_registrations() -> Result<()> {
                 display_name: Some(format!("Concurrent User {i}")),
             };
 
-            routes.register(request).await
+            routes.self_register(request).await
         }));
     }
 
@@ -1976,22 +1928,9 @@ async fn test_concurrent_logins() -> Result<()> {
         server_resources.data(),
     );
 
-    // First register and approve users
+    // Active accounts first
     for i in 0..3 {
-        let request = RegisterRequest {
-            analytics_consent: None,
-            email: format!("login_concurrent{i}@example.com"),
-            password: SecretString::from("loginpass123"),
-            display_name: Some(format!("Login User {i}")),
-        };
-        let register_response = auth_routes.register(request).await?;
-        let user_id = Uuid::parse_str(&register_response.user_id)?;
-
-        // Approve the user
-        database
-            .repositories()
-            .users
-            .update_status(user_id, UserStatus::Active, None)
+        common::create_test_user_with_email(&database, &format!("login_concurrent{i}@example.com"))
             .await?;
     }
 
@@ -2002,7 +1941,7 @@ async fn test_concurrent_logins() -> Result<()> {
         handles.push(tokio::spawn(async move {
             let request = LoginRequest {
                 email: format!("login_concurrent{i}@example.com"),
-                password: SecretString::from("loginpass123"),
+                password: SecretString::from("password123"),
                 timezone: None,
             };
 

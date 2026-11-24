@@ -8,7 +8,7 @@
 //! [`assert_tool_called`](helpers::messaging_eval::assert_tool_called).
 //!
 //! The sibling `messaging_eval_phase_1_integration_test.rs` drives the
-//! full webhook → pipeline → endpoint round trip but the `MockLlmProvider`
+//! full webhook → pipeline → `llm_usage` round trip but the `MockLlmProvider`
 //! used there never emits `tool_calls`, so `tools_called` stays empty
 //! and the asserter is only exercised in inverted mode. Setting up a
 //! stub tool registry to route a real tool-call through the full
@@ -19,8 +19,8 @@
 //! Instead, this test bypasses the pipeline and seeds an `llm_usage`
 //! summary row directly. The goal is narrow: prove that when a
 //! conversation turn has `tools_called = ["get_activities"]` on its
-//! summary row, the `/internal/conversation-turn/{turn_id}` endpoint
-//! serializes it into the response JSON, and
+//! summary row, the turn's rows read back through
+//! `find_llm_usage_by_turn_id` carry it, and
 //! [`assert_tool_called`] returns `Ok` for a matching tool name and
 //! `Err` for an absent one. Together with the unit-test happy path
 //! and the phase-1 inverted-mode integration, this closes the coverage
@@ -32,26 +32,21 @@
 #[cfg(feature = "client-messaging")]
 mod tool_called_happy_path {
     use crate::common::create_test_server_resources;
-    use crate::helpers::axum_test::AxumTestRequest;
     use crate::helpers::messaging_eval::assert_tool_called;
-    use axum::http::StatusCode;
     use dravr_tronc::dates::Timestamp;
-    use pierre_core::models::usage::{InsertLlmUsage, TURN_SUMMARY_CALL_TYPE};
+    use pierre_core::models::usage::{InsertLlmUsage, LlmUsageRecord, TURN_SUMMARY_CALL_TYPE};
     use pierre_core::models::ConversationTurnId;
     use pierre_core::models::{Tenant, TenantId, User, UserStatus};
-    use pierre_core::permissions::UserRole;
     use pierre_mcp_server::mcp::resources::ServerContext;
-    use pierre_routes_admin::LlmConsumptionRoutes;
-    use serde_json::Value;
     use serial_test::serial;
     use std::sync::Arc;
     use tokio::task::spawn_blocking;
     use uuid::Uuid;
 
-    async fn create_admin_user_in_tenant(
+    async fn create_user_in_tenant(
         resources: &Arc<ServerContext>,
         email: &str,
-    ) -> (Uuid, TenantId, String) {
+    ) -> (Uuid, TenantId) {
         let password_hash =
             spawn_blocking(|| bcrypt::hash("password123", bcrypt::DEFAULT_COST).unwrap())
                 .await
@@ -59,9 +54,8 @@ mod tool_called_happy_path {
         let mut user = User::new(
             email.to_owned(),
             password_hash,
-            Some("Tool-Called Admin".to_owned()),
+            Some("Tool-Called User".to_owned()),
         );
-        user.role = UserRole::Admin;
         user.user_status = UserStatus::Active;
         user.approved_by = Some(user.id);
         user.approved_at = Some(Timestamp::now());
@@ -93,18 +87,10 @@ mod tool_called_happy_path {
             .update_tenant_id(user_id, tenant_id)
             .await
             .unwrap();
-
-        let token = resources
-            .auth
-            .auth_manager
-            .generate_token(&user, &resources.auth.jwks_manager)
-            .unwrap();
-        (user_id, tenant_id, format!("Bearer {token}"))
+        (user_id, tenant_id)
     }
 
-    /// Seed an `llm_usage` summary row so the
-    /// `/internal/conversation-turn/{turn_id}` endpoint has something
-    /// to return, bypassing the pipeline.
+    /// Seed an `llm_usage` summary row for `turn`, bypassing the pipeline.
     async fn seed_turn_summary_with_tools(
         resources: &Arc<ServerContext>,
         tenant_id: TenantId,
@@ -144,47 +130,52 @@ mod tool_called_happy_path {
             .expect("seed llm_usage summary row");
     }
 
-    /// Query the admin-only conversation-turn endpoint and return the
-    /// parsed body, asserting a 200 response.
-    async fn fetch_turn_json(
+    /// Read back the `llm_usage` rows recorded under `turn`, asserting the
+    /// seeded one is among them.
+    async fn fetch_turn_rows(
         resources: &Arc<ServerContext>,
-        admin_auth: &str,
         turn: ConversationTurnId,
-    ) -> Value {
-        let router = LlmConsumptionRoutes::routes(Arc::clone(resources));
-        let resp = AxumTestRequest::get(&format!("/internal/conversation-turn/{turn}"))
-            .header("authorization", admin_auth)
-            .send(router)
-            .await;
-        assert_eq!(resp.status_code(), StatusCode::OK);
-        resp.json::<Value>()
+    ) -> Vec<LlmUsageRecord> {
+        let rows = resources
+            .common
+            .repos
+            .llm_usage
+            .find_llm_usage_by_turn_id(turn)
+            .await
+            .expect("read the turn's llm_usage rows");
+        assert_eq!(
+            rows.len(),
+            1,
+            "the seeded summary row is the turn's only row"
+        );
+        rows
     }
 
     #[tokio::test]
     #[serial]
     async fn assert_tool_called_passes_when_summary_row_lists_the_tool() {
         let resources = create_test_server_resources().await.unwrap();
-        let (admin_user_id, tenant_id, admin_auth) =
-            create_admin_user_in_tenant(&resources, "tool-called-pos@example.com").await;
+        let (user_id, tenant_id) =
+            create_user_in_tenant(&resources, "tool-called-pos@example.com").await;
 
         let turn = ConversationTurnId::new();
         seed_turn_summary_with_tools(
             &resources,
             tenant_id,
-            admin_user_id,
+            user_id,
             turn,
             r#"["get_activities","get_training_load"]"#,
         )
         .await;
 
-        let body = fetch_turn_json(&resources, &admin_auth, turn).await;
+        let rows = fetch_turn_rows(&resources, turn).await;
 
         // The happy path we couldn't exercise through the pipeline in the
         // phase-1 integration test: asserter returns Ok for a tool that
         // is in the summary row's tools_called array.
-        assert_tool_called(&body, "get_activities")
+        assert_tool_called(&rows, "get_activities")
             .expect("get_activities must be grounded in the seeded summary row");
-        assert_tool_called(&body, "get_training_load")
+        assert_tool_called(&rows, "get_training_load")
             .expect("get_training_load must also be grounded");
     }
 
@@ -192,25 +183,25 @@ mod tool_called_happy_path {
     #[serial]
     async fn assert_tool_called_fails_when_tool_absent_from_summary_row() {
         let resources = create_test_server_resources().await.unwrap();
-        let (admin_user_id, tenant_id, admin_auth) =
-            create_admin_user_in_tenant(&resources, "tool-called-neg@example.com").await;
+        let (user_id, tenant_id) =
+            create_user_in_tenant(&resources, "tool-called-neg@example.com").await;
 
         let turn = ConversationTurnId::new();
         seed_turn_summary_with_tools(
             &resources,
             tenant_id,
-            admin_user_id,
+            user_id,
             turn,
             r#"["get_activities"]"#,
         )
         .await;
 
-        let body = fetch_turn_json(&resources, &admin_auth, turn).await;
+        let rows = fetch_turn_rows(&resources, turn).await;
 
-        // Inverted mode on a real endpoint response: the asserter must
+        // Inverted mode on the stored rows: the asserter must
         // flag a missing tool even when other tools were invoked. This
         // is the hallucination-catching behavior in real scenarios.
-        let err = assert_tool_called(&body, "suggest_goals")
+        let err = assert_tool_called(&rows, "suggest_goals")
             .expect_err("suggest_goals was not in the summary row; asserter must flag");
         assert_eq!(err.expected, "suggest_goals");
         assert_eq!(err.actual, vec!["get_activities".to_owned()]);

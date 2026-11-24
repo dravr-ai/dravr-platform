@@ -337,36 +337,11 @@ pub async fn handle_get_user(
     ))
 }
 
-/// Every pending member of `tenant`, newest first: the pending list of a
-/// token scoped to one tenant, read through the listing the user list pages.
-async fn pending_members(ctx: &AdminApiContext, tenant: TenantId) -> AppResult<Vec<User>> {
-    let mut members = Vec::new();
-    let mut cursor = None;
-    loop {
-        let page = PaginationParams::forward(cursor, PENDING_MEMBERS_PAGE);
-        let page = ctx
-            .repos
-            .users
-            .get_by_status_cursor("pending", Some(tenant), &page)
-            .await?;
-        members.extend(page.items);
-        match page.next_cursor {
-            Some(next) if page.has_more => cursor = Some(next),
-            _ => return Ok(members),
-        }
-    }
-}
-
-/// How many accounts [`pending_members`] reads at a time.
-const PENDING_MEMBERS_PAGE: usize = 100;
-
 /// Handle pending users listing.
 ///
-/// A token scoped to one tenant lists the pending members of that tenant
-/// only ([`user_read_scope`]). A sign-up is a member of no tenant until it
-/// is approved, so such a token is listed none of the sign-ups its read by
-/// id would not find either. An admin's console session and a super-admin
-/// token list them all, and a token bound to no tenant is refused (403).
+/// Mounted for the console alone, behind an admin's session, which reads
+/// every tenant: it lists every pending account, the sign-ups that are a
+/// member of no tenant yet included.
 pub(crate) async fn handle_pending_users(
     State(context): State<Arc<AdminApiContext>>,
     Extension(admin_token): Extension<ValidatedAdminToken>,
@@ -389,14 +364,15 @@ pub(crate) async fn handle_pending_users(
 
     let ctx = context.as_ref();
 
-    let users = match user_read_scope(&admin_token)? {
-        None => ctx.repos.users.get_by_status("pending", None).await,
-        Some(tenant) => pending_members(ctx, tenant).await,
-    }
-    .map_err(|e| {
-        error!(error = %e, "Failed to fetch pending users from database");
-        AppError::internal(format!("Failed to fetch pending users: {e}"))
-    })?;
+    let users = ctx
+        .repos
+        .users
+        .get_by_status("pending", None)
+        .await
+        .map_err(|e| {
+            error!(error = %e, "Failed to fetch pending users from database");
+            AppError::internal(format!("Failed to fetch pending users: {e}"))
+        })?;
 
     let user_summaries: Vec<UserSummary> = users.iter().map(UserSummary::from).collect();
 

@@ -190,7 +190,7 @@ async fn a_deleted_admins_trail_rows_stay_without_their_caller() {
         AuditSource::Cli,
         Some(leaving.id),
         json!({
-            "route": "/admin/suspend-user/{user_id}",
+            "route": "/admin/users/{user_id}/tier",
             "params": { "user_id": athlete },
             "token_id": "tok-1",
             "service": format!("{DEVICE_CLI_SERVICE_PREFIX}{}", leaving.email),

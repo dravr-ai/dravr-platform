@@ -643,9 +643,16 @@ export default function GroupInfoPanel({
                     </div>
                     <div className="stat-card-dark">
                       <p className="text-xs font-medium text-on-surface-variant mb-1">{t('groups.avgWeeklyVolume')}</p>
-                      <p className="text-xl font-bold text-on-surface">
-                        {weeklyVolumeFigure(language, stats.avg_weekly_volume_km, units)}
-                        <span className="text-sm text-on-surface-variant ml-1">{distanceSymbol(units)}</span>
+                      {/* No member's week read: no figure and no unit, never a zero. */}
+                      <p className="text-xl font-bold text-on-surface" data-testid="group-info-avg-volume">
+                        {stats.avg_weekly_volume_km !== null ? (
+                          <>
+                            {weeklyVolumeFigure(language, stats.avg_weekly_volume_km, units)}
+                            <span className="text-sm text-on-surface-variant ml-1">{distanceSymbol(units)}</span>
+                          </>
+                        ) : (
+                          '--'
+                        )}
                       </p>
                     </div>
                     <div className="stat-card-dark">

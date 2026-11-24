@@ -233,8 +233,8 @@ async fn deliver_reply(
 /// `WhatsApp`).
 ///
 /// Every piece carries the turn id from the inbound utterance, so a consumer
-/// inspecting the `DeliveryReceipt` can look up the full turn trace via
-/// `/internal/conversation-turn` — and a split reply reads as one turn rather
+/// inspecting the `DeliveryReceipt` can look up the turn's `llm_usage` rows
+/// by that id — and a split reply reads as one turn rather
 /// than several. `.into()` bridges pierre-core's newtype to canot's. Each
 /// anchors where [`answer_reply_to`] says, so every piece of one answer lands in
 /// the same place as the status placeholder that carries the first.

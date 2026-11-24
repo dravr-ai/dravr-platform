@@ -21,6 +21,9 @@
 //! - a coach's read reaches T2 only while the athlete's health-records grant
 //!   to them stands, and T3 never.
 
+use crate::read_subject::DataClass;
+use crate::tool_data::ToolData;
+use dravr_barrage::Stream;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -187,7 +190,21 @@ impl McpTool<dyn ToolRuntime> for GetHealthRecordsTool {
     }
 }
 
-crate::declare_security!(GetHealthRecordsTool => empty);
+// The T2–T3 records every import stores (carnet#1544): a T2 stream, so
+// the dispatch gate refuses it to every outside client until grants carry
+// authorization details.
+crate::declare_security!(
+    GetHealthRecordsTool => empty,
+    reads: ToolData::of(
+        DataClass::Wellness,
+        &[
+            Stream::Labs,
+            Stream::ClinicalRaw,
+            Stream::RestrictedClinical,
+            Stream::RestrictedSelfReport,
+        ],
+    ),
+);
 
 #[cfg(test)]
 mod tests {

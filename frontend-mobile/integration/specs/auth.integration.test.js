@@ -196,17 +196,6 @@ describe('Authentication Integration Tests', () => {
       expect(result.success).toBe(false);
       expect(result.status).toBe(401);
     });
-
-    it('should check admin setup status without authentication', async () => {
-      // This endpoint is typically public
-      const { getBackendUrl } = require('../helpers/server-manager');
-      const backendUrl = getBackendUrl();
-
-      const response = await fetch(`${backendUrl}${endpoints.adminSetupStatus}`);
-
-      // Should return 200 even without auth (it's a setup check)
-      expect(response.status).toBe(200);
-    });
   });
 
   describe('Session Management', () => {

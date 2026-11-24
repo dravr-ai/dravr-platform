@@ -10,15 +10,6 @@ import { applyTestStubs, loginToDashboard, pickViewModeAtSignIn, setupDashboardM
 // Helper to authenticate as an admin and navigate to users tab
 async function loginAsAdminAndNavigateToUsers(page: Page) {
   await applyTestStubs(page);
-  // Mock setup status
-  await page.route('**/admin/setup/status', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ needs_setup: false, admin_user_exists: true }),
-    });
-  });
-
   // Mock the hosted sign-in's code exchange - ADMIN role
   await page.route('**/oauth/token', async (route) => {
     await route.fulfill({

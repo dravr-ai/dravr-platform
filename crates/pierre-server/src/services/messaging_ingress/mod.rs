@@ -914,7 +914,7 @@ async fn persist_single_message(
             // Canot generates the turn id at the webhook boundary
             // (see canot's IncomingMessage::turn_id); adopt it so
             // canot-emitted log spans and the platform's
-            // /internal/conversation-turn row share one key.
+            // `llm_usage` rows of the turn share one key.
             turn_id: message.turn_id.into(),
             status_api_base: status_api_base.map(str::to_owned),
             // Recorded by `start_turn`, which hands the row on.

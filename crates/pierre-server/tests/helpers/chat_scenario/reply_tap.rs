@@ -42,8 +42,8 @@ pub(crate) struct ReplySample {
     pub hashed_user_id: String,
     /// BCP-47 short locale resolved at dispatch.
     pub locale: String,
-    /// Conversation turn id — the same one that threads
-    /// `/internal/conversation-turn/{id}` observability.
+    /// Conversation turn id — the same one the turn's `llm_usage` rows
+    /// are recorded under.
     pub turn_id: String,
     /// Agent personality id at dispatch time (`endurance`,
     /// `strength`, …). `None` for messaging-only users without an

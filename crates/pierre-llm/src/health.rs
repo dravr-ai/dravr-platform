@@ -1,5 +1,5 @@
-// ABOUTME: LLM startup probe health state for the /ready and /health/llm endpoints
-// ABOUTME: Pure value types — no pierre-server coupling — consumed by the readiness gate
+// ABOUTME: LLM startup probe health state, read by the chat pipeline before it serves a turn
+// ABOUTME: Pure value types — no pierre-server coupling — written by the probe, read by the turn gate
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -7,9 +7,9 @@
 //! # LLM Health Probe Types
 //!
 //! Shared types for the LLM startup probe and runtime health snapshot. The
-//! `/ready` and `/health/llm` Axum handlers in pierre-server consume
-//! [`LlmHealthState`]; the chat provider factory writes to it after every
-//! probe round-trip.
+//! chat pipeline reads [`LlmHealthState`] before it serves a turn, refusing
+//! one while no tier answers; the chat provider factory writes to it after
+//! every probe round-trip.
 
 use std::fmt;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -33,9 +33,8 @@ fn elapsed_ms() -> u64 {
 
 /// Status reported by the LLM startup probe.
 ///
-/// `Unknown` is the boot default — the `/ready` route returns 200 in that
-/// window so a slow LLM round-trip does not delay Cloud Run's first traffic
-/// shift. Once the probe finishes, the status flips to `Healthy` or
+/// `Unknown` is the boot default — a turn is served in that window, so a
+/// slow LLM round-trip does not hold back the first turns. Once the probe finishes, the status flips to `Healthy` or
 /// `Unhealthy`. `Unhealthy` means no tier of the chain answers: a dead tier
 /// in front of a live one is benched ([`crate::tier_bench`]) and the chain
 /// reads `Healthy`. An `Unhealthy` chain is asked again every
@@ -79,7 +78,7 @@ pub struct TierProbe {
     pub outcome: Result<String, String>,
 }
 
-/// Snapshot of the most recent LLM probe result, exposed via `/health/llm`.
+/// Snapshot of the most recent LLM probe result.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LlmHealthSnapshot {
     /// Probe status — defaults to [`LlmHealthStatus::Unknown`] until the
@@ -113,13 +112,11 @@ impl Default for LlmHealthSnapshot {
     }
 }
 
-/// Shared LLM health state populated by the startup probe and consumed by
-/// the `/ready` and `/health/llm` Axum handlers.
+/// Shared LLM health state populated by the startup probe and read by the
+/// chat pipeline, which refuses a turn while `status == Unhealthy`.
 ///
-/// Cloud Run's startup probe defaults to `/health` (matched by the Docker
-/// `HEALTHCHECK`). Admins who want a hard gate on the boot-time LLM
-/// round-trip can point the startup probe at `/ready` instead — that
-/// handler returns 503 while `status == Unhealthy`.
+/// Cloud Run's startup probe hits `/health` (matched by the Docker
+/// `HEALTHCHECK`), which this state never gates.
 #[derive(Debug)]
 pub struct LlmHealthState {
     inner: RwLock<LlmHealthSnapshot>,
@@ -186,7 +183,7 @@ impl LlmHealthState {
     /// The periodic probe piggybacks on real traffic to skip its billed
     /// round-trip, but that traffic proves liveness as of the *last real
     /// success* — up to a full probe interval old — not the moment the tick
-    /// observed it. Stamping the real time keeps `/health/llm`'s `checked_at`
+    /// observed it. Stamping the real time keeps the snapshot's `checked_at`
     /// honest instead of reporting a freshly-checked snapshot backed by a stale
     /// success.
     pub async fn record_healthy_observed(

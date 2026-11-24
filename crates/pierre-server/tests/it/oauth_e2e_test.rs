@@ -168,7 +168,7 @@ use pierre_mcp_server::mcp::{
     multitenant::ProviderToolRouter,
     resources::{ServerContext, ServerContextOptions},
 };
-use pierre_routes_auth::{AuthService, OAuthService, RegisterRequest};
+use pierre_routes_auth::OAuthService;
 use pierre_services::oauth_flow::AuthUrlOptions;
 use pierre_test_support::db::create_test_db_with_key;
 use serde_json::json;
@@ -1104,21 +1104,12 @@ async fn test_connection_status_tracking() {
         .unwrap(),
     );
 
-    let auth_routes = AuthService::new(
-        server_resources.auth.auth_manager.clone(),
-        server_resources.auth.jwks_manager.clone(),
-        server_resources.common.config.clone(),
-        server_resources.data(),
-    );
-    let register_request = RegisterRequest {
-        analytics_consent: None,
-        email: "status_test@example.com".to_owned(),
-        password: SecretString::from("password123"),
-        display_name: None,
-    };
-
-    let register_response = auth_routes.register(register_request).await.unwrap();
-    let user_id = uuid::Uuid::parse_str(&register_response.user_id).unwrap();
+    let (user_id, _) = common::create_test_user_with_email(
+        &server_resources.agent.database,
+        "status_test@example.com",
+    )
+    .await
+    .unwrap();
 
     // Check initial connection status
     let oauth_routes = OAuthService::new(

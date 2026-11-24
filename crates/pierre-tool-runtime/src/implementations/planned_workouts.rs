@@ -69,6 +69,8 @@
 //!   and the cap bounds what a label can carry.
 
 use crate::annotations::{annotations, Effect, Reach};
+use crate::tool_data::ToolData;
+use dravr_barrage::Stream;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
@@ -982,4 +984,10 @@ fn neutralized(workout: &PlannedWorkout) -> PlannedWorkout {
     .build()
 }
 
-crate::declare_security!(GetPlannedWorkoutsTool => empty);
+// Plans, prescriptions and calendar entries: the planned sessions, whose
+// titles and descriptions a provider or coach wrote.
+crate::declare_security!(
+    GetPlannedWorkoutsTool => empty,
+    reads: ToolData::own(&[Stream::Workout])
+        .with_athlete_text(),
+);

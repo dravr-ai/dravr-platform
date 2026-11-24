@@ -543,16 +543,18 @@ async fn the_roster_tool_names_each_recent_session_by_its_day_and_weekday() {
             ));
             pointers.push(format!("/training/recent_activities/{index}/weekday"));
         }
-        // Her weeks are her calendar days too: this week is her today and the
-        // six days before it, six 6 km runs; the week before, seven. Counted
-        // as 24-hour spans back from now, the run seven days back would join
-        // this week whenever it is before noon where she lives.
+        // Her weeks are Monday-to-Sunday weeks on her calendar, the ones her
+        // Home volume card shows: this week holds one 6 km run for each day
+        // from her Monday to her yesterday; the week before, seven. Read on
+        // UTC's calendar, the week would turn at the wrong midnight.
+        let here = today.in_zone(zone);
+        let this_week = days_between(monday_of(here), here);
         for (pointer, value) in [
-            ("/training/sessions_this_week", "6"),
-            ("/training/km_this_week", "36.0"),
-            ("/training/km_previous_week", "42.0"),
+            ("/training/sessions_this_week", this_week.to_string()),
+            ("/training/km_this_week", format!("{}.0", 6 * this_week)),
+            ("/training/km_previous_week", "42.0".to_owned()),
         ] {
-            expected.push((pointer.to_owned(), value.to_owned()));
+            expected.push((pointer.to_owned(), value));
             pointers.push(pointer.to_owned());
         }
         let pinned: Vec<&str> = pointers.iter().map(String::as_str).collect();

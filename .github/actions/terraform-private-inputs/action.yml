@@ -1,0 +1,43 @@
+# ABOUTME: Stages the private terraform var-file for one environment before a plan or an apply
+# ABOUTME: Fetches it from the private dravr-savoir repository and fails when it is missing
+#
+# SPDX-License-Identifier: MIT OR Apache-2.0
+# Copyright (c) 2026 dravr.ai
+#
+# This repository is public, so account ids, addresses and every alert
+# threshold are inputs with no default (infra/environments/<env>/private_inputs.tf
+# and variables.tf). Their values live in dravr-savoir under
+# platform/infra/<env>.private.tfvars. Terraform loads any *.auto.tfvars in the
+# root module by itself, so staging the file under that name is all a plan
+# needs; infra/.gitignore keeps it out of the tree.
+name: Stage private terraform inputs
+description: Copies the environment's private var-file from dravr-savoir into its terraform root as private.auto.tfvars
+
+inputs:
+  environment:
+    description: Terraform environment directory under infra/environments (dev or prod)
+    required: true
+  token:
+    description: A token that can read dravr-ai/dravr-savoir (GITHUB_TOKEN cannot)
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Stage private.auto.tfvars
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        TF_ENVIRONMENT: ${{ inputs.environment }}
+      run: |
+        set -euo pipefail
+        if [ -z "${GH_TOKEN}" ]; then
+          echo "::error::no token to read dravr-savoir: the private terraform inputs cannot be fetched, so no plan can run"
+          exit 1
+        fi
+        src="${RUNNER_TEMP}/savoir-private-inputs"
+        rm -rf "${src}"
+        # gh's clone prints no commit subject, so nothing of the private history reaches this log.
+        gh repo clone dravr-ai/dravr-savoir "${src}" -- --quiet --depth 1
+        "${GITHUB_WORKSPACE}/infra/private-inputs.sh" "${TF_ENVIRONMENT}" "${src}"
+        rm -rf "${src}"

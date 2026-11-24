@@ -102,11 +102,11 @@ resource "google_monitoring_alert_policy" "first_party_authorize_refused" {
     condition_threshold {
       filter          = "resource.type=\"cloud_run_revision\" AND metric.type=\"logging.googleapis.com/user/${google_logging_metric.first_party_authorize_refused.name}\""
       comparison      = "COMPARISON_GT"
-      threshold_value = 0
-      duration        = "0s"
+      threshold_value = var.alert_thresholds["first_party_sign_in.authorize_refused.threshold"]
+      duration        = var.alert_windows["first_party_sign_in.authorize_refused.duration"]
 
       aggregations {
-        alignment_period   = "300s"
+        alignment_period   = var.alert_windows["first_party_sign_in.authorize_refused.alignment_period"]
         per_series_aligner = "ALIGN_DELTA"
       }
     }
@@ -115,7 +115,7 @@ resource "google_monitoring_alert_policy" "first_party_authorize_refused" {
   notification_channels = [google_monitoring_notification_channel.slack_alerts.id]
 
   alert_strategy {
-    auto_close = "1800s"
+    auto_close = var.alert_windows["first_party_sign_in.authorize_refused.auto_close"]
   }
 
   depends_on = [time_sleep.first_party_authorize_metric_propagation]

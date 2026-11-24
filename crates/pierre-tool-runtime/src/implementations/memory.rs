@@ -12,6 +12,8 @@
 //! fact extractor in `services/memory_extraction.rs`.
 
 use crate::annotations::{annotations, Effect, Reach};
+use crate::tool_data::ToolData;
+use dravr_barrage::Stream;
 use pierre_core::constants::oauth_providers::names_kept_out_source;
 use pierre_providers::ai_scope;
 use pierre_services::memory_facts::SentenceRenderer;
@@ -459,5 +461,12 @@ pub fn create_memory_tools() -> Vec<Box<dyn RuntimeTool>> {
 // Guardian security classifications (see `crate::security`). Co-located here so
 // each impl sits under this module's existing feature gate; the compiler forces
 // every registered tool to classify (the registry stores `Arc<dyn RuntimeTool>`).
-crate::declare_security!(RecallUserMemoryTool => empty);
-crate::declare_security!(RememberFactTool => empty; first_party_only);
+// The agent's own memory of the athlete.
+crate::declare_security!(
+    RecallUserMemoryTool => empty,
+    reads: ToolData::own(&[Stream::RestrictedNotes]),
+);
+crate::declare_security!(
+    RememberFactTool => empty; first_party_only,
+    reads: ToolData::own(&[Stream::RestrictedNotes]),
+);

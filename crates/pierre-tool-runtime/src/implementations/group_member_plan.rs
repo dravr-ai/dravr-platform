@@ -27,6 +27,8 @@
 //! that they are not its coach, as anyone is.
 
 use crate::annotations::{annotations, Effect, Reach};
+use crate::tool_data::ToolData;
+use dravr_barrage::Stream;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -389,7 +391,10 @@ impl McpTool<dyn ToolRuntime> for GetGroupMemberPlanStatusTool {
 // transport for a human coach or an admin (`crate::tool_access`), and
 // externally it shows only the members who allowed their coach's assistant
 // (`crate::coach_assistant`).
-crate::declare_security!(GetGroupMemberPlanStatusTool => empty; coach);
+crate::declare_security!(
+    GetGroupMemberPlanStatusTool => empty; coach,
+    reads: ToolData::own(&[Stream::Workout]),
+);
 
 #[cfg(test)]
 mod tests {

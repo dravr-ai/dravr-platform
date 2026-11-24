@@ -15,6 +15,16 @@ backend_image = "northamerica-northeast1-docker.pkg.dev/dravr-artifacts/dravr-im
 artifacts_project_id = "dravr-artifacts"
 
 # -----------------------------------------------------------------------------
+# Private inputs (no defaults)
+# -----------------------------------------------------------------------------
+# Account-scoped identifiers have no value in the committed terraform.tfvars.
+# The real values live in a private var-file that infra/private-inputs.sh
+# stages as private.auto.tfvars, which terraform loads after terraform.tfvars.
+# The value below is a placeholder, not a real project.
+
+firebase_project_id = "example-firebase-project"
+
+# -----------------------------------------------------------------------------
 # Optional Variables (defaults shown, uncomment to override)
 # -----------------------------------------------------------------------------
 

@@ -235,8 +235,6 @@ impl OAuth2Routes {
                 post(Self::handle_validate_and_refresh),
             )
             .route("/oauth2/token-validate", post(Self::handle_token_validate))
-            // JWKS also available at /oauth2/jwks
-            .route("/oauth2/jwks", get(Self::handle_jwks))
             .with_state(context)
     }
 

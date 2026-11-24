@@ -1,4 +1,4 @@
-// ABOUTME: What each registered tool reads, declared once beside its category: whose data, which streams, provider text
+// ABOUTME: What each registered tool reads, declared on the tool itself: whose data, which streams, provider text
 // ABOUTME: Read by the coach-read gate (its class) and by the trust label a result carries (its streams and text)
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -18,8 +18,9 @@ use crate::read_subject::DataClass;
 
 /// What one registered tool reads.
 ///
-/// Built in a `const` table with [`Self::of`] or [`Self::own`] and
-/// [`Self::with_athlete_text`].
+/// Every tool declares it ([`RuntimeTool::tool_data`](crate::security::RuntimeTool::tool_data)), built with
+/// [`Self::of`] or [`Self::own`] and the `with_` modifiers, beside its
+/// security labels ([`declare_security!`](crate::declare_security)).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ToolData {
     /// Whose data a coach's call may read through it; `None` when it reads

@@ -33,9 +33,6 @@ use uuid::Uuid;
 /// the sign-in page's script navigates to.
 const HOSTED_SIGNIN_SUCCESS_PATH: &str = "/providers/signin/success";
 
-/// The hosted sign-in's error page (`?message=...`): a wire path the router serves.
-const HOSTED_SIGNIN_ERROR_PATH: &str = "/providers/signin/error";
-
 /// The backend TrainingPeaks' exposure notice guards.
 const TP_NOTICE_BACKEND: &str = "sciotte_trainingpeaks";
 
@@ -914,11 +911,7 @@ async fn every_hosted_page_names_the_channel_by_its_canot_display_name() {
             .display_name();
         assert_eq!(channel_label(&slug), name, "{slug} is labelled by canot");
 
-        for success in [
-            "/providers/connect/success",
-            HOSTED_SIGNIN_SUCCESS_PATH,
-            "/providers/sciotte/success",
-        ] {
+        for success in ["/providers/connect/success", HOSTED_SIGNIN_SUCCESS_PATH] {
             let body = page(
                 &resources,
                 &format!("{success}?channel={slug}&target=strava"),
@@ -1062,22 +1055,12 @@ async fn the_signin_paths_serve_the_pages_the_earlier_paths_still_serve() {
     let query = "?channel=telegram&target=garmin";
     let success = page(&resources, &format!("{HOSTED_SIGNIN_SUCCESS_PATH}{query}")).await;
     assert!(success.contains("Garmin"), "{success}");
-    assert_eq!(
-        success,
-        page(&resources, &format!("/providers/sciotte/success{query}")).await,
-        "both success paths render one page"
-    );
 
-    let error = page(
-        &resources,
-        &format!("{HOSTED_SIGNIN_ERROR_PATH}?message=Try%20again"),
-    )
-    .await;
-    assert!(error.contains("Try again"), "{error}");
-    assert_eq!(
-        error,
-        page(&resources, "/providers/sciotte/error?message=Try%20again").await,
-        "both error paths render one page"
+    // A link the page cannot serve answers with the error page in place.
+    let error = page(&resources, HOSTED_SIGNIN_PATH).await;
+    assert!(
+        error.contains("link") && !error.contains("action=\"/api/providers/sciotte/login\""),
+        "a link without its token renders the error page: {error}"
     );
     for body in [&success, &error] {
         assert!(

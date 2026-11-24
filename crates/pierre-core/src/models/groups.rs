@@ -779,18 +779,23 @@ pub struct MemberFitnessSnapshot {
     /// CTL at the end of the day before — the fitness `tsb` is a share of.
     /// Read form through [`Self::form_reading`], never as `tsb / ctl`.
     pub form_ctl: Option<f64>,
-    /// Weekly volume in kilometers
-    pub weekly_volume_km: f64,
-    /// Previous week's volume in kilometers (for trend calculation)
+    /// Kilometres this week: the Monday-to-Sunday week on the member's own
+    /// calendar, the number their Home volume card shows. `None` when the
+    /// stored history does not vouch for the week (nothing stored yet, or a
+    /// history that starts after it), which is never a zero.
+    pub weekly_volume_km: Option<f64>,
+    /// Kilometres the Monday week before, for the trend; `None` when the
+    /// stored history does not vouch for it.
     pub previous_week_volume_km: Option<f64>,
-    /// Number of activities this week
-    pub weekly_activity_count: i32,
-    /// Total weekly active duration in seconds across all activities.
-    /// Surfaces training volume for HR/duration-only sources (WHOOP,
-    /// indoor trainers, treadmill sessions) that report no GPS distance
-    /// — without this the group card renders such weeks as `0.0 km`
-    /// and the LLM has no visibility into the athlete's actual workload.
-    pub weekly_duration_seconds: u64,
+    /// Sessions this Monday week; `None` as for [`Self::weekly_volume_km`].
+    pub weekly_activity_count: Option<i32>,
+    /// Elapsed seconds this Monday week; `None` as for
+    /// [`Self::weekly_volume_km`]. Surfaces training volume for
+    /// HR/duration-only sources (WHOOP, indoor trainers, treadmill sessions)
+    /// that report no GPS distance — without this the group card renders
+    /// such weeks as `0.0 km` and the LLM has no visibility into the
+    /// athlete's actual workload.
+    pub weekly_duration_seconds: Option<u64>,
     /// Primary sport type
     pub primary_sport: Option<String>,
     /// VDOT (running fitness estimator)
@@ -1010,8 +1015,9 @@ pub struct GroupAggregateStats {
     pub total_members: i64,
     /// Members active in the period
     pub active_members: i64,
-    /// Average weekly volume in km
-    pub avg_weekly_volume_km: f64,
+    /// Mean kilometres this Monday week over the members whose week is
+    /// read; `None` when no member's week is read, which is never a zero.
+    pub avg_weekly_volume_km: Option<f64>,
     /// Average CTL across members
     pub avg_ctl: Option<f64>,
     /// Members with overtraining risk

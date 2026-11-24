@@ -9,18 +9,6 @@ import { SIGN_IN_BUTTON, signInThroughHostedPage, waitForLoginScreen } from './t
 
 // Helper to mock a pending user login that results in pending approval page
 async function loginAsPendingUser(page: import('@playwright/test').Page) {
-  // Mock setup status
-  await page.route('**/admin/setup/status', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        needs_setup: false,
-        admin_user_exists: true,
-      }),
-    });
-  });
-
   // Mock the hosted sign-in's code exchange to return a pending user
   await page.route('**/oauth/token', async (route) => {
     await route.fulfill({
@@ -133,18 +121,6 @@ test.describe('Pending Approval Page - Status Badge', () => {
 
 test.describe('Pending Approval Page - Without Display Name', () => {
   test('renders correctly when user has no display name', async ({ page }) => {
-    // Mock setup status
-    await page.route('**/admin/setup/status', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          needs_setup: false,
-          admin_user_exists: true,
-        }),
-      });
-    });
-
     // Mock the hosted sign-in's code exchange with user without display name
     await page.route('**/oauth/token', async (route) => {
       await route.fulfill({
@@ -191,18 +167,6 @@ test.describe('Pending Approval Page - Without Display Name', () => {
 
 test.describe('Pending Approval Page - Active User Redirect', () => {
   test('active user does not see pending approval page', async ({ page }) => {
-    // Mock setup status
-    await page.route('**/admin/setup/status', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          needs_setup: false,
-          admin_user_exists: true,
-        }),
-      });
-    });
-
     // Mock the hosted sign-in's code exchange with an active user
     await page.route('**/oauth/token', async (route) => {
       await route.fulfill({

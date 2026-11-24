@@ -14,9 +14,6 @@ const TOKEN = 'AbCd1234EfGh5678.IjKl9012MnOp3456QrSt7890UvWx1234';
 
 test.describe('Coach-seat invitation link', () => {
   async function setupLink(page: Page) {
-    await page.route('**/admin/setup/status', (route) =>
-      json(route, 200, { needs_setup: false, admin_user_exists: true, message: 'Admin user configured' }),
-    );
     await page.route('**/api/auth/session', (route) => json(route, 401, {}));
   }
 

@@ -8,14 +8,9 @@ use secrecy::SecretString;
 use std::sync::Arc;
 
 use axum::{
-    body::Bytes,
-    extract::{Query, State},
-    http::StatusCode,
-    response::IntoResponse,
-    Extension, Json,
+    body::Bytes, extract::State, http::StatusCode, response::IntoResponse, Extension, Json,
 };
 use serde_json::{from_slice, json, to_value};
-use tokio::task;
 use tracing::{info, warn};
 
 use pierre_auth::api_keys::{ApiKey, ApiKeyManager, ApiKeyTier, CreateApiKeyRequest};
@@ -30,8 +25,7 @@ use pierre_database::database::repositories::{AdminRepository, UserRepository};
 use pierre_middleware::redaction::mask_email;
 
 use super::types::{
-    AdminResponse, ListApiKeysQuery, ProvisionApiKeyRequest, ProvisionApiKeyResponse,
-    RateLimitInfo, RevokeKeyRequest,
+    AdminResponse, ProvisionApiKeyRequest, ProvisionApiKeyResponse, RateLimitInfo, RevokeKeyRequest,
 };
 use crate::context::AdminApiContext;
 use dravr_tronc::dates::Timestamp;
@@ -427,133 +421,4 @@ pub(crate) async fn handle_revoke_api_key(
             ))
         }
     }
-}
-
-/// Handle API key listing
-pub(crate) async fn handle_list_api_keys(
-    State(context): State<Arc<AdminApiContext>>,
-    Extension(admin_token): Extension<ValidatedAdminToken>,
-    Query(params): Query<ListApiKeysQuery>,
-) -> AppResult<impl IntoResponse> {
-    if !admin_token.permissions.has_permission(&AdminPerm::ListKeys) {
-        return Ok(json_response(
-            AdminResponse {
-                success: false,
-                message: "Permission denied: ListKeys required".to_owned(),
-                data: None,
-            },
-            StatusCode::FORBIDDEN,
-        ));
-    }
-
-    info!("Listing API keys by token: {}", admin_token.token_id);
-
-    let ctx = context.as_ref();
-
-    let user_email = params.user_email.as_deref();
-    let active_only = params.active_only.unwrap_or(true);
-    let limit = params
-        .limit
-        .as_ref()
-        .and_then(|s| s.parse::<i32>().ok())
-        .map(|l| l.clamp(1, 100));
-    let offset = params
-        .offset
-        .as_ref()
-        .and_then(|s| s.parse::<i32>().ok())
-        .map(|o| o.max(0));
-
-    match ctx
-        .repos
-        .api_keys
-        .get_filtered(user_email, active_only, limit, offset)
-        .await
-    {
-        Ok(api_keys) => {
-            let api_key_responses: Vec<serde_json::Value> = api_keys
-                .into_iter()
-                .map(|key| {
-                    json!({
-                        "id": key.id,
-                        "user_id": key.user_id.clone(),
-                        "name": key.name,
-                        "description": key.description,
-                        "tier": format!("{:?}", key.tier).to_lowercase(),
-                        "rate_limit": {
-                            "requests": key.rate_limit_requests,
-                            "window": key.rate_limit_window_seconds
-                        },
-                        "is_active": key.is_active,
-                        "created_at": key.created_at.to_rfc3339(),
-                        "last_used_at": key.last_used_at.map(Timestamp::to_rfc3339),
-                        "expires_at": key.expires_at.map(Timestamp::to_rfc3339),
-                        "usage_count": 0
-                    })
-                })
-                .collect();
-
-            Ok(json_response(
-                AdminResponse {
-                    success: true,
-                    message: format!("Found {} API keys", api_key_responses.len()),
-                    data: Some(json!({
-                        "filters": {
-                            "user_email": user_email,
-                            "active_only": active_only,
-                            "limit": limit,
-                            "offset": offset
-                        },
-                        "keys": api_key_responses,
-                        "count": api_key_responses.len()
-                    })),
-                },
-                StatusCode::OK,
-            ))
-        }
-        Err(e) => {
-            warn!("Failed to list API keys: {}", e);
-            Ok(json_response(
-                AdminResponse {
-                    success: false,
-                    message: format!("Failed to list API keys: {e}"),
-                    data: None,
-                },
-                StatusCode::INTERNAL_SERVER_ERROR,
-            ))
-        }
-    }
-}
-
-/// Handle token info (GET /admin/token-info)
-/// Returns information about the authenticated admin token
-pub(crate) async fn handle_token_info(
-    Extension(admin_token): Extension<ValidatedAdminToken>,
-) -> Json<serde_json::Value> {
-    let token_id = admin_token.token_id;
-    let service_name = admin_token.service_name.clone();
-    let permissions = admin_token.permissions.clone();
-    let is_super_admin = admin_token.is_super_admin;
-
-    let token_info_json = task::spawn_blocking(move || {
-        let permission_strings: Vec<String> = permissions
-            .to_vec()
-            .iter()
-            .map(ToString::to_string)
-            .collect();
-
-        json!({
-            "token_id": token_id,
-            "service_name": service_name,
-            "permissions": permission_strings,
-            "is_super_admin": is_super_admin
-        })
-    })
-    .await
-    .unwrap_or_else(|_| {
-        json!({
-            "error": "Failed to serialize token info"
-        })
-    });
-
-    Json(token_info_json)
 }

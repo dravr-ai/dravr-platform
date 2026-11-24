@@ -11,7 +11,7 @@
 //! (register → pending) and `::test_register_and_login_flow` — but the
 //! latter only asserts login "should either succeed or be forbidden due to
 //! pending approval", so it never exercises the approved → login transition.
-//! `admin_user_approval_e2e_test` covers the real `/admin/approve-user`
+//! `admin_user_approval_e2e_test` covers the real `/api/admin/approve-user`
 //! endpoint, but it creates the user by inserting a `User` struct directly
 //! into the DB, bypassing the real `/register` handler.
 //!
@@ -22,7 +22,7 @@
 //!    that drops/renames a `users` column would break, and which the
 //!    struct-insert tests cannot catch.
 //! 2. Admin approval flips the user to `Active` (state transition only — the
-//!    `/admin/approve-user` HTTP endpoint itself is covered by
+//!    `/api/admin/approve-user` HTTP endpoint itself is covered by
 //!    `admin_user_approval_e2e_test`; re-mounting the heavyweight
 //!    `AdminApiContext` here would duplicate it).
 //! 3. The apps' sign-in (hosted login page, code redeemed at

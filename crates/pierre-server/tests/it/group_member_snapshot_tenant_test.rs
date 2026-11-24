@@ -22,12 +22,16 @@ mod snapshot_tenant_tests {
     use crate::common::create_test_server_resources;
     use dravr_cageux::training_load::TrainingLoadCalculator;
     use dravr_tronc::dates::{Elapsed, Timestamp};
+    use pierre_core::models::groups::MemberFitnessSnapshot;
     use pierre_core::models::{
         Activity, ActivityBuilder, ConnectionType, SportType, Tenant, TenantId, User,
         UserPhysiologicalProfile, UserStatus,
     };
     use pierre_fitness_compute::AthleteInputs;
     use pierre_mcp_server::mcp::resources::ServerContext;
+    use pierre_tool_runtime::activity_query::{
+        query_activities, ActivityPredicate, ActivityQuery, QueryMetric, ReadGate,
+    };
     use pierre_tool_runtime::group_fitness::fetch_member_snapshots;
     use pierre_tool_runtime::runtime::ToolRuntime;
     use std::sync::Arc;
@@ -75,6 +79,12 @@ mod snapshot_tenant_tests {
             .await
             .unwrap();
         tenant_id
+    }
+
+    /// The kilometres of the two Monday weeks a snapshot reads: a ride two
+    /// days back is in this week or, early in the week, the one before.
+    fn two_weeks_km(snap: &MemberFitnessSnapshot) -> f64 {
+        snap.weekly_volume_km.unwrap_or(0.0) + snap.previous_week_volume_km.unwrap_or(0.0)
     }
 
     fn recent_ride(id: &str) -> Activity {
@@ -129,14 +139,84 @@ mod snapshot_tenant_tests {
         assert_eq!(snapshots.len(), 1, "one member requested → one snapshot");
         let snap = &snapshots[0];
         assert!(
-            snap.weekly_activity_count >= 1,
-            "member's activity must surface from THEIR connection tenant, got weekly_activity_count={} (regression: empty snapshot under the wrong tenant)",
-            snap.weekly_activity_count
+            (two_weeks_km(snap) - 60.0).abs() < 1e-9,
+            "member's ride must surface from THEIR connection tenant (regression: empty snapshot under the wrong tenant)"
         );
+    }
+
+    /// The weekly figure is the one the member's Home volume card shows: the
+    /// count of the one tenant their Home opens in. A member connected in two
+    /// tenants holds the same ride under both, and a ride of its own under
+    /// the second; the group's figure neither doubles the first nor adds the
+    /// second.
+    #[tokio::test]
+    async fn weekly_volume_is_what_the_members_home_counts_never_a_sum_over_tenants() {
+        let resources = create_test_server_resources().await.unwrap();
+        let member = seed_user(&resources, "homeweek").await;
+        let owned = [
+            create_tenant_owned_by(&resources, member).await,
+            create_tenant_owned_by(&resources, member).await,
+        ];
+        let repos = &resources.common.repos;
+        // The tenant every sign-in opens the member's Home in.
+        let home = repos.tenants.first_for_user(member).await.unwrap().unwrap();
+        let second = owned.into_iter().find(|tenant| *tenant != home).unwrap();
+
+        let second_only = ActivityBuilder::new(
+            "ride-second-only".to_owned(),
+            "ride second only".to_owned(),
+            SportType::Ride,
+            Timestamp::now() - Elapsed::days(3),
+            3_600,
+            "strava".to_owned(),
+        )
+        .distance_meters(25_000.0)
+        .build();
+        for (tenant, rides) in [
+            (home, vec![recent_ride("ride-both")]),
+            (second, vec![recent_ride("ride-both"), second_only]),
+        ] {
+            repos
+                .provider_connections
+                .register_connection(member, tenant, "strava", &ConnectionType::OAuth, None)
+                .await
+                .unwrap();
+            repos
+                .activity_cache
+                .upsert_activities(member, &tenant, "strava", &rides)
+                .await
+                .unwrap();
+        }
+
+        let runtime: Arc<dyn ToolRuntime> = resources.clone();
+        // Home's own read: the stored workouts of its one tenant, as the
+        // volume card counts them.
+        let query = ActivityQuery {
+            from: None,
+            to: Timestamp::now().utc_date(),
+            filter: ActivityPredicate::default(),
+            group_by: Vec::new(),
+            metrics: vec![QueryMetric::DistanceKm],
+            provider: None,
+        };
+        let home_km = query_activities(&runtime, member, home, &query, ReadGate::Display)
+            .await
+            .unwrap()
+            .totals
+            .distance_km
+            .unwrap();
         assert!(
-            snap.weekly_volume_km > 0.0,
-            "weekly volume must be non-zero, got {}",
-            snap.weekly_volume_km
+            (home_km - 60.0).abs() < 1e-9,
+            "test setup bug: Home counts its tenant's one ride, got {home_km}"
+        );
+
+        let snapshots = fetch_member_snapshots(&runtime, &[member], TenantId::generate()).await;
+        assert_eq!(snapshots.len(), 1, "one member requested, one snapshot");
+        let group_km = two_weeks_km(&snapshots[0]);
+        assert!(
+            (group_km - home_km).abs() < 1e-9,
+            "the group's figure is not the member's Home figure: {group_km} against {home_km} \
+             (120 doubles the ride held under both tenants, 85 adds the second tenant's ride)"
         );
     }
 
@@ -267,15 +347,9 @@ mod snapshot_tenant_tests {
             "an unrefreshable stale cache must mark the snapshot served_stale"
         );
         assert!(
-            snap.weekly_activity_count >= 1,
+            (two_weeks_km(snap) - 60.0).abs() < 1e-9,
             "the cached ride must still be served — a failed refresh must not \
-             replace real rows with emptiness, got weekly_activity_count={}",
-            snap.weekly_activity_count
-        );
-        assert!(
-            snap.weekly_volume_km > 0.0,
-            "cached volume must survive the failed refresh, got {}",
-            snap.weekly_volume_km
+             replace real rows with emptiness"
         );
     }
 
@@ -314,7 +388,7 @@ mod snapshot_tenant_tests {
             "a fully fresh cache must not carry the stale marker"
         );
         assert!(
-            snapshots[0].weekly_activity_count >= 1,
+            (two_weeks_km(&snapshots[0]) - 60.0).abs() < 1e-9,
             "the fresh ride must be served"
         );
     }

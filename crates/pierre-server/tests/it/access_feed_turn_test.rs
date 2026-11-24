@@ -31,6 +31,7 @@ use pierre_chat_pipeline::{
 use pierre_core::errors::AppResult;
 use pierre_core::models::{
     ApiKeyUsage, ConversationTurnId, OutsideReadKind, TenantId, AGENT_TURN_ROUTE,
+    TURN_SUMMARY_CALL_TYPE,
 };
 use pierre_core::permissions::impersonation::{CallerCredential, CredentialKind};
 use pierre_core::permissions::scopes::OAuthScope;
@@ -40,7 +41,6 @@ use pierre_mcp_server::mcp::multitenant::ProviderToolRouter;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::services::a2a_coaching::PipelineCoachingTurns;
 use pierre_routes_a2a::{A2ARoutes, A2ARoutesState};
-use pierre_routes_admin::LlmConsumptionRoutes;
 use pierre_services::access_feed::own_access_feed;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use serde_json::{json, Value};
@@ -49,6 +49,7 @@ use tower::ServiceExt;
 use uuid::Uuid;
 
 use crate::common;
+use crate::helpers::messaging_eval::turn_tools_called;
 use crate::helpers::recording_llm::RecordingProvider;
 
 /// The agent's answer once it has read.
@@ -711,7 +712,7 @@ async fn an_api_keys_successful_rest_requests_are_counted_per_day_and_key_and_it
 
 /// An API-key turn whose model fails after the agent ran a tool: its one
 /// summary row says `error` and names the tool, the feed lists only what
-/// answered, and the admin per-turn view shows the turn as it ended.
+/// answered, and the turn's rows read back by its id show it as it ended.
 #[tokio::test]
 async fn an_api_key_turn_that_fails_writes_one_error_row_naming_what_it_ran() {
     let f = fixture().await;
@@ -764,42 +765,31 @@ async fn an_api_key_turn_that_fails_writes_one_error_row_naming_what_it_ran() {
         "bug: the feed lists only reads that answered: {feed:?}"
     );
 
-    let user = f
+    let by_turn = f
         .res
         .common
         .repos
-        .users
-        .get_global(f.user)
-        .await
-        .unwrap()
-        .unwrap();
-    let token = common::generate_test_token(&f.res, &user).await;
-    let response = LlmConsumptionRoutes::routes(f.res.clone())
-        .oneshot(
-            Request::get(format!("/internal/conversation-turn/{turn}"))
-                .header("authorization", format!("Bearer {token}"))
-                .body(Body::empty())
-                .unwrap(),
-        )
+        .llm_usage
+        .find_llm_usage_by_turn_id(turn)
         .await
         .unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
-    let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
-    let view: Value = serde_json::from_slice(&bytes).unwrap();
+    let summary = by_turn
+        .iter()
+        .find(|row| row.call_type == TURN_SUMMARY_CALL_TYPE)
+        .unwrap_or_else(|| panic!("bug: the turn's rows hold its summary: {by_turn:?}"));
     assert_eq!(
-        view["outcome"], "error",
-        "bug: the per-turn view says how it ended: {view}"
+        summary.outcome.as_deref(),
+        Some("error"),
+        "bug: the turn's rows say how it ended: {by_turn:?}"
     );
     assert!(
-        view["tools_called"]
-            .as_array()
-            .is_some_and(|tools| tools.iter().any(|tool| tool == READ_TOOL)),
-        "bug: the per-turn view names the tool the failed turn ran: {view}"
+        turn_tools_called(&by_turn)
+            .iter()
+            .any(|tool| tool == READ_TOOL),
+        "bug: the turn's rows name the tool the failed turn ran: {by_turn:?}"
     );
     assert!(
-        view["first_call_at"]
-            .as_str()
-            .is_some_and(|at| !at.is_empty()),
-        "bug: the turn is dated: {view}"
+        !summary.created_at.is_empty(),
+        "bug: the turn is dated: {by_turn:?}"
     );
 }

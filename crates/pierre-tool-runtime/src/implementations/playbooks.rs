@@ -16,6 +16,8 @@
 //!   category so the LLM can never delete a playbook on its own.
 
 use crate::annotations::{annotations, Effect, Reach};
+use crate::tool_data::ToolData;
+use dravr_barrage::Stream;
 use pierre_providers::ai_scope;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -298,5 +300,11 @@ impl McpTool<dyn ToolRuntime> for ForgetPlaybookTool {
 // registered tool to declare one — omitting these is a compile error).
 // `forget_playbook` deletes a coaching playbook: irreversible. Listing is a
 // read of the user's own playbooks — trusted, internal, no egress axis.
-crate::declare_security!(ListCoachingPlaybooksTool => empty; first_party_only);
-crate::declare_security!(ForgetPlaybookTool => IRREVERSIBLE; first_party_only);
+crate::declare_security!(
+    ListCoachingPlaybooksTool => empty; first_party_only,
+    reads: ToolData::own(&[Stream::RestrictedNotes]),
+);
+crate::declare_security!(
+    ForgetPlaybookTool => IRREVERSIBLE; first_party_only,
+    reads: ToolData::own(&[Stream::RestrictedNotes]),
+);

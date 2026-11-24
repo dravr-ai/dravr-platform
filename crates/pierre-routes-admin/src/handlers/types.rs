@@ -40,17 +40,6 @@ pub struct RevokeKeyRequest {
     pub reason: Option<String>,
 }
 
-/// Admin setup request
-#[derive(Debug, Deserialize)]
-pub struct AdminSetupRequest {
-    /// Admin email address
-    pub email: String,
-    /// Admin password
-    pub password: SecretString,
-    /// Optional display name for the admin
-    pub display_name: Option<String>,
-}
-
 /// User approval request
 #[derive(Debug, Deserialize)]
 pub struct ApproveUserRequest {
@@ -123,19 +112,6 @@ pub struct ResetOnboardingRequest {
     /// absent means onboarding state only.
     #[serde(default)]
     pub with_memory: bool,
-}
-
-/// Query parameters for listing API keys
-#[derive(Debug, Deserialize)]
-pub struct ListApiKeysQuery {
-    /// Filter by user email
-    pub user_email: Option<String>,
-    /// Show only active keys
-    pub active_only: Option<bool>,
-    /// Maximum number of results (use String to allow invalid values that will be ignored)
-    pub limit: Option<String>,
-    /// Offset for pagination (use String to allow invalid values that will be ignored)
-    pub offset: Option<String>,
 }
 
 /// Query parameters for user activity endpoint
@@ -270,16 +246,4 @@ pub struct AdminResponse {
     pub message: String,
     /// Optional additional data
     pub data: Option<Value>,
-}
-
-/// Admin setup response
-#[derive(Debug, Clone, Serialize)]
-pub struct AdminSetupResponse {
-    /// ID of the created admin user
-    pub user_id: String,
-    /// JWT token for admin authentication
-    #[serde(serialize_with = "pierre_core::secret::serialize_exposed")]
-    pub admin_token: SecretString,
-    /// Success message
-    pub message: String,
 }

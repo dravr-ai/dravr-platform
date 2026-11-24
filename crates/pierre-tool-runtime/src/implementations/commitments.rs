@@ -25,6 +25,7 @@
 //! athlete in Auckland they missed a Sunday run at lunchtime on Sunday.
 
 use crate::annotations::{annotations, Effect, Reach};
+use crate::tool_data::ToolData;
 use pierre_providers::ai_scope;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -430,5 +431,11 @@ pub fn create_commitment_tools() -> Vec<Box<dyn RuntimeTool>> {
 // Cancelling is a reversible status flip — the athlete can make the promise
 // again — so it is not IRREVERSIBLE, which would spend the turn's single
 // destructive budget slot.
-crate::declare_security!(CommitmentCreateTool => empty; first_party_only);
-crate::declare_security!(CommitmentCancelTool => empty; first_party_only);
+crate::declare_security!(
+    CommitmentCreateTool => empty; first_party_only,
+    reads: ToolData::own(&[]),
+);
+crate::declare_security!(
+    CommitmentCancelTool => empty; first_party_only,
+    reads: ToolData::own(&[]),
+);

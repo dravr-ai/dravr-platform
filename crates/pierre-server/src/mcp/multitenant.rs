@@ -59,7 +59,6 @@ use axum::middleware;
 use axum::response::Response;
 use axum::Router;
 use dravr_tronc::server::trace_context::TraceContext;
-use pierre_llm::health::{LlmHealthSnapshot, LlmHealthState, LlmHealthStatus};
 use pierre_logging::request_trace::{self, CLOUD_TRACE_CONTEXT_HEADER};
 #[cfg(feature = "telemetry")]
 use pierre_middleware::telemetry_middleware;
@@ -379,8 +378,6 @@ impl ProviderToolRouter {
         use crate::routes::mcp::McpRoutes;
         #[cfg(all(feature = "client-chat", feature = "client-messaging"))]
         use crate::routes::surfaces::SurfaceRoutes;
-        #[cfg(feature = "client-tenants")]
-        use crate::routes::tenants::TenantRoutes;
         #[cfg(feature = "client-mcp-tokens")]
         use crate::routes::user_mcp_tokens::UserMcpTokenRoutes;
         #[cfg(feature = "client-chat")]
@@ -414,8 +411,7 @@ impl ProviderToolRouter {
         // HEALTH ROUTES - Always enabled
         // ═══════════════════════════════════════════════════════════════
 
-        let health_routes =
-            Self::create_axum_health_routes(Arc::clone(&resources.common.llm_health));
+        let health_routes = Self::create_axum_health_routes();
         let app = Router::new().merge(health_routes);
 
         // ═══════════════════════════════════════════════════════════════
@@ -511,7 +507,7 @@ impl ProviderToolRouter {
             admin_context.cache = Some(resources.data().cache().clone());
 
             // Tool-selection and diagnostic sub-routes use pierre-server-internal
-            // types (`ToolSelectionService`, `ToolRegistry`) and so are
+            // types (`ToolSelectionService`, `ToolRuntime`) and so are
             // mounted alongside the admin route group rather than baked into it.
             let auth_service = admin_context.auth_service.clone();
             // The config routes take the same validator: `pierre-cli config`
@@ -522,16 +518,10 @@ impl ProviderToolRouter {
                 tool_selection: resources.mcp.tool_selection.clone(),
             };
             let console_tool_selection_routes = ToolSelectionRoutes::console_routes::<ServerContext>(
-                tool_selection_context.clone(),
+                tool_selection_context,
                 resources,
             );
-            let tool_selection_routes =
-                ToolSelectionRoutes::routes(tool_selection_context).layer(from_fn_with_state(
-                    auth_service.clone(),
-                    pierre_routes_admin::admin_auth_middleware,
-                ));
             let diagnostics_ctx = DiagnosticsContext {
-                tool_registry: resources.mcp.tool_registry.clone(),
                 runtime: resources.clone(), // Safe: Arc clone coerced into the trait object
             };
             let diagnostics_router = diagnostics_routes(diagnostics_ctx, auth_service);
@@ -562,7 +552,6 @@ impl ProviderToolRouter {
             // set so it sees the route each request matched.
             let audited_admin = Router::new()
                 .merge(admin_routes)
-                .merge(tool_selection_routes)
                 .merge(console_tool_selection_routes)
                 .merge(diagnostics_router)
                 .merge(cookie_admin_routes)
@@ -781,9 +770,6 @@ impl ProviderToolRouter {
         #[cfg(feature = "client-api-keys")]
         let app = app.merge(ApiKeyRoutes::routes(Arc::clone(resources)));
 
-        #[cfg(feature = "client-tenants")]
-        let app = app.merge(TenantRoutes::routes(Arc::clone(resources)));
-
         #[cfg(feature = "client-impersonation")]
         let app = app.merge(ImpersonationRoutes::routes(Arc::clone(resources)).layer(
             from_fn_with_state(
@@ -848,25 +834,13 @@ impl ProviderToolRouter {
         ))
     }
 
-    /// Create health check routes for Axum.
+    /// Create the health check route for Axum.
     ///
-    /// Three endpoints:
-    ///
-    /// * `/health` — cheap liveness probe (always 200 when the process is
-    ///   up). This is what the Docker `HEALTHCHECK` and Cloud Run's
-    ///   default startup probe hit; it must stay free of dependency
-    ///   round-trips so a slow LLM never restarts a healthy server.
-    /// * `/ready` — readiness probe gated on the LLM startup probe.
-    ///   Returns 200 while the probe is in flight (status `Unknown`) or
-    ///   has succeeded, and 503 once the probe has reported `Unhealthy`.
-    ///   Admins who want a hard gate on LLM availability can point
-    ///   Cloud Run's startup probe at this path instead of `/health`.
-    /// * `/health/llm` — JSON snapshot of the latest LLM probe outcome
-    ///   for admin introspection (provider, error, timestamp).
-    fn create_axum_health_routes(llm_health: Arc<LlmHealthState>) -> Router {
-        use axum::extract::State;
-        use axum::http::StatusCode;
-        use axum::response::IntoResponse;
+    /// `/health` is the cheap liveness probe (always 200 when the process is
+    /// up). The Docker `HEALTHCHECK` and Cloud Run's startup probe hit it; it
+    /// stays free of dependency round-trips so a slow LLM never restarts a
+    /// healthy server.
+    fn create_axum_health_routes() -> Router {
         use axum::{routing::get, Json};
 
         async fn health_handler() -> Json<serde_json::Value> {
@@ -876,32 +850,6 @@ impl ProviderToolRouter {
             }))
         }
 
-        async fn ready_handler(State(state): State<Arc<LlmHealthState>>) -> impl IntoResponse {
-            let snapshot = state.snapshot().await;
-            let code = match snapshot.status {
-                LlmHealthStatus::Unhealthy => StatusCode::SERVICE_UNAVAILABLE,
-                LlmHealthStatus::Healthy | LlmHealthStatus::Unknown => StatusCode::OK,
-            };
-            (
-                code,
-                Json(serde_json::json!({
-                    "status": snapshot.status.to_string(),
-                    "service": PIERRE_MCP_SERVER,
-                    "llm": snapshot,
-                })),
-            )
-        }
-
-        async fn llm_health_handler(
-            State(state): State<Arc<LlmHealthState>>,
-        ) -> Json<LlmHealthSnapshot> {
-            Json(state.snapshot().await)
-        }
-
-        Router::new()
-            .route("/health", get(health_handler))
-            .route("/ready", get(ready_handler))
-            .route("/health/llm", get(llm_health_handler))
-            .with_state(llm_health)
+        Router::new().route("/health", get(health_handler))
     }
 }

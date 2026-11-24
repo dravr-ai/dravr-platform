@@ -50,7 +50,7 @@
 # WHOSE MODEL ANSWERS
 #
 # The `chain` input, `provider=model,...`. Empty runs copilot_sdk on the model
-# dev's chain gives that tier (PIERRE_LLM_CHAIN in infra/environments/dev/main.tf),
+# dev's chain gives that tier (llm_chain in the staged private terraform inputs),
 # read here so the lane follows terraform. Any chain whose providers this lane
 # provisions is accepted, and only the tokens and runtimes it names are fetched.
 
@@ -153,6 +153,13 @@ jobs:
       # $GITHUB_ENV or $GITHUB_OUTPUT, where a newline would forge another entry.
       # The chain's providers decide which runtimes and tokens the steps below
       # provision, so they are written out as flags.
+      - name: Stage private terraform inputs
+        # dev's chain is a private terraform input (infra/environments/dev/private_inputs.tf).
+        uses: ./.github/actions/terraform-private-inputs
+        with:
+          environment: dev
+          token: ${{ secrets.DRAVR_CARNET_TOKEN }}
+
       - name: Resolve the chain and the run's selection
         id: chain
         env:
@@ -169,21 +176,28 @@ jobs:
             echo "::error::scenarios is a comma-separated list of scenario names ([a-z0-9_,] only)" >&2
             exit 1
           fi
-          TF=infra/environments/dev/main.tf
+          TF=infra/environments/dev/private.auto.tfvars
           if [ -n "${CHAIN_INPUT}" ]; then
             CHAIN="${CHAIN_INPUT}"
             SOURCE="the dispatch's chain input"
           else
-            DEV_CHAIN=$(grep -m1 -E '^[[:space:]]*PIERRE_LLM_CHAIN[[:space:]]*=' "$TF" \
+            DEV_CHAIN=$(grep -m1 -E '^[[:space:]]*llm_chain[[:space:]]*=' "$TF" \
               | sed -E 's/.*"([^"]+)".*/\1/' || true)
             MODEL=$(printf '%s' "${DEV_CHAIN}" | tr ',' '\n' | sed -n 's/^copilot_sdk=//p' | head -n1 || true)
             if [ -z "${MODEL}" ]; then
-              echo "::error::dev's PIERRE_LLM_CHAIN (${TF}) has no copilot_sdk tier to read the model from: '${DEV_CHAIN}'" >&2
+              echo "::error::dev's llm_chain (${TF}) has no copilot_sdk tier to read the model from" >&2
               exit 1
             fi
             CHAIN="copilot_sdk=${MODEL}"
             SOURCE="dev's copilot_sdk tier (${TF})"
+            # The model is a private input: keep it out of this public log,
+            # including the environment block each later step prints.
+            echo "::add-mask::${CHAIN}"
+            echo "::add-mask::${MODEL}"
           fi
+          # What the log and the summary call the chain: a dispatch's own input
+          # is public already, dev's is named by where it was read from.
+          CHAIN_LABEL="${CHAIN_INPUT:-${SOURCE}}"
           if ! [[ "${CHAIN}" =~ ^[A-Za-z0-9_.#=,:-]+$ ]]; then
             echo "::error::the chain (${SOURCE}) has characters a provider=model list never holds" >&2
             exit 1
@@ -221,6 +235,7 @@ jobs:
           done
           {
             echo "PIERRE_LLM_CHAIN=${CHAIN}"
+            echo "INJECTION_EVAL_CHAIN_LABEL=${CHAIN_LABEL}"
             echo "INJECTION_EVAL_ATTEMPTS=${ATTEMPTS_INPUT}"
             echo "INJECTION_EVAL_SCENARIOS=${SCENARIOS_INPUT}"
           } >> "$GITHUB_ENV"
@@ -233,7 +248,7 @@ jobs:
             echo "anthropic2=${ANTHROPIC2}"
             echo "anthropic3=${ANTHROPIC3}"
           } >> "$GITHUB_OUTPUT"
-          echo "PIERRE_LLM_CHAIN: ${CHAIN} (${SOURCE})"
+          echo "PIERRE_LLM_CHAIN set from ${CHAIN_LABEL} (${#ENTRIES[@]} entries)"
 
       - name: Read the pinned Copilot and Claude Code versions
         id: pin
@@ -399,7 +414,7 @@ jobs:
           CONTREMAITRE_BRANCH: ${{ steps.contremaitre.outputs.ref }}
           CONTREMAITRE_GITHUB_PAT: ${{ steps.contremaitre.outputs.pat }}
         run: |
-          echo "chain: ${PIERRE_LLM_CHAIN}; attempts: ${INJECTION_EVAL_ATTEMPTS}; scenarios: ${INJECTION_EVAL_SCENARIOS:-all}"
+          echo "chain: ${INJECTION_EVAL_CHAIN_LABEL}; attempts: ${INJECTION_EVAL_ATTEMPTS}; scenarios: ${INJECTION_EVAL_SCENARIOS:-all}"
           echo "contremaitre overlays: ${CONTREMAITRE_REPO}@${CONTREMAITRE_BRANCH}"
           log="$RUNNER_TEMP/injection-corpus.log"
           status=0
@@ -411,7 +426,7 @@ jobs:
           table=$(awk '/^=== injection eval results/ { on = 1 } on && /^$/ { exit } on { print }' "$log" || true)
           if [ -n "$table" ]; then
             {
-              printf '### Prompt-injection eval (%s, %s attempt(s))\n\n```\n' "${PIERRE_LLM_CHAIN}" "${INJECTION_EVAL_ATTEMPTS}"
+              printf '### Prompt-injection eval (%s, %s attempt(s))\n\n```\n' "${INJECTION_EVAL_CHAIN_LABEL}" "${INJECTION_EVAL_ATTEMPTS}"
               printf '%s\n' "$table"
               printf '```\n'
             } >> "$GITHUB_STEP_SUMMARY"

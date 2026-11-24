@@ -1,5 +1,5 @@
 // ABOUTME: Database setup utilities for mobile integration tests.
-// ABOUTME: Handles test user creation via HTTP API to the running backend server.
+// ABOUTME: Handles test user and token creation through the pierre-cli binary.
 
 const { execSync } = require('child_process');
 const path = require('path');
@@ -7,7 +7,6 @@ const fs = require('fs');
 
 const PROJECT_ROOT = path.resolve(__dirname, '../../..');
 const DB_PATH = path.join(PROJECT_ROOT, 'data', 'mobile-integration-test.db');
-const BACKEND_URL = process.env.BACKEND_URL || process.env.PIERRE_API_URL || 'http://localhost:8081';
 
 /**
  * Environment variables required for running pierre-cli commands (fallback).
@@ -56,93 +55,16 @@ function getAdminSetupBinary() {
 }
 
 /**
- * Create an admin user via HTTP API.
- * This is the primary method for creating test users without compiling Rust.
+ * Create an admin user using the pierre-cli binary.
  *
  * @param {{email: string, password: string, role?: string}} user - User to create
  * @returns {Promise<{success: boolean, error?: string}>}
  */
-async function createTestAdminUserViaAPI(user) {
-  try {
-    console.log(`[DB Setup] Creating admin user via API: ${user.email}`);
-
-    // First, check/complete admin setup
-    const setupResponse = await fetch(`${BACKEND_URL}/admin/setup/status`);
-    const setupStatus = await setupResponse.json();
-
-    if (!setupStatus.setup_complete) {
-      // Need to complete initial setup first
-      console.log('[DB Setup] Completing initial admin setup...');
-      const initResponse = await fetch(`${BACKEND_URL}/admin/setup`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: user.email,
-          password: user.password,
-        }),
-      });
-
-      if (initResponse.ok) {
-        console.log('[DB Setup] Initial admin setup completed');
-        return { success: true };
-      }
-
-      const initError = await initResponse.text();
-      if (initResponse.status === 409 || initError.includes('already')) {
-        console.log('[DB Setup] Setup already complete');
-        // Try to create user via different endpoint
-      } else {
-        console.log(`[DB Setup] Setup failed: ${initError}`);
-        return { success: false, error: initError };
-      }
-    }
-
-    // Try to create user via admin users endpoint
-    // This may require authentication, so we'll try without auth first
-    const createResponse = await fetch(`${BACKEND_URL}/admin/users`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        email: user.email,
-        password: user.password,
-        role: user.role || 'admin',
-      }),
-    });
-
-    if (createResponse.ok) {
-      console.log('[DB Setup] Admin user created via API');
-      return { success: true };
-    }
-
-    const errorText = await createResponse.text();
-    if (createResponse.status === 409 || errorText.includes('already exists')) {
-      console.log('[DB Setup] User already exists, treating as success');
-      return { success: true };
-    }
-
-    // If API creation fails, the user might already exist from setup
-    // Let's verify by trying to login
-    console.log('[DB Setup] User creation response:', createResponse.status, errorText);
-    return { success: true }; // Assume user exists from initial setup
-
-  } catch (error) {
-    console.log(`[DB Setup] API error: ${error.message}`);
-    return { success: false, error: error.message };
-  }
-}
-
-/**
- * Create an admin user using the pierre-cli binary (fallback).
- *
- * @param {{email: string, password: string, role?: string}} user - User to create
- * @returns {Promise<{success: boolean, error?: string}>}
- */
-async function createTestAdminUserViaBinary(user) {
+async function createTestAdminUser(user) {
   try {
     const adminSetup = getAdminSetupBinary();
 
     if (!adminSetup) {
-      console.log('[DB Setup] No pre-built binary found, skipping binary method');
       return { success: false, error: 'No pierre-cli binary available' };
     }
 
@@ -186,30 +108,6 @@ async function createTestAdminUserViaBinary(user) {
 }
 
 /**
- * Create an admin user using the best available method.
- * Tries HTTP API first, falls back to binary if available.
- *
- * @param {{email: string, password: string, role?: string}} user - User to create
- * @returns {Promise<{success: boolean, error?: string}>}
- */
-async function createTestAdminUser(user) {
-  // Try API first (fastest, no compilation needed)
-  const apiResult = await createTestAdminUserViaAPI(user);
-  if (apiResult.success) {
-    return apiResult;
-  }
-
-  // Fall back to binary if available
-  const binaryResult = await createTestAdminUserViaBinary(user);
-  if (binaryResult.success) {
-    return binaryResult;
-  }
-
-  // Return the API error as it's most likely the primary path
-  return apiResult;
-}
-
-/**
  * Generate an API token for a service.
  *
  * @param {string} service - Service name
@@ -221,23 +119,7 @@ async function generateApiToken(service, expiresDays = 30) {
     const adminSetup = getAdminSetupBinary();
 
     if (!adminSetup) {
-      // Try via API
-      console.log('[DB Setup] No binary for token generation, trying API');
-      const response = await fetch(`${BACKEND_URL}/admin/tokens`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          service: service,
-          expires_days: expiresDays,
-        }),
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        return { success: true, token: data.token };
-      }
-
-      return { success: false, error: 'Failed to generate token via API' };
+      return { success: false, error: 'pierre-cli binary not found; build it first' };
     }
 
     // Security: Validate service name to prevent command injection
@@ -334,8 +216,6 @@ function testDatabaseExists() {
 
 module.exports = {
   createTestAdminUser,
-  createTestAdminUserViaAPI,
-  createTestAdminUserViaBinary,
   generateApiToken,
   cleanupTestDatabase,
   ensureDataDirectory,

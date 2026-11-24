@@ -23,6 +23,8 @@
 //! steps.
 
 use crate::annotations::{annotations, Effect, Reach};
+use crate::tool_data::ToolData;
+use dravr_barrage::Stream;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -684,4 +686,7 @@ pub fn create_training_plan_publish_tools() -> Vec<Box<dyn RuntimeTool>> {
 // own app whoever asks: every effect is another athlete's live plan, which an
 // external transport refuses for everyone (carnet#1533), so it is never
 // listed there.
-crate::declare_security!(PublishTrainingPlanTool => IRREVERSIBLE ; app_only);
+crate::declare_security!(
+    PublishTrainingPlanTool => IRREVERSIBLE ; app_only,
+    reads: ToolData::own(&[Stream::Workout]),
+);

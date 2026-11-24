@@ -201,7 +201,7 @@ pub struct CommonSlice {
     /// TTL cache of per-tenant chat providers built from stored BYO LLM keys.
     /// Empty for tenants on the system default; resolved lazily per turn.
     pub tenant_chat_providers: TenantChatProviderCache,
-    /// Shared LLM startup-probe state — read by `/ready` and `/health/llm`.
+    /// Shared LLM startup-probe state — read by the chat pipeline before a turn.
     pub llm_health: Arc<LlmHealthState>,
     /// Multi-channel messaging registry for webhook routing.
     #[cfg(feature = "client-messaging")]

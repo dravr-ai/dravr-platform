@@ -10,14 +10,6 @@ import { applyTestStubs, pickViewModeAtSignIn, signInThroughHostedPage } from '.
 async function loginAsAdminWithUsers(page: Page) {
   await applyTestStubs(page);
 
-  await page.route('**/admin/setup/status', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ needs_setup: false, admin_user_exists: true }),
-    });
-  });
-
   await page.route('**/oauth/token', async (route) => {
     await route.fulfill({
       status: 200,

@@ -6,9 +6,10 @@
 
 //! The console's coach-seat invitations.
 //!
-//! `GET /admin/coach-seat-invitations`, `POST /admin/coach-seat-invitations`
-//! and `DELETE /admin/coach-seat-invitations/{email}`, mounted for the admin
-//! token and, under `/api/admin/…`, for the console session.
+//! `GET /api/admin/coach-seat-invitations`,
+//! `POST /api/admin/coach-seat-invitations` and
+//! `DELETE /api/admin/coach-seat-invitations/{email}`, mounted for the
+//! console session.
 //!
 //! A coach-seat invitation is the decision ADR-018 leaves to an admin —
 //! who may coach — taken before the coach signs up instead of after a
@@ -50,7 +51,7 @@ use super::user_removal::refusal;
 use crate::audit::AuditDetail;
 use crate::context::AdminApiContext;
 
-/// Body of `POST /admin/coach-seat-invitations`.
+/// Body of `POST /api/admin/coach-seat-invitations`.
 #[derive(Debug, Deserialize)]
 pub(crate) struct CoachSeatInviteRequest {
     /// The coach's address; normalized server-side.
@@ -62,7 +63,7 @@ pub(crate) struct CoachSeatInviteRequest {
     pub return_link: bool,
 }
 
-/// `GET /admin/coach-seat-invitations` — every coach-seat invitation neither
+/// `GET /api/admin/coach-seat-invitations` — every coach-seat invitation neither
 /// redeemed nor revoked, oldest first, expired ones included so the console
 /// can send them again.
 pub(crate) async fn handle_list_coach_seat_invitations(
@@ -93,7 +94,7 @@ pub(crate) async fn handle_list_coach_seat_invitations(
     .into_response())
 }
 
-/// `POST /admin/coach-seat-invitations` — invite a coach the team recruited,
+/// `POST /api/admin/coach-seat-invitations` — invite a coach the team recruited,
 /// with their seat, or say that the address already has an account.
 pub(crate) async fn handle_issue_coach_seat_invitation(
     State(context): State<Arc<AdminApiContext>>,
@@ -261,7 +262,7 @@ async fn account_exists(ctx: &AdminApiContext, email: &str) -> AppResult<Option<
     ))
 }
 
-/// `DELETE /admin/coach-seat-invitations/{email}` — revoke the coach-seat
+/// `DELETE /api/admin/coach-seat-invitations/{email}` — revoke the coach-seat
 /// invitation an address holds, so its link stops working.
 pub(crate) async fn handle_revoke_coach_seat_invitation(
     State(context): State<Arc<AdminApiContext>>,

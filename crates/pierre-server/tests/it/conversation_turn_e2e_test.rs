@@ -1,4 +1,4 @@
-// ABOUTME: Full E2E: Slack webhook → messaging pipeline → llm_usage rows → /internal/conversation-turn
+// ABOUTME: Full E2E: Slack webhook → messaging pipeline → llm_usage rows read back by turn id
 // ABOUTME: Uses MockLlmProvider so the pipeline runs end-to-end without network
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -21,7 +21,7 @@ mod conversation_turn_e2e_tests {
         ChatRequest, ChatResponse, ChatStream, LlmCapabilities, LlmProvider, StreamChunk,
         TokenUsage,
     };
-    use pierre_core::models::ConnectionType;
+    use pierre_core::models::{ConnectionType, ConversationTurnId, TURN_SUMMARY_CALL_TYPE};
     use pierre_core::models::{Tenant, TenantId, User, UserStatus};
     use pierre_core::permissions::UserRole;
     use pierre_database::backends::factory::DatabaseBackend;
@@ -30,8 +30,7 @@ mod conversation_turn_e2e_tests {
     };
     use pierre_mcp_server::mcp::resources::ServerContext;
     use pierre_mcp_server::routes::messaging::MessagingRoutes;
-    use pierre_routes_admin::LlmConsumptionRoutes;
-    use serde_json::{json, Value};
+    use serde_json::json;
     use serial_test::serial;
     use sha2::Sha256;
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -138,12 +137,12 @@ mod conversation_turn_e2e_tests {
         format!("v0={}", hex::encode(mac.finalize().into_bytes()))
     }
 
-    /// Seed an admin user + tenant directly so the test can query the
-    /// admin-only `/internal/conversation-turn` endpoint afterwards.
+    /// Seed an admin user + tenant directly, with a synthetic provider
+    /// connection so the turn reaches the LLM.
     async fn create_admin_user_in_tenant(
         resources: &Arc<ServerContext>,
         email: &str,
-    ) -> (Uuid, TenantId, String) {
+    ) -> (Uuid, TenantId) {
         let password_hash =
             spawn_blocking(|| bcrypt::hash("password123", bcrypt::DEFAULT_COST).unwrap())
                 .await
@@ -204,13 +203,7 @@ mod conversation_turn_e2e_tests {
             )
             .await
             .unwrap();
-
-        let token = resources
-            .auth
-            .auth_manager
-            .generate_token(&user, &resources.auth.jwks_manager)
-            .unwrap();
-        (user_id, tenant_id, format!("Bearer {token}"))
+        (user_id, tenant_id)
     }
 
     /// Poll the `llm_usage` table until at least one row exists for the
@@ -262,18 +255,17 @@ mod conversation_turn_e2e_tests {
     ///    every LLM call + the terminal summary.
     /// 4. `LlmCallRecorder` writes one `llm_usage` row per LLM call with
     ///    that `turn_id`.
-    /// 5. The admin `/internal/conversation-turn/{turn_id}` endpoint
-    ///    returns the rows, proving the full webhook → pipeline → DB →
-    ///    observability round-trip works under one id.
+    /// 5. `find_llm_usage_by_turn_id` returns the rows, proving the full
+    ///    webhook → pipeline → DB round-trip works under one id.
     #[tokio::test]
     #[serial]
-    async fn slack_webhook_to_conversation_turn_endpoint_round_trip() {
+    async fn slack_webhook_to_conversation_turn_rows_round_trip() {
         // Mock LLM so the pipeline runs without touching Gemini/Groq.
         let mock = Arc::new(MockLlmProvider::new("Mock reply from the test provider."));
         let call_counter = mock.call_counter();
 
         let resources = create_test_server_resources_with_llm(mock).await.unwrap();
-        let (admin_user_id, tenant_id, admin_auth) =
+        let (admin_user_id, tenant_id) =
             create_admin_user_in_tenant(&resources, "turn-e2e-admin@example.com").await;
         let db: &dyn MessagingRepository = &*resources.common.repos.messaging;
 
@@ -345,36 +337,41 @@ mod conversation_turn_e2e_tests {
             "Mock provider should have been invoked by the pipeline"
         );
 
-        // Query the admin /internal endpoint — this is the observability
-        // path that on-call and the messaging-eval harness consume.
-        let router = LlmConsumptionRoutes::routes(Arc::clone(&resources));
-        let resp = AxumTestRequest::get(&format!("/internal/conversation-turn/{turn_id}"))
-            .header("authorization", &admin_auth)
-            .send(router)
-            .await;
-
-        assert_eq!(resp.status_code(), StatusCode::OK);
-        let body: Value = resp.json::<Value>();
-        assert_eq!(body["turn_id"].as_str().unwrap(), turn_id.to_string());
-        assert_eq!(body["tenant_id"].as_str().unwrap(), tenant_id.to_string());
-        let calls = body["llm_calls"].as_array().expect("llm_calls array");
+        // Read the turn back by its id: every row the pipeline wrote under
+        // it belongs to this turn and this tenant.
+        let turn = ConversationTurnId::from_uuid(turn_id);
+        let rows = resources
+            .common
+            .repos
+            .llm_usage
+            .find_llm_usage_by_turn_id(turn)
+            .await
+            .unwrap();
+        for row in &rows {
+            assert_eq!(row.turn_id, turn);
+            assert_eq!(row.tenant_id, tenant_id.to_string());
+        }
+        let calls: Vec<_> = rows
+            .iter()
+            .filter(|r| r.call_type != TURN_SUMMARY_CALL_TYPE)
+            .collect();
         assert!(
             !calls.is_empty(),
-            "endpoint must return at least one per-call row from the tool loop"
+            "the turn must hold at least one per-call row from the tool loop"
         );
         assert!(
-            body["total_tokens"].as_u64().unwrap() > 0,
+            calls.iter().map(|r| r.total_tokens).sum::<i64>() > 0,
             "per-call rows carry real token counts from the mock"
         );
 
         // The cache seam, end to end: provider reports a cache read, it rides on
-        // TokenUsage through the tool loop into llm_usage, and the per-turn
-        // endpoint reports it. Every link was previously broken -- embacle dropped
-        // the field, the loop hardcoded 0, and the endpoint had no such column.
+        // TokenUsage through the tool loop into llm_usage, and the turn's rows
+        // carry it. Every link was previously broken -- embacle dropped the
+        // field and the loop hardcoded 0.
         //
         // Read per call, never summed: the turn's background side calls (fact
         // extraction) bill their own rows under the same turn id, and whether
-        // one has landed when the endpoint is read is a race. The mock reports
+        // one has landed when the rows are read is a race. The mock reports
         // the same usage on every call, so every row must carry it.
         //
         // Reasoning tokens are billed as output and excluded from
@@ -385,14 +382,12 @@ mod conversation_turn_e2e_tests {
         // and a regression cannot hide behind the wire value.
         for call in calls {
             assert_eq!(
-                call["cached_tokens"].as_u64(),
-                Some(17),
-                "the provider's cache-read count must reach the per-turn endpoint; \
+                call.cached_tokens, 17,
+                "the provider's cache-read count must reach the turn's row; \
                  got {call:?}"
             );
             assert_eq!(
-                call["total_tokens"].as_u64(),
-                Some(60),
+                call.total_tokens, 60,
                 "total_tokens must include the reasoning tokens; got {call:?}"
             );
         }

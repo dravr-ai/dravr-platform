@@ -26,6 +26,14 @@ use pierre_core::models::groups::{
 /// which language names it is not what the athlete was correcting.
 const ROSTER_LOCALE: &str = "en";
 
+/// A roster card's week when the member's stored history does not reach
+/// this Monday week yet: no number, so the model never reads it as a week
+/// without training.
+const WEEK_UNREAD_INLINE: &str = " | this week: not read yet (unknown, not zero)";
+
+/// [`WEEK_UNREAD_INLINE`] on a weekly digest's own line.
+const WEEK_UNREAD_LINE: &str = "this week's volume: not read yet (unknown, not zero)";
+
 /// Format the per-provider freshness map as a stable comma-separated string
 /// (e.g. `"strava 33d, whoop 0d"`). Providers appear sorted by name so the
 /// rendering is deterministic across snapshot fetches — the LLM is allergic
@@ -128,12 +136,12 @@ impl GroupSummarizationStrategy for RosterCardSummarizer {
         }
         // Render duration alongside distance so HR/duration-only sources
         // (WHOOP, indoor trainers) don't collapse to a misleading "0km/wk".
-        let _ = write!(
-            text,
-            " | {} / {:.0}km/wk",
-            clock(snapshot.weekly_duration_seconds),
-            snapshot.weekly_volume_km
-        );
+        match (snapshot.weekly_duration_seconds, snapshot.weekly_volume_km) {
+            (Some(seconds), Some(km)) => {
+                let _ = write!(text, " | {} / {km:.0}km/wk", clock(seconds));
+            }
+            _ => text.push_str(WEEK_UNREAD_INLINE),
+        }
         if let Some(sport) = &snapshot.primary_sport {
             let _ = write!(text, " {sport}");
         }
@@ -197,13 +205,22 @@ impl GroupSummarizationStrategy for WeeklyDigestSummarizer {
         // Always emit duration alongside distance: HR/duration-only sources
         // (WHOOP, indoor trainers) carry no GPS and would otherwise look
         // like the athlete trained 0 km despite hours of work.
-        let _ = writeln!(
-            text,
-            "  {} activities, {} active, {:.1}km total",
+        match (
             snapshot.weekly_activity_count,
-            clock(snapshot.weekly_duration_seconds),
-            snapshot.weekly_volume_km
-        );
+            snapshot.weekly_duration_seconds,
+            snapshot.weekly_volume_km,
+        ) {
+            (Some(count), Some(seconds), Some(km)) => {
+                let _ = writeln!(
+                    text,
+                    "  {count} activities, {} active, {km:.1}km total",
+                    clock(seconds)
+                );
+            }
+            _ => {
+                let _ = writeln!(text, "  {WEEK_UNREAD_LINE}");
+            }
+        }
         // Per-provider freshness so the LLM can see "strava 33d, whoop 0d"
         // and avoid attributing low volume to a "not synced" excuse.
         let freshness =

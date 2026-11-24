@@ -527,9 +527,9 @@ async fn the_success_page_follows_the_token_then_the_browser() {
         }
 
         // The hosted login's own success page reads its narrower token, at
-        // the path the sign-in lands on and at the earlier one links carry.
+        // the path the sign-in lands on.
         let login = fixture.login_token("strava");
-        for path in [HOSTED_SIGNIN_SUCCESS_PATH, "/providers/sciotte/success"] {
+        for path in [HOSTED_SIGNIN_SUCCESS_PATH] {
             let body = fixture
                 .get(
                     &format!("{path}?channel=telegram&target=strava&token={login}"),

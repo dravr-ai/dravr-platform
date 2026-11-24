@@ -218,7 +218,6 @@ impl ImpersonationRoutes {
         // NOTE: We take the account's first tenant (`first_for_user`) intentionally because:
         // 1. The impersonator does not know which tenant the target_user wants to use
         // 2. The target_user has no active session/JWT from which to extract active_tenant_id
-        // 3. The impersonator can switch tenants after starting the session if needed
         let active_tenant_id = resources
             .repos()
             .tenants

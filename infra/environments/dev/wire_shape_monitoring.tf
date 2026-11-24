@@ -89,8 +89,8 @@ resource "time_sleep" "wire_shape_metric_propagation" {
   create_duration = "600s"
 }
 
-# Pages on the FIRST violating turn. The condition is deliberately a threshold of
-# zero over a short window rather than a rate: one dropped block is already a
+# Pages on the FIRST violating turn. The condition is deliberately a count
+# over a short window rather than a rate: one dropped block is already a
 # silent correctness failure, and the whole point of this alert is that the
 # failure mode produces no other signal.
 resource "google_monitoring_alert_policy" "wire_shape_multi_system" {
@@ -130,11 +130,11 @@ resource "google_monitoring_alert_policy" "wire_shape_multi_system" {
     condition_threshold {
       filter          = "resource.type=\"cloud_run_revision\" AND metric.type=\"logging.googleapis.com/user/${google_logging_metric.wire_shape_multi_system.name}\""
       comparison      = "COMPARISON_GT"
-      threshold_value = 0
-      duration        = "0s"
+      threshold_value = var.alert_thresholds["wire_shape.multi_system.threshold"]
+      duration        = var.alert_windows["wire_shape.multi_system.duration"]
 
       aggregations {
-        alignment_period   = "300s"
+        alignment_period   = var.alert_windows["wire_shape.multi_system.alignment_period"]
         per_series_aligner = "ALIGN_DELTA"
       }
     }
@@ -148,7 +148,7 @@ resource "google_monitoring_alert_policy" "wire_shape_multi_system" {
   # Closes itself once turns stop violating, so a one-off does not need manual
   # acknowledgement to stop nagging.
   alert_strategy {
-    auto_close = "1800s"
+    auto_close = var.alert_windows["wire_shape.multi_system.auto_close"]
   }
 
   depends_on = [time_sleep.wire_shape_metric_propagation]

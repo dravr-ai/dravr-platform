@@ -40,6 +40,7 @@ use tracing::{info, instrument};
 
 use crate::runtime::ToolRuntime;
 use crate::security::{RuntimeTool, SecurityLabels};
+use crate::tool_data::ToolData;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 
@@ -157,5 +158,11 @@ impl RuntimeTool for AuditedTool {
     /// classification is exactly the wrapped tool's.
     fn security_class(&self) -> SecurityLabels {
         self.inner.security_class()
+    }
+
+    /// The decorator reads nothing of its own: what it reads is exactly what
+    /// the wrapped tool reads.
+    fn tool_data(&self) -> ToolData {
+        self.inner.tool_data()
     }
 }

@@ -1298,4 +1298,26 @@ describe('GroupInfoSheet', () => {
       'This report covers only the members who share their training with you (1 of 2).',
     );
   });
+
+  it('shows no average volume, never a zero, while no member week is read', async () => {
+    (groupsApi.getStats as jest.Mock).mockResolvedValueOnce({
+      stats: {
+        total_members: 6,
+        active_members: 5,
+        avg_weekly_volume_km: null,
+        avg_ctl: null,
+        flagged_members: 0,
+        weekly_trend: 'stable',
+      },
+      scope: { visible_members: 6, roster_members: 6 },
+    });
+    const view = renderSheet();
+    await act(async () => {
+      fireEvent.press(await view.findByTestId('group-info-analytics-toggle'));
+    });
+
+    // The active count proves the stats arrived before the volume is read.
+    await waitFor(() => expect(view.getByTestId('group-stat-active')).toHaveTextContent('5'));
+    expect(view.getByTestId('group-stat-volume')).toHaveTextContent('--');
+  });
 });

@@ -8,10 +8,9 @@
 //! only inside that tenant, and approved by id only a user held within it
 //! (carnet#1589). Two doors stayed open beside those:
 //!
-//! - the user list, the pending list, and one user's rate limits and
-//!   activity were read across every tenant;
+//! - the user list was read across every tenant;
 //! - `POST /admin/pre-approved-emails` approved, on the spot and for every
-//!   tenant, the same pending sign-up the approval by id refused.
+//!   tenant, a pending sign-up of no tenant the token does not reach.
 //!
 //! The reads take the rule the read by id takes (a member of the token's
 //! tenant, anyone else answered as a missing account is), and a standing
@@ -20,14 +19,13 @@
 //! sign-up code, which lets in whoever redeems it, is neither listed,
 //! minted nor revoked by it: the door the allow closed, one route over.
 //! A super-admin token is the control: it behaves as before. A token bound
-//! to no tenant without the super-admin flag reaches no tenant, so it reads,
-//! approves and pre-approves nobody (carnet#1589), and a tenant-bound
-//! token's read of a member shows only what is held in its tenant.
+//! to no tenant without the super-admin flag reaches no tenant, so it reads
+//! and pre-approves nobody (carnet#1589), and a tenant-bound token's read of
+//! a member shows only what is held in its tenant.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use crate::admin_role_rules_test::reset_tokens_issued_for;
 use crate::admin_token_routes_test::{bearer, mint, mint_bound, quotable, token_api};
 use crate::admin_user_removal_test::seed_user;
 use crate::common;
@@ -58,16 +56,6 @@ async fn get_as(
         .send(token_api(resources))
         .await;
     quotable(response)
-}
-
-/// A refusal's status and body without the time it was answered at, so two
-/// refusals compare by what they say.
-fn undated((status, body): (u16, String)) -> (u16, Value) {
-    let mut answer: Value = serde_json::from_str(&body).expect("a JSON answer");
-    if let Some(fields) = answer.as_object_mut() {
-        fields.remove("timestamp");
-    }
-    (status, answer)
 }
 
 /// The ids of the users an answer lists under `data.users`.
@@ -138,13 +126,11 @@ async fn callers(
     Ok((bound, unbound, root))
 }
 
-/// The user list, the pending list, and one user's rate limits and activity
-/// were read by a tenant-bound token across every tenant, while the read of
-/// that user by id answered 404. Each now stays inside the token's tenant:
-/// the lists name its members only, and the per-user reads answer another
-/// tenant's user exactly as they answer a missing one. The second tenant's
-/// user is the control that the filter is the tenant and not the route, and
-/// the super-admin token reads as before. The unbound token reads nothing.
+/// The user list was read by a tenant-bound token across every tenant, while
+/// the read of one user by id answered 404. It now stays inside the token's
+/// tenant: it names its members only. The second tenant's user is the
+/// control that the filter is the tenant and not the route, and the
+/// super-admin token reads as before. The unbound token reads nothing.
 #[tokio::test]
 #[serial]
 async fn a_tenant_bound_token_reads_only_the_users_of_its_tenant() -> Result<()> {
@@ -178,35 +164,11 @@ async fn a_tenant_bound_token_reads_only_the_users_of_its_tenant() -> Result<()>
             "{status}: nor named anywhere in the answer, its cursor included: {body}"
         );
     }
-    let (code, body) = get_as(&resources, &bound, "/admin/pending-users").await;
-    assert_eq!(code, 200, "{body}");
-    assert!(
-        !listed_users(&body).contains(&waiting),
-        "a sign-up that is a member of no tenant is not its tenant's: {body}"
-    );
-
-    for read in ["rate-limit", "activity"] {
-        let (code, body) =
-            get_as(&resources, &bound, &format!("/admin/users/{inside}/{read}")).await;
-        assert_eq!(code, 200, "{read} of its own member: {body}");
-        let no_such_user = format!("/admin/users/{}/{read}", Uuid::new_v4());
-        let missing = undated(get_as(&resources, &bound, &no_such_user).await);
-        assert_eq!(missing.0, 404, "{read}: {}", missing.1);
-        let another_tenants = format!("/admin/users/{outside}/{read}");
-        let other = undated(get_as(&resources, &bound, &another_tenants).await);
-        assert_eq!(
-            other, missing,
-            "{read}: another tenant's user is answered as a missing one"
-        );
-    }
 
     // A token bound to no tenant reaches no tenant: every read is refused.
     for path in [
         "/admin/users?status=active".to_owned(),
-        "/admin/pending-users".to_owned(),
         format!("/admin/users/{outside}"),
-        format!("/admin/users/{outside}/rate-limit"),
-        format!("/admin/users/{outside}/activity"),
     ] {
         let (code, body) = get_as(&resources, &unbound, &path).await;
         assert_eq!(code, 403, "{path}: {body}");
@@ -224,18 +186,6 @@ async fn a_tenant_bound_token_reads_only_the_users_of_its_tenant() -> Result<()>
             ids.contains(&inside) && ids.contains(&outside),
             "{name} lists every tenant's users: {ids:?}"
         );
-        let (code, body) = get_as(&resources, caller, "/admin/pending-users").await;
-        assert_eq!(code, 200, "{name}: {body}");
-        assert!(listed_users(&body).contains(&waiting), "{name}: {body}");
-        for read in ["rate-limit", "activity"] {
-            let (code, body) = get_as(
-                &resources,
-                caller,
-                &format!("/admin/users/{outside}/{read}"),
-            )
-            .await;
-            assert_eq!(code, 200, "{name} reads {read} of any user: {body}");
-        }
     }
     Ok(())
 }
@@ -268,13 +218,11 @@ async fn delete_as(
     quotable(response)
 }
 
-/// A tenant-bound token is refused the approval by id of a pending sign-up
-/// that is a member of no tenant, and approved the same sign-up through its
-/// address: the allow route made no tenant check. A standing allow is
-/// platform-wide, so a caller bound to one tenant neither records one nor
-/// removes one (403, nothing written), for an address with a pending
-/// account and for one with none. The approval by id does not find the
-/// sign-up (404, as a missing account). A token bound to no tenant allows
+/// A tenant-bound token approved a pending sign-up that is a member of no
+/// tenant through its address: the allow route made no tenant check. A
+/// standing allow is platform-wide, so a caller bound to one tenant neither
+/// records one nor removes one (403, nothing written), for an address with a
+/// pending account and for one with none. A token bound to no tenant allows
 /// and removes nothing either; the super-admin token allows and removes as
 /// before.
 #[tokio::test]
@@ -290,15 +238,6 @@ async fn a_tenant_bound_token_neither_allows_nor_removes_a_pre_approval() -> Res
             "Token is scoped to tenant {tenant}; a pre-approval is platform-wide, and it cannot {act} one"
         )
     };
-
-    // The door it is already refused at: the approval by id, which does not
-    // find a sign-up that is a member of no tenant.
-    let path = format!("/admin/approve-user/{}", waiting.id);
-    let (code, body) = post_as(&resources, &bound, &path, json!({})).await;
-    assert_eq!(
-        code, 404,
-        "the approval by id finds no such account: {body}"
-    );
 
     for email in [waiting.email.as_str(), "nobody-yet@example.com"] {
         let (code, body) = post_as(
@@ -514,75 +453,6 @@ async fn a_tenant_bound_token_reads_no_allow_list_and_touches_no_sign_up_code() 
     Ok(())
 }
 
-/// A password reset token signs whoever holds it in as the whole account,
-/// in every tenant the account is in. The reset is a write, and it was
-/// scoped by the rule of the reads: a member of the token's tenant. So a
-/// tenant-bound token refused the suspension of a user who is also in
-/// another tenant was handed that user's reset token (carnet#1589,
-/// security review). The reset now takes the rule of the other writes: the
-/// user is held entirely within the token's tenant, or it is refused (403)
-/// in their words and no token is issued. A member held within the tenant
-/// is reset as before, and so is the shared user by the super-admin token;
-/// a token bound to no tenant resets no one.
-#[tokio::test]
-#[serial]
-async fn a_tenant_bound_token_resets_no_password_of_a_user_held_elsewhere_too() -> Result<()> {
-    let resources = create_test_server_resources().await?;
-    let repos = &resources.common.repos;
-    let (inside, tenant, _) = seed_user(repos, "inside").await;
-    // A member of the token's tenant who owns a tenant of their own.
-    let (shared, _, _) = seed_user(repos, "shared").await;
-    repos.users.update_tenant_id(shared, tenant).await?;
-    let (bound, unbound, root) = callers(&resources, tenant).await?;
-    let held_elsewhere = format!(
-        "Token is scoped to tenant {tenant}; the user belongs to or holds a provider in a tenant outside it"
-    );
-
-    // The write it is already refused: the suspension.
-    let path = format!("/admin/suspend-user/{shared}");
-    let (code, body) = post_as(&resources, &bound, &path, json!({})).await;
-    assert_eq!(code, 403, "the suspension is refused: {body}");
-    assert!(body.contains(&held_elsewhere), "{body}");
-
-    let reset = format!("/admin/users/{shared}/reset-password");
-    let (code, body) = post_as(&resources, &bound, &reset, json!({})).await;
-    assert_eq!(
-        code, 403,
-        "a user held in another tenant too is not reset: {body}"
-    );
-    assert!(body.contains(&held_elsewhere), "{body}");
-    assert!(
-        !body.contains("reset_token"),
-        "no token is handed out: {body}"
-    );
-    assert_eq!(
-        reset_tokens_issued_for(&resources, shared).await,
-        0,
-        "and none was issued"
-    );
-
-    // Held entirely within its tenant: reset as before.
-    let path = format!("/admin/users/{inside}/reset-password");
-    let (code, body) = post_as(&resources, &bound, &path, json!({})).await;
-    assert_eq!(code, 200, "its own member is reset: {body}");
-    assert_eq!(reset_tokens_issued_for(&resources, inside).await, 1);
-
-    // A token bound to no tenant reaches no tenant, so no account.
-    let (code, body) = post_as(&resources, &unbound, &reset, json!({})).await;
-    assert_eq!(code, 403, "an unbound token resets no one: {body}");
-    assert!(body.contains(NO_TENANT_REFUSAL), "{body}");
-    assert_eq!(reset_tokens_issued_for(&resources, shared).await, 0);
-
-    // The control: the super-admin token resets the shared user.
-    let (code, body) = post_as(&resources, &root, &reset, json!({})).await;
-    assert_eq!(
-        code, 200,
-        "a super-admin token resets the shared user: {body}"
-    );
-    assert_eq!(reset_tokens_issued_for(&resources, shared).await, 1);
-    Ok(())
-}
-
 /// An active account created `age_minutes` ago, a member of no tenant yet,
 /// so a listing has one order.
 async fn account_aged(resources: &Arc<ServerContext>, label: &str, age_minutes: i64) -> Uuid {
@@ -592,32 +462,6 @@ async fn account_aged(resources: &Arc<ServerContext>, label: &str, age_minutes: 
     user.created_at = Timestamp::now() - Elapsed::minutes(age_minutes);
     resources.common.repos.users.create(&user).await.unwrap();
     user.id
-}
-
-/// The pending list of a tenant-bound token was pinned only for what it
-/// leaves out, so a list that named nobody passed (carnet#1589, test
-/// review). A pending account that is a member of the token's tenant is
-/// listed to it, beside the sign-up of no tenant that is not.
-#[tokio::test]
-#[serial]
-async fn a_tenant_bound_token_is_listed_the_pending_members_of_its_tenant() -> Result<()> {
-    let resources = create_test_server_resources().await?;
-    let repos = &resources.common.repos;
-    let (_, tenant, _) = seed_user(repos, "inside").await;
-    let member = pending_sign_up(&resources, "pending-member@example.com").await;
-    repos.users.update_tenant_id(member.id, tenant).await?;
-    let waiting = pending_sign_up(&resources, "waiting-elsewhere@example.com").await;
-    let (bound, _, _) = callers(&resources, tenant).await?;
-
-    let (code, body) = get_as(&resources, &bound, "/admin/pending-users").await;
-    assert_eq!(code, 200, "{body}");
-    assert_eq!(
-        listed_users(&body),
-        vec![member.id.to_string()],
-        "its tenant's pending member, and not the sign-up of no tenant ({}): {body}",
-        waiting.id
-    );
-    Ok(())
 }
 
 /// The user list of a tenant-bound token was pinned on its first page only

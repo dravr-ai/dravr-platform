@@ -73,6 +73,12 @@ resource "time_sleep" "key_material_metric_propagation" {
   create_duration = "600s"
 }
 
+# The alert texts state their window in minutes. It is read from the setting
+# the condition aligns on, so the text and the condition cannot disagree.
+locals {
+  key_material_window_minutes = tonumber(trimsuffix(var.alert_windows["key_material.failures.alignment_period"], "s")) / 60
+}
+
 resource "google_monitoring_alert_policy" "key_material_failures" {
   project      = var.project_id
   display_name = "dravr-key-material-failures"
@@ -80,7 +86,7 @@ resource "google_monitoring_alert_policy" "key_material_failures" {
 
   documentation {
     content   = <<-EOT
-      A key-material failure was logged on the API service in the last 5
+      A key-material failure was logged on the API service in the last ${local.key_material_window_minutes}
       minutes. The event label says which:
 
       - `key_material.stored_secret_decrypt_failed` — a stored secret (the
@@ -134,16 +140,16 @@ resource "google_monitoring_alert_policy" "key_material_failures" {
   }
 
   conditions {
-    display_name = "Key-material failure in 5min window"
+    display_name = "Key-material failure in ${local.key_material_window_minutes}min window"
 
     condition_threshold {
       filter          = "resource.type=\"cloud_run_revision\" AND metric.type=\"logging.googleapis.com/user/${google_logging_metric.key_material_failures.name}\""
-      duration        = "0s"
+      duration        = var.alert_windows["key_material.failures.duration"]
       comparison      = "COMPARISON_GT"
-      threshold_value = 0
+      threshold_value = var.alert_thresholds["key_material.failures.threshold"]
 
       aggregations {
-        alignment_period     = "300s"
+        alignment_period     = var.alert_windows["key_material.failures.alignment_period"]
         per_series_aligner   = "ALIGN_SUM"
         cross_series_reducer = "REDUCE_SUM"
         # One incident per event and secret kind: while one kind's incident
@@ -152,7 +158,7 @@ resource "google_monitoring_alert_policy" "key_material_failures" {
       }
 
       trigger {
-        count = 1
+        count = var.alert_thresholds["key_material.failures.trigger_count"]
       }
     }
   }
@@ -161,8 +167,8 @@ resource "google_monitoring_alert_policy" "key_material_failures" {
 
   alert_strategy {
     # A lost key fails every read until it is restored; the incident stays
-    # open while the lines keep coming and closes 30 minutes after they stop.
-    auto_close = "1800s"
+    # open while the lines keep coming and closes a while after they stop.
+    auto_close = var.alert_windows["key_material.failures.auto_close"]
   }
 
   depends_on = [time_sleep.key_material_metric_propagation]

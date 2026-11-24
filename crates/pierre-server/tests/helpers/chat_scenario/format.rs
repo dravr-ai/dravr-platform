@@ -219,9 +219,8 @@ pub(crate) enum AssertionSpec {
         tolerance: u32,
     },
     /// The tool with the given name must have been invoked at least
-    /// `min_calls` times during this turn's pipeline run. Threads
-    /// through the `/internal/conversation-turn/{id}` observability
-    /// endpoint that `messaging_eval` already consumes.
+    /// `min_calls` times during this turn's pipeline run, as the turn's
+    /// output reports its tools.
     ToolCalled {
         name: String,
         #[serde(default = "default_min_calls")]

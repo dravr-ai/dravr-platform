@@ -194,48 +194,6 @@ async fn a_support_session_registers_no_a2a_client() {
 }
 
 #[tokio::test]
-async fn a_support_session_stores_no_a2a_oauth_app() {
-    let a = athlete("imp-a2a-credentials").await;
-    let request = json!({
-        "credentials": {
-            "strava": { "clientId": "support-app", "clientSecret": "support-secret" }
-        }
-    });
-    let apps = &a.resources.common.repos.oauth_tokens;
-
-    let response = AxumTestRequest::post("/a2a/credentials")
-        .header("authorization", &a.support)
-        .json(&request)
-        .send(a2a_routes(&a.resources))
-        .await;
-    assert_refused(&response, "store an A2A integration's OAuth app");
-    assert!(
-        apps.list_user_oauth_apps(a.user.id)
-            .await
-            .unwrap()
-            .is_empty(),
-        "the refused request stored no OAuth app"
-    );
-
-    let response = AxumTestRequest::post("/a2a/credentials")
-        .header("authorization", &a.session)
-        .json(&request)
-        .send(a2a_routes(&a.resources))
-        .await;
-    assert_eq!(
-        response.status_code(),
-        StatusCode::OK,
-        "{}",
-        response.body_text()
-    );
-    assert_eq!(
-        apps.list_user_oauth_apps(a.user.id).await.unwrap().len(),
-        1,
-        "the athlete's own session stores one OAuth app"
-    );
-}
-
-#[tokio::test]
 async fn a_support_session_registers_no_oauth_app() {
     let a = athlete("imp-oauth-app").await;
     let routes =

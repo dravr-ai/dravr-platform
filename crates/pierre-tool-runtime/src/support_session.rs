@@ -107,7 +107,6 @@ impl LiveSupport {
         ImpersonationGrant {
             session_id: self.session.id.clone(),
             impersonator_id: self.session.impersonator_id,
-            expires_at: expires_at(&self.session).epoch_seconds(),
         }
     }
 

@@ -96,15 +96,19 @@ export default function GroupInsightsPanel({
   }
 
   const recommendations = report ? weeklyReportRecommendations(t, report.stats) : [];
+  const summary = report ? weeklyReportSummary(t, language, report.stats, units) : null;
 
   return (
     <div className="space-y-4" data-testid="group-insights-panel">
       {/* The row that opens this already says "This week": the report starts with its summary. */}
       {report && (
         <div>
-          <p className="text-sm text-on-surface-variant" data-testid="group-report-summary">
-            {weeklyReportSummary(t, language, report.stats, units)}
-          </p>
+          {/* A week no member is read for has no average, so no summary sentence. */}
+          {summary !== null && (
+            <p className="text-sm text-on-surface-variant" data-testid="group-report-summary">
+              {summary}
+            </p>
+          )}
 
           {report.fresh_members.length > 0 && (
             <div className="mt-4">

@@ -15,6 +15,9 @@
 
 use crate::annotations::{annotations, Effect, Reach};
 use crate::protocol::provider_helpers::PROVIDER_ARGUMENT;
+use crate::read_subject::DataClass;
+use crate::tool_data::ToolData;
+use dravr_barrage::Stream;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -517,8 +520,19 @@ fn stats_view(answer: QueryAnswer, year: i32) -> GetStatsResult {
 // Guardian security classifications (see `crate::security`). Co-located here so
 // each impl sits under this module's existing feature gate; the compiler forces
 // every registered tool to classify (the registry stores `Arc<dyn RuntimeTool>`).
-crate::declare_security!(GetAthleteTool => empty);
-crate::declare_security!(GetStatsTool => empty);
+// The athlete's provider profile, totals and counts, their connected
+// sources and how fresh each is. A count's breakdown names the gear and
+// routes the athlete named.
+crate::declare_security!(
+    GetAthleteTool => empty,
+    reads: ToolData::of(DataClass::Training, &[Stream::Profile]),
+);
+// All-time and this-year totals: undated, past any grant's window.
+crate::declare_security!(
+    GetStatsTool => empty,
+    reads: ToolData::of(DataClass::Training, &[Stream::ActivityDaily])
+        .with_whole_history(),
+);
 
 // ============================================================================
 // Provider reads and their cache, shared by the two tools

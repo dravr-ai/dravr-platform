@@ -5,6 +5,8 @@
 // Copyright (c) 2026 dravr.ai
 
 use crate::annotations::{annotations, Effect, Reach};
+use crate::read_subject::DataClass;
+use crate::tool_data::ToolData;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -834,7 +836,12 @@ pub fn create_route_tools() -> Vec<Box<dyn RuntimeTool>> {
 // Guardian security classifications (see `crate::security`). Co-located here so
 // each impl sits under this module's existing feature gate; the compiler forces
 // every registered tool to classify (the registry stores `Arc<dyn RuntimeTool>`).
-crate::declare_security!(DiscoverRoutesTool => empty);
+// A route lookup: OpenStreetMap data, cached for the caller's own next
+// call.
+crate::declare_security!(
+    DiscoverRoutesTool => empty,
+    reads: ToolData::of(DataClass::NoSubject, &[]),
+);
 
 #[cfg(test)]
 mod tests {

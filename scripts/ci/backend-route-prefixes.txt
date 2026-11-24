@@ -25,14 +25,12 @@ a2a           # proxied
 admin         # proxied
 api           # proxied
 health        # edge: nginx serves `location = /health` for Cloud Run
-internal      # unproxied: Cloud Tasks posts /internal/turns/{id}/run to the service's own run.app URL; /internal/conversation-turn/{id} is admin observability
+internal      # unproxied: Cloud Tasks posts /internal/turns/{id}/run to the service's own run.app URL
 mcp           # proxied (bare-path alternative)
 messaging     # proxied
 oauth         # proxied
 oauth2        # proxied
 providers     # proxied
 r             # proxied
-ready         # edge: container readiness
-tenants       # proxied: POST /tenants/switch
 webhooks      # proxied
 ws            # proxied: nginx `location /ws` carries the upgrade (the login takeover socket, ADR-034)

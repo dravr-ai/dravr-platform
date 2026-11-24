@@ -11,15 +11,6 @@ import { applyTestStubs, navigateToTab, pickViewModeAtSignIn, signInThroughHoste
 async function setupAuthenticatedSession(page: Page) {
   await applyTestStubs(page);
 
-  // Mock setup status
-  await page.route('**/admin/setup/status', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ needs_setup: false, admin_user_exists: true }),
-    });
-  });
-
   // Mock the hosted sign-in's code exchange
   await page.route('**/oauth/token', async (route) => {
     await route.fulfill({

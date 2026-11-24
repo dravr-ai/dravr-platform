@@ -267,7 +267,7 @@ async fn gated(
             kept.extend(served_rows(terms, slack));
             (kept, false)
         }
-        ReadGate::Model => {
+        ReadGate::Model | ReadGate::Roster => {
             let keys = segment_keys();
             let (segment_rows, other_rows): (Vec<_>, Vec<_>) = own
                 .into_iter()

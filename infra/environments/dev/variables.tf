@@ -428,9 +428,8 @@ variable "armor_enabled" {
 }
 
 variable "marketplace_egress_cidrs" {
-  description = "Published egress ranges of marketplace hosts, allowed past Cloud Armor's per-address limits."
+  description = "Published egress ranges of marketplace hosts, allowed past Cloud Armor's per-address limits. Set in the private var-file; an empty list allows none."
   type        = list(string)
-  default     = []
 }
 
 variable "armor_waf_preview" {
@@ -463,9 +462,8 @@ variable "labels" {
 # -----------------------------------------------------------------------------
 
 variable "firebase_project_id" {
-  description = "Firebase project ID (linked GCP project with Firebase enabled)"
+  description = "Firebase project ID (linked GCP project with Firebase enabled). Set in the private var-file."
   type        = string
-  default     = "dravr-dev-8d4a3"
 }
 
 # -----------------------------------------------------------------------------
@@ -474,44 +472,124 @@ variable "firebase_project_id" {
 
 # The one channel that must stay a "#name": monitoring.tf feeds this same
 # variable to a google_monitoring_notification_channel, whose `channel_name`
-# label GCP requires to be a literal Slack channel name. An ID here would be
-# emitted as "#C0AP7HQNLH2" and break Cloud Run job-failure alerting. It is
-# therefore rename-fragile by construction — rename #dev-dravr-errors and this
-# default must be updated in the same change.
+# label GCP requires to be a literal Slack channel name. A channel ID here
+# would be emitted behind a "#" and break Cloud Run job-failure alerting. It is
+# therefore rename-fragile by construction: rename the channel and the value
+# in the private var-file must be updated in the same change.
 variable "slack_error_channel" {
-  description = "Slack channel NAME for ERROR-level log alerts — must stay a #name for GCP Monitoring (empty to disable)"
+  description = "Slack channel NAME for ERROR-level log alerts — must stay a #name for GCP Monitoring (empty to disable). Set in the private var-file."
   type        = string
-  default     = "#dev-dravr-errors"
 }
 
 variable "notify_batch_window_secs" {
-  description = "Seconds to batch error notifications before sending a digest (default: 5)"
+  description = "Seconds to batch error notifications before sending a digest. Set in the private var-file."
   type        = number
-  default     = 5
 }
 
 variable "notify_max_messages_per_min" {
-  description = "Maximum error notification messages per minute across all channels (default: 10)"
+  description = "Maximum error notification messages per minute across all channels. Set in the private var-file."
   type        = number
-  default     = 10
 }
 
 variable "notify_dedup_window_secs" {
-  description = "Seconds to suppress duplicate error notifications for the same error (default: 30)"
+  description = "Seconds to suppress duplicate error notifications for the same error. Set in the private var-file."
   type        = number
-  default     = 30
 }
 
 variable "notify_email_from" {
-  description = "Sender address for error alert emails via Resend (e.g. 'Pierre Alerts <alerts@dravr.ai>')"
+  description = "Sender address for error alert emails via Resend, as 'Display Name <address>'. Set in the private var-file."
   type        = string
-  default     = "Pierre Alerts <alerts@dravr.ai>"
 }
 
 variable "notify_email_to" {
-  description = "Comma-separated recipient email addresses for error alerts"
+  description = "Comma-separated recipient email addresses for error alerts. Set in the private var-file."
   type        = string
-  default     = "jf@dravr.ai,phil@dravr.ai"
+}
+
+variable "resend_from_email" {
+  description = "Sender address of the transactional email the API sends through Resend (RESEND_FROM_EMAIL). Set in the private var-file."
+  type        = string
+}
+
+variable "admin_email" {
+  description = "Login address of the bootstrap admin account: the seed job creates it and the API resolves the messaging tenant from it at startup (ADMIN_EMAIL). Set in the private var-file."
+  type        = string
+}
+
+# -----------------------------------------------------------------------------
+# LLM provider chain
+# -----------------------------------------------------------------------------
+
+variable "llm_chain" {
+  description = "The API's ordered LLM provider chain (PIERRE_LLM_CHAIN): comma-separated `provider=model` entries, the first serving every turn and each next one taking over when the one before it faults. Set in the private var-file."
+  type        = string
+
+  validation {
+    condition = alltrue([
+      for entry in split(",", var.llm_chain) :
+      can(regex("^[a-z_]+(#[0-9]+)?=[^=,[:space:]]+$", entry))
+    ])
+    error_message = "Every llm_chain entry must be provider=model (or provider#N=model), comma-separated with no spaces: every deployed tier names its model."
+  }
+
+  # The server skips an entry whose provider it does not know with a boot
+  # warning only, so a misspelled name would drop that tier in silence. The
+  # names are the ones the server prints for its providers; the llm_test
+  # suite reads this list and holds it to the server's own parser.
+  validation {
+    condition = alltrue([
+      for entry in split(",", var.llm_chain) :
+      contains([
+        "groq",
+        "gemini",
+        "local",
+        "openrouter",
+        "cohere",
+        "anthropic",
+        "claude_code",
+        "cursor_agent",
+        "opencode",
+        "copilot",
+        "copilot_headless",
+        "copilot_sdk",
+        "warp_cli",
+        "gemini_cli",
+        "codex_cli",
+        "goose_cli",
+        "cline_cli",
+        "continue_cli",
+        "kiro_cli",
+        "kilo_cli",
+        "router",
+        "openai_api",
+      ], trimspace(split("#", split("=", entry)[0])[0]))
+    ])
+    error_message = "Every llm_chain entry must name a provider the server knows, spelled as the server prints it (anthropic, claude_code, copilot_sdk, gemini, ...): see the list in this validation."
+  }
+}
+
+# -----------------------------------------------------------------------------
+# Provider and messaging accounts
+# -----------------------------------------------------------------------------
+
+variable "strava_oauth_seat_cap" {
+  description = "Seats the environment's Strava application fills before the pool takes over (STRAVA_OAUTH_SEAT_CAP). Set in the private var-file."
+  type        = number
+}
+
+variable "meta_whatsapp_phone_number_id" {
+  description = "Phone number ID of the WhatsApp Business number the API sends from (META_WHATSAPP_PHONE_NUMBER_ID). Never a Meta test number: those deliver only to the recipients on their allow-list. Set in the private var-file."
+  type        = string
+}
+
+variable "meta_whatsapp_verify_token" {
+  description = "Token Meta echoes when it verifies the WhatsApp webhook subscription (META_WHATSAPP_VERIFY_TOKEN). Set in the private var-file."
+  type        = string
+}
+
+variable "meta_messenger_verify_token" {
+  description = "Token Meta echoes when it verifies the Messenger webhook subscription (META_MESSENGER_VERIFY_TOKEN). Set in the private var-file."
+  type        = string
 }
 
 variable "backend_sciotte_iam" {

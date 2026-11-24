@@ -20,6 +20,9 @@ use crate::implementations::goals_activities::{
 };
 use crate::implementations::stored_copy::{caveated, Served};
 use crate::protocol::provider_helpers::PROVIDER_ARGUMENT;
+use crate::read_subject::DataClass;
+use crate::tool_data::ToolData;
+use dravr_barrage::Stream;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -1102,7 +1105,42 @@ pub fn create_goal_tools() -> Vec<Box<dyn RuntimeTool>> {
 // Guardian security classifications (see `crate::security`). Co-located here so
 // each impl sits under this module's existing feature gate; the compiler forces
 // every registered tool to classify (the registry stores `Arc<dyn RuntimeTool>`).
-crate::declare_security!(SetGoalTool => empty);
-crate::declare_security!(SuggestGoalsTool => empty);
-crate::declare_security!(TrackProgressTool => empty);
-crate::declare_security!(AnalyzeGoalFeasibilityTool => empty);
+// The goals the athlete set.
+crate::declare_security!(
+    SetGoalTool => empty,
+    reads: ToolData::own(&[Stream::Workout, Stream::TrainingLoad]),
+);
+// Goals and the progress toward them.
+crate::declare_security!(
+    SuggestGoalsTool => empty,
+    reads: ToolData::of(
+        DataClass::Training,
+        &[
+            Stream::Workout,
+            Stream::TrainingLoad,
+            Stream::CardioDaily,
+        ],
+    ),
+);
+crate::declare_security!(
+    TrackProgressTool => empty,
+    reads: ToolData::of(
+        DataClass::Training,
+        &[
+            Stream::Workout,
+            Stream::TrainingLoad,
+            Stream::CardioDaily,
+        ],
+    ),
+);
+crate::declare_security!(
+    AnalyzeGoalFeasibilityTool => empty,
+    reads: ToolData::of(
+        DataClass::Training,
+        &[
+            Stream::Workout,
+            Stream::TrainingLoad,
+            Stream::CardioDaily,
+        ],
+    ),
+);

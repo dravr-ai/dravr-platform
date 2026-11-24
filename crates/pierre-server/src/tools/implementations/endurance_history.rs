@@ -4,7 +4,10 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use dravr_barrage::Stream;
 use pierre_tool_runtime::annotations::{annotations, Effect, Reach};
+use pierre_tool_runtime::read_subject::DataClass;
+use pierre_tool_runtime::tool_data::ToolData;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
@@ -533,8 +536,16 @@ pub fn create_endurance_history_tools() -> Vec<Box<dyn RuntimeTool>> {
 // Guardian security classifications (see `pierre_tool_runtime::security`). These
 // tools read/compute the training history of the athlete the call reads — the
 // caller, or a coached athlete for a coach's read — internal, no egress.
-pierre_tool_runtime::declare_security!(ComputeTrainingHistoryTool => empty);
-pierre_tool_runtime::declare_security!(GetTrainingHistoryTool => empty);
+// The history recomputed from the sessions.
+pierre_tool_runtime::declare_security!(
+    ComputeTrainingHistoryTool => empty,
+    reads: ToolData::own(&[Stream::TrainingLoad, Stream::Workout]),
+);
+// The daily load history and the activities it is computed from.
+pierre_tool_runtime::declare_security!(
+    GetTrainingHistoryTool => empty,
+    reads: ToolData::of(DataClass::Training, &[Stream::TrainingLoad, Stream::Workout]),
+);
 
 #[cfg(test)]
 mod tests {

@@ -19,15 +19,14 @@
 //! |---|---|---|
 //! | [`assert_citation_grounded`] | Reply text + [`CitationFixture`] | Hallucinated counts, distances, CTL/ATL/TSB |
 //! | [`assert_guardrail`] | Reply text + expected substring | Scope/capability refusal emitted as LLM completion instead of the canonical localized string |
-//! | [`assert_tool_called`] | JSON from `/internal/conversation-turn/{id}` | Agent claimed a tool-derived answer without actually invoking the tool |
-//! | [`assert_latency_ms_at_most`] | Same endpoint JSON | Per-turn end-to-end latency SLO violation |
-//! | [`assert_tokens_at_most`] | Same endpoint JSON | Per-turn token budget (cost proxy until pricing tables land) |
+//! | [`assert_tool_called`] | The turn's `llm_usage` rows | Agent claimed a tool-derived answer without actually invoking the tool |
+//! | [`assert_latency_ms_at_most`] | The same rows | Per-turn end-to-end latency SLO violation |
+//! | [`assert_tokens_at_most`] | The same rows | Per-turn token budget (cost proxy until pricing tables land) |
 //!
 //! The first two are *textual* asserters — they run on the reply
 //! string alone and need no server round-trip. The last three are
-//! *observability* asserters — they parse the admin endpoint's
-//! response and need the correlation-ID threading landed on main
-//! ([`pierre_core::models::ConversationTurnId`]).
+//! *observability* asserters — they read the `llm_usage` rows recorded
+//! under one [`pierre_core::models::ConversationTurnId`].
 //!
 //! # Citation grounding
 //!
@@ -82,31 +81,22 @@
 //! [`CitationFixture::from_activities_with_physiology`] to override
 //! the defaults.
 //!
-//! # Observability asserters + endpoint contract
+//! # Observability asserters
 //!
-//! The per-turn observability endpoint (`GET
-//! /internal/conversation-turn/{turn_id}`, admin-only) returns a
-//! [`pierre_core::models::ConversationTurnSummary`] shape:
+//! A turn's rows come from `LlmUsageRepository::find_llm_usage_by_turn_id`.
+//! They hold two shapes of row:
 //!
-//! ```json
-//! {
-//!   "turn_id": "…",
-//!   "tenant_id": "…",
-//!   "user_id": "…",
-//!   "tools_called": ["get_activities", "get_training_load"],
-//!   "llm_calls": [ { "provider": "…", "model": "…", "latency_ms": 1842, … } ],
-//!   "total_tokens": 1234,
-//!   "total_latency_ms": 3200,
-//!   …
-//! }
-//! ```
+//! - **per-call rows** the tool loop's `LlmCallRecorder` writes, one per
+//!   LLM call, with real tokens and latency;
+//! - at most **one turn-summary row** ([`TURN_SUMMARY_CALL_TYPE`]), tokens
+//!   zeroed, carrying the turn-level `tools_called` list and end-to-end
+//!   `execution_time_ms`.
 //!
+//! [`turn_tools_called`], [`turn_latency_ms`] and [`turn_total_tokens`]
+//! read a turn's tools, latency and tokens from those rows;
 //! [`assert_tool_called`], [`assert_latency_ms_at_most`], and
-//! [`assert_tokens_at_most`] all consume this response as a
-//! [`serde_json::Value`]. The integration tests parse it once via
-//! [`crate::helpers::axum_test::AxumTestRequest::json`] and pass the
-//! `Value` into each asserter — no repeated HTTP calls, no
-//! intermediate struct.
+//! [`assert_tokens_at_most`] judge them. The integration tests read the
+//! rows once and pass the slice into each asserter.
 //!
 //! # Adding a new scenario
 //!
@@ -119,8 +109,8 @@
 //! 3. Drive the input — Slack webhook POST via `AxumTestRequest`
 //!    (`messaging_eval_phase_1_integration_test.rs` for the pattern)
 //!    or a direct repository call.
-//! 4. Read the reply (mock-LLM canned content) or the endpoint JSON
-//!    (admin query) and run the asserters.
+//! 4. Read the reply (mock-LLM canned content) or the turn's `llm_usage`
+//!    rows and run the asserters.
 //! 5. Treat the asserter's [`Err`] variant payloads as the failure
 //!    diagnostic — the `expected`/`cited`/`actual` fields tell the
 //!    reader exactly what went wrong without any manual message
@@ -130,10 +120,9 @@
 //!
 //! - New textual asserter → add a `fn assert_foo(reply: &str, …)`
 //!   here alongside a dedicated `FooMismatch` error type.
-//! - New observability asserter → read the relevant field from the
-//!   endpoint JSON (`turn_data.get("…")`), return `Ok(())` when the
-//!   field is missing so the asserter stays a safety net not a
-//!   presence check.
+//! - New observability asserter → read the relevant column from the
+//!   turn's rows, return `Ok(())` when no row carries it so the
+//!   asserter stays a safety net not a presence check.
 //! - Every new asserter gets unit tests in the `tests` submodule
 //!   below covering (a) happy path, (b) the specific failure it's
 //!   supposed to catch, and (c) edge cases the field can surface
@@ -153,7 +142,8 @@ use std::mem;
 
 use dravr_cageux::training_load::{TrainingLoad, TrainingLoadCalculator};
 use dravr_tronc::dates::Timestamp;
-use pierre_core::models::Activity;
+use pierre_core::models::usage::LlmUsageRecord;
+use pierre_core::models::{Activity, TURN_SUMMARY_CALL_TYPE};
 
 /// Default athlete physiology used when deriving training-load metrics
 /// from synthetic activities. These match the middle of the
@@ -516,14 +506,60 @@ pub(crate) fn assert_citation_grounded(
 
 // ── Phase 1 asserters (correlation-ID-dependent) ──────────────────
 //
-// These operate on the JSON returned by
-// `GET /internal/conversation-turn/{turn_id}` (shape:
-// [`pierre_core::models::usage::ConversationTurnSummary`]). Tests wire
-// them up by POSTing a Slack event, capturing the turn_id from the
-// `llm_usage` table, calling the admin endpoint, and passing the parsed
-// JSON to these asserters. Operating on `Value` keeps the helpers
-// usable by any consumer of the endpoint (Rust tests, future JS messaging-eval
-// asserters via an HTTP bridge, admin CLIs).
+// These operate on the `llm_usage` rows recorded under one turn id. Tests
+// wire them up by POSTing a Slack event, capturing the turn_id from the
+// `llm_usage` table, reading that turn's rows through
+// `find_llm_usage_by_turn_id`, and passing the slice to these asserters.
+
+/// The turn-summary row among a turn's rows, if one was written.
+fn summary_row(rows: &[LlmUsageRecord]) -> Option<&LlmUsageRecord> {
+    rows.iter().find(|r| r.call_type == TURN_SUMMARY_CALL_TYPE)
+}
+
+/// The per-call rows among a turn's rows, in the order given.
+fn per_call_rows(rows: &[LlmUsageRecord]) -> impl Iterator<Item = &LlmUsageRecord> {
+    rows.iter()
+        .filter(|r| r.call_type != TURN_SUMMARY_CALL_TYPE)
+}
+
+/// The distinct tools a turn ran: the summary row's list first, in its
+/// order, then every tool a per-call row names that it does not. A summary
+/// written for a turn that failed, or that ran no tool, never hides what the
+/// turn's LLM calls ran.
+pub(crate) fn turn_tools_called(rows: &[LlmUsageRecord]) -> Vec<String> {
+    let mut tools: Vec<String> = Vec::new();
+    for row in summary_row(rows).into_iter().chain(per_call_rows(rows)) {
+        if let Ok(names) = serde_json::from_str::<Vec<String>>(&row.tools_called) {
+            for name in names {
+                if !tools.contains(&name) {
+                    tools.push(name);
+                }
+            }
+        }
+    }
+    tools
+}
+
+/// The turn's end-to-end latency: the summary row's `execution_time_ms`
+/// (it includes tool execution between LLM calls) when it carries one,
+/// else the sum of the per-call latencies; `None` when no row carries one.
+pub(crate) fn turn_latency_ms(rows: &[LlmUsageRecord]) -> Option<i64> {
+    summary_row(rows)
+        .and_then(|r| r.execution_time_ms)
+        .or_else(|| {
+            per_call_rows(rows)
+                .filter_map(|r| r.execution_time_ms)
+                .reduce(|a, b| a + b)
+        })
+}
+
+/// The turn's total tokens, summed over its per-call rows (the summary row
+/// carries zero); `None` for a turn with no per-call row.
+pub(crate) fn turn_total_tokens(rows: &[LlmUsageRecord]) -> Option<i64> {
+    per_call_rows(rows)
+        .map(|r| r.total_tokens)
+        .reduce(|a, b| a + b)
+}
 
 /// Reason the tool-called assertion failed.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -554,7 +590,7 @@ pub(crate) struct TokensOverBudget {
 
 /// Verify the turn actually invoked the named MCP tool.
 ///
-/// Reads `tools_called` from the endpoint JSON and checks whether
+/// Reads the turn's tools ([`turn_tools_called`]) and checks whether
 /// `expected_tool` appears in the list. Catches the "plausible-sounding
 /// answer without calling the tool" hallucination class.
 ///
@@ -563,17 +599,10 @@ pub(crate) struct TokensOverBudget {
 /// Returns [`ToolNotCalled`] containing the expected tool name and the
 /// actual list when the expected tool is absent.
 pub(crate) fn assert_tool_called(
-    turn_data: &serde_json::Value,
+    rows: &[LlmUsageRecord],
     expected_tool: &str,
 ) -> Result<(), ToolNotCalled> {
-    let actual: Vec<String> = turn_data
-        .get("tools_called")
-        .and_then(serde_json::Value::as_array)
-        .map_or_default(|arr| {
-            arr.iter()
-                .filter_map(|v| v.as_str().map(str::to_owned))
-                .collect()
-        });
+    let actual = turn_tools_called(rows);
 
     actual
         .iter()
@@ -586,24 +615,20 @@ pub(crate) fn assert_tool_called(
 
 /// Verify the turn's end-to-end latency stayed within `budget_ms`.
 ///
-/// Reads `total_latency_ms` from the endpoint JSON. When the field is
-/// missing or non-numeric the assertion passes (no evidence of a
-/// violation to report); callers who want to enforce presence should
-/// pair this with [`assert_tool_called`] which fails loudly on a
-/// missing turn record.
+/// Reads the turn's latency ([`turn_latency_ms`]). When no row carries
+/// one the assertion passes (no evidence of a violation to report);
+/// callers who want to enforce presence should pair this with
+/// [`assert_tool_called`] which fails loudly on a missing turn record.
 ///
 /// # Errors
 ///
 /// Returns [`LatencyOverBudget`] when the observed latency exceeds
 /// `budget_ms`.
 pub(crate) fn assert_latency_ms_at_most(
-    turn_data: &serde_json::Value,
+    rows: &[LlmUsageRecord],
     budget_ms: u64,
 ) -> Result<(), LatencyOverBudget> {
-    let Some(observed) = turn_data
-        .get("total_latency_ms")
-        .and_then(serde_json::Value::as_i64)
-    else {
+    let Some(observed) = turn_latency_ms(rows) else {
         return Ok(());
     };
     let budget_i64 = i64::try_from(budget_ms).unwrap_or(i64::MAX);
@@ -615,22 +640,19 @@ pub(crate) fn assert_latency_ms_at_most(
 
 /// Verify the turn's total token usage stayed within `budget`.
 ///
-/// Reads `total_tokens` from the endpoint JSON. Used as the cost
+/// Reads the turn's tokens ([`turn_total_tokens`]). Used as the cost
 /// proxy until per-turn cost tracking (pricing tables in embacle's
-/// `PerCallMetric`) lands. Missing/non-numeric field → passes.
+/// `PerCallMetric`) lands. No per-call row → passes.
 ///
 /// # Errors
 ///
 /// Returns [`TokensOverBudget`] when the observed total exceeds
 /// `budget`.
 pub(crate) fn assert_tokens_at_most(
-    turn_data: &serde_json::Value,
+    rows: &[LlmUsageRecord],
     budget: u64,
 ) -> Result<(), TokensOverBudget> {
-    let Some(observed) = turn_data
-        .get("total_tokens")
-        .and_then(serde_json::Value::as_i64)
-    else {
+    let Some(observed) = turn_total_tokens(rows) else {
         return Ok(());
     };
     let budget_i64 = i64::try_from(budget).unwrap_or(i64::MAX);
@@ -1234,42 +1256,87 @@ mod tests {
 
     // ── Phase 1 asserter tests ───────────────────────────────────
     //
-    // Hand-crafted JSON mirrors the shape of
-    // `pierre_core::models::usage::ConversationTurnSummary`. If that
-    // struct grows fields, these fixtures are the canary: they compile
-    // against the serialization contract, not the struct, so a field
-    // rename ships a behavior change the asserters must adapt to.
+    // Hand-built rows of both shapes a turn records: two per-call rows
+    // (1000 + 234 tokens, 1200 + 1300 ms) and a turn-summary row carrying
+    // the turn's tools and its 3200 ms end-to-end latency.
 
     use super::{
-        assert_latency_ms_at_most, assert_tokens_at_most, assert_tool_called, LatencyOverBudget,
-        TokensOverBudget, ToolNotCalled,
+        assert_latency_ms_at_most, assert_tokens_at_most, assert_tool_called, turn_latency_ms,
+        turn_tools_called, LatencyOverBudget, TokensOverBudget, ToolNotCalled,
     };
-    use serde_json::json;
+    use pierre_core::models::usage::LlmUsageRecord;
+    use pierre_core::models::{ConversationTurnId, TURN_SUMMARY_CALL_TYPE};
 
-    fn turn_json() -> serde_json::Value {
-        json!({
-            "turn_id": "11111111-2222-3333-4444-555555555555",
-            "tenant_id": "tenant-xyz",
-            "user_id": "user-xyz",
-            "tools_called": ["get_activities", "get_training_load"],
-            "llm_calls": [],
-            "total_tokens": 1234_i64,
-            "total_prompt_tokens": 1000_i64,
-            "total_completion_tokens": 234_i64,
-            "total_latency_ms": 3200_i64,
-            "first_call_at": "2026-04-22T18:00:00Z",
-            "last_call_at": "2026-04-22T18:00:03Z"
-        })
+    fn row(
+        call_type: &str,
+        total_tokens: i64,
+        latency_ms: Option<i64>,
+        tools: &str,
+    ) -> LlmUsageRecord {
+        LlmUsageRecord {
+            id: "row".to_owned(),
+            tenant_id: "tenant-xyz".to_owned(),
+            user_id: "user-xyz".to_owned(),
+            conversation_id: None,
+            turn_id: ConversationTurnId::new(),
+            provider: "mock".to_owned(),
+            model: "mock-model".to_owned(),
+            prompt_tokens: total_tokens,
+            completion_tokens: 0,
+            total_tokens,
+            cached_tokens: 0,
+            cached_write_tokens: 0,
+            cached_write_1h_tokens: 0,
+            reasoning_tokens: 0,
+            call_type: call_type.to_owned(),
+            tool_calls_count: 0,
+            tools_called: tools.to_owned(),
+            execution_time_ms: latency_ms,
+            cost_usd: 0.0,
+            call_sequence: None,
+            created_at: "2026-04-22T18:00:00Z".to_owned(),
+            outcome: None,
+        }
+    }
+
+    fn turn_rows() -> Vec<LlmUsageRecord> {
+        vec![
+            row("chat", 1000, Some(1200), r#"["get_training_load"]"#),
+            row("chat", 234, Some(1300), "[]"),
+            row(
+                TURN_SUMMARY_CALL_TYPE,
+                0,
+                Some(3200),
+                r#"["get_activities","get_training_load"]"#,
+            ),
+        ]
+    }
+
+    #[test]
+    fn tools_list_the_summary_first_then_the_calls_own_deduplicated() {
+        let mut rows = turn_rows();
+        rows[1].tools_called = r#"["suggest_goals","get_activities"]"#.to_owned();
+        assert_eq!(
+            turn_tools_called(&rows),
+            vec!["get_activities", "get_training_load", "suggest_goals"]
+        );
+    }
+
+    #[test]
+    fn latency_falls_back_to_the_per_call_sum_without_a_summary() {
+        let rows: Vec<LlmUsageRecord> = turn_rows().into_iter().take(2).collect();
+        assert_eq!(turn_latency_ms(&rows), Some(2_500));
+        assert_eq!(turn_latency_ms(&turn_rows()), Some(3_200));
     }
 
     #[test]
     fn tool_called_passes_when_expected_tool_is_in_list() {
-        assert!(assert_tool_called(&turn_json(), "get_activities").is_ok());
+        assert!(assert_tool_called(&turn_rows(), "get_activities").is_ok());
     }
 
     #[test]
     fn tool_called_catches_missing_invocation() {
-        let err = assert_tool_called(&turn_json(), "suggest_goals")
+        let err = assert_tool_called(&turn_rows(), "suggest_goals")
             .expect_err("suggest_goals is not in tools_called");
         assert_eq!(
             err,
@@ -1281,11 +1348,11 @@ mod tests {
     }
 
     #[test]
-    fn tool_called_fails_loudly_when_array_missing() {
-        // Turn record without tools_called — hallucination assertion
+    fn tool_called_fails_loudly_when_no_row_lists_a_tool() {
+        // A turn whose rows name no tool — hallucination assertion
         // should still fail rather than silently pass.
-        let turn = json!({ "turn_id": "x", "total_tokens": 0_i64 });
-        let err = assert_tool_called(&turn, "get_activities")
+        let rows = vec![row("chat", 0, None, "")];
+        let err = assert_tool_called(&rows, "get_activities")
             .expect_err("missing tools_called must not silently pass");
         assert!(
             err.actual.is_empty(),
@@ -1296,18 +1363,18 @@ mod tests {
 
     #[test]
     fn latency_passes_under_budget() {
-        assert!(assert_latency_ms_at_most(&turn_json(), 5_000).is_ok());
+        assert!(assert_latency_ms_at_most(&turn_rows(), 5_000).is_ok());
     }
 
     #[test]
     fn latency_passes_at_exact_budget() {
-        assert!(assert_latency_ms_at_most(&turn_json(), 3_200).is_ok());
+        assert!(assert_latency_ms_at_most(&turn_rows(), 3_200).is_ok());
     }
 
     #[test]
     fn latency_catches_over_budget() {
         let err =
-            assert_latency_ms_at_most(&turn_json(), 2_000).expect_err("3200 ms > 2000 ms budget");
+            assert_latency_ms_at_most(&turn_rows(), 2_000).expect_err("3200 ms > 2000 ms budget");
         assert_eq!(
             err,
             LatencyOverBudget {
@@ -1318,21 +1385,21 @@ mod tests {
     }
 
     #[test]
-    fn latency_passes_when_field_missing() {
+    fn latency_passes_when_no_row_carries_one() {
         // Absence of evidence is not evidence of budget violation —
         // callers use assert_tool_called to enforce turn presence.
-        let turn = json!({ "turn_id": "x" });
-        assert!(assert_latency_ms_at_most(&turn, 1_000).is_ok());
+        let rows = vec![row("chat", 10, None, "[]")];
+        assert!(assert_latency_ms_at_most(&rows, 1_000).is_ok());
     }
 
     #[test]
     fn tokens_passes_under_budget() {
-        assert!(assert_tokens_at_most(&turn_json(), 5_000).is_ok());
+        assert!(assert_tokens_at_most(&turn_rows(), 5_000).is_ok());
     }
 
     #[test]
     fn tokens_catches_over_budget() {
-        let err = assert_tokens_at_most(&turn_json(), 500).expect_err("1234 tokens > 500 budget");
+        let err = assert_tokens_at_most(&turn_rows(), 500).expect_err("1234 tokens > 500 budget");
         assert_eq!(
             err,
             TokensOverBudget {
@@ -1343,8 +1410,8 @@ mod tests {
     }
 
     #[test]
-    fn tokens_passes_when_field_missing() {
-        let turn = json!({ "turn_id": "x" });
-        assert!(assert_tokens_at_most(&turn, 100).is_ok());
+    fn tokens_passes_without_a_per_call_row() {
+        let rows = vec![row(TURN_SUMMARY_CALL_TYPE, 0, Some(10), "[]")];
+        assert!(assert_tokens_at_most(&rows, 100).is_ok());
     }
 }

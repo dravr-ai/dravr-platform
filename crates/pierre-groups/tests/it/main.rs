@@ -18,3 +18,4 @@ mod recent_activity_location_test;
 mod roster_duration_precision_test;
 mod roster_weekday_zone_test;
 mod smoke_test;
+mod unread_week_test;

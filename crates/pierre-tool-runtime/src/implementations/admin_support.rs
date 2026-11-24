@@ -15,6 +15,7 @@
 //! one access predicate refuses them to anyone else. Neither is offered in
 //! Dravr's own chat: the web console starts its own support sessions.
 
+use crate::tool_data::ToolData;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -245,8 +246,8 @@ pub fn create_admin_support_tools() -> Vec<Box<dyn RuntimeTool>> {
     ]
 }
 
-crate::declare_security!(AdminImpersonateStartTool => empty);
-crate::declare_security!(AdminImpersonateEndTool => empty);
+crate::declare_security!(AdminImpersonateStartTool => empty, reads: ToolData::own(&[]));
+crate::declare_security!(AdminImpersonateEndTool => empty, reads: ToolData::own(&[]));
 
 #[cfg(test)]
 mod tests {

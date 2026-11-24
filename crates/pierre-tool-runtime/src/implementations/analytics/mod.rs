@@ -49,6 +49,9 @@ pub use inner::AthleteReads;
 
 use crate::annotations::{annotations, Effect, Reach};
 use crate::protocol::provider_helpers::PROVIDER_ARGUMENT;
+use crate::read_subject::DataClass;
+use crate::tool_data::ToolData;
+use dravr_barrage::Stream;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -936,14 +939,86 @@ pub fn create_analytics_tools() -> Vec<Box<dyn RuntimeTool>> {
 // Guardian security classifications (see `crate::security`). Co-located here so
 // each impl sits under this module's existing feature gate; the compiler forces
 // every registered tool to classify (the registry stores `Arc<dyn RuntimeTool>`).
-crate::declare_security!(AnalyzeActivityTool => empty);
-crate::declare_security!(AnalyzePerformanceTrendsTool => empty);
-crate::declare_security!(AnalyzeTrainingLoadTool => empty);
-crate::declare_security!(AnalyzeWeatherImpactTool => empty);
-crate::declare_security!(CalculateFitnessScoreTool => empty);
-crate::declare_security!(CalculateMetricsTool => empty);
-crate::declare_security!(CompareActivitiesTool => empty);
-crate::declare_security!(DetectPatternsTool => empty);
-crate::declare_security!(GenerateRecommendationsTool => empty);
-crate::declare_security!(GetActivityIntelligenceTool => empty);
-crate::declare_security!(PredictPerformanceTool => empty);
+// Each session's detail and sensor streams, without its position.
+crate::declare_security!(
+    AnalyzeActivityTool => empty,
+    reads: ToolData::of(DataClass::Training, &[Stream::Workout, Stream::WorkoutRaw])
+        .with_athlete_text(),
+);
+// Trends, best efforts, predictions and the advice derived from the
+// sessions; a mode reading the athlete's wellness is refused on a coach's
+// read.
+crate::declare_security!(
+    AnalyzePerformanceTrendsTool => empty,
+    reads: ToolData::of(
+        DataClass::Training,
+        &[
+            Stream::Workout,
+            Stream::TrainingLoad,
+            Stream::CardioDaily,
+        ],
+    ),
+);
+crate::declare_security!(
+    AnalyzeTrainingLoadTool => empty,
+    reads: ToolData::of(DataClass::Training, &[Stream::TrainingLoad, Stream::Workout]),
+);
+crate::declare_security!(
+    AnalyzeWeatherImpactTool => empty,
+    reads: ToolData::of(DataClass::Training, &[Stream::Workout, Stream::WorkoutRoute])
+        .with_athlete_text(),
+);
+crate::declare_security!(
+    CalculateFitnessScoreTool => empty,
+    reads: ToolData::of(DataClass::Training, &[Stream::TrainingLoad, Stream::Workout]),
+);
+crate::declare_security!(
+    CalculateMetricsTool => empty,
+    reads: ToolData::of(DataClass::Training, &[Stream::Workout, Stream::WorkoutRaw]),
+);
+crate::declare_security!(
+    CompareActivitiesTool => empty,
+    reads: ToolData::of(DataClass::Training, &[Stream::Workout, Stream::WorkoutRaw])
+        .with_athlete_text(),
+);
+crate::declare_security!(
+    DetectPatternsTool => empty,
+    reads: ToolData::of(
+        DataClass::Training,
+        &[
+            Stream::Workout,
+            Stream::TrainingLoad,
+            Stream::CardioDaily,
+        ],
+    ),
+);
+crate::declare_security!(
+    GenerateRecommendationsTool => empty,
+    reads: ToolData::of(
+        DataClass::Training,
+        &[
+            Stream::Workout,
+            Stream::TrainingLoad,
+            Stream::CardioDaily,
+        ],
+    )
+        .with_athlete_text(),
+);
+// A session it was not asked about is picked for it, and named, with
+// the sessions it could have picked.
+crate::declare_security!(
+    GetActivityIntelligenceTool => empty,
+    reads: ToolData::of(DataClass::Training, &[Stream::Workout, Stream::WorkoutRaw])
+        .with_athlete_text(),
+);
+crate::declare_security!(
+    PredictPerformanceTool => empty,
+    reads: ToolData::of(
+        DataClass::Training,
+        &[
+            Stream::Workout,
+            Stream::TrainingLoad,
+            Stream::CardioDaily,
+        ],
+    ),
+);

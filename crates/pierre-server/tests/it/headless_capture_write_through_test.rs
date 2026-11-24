@@ -218,9 +218,14 @@ async fn group_snapshot_declines_a_headless_capture_and_persists_a_complete_one(
     let snapshots = fetch_member_snapshots(&runtime, &[user_id], tenant).await;
     assert_eq!(snapshots.len(), 1);
     assert!(
-        snapshots[0].weekly_activity_count >= 1,
-        "the headless capture still feeds the snapshot, got weekly_activity_count={}",
-        snapshots[0].weekly_activity_count
+        !snapshots[0].recent_activities.is_empty(),
+        "the headless capture still feeds the snapshot's sessions"
+    );
+    // The weekly figures are the stored Monday weeks Home counts: a capture
+    // never stored gives the week no number, never a zero.
+    assert_eq!(
+        snapshots[0].weekly_volume_km, None,
+        "an unstored week read as a figure"
     );
     let rows = cached_rows(&resources, user_id, tenant).await;
     let fresh = latest_sync(&resources, user_id, tenant).await;
@@ -232,6 +237,17 @@ async fn group_snapshot_declines_a_headless_capture_and_persists_a_complete_one(
     let rows = cached_rows(&resources, user_id, tenant).await;
     let fresh = latest_sync(&resources, user_id, tenant).await;
     assert_cache_holds_ride(&rows, fresh, "group snapshot");
+    // Stored, the ride two days back is in this Monday week or the one
+    // before, and both weeks it reaches carry their figures.
+    let snapshot = &snapshots[0];
+    let sessions =
+        snapshot.weekly_volume_km.unwrap_or(0.0) + snapshot.previous_week_volume_km.unwrap_or(0.0);
+    assert!(
+        sessions > 0.0,
+        "the stored ride is in neither Monday week: {:?} / {:?}",
+        snapshot.weekly_volume_km,
+        snapshot.previous_week_volume_km
+    );
 }
 
 /// The inline historical backfill in `activity_backfill.rs`: an `after`

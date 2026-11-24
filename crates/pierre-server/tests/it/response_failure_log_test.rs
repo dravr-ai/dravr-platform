@@ -62,7 +62,7 @@ async fn ok_handler() -> &'static str {
 fn app() -> Router {
     Router::new()
         .route("/api/providers/sciotte/login", get(shed_handler))
-        .route("/ready", get(unavailable_no_hint_handler))
+        .route("/dependency-down", get(unavailable_no_hint_handler))
         .route("/boom", get(boom_handler))
         .route("/ok", get(ok_handler))
         .route("/api/oauth/callback/strava", get(boom_handler))
@@ -122,7 +122,7 @@ async fn retry_after_503_logs_warn_with_endpoint_and_never_errors() {
 async fn plain_503_without_retry_after_still_errors() {
     let (events, guard) = log_capture::capture_events();
 
-    let response = call("/ready").await;
+    let response = call("/dependency-down").await;
     assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
 
     let snapshot = events.events();
@@ -136,7 +136,7 @@ async fn plain_503_without_retry_after_still_errors() {
             e.level == Level::ERROR && e.message().is_some_and(|m| m.contains("response failed"))
         })
         .unwrap_or_else(|| panic!("bare 503 must still ERROR; captured: {snapshot:?}"));
-    assert_eq!(error.field("http_path"), Some("/ready"));
+    assert_eq!(error.field("http_path"), Some("/dependency-down"));
     assert_eq!(error.field("http_status"), Some("503"));
     assert!(
         snapshot.iter().all(|e| e.level != Level::WARN),

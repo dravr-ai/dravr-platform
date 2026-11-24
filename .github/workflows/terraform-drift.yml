@@ -193,6 +193,14 @@ jobs:
         with:
           terraform_wrapper: false
 
+      - name: Stage private terraform inputs
+        # The artifacts root takes no private input.
+        if: matrix.label != 'artifacts'
+        uses: ./.github/actions/terraform-private-inputs
+        with:
+          environment: ${{ matrix.label }}
+          token: ${{ secrets.DRAVR_CARNET_TOKEN }}
+
       - name: Terraform Init
         run: terraform init -input=false
 

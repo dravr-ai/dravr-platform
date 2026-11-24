@@ -26,6 +26,9 @@ mod recovery_notice;
 pub mod output;
 
 use crate::annotations::{annotations, Effect, Reach};
+use crate::read_subject::DataClass;
+use crate::tool_data::ToolData;
+use dravr_barrage::Stream;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
@@ -505,8 +508,23 @@ pub fn create_sleep_tools() -> Vec<Box<dyn RuntimeTool>> {
 // Guardian security classifications (see `crate::security`). Co-located here so
 // each impl sits under this module's existing feature gate; the compiler forces
 // every registered tool to classify (the registry stores `Arc<dyn RuntimeTool>`).
-crate::declare_security!(AnalyzeSleepQualityTool => empty);
-crate::declare_security!(CalculateRecoveryScoreTool => empty);
-crate::declare_security!(OptimizeSleepScheduleTool => empty);
-crate::declare_security!(SuggestRestDayTool => empty);
-crate::declare_security!(TrackSleepTrendsTool => empty);
+crate::declare_security!(
+    AnalyzeSleepQualityTool => empty,
+    reads: ToolData::of(DataClass::Wellness, &[Stream::Sleep]),
+);
+crate::declare_security!(
+    CalculateRecoveryScoreTool => empty,
+    reads: ToolData::of(DataClass::Wellness, &[Stream::RecoveryDaily, Stream::CardioDaily]),
+);
+crate::declare_security!(
+    OptimizeSleepScheduleTool => empty,
+    reads: ToolData::of(DataClass::Wellness, &[Stream::Sleep]),
+);
+crate::declare_security!(
+    SuggestRestDayTool => empty,
+    reads: ToolData::of(DataClass::Wellness, &[Stream::RecoveryDaily, Stream::CardioDaily]),
+);
+crate::declare_security!(
+    TrackSleepTrendsTool => empty,
+    reads: ToolData::of(DataClass::Wellness, &[Stream::Sleep]),
+);

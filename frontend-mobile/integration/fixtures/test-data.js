@@ -95,7 +95,6 @@ const endpoints = {
   chatConversations: '/api/chat/conversations',
   coaches: '/api/agents',
   connections: '/api/connections',
-  adminSetupStatus: '/admin/setup/status',
   // Activity endpoints
   activities: '/api/activities',
   activitiesSync: '/api/activities/sync',

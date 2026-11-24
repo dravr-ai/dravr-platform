@@ -174,12 +174,6 @@ impl FeatureConfig {
         cfg!(feature = "client-api-keys")
     }
 
-    /// Check if tenants client is enabled
-    #[must_use]
-    pub const fn client_tenants() -> bool {
-        cfg!(feature = "client-tenants")
-    }
-
     /// Check if impersonation client is enabled
     #[must_use]
     pub const fn client_impersonation() -> bool {
@@ -233,7 +227,6 @@ impl FeatureConfig {
             || Self::client_admin_api()
             || Self::client_admin_ui()
             || Self::client_api_keys()
-            || Self::client_tenants()
             || Self::client_impersonation()
             || Self::client_llm_settings()
             || Self::client_tool_selection()
@@ -336,7 +329,6 @@ impl FeatureConfig {
             (Self::client_admin_api(), "admin-api"),
             (Self::client_admin_ui(), "admin-ui"),
             (Self::client_api_keys(), "api-keys"),
-            (Self::client_tenants(), "tenants"),
             (Self::client_impersonation(), "impersonation"),
             (Self::client_llm_settings(), "llm-settings"),
             (Self::client_tool_selection(), "tool-selection"),

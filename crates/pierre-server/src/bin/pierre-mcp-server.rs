@@ -415,7 +415,7 @@ fn create_auth_manager(config: &ServerConfig) -> AuthManager {
 /// exchange.
 ///
 /// Returns `None` on initialization failure so the binary keeps booting;
-/// `/ready` surfaces the failure via the LLM health probe, and the per-call
+/// the LLM health probe records the failure, and the per-call
 /// fallback in `chat_provider_from_resources_arc` preserves the old
 /// build-per-call behaviour for request paths.
 async fn build_chat_provider_singleton(
@@ -678,9 +678,9 @@ fn spawn_background_workers(
     }
 
     // Spawn LLM startup health probe — populates resources.llm_health so
-    // /ready and /health/llm reflect the boot-time round-trip. Fire-and-
-    // forget; failures only surface via the dedicated readiness route
-    // (Cloud Run startup probe is /health by default and stays unaffected).
+    // the chat pipeline's turn gate reflects the boot-time round-trip.
+    // Fire-and-forget; a failure refuses turns, never the Cloud Run startup
+    // probe, which hits /health.
     //
     // Skipped for in-memory (test) servers: probing would exercise the CLI
     // provider and spawn `copilot --acp`, which blocks on browser OAuth.

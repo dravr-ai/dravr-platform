@@ -71,7 +71,8 @@ pub(crate) async fn handle_list_pre_approved_emails(
 ///
 /// The address needs no account: that is what a standing allow is for. When an
 /// account does exist and is pending, the allow approves it now, and the user
-/// is notified through the same announcement path as `POST /admin/approve-user`.
+/// is notified through the same announcement path as
+/// `POST /api/admin/approve-user/{user_id}`.
 ///
 /// A caller bound to one tenant is refused (403) before anything is written
 /// ([`require_platform_reach`]).

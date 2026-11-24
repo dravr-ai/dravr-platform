@@ -25,6 +25,7 @@
 use bitflags::bitflags;
 
 use crate::runtime::ToolRuntime;
+use crate::tool_data::ToolData;
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities};
 
 bitflags! {
@@ -63,6 +64,15 @@ impl SecurityLabels {
 pub trait RuntimeTool: McpTool<dyn ToolRuntime> {
     /// The tool's Guardian security classification (see [`SecurityLabels`]).
     fn security_class(&self) -> SecurityLabels;
+
+    /// What the tool reads ([`ToolData`]): whose data a coach's call may read
+    /// through it, the streams its result serves, and whether written text
+    /// passes through it. No default, as for [`Self::security_class`]: a tool
+    /// that does not declare it does not compile. The registry reads it once,
+    /// at registration. A tool declared under no class ([`ToolData::own`])
+    /// reads only its caller's own data, if any, and a coach's thread about
+    /// an athlete withholds it.
+    fn tool_data(&self) -> ToolData;
 
     /// Where the tool may be listed and run ([`ToolReach`]): on every
     /// transport, only on Dravr's own surfaces, or only in Dravr's own app
@@ -145,16 +155,21 @@ pub enum Audience {
     Admin,
 }
 
-/// Implement [`RuntimeTool`] for a tool type in one line, co-located with its
-/// `McpTool` impl (and therefore under the same `#[cfg(feature = ...)]`).
+/// Implement [`RuntimeTool`] for a tool type, co-located with its `McpTool`
+/// impl (and therefore under the same `#[cfg(feature = ...)]`).
 ///
 /// ```ignore
-/// declare_security!(GetActivitiesTool => empty);
-/// declare_security!(DeleteAgentTool   => IRREVERSIBLE);
-/// declare_security!(SetGoalTool       => empty);
-/// declare_security!(GetRosterOverviewTool => empty; coach);
-/// declare_security!(RememberFactTool => empty; first_party_only);
+/// declare_security!(
+///     GetActivitiesTool => empty,
+///     reads: ToolData::of(DataClass::Training, &[Stream::Workout]),
+/// );
+/// declare_security!(DeleteAgentTool => IRREVERSIBLE, reads: ToolData::own(&[]));
+/// declare_security!(GetRosterOverviewTool => empty; coach, reads: ToolData::own(&[]));
+/// declare_security!(RememberFactTool => empty; first_party_only, reads: ToolData::own(&[]));
 /// ```
+///
+/// `reads:` is the tool's [`ToolData`] ([`RuntimeTool::tool_data`]): what it
+/// reads, required on every arm.
 ///
 /// The trailing `; first_party_only` declares the tool
 /// [`ToolReach::FirstPartyOnly`] ([`RuntimeTool::reach`]): listed and run
@@ -171,15 +186,23 @@ pub enum Audience {
 /// `pierre_tool_runtime` regardless of the call site.
 #[macro_export]
 macro_rules! declare_security {
-    ($t:ty => empty $(,)?) => {
+    ($t:ty => empty , reads: $data:expr $(,)?) => {
         impl $crate::security::RuntimeTool for $t {
+            fn tool_data(&self) -> $crate::tool_data::ToolData {
+                $data
+            }
+
             fn security_class(&self) -> $crate::security::SecurityLabels {
                 $crate::security::SecurityLabels::empty()
             }
         }
     };
-    ($t:ty => empty ; food_database $(,)?) => {
+    ($t:ty => empty ; food_database , reads: $data:expr $(,)?) => {
         impl $crate::security::RuntimeTool for $t {
+            fn tool_data(&self) -> $crate::tool_data::ToolData {
+                $data
+            }
+
             fn security_class(&self) -> $crate::security::SecurityLabels {
                 $crate::security::SecurityLabels::empty()
             }
@@ -189,8 +212,12 @@ macro_rules! declare_security {
             }
         }
     };
-    ($t:ty => empty ; export $(,)?) => {
+    ($t:ty => empty ; export , reads: $data:expr $(,)?) => {
         impl $crate::security::RuntimeTool for $t {
+            fn tool_data(&self) -> $crate::tool_data::ToolData {
+                $data
+            }
+
             fn security_class(&self) -> $crate::security::SecurityLabels {
                 $crate::security::SecurityLabels::empty()
             }
@@ -200,8 +227,12 @@ macro_rules! declare_security {
             }
         }
     };
-    ($t:ty => empty ; first_party_only $(,)?) => {
+    ($t:ty => empty ; first_party_only , reads: $data:expr $(,)?) => {
         impl $crate::security::RuntimeTool for $t {
+            fn tool_data(&self) -> $crate::tool_data::ToolData {
+                $data
+            }
+
             fn security_class(&self) -> $crate::security::SecurityLabels {
                 $crate::security::SecurityLabels::empty()
             }
@@ -211,8 +242,12 @@ macro_rules! declare_security {
             }
         }
     };
-    ($t:ty => $($flag:ident)|+ ; first_party_only $(,)?) => {
+    ($t:ty => $($flag:ident)|+ ; first_party_only , reads: $data:expr $(,)?) => {
         impl $crate::security::RuntimeTool for $t {
+            fn tool_data(&self) -> $crate::tool_data::ToolData {
+                $data
+            }
+
             fn security_class(&self) -> $crate::security::SecurityLabels {
                 $( $crate::security::SecurityLabels::$flag )|+
             }
@@ -222,8 +257,12 @@ macro_rules! declare_security {
             }
         }
     };
-    ($t:ty => empty ; coach $(,)?) => {
+    ($t:ty => empty ; coach , reads: $data:expr $(,)?) => {
         impl $crate::security::RuntimeTool for $t {
+            fn tool_data(&self) -> $crate::tool_data::ToolData {
+                $data
+            }
+
             fn security_class(&self) -> $crate::security::SecurityLabels {
                 $crate::security::SecurityLabels::empty()
             }
@@ -233,8 +272,12 @@ macro_rules! declare_security {
             }
         }
     };
-    ($t:ty => $($flag:ident)|+ ; app_only $(,)?) => {
+    ($t:ty => $($flag:ident)|+ ; app_only , reads: $data:expr $(,)?) => {
         impl $crate::security::RuntimeTool for $t {
+            fn tool_data(&self) -> $crate::tool_data::ToolData {
+                $data
+            }
+
             fn security_class(&self) -> $crate::security::SecurityLabels {
                 $( $crate::security::SecurityLabels::$flag )|+
             }
@@ -244,8 +287,12 @@ macro_rules! declare_security {
             }
         }
     };
-    ($t:ty => $($flag:ident)|+ $(,)?) => {
+    ($t:ty => $($flag:ident)|+ , reads: $data:expr $(,)?) => {
         impl $crate::security::RuntimeTool for $t {
+            fn tool_data(&self) -> $crate::tool_data::ToolData {
+                $data
+            }
+
             fn security_class(&self) -> $crate::security::SecurityLabels {
                 $( $crate::security::SecurityLabels::$flag )|+
             }

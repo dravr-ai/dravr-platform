@@ -19,7 +19,7 @@ import {
   waitForLoginScreen,
 } from './test-helpers';
 import { setupBillingMocks } from './billing-mocks';
-import { mockSetupStatus, mockSignedOut, mockSignupConfig, takeoverToken } from './auth-mocks';
+import { mockSignedOut, mockSignupConfig, takeoverToken } from './auth-mocks';
 import { describeLayoutFailures, measurePageLayout } from './layout-gate';
 import { mockCoach } from './coach-home-mocks';
 import { PENDING_REQUEST, SEAT_CONVERSATION_ID, setupCoachSeatMocks } from './coach-seat-mocks';
@@ -768,7 +768,6 @@ const json = (body: unknown) => ({ status: 200, contentType: 'application/json',
 
 /** The sign-up form's own error alert, after a mismatched confirmation. */
 async function sweepRegisterError(page: Page, theme: (typeof THEMES)[number]) {
-  await mockSetupStatus(page);
   await mockSignupConfig(page);
   await page.goto('/');
   await waitForLoginScreen(page, 10_000);
@@ -901,7 +900,6 @@ async function sweepBillingProblem(page: Page, theme: (typeof THEMES)[number]) {
 /** The login takeover's page: its connected and closed medallions. */
 async function sweepSignInCheck(page: Page, theme: (typeof THEMES)[number], outcome: 'connected' | 'closed') {
   const token = takeoverToken();
-  await mockSetupStatus(page);
   await mockSignedOut(page);
   await page.routeWebSocket('**/ws/providers/sciotte/takeover**', (ws) => {
     ws.send(JSON.stringify({ type: 'status', state: 'ready', width: 320, height: 568 }));

@@ -314,10 +314,9 @@ export PIERRE_LLM_CHAIN=gemini
 export PIERRE_LLM_DEFAULT_MODEL=gemini-3-flash-preview
 
 # --- Anthropic API (PIERRE_LLM_CHAIN=anthropic=claude-haiku-5-5) ---
-# One key per Anthropic organization, each with its own prepaid credit; set a
-# Console spend limit on each, or a spent credit bills the card instead of
-# falling through. _2, _3, … become tiers anthropic#2, anthropic#3, … right
-# behind the first.
+# Set a Console spend limit on a key, or a spent credit bills the card instead
+# of falling through. Further keys (_2, _3, …) become tiers anthropic#2,
+# anthropic#3, … right behind the first.
 # export ANTHROPIC_API_KEY="sk-ant-..."
 # export ANTHROPIC_API_KEY_2="sk-ant-..."
 # export ANTHROPIC_EFFORT=low                          # low, medium, high, xhigh, max

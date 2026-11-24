@@ -16,6 +16,9 @@
 //! All tools use direct intelligence module and USDA API access.
 
 use crate::annotations::{annotations, Effect, Reach};
+use crate::read_subject::DataClass;
+use crate::tool_data::ToolData;
+use dravr_barrage::Stream;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
@@ -1020,8 +1023,26 @@ pub fn create_nutrition_tools() -> Vec<Box<dyn RuntimeTool>> {
 // Guardian security classifications (see `crate::security`). Co-located here so
 // each impl sits under this module's existing feature gate; the compiler forces
 // every registered tool to classify (the registry stores `Arc<dyn RuntimeTool>`).
-crate::declare_security!(SearchFoodTool => empty; food_database);
-crate::declare_security!(GetFoodDetailsTool => empty; food_database);
-crate::declare_security!(GetNutrientTimingTool => empty; first_party_only);
-crate::declare_security!(AnalyzeMealNutritionTool => empty; food_database);
-crate::declare_security!(CalculateDailyNutritionTool => empty; first_party_only);
+// Food references and pure calculators.
+crate::declare_security!(
+    SearchFoodTool => empty; food_database,
+    reads: ToolData::of(DataClass::NoSubject, &[]),
+);
+crate::declare_security!(
+    GetFoodDetailsTool => empty; food_database,
+    reads: ToolData::of(DataClass::NoSubject, &[]),
+);
+crate::declare_security!(
+    GetNutrientTimingTool => empty; first_party_only,
+    reads: ToolData::of(DataClass::Wellness, &[Stream::Body, Stream::Profile]),
+);
+crate::declare_security!(
+    AnalyzeMealNutritionTool => empty; food_database,
+    reads: ToolData::of(DataClass::NoSubject, &[]),
+);
+// Nutrition targets, which the athlete's medical flag governs; the flag
+// itself is not in the output (owl Q8).
+crate::declare_security!(
+    CalculateDailyNutritionTool => empty; first_party_only,
+    reads: ToolData::of(DataClass::Wellness, &[Stream::Body, Stream::Profile]),
+);

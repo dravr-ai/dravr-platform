@@ -13,13 +13,13 @@
 #
 # Thresholds come from the week to 2026-11-03 (Monitoring API, api service):
 #   - ~45,000 requests, zero 5xx. Any 5xx is unusual, so the 5xx policy counts
-#     them (3 or more in 15 minutes) instead of taking a ratio, which at alpha
-#     traffic swings to 50% on one failure out of two requests.
-#   - The 15-minute median was 137 ms at its median and 452 ms at p90, but a
+#     them (a handful inside one short window) instead of taking a ratio, which
+#     at alpha traffic swings to 50% on one failure out of two requests.
+#   - The windowed median was 137 ms at its median and 452 ms at p90, but a
 #     long chat turn or provider read alone can push a quiet window's median
 #     past 55 s, and the metric has no route label to exclude those routes.
-#     So the latency policy fires on a median above 5 s only while the window
-#     holds at least 30 requests: broad slowness, not one long turn.
+#     So the latency policy fires on a median far above the usual one, and only
+#     while the window holds enough requests: broad slowness, not one long turn.
 #
 # The dashboard reads the same built-in metrics plus Cloud SQL's, lists every
 # policy's incidents, and draws each single-threshold policy through an
@@ -36,6 +36,13 @@ locals {
   run_requests_api  = "run_googleapis_com:request_count{monitored_resource=\"cloud_run_revision\",service_name=\"${local.api_service}\"}"
   run_requests_both = "run_googleapis_com:request_count{monitored_resource=\"cloud_run_revision\",service_name=~\"${local.api_service}|${local.frontend_service}\",response_code_class=\"5xx\"}"
   run_latency_api   = "run_googleapis_com:request_latencies_bucket{monitored_resource=\"cloud_run_revision\",service_name=\"${local.api_service}\"}"
+
+  # The policy texts name their windows in minutes and the latency limit in
+  # seconds; each number is read from the setting the query uses, so a sentence
+  # cannot drift from its condition.
+  service_5xx_window_minutes = trimsuffix(var.alert_windows["service_health.service_5xx.window"], "m")
+  api_slow_window_minutes    = trimsuffix(var.alert_windows["service_health.api_slow.window"], "m")
+  api_slow_latency_seconds   = var.alert_thresholds["service_health.api_slow.latency_ms"] / 1000
 
   # Log-based and instance policies with a single metric-threshold condition,
   # each drawn on the dashboard through its own condition (an alertChart).
@@ -156,7 +163,7 @@ resource "google_monitoring_alert_policy" "service_5xx" {
 
   documentation {
     content   = <<-EOT
-      Three or more 5xx responses in 15 minutes on `${local.api_service}` or
+      Three or more 5xx responses in ${local.service_5xx_window_minutes} minutes on `${local.api_service}` or
       `${local.frontend_service}`. The week this policy was written had none
       in ~45,000 requests, so even a few mean something broke.
 
@@ -182,12 +189,12 @@ resource "google_monitoring_alert_policy" "service_5xx" {
   }
 
   conditions {
-    display_name = "3 or more 5xx in 15 minutes, per service"
+    display_name = "${var.alert_thresholds["service_health.service_5xx.threshold"]} or more 5xx in ${local.service_5xx_window_minutes} minutes, per service"
 
     condition_prometheus_query_language {
-      query               = "sum by (service_name) (increase(${local.run_requests_both}[15m])) >= 3"
-      duration            = "0s"
-      evaluation_interval = "60s"
+      query               = "sum by (service_name) (increase(${local.run_requests_both}[${var.alert_windows["service_health.service_5xx.window"]}])) >= ${var.alert_thresholds["service_health.service_5xx.threshold"]}"
+      duration            = var.alert_windows["service_health.service_5xx.duration"]
+      evaluation_interval = var.alert_windows["service_health.service_5xx.evaluation_interval"]
     }
   }
 
@@ -195,19 +202,19 @@ resource "google_monitoring_alert_policy" "service_5xx" {
   notification_channels = [google_monitoring_notification_channel.slack_alerts.id]
 
   alert_strategy {
-    auto_close = "3600s"
+    auto_close = var.alert_windows["service_health.service_5xx.auto_close"]
   }
 }
 
 resource "google_monitoring_alert_policy" "api_slow" {
   project      = var.project_id
-  display_name = "API median latency above 5 s under real traffic"
+  display_name = "API median latency above ${local.api_slow_latency_seconds} s under real traffic"
   combiner     = "OR"
 
   documentation {
     content   = <<-EOT
-      The median request to `${local.api_service}` took longer than 5 s over
-      15 minutes holding at least 30 requests. A single long chat turn
+      The median request to `${local.api_service}` took longer than ${local.api_slow_latency_seconds} s over
+      ${local.api_slow_window_minutes} minutes holding at least ${var.alert_thresholds["service_health.api_slow.min_requests"]} requests. A single long chat turn
       cannot do this: half of all requests have to be slow, which points at
       something every route shares — the database, the connection pool, an
       instance starved of CPU, or the LLM chain blocking request threads.
@@ -222,7 +229,7 @@ resource "google_monitoring_alert_policy" "api_slow" {
             'resource.type="cloud_run_revision" AND
              resource.labels.service_name="${local.api_service}" AND
              logName="projects/${var.project_id}/logs/run.googleapis.com%2Frequests" AND
-             httpRequest.latency>="5s"' \
+             httpRequest.latency>="${local.api_slow_latency_seconds}s"' \
             --project ${var.project_id} --freshness=30m --limit 50 \
             --format="value(timestamp, httpRequest.latency, httpRequest.requestUrl, trace)"
 
@@ -233,16 +240,16 @@ resource "google_monitoring_alert_policy" "api_slow" {
   }
 
   conditions {
-    display_name = "Median latency above 5000 ms, with at least 30 requests in 15 minutes"
+    display_name = "Median latency above ${var.alert_thresholds["service_health.api_slow.latency_ms"]} ms, with at least ${var.alert_thresholds["service_health.api_slow.min_requests"]} requests in ${local.api_slow_window_minutes} minutes"
 
     condition_prometheus_query_language {
       query               = <<-EOT
-        histogram_quantile(0.5, sum by (le) (rate(${local.run_latency_api}[15m]))) > 5000
+        histogram_quantile(0.5, sum by (le) (rate(${local.run_latency_api}[${var.alert_windows["service_health.api_slow.window"]}]))) > ${var.alert_thresholds["service_health.api_slow.latency_ms"]}
         and
-        sum(increase(${local.run_requests_api}[15m])) >= 30
+        sum(increase(${local.run_requests_api}[${var.alert_windows["service_health.api_slow.window"]}])) >= ${var.alert_thresholds["service_health.api_slow.min_requests"]}
       EOT
-      duration            = "300s"
-      evaluation_interval = "60s"
+      duration            = var.alert_windows["service_health.api_slow.duration"]
+      evaluation_interval = var.alert_windows["service_health.api_slow.evaluation_interval"]
     }
   }
 
@@ -250,7 +257,7 @@ resource "google_monitoring_alert_policy" "api_slow" {
   notification_channels = [google_monitoring_notification_channel.slack_alerts.id]
 
   alert_strategy {
-    auto_close = "3600s"
+    auto_close = var.alert_windows["service_health.api_slow.auto_close"]
   }
 }
 

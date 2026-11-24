@@ -14,28 +14,22 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use axum::{
-    extract::{Path, Query, State},
+    extract::{Query, State},
     http::StatusCode,
     response::{IntoResponse, Response},
     routing::get,
     Json, Router,
 };
-use pierre_auth::auth::AuthResult;
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 
 use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::admin::scope::AdminScope;
 use pierre_core::errors::{AppError, ErrorCode};
-use pierre_core::models::usage::{
-    ConversationTurnLlmCall, ConversationTurnSummary, LlmUsageAggregateRow, LlmUsageDailyRow,
-    LlmUsageRecord,
-};
-use pierre_core::models::{ConversationTurnId, TenantId, TURN_SUMMARY_CALL_TYPE};
+use pierre_core::models::usage::{LlmUsageAggregateRow, LlmUsageDailyRow, LlmUsageRecord};
 use pierre_database::repositories::llm_usage::LlmUsageGroupBy;
 use pierre_database::repositories::LlmUsageScope;
 use pierre_middleware::AuthenticatedUser;
-use pierre_runtime_context::{analytics_read_scope, tenant::require, MiddlewareCtx, TenantMode};
+use pierre_runtime_context::{analytics_read_scope, MiddlewareCtx};
 use pierre_services::pricing::costs_of_usage_groups;
 
 /// Minimum days parameter value
@@ -149,16 +143,6 @@ pub struct ToolUsageResponse {
     pub days: u16,
 }
 
-/// Resolve a user's primary tenant id via the canonical resolver. Errors
-/// if the user has no tenants (no user-id fallback) and verifies
-/// membership when `active_tenant_id` is claimed.
-async fn primary_tenant_for_user<C: MiddlewareCtx>(
-    auth: &AuthResult,
-    resources: &Arc<C>,
-) -> Result<TenantId, AppError> {
-    require(pierre_runtime_context::resolve_tenant(resources, auth, TenantMode::Required).await?)
-}
-
 /// LLM consumption routes handler
 #[derive(Debug)]
 pub struct LlmConsumptionRoutes;
@@ -178,10 +162,6 @@ impl LlmConsumptionRoutes {
                 get(Self::get_admin_consumption::<C>),
             )
             .route("/admin/tool-usage", get(Self::get_admin_tool_usage::<C>))
-            .route(
-                "/internal/conversation-turn/{turn_id}",
-                get(Self::get_conversation_turn::<C>),
-            )
             .with_state(resources)
     }
 
@@ -403,199 +383,6 @@ impl LlmConsumptionRoutes {
             breakdown,
             days,
         }
-    }
-
-    /// GET /internal/conversation-turn/{turn_id} — admin-only per-turn
-    /// observability primitive.
-    ///
-    /// Returns the set of LLM calls recorded against the given
-    /// conversation turn plus aggregate cost, latency, tools, and token
-    /// counts. Returns 404 when no rows match and 403 when the caller
-    /// is not an admin of the tenant that owns the turn.
-    ///
-    /// The endpoint is scoped to `/internal/` because it is consumed by
-    /// the messaging-eval test harness, on-call investigators, and
-    /// future per-turn dashboards — never end users.
-    async fn get_conversation_turn<C: MiddlewareCtx>(
-        State(resources): State<Arc<C>>,
-        auth: AuthenticatedUser,
-        Path(turn_id): Path<String>,
-    ) -> Result<Response, AppError> {
-        let auth = auth.into_inner();
-        let caller_tenant_id = primary_tenant_for_user(&auth, &resources).await?;
-
-        let role = resources
-            .repos()
-            .tenants
-            .get_user_role(auth.user_id, caller_tenant_id)
-            .await
-            .map_err(|e| AppError::database(format!("Failed to check user role: {e}")))?;
-        match role.as_deref() {
-            Some("admin" | "owner") => {}
-            _ => {
-                return Err(AppError::auth_invalid(
-                    "Admin role required for conversation-turn lookup",
-                ));
-            }
-        }
-
-        let parsed_uuid = turn_id
-            .parse::<Uuid>()
-            .map_err(|_| AppError::invalid_input("Invalid turn_id (expected UUID)"))?;
-
-        // Pre-migration llm_usage rows default to the nil UUID. Querying
-        // that value would return every such row lumped together as a
-        // single synthetic "turn", which is misleading. Reject the nil
-        // UUID explicitly — the endpoint is for observing one real turn.
-        if parsed_uuid.is_nil() {
-            return Err(AppError::invalid_input(
-                "turn_id must not be the nil UUID (used as pre-migration sentinel)",
-            ));
-        }
-        let turn = ConversationTurnId::from_uuid(parsed_uuid);
-
-        let rows = resources
-            .repos()
-            .llm_usage
-            .find_llm_usage_by_turn_id(turn)
-            .await?;
-
-        let Some(first) = rows.first() else {
-            return Err(AppError::not_found(format!(
-                "No conversation turn found with id {turn}"
-            )));
-        };
-
-        if first.tenant_id != caller_tenant_id.to_string() {
-            return Err(AppError::auth_invalid(
-                "Cannot query conversation turns owned by other tenants",
-            ));
-        }
-
-        let summary = build_turn_summary(turn, &rows);
-        Ok((StatusCode::OK, Json(summary)).into_response())
-    }
-}
-
-/// Aggregate the individual `llm_usage` rows that share a turn id
-/// into a single response row.
-///
-/// The table holds two shapes of row per turn:
-/// - **per-call rows** written by the tool loop's
-///   `LlmCallRecorder` (`pierre-server::services::tool_execution`) — one
-///   per LLM call, with real per-call tokens and latency;
-/// - **one turn-summary row** an outside caller's turn writes when it ends
-///   (an A2A text message, an API key's chat message, carnet#1543) — tokens
-///   zeroed, carries the turn-level
-///   [`tools_called`](LlmUsageRecord::tools_called) list, the end-to-end
-///   [`execution_time_ms`](LlmUsageRecord::execution_time_ms) and how the
-///   turn ended ([`outcome`](LlmUsageRecord::outcome)).
-///
-/// The response's `llm_calls` array is populated from per-call rows;
-/// `tools_called` is the summary's list then every tool a per-call row adds,
-/// so a summary of a failed or tool-less turn shows as it is without hiding
-/// the calls' tools; `total_latency_ms` comes from the summary row when
-/// present and falls back to the per-call rows otherwise. A turn whose only
-/// row is its summary is still shown, dated by it.
-fn build_turn_summary(
-    turn_id: ConversationTurnId,
-    rows: &[LlmUsageRecord],
-) -> ConversationTurnSummary {
-    let (summary_rows, per_call_rows): (Vec<&LlmUsageRecord>, Vec<&LlmUsageRecord>) = rows
-        .iter()
-        .partition(|r| r.call_type == TURN_SUMMARY_CALL_TYPE);
-    let summary_row = summary_rows.first().copied();
-
-    // Tools_called: the summary row's list first, in its order, then every
-    // tool a per-call row names that it does not. A summary written for a
-    // turn that failed, or that ran no tool, never hides what the turn's LLM
-    // calls ran.
-    let mut seen: HashSet<String> = HashSet::new();
-    let mut tools_called: Vec<String> = Vec::new();
-    for row in summary_row.into_iter().chain(per_call_rows.iter().copied()) {
-        if let Ok(names) = serde_json::from_str::<Vec<String>>(&row.tools_called) {
-            for name in names {
-                if seen.insert(name.clone()) {
-                    tools_called.push(name);
-                }
-            }
-        }
-    }
-
-    let llm_calls: Vec<ConversationTurnLlmCall> = per_call_rows
-        .iter()
-        .map(|row| ConversationTurnLlmCall {
-            provider: row.provider.clone(),
-            model: row.model.clone(),
-            prompt_tokens: row.prompt_tokens,
-            completion_tokens: row.completion_tokens,
-            total_tokens: row.total_tokens,
-            cached_tokens: row.cached_tokens,
-            cached_write_tokens: row.cached_write_tokens,
-            cached_write_1h_tokens: row.cached_write_1h_tokens,
-            reasoning_tokens: row.reasoning_tokens,
-            latency_ms: row.execution_time_ms,
-            created_at: row.created_at.clone(),
-        })
-        .collect();
-
-    let total_tokens = per_call_rows.iter().map(|r| r.total_tokens).sum();
-    let total_prompt_tokens = per_call_rows.iter().map(|r| r.prompt_tokens).sum();
-    let total_completion_tokens = per_call_rows.iter().map(|r| r.completion_tokens).sum();
-    // Prefer the summary row's end-to-end latency (includes tool
-    // execution time between LLM calls); fall back to the sum of per-
-    // call latencies when the summary is absent.
-    let total_latency_ms = summary_row
-        .and_then(|r| r.execution_time_ms)
-        .unwrap_or_else(|| {
-            per_call_rows
-                .iter()
-                .filter_map(|r| r.execution_time_ms)
-                .sum()
-        });
-
-    // A turn whose only row is its summary (a slash command, a turn refused
-    // or failed before any LLM call) is dated by it.
-    let first_call_at = per_call_rows
-        .first()
-        .copied()
-        .or(summary_row)
-        .map_or_default(|r| r.created_at.clone());
-    let last_call_at = per_call_rows
-        .last()
-        .map(|r| r.created_at.clone())
-        .or_else(|| summary_row.map(|r| r.created_at.clone()))
-        .unwrap_or_default();
-
-    // Pick any row to copy tenant/user/conversation metadata from —
-    // all rows for a turn share them. Prefer per-call rows so an
-    // orphaned summary without per-call data still gets filled in.
-    let metadata_row = per_call_rows.first().copied().or(summary_row);
-    let (tenant_id, user_id, conversation_id) = metadata_row.map_or_else(
-        || (String::new(), String::new(), None),
-        |r| {
-            (
-                r.tenant_id.clone(),
-                r.user_id.clone(),
-                r.conversation_id.clone(),
-            )
-        },
-    );
-
-    ConversationTurnSummary {
-        turn_id,
-        tenant_id,
-        user_id,
-        conversation_id,
-        outcome: summary_row.and_then(|r| r.outcome.clone()),
-        tools_called,
-        llm_calls,
-        total_tokens,
-        total_prompt_tokens,
-        total_completion_tokens,
-        total_latency_ms,
-        first_call_at,
-        last_call_at,
     }
 }
 

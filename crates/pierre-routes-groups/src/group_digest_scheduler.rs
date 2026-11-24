@@ -979,8 +979,8 @@ async fn dispatch_to_managers<C>(
 ///
 /// Numbers stay numbers and states stay codes, so the renderer can phrase
 /// them in each reader's language: the summary counts, the trend, the
-/// members by weekly volume (at most [`MAX_DIGEST_MEMBER_LINES`]), the members
-/// in fresh form, and one concern per health flag.
+/// members by weekly volume (at most [`MAX_DIGEST_MEMBER_LINES`], those whose
+/// week is read), the members in fresh form, and one concern per health flag.
 #[must_use]
 pub fn digest_params(
     group_name: &str,
@@ -994,15 +994,13 @@ pub fn digest_params(
         GroupTrend::Declining => "declining",
     };
 
-    let mut by_volume: Vec<&MemberFitnessSnapshot> = snapshots.iter().collect();
-    by_volume.sort_by(|a, b| b.weekly_volume_km.total_cmp(&a.weekly_volume_km));
-    let members: Vec<Value> = by_volume
+    let members: Vec<Value> = GroupService::members_by_volume(snapshots)
         .into_iter()
         .take(MAX_DIGEST_MEMBER_LINES)
-        .map(|s| {
+        .map(|(s, km)| {
             json!({
                 "name": s.display_name,
-                "km": s.weekly_volume_km,
+                "km": km,
                 "prev_km": s.previous_week_volume_km,
             })
         })

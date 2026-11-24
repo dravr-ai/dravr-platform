@@ -49,6 +49,8 @@
 //!    call, and `truncated` says when the roster was cut.
 
 use crate::annotations::{annotations, Effect, Reach};
+use crate::tool_data::ToolData;
+use dravr_barrage::Stream;
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
@@ -132,13 +134,17 @@ pub struct RosterOverviewActivity {
 pub struct RosterTraining {
     /// Days since their last session; absent with none in the lookback.
     pub days_since_last_activity: Option<i32>,
-    /// Sessions this week.
-    pub sessions_this_week: i32,
-    /// Active seconds this week, which covers sources with no distance.
-    pub seconds_this_week: u64,
-    /// Kilometres this week.
-    pub km_this_week: f64,
-    /// Kilometres the week before, for the trend.
+    /// Sessions this week, Monday to Sunday on the athlete's calendar;
+    /// absent when their stored history does not reach the week yet, which
+    /// is never zero sessions.
+    pub sessions_this_week: Option<i32>,
+    /// Elapsed seconds this week, which covers sources with no distance;
+    /// absent as `sessions_this_week` is.
+    pub seconds_this_week: Option<u64>,
+    /// Kilometres this week; absent as `sessions_this_week` is.
+    pub km_this_week: Option<f64>,
+    /// Kilometres the Monday week before, for the trend; absent when their
+    /// stored history does not reach it.
     pub km_previous_week: Option<f64>,
     /// The sport they log most.
     pub primary_sport: Option<String>,
@@ -592,7 +598,11 @@ impl McpTool<dyn ToolRuntime> for GetRosterOverviewTool {
 // transport for a human coach or an admin (`crate::tool_access`), and
 // externally it shows only the members who allowed their coach's assistant
 // (`crate::coach_assistant`).
-crate::declare_security!(GetRosterOverviewTool => empty; coach);
+crate::declare_security!(
+    GetRosterOverviewTool => empty; coach,
+    reads: ToolData::own(&[Stream::Workout, Stream::WorkoutRoute])
+        .with_athlete_text(),
+);
 
 #[cfg(test)]
 mod tests {
@@ -611,9 +621,9 @@ mod tests {
             status: RosterAthleteStatus::Shared,
             training: has_snapshot.then(|| RosterTraining {
                 days_since_last_activity: days,
-                sessions_this_week: 0,
-                seconds_this_week: 0,
-                km_this_week: 0.0,
+                sessions_this_week: Some(0),
+                seconds_this_week: Some(0),
+                km_this_week: Some(0.0),
                 km_previous_week: None,
                 primary_sport: None,
                 ctl: None,
@@ -639,10 +649,10 @@ mod tests {
             atl: None,
             tsb: None,
             form_ctl: None,
-            weekly_volume_km: 6.1,
+            weekly_volume_km: Some(6.1),
             previous_week_volume_km: None,
-            weekly_activity_count: 1,
-            weekly_duration_seconds: 3_239,
+            weekly_activity_count: Some(1),
+            weekly_duration_seconds: Some(3_239),
             primary_sport: None,
             vdot: None,
             overtraining_risk: OvertrainingRiskLevel::Low,
@@ -666,7 +676,7 @@ mod tests {
             computed_at: start,
         };
         let training = project_training(&snapshot);
-        assert_eq!(training.seconds_this_week, 3_239);
+        assert_eq!(training.seconds_this_week, Some(3_239));
         let durations: Vec<u64> = training
             .recent_activities
             .iter()

@@ -10,7 +10,7 @@
 //! admin grant by the inviter) and the coach role, so the coach meets no
 //! role question and no request.
 //!
-//! These drive the real admin routes (`/admin/coach-seat-invitations`), the
+//! These drive the console's admin routes (`/api/admin/coach-seat-invitations`), the
 //! real acceptance handler and the real onboarding-status read over one
 //! in-memory database, with global auto-approval off, so every grant, role
 //! and step asserted here is the invitation's doing.
@@ -20,13 +20,11 @@
 
 use crate::common;
 use crate::helpers;
-use secrecy::ExposeSecret;
 
 use anyhow::Result;
 use async_trait::async_trait;
 use dravr_tronc::dates::{Elapsed, Timestamp};
 use helpers::axum_test::AxumTestRequest;
-use pierre_auth::admin::jwks::JwksManager;
 use pierre_config::environment::{
     BackupConfig, DatabaseConfig, DatabaseUrl, Environment, SecurityConfig, SecurityHeadersConfig,
     ServerConfig,
@@ -35,7 +33,6 @@ use pierre_config::mcp::AppBehaviorConfig;
 use pierre_contremaitre::cageux_config::CageuxConfigRegistry;
 use pierre_contremaitre::harness_config_registry::HarnessConfigRegistry;
 use pierre_contremaitre::persona_contracts::PersonaContractRegistry;
-use pierre_core::admin::models::CreateAdminTokenRequest;
 use pierre_core::models::{InvitationKind, User, UserStatus};
 use pierre_core::permissions::UserRole;
 use pierre_database::RepositoryRegistry;
@@ -103,7 +100,6 @@ struct Harness {
     resources: Arc<ServerContext>,
     admin: axum::Router,
     repos: Arc<RepositoryRegistry>,
-    jwks: Arc<JwksManager>,
     admin_id: Uuid,
     admin_email: String,
     invited: Arc<Mutex<Vec<MailedInvitation>>>,
@@ -201,43 +197,43 @@ impl Harness {
 
         let admin_email = "team-admin@example.com".to_owned();
         let admin_id = seed_user(&repos, &admin_email, UserRole::Admin).await?;
+        let admin = AdminRoutes::cookie_admin_routes::<ServerContext>(context, &resources);
 
         Ok(Self {
             resources,
-            admin: AdminRoutes::routes(context),
+            admin,
             repos,
-            jwks,
             admin_id,
             admin_email,
             invited,
         })
     }
 
-    /// A super-admin token acting as the admin, as the console session is.
+    /// The admin's signed-in console session.
     async fn super_admin_token(&self) -> Result<String> {
-        self.token(true).await
+        let admin = self
+            .repos
+            .users
+            .get_global(self.admin_id)
+            .await?
+            .expect("the admin is seeded");
+        Ok(common::generate_test_token(&self.resources, &admin).await)
     }
 
-    async fn token(&self, is_super_admin: bool) -> Result<String> {
-        let request = CreateAdminTokenRequest {
-            service_name: format!("console:{}", Uuid::new_v4()),
-            service_description: Some("seeded by coach_seat_invitation_test".to_owned()),
-            permissions: None,
-            expires_in_days: Some(30),
-            is_super_admin,
-            tenant_id: None,
-            operator_user_id: Some(self.admin_id),
-        };
-        let generated = self
+    /// The signed-in session of an account that is not an admin.
+    async fn non_admin_token(&self) -> Result<String> {
+        let id = seed_user(&self.repos, "not-an-admin@example.com", UserRole::User).await?;
+        let user = self
             .repos
-            .admin
-            .create_token(&request, TEST_ADMIN_JWT_SECRET, &self.jwks)
-            .await?;
-        Ok(generated.jwt_token.expose_secret().to_owned())
+            .users
+            .get_global(id)
+            .await?
+            .expect("the user is seeded");
+        Ok(common::generate_test_token(&self.resources, &user).await)
     }
 
     async fn invite(&self, token: &str, email: &str) -> (u16, Value) {
-        let response = AxumTestRequest::post("/admin/coach-seat-invitations")
+        let response = AxumTestRequest::post("/api/admin/coach-seat-invitations")
             .header("Authorization", &format!("Bearer {token}"))
             .json(&json!({ "email": email }))
             .send(self.admin.clone())
@@ -247,7 +243,7 @@ impl Harness {
     }
 
     async fn list(&self, token: &str) -> (u16, Value) {
-        let response = AxumTestRequest::get("/admin/coach-seat-invitations")
+        let response = AxumTestRequest::get("/api/admin/coach-seat-invitations")
             .header("Authorization", &format!("Bearer {token}"))
             .send(self.admin.clone())
             .await;
@@ -257,7 +253,7 @@ impl Harness {
 
     async fn revoke(&self, token: &str, email: &str) -> (u16, Value) {
         let path = format!(
-            "/admin/coach-seat-invitations/{}",
+            "/api/admin/coach-seat-invitations/{}",
             urlencoding::encode(email)
         );
         let response = AxumTestRequest::delete(&path)
@@ -671,7 +667,7 @@ async fn revoking_a_coach_seat_leaves_a_plain_invitation_alone() -> Result<()> {
 #[tokio::test]
 async fn only_a_super_admin_reaches_coach_seat_invitations() -> Result<()> {
     let harness = Harness::new().await?;
-    let token = harness.token(false).await?;
+    let token = harness.non_admin_token().await?;
     let (status, body) = harness.invite(&token, "nope@example.com").await;
     assert_eq!(status, 403, "{body}");
     let (status, body) = harness.list(&token).await;

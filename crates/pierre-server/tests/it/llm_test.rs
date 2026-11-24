@@ -115,30 +115,91 @@ fn test_llm_provider_type_display() {
     assert_eq!(format!("{}", LlmProviderType::Gemini), "gemini");
 }
 
-/// The variable the server reads is the one the deployment sets, and the
-/// value it sets parses as a chain with no entry dropped.
+/// The provider after `provider`, in declaration order; `None` after the
+/// last. The match is exhaustive on purpose: a provider added to the server
+/// does not compile here until it has its place in the walk, so
+/// [`every_provider`] cannot miss one.
+const fn provider_after(provider: LlmProviderType) -> Option<LlmProviderType> {
+    use LlmProviderType as P;
+    match provider {
+        P::Groq => Some(P::Gemini),
+        P::Gemini => Some(P::Local),
+        P::Local => Some(P::OpenRouter),
+        P::OpenRouter => Some(P::Cohere),
+        P::Cohere => Some(P::Anthropic),
+        P::Anthropic => Some(P::ClaudeCode),
+        P::ClaudeCode => Some(P::CursorAgent),
+        P::CursorAgent => Some(P::OpenCode),
+        P::OpenCode => Some(P::Copilot),
+        P::Copilot => Some(P::CopilotHeadless),
+        P::CopilotHeadless => Some(P::CopilotSdk),
+        P::CopilotSdk => Some(P::WarpCli),
+        P::WarpCli => Some(P::GeminiCli),
+        P::GeminiCli => Some(P::CodexCli),
+        P::CodexCli => Some(P::GooseCli),
+        P::GooseCli => Some(P::ClineCli),
+        P::ClineCli => Some(P::ContinueCli),
+        P::ContinueCli => Some(P::KiroCli),
+        P::KiroCli => Some(P::KiloCli),
+        P::KiloCli => Some(P::Router),
+        P::Router => Some(P::OpenAiApi),
+        P::OpenAiApi => None,
+    }
+}
+
+/// Every provider a chain entry may name.
+fn every_provider() -> Vec<LlmProviderType> {
+    let mut providers = vec![LlmProviderType::Groq];
+    while let Some(next) = providers.last().copied().and_then(provider_after) {
+        providers.push(next);
+    }
+    providers
+}
+
+/// The provider names the `llm_chain` input accepts: the quoted strings of
+/// the list its validation hands to `contains`, in `declaration`.
+fn accepted_provider_names(declaration: &str) -> Vec<&str> {
+    let list = declaration
+        .split("contains([")
+        .nth(1)
+        .and_then(|after| after.split(']').next())
+        .unwrap_or_else(|| {
+            panic!("llm_chain no longer validates its provider names against a list: {declaration}")
+        });
+    list.split(',')
+        .map(|name| name.trim().trim_matches('"'))
+        .filter(|name| !name.is_empty())
+        .collect()
+}
+
+/// The variable the server reads is the one the deployment sets, from the
+/// `llm_chain` input, and that input refuses an entry that names no model or
+/// a provider the server does not know.
 ///
 /// A text check on purpose: the two sides are this binary and Cloud Run's
 /// environment, which Terraform writes, and nothing in a test process joins
 /// them. A rename on either side alone leaves production on the default
 /// provider without an error anywhere; a typo in one entry drops that tier
-/// with only a boot warning.
+/// with only a boot warning. The chain's value is a private input, absent
+/// from this repository, so the entry check is the input's own validation,
+/// which fails the plan, and this test pins that the validation is there.
+/// The names that validation accepts are a second copy of the parser's, so
+/// both directions are held here: every accepted name is one the parser
+/// builds a provider from, and every provider's own name is accepted.
 #[test]
 fn test_llm_chain_env_var_is_the_one_the_deployment_sets() {
     let deployment = include_str!("../../../../infra/environments/dev/main.tf");
     // Terraform aligns the `=` of neighbouring assignments, so the gap
     // between the name and the value is any run of spaces.
-    let value = deployment
+    let source = deployment
         .lines()
         .find_map(|line| {
             line.trim_start()
                 .strip_prefix(LlmChain::ENV_VAR)?
                 .trim_start()
-                .strip_prefix('=')?
-                .trim_start()
-                .strip_prefix('"')
+                .strip_prefix('=')
+                .map(str::trim)
         })
-        .and_then(|rest| rest.split('"').next())
         .unwrap_or_else(|| {
             panic!(
                 "infra/environments/dev/main.tf no longer sets {}, the variable the \
@@ -146,16 +207,68 @@ fn test_llm_chain_env_var_is_the_one_the_deployment_sets() {
                 LlmChain::ENV_VAR
             )
         });
-    let chain = LlmChain::parse(value);
+    assert_eq!(
+        source,
+        "var.llm_chain",
+        "{} is set from the llm_chain input",
+        LlmChain::ENV_VAR
+    );
+
+    let variables = include_str!("../../../../infra/environments/dev/variables.tf");
+    let after_header = variables
+        .split("variable \"llm_chain\"")
+        .nth(1)
+        .unwrap_or_else(|| {
+            panic!("infra/environments/dev/variables.tf no longer declares llm_chain")
+        });
+    let declaration = after_header
+        .split("\nvariable ")
+        .next()
+        .unwrap_or(after_header);
     assert!(
-        chain.issues().is_empty(),
-        "the deployed chain {value:?} drops or repairs an entry: {:?}",
-        chain.issues()
+        declaration.contains("validation {") && declaration.contains("provider=model"),
+        "llm_chain validates that every entry is provider=model: {declaration}"
     );
     assert!(
-        chain.entries().iter().all(|entry| entry.model.is_some()),
-        "every deployed tier names its model: {value:?}"
+        !declaration
+            .lines()
+            .any(|line| line.trim_start().starts_with("default")),
+        "llm_chain has no default, so a plan without the private value fails: {declaration}"
     );
+
+    let accepted = accepted_provider_names(declaration);
+    for name in &accepted {
+        assert!(
+            LlmProviderType::parse(name).is_some(),
+            "llm_chain accepts {name:?}, which the server builds no provider from: the plan \
+             would pass and the tier would be skipped at boot"
+        );
+        let chain = LlmChain::parse(&format!("{name}=some-model"));
+        assert!(
+            chain.issues().is_empty(),
+            "the chain parser refuses an entry llm_chain accepts ({name}=some-model): {:?}",
+            chain.issues()
+        );
+    }
+    let providers = every_provider();
+    assert_eq!(
+        providers.len(),
+        22,
+        "the walk over the providers stopped early or looped: {providers:?}"
+    );
+    for provider in providers {
+        let name = provider.to_string();
+        assert_eq!(
+            LlmProviderType::parse(&name),
+            Some(provider),
+            "{name} is not the name the parser reads {provider:?} from"
+        );
+        assert!(
+            accepted.contains(&name.as_str()),
+            "llm_chain refuses {name}, a provider the server knows: add it to the list in \
+             infra/environments/dev/variables.tf"
+        );
+    }
 }
 
 #[test]

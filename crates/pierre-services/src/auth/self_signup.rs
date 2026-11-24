@@ -26,16 +26,17 @@ impl AuthService {
     ///
     /// The admin's bounds apply first ([`admit_self_signup`]): a closed
     /// kill switch or a reached 24-hour ceiling refuses before anything is
-    /// validated or written. Then it is [`Self::register`], as a self-serve
-    /// account.
+    /// validated or written. Then the account is registered and may
+    /// activate itself by proving its address.
     ///
     /// # Errors
     ///
     /// Returns a quota-exceeded error when sign-up is paused, and every
-    /// error [`Self::register`] returns.
+    /// error registration returns (invalid email, weak password, an
+    /// existing account).
     pub async fn self_register(&self, request: RegisterRequest) -> AppResult<RegisterResponse> {
         self.admit_self_signup().await?;
-        self.register_through(request, true, false).await
+        self.register_through(request, false).await
     }
 
     /// Refuse a self-serve sign-up the admin's bounds do not admit

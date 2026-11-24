@@ -8,11 +8,11 @@
 //!
 //! Mirrors the layout that lived in `crate::routes::admin::mod` inside
 //! `pierre-server` — the only behavior change is that diagnostic
-//! (`/admin/diagnostics/*`) and tool-selection (`/admin/tools/*`) sub-routes
-//! are now mounted by the composition root instead of being baked into
-//! [`AdminRoutes::routes`]. Those endpoints need pierre-server-internal types
-//! (`ToolRegistry`, `ToolSelectionService`) that should not flow through the
-//! leaf crate.
+//! (`/admin/diagnostics/*`) and tool-selection (`/api/admin/tools/*`)
+//! sub-routes are now mounted by the composition root instead of being baked
+//! into [`AdminRoutes::routes`]. Those endpoints need pierre-server-internal
+//! types (`ToolRuntime`, `ToolSelectionService`) that should not flow through
+//! the leaf crate.
 
 use std::sync::Arc;
 
@@ -29,8 +29,8 @@ use crate::handlers::contremaitre_admin;
 use crate::handlers::{
     admin_rate_limit_override, admin_scope, api_keys, audit_trail, barrage, claim_verdicts,
     coach_access, coach_seat_invitations, connect_order, deletion_ledger, device_auth, device_web,
-    engagement, feature_flags, guardian_config, harness_config, memory_worker, new_users,
-    pre_approved_emails, provider_clone, provider_data, settings, setup, signup_codes, strava_pool,
+    engagement, feature_flags, guardian_config, harness_config, health, memory_worker, new_users,
+    pre_approved_emails, provider_clone, provider_data, settings, signup_codes, strava_pool,
     tokens, user_removal, user_role, users, website,
 };
 
@@ -45,8 +45,8 @@ impl AdminRoutes {
     /// Programmatic admin routes mounted at `/admin/...` behind admin-token
     /// JWT auth.
     ///
-    /// Used by `pierre-cli` and B2B partners for API key provisioning, admin
-    /// token mint/rotate, and initial setup. The human-facing admin web UI
+    /// Used by `pierre-cli` and B2B partners for API key provisioning, user
+    /// administration and server settings. The human-facing admin web UI
     /// (Claim Verdicts, Memory Worker, Harness Config) is mounted separately
     /// at `/api/admin/...` via [`Self::cookie_admin_routes`].
     pub fn routes(context: AdminApiContext) -> Router {
@@ -54,10 +54,6 @@ impl AdminRoutes {
         let context = Arc::new(context);
 
         let api_key_routes = Self::api_key_routes(context.clone()).layer(
-            middleware::from_fn_with_state(auth_service.clone(), admin_auth_middleware),
-        );
-
-        let admin_token_routes = Self::admin_token_routes(context.clone()).layer(
             middleware::from_fn_with_state(auth_service.clone(), admin_auth_middleware),
         );
 
@@ -94,12 +90,11 @@ impl AdminRoutes {
             middleware::from_fn_with_state(auth_service, admin_auth_middleware),
         );
 
-        // Setup routes are public (no auth required for initial setup)
-        let setup_routes = Self::setup_routes(context);
+        // The admin health check is public.
+        let health_routes = Self::health_routes(context);
 
         Router::new()
             .merge(api_key_routes)
-            .merge(admin_token_routes)
             .merge(user_routes)
             .merge(strava_pool_routes)
             .merge(provider_data_routes)
@@ -108,7 +103,7 @@ impl AdminRoutes {
             .merge(device_approve_routes)
             .merge(settings_routes)
             .merge(website_routes)
-            .merge(setup_routes)
+            .merge(health_routes)
     }
 
     /// dravr.ai website routes (admin-token auth, `ManageWebsite`), called by
@@ -133,10 +128,9 @@ impl AdminRoutes {
     /// Counterpart to [`Self::routes`] — these power the admin web UI tabs
     /// (users, auto-approval, admin tokens, Claim Verdicts, Memory Worker,
     /// Harness Config). Every handler here is the one handler for its
-    /// operation: users, auto-approval, tokens and harness are also mounted
-    /// under `/admin` for `pierre-cli`'s bearer token
-    /// ([`Self::console_user_routes`], [`Self::console_token_routes`],
-    /// [`Self::settings_routes`]).
+    /// operation: the user operations `pierre-cli` also drives and the harness
+    /// are mounted under `/admin` for its bearer token too
+    /// ([`Self::token_user_management_routes`], [`Self::settings_routes`]).
     ///
     /// The cookie middleware is generic over [`MiddlewareCtx`]; the
     /// composition root in `pierre-server` passes `Arc<ServerContext>` as
@@ -248,8 +242,6 @@ impl AdminRoutes {
         Router::new()
             .route("/admin/provision", post(api_keys::handle_provision_api_key))
             .route("/admin/revoke", post(api_keys::handle_revoke_api_key))
-            .route("/admin/list", get(api_keys::handle_list_api_keys))
-            .route("/admin/token-info", get(api_keys::handle_token_info))
             .with_state(context)
     }
 
@@ -297,38 +289,17 @@ impl AdminRoutes {
             .merge(Self::token_user_management_routes(context))
     }
 
-    /// User management `pierre-cli` drives with its admin token: pending users,
-    /// approval, suspension, password reset, rate limit, activity, tier and the
-    /// standing pre-approval allow-list. [`Self::console_user_routes`] mounts
-    /// the same handlers for the console; the paths are spelled out on both
-    /// so every route stays a string literal the route scanners can read.
+    /// User management `pierre-cli` drives with its admin token: the audit
+    /// trail, tier, roster and role, the standing pre-approval allow-list and
+    /// sign-up codes. [`Self::console_user_routes`] mounts the shared handlers
+    /// for the console; the paths are spelled out on both so every route stays
+    /// a string literal the route scanners can read.
     fn token_user_management_routes(context: Arc<AdminApiContext>) -> Router {
         Router::new()
             // The admin audit trail (carnet#1391), for `pierre-cli audit list`.
             .route(
                 "/admin/audit-events",
                 get(audit_trail::handle_list_audit_events),
-            )
-            .route("/admin/pending-users", get(users::handle_pending_users))
-            .route(
-                "/admin/approve-user/{user_id}",
-                post(users::handle_approve_user),
-            )
-            .route(
-                "/admin/suspend-user/{user_id}",
-                post(users::handle_suspend_user),
-            )
-            .route(
-                "/admin/users/{user_id}/reset-password",
-                post(users::handle_reset_user_password),
-            )
-            .route(
-                "/admin/users/{user_id}/rate-limit",
-                get(users::handle_get_user_rate_limit),
-            )
-            .route(
-                "/admin/users/{user_id}/activity",
-                get(users::handle_get_user_activity),
             )
             // Super-admin only inside the handler, whichever surface reaches it.
             .route(
@@ -346,31 +317,6 @@ impl AdminRoutes {
             .route(
                 "/admin/users/{user_id}/role",
                 post(user_role::handle_set_user_role),
-            )
-            // The coach-access queue (carnet#738). Super-admin only inside
-            // each handler, whichever surface reaches it.
-            .route(
-                "/admin/coach-access-requests",
-                get(coach_access::handle_list_coach_access_requests),
-            )
-            .route(
-                "/admin/coach-access-requests/{request_id}/grant",
-                post(coach_access::handle_grant_coach_access_request),
-            )
-            .route(
-                "/admin/coach-access-requests/{request_id}/decline",
-                post(coach_access::handle_decline_coach_access_request),
-            )
-            // Coach-seat invitations (carnet#1524): the coach-access decision
-            // taken before sign-up. Super-admin only inside each handler.
-            .route(
-                "/admin/coach-seat-invitations",
-                get(coach_seat_invitations::handle_list_coach_seat_invitations)
-                    .post(coach_seat_invitations::handle_issue_coach_seat_invitation),
-            )
-            .route(
-                "/admin/coach-seat-invitations/{email}",
-                delete(coach_seat_invitations::handle_revoke_coach_seat_invitation),
             )
             .route(
                 "/admin/pre-approved-emails",
@@ -393,10 +339,10 @@ impl AdminRoutes {
             .with_state(context)
     }
 
-    /// The console's user tabs, behind session auth: the same handlers as
-    /// [`Self::token_user_management_routes`], plus the user listing (from
-    /// [`Self::user_routes`]) and the auto-approval setting (from
-    /// [`Self::settings_routes`]) — one handler per operation. A console session
+    /// The console's user tabs, behind session auth: the handlers it shares
+    /// with [`Self::token_user_management_routes`], [`Self::user_routes`] (the
+    /// listing) and [`Self::settings_routes`] (sign-up), plus the operations
+    /// only the console reaches — one handler per operation. A console session
     /// carries `ManageUsers` (see `pierre_middleware::cookie_admin_token`), so
     /// the permission checks inside each handler are the same checks a token
     /// meets.
@@ -503,21 +449,13 @@ impl AdminRoutes {
             .with_state(context)
     }
 
-    /// System settings routes — admin-token mounts of the auto-approval, sign-up,
-    /// harness, and guardian handlers. The console reaches the first three through
+    /// System settings routes — admin-token mounts of the sign-up, harness, and
+    /// guardian handlers. The console reaches the first two through
     /// [`Self::console_user_routes`] and [`Self::harness_config_routes`]; the guardian
     /// policy has no console page. These are what `pierre-cli settings` reaches with
     /// its device-login token.
     fn settings_routes(context: Arc<AdminApiContext>) -> Router {
         Router::new()
-            .route(
-                "/admin/settings/auto-approval",
-                get(settings::handle_get_auto_approval),
-            )
-            .route(
-                "/admin/settings/auto-approval",
-                put(settings::handle_set_auto_approval),
-            )
             .route(
                 "/admin/settings/signup",
                 get(settings::handle_get_signup_settings).put(settings::handle_set_signup_settings),
@@ -614,17 +552,14 @@ impl AdminRoutes {
             .with_state(context)
     }
 
-    /// Setup routes (Axum)
-    fn setup_routes(context: Arc<AdminApiContext>) -> Router {
+    /// The admin health check (Axum)
+    fn health_routes(context: Arc<AdminApiContext>) -> Router {
         Router::new()
-            .route("/admin/setup", post(setup::handle_admin_setup))
-            .route("/admin/setup/status", get(setup::handle_setup_status))
-            .route("/admin/health", get(setup::handle_health))
+            .route("/admin/health", get(health::handle_health))
             .with_state(context)
     }
 
-    /// The console's admin-token tab behind session auth: the same handlers
-    /// as [`Self::admin_token_routes`]. An admin's session carries the
+    /// The console's admin-token tab behind session auth. An admin's session carries the
     /// super-admin flag, so it manages every token; the handlers keep
     /// super-admin tokens out of reach of a scoped token.
     fn console_token_routes(context: Arc<AdminApiContext>) -> Router {
@@ -639,26 +574,6 @@ impl AdminRoutes {
             )
             .route(
                 "/api/admin/tokens/{token_id}/rotate",
-                post(tokens::handle_rotate_admin_token),
-            )
-            .with_state(context)
-    }
-
-    /// Admin token management routes (Axum)
-    fn admin_token_routes(context: Arc<AdminApiContext>) -> Router {
-        Router::new()
-            .route("/admin/tokens", post(tokens::handle_create_admin_token))
-            .route("/admin/tokens", get(tokens::handle_list_admin_tokens))
-            .route(
-                "/admin/tokens/{token_id}",
-                get(tokens::handle_get_admin_token),
-            )
-            .route(
-                "/admin/tokens/{token_id}/revoke",
-                post(tokens::handle_revoke_admin_token),
-            )
-            .route(
-                "/admin/tokens/{token_id}/rotate",
                 post(tokens::handle_rotate_admin_token),
             )
             .with_state(context)

@@ -27,7 +27,6 @@ use pierre_contremaitre::messaging_strings::{
     KEY_COACH_ACCESS_DECLINED_REASON_BODY, KEY_COACH_ACCESS_ROOM_LINE_ATHLETE,
     KEY_COACH_ACCESS_ROOM_LINE_COACH,
 };
-use pierre_core::admin::models::{AdminPermissions, CreateAdminTokenRequest};
 use pierre_core::errors::ErrorCode;
 use pierre_core::models::roster_display_name;
 use pierre_core::models::{
@@ -49,7 +48,6 @@ use pierre_services::locale::user_locale;
 use pierre_test_support::delegation::{
     add_group_member, create_coached_group, create_coachless_group, create_group_agent,
 };
-use secrecy::ExposeSecret;
 use serde_json::{json, Value};
 use serial_test::serial;
 use std::sync::Arc;
@@ -83,36 +81,6 @@ fn admin_context(resources: &Arc<ServerContext>) -> AdminApiContext {
 /// The console mount: session auth in front of the admin handlers.
 fn console(resources: &Arc<ServerContext>) -> axum::Router {
     AdminRoutes::cookie_admin_routes::<ServerContext>(admin_context(resources), resources)
-}
-
-/// The service-token mount: the same handlers behind a bearer admin token.
-fn token_mount(resources: &Arc<ServerContext>) -> axum::Router {
-    AdminRoutes::routes(admin_context(resources))
-}
-
-/// A service token holding every permission and not the super-admin flag:
-/// the strongest credential the flag gate of these handlers refuses.
-async fn token_without_the_flag(resources: &Arc<ServerContext>) -> Result<String> {
-    let request = CreateAdminTokenRequest {
-        service_name: "coach-access-unflagged".to_owned(),
-        service_description: None,
-        permissions: Some(AdminPermissions::super_admin().to_vec()),
-        expires_in_days: Some(1),
-        is_super_admin: false,
-        tenant_id: None,
-        operator_user_id: None,
-    };
-    let generated = resources
-        .common
-        .repos
-        .admin
-        .create_token(
-            &request,
-            resources.auth.admin_jwt_secret.as_ref(),
-            &resources.auth.jwks_manager,
-        )
-        .await?;
-    Ok(format!("Bearer {}", generated.jwt_token.expose_secret()))
 }
 
 /// The caller's own coach-access routes.
@@ -365,8 +333,9 @@ async fn only_an_admin_decides_and_a_decline_lets_the_coach_ask_again() -> Resul
     for path in [
         "/api/admin/coach-access-requests".to_owned(),
         format!("/api/admin/coach-access-requests/{request_id}/grant"),
+        format!("/api/admin/coach-access-requests/{request_id}/decline"),
     ] {
-        let request = if path.ends_with("/grant") {
+        let request = if path.ends_with("/grant") || path.ends_with("/decline") {
             AxumTestRequest::post(&path)
         } else {
             AxumTestRequest::get(&path)
@@ -376,38 +345,6 @@ async fn only_an_admin_decides_and_a_decline_lets_the_coach_ask_again() -> Resul
             .send(console(&resources))
             .await;
         assert_eq!(refused.status(), 403, "{path} is for admins only");
-    }
-
-    // A service token reaches the handlers through the token mount, where no
-    // session check stands in front of them. Without the super-admin flag it
-    // is refused by each handler, whatever permissions it lists.
-    let unflagged = token_without_the_flag(&resources).await?;
-    for (path, post) in [
-        ("/admin/coach-access-requests".to_owned(), false),
-        (
-            format!("/admin/coach-access-requests/{request_id}/grant"),
-            true,
-        ),
-        (
-            format!("/admin/coach-access-requests/{request_id}/decline"),
-            true,
-        ),
-    ] {
-        let request = if post {
-            AxumTestRequest::post(&path)
-        } else {
-            AxumTestRequest::get(&path)
-        };
-        let refused = request
-            .header("Authorization", &unflagged)
-            .send(token_mount(&resources))
-            .await;
-        assert_eq!(refused.status(), 403, "{path} needs the super-admin flag");
-        let body: Value = refused.json();
-        assert_eq!(
-            body["message"], "Permission denied: super-admin token required",
-            "{path}: {body}"
-        );
     }
 
     let user = resources

@@ -71,15 +71,15 @@ cargo run --bin pierre-mcp-server
 
 **Register A2A Client:**
 ```bash
-# Get admin token first
-ADMIN_TOKEN=$(curl -s -X POST http://localhost:8081/admin/setup \
-  -H "Content-Type: application/json" \
-  -d '{"email": "admin@example.com", "password": "SecurePass123!", "display_name": "Admin"}' | \
-  jq -r '.admin_token')
+# Create the account the client belongs to
+cargo run --bin pierre-cli -- user create \
+  --email admin@example.com --password 'SecurePass123!'
 
-# Register A2A client
+# Register A2A client with that account's session token (sign in to the web
+# app and copy it), or from the web app's A2A client form
+SESSION_TOKEN='<your session token>'
 curl -X POST http://localhost:8081/a2a/clients \
-  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Authorization: Bearer $SESSION_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "name": "Fitness Analyzer Agent",
@@ -349,7 +349,7 @@ curl -X POST http://localhost:8081/oauth2/token \
 
 # Check if client is registered
 curl "http://localhost:8081/a2a/clients" \
-  -H "Authorization: Bearer $ADMIN_TOKEN"
+  -H "Authorization: Bearer $SESSION_TOKEN"
 ```
 
 **No Activities Retrieved:**

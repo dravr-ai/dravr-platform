@@ -6,6 +6,8 @@
 
 mock_provider "google" {}
 
+# The marketplace ranges are RFC 5737 documentation ranges: the rules are
+# proven on stand-ins, and the real ranges are an input of the environment.
 variables {
   project_id               = "test-project"
   region                   = "northamerica-northeast1"
@@ -13,7 +15,7 @@ variables {
   cloud_run_service_name   = "test-frontend"
   domains                  = ["app.example.com"]
   armor_enabled            = true
-  marketplace_egress_cidrs = ["160.79.104.0/21", "153.61.208.0/20"]
+  marketplace_egress_cidrs = ["198.51.100.0/24", "203.0.113.0/24"]
 }
 
 # Every rule that can refuse a request starts in preview, the default a fresh
@@ -210,7 +212,7 @@ run "a_malformed_range_is_refused" {
   command = plan
 
   variables {
-    marketplace_egress_cidrs = ["160.79.104.0"]
+    marketplace_egress_cidrs = ["198.51.100.0"]
   }
 
   expect_failures = [var.marketplace_egress_cidrs]

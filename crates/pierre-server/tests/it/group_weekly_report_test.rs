@@ -626,19 +626,20 @@ async fn manager_stats_count_only_the_members_who_share_with_the_viewer() {
             body["stats"]["total_members"], 3,
             "a manager's stats count the members who share with them and themself: {body}"
         );
-        // Of the three, the viewer has no source and one athlete stopped three
-        // weeks ago: only the fresh athlete rode this week, at 40 minutes a
-        // day, so the average is a third of their week. The rolling seven days
-        // hold their rides of the last six days, and the seventh day's when
-        // the window's edge falls before it: six or seven rides. The unseen
-        // fresh athlete's week would double that.
+        // Of the three, the viewer has no source, so no stored week and no
+        // volume: the average leaves them out rather than counting a zero.
+        // One athlete stopped three weeks ago, a stored week without rides;
+        // only the fresh athlete rode this Monday week, at 40 minutes a day,
+        // so the average is half their week: one ride for each day from
+        // Monday to yesterday on the UTC calendar their rides are dated in.
+        // The unseen fresh athlete's week would raise it.
+        let today = Timestamp::now().utc_date();
+        let rides = f64::from(today.weekday().num_days_from_monday());
         let km = body["stats"]["avg_weekly_volume_km"].as_f64().unwrap();
-        let rides_this_week = km * 3.0 / 19.2;
         assert!(
-            (rides_this_week - rides_this_week.round()).abs() < 1e-6
-                && (6.0..=7.0).contains(&rides_this_week.round()),
-            "a third of one athlete's six or seven 40-minute rides, the inactive and unseen \
-             athletes adding nothing: {km}"
+            (km - rides * 19.2 / 2.0).abs() < 1e-6,
+            "half of one athlete's {rides} 40-minute rides this week, the source-less viewer \
+             left out and the inactive and unseen athletes adding nothing: {km}"
         );
     }
 }

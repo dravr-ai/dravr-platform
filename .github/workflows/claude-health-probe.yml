@@ -175,7 +175,7 @@ jobs:
               ``,
               `## Rotation runbook`,
               ``,
-              `1. Generate a new one-year OAuth token locally against the Pro/Max subscription:`,
+              `1. Generate a new one-year OAuth token locally:`,
               `   \`\`\`bash`,
               `   claude setup-token`,
               `   \`\`\``,

@@ -7,14 +7,11 @@
 //! Tool selection admin routes for managing MCP tool availability per tenant.
 //!
 //! This module provides REST endpoints for:
-//! - Viewing the tool catalog
 //! - Managing per-tenant tool overrides
 //! - Checking globally disabled tools
 //!
-//! One handler per operation: [`ToolSelectionRoutes::routes`] mounts them
-//! under `/admin/tools` behind admin-token auth, and
-//! [`ToolSelectionRoutes::console_routes`] mounts the tenant and global ones
-//! under `/api/admin/tools` behind the console's session auth.
+//! [`ToolSelectionRoutes::console_routes`] mounts them under
+//! `/api/admin/tools` behind the console's session auth.
 //!
 //! An admin's console session, like a super-admin token, reaches every
 //! tenant's tools; a token without the flag reaches only the tenant its
@@ -38,7 +35,7 @@ use serde::{Deserialize, Serialize};
 use tokio::task::yield_now;
 use tracing::info;
 
-use pierre_core::admin::models::{AdminPermission, ValidatedAdminToken};
+use pierre_core::admin::models::ValidatedAdminToken;
 
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_tool_runtime::tool_selection::ToolSelectionService;
@@ -114,44 +111,8 @@ pub struct GlobalDisabledToolsResponse {
 pub struct ToolSelectionRoutes;
 
 impl ToolSelectionRoutes {
-    /// Create all tool selection routes
-    pub fn routes(context: ToolSelectionContext) -> Router {
-        let context = Arc::new(context);
-
-        Router::new()
-            // Catalog routes (read-only)
-            .route("/admin/tools/catalog", get(Self::handle_get_catalog))
-            .route(
-                "/admin/tools/catalog/{tool_name}",
-                get(Self::handle_get_catalog_entry),
-            )
-            // Tenant configuration routes
-            .route(
-                "/admin/tools/tenant/{tenant_id}",
-                get(Self::handle_get_tenant_tools),
-            )
-            .route(
-                "/admin/tools/tenant/{tenant_id}/override",
-                post(Self::handle_set_override),
-            )
-            .route(
-                "/admin/tools/tenant/{tenant_id}/override/{tool_name}",
-                delete(Self::handle_remove_override),
-            )
-            .route(
-                "/admin/tools/tenant/{tenant_id}/summary",
-                get(Self::handle_get_summary),
-            )
-            // Global status
-            .route(
-                "/admin/tools/global-disabled",
-                get(Self::handle_get_global_disabled),
-            )
-            .with_state(context)
-    }
-
-    /// The console's tool-availability tab behind session auth: the same
-    /// handlers as [`Self::routes`] for the tenant and global operations.
+    /// The console's tool-availability tab behind session auth: the tenant
+    /// and global operations.
     ///
     /// The session middleware is generic over [`MiddlewareCtx`]; the
     /// composition root passes `Arc<ServerContext>` as its state.
@@ -188,48 +149,7 @@ impl ToolSelectionRoutes {
             ))
     }
 
-    /// GET /admin/tools/catalog - List all tools in catalog
-    async fn handle_get_catalog(
-        State(context): State<Arc<ToolSelectionContext>>,
-        Extension(admin_token): Extension<ValidatedAdminToken>,
-    ) -> AppResult<impl IntoResponse> {
-        admin_token.require_permission(&AdminPermission::ViewConfiguration)?;
-
-        let catalog = context.tool_selection.get_catalog().await?;
-
-        Ok((
-            StatusCode::OK,
-            Json(ToolSelectionResponse::success(
-                format!("Retrieved {} tools from catalog", catalog.len()),
-                catalog,
-            )),
-        ))
-    }
-
-    /// GET `/admin/tools/catalog/{tool_name}` - Get single tool details
-    async fn handle_get_catalog_entry(
-        State(context): State<Arc<ToolSelectionContext>>,
-        Extension(admin_token): Extension<ValidatedAdminToken>,
-        Path(tool_name): Path<String>,
-    ) -> AppResult<impl IntoResponse> {
-        admin_token.require_permission(&AdminPermission::ViewConfiguration)?;
-
-        let catalog = context.tool_selection.get_catalog().await?;
-        let entry = catalog
-            .into_iter()
-            .find(|e| e.tool_name == tool_name)
-            .ok_or_else(|| AppError::not_found(format!("Tool '{tool_name}'")))?;
-
-        Ok((
-            StatusCode::OK,
-            Json(ToolSelectionResponse::success(
-                format!("Retrieved tool '{tool_name}'"),
-                entry,
-            )),
-        ))
-    }
-
-    /// GET `/admin/tools/tenant/{tenant_id}` - Get effective tools for tenant
+    /// GET `/api/admin/tools/tenant/{tenant_id}` - Get effective tools for tenant
     async fn handle_get_tenant_tools(
         State(context): State<Arc<ToolSelectionContext>>,
         Extension(admin_token): Extension<ValidatedAdminToken>,
@@ -254,7 +174,7 @@ impl ToolSelectionRoutes {
         ))
     }
 
-    /// POST `/admin/tools/tenant/{tenant_id}/override` - Set tool override
+    /// POST `/api/admin/tools/tenant/{tenant_id}/override` - Set tool override
     async fn handle_set_override(
         State(context): State<Arc<ToolSelectionContext>>,
         Extension(admin_token): Extension<ValidatedAdminToken>,
@@ -304,7 +224,7 @@ impl ToolSelectionRoutes {
         ))
     }
 
-    /// DELETE `/admin/tools/tenant/{tenant_id}/override/{tool_name}` - Remove override
+    /// DELETE `/api/admin/tools/tenant/{tenant_id}/override/{tool_name}` - Remove override
     async fn handle_remove_override(
         State(context): State<Arc<ToolSelectionContext>>,
         Extension(admin_token): Extension<ValidatedAdminToken>,
@@ -341,7 +261,7 @@ impl ToolSelectionRoutes {
         }
     }
 
-    /// GET `/admin/tools/tenant/{tenant_id}/summary` - Get availability summary
+    /// GET `/api/admin/tools/tenant/{tenant_id}/summary` - Get availability summary
     async fn handle_get_summary(
         State(context): State<Arc<ToolSelectionContext>>,
         Extension(admin_token): Extension<ValidatedAdminToken>,
@@ -366,7 +286,7 @@ impl ToolSelectionRoutes {
         ))
     }
 
-    /// GET `/admin/tools/global-disabled` - List `PIERRE_DISABLED_TOOLS` values
+    /// GET `/api/admin/tools/global-disabled` - List `PIERRE_DISABLED_TOOLS` values
     ///
     /// Open to every admin: it is the process's own deployment switch, which
     /// every tenant's tool tab shows beside its overrides.

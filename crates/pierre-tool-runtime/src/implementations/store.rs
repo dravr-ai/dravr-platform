@@ -30,6 +30,8 @@
 //! sentence.
 
 use crate::annotations::{annotations, Effect, Reach};
+use crate::read_subject::DataClass;
+use crate::tool_data::ToolData;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -459,6 +461,15 @@ impl McpTool<dyn ToolRuntime> for InstallAgentFromStoreTool {
 // Guardian security classifications (see `crate::security`). Install
 // adds a reversible team membership (or, for another tenant's agent, a
 // reversible copy), so it carries no label of its own.
-crate::declare_security!(BrowseAgentStoreTool => empty; first_party_only);
-crate::declare_security!(SearchAgentStoreTool => empty; first_party_only);
-crate::declare_security!(InstallAgentFromStoreTool => empty; first_party_only);
+crate::declare_security!(
+    BrowseAgentStoreTool => empty; first_party_only,
+    reads: ToolData::of(DataClass::NoSubject, &[]),
+);
+crate::declare_security!(
+    SearchAgentStoreTool => empty; first_party_only,
+    reads: ToolData::of(DataClass::NoSubject, &[]),
+);
+crate::declare_security!(
+    InstallAgentFromStoreTool => empty; first_party_only,
+    reads: ToolData::own(&[]),
+);

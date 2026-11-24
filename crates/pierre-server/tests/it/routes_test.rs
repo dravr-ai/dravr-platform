@@ -199,7 +199,7 @@ async fn test_register_user() {
         display_name: Some("Test User".into()),
     };
 
-    let response = routes.register(request).await.unwrap();
+    let response = routes.self_register(request).await.unwrap();
     assert_ne!(response.user_id, "");
     assert_eq!(
         response.message,
@@ -358,10 +358,10 @@ async fn test_register_duplicate_user() {
     };
 
     // First registration should succeed
-    routes.register(request.clone()).await.unwrap();
+    routes.self_register(request.clone()).await.unwrap();
 
     // Second registration should fail
-    let result = routes.register(request).await;
+    let result = routes.self_register(request).await;
     assert!(result.is_err());
     assert!(result.unwrap_err().to_string().contains("already exists"));
 }

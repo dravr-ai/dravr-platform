@@ -21,7 +21,7 @@ const INTERVAL: Duration = Duration::from_mins(30);
 #[test]
 fn no_real_traffic_yet_never_skips() {
     // An idle service that has never served a turn must keep probing so
-    // `/ready` reflects synthetic liveness.
+    // the turn gate reflects synthetic liveness.
     assert!(!should_skip_probe(None, INTERVAL));
 }
 
@@ -51,7 +51,7 @@ async fn piggyback_stamps_the_real_success_time_not_now() {
 
     // A real turn succeeded ~10 minutes ago; the periodic tick observes it now
     // and skips its billed probe. The recorded snapshot must reflect the real
-    // success time, not `now`, or `/health/llm` overstates freshness.
+    // success time, not `now`, or the snapshot overstates freshness.
     let state = LlmHealthState::new();
     let observed_ago = Duration::from_mins(10);
     let before = Timestamp::now();

@@ -48,8 +48,6 @@ mod fitness_score_window_test;
 mod format_parameter_declared_test;
 #[cfg(feature = "tools-goals")]
 mod goal_activities_test;
-#[cfg(feature = "tools-groups")]
-mod group_fitness_weekly_metrics_test;
 #[cfg(feature = "client-chat")]
 mod headless_lost_turn_test;
 #[cfg(feature = "tools-sleep")]

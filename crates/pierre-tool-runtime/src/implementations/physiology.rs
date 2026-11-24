@@ -34,6 +34,8 @@
 //! athlete's number instead of replacing it.
 
 use crate::annotations::{annotations, Effect, Reach};
+use crate::tool_data::ToolData;
+use dravr_barrage::Stream;
 use pierre_providers::ai_scope;
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -1152,4 +1154,9 @@ pub fn create_physiology_tools() -> Vec<Box<dyn RuntimeTool>> {
 // Guardian security classification (see `crate::security`). The write is
 // internal and correctable, echoes no third-party text, and sends nothing
 // outbound, so it carries no labels.
-crate::declare_security!(SetPhysiologyTool => empty);
+// Physiology the athlete set or imported, and their fitness
+// configurations.
+crate::declare_security!(
+    SetPhysiologyTool => empty,
+    reads: ToolData::own(&[Stream::Fitness, Stream::Profile]),
+);

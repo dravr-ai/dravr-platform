@@ -21,6 +21,10 @@ on:
       # concurrency group added alongside this makes the extra plan safe: it
       # queues behind any in-flight apply rather than racing it for the state.
       - '.github/workflows/terraform.yml'
+      # What stages the private inputs every plan below reads: an edit to
+      # either has to prove itself on a plan, for the same reason.
+      - '.github/actions/terraform-private-inputs/**'
+      - 'infra/private-inputs.sh'
   workflow_dispatch:
     inputs:
       environment:
@@ -85,6 +89,12 @@ jobs:
 
       - name: Set up Terraform
         uses: hashicorp/setup-terraform@v4
+
+      - name: Stage private terraform inputs
+        uses: ./.github/actions/terraform-private-inputs
+        with:
+          environment: dev
+          token: ${{ secrets.DRAVR_CARNET_TOKEN }}
 
       - name: Terraform Init
         run: terraform init -backend-config="prefix=dravr-dev"
@@ -157,6 +167,12 @@ jobs:
 
       - name: Set up Terraform
         uses: hashicorp/setup-terraform@v4
+
+      - name: Stage private terraform inputs
+        uses: ./.github/actions/terraform-private-inputs
+        with:
+          environment: prod
+          token: ${{ secrets.DRAVR_CARNET_TOKEN }}
 
       - name: Terraform Init
         run: terraform init -backend-config="prefix=dravr-prod"
@@ -233,6 +249,12 @@ jobs:
       - name: Set up Terraform
         uses: hashicorp/setup-terraform@v4
 
+      - name: Stage private terraform inputs
+        uses: ./.github/actions/terraform-private-inputs
+        with:
+          environment: dev
+          token: ${{ secrets.DRAVR_CARNET_TOKEN }}
+
       - name: Terraform Init
         run: terraform init -backend-config="prefix=dravr-dev"
 
@@ -305,6 +327,12 @@ jobs:
 
       - name: Set up Terraform
         uses: hashicorp/setup-terraform@v4
+
+      - name: Stage private terraform inputs
+        uses: ./.github/actions/terraform-private-inputs
+        with:
+          environment: prod
+          token: ${{ secrets.DRAVR_CARNET_TOKEN }}
 
       - name: Terraform Init
         run: terraform init -backend-config="prefix=dravr-prod"

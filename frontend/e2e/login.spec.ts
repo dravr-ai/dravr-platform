@@ -13,22 +13,6 @@ import {
   waitForLoginScreen,
 } from './test-helpers';
 
-// Helper to set up common API mocks for the login page
-async function setupBasicMocks(page: Page) {
-  // Mock setup status - this must be set up BEFORE navigating
-  await page.route('**/admin/setup/status', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        needs_setup: false,
-        admin_user_exists: true,
-        message: 'Admin user configured',
-      }),
-    });
-  });
-}
-
 /** Base64url SHA-256 of `input`, computed in the page with WebCrypto. */
 async function s256(page: Page, input: string): Promise<string> {
   return page.evaluate(async (verifier) => {
@@ -41,7 +25,6 @@ async function s256(page: Page, input: string): Promise<string> {
 
 test.describe('Login Page', () => {
   test('renders the login screen with all expected elements', async ({ page }) => {
-    await setupBasicMocks(page);
     await page.goto('/');
     await waitForLoginScreen(page);
 
@@ -72,7 +55,6 @@ test.describe('Login Page', () => {
   });
 
   test('renders Google Sign-In button when Firebase is configured', async ({ page }) => {
-    await setupBasicMocks(page);
     await page.goto('/');
     await waitForLoginScreen(page);
 
@@ -92,7 +74,6 @@ test.describe('Login Page', () => {
   });
 
   test('Google Sign-In button shows loading state when clicked', async ({ page }) => {
-    await setupBasicMocks(page);
     await page.goto('/');
     await waitForLoginScreen(page);
 
@@ -117,8 +98,6 @@ test.describe('Login Page', () => {
   });
 
   test('opens the hosted sign-in as dravr-web with an S256 PKCE challenge', async ({ page }) => {
-    await setupBasicMocks(page);
-
     let authorizeUrl: URL | null = null;
     await page.route('**/oauth2/authorize**', async (route) => {
       authorizeUrl = new URL(route.request().url());
@@ -212,7 +191,6 @@ test.describe('Login Page - the hosted sign-in coming back empty', () => {
   });
 
   test('a code the server will not redeem reads as a failed sign-in', async ({ page }) => {
-    await setupBasicMocks(page);
     await mockHostedSignIn(page);
     await page.route('**/oauth/token', async (route) => {
       await route.fulfill({
@@ -231,7 +209,6 @@ test.describe('Login Page - the hosted sign-in coming back empty', () => {
   });
 
   test('a code exchange that never reached a server reads as the network', async ({ page }) => {
-    await setupBasicMocks(page);
     await mockHostedSignIn(page);
     await page.route('**/oauth/token', async (route) => {
       await route.abort('failed');
@@ -246,7 +223,6 @@ test.describe('Login Page - the hosted sign-in coming back empty', () => {
   });
 
   test('a callback this tab never started is refused without redeeming its code', async ({ page }) => {
-    await setupBasicMocks(page);
     let exchanged = false;
     await page.route('**/oauth/token', async (route) => {
       exchanged = true;
@@ -263,7 +239,6 @@ test.describe('Login Page - the hosted sign-in coming back empty', () => {
 
 test.describe('Login Page - Accessibility', () => {
   test('the sign-in can be started from the keyboard', async ({ page }) => {
-    await setupBasicMocks(page);
     let opened = false;
     await page.route('**/oauth2/authorize**', async (route) => {
       opened = true;

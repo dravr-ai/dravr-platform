@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! One Claude account's quota must never dead-end a turn (carnet#480). The
+//! A refused credential must never dead-end a turn (carnet#480). The
 //! platform reads each further account's token from a numbered variable and
 //! builds it as its own tier, named `<runner>#N` so a health line, an alert
 //! label or a usage row says which account served.
@@ -114,7 +114,7 @@ fn numbered_anthropic_keys_become_named_tiers_on_the_entry_model() {
     assert_eq!(
         names,
         ["anthropic#2", "anthropic#3"],
-        "the first key is the tier itself; each further organization is its own tier"
+        "the first key is the tier itself; each further key is its own tier"
     );
     for account in &accounts {
         assert_eq!(
@@ -165,7 +165,7 @@ fn the_copilot_runtime_never_pools() {
 }
 
 #[test]
-fn an_anthropic_account_entry_puts_that_organization_on_its_own_model() {
+fn an_anthropic_account_entry_puts_that_account_on_its_own_model() {
     let _env = exclusive();
     clear();
     set("ANTHROPIC_API_KEY", "sk-ant-1");

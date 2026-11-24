@@ -6,21 +6,23 @@
 
 //! Seven admin routes act on an account: suspend, approve, pre-approve its
 //! address, disconnect a provider, delete, reset its onboarding, reset its
-//! password. Each refuses a service token without the super-admin flag
-//! when the account is an admin (403, one sentence), and each is otherwise
-//! answered as before (carnet#1589).
+//! password. Four are on the admin-token mount `pierre-cli` reaches
+//! (pre-approve, disconnect, delete, reset onboarding): each refuses a
+//! service token without the super-admin flag when the account is an admin
+//! (403, one sentence), and each is otherwise answered as before
+//! (carnet#1589). Suspend, approve and reset a password are the console's,
+//! behind an admin's session, which holds the rank.
 //!
-//! The table drives every route with a `ManageUsers` token bound to the
-//! desk's tenant, a super-admin token and, where the console mounts the
-//! route, an admin's own session, against an admin account and a plain one
-//! held in that tenant, and reads the store after each answer. The tests
+//! The table drives every token-mount route with a `ManageUsers` token
+//! bound to the desk's tenant and a super-admin token, and every console
+//! route with an admin's own session, against an admin account and a plain
+//! one held in that tenant, and reads the store after each answer. The tests
 //! below it pin where the rule stands among the other refusals of the same
 //! routes: after a bound token's "not found" for an account outside its
 //! tenant and before its tenant rule for one held there and elsewhere too,
-//! before the last active admin, before "already approved", before a
-//! missing connection and before a disconnect chokepoint that is not wired.
-//! A token bound to no tenant without the flag reaches no account at all
-//! (carnet#1589).
+//! before the last active admin, before a missing connection and before a
+//! disconnect chokepoint that is not wired. A token bound to no tenant
+//! without the flag reaches no account at all (carnet#1589).
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
@@ -73,18 +75,15 @@ enum Op {
 }
 
 impl Op {
-    /// Every route that acts on an account, on the admin-token mount.
-    const ALL: [Self; 7] = [
-        Self::Suspend,
-        Self::Approve,
+    /// The routes that act on an account on the admin-token mount.
+    const ON_THE_TOKEN_MOUNT: [Self; 4] = [
         Self::Allow,
         Self::Disconnect,
         Self::Delete,
         Self::ResetOnboarding,
-        Self::ResetPassword,
     ];
 
-    /// The routes the console mounts too, behind an admin's session.
+    /// The routes the console mounts, behind an admin's session.
     const ON_THE_CONSOLE: [Self; 4] = [
         Self::Suspend,
         Self::Approve,
@@ -106,7 +105,8 @@ impl Op {
     }
 
     /// The request for `target` under `prefix` (`""` on the token mount,
-    /// `"/api"` on the console).
+    /// `"/api"` on the console); suspend, approve and the password reset are
+    /// mounted on the console alone.
     fn request(self, prefix: &str, target: &User) -> AxumTestRequest {
         let id = target.id;
         let reason = json!({ "reason": "carnet#1589 table" });
@@ -349,8 +349,8 @@ fn sentence(answer: &Value) -> &str {
     answer["message"].as_str().unwrap_or_default()
 }
 
-/// The table: every route, a caller with the rank and one without, an admin
-/// account and a plain one. Without the rank an admin account answers 403
+/// The table: every token-mount route, a caller with the rank and one
+/// without, an admin account and a plain one. Without the rank an admin account answers 403
 /// in the rank rule's words and nothing is written; every other cell is
 /// answered 200 and its write is in the store. The pre-approval of an
 /// address is platform-wide, so a bound token is refused it whatever the
@@ -359,7 +359,7 @@ fn sentence(answer: &Value) -> &str {
 async fn every_route_refuses_an_admin_account_to_a_caller_without_the_rank() {
     let desk = Desk::open().await;
 
-    for op in Op::ALL {
+    for op in Op::ON_THE_TOKEN_MOUNT {
         for (caller, has_the_rank) in [(&desk.scoped, false), (&desk.root, true)] {
             for role in [UserRole::Admin, UserRole::User] {
                 let target = desk.target(op, role).await;
@@ -402,15 +402,9 @@ async fn every_route_refuses_an_admin_account_to_a_caller_without_the_rank() {
     }
 }
 
-/// The routes that write one account, as a bound token reads them.
-const ON_ONE_ACCOUNT: [Op; 6] = [
-    Op::Suspend,
-    Op::Approve,
-    Op::Disconnect,
-    Op::Delete,
-    Op::ResetOnboarding,
-    Op::ResetPassword,
-];
+/// The token-mount routes that write one account, as a bound token reads
+/// them.
+const ON_ONE_ACCOUNT: [Op; 3] = [Op::Disconnect, Op::Delete, Op::ResetOnboarding];
 
 /// A token bound to one tenant, without the flag, finds no account outside
 /// that tenant: an admin there answers 404 as a missing account does,
@@ -500,10 +494,10 @@ async fn a_token_bound_to_no_tenant_reaches_no_account() {
 }
 
 /// The rank rule answers before what the write itself would refuse: an
-/// admin that is already active is not "already approved" to a caller
-/// without the rank, and one with no Strava connection is not "no
-/// connection". The same requests from a super-admin token get those
-/// answers.
+/// admin with no Strava connection is not "no connection" to a caller
+/// without the rank. The same request from a super-admin token gets that
+/// answer, and an admin's console session is told an active admin is
+/// already approved.
 #[tokio::test]
 async fn the_rank_rule_answers_before_what_the_write_would_refuse() {
     let desk = Desk::open().await;
@@ -515,13 +509,10 @@ async fn the_rank_rule_answers_before_what_the_write_would_refuse() {
     )
     .await;
 
-    let (status, answer) = desk.ask(Op::Approve, &desk.scoped, &admin).await;
-    assert_eq!(status, 403, "approve, already active: {answer}");
-    assert_eq!(sentence(&answer), RANK_REFUSAL, "{answer}");
-    let (status, answer) = desk.ask(Op::Approve, &desk.root, &admin).await;
+    let (status, answer) = desk.ask_on_the_console(Op::Approve, &admin).await;
     assert_eq!(
         status, 400,
-        "approve, already active, with the rank: {answer}"
+        "approve, already active, from the console: {answer}"
     );
     assert_eq!(sentence(&answer), "User is already approved", "{answer}");
 
@@ -549,34 +540,33 @@ async fn the_rank_rule_answers_before_what_the_write_would_refuse() {
     assert_eq!(sentence(&answer), "Cannot suspend yourself", "{answer}");
 }
 
-/// The platform's last active admin is suspended and deleted by no one, and
-/// a caller without the rank is not told so: the rank rule answers it
-/// first. With the rank, the last-admin refusal answers.
+/// The platform's last active admin is deleted by no one, and a caller
+/// without the rank is not told so: the rank rule answers it first. With the
+/// rank, the last-admin refusal answers.
 #[tokio::test]
 async fn the_rank_rule_answers_before_the_last_active_admin() {
     let desk = Desk::open().await;
     let only = &desk.standing;
 
-    for op in [Op::Suspend, Op::Delete] {
-        let (status, answer) = desk.ask(op, &desk.scoped, only).await;
-        assert_eq!(status, 403, "{op:?}, the last admin: {answer}");
-        assert_eq!(sentence(&answer), RANK_REFUSAL, "{op:?}: {answer}");
+    let op = Op::Delete;
+    let (status, answer) = desk.ask(op, &desk.scoped, only).await;
+    assert_eq!(status, 403, "{op:?}, the last admin: {answer}");
+    assert_eq!(sentence(&answer), RANK_REFUSAL, "{op:?}: {answer}");
 
-        let (status, answer) = desk.ask(op, &desk.root, only).await;
-        assert_eq!(
-            status, 400,
-            "{op:?}, the last admin, with the rank: {answer}"
-        );
-        assert!(
-            sentence(&answer).contains("last active admin"),
-            "{op:?}: {answer}"
-        );
-        let stored = desk.resources.common.repos.users.get_global(only.id).await;
-        assert!(
-            stored.unwrap().is_some_and(|user| user.is_active_admin()),
-            "{op:?}: the last admin stands"
-        );
-    }
+    let (status, answer) = desk.ask(op, &desk.root, only).await;
+    assert_eq!(
+        status, 400,
+        "{op:?}, the last admin, with the rank: {answer}"
+    );
+    assert!(
+        sentence(&answer).contains("last active admin"),
+        "{op:?}: {answer}"
+    );
+    let stored = desk.resources.common.repos.users.get_global(only.id).await;
+    assert!(
+        stored.unwrap().is_some_and(|user| user.is_active_admin()),
+        "{op:?}: the last admin stands"
+    );
 }
 
 /// On a server whose disconnect chokepoint is not wired, a disconnect is

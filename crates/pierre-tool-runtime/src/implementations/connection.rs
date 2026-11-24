@@ -12,6 +12,7 @@
 //! - `DisconnectProviderTool` - Disconnect and revoke OAuth tokens
 
 use crate::annotations::{annotations, Effect, Reach};
+use crate::tool_data::ToolData;
 use std::collections::{BTreeMap, HashMap};
 use std::fmt;
 use std::sync::Arc;
@@ -895,9 +896,17 @@ pub fn create_connection_tools() -> Vec<Box<dyn RuntimeTool>> {
 // Guardian security classifications (see `crate::security`). Co-located here so
 // each impl sits under this module's existing feature gate; the compiler forces
 // every registered tool to classify (the registry stores `Arc<dyn RuntimeTool>`).
-crate::declare_security!(DisconnectProviderTool => IRREVERSIBLE);
-crate::declare_security!(ConnectProviderTool => empty);
-crate::declare_security!(GetConnectionStatusTool => empty);
+crate::declare_security!(DisconnectProviderTool => IRREVERSIBLE, reads: ToolData::own(&[]));
+// Connections: which providers are linked, and the calls that link,
+// unlink and refresh them.
+crate::declare_security!(ConnectProviderTool => empty, reads: ToolData::own(&[]));
+// What the server's instructions tell a client to call first: offered
+// under a preset grant, as it reads no stream.
+crate::declare_security!(
+    GetConnectionStatusTool => empty,
+    reads: ToolData::own(&[])
+        .with_connection_metadata(),
+);
 
 #[cfg(test)]
 mod tests {

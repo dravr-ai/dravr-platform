@@ -14,7 +14,7 @@
 use std::thread::sleep;
 use std::time::Duration;
 
-use pierre_llm::health::LlmHealthState;
+use pierre_llm::health::{LlmHealthState, LlmHealthStatus};
 
 #[test]
 fn since_last_success_is_none_before_any_success() {
@@ -87,5 +87,22 @@ async fn a_served_probe_names_the_tier_that_answered() {
         state.snapshot().await.served_by,
         None,
         "a failed probe served nobody"
+    );
+}
+
+#[tokio::test]
+async fn a_failed_probe_keeps_the_first_line_of_its_error() {
+    // The turn gate logs the stored error; a multi-line provider error
+    // (a CLI's stderr, a stack) is cut to its first line when it is recorded.
+    let state = LlmHealthState::new();
+    let previous = state
+        .record_unhealthy("gemini", "probe failed\nsecond line")
+        .await;
+    let snapshot = state.snapshot().await;
+    assert_eq!(snapshot.error.as_deref(), Some("probe failed"));
+    assert_eq!(snapshot.provider.as_deref(), Some("gemini"));
+    assert!(
+        matches!(previous, LlmHealthStatus::Unknown),
+        "a fresh state reports Unknown as the status it replaced"
     );
 }

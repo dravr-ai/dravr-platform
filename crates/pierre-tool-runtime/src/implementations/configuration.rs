@@ -15,6 +15,9 @@
 //! - `ValidateConfigurationTool` - Validate configuration values
 
 use crate::annotations::{annotations, Effect, Reach};
+use crate::read_subject::DataClass;
+use crate::tool_data::ToolData;
+use dravr_barrage::Stream;
 use pierre_providers::ai_scope;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
@@ -1106,9 +1109,27 @@ pub fn create_configuration_tools() -> Vec<Box<dyn RuntimeTool>> {
 // Guardian security classifications (see `crate::security`). Co-located here so
 // each impl sits under this module's existing feature gate; the compiler forces
 // every registered tool to classify (the registry stores `Arc<dyn RuntimeTool>`).
-crate::declare_security!(CalculatePersonalizedZonesTool => empty);
-crate::declare_security!(GetConfigurationCatalogTool => empty; first_party_only);
-crate::declare_security!(GetConfigurationProfilesTool => empty; first_party_only);
-crate::declare_security!(GetUserConfigurationTool => empty; first_party_only);
-crate::declare_security!(UpdateUserConfigurationTool => empty);
-crate::declare_security!(ValidateConfigurationTool => empty; first_party_only);
+crate::declare_security!(
+    CalculatePersonalizedZonesTool => empty,
+    reads: ToolData::of(DataClass::Training, &[Stream::Fitness, Stream::Profile]),
+);
+crate::declare_security!(
+    GetConfigurationCatalogTool => empty; first_party_only,
+    reads: ToolData::own(&[]),
+);
+crate::declare_security!(
+    GetConfigurationProfilesTool => empty; first_party_only,
+    reads: ToolData::own(&[]),
+);
+crate::declare_security!(
+    GetUserConfigurationTool => empty; first_party_only,
+    reads: ToolData::of(DataClass::Training, &[Stream::Fitness, Stream::Profile]),
+);
+crate::declare_security!(
+    UpdateUserConfigurationTool => empty,
+    reads: ToolData::own(&[Stream::Fitness, Stream::Profile]),
+);
+crate::declare_security!(
+    ValidateConfigurationTool => empty; first_party_only,
+    reads: ToolData::own(&[]),
+);

@@ -25,6 +25,9 @@
 //! athlete) bridge into the shared `fitness_api` handlers because those
 //! handlers are also called directly from the chat pipeline prefetch stage.
 
+use crate::read_subject::DataClass;
+use crate::tool_data::ToolData;
+use dravr_barrage::Stream;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -1165,4 +1168,13 @@ pub fn create_data_tools() -> Vec<Box<dyn RuntimeTool>> {
 // Guardian security classifications (see `crate::security`). Co-located here so
 // each impl sits under this module's existing feature gate; the compiler forces
 // every registered tool to classify (the registry stores `Arc<dyn RuntimeTool>`).
-crate::declare_security!(GetActivitiesTool => empty);
+// The sessions themselves: their names are the athlete's or their
+// provider's text, and their start coordinates and city place them. The
+// place is incidental: a grant without routes reads the sessions without
+// it.
+crate::declare_security!(
+    GetActivitiesTool => empty,
+    reads: ToolData::of(DataClass::Training, &[Stream::Workout, Stream::WorkoutRoute])
+        .with_athlete_text()
+        .with_incidental_route(),
+);
