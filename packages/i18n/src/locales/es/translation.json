@@ -4475,7 +4475,11 @@
       "editStep": "Editar el paso {{number}}: {{label}}",
       "duplicateStep": "Duplicar el paso {{number}}",
       "profile": "Perfil de la sesión",
-      "profileStep": "Paso {{number}}: {{label}}, {{duration}}, {{target}}"
+      "profileStep": "Paso {{number}}: {{label}}, {{duration}}, {{target}}",
+      "durationLess": "15 segundos menos",
+      "durationMore": "15 segundos más",
+      "distanceTag": "{{value}} m",
+      "targetUnresolved": "El objetivo «{{target}}» del paso {{number}} no se reconoce: elige una zona, un % de un umbral o un RPE."
     }
   },
   "platform_post": {

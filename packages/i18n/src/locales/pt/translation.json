@@ -4475,7 +4475,11 @@
       "editStep": "Editar a etapa {{number}}: {{label}}",
       "duplicateStep": "Duplicar a etapa {{number}}",
       "profile": "Perfil da sessão",
-      "profileStep": "Etapa {{number}}: {{label}}, {{duration}}, {{target}}"
+      "profileStep": "Etapa {{number}}: {{label}}, {{duration}}, {{target}}",
+      "durationLess": "15 segundos a menos",
+      "durationMore": "15 segundos a mais",
+      "distanceTag": "{{value}} m",
+      "targetUnresolved": "O alvo “{{target}}” da etapa {{number}} não é reconhecido: escolha uma zona, uma % de um limiar ou um RPE."
     }
   },
   "platform_post": {

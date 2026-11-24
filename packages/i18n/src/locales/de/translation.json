@@ -4475,7 +4475,11 @@
       "editStep": "Schritt {{number}} bearbeiten: {{label}}",
       "duplicateStep": "Schritt {{number}} duplizieren",
       "profile": "Profil der Einheit",
-      "profileStep": "Schritt {{number}}: {{label}}, {{duration}}, {{target}}"
+      "profileStep": "Schritt {{number}}: {{label}}, {{duration}}, {{target}}",
+      "durationLess": "15 Sekunden weniger",
+      "durationMore": "15 Sekunden mehr",
+      "distanceTag": "{{value}} m",
+      "targetUnresolved": "Das Ziel „{{target}}“ von Schritt {{number}} wird nicht erkannt: Wähle eine Zone, ein % einer Schwelle oder einen RPE-Wert."
     }
   },
   "platform_post": {

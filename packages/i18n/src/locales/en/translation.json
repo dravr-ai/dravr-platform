@@ -4475,7 +4475,11 @@
       "editStep": "Edit step {{number}}: {{label}}",
       "duplicateStep": "Duplicate step {{number}}",
       "profile": "Session profile",
-      "profileStep": "Step {{number}}: {{label}}, {{duration}}, {{target}}"
+      "profileStep": "Step {{number}}: {{label}}, {{duration}}, {{target}}",
+      "durationLess": "15 seconds less",
+      "durationMore": "15 seconds more",
+      "distanceTag": "{{value}} m",
+      "targetUnresolved": "The target “{{target}}” of step {{number}} isn’t one the calendar reads: pick a zone, a % of a threshold or an RPE."
     }
   },
   "platform_post": {
