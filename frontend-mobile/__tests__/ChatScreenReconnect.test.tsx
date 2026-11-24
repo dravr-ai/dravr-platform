@@ -203,14 +203,16 @@ describe('ChatScreen provider reconnect', () => {
   });
 
   it('reconnects inside the app’s auth session rather than handing off to the browser', async () => {
-    const { getByText } = renderChatScreen();
+    const { getByText, findByTestId } = renderChatScreen();
 
     fireEvent.press(getByText('Reconnect Garmin'));
+    // Garmin's connect asks for its consents first; neither ticked, it goes on.
+    fireEvent.press(await findByTestId('connect-consent-continue'));
 
     await waitFor(() => expect(WebBrowser.openAuthSessionAsync).toHaveBeenCalledTimes(1));
     // A fresh authorization URL minted against the app's own return address:
     // the block's URL was minted for a browser callback and cannot come back.
-    expect(mockInitMobileOAuth).toHaveBeenCalledWith('garmin', RETURN_URL, { tosConsent: false, signInBlocked: false });
+    expect(mockInitMobileOAuth).toHaveBeenCalledWith('garmin', RETURN_URL, { tosConsent: false, signInBlocked: false, consents: [] });
     expect(WebBrowser.openAuthSessionAsync).toHaveBeenCalledWith(AUTHORIZATION_URL, RETURN_URL);
     // Safari never gets it, so there is nothing for the athlete to come back from.
     expect(DeviceLinking.openURL).not.toHaveBeenCalled();
@@ -326,6 +328,7 @@ describe('ChatScreen provider reconnect', () => {
 
     mockGetProvidersStatus.mockResolvedValue(healthy);
     fireEvent.press(getByText('Reconnect Garmin'));
+    fireEvent.press(await findByTestId('connect-consent-continue'));
 
     await waitFor(() => expect(WebBrowser.openAuthSessionAsync).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(queryByTestId('reconnect-banner')).toBeNull(), { timeout: 5000 });

@@ -120,15 +120,17 @@ pub trait DossierRepository: Send + Sync {
     /// reads so their limits count only readable rows.
     ///
     /// `admit` decides, per stored row, whether content stamped with a policy
-    /// may be served to this caller (carnet#769): the caller passes
-    /// `ai_scope::admit_derived`, so a first-party-only fact or profile never
-    /// reaches an external one. A row it refuses is left out of the dossier.
+    /// and naming AI-consent keys may be served to this caller (carnet#769,
+    /// carnet#1157): the caller passes `ai_scope::admit_memory`, so a
+    /// first-party-only fact or profile never reaches an external one, and a
+    /// fact naming a withdrawn or kept-out key never reaches a model. The
+    /// profile names no key. A row it refuses is left out of the dossier.
     async fn compose_dossier(
         &self,
         tenant_id: TenantId,
         user_id: Uuid,
         readable: TransportPolicy,
-        admit: &(dyn Fn(TransportPolicy) -> bool + Sync),
+        admit: &(dyn for<'s> Fn(TransportPolicy, &'s [String]) -> bool + Sync),
     ) -> AppResult<Dossier>;
 }
 
@@ -1057,12 +1059,12 @@ macro_rules! impl_user_physiological_profile_repository {
                 tenant_id: TenantId,
                 user_id: Uuid,
                 readable: TransportPolicy,
-                admit: &(dyn Fn(TransportPolicy) -> bool + Sync),
+                admit: &(dyn for<'s> Fn(TransportPolicy, &'s [String]) -> bool + Sync),
             ) -> AppResult<Dossier> {
                 let physiology = self
                     .get_user_physiological_profile(tenant_id, user_id)
                     .await?
-                    .filter(|profile| admit(profile.transport_policy));
+                    .filter(|profile| admit(profile.transport_policy, &[]));
                 let sport_anchors = if physiology.is_some() {
                     self.list_sport_anchors(tenant_id, user_id).await?
                 } else {
@@ -1150,7 +1152,7 @@ macro_rules! impl_user_physiological_profile_repository {
                         tracing::warn!(error = %e, user_id = %user_id, fact_source = FactSource::Onboarding.as_str(), "guaranteed by-source fact read failed; dossier degrades without interview answers");
                     }
                 }
-                facts.retain(|fact| admit(fact.transport_policy));
+                facts.retain(|fact| admit(fact.transport_policy, &fact.ai_consent_sources));
                 let buckets = group_facts(&facts, Timestamp::now());
 
                 Ok(Dossier {

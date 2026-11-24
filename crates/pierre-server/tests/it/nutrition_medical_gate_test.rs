@@ -270,6 +270,7 @@ async fn a_tool_raised_or_stale_medical_flag_still_gates() -> Result<()> {
             valid_until: Some(Timestamp::now() - Elapsed::days(30)),
             source_msg_id: None,
             transport_policy: TransportPolicy::AnyTransport,
+            ai_consent_sources: &[],
         })
         .await?;
 

@@ -673,6 +673,7 @@ mod turns {
                     last_message_id: &id,
                     transport_policy: TransportPolicy::AnyTransport,
                     about_user_id: Some(member),
+                    ai_consent_sources: &[],
                 })
                 .await
                 .unwrap();
@@ -793,6 +794,7 @@ fn message<'a>(
         channel_type: None,
         about_user_id: about,
         turn_attempted_write: None,
+        ai_consent_sources: &[],
     }
 }
 
@@ -1080,6 +1082,7 @@ async fn a_compaction_block_covers_one_athlete_and_names_them() {
             conversation_id: &room.id,
             source_ids: &source_ids,
             source_members: &source_members,
+            source_consents: &vec![Vec::new(); source_members.len()],
             llm_messages: &mut llm_messages,
             summary_for_prompt: str::to_owned,
         })
@@ -1168,6 +1171,7 @@ async fn deleting_an_athlete_deletes_the_coachs_rows_about_them() {
             last_message_id: &alice_first,
             transport_policy: TransportPolicy::AnyTransport,
             about_user_id: Some(alice),
+            ai_consent_sources: &[],
         })
         .await
         .unwrap();

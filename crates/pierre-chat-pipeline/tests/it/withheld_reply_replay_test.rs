@@ -45,6 +45,7 @@ fn row(id: &str, role: &str, content: &str, finish_reason: Option<&str>) -> Mess
         channel_type: None,
         about_user_id: None,
         turn_attempted_write: None,
+        ai_consent_sources: Vec::new(),
     }
 }
 

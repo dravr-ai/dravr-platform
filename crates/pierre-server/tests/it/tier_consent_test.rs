@@ -37,13 +37,14 @@ use pierre_core::constants::oauth::providers::{
     sensitive_display_name, SENSITIVE_T2, SENSITIVE_T3, WHOOP,
 };
 use pierre_core::constants::oauth::INTERVALS_ICU;
+use pierre_core::constants::oauth_providers::NoticeKind;
 use pierre_core::models::{DataSource, DeviceType, StoredHealthMetrics, StoredRecoveryMetrics};
 use pierre_database::repositories::{
     ClinicalRecordWrite, RecordFiling, SelfReportWrite, WellnessWriteMode, USER_EXPORT_TABLES,
 };
 use pierre_database::RepositoryRegistry;
 use pierre_routes_auth::AuthRoutes;
-use pierre_services::provider_notice::{grant_ai_consent, withdraw_ai_consent};
+use pierre_services::provider_notice::{grant_consent, withdraw_consent};
 use pierre_tool_runtime::protocols::UniversalResponse;
 use serde_json::{json, Value};
 use uuid::Uuid;
@@ -135,11 +136,18 @@ async fn athlete_sets(f: &Fixture, class: &str, allowed: bool) {
     let athlete = f.athlete;
     let name = sensitive_display_name(class).expect("a consent class");
     if allowed {
-        grant_ai_consent(repos, athlete.tenant.as_uuid(), athlete.id, class, name)
-            .await
-            .unwrap();
+        grant_consent(
+            repos,
+            athlete.tenant.as_uuid(),
+            athlete.id,
+            class,
+            NoticeKind::AiConsent,
+            name,
+        )
+        .await
+        .unwrap();
     } else {
-        withdraw_ai_consent(repos, athlete.id, class, name)
+        withdraw_consent(repos, athlete.id, class, NoticeKind::AiConsent, name)
             .await
             .unwrap();
     }
@@ -453,9 +461,16 @@ async fn the_export_carries_the_coach_health_records_flag() {
 /// reads their notes and their agent's memory: the setup of every suite that
 /// drives a memory tool from outside Dravr (carnet#1544).
 pub(crate) async fn allow_outside_memory(repos: &RepositoryRegistry, tenant: Uuid, user: Uuid) {
-    grant_ai_consent(repos, tenant, user, SENSITIVE_T3, "Intimate health records")
-        .await
-        .unwrap();
+    grant_consent(
+        repos,
+        tenant,
+        user,
+        SENSITIVE_T3,
+        NoticeKind::AiConsent,
+        "Intimate health records",
+    )
+    .await
+    .unwrap();
 }
 
 /// The fact the athlete's in-app agent remembers, approved so a recall

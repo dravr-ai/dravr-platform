@@ -181,6 +181,7 @@ pub(crate) fn withheld_platform_reply(
         channel_type: None,
         about_user_id: None,
         turn_attempted_write: None,
+        ai_consent_sources: ai_scope::derived_consent_sources(),
     };
     let envelope = build_envelope(
         profile,

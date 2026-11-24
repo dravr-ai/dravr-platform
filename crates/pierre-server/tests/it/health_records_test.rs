@@ -19,6 +19,7 @@
 //!   the account delete each remove the rows (the uuid owner columns meet the
 //!   purge statements on the PostgreSQL lane as well).
 
+use pierre_core::constants::oauth_providers::NoticeKind;
 use std::sync::Arc;
 
 use dravr_barrage::{
@@ -40,7 +41,7 @@ use pierre_providers::ai_scope;
 use pierre_services::health_records::read::{
     HealthRecordsPage, RecordKind, RecordView, RecordsRead,
 };
-use pierre_services::provider_notice::{grant_ai_consent, under_ai_consent};
+use pierre_services::provider_notice::{grant_consent, under_ai_consent};
 use pierre_services::stored_health::as_stored;
 use serde_json::json;
 use uuid::Uuid;
@@ -182,11 +183,12 @@ impl Imported {
     }
 
     async fn allow(&self, class: &str, name: &str) {
-        grant_ai_consent(
+        grant_consent(
             self.repos(),
             self.tenant.as_uuid(),
             self.user_id,
             class,
+            NoticeKind::AiConsent,
             name,
         )
         .await

@@ -170,6 +170,13 @@ impl McpTool<dyn ToolRuntime> for ListCoachingPlaybooksTool {
             // A playbook learned from first-party-only data is withheld from
             // an external caller; the rest are served (carnet#769).
             ai_scope::retain_admitted(&mut playbooks, |playbook| playbook.transport_policy);
+            // Nor one naming a withdrawn consent, or data kept out of AI
+            // memory (carnet#1157, #1158).
+            ai_scope::retain_consented(
+                &mut playbooks,
+                |playbook| &playbook.ai_consent_sources,
+                true,
+            );
             // A playbook is what the agent learned and wrote down, and the
             // result's trust label says so.
             if !playbooks.is_empty() {

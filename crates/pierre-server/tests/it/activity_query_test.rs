@@ -23,6 +23,7 @@
 #![allow(missing_docs)]
 
 use crate::common;
+use crate::helpers::garmin_consent::give_garmin_ai_consent;
 use crate::helpers::strava_grant::hold_strava_grant;
 use crate::history_walk_api_test::server;
 
@@ -138,6 +139,8 @@ pub(crate) async fn connect_garmin(resources: &Arc<ServerContext>, (user_id, ten
         )
         .await
         .unwrap();
+    // A model reads Garmin data only under the athlete's AI consent (carnet#1157).
+    give_garmin_ai_consent(&resources.common.repos, user_id, tenant).await;
 }
 
 /// Noon UTC on `y-m-d`.
@@ -340,6 +343,9 @@ async fn one_workout_held_by_three_sources_counts_once() {
     )
     .await;
     store(&resources, athlete, SESSION, &[ride(SESSION, at)]).await;
+    // The Garmin twin reaches a model only under the athlete's Garmin AI
+    // consent (carnet#1157).
+    give_garmin_ai_consent(&resources.common.repos, athlete.0, athlete.1).await;
     store(
         &resources,
         athlete,
@@ -384,6 +390,9 @@ async fn a_workout_whose_copies_straddle_new_year_counts_once_in_its_year() {
         .ok()
         .unwrap();
     let garmin_at = Timestamp::parse_from_rfc3339("2025-01-01T00:00:10Z").unwrap();
+    // Without the athlete's Garmin AI consent (carnet#1157) the Garmin copy
+    // never reaches the query, and the count below would hold vacuously.
+    give_garmin_ai_consent(&resources.common.repos, athlete.0, athlete.1).await;
     store(
         &resources,
         athlete,
@@ -752,7 +761,9 @@ async fn a_key_no_connection_names_is_counted_and_listed() {
         &[ride(oauth_providers::STRAVA, noon(2016, 5, 1))],
     )
     .await;
-    // Rows a former Garmin connection left behind.
+    // Rows a former Garmin connection left behind, under the AI consent the
+    // athlete gave it (carnet#1157), which outlives the disconnect.
+    give_garmin_ai_consent(&resources.common.repos, athlete.0, athlete.1).await;
     store(
         &resources,
         athlete,
@@ -788,6 +799,9 @@ async fn a_matched_ride_strava_never_held_is_an_unknown_segment_never_unread() {
     let resources = store_server().await;
     let athlete = strava_athlete(&resources).await;
     walked_to_its_end(&resources, athlete, oauth_providers::STRAVA).await;
+    // The Garmin ride reaches a model only under the athlete's Garmin AI
+    // consent (carnet#1157).
+    give_garmin_ai_consent(&resources.common.repos, athlete.0, athlete.1).await;
     store(
         &resources,
         athlete,

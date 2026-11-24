@@ -88,6 +88,11 @@ jest.mock('../../../components/OAuthAppSetupModal', () => ({ OAuthAppSetupModal:
 const getProvidersStatus = oauthApi.getProvidersStatus as jest.Mock;
 const initMobileOAuth = oauthApi.initMobileOAuth as jest.Mock;
 const openAuthSessionAsync = WebBrowser.openAuthSessionAsync as jest.Mock;
+
+/** Continue past Garmin's consent sheet with neither box ticked (carnet#1157, carnet#1390). */
+async function answerConsents() {
+  fireEvent.press(await screen.findByTestId('connect-consent-continue'));
+}
 const linkingParse = Linking.parse as jest.Mock;
 
 function stravaCard(recommended_backend: 'oauth' | 'mirror') {
@@ -186,8 +191,9 @@ describe('ConnectionsScreen — OAuth-first with Sciotte fallback', () => {
 
     render(<ConnectionsScreen />, { wrapper: queryWrapper() });
     fireEvent.press(await screen.findByText('Connect'));
+    await answerConsents();
 
-    await waitFor(() => expect(initMobileOAuth).toHaveBeenCalledWith('garmin', 'dravr://oauth-callback', { tosConsent: false, signInBlocked: false }));
+    await waitFor(() => expect(initMobileOAuth).toHaveBeenCalledWith('garmin', 'dravr://oauth-callback', { tosConsent: false, signInBlocked: false, consents: [] }));
     expect(screen.queryByText(/sciotte-modal:garmin/)).toBeNull();
   });
 
@@ -196,6 +202,7 @@ describe('ConnectionsScreen — OAuth-first with Sciotte fallback', () => {
 
     render(<ConnectionsScreen />, { wrapper: queryWrapper() });
     fireEvent.press(await screen.findByText('Connect'));
+    await answerConsents();
 
     expect(await screen.findByText(/sciotte-modal:garmin/)).toBeTruthy();
     expect(initMobileOAuth).not.toHaveBeenCalled();
@@ -224,6 +231,8 @@ describe('ConnectionsScreen — OAuth-first with Sciotte fallback', () => {
 
       render(<ConnectionsScreen />, { wrapper: queryWrapper() });
       fireEvent.press(await screen.findByText('Connect'));
+      // Garmin's connect asks for its consents first; Strava's asks none.
+      if (provider === 'garmin') await answerConsents();
       expect(await screen.findByText(`sciotte-modal:${provider}`)).toBeTruthy();
       expect(initMobileOAuth).not.toHaveBeenCalled();
       fireEvent.press(screen.getByTestId('sciotte-modal-unavailable'));
@@ -234,6 +243,7 @@ describe('ConnectionsScreen — OAuth-first with Sciotte fallback', () => {
         expect(initMobileOAuth).toHaveBeenCalledWith(provider, 'dravr://oauth-callback', {
           tosConsent: false,
           signInBlocked: true,
+          ...(provider === 'garmin' ? { consents: [] } : {}),
         }),
       );
       expect(screen.queryByText(`sciotte-modal:${provider}`)).toBeNull();
@@ -246,6 +256,7 @@ describe('ConnectionsScreen — OAuth-first with Sciotte fallback', () => {
 
       render(<ConnectionsScreen />, { wrapper: queryWrapper() });
       fireEvent.press(await screen.findByText('Reconnect'));
+      await answerConsents();
       expect(await screen.findByText('sciotte-modal:garmin')).toBeTruthy();
       fireEvent.press(screen.getByTestId('sciotte-modal-unavailable'));
 
@@ -253,6 +264,7 @@ describe('ConnectionsScreen — OAuth-first with Sciotte fallback', () => {
         expect(initMobileOAuth).toHaveBeenCalledWith('garmin', 'dravr://oauth-callback', {
           tosConsent: false,
           signInBlocked: true,
+          consents: [],
         }),
       );
     });
@@ -348,9 +360,10 @@ describe('ConnectionsScreen — a Garmin grant whose history is needed (carnet#1
 
     render(<ConnectionsScreen />, { wrapper: queryWrapper() });
     fireEvent.press(await screen.findByText('Connect'));
+    await answerConsents();
 
     expect(await screen.findByText('sciotte-modal:garmin:history')).toBeTruthy();
-    expect(initMobileOAuth).toHaveBeenCalledWith('garmin', 'dravr://oauth-callback', { tosConsent: false, signInBlocked: false });
+    expect(initMobileOAuth).toHaveBeenCalledWith('garmin', 'dravr://oauth-callback', { tosConsent: false, signInBlocked: false, consents: [] });
   });
 
   it('stays on the grant once it holds activities', async () => {
@@ -361,6 +374,7 @@ describe('ConnectionsScreen — a Garmin grant whose history is needed (carnet#1
 
     render(<ConnectionsScreen />, { wrapper: queryWrapper() });
     fireEvent.press(await screen.findByText('Connect'));
+    await answerConsents();
 
     await waitFor(() => expect(getProvidersStatus).toHaveBeenCalledTimes(2));
     expect(screen.queryByText(/sciotte-modal:garmin/)).toBeNull();
@@ -373,6 +387,7 @@ describe('ConnectionsScreen — a Garmin grant whose history is needed (carnet#1
 
     render(<ConnectionsScreen />, { wrapper: queryWrapper() });
     fireEvent.press(await screen.findByText('Connect'));
+    await answerConsents();
 
     const refused = await screen.findByTestId('provider-error-sciotte_garmin');
     expect(refused).toHaveTextContent(i18n.t('providers.connectRefused', { provider: 'Garmin' }));
@@ -380,8 +395,9 @@ describe('ConnectionsScreen — a Garmin grant whose history is needed (carnet#1
 
     openAuthSessionAsync.mockReturnValue(new Promise(() => {}));
     fireEvent.press(refused);
+    await answerConsents();
     await waitFor(() => expect(initMobileOAuth).toHaveBeenCalledTimes(2));
-    expect(initMobileOAuth).toHaveBeenLastCalledWith('garmin', 'dravr://oauth-callback', { tosConsent: false, signInBlocked: false });
+    expect(initMobileOAuth).toHaveBeenLastCalledWith('garmin', 'dravr://oauth-callback', { tosConsent: false, signInBlocked: false, consents: [] });
     expect(screen.queryByTestId('provider-error-sciotte_garmin')).toBeNull();
   });
 
@@ -394,6 +410,7 @@ describe('ConnectionsScreen — a Garmin grant whose history is needed (carnet#1
 
     render(<ConnectionsScreen />, { wrapper: queryWrapper() });
     fireEvent.press(await screen.findByText('Connect'));
+    await answerConsents();
 
     expect(await screen.findByText('sciotte-modal:garmin')).toBeTruthy();
     expect(getProvidersStatus).toHaveBeenCalledTimes(2);
@@ -411,6 +428,7 @@ describe('ConnectionsScreen — a Garmin grant whose history is needed (carnet#1
 
     render(<ConnectionsScreen />, { wrapper: queryWrapper() });
     fireEvent.press(await screen.findByText('Connect'));
+    await answerConsents();
 
     expect(await screen.findByTestId('provider-error-sciotte_garmin')).toHaveTextContent(
       i18n.t('providers.connectRefused', { provider: 'Garmin' }),
@@ -426,6 +444,7 @@ describe('ConnectionsScreen — a Garmin grant whose history is needed (carnet#1
 
     render(<ConnectionsScreen />, { wrapper: queryWrapper() });
     fireEvent.press(await screen.findByText('Connect'));
+    await answerConsents();
 
     expect(await screen.findByTestId('provider-error-sciotte_garmin')).toBeTruthy();
     expect(screen.queryByText(/sciotte-modal:garmin/)).toBeNull();
@@ -442,6 +461,7 @@ describe('ConnectionsScreen — a Garmin grant whose history is needed (carnet#1
 
     render(<ConnectionsScreen />, { wrapper: queryWrapper() });
     fireEvent.press(await screen.findByText('Connect'));
+    await answerConsents();
 
     expect(await screen.findByText('sciotte-modal:garmin')).toBeTruthy();
     expect(getProvidersStatus).toHaveBeenCalledTimes(2);
@@ -508,6 +528,7 @@ describe('ConnectionsScreen — a Garmin grant whose history is needed (carnet#1
     render(<ConnectionsScreen />, { wrapper: queryWrapper() });
     expect(await screen.findByText('Expired')).toBeTruthy();
     fireEvent.press(screen.getByText('Reconnect'));
+    await answerConsents();
 
     expect(await screen.findByText('sciotte-modal:garmin')).toBeTruthy();
     expect(initMobileOAuth).not.toHaveBeenCalled();
@@ -585,6 +606,7 @@ describe('ConnectionsScreen — a Garmin reconnect signs in (carnet#1494)', () =
 
       const view = render(<ConnectionsScreen />, { wrapper: queryWrapper() });
       fireEvent.press(await screen.findByText('Reconnect'));
+      await answerConsents();
 
       expect(await screen.findByText('sciotte-modal:garmin')).toBeTruthy();
       expect(initMobileOAuth).not.toHaveBeenCalled();

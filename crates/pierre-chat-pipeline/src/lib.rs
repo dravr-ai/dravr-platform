@@ -886,11 +886,11 @@ async fn answer_stored_turn(
         // Stamped with what the turn served so far (carnet#769).
         transport_policy: ai_scope::derived_policy(),
         channel_type: Some(profile.surface.wire_channel()),
-        // A reply drawn from one group member's data restates it, so it names
-        // them as their tool rows do (carnet#1174). A turn that read several
-        // members writes a reply about nobody.
+        // A reply drawn from one member's data names them as their tool rows
+        // do (carnet#1174); one drawn from several members is about nobody.
         about_user_id: ai_scope::derived_member(),
         turn_attempted_write: Some(result.attempted_write(ctx.tool_runtime.tool_registry())),
+        ai_consent_sources: &ai_scope::derived_consent_sources(),
     };
     if let Some(stopped) = turn_stop::stopped_before_reply(ctx, hooks, profile, &input).await? {
         return Ok(stopped);

@@ -151,6 +151,8 @@ pub async fn conversation_excerpt(
     // A row derived from first-party-only data is withheld from an external
     // caller; the excerpt quotes the rest (carnet#769).
     ai_scope::retain_admitted(&mut messages, |m| m.transport_policy);
+    // Nor a row drawn from data whose AI consent was withdrawn (carnet#1157).
+    ai_scope::retain_consented(&mut messages, |m| &m.ai_consent_sources, false);
     let turns: Vec<&MessageRecord> = messages.iter().filter(|m| is_coaching_turn(m)).collect();
     let total_messages = turns.len();
     if total_messages == 0 {

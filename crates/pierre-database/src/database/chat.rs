@@ -6,6 +6,9 @@
 
 use dravr_tronc::dates::Timestamp;
 use pierre_core::admin::scope::AdminScope;
+use pierre_core::constants::oauth_providers::{
+    consent_sources_column, consent_sources_from_column,
+};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::a2a::user_task_key;
 use pierre_core::models::roster_display_name;

@@ -86,6 +86,13 @@ interface SciotteLoginModalProps {
    */
   onFallBackToOAuth?: () => void;
   /**
+   * The keys of the consents this connect offers without requiring them that
+   * the athlete ticked before the window opened (`ConnectConsentDialog`):
+   * Garmin's AI use and workout transfer. Sent with the sign-in, whichever
+   * way it runs; none is an answer too (carnet#1157, carnet#1390).
+   */
+  consents?: readonly string[];
+  /**
    * The card's connect order puts the sign-in extension first (its
    * `connect_order` is not `sign_in_first`): with the extension installed,
    * the window starts it as it opens, and the credentials form is the way
@@ -104,6 +111,9 @@ const METHOD_LABELS: Record<LoginMethod, { titleKey: string; emailPlaceholderKey
   apple: { titleKey: 'shell.sciotteAppleAccount', emailPlaceholderKey: 'shell.appleEmail' },
 };
 
+/** No offered consent ticked: one stable value, so the callbacks keep their identity. */
+const NO_CONSENTS: readonly string[] = [];
+
 export default function SciotteLoginModal({
   isOpen,
   onClose,
@@ -112,6 +122,7 @@ export default function SciotteLoginModal({
   consentRequired = false,
   historyMode = false,
   onFallBackToOAuth,
+  consents = NO_CONSENTS,
   extensionFirst = true,
 }: SciotteLoginModalProps) {
   const { t } = useTranslation();
@@ -296,7 +307,10 @@ export default function SciotteLoginModal({
       const cookies = await signInWithExtension(entry, signal);
       if (signal.aborted) return;
       setPhase('logging-in');
-      const data = await oauthApi.browserSignin(target, cookies, { tosConsent: consentAccepted });
+      const data = await oauthApi.browserSignin(target, cookies, {
+        tosConsent: consentAccepted,
+        ...(consents.length > 0 ? { consents } : {}),
+      });
       if (signal.aborted) return;
       applyLoginAnswer(data);
     } catch (err) {
@@ -310,7 +324,7 @@ export default function SciotteLoginModal({
       setError(refusalMessage(err, 'auth.loginFailed'));
       setPhase('error');
     }
-  }, [applyLoginAnswer, beginRequest, consentAccepted, refusalMessage, target]);
+  }, [applyLoginAnswer, beginRequest, consentAccepted, consents, refusalMessage, target]);
 
   // The extension goes first (JF, carnet#1617): once it answers, an opening
   // whose card puts it first starts it at once, unless a notice is still the
@@ -366,6 +380,7 @@ export default function SciotteLoginModal({
           method,
           target,
           ...(notice ? { tos_consent: consentAccepted } : {}),
+          ...(consents.length > 0 ? { consents } : {}),
         }, { signal, attemptId: attemptId() });
         applyLoginAnswer(data);
       } catch (err) {
@@ -376,7 +391,7 @@ export default function SciotteLoginModal({
         if (!signal.aborted) setIsLoading(false);
       }
     },
-    [email, password, method, target, notice, consentAccepted, beginRequest, attemptId, applyLoginAnswer, applyLoginRefusal, t]
+    [email, password, method, target, notice, consentAccepted, consents, beginRequest, attemptId, applyLoginAnswer, applyLoginRefusal, t]
   );
 
   // The takeover's last word: read as the login's own answer, or its refusal.

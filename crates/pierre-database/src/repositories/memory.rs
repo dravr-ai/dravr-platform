@@ -43,16 +43,16 @@ pub(crate) const INSERT_COMPACTION_BLOCK_SQL: &str = r"
             INSERT INTO compaction_blocks (
                 id, tenant_id, conversation_id, summary, summary_tokens,
                 original_tokens, first_message_id, last_message_id, created_at,
-                first_party_only, about_user_id
+                first_party_only, about_user_id, ai_consent_sources
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
             ";
 
 /// A conversation's compaction blocks, oldest first.
 pub(crate) const LIST_COMPACTION_BLOCKS_SQL: &str = r"
             SELECT id, tenant_id, conversation_id, summary, summary_tokens,
                    original_tokens, first_message_id, last_message_id, created_at,
-                   first_party_only, about_user_id
+                   first_party_only, about_user_id, ai_consent_sources
             FROM compaction_blocks
             WHERE conversation_id = $1 AND tenant_id = $2
             ORDER BY created_at ASC
@@ -63,9 +63,10 @@ pub(crate) const INSERT_USER_FACT_SQL: &str = r"
             INSERT INTO user_facts (
                 id, tenant_id, user_id, agent_id, scope, kind, pillar,
                 predicate_code, object, confidence, source, valid_until,
-                source_msg_id, created_at, updated_at, first_party_only
+                source_msg_id, created_at, updated_at, first_party_only,
+                ai_consent_sources
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $14, $15)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $14, $15, $16)
             ";
 
 /// Fold a restatement into its anchor.
@@ -73,13 +74,24 @@ pub(crate) const INSERT_USER_FACT_SQL: &str = r"
 /// `COALESCE` keeps the anchor's own words when the restatement names no
 /// message; the `CASE` keeps the higher confidence, so a restatement can
 /// only ever raise it. The stamp only ever tightens: an anchor restated from
-/// first-party-only content stays first-party-only (carnet#769).
+/// first-party-only content stays first-party-only (carnet#769). The anchor
+/// then names the restatement's consent sources (`$7`) beside its own
+/// (carnet#1157), appended in the statement so two concurrent merges cannot
+/// drop each other's: they only ever grow. A list the column already holds
+/// is not appended again, so the column stays bounded by the consent keys;
+/// the reader drops any repeats.
 pub(crate) const MERGE_USER_FACT_SQL: &str = r"
             UPDATE user_facts
             SET confidence = CASE WHEN confidence >= $1 THEN confidence ELSE $1 END,
                 source_msg_id = COALESCE($2, source_msg_id),
                 updated_at = $3,
-                first_party_only = CASE WHEN $6 THEN $6 ELSE first_party_only END
+                first_party_only = CASE WHEN $6 THEN $6 ELSE first_party_only END,
+                ai_consent_sources = CASE
+                    WHEN ai_consent_sources IS NULL THEN $7
+                    WHEN $7 IS NULL OR (',' || ai_consent_sources || ',') LIKE ('%,' || $7 || ',%')
+                        THEN ai_consent_sources
+                    ELSE ai_consent_sources || ',' || $7
+                END
             WHERE id = $4 AND tenant_id = $5
             ";
 
@@ -88,7 +100,7 @@ pub(crate) const GET_USER_FACT_BY_ID_SQL: &str = r"
             SELECT id, tenant_id, user_id, agent_id, scope, kind, pillar,
                    predicate_code, object, confidence, source, valid_until,
                    source_msg_id, created_at, updated_at, first_party_only,
-                   status, evidence, evidence_source
+                   status, evidence, evidence_source, ai_consent_sources
             FROM user_facts
             WHERE id = $1 AND tenant_id = $2
             ";
@@ -106,18 +118,28 @@ pub(crate) const LIST_DRAFT_USER_FACTS_SQL: &str = r"
 /// Write a fact the agent proposes. A second write of the same claim (same
 /// idempotency key) lands on the first row; it can only promote a draft to
 /// approved, with the new evidence, never demote one. `$14` is both
-/// `created_at` and `updated_at`.
+/// `created_at` and `updated_at`. The row then names the consent sources of
+/// both writes (carnet#1157): a differing second list is appended, and the
+/// reader drops the repeats.
 pub(crate) const PROPOSE_USER_FACT_SQL: &str = r"
             INSERT INTO user_facts (
                 id, tenant_id, user_id, agent_id, scope, kind, pillar,
                 predicate_code, object, confidence, source, valid_until,
                 source_msg_id, created_at, updated_at, first_party_only,
-                status, evidence, evidence_source, idempotency_key
+                status, evidence, evidence_source, idempotency_key, ai_consent_sources
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $14, $15,
-                    $16, $17, $18, $19)
+                    $16, $17, $18, $19, $20)
             ON CONFLICT (tenant_id, user_id, idempotency_key) DO UPDATE
-            SET evidence = CASE WHEN user_facts.status = 'draft' AND excluded.status = 'approved'
+            SET ai_consent_sources = CASE
+                    WHEN user_facts.ai_consent_sources IS NULL THEN excluded.ai_consent_sources
+                    WHEN excluded.ai_consent_sources IS NULL
+                         OR (',' || user_facts.ai_consent_sources || ',')
+                            LIKE ('%,' || excluded.ai_consent_sources || ',%')
+                        THEN user_facts.ai_consent_sources
+                    ELSE user_facts.ai_consent_sources || ',' || excluded.ai_consent_sources
+                END,
+                evidence = CASE WHEN user_facts.status = 'draft' AND excluded.status = 'approved'
                                 THEN excluded.evidence ELSE user_facts.evidence END,
                 evidence_source = CASE WHEN user_facts.status = 'draft' AND excluded.status = 'approved'
                                        THEN excluded.evidence_source ELSE user_facts.evidence_source END,
@@ -295,6 +317,7 @@ macro_rules! impl_harness_memory_repository {
                     .bind(now)
                     .bind(params.transport_policy.is_first_party_only())
                     .bind($ids::bind_opt(params.about_user_id))
+                    .bind(consent_sources_column(params.ai_consent_sources))
                     .execute(self.pool())
                     .await
                     .map_err(|e| {
@@ -313,6 +336,7 @@ macro_rules! impl_harness_memory_repository {
                     created_at: now,
                     transport_policy: params.transport_policy,
                     about_user_id: params.about_user_id,
+                    ai_consent_sources: params.ai_consent_sources.to_vec(),
                 })
             }
 
@@ -360,6 +384,7 @@ macro_rules! impl_harness_memory_repository {
                     .bind(params.source_msg_id)
                     .bind(now)
                     .bind(params.transport_policy.is_first_party_only())
+                    .bind(consent_sources_column(params.ai_consent_sources))
                     .execute(self.pool())
                     .await
                     .map_err(|e| AppError::database(format!("Failed to upsert user fact: {e}")))?;
@@ -383,6 +408,7 @@ macro_rules! impl_harness_memory_repository {
                     transport_policy: params.transport_policy,
                     status: FactStatus::Approved,
                     evidence: None,
+                    ai_consent_sources: params.ai_consent_sources.to_vec(),
                 })
             }
 
@@ -412,6 +438,7 @@ macro_rules! impl_harness_memory_repository {
                     .bind(proposal.evidence.as_ref().map(|e| e.quote.as_str()))
                     .bind(proposal.evidence.as_ref().map(|e| e.source.as_str()))
                     .bind(&proposal.idempotency_key)
+                    .bind(consent_sources_column(params.ai_consent_sources))
                     .fetch_one(self.pool())
                     .await
                     .map_err(|e| AppError::database(format!("Failed to propose user fact: {e}")))?;
@@ -499,6 +526,7 @@ macro_rules! impl_harness_memory_repository {
                     .bind(params.fact_id)
                     .bind(&tenant)
                     .bind(params.transport_policy.is_first_party_only())
+                    .bind(consent_sources_column(params.ai_consent_sources))
                     .execute(self.pool())
                     .await
                     .map_err(|e| AppError::database(format!("Failed to merge user fact: {e}")))?;

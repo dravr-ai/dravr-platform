@@ -42,7 +42,7 @@ async fn parq_yes_answers_raise_medical_flags() -> Result<()> {
 
     let dossier = repos
         .dossier
-        .compose_dossier(tenant, user, TransportPolicy::FirstPartyOnly, &|_| true)
+        .compose_dossier(tenant, user, TransportPolicy::FirstPartyOnly, &|_, _| true)
         .await?;
     assert_eq!(dossier.medical.len(), 2, "flags land in the medical bucket");
 
@@ -72,7 +72,7 @@ async fn parq_all_no_raises_nothing() -> Result<()> {
 
     let dossier = repos
         .dossier
-        .compose_dossier(tenant, user, TransportPolicy::FirstPartyOnly, &|_| true)
+        .compose_dossier(tenant, user, TransportPolicy::FirstPartyOnly, &|_, _| true)
         .await?;
     assert!(dossier.medical.is_empty());
     Ok(())

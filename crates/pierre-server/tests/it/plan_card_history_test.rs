@@ -91,6 +91,7 @@ async fn a_stored_bool_mark_reads_back_as_the_label_in_the_readers_language() {
             channel_type: None,
             about_user_id: None,
             turn_attempted_write: None,
+            ai_consent_sources: &[],
         })
         .await
         .unwrap();

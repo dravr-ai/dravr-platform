@@ -146,12 +146,19 @@ export interface OAuthStartOptions {
    * athlete back into that sign-in (carnet#1667).
    */
   signInBlocked?: boolean;
+  /**
+   * The consents the connect offers without requiring them that the athlete
+   * ticked, by key (`CONNECT_CONSENTS`): Garmin's AI use and workout
+   * transfer. The connect goes through with none (carnet#1157, carnet#1390).
+   */
+  consents?: readonly string[];
 }
 
 /** The query string an OAuth start carries for `options`, with its `?`, or empty. */
 function oauthStartQuery(options: OAuthStartOptions, params = new URLSearchParams()): string {
   if (options.tosConsent) params.set('tos_consent', 'true');
   if (options.signInBlocked) params.set('sign_in_blocked', 'true');
+  if (options.consents?.length) params.set('consents', options.consents.join(','));
   const query = params.toString();
   return query ? `?${query}` : '';
 }
@@ -252,6 +259,22 @@ export function createOAuthApi(axios: AxiosInstance) {
     },
 
     /**
+     * Let Dravr send `provider` the athlete's data (the card's
+     * `transfer_consent`): Garmin then receives the workouts the agent plans.
+     */
+    async grantTransferConsent(provider: string): Promise<void> {
+      await axios.put(ENDPOINTS.PROVIDERS.TRANSFER_CONSENT(provider));
+    },
+
+    /**
+     * Stop Dravr sending `provider` the athlete's data. Nothing more is
+     * written to that provider; the connection stays active.
+     */
+    async withdrawTransferConsent(provider: string): Promise<void> {
+      await axios.delete(ENDPOINTS.PROVIDERS.TRANSFER_CONSENT(provider));
+    },
+
+    /**
      * List the caller's connected MCP OAuth apps (external clients they approved
      * on the OAuth consent screen), most recent first.
      */
@@ -305,6 +328,8 @@ export function createOAuthApi(axios: AxiosInstance) {
       target: SciotteTarget;
       /** The user ticked the provider's exposure notice on this attempt (TrainingPeaks, COROS). */
       tos_consent?: boolean;
+      /** The offered consents the athlete ticked on this connect (`CONNECT_CONSENTS`). */
+      consents?: readonly string[];
     }, options: SciotteRequestOptions = {}): Promise<SciotteLoginResponse> {
       const response = await postWithSciotteBackpressureRetry<
         SciotteLoginResponse,
@@ -390,11 +415,11 @@ export function createOAuthApi(axios: AxiosInstance) {
     async browserSignin(
       target: SciotteTarget,
       cookies: BrowserSigninCookie[],
-      options: { tosConsent?: boolean } = {},
+      options: { tosConsent?: boolean; consents?: readonly string[] } = {},
     ): Promise<SciotteLoginResponse> {
       const response = await axios.post<SciotteLoginResponse>(
         `/api/providers/browser-signin/${target}`,
-        { cookies, tos_consent: options.tosConsent ?? false },
+        { cookies, tos_consent: options.tosConsent ?? false, consents: options.consents ?? [] },
       );
       return response.data;
     },

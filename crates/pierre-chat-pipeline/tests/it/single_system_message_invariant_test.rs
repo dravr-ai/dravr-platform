@@ -173,6 +173,7 @@ fn row(id: &str, role: &str, content: &str) -> MessageRecord {
         channel_type: None,
         about_user_id: None,
         turn_attempted_write: None,
+        ai_consent_sources: Vec::new(),
     }
 }
 
@@ -288,6 +289,7 @@ fn the_platforms_own_replayed_summary_keeps_its_framing() {
         created_at: Timestamp::parse_from_rfc3339("2026-07-30T08:00:00Z").unwrap(),
         transport_policy: TransportPolicy::AnyTransport,
         about_user_id: None,
+        ai_consent_sources: Vec::new(),
     }];
 
     let (messages, _) = build_llm_messages_with_blocks(None, &history, &blocks);

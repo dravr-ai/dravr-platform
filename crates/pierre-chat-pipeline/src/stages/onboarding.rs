@@ -322,7 +322,7 @@ async fn load_dossier(
             tenant_id,
             user_id,
             ai_scope::readable_policy(),
-            &ai_scope::admit_derived,
+            &ai_scope::admit_memory,
         )
         .await
     {

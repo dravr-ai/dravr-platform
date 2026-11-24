@@ -117,6 +117,7 @@ fn labeled(
         created_at: now - Elapsed::days(7),
         updated_at: now,
         transport_policy: TransportPolicy::AnyTransport,
+        ai_consent_sources: Vec::new(),
     }
 }
 

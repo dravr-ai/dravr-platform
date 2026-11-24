@@ -179,6 +179,11 @@ export {
 // catalogue key naming each one)
 export {
   AI_CONSENT_KEYS,
+  CONNECT_CONSENTS,
+  GARMIN_AI_CONSENT,
+  GARMIN_CONSENT_KEYS,
+  GARMIN_PRIVACY_URL,
+  GARMIN_WORKOUT_TRANSFER_CONSENT,
   HISTORY_ACTION_KEYS,
   HISTORY_LINE_KEYS,
   PROVIDER_NOTICES,
@@ -194,17 +199,21 @@ export {
   SENSITIVE_CONSENT_KEYS,
   SENSITIVE_T2_CONSENT,
   SENSITIVE_T3_CONSENT,
+  TRANSFER_CONSENT_KEYS,
   aiConsentCards,
   cardHistoryState,
+  connectConsentsFor,
   intervalsConnectPath,
   loginIdentifierField,
   noticeRequired,
   providerScopeLabelKey,
   sciotteTargetForBackend,
   syncAuthorizationOwed,
+  transferConsentCards,
 } from './providers';
 export type {
   AiConsentCard,
+  ConnectConsent,
   IntervalsConnectCard,
   IntervalsConnectPath,
   LoginIdentifier,
@@ -212,6 +221,7 @@ export type {
   ProviderNoticeKeys,
   ProviderScope,
   SciotteLoginPreset,
+  TransferConsentCard,
 } from './providers';
 
 // What a provider card offers — its connect or reconnect, the sign-in its

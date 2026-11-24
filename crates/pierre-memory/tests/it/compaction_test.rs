@@ -23,6 +23,7 @@ fn block(original: i32, summary: i32) -> CompactionBlock {
         created_at: Timestamp::now(),
         transport_policy: TransportPolicy::AnyTransport,
         about_user_id: None,
+        ai_consent_sources: Vec::new(),
     }
 }
 

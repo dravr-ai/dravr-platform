@@ -33,6 +33,7 @@ use pierre_providers::ai_scope;
 use pierre_services::anchor_promotion::{
     apply_promotion, promotable_anchors, promotion_measurements, Promotion,
 };
+use pierre_services::provider_notice;
 use pierre_services::stored_health::Anchors;
 use tracing::warn;
 use uuid::Uuid;
@@ -95,15 +96,23 @@ pub async fn read_promotion(
     user_id: Uuid,
     wanted: Anchors,
 ) -> AppResult<Promotion> {
+    // The athlete's own consents, declared: a job that declared none would
+    // withhold every AI-consent provider, a consented one included
+    // (carnet#1157).
     Box::pin(ai_scope::serve_over(
         Transport::PlatformJob,
-        ai_scope::for_model(promotion_measurements(
+        provider_notice::under_ai_consent(
             resources.repos(),
-            resources.provider_registry().as_ref(),
-            tenant,
+            tenant.as_uuid(),
             user_id,
-            wanted,
-        )),
+            ai_scope::for_model(promotion_measurements(
+                resources.repos(),
+                resources.provider_registry().as_ref(),
+                tenant,
+                user_id,
+                wanted,
+            )),
+        ),
     ))
     .await
 }

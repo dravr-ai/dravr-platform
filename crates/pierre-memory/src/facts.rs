@@ -418,6 +418,12 @@ pub struct UserFact {
     /// The words the fact was taken from, verbatim; `None` for a form answer.
     #[serde(default)]
     pub evidence: Option<FactEvidence>,
+    /// The AI-consent keys of the provider data the fact was drawn from
+    /// (carnet#1157): once the athlete withdraws one, no prompt reads the
+    /// fact, and no prompt ever reads one naming a key kept out of memory
+    /// (carnet#1158). Empty for facts written before the column.
+    #[serde(default, skip_serializing)]
+    pub ai_consent_sources: Vec<String>,
 }
 
 impl UserFact {

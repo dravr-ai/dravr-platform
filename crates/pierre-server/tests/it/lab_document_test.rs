@@ -15,6 +15,7 @@
 //! fictional. It is read here through the platform's PDF text extraction and
 //! barrage's lab reader, and its result count checked against owl's truth.
 
+use pierre_core::constants::oauth_providers::NoticeKind;
 use std::fmt::Write as _;
 use std::fs;
 use std::io::Write as _;
@@ -40,7 +41,7 @@ use pierre_database::repositories::{
 use pierre_mcp_server::mcp::resources::{ServerContext, ServerContextOptions};
 use pierre_mcp_server::services::lab_documents::{delete_lab_document, upload_lab_document};
 use pierre_services::lab_document_model::LabReaderModel;
-use pierre_services::provider_notice::grant_ai_consent;
+use pierre_services::provider_notice::grant_consent;
 use serde_json::Value;
 use uuid::Uuid;
 
@@ -338,11 +339,12 @@ async fn the_model_reads_only_under_sensitive_t2_and_a_failing_one_leaves_the_ru
             .unwrap()
     );
 
-    grant_ai_consent(
+    grant_consent(
         &resources.common.repos,
         tenant.as_uuid(),
         user,
         SENSITIVE_T2,
+        NoticeKind::AiConsent,
         "Health records",
     )
     .await
@@ -363,11 +365,12 @@ async fn the_model_reads_only_under_sensitive_t2_and_a_failing_one_leaves_the_ru
     let broken = TestLlmProvider::with_response("not the JSON the prompt asks for".to_owned());
     let resources = context(LabReaderModel::over(Arc::new(broken))).await;
     let athlete = seed_athlete(&resources, "lab-model-broken").await;
-    grant_ai_consent(
+    grant_consent(
         &resources.common.repos,
         athlete.tenant.as_uuid(),
         athlete.user_id,
         SENSITIVE_T2,
+        NoticeKind::AiConsent,
         "Health records",
     )
     .await

@@ -157,6 +157,7 @@ async fn seed_north_star(resources: &ServerContext, tenant: TenantId, user: Uuid
             valid_until: None,
             source_msg_id: None,
             transport_policy: TransportPolicy::AnyTransport,
+            ai_consent_sources: &[],
         })
         .await
         .unwrap();

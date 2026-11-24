@@ -103,7 +103,7 @@ describe('ChatThread — an app of the athlete\'s own', () => {
 
     fireEvent.press(screen.getByText('reply:connect-whoop'));
 
-    expect(status.handleConnectProvider).toHaveBeenCalledWith('whoop');
+    expect(status.handleConnectProvider).toHaveBeenCalledWith('whoop', undefined, false, false, undefined);
     expect(status.setNeedsCredentialsProvider).not.toHaveBeenCalled();
   });
 

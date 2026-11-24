@@ -3002,6 +3002,7 @@ async fn seed_onboarding_facts(repos: &RepositoryRegistry, user_id: Uuid, tenant
                 valid_until: None,
                 source_msg_id: None,
                 transport_policy: TransportPolicy::AnyTransport,
+                ai_consent_sources: &[],
             })
             .await
             .unwrap();

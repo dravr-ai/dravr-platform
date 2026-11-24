@@ -90,6 +90,7 @@ async fn facts_carry_the_agent_title_when_the_agent_resolves() {
                 valid_until: None,
                 source_msg_id: None,
                 transport_policy: TransportPolicy::AnyTransport,
+                ai_consent_sources: &[],
             })
             .await
             .expect("fact");

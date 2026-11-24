@@ -207,8 +207,10 @@ pub trait UserRepository: Send + Sync {
         provider: &str,
     ) -> AppResult<Option<String>>;
     /// Record that this user accepted `provider`'s notice `version`, stamping
-    /// the time and clearing any earlier withdrawal. Kept across disconnects:
-    /// it is the account's answer to the notice, not part of any session.
+    /// the time and clearing any earlier withdrawal, and append the grant to
+    /// the account's append-only consent history (`provider_consent_events`,
+    /// which the account's data export carries). Kept across disconnects: it
+    /// is the account's answer to the notice, not part of any session.
     async fn record_provider_terms(
         &self,
         user_id: Uuid,
@@ -217,7 +219,8 @@ pub trait UserRepository: Send + Sync {
     ) -> AppResult<()>;
     /// Withdraw this user's standing acceptance of `provider`'s notice,
     /// stamping the time; it reads as none until accepted again. Returns
-    /// whether an acceptance was standing.
+    /// whether an acceptance was standing; only a standing one appends a
+    /// withdrawal to the consent history.
     async fn withdraw_provider_terms(&self, user_id: Uuid, provider: &str) -> AppResult<bool>;
     /// Update the user's preferred locale (BCP-47 short code, e.g. `"fr"`, `"en"`).
     ///

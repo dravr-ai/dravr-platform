@@ -85,6 +85,10 @@ async fn connected_user(executor: &UniversalToolExecutor) -> Result<(Uuid, Tenan
             .register_connection(user_id, tenant, provider, &ConnectionType::OAuth, None)
             .await?;
     }
+    // A model reads Garmin's wellness only under the athlete's Garmin AI
+    // consent (carnet#1157).
+    helpers::garmin_consent::give_garmin_ai_consent(executor.resources.repos(), user_id, tenant)
+        .await;
     Ok((user_id, tenant))
 }
 

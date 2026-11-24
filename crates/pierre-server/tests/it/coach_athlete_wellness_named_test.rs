@@ -25,17 +25,19 @@
 use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::constants::oauth::providers::SENSITIVE_T2;
 use pierre_core::constants::oauth::INTERVALS_ICU;
+use pierre_core::constants::oauth_providers::NoticeKind;
 use pierre_core::models::{
     DataSource, DeviceType, StoredDailyActivity, StoredHealthMetrics, StoredRecoveryMetrics,
     StoredSleepSession,
 };
 use pierre_database::repositories::WellnessWriteMode;
-use pierre_services::provider_notice::grant_ai_consent;
+use pierre_services::provider_notice::grant_consent;
 use serde_json::{json, Value};
 use uuid::Uuid;
 
 use crate::coach_athlete_reads_test::{mentions, ok, refused_reason, Fixture};
 use crate::coach_athlete_wellness_reads_test::{naming_mira, world, NIGHTS};
+use crate::helpers::garmin_consent::give_garmin_ai_consent;
 
 /// What the coach's read says the grant covers.
 const GRANT_NAMES: &str = "Mira Subject shares their sleep, HRV, resting heart rate, weight, \
@@ -220,11 +222,12 @@ async fn file_unnamed_health(f: &Fixture) {
 
 /// The athlete allows their health records' AI use (`sensitive_t2`).
 async fn allow_health_records(f: &Fixture) {
-    grant_ai_consent(
+    grant_consent(
         f.repos(),
         f.athlete.tenant.as_uuid(),
         f.athlete.id,
         SENSITIVE_T2,
+        NoticeKind::AiConsent,
         "Health records",
     )
     .await
@@ -287,6 +290,9 @@ async fn a_coachs_health_snapshot_read_carries_what_the_consent_names_and_the_at
     let f = world().await;
     file_unnamed_health(&f).await;
     f.share_wellness(true).await;
+    // Garmin's weigh-in reaches a model only under the athlete's Garmin AI
+    // consent (carnet#1157); the coach reads under the athlete's consents.
+    give_garmin_ai_consent(f.repos(), f.athlete.id, f.athlete.tenant).await;
 
     let thread = ok(
         f.in_thread("get_health_snapshots", json!({})).await,
@@ -604,6 +610,10 @@ async fn a_source_that_recorded_only_unnamed_metrics_never_stands_for_a_coachs_d
     let f = world().await;
     let probe = file_probe_days(&f).await;
     f.share_wellness(true).await;
+    // Under the athlete's Garmin AI consent (carnet#1157), so Garmin's rows
+    // reach the reads below and their absence from the coach's day is the
+    // sharing grant's doing, not the consent's.
+    give_garmin_ai_consent(f.repos(), f.athlete.id, f.athlete.tenant).await;
 
     let icu_stands = |id: &str, data_source_id: &str| {
         json!({

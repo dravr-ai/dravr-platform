@@ -436,6 +436,7 @@ async fn test_pg_chat_messages() {
         channel_type: None,
         about_user_id: None,
         turn_attempted_write: None,
+        ai_consent_sources: &[],
     };
     let msg1 = repos
         .chat
@@ -461,6 +462,7 @@ async fn test_pg_chat_messages() {
         channel_type: None,
         about_user_id: None,
         turn_attempted_write: None,
+        ai_consent_sources: &[],
     };
     let msg2 = repos
         .chat
@@ -550,6 +552,7 @@ async fn test_pg_chat_recent_messages_withhold_stamped_rows() {
                 channel_type: None,
                 about_user_id: None,
                 turn_attempted_write: None,
+                ai_consent_sources: &[],
             })
             .await
             .expect("Failed to add message");

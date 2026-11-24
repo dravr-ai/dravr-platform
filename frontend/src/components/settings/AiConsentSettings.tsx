@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: The privacy settings' consent-to-AI-use switches: one per connected provider whose card carries one, and both sensitive tiers
-// ABOUTME: Withdrawing is one tap and stops AI use at once; the data stays visible and the connection stays live (carnet#726, J2)
+// ABOUTME: The privacy settings' consent switches: AI use per connected provider, both sensitive tiers, and workouts sent to a provider
+// ABOUTME: Withdrawing is one tap and stops at once; the data stays visible and the connection stays live (carnet#726, carnet#1390)
 
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
@@ -11,20 +11,25 @@ import {
   SENSITIVE_CONSENT_KEYS,
   SENSITIVE_T2_CONSENT,
   SENSITIVE_T3_CONSENT,
+  TRANSFER_CONSENT_KEYS,
   aiConsentCards,
+  transferConsentCards,
 } from '@pierre/shared-constants';
 import { useTranslation } from '@pierre/i18n';
 import { oauthApi } from '../../services/api';
 import { QUERY_KEYS } from '../../constants/queryKeys';
 import { useAuth } from '../../hooks/useAuth';
 import { useAiConsent, useAiConsentState } from '../../hooks/useAiConsent';
+import { useTransferConsent } from '../../hooks/useTransferConsent';
 import { Switch } from '../ui';
 
 /**
  * One switch per connected provider whose consent to AI use the athlete can
  * give or withdraw, shown while one is connected, and the Sensitive health
  * records switch, shown to every account: those records stay off limits to
- * the AI agent and the human coach until the athlete allows them here.
+ * the AI agent and the human coach until the athlete allows them here. Below
+ * them, one switch per connected provider Dravr may send planned workouts to
+ * (Garmin's calendar), shown while one is connected.
  */
 export default function AiConsentSettings() {
   const { t } = useTranslation();
@@ -38,7 +43,9 @@ export default function AiConsentSettings() {
   const consent = useAiConsent();
   const sensitive = useAiConsentState(SENSITIVE_T2_CONSENT, isAuthenticated);
   const intimate = useAiConsentState(SENSITIVE_T3_CONSENT, isAuthenticated);
+  const transfer = useTransferConsent();
   const cards = aiConsentCards(data?.providers ?? []);
+  const transferCards = transferConsentCards(data?.providers ?? []);
 
   const toggle = (provider: string, allow: boolean, success: string) => {
     setMessage(null);
@@ -47,6 +54,17 @@ export default function AiConsentSettings() {
       {
         onSuccess: () => setMessage({ type: 'success', text: success }),
         onError: () => setMessage({ type: 'error', text: t(AI_CONSENT_KEYS.failed) }),
+      },
+    );
+  };
+
+  const toggleTransfer = (provider: string, allow: boolean, success: string) => {
+    setMessage(null);
+    transfer.mutate(
+      { provider, allow },
+      {
+        onSuccess: () => setMessage({ type: 'success', text: success }),
+        onError: () => setMessage({ type: 'error', text: t(TRANSFER_CONSENT_KEYS.failed) }),
       },
     );
   };
@@ -121,6 +139,37 @@ export default function AiConsentSettings() {
           ))}
         </ul>
       </div>
+      {transferCards.length > 0 && (
+        <div data-testid="transfer-consent-settings">
+          <h3 className="text-sm font-medium text-on-surface mb-2">{t(TRANSFER_CONSENT_KEYS.title)}</h3>
+          <p className="text-sm text-on-surface-variant leading-relaxed mb-4">{t(TRANSFER_CONSENT_KEYS.blurb)}</p>
+          <ul className="space-y-3">
+            {transferCards.map((card) => {
+              const label = t(TRANSFER_CONSENT_KEYS.label, { provider: card.display_name });
+              return (
+                <li key={card.provider} className="flex items-center justify-between gap-4">
+                  <span className="text-sm text-on-surface">{label}</span>
+                  <Switch
+                    checked={card.transfer_consent === true}
+                    onChange={(next) =>
+                      toggleTransfer(
+                        card.provider,
+                        next,
+                        t(next ? TRANSFER_CONSENT_KEYS.allowed : TRANSFER_CONSENT_KEYS.withdrawn, {
+                          provider: card.display_name,
+                        }),
+                      )
+                    }
+                    label={label}
+                    disabled={transfer.isPending}
+                    data-testid={`transfer-consent-switch-${card.provider}`}
+                  />
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
       {message && (
         <p
           role="status"

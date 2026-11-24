@@ -344,6 +344,7 @@ pub const RESET_KEEP: &[(&str, &str)] = &[
     ("user_invitations", "invitations the account sent as an admin"),
     ("user_llm_credentials", "bring-your-own LLM credentials: account configuration"),
     ("user_llm_credentials_audit", "the audit trail of those credentials"),
+    ("provider_consent_events", "the append-only history of the account's answers to provider notices, which a provider may audit (carnet#1157); the reset clears the standing answers in provider_terms_consents and appends a withdrawal here for each one it cleared"),
     ("user_oauth_app_credentials", "the account's own provider OAuth app configuration, not provider data"),
     ("user_oauth_tokens", "cleared only by the disconnect chokepoint, which ran first for every provider this build can revoke and proved its rows gone; what remains belongs to a provider this build cannot revoke, kept and reported so its grant is not orphaned at the provider"),
     ("provider_connections", "cleared only by the disconnect chokepoint, as user_oauth_tokens; a remaining row is a provider this build cannot revoke, kept and reported"),
@@ -486,6 +487,16 @@ pub struct OwnedGroup {
 
 /// Whether the account exists, `$1` its id through the backend's uuid codec.
 pub(crate) const RESET_ACCOUNT_EXISTS_SQL: &str = "SELECT 1 AS present FROM users WHERE id = $1";
+
+/// Append a withdrawal to the account's consent history for every answer the
+/// reset is about to clear: the history it keeps ([`RESET_KEEP`]) then ends
+/// on what stands, never on a grant the reset took away (carnet#1157).
+pub(crate) const RESET_RECORDS_CONSENT_WITHDRAWALS_SQL: &str = r"
+        INSERT INTO provider_consent_events (user_id, provider, version, event, occurred_at)
+        SELECT user_id, provider, version, 'withdrawn', CURRENT_TIMESTAMP
+        FROM provider_terms_consents
+        WHERE CAST(user_id AS TEXT) = $1 AND withdrawn_at IS NULL
+        ";
 
 /// What a committed reset changed.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -648,6 +659,12 @@ macro_rules! impl_account_reset_repository {
                 if !blockers.is_empty() {
                     return Ok(AccountResetCommit::Blocked(blockers));
                 }
+
+                sqlx::query(RESET_RECORDS_CONSENT_WITHDRAWALS_SQL)
+                    .bind(&owner)
+                    .execute(guard.executor()?)
+                    .await
+                    .map_err(|e| reset_error(user_id, &e))?;
 
                 let mut rows_changed = BTreeMap::new();
                 for (table, statement) in $wipe.tables.iter().zip($wipe.statements) {

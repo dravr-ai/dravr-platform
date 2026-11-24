@@ -238,6 +238,7 @@ impl CommandHandler for PillarsHandler {
             channel_type: None,
             about_user_id: None,
             turn_attempted_write: None,
+            ai_consent_sources: &ai_scope::derived_consent_sources(),
         };
         if let Err(e) = repos.chat.add_message(&opener).await {
             // The walk is already active and re-derives coverage from the

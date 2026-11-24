@@ -251,6 +251,7 @@ fn a_compaction_block_prints_the_size_of_its_summary_never_the_summary() {
         last_message_id: "msg-9",
         transport_policy: TransportPolicy::AnyTransport,
         about_user_id: None,
+        ai_consent_sources: &[],
     };
     let printed = printed_without(&params, &["sentinel-summary-7f3a", "achilles"]);
     assert!(
@@ -337,6 +338,7 @@ fn a_user_fact_upsert_prints_the_size_of_the_athletes_words_never_the_words() {
         valid_until: None,
         source_msg_id: Some("msg-1"),
         transport_policy: TransportPolicy::AnyTransport,
+        ai_consent_sources: &[],
     };
     let printed = printed_without(&params, &["sentinel-object-7f3a", "Montreal"]);
     assert!(printed.contains("UpsertUserFactParams"), "{printed}");

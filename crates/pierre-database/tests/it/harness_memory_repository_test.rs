@@ -18,7 +18,7 @@ use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::models::agents::{AgentCategory, CreateAgentRequest};
 use pierre_core::models::{Pillar, Tenant, TenantId, User};
 use pierre_core::transport::TransportPolicy;
-use pierre_database::backends::factory::Database;
+use pierre_database::backends::factory::{Database, DatabaseBackend};
 use pierre_database::repositories::{
     InsertCompactionBlockParams, MergeUserFactParams, UpsertUserFactParams,
 };
@@ -114,6 +114,7 @@ fn fact<'a>(
         valid_until: None,
         source_msg_id: None,
         transport_policy: TransportPolicy::AnyTransport,
+        ai_consent_sources: &[],
     }
 }
 
@@ -147,6 +148,7 @@ async fn a_compaction_block_reads_back_in_conversation_order() {
             last_message_id: "m9",
             transport_policy: TransportPolicy::AnyTransport,
             about_user_id: None,
+            ai_consent_sources: &[],
         })
         .await
         .unwrap();
@@ -162,6 +164,7 @@ async fn a_compaction_block_reads_back_in_conversation_order() {
             last_message_id: "m15",
             transport_policy: TransportPolicy::AnyTransport,
             about_user_id: None,
+            ai_consent_sources: &[],
         })
         .await
         .unwrap();
@@ -464,6 +467,7 @@ async fn a_merge_only_raises_confidence_and_keeps_the_anchors_words() {
             source_msg_id: Some("msg-2"),
             confidence: 0.9,
             transport_policy: TransportPolicy::AnyTransport,
+            ai_consent_sources: &[],
         })
         .await
         .unwrap()
@@ -480,6 +484,7 @@ async fn a_merge_only_raises_confidence_and_keeps_the_anchors_words() {
             source_msg_id: None,
             confidence: 0.3,
             transport_policy: TransportPolicy::AnyTransport,
+            ai_consent_sources: &[],
         })
         .await
         .unwrap()
@@ -502,10 +507,107 @@ async fn a_merge_only_raises_confidence_and_keeps_the_anchors_words() {
             source_msg_id: None,
             confidence: 1.0,
             transport_policy: TransportPolicy::AnyTransport,
+            ai_consent_sources: &[],
         })
         .await
         .unwrap()
         .is_none());
+}
+
+// carnet#1157: an anchor standing for a restatement names the restatement's
+// consent sources beside its own, and a restatement naming none or the same
+// ones leaves them as they were.
+/// A fact's `ai_consent_sources` column as stored, before the reader drops
+/// any repeats.
+async fn stored_consent_sources(db: &Database, id: &str) -> Option<String> {
+    let sql = "SELECT ai_consent_sources FROM user_facts WHERE CAST(id AS TEXT) = $1";
+    match db.backend() {
+        DatabaseBackend::SQLite(sqlite) => sqlx::query_scalar(sql)
+            .bind(id)
+            .fetch_one(sqlite.pool())
+            .await
+            .unwrap(),
+        #[cfg(feature = "postgresql")]
+        DatabaseBackend::PostgreSQL(pg) => sqlx::query_scalar(sql)
+            .bind(id)
+            .fetch_one(pg.pool())
+            .await
+            .unwrap(),
+    }
+}
+
+#[tokio::test]
+async fn a_merge_adds_the_restatements_consent_sources_to_the_anchors() {
+    let db = create_test_db().await.unwrap();
+    let memory = &db.repositories().memory;
+    let seed = seed(&db).await;
+    let whoop = ["whoop".to_owned()];
+    let garmin = ["garmin".to_owned()];
+
+    let anchor = memory
+        .upsert_user_fact(&UpsertUserFactParams {
+            ai_consent_sources: &whoop,
+            ..fact(
+                &seed,
+                FactKind::Physiology,
+                PredicateCode::HaveBaseline,
+                "resting heart rate 48",
+                FactSource::Conversation,
+                None,
+            )
+        })
+        .await
+        .unwrap();
+    assert_eq!(anchor.ai_consent_sources, whoop);
+
+    let both = ["garmin".to_owned(), "whoop".to_owned()];
+    for (restated, named) in [
+        (&[][..], &whoop[..]),
+        (&whoop[..], &whoop[..]),
+        (&garmin[..], &both[..]),
+    ] {
+        let merged = memory
+            .merge_user_fact(&MergeUserFactParams {
+                tenant_id: seed.tenant,
+                fact_id: &anchor.id,
+                source_msg_id: None,
+                confidence: 0.6,
+                transport_policy: TransportPolicy::AnyTransport,
+                ai_consent_sources: restated,
+            })
+            .await
+            .unwrap()
+            .expect("the anchor exists");
+        assert_eq!(
+            merged.ai_consent_sources, named,
+            "a restatement naming {restated:?} leaves the anchor naming {named:?}"
+        );
+    }
+
+    // A list the column already holds is not appended again, so it stops
+    // growing: a second round of the same restatements leaves it unchanged,
+    // however many fold in.
+    let mut rounds = Vec::new();
+    for _ in 0..2 {
+        for restated in [&whoop[..], &garmin[..], &both[..]] {
+            memory
+                .merge_user_fact(&MergeUserFactParams {
+                    tenant_id: seed.tenant,
+                    fact_id: &anchor.id,
+                    source_msg_id: None,
+                    confidence: 0.6,
+                    transport_policy: TransportPolicy::AnyTransport,
+                    ai_consent_sources: restated,
+                })
+                .await
+                .unwrap();
+        }
+        rounds.push(stored_consent_sources(&db, &anchor.id).await);
+    }
+    assert_eq!(
+        rounds[0], rounds[1],
+        "a list the column already holds is never appended again"
+    );
 }
 
 #[tokio::test]

@@ -17,6 +17,7 @@
 
 use crate::common;
 use crate::tier_consent_test::allow_outside_memory;
+use pierre_core::constants::oauth_providers::NoticeKind;
 
 use std::collections::BTreeSet;
 use std::sync::Arc;
@@ -36,7 +37,7 @@ use pierre_mcp_server::routes::athlete_home::athlete_home_routes;
 use pierre_memory::{FactKind, FactSource};
 use pierre_providers::ai_scope;
 use pierre_services::parq;
-use pierre_services::provider_notice::grant_ai_consent;
+use pierre_services::provider_notice::grant_consent;
 use pierre_test_support::fit::FitWorkout;
 use pierre_tool_runtime::first_party_tools::FIRST_PARTY_SURFACE_ERROR_CODE;
 use pierre_tool_runtime::protocol::{UniversalExecutor, UniversalRequest, UniversalResponse};
@@ -267,7 +268,7 @@ async fn every_external_read_of_the_fact_lists_leaves_medical_rows_out() {
                     who.tenant,
                     who.id,
                     ai_scope::readable_policy(),
-                    &ai_scope::admit_derived,
+                    &ai_scope::admit_memory,
                 )
                 .await
                 .unwrap()
@@ -691,11 +692,12 @@ async fn an_mcp_client_is_refused_every_kind_of_health_record() {
     let res = common::create_test_server_resources().await.unwrap();
     let who = athlete(&res).await;
     allow_outside_memory(&res.common.repos, who.tenant.as_uuid(), who.id).await;
-    grant_ai_consent(
+    grant_consent(
         &res.common.repos,
         who.tenant.as_uuid(),
         who.id,
         SENSITIVE_T2,
+        NoticeKind::AiConsent,
         "Health records",
     )
     .await

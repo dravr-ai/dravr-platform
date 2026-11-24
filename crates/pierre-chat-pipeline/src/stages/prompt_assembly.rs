@@ -1056,6 +1056,9 @@ pub(crate) async fn assemble_prompt_and_messages(
             // A summary of first-party-only turns is withheld from an external
             // turn, which then reads the raw rows it is served (carnet#769).
             ai_scope::retain_admitted(&mut blocks, |block| block.transport_policy);
+            // Nor one naming a withdrawn consent, or data kept out of AI
+            // memory (carnet#1157, #1158); its rows are then replayed alone.
+            ai_scope::retain_consented(&mut blocks, |block| &block.ai_consent_sources, true);
             // A summary of a group member's rows replays only while their rows
             // do: the sender may still read that member (carnet#1174).
             blocks.retain(|block| {

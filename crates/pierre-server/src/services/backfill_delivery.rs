@@ -406,6 +406,7 @@ impl InAppDelivery<'_> {
             channel_type: None,
             about_user_id: None,
             turn_attempted_write: None,
+            ai_consent_sources: &[],
         };
         match self.repos.chat.add_message(&params).await {
             Ok(stored) => {

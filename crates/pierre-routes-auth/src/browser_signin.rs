@@ -44,8 +44,9 @@ use serde::Deserialize;
 use tracing::{info, warn};
 use uuid::Uuid;
 
-use crate::sciotte::{require_provider_terms, store_sciotte_session};
+use crate::sciotte::store_sciotte_session;
 use crate::sciotte_caller;
+use crate::sciotte_terms::require_provider_terms;
 use crate::AuthRoutesContext;
 
 /// The most cookies one hand-over may carry. A signed-in provider sets a few
@@ -85,6 +86,10 @@ pub(crate) struct BrowserSigninRequest {
     /// The athlete accepted the provider's exposure notice on this connect.
     #[serde(default)]
     tos_consent: bool,
+    /// The offered consents the athlete ticked on this connect (Garmin's AI
+    /// use and workout transfer).
+    #[serde(default)]
+    consents: Vec<String>,
 }
 
 /// `GET /api/providers/browser-signin`: how each provider is signed in to
@@ -118,7 +123,15 @@ pub(crate) async fn handle_browser_signin(
     )
     .await?;
     let target = target_named(&target)?;
-    require_provider_terms(&resources, user_id, tenant_id, target, request.tos_consent).await?;
+    require_provider_terms(
+        &resources,
+        user_id,
+        tenant_id,
+        target,
+        request.tos_consent,
+        &request.consents,
+    )
+    .await?;
 
     let entry = catalog_entry(&resources, target).await?;
     let session = session_of(&request.cookies, &entry.cookie_domain)?;

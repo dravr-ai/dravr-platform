@@ -192,7 +192,15 @@ describe('ConnectionsScreen rows', () => {
     const action = screen.getByTestId('provider-action-garmin');
     expect(action.props.children).toBe('Reconnect');
     fireEvent.press(action);
-    await waitFor(() => expect(initMobileOAuth).toHaveBeenCalledWith('garmin', 'dravr://oauth-callback', { tosConsent: false, signInBlocked: false }));
+    // A Garmin reconnect asks for its consents first; neither ticked, it goes on.
+    fireEvent.press(await screen.findByTestId('connect-consent-continue'));
+    await waitFor(() =>
+      expect(initMobileOAuth).toHaveBeenCalledWith('garmin', 'dravr://oauth-callback', {
+        tosConsent: false,
+        signInBlocked: false,
+        consents: [],
+      }),
+    );
     expect(screen.queryByText('Connected')).toBeNull();
   });
 

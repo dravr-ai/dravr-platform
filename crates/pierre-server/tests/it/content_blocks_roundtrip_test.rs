@@ -48,6 +48,7 @@ async fn content_blocks_survive_a_round_trip() {
             channel_type: None,
             about_user_id: None,
             turn_attempted_write: None,
+            ai_consent_sources: &[],
         })
         .await
         .unwrap();
@@ -114,6 +115,7 @@ async fn an_ordinary_reply_stores_null_blocks() {
             channel_type: None,
             about_user_id: None,
             turn_attempted_write: None,
+            ai_consent_sources: &[],
         })
         .await
         .unwrap();
@@ -171,6 +173,7 @@ async fn blocks_are_readable_only_under_the_conversations_own_tenant() {
             channel_type: None,
             about_user_id: None,
             turn_attempted_write: None,
+            ai_consent_sources: &[],
         })
         .await
         .unwrap();

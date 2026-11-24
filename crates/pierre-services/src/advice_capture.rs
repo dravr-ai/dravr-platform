@@ -124,6 +124,9 @@ pub struct CapturedTurn {
     /// The assistant reply's stamp (carnet#769): advice captured from it
     /// carries it.
     pub transport_policy: TransportPolicy,
+    /// The AI-consent keys of what the reply was drawn from (carnet#1157):
+    /// advice captured from it names them.
+    pub ai_consent_sources: Vec<String>,
 }
 
 /// Pluggable mechanism for turning a finished turn into zero or more
@@ -237,6 +240,7 @@ pub fn raw_to_pending(
         source_msg_id: turn.source_msg_id.clone(),
         created_at: now,
         transport_policy: turn.transport_policy,
+        ai_consent_sources: turn.ai_consent_sources.clone(),
     })
 }
 

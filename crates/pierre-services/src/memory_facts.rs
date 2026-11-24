@@ -206,6 +206,9 @@ pub async fn list_user_facts(
     // A fact derived from first-party-only data is withheld from an external
     // caller; the rest are served (carnet#769).
     ai_scope::retain_admitted(&mut facts, |fact| fact.transport_policy);
+    // A model never reads one naming a withdrawn consent or data kept out of
+    // AI memory; the athlete's own list shows every fact (carnet#1157, #1158).
+    ai_scope::retain_consented(&mut facts, |fact| &fact.ai_consent_sources, true);
 
     let agent_titles = agent_titles_for(repos, &facts, user_id, tenant_id).await;
     let rows: Vec<UserFactRow> = facts

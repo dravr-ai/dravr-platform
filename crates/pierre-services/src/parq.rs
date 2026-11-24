@@ -104,6 +104,7 @@ where
                 source_msg_id: None,
                 // The athlete's own answers, derived from no provider data.
                 transport_policy: TransportPolicy::AnyTransport,
+                ai_consent_sources: &[],
             })
             .await?;
         delete_parq_flag(repo, tenant_id, user_id, id, Some(&flag.id)).await?;

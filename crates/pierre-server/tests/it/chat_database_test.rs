@@ -168,6 +168,7 @@ async fn add_row(
             channel_type: None,
             about_user_id: None,
             turn_attempted_write: None,
+            ai_consent_sources: &[],
         })
         .await
         .unwrap()
@@ -1104,6 +1105,7 @@ async fn test_add_message() {
             channel_type: None,
             about_user_id: None,
             turn_attempted_write: None,
+            ai_consent_sources: &[],
         })
         .await
         .unwrap();
@@ -1149,6 +1151,7 @@ async fn test_add_assistant_message_with_finish_reason() {
             channel_type: None,
             about_user_id: None,
             turn_attempted_write: None,
+            ai_consent_sources: &[],
         })
         .await
         .unwrap();
@@ -1194,6 +1197,7 @@ async fn test_get_messages() {
             channel_type: None,
             about_user_id: None,
             turn_attempted_write: None,
+            ai_consent_sources: &[],
         })
         .await
         .unwrap();
@@ -1213,6 +1217,7 @@ async fn test_get_messages() {
             channel_type: None,
             about_user_id: None,
             turn_attempted_write: None,
+            ai_consent_sources: &[],
         })
         .await
         .unwrap();
@@ -1232,6 +1237,7 @@ async fn test_get_messages() {
             channel_type: None,
             about_user_id: None,
             turn_attempted_write: None,
+            ai_consent_sources: &[],
         })
         .await
         .unwrap();
@@ -1284,6 +1290,7 @@ async fn test_get_recent_messages() {
                 channel_type: None,
                 about_user_id: None,
                 turn_attempted_write: None,
+                ai_consent_sources: &[],
             })
             .await
             .unwrap();
@@ -1345,6 +1352,7 @@ async fn test_message_updates_conversation_tokens() {
             channel_type: None,
             about_user_id: None,
             turn_attempted_write: None,
+            ai_consent_sources: &[],
         })
         .await
         .unwrap();
@@ -1364,6 +1372,7 @@ async fn test_message_updates_conversation_tokens() {
             channel_type: None,
             about_user_id: None,
             turn_attempted_write: None,
+            ai_consent_sources: &[],
         })
         .await
         .unwrap();
@@ -1413,6 +1422,7 @@ async fn test_cascade_delete_messages() {
             channel_type: None,
             about_user_id: None,
             turn_attempted_write: None,
+            ai_consent_sources: &[],
         })
         .await
         .unwrap();
@@ -1432,6 +1442,7 @@ async fn test_cascade_delete_messages() {
             channel_type: None,
             about_user_id: None,
             turn_attempted_write: None,
+            ai_consent_sources: &[],
         })
         .await
         .unwrap();
@@ -1497,6 +1508,7 @@ async fn test_persist_tool_round_messages() {
             channel_type: None,
             about_user_id: None,
             turn_attempted_write: None,
+            ai_consent_sources: &[],
         })
         .await
         .unwrap();
@@ -1520,6 +1532,7 @@ async fn test_persist_tool_round_messages() {
             channel_type: None,
             about_user_id: None,
             turn_attempted_write: None,
+            ai_consent_sources: &[],
         })
         .await
         .unwrap();
@@ -1540,6 +1553,7 @@ async fn test_persist_tool_round_messages() {
             channel_type: None,
             about_user_id: None,
             turn_attempted_write: None,
+            ai_consent_sources: &[],
         })
         .await
         .unwrap();
@@ -1592,6 +1606,7 @@ async fn test_persist_tool_round_with_assistant_preamble() {
             channel_type: None,
             about_user_id: None,
             turn_attempted_write: None,
+            ai_consent_sources: &[],
         })
         .await
         .unwrap();
@@ -1612,6 +1627,7 @@ async fn test_persist_tool_round_with_assistant_preamble() {
             channel_type: None,
             about_user_id: None,
             turn_attempted_write: None,
+            ai_consent_sources: &[],
         })
         .await
         .unwrap();
@@ -1633,6 +1649,7 @@ async fn test_persist_tool_round_with_assistant_preamble() {
             channel_type: None,
             about_user_id: None,
             turn_attempted_write: None,
+            ai_consent_sources: &[],
         })
         .await
         .unwrap();
@@ -1685,6 +1702,7 @@ async fn seed_conversation_with_message(
             channel_type: None,
             about_user_id: None,
             turn_attempted_write: None,
+            ai_consent_sources: &[],
         })
         .await
         .unwrap();
@@ -1944,6 +1962,7 @@ async fn test_added_participant_reads_and_posts_like_the_owner() {
             channel_type: None,
             about_user_id: None,
             turn_attempted_write: None,
+            ai_consent_sources: &[],
         })
         .await;
     assert!(refused.is_err());
@@ -1998,6 +2017,7 @@ async fn test_added_participant_reads_and_posts_like_the_owner() {
             channel_type: None,
             about_user_id: None,
             turn_attempted_write: None,
+            ai_consent_sources: &[],
         })
         .await
         .unwrap();
@@ -2605,6 +2625,7 @@ async fn assistant_messages_walk_in_order_past_the_cursor() {
                 channel_type: None,
                 about_user_id: None,
                 turn_attempted_write: None,
+                ai_consent_sources: &[],
             })
             .await
             .unwrap();

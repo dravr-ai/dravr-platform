@@ -786,6 +786,7 @@ async fn reset_in_a_subject_thread_opens_a_topic_and_keeps_the_binding() {
                 channel_type: None,
                 about_user_id: None,
                 turn_attempted_write: None,
+                ai_consent_sources: &[],
             })
             .await
             .unwrap();

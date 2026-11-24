@@ -34,6 +34,7 @@ use pierre_tool_runtime::runtime::ToolRuntime;
 use uuid::Uuid;
 
 use crate::common::{create_test_server_resources, create_test_user};
+use crate::helpers::garmin_consent::give_garmin_ai_consent;
 
 const RELAY: &str = "nolio";
 
@@ -198,6 +199,10 @@ async fn connect_relay(resources: &ServerContext) -> (Uuid, TenantId) {
         .register_connection(user_id, tenant, RELAY, &ConnectionType::OAuth, None)
         .await
         .unwrap();
+    // The relay carries Garmin recordings, which reach a model only under the
+    // athlete's Garmin AI consent (carnet#1157): given, so what is withheld
+    // below is the relayed services' terms alone.
+    give_garmin_ai_consent(&resources.common.repos, user_id, tenant).await;
     (user_id, tenant)
 }
 

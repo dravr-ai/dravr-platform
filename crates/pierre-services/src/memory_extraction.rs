@@ -45,6 +45,7 @@ use pierre_llm::{ChatMessage, ChatRequest};
 use pierre_memory::{
     FactKind, FactProposal, FactSource, MemoryScope, PredicateCode, ProposedClaim, UserFact,
 };
+use pierre_providers::ai_scope;
 use serde::{Deserialize, Serialize};
 use tokio::sync::Semaphore;
 use tokio::task::JoinHandle;
@@ -237,6 +238,15 @@ pub struct ExtractionRequest<'a> {
     /// The stamp of the reply the facts are extracted from (carnet#769):
     /// every fact this pass writes or restates carries it.
     pub transport_policy: TransportPolicy,
+    /// The AI-consent keys of what the reply was drawn from (carnet#1157):
+    /// every fact this pass writes or restates names them.
+    pub ai_consent_sources: &'a [String],
+    /// The consents the athlete had withheld when the turn ran, which the
+    /// extractor reads its dedup candidates under: a fact naming one of them
+    /// is never handed to it, and one naming a consent given is. `None` for a
+    /// job queued before it was carried: then every consent-gated fact is
+    /// left out, as an undeclared model read withholds them all.
+    pub consent_withheld: Option<&'a [String]>,
     /// Receives the extraction call's usage record, typed
     /// [`LlmStage::MemoryExtraction`]; `None` records nothing.
     pub recorder: Option<&'a Arc<dyn LlmCallRecorder>>,
@@ -256,6 +266,8 @@ impl fmt::Debug for ExtractionRequest<'_> {
             .field("force_kind", &self.force_kind)
             .field("plan_was_saved", &self.plan_was_saved)
             .field("transport_policy", &self.transport_policy)
+            .field("ai_consent_sources", &self.ai_consent_sources)
+            .field("consent_withheld", &self.consent_withheld)
             .finish_non_exhaustive()
     }
 }
@@ -348,6 +360,21 @@ where
             warn!(error = %e, "could not read existing facts; extracting without them");
             Vec::new()
         });
+    // The extractor is a model: it never reads a fact naming a withdrawn
+    // consent or data kept out of AI memory (carnet#1157, #1158). It reads
+    // under the athlete's consents as the turn declared them; a job queued
+    // without them leaves every consent-gated fact out.
+    let candidates = ai_scope::for_model(async move {
+        let mut existing = existing;
+        ai_scope::retain_consented(&mut existing, |fact| &fact.ai_consent_sources, true);
+        existing
+    });
+    let existing = match req.consent_withheld {
+        Some(withheld) => {
+            ai_scope::with_ai_consent(withheld.iter().cloned().collect(), candidates).await
+        }
+        None => candidates.await,
+    };
 
     let raw = run_llm_extraction(provider, system_prompt, req, &existing).await?;
 
@@ -580,6 +607,7 @@ async fn merge_restatement<R: HarnessMemoryRepository + ?Sized>(
         source_msg_id: req.source_msg_id,
         transport_policy: req.transport_policy,
         confidence,
+        ai_consent_sources: req.ai_consent_sources,
     };
     match repo.merge_user_fact(&params).await {
         Ok(Some(row)) => {
@@ -658,6 +686,7 @@ async fn persist_facts<R: HarnessMemoryRepository + ?Sized>(
             valid_until: None,
             source_msg_id: req.source_msg_id,
             transport_policy: req.transport_policy,
+            ai_consent_sources: req.ai_consent_sources,
         };
         // What the athlete said in their own words is approved; what the
         // extractor read into the turn waits for them as a draft.
@@ -897,6 +926,15 @@ pub struct ExtractionJobPayload {
     /// that predate turn threading.
     #[serde(default)]
     pub turn_id: Option<ConversationTurnId>,
+    /// The AI-consent keys of what the reply was drawn from (carnet#1157).
+    /// Absent from a row queued before it was carried, which names none.
+    #[serde(default)]
+    pub ai_consent_sources: Vec<String>,
+    /// The consents the athlete had withheld when the turn ran (see
+    /// [`ExtractionRequest::consent_withheld`]). Absent from a row queued
+    /// before it was carried.
+    #[serde(default)]
+    pub consent_withheld: Option<Vec<String>>,
 }
 
 impl ExtractionJobPayload {
@@ -939,6 +977,8 @@ impl ExtractionJobPayload {
             force_kind: self.force_kind,
             plan_was_saved: self.plan_was_saved,
             transport_policy: self.transport_policy,
+            ai_consent_sources: &self.ai_consent_sources,
+            consent_withheld: self.consent_withheld.as_deref(),
             recorder: Some(recorder),
         }
     }

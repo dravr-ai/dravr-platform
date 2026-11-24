@@ -5,7 +5,7 @@
 // ABOUTME: Tests provider cards, connection flow, disconnect actions, and capability display.
 
 import { test, expect, type Page } from '@playwright/test';
-import { setupDashboardMocks, loginToDashboard, openHome } from './test-helpers';
+import { setupDashboardMocks, loginToDashboard, openHome, answerConnectConsents } from './test-helpers';
 
 // Mock provider status data in the shape GET /api/providers serves: one card
 // per provider, the raw `strava` / `garmin` rows withheld behind their mirror
@@ -57,6 +57,11 @@ const mockProviders = {
     },
   ],
 };
+
+/** The server's Garmin OAuth start, whatever its query string carries. */
+function isGarminStart(url: URL): boolean {
+  return url.pathname === '/api/oauth/authorize/garmin';
+}
 
 async function setupProviderMocks(page: Page) {
   // Set up base dashboard mocks with user role
@@ -207,7 +212,9 @@ test.describe('Provider Connections - OAuth Flow', () => {
         }),
       }),
     );
-    await page.route('**/api/oauth/authorize/garmin', (route) =>
+    // By path: a start carrying the ticked consents has a query string, which
+    // a glob ending at the path would not match.
+    await page.route(isGarminStart, (route) =>
       route.fulfill({ status: 302, headers: { location: `/?provider=garmin&${outcome}` } }),
     );
     // The return is a page load of its own: the session is restored on it the
@@ -248,9 +255,13 @@ test.describe('Provider Connections - OAuth Flow', () => {
     const garminRow = page.getByTestId('provider-row-sciotte_garmin');
     await expect(garminRow).toBeVisible({ timeout: 10000 });
 
-    const launch = page.waitForRequest((request) => new URL(request.url()).pathname === '/api/oauth/authorize/garmin');
+    const launch = page.waitForRequest((request) => isGarminStart(new URL(request.url())));
     await garminRow.getByRole('button', { name: 'Connect' }).click();
-    await launch;
+    // The connect asks its offered consents first; the AI-use box ticked
+    // travels on the start, the transfer box left unticked does not.
+    await answerConnectConsents(page, ['garmin']);
+    const started = new URL((await launch).url());
+    expect(started.searchParams.get('consents')).toBe('garmin');
 
     await page.waitForURL((url) => url.hash === '#settings/connections' && url.search === '', { timeout: 20000 });
     await expect(page.getByText('Garmin connected successfully!')).toBeVisible({ timeout: 10000 });
@@ -270,7 +281,11 @@ test.describe('Provider Connections - OAuth Flow', () => {
     const garminRow = page.getByTestId('provider-row-sciotte_garmin');
     await expect(garminRow).toBeVisible({ timeout: 10000 });
 
+    const launch = page.waitForRequest((request) => isGarminStart(new URL(request.url())));
     await garminRow.getByRole('button', { name: 'Connect' }).click();
+    // Continue with nothing ticked is an answer too: the start says nothing.
+    await answerConnectConsents(page);
+    expect(new URL((await launch).url()).searchParams.has('consents')).toBe(false);
 
     await page.waitForURL((url) => url.hash === '#settings/connections' && url.search === '', { timeout: 20000 });
     await expect(page.getByText('Failed to connect Garmin')).toBeVisible({ timeout: 10000 });
@@ -286,7 +301,7 @@ test.describe('Provider Connections - OAuth Flow', () => {
     // signs in — while the pool is full a new Garmin connection signs in.
     await mockGarminRoundTrip(page, 'success=false&error=no_seat');
     let seatsGone = false;
-    await page.route('**/api/oauth/authorize/garmin', (route) => {
+    await page.route(isGarminStart, (route) => {
       seatsGone = true;
       return route.fulfill({ status: 302, headers: { location: '/?provider=garmin&success=false&error=no_seat' } });
     });
@@ -309,10 +324,16 @@ test.describe('Provider Connections - OAuth Flow', () => {
     const garminRow = page.getByTestId('provider-row-sciotte_garmin');
     await expect(garminRow).toBeVisible({ timeout: 10000 });
 
+    const launch = page.waitForRequest((request) => isGarminStart(new URL(request.url())));
     await garminRow.getByRole('button', { name: 'Connect' }).click();
+    // The connect asks its offered consents first (whose own dialog is
+    // titled for Garmin too); it starts once they are answered.
+    await answerConnectConsents(page);
+    await launch;
 
     await page.waitForURL((url) => url.hash === '#settings/connections' && url.search === '', { timeout: 20000 });
     await expect(page.getByRole('dialog', { name: /Garmin/ })).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId('connect-consent-list')).toHaveCount(0);
     await expect(page.getByRole('heading', { name: 'Connection Failed' })).toHaveCount(0);
   });
 });

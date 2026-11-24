@@ -19,7 +19,13 @@ import {
   trustedActionUrl,
   verdictSupportReference,
 } from '@pierre/chat-utils';
-import { cardForSlug, connectPlan, noticeRequired, sciotteTargetForBackend } from '@pierre/shared-constants';
+import {
+  cardForSlug,
+  connectConsentsFor,
+  connectPlan,
+  noticeRequired,
+  sciotteTargetForBackend,
+} from '@pierre/shared-constants';
 import { privateSendFailureText, type PlanThreadDraft, type UsePrivateLaneResult } from '@pierre/ui-logic';
 import type {
   ChatMessageAction,
@@ -38,6 +44,7 @@ import { SciotteLoginModal } from '../../components/SciotteLoginModal';
 import { useSignInModal } from '../../hooks/useSignInModal';
 import { OAuthCredentialsSection } from '../../components/OAuthCredentialsSection';
 import { ProviderNoticeSheet } from '../../components/ProviderNotice';
+import { ConnectConsentSheet } from '../../components/ConnectConsentSheet';
 import { openExternal } from '../../utils/openExternal';
 import { ChatInputBar, type ComposerAudience, type ComposerQuote } from './ChatInputBar';
 import { MessageList, type MessageListPrivateLane } from './MessageList';
@@ -178,6 +185,10 @@ export function ChatThread({
   // The provider whose notice is on screen before a reconnect starts its
   // OAuth flow (WHOOP, until the account accepts its owner authorization).
   const [noticeFor, setNoticeFor] = useState<string | null>(null);
+  // The provider a reply's reconnect names whose consent sheet is on screen
+  // before the connect starts (Garmin's AI use and workout transfer,
+  // carnet#1157 / carnet#1390).
+  const [consentFor, setConsentFor] = useState<string | null>(null);
   // The Intervals.icu sheet a reconnect opened, and whether it leads with the
   // authorization (`intervalsConnectPath` answered `'choose'`) or is the key
   // form alone.
@@ -406,7 +417,7 @@ export function ChatThread({
    * to Safari, where the callback has nowhere to return to. A card that signs
    * in opens the sign-in window here.
    */
-  const handleConnectProvider = useCallback(async (provider: string) => {
+  const connectProvider = useCallback(async (provider: string, consents?: readonly string[]) => {
     const cards = providerStatus.connectedProviders;
     const card = cardForSlug(provider, cards) ?? cards.find((p) => p.provider === provider);
     if (!card) {
@@ -414,10 +425,10 @@ export function ChatThread({
       // is the authorization of the slug itself.
       const target = sciotteTargetForBackend(provider);
       if (target) {
-        openSignIn(target, undefined);
+        openSignIn(target, undefined, false, false, consents);
         return;
       }
-      await providerStatus.handleConnectProvider(provider);
+      await providerStatus.handleConnectProvider(provider, undefined, false, false, consents);
       return;
     }
     const primary = connectPlan(card).primary;
@@ -437,7 +448,7 @@ export function ChatThread({
     if (primary.kind === 'sign_in') {
       // The card's own plan: a sign-in-first card's sign-in that cannot
       // complete falls back to its OAuth (carnet#1477).
-      openSignIn(primary.target, card, false, true);
+      openSignIn(primary.target, card, false, true, consents);
       return;
     }
     // No app of the server's can authorize the provider for this athlete:
@@ -452,8 +463,26 @@ export function ChatThread({
       setNoticeFor(card.provider);
       return;
     }
-    await providerStatus.handleConnectProvider(primary.kind === 'oauth' ? primary.provider : card.provider);
+    await providerStatus.handleConnectProvider(
+      primary.kind === 'oauth' ? primary.provider : card.provider,
+      undefined,
+      false,
+      false,
+      consents,
+    );
   }, [providerStatus, openSignIn]);
+
+  // A connect that offers consents it does not require (Garmin, by its card
+  // or its slug) asks for them on its sheet first; its Continue resumes with
+  // the keys ticked, none included. Any other reconnect goes on at once.
+  const handleConnectProvider = useCallback(async (provider: string) => {
+    const card = cardForSlug(provider, providerStatus.connectedProviders);
+    if (connectConsentsFor(card?.provider ?? provider).length > 0) {
+      setConsentFor(provider);
+      return;
+    }
+    await connectProvider(provider);
+  }, [connectProvider, providerStatus.connectedProviders]);
 
   // A sign-in that could not complete hands over to its provider's OAuth
   // (carnet#1477): the window closes and the authorization starts instead.
@@ -461,9 +490,9 @@ export function ChatThread({
     (provider: SciotteTarget) => () => {
       closeSignIn();
       // The sign-in could not complete: never turned back into it (carnet#1667).
-      void providerStatus.handleConnectProvider(provider, undefined, false, true);
+      void providerStatus.handleConnectProvider(provider, undefined, false, true, signIn.consents);
     },
-    [closeSignIn, providerStatus],
+    [closeSignIn, providerStatus, signIn.consents],
   );
 
   // An app saved in the credentials sheet changes the status the gate above
@@ -676,6 +705,17 @@ export function ChatThread({
         }}
       />
 
+      <ConnectConsentSheet
+        visible={consentFor !== null}
+        consents={consentFor ? connectConsentsFor(cardForSlug(consentFor, providerStatus.connectedProviders)?.provider ?? consentFor) : []}
+        onCancel={() => setConsentFor(null)}
+        onContinue={(keys) => {
+          const answered = consentFor;
+          setConsentFor(null);
+          if (answered) void connectProvider(answered, keys);
+        }}
+      />
+
       <IntervalsIcuLinkModal
         visible={intervalsSheet !== null}
         onClose={() => setIntervalsSheet(null)}
@@ -706,6 +746,7 @@ export function ChatThread({
           target={signIn.target}
           consentRequired={signIn.consentRequired}
           onFallBackToOAuth={signIn.fallback ? fallBackToOAuth(signIn.fallback) : undefined}
+          consents={signIn.consents}
         />
       )}
 

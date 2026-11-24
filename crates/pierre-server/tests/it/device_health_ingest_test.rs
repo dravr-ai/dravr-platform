@@ -9,6 +9,7 @@
 //! them as it does and read back what the athlete, the agent and the stores
 //! hold. Every sample is dated in the past few days at a fixed -04:00 offset.
 
+use pierre_core::constants::oauth_providers::NoticeKind;
 use std::sync::Arc;
 
 use axum::body::{to_bytes, Body};
@@ -27,7 +28,7 @@ use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::device_health::{device_health_routes, MAX_SYNC_BODY_BYTES};
 use pierre_mcp_server::routes::health_records::health_records_routes;
 use pierre_services::live_activities::WriteOrigin;
-use pierre_services::provider_notice::grant_ai_consent;
+use pierre_services::provider_notice::grant_consent;
 use pierre_tool_runtime::protocol::{UniversalRequest, UniversalToolExecutor};
 use secrecy::ExposeSecret;
 use serde_json::{json, Value};
@@ -757,11 +758,12 @@ async fn a_mood_is_the_athletes_and_reaches_the_agent_only_under_sensitive_t3() 
         !withheld.to_string().contains("\"mood\""),
         "bug: a T3 mood reached the agent without sensitive_t3: {withheld}"
     );
-    grant_ai_consent(
+    grant_consent(
         &resources.common.repos,
         athlete.tenant.as_uuid(),
         athlete.user_id,
         SENSITIVE_T3,
+        NoticeKind::AiConsent,
         sensitive_display_name(SENSITIVE_T3).expect("a consent class"),
     )
     .await

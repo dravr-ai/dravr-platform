@@ -173,6 +173,7 @@ fn row(role: &str, finish_reason: Option<&str>) -> MessageRecord {
         channel_type: None,
         about_user_id: None,
         turn_attempted_write: None,
+        ai_consent_sources: Vec::new(),
     }
 }
 

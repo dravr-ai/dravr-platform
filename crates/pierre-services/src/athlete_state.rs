@@ -106,7 +106,7 @@ pub async fn dossier_coverage(
             tenant,
             user_id,
             ai_scope::readable_policy(),
-            &ai_scope::admit_derived,
+            &ai_scope::admit_memory,
         )
         .await?;
     let coverage = CoverageMap::from_dossier(&dossier);

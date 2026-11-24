@@ -166,6 +166,7 @@ async fn fold_kind<R: HarnessMemoryRepository + ?Sized>(
             source_msg_id: fact.source_msg_id.as_deref(),
             confidence: fact.confidence,
             transport_policy: fact.transport_policy,
+            ai_consent_sources: &fact.ai_consent_sources,
         })
         .await?;
         if repo

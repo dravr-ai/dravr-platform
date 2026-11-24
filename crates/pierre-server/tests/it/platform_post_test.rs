@@ -526,6 +526,7 @@ async fn a_platform_reply_stays_unread_and_out_of_the_room() {
         channel_type: None,
         about_user_id: None,
         turn_attempted_write: None,
+        ai_consent_sources: &[],
     };
 
     persist_assistant_response(

@@ -20,6 +20,7 @@
 
 use crate::common;
 use crate::helpers;
+use pierre_core::constants::oauth_providers::NoticeKind;
 
 use std::sync::Arc;
 
@@ -41,7 +42,7 @@ use pierre_mcp_server::routes::coach_access::CoachAccessRoutes;
 use pierre_mcp_server::routes::messaging::MessagingRoutes;
 use pierre_routes_admin::llm_settings::LlmSettingsRoutes;
 use pierre_routes_auth::AuthRoutes;
-use pierre_services::provider_notice::ai_consent_state;
+use pierre_services::provider_notice::consent_state;
 use pierre_tool_runtime::context::SUPPORT_SESSION;
 use pierre_tool_runtime::protocol::{UniversalExecutor, UniversalRequest};
 use pierre_tool_runtime::runtime::ToolRuntime;
@@ -108,7 +109,15 @@ fn assert_served(response: &AxumTestResponse, status: StatusCode) {
 async fn a_support_session_gives_no_ai_consent_but_withdraws_one() {
     let a = athlete("imp-ai-consent").await;
     let path = format!("/api/providers/{WHOOP}/ai-consent");
-    let state = || ai_consent_state(&a.resources.common.repos, a.tenant_id, a.user.id, WHOOP);
+    let state = || {
+        consent_state(
+            &a.resources.common.repos,
+            a.tenant_id,
+            a.user.id,
+            WHOOP,
+            NoticeKind::AiConsent,
+        )
+    };
 
     let response = AxumTestRequest::delete(&path)
         .header("authorization", &a.support)

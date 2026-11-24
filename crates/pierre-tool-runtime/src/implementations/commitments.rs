@@ -306,8 +306,11 @@ impl McpTool<dyn ToolRuntime> for CommitmentCreateTool {
                 reported_at: None,
                 created_at: now,
                 updated_at: now,
-                // Stamped with what the turn served so far (carnet#769).
+                // Stamped with what the turn served so far (carnet#769),
+                // and named with the consents it was served under
+                // (carnet#1157).
                 transport_policy: ai_scope::derived_policy(),
+                ai_consent_sources: ai_scope::derived_consent_sources(),
             };
 
             let recorded = context

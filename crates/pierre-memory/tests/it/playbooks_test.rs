@@ -138,6 +138,7 @@ fn sample_playbook() -> Playbook {
         created_at: now,
         updated_at: now,
         transport_policy: TransportPolicy::AnyTransport,
+        ai_consent_sources: Vec::new(),
     }
 }
 

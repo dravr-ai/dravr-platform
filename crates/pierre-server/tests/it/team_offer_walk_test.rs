@@ -142,6 +142,7 @@ impl Fixture {
                     valid_until: None,
                     source_msg_id: None,
                     transport_policy: TransportPolicy::AnyTransport,
+                    ai_consent_sources: &[],
                 })
                 .await
                 .unwrap();
@@ -228,6 +229,7 @@ impl Fixture {
                 channel_type: None,
                 about_user_id: None,
                 turn_attempted_write: None,
+                ai_consent_sources: &[],
             })
             .await
             .unwrap();

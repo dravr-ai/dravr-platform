@@ -107,6 +107,8 @@ mod login;
 mod oauth;
 /// What a provider's OAuth callback starts once its grant is stored.
 mod oauth_connect;
+/// What an OAuth start carries, and the notice precondition it passes
+mod oauth_start;
 mod originals_export;
 mod password_attempts;
 mod pending_session;
@@ -132,6 +134,8 @@ mod sciotte_prefetch;
 mod sciotte_session_reuse;
 #[cfg(feature = "provider-sciotte")]
 mod sciotte_takeover;
+/// The notice precondition a provider sign-in passes
+mod sciotte_terms;
 mod short_link;
 #[cfg(feature = "provider-sciotte")]
 mod sign_in_grant;
@@ -518,6 +522,14 @@ impl AuthRoutes {
                 get(provider_ai_consent::handle_get_ai_consent)
                     .put(provider_ai_consent::handle_grant_ai_consent)
                     .delete(provider_ai_consent::handle_withdraw_ai_consent),
+            )
+            // Give or withdraw the consent to Dravr sending a provider the
+            // athlete's data: Garmin's workout transfer (carnet#1390). The
+            // provider card's `transfer_consent` reads the answer back.
+            .route(
+                "/api/providers/{provider}/transfer-consent",
+                put(provider_ai_consent::handle_grant_transfer_consent)
+                    .delete(provider_ai_consent::handle_withdraw_transfer_consent),
             )
             // Intervals.icu API-key linking (non-OAuth; validates the key live
             // before persisting). Always registered — the handler degrades to a

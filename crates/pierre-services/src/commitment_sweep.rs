@@ -352,6 +352,7 @@ async fn write_verdict(
             completed_sessions: completed,
             at: now,
             transport_policy: ai_scope::derived_policy(),
+            ai_consent_sources: &ai_scope::derived_consent_sources(),
         })
         .await;
 

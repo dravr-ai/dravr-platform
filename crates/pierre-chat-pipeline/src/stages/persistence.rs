@@ -207,6 +207,7 @@ pub async fn persist_user_message(
         channel_type: Some(channel),
         about_user_id,
         turn_attempted_write: None,
+        ai_consent_sources: &[],
     };
     let message = database.add_message(&user_msg_params).await?;
     advance_read_marker(database, conversation_id, user_id, tenant_id, &message.id).await;
@@ -326,6 +327,7 @@ pub async fn resolve_platform_turn(
         channel_type: None,
         about_user_id: None,
         turn_attempted_write: None,
+        ai_consent_sources: Vec::new(),
     };
 
     Ok(UserMessageResult {
@@ -389,6 +391,9 @@ pub async fn get_conversation_history(
     // turn's prompt; on Dravr's own surfaces it does, and stamps the turn
     // that replays it (carnet#769).
     ai_scope::retain_admitted(&mut history, |row| row.transport_policy);
+    // Nor does a row drawn from data whose AI consent the athlete withdrew
+    // or never gave (carnet#1157); a replayed row's keys taint the turn.
+    ai_scope::retain_consented(&mut history, |row| &row.ai_consent_sources, false);
     Ok(history)
 }
 
@@ -485,6 +490,7 @@ mod tests {
             channel_type: None,
             about_user_id: None,
             turn_attempted_write: None,
+            ai_consent_sources: Vec::new(),
         }
     }
 

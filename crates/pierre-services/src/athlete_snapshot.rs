@@ -425,6 +425,7 @@ fn form_today(
 #[cfg(test)]
 mod tests {
     use pierre_database::repositories::WellnessWriteMode;
+    use std::collections::BTreeSet;
     use std::sync::Arc;
 
     use super::*;
@@ -432,8 +433,8 @@ mod tests {
     use pierre_core::ai_policy::{AiUse, SourcePolicy};
     use pierre_core::models::{DataSource, DeviceType};
     use pierre_core::transport::TransportPolicy;
-    use pierre_providers::ai_scope::ai_read;
     use pierre_providers::ai_scope::StoredHealthRecord;
+    use pierre_providers::ai_scope::{ai_read, with_ai_consent};
     use pierre_providers::precedence::wellness_source;
     use pierre_test_support::db::create_test_db;
     use pierre_test_support::server::create_test_user;
@@ -722,7 +723,14 @@ mod tests {
     async fn the_snapshot_reads_the_synced_nights_a_model_may_see() {
         let (repos, tenant, user_id) = athlete_with_two_sources().await;
 
-        let (metrics, withheld) = ai_read(snapshot(&repos, tenant, user_id)).await;
+        // An athlete who gave Garmin's AI consent and not WHOOP's: a model
+        // read declares its consents, and one that declares none withholds
+        // Garmin too (carnet#1157).
+        let (metrics, withheld) = ai_read(with_ai_consent(
+            BTreeSet::from(["whoop".to_owned()]),
+            Box::pin(snapshot(&repos, tenant, user_id)),
+        ))
+        .await;
 
         assert!(
             metrics.is_usable(),

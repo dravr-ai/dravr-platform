@@ -629,10 +629,12 @@ async fn athlete_inputs(
 
 #[cfg(test)]
 pub(crate) mod tests {
+    use std::collections::BTreeSet;
     use std::future::Future;
     use std::iter;
 
     use super::*;
+    use crate::provider_notice;
     use dravr_tronc::dates::{CivilTime, Timestamp};
     use pierre_core::ai_policy::SourcePolicy;
     use pierre_core::config::profiles::FitnessLevel;
@@ -664,9 +666,16 @@ pub(crate) mod tests {
         }
     }
 
-    /// Run `fut` the way a model reads on one of Dravr's own surfaces.
+    /// Run `fut` the way a model reads on one of Dravr's own surfaces, for
+    /// an athlete who withheld no provider from AI (a real read declares the
+    /// athlete's consents; one that declares none withholds every
+    /// AI-consent provider, Garmin included).
     pub(crate) async fn as_model_read<F: Future>(fut: F) -> F::Output {
-        ai_scope::serve_over(Transport::PlatformJob, ai_scope::for_model(fut)).await
+        ai_scope::serve_over(
+            Transport::PlatformJob,
+            ai_scope::for_model(ai_scope::with_ai_consent(BTreeSet::new(), fut)),
+        )
+        .await
     }
 
     /// An athlete with a database, a tenant and the relay connected.
@@ -687,6 +696,18 @@ pub(crate) mod tests {
             .register_connection(user_id, tenant, RELAY, &ConnectionType::OAuth, None)
             .await
             .unwrap();
+        // The relay carries Garmin sessions, which no model reads until the
+        // athlete gives Garmin's AI consent (carnet#1157).
+        provider_notice::grant_consent(
+            repos,
+            tenant.as_uuid(),
+            user_id,
+            oauth_providers::GARMIN,
+            oauth_providers::NoticeKind::AiConsent,
+            "Garmin",
+        )
+        .await
+        .unwrap();
         // Thresholds, so every session scores a real, non-zero load.
         let profile = UserPhysiologicalProfile {
             user_id,

@@ -53,6 +53,7 @@ async fn seed_fact(
             valid_until: None,
             source_msg_id: None,
             transport_policy: TransportPolicy::AnyTransport,
+            ai_consent_sources: &[],
         })
         .await?;
     Ok(())
@@ -96,7 +97,7 @@ async fn pillar_facts_group_into_dossier_buckets() -> Result<()> {
 
     let dossier = repos
         .dossier
-        .compose_dossier(tenant, user, TransportPolicy::FirstPartyOnly, &|_| true)
+        .compose_dossier(tenant, user, TransportPolicy::FirstPartyOnly, &|_, _| true)
         .await?;
 
     let fuelling = dossier
@@ -162,7 +163,7 @@ async fn medical_fact_survives_recency_window_eviction() -> Result<()> {
 
     let dossier = repos
         .dossier
-        .compose_dossier(tenant, user, TransportPolicy::FirstPartyOnly, &|_| true)
+        .compose_dossier(tenant, user, TransportPolicy::FirstPartyOnly, &|_, _| true)
         .await?;
     assert_eq!(
         dossier.medical.len(),
@@ -204,7 +205,9 @@ async fn dossier_facts_are_tenant_scoped() -> Result<()> {
     // Composing the same user under tenant A must not see tenant B's fact.
     let dossier_a = repos
         .dossier
-        .compose_dossier(tenant_a, user, TransportPolicy::FirstPartyOnly, &|_| true)
+        .compose_dossier(tenant_a, user, TransportPolicy::FirstPartyOnly, &|_, _| {
+            true
+        })
         .await?;
     assert!(dossier_a.pillars.is_empty(), "no cross-tenant facts leak");
     assert!(render_okf_bundle_default(
@@ -216,7 +219,9 @@ async fn dossier_facts_are_tenant_scoped() -> Result<()> {
     // Tenant B sees its own fact.
     let dossier_b = repos
         .dossier
-        .compose_dossier(tenant_b, user, TransportPolicy::FirstPartyOnly, &|_| true)
+        .compose_dossier(tenant_b, user, TransportPolicy::FirstPartyOnly, &|_, _| {
+            true
+        })
         .await?;
     assert_eq!(
         dossier_b
@@ -261,7 +266,7 @@ async fn failing_fact_reads_warn_with_the_error_and_still_render() -> Result<()>
     let (events, _guard) = log_capture::capture_events();
     let dossier = repos
         .dossier
-        .compose_dossier(tenant, user, TransportPolicy::FirstPartyOnly, &|_| true)
+        .compose_dossier(tenant, user, TransportPolicy::FirstPartyOnly, &|_, _| true)
         .await?;
 
     // Degradation is preserved: the dossier still composes, minus the facts.

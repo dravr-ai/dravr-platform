@@ -12,6 +12,7 @@
 //! fact extractor in `services/memory_extraction.rs`.
 
 use crate::annotations::{annotations, Effect, Reach};
+use pierre_core::constants::oauth_providers::names_kept_out_source;
 use pierre_providers::ai_scope;
 use pierre_services::memory_facts::SentenceRenderer;
 use std::collections::HashMap;
@@ -25,7 +26,7 @@ use pierre_memory::{
 };
 use schemars::JsonSchema;
 use serde::Serialize;
-use serde_json::Value;
+use serde_json::{json, Value};
 
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
@@ -38,6 +39,10 @@ use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_mcp_schema::PropertySchema;
 use pierre_tools_core::ToolResult;
+
+/// The reason the remember tool refuses in a turn carrying data kept out of
+/// AI memory (carnet#1158).
+const KEPT_OUT_OF_MEMORY_REASON: &str = "kept_out_of_memory";
 
 fn require_string_field(args: &Value, key: &str) -> AppResult<String> {
     args.get(key)
@@ -221,6 +226,18 @@ impl McpTool<dyn ToolRuntime> for RememberFactTool {
             let agent_id = optional_string_field(&args, "agent_id");
             let user_id = ctx_user_id(&context);
 
+            // A turn carrying data kept out of AI memory, read fresh or
+            // replayed, files no memory at all (JF 2026-11-23, carnet#1158).
+            let ai_consent_sources = ai_scope::derived_consent_sources();
+            if names_kept_out_source(&ai_consent_sources) {
+                return Ok(ToolResult::error(json!({
+                    "reason": KEPT_OUT_OF_MEMORY_REASON,
+                    "error": "Nothing was saved: this conversation carries Garmin data, and \
+                              Garmin's terms keep it out of the agent's memory. Tell the athlete \
+                              you cannot remember this here; never offer to save it another way.",
+                })));
+            }
+
             let params = UpsertUserFactParams {
                 tenant_id,
                 user_id: &user_id,
@@ -235,6 +252,7 @@ impl McpTool<dyn ToolRuntime> for RememberFactTool {
                 valid_until: None,
                 source_msg_id: None,
                 transport_policy: ai_scope::derived_policy(),
+                ai_consent_sources: &ai_consent_sources,
             };
             let athlete_message = latest_athlete_message(&context, &user_id, tenant_id).await;
             let proposal = FactProposal::from_tool_call(
@@ -391,6 +409,9 @@ impl McpTool<dyn ToolRuntime> for RecallUserMemoryTool {
             // A fact derived from first-party-only data is withheld from an
             // external caller; the rest are served (carnet#769).
             ai_scope::retain_admitted(&mut facts, |fact| fact.transport_policy);
+            // Nor one naming a withdrawn consent, or data kept out of AI
+            // memory (carnet#1157, #1158).
+            ai_scope::retain_consented(&mut facts, |fact| &fact.ai_consent_sources, true);
             // What the agent remembered is the agent's own writing, and the
             // result's trust label says so.
             if !facts.is_empty() {

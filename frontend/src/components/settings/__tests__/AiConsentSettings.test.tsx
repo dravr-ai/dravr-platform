@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Tests for the privacy settings' consent-to-AI-use switches — one tap withdraws, one tap gives it back, health records too
+// ABOUTME: Tests for the privacy settings' consent switches — AI use, health records, and workouts sent to Garmin, one tap each way
 // ABOUTME: The oauth API is mocked at the services barrel; assertions read the switch state, the calls and the status line
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -14,6 +14,8 @@ const getProvidersStatus = vi.fn();
 const grantAiConsent = vi.fn();
 const withdrawAiConsent = vi.fn();
 const getAiConsent = vi.fn();
+const grantTransferConsent = vi.fn();
+const withdrawTransferConsent = vi.fn();
 
 vi.mock('../../../services/api', () => ({
   oauthApi: {
@@ -21,6 +23,8 @@ vi.mock('../../../services/api', () => ({
     grantAiConsent: (...a: unknown[]) => grantAiConsent(...a),
     withdrawAiConsent: (...a: unknown[]) => withdrawAiConsent(...a),
     getAiConsent: (...a: unknown[]) => getAiConsent(...a),
+    grantTransferConsent: (...a: unknown[]) => grantTransferConsent(...a),
+    withdrawTransferConsent: (...a: unknown[]) => withdrawTransferConsent(...a),
   },
 }));
 
@@ -179,5 +183,65 @@ describe('AiConsentSettings', () => {
     await vi.waitFor(() =>
       expect(screen.getByTestId('ai-consent-switch-sensitive_t3')).toHaveAttribute('aria-checked', 'false'),
     );
+  });
+
+  describe('workouts sent to your services (carnet#1390)', () => {
+    let transferConsent: boolean;
+
+    beforeEach(() => {
+      transferConsent = false;
+      getProvidersStatus.mockImplementation(async () => ({
+        providers: [
+          { ...card('sciotte_garmin', 'Garmin', true, false), transfer_consent: transferConsent },
+          card('strava', 'Strava', true),
+        ],
+      }));
+      grantTransferConsent.mockImplementation(async () => {
+        transferConsent = true;
+      });
+      withdrawTransferConsent.mockImplementation(async () => {
+        transferConsent = false;
+      });
+    });
+
+    it('shows a switch for a connected Garmin that has not allowed it, and allows it in one tap', async () => {
+      const user = userEvent.setup();
+      renderPane();
+      const garmin = await screen.findByTestId('transfer-consent-switch-sciotte_garmin');
+      expect(garmin).toHaveAttribute('aria-checked', 'false');
+      expect(screen.getByRole('switch', { name: 'Send planned workouts to Garmin' })).toBe(garmin);
+      expect(screen.getByTestId('transfer-consent-settings')).toHaveTextContent('Workouts sent to your services');
+      expect(screen.queryByTestId('transfer-consent-switch-strava')).not.toBeInTheDocument();
+
+      await user.click(garmin);
+      expect(grantTransferConsent).toHaveBeenCalledWith('sciotte_garmin');
+      expect(withdrawTransferConsent).not.toHaveBeenCalled();
+      expect(await screen.findByRole('status')).toHaveTextContent('Dravr sends your planned workouts to Garmin again.');
+      await vi.waitFor(() =>
+        expect(screen.getByTestId('transfer-consent-switch-sciotte_garmin')).toHaveAttribute('aria-checked', 'true'),
+      );
+
+      await user.click(screen.getByTestId('transfer-consent-switch-sciotte_garmin'));
+      expect(withdrawTransferConsent).toHaveBeenCalledWith('sciotte_garmin');
+      await vi.waitFor(() =>
+        expect(screen.getByTestId('transfer-consent-switch-sciotte_garmin')).toHaveAttribute('aria-checked', 'false'),
+      );
+    });
+
+    it('says so when the change fails', async () => {
+      grantTransferConsent.mockRejectedValueOnce(new Error('offline'));
+      const user = userEvent.setup();
+      renderPane();
+      await user.click(await screen.findByTestId('transfer-consent-switch-sciotte_garmin'));
+      expect(await screen.findByRole('status')).toHaveTextContent('Could not update this setting. Please try again.');
+      expect(screen.getByTestId('transfer-consent-switch-sciotte_garmin')).toHaveAttribute('aria-checked', 'false');
+    });
+
+    it('hides the block when no connected card asks it', async () => {
+      getProvidersStatus.mockResolvedValue({ providers: [card('strava', 'Strava', true)] });
+      renderPane();
+      await screen.findByTestId('ai-consent-sensitive');
+      expect(screen.queryByTestId('transfer-consent-settings')).not.toBeInTheDocument();
+    });
   });
 });

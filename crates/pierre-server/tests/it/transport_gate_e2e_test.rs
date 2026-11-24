@@ -65,6 +65,7 @@ use tower::ServiceExt;
 use uuid::Uuid;
 
 use crate::common::{create_test_server_resources, create_test_user_with_plan};
+use crate::helpers::garmin_consent::give_garmin_ai_consent;
 
 pub(crate) const RELAY: &str = "nolio";
 
@@ -249,6 +250,10 @@ pub(crate) async fn athlete_with_relay(resources: &ServerContext) -> Rider {
         .register_connection(user_id, tenant, RELAY, &ConnectionType::OAuth, None)
         .await
         .unwrap();
+    // The relay carries Garmin recordings, which a model reads only under the
+    // athlete's Garmin AI consent (carnet#1157): given here, so what is
+    // withheld below is the transport's doing alone.
+    give_garmin_ai_consent(&resources.common.repos, user_id, tenant).await;
     Rider {
         user,
         user_id,
@@ -934,6 +939,7 @@ async fn write_row(
             channel_type: None,
             about_user_id: None,
             turn_attempted_write: None,
+            ai_consent_sources: &[],
         })
         .await
         .unwrap();
@@ -964,6 +970,7 @@ pub(crate) async fn write_fact(
             valid_until: None,
             source_msg_id: None,
             transport_policy,
+            ai_consent_sources: &[],
         })
         .await
         .unwrap();
@@ -1266,9 +1273,10 @@ async fn a_turn_that_served_the_relay_stamps_what_its_tools_write() {
     };
 
     // The Copilot loop calls from another task: the turn's accumulator rides
-    // the surface there. A first-party turn that read the relay stamps the
-    // fact it then writes. `remember_fact` is refused over the key, so a turn
-    // there writes nothing at all.
+    // the surface there. A first-party turn that read the relay is stamped
+    // first-party. The relay's sessions were recorded by Garmin, and a turn
+    // carrying Garmin data files no memory (JF 2026-11-23, carnet#1158):
+    // `remember_fact` refuses there, as it is refused over the key.
     let object = "long climbs after the relay rides";
     let provenance = ai_scope::Provenance::new();
     let surface = ai_scope::serve_over(
@@ -1288,23 +1296,19 @@ async fn a_turn_that_served_the_relay_stamps_what_its_tools_write() {
     .unwrap();
     assert_eq!(provenance.policy(), TransportPolicy::FirstPartyOnly);
 
-    // Called outside a conversation, remember_fact writes a draft; the stamp is
-    // on it either way, and keeping it keeps the stamp.
     let memory = &resources.common.repos.memory;
     let user = rider.user_id.to_string();
     let drafts = memory
         .list_draft_user_facts(rider.tenant, &user, 50, TransportPolicy::FirstPartyOnly)
         .await
         .unwrap();
-    let fact = drafts
-        .iter()
-        .find(|f| f.object == object)
-        .expect("the tool wrote the fact");
-    assert_eq!(fact.transport_policy, TransportPolicy::FirstPartyOnly);
-    memory
-        .approve_user_fact(&fact.id, rider.tenant, &user)
-        .await
-        .unwrap();
+    assert!(
+        drafts.iter().all(|f| f.object != object),
+        "bug: a turn carrying Garmin data filed a memory: {drafts:?}"
+    );
+    // A first-party fact the athlete's own surfaces wrote, for the key's
+    // read-back below.
+    write_fact(&resources, &rider, object, TransportPolicy::FirstPartyOnly).await;
 
     let provenance = ai_scope::Provenance::new();
     let surface = ai_scope::serve_over(
@@ -2200,6 +2204,10 @@ mod scraped {
             None,
         );
         repos.oauth_tokens.upsert_token(&token).await.unwrap();
+        // The scraped Garmin session reaches a model only under the athlete's
+        // Garmin AI consent (carnet#1157): given, so what MCP and A2A miss
+        // below is the transport's doing alone.
+        give_garmin_ai_consent(&resources.common.repos, user_id, tenant).await;
 
         let call_scraped = |transport: Transport| {
             let resources = Arc::clone(&resources);

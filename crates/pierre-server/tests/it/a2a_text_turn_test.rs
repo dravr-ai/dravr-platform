@@ -443,6 +443,7 @@ async fn a_follow_up_replays_nothing_a_first_party_row_derived_from() {
             channel_type: None,
             about_user_id: None,
             turn_attempted_write: None,
+            ai_consent_sources: &[],
         })
         .await
         .unwrap();

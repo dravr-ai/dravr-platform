@@ -248,6 +248,7 @@ async fn first_sync_posted(resources: &ServerContext, user_id: Uuid, tenant: Ten
             channel_type: None,
             about_user_id: None,
             turn_attempted_write: None,
+            ai_consent_sources: &[],
         })
         .await
         .unwrap();

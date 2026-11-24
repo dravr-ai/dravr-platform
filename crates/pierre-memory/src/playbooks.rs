@@ -493,6 +493,14 @@ pub struct Playbook {
     /// was derived from was. Rows written before the stamp read as unstamped.
     #[serde(default, skip_serializing)]
     pub transport_policy: TransportPolicy,
+    /// The AI-consent keys of the provider data the playbook was learned from
+    /// — its advice's turn and every window an outcome was judged over
+    /// (carnet#1157): once the athlete withdraws one, no prompt reads the
+    /// playbook, and no prompt ever reads one naming a key kept out of the
+    /// agent's memory (carnet#1158). Empty for playbooks written before the
+    /// column.
+    #[serde(default, skip_serializing)]
+    pub ai_consent_sources: Vec<String>,
 }
 
 impl Playbook {
@@ -587,6 +595,11 @@ pub struct PendingAdvice {
     /// was derived from was. Rows written before the stamp read as unstamped.
     #[serde(default, skip_serializing)]
     pub transport_policy: TransportPolicy,
+    /// The AI-consent keys of the provider data the reply the advice was taken
+    /// from was drawn from (carnet#1157), carried into the playbook its outcome
+    /// reinforces. Empty for advice written before the column.
+    #[serde(default, skip_serializing)]
+    pub ai_consent_sources: Vec<String>,
 }
 
 /// A k-anonymous, non-tenant aggregate: how an intervention has worked across

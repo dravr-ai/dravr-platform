@@ -6,6 +6,7 @@
 
 use async_trait::async_trait;
 use dravr_tronc::dates::Timestamp;
+use pierre_core::constants::oauth_providers::consent_sources_column;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::transport::TransportPolicy;
 use pierre_memory::commitments::Commitment;
@@ -58,6 +59,9 @@ fn pg_commitment_row(r: &PgRow) -> AppResult<CommitmentRow> {
         first_party_only: r
             .try_get("first_party_only")
             .map_err(|e| col("first_party_only", e))?,
+        ai_consent_sources: r
+            .try_get("ai_consent_sources")
+            .map_err(|e| col("ai_consent_sources", e))?,
     })
 }
 
@@ -93,6 +97,7 @@ impl CommitmentRepository for PostgresDatabase {
             .bind(commitment.created_at.epoch_seconds())
             .bind(commitment.updated_at.epoch_seconds())
             .bind(commitment.transport_policy.is_first_party_only())
+            .bind(consent_sources_column(&commitment.ai_consent_sources))
             .execute(self.pool())
             .await
             .map_err(|e| AppError::database(format!("insert commitment: {e}")))?;
@@ -144,6 +149,7 @@ impl CommitmentRepository for PostgresDatabase {
             .bind(verdict.commitment_id)
             .bind(verdict.tenant_id)
             .bind(verdict.transport_policy.is_first_party_only())
+            .bind(consent_sources_column(verdict.ai_consent_sources))
             .execute(self.pool())
             .await
             .map_err(|e| AppError::database(format!("record commitment verdict: {e}")))?;

@@ -203,7 +203,8 @@ test('a coach reaches the group thread in four screens, on a bar fixed at four',
   await expect(status).toContainText('Request sent');
   // No wait time is promised: the answer comes here and by email.
   await expect(status).toContainText("We'll let you know here and by email.");
-  await expect(status).not.toContainText('24');
+  // The status is dated, so a bare '24' is a day of the month, never a promise.
+  await expect(status).not.toContainText(/24\s*(h\b|hours?)/i);
   expect(calls.accessRequests).toEqual([{}]);
   await page.getByRole('button', { name: 'Continue' }).click();
 

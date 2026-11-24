@@ -506,7 +506,7 @@ pub(super) async fn push_active_plan_for(
         };
         let calendar_note = scope.passed_over_note(context, &chosen).await?;
         let target = chosen.backend;
-        let provider = match scope.calendar_writer(context, &target).await? {
+        let provider = match scope.calendar_sender(context, &target).await? {
             Ok(provider) => provider,
             Err(refused) => return Ok(PlanPush::Refused(refused)),
         };

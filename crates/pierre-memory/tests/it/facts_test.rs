@@ -73,6 +73,7 @@ fn is_confident_threshold() {
         transport_policy: TransportPolicy::AnyTransport,
         status: FactStatus::Approved,
         evidence: None,
+        ai_consent_sources: Vec::new(),
     };
     assert!(fact.is_confident(0.7));
     assert!(!fact.is_confident(0.8));

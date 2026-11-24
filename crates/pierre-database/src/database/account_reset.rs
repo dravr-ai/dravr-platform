@@ -16,7 +16,8 @@ use crate::database::Database;
 use crate::repositories::account_reset::{
     impl_account_reset_repository, owned_group_from_row, reset_error, AccountReset,
     AccountResetCommit, AccountResetRepository, OwnedGroup, RESET_ACCOUNT_EXISTS_SQL,
-    RESET_BLOCKERS_SQL, RESET_OWNED_GROUPS_SQL, SQLITE_ACCOUNT_RESET,
+    RESET_BLOCKERS_SQL, RESET_OWNED_GROUPS_SQL, RESET_RECORDS_CONSENT_WITHDRAWALS_SQL,
+    SQLITE_ACCOUNT_RESET,
 };
 use crate::repositories::user_references::user_reference_from_row;
 use crate::repositories::uuid_columns::TextUuid;

@@ -17,7 +17,6 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
-use serde::Deserialize;
 use serde_json::json;
 use tracing::{error, field, field::Empty, info, warn, Span};
 
@@ -27,6 +26,7 @@ use crate::card_seats::{require_garmin_seat, CardSeats};
 use crate::dead_grant::dead_grant_sign_in_url;
 use crate::oauth_connect::spawn_connect_follow_ups;
 use crate::AuthRoutesContext;
+use pierre_core::constants::oauth_providers::{consent_key, NoticeKind};
 use pierre_core::errors::AppError;
 use pierre_core::models::{ConnectionType, DelegationStatus, ProviderAccountRole, TenantId};
 use pierre_mcp_transport::oauth_flow_manager::OAuthTemplateRenderer;
@@ -38,12 +38,11 @@ use pierre_services::oauth_flow::{
     extract_tenant_id, get_user_for_oauth, AuthUrlOptions, OAuthService,
 };
 use pierre_services::oauth_redirects;
-use pierre_services::provider_notice::{
-    ai_consent_state, asks_for_notice, require_notice_accepted,
-};
+use pierre_services::provider_notice::{asks_for_notice, consent_state};
 use pierre_services::provider_refresh::RefreshService;
 use pierre_services::provider_revocation::DisconnectReason;
 
+use crate::oauth_start::{query_consents, require_oauth_start_notice, OAuthStartQuery};
 use crate::short_link::preferred_locale;
 use pierre_auth::dto::auth::{ProviderDelegation, ProviderStatus, ProvidersStatusResponse};
 use pierre_auth::garmin_seats::NO_SEAT_REASON;
@@ -487,17 +486,22 @@ async fn notice_outstanding(
     }
 }
 
-/// The card's answer to `provider`'s consent to AI use (carnet#726).
+/// The card's answer to the `kind` consent covering `provider`: AI use
+/// (carnet#726) or a transfer to the provider (carnet#1390).
 ///
-/// [`ai_consent_state`] for the session's tenant; a session with no active
-/// tenant shows none.
-async fn card_ai_consent(
+/// [`consent_state`] for the session's tenant, under the key that covers the
+/// card's backend — the Garmin card, served as `sciotte_garmin`, reads the
+/// consents recorded under `garmin` and `garmin_workout_transfer`. A session
+/// with no active tenant, and a card no such consent covers, show none.
+async fn card_consent(
     resources: &AuthRoutesContext,
     user_id: Uuid,
     tenant_id: Option<Uuid>,
     provider: &str,
+    kind: NoticeKind,
 ) -> Option<bool> {
-    ai_consent_state(&resources.repos, tenant_id?, user_id, provider).await
+    let key = consent_key(provider, kind)?;
+    consent_state(&resources.repos, tenant_id?, user_id, key, kind).await
 }
 
 /// Compute the provider catalogue + connection status for a user.
@@ -698,7 +702,22 @@ pub(crate) async fn compute_providers_status(
                     .await,
                 own_app_required,
                 oauth_callback_url,
-                ai_consent: card_ai_consent(resources, user_id, tenant_id, provider_name).await,
+                ai_consent: card_consent(
+                    resources,
+                    user_id,
+                    tenant_id,
+                    provider_name,
+                    NoticeKind::AiConsent,
+                )
+                .await,
+                transfer_consent: card_consent(
+                    resources,
+                    user_id,
+                    tenant_id,
+                    provider_name,
+                    NoticeKind::TransferConsent,
+                )
+                .await,
                 account_role: account_roles.get(provider_name).copied(),
                 delegation: delegations.remove(provider_name),
                 history: card_history(resources, user_id, tenant_id, provider_name, grant_serves)
@@ -732,61 +751,6 @@ pub(crate) async fn compute_providers_status(
     Ok(ProvidersStatusResponse {
         providers: provider_statuses,
     })
-}
-
-/// What a client carries on an OAuth start request.
-///
-/// `tos_consent` is `true` once the athlete ticked the provider's notice
-/// (WHOOP's owner authorization) on this attempt. The launch routes are
-/// browser navigations, so it rides the query string where the credential
-/// login sends it in the JSON body.
-///
-/// `sign_in_blocked` is `true` when the athlete's sign-in for the provider
-/// could not complete (a provider challenge, or the sign-in service down) and
-/// the client fell back to the OAuth: the start then authorizes even a dead
-/// grant, instead of turning it back into the sign-in that just failed
-/// (carnet#1667, amending carnet#1494).
-#[derive(Debug, Default, Deserialize)]
-pub(crate) struct OAuthStartQuery {
-    /// The athlete accepted the provider's notice on this attempt.
-    #[serde(default)]
-    pub tos_consent: bool,
-    /// The athlete's sign-in could not complete, so this start is its fallback.
-    #[serde(default)]
-    pub sign_in_blocked: bool,
-}
-
-/// Refuse to begin `provider`'s OAuth flow until the account has accepted the
-/// notice in force for it, recording the acceptance this start carries.
-///
-/// The OAuth-start face of [`require_notice_accepted`], shared by every route
-/// that mints an authorization URL — the launch route, the mobile init and
-/// the hosted connect picker's init — so none can hand out a URL the
-/// precondition has not passed. The refusal names the provider by its
-/// registered display name.
-///
-/// # Errors
-/// Returns the precondition's refusal, or the store's error.
-pub(crate) async fn require_oauth_start_notice(
-    resources: &AuthRoutesContext,
-    user_id: Uuid,
-    tenant_id: TenantId,
-    provider: &str,
-    tos_consent: bool,
-) -> Result<(), AppError> {
-    let brand = resources
-        .provider_registry
-        .get_descriptor(provider)
-        .map_or_else(|| provider.to_owned(), |d| d.display_name().to_owned());
-    require_notice_accepted(
-        &resources.repos,
-        tenant_id.as_uuid(),
-        user_id,
-        provider,
-        &brand,
-        tos_consent,
-    )
-    .await
 }
 
 /// Handle mobile OAuth initiation
@@ -867,7 +831,16 @@ pub(crate) async fn handle_mobile_oauth_init(
             .into_response());
     }
     let tos_consent = query.get("tos_consent").is_some_and(|v| v == "true");
-    require_oauth_start_notice(&resources, user_id, tenant_id, &provider, tos_consent).await?;
+    let consents = query_consents(query.get("consents").map(String::as_str));
+    require_oauth_start_notice(
+        &resources,
+        user_id,
+        tenant_id,
+        &provider,
+        tos_consent,
+        &consents,
+    )
+    .await?;
     require_garmin_seat(&resources, user_id, tenant_id, &provider).await?;
 
     // The shared authorize builder: the client the exchange will resolve, the
@@ -992,8 +965,15 @@ pub(crate) async fn handle_oauth_authorize_redirect(
     {
         return Ok((StatusCode::FOUND, [(header::LOCATION, sign_in)]).into_response());
     }
-    require_oauth_start_notice(&resources, user_id, tenant_id, &provider, start.tos_consent)
-        .await?;
+    require_oauth_start_notice(
+        &resources,
+        user_id,
+        tenant_id,
+        &provider,
+        start.tos_consent,
+        &query_consents(start.consents.as_deref()),
+    )
+    .await?;
     // A tab opened for Garmin's consent page lands back on the app's OAuth
     // return with the refusal's reason, never on a JSON body, when the pool
     // filled since its card was drawn.

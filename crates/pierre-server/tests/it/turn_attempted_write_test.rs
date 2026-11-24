@@ -505,6 +505,7 @@ async fn the_field_reaches_the_live_turn_and_the_thread_read() {
                 channel_type: None,
                 about_user_id: None,
                 turn_attempted_write: attempted,
+                ai_consent_sources: &[],
             })
             .await
             .unwrap();

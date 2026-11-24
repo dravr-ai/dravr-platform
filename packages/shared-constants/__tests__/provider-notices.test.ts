@@ -12,10 +12,15 @@ import de from '../../i18n/src/locales/de/translation.json';
 import pt from '../../i18n/src/locales/pt/translation.json';
 import {
   AI_CONSENT_KEYS,
+  GARMIN_CONSENT_KEYS,
+  GARMIN_PRIVACY_URL,
   PROVIDER_NOTICES,
+  TRANSFER_CONSENT_KEYS,
   aiConsentCards,
+  connectConsentsFor,
   noticeRequired,
   syncAuthorizationOwed,
+  transferConsentCards,
 } from '../src/providers';
 
 function lookup(catalogue: unknown, key: string): unknown {
@@ -97,5 +102,38 @@ describe('provider notices', () => {
       { provider: 'strava', connected: true },
     ];
     expect(aiConsentCards(cards).map((card) => card.provider)).toEqual(['whoop', 'whoop_withdrawn']);
+  });
+});
+
+describe('Garmin connect consents (carnet#1157, carnet#1390)', () => {
+  it('offers the AI and transfer boxes on both Garmin cards, and none elsewhere', () => {
+    for (const card of ['sciotte_garmin', 'garmin']) {
+      expect(connectConsentsFor(card).map((c) => c.key)).toEqual(['garmin', 'garmin_workout_transfer']);
+    }
+    for (const card of ['whoop', 'sciotte', 'strava', 'sciotte_trainingpeaks']) {
+      expect(connectConsentsFor(card)).toEqual([]);
+    }
+    const transfer = connectConsentsFor('sciotte_garmin')[1];
+    expect(transfer.linkUrl).toBe(GARMIN_PRIVACY_URL);
+  });
+
+  it('reads every box and the transfer switch as text in all five locales', () => {
+    const keys = [...Object.values(GARMIN_CONSENT_KEYS), ...Object.values(TRANSFER_CONSENT_KEYS)];
+    for (const [locale, catalogue] of Object.entries({ en, fr, es, de, pt })) {
+      for (const key of keys) {
+        const text = lookup(catalogue, key);
+        expect(typeof text, `${locale} ${key}`).toBe('string');
+        expect((text as string).length, `${locale} ${key}`).toBeGreaterThan(3);
+      }
+    }
+  });
+
+  it('lists the transfer switch only for a connected card that carries one', () => {
+    const cards = [
+      { provider: 'sciotte_garmin', connected: true, transfer_consent: false },
+      { provider: 'whoop', connected: true },
+      { provider: 'sciotte_garmin', connected: false, transfer_consent: true },
+    ];
+    expect(transferConsentCards(cards).map((c) => c.provider)).toEqual(['sciotte_garmin']);
   });
 });

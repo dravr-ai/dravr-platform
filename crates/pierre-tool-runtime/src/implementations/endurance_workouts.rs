@@ -789,7 +789,7 @@ impl McpTool<dyn ToolRuntime> for PrescribeWorkoutTool {
                     let note = scope.passed_over_note(&context, &chosen).await?;
                     (chosen.backend, note)
                 };
-                let provider = match scope.calendar_writer(&context, &target).await? {
+                let provider = match scope.calendar_sender(&context, &target).await? {
                     Ok(provider) => provider,
                     Err(refused) => return Ok(refused),
                 };

@@ -186,6 +186,9 @@ macro_rules! impl_chat_row_parsers {
                 turn_attempted_write: row
                     .try_get("turn_attempted_write")
                     .map_err(|e| chat_column_error("turn_attempted_write", &e))?,
+                ai_consent_sources: consent_sources_from_column(
+                    opt("ai_consent_sources")?.as_deref(),
+                ),
             })
         }
 

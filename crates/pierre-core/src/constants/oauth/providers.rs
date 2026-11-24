@@ -14,6 +14,15 @@ use serde::Serialize;
 
 use crate::ai_policy::SourceClass;
 
+mod notices;
+
+pub use notices::{
+    ai_consent_backends, consent_key, is_consent_class, offered_at_connect, provider_notice,
+    provider_terms_version, sensitive_display_name, AtConnect, NoticeAudience, NoticeKind,
+    ProviderNotice, CONSENT_CLASSES, GARMIN_PRIVACY_URL, GARMIN_WORKOUT_TRANSFER, PROVIDER_NOTICES,
+    SENSITIVE_T2, SENSITIVE_T3,
+};
+
 /// Strava fitness provider identifier
 /// Note: Provider name constants are always available for configuration;
 /// the provider implementation is gated behind `provider-strava` feature.
@@ -172,175 +181,6 @@ pub const MIRRORED_PROVIDERS: [&str; MIRROR_PAIRS.len()] = {
 // LIMITATION(registre#713): no `VEKTA` provider identifier, descriptor or factory exists, so a
 // coach or athlete whose sessions, CP/W' and sleep live in Vekta (bearer-key API at
 // api.joinvekta.com) cannot connect it.
-
-/// Which accounts a provider's notice is asked of.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum NoticeAudience {
-    /// Every account that connects the provider, whatever its feature flags:
-    /// the provider's own terms bind every connection, so no admin switch
-    /// can waive the notice.
-    EveryAccount,
-    /// Only the accounts the `provider_exposure_notice` feature flag arms,
-    /// per tenant or per user; an account the flag leaves off is never asked.
-    FlagArmedAccounts,
-}
-
-/// A notice a provider requires the account to accept before connecting.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ProviderNotice {
-    /// The backend the notice guards.
-    pub backend: &'static str,
-    /// The notice's dated version; an acceptance of any other version is no
-    /// acceptance of this one.
-    pub version: &'static str,
-    /// Which accounts are asked for it.
-    pub audience: NoticeAudience,
-    /// What accepting it gives Dravr, and so whether it can be withdrawn.
-    pub kind: NoticeKind,
-}
-
-/// What accepting a provider's notice gives Dravr.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum NoticeKind {
-    /// An acknowledgement of a risk the provider's terms of use create. It
-    /// gates the connect and nothing after it, so there is nothing to
-    /// withdraw: a disconnect ends the exposure.
-    TermsExposure,
-    /// Consent to hand the provider's data — or, for a consent class
-    /// ([`CONSENT_CLASSES`]), every record of its tier — to an AI model,
-    /// which the athlete can withdraw at any time, as simply as it was given.
-    /// While it is not given, or once it is withdrawn, no model reads that
-    /// data; the athlete still sees what is stored and the connection stays
-    /// live.
-    AiConsent,
-}
-
-impl ProviderNotice {
-    /// Whether the account can withdraw its acceptance once given: only a
-    /// consent to AI use can be.
-    #[must_use]
-    pub const fn withdrawable(&self) -> bool {
-        matches!(self.kind, NoticeKind::AiConsent)
-    }
-}
-
-/// Every notice a provider requires the account to accept before connecting,
-/// by the backend it guards.
-///
-/// Two kinds of notice share this table and the one acceptance record behind
-/// it:
-///
-/// - **Terms-of-use exposure.** A provider read by signing in with the
-///   athlete's own account, against its terms of use, states the risk before
-///   the credentials: TrainingPeaks (Terms of Use section 13) and COROS (Terms
-///   of Service sections 4 and 7). Asked of the accounts the
-///   `provider_exposure_notice` flag arms
-///   ([`NoticeAudience::FlagArmedAccounts`]). A [`NoticeKind::TermsExposure`]:
-///   nothing to withdraw.
-/// - **Owner authorization.** WHOOP's API Terms of Use (section 4, effective
-///   2026-10-06) let Dravr store WHOOP Data, compute from it and hand it to
-///   the coach only as the data's owner expressly authorizes; the athlete
-///   gives that authorization before the WHOOP OAuth flow begins, and health
-///   sync keeps no WHOOP record for an account that has not. The terms bind
-///   every WHOOP connection, so it is asked of every account
-///   ([`NoticeAudience::EveryAccount`]). A [`NoticeKind::AiConsent`]: the
-///   athlete withdraws it from the privacy settings or the connection card,
-///   after which no model reads WHOOP data and health sync keeps no new WHOOP
-///   record until it is given again (carnet#726).
-///
-/// - **Consent classes.** [`SENSITIVE_T2`] and [`SENSITIVE_T3`] are no
-///   provider: each is the athlete's consent to AI use of every record of
-///   one sensitivity tier, owl's T2 (labs, clinical records, self-measured
-///   glucose) and T3 (cycle tracking, mental and reproductive health),
-///   whichever provider or import holds it (J2, 2026-11-12). [`SENSITIVE_T3`]
-///   also opens the athlete's notes and their agent's memory to an outside AI
-///   client; Dravr's own agent and the human coach read those either way
-///   (JF 2026-11-20, carnet#1544). A class guards no connect, since nothing
-///   connects under it; it rides this table only so the one AI-consent set
-///   withholds it until given, exactly like WHOOP's authorization, and so one
-///   acceptance record holds every consent to AI use. Asked of every account
-///   ([`NoticeAudience::EveryAccount`]) as a [`NoticeKind::AiConsent`]: given
-///   and withdrawn from the privacy settings. No provider descriptor is
-///   registered under its key ([`is_consent_class`]); a refusal or a route
-///   names it by [`sensitive_display_name`], never by the key.
-///
-/// A connect to one of these backends — a credential login or the start of an
-/// OAuth flow — is refused until an account asked for the notice accepts its
-/// current version; the web and mobile connect surfaces and the hosted pages
-/// show it. An account that accepted a version connects again without being
-/// asked. Bump a provider's version whenever its notice text changes on any
-/// surface or in any locale, so every account is asked again.
-pub const PROVIDER_NOTICES: [ProviderNotice; 5] = [
-    ProviderNotice {
-        backend: SCIOTTE_TRAININGPEAKS,
-        version: "2026-09-24",
-        audience: NoticeAudience::FlagArmedAccounts,
-        kind: NoticeKind::TermsExposure,
-    },
-    ProviderNotice {
-        backend: SCIOTTE_COROS,
-        version: "2026-09-24",
-        audience: NoticeAudience::FlagArmedAccounts,
-        kind: NoticeKind::TermsExposure,
-    },
-    ProviderNotice {
-        backend: WHOOP,
-        version: "2026-09-25",
-        audience: NoticeAudience::EveryAccount,
-        kind: NoticeKind::AiConsent,
-    },
-    ProviderNotice {
-        backend: SENSITIVE_T2,
-        version: "2026-11-20",
-        audience: NoticeAudience::EveryAccount,
-        kind: NoticeKind::AiConsent,
-    },
-    ProviderNotice {
-        backend: SENSITIVE_T3,
-        version: "2026-11-20",
-        audience: NoticeAudience::EveryAccount,
-        kind: NoticeKind::AiConsent,
-    },
-];
-
-/// The consent class of the athlete's T2 records.
-///
-/// Labs, medications, conditions, clinical records and self-measured
-/// glucose, whichever provider or import holds them: while it is not given,
-/// no model and no human coach reads one ([`PROVIDER_NOTICES`]). Its
-/// acceptance is a row of `provider_terms_consents` under this key.
-pub const SENSITIVE_T2: &str = "sensitive_t2";
-
-/// The consent class of the athlete's T3 records.
-///
-/// Cycle tracking, mental, reproductive and substance records, whichever
-/// provider or import holds them: while it is not given, no model and no
-/// human coach reads one. It is also what lets an outside AI client (MCP,
-/// A2A, an API key) read the athlete's notes and their agent's memory,
-/// which Dravr's own agent and the human coach read without it
-/// ([`PROVIDER_NOTICES`]). Its acceptance is a row of
-/// `provider_terms_consents` under this key.
-pub const SENSITIVE_T3: &str = "sensitive_t3";
-
-/// Every consent class [`PROVIDER_NOTICES`] carries.
-pub const CONSENT_CLASSES: [&str; 2] = [SENSITIVE_T2, SENSITIVE_T3];
-
-/// Whether `key` names a consent class rather than a provider.
-#[must_use]
-pub fn is_consent_class(key: &str) -> bool {
-    CONSENT_CLASSES.contains(&key)
-}
-
-/// The name a refusal and a route give a consent class, in place of its key;
-/// `None` for any other key.
-#[must_use]
-pub fn sensitive_display_name(key: &str) -> Option<&'static str> {
-    match key {
-        SENSITIVE_T2 => Some("Health records"),
-        SENSITIVE_T3 => Some("Intimate health records"),
-        _ => None,
-    }
-}
 
 /// The attribution shown beside data a Garmin device recorded.
 ///
@@ -501,31 +341,6 @@ fn device_label(device_name: &str) -> String {
         .collect::<String>()
         .trim_end()
         .to_owned()
-}
-
-/// The backends whose notice is a consent to AI use
-/// ([`NoticeKind::AiConsent`]): while an account has not given it, or once it
-/// withdrew it, no model reads that backend's data.
-pub fn ai_consent_backends() -> impl Iterator<Item = &'static str> {
-    PROVIDER_NOTICES
-        .iter()
-        .filter(|notice| notice.kind == NoticeKind::AiConsent)
-        .map(|notice| notice.backend)
-}
-
-/// The notice `backend` requires, or `None` when the provider asks for none.
-#[must_use]
-pub fn provider_notice(backend: &str) -> Option<&'static ProviderNotice> {
-    PROVIDER_NOTICES
-        .iter()
-        .find(|notice| notice.backend == backend)
-}
-
-/// The current notice version for `backend`, or `None` when the provider
-/// asks for no notice.
-#[must_use]
-pub fn provider_terms_version(backend: &str) -> Option<&'static str> {
-    provider_notice(backend).map(|notice| notice.version)
 }
 
 /// The source key of activities the athlete uploaded as a `.fit` file

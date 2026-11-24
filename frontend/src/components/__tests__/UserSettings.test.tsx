@@ -165,17 +165,20 @@ vi.mock('../SciotteLoginModal', () => ({
     consentRequired,
     historyMode,
     onFallBackToOAuth,
+    consents,
   }: {
     isOpen: boolean;
     target: string;
     consentRequired?: boolean;
     historyMode?: boolean;
     onFallBackToOAuth?: () => void;
+    consents?: readonly string[];
   }) =>
     isOpen ? (
       <div
         data-testid="sciotte-modal"
         data-consent={String(Boolean(consentRequired))}
+        data-consents={(consents ?? []).join(',')}
         data-history-mode={String(Boolean(historyMode))}
       >
         {target}
@@ -225,6 +228,12 @@ function stubConnectNavigation() {
   vi.stubGlobal('location', { ...window.location, assign });
   vi.stubGlobal('open', vi.fn());
   return assign;
+}
+
+// A Garmin connect asks its offered consents first (ConnectConsentDialog);
+// Continue goes on with none ticked, as the athlete may.
+async function continueConsents(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(await screen.findByTestId('connect-consent-continue'));
 }
 
 describe('UserSettings Component', () => {
@@ -1140,6 +1149,7 @@ describe('UserSettings Component', () => {
       });
 
       await user.click(await screen.findByRole('button', { name: 'Connect' }));
+      await continueConsents(user);
 
       await waitFor(() => expect(assign).toHaveBeenCalledWith('/api/oauth/authorize/garmin'));
       expect(window.open).not.toHaveBeenCalled();
@@ -1157,10 +1167,53 @@ describe('UserSettings Component', () => {
       });
 
       await user.click(await screen.findByRole('button', { name: 'Reconnect' }));
+      await continueConsents(user);
 
       expect(await screen.findByTestId('sciotte-modal')).toHaveTextContent('garmin');
       expect(assign).not.toHaveBeenCalled();
       expect(window.open).not.toHaveBeenCalled();
+    });
+
+    it('asks the Garmin consents first, and the authorization carries the boxes ticked (carnet#1157, carnet#1390)', async () => {
+      getProvidersStatus.mockResolvedValue({ providers: [garminCard('oauth')] });
+      const user = userEvent.setup();
+      await act(async () => {
+        renderUserSettings({ initialTab: 'connections', hideTabNav: true });
+      });
+
+      await user.click(await screen.findByRole('button', { name: 'Connect' }));
+      expect(assign).not.toHaveBeenCalled();
+      const ai = await screen.findByTestId('connect-consent-garmin');
+      const transfer = screen.getByTestId('connect-consent-garmin_workout_transfer');
+      expect(ai).not.toBeChecked();
+      expect(transfer).not.toBeChecked();
+      await user.click(transfer);
+      await continueConsents(user);
+
+      await waitFor(() => expect(assign).toHaveBeenCalledWith('/api/oauth/authorize/garmin'));
+      expect(authorizeUrl).toHaveBeenCalledWith('garmin', {
+        tosConsent: false,
+        consents: ['garmin_workout_transfer'],
+      });
+    });
+
+    it('hands the Garmin consents ticked to its credential login', async () => {
+      getProvidersStatus.mockResolvedValue({ providers: [garminCard('mirror')] });
+      const user = userEvent.setup();
+      await act(async () => {
+        renderUserSettings({ initialTab: 'connections', hideTabNav: true });
+      });
+
+      await user.click(await screen.findByRole('button', { name: 'Connect' }));
+      await user.click(await screen.findByTestId('connect-consent-garmin'));
+      await user.click(screen.getByTestId('connect-consent-garmin_workout_transfer'));
+      await continueConsents(user);
+
+      expect(await screen.findByTestId('sciotte-modal')).toHaveAttribute(
+        'data-consents',
+        'garmin,garmin_workout_transfer',
+      );
+      expect(assign).not.toHaveBeenCalled();
     });
 
     it('opens the Garmin credential login once the Garmin pool is exhausted', async () => {
@@ -1171,6 +1224,7 @@ describe('UserSettings Component', () => {
       });
 
       await user.click(await screen.findByRole('button', { name: 'Connect' }));
+      await continueConsents(user);
 
       expect(await screen.findByTestId('sciotte-modal')).toHaveTextContent('garmin');
       expect(assign).not.toHaveBeenCalled();
@@ -1331,6 +1385,7 @@ describe('UserSettings Component', () => {
       const user = userEvent.setup();
 
       await user.click(screen.getByTestId('provider-connect-sciotte_garmin'));
+      await continueConsents(user);
       expect(await screen.findByTestId('sciotte-modal')).toHaveTextContent('garmin');
       await user.click(screen.getByTestId('sign-in-unavailable'));
 
@@ -1590,7 +1645,9 @@ describe('UserSettings Component', () => {
       expect(await screen.findByTestId('provider-reconnect-needed-sciotte_garmin')).toHaveTextContent(
         'Reconnect needed',
       );
-      await userEvent.setup().click(screen.getByRole('button', { name: 'Reconnect' }));
+      const user = userEvent.setup();
+      await user.click(screen.getByRole('button', { name: 'Reconnect' }));
+      await continueConsents(user);
 
       expect(await screen.findByTestId('sciotte-modal')).toHaveTextContent('garmin');
       expect(assign).not.toHaveBeenCalled();

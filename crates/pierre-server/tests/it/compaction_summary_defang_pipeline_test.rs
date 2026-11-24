@@ -224,6 +224,7 @@ async fn long_conversation(fx: &Fixture) -> String {
             channel_type: None,
             about_user_id: None,
             turn_attempted_write: None,
+            ai_consent_sources: &[],
         })
         .await
         .unwrap();

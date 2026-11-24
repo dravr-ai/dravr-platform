@@ -37,6 +37,7 @@ use dravr_tronc::dates::{Elapsed, Timestamp};
 use dravr_tronc::mcp::tool::McpTool;
 use pierre_core::config::profiles::FitnessLevel;
 use pierre_core::constants::oauth::providers::{SENSITIVE_T3, STRAVA};
+use pierre_core::constants::oauth_providers::NoticeKind;
 use pierre_core::models::activity::ActivityBuilder;
 use pierre_core::models::periodization::{ReadinessLevel, WorkoutPurpose};
 use pierre_core::models::{
@@ -84,11 +85,12 @@ async fn create_test_user(executor: &UniversalToolExecutor) -> Result<(Uuid, Str
     // This executor declares no transport, so it serves as an outside client
     // does: the dossier carries the agent's memory (T3), which such a client
     // reads only under the athlete's `sensitive_t3` (carnet#1544).
-    provider_notice::grant_ai_consent(
+    provider_notice::grant_consent(
         executor.resources.repos(),
         user_tenant.id.as_uuid(),
         user_id,
         SENSITIVE_T3,
+        NoticeKind::AiConsent,
         "Intimate health records",
     )
     .await?;

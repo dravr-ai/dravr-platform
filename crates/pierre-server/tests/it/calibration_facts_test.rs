@@ -65,6 +65,7 @@ async fn seed(
             valid_until: None,
             source_msg_id: None,
             transport_policy: TransportPolicy::AnyTransport,
+            ai_consent_sources: &[],
         })
         .await?;
     Ok(fact.id)
@@ -334,9 +335,12 @@ async fn calibration_answers_survive_a_flood_of_newer_conversation_facts() -> Re
 
     let dossier = repos
         .dossier
-        .compose_dossier(tenant, user_uuid, TransportPolicy::FirstPartyOnly, &|_| {
-            true
-        })
+        .compose_dossier(
+            tenant,
+            user_uuid,
+            TransportPolicy::FirstPartyOnly,
+            &|_, _| true,
+        )
         .await?;
     let objects: Vec<&str> = dossier
         .pillars
@@ -403,9 +407,12 @@ async fn the_by_kind_guarantee_still_covers_agent_authored_medical_facts() -> Re
 
     let dossier = repos
         .dossier
-        .compose_dossier(tenant, user_uuid, TransportPolicy::FirstPartyOnly, &|_| {
-            true
-        })
+        .compose_dossier(
+            tenant,
+            user_uuid,
+            TransportPolicy::FirstPartyOnly,
+            &|_, _| true,
+        )
         .await?;
     assert!(
         dossier

@@ -104,6 +104,13 @@ interface SciotteLoginModalProps {
    * show theirs, for the athlete to type again.
    */
   onFallBackToOAuth?: () => void;
+  /**
+   * The consents the athlete ticked on the connect's consent sheet before
+   * this window opened (Garmin's AI use and workout transfer): the login
+   * carries them, and the window asks for none itself (carnet#1157,
+   * carnet#1390).
+   */
+  consents?: readonly string[];
 }
 
 /**
@@ -243,6 +250,7 @@ export function SciotteLoginModal({
   consentRequired = false,
   historyMode = false,
   onFallBackToOAuth,
+  consents,
 }: SciotteLoginModalProps) {
   const { t } = useTranslation();
   // Closing the window ends the sign-in it started, on the server too.
@@ -429,12 +437,15 @@ export function SciotteLoginModal({
   const handleBrowserSignedIn = useCallback(async (cookies: BrowserSigninCookie[]) => {
     setPhase('logging-in');
     try {
-      applyLoginAnswer(await oauthApi.browserSignin(target, cookies, { tosConsent: consentAccepted }));
+      applyLoginAnswer(await oauthApi.browserSignin(target, cookies, {
+        tosConsent: consentAccepted,
+        ...(consents ? { consents } : {}),
+      }));
     } catch (err) {
       setError(refusalMessage(err, 'auth.loginFailed'));
       setPhase('error');
     }
-  }, [applyLoginAnswer, consentAccepted, refusalMessage, target]);
+  }, [applyLoginAnswer, consentAccepted, consents, refusalMessage, target]);
   const handleBrowserError = useCallback((err: unknown) => {
     setError(refusalMessage(err, 'auth.loginFailed'));
     setPhase('error');
@@ -467,6 +478,7 @@ export function SciotteLoginModal({
         method,
         target,
         ...(notice ? { tos_consent: consentAccepted } : {}),
+        ...(consents ? { consents } : {}),
       }, { signal, attemptId: attemptId() });
       applyLoginAnswer(data);
     } catch (err) {
@@ -476,7 +488,7 @@ export function SciotteLoginModal({
     } finally {
       if (!signal.aborted) setIsLoading(false);
     }
-  }, [email, password, method, target, notice, consentAccepted, platformName, beginRequest, attemptId, applyLoginAnswer, applyLoginRefusal, t]);
+  }, [email, password, method, target, notice, consentAccepted, consents, platformName, beginRequest, attemptId, applyLoginAnswer, applyLoginRefusal, t]);
 
   // What the takeover page says: connected, or over — with the answer it
   // ended with, read as the login's own, or with none, which asks the athlete

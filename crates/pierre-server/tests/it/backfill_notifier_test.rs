@@ -565,6 +565,7 @@ impl PlatformPost for FakePost {
                     channel_type: None,
                     about_user_id: None,
                     turn_attempted_write: None,
+                    ai_consent_sources: Vec::new(),
                 },
                 blocks,
                 finish_reason: Some("stop".to_owned()),
@@ -615,6 +616,7 @@ async fn push_sends_the_chart_and_never_its_marker() {
             channel_type: None,
             about_user_id: None,
             turn_attempted_write: None,
+            ai_consent_sources: &[],
         })
         .await
         .unwrap();
@@ -742,6 +744,7 @@ async fn push_renders_deterministic_list_when_reentry_produces_no_list() {
             channel_type: None,
             about_user_id: None,
             turn_attempted_write: None,
+            ai_consent_sources: &[],
         })
         .await
         .unwrap();
@@ -857,6 +860,7 @@ async fn push_re_asks_the_newest_question_in_the_conversation() {
                 channel_type: None,
                 about_user_id: None,
                 turn_attempted_write: None,
+                ai_consent_sources: &[],
             })
             .await
             .unwrap();
@@ -951,6 +955,7 @@ async fn push_prepends_activity_list_to_agent_reply() {
             channel_type: None,
             about_user_id: None,
             turn_attempted_write: None,
+            ai_consent_sources: &[],
         })
         .await
         .unwrap();
@@ -1056,6 +1061,7 @@ async fn push_caps_long_activity_list_for_small_screens() {
             channel_type: None,
             about_user_id: None,
             turn_attempted_write: None,
+            ai_consent_sources: &[],
         })
         .await
         .unwrap();
@@ -1508,6 +1514,7 @@ async fn push_into_an_in_app_conversation_delivers_the_agents_answer() {
             channel_type: None,
             about_user_id: None,
             turn_attempted_write: None,
+            ai_consent_sources: &[],
         })
         .await
         .unwrap();
@@ -1598,6 +1605,7 @@ async fn a_withheld_in_app_post_falls_back_to_the_list() {
             channel_type: None,
             about_user_id: None,
             turn_attempted_write: None,
+            ai_consent_sources: &[],
         })
         .await
         .unwrap();
@@ -1765,6 +1773,7 @@ async fn push_answers_in_an_adopted_personal_thread_when_asked_in_the_app() {
             channel_type: Some("web"),
             about_user_id: None,
             turn_attempted_write: None,
+            ai_consent_sources: &[],
         })
         .await
         .unwrap();

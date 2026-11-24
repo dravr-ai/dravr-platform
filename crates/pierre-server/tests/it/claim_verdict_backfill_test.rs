@@ -117,6 +117,7 @@ async fn seed_assistant_message(db: &Database, content: &str) -> Result<(TenantI
             channel_type: None,
             about_user_id: None,
             turn_attempted_write: None,
+            ai_consent_sources: &[],
         })
         .await?;
 

@@ -52,6 +52,14 @@ pub(crate) const GET_PROVIDER_TERMS_SQL: &str = r"
 pub(crate) const WITHDRAW_PROVIDER_TERMS_SQL: &str = r"
         UPDATE provider_terms_consents SET withdrawn_at = CURRENT_TIMESTAMP
         WHERE user_id = $1 AND provider = $2 AND withdrawn_at IS NULL
+        RETURNING version
+        ";
+
+/// Append one answer to the account's consent history: `$4` is `granted` or
+/// `withdrawn`, `$3` the version granted or the one standing when withdrawn.
+pub(crate) const APPEND_CONSENT_EVENT_SQL: &str = r"
+        INSERT INTO provider_consent_events (user_id, provider, version, event, occurred_at)
+        VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
         ";
 
 /// Set the user's preferred locale.
@@ -141,8 +149,9 @@ macro_rules! impl_user_preferences {
             ensure_updated(result.rows_affected(), user_id)
         }
 
-        /// Record that the user accepted `provider`'s exposure notice
-        /// `version`, stamping the time.
+        /// Record that the user accepted `provider`'s notice `version`,
+        /// stamping the time, and append the grant to the account's consent
+        /// history, in one transaction.
         ///
         /// The record belongs to the account, not to a provider session: it is
         /// the account's answer to the notice, so a disconnect leaves it and a
@@ -158,18 +167,28 @@ macro_rules! impl_user_preferences {
             provider: &str,
             version: &str,
         ) -> AppResult<()> {
+            let failed = |e: sqlx::Error| {
+                AppError::database(format!(
+                    "Failed to record the {provider} notice consent: {e}"
+                ))
+            };
+            let mut tx = pool.begin().await.map_err(failed)?;
             sqlx::query(SET_PROVIDER_TERMS_SQL)
                 .bind($ids::bind(user_id))
                 .bind(provider)
                 .bind(version)
-                .execute(pool)
+                .execute(&mut *tx)
                 .await
-                .map_err(|e| {
-                    AppError::database(format!(
-                        "Failed to record the {provider} notice consent: {e}"
-                    ))
-                })?;
-            Ok(())
+                .map_err(failed)?;
+            sqlx::query(APPEND_CONSENT_EVENT_SQL)
+                .bind($ids::bind(user_id))
+                .bind(provider)
+                .bind(version)
+                .bind("granted")
+                .execute(&mut *tx)
+                .await
+                .map_err(failed)?;
+            tx.commit().await.map_err(failed)
         }
 
         /// Withdraw the user's standing acceptance of `provider`'s notice.
@@ -178,7 +197,9 @@ macro_rules! impl_user_preferences {
         /// withdrawal; the acceptance reads as none from then on, until the
         /// user accepts again.
         ///
-        /// Returns whether an acceptance was standing.
+        /// Returns whether an acceptance was standing; only a standing one
+        /// appends a withdrawal to the account's consent history, in the same
+        /// transaction.
         ///
         /// # Errors
         ///
@@ -188,17 +209,32 @@ macro_rules! impl_user_preferences {
             user_id: Uuid,
             provider: &str,
         ) -> AppResult<bool> {
-            let result = sqlx::query(WITHDRAW_PROVIDER_TERMS_SQL)
+            let failed = |e: sqlx::Error| {
+                AppError::database(format!(
+                    "Failed to withdraw the {provider} notice consent: {e}"
+                ))
+            };
+            let mut tx = pool.begin().await.map_err(failed)?;
+            let standing: Option<String> = sqlx::query_scalar(WITHDRAW_PROVIDER_TERMS_SQL)
                 .bind($ids::bind(user_id))
                 .bind(provider)
-                .execute(pool)
+                .fetch_optional(&mut *tx)
                 .await
-                .map_err(|e| {
-                    AppError::database(format!(
-                        "Failed to withdraw the {provider} notice consent: {e}"
-                    ))
-                })?;
-            Ok(result.rows_affected() > 0)
+                .map_err(failed)?;
+            let Some(version) = standing else {
+                tx.commit().await.map_err(failed)?;
+                return Ok(false);
+            };
+            sqlx::query(APPEND_CONSENT_EVENT_SQL)
+                .bind($ids::bind(user_id))
+                .bind(provider)
+                .bind(version)
+                .bind("withdrawn")
+                .execute(&mut *tx)
+                .await
+                .map_err(failed)?;
+            tx.commit().await.map_err(failed)?;
+            Ok(true)
         }
 
         /// The notice version the user accepted for `provider` and has not

@@ -442,6 +442,7 @@ async fn activity_refresh_inputs_print_the_size_of_the_history_never_its_text() 
         channel_type: Some("web".to_owned()),
         about_user_id: None,
         turn_attempted_write: None,
+        ai_consent_sources: Vec::new(),
     }];
     let inputs = ActivityRefreshInputs {
         executor: &executor,
@@ -473,6 +474,7 @@ async fn a_compaction_context_prints_the_size_of_the_transcript_never_its_text()
         conversation_id: "conv-1",
         source_ids: &source_ids,
         source_members: &vec![None; source_ids.len()],
+        source_consents: &vec![Vec::new(); source_ids.len()],
         llm_messages: &mut llm_messages,
         summary_for_prompt: str::to_owned,
     };

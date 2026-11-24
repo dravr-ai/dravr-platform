@@ -189,6 +189,12 @@ pub struct Commitment {
     /// Rows written before the stamp read as unstamped.
     #[serde(default, skip_serializing)]
     pub transport_policy: TransportPolicy,
+    /// The AI-consent keys of the provider data the turn that recorded it, and
+    /// the sessions its verdict counted, were drawn from (carnet#1157): once
+    /// the athlete withdraws one, no prompt reads the commitment. Empty for
+    /// commitments written before the column.
+    #[serde(default, skip_serializing)]
+    pub ai_consent_sources: Vec<String>,
 }
 
 impl Commitment {

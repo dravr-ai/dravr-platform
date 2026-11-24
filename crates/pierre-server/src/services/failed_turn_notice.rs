@@ -169,6 +169,7 @@ async fn write_notice(thread: &TurnThread<'_>, why: FailedTurn, locale: &str) {
         channel_type: None,
         about_user_id: None,
         turn_attempted_write: None,
+        ai_consent_sources: &[],
     };
     if let Err(e) = persist_assistant_response(
         repos.chat.as_ref(),

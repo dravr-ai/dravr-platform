@@ -86,6 +86,7 @@ async fn add(thread: &Thread, role: &str, content: &str, finish_reason: Option<&
             channel_type: None,
             about_user_id: None,
             turn_attempted_write: None,
+            ai_consent_sources: &[],
         })
         .await
         .unwrap()
@@ -578,6 +579,7 @@ mod in_app {
                         channel_type: None,
                         about_user_id: None,
                         turn_attempted_write: None,
+                        ai_consent_sources: Vec::new(),
                     },
                     blocks: vec![ReplyBlock::Prose {
                         text: "Strava is not answering right now.".to_owned(),
@@ -670,6 +672,7 @@ mod in_app {
                     channel_type: None,
                     about_user_id: None,
                     turn_attempted_write: None,
+                    ai_consent_sources: &[],
                 })
                 .await
                 .unwrap()

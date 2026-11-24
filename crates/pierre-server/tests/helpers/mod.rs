@@ -29,6 +29,8 @@ pub(crate) mod drained_turn;
 /// The first-party sign-in: authorization code + PKCE through the hosted login page.
 #[cfg(feature = "protocol-rest")]
 pub(crate) mod first_party_sign_in;
+/// The athlete's Garmin AI consent, without which no model reads Garmin data.
+pub(crate) mod garmin_consent;
 /// Google's OpenID Connect token endpoint and signing keys, for the hosted Google sign-in.
 pub(crate) mod google_oidc;
 /// A Google-shaped signing identity: openssl key + certificate, tokens minted with it.

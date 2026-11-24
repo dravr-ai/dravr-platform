@@ -267,7 +267,13 @@ export {
 export { type UseFeatureFlagsResult, createFeatureFlagsHook } from './featureFlagsHook';
 export { type UseHomePreferencesResult, createHomePreferencesHook } from './homePreferencesHook';
 // Consent to AI use of one provider's data: the privacy toggle and the connection card share it (carnet#726).
-export { type AiConsentChange, createAiConsentHook, createAiConsentStateHook } from './aiConsentHook';
+export {
+  type AiConsentChange,
+  type TransferConsentChange,
+  createAiConsentHook,
+  createAiConsentStateHook,
+  createTransferConsentHook,
+} from './aiConsentHook';
 // The "Who read your data" feed, and the one Connected-apps key and revoke it shares with both Connected-apps screens (carnet#1543).
 export {
   type AccessFeedApiKeyGroup,

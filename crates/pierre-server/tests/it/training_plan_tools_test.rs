@@ -615,7 +615,7 @@ async fn save_full_plan_then_get_roundtrip_with_goal_fact_writeback() -> Result<
             TenantId::from_uuid(Uuid::parse_str(&tenant_id)?),
             user_id,
             TransportPolicy::FirstPartyOnly,
-            &|_| true,
+            &|_, _| true,
         )
         .await?;
     let has_goal = format!("{dossier:?}").contains("Big Red");
@@ -1093,6 +1093,7 @@ async fn a_real_but_non_goal_fact_id_is_not_linked() -> Result<()> {
             valid_until: None,
             source_msg_id: None,
             transport_policy: TransportPolicy::AnyTransport,
+            ai_consent_sources: &[],
         })
         .await?;
 
@@ -1459,6 +1460,7 @@ async fn seed_agnostic_goal_fact(
             valid_until: None,
             source_msg_id: None,
             transport_policy: TransportPolicy::AnyTransport,
+            ai_consent_sources: &[],
         })
         .await?;
     Ok(fact.id)
@@ -1560,6 +1562,7 @@ async fn a_goal_fact_ranked_below_the_list_cap_is_still_the_athletes_own() -> Re
                 valid_until: None,
                 source_msg_id: None,
                 transport_policy: TransportPolicy::AnyTransport,
+                ai_consent_sources: &[],
             })
             .await?;
     }

@@ -97,6 +97,7 @@ async fn landed_onboarding_facts(
             Vec::new()
         });
     ai_scope::retain_admitted(&mut landed, |fact| fact.transport_policy);
+    ai_scope::retain_consented(&mut landed, |fact| &fact.ai_consent_sources, true);
     landed
 }
 

@@ -50,7 +50,10 @@
 //! call is made only once Garmin reports the athlete granted Dravr
 //! `WORKOUT_IMPORT` (`GET user/permissions`, read once per provider); a
 //! connection without it is refused by name before anything is sent, and a
-//! grant withdrawn since (Garmin's `412`) is refused the same way.
+//! grant withdrawn since (Garmin's `412`) is refused the same way. Before
+//! that, Dravr's own calendar writer refuses to send anything until the
+//! athlete let Dravr send Garmin their workouts (Garmin's agreement §4.5,
+//! carnet#1390).
 //!
 //! The schedule listing names each entry's workout, schedule and day and
 //! nothing else, so the reconcile matches its ledger by provider id: an
@@ -686,10 +689,13 @@ impl FitnessProvider for GarminProvider {
         })
     }
 
-    /// LIMITATION(registre#1390): `GarminProvider::push_planned_session` sends without Dravr's own transfer consent.
     /// Create the workout, then schedule it on the session's day. A schedule
     /// that fails takes its workout with it, so the library never holds a
     /// workout of Dravr's that no calendar entry names.
+    ///
+    /// Reached only once the athlete let Dravr send Garmin their workouts:
+    /// the calendar writer every tool builds this provider through refuses a
+    /// send without that consent (carnet#1390).
     #[instrument(
         skip(self, session),
         fields(provider = "garmin", api_call = "push_planned_session")

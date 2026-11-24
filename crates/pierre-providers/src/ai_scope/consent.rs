@@ -31,7 +31,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use dravr_barrage::Tier;
 use pierre_core::ai_policy::Withheld;
 use pierre_core::constants::oauth_providers::{
-    ai_consent_backends, is_consent_class, SENSITIVE_T2, SENSITIVE_T3,
+    ai_consent_backends, consent_key, is_consent_class, NoticeKind, SENSITIVE_T2, SENSITIVE_T3,
 };
 use pierre_core::errors::{AppError, AppResult};
 
@@ -152,23 +152,36 @@ pub fn withheld_providers() -> BTreeSet<String> {
 /// refusal is tallied like a dropped item, so the result carries the neutral
 /// withheld note rather than a bare failure.
 ///
+/// `provider` is the backend's name, so the consent checked is the one that
+/// covers it ([`consent_key`]): the Garmin sign-in capture, read as
+/// `sciotte_garmin`, answers to the athlete's Garmin AI consent like the
+/// official API (JF 2026-11-23, carnet#1157).
+///
 /// # Errors
 ///
 /// [`ErrorCode::ResourceNotFound`](pierre_core::errors::ErrorCode::ResourceNotFound)
 /// when a model or a human coach reads and `provider`'s AI consent is withheld.
 pub fn consented_read(provider: &str) -> AppResult<()> {
     let for_model = exposure().is_some_and(|gate| gate.to_model);
-    if !for_model || !withheld_providers().contains(&provider.to_ascii_lowercase()) {
+    let provider = provider.to_ascii_lowercase();
+    let covering = consent_key(&provider, NoticeKind::AiConsent);
+    let key = covering.map_or(provider, str::to_owned);
+    if !for_model || !withheld_providers().contains(&key) {
+        // Served under the athlete's consent: what is derived from it names
+        // the key, so a later withdrawal reaches it (carnet#1157).
+        if covering.is_some() {
+            super::derived_consent::note_consent_key(&key);
+        }
         return Ok(());
     }
     let mut withheld = Withheld {
         dropped: 1,
         ..Withheld::default()
     };
-    withheld.sources.insert(provider.to_ascii_lowercase());
+    withheld.sources.insert(key.clone());
     record_withheld(withheld);
     Err(AppError::not_found(format!(
-        "{provider} data is withheld from AI: the athlete has not consented to its AI use"
+        "{key} data is withheld from AI: the athlete has not consented to its AI use"
     )))
 }
 
@@ -335,16 +348,25 @@ mod tests {
 
     #[tokio::test]
     async fn an_ai_read_that_declared_no_consent_withholds_every_ai_consent_provider() {
-        assert!(ai_consent_backends().any(|backend| backend == "whoop"));
+        for backend in ["whoop", "garmin"] {
+            assert!(
+                ai_consent_backends().any(|key| key == backend),
+                "{backend} asks for AI consent"
+            );
+        }
         let (kept, _) = serve_over(
             Transport::WebApp,
-            ai_read(async { filter_activities(&WhoopTerms, week()) }),
+            ai_read(async {
+                let mut activities = week();
+                activities.push(workout("s", "strava"));
+                filter_activities(&WhoopTerms, activities)
+            }),
         )
         .await;
         assert_eq!(
             ids(&kept),
-            vec!["g"],
-            "a forgotten declaration withholds, never hands over"
+            vec!["s"],
+            "a forgotten declaration withholds WHOOP and Garmin, never hands them over"
         );
     }
 
@@ -367,6 +389,96 @@ mod tests {
         }))
         .await;
         assert!(athlete.is_ok(), "outside a model read the athlete reads it");
+    }
+
+    fn garmin_withheld() -> BTreeSet<String> {
+        BTreeSet::from(["garmin".to_owned()])
+    }
+
+    /// A Garmin workout as each connection stamps it: the official API as
+    /// `garmin`, the sign-in capture as `sciotte` with source `garmin`.
+    fn garmin_week() -> Vec<Activity> {
+        let start = Timestamp::parse_from_rfc3339("2026-11-20T06:00:00Z").unwrap();
+        vec![
+            ActivityBuilder::new("api", "Run", SportType::Run, start, 3600, "garmin")
+                .source("garmin")
+                .build(),
+            ActivityBuilder::new("capture", "Run", SportType::Run, start, 3600, "sciotte")
+                .source("garmin")
+                .build(),
+            workout("s", "strava"),
+        ]
+    }
+
+    #[tokio::test]
+    async fn one_garmin_ai_consent_withholds_the_api_and_the_sign_in_alike() {
+        let (kept, withheld) = serve_over(
+            Transport::WebApp,
+            with_ai_consent(
+                garmin_withheld(),
+                ai_read(async { filter_activities(&WhoopTerms, garmin_week()) }),
+            ),
+        )
+        .await;
+        assert_eq!(
+            ids(&kept),
+            vec!["s"],
+            "no Garmin workout reaches the model, from either connection"
+        );
+        assert!(
+            withheld.sources.contains("garmin"),
+            "{:?}",
+            withheld.sources
+        );
+
+        let consented = serve_over(
+            Transport::WebApp,
+            with_ai_consent(
+                BTreeSet::new(),
+                ai_read(async { filter_activities(&WhoopTerms, garmin_week()) }),
+            ),
+        )
+        .await
+        .0;
+        assert_eq!(
+            ids(&consented),
+            vec!["api", "capture", "s"],
+            "bug: a consented athlete's Garmin workouts are withheld"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_untagged_read_of_the_garmin_sign_in_answers_to_the_garmin_consent() {
+        let (refused, tally) = serve_over(
+            Transport::WebApp,
+            with_ai_consent(
+                garmin_withheld(),
+                ai_read(async { consented_read("sciotte_garmin") }),
+            ),
+        )
+        .await;
+        let refused = refused.expect_err("bug: the capture's profile reached a model");
+        assert_eq!(
+            refused.code,
+            ErrorCode::ResourceNotFound,
+            "bug: the refusal is not the withheld-data error"
+        );
+        assert!(
+            refused.message.starts_with("garmin data is withheld"),
+            "the refusal names Garmin, never the backend: {}",
+            refused.message
+        );
+        assert!(tally.sources.contains("garmin"), "{:?}", tally.sources);
+
+        let (consented, _) = serve_over(
+            Transport::WebApp,
+            with_ai_consent(
+                BTreeSet::new(),
+                ai_read(async { consented_read("sciotte_garmin") }),
+            ),
+        )
+        .await;
+        assert!(consented.is_ok(), "a consented athlete's model reads it");
     }
 
     fn t2_withheld() -> BTreeSet<String> {

@@ -79,7 +79,7 @@ pub async fn inject_okf_bundle(
             tenant_id,
             user_id,
             ai_scope::readable_policy(),
-            &ai_scope::admit_derived,
+            &ai_scope::admit_memory,
         )
         .await
     {
@@ -275,9 +275,12 @@ pub async fn inject_playbooks(
         .await
     {
         // A playbook learned from first-party-only data stays out of an
-        // external turn (carnet#769).
+        // external turn (carnet#769). A playbook is the agent's memory of
+        // what worked: none naming a withdrawn consent, or data kept out of
+        // AI memory, reaches the prompt (carnet#1157, #1158).
         Ok(mut p) => {
             ai_scope::retain_admitted(&mut p, |playbook| playbook.transport_policy);
+            ai_scope::retain_consented(&mut p, |playbook| &playbook.ai_consent_sources, true);
             p
         }
         Err(e) => {

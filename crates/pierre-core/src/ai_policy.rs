@@ -391,7 +391,7 @@ impl Withheld {
     /// the first of `reasons`; a note may carry both.
     #[must_use]
     pub fn to_note(&self) -> Value {
-        const PROVIDER_TERMS: &str = "Some of this athlete's data is withheld from AI, by the terms of the service it came from or because the athlete has not consented to AI use of that service's data. The athlete can still see it in the app; do not guess its contents.";
+        const PROVIDER_TERMS: &str = "Some of this athlete's data is withheld from AI, by the terms of the service it came from or because the athlete has not consented to AI use of that service's data. Where it is a missing consent, only the athlete can give it, in Dravr's Privacy & Data settings under AI use of your data. The athlete can still see it in the app; do not guess its contents.";
         const SENSITIVE_TIER: &str = "Some of this athlete's sensitive records (health records, or their notes and their agent's memory) are withheld because the athlete keeps them from AI. Only the athlete can allow it, in Dravr's Privacy & Data settings under Sensitive health records. The athlete can still see them in the app; do not guess their contents.";
         let mut reasons = Vec::new();
         let mut notes = Vec::new();

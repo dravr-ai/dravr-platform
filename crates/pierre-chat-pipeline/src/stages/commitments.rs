@@ -119,9 +119,16 @@ pub async fn inject_commitments(
         .await
     {
         // A commitment recorded from first-party-only data stays out of an
-        // external turn, and stamps a first-party one (carnet#769).
+        // external turn, and stamps a first-party one (carnet#769); one drawn
+        // from data whose AI consent the athlete withdrew, or never gave,
+        // stays out of every prompt (carnet#1157).
         Ok(mut list) => {
             ai_scope::retain_admitted(&mut list, |commitment| commitment.transport_policy);
+            ai_scope::retain_consented(
+                &mut list,
+                |commitment| &commitment.ai_consent_sources,
+                false,
+            );
             list
         }
         Err(e) => {

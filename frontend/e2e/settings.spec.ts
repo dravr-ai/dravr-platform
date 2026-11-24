@@ -11,6 +11,7 @@ import {
   signInThroughHostedPage,
   SIGN_IN_BUTTON,
   pickViewModeAtSignIn,
+  answerConnectConsents,
 } from './test-helpers';
 
 // Helper to set up mocks for an authenticated user session
@@ -880,6 +881,9 @@ test.describe('Settings Page - User Mode', () => {
 
     await page.getByRole('button', { name: 'Data Providers' }).click();
     await page.getByTestId('provider-connect-sciotte_garmin').click();
+    // The reconnect asks its offered consents first; the transfer box ticked
+    // there must reach the OAuth the sign-in falls back to.
+    await answerConnectConsents(page, ['garmin_workout_transfer']);
     const dialog = page.getByRole('dialog');
     await dialog.getByLabel(/email/i).fill('athlete@example.com');
     await dialog.getByLabel('Password', { exact: true }).fill('not-a-real-password');
@@ -894,6 +898,7 @@ test.describe('Settings Page - User Mode', () => {
     await tab.waitForLoadState();
     expect(new URL(tab.url()).pathname).toBe('/api/oauth/authorize/garmin');
     expect(new URL(tab.url()).searchParams.get('sign_in_blocked')).toBe('true');
+    expect(new URL(tab.url()).searchParams.get('consents')).toBe('garmin_workout_transfer');
 
     // Settings stays where the athlete was, the window closed.
     await expect(dialog).toBeHidden();

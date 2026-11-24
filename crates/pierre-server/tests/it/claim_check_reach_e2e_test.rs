@@ -45,6 +45,7 @@ use tower::ServiceExt;
 use uuid::Uuid;
 
 use crate::common::{create_test_server_resources, create_test_user_with_plan};
+use crate::helpers::garmin_consent::give_garmin_ai_consent;
 
 /// A provider whose terms let its data travel over every transport.
 const OPEN: &str = "openrunner";
@@ -654,6 +655,10 @@ async fn verify_claim_never_rests_on_data_the_transport_withholds() {
     let rider = athlete(&resources).await;
     connect(&resources, &rider, RELAY).await;
     hold(&resources, &rider, RELAY, &[relay_ride()]).await;
+    // The relayed ride is a Garmin recording, which reaches a model only under
+    // the athlete's Garmin AI consent (carnet#1157): given, so what MCP and
+    // A2A miss below is the transport's doing alone.
+    give_garmin_ai_consent(&resources.common.repos, rider.user_id, rider.tenant).await;
     let claim = "Your ride two days ago covered 63 km.";
 
     // Over MCP and A2A the relay's ride is withheld before the layer sees

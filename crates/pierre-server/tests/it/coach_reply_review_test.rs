@@ -265,6 +265,7 @@ async fn agent_reply(
             channel_type: None,
             about_user_id: None,
             turn_attempted_write: None,
+            ai_consent_sources: &[],
         })
         .await
         .unwrap();
@@ -867,6 +868,7 @@ async fn deleting_the_athletes_account_reaches_what_their_coach_holds_about_them
             channel_type: None,
             about_user_id: None,
             turn_attempted_write: None,
+            ai_consent_sources: &[],
         })
         .await
         .unwrap();

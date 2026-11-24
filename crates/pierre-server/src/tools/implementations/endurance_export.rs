@@ -258,7 +258,7 @@ impl McpTool<dyn ToolRuntime> for ExportDossierTool {
                     tenant_id,
                     user_id,
                     ai_scope::readable_policy(),
-                    &ai_scope::admit_derived,
+                    &ai_scope::admit_memory,
                 )
                 .await?;
             // The durable facts are what the agent remembered, as

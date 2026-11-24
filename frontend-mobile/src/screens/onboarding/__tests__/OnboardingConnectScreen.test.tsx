@@ -187,6 +187,15 @@ describe('OnboardingConnectScreen — TrainingPeaks', () => {
   });
 });
 
+/**
+ * Tap Garmin's Connect and continue past its consent sheet with neither box
+ * ticked (carnet#1157, carnet#1390).
+ */
+async function connectGarmin() {
+  fireEvent.press(await screen.findByLabelText('Connect Garmin'));
+  fireEvent.press(await screen.findByTestId('connect-consent-continue'));
+}
+
 describe('OnboardingConnectScreen — Garmin follows the seat recommendation', () => {
   // The user-facing Garmin row (carnet#1155).
   const garminCard = (recommended_backend: 'oauth' | 'mirror') => ({
@@ -212,9 +221,11 @@ describe('OnboardingConnectScreen — Garmin follows the seat recommendation', (
     openAuthSessionAsync.mockReturnValue(new Promise(() => {}));
 
     renderScreen();
-    fireEvent.press(await screen.findByLabelText('Connect Garmin'));
+    await connectGarmin();
 
-    await waitFor(() => expect(initMobileOAuth).toHaveBeenCalledWith('garmin', expect.any(String), expect.anything()));
+    await waitFor(() =>
+      expect(initMobileOAuth).toHaveBeenCalledWith('garmin', expect.any(String), expect.objectContaining({ consents: [] })),
+    );
     expect(screen.queryByText(/sciotte-modal:garmin/)).toBeNull();
   });
 
@@ -222,7 +233,7 @@ describe('OnboardingConnectScreen — Garmin follows the seat recommendation', (
     getProvidersStatus.mockResolvedValue({ providers: [garminCard('mirror')] });
 
     renderScreen();
-    fireEvent.press(await screen.findByLabelText('Connect Garmin'));
+    await connectGarmin();
 
     expect(await screen.findByText(/sciotte-modal:garmin/)).toBeTruthy();
     expect(initMobileOAuth).not.toHaveBeenCalled();
@@ -234,7 +245,7 @@ describe('OnboardingConnectScreen — Garmin follows the seat recommendation', (
     openAuthSessionAsync.mockReturnValue(new Promise(() => {}));
 
     renderScreen();
-    fireEvent.press(await screen.findByLabelText('Connect Garmin'));
+    await connectGarmin();
     expect(await screen.findByText(/sciotte-modal:garmin/)).toBeTruthy();
     expect(initMobileOAuth).not.toHaveBeenCalled();
     fireEvent.press(screen.getByTestId('sciotte-modal-unavailable'));
@@ -283,7 +294,7 @@ describe('OnboardingConnectScreen — a Garmin grant whose history is needed (ca
     linkingParse.mockReturnValue({ queryParams: { success: 'true' } });
 
     renderScreen();
-    fireEvent.press(await screen.findByLabelText('Connect Garmin'));
+    await connectGarmin();
 
     expect(await screen.findByText('sciotte-modal:garmin:history')).toBeTruthy();
   });
@@ -296,7 +307,7 @@ describe('OnboardingConnectScreen — a Garmin grant whose history is needed (ca
     linkingParse.mockReturnValue({ queryParams: { success: 'true' } });
 
     renderScreen();
-    fireEvent.press(await screen.findByLabelText('Connect Garmin'));
+    await connectGarmin();
 
     await waitFor(() => expect(getProvidersStatus).toHaveBeenCalledTimes(2));
     expect(screen.queryByText(/sciotte-modal:garmin/)).toBeNull();
@@ -308,7 +319,7 @@ describe('OnboardingConnectScreen — a Garmin grant whose history is needed (ca
     linkingParse.mockReturnValue({ queryParams: { success: 'false', error: 'denied' } });
 
     renderScreen();
-    fireEvent.press(await screen.findByLabelText('Connect Garmin'));
+    await connectGarmin();
 
     expect(await screen.findByTestId('provider-error-sciotte_garmin')).toHaveTextContent(
       i18n.t('providers.connectRefused', { provider: 'Garmin' }),
@@ -324,7 +335,7 @@ describe('OnboardingConnectScreen — a Garmin grant whose history is needed (ca
     linkingParse.mockReturnValue({ queryParams: { success: 'false', error: 'no_seat' } });
 
     renderScreen();
-    fireEvent.press(await screen.findByLabelText('Connect Garmin'));
+    await connectGarmin();
 
     expect(await screen.findByText('sciotte-modal:garmin')).toBeTruthy();
     expect(getProvidersStatus).toHaveBeenCalledTimes(2);
@@ -339,7 +350,7 @@ describe('OnboardingConnectScreen — a Garmin grant whose history is needed (ca
     linkingParse.mockReturnValue({ queryParams: { success: 'false', error: 'denied' } });
 
     renderScreen();
-    fireEvent.press(await screen.findByLabelText('Connect Garmin'));
+    await connectGarmin();
 
     expect(await screen.findByTestId('provider-error-sciotte_garmin')).toBeTruthy();
     expect(getProvidersStatus).toHaveBeenCalledTimes(1);
@@ -352,7 +363,7 @@ describe('OnboardingConnectScreen — a Garmin grant whose history is needed (ca
     const consoleError = jest.spyOn(console, 'error').mockImplementation(() => undefined);
 
     renderScreen();
-    fireEvent.press(await screen.findByLabelText('Connect Garmin'));
+    await connectGarmin();
 
     expect(await screen.findByTestId('provider-error-sciotte_garmin')).toBeTruthy();
     expect(screen.queryByText(/sciotte-modal:garmin/)).toBeNull();
@@ -367,7 +378,7 @@ describe('OnboardingConnectScreen — a Garmin grant whose history is needed (ca
     const consoleError = jest.spyOn(console, 'error').mockImplementation(() => undefined);
 
     renderScreen();
-    fireEvent.press(await screen.findByLabelText('Connect Garmin'));
+    await connectGarmin();
 
     expect(await screen.findByText('sciotte-modal:garmin')).toBeTruthy();
     expect(getProvidersStatus).toHaveBeenCalledTimes(2);

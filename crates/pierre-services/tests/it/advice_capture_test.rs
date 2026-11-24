@@ -24,6 +24,7 @@ fn sample_turn() -> CapturedTurn {
         assistant_reply: "...".to_owned(),
         source_msg_id: Some("m1".to_owned()),
         transport_policy: TransportPolicy::AnyTransport,
+        ai_consent_sources: Vec::new(),
     }
 }
 
@@ -142,4 +143,26 @@ fn raw_to_pending_clamps_window_and_defaults_unknowns() {
     // Empty trigger sport string becomes None; garbage kind -> Other.
     assert!(advice.trigger.sport.is_none());
     assert_eq!(advice.trigger.kind, TriggerKind::Other);
+}
+
+// carnet#1157: advice taken from a reply names the consents the reply was
+// drawn from, so a withdrawal reaches the playbook it reinforces.
+#[test]
+fn raw_to_pending_names_the_consents_of_the_reply() {
+    let raw = RawAdvicePublic {
+        trigger_kind: "hrv_drop".to_owned(),
+        trigger_sport: None,
+        trigger_magnitude: "high".to_owned(),
+        intervention_kind: "easy_block".to_owned(),
+        intervention_magnitude: None,
+        outcome_metric: "hrv_delta".to_owned(),
+        outcome_sport: None,
+        window_days: 7,
+    };
+    let turn = CapturedTurn {
+        ai_consent_sources: vec!["whoop".to_owned()],
+        ..sample_turn()
+    };
+    let advice = raw_to_pending(&raw, &turn, Timestamp::now()).expect("maps");
+    assert_eq!(advice.ai_consent_sources, vec!["whoop".to_owned()]);
 }

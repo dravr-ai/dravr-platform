@@ -31,6 +31,7 @@ fn record(id: &str, role: &str, content: &str) -> MessageRecord {
         channel_type: None,
         about_user_id: None,
         turn_attempted_write: None,
+        ai_consent_sources: Vec::new(),
     }
 }
 
@@ -53,6 +54,7 @@ fn block(id: &str, first_id: &str, last_id: &str, summary: &str, seconds: u32) -
             .unwrap(),
         transport_policy: TransportPolicy::AnyTransport,
         about_user_id: None,
+        ai_consent_sources: Vec::new(),
     }
 }
 

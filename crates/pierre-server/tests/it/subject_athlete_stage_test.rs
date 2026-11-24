@@ -815,6 +815,7 @@ async fn a_revoked_consent_replays_no_summary_of_the_thread() {
             last_message_id: &anchor,
             transport_policy: TransportPolicy::AnyTransport,
             about_user_id: None,
+            ai_consent_sources: &[],
         })
         .await
         .unwrap();
@@ -1125,6 +1126,7 @@ async fn an_old_stored_card_reads_back_unchanged() {
             channel_type: None,
             about_user_id: None,
             turn_attempted_write: None,
+            ai_consent_sources: &[],
         })
         .await
         .unwrap();

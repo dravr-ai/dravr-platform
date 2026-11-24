@@ -1,5 +1,5 @@
-// ABOUTME: The privacy screen's consent-to-AI-use switches: one per connected provider whose card carries one, and both sensitive tiers
-// ABOUTME: Withdrawing is one tap and stops AI use at once; the data stays visible and the connection stays live (carnet#726, J2)
+// ABOUTME: The privacy screen's consent switches: AI use per connected provider that asks, both sensitive tiers, and workouts sent to a provider
+// ABOUTME: Withdrawing is one tap and stops it at once; the data stays visible and the connection stays live (carnet#726, carnet#1390)
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
@@ -12,7 +12,9 @@ import {
   SENSITIVE_CONSENT_KEYS,
   SENSITIVE_T2_CONSENT,
   SENSITIVE_T3_CONSENT,
+  TRANSFER_CONSENT_KEYS,
   aiConsentCards,
+  transferConsentCards,
 } from '@pierre/shared-constants';
 import { useTranslation } from '@pierre/i18n';
 import { Section, switchColors } from '../../components/ui';
@@ -20,12 +22,15 @@ import { useThemeColors } from '../../constants/theme';
 import { oauthApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { useAiConsent, useAiConsentState } from '../../hooks/useAiConsent';
+import { useTransferConsent } from '../../hooks/useTransferConsent';
 
 /**
  * One switch per connected provider whose consent to AI use the athlete can
- * give or withdraw, shown while one is connected, and the Sensitive health
- * records switch, shown to every account. Each switch shows the server's
- * answer, reread after every change, never the tap alone.
+ * give or withdraw, shown while one is connected, the Sensitive health
+ * records switch, shown to every account, and one switch per connected
+ * provider Dravr may send planned workouts to (Garmin), shown while one is
+ * connected. Each switch shows the server's answer, reread after every
+ * change, never the tap alone.
  */
 export function AiConsentSection(): React.JSX.Element {
   const { t } = useTranslation();
@@ -39,11 +44,18 @@ export function AiConsentSection(): React.JSX.Element {
   const consent = useAiConsent();
   const sensitive = useAiConsentState(SENSITIVE_T2_CONSENT, isAuthenticated);
   const intimate = useAiConsentState(SENSITIVE_T3_CONSENT, isAuthenticated);
+  const transfer = useTransferConsent();
   const cards = aiConsentCards(data?.providers ?? []);
+  const transferCards = transferConsentCards(data?.providers ?? []);
   const change = (provider: string, allow: boolean) =>
     consent.mutate(
       { provider, allow },
       { onError: () => Alert.alert(t('common.error'), t(AI_CONSENT_KEYS.failed)) },
+    );
+  const changeTransfer = (provider: string, allow: boolean) =>
+    transfer.mutate(
+      { provider, allow },
+      { onError: () => Alert.alert(t('common.error'), t(TRANSFER_CONSENT_KEYS.failed)) },
     );
   const classes = [
     { key: SENSITIVE_T2_CONSENT, label: t(SENSITIVE_CONSENT_KEYS.t2Label), state: sensitive.data },
@@ -107,6 +119,32 @@ export function AiConsentSection(): React.JSX.Element {
           ))}
         </View>
       </Section>
+      {transferCards.length > 0 && (
+        <Section
+          title={t(TRANSFER_CONSENT_KEYS.title)}
+          description={t(TRANSFER_CONSENT_KEYS.blurb)}
+          testID="privacy-section-transfer-consent"
+        >
+          <View className="gap-3 px-4">
+            {transferCards.map((card) => {
+              const label = t(TRANSFER_CONSENT_KEYS.label, { provider: card.display_name });
+              return (
+                <View key={card.provider} className="flex-row items-center justify-between gap-4">
+                  <Text className="flex-1 text-sm text-text-primary">{label}</Text>
+                  <Switch
+                    testID={`transfer-consent-switch-${card.provider}`}
+                    accessibilityLabel={label}
+                    value={card.transfer_consent === true}
+                    onValueChange={(allow) => changeTransfer(card.provider, allow)}
+                    {...switchColors(colors.tokens, card.transfer_consent === true)}
+                    disabled={transfer.isPending}
+                  />
+                </View>
+              );
+            })}
+          </View>
+        </Section>
+      )}
     </>
   );
 }

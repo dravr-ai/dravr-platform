@@ -24,6 +24,7 @@ import { IntervalsIcuLinkModal } from '../../components/IntervalsIcuLinkModal';
 import { OAuthCredentialsSection } from '../../components/OAuthCredentialsSection';
 import { OAuthAppSetupModal } from '../../components/OAuthAppSetupModal';
 import { ProviderNoticeSheet } from '../../components/ProviderNotice';
+import { ConnectConsentSheet } from '../../components/ConnectConsentSheet';
 import { oauthApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { useAiConsent } from '../../hooks/useAiConsent';
@@ -39,6 +40,7 @@ import {
   cardHistoryState,
   cardStatus,
   coachPlatformName,
+  connectConsentsFor,
   connectPlan,
   credentialFallbackOnRefusal,
   delegationRefusalKey,
@@ -97,10 +99,15 @@ export function ConnectionsScreen() {
     provider: ExtendedProviderStatus;
     devPortalUrl: string;
     tosConsent: boolean;
+    consents?: readonly string[];
   } | null>(null);
   // The OAuth provider whose notice is on screen before its flow starts
   // (WHOOP, until the account accepts its owner authorization).
   const [noticeFor, setNoticeFor] = useState<ExtendedProviderStatus | null>(null);
+  // The row whose consent sheet is on screen before its connect starts
+  // (Garmin's AI use and workout transfer, carnet#1157 / carnet#1390), with
+  // the notice acceptance that led there.
+  const [consentFor, setConsentFor] = useState<{ provider: ExtendedProviderStatus; tosConsent: boolean } | null>(null);
   // Tracks the "Connected!" state shown after a successful OAuth completes.
   // Replaces the legacy Alert.alert success dialog and lines the UX up with
   // the web onboarding screen.
@@ -141,14 +148,14 @@ export function ConnectionsScreen() {
    */
   const showRefusal = async (
     cardKey: string,
-    { reload }: { reload: boolean },
+    { reload, consents }: { reload: boolean; consents?: readonly string[] },
   ) => {
     if (reload) {
       const served = await loadConnectionStatus({ quiet: true });
       const card = served.find((p) => p.provider === cardKey);
       const primary = card ? connectPlan(card).primary : null;
       if (card && primary?.kind === 'sign_in') {
-        signIn.open(primary.target, card);
+        signIn.open(primary.target, card, false, false, consents);
         return;
       }
     }
@@ -171,7 +178,18 @@ export function ConnectionsScreen() {
     return () => clearTimeout(timer);
   }, [justConnected]);
 
-  const handleConnect = async (providerId: string, providerName: string, tosConsent = false, signInBlocked = false) => {
+  /**
+   * Start `providerId`'s authorization. `consents` are the keys the athlete
+   * ticked on the connect's consent sheet (Garmin), carried to the start and
+   * to any sign-in a refusal opens instead.
+   */
+  const handleConnect = async (
+    providerId: string,
+    providerName: string,
+    tosConsent = false,
+    signInBlocked = false,
+    consents?: readonly string[],
+  ) => {
     // The row the authorization belongs to: `garmin` and `strava` land on the
     // card of their sign-in backend, whose row shows the spinner.
     const cardKey = cardForSlug(providerId, providers)?.provider ?? providerId;
@@ -185,7 +203,7 @@ export function ConnectionsScreen() {
 
       // Call the mobile OAuth init endpoint which returns the authorization URL
       // and includes the redirect URL in the OAuth state for callback handling
-      const oauthResponse = await oauthApi.initMobileOAuth(providerId, returnUrl, { tosConsent, signInBlocked });
+      const oauthResponse = await oauthApi.initMobileOAuth(providerId, returnUrl, { tosConsent, signInBlocked, consents });
 
       // Open OAuth in an in-app browser (ASWebAuthenticationSession on iOS)
       // The returnUrl is watched for redirects to close the browser automatically
@@ -215,7 +233,7 @@ export function ConnectionsScreen() {
             providerName,
             language,
             t,
-            onCleared: () => void handleConnect(providerId, providerName, tosConsent),
+            onCleared: () => void handleConnect(providerId, providerName, tosConsent, false, consents),
           });
           return;
         }
@@ -247,7 +265,7 @@ export function ConnectionsScreen() {
           if (fallback) {
             signIn.openFor(fallback, providers);
           } else if (refusalReturnsToCard(providerId)) {
-            await showRefusal(cardKey, { reload: error === OAUTH_NO_SEAT });
+            await showRefusal(cardKey, { reload: error === OAUTH_NO_SEAT, consents });
           } else {
             Alert.alert(t('app.connectionFailed'), t('app.failedToConnectReason', { reason: error }));
           }
@@ -275,7 +293,7 @@ export function ConnectionsScreen() {
       }
       if (refusalReturnsToCard(providerId)) {
         console.error('Failed to start the OAuth flow:', err);
-        await showRefusal(cardKey, { reload: refusalReloadsCards(refusalReason(err)) });
+        await showRefusal(cardKey, { reload: refusalReloadsCards(refusalReason(err)), consents });
         return;
       }
       const isCredentialError = errorMessage.toLowerCase().includes('client id not configured')
@@ -363,7 +381,20 @@ export function ConnectionsScreen() {
       setNoticeFor(provider);
       return;
     }
-    continueConnect(provider, false);
+    offerConsents(provider, false);
+  };
+
+  /**
+   * A connect that offers consents it does not require (Garmin) asks for
+   * them on its sheet first, every time; its Continue resumes with the keys
+   * ticked, none included. Any other connect goes on at once.
+   */
+  const offerConsents = (provider: ExtendedProviderStatus, tosConsent: boolean) => {
+    if (connectConsentsFor(provider.provider).length > 0) {
+      setConsentFor({ provider, tosConsent });
+      return;
+    }
+    continueConnect(provider, tosConsent);
   };
 
   // A sign-in that could not complete hands over to its provider's OAuth
@@ -373,15 +404,18 @@ export function ConnectionsScreen() {
     signIn.close();
     // The sign-in could not complete, a reconnect's included: the server must
     // not turn this start back into that sign-in (carnet#1667).
-    void handleConnect(provider, card?.display_name ?? provider, false, true);
+    void handleConnect(provider, card?.display_name ?? provider, false, true, signIn.consents);
   };
 
-  /** The connect `startConnect` resumes once any OAuth notice is accepted. */
-  const continueConnect = (provider: ExtendedProviderStatus, tosConsent: boolean) => {
+  /**
+   * The connect `startConnect` resumes once any OAuth notice is accepted and
+   * any consent sheet answered, with the consents ticked there.
+   */
+  const continueConnect = (provider: ExtendedProviderStatus, tosConsent: boolean, consents?: readonly string[]) => {
     const primary = connectPlan(provider).primary;
     switch (primary.kind) {
       case 'sign_in':
-        signIn.open(primary.target, provider, false, true);
+        signIn.open(primary.target, provider, false, true, consents);
         return;
       case 'intervals':
         if (primary.path === 'authorize') {
@@ -393,9 +427,9 @@ export function ConnectionsScreen() {
       case 'oauth': {
         const devPortalUrl = ownAppDevPortal(provider.provider);
         if (provider.own_app_required && devPortalUrl) {
-          setOwnAppSetup({ provider, devPortalUrl, tosConsent });
+          setOwnAppSetup({ provider, devPortalUrl, tosConsent, consents });
         } else {
-          void handleConnect(primary.provider, provider.display_name, tosConsent);
+          void handleConnect(primary.provider, provider.display_name, tosConsent, false, consents);
         }
         return;
       }
@@ -695,6 +729,7 @@ export function ConnectionsScreen() {
         consentRequired={signIn.consentRequired}
         historyMode={signIn.historyMode}
         onFallBackToOAuth={signIn.fallback ? fallBackToOAuth(signIn.fallback) : undefined}
+        consents={signIn.consents}
       />
 
       <IntervalsIcuLinkModal
@@ -730,7 +765,18 @@ export function ConnectionsScreen() {
         onAccept={() => {
           const accepted = noticeFor;
           setNoticeFor(null);
-          if (accepted) continueConnect(accepted, true);
+          if (accepted) offerConsents(accepted, true);
+        }}
+      />
+
+      <ConnectConsentSheet
+        visible={consentFor !== null}
+        consents={consentFor ? connectConsentsFor(consentFor.provider.provider) : []}
+        onCancel={() => setConsentFor(null)}
+        onContinue={(keys) => {
+          const answered = consentFor;
+          setConsentFor(null);
+          if (answered) continueConnect(answered.provider, answered.tosConsent, keys);
         }}
       />
 
@@ -739,12 +785,12 @@ export function ConnectionsScreen() {
           visible
           onClose={() => setOwnAppSetup(null)}
           onSaved={() => {
-            const { provider, tosConsent } = ownAppSetup;
+            const { provider, tosConsent, consents } = ownAppSetup;
             setOwnAppSetup(null);
             // BYO credentials are persisted; now kick off the standard OAuth
             // dance. handleConnect() will set justConnected on success which
             // surfaces the post-connect spinner.
-            void handleConnect(provider.provider, provider.display_name, tosConsent);
+            void handleConnect(provider.provider, provider.display_name, tosConsent, false, consents);
           }}
           provider={ownAppSetup.provider.provider}
           displayName={ownAppSetup.provider.display_name}

@@ -30,6 +30,7 @@ use pierre_contremaitre::hosted_strings::{
     KEY_HOSTED_SUCCESS_HEADING_GENERIC, KEY_HOSTED_SUCCESS_RETURN_TO_CHAT,
     KEY_SCIOTTE_CODE_REJECTED,
 };
+use pierre_core::constants::oauth_providers;
 use pierre_core::html::{escape_html_attribute, with_hosted_page_css};
 use pierre_providers::backend_resolver;
 use pierre_providers::registry::global_registry;
@@ -44,6 +45,34 @@ use crate::sciotte::{CODE_REJECTED_REASON, LOGIN_CHALLENGE_REASON, LOGIN_FLOW_EX
 const LOGIN_TEMPLATE: &str = include_str!("../templates/sciotte_link_login.html");
 const SUCCESS_TEMPLATE: &str = include_str!("../templates/sciotte_link_success.html");
 const ERROR_TEMPLATE: &str = include_str!("../templates/sciotte_link_error.html");
+const GARMIN_CONSENTS_PARTIAL: &str = include_str!("../templates/garmin_consents.html");
+
+/// `template` with the Garmin connect's consent boxes in its
+/// `{{GARMIN_CONSENTS}}` slot, before the page's strings are filled, so the
+/// boxes read the same catalogue keys as the app's connect dialog.
+pub(crate) fn with_connect_consents(template: &str) -> String {
+    template.replace("{{GARMIN_CONSENTS}}", GARMIN_CONSENTS_PARTIAL)
+}
+
+/// Fill the consent boxes' slots: the keys each box sends, the policy the
+/// transfer box links to, and whether the block starts `shown`. The boxes
+/// always start unticked, and a connect goes on with none ticked (JF
+/// 2026-11-23, carnet#1157, carnet#1390).
+pub(crate) fn fill_connect_consents(page: &str, shown: bool) -> String {
+    page.replace(
+        "{{CONNECT_CONSENTS_HIDDEN}}",
+        if shown { "" } else { " hidden" },
+    )
+    .replace("{{GARMIN_AI_CONSENT_KEY}}", oauth_providers::GARMIN)
+    .replace(
+        "{{GARMIN_TRANSFER_CONSENT_KEY}}",
+        oauth_providers::GARMIN_WORKOUT_TRANSFER,
+    )
+    .replace(
+        "{{GARMIN_PRIVACY_URL}}",
+        oauth_providers::GARMIN_PRIVACY_URL,
+    )
+}
 
 /// The catalogue entry (under `providers`) holding each provider's notice, by
 /// the hosted-login target (TrainingPeaks, COROS) or the OAuth provider id
@@ -155,55 +184,62 @@ pub(crate) fn render_login_page(
     });
 
     let notice = exposure_notice(strings, target);
-    fill_consent(
-        &strings.fill(&with_hosted_page_css(LOGIN_TEMPLATE)),
-        !consent_required,
-        notice.as_ref(),
+    let offers_consents = oauth_providers::offered_at_connect(
+        SciotteTarget::from_target_param(target).provider_name(),
     )
-    .replace(
-        "{{CONSENT_REQUIRED}}",
-        if consent_required { "true" } else { "false" },
-    )
-    .replace("{{ID_LABEL}}", &strings.html(id_label, &[]))
-    .replace("{{ID_TYPE}}", identifier.input_type())
-    .replace("{{ID_AUTOCOMPLETE}}", identifier.autocomplete())
-    .replace(
-        "{{SUBTITLE}}",
-        &strings.html(KEY_HOSTED_COMMON_SUBTITLE_NAMED, &[target_label]),
-    )
-    .replace(
-        "{{LINKED_FROM}}",
-        &strings.html(KEY_HOSTED_COMMON_LINKED_FROM, &[&channel_label]),
-    )
-    .replace(
-        "{{ACCOUNT_TITLE}}",
-        &strings.html(KEY_HOSTED_COMMON_ACCOUNT_TITLE, &[target_label]),
-    )
-    .replace(
-        "{{CREDENTIALS_NOTE}}",
-        &strings.html(KEY_HOSTED_COMMON_CREDENTIALS_NOTE, &[target_label]),
-    )
-    .replace(
-        "{{OTP_LABEL}}",
-        &strings.html(KEY_HOSTED_COMMON_OTP_LABEL_NAMED, &[target_label]),
-    )
-    .replace("{{CONNECTING_TO}}", &escape_html_attribute(&connecting_to))
-    .replace(
-        "{{DATA_AVAILABLE}}",
-        &strings.html(
-            KEY_HOSTED_LOGIN_DATA_AVAILABLE,
-            &[target_label, &channel_label],
-        ),
-    )
-    .replace("{{LINK_TOKEN}}", &escape_html_attribute(link_token))
-    .replace("{{TARGET}}", &escape_html_attribute(target))
-    .replace("{{CHANNEL}}", &escape_html_attribute(channel))
-    .replace("{{FLOW_EXPIRED_REASON}}", LOGIN_FLOW_EXPIRED_REASON)
-    .replace("{{LOGIN_CHALLENGE_REASON}}", LOGIN_CHALLENGE_REASON)
-    .replace("{{CODE_REJECTED_REASON}}", CODE_REJECTED_REASON)
-    // The script's strings go in last, so an escaped token or channel can
-    // never close the script context before them.
-    .replace("{{STRINGS_JSON}}", &script_json(&script_strings))
+    .next()
+    .is_some();
+    let page = fill_connect_consents(
+        &strings.fill(&with_connect_consents(&with_hosted_page_css(
+            LOGIN_TEMPLATE,
+        ))),
+        offers_consents,
+    );
+    fill_consent(&page, !consent_required, notice.as_ref())
+        .replace(
+            "{{CONSENT_REQUIRED}}",
+            if consent_required { "true" } else { "false" },
+        )
+        .replace("{{ID_LABEL}}", &strings.html(id_label, &[]))
+        .replace("{{ID_TYPE}}", identifier.input_type())
+        .replace("{{ID_AUTOCOMPLETE}}", identifier.autocomplete())
+        .replace(
+            "{{SUBTITLE}}",
+            &strings.html(KEY_HOSTED_COMMON_SUBTITLE_NAMED, &[target_label]),
+        )
+        .replace(
+            "{{LINKED_FROM}}",
+            &strings.html(KEY_HOSTED_COMMON_LINKED_FROM, &[&channel_label]),
+        )
+        .replace(
+            "{{ACCOUNT_TITLE}}",
+            &strings.html(KEY_HOSTED_COMMON_ACCOUNT_TITLE, &[target_label]),
+        )
+        .replace(
+            "{{CREDENTIALS_NOTE}}",
+            &strings.html(KEY_HOSTED_COMMON_CREDENTIALS_NOTE, &[target_label]),
+        )
+        .replace(
+            "{{OTP_LABEL}}",
+            &strings.html(KEY_HOSTED_COMMON_OTP_LABEL_NAMED, &[target_label]),
+        )
+        .replace("{{CONNECTING_TO}}", &escape_html_attribute(&connecting_to))
+        .replace(
+            "{{DATA_AVAILABLE}}",
+            &strings.html(
+                KEY_HOSTED_LOGIN_DATA_AVAILABLE,
+                &[target_label, &channel_label],
+            ),
+        )
+        .replace("{{LINK_TOKEN}}", &escape_html_attribute(link_token))
+        .replace("{{TARGET}}", &escape_html_attribute(target))
+        .replace("{{CHANNEL}}", &escape_html_attribute(channel))
+        .replace("{{FLOW_EXPIRED_REASON}}", LOGIN_FLOW_EXPIRED_REASON)
+        .replace("{{LOGIN_CHALLENGE_REASON}}", LOGIN_CHALLENGE_REASON)
+        .replace("{{CODE_REJECTED_REASON}}", CODE_REJECTED_REASON)
+        // The script's strings go in last, so an escaped token or channel can
+        // never close the script context before them.
+        .replace("{{STRINGS_JSON}}", &script_json(&script_strings))
 }
 
 /// Render the success page shown after a successful connection, in the

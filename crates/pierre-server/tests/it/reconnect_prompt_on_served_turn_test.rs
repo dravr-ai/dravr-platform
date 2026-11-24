@@ -94,6 +94,7 @@ use crate::common::{
     create_test_server_resources, create_test_server_resources_with_chat_provider_and_config,
     create_test_server_resources_with_config, create_test_user, test_server_config_usr_pwd_garmin,
 };
+use crate::helpers::garmin_consent::give_garmin_ai_consent;
 
 /// The agent's own answer over the sibling's data. Every assertion about what
 /// survives compares against this exact string.
@@ -220,6 +221,9 @@ async fn athlete_with_a_dead_primary(resources: &Arc<ServerContext>) -> (Uuid, T
         .register_connection(user_id, tenant, "garmin", &ConnectionType::OAuth, None)
         .await
         .unwrap();
+    // A model's read elects Garmin, and so fails on it, only under the
+    // athlete's Garmin AI consent (carnet#1157).
+    give_garmin_ai_consent(&resources.common.repos, user_id, tenant).await;
 
     (user_id, tenant)
 }
@@ -1475,6 +1479,7 @@ fn stored_message(id: &str, role: &str, content: &str) -> MessageRecord {
         channel_type: None,
         about_user_id: None,
         turn_attempted_write: None,
+        ai_consent_sources: Vec::new(),
     }
 }
 

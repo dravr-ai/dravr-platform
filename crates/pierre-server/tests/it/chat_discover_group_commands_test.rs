@@ -972,6 +972,7 @@ async fn group_create_in_a_thread_with_history_files_a_group_conversation_beside
             channel_type: None,
             about_user_id: None,
             turn_attempted_write: None,
+            ai_consent_sources: &[],
         })
         .await
         .unwrap();

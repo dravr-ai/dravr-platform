@@ -13,6 +13,7 @@
 use std::collections::BTreeMap;
 
 use dravr_tronc::dates::Timestamp;
+use pierre_core::constants::oauth_providers::consent_sources_from_column;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::Pillar;
 use pierre_core::transport::TransportPolicy;
@@ -60,6 +61,20 @@ where
     column(row, "first_party_only").map(TransportPolicy::from_first_party_only)
 }
 
+/// Read a derived row's `ai_consent_sources` (carnet#1157): none for NULL.
+///
+/// # Errors
+/// Returns a database error when the column cannot be decoded.
+fn consent_sources_column_of<R>(row: &R) -> AppResult<Vec<String>>
+where
+    R: sqlx::Row,
+    for<'a> &'a str: sqlx::ColumnIndex<R>,
+    Option<String>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+{
+    let column: Option<String> = column(row, "ai_consent_sources")?;
+    Ok(consent_sources_from_column(column.as_deref()))
+}
+
 /// Decode one `compaction_blocks` row, whose `about_user_id` the backend's
 /// uuid codec read (its column type differs per engine).
 ///
@@ -74,6 +89,7 @@ where
     for<'a> &'a str: sqlx::ColumnIndex<R>,
     bool: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Option<String>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     i32: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     Timestamp: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
@@ -89,6 +105,7 @@ where
         created_at: column(row, "created_at")?,
         transport_policy: transport_policy_column(row)?,
         about_user_id,
+        ai_consent_sources: consent_sources_column_of(row)?,
     })
 }
 
@@ -147,6 +164,7 @@ where
         transport_policy: transport_policy_column(row)?,
         status: FactStatus::parse_lenient(&status),
         evidence: evidence.map(|(quote, source)| FactEvidence { quote, source }),
+        ai_consent_sources: consent_sources_column_of(row)?,
     })
 }
 

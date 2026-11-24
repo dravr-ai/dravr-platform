@@ -62,6 +62,7 @@ use uuid::Uuid;
 use crate::common::{
     create_test_server_resources_with_chat_provider, create_test_user, create_test_user_with_plan,
 };
+use crate::helpers::garmin_consent::give_garmin_ai_consent;
 
 /// The agent's answer over the athlete's week.
 const AGENT_ANSWER: &str =
@@ -197,6 +198,9 @@ async fn seed_ride(
     device: Option<&str>,
     sibling_serves: bool,
 ) {
+    // A model reads the Garmin-relayed ride and elects the Garmin sibling only
+    // under the athlete's Garmin AI consent (carnet#1157).
+    give_garmin_ai_consent(&resources.common.repos, user_id, tenant).await;
     resources
         .common
         .repos
@@ -784,6 +788,7 @@ async fn the_model_never_reads_an_earlier_replys_attribution() {
             channel_type: None,
             about_user_id: None,
             turn_attempted_write: None,
+            ai_consent_sources: &[],
         })
         .await
         .unwrap();

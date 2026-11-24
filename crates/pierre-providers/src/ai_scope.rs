@@ -75,6 +75,8 @@ use tokio::task::LocalKey;
 
 /// The athlete's withdrawable consent to AI use of each provider's data.
 mod consent;
+/// The AI consents derived content owes, recorded and applied (carnet#1157).
+mod derived_consent;
 /// The decorator that applies the provider-terms filters to every read.
 mod governed;
 /// The consent-grant ceiling a call runs under: window floor and row tally.
@@ -91,6 +93,9 @@ mod stored_health;
 pub use consent::{
     ai_consent_withheld, consented_read, subject_consents, tier_readable, with_ai_consent,
     with_subject_consent, withheld_providers, withhold_tier,
+};
+pub use derived_consent::{
+    admit_consent_sources, admit_memory, derived_consent_sources, retain_consented,
 };
 pub use governed::AiGovernedProvider;
 pub use grant::{
@@ -208,6 +213,9 @@ fn note_served(lookup: &dyn ProviderTerms, provider: &str, source: Option<&str>)
     // Where it came from, for the trust label a result carries. Not under
     // `unfiltered`, for the reason marking is not.
     source_classes::note_source_class(source_class_of(provider));
+    // Whose AI consent it was served under, so a withdrawal reaches what is
+    // derived from it (carnet#1157).
+    derived_consent::note_served_consent(provider, source);
 }
 
 /// Record `attribution` on the running derivation.
@@ -301,8 +309,10 @@ pub fn unfiltered<F: Future>(fut: F) -> impl Future<Output = F::Output> {
 
 /// Lift the AI rules for output the athlete sees and the model does not.
 ///
-/// For a map drawn from an activity's streams. Anything a model reads must not
-/// run under this. The transport gate stays: a chart served over an external
+/// For a map drawn from an activity's streams, or a calendar reconcile's own
+/// reads of the entries it wrote (ids, dates, change stamps), which decide
+/// what to write and reach no model. Anything a model reads must not run
+/// under this. The transport gate stays: a chart served over an external
 /// transport never carries a first-party-only provider's data.
 pub fn for_display<F: Future>(fut: F) -> impl Future<Output = F::Output> {
     DISPLAY.scope(true, fut)

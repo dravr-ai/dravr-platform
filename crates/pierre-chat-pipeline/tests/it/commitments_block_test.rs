@@ -32,6 +32,7 @@ fn commitment(statement: &str, window_end: Timestamp) -> Commitment {
         created_at: window_end,
         updated_at: window_end,
         transport_policy: TransportPolicy::AnyTransport,
+        ai_consent_sources: Vec::new(),
     }
 }
 

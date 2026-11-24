@@ -8,6 +8,7 @@ use secrecy::{ExposeSecret, SecretString};
 use std::fmt::{self, Display};
 use std::time::Duration;
 
+use crate::sciotte_terms::require_provider_terms;
 use axum::extract::State;
 use axum::http::HeaderMap;
 use axum::response::{IntoResponse, Response};
@@ -20,7 +21,6 @@ use pierre_providers::backend_resolver;
 use pierre_providers::registry::global_registry;
 use pierre_providers::sciotte_provider::SciotteTarget;
 use pierre_services::provider_connected::{self, ConnectVia, ProviderConnected};
-use pierre_services::provider_notice::require_notice_accepted;
 use pierre_services::scrape_session::{persist_sciotte_session, StoredSession};
 use serde::{Deserialize, Serialize};
 use tracing::{error, info, warn};
@@ -331,6 +331,11 @@ pub(crate) struct SciotteLoginRequest {
     /// the account has not already accepted the current notice.
     #[serde(default)]
     pub tos_consent: bool,
+    /// The consents the connect offers without requiring them that the
+    /// athlete ticked: Garmin's AI use and workout transfer (carnet#1157,
+    /// carnet#1390). See [`record_connect_consents`].
+    #[serde(default)]
+    pub consents: Vec<String>,
     /// The sign-in window's attempt id, which a cancel names
     /// (`POST /api/providers/sciotte/cancel`); see [`crate::sciotte_cancel`].
     #[serde(default)]
@@ -892,37 +897,6 @@ fn shed_response(provider: &str, retry_after_secs: u64) -> Response {
     shed.with_retry_after(retry_after_secs).into_response()
 }
 
-/// Refuse a login to a backend whose exposure notice is in force for this
-/// account until it has accepted the current version, recording the
-/// acceptance this attempt carries. A backend with no notice, or an account
-/// the `provider_exposure_notice` flag leaves off, passes.
-///
-/// TrainingPeaks and COROS offer no API Pierre can use, so the scraper reads
-/// through the user's own signed-in session — access their terms prohibit for
-/// third parties, putting the account at risk. Every connect surface (web,
-/// mobile, the hosted page, the channel picker) states this before the
-/// credentials field; this is where that statement becomes a precondition
-/// rather than copy, so no surface can skip it. An account that already
-/// accepted this notice version is not asked again, including on a reconnect
-/// after a disconnect.
-pub(crate) async fn require_provider_terms(
-    resources: &AuthRoutesContext,
-    user_id: Uuid,
-    tenant_id: Uuid,
-    target: SciotteTarget,
-    accepted_now: bool,
-) -> Result<(), AppError> {
-    require_notice_accepted(
-        &resources.repos,
-        tenant_id,
-        user_id,
-        target.provider_name(),
-        target.brand(),
-        accepted_now,
-    )
-    .await
-}
-
 /// Credential-based login via the dedicated dravr-sciotte scraper service (ADR-021)
 pub(crate) async fn handle_sciotte_login(
     State(resources): State<AuthRoutesContext>,
@@ -962,6 +936,7 @@ pub(crate) async fn handle_sciotte_login(
         tenant_id,
         SciotteTarget::from_target_param(target),
         request.tos_consent,
+        &request.consents,
     )
     .await?;
     let backend = SciotteTarget::from_target_param(target).provider_name();

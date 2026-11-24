@@ -176,6 +176,8 @@ fn payload(user_id: &str, conversation_id: &str, turn: ConversationTurnId) -> Ex
         transport_policy: TransportPolicy::AnyTransport,
         conversation_id: Some(conversation_id.to_owned()),
         turn_id: Some(turn),
+        ai_consent_sources: Vec::new(),
+        consent_withheld: None,
     }
 }
 
@@ -348,6 +350,7 @@ async fn advice_capture_bills_its_own_row_to_the_turn_it_read() {
             .to_owned(),
         source_msg_id: Some("m-2".to_owned()),
         transport_policy: TransportPolicy::AnyTransport,
+        ai_consent_sources: Vec::new(),
     };
 
     let advice = HeuristicGatedLlmExtraction::new(Arc::new(PromptRegistry::new()))
@@ -389,6 +392,7 @@ async fn a_reply_the_gate_turns_away_costs_no_call_and_no_row() {
         assistant_reply: "Nice work!".to_owned(),
         source_msg_id: None,
         transport_policy: TransportPolicy::AnyTransport,
+        ai_consent_sources: Vec::new(),
     };
 
     HeuristicGatedLlmExtraction::new(Arc::new(PromptRegistry::new()))

@@ -96,16 +96,26 @@ pub(crate) fn serves_first_party_only(
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
+    use std::future::Future;
+
     use super::*;
     use dravr_tronc::dates::Timestamp;
     use pierre_core::ai_policy::SourcePolicy;
     use pierre_core::models::{Activity, ActivityBuilder, SportType};
     use pierre_core::transport::{Transport, TransportPolicy};
     use pierre_providers::ai_scope::{
-        ai_read, filter_activities, for_display, result_exposure, serve_over,
+        ai_read, filter_activities, for_display, result_exposure, serve_over, with_ai_consent,
     };
     use pierre_providers::provider_terms::{NOLIO, NOLIO_TRANSPORT, WHOOP};
     use serde_json::json;
+
+    /// `fut` for an athlete who withheld no provider from AI: a real model
+    /// read declares the athlete's consents, and one that declares none
+    /// withholds every AI-consent provider, Garmin included (carnet#1157).
+    fn consented<F: Future>(fut: F) -> impl Future<Output = F::Output> {
+        with_ai_consent(BTreeSet::new(), fut)
+    }
 
     /// A read for a model on one of Dravr's own surfaces.
     const MODEL: Exposure = Exposure {
@@ -163,7 +173,7 @@ mod tests {
     async fn read_side_filtering_reaches_the_tool_result_note() {
         let ((), read_side) = serve_over(
             Transport::WebApp,
-            ai_read(async {
+            ai_read(consented(async {
                 let kept = filter_activities(
                     &Lookup,
                     vec![
@@ -176,7 +186,7 @@ mod tests {
                 assert_eq!(kept[0].average_heart_rate(), Some(150));
                 assert_eq!(kept[1].average_heart_rate(), None, "strava: existence only");
                 assert_eq!(kept[1].duration_seconds(), 3600);
-            }),
+            })),
         )
         .await;
 
@@ -194,10 +204,10 @@ mod tests {
     async fn an_external_result_loses_first_party_only_items_and_says_so_neutrally() {
         let ((), read_side) = serve_over(
             Transport::McpHttp,
-            ai_read(async {
+            ai_read(consented(async {
                 let kept = filter_activities(&Lookup, vec![activity("g", Some("garmin"))]);
                 assert!(kept.is_empty(), "a Nolio relay item never leaves over MCP");
-            }),
+            })),
         )
         .await;
 
@@ -248,9 +258,9 @@ mod tests {
     async fn display_lifts_the_ai_rules_and_keeps_the_transport_gate() {
         let (kept, withheld) = serve_over(
             Transport::WebApp,
-            for_display(ai_read(async {
+            for_display(ai_read(consented(async {
                 filter_activities(&Lookup, vec![activity("z", Some("zepp"))])
-            })),
+            }))),
         )
         .await;
         assert_eq!(kept.len(), 1);

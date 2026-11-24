@@ -373,7 +373,7 @@ pub async fn build_agent_proposal<C: AgentsCtx + MiddlewareCtx + ToolRuntime>(
             tenant_id,
             user_id,
             ai_scope::readable_policy(),
-            &ai_scope::admit_derived,
+            &ai_scope::admit_memory,
         )
         .await
         .ok();

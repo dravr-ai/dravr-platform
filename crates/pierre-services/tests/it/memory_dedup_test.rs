@@ -87,6 +87,7 @@ impl Stored {
             transport_policy: TransportPolicy::AnyTransport,
             status: FactStatus::Approved,
             evidence: None,
+            ai_consent_sources: Vec::new(),
         }
     }
 }

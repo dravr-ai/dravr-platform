@@ -73,6 +73,7 @@ async fn chat_rows_keep_their_stamp_through_every_read() {
                 channel_type: None,
                 about_user_id: None,
                 turn_attempted_write: None,
+                ai_consent_sources: &[],
             })
             .await
             .unwrap();
@@ -157,6 +158,7 @@ async fn memory_rows_keep_their_stamp_and_a_restatement_only_tightens_it() {
             last_message_id: "m9",
             transport_policy: FirstPartyOnly,
             about_user_id: None,
+            ai_consent_sources: &[],
         })
         .await
         .unwrap();
@@ -184,6 +186,7 @@ async fn memory_rows_keep_their_stamp_and_a_restatement_only_tightens_it() {
             valid_until: None,
             source_msg_id: None,
             transport_policy: AnyTransport,
+            ai_consent_sources: &[],
         })
         .await
         .unwrap();
@@ -194,6 +197,7 @@ async fn memory_rows_keep_their_stamp_and_a_restatement_only_tightens_it() {
         source_msg_id: None,
         confidence: 0.8,
         transport_policy: policy,
+        ai_consent_sources: &[],
     };
     let restated = repos
         .memory
@@ -271,6 +275,7 @@ async fn advice_and_playbooks_keep_their_stamp_and_stay_out_of_the_priors() {
             source_msg_id: Some("msg-1".to_owned()),
             created_at: now - Elapsed::days(3),
             transport_policy: FirstPartyOnly,
+            ai_consent_sources: Vec::new(),
         })
         .await
         .unwrap();
@@ -292,6 +297,7 @@ async fn advice_and_playbooks_keep_their_stamp_and_stay_out_of_the_priors() {
         label: OutcomeLabel::Success,
         at: Timestamp::now(),
         transport_policy: policy,
+        ai_consent_sources: &[],
     };
     let label = |user: &'static str, policy| {
         let repos = Arc::clone(&repos);
@@ -362,6 +368,7 @@ async fn verdicts_profiles_and_prescriptions_keep_their_stamp() {
             channel_type: None,
             about_user_id: None,
             turn_attempted_write: None,
+            ai_consent_sources: &[],
         })
         .await
         .unwrap();
@@ -411,7 +418,7 @@ async fn verdicts_profiles_and_prescriptions_keep_their_stamp() {
     assert_eq!(stored.transport_policy, FirstPartyOnly);
     let withheld = repos
         .dossier
-        .compose_dossier(tenant, user_id, AnyTransport, &|policy| {
+        .compose_dossier(tenant, user_id, AnyTransport, &|policy, _| {
             !policy.is_first_party_only()
         })
         .await
@@ -422,7 +429,7 @@ async fn verdicts_profiles_and_prescriptions_keep_their_stamp() {
     );
     let served = repos
         .dossier
-        .compose_dossier(tenant, user_id, FirstPartyOnly, &|_| true)
+        .compose_dossier(tenant, user_id, FirstPartyOnly, &|_, _| true)
         .await
         .unwrap();
     assert_eq!(served.physiology.and_then(|p| p.ftp_watts), Some(280));
@@ -595,6 +602,7 @@ async fn a_limit_counts_only_the_rows_the_reader_may_read() {
                     channel_type: None,
                     about_user_id: None,
                     turn_attempted_write: None,
+                    ai_consent_sources: &[],
                 })
                 .await
                 .unwrap();
@@ -614,6 +622,7 @@ async fn a_limit_counts_only_the_rows_the_reader_may_read() {
                     valid_until: None,
                     source_msg_id: None,
                     transport_policy: policy,
+                    ai_consent_sources: &[],
                 })
                 .await
                 .unwrap();

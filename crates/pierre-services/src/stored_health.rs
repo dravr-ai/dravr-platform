@@ -475,12 +475,22 @@ pub async fn holds_recovery_rows(
 #[cfg(test)]
 mod tests {
     use dravr_tronc::dates::Zone;
+    use std::collections::BTreeSet;
+    use std::future::Future;
     use std::sync::Arc;
 
     use pierre_core::constants::oauth_providers::{GARMIN_ATTRIBUTION, INTERVALS_ICU};
 
     use super::*;
     use crate::wellness_store::{WellnessStore, WellnessWriteMode};
+    use pierre_providers::ai_scope::with_ai_consent;
+
+    /// `fut` for an athlete who withheld no provider from AI: a real model
+    /// read declares the athlete's consents, and one that declares none
+    /// withholds every AI-consent provider, Garmin included (carnet#1157).
+    fn consented<F: Future>(fut: F) -> impl Future<Output = F::Output> {
+        with_ai_consent(BTreeSet::new(), fut)
+    }
 
     /// Store `night`, when given, and `morning` as a sync writes them.
     async fn store(
@@ -773,7 +783,9 @@ mod tests {
         let athlete = athlete().await;
         let ((nights, mornings), withheld) = serve_over(
             Transport::McpHttp,
-            ai_read(async { (athlete.nights().await, athlete.mornings().await) }),
+            ai_read(consented(async {
+                (athlete.nights().await, athlete.mornings().await)
+            })),
         )
         .await;
 
@@ -799,7 +811,9 @@ mod tests {
         let athlete = athlete().await;
         let ((nights, mornings), withheld) = serve_over(
             Transport::WebApp,
-            ai_read(async { (athlete.nights().await, athlete.mornings().await) }),
+            ai_read(consented(async {
+                (athlete.nights().await, athlete.mornings().await)
+            })),
         )
         .await;
 
@@ -878,7 +892,7 @@ mod tests {
         athlete: &Athlete,
     ) -> (StoredHealth<StoredRecoveryMetrics>, Provenance) {
         let turn = Provenance::new();
-        let (read, _) = ai_read(tracking(
+        let (read, _) = ai_read(consented(tracking(
             turn.clone(),
             recovery_metrics(
                 &athlete.repos,
@@ -888,7 +902,7 @@ mod tests {
                 athlete.start,
                 athlete.end,
             ),
-        ))
+        )))
         .await;
         (read.unwrap(), turn)
     }
@@ -1065,7 +1079,7 @@ mod tests {
         let athlete = athlete().await;
         let (mornings, withheld) = serve_over(
             Transport::McpHttp,
-            ai_read(athlete.merged_mornings(SourceFilter::All)),
+            ai_read(consented(athlete.merged_mornings(SourceFilter::All))),
         )
         .await;
         assert_eq!(mornings.len(), 1, "one served morning");
@@ -1115,7 +1129,7 @@ mod tests {
     async fn holding_recovery_rows_notes_no_attribution() {
         let athlete = athlete().await;
         let turn = Provenance::new();
-        let (holds, _) = ai_read(tracking(
+        let (holds, _) = ai_read(consented(tracking(
             turn.clone(),
             holds_recovery_rows(
                 &athlete.repos,
@@ -1124,7 +1138,7 @@ mod tests {
                 &athlete.tenant,
                 (athlete.start, athlete.end),
             ),
-        ))
+        )))
         .await;
         assert!(holds.unwrap());
         assert!(
@@ -1168,9 +1182,9 @@ mod tests {
             .await
             .unwrap();
         assert!(own, "the athlete's own surfaces see Zepp's rows");
-        let (model, _) = ai_read(holds_recovery_rows(
+        let (model, _) = ai_read(consented(holds_recovery_rows(
             &repos, &Terms, user_id, &tenant, window,
-        ))
+        )))
         .await;
         assert!(!model.unwrap(), "Zepp bars every item from AI");
     }

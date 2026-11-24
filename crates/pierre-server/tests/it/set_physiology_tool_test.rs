@@ -40,6 +40,7 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::common;
+use crate::helpers::garmin_consent::give_garmin_ai_consent;
 use dravr_tronc::dates::Zone;
 
 async fn create_executor() -> Result<Arc<UniversalToolExecutor>> {
@@ -1587,6 +1588,9 @@ async fn garmin_mornings(
     today: CivilDate,
     mornings: &[u32],
 ) -> Result<()> {
+    // The promotion reads the mornings as a model's read under the athlete's
+    // AI consents, so Garmin's count only once they gave it (carnet#1157).
+    give_garmin_ai_consent(executor.resources.repos(), user_id, *tenant).await;
     let garmin = source_of(executor, tenant, user_id, "garmin").await?;
     for (days_ago, bpm) in (0_i64..).zip(mornings) {
         executor

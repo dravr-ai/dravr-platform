@@ -29,8 +29,8 @@ use pierre_database::repositories::{
 };
 use pierre_llm::ChatProvider;
 use pierre_memory::{
-    AgentSession, CompactionBlock, FactKind, FactProposal, FactSource, FactStatus, PredicateCode,
-    UserFact, UserFactMetrics,
+    AgentSession, CompactionBlock, FactKind, FactProposal, FactSource, FactStatus, MemoryScope,
+    PredicateCode, UserFact, UserFactMetrics,
 };
 use pierre_services::llm_usage_recorder::LlmUsageSink;
 use pierre_services::memory_dedup::DedupConfig;
@@ -90,14 +90,29 @@ const fn model_may_pick(kind: FactKind) -> bool {
 struct ScriptedExtractor {
     reply: String,
     system_prompt: Mutex<String>,
+    /// The last message it was sent: the turn and the existing facts.
+    user_payload: Mutex<String>,
 }
 
 impl ScriptedExtractor {
+    fn new(reply: String) -> Self {
+        Self {
+            reply,
+            system_prompt: Mutex::new(String::new()),
+            user_payload: Mutex::new(String::new()),
+        }
+    }
+
     fn answer(&self, request: &ChatRequest) -> String {
         if let Some(system) = request.messages.first() {
             system
                 .content
                 .clone_into(&mut self.system_prompt.lock().unwrap());
+        }
+        if let Some(payload) = request.messages.last() {
+            payload
+                .content
+                .clone_into(&mut self.user_payload.lock().unwrap());
         }
         self.reply.clone()
     }
@@ -144,12 +159,14 @@ impl LlmProvider for ScriptedExtractor {
     }
 }
 
-/// A fact store that starts empty and records every write. Extraction reads
-/// the athlete's facts, may merge into one, and upserts; nothing else on the
-/// trait is on that path, so those methods answer with an error that names
-/// the call instead of inventing data.
+/// A fact store that holds `existing` and records every write. Extraction
+/// reads the athlete's facts, may merge into one, and upserts; nothing else
+/// on the trait is on that path, so those methods answer with an error that
+/// names the call instead of inventing data.
 #[derive(Default)]
 struct RecordingFacts {
+    /// The facts the athlete already has, as the extractor's read returns them.
+    existing: Vec<UserFact>,
     upserts: Mutex<Vec<UserFact>>,
     /// How many upcoming proposed writes fail, as an unreachable database does.
     failing_writes: Mutex<usize>,
@@ -197,6 +214,7 @@ impl HarnessMemoryRepository for RecordingFacts {
             transport_policy: TransportPolicy::AnyTransport,
             status: FactStatus::Approved,
             evidence: None,
+            ai_consent_sources: Vec::new(),
         };
         self.upserts.lock().unwrap().push(row.clone());
         Ok(row)
@@ -243,7 +261,7 @@ impl HarnessMemoryRepository for RecordingFacts {
         &self,
         _params: &MergeUserFactParams<'_>,
     ) -> AppResult<Option<UserFact>> {
-        // The store starts empty, so there is never a row to merge into.
+        // No case here answers with a restatement, so nothing is merged.
         Ok(None)
     }
     async fn list_user_facts(
@@ -255,7 +273,7 @@ impl HarnessMemoryRepository for RecordingFacts {
         _limit: i64,
         _readable: TransportPolicy,
     ) -> AppResult<Vec<UserFact>> {
-        Ok(Vec::new())
+        Ok(self.existing.clone())
     }
     async fn list_user_facts_by_source(
         &self,
@@ -335,10 +353,7 @@ struct Pass {
 /// Run one extraction whose model answers `reply`, from a turn of `source`,
 /// with `plan_was_saved` saying whether `save_training_plan` ran.
 async fn extract(reply: &str, source: FactSource, plan_was_saved: bool) -> Pass {
-    let extractor = Arc::new(ScriptedExtractor {
-        reply: reply.to_owned(),
-        system_prompt: Mutex::new(String::new()),
-    });
+    let extractor = Arc::new(ScriptedExtractor::new(reply.to_owned()));
     let provider = ChatProvider::Custom(extractor.clone());
     let repo = RecordingFacts::default();
     let req = ExtractionRequest {
@@ -354,6 +369,8 @@ async fn extract(reply: &str, source: FactSource, plan_was_saved: bool) -> Pass 
         plan_was_saved,
         transport_policy: TransportPolicy::AnyTransport,
         recorder: None,
+        ai_consent_sources: &[],
+        consent_withheld: None,
     };
     let outcome = extract_and_persist(&repo, &provider, BASE_PROMPT, &req, DEDUP)
         .await
@@ -704,10 +721,7 @@ async fn extract_two_goals_with_failing_writes(failing: usize) -> (AppResult<usi
         goal("a sub-three-hour Ironman swim"),
     ])
     .to_string();
-    let provider = ChatProvider::Custom(Arc::new(ScriptedExtractor {
-        reply,
-        system_prompt: Mutex::new(String::new()),
-    }));
+    let provider = ChatProvider::Custom(Arc::new(ScriptedExtractor::new(reply)));
     let repo = RecordingFacts::default();
     *repo.failing_writes.lock().unwrap() = failing;
     let req = ExtractionRequest {
@@ -723,6 +737,8 @@ async fn extract_two_goals_with_failing_writes(failing: usize) -> (AppResult<usi
         plan_was_saved: false,
         transport_policy: TransportPolicy::AnyTransport,
         recorder: None,
+        ai_consent_sources: &[],
+        consent_withheld: None,
     };
     let outcome = extract_and_persist(&repo, &provider, BASE_PROMPT, &req, DEDUP)
         .await
@@ -780,10 +796,7 @@ async fn a_run_that_landed_three_facts_and_lost_one_records_the_three() {
         goal("a first triathlon next summer"),
     ])
     .to_string();
-    let provider = ChatProvider::Custom(Arc::new(ScriptedExtractor {
-        reply,
-        system_prompt: Mutex::new(String::new()),
-    }));
+    let provider = ChatProvider::Custom(Arc::new(ScriptedExtractor::new(reply)));
     let facts = RecordingFacts::default();
     *facts.failing_writes.lock().unwrap() = 1;
     let db = create_test_db().await.unwrap();
@@ -805,6 +818,8 @@ async fn a_run_that_landed_three_facts_and_lost_one_records_the_three() {
             transport_policy: TransportPolicy::AnyTransport,
             conversation_id: None,
             turn_id: None,
+            ai_consent_sources: Vec::new(),
+            consent_withheld: None,
         },
     };
 
@@ -831,4 +846,110 @@ async fn a_run_that_landed_three_facts_and_lost_one_records_the_three() {
         stats.last_24h.facts_persisted, 3,
         "bug: the three facts that landed are missing from the ledger: {stats:?}"
     );
+}
+
+// ---------------------------------------------------------------------------
+// The existing facts the extractor reads (carnet#1157, #1158)
+// ---------------------------------------------------------------------------
+
+/// A stored fact saying `object`, drawn from data under `sources`' consents.
+fn stored_fact(object: &str, sources: &[&str]) -> UserFact {
+    let now = Timestamp::now();
+    UserFact {
+        id: Uuid::new_v4().to_string(),
+        tenant_id: TenantId::generate().to_string(),
+        user_id: "athlete-1".to_owned(),
+        agent_id: None,
+        scope: MemoryScope::User,
+        kind: FactKind::Physiology,
+        pillar: None,
+        predicate_code: PredicateCode::HaveBaseline,
+        object: object.to_owned(),
+        confidence: 0.9,
+        source: FactSource::Conversation,
+        valid_until: None,
+        source_msg_id: None,
+        created_at: now,
+        updated_at: now,
+        transport_policy: TransportPolicy::AnyTransport,
+        status: FactStatus::Approved,
+        evidence: None,
+        ai_consent_sources: sources.iter().map(|key| (*key).to_owned()).collect(),
+    }
+}
+
+/// The facts the extractor was handed, in a pass whose turn declared
+/// `consent_withheld`, over a store holding an open, a WHOOP-derived and a
+/// Garmin-derived fact.
+async fn existing_facts_handed(consent_withheld: Option<&[String]>) -> String {
+    let extractor = Arc::new(ScriptedExtractor::new("[]".to_owned()));
+    let provider = ChatProvider::Custom(extractor.clone());
+    let repo = RecordingFacts {
+        existing: vec![
+            stored_fact("FTP of 250 W", &[]),
+            stored_fact("resting heart rate 48", &["whoop"]),
+            stored_fact("long ride of 187 km", &["garmin"]),
+        ],
+        ..RecordingFacts::default()
+    };
+    let req = ExtractionRequest {
+        tenant_id: TenantId::generate(),
+        user_id: "athlete-1",
+        agent_id: None,
+        user_message: "user turn",
+        assistant_reply: "coach reply",
+        source_msg_id: Some("m-1"),
+        pillar: None,
+        source: FactSource::Conversation,
+        force_kind: None,
+        plan_was_saved: false,
+        transport_policy: TransportPolicy::AnyTransport,
+        recorder: None,
+        ai_consent_sources: &[],
+        consent_withheld,
+    };
+    extract_and_persist(&repo, &provider, BASE_PROMPT, &req, DEDUP)
+        .await
+        .unwrap();
+    let handed = extractor.user_payload.lock().unwrap().clone();
+    assert!(
+        handed.contains("FTP of 250 W"),
+        "premise: a fact naming no consent is always a candidate: {handed}"
+    );
+    handed
+}
+
+// The extractor is a model: a fact drawn from WHOOP data is a dedup candidate
+// while the athlete consents to WHOOP's AI use, and is not once they withhold
+// it; a Garmin-derived fact never is, consent or not (carnet#1158).
+#[tokio::test]
+async fn the_extractor_reads_its_candidates_under_the_turns_consents() {
+    let consenting = existing_facts_handed(Some(&[])).await;
+    assert!(
+        consenting.contains("resting heart rate 48"),
+        "a consented WHOOP fact is a candidate: {consenting}"
+    );
+    assert!(
+        !consenting.contains("187 km"),
+        "a Garmin-derived fact is never handed to a model: {consenting}"
+    );
+
+    let withheld = existing_facts_handed(Some(&["whoop".to_owned()])).await;
+    assert!(
+        !withheld.contains("resting heart rate 48"),
+        "a withheld WHOOP fact is not a candidate: {withheld}"
+    );
+    assert!(!withheld.contains("187 km"), "{withheld}");
+}
+
+// A job queued before the turn's consents were carried leaves every
+// consent-gated fact out, as an undeclared model read withholds them all.
+#[tokio::test]
+async fn a_job_without_the_turns_consents_hands_no_consent_gated_fact() {
+    let undeclared = existing_facts_handed(None).await;
+    assert!(
+        !undeclared.contains("resting heart rate 48"),
+        "an undeclared read withholds WHOOP: {undeclared}"
+    );
+    assert!(!undeclared.contains("187 km"), "{undeclared}");
 }

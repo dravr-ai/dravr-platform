@@ -752,7 +752,7 @@ pub async fn maybe_start_pillar_walk(
             tenant_id,
             user_uuid,
             ai_scope::readable_policy(),
-            &ai_scope::admit_derived,
+            &ai_scope::admit_memory,
         )
         .await
     else {

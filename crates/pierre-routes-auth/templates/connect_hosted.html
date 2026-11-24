@@ -68,6 +68,16 @@
             <p class="fineprint" id="cred-notice"></p>
         </section>
 
+        <!-- Phase: the boxes a connect offers without requiring them
+             (Garmin's AI use and workout transfer), both unticked; Continue
+             goes on with whatever is ticked -->
+        <section id="phase-connect-consents" hidden>
+            <button type="button" class="btn btn-tertiary back-link" id="consents-back">&larr; {{t:hosted.common.back}}</button>
+            <h1 id="consents-title"></h1>
+            {{GARMIN_CONSENTS}}
+            <button type="button" class="btn btn-primary btn-block" id="consents-continue">{{t:providers.garminConsent.continue}}</button>
+        </section>
+
         <!-- Phase: OAuth notice (a provider whose notice comes before its
              authorization page: WHOOP's owner authorization) -->
         <section id="phase-oauth-consent" hidden>
@@ -283,7 +293,7 @@
                 return S.tagEmailPassword;
             }
 
-            const phases = ['picker', 'credentials', 'oauth-consent', 'logging-in', 'two-factor', 'waiting-approval', 'number-match', 'otp', 'success', 'error'];
+            const phases = ['picker', 'credentials', 'connect-consents', 'oauth-consent', 'logging-in', 'two-factor', 'waiting-approval', 'number-match', 'otp', 'success', 'error'];
             function showPhase(name) {
                 currentPhase = name;
                 phases.forEach((p) => {
@@ -386,10 +396,18 @@
 
             // Full-page redirect to the link-token-authed OAuth init, carrying
             // the notice's acceptance when the athlete just gave it.
+            // The boxes the athlete ticked on the picked card's consents phase
+            // (Garmin's AI use and workout transfer): sent with its OAuth start
+            // or its credentials, whichever the card goes on to.
+            let connectConsents = [];
+
             function startOAuth(provider, accepted) {
                 const url = '/api/providers/connect/oauth-init/' + encodeURIComponent(provider)
                     + '?token=' + encodeURIComponent(CONFIG.token)
-                    + (accepted ? '&tos_consent=true' : '');
+                    + (accepted ? '&tos_consent=true' : '')
+                    + (connectConsents.length
+                        ? '&consents=' + encodeURIComponent(connectConsents.join(','))
+                        : '');
                 window.location.assign(url);
             }
 
@@ -411,8 +429,35 @@
                 showPhase('oauth-consent');
             }
 
+            // The card whose consents phase is on screen, until its Continue
+            // goes on to the card's own flow.
+            let consentsPending = null;
+
+            // Show the boxes the picked card offers, all unticked; Continue is
+            // never disabled: the connect goes through with none ticked.
+            function openConnectConsents(p) {
+                consentsPending = p;
+                document.getElementById('consents-title').textContent = p.display_name;
+                document.querySelectorAll('#connect-consents [data-consent-key]').forEach((box) => {
+                    box.checked = false;
+                    box.closest('label').hidden = !p.consents.includes(box.dataset.consentKey);
+                });
+                document.getElementById('connect-consents').hidden = false;
+                showPhase('connect-consents');
+            }
+
             function pickProvider(p) {
                 clearError();
+                connectConsents = [];
+                if (!p.form_url && p.consents && p.consents.length) {
+                    openConnectConsents(p);
+                    return;
+                }
+                continueProvider(p);
+            }
+
+            // The picked card's own flow, once its consents (if any) are asked.
+            function continueProvider(p) {
                 // A card with a hosted form of its own (the Intervals.icu
                 // API-key form): full-page navigation to the URL the server
                 // put on the card, which carries the same connect token.
@@ -613,6 +658,7 @@
                     const data = await callApi('/api/providers/sciotte/login', {
                         email: email, password: password, method: 'email', target: credTarget,
                         tos_consent: consentRequired && consent.checked,
+                        consents: connectConsents,
                     });
                     handleLoginResponse(data);
                 } catch (err) {
@@ -721,6 +767,19 @@
             document.getElementById('retry-btn').addEventListener('click', backToPicker);
             document.getElementById('cred-back').addEventListener('click', backToPicker);
             document.getElementById('tf-back').addEventListener('click', backToPicker);
+            document.getElementById('consents-back').addEventListener('click', () => {
+                consentsPending = null;
+                backToPicker();
+            });
+            document.getElementById('consents-continue').addEventListener('click', () => {
+                if (!consentsPending) return;
+                const picked = consentsPending;
+                consentsPending = null;
+                connectConsents = Array.from(
+                    document.querySelectorAll('#connect-consents [data-consent-key]:checked'),
+                ).map((box) => box.dataset.consentKey);
+                continueProvider(picked);
+            });
             document.getElementById('oauth-back').addEventListener('click', () => {
                 oauthPending = null;
                 backToPicker();

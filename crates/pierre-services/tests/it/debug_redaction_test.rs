@@ -94,6 +94,8 @@ fn an_extraction_request_prints_the_size_of_the_turn_never_its_text() {
         plan_was_saved: false,
         transport_policy: TransportPolicy::AnyTransport,
         recorder: None,
+        ai_consent_sources: &[],
+        consent_withheld: None,
     };
     let printed = printed_without(&request, &["sentinel-question-7f3a", "sentinel-reply-7f3a"]);
     assert!(

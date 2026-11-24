@@ -587,13 +587,16 @@ pub async fn push_active_plan(
     // What the calendar actually holds in the window, by provider id — and,
     // among those, the entries carrying this athlete's plan keys that the
     // ledger has no live row for (a write that landed while its ledger row
-    // did not). Those are adopted, never duplicated.
-    let observed: HashMap<String, CalendarEventRef> = calendar
-        .list_calendar_events(params.from, window_end)
-        .await?
-        .into_iter()
-        .map(|event| (event.provider_event_id.clone(), event))
-        .collect();
+    // did not). Those are adopted, never duplicated. The reconcile's own
+    // reads of its entries (ids, dates, stamps) reach no model, so they run
+    // outside the AI rules: an athlete who lets Dravr send a calendar their
+    // workouts, but keeps its data from AI, still gets them (carnet#1390).
+    let observed: HashMap<String, CalendarEventRef> =
+        ai_scope::for_display(calendar.list_calendar_events(params.from, window_end))
+            .await?
+            .into_iter()
+            .map(|event| (event.provider_event_id.clone(), event))
+            .collect();
     let live_by_key: HashMap<String, PrescribedWorkout> = live_rows
         .iter()
         .filter_map(|row| row.external_id.clone().map(|key| (key, row.clone())))
@@ -762,7 +765,7 @@ async fn known_entry(
         return KnownEntry::Unchanged;
     }
     if seen.updated_at.is_none() {
-        match calendar.calendar_event_detail(seen.clone()).await {
+        match ai_scope::for_display(calendar.calendar_event_detail(seen.clone())).await {
             Ok(detail) if edited(&detail) => return KnownEntry::EditedOnProvider,
             Ok(_) => {}
             Err(e) => warn!(
@@ -850,7 +853,7 @@ impl<'plan> LostKeys<'plan> {
             let event = if event.external_id.is_some() {
                 event.clone()
             } else if self.wants_date(event.date) {
-                match calendar.calendar_event_detail(event.clone()).await {
+                match ai_scope::for_display(calendar.calendar_event_detail(event.clone())).await {
                     Ok(detail) => detail,
                     Err(e) => {
                         warn!(

@@ -942,6 +942,7 @@ async fn the_welcome_write_is_once_per_thread_even_when_racing() {
         channel_type: None,
         about_user_id: None,
         turn_attempted_write: None,
+        ai_consent_sources: &[],
     };
 
     let (a, b) = tokio::join!(

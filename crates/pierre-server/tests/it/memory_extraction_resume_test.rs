@@ -259,6 +259,8 @@ fn payload_for(user: &str, user_message: &str) -> ExtractionJobPayload {
         transport_policy: TransportPolicy::AnyTransport,
         conversation_id: None,
         turn_id: None,
+        ai_consent_sources: Vec::new(),
+        consent_withheld: None,
     }
 }
 

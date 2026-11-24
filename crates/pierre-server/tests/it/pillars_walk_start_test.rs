@@ -178,6 +178,7 @@ async fn pillars_mental_in_a_group_is_refused_before_any_expiry() -> Result<()> 
             valid_until: None,
             source_msg_id: None,
             transport_policy: TransportPolicy::AnyTransport,
+            ai_consent_sources: &[],
         })
         .await?;
 
@@ -214,7 +215,9 @@ async fn pillars_mental_in_a_group_is_refused_before_any_expiry() -> Result<()> 
         .common
         .repos
         .dossier
-        .compose_dossier(tenant, user_id, TransportPolicy::FirstPartyOnly, &|_| true)
+        .compose_dossier(tenant, user_id, TransportPolicy::FirstPartyOnly, &|_, _| {
+            true
+        })
         .await?;
     assert!(
         dossier

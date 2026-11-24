@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: The state of the provider sign-in window a screen mounts — its account, the notice it owes, history mode, its OAuth fallback
+// ABOUTME: The state of the provider sign-in window a screen mounts — its account, the notice it owes, history mode, its OAuth fallback, the ticked consents
 // ABOUTME: One hook for Connections, onboarding's connect step and a chat thread, so each opens the window the same way
 
 import { useCallback, useState } from 'react';
@@ -22,9 +22,22 @@ export interface SignInModalState {
    * card's plan opened, never one a refused grant or a history copy opened.
    */
   fallback: SciotteTarget | null;
+  /**
+   * The consents the athlete ticked on the sheet before this sign-in
+   * (`ConnectConsentSheet`: Garmin's AI use and workout transfer), carried
+   * to the login and to the OAuth it falls back to; `undefined` when the
+   * connect offered none (carnet#1157, carnet#1390).
+   */
+  consents: readonly string[] | undefined;
 }
 
-const CLOSED: SignInModalState = { target: null, consentRequired: false, historyMode: false, fallback: null };
+const CLOSED: SignInModalState = {
+  target: null,
+  consentRequired: false,
+  historyMode: false,
+  fallback: null,
+  consents: undefined,
+};
 
 /** The card a sign-in is opened for: its notice, and what its OAuth fallback reads. */
 type SignInCard = Pick<
@@ -39,9 +52,16 @@ export interface SignInModal extends SignInModalState {
    * passes `historyMode`: the sign-in then serves the card and reads its
    * history in (carnet#1494). A sign-in
    * the card's own plan opens passes `fromPlan`, so one that cannot complete
-   * falls back to the card's OAuth when it offers one.
+   * falls back to the card's OAuth when it offers one. `consents` are the
+   * keys the athlete ticked on the connect's consent sheet.
    */
-  open: (target: SciotteTarget, card: SignInCard | undefined, historyMode?: boolean, fromPlan?: boolean) => void;
+  open: (
+    target: SciotteTarget,
+    card: SignInCard | undefined,
+    historyMode?: boolean,
+    fromPlan?: boolean,
+    consents?: readonly string[],
+  ) => void;
   /** Open the sign-in to `target` with the notice owed by its card among `cards`. */
   openFor: (target: SciotteTarget, cards: readonly ExtendedProviderStatus[]) => void;
   close: () => void;
@@ -49,9 +69,9 @@ export interface SignInModal extends SignInModalState {
 
 export function useSignInModal(): SignInModal {
   const [state, setState] = useState<SignInModalState>(CLOSED);
-  const open = useCallback<SignInModal['open']>((target, card, historyMode = false, fromPlan = false) => {
+  const open = useCallback<SignInModal['open']>((target, card, historyMode = false, fromPlan = false, consents) => {
     const fallback = fromPlan && !historyMode && card ? oauthFallbackTarget(card) : null;
-    setState({ target, consentRequired: card?.consent_required ?? false, historyMode, fallback });
+    setState({ target, consentRequired: card?.consent_required ?? false, historyMode, fallback, consents });
   }, []);
   const openFor = useCallback<SignInModal['openFor']>(
     (target, cards) => open(target, cards.find((card) => card.provider === SCIOTTE_LOGIN_PRESETS[target].backend)),

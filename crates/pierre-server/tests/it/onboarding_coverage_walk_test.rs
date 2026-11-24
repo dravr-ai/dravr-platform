@@ -55,6 +55,7 @@ async fn capture(
             valid_until: None,
             source_msg_id: None,
             transport_policy: TransportPolicy::AnyTransport,
+            ai_consent_sources: &[],
         })
         .await?;
     Ok(())
@@ -65,7 +66,7 @@ async fn capture(
 async fn coverage(repos: &RepositoryRegistry, tenant: TenantId, user: Uuid) -> Result<CoverageMap> {
     let dossier = repos
         .dossier
-        .compose_dossier(tenant, user, TransportPolicy::FirstPartyOnly, &|_| true)
+        .compose_dossier(tenant, user, TransportPolicy::FirstPartyOnly, &|_, _| true)
         .await?;
     Ok(CoverageMap::from_dossier(&dossier))
 }

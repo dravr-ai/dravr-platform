@@ -147,6 +147,7 @@ pub async fn converge_goal_fact(
                     valid_until: None,
                     source_msg_id: None,
                     transport_policy: ai_scope::derived_policy(),
+                    ai_consent_sources: &ai_scope::derived_consent_sources(),
                 })
                 .await?
                 .id

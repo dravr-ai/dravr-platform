@@ -199,6 +199,7 @@ async fn seed_playbooks(repos: &RepositoryRegistry, tenant: &str, user: &str, n:
                 label,
                 at: Timestamp::now(),
                 transport_policy: TransportPolicy::AnyTransport,
+                ai_consent_sources: &[],
             };
             repos
                 .playbooks

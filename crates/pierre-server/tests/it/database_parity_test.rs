@@ -413,6 +413,7 @@ async fn test_parity_chat_messages() {
             channel_type: None,
             about_user_id: None,
             turn_attempted_write: None,
+            ai_consent_sources: &[],
         };
         sqlite_repos
             .chat
@@ -435,6 +436,7 @@ async fn test_parity_chat_messages() {
             channel_type: None,
             about_user_id: None,
             turn_attempted_write: None,
+            ai_consent_sources: &[],
         };
         pg_repos
             .chat

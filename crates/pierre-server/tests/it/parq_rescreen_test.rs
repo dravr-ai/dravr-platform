@@ -99,7 +99,7 @@ impl Athlete {
                 self.tenant,
                 self.user_id,
                 TransportPolicy::FirstPartyOnly,
-                &|_| true,
+                &|_, _| true,
             )
             .await?;
         let mut facts: Vec<_> = dossier
@@ -161,6 +161,7 @@ impl Athlete {
                 valid_until: Some(Timestamp::now() + Elapsed::days(90)),
                 source_msg_id: None,
                 transport_policy: TransportPolicy::AnyTransport,
+                ai_consent_sources: &[],
             })
             .await?;
         Ok(())

@@ -40,6 +40,7 @@ use crate::coach_athlete_reads_test::{
     fixture, mentions, ok, person, refused_reason, Fixture, Person, ATHLETE_RUNS,
     ATHLETE_STREAM_RUN, COACH_RIDE, TRAINING_READS, UPLOAD,
 };
+use crate::helpers::garmin_consent::give_garmin_ai_consent;
 
 /// The athlete's run whose samples carry a GPS track and altitude.
 pub(crate) const ROUTE_RUN: &str = "athlete-run-2";
@@ -239,6 +240,9 @@ pub(crate) async fn world() -> (Fixture, String) {
         )
         .await
         .unwrap();
+    // Under the athlete's Garmin AI consent (carnet#1157), so a model's read
+    // elects their Garmin at all: the coach reads under the athlete's consents.
+    give_garmin_ai_consent(repos, f.athlete.id, f.athlete.tenant).await;
     repos
         .activity_streams
         .upsert_activity_streams(&ActivityStreamsWrite {

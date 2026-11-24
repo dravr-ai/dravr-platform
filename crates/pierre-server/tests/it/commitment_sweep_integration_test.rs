@@ -142,6 +142,7 @@ fn closed_window_commitment(
         created_at: now - Elapsed::days(days_ago),
         updated_at: now - Elapsed::days(days_ago),
         transport_policy: TransportPolicy::AnyTransport,
+        ai_consent_sources: Vec::new(),
     }
 }
 

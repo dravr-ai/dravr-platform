@@ -37,6 +37,7 @@ use serde_json::{json, Value};
 use uuid::Uuid;
 
 use crate::common;
+use crate::helpers::garmin_consent::give_garmin_ai_consent;
 use crate::helpers::sciotte_mock::spawn_mock_scraper_with_activity;
 
 /// Nothing listens here: a read the cap admitted would fail to connect, so a
@@ -104,6 +105,9 @@ async fn garmin_athlete_on(resources: &Arc<ServerContext>, tier: UserTier) -> (U
         )
         .await
         .unwrap();
+    // A model reads Garmin, stored copy or live, only under the athlete's
+    // Garmin AI consent (carnet#1157).
+    give_garmin_ai_consent(repos, user_id, tenant).await;
     (user_id, tenant)
 }
 

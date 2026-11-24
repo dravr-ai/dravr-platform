@@ -48,6 +48,7 @@ fn commitment(
         created_at: now,
         updated_at: now,
         transport_policy: TransportPolicy::AnyTransport,
+        ai_consent_sources: Vec::new(),
     }
 }
 
@@ -197,6 +198,7 @@ async fn recording_a_verdict_moves_it_out_of_the_due_scan() {
         completed_sessions: 2,
         at,
         transport_policy: TransportPolicy::AnyTransport,
+        ai_consent_sources: &[],
     };
     assert!(repos
         .commitments
@@ -239,6 +241,7 @@ async fn a_racing_second_sweep_writes_nothing() {
         completed_sessions: 3,
         at: Timestamp::now(),
         transport_policy: TransportPolicy::AnyTransport,
+        ai_consent_sources: &[],
     };
     let missed = SweptVerdict {
         outcome: CommitmentOutcome::Missed,
@@ -280,6 +283,7 @@ async fn reporting_is_single_shot_and_recorded() {
             completed_sessions: 3,
             at: Timestamp::now(),
             transport_policy: TransportPolicy::AnyTransport,
+            ai_consent_sources: &[],
         })
         .await
         .unwrap();
@@ -378,6 +382,7 @@ async fn expiring_closes_a_verdict_that_never_landed() {
             completed_sessions: 0,
             at: Timestamp::now(),
             transport_policy: TransportPolicy::AnyTransport,
+            ai_consent_sources: &[],
         })
         .await
         .unwrap();
@@ -430,6 +435,7 @@ async fn every_write_is_tenant_scoped() {
             completed_sessions: 0,
             at: Timestamp::now(),
             transport_policy: TransportPolicy::AnyTransport,
+            ai_consent_sources: &[],
         })
         .await
         .unwrap());
@@ -477,4 +483,42 @@ async fn open_list_is_scoped_to_the_athlete() {
         .unwrap();
     assert_eq!(mine.len(), 1);
     assert_eq!(mine[0].sport.as_deref(), Some("run"));
+}
+
+// carnet#1157: a commitment names the consents it was recorded under, and its
+// verdict adds those of the sessions it counted.
+#[tokio::test]
+async fn consent_sources_round_trip_and_a_verdict_adds_its_own() {
+    let db = create_test_db().await;
+    let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
+
+    let mut c = commitment("t1", "u1", Some("run"), 3, -1);
+    c.ai_consent_sources = vec!["whoop".to_owned()];
+    repos.commitments.insert_commitment(&c).await.unwrap();
+    let due = repos
+        .commitments
+        .due_commitments(Timestamp::now().epoch_seconds(), 50)
+        .await
+        .unwrap();
+    assert_eq!(due[0].ai_consent_sources, vec!["whoop".to_owned()]);
+
+    let garmin = vec!["garmin".to_owned()];
+    assert!(repos
+        .commitments
+        .record_commitment_verdict(&SweptVerdict {
+            tenant_id: "t1",
+            commitment_id: &c.id,
+            outcome: CommitmentOutcome::Met,
+            completed_sessions: 3,
+            at: Timestamp::now(),
+            transport_policy: TransportPolicy::AnyTransport,
+            ai_consent_sources: &garmin,
+        })
+        .await
+        .unwrap());
+    let labeled = repos.commitments.unreported_commitments(50).await.unwrap();
+    assert_eq!(
+        labeled[0].ai_consent_sources,
+        vec!["garmin".to_owned(), "whoop".to_owned()]
+    );
 }

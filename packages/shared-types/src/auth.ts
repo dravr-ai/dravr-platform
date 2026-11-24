@@ -489,6 +489,16 @@ export interface ExtendedProviderStatus {
    */
   ai_consent?: boolean;
   /**
+   * The account's consent to Dravr sending this provider its data, for a
+   * provider that asks one (Garmin's workout transfer, carnet#1390): `true`
+   * while given, `false` while not given or withdrawn — then Dravr writes
+   * nothing to this provider. Withdraw it with
+   * `oauthApi.withdrawTransferConsent`, give it back with
+   * `grantTransferConsent`. Absent for every provider that asks no such
+   * consent.
+   */
+  transfer_consent?: boolean;
+  /**
    * What kind of account the user's own connection signed in with, once the
    * provider has reported it: `"coach"` for a TrainingPeaks coach account,
    * which keeps no calendar of its own. Absent until the role is read, and

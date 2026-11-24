@@ -17,6 +17,8 @@ jest.mock('../../../services/api', () => ({
     grantAiConsent: jest.fn(),
     withdrawAiConsent: jest.fn(),
     getAiConsent: jest.fn(),
+    grantTransferConsent: jest.fn(),
+    withdrawTransferConsent: jest.fn(),
   },
 }));
 jest.mock('../../../contexts/AuthContext', () => ({
@@ -27,6 +29,8 @@ const getProvidersStatus = oauthApi.getProvidersStatus as jest.Mock;
 const grantAiConsent = oauthApi.grantAiConsent as jest.Mock;
 const withdrawAiConsent = oauthApi.withdrawAiConsent as jest.Mock;
 const getAiConsent = oauthApi.getAiConsent as jest.Mock;
+const grantTransferConsent = oauthApi.grantTransferConsent as jest.Mock;
+const withdrawTransferConsent = oauthApi.withdrawTransferConsent as jest.Mock;
 
 function card(provider: string, display_name: string, connected: boolean, ai_consent?: boolean) {
   return {
@@ -147,5 +151,61 @@ describe('AiConsentSection', () => {
     fireEvent(screen.getByTestId('ai-consent-switch-sensitive_t3'), 'valueChange', false);
     await waitFor(() => expect(withdrawAiConsent).toHaveBeenCalledWith('sensitive_t3'));
     await waitFor(() => expect(screen.getByTestId('ai-consent-switch-sensitive_t3').props.value).toBe(false));
+  });
+
+  describe('the workouts sent to a provider (carnet#1390)', () => {
+    let transferConsent: boolean;
+
+    beforeEach(() => {
+      transferConsent = false;
+      getProvidersStatus.mockImplementation(async () => ({
+        providers: [
+          { ...card('sciotte_garmin', 'Garmin', true, false), transfer_consent: transferConsent },
+          card('strava', 'Strava', true),
+        ],
+      }));
+      grantTransferConsent.mockImplementation(async () => {
+        transferConsent = true;
+      });
+      withdrawTransferConsent.mockImplementation(async () => {
+        transferConsent = false;
+      });
+    });
+
+    it('shows one switch per connected provider whose card carries the transfer consent', async () => {
+      renderSection();
+      expect(await screen.findByTestId('privacy-section-transfer-consent')).toBeTruthy();
+      expect(screen.getByTestId('transfer-consent-switch-sciotte_garmin').props.value).toBe(false);
+      expect(screen.queryByTestId('transfer-consent-switch-strava')).toBeNull();
+    });
+
+    it('gives it in one tap and withdraws it in one tap, by the card id', async () => {
+      renderSection();
+      fireEvent(await screen.findByTestId('transfer-consent-switch-sciotte_garmin'), 'valueChange', true);
+      await waitFor(() => expect(grantTransferConsent).toHaveBeenCalledWith('sciotte_garmin'));
+      await waitFor(() => expect(screen.getByTestId('transfer-consent-switch-sciotte_garmin').props.value).toBe(true));
+
+      fireEvent(screen.getByTestId('transfer-consent-switch-sciotte_garmin'), 'valueChange', false);
+      await waitFor(() => expect(withdrawTransferConsent).toHaveBeenCalledWith('sciotte_garmin'));
+      await waitFor(() => expect(screen.getByTestId('transfer-consent-switch-sciotte_garmin').props.value).toBe(false));
+    });
+
+    it('alerts on failure and keeps the server state', async () => {
+      grantTransferConsent.mockRejectedValueOnce(new Error('offline'));
+      renderSection();
+      fireEvent(await screen.findByTestId('transfer-consent-switch-sciotte_garmin'), 'valueChange', true);
+      await waitFor(() => expect(Alert.alert).toHaveBeenCalled());
+      expect(screen.getByTestId('transfer-consent-switch-sciotte_garmin').props.value).toBe(false);
+    });
+
+    it('hides the block while no connected card carries it', async () => {
+      getProvidersStatus.mockResolvedValue({
+        providers: [{ ...card('sciotte_garmin', 'Garmin', false), transfer_consent: false }, card('strava', 'Strava', true)],
+      });
+      renderSection();
+      await waitFor(() => expect(getProvidersStatus).toHaveBeenCalled());
+      await screen.findByTestId('privacy-section-sensitive-records');
+      expect(screen.queryByTestId('privacy-section-transfer-consent')).toBeNull();
+    });
   });
 });

@@ -45,6 +45,7 @@ fn playbook(success: u32, failure: u32, confidence: f32) -> Playbook {
         created_at: now,
         updated_at: now,
         transport_policy: TransportPolicy::AnyTransport,
+        ai_consent_sources: Vec::new(),
     }
 }
 

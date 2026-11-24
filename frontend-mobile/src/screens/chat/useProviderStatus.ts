@@ -41,13 +41,15 @@ export interface ProviderStatusActions {
    * carries the provider notice the athlete just accepted (WHOOP's owner
    * authorization); `signInBlocked` that this start falls back from a
    * sign-in that could not complete, so the server never turns it back into
-   * that sign-in (carnet#1667).
+   * that sign-in (carnet#1667). `consents` are the keys the athlete ticked
+   * on the connect's consent sheet (Garmin, carnet#1157 / carnet#1390).
    */
   handleConnectProvider: (
     provider: string,
     onSuccess?: () => Promise<void>,
     tosConsent?: boolean,
-    signInBlocked?: boolean
+    signInBlocked?: boolean,
+    consents?: readonly string[]
   ) => Promise<void>;
   getCachedConnectedProvider: () => ExtendedProviderStatus | undefined;
   /**
@@ -121,7 +123,8 @@ export function useProviderStatus(): ProviderStatusState & ProviderStatusActions
     provider: string,
     onSuccess?: () => Promise<void>,
     tosConsent = false,
-    signInBlocked = false
+    signInBlocked = false,
+    consents?: readonly string[]
   ) => {
     // No app of the server's can authorize the provider for this athlete:
     // their own app's credentials come first.
@@ -134,7 +137,7 @@ export function useProviderStatus(): ProviderStatusState & ProviderStatusActions
     setError(null);
     try {
       const returnUrl = getOAuthCallbackUrl();
-      const oauthResponse = await oauthApi.initMobileOAuth(provider, returnUrl, { tosConsent, signInBlocked });
+      const oauthResponse = await oauthApi.initMobileOAuth(provider, returnUrl, { tosConsent, signInBlocked, consents });
 
       // The connecting state ends once the OAuth URL is ready and the browser is about to open
       setConnectingProvider(null);
@@ -164,7 +167,7 @@ export function useProviderStatus(): ProviderStatusState & ProviderStatusActions
             providerName: card?.display_name ?? provider,
             language,
             t,
-            onCleared: () => void connectRef.current(provider, onSuccess, tosConsent),
+            onCleared: () => void connectRef.current(provider, onSuccess, tosConsent, false, consents),
           });
           return;
         }

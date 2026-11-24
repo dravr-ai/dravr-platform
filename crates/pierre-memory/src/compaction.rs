@@ -49,6 +49,11 @@ pub struct CompactionBlock {
     /// goes with the member's account. `None` for a summary about nobody.
     #[serde(default, skip_serializing)]
     pub about_user_id: Option<Uuid>,
+    /// The AI-consent keys of the provider data the summarized rows were drawn
+    /// from (carnet#1157): once the athlete withdraws one, no prompt replays
+    /// the summary. Empty for rows written before the column.
+    #[serde(default, skip_serializing)]
+    pub ai_consent_sources: Vec<String>,
 }
 
 impl CompactionBlock {

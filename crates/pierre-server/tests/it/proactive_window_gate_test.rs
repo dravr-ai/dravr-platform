@@ -414,6 +414,7 @@ async fn a_closed_window_writes_the_reconnect_sentence_once_while_it_stands() {
             channel_type: None,
             about_user_id: None,
             turn_attempted_write: None,
+            ai_consent_sources: &[],
         })
         .await
         .unwrap();

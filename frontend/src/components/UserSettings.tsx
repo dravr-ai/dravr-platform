@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
+import { lazy, Suspense, useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../hooks/useAuth';
 import { useTheme } from '../hooks/useTheme';
@@ -17,6 +17,7 @@ import {
   OAUTH_RESULT_FRESH_MS,
   OAUTH_RESULT_KEY,
   historySignInAfterGrant,
+  offeredConsents,
   refusalAnswer,
   startOAuthInNewTab,
   startOAuthInThisTab,
@@ -56,6 +57,7 @@ import { QUERY_KEYS } from '../constants/queryKeys';
 import {
   cardForSlug,
   cardStatus,
+  connectConsentsFor,
   connectPlan,
   oauthFallbackTarget,
   intervalsConnectPath,
@@ -77,6 +79,10 @@ import IntervalsIcuLinkModal from './IntervalsIcuLinkModal';
 import OAuthAppSetupModal from './OAuthAppSetupModal';
 import { ownAppDevPortal } from '@pierre/domain-utils';
 import { describeApiError } from '@pierre/ui-logic';
+
+// Garmin's offered consents, asked before its connect: loaded on the first
+// connect that offers them, so the dialog stays out of the entry bundle.
+const ConnectConsentDialog = lazy(() => import('./ConnectConsentDialog'));
 
 interface OAuthApp {
   provider: string;
@@ -226,13 +232,22 @@ export default function UserSettings({
     consentRequired: boolean;
     historyMode: boolean;
     fallback: SciotteTarget | null;
+    /** The offered consents the athlete ticked before this connect (`ConnectConsentDialog`). */
+    consents?: readonly string[];
   } | null>(null);
   // The OAuth provider whose notice is on screen before its authorization
   // page opens (WHOOP, until the account accepts its owner authorization).
   const [noticeProvider, setNoticeProvider] = useState<string | null>(null);
   // The provider whose own-app setup is on screen: no app of the server's can
   // authorize it for this athlete (`own_app_required`).
-  const [ownAppSetup, setOwnAppSetup] = useState<{ provider: ProviderStatus; devPortalUrl: string } | null>(null);
+  const [ownAppSetup, setOwnAppSetup] = useState<{
+    provider: ProviderStatus;
+    devPortalUrl: string;
+    consents: readonly string[];
+  } | null>(null);
+  // The card whose offered consents (Garmin's AI use and workout transfer)
+  // are on screen before its connect starts; Continue starts it either way.
+  const [consentCard, setConsentCard] = useState<ProviderStatus | null>(null);
   // The Intervals.icu dialog, and whether it leads with the authorization
   // (`intervalsConnectPath` answered `'choose'`) or is the key form alone.
   const [intervalsModal, setIntervalsModal] = useState<{ offersAuthorize: boolean } | null>(null);
@@ -458,18 +473,19 @@ export default function UserSettings({
 
   // The Connect button's start: an app of the athlete's own first when no app
   // of the server's can authorize the provider for them, then the provider's
-  // notice while it is owed, then the OAuth flow.
-  const startOAuthConnect = (provider: ProviderStatus) => {
+  // notice while it is owed, then the OAuth flow, carrying the offered
+  // consents the athlete ticked (`ConnectConsentDialog`).
+  const startOAuthConnect = (provider: ProviderStatus, consents: readonly string[] = []) => {
     const devPortalUrl = ownAppDevPortal(provider.provider);
     if (provider.own_app_required && devPortalUrl) {
-      setOwnAppSetup({ provider, devPortalUrl });
+      setOwnAppSetup({ provider, devPortalUrl, consents });
       return;
     }
     if (noticeRequired(provider.provider, provider.consent_required)) {
       setNoticeProvider(provider.provider);
       return;
     }
-    handleConnectProvider(provider.provider);
+    handleConnectProvider(provider.provider, false, consents);
   };
 
   // Intervals.icu connects, or reconnects, the way its card says: an
@@ -497,14 +513,26 @@ export default function UserSettings({
       startOAuthConnect(provider);
       return;
     }
+    // A card whose connect offers consents (Garmin's two) asks them first;
+    // its Continue starts the connect with the boxes ticked, or none.
+    if (connectConsentsFor(provider.provider).length > 0) {
+      setConsentCard(provider);
+      return;
+    }
+    startCardConnect(provider, []);
+  };
+
+  // The card's connect by its plan's primary way in, carrying the offered
+  // consents the athlete ticked.
+  const startCardConnect = (provider: ProviderStatus, consents: readonly string[]) => {
     const primary = connectPlan(provider).primary;
     switch (primary.kind) {
       case 'intervals':
         startIntervalsConnect(provider);
         return;
       case 'oauth':
-        if (primary.provider === provider.provider) startOAuthConnect(provider);
-        else handleConnectProvider(primary.provider);
+        if (primary.provider === provider.provider) startOAuthConnect(provider, consents);
+        else handleConnectProvider(primary.provider, false, consents);
         return;
       case 'sign_in':
         setSignIn({
@@ -512,6 +540,7 @@ export default function UserSettings({
           consentRequired: provider.consent_required,
           historyMode: false,
           fallback: oauthFallbackTarget(provider),
+          consents,
         });
         return;
       case 'none':
@@ -523,20 +552,22 @@ export default function UserSettings({
   // (carnet#1477), a reconnect's too (carnet#1667): the window closes and the
   // authorization opens in a new tab, so this one stays on Settings, which
   // reads the grant the other tab leaves (`answerOAuthResult`).
-  const fallBackToOAuth = (provider: SciotteTarget) => () => {
+  // The consents ticked before the sign-in travel on to the authorization.
+  const fallBackToOAuth = (provider: SciotteTarget, consents: readonly string[] = []) => () => {
     setSignIn(null);
     setProviderMessage(null);
-    startOAuthInNewTab(oauthApi.authorizeUrl(provider, { signInBlocked: true }));
+    startOAuthInNewTab(oauthApi.authorizeUrl(provider, { signInBlocked: true, ...offeredConsents(consents) }));
   };
 
-  const handleConnectProvider = (providerId: string, tosConsent = false) => {
+  const handleConnectProvider = (providerId: string, tosConsent = false, consents: readonly string[] = []) => {
     // Go, in this tab, to the server's launch route, which 302s to the
     // provider and returns here; the result is read when Settings mounts
     // again (below). `tosConsent` carries the provider notice the athlete just
-    // accepted (WHOOP's owner authorization).
+    // accepted (WHOOP's owner authorization), `consents` the offered consents
+    // ticked (Garmin's, `ConnectConsentDialog`).
     setConnectingProvider(providerId);
     setProviderMessage(null);
-    startOAuthInThisTab(oauthApi.authorizeUrl(providerId, { tosConsent }));
+    startOAuthInThisTab(oauthApi.authorizeUrl(providerId, { tosConsent, ...offeredConsents(consents) }));
   };
 
   // The result a connect started here came back with (`settleOAuthReturn`).
@@ -1737,7 +1768,7 @@ Authorization: Bearer <your-token-here>`}
           onClose={() => setOwnAppSetup(null)}
           onSaved={() => {
             setOwnAppSetup(null);
-            startOAuthConnect({ ...ownAppSetup.provider, own_app_required: false });
+            startOAuthConnect({ ...ownAppSetup.provider, own_app_required: false }, ownAppSetup.consents);
           }}
           provider={ownAppSetup.provider.provider}
           displayName={ownAppSetup.provider.display_name}
@@ -1757,9 +1788,24 @@ Authorization: Bearer <your-token-here>`}
         target={signIn?.target ?? 'strava'}
         consentRequired={signIn?.consentRequired ?? false}
         historyMode={signIn?.historyMode ?? false}
-        onFallBackToOAuth={signIn?.fallback ? fallBackToOAuth(signIn.fallback) : undefined}
+        onFallBackToOAuth={signIn?.fallback ? fallBackToOAuth(signIn.fallback, signIn.consents) : undefined}
+        consents={signIn?.consents}
         extensionFirst={signIn ? signInStartsWithExtension(cardForSlug(signIn.target, fitnessProviders)) : true}
       />
+
+      {consentCard && (
+        <Suspense fallback={null}>
+          <ConnectConsentDialog
+            open
+            consents={connectConsentsFor(consentCard.provider)}
+            onCancel={() => setConsentCard(null)}
+            onContinue={(keys) => {
+              setConsentCard(null);
+              startCardConnect(consentCard, keys);
+            }}
+          />
+        </Suspense>
+      )}
 
       {/* Intervals.icu: the authorization when offered, and the API-key form */}
       <IntervalsIcuLinkModal
