@@ -3428,6 +3428,7 @@
       "goal_why": "Your goal: “{0}”. Your why: “{1}”. That's what I'll come back to when training gets hard.",
       "greeting": "Hi! Dravr's {0} here.\n\n{1}",
       "greeting_no_role": "Hi! Dravr's {0} here.",
+      "history_needed": "{0} only shares the workouts recorded from the day you connected it, so your past training isn't here yet. To bring it in, choose Add history on your {0} card.",
       "list_and": "{0} and {1}",
       "reach_line": "Mention one with @ in any message, or press + to talk to one on its own.",
       "starters_title": "To get started, you can ask me:",

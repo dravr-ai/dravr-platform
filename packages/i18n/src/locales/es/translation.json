@@ -3428,6 +3428,7 @@
       "goal_why": "Tu objetivo: «{0}». Tu porqué: «{1}». A eso volveré cuando el entrenamiento se ponga duro.",
       "greeting": "¡Hola! Aquí {0} de Dravr, a tu disposición.\n\n{1}",
       "greeting_no_role": "¡Hola! Aquí {0} de Dravr, a tu disposición.",
+      "history_needed": "{0} solo comparte los entrenamientos registrados desde que lo conectaste, así que tu entrenamiento anterior aún no está aquí. Para traerlo, elige Añadir historial en tu tarjeta de {0}.",
       "list_and": "{0} y {1}",
       "reach_line": "Menciona a uno con @ en cualquier mensaje, o pulsa + para hablar con él a solas.",
       "starters_title": "Para empezar, puedes preguntarme:",

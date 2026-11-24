@@ -3428,6 +3428,7 @@
       "goal_why": "Dein Ziel: „{0}“. Dein Warum: „{1}“. Darauf komme ich zurück, wenn das Training hart wird.",
       "greeting": "Hallo! Hier ist {0} von Dravr – ich bin für dich da.\n\n{1}",
       "greeting_no_role": "Hallo! Hier ist {0} von Dravr – ich bin für dich da.",
+      "history_needed": "{0} teilt nur die Einheiten, die seit dem Verbinden aufgezeichnet wurden, daher ist dein bisheriges Training noch nicht da. Um es zu übernehmen, wähle Verlauf hinzufügen auf deiner {0}-Karte.",
       "list_and": "{0} und {1}",
       "reach_line": "Erwähne einen mit @ in einer beliebigen Nachricht, oder tippe auf +, um allein mit ihm zu sprechen.",
       "starters_title": "Zum Einstieg kannst du mich fragen:",

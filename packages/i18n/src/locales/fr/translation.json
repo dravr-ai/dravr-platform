@@ -3428,6 +3428,7 @@
       "goal_why": "Ton objectif : « {0} ». Ton pourquoi : « {1} ». C'est à ça que je reviendrai quand l'entraînement se corsera.",
       "greeting": "Bonjour ! {0} de Dravr, à ton écoute.\n\n{1}",
       "greeting_no_role": "Bonjour ! {0} de Dravr, à ton écoute.",
+      "history_needed": "{0} ne partage que les séances enregistrées depuis que tu l'as connecté, alors ton entraînement passé n'est pas encore là. Pour l'ajouter, choisis Ajouter l'historique sur ta carte {0}.",
       "list_and": "{0} et {1}",
       "reach_line": "Mentionne-en un avec @ dans n'importe quel message, ou appuie sur + pour lui parler seul à seul.",
       "starters_title": "Pour commencer, tu peux me demander :",

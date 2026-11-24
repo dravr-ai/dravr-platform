@@ -3428,6 +3428,7 @@
       "goal_why": "O teu objetivo: «{0}». O teu porquê: «{1}». É a isso que vou voltar quando o treino apertar.",
       "greeting": "Olá! Aqui {0} do Dravr, ao teu dispor.\n\n{1}",
       "greeting_no_role": "Olá! Aqui {0} do Dravr, ao teu dispor.",
+      "history_needed": "O {0} só partilha os treinos registados desde que o ligaste, por isso o teu treino anterior ainda não está cá. Para o trazer, escolhe Adicionar histórico no teu cartão {0}.",
       "list_and": "{0} e {1}",
       "reach_line": "Menciona um com @ em qualquer mensagem, ou carrega em + para falares só com ele.",
       "starters_title": "Para começar, podes perguntar-me:",
