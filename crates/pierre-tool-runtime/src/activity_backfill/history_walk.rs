@@ -89,7 +89,9 @@
 //! thread, how far back their history now reaches (B4).
 //!
 //! A step below the head whose capture fell short of its window lands what
-//! it read and reads on below it ([`land`]). A walk that still ends
+//! it read and reads on below it ([`land`]); one that read nothing below its
+//! cursor on every attempt there reached the start of the history, and the
+//! walk ends there as at any empty step. A walk that still ends
 //! incomplete is resumed from its cursor when asked again, a day after a
 //! failing end at the soonest ([`resume`]).
 //!
@@ -474,9 +476,10 @@ enum Step {
     AuthRequired,
     /// A transient failure: nothing of the step is recorded.
     Failed,
-    /// A step below the head read nothing and fell short of its window, at
-    /// the oldest row the walk stored ([`land::read_nothing`]): a failure
-    /// while attempts remain, the end of what the source gives once spent.
+    /// A step below the head read nothing below its cursor and fell short of
+    /// its window, at the oldest row the walk stored ([`land::read_nothing`],
+    /// [`land::land`]): a failure while attempts at that cursor remain, the
+    /// start of the athlete's history once they are spent.
     FellShort(JobProgressStep),
     /// The step's row was no longer its own when it came to write, or a
     /// purge of its key landed while it wrote: nothing of its page that a
@@ -577,9 +580,14 @@ async fn settle_step(
     attempt_started_at: Timestamp,
 ) -> bool {
     let ledger = &job.resources.repos().activity_backfill_jobs;
-    // A step that fell short on every attempt reached what its source gives.
+    // A step that fell short on its last attempt at the same cursor (a
+    // landed step starts the attempts over) reached the start of the
+    // history: what its source lists ends there.
     let step = match step {
-        Step::FellShort(step) if attempts >= MAX_BACKFILL_ATTEMPTS => Step::Ended(step),
+        Step::FellShort(step) if attempts >= MAX_BACKFILL_ATTEMPTS => {
+            info!(user_id = %job.user_id, provider = %job.provider_name, before = step.before_ts, attempts, "History walk: a step fell short at its cursor on its last attempt; the walk reached the start of the athlete's history");
+            Step::Ended(step)
+        }
         step => step,
     };
     match step {

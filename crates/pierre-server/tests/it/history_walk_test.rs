@@ -100,6 +100,13 @@ pub(crate) struct ScraperSwitch {
     /// (`head_complete` false), and one whose `before` is at or below it
     /// fails on its first month.
     pub(crate) short_below: Arc<Mutex<Option<i64>>>,
+    /// A read answers its `before` month whole, as the scraper's month walk
+    /// does: a row starting at `before` itself comes back with the rows
+    /// below it.
+    pub(crate) whole_before_month: Arc<AtomicBool>,
+    /// Every activity read whose `before` is at or below this instant (unix
+    /// seconds) answers a server error: a source failing transiently there.
+    pub(crate) fail_below: Arc<Mutex<Option<i64>>>,
 }
 
 /// A stand-in for the scraper service over a Garmin account holding a run
@@ -207,6 +214,15 @@ pub(crate) async fn spawn_switchable_scraper(switch: ScraperSwitch) -> (String, 
                         }
                         let after = query_bound(&query, "after");
                         let before = query_bound(&query, "before");
+                        let failing = *scraper.switch.fail_below.lock().unwrap();
+                        if failing.is_some_and(|failing| before.is_some_and(|before| before <= failing)) {
+                            return (
+                                StatusCode::INTERNAL_SERVER_ERROR,
+                                Json(json!({ "error": "internal", "message": "scraper hiccup" })),
+                            );
+                        }
+                        let whole_before_month =
+                            scraper.switch.whole_before_month.load(Ordering::SeqCst);
                         let cut = *scraper.switch.short_below.lock().unwrap();
                         if cut.is_some_and(|cut| before.is_some_and(|before| before <= cut)) {
                             return (
@@ -220,7 +236,10 @@ pub(crate) async fn spawn_switchable_scraper(switch: ScraperSwitch) -> (String, 
                             .iter()
                             .filter(|(_, _, start)| {
                                 after.is_none_or(|after| start.epoch_seconds() >= after)
-                                    && before.is_none_or(|before| start.epoch_seconds() < before)
+                                    && before.is_none_or(|before| {
+                                        start.epoch_seconds() < before
+                                            || (whole_before_month && start.epoch_seconds() == before)
+                                    })
                                     && short.is_none_or(|cut| start.epoch_seconds() >= cut)
                             })
                             .map(|(id, sport, start)| workout(id, sport, &start.to_rfc3339()))

@@ -32,6 +32,7 @@ use crate::history_walk_test::{
     spawn_switchable_scraper, ScraperSwitch, WALK_DEADLINE,
 };
 
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -189,6 +190,138 @@ async fn a_bounded_step_short_of_its_window_lands_and_reads_below_its_oldest_row
     assert_eq!(
         row.progress.rows_landed, 3,
         "bug: the short step's row is not counted"
+    );
+}
+
+/// The scraper's month walk reaches the start of the athlete's history: the
+/// step below the oldest run reads that run's month whole again, nothing
+/// below it, and falls short of its window on a month before the account
+/// (carnet#1780).
+fn at_the_start_of_the_history() -> ScraperSwitch {
+    let switch = ScraperSwitch::default();
+    let cut = (Timestamp::now() - Elapsed::days(8 * 365 + 1)).epoch_seconds();
+    *switch.short_below.lock().unwrap() = Some(cut);
+    switch.whole_before_month.store(true, Ordering::SeqCst);
+    switch
+}
+
+/// Whether the athlete's history walk under the session's own key holds a
+/// tag walk back: the row the tag walk reads before it is asked
+/// (`tag_walk::held_back`), which asks it only once that row is walked.
+async fn holds_tag_walk_back(
+    resources: &Arc<ServerContext>,
+    user_id: Uuid,
+    tenant: TenantId,
+) -> bool {
+    resources
+        .common
+        .repos
+        .activity_backfill_jobs
+        .history_walk_row(user_id, tenant, oauth_providers::SCIOTTE_GARMIN)
+        .await
+        .unwrap()
+        .is_some_and(|row| row.state != BackfillJobState::Walked)
+}
+
+/// A step at the start of the history reads only rows at its cursor, short
+/// of its window, on every attempt a lease apart: once they are spent, the
+/// walk has reached the bottom of what the source lists and ends walked, so
+/// the tag walk is asked.
+#[tokio::test]
+async fn a_short_capture_at_its_cursor_on_every_attempt_ends_the_walk_walked() {
+    let (scraper, calls) = spawn_switchable_scraper(at_the_start_of_the_history()).await;
+    let resources = server(common::test_server_config_with_sciotte(&scraper)).await;
+    let (user_id, _user, tenant, _token) = athlete(&resources).await;
+    hold_grant(&resources, user_id, tenant).await;
+    hold_session(&resources, user_id, tenant, SIGNED_IN_SESSION).await;
+
+    assert!(
+        ask_walk(&resources, user_id, tenant).await,
+        "bug: the session is walked"
+    );
+    assert_eq!(
+        walk_settled(&resources, user_id, tenant).await,
+        BackfillJobState::Walked,
+        "bug: a walk at the start of the history never ends walked"
+    );
+    assert_eq!(
+        rows_under(&resources, user_id, tenant, oauth_providers::SCIOTTE_GARMIN).await,
+        3,
+        "bug: the walk's runs are not all in the store"
+    );
+    let oldest = oldest_stored(&resources, user_id, tenant).await;
+    let at_oldest = session_reads(&calls)
+        .iter()
+        .filter(|read| query_bound(read, "before") == Some(oldest))
+        .count();
+    assert_eq!(
+        at_oldest,
+        usize::try_from(MAX_BACKFILL_ATTEMPTS).unwrap(),
+        "bug: the step at the start of the history is read once an attempt: {:?}",
+        session_reads(&calls)
+    );
+    assert!(
+        !holds_tag_walk_back(&resources, user_id, tenant).await,
+        "bug: the tag walk is held back by a history walk that reached its start"
+    );
+}
+
+/// The source fails transiently below the oldest run on every attempt: that
+/// is no start of the history, so the walk ends incomplete and the tag walk
+/// waits. Once the source answers again, the walk resumed a day later
+/// reaches the start of the history and ends walked.
+#[tokio::test]
+async fn a_transient_failure_ends_incomplete_and_the_resumed_walk_reaches_the_start() {
+    let switch = at_the_start_of_the_history();
+    // An hour above the oldest run: the step below it fails, the one above
+    // it reads.
+    let failing = (Timestamp::now() - Elapsed::days(8 * 365)).epoch_seconds() + 3_600;
+    *switch.fail_below.lock().unwrap() = Some(failing);
+    let (scraper, _calls) = spawn_switchable_scraper(switch.clone()).await;
+    let resources = server(common::test_server_config_with_sciotte(&scraper)).await;
+    let (user_id, _user, tenant, _token) = athlete(&resources).await;
+    hold_grant(&resources, user_id, tenant).await;
+    hold_session(&resources, user_id, tenant, SIGNED_IN_SESSION).await;
+
+    assert!(
+        ask_walk(&resources, user_id, tenant).await,
+        "bug: the session is walked"
+    );
+    assert_eq!(
+        walk_settled(&resources, user_id, tenant).await,
+        BackfillJobState::Incomplete,
+        "bug: a transient failure on every attempt ended the walk walked"
+    );
+    assert_eq!(
+        rows_under(&resources, user_id, tenant, oauth_providers::SCIOTTE_GARMIN).await,
+        3,
+        "bug: the runs above the failure are not in the store"
+    );
+    assert!(
+        holds_tag_walk_back(&resources, user_id, tenant).await,
+        "bug: the tag walk is asked over an incomplete history"
+    );
+
+    *switch.fail_below.lock().unwrap() = None;
+    update_walk_row(
+        &resources,
+        user_id,
+        "UPDATE activity_backfill_jobs SET ended_at_ms = $2 WHERE user_id = $1",
+        &[Timestamp::now().epoch_millis() - PAST_THE_BACK_OFF_MS],
+    )
+    .await;
+    assert!(
+        ask_walk(&resources, user_id, tenant).await,
+        "bug: a day past its failing end, the walk is asked again"
+    );
+    assert_eq!(
+        walk_settled(&resources, user_id, tenant).await,
+        BackfillJobState::Walked,
+        "bug: the resumed walk at the start of the history never ends walked"
+    );
+    assert!(
+        !holds_tag_walk_back(&resources, user_id, tenant).await,
+        "bug: the tag walk is held back once the resumed walk reached the start"
     );
 }
 

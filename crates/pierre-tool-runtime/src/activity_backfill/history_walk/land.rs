@@ -14,14 +14,17 @@
 //! sync ([`sync_verdict::covers_list_head`]), so the head's freshness is untouched, and the
 //! next step reads below the oldest row it landed, never below its window.
 //!
-//! A step below the head that read nothing short of its window failed on the
-//! first month below its cursor. When the walk's own key holds rows below
-//! that cursor, the failure sits inside stored history: the step failed. When
-//! it holds none, the source may simply hold nothing older (a month before
-//! the account answers an error): the step falls short ([`Step::FellShort`])
-//! and is tried again on each attempt, and only once its attempts are spent
-//! does the session phase end there, handing off to a grant beside it as any
-//! empty step does.
+//! A step below the head that read nothing below its cursor short of its
+//! window — no row at all, or only rows at or above the cursor, as a month
+//! walk that reads the cursor's month whole returns — failed on the first
+//! month below its cursor. When the walk's own key holds rows below that
+//! cursor, the failure sits inside stored history: the step failed. When it
+//! holds none, the source may simply hold nothing older (a month before the
+//! account answers an error): the step falls short ([`Step::FellShort`]) and
+//! is tried again on each attempt, a lease apart, and only once its attempts
+//! at that cursor are spent has the walk reached the start of the history:
+//! the session phase ends there, handing off to a grant beside it as any
+//! empty step does, or ends the walk walked (carnet#1780).
 
 use std::time::Instant;
 
@@ -81,9 +84,9 @@ pub(super) async fn read_nothing(
     fell_short(job, cursor).await
 }
 
-/// A step below the head that read nothing short of its window: failed when
-/// the walk's key holds rows below its cursor, else fallen short at the
-/// bottom of what the walk stored.
+/// A step below the head that read nothing below its cursor short of its
+/// window: failed when the walk's key holds rows below its cursor, else
+/// fallen short at the bottom of what the walk stored.
 async fn fell_short(job: &ActivityBackfillJob, cursor: Cursor) -> Step {
     let key = job.provider_name.as_str();
     match oldest_stored(&job.resources, job.user_id, job.tenant_id, &[key]).await {
@@ -92,7 +95,7 @@ async fn fell_short(job: &ActivityBackfillJob, cursor: Cursor) -> Step {
             Step::Failed
         }
         Ok(_) => {
-            info!(user_id = %job.user_id, provider = key, before = cursor.top, "History walk: a step read nothing and fell short of its window below the oldest stored row");
+            info!(user_id = %job.user_id, provider = key, before = cursor.top, "History walk: a step read nothing below its cursor and fell short of its window at the oldest stored row");
             Step::FellShort(no_step(cursor.top))
         }
         Err(()) => Step::Failed,
@@ -130,10 +133,11 @@ pub(super) async fn land(
         .unwrap_or(span.bottom);
     if short {
         // The next step must read strictly below this one, or it reads the
-        // same rows again on every pass.
+        // same rows again on every pass: a capture holding nothing below its
+        // cursor read nothing new, and falls short as an empty one does.
         if oldest >= span.cursor.top {
-            warn!(user_id = %job.user_id, provider = %job.provider_name, "History walk: a capture short of its window held nothing below its cursor; the step failed");
-            return Step::Failed;
+            info!(user_id = %job.user_id, provider = %job.provider_name, fetched, "History walk: a capture short of its window held nothing below its cursor");
+            return fell_short(job, span.cursor).await;
         }
         info!(user_id = %job.user_id, provider = %job.provider_name, fetched, oldest, "History walk: a step's capture fell short of its window; its rows land and the next step reads below the oldest");
     }
