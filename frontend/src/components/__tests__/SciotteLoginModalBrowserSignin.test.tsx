@@ -106,7 +106,10 @@ describe('SciotteLoginModal — a sign-in in the athlete\'s own browser', () => 
 
     await vi.waitFor(() => expect(onConnected).toHaveBeenCalledTimes(1));
     expect(signInWithExtension).toHaveBeenCalledWith(GARMIN, expect.any(AbortSignal));
-    expect(browserSignin).toHaveBeenCalledWith('garmin', COOKIES, { tosConsent: false });
+    expect(browserSignin).toHaveBeenCalledWith('garmin', COOKIES, {
+      tosConsent: false,
+      signal: expect.any(AbortSignal),
+    });
   });
 
   it('stops looking for the extension when the window goes away', async () => {
@@ -167,7 +170,10 @@ describe('SciotteLoginModal — a sign-in in the athlete\'s own browser', () => 
 
     await vi.waitFor(() => expect(onConnected).toHaveBeenCalledTimes(1));
     expect(signInWithExtension).toHaveBeenCalledTimes(1);
-    expect(browserSignin).toHaveBeenCalledWith('garmin', COOKIES, { tosConsent: false });
+    expect(browserSignin).toHaveBeenCalledWith('garmin', COOKIES, {
+      tosConsent: false,
+      signal: expect.any(AbortSignal),
+    });
   });
 
   it('waits for the click when the card puts the credentials first', async () => {
@@ -226,6 +232,9 @@ describe('SciotteLoginModal — a sign-in in the athlete\'s own browser', () => 
 
     await vi.waitFor(() => expect(onConnected).toHaveBeenCalledTimes(1));
     expect(signInWithExtension).toHaveBeenCalledTimes(1);
-    expect(browserSignin).toHaveBeenCalledWith('trainingpeaks', COOKIES, { tosConsent: true });
+    expect(browserSignin).toHaveBeenCalledWith('trainingpeaks', COOKIES, {
+      tosConsent: true,
+      signal: expect.any(AbortSignal),
+    });
   });
 });

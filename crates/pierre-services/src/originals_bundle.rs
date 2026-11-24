@@ -126,7 +126,9 @@ pub struct BundleView {
 
 impl BundleView {
     fn of(bundle: &ExportBundle) -> Self {
-        let ready = bundle.status == BundleStatus::Ready;
+        // An expired bundle the sweep has not reached yet offers no download.
+        let ready = bundle.status == BundleStatus::Ready
+            && link_lifetime(bundle.expires_at, Timestamp::now()).is_some();
         Self {
             bundle_id: bundle.id,
             status: bundle.status.as_str(),
@@ -729,7 +731,8 @@ impl OriginalsBundleService {
     /// Say how the athlete downloads their ready bundle `id`.
     ///
     /// # Errors
-    /// Not found when it is not theirs; a conflict when it is not ready; a
+    /// Not found when it is not theirs or has expired (the sweep may not have
+    /// deleted it yet); a conflict when it is not ready; a
     /// resource-unavailable error when the store cannot hand it out.
     pub async fn download(
         &self,
@@ -744,6 +747,8 @@ impl OriginalsBundleService {
                 "This bundle is not ready to download",
             ));
         }
+        let lifetime = link_lifetime(bundle.expires_at, Timestamp::now())
+            .ok_or_else(|| AppError::not_found("Export bundle"))?;
         let key = BlobKey::export_bundle(Scope::new(Uuid::from(tenant_id), user_id), id);
         let filename = download_filename(bundle.created_at, bundle.sealed);
         let unavailable = |e: BarrageError| {
@@ -752,7 +757,7 @@ impl OriginalsBundleService {
         };
         match self
             .blobs
-            .open_download(&key, DOWNLOAD_TTL, &filename)
+            .open_download(&key, lifetime, &filename)
             .await
             .map_err(unavailable)?
         {
@@ -869,6 +874,14 @@ pub fn start_originals_bundle_sweep(
     )
 }
 
+/// How long a download link handed out at `now` may work: [`DOWNLOAD_TTL`],
+/// cut to what is left of a bundle that expires at `expires_at`, so no link
+/// outlives the bundle; `None` once it has expired.
+fn link_lifetime(expires_at: Timestamp, now: Timestamp) -> Option<Elapsed> {
+    let left = expires_at - now;
+    (left > Elapsed::ZERO).then(|| left.min(DOWNLOAD_TTL))
+}
+
 #[cfg(test)]
 mod tests {
     use dravr_barrage::blob::memory::MemoryBlobStore;
@@ -877,6 +890,31 @@ mod tests {
 
     use super::*;
     use crate::barrage_keys::memory_records;
+
+    #[test]
+    fn no_download_link_outlives_its_bundle() {
+        let now = Timestamp::now();
+        assert_eq!(
+            link_lifetime(now + BUNDLE_TTL, now),
+            Some(DOWNLOAD_TTL),
+            "bug: a fresh bundle's link was not the full download lifetime"
+        );
+        assert_eq!(
+            link_lifetime(now + Elapsed::minutes(3), now),
+            Some(Elapsed::minutes(3)),
+            "bug: a link outlived the bundle it points at"
+        );
+        assert_eq!(
+            link_lifetime(now, now),
+            None,
+            "bug: a bundle was downloadable at its expiry"
+        );
+        assert_eq!(
+            link_lifetime(now - Elapsed::minutes(50), now),
+            None,
+            "bug: an expired bundle the sweep had not reached was downloadable"
+        );
+    }
 
     #[tokio::test]
     async fn an_athletes_own_build_answers_even_when_no_slot_is_free() {

@@ -2253,6 +2253,19 @@ impl LiveActivityStore for HeldWrite {
             .await
     }
 
+    async fn discard_written(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        provider: &str,
+        activity_id: &str,
+        written_at: Timestamp,
+    ) -> AppResult<bool> {
+        self.inner
+            .discard_written(user_id, tenant_id, provider, activity_id, written_at)
+            .await
+    }
+
     async fn discard_between(
         &self,
         user_id: Uuid,
@@ -3604,5 +3617,268 @@ async fn a_termination_of_the_steps_own_key_takes_back_its_whole_page() {
         fx.rows(oauth_providers::SCIOTTE).await,
         0,
         "bug: a step whose own key was terminated left the terminated provider's rows in the store"
+    );
+}
+
+impl Fixture {
+    /// The records of the athlete's walk steps' writes still standing: those
+    /// no step, nor the resume sweep, settled yet.
+    async fn write_intents(&self) -> i64 {
+        let sql = "SELECT COUNT(*) FROM activity_write_intents WHERE user_id = $1";
+        match self.resources.agent.database.backend() {
+            DatabaseBackend::SQLite(sqlite) => sqlx::query_scalar(sql)
+                .bind(self.user_id.to_string())
+                .fetch_one(sqlite.pool())
+                .await
+                .unwrap(),
+            #[cfg(feature = "postgresql")]
+            DatabaseBackend::PostgreSQL(pg) => sqlx::query_scalar(sql)
+                .bind(self.user_id.to_string())
+                .fetch_one(pg.pool())
+                .await
+                .unwrap(),
+        }
+    }
+
+    /// Run one pass of the resume sweep with every record of the athlete's
+    /// steps' writes due: past the grace the sweep leaves a step's own check.
+    async fn sweep_write_intents_now(&self) {
+        self.execute_for_athlete(
+            "UPDATE activity_write_intents SET due_at_ms = 0 WHERE user_id = $1",
+        )
+        .await;
+        resume_backfill_jobs(self.runtime()).await.unwrap();
+    }
+}
+
+/// The walk goes through both phases, every step's check after its write
+/// read: each step settled its own write, and no record of one is left for
+/// the resume sweep.
+#[tokio::test]
+async fn a_walk_whose_checks_after_its_writes_were_read_leaves_no_record_of_them() {
+    let now = Timestamp::now().epoch_seconds();
+    let session_oldest = now - 2 * YEAR;
+    let fx = fixture(vec![now - 3 * DAY, session_oldest], 400, true).await;
+    fx.strava.serve(vec![session_oldest - YEAR / 2]);
+    fx.strava.created(now - 6 * YEAR);
+    assert!(
+        start_history_walk(
+            &fx.runtime(),
+            fx.user_id,
+            fx.tenant,
+            oauth_providers::STRAVA,
+            WalkTrigger::DepthMissing
+        )
+        .await,
+        "the walk of the session starts"
+    );
+    fx.walk_to_the_end().await;
+    assert_eq!(
+        fx.state().await,
+        Some(BackfillJobState::Walked),
+        "the walk reaches its end through both phases"
+    );
+    assert_eq!(
+        (
+            fx.rows(oauth_providers::SCIOTTE).await,
+            fx.rows(oauth_providers::STRAVA).await
+        ),
+        (2, 1),
+        "both phases' rows landed"
+    );
+    assert_eq!(
+        fx.write_intents().await,
+        0,
+        "bug: a step whose check after its write was read left the record of its write standing"
+    );
+}
+
+/// The athlete drops both connections while a step of the walk's API phase
+/// writes the grant's second year, a year holding a ride an earlier read
+/// stored and a ride no read stored yet: the session's purge takes the
+/// walk's row, and the grant's purge deletes the earlier ride before the
+/// write lands both. The purge attestations then stay unreadable through
+/// every retry of the step's check: the step takes nothing back and fails,
+/// with no row left to retry it. The record of its write, made before it,
+/// stands; the resume sweep leaves it while the attestations stay
+/// unreadable, and once they read again it finds the grant's purge and
+/// takes the page back: nothing of the purged grant is left.
+#[tokio::test]
+async fn a_purge_read_unreadable_after_a_steps_write_leaves_the_page_to_the_sweep() {
+    let now = Timestamp::now().epoch_seconds();
+    let session_oldest = now - 2 * YEAR;
+    let second_year = session_oldest - 3 * YEAR / 2;
+    let mut fx = fixture(vec![now - 3 * DAY, session_oldest], 400, true).await;
+    let store = fx.hold_writes();
+    let listing = hold_the_second_api_year(&fx, session_oldest).await;
+    fx.strava.serve(vec![
+        session_oldest - YEAR / 2,
+        second_year + DAY,
+        second_year,
+        session_oldest - 5 * YEAR / 2,
+    ]);
+    fx.hold_earlier_read(
+        oauth_providers::STRAVA,
+        &second_year.to_string(),
+        second_year,
+    )
+    .await;
+    let write = store.hold_and_pause_next_write(oauth_providers::STRAVA);
+    listing.notify_one();
+    write.reached.notified().await;
+    fx.resources
+        .common
+        .provider_purge
+        .purge_user_provider_data(
+            fx.user_id,
+            &fx.tenant,
+            oauth_providers::SCIOTTE,
+            PurgeReason::AthleteDisconnect,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        fx.state().await,
+        None,
+        "the session's purge took the walk's row"
+    );
+    fx.revoke_grant().await;
+    write.gate.notify_one();
+    write.landed.notified().await;
+    assert_eq!(
+        fx.rows(oauth_providers::STRAVA).await,
+        2,
+        "the step's write added the year's new ride and put back the ride the grant's purge deleted"
+    );
+    fx.execute(BREAK_PURGE_READS).await;
+    write.resume.as_ref().unwrap().notify_one();
+    sleep(RETRIES_SPENT).await;
+    assert_eq!(
+        fx.rows(oauth_providers::STRAVA).await,
+        2,
+        "a step whose purge reads stayed unreadable takes nothing back itself"
+    );
+    assert_eq!(
+        fx.write_intents().await,
+        1,
+        "bug: the record of a step's write did not outlive its unreadable check"
+    );
+    fx.sweep_write_intents_now().await;
+    assert_eq!(
+        (
+            fx.rows(oauth_providers::STRAVA).await,
+            fx.write_intents().await
+        ),
+        (2, 1),
+        "bug: the sweep settled a step's write while the purges of its key could not be read"
+    );
+    fx.execute(MEND_PURGE_READS).await;
+    fx.sweep_write_intents_now().await;
+    assert_eq!(
+        fx.rows(oauth_providers::STRAVA).await,
+        0,
+        "bug: the page a step wrote after its grant's purge survived once its check stayed unreadable"
+    );
+    assert_eq!(
+        fx.write_intents().await,
+        0,
+        "bug: the sweep left the record of a write it settled"
+    );
+}
+
+/// The walk's row is removed by no purge while the session's first step
+/// writes, and the purge attestations stay unreadable through every retry
+/// of the step's check. Once they read again, the resume sweep finds no
+/// purge of the session's key: it drops the record of the step's write and
+/// the page stays.
+#[tokio::test]
+async fn a_sweep_that_reads_no_purge_keeps_the_page_and_drops_the_record() {
+    let now = Timestamp::now().epoch_seconds();
+    let mut fx = fixture(vec![now - 3 * DAY, now - 2 * YEAR], 400, true).await;
+    let store = fx.hold_writes();
+    let write = store.hold_and_pause_next_write(oauth_providers::SCIOTTE);
+    start_with_the_first_step_held(&fx, &write).await;
+    fx.remove_walk_row().await;
+    write.gate.notify_one();
+    write.landed.notified().await;
+    fx.execute(BREAK_PURGE_READS).await;
+    write.resume.as_ref().unwrap().notify_one();
+    sleep(RETRIES_SPENT).await;
+    fx.execute(MEND_PURGE_READS).await;
+    assert_eq!(
+        fx.write_intents().await,
+        1,
+        "the record of the step's write outlived its unreadable check"
+    );
+    fx.sweep_write_intents_now().await;
+    assert_eq!(
+        fx.rows(oauth_providers::SCIOTTE).await,
+        2,
+        "bug: the sweep took back the page of a key no purge reached"
+    );
+    assert_eq!(
+        fx.write_intents().await,
+        0,
+        "bug: the sweep kept the record of a write no purge reached"
+    );
+}
+
+/// The session's first step lands its two rides, neither held before. Once
+/// it landed, another writer stores the older ride again under the session's
+/// key, read later, with its samples and gear; then the retention expiry
+/// resets the walk's row before the step checks it. The step takes back what
+/// it added, but only the rows still carrying its write: the ride the other
+/// writer stored since stays whole.
+#[tokio::test]
+async fn an_expiry_after_a_steps_write_leaves_a_ride_another_writer_stored_since() {
+    let now = Timestamp::now().epoch_seconds();
+    let (recent, session_oldest) = (now - 3 * DAY, now - 2 * YEAR);
+    let (added, stored_since) = (format!("9{recent}"), format!("9{session_oldest}"));
+    let mut fx = fixture(vec![recent, session_oldest], 400, true).await;
+    let store = fx.hold_writes();
+    let write = store.hold_and_pause_next_write(oauth_providers::SCIOTTE);
+    start_with_the_first_step_held(&fx, &write).await;
+    write.gate.notify_one();
+    write.landed.notified().await;
+    assert_eq!(
+        fx.rows(oauth_providers::SCIOTTE).await,
+        2,
+        "the step's write added both rides"
+    );
+    fx.hold_earlier_read(oauth_providers::SCIOTTE, &stored_since, session_oldest)
+        .await;
+    fx.resources
+        .common
+        .repos
+        .provider_data
+        .expire_provider_activities(
+            fx.user_id,
+            &fx.tenant,
+            oauth_providers::SCIOTTE,
+            &["9100000000"],
+        )
+        .await
+        .unwrap();
+    assert_eq!(fx.state().await, None, "the expiry reset the walk's row");
+    write.resume.as_ref().unwrap().notify_one();
+    let deadline = Instant::now() + STEP_SETTLE;
+    while fx.rows(oauth_providers::SCIOTTE).await != 1 && Instant::now() < deadline {
+        sleep(Duration::from_millis(50)).await;
+    }
+    sleep(STEP_SETTLE).await;
+    assert_eq!(
+        fx.kept(oauth_providers::SCIOTTE, &stored_since, session_oldest)
+            .await,
+        KEPT_WHOLE,
+        "bug: an expiry's take-back removed a ride another writer stored after the step's write"
+    );
+    assert!(
+        !fx.kept(oauth_providers::SCIOTTE, &added, recent).await.row,
+        "bug: the step left the ride it added after the expiry reset its row"
+    );
+    assert_eq!(
+        fx.write_intents().await,
+        0,
+        "bug: a step that settled its write itself left its record standing"
     );
 }

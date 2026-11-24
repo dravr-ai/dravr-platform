@@ -22,6 +22,8 @@ pub mod activity_conversations;
 pub mod activity_route_tracks;
 /// The one per-activity sample store: pushed, uploaded or imported samples (`SQLite`)
 pub mod activity_streams;
+/// Walk steps' writes to the activity store, recorded before they land (`SQLite`)
+pub mod activity_write_intents;
 /// Admin token management and authorization
 pub mod admin;
 /// The admin audit trail (`SQLite`) backing `AdminAuditRepository`.

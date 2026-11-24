@@ -405,7 +405,12 @@ export function useChatThread({
   // woven through them.
   const { data: messagesData, isLoading: messagesLoading, isPending: messagesPending } = useQuery<MessagesResponse>({
     queryKey: QUERY_KEYS.chat.messages(selectedConversation),
-    queryFn: () => chatApi.getConversationMessages(selectedConversation!),
+    // A read from a hidden tab is a peek: the athlete has not seen it, so it
+    // leaves the read marker, and the missed-reply push, alone.
+    queryFn: () =>
+      chatApi.getConversationMessages(selectedConversation!, {
+        peek: typeof document !== 'undefined' && document.visibilityState === 'hidden',
+      }),
     enabled: !!selectedConversation,
     // Messaging turns arrive async via inbound webhook with no websocket push
     // to the web client. Refetch when the tab/window regains focus so a reply

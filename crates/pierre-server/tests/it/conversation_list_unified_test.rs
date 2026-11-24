@@ -549,6 +549,31 @@ async fn reading_the_thread_and_the_read_routes_move_the_unread_badge() {
     add_row(&fx, &conv.id, fx.owner_id, "assistant", "two").await;
     assert_eq!(row(&fx, &fx.owner_auth, &conv.id).await.unread_count, 2);
 
+    // A peek (a poll from a hidden tab) returns the rows but reads nothing,
+    // so the missed-reply push is not suppressed.
+    let resp = AxumTestRequest::get(&format!(
+        "/api/chat/conversations/{}/messages?peek=true",
+        conv.id
+    ))
+    .header("authorization", &fx.owner_auth)
+    .send(fx.router.clone())
+    .await;
+    assert_eq!(
+        resp.status_code(),
+        StatusCode::OK,
+        "bug: a peek at the thread was refused"
+    );
+    assert_eq!(
+        resp.json::<MessagesListResponse>().messages.len(),
+        2,
+        "bug: a peek did not return the thread's rows"
+    );
+    assert_eq!(
+        row(&fx, &fx.owner_auth, &conv.id).await.unread_count,
+        2,
+        "bug: a peek from a hidden tab moved the read marker"
+    );
+
     // Opening the thread reads it.
     let resp = AxumTestRequest::get(&format!("/api/chat/conversations/{}/messages", conv.id))
         .header("authorization", &fx.owner_auth)

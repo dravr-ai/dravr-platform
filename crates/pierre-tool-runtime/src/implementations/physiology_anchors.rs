@@ -90,11 +90,11 @@ const MAP_WATTS_MAX: f64 = 800.0;
 /// spread (1.16, cageux I8), rounded up.
 const RUN_AEROBIC_SPEED_MPS_MAX: f64 = 8.5;
 
-/// Slowest swim speed accepted for any swim anchor, in metres per second
+/// Slowest swim speed accepted for any swim speed anchor, in metres per second
 /// (4:10 per 100 m).
 const SWIM_SPEED_MPS_MIN: f64 = 0.4;
 
-/// Fastest swim speed accepted for any swim anchor, in metres per second:
+/// Fastest swim speed accepted for any swim speed anchor, in metres per second:
 /// below the 50 m freestyle world-record average (about 2.39 m/s), above any
 /// aerobic swimming speed.
 const SWIM_SPEED_MPS_MAX: f64 = 2.2;
@@ -318,7 +318,9 @@ fn bounds(sport: SportFamily, anchor: SportAnchorName) -> (f64, f64) {
             f64::from(CRITICAL_POWER_WATTS_MAX),
         ),
         SportAnchorName::Map => (f64::from(CRITICAL_POWER_WATTS_MIN), MAP_WATTS_MAX),
-        _ if swim => (SWIM_SPEED_MPS_MIN, SWIM_SPEED_MPS_MAX),
+        _ if swim && matches!(anchor.unit(), AnchorUnit::MetresPerSecond) => {
+            (SWIM_SPEED_MPS_MIN, SWIM_SPEED_MPS_MAX)
+        }
         SportAnchorName::CriticalSpeed => (CRITICAL_SPEED_MPS_MIN, CRITICAL_SPEED_MPS_MAX),
         SportAnchorName::ThresholdSpeed => (
             METERS_PER_KM / THRESHOLD_PACE_SEC_PER_KM_MAX,
@@ -602,6 +604,32 @@ mod tests {
             "sport": "swim", "anchor": "critical_speed", "value": 4.0, "kind": "measured"
         })))?
         .contains("between 0.4 and 2.2"));
+        Ok(())
+    }
+
+    #[test]
+    fn a_swim_heart_rate_is_held_to_heart_rate_bounds() -> TestResult {
+        assert!(
+            parse(&json!({
+                "sport": "swim", "anchor": "max_heart_rate", "value": 150, "kind": "measured"
+            }))
+            .is_ok(),
+            "bug: a swim max heart rate of 150 bpm was held to swim speed bounds"
+        );
+        assert!(
+            parse(&json!({
+                "sport": "swim", "anchor": "threshold_heart_rate", "value": 140, "kind": "measured"
+            }))
+            .is_ok(),
+            "bug: a swim threshold heart rate of 140 bpm was held to swim speed bounds"
+        );
+        assert!(
+            refusal(parse(&json!({
+                "sport": "swim", "anchor": "max_heart_rate", "value": 1.5, "kind": "measured"
+            })))?
+            .contains("bpm"),
+            "bug: a swim heart rate of 1.5 was not refused against heart-rate bounds in bpm"
+        );
         Ok(())
     }
 

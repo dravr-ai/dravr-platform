@@ -556,6 +556,10 @@ pub const USER_EXPORT_EXCLUDED_TABLES: &[(&str, &str)] = &[
         "operational: queued jobs and leases",
     ),
     (
+        "activity_write_intents",
+        "operational: walk writes awaiting their purge check",
+    ),
+    (
         "activity_fetch_failures",
         "operational: sync failure counters",
     ),

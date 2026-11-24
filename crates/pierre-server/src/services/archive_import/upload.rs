@@ -91,14 +91,20 @@ pub enum UploadView {
         url: String,
     },
     /// To `PUT /api/imports/{source}/{id}/upload`, whole.
-    ThroughApi,
+    ThroughApi {
+        /// The API already holds the whole file: a PUT landed but the client
+        /// lost its answer. The client skips the PUT, which would be refused,
+        /// and finishes the upload straight away.
+        stored: bool,
+    },
 }
 
 impl fmt::Debug for UploadView {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
             Self::Session { .. } => "Session(..)",
-            Self::ThroughApi => "ThroughApi",
+            Self::ThroughApi { stored: false } => "ThroughApi",
+            Self::ThroughApi { stored: true } => "ThroughApi(stored)",
         })
     }
 }
@@ -207,7 +213,7 @@ pub async fn start_upload(
                 UploadView::Session { url },
             )
         }
-        UploadTarget::ThroughApi => (None, None, UploadView::ThroughApi),
+        UploadTarget::ThroughApi => (None, None, UploadView::ThroughApi { stored: false }),
     };
     let job = wiring
         .stores
@@ -246,7 +252,7 @@ pub async fn session_of(
 ) -> AppResult<UploadView> {
     let wiring = wiring(resources)?;
     let job = job_of(wiring, scope, source, id).await?;
-    waiting_spool(&job)?;
+    let spool = waiting_spool(&job)?;
     match (&job.url_sha256, &job.url_ciphertext) {
         (Some(digest), Some(ciphertext)) => Ok(UploadView::Session {
             url: open(
@@ -257,7 +263,18 @@ pub async fn session_of(
                 ciphertext,
             )?,
         }),
-        _ => Ok(UploadView::ThroughApi),
+        // A PUT whose answer the client lost may already have stored the
+        // file: say so, or the resume's PUT is refused and finish is never
+        // reached.
+        _ => Ok(UploadView::ThroughApi {
+            stored: wiring
+                .stores
+                .blobs
+                .size(&spool)
+                .await
+                .map_err(barrage)?
+                .is_some(),
+        }),
     }
 }
 

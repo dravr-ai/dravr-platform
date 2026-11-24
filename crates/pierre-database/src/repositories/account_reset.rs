@@ -298,6 +298,7 @@ account_reset_tables!(
     "pushed_activity_files",
     "activity_backfill_coverage",
     "activity_backfill_jobs",
+    "activity_write_intents",
     "activity_fetch_freshness",
     "activity_fetch_failures",
     "backfill_push_log",

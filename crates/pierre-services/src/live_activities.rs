@@ -170,6 +170,24 @@ pub trait LiveActivityStore: Send + Sync {
         activity_id: &str,
     ) -> AppResult<bool>;
 
+    /// Drop the store's copy of `activity_id` as [`Self::discard`] does,
+    /// only while it still carries a write stamped no later than
+    /// `written_at` (to the microsecond): a copy another writer stored since,
+    /// at a later stamp, stays with its samples and gear. Returns whether a
+    /// copy was dropped; `false` when the store holds none, or a later one.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::erase`].
+    async fn discard_written(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        provider: &str,
+        activity_id: &str,
+        written_at: Timestamp,
+    ) -> AppResult<bool>;
+
     /// Drop every copy of `provider`'s activities for the athlete that
     /// started within `[start, end]`, both ends included, as [`Self::discard`]
     /// drops one: a list read of that window vouched the provider no longer

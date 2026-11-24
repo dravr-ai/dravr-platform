@@ -91,6 +91,10 @@ describe('SciotteLoginModal (mobile) — the consents ticked before the sign-in'
     fireEvent.press(screen.getByTestId('sciotte-browser-signin'));
 
     await waitFor(() => expect(onConnected).toHaveBeenCalledTimes(1));
-    expect(oauthApi.browserSignin).toHaveBeenCalledWith('garmin', COOKIES, { tosConsent: false, consents: ['garmin'] });
+    expect(oauthApi.browserSignin).toHaveBeenCalledWith('garmin', COOKIES, {
+      tosConsent: false,
+      consents: ['garmin'],
+      signal: expect.any(AbortSignal),
+    });
   });
 });

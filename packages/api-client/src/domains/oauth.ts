@@ -415,11 +415,12 @@ export function createOAuthApi(axios: AxiosInstance) {
     async browserSignin(
       target: SciotteTarget,
       cookies: BrowserSigninCookie[],
-      options: { tosConsent?: boolean; consents?: readonly string[] } = {},
+      options: { tosConsent?: boolean; consents?: readonly string[]; signal?: AbortSignal } = {},
     ): Promise<SciotteLoginResponse> {
       const response = await axios.post<SciotteLoginResponse>(
         `/api/providers/browser-signin/${target}`,
         { cookies, tos_consent: options.tosConsent ?? false, consents: options.consents ?? [] },
+        { signal: options.signal },
       );
       return response.data;
     },

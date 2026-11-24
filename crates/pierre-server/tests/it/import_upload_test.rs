@@ -331,11 +331,32 @@ async fn an_upload_through_the_api_imports_end_to_end() {
     .await;
     assert_eq!(status, StatusCode::OK, "{target}");
     assert_eq!(target["kind"], "through_api", "{target}");
+    assert_eq!(target["stored"], false, "{target}");
 
     assert_eq!(
-        write(&resources, &athlete.token, &id, export).await,
+        write(&resources, &athlete.token, &id, export.clone()).await,
         StatusCode::NO_CONTENT
     );
+
+    // The PUT's answer was lost: the resume reads that the file is held, so
+    // the client skips the PUT a second write would be refused for.
+    let (status, target) = call(
+        &resources,
+        "GET",
+        &uri(&id, "upload-session"),
+        &athlete.token,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{target}");
+    assert_eq!(target["kind"], "through_api", "{target}");
+    assert_eq!(target["stored"], true, "{target}");
+    assert_eq!(
+        write(&resources, &athlete.token, &id, export).await,
+        StatusCode::CONFLICT,
+        "bug: a second PUT of a file the API already holds was not refused"
+    );
+
     let (status, accepted) = call(
         &resources,
         "POST",

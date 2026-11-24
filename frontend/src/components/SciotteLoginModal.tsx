@@ -317,6 +317,7 @@ export default function SciotteLoginModal({
       const data = await oauthApi.browserSignin(target, cookies, {
         tosConsent: consentAccepted,
         ...(consents.length > 0 ? { consents } : {}),
+        signal,
       });
       if (signal.aborted) return;
       applyLoginAnswer(data);

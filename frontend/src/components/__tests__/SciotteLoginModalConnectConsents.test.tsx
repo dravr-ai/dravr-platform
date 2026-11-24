@@ -99,6 +99,7 @@ describe('SciotteLoginModal — the consents a Garmin connect offers', () => {
       expect(browserSignin).toHaveBeenCalledWith('garmin', COOKIES, {
         tosConsent: false,
         consents: ['garmin_workout_transfer'],
+        signal: expect.any(AbortSignal),
       }),
     );
   });

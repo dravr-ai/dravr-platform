@@ -286,6 +286,13 @@ fn activity_id(provider: &str, activity_id: &str) -> AppResult<ActivityId> {
         .map_err(|e| AppError::invalid_input(format!("{provider} activity id {activity_id}: {e}")))
 }
 
+/// Whether a record stamped `held` was written after a write stamped
+/// `written_at`, to the microsecond: a store that keeps its stamps to the
+/// microsecond still reads the write's own copy as no later than the write.
+fn stamped_after(held: Timestamp, written_at: Timestamp) -> bool {
+    held.epoch_micros() > written_at.epoch_micros()
+}
+
 /// A barrage failure on `source` as the platform's error.
 fn store_error(source: SourceKey, error: &BarrageError) -> AppError {
     AppError::database(format!("activity store, {source}: {error}"))
@@ -551,6 +558,36 @@ impl LiveActivityStore for BarrageLiveStore {
         let source = SourceKey::Live(live_source(provider)?);
         let id = activity_id(provider, activity_id_text)?;
         let scope = Scope::new(tenant_id.as_uuid(), user_id);
+        self.discard_record(scope, source, &id).await
+    }
+
+    async fn discard_written(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        provider: &str,
+        activity_id_text: &str,
+        written_at: Timestamp,
+    ) -> AppResult<bool> {
+        let source = SourceKey::Live(live_source(provider)?);
+        let id = activity_id(provider, activity_id_text)?;
+        let scope = Scope::new(tenant_id.as_uuid(), user_id);
+        let held = self
+            .records
+            .get(&scope, source, &id)
+            .await
+            .map_err(|e| store_error(source, &e))?;
+        // A write lands its record and its projection together, so with no
+        // record nothing of it stands: a cache row alone is one the cache
+        // served before the store held the provider's reads, never the
+        // write's. A record stamped later is another writer's copy.
+        // LIMITATION(registre#1556): `discard_written` reads the record's stamp and then deletes it in two calls, and barrage keeps the earlier stamp on a rewrite of identical content, so a copy another writer stores in between, or identical to the step's, still goes.
+        let Some(held) = held else {
+            return Ok(false);
+        };
+        if stamped_after(held.provenance.ingested_at, written_at) {
+            return Ok(false);
+        }
         self.discard_record(scope, source, &id).await
     }
 
@@ -1055,10 +1092,35 @@ mod tests {
     use std::path::PathBuf;
     use std::sync::Arc;
 
+    use dravr_tronc::dates::{Elapsed, Timestamp};
     use uuid::Uuid;
 
-    use super::{sqlite_file_dir, sqlite_stores};
+    use super::{sqlite_file_dir, sqlite_stores, stamped_after};
     use crate::barrage_keys::PlatformKeyed;
+
+    #[test]
+    fn only_a_later_microsecond_reads_as_another_writers_copy() {
+        let written = Timestamp::from_epoch_seconds_and_nanos(1_700_000_000, 123_456_789)
+            .expect("bug: a fixed instant is in range");
+        let truncated = Timestamp::from_epoch_seconds_and_nanos(1_700_000_000, 123_456_000)
+            .expect("bug: a fixed instant is in range");
+        assert!(
+            !stamped_after(written, written),
+            "bug: the write's own copy read as another writer's"
+        );
+        assert!(
+            !stamped_after(truncated, written),
+            "bug: the write's own copy, kept to the microsecond, read as another writer's"
+        );
+        assert!(
+            !stamped_after(written - Elapsed::seconds(1), written),
+            "bug: an earlier copy read as a later writer's"
+        );
+        assert!(
+            stamped_after(written + Elapsed::microseconds(1), written),
+            "bug: a copy stamped a microsecond later read as the write's own"
+        );
+    }
 
     #[test]
     fn sqlite_file_dir_names_the_directory_of_each_url_shape() {

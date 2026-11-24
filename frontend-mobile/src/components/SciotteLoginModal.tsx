@@ -4,7 +4,7 @@
 // ABOUTME: Sciotte credential login modal for mobile — collects email/password for headless Chrome login
 // ABOUTME: Supports Google/Apple/email methods with 2FA (OTP, phone tap, number match) and a provider robot check's takeover
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -422,32 +422,48 @@ export function SciotteLoginModal({
   // page in a WebView, on the phone's network, signed in with the athlete's
   // own touches; its cookies are then stored as any sign-in's.
   const [browserEntry, setBrowserEntry] = useState<BrowserSignin | null>(null);
+  // The browser sign-in's signal, taken when it starts: closing the window
+  // aborts it, so cookies the WebView reads after the close, or an answer
+  // that lands after it, connect nothing and touch no state.
+  const browserSignal = useRef<AbortSignal | null>(null);
   const startBrowserSignin = useCallback(async () => {
     setError(null);
+    const signal = beginRequest();
+    browserSignal.current = signal;
     try {
       const catalog = await oauthApi.browserSigninCatalog();
+      if (signal.aborted) return;
       const entry = catalog.providers.find((provider) => provider.provider === target);
       if (!entry) throw new Error('unavailable');
       setBrowserEntry(entry);
       setPhase('browser');
     } catch (err) {
+      if (signal.aborted) return;
       setError(refusalMessage(err, 'auth.loginFailed'));
       setPhase('error');
     }
-  }, [refusalMessage, target]);
+  }, [beginRequest, refusalMessage, target]);
   const handleBrowserSignedIn = useCallback(async (cookies: BrowserSigninCookie[]) => {
+    const signal = browserSignal.current;
+    // The window was closed while the WebView read the cookies.
+    if (!signal || signal.aborted) return;
     setPhase('logging-in');
     try {
-      applyLoginAnswer(await oauthApi.browserSignin(target, cookies, {
+      const data = await oauthApi.browserSignin(target, cookies, {
         tosConsent: consentAccepted,
         ...(consents ? { consents } : {}),
-      }));
+        signal,
+      });
+      if (signal.aborted) return;
+      applyLoginAnswer(data);
     } catch (err) {
+      if (signal.aborted) return;
       setError(refusalMessage(err, 'auth.loginFailed'));
       setPhase('error');
     }
   }, [applyLoginAnswer, consentAccepted, consents, refusalMessage, target]);
   const handleBrowserError = useCallback((err: unknown) => {
+    if (browserSignal.current?.aborted) return;
     setError(refusalMessage(err, 'auth.loginFailed'));
     setPhase('error');
   }, [refusalMessage]);
