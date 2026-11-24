@@ -36,8 +36,10 @@ fn no_provider_connected_renders_fr_with_url() {
     );
     // Provider list trimmed to the production set — no Fitbit/Terra leak.
     assert!(
-        rendered.contains("Strava") && rendered.contains("Garmin") && rendered.contains("Whoop"),
-        "FR copy must list Strava/Garmin/Whoop: {rendered}"
+        rendered.contains("Strava")
+            && rendered.contains("Garmin")
+            && rendered.to_uppercase().contains("WHOOP"),
+        "FR copy must list Strava/Garmin/WHOOP: {rendered}"
     );
     assert!(
         !rendered.contains("Fitbit"),
@@ -59,8 +61,10 @@ fn no_provider_connected_renders_en_with_url() {
         "EN render must substitute the {{0}} placeholder, not leak it: {rendered}"
     );
     assert!(
-        rendered.contains("Strava") && rendered.contains("Garmin") && rendered.contains("Whoop"),
-        "EN copy must list Strava/Garmin/Whoop: {rendered}"
+        rendered.contains("Strava")
+            && rendered.contains("Garmin")
+            && rendered.to_uppercase().contains("WHOOP"),
+        "EN copy must list Strava/Garmin/WHOOP: {rendered}"
     );
 }
 
@@ -131,8 +135,10 @@ fn no_provider_connected_with_email_renders_fr() {
         "FR_WITH_EMAIL must substitute both placeholders: {rendered}"
     );
     assert!(
-        rendered.contains("Strava") && rendered.contains("Garmin") && rendered.contains("Whoop"),
-        "FR_WITH_EMAIL must list Strava/Garmin/Whoop: {rendered}"
+        rendered.contains("Strava")
+            && rendered.contains("Garmin")
+            && rendered.to_uppercase().contains("WHOOP"),
+        "FR_WITH_EMAIL must list Strava/Garmin/WHOOP: {rendered}"
     );
 }
 
