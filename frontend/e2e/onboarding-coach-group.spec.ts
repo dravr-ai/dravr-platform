@@ -218,7 +218,8 @@ test('a coach without coach access gets the group and asks for access in one tap
   await expect(seat).toHaveAttribute('data-state', 'requested');
   // Dated, and no wait time is promised: the answer comes here and by email.
   await expect(seat).toContainText("We'll let you know here and by email.");
-  await expect(seat).not.toContainText('24');
+  // A duration, not the digits: the request's own date can read "Nov 24".
+  await expect(seat).not.toContainText(/\b\d+\s?(h|hours?)\b/i);
   expect(calls.accessRequests).toEqual([{ group_id: 'g-1' }]);
 
   // Without the seat, "Go to my group" lands in the group's thread, not on Home.
