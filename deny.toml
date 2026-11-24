@@ -43,7 +43,11 @@ ignore = [
     # Status: Accepted risk until stable fix available
     # Reviewed: 2026-10-23 — rsa 0.9.10 is still the latest stable (0.10 is at
     #   rc.19), so no fixed release exists; the assessment above is unchanged.
-    # Next Review: 2026-11-23
+    # Reviewed: 2026-11-24 — rsa 0.10.0 went stable on 2026-11-08: the fix
+    #   exists, and this entry ends with the upgrade (carnet#1785), not another
+    #   renewal. The lock still resolves 0.9.10; the assessment above holds
+    #   until then.
+    # Next Review: 2026-12-01
     "RUSTSEC-2023-0071",
 
     # -------------------------------------------------------------------------
@@ -85,7 +89,10 @@ ignore = [
     # Reviewed: 2026-10-23 — lock still shows quick-xml 0.26.0 under
     #   pprof 0.15.0 (latest) -> inferno 0.11.21, i.e. the upstream chain is
     #   unchanged and the dep is still dev-only (never in the shipped binary).
-    # Next Review: 2026-11-23
+    # Reviewed: 2026-11-24 — pprof 0.15.0 is still the latest and still asks
+    #   inferno ^0.11 (crates.io), and the lock still resolves quick-xml
+    #   0.26.0, dev-only; unchanged.
+    # Next Review: 2026-12-24
     "RUSTSEC-2026-0194",
     "RUSTSEC-2026-0195",
 
@@ -131,7 +138,12 @@ ignore = [
     #
     # Reviewed: 2026-10-24 — published 2026-10-23; jsonwebtoken 11.1.0, the
     #   latest, still depends on p256 / p384 0.13, so no upgrade clears it.
-    # Next Review: 2026-11-24
+    # Reviewed: 2026-11-24 — jsonwebtoken 12.0.0 (2026-11-13) depends on
+    #   p256 / p384 ^0.14 and rsa ^0.10: the upgrade path exists and is tracked
+    #   with the rsa one (carnet#1785), across the platform and dravr-tronc.
+    #   We are still on jsonwebtoken 10.4 and crypto-bigint 0.5.5; the
+    #   reachability assessment above is unchanged.
+    # Next Review: 2026-12-01
     "RUSTSEC-2026-0387",
 
     # -------------------------------------------------------------------------
