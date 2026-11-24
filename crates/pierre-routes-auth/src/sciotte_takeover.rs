@@ -193,6 +193,7 @@ pub(crate) async fn takeover_required(
     let LoginStep::Login {
         provider,
         attempt: Some(attempt),
+        ..
     } = step
     else {
         forget_remote_flow(&resources.cache, tenant_id, user_id).await;

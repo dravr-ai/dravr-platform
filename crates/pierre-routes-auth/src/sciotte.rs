@@ -49,6 +49,7 @@ use crate::AuthRoutesContext;
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::redaction::redact_url;
 use pierre_middleware::provider_link_token::CONNECT_PROVIDER;
+use pierre_middleware::redaction::mask_email;
 
 /// The parked remote-login state the platform remembers between the initial
 /// login call and its OTP/2FA continuations. The heavy state — parked browser +
@@ -506,6 +507,11 @@ pub(crate) enum LoginStep<'a> {
         /// The window's attempt, when it named one: the only kind of login
         /// that asks for a takeover, since closing the takeover cancels it.
         attempt: Option<&'a StepAttempt>,
+        /// How the athlete signed in: the provider's form, Google or Apple
+        method: LoginMethod,
+        /// The account the athlete typed at the provider, for the ops log
+        /// only, and only ever masked there
+        account: &'a str,
     },
     /// A 2FA pick or a code, continuing the flow the platform holds.
     Continuation {
@@ -623,11 +629,19 @@ pub(crate) async fn remote_login_to_response(
         LoginOutcome::Failed { reason } => {
             forget_remote_flow(&resources.cache, tenant_id, user_id).await;
             // An athlete the provider turned away is stuck until someone
-            // looks: the ops alert reads this line, its provider and reason.
+            // looks: the ops alert reads this line and every field on it.
+            let (method_used, account) = match step {
+                LoginStep::Login {
+                    method, account, ..
+                } => (format!("{method:?}"), mask_email(account)),
+                LoginStep::Continuation { .. } => ("Continuation".to_owned(), String::new()),
+            };
             warn!(
                 user_id = %user_id,
                 provider = %provider,
                 reason = %reason,
+                method_used = %method_used,
+                account = %account,
                 "Sciotte remote login rejected by provider (user credentials)"
             );
             Ok(Json(serde_json::json!({"status": "failed", "error": reason})).into_response())
@@ -1022,6 +1036,8 @@ pub(crate) async fn handle_sciotte_login(
         LoginStep::Login {
             provider,
             attempt: attempt.as_ref(),
+            method: request.method,
+            account: &request.email,
         },
         link_context.as_ref(),
     )
