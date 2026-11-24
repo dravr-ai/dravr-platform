@@ -127,8 +127,8 @@ use crate::models::provider_context::{
     ProviderGear, ProviderPersonalRecord, ProviderWeight,
 };
 use crate::models::{
-    Activity, Athlete, CalendarEventRef, PlannedSession, PlannedWorkout, ProviderThresholds,
-    SportType, TenantId, TimeSeriesData, API_KEY_TOKEN_TYPE,
+    Activity, Athlete, CalendarEventRef, LibraryWorkoutRef, PlannedSession, PlannedWorkout,
+    ProviderThresholds, SportType, TenantId, TimeSeriesData, API_KEY_TOKEN_TYPE,
 };
 use crate::pagination::{CursorPage, PaginationParams};
 use crate::provider_context::unsupported as context_unsupported;
@@ -783,6 +783,32 @@ pub trait FitnessProvider: Send + Sync {
         Err(AppError::invalid_input(format!(
             "{} does not support deleting planned workouts",
             self.name()
+        )))
+    }
+
+    // ── Workout library writes ───────────────────────────────────────────
+
+    /// Save `session` as a workout in the connected account's own workout
+    /// library, in its folder named `folder` (created when the library has
+    /// none by that name), and say where it landed.
+    ///
+    /// The library is always the account's own: a provider built to read or
+    /// write a coached athlete refuses. A workout already in the folder with
+    /// the same name and content is reported as saved and not written again;
+    /// nothing in the library is ever replaced or deleted.
+    ///
+    /// A provider whose descriptor declares
+    /// [`ProviderCapabilities::WORKOUT_LIBRARY`](crate::spi::ProviderCapabilities::WORKOUT_LIBRARY)
+    /// overrides this. Every other provider inherits the refusal.
+    async fn save_library_workout(
+        &self,
+        session: &PlannedSession,
+        folder: &str,
+    ) -> AppResult<LibraryWorkoutRef> {
+        let _ = (session, folder);
+        Err(AppError::invalid_input(format!(
+            "{} keeps no workout library Dravr can save to",
+            user_facing_name(self.name())
         )))
     }
 }

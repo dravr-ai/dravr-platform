@@ -37,8 +37,8 @@ use pierre_core::models::provider_context::{
     ProviderGear, ProviderPersonalRecord, ProviderWeight,
 };
 use pierre_core::models::{
-    Activity, Athlete, CalendarEventRef, PlannedSession, PlannedWorkout, ProviderThresholds,
-    SportType, TenantId, TimeSeriesData,
+    Activity, Athlete, CalendarEventRef, LibraryWorkoutRef, PlannedSession, PlannedWorkout,
+    ProviderThresholds, SportType, TenantId, TimeSeriesData,
 };
 use pierre_core::pagination::{CursorPage, PaginationParams};
 use pierre_providers::core::{
@@ -420,6 +420,14 @@ impl FitnessProvider for GrantByIdFallback {
         self.session
             .delete_planned_sessions(provider_event_ids)
             .await
+    }
+
+    async fn save_library_workout(
+        &self,
+        session: &PlannedSession,
+        folder: &str,
+    ) -> AppResult<LibraryWorkoutRef> {
+        self.session.save_library_workout(session, folder).await
     }
 }
 

@@ -155,6 +155,27 @@ pub struct CalendarEventRef {
     pub updated_at: Option<Timestamp>,
 }
 
+/// Where a session saved to an account's own workout library landed.
+///
+/// A library keeps no key of Dravr's (Intervals.icu's library workouts carry
+/// no `external_id`), so a save matches what is already there by name and
+/// content: an identical workout in the folder is reported, never written a
+/// second time, and a different workout of the same name is left as it is.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LibraryWorkoutRef {
+    /// The provider's own id for the library workout.
+    pub workout_id: String,
+    /// The provider's own id for the folder holding it.
+    pub folder_id: String,
+    /// The folder's name, as the library spells it.
+    pub folder: String,
+    /// The folder did not exist and the save created it.
+    pub folder_created: bool,
+    /// The folder already held this workout, name and content alike, so
+    /// nothing was written.
+    pub already_saved: bool,
+}
+
 /// Which write path produced a calendar ledger row.
 #[derive(
     Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema,

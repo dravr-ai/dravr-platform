@@ -849,6 +849,7 @@ const EXPECTED_TOOLS: &[&str] = &[
     "remember_fact",
     "save_recipe",
     "save_training_plan",
+    "save_workout_to_library",
     "search_agent_store",
     "search_agents",
     "search_food",

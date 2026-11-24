@@ -277,6 +277,7 @@ const TOOL_DATA: &[(&str, ToolData)] = &[
     ("save_training_plan", ToolData::own(&[Workout])),
     ("publish_training_plan", ToolData::own(&[Workout])),
     ("push_training_plan", ToolData::own(&[Workout])),
+    ("save_workout_to_library", ToolData::own(&[Workout])),
     ("prescribe_workout", ToolData::own(&[Workout])),
     ("withdraw_prescribed_workout", ToolData::own(&[Workout])),
     (

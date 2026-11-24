@@ -30,7 +30,7 @@ use crate::models::{
 /// Map a [`SportType`] to the Intervals.icu calendar event `type` string
 /// (Intervals.icu uses Strava's activity-type vocabulary). Anything without a
 /// named type goes out as the generic `Workout`.
-fn intervals_event_type(sport: &SportType) -> &'static str {
+pub(crate) fn intervals_event_type(sport: &SportType) -> &'static str {
     match sport {
         SportType::Ride => "Ride",
         SportType::VirtualRide => "VirtualRide",
@@ -291,7 +291,7 @@ fn escape_prose_line(line: &str) -> String {
 /// step's cue as `label: note`), a blank line, then the step DSL. Either half
 /// may be absent; a prose-only session is a timed entry the athlete reads, a
 /// steps-only one is pure structure.
-fn render_description(session: &PlannedSession) -> String {
+pub(crate) fn render_description(session: &PlannedSession) -> String {
     let mut prose: Vec<String> = session
         .notes
         .lines()

@@ -68,9 +68,10 @@ const KEY_ATHLETE: &str = "i777";
 /// Where the server is reached from outside, as `BASE_URL` sets it.
 const PUBLIC_BASE_URL: &str = "https://app.dravr.test";
 
-/// The four scopes the server's app asks Intervals.icu for, comma-joined as
+/// The five scopes the server's app asks Intervals.icu for, comma-joined as
 /// Intervals.icu documents them: a wire value its authorization page parses.
-const REQUESTED_SCOPES: &str = "ACTIVITY:READ,WELLNESS:READ,CALENDAR:WRITE,SETTINGS:READ";
+const REQUESTED_SCOPES: &str =
+    "ACTIVITY:READ,WELLNESS:READ,CALENDAR:WRITE,SETTINGS:READ,LIBRARY:WRITE";
 
 /// What the Intervals.icu-shaped mock saw, one line per request:
 /// `"<route> <authorization header>"`.
@@ -116,7 +117,7 @@ async fn mock_intervals() -> (String, Arc<MockIntervals>) {
                     Json(json!({
                         "token_type": "Bearer",
                         "access_token": "icu-oauth-token",
-                        "scope": "ACTIVITY:READ,WELLNESS:READ,CALENDAR:WRITE,SETTINGS:READ",
+                        "scope": REQUESTED_SCOPES,
                         "athlete": { "id": "2049151", "name": "Test Athlete" }
                     }))
                 }

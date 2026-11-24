@@ -116,7 +116,13 @@ use crate::common;
 /// arguments of a few words each, cut by 233 bytes before measuring. The
 /// tool measures 615 bytes; the catalogue 98,770, over the coach tools' text
 /// that landed the same day.
-const CATALOGUE_BUDGET_BYTES: usize = 98_850;
+///
+/// 2026-11-23: 98,850 → 99,650 for `save_workout_to_library` (carnet#1726), a
+/// plan session kept as a template in the caller's own Intervals.icu library:
+/// a two-line description, `date`, `session` and `folder` of a few words each,
+/// and the plan tools' shared `athlete` text. The first draft was cut by 163
+/// bytes before measuring; the tool is about 790 bytes, the catalogue 99,614.
+const CATALOGUE_BUDGET_BYTES: usize = 99_650;
 
 /// Bytes the loaded core may take when the rest is deferred: what the model
 /// holds in context on a provider with tool search before it loads anything.

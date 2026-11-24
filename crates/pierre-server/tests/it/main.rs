@@ -1021,6 +1021,7 @@ mod whoop_provider_test;
 mod whoop_terms_ingestion_test;
 mod withheld_reply_envelope_notice_test;
 mod withheld_turn_learning_pipeline_test;
+mod workout_library_test;
 mod workout_push_test;
 mod workout_templates_repo_test;
 mod zone_backfill_test;

@@ -213,8 +213,8 @@ pub use season::{SeasonConditions, SeasonTopic};
 pub use sport_family::SportFamily;
 pub use training_history::{DailyTrainingKey, DailyTrainingState};
 pub use workout_template::{
-    CalendarEventRef, CalendarEventSource, CalendarKey, PlannedSession, PlannedSessionKind,
-    PrescribedWorkout,
+    CalendarEventRef, CalendarEventSource, CalendarKey, LibraryWorkoutRef, PlannedSession,
+    PlannedSessionKind, PrescribedWorkout,
 };
 pub use zones::{HrZoneSet, PowerZoneSet, ZoneDistribution};
 

@@ -233,6 +233,15 @@ bitflags::bitflags! {
         /// ([`ProviderCapabilities::is_push_only`]). A delivery mode, not a
         /// data scope: it names no capability on a provider card.
         const PUSH_ONLY = 0b0001_0000_0000_0000;
+        /// Provider keeps a workout library in the connected account itself
+        /// and Dravr writes to it — `save_library_workout` on
+        /// `FitnessProvider` — so `save_workout_to_library` can keep a plan
+        /// session there as a template.
+        ///
+        /// Distinct from `CALENDAR_WRITE`: a library holds workouts on no
+        /// date, and it is always the connected account's own, never a
+        /// coached athlete's.
+        const WORKOUT_LIBRARY = 0b0010_0000_0000_0000;
     }
 }
 
@@ -337,6 +346,13 @@ impl ProviderCapabilities {
     #[must_use]
     pub const fn is_push_only(&self) -> bool {
         self.contains(Self::PUSH_ONLY)
+    }
+
+    /// Check if Dravr writes workouts into the connected account's own
+    /// workout library
+    #[must_use]
+    pub const fn supports_workout_library(&self) -> bool {
+        self.contains(Self::WORKOUT_LIBRARY)
     }
 }
 
@@ -1018,7 +1034,8 @@ impl ProviderDescriptor for IntervalsIcuDescriptor {
         // calendar of each athlete who made them their coach
         // (`create_delegated_calendar_writer`). The same calendar is read for
         // the workouts and races planned on it, and the activity that
-        // completed each (`list_planned_workouts`).
+        // completed each (`list_planned_workouts`). The account's own workout
+        // library takes a plan session as a template (`save_library_workout`).
         ProviderCapabilities::OAUTH
             .union(ProviderCapabilities::ACTIVITIES)
             .union(ProviderCapabilities::RECORDED_ACTIVITIES)
@@ -1029,6 +1046,7 @@ impl ProviderDescriptor for IntervalsIcuDescriptor {
             .union(ProviderCapabilities::COACH_ROSTER)
             .union(ProviderCapabilities::CALENDAR_WRITE)
             .union(ProviderCapabilities::CALENDAR_WEEK_NOTES)
+            .union(ProviderCapabilities::WORKOUT_LIBRARY)
             .union(ProviderCapabilities::PLANNED_WORKOUTS)
     }
 

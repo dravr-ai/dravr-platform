@@ -68,6 +68,7 @@
   "refresh_provider_data",
   "save_recipe",
   "save_training_plan",
+  "save_workout_to_library",
   "search_food",
   "search_recipes",
   "set_fitness_config",

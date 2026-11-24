@@ -79,6 +79,9 @@ pub mod garmin_provider;
 /// Intervals.icu calendar rendering: a `PlannedSession` into the event body and the workout text DSL.
 #[cfg(feature = "provider-intervals-icu")]
 mod intervals_icu_calendar;
+/// Intervals.icu workout library: a `PlannedSession` into the library workout body, and the folder listing a save is matched against.
+#[cfg(feature = "provider-intervals-icu")]
+mod intervals_icu_library;
 /// Intervals.icu planned workouts: the calendar's workout and race events, and the activities that completed them.
 #[cfg(feature = "provider-intervals-icu")]
 mod intervals_icu_planned;

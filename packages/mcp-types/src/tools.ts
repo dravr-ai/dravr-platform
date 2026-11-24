@@ -1,7 +1,7 @@
 // ABOUTME: Auto-generated TypeScript type definitions for Pierre MCP tool parameters
 // ABOUTME: Generated from server tool schemas - DO NOT EDIT MANUALLY
 //
-// Tool count: 85
+// Tool count: 86
 // To regenerate: bun run generate (from packages/mcp-types)
 
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-empty-object-type */
@@ -1701,6 +1701,22 @@ export interface SaveTrainingPlanParams {
 
 
 /**
+ * Save one plan session as a template in the caller's own Intervals.icu workout library: a coach's own, whoever's plan it is. Fuelling is left out; saving it again writes nothing.
+ */
+export interface SaveWorkoutToLibraryParams {
+
+  /** Session date, YYYY-MM-DD. */
+  date: string;
+
+  /** Library folder; default Dravr. */
+  folder?: string;
+
+  /** Nth session that day; default 1. */
+  session?: number;
+}
+
+
+/**
  * Search USDA FoodData Central for foods.
  */
 export interface SearchFoodParams {
@@ -2183,6 +2199,7 @@ export const TOOL_NAMES = [
   "refresh_provider_data",
   "save_recipe",
   "save_training_plan",
+  "save_workout_to_library",
   "search_food",
   "search_recipes",
   "set_fitness_config",
@@ -2279,6 +2296,7 @@ export interface ToolParamsMap {
   "refresh_provider_data": RefreshProviderDataParams;
   "save_recipe": SaveRecipeParams;
   "save_training_plan": SaveTrainingPlanParams;
+  "save_workout_to_library": SaveWorkoutToLibraryParams;
   "search_food": SearchFoodParams;
   "search_recipes": SearchRecipesParams;
   "set_fitness_config": SetFitnessConfigParams;

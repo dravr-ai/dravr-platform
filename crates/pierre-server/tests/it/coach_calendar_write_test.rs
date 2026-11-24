@@ -35,8 +35,8 @@ use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use axum::extract::{Path, State};
-use axum::http::{HeaderMap, StatusCode};
-use axum::routing::{get, put};
+use axum::http::{HeaderMap, StatusCode, Uri};
+use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
@@ -80,6 +80,7 @@ use pierre_tool_runtime::implementations::training_plan_push::PushTrainingPlanTo
 use pierre_tool_runtime::implementations::training_plans::{
     GetTrainingPlanTool, SaveTrainingPlanTool,
 };
+use pierre_tool_runtime::implementations::workout_library::SaveWorkoutToLibraryTool;
 use pierre_tool_runtime::protocols::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
 use pierre_tool_runtime::runtime::ToolRuntime;
 use serde_json::{json, Value};
@@ -262,9 +263,42 @@ async fn delete_events(
     )
 }
 
+/// An empty workout library: every folder listing is empty.
+async fn list_folders(
+    State(api): State<Api>,
+    headers: HeaderMap,
+    Path(athlete): Path<String>,
+) -> Answer {
+    if !api.record(
+        "GET",
+        &format!("/api/v1/athlete/{athlete}/folders"),
+        &headers,
+    ) {
+        return unauthorized();
+    }
+    (StatusCode::OK, Json(json!([])))
+}
+
+/// A library create — a folder or a workout — answered with a fresh id.
+async fn create_library_item(State(api): State<Api>, headers: HeaderMap, uri: Uri) -> Answer {
+    if !api.record("POST", uri.path(), &headers) {
+        return unauthorized();
+    }
+    let id = api.next_id.fetch_add(1, Ordering::SeqCst) + 1;
+    (StatusCode::OK, Json(json!({ "id": id })))
+}
+
 async fn spawn_api(api: Api) -> String {
     let app = Router::new()
         .route("/api/v1/athletes", get(athletes_route))
+        .route(
+            "/api/v1/athlete/{athlete}/folders",
+            get(list_folders).post(create_library_item),
+        )
+        .route(
+            "/api/v1/athlete/{athlete}/workouts",
+            post(create_library_item),
+        )
         .route(
             "/api/v1/athlete/{athlete}/events",
             get(list_events).post(create_event),
@@ -984,6 +1018,122 @@ async fn a_coachs_push_carries_the_published_plan_never_their_draft() {
             .all(|row| row.prescribed_for_date != drafted_day
                 && !row.payload_json.contains("Draft tempo")),
         "the draft never reaches the calendar"
+    );
+}
+
+/// A coach keeps a session of a consenting athlete's plan, as the coach sees
+/// it — their draft included — in the coach's own Intervals.icu library: the
+/// coach's key at the coach's own path, never the athlete's, and nothing on
+/// the athlete's calendar (carnet#1726).
+#[tokio::test]
+async fn a_coach_saves_an_athletes_session_to_the_coachs_own_library() {
+    let w = World::new().await;
+    let (alex, _) = w
+        .athlete("Alex Athlete", "i201", Some(json!("WRITE")), true)
+        .await;
+    w.plan(alex, TransportPolicy::AnyTransport).await;
+    let monday = next_plan_monday();
+    let date = |offset: i64| (monday + Elapsed::days(offset)).to_string();
+    let (saved, refused) = w
+        .in_dm(
+            &SaveTrainingPlanTool,
+            json!({
+                "athlete": "Alex",
+                "weeks": [{
+                    "week_start": date(0),
+                    "focus": "the coach's draft",
+                    "days": [{ "date": date(1), "sport": "run", "workout": "Draft tempo", "duration_min": 50, "intensity": "Z3" }],
+                }],
+            }),
+        )
+        .await;
+    assert!(!refused, "{saved}");
+
+    let (report, refused) = w
+        .in_dm(
+            &SaveWorkoutToLibraryTool,
+            json!({ "athlete": "Alex", "date": date(1) }),
+        )
+        .await;
+    assert!(!refused, "{report}");
+    assert_eq!(report["athlete"], "Alex Athlete", "{report}");
+    assert!(
+        report["name"]
+            .as_str()
+            .is_some_and(|name| name.contains("Draft tempo")),
+        "the coach saves the session they see, their draft's: {report}"
+    );
+    let library: Vec<Hit> = w
+        .api
+        .hits()
+        .into_iter()
+        .filter(|h| h.path.ends_with("/folders") || h.path.ends_with("/workouts"))
+        .collect();
+    assert_eq!(
+        library
+            .iter()
+            .map(|h| (h.method, h.path.as_str()))
+            .collect::<Vec<_>>(),
+        [
+            ("GET", "/api/v1/athlete/i100/folders"),
+            ("POST", "/api/v1/athlete/i100/folders"),
+            ("POST", "/api/v1/athlete/i100/workouts"),
+        ],
+        "the coach's own path: {library:?}"
+    );
+    assert!(library.iter().all(|h| h.key == COACH_KEY), "{library:?}");
+    assert!(
+        w.api.event_calls().is_empty(),
+        "nothing reaches the athlete's calendar"
+    );
+    assert!(
+        w.live(alex).await.is_empty(),
+        "bug: a library save lays nothing on the athlete's calendar"
+    );
+}
+
+/// An athlete who reaches Intervals.icu only through their human coach's
+/// link keeps no library Dravr writes: their save is refused before any
+/// library request, in their coach's terms, and never by asking them to
+/// connect Intervals.icu themselves, which would end the link (carnet#1726).
+#[tokio::test]
+async fn an_athlete_linked_through_their_coach_saves_to_no_library() {
+    let w = World::new().await;
+    let (alex, _) = w
+        .athlete("Alex Athlete", "i201", Some(json!("WRITE")), true)
+        .await;
+    w.plan(alex, TransportPolicy::AnyTransport).await;
+
+    let (refusal, refused) = w
+        .as_athlete(
+            &SaveWorkoutToLibraryTool,
+            alex,
+            json!({ "date": next_plan_monday().to_string() }),
+        )
+        .await;
+
+    assert!(refused, "bug: the link writes no library: {refusal}");
+    assert_eq!(
+        reason(&refusal),
+        "library_through_coach_link",
+        "bug: {refusal}"
+    );
+    let text = error_text(&refusal);
+    assert!(
+        text.contains("human coach's link"),
+        "bug: refused in the coach's terms: {refusal}"
+    );
+    assert!(
+        !text.contains("Connect your own"),
+        "bug: connecting would end the link: {refusal}"
+    );
+    assert!(
+        w.api
+            .hits()
+            .iter()
+            .all(|h| !h.path.ends_with("/folders") && !h.path.ends_with("/workouts")),
+        "bug: no library request: {:?}",
+        w.api.hits()
     );
 }
 

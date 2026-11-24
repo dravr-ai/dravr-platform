@@ -101,6 +101,10 @@ mod coach_plan_write_transport_tests {
                 vec![json!({ "athlete": ATHLETE, "provider": "intervals_icu" })],
             ),
             ("propose_athlete_link", vec![json!({ "athlete": ATHLETE })]),
+            (
+                "save_workout_to_library",
+                vec![json!({ "athlete": ATHLETE, "date": "2030-01-08" })],
+            ),
         ]
     }
 

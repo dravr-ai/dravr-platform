@@ -67,11 +67,16 @@ pub const INTERVALS_ICU: &str = "intervals_icu";
 /// own. Intervals.icu's zones are not imported — Dravr derives its own from
 /// the thresholds. An API-key link carries no scopes and reads the same
 /// settings with the key.
+///
+/// `LIBRARY:WRITE` is what `save_workout_to_library` writes the account's
+/// own workout library with (`GET`/`POST /folders`, `POST /workouts`): a
+/// coach keeps a plan session as a template there.
 pub const INTERVALS_ICU_DEFAULT_SCOPES: &[&str] = &[
     "ACTIVITY:READ",
     "WELLNESS:READ",
     "CALENDAR:WRITE",
     "SETTINGS:READ",
+    "LIBRARY:WRITE",
 ];
 
 /// Wahoo Cloud API provider identifier (ELEMNT, KICKR, RIVAL).

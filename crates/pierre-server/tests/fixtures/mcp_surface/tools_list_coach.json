@@ -33856,6 +33856,143 @@
       }
     },
     {
+      "name": "save_workout_to_library",
+      "description": "Save one plan session as a template in the caller's own Intervals.icu workout library: a coach's own, whoever's plan it is. Fuelling is left out; saving it again writes nothing.",
+      "inputSchema": {
+        "properties": {
+          "date": {
+            "description": "Session date, YYYY-MM-DD.",
+            "type": "string"
+          },
+          "folder": {
+            "description": "Library folder; default Dravr.",
+            "type": "string"
+          },
+          "session": {
+            "description": "Nth session that day; default 1.",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "date"
+        ],
+        "type": "object"
+      },
+      "outputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "anyOf": [
+          {
+            "properties": {
+              "already_saved": {
+                "description": "The folder already held this workout, name and content alike, so\nnothing was written.",
+                "type": "boolean"
+              },
+              "athlete": {
+                "description": "The coached athlete whose plan it came from; absent for the caller's\nown plan.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "date": {
+                "description": "The plan date the session was taken from.",
+                "type": "string"
+              },
+              "folder": {
+                "description": "The library folder holding it.",
+                "type": "string"
+              },
+              "folder_created": {
+                "description": "The folder did not exist and the save created it.",
+                "type": "boolean"
+              },
+              "name": {
+                "description": "The template's name: the plan session's title.",
+                "type": "string"
+              },
+              "provider": {
+                "description": "The provider whose library holds it, as the caller knows it.",
+                "type": "string"
+              },
+              "workout_id": {
+                "description": "The provider's id for the library workout.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "provider",
+              "folder",
+              "folder_created",
+              "already_saved",
+              "workout_id",
+              "name",
+              "date"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "connect_url": {
+                "type": "string"
+              },
+              "connected": {
+                "const": false
+              },
+              "message": {
+                "type": "string"
+              },
+              "providers": {
+                "items": {
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "note": {
+                      "type": "string"
+                    },
+                    "readable_here": {
+                      "type": "boolean"
+                    },
+                    "status": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "status",
+                    "readable_here"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "connected",
+              "message",
+              "providers"
+            ],
+            "type": "object"
+          }
+        ],
+        "description": "What a save did: where the template is, and which plan session it is.",
+        "title": "SavedLibraryWorkout",
+        "type": "object"
+      },
+      "annotations": {
+        "title": "Save workout to library",
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "_meta": {
+        "ai.dravr.vault/tool": {
+          "def_hash": "sha256:293eeecce49eab3d87a46ec184a4e13d441590276f64735017c98d3c8cc29754"
+        }
+      }
+    },
+    {
       "name": "search_food",
       "description": "Search USDA FoodData Central for foods.",
       "inputSchema": {

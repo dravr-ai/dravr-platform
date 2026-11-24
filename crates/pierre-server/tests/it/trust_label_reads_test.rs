@@ -151,6 +151,7 @@ fn probes(goal: &str) -> BTreeMap<&'static str, Probe> {
         "withdraw_prescribed_workout",
         "set_preferred_calendar",
         "propose_athlete_link",
+        "save_workout_to_library",
     ] {
         probes.insert(tool, Probe::Writes);
     }

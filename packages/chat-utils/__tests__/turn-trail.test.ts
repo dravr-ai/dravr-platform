@@ -47,6 +47,7 @@ describe('toolStepLabel', () => {
     expect(toolStepLabel('get_group_member_activities')).toEqual({ key: TURN_STEP_KEYS.readMemberActivities });
     expect(toolStepLabel('recommend_plan_flavour')).toEqual({ key: TURN_STEP_KEYS.choosePlanApproach });
     expect(toolStepLabel('save_training_plan')).toEqual({ key: TURN_STEP_KEYS.savePlan });
+    expect(toolStepLabel('save_workout_to_library')).toEqual({ key: TURN_STEP_KEYS.saveToLibrary });
     expect(toolStepLabel('get_training_plan')).toEqual({ key: TURN_STEP_KEYS.readPlan });
     expect(toolStepLabel('list_workout_templates')).toEqual({ key: TURN_STEP_KEYS.pickWorkouts });
   });

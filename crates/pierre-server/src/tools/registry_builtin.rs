@@ -130,6 +130,8 @@ pub fn register_builtin_tools(registry: &mut ToolRegistry) {
     #[cfg(feature = "tools-memory")]
     register_training_plan_push_tools(registry);
     #[cfg(feature = "tools-memory")]
+    register_workout_library_tools(registry);
+    #[cfg(feature = "tools-memory")]
     register_calendar_preference_tools(registry);
     #[cfg(feature = "tools-memory")]
     register_place_tools(registry);
@@ -191,6 +193,26 @@ fn register_training_plan_tools(registry: &mut ToolRegistry) {
 
     info!(
         "Registered training-plan tools (registry now has {} tools)",
+        registry.len()
+    );
+}
+
+/// Register the workout-library tool (`save_workout_to_library`).
+///
+/// Chat-callable (category `memory`, next to the plan it reads): the agent
+/// keeps a plan session as a template in the caller's own provider library
+/// when asked — a coach's own, whoever's plan the session came from.
+#[cfg(feature = "tools-memory")]
+fn register_workout_library_tools(registry: &mut ToolRegistry) {
+    use pierre_tool_runtime::implementations::workout_library::create_workout_library_tools;
+    use std::sync::Arc;
+
+    for tool in create_workout_library_tools() {
+        registry.register_with_category(Arc::from(tool), "memory");
+    }
+
+    info!(
+        "Registered workout-library tools (registry now has {} tools)",
         registry.len()
     );
 }

@@ -29,6 +29,8 @@ mod garmin_calendar_test;
 #[cfg(feature = "provider-intervals-icu")]
 mod intervals_icu_delegated_read_test;
 #[cfg(feature = "provider-intervals-icu")]
+mod intervals_icu_library_test;
+#[cfg(feature = "provider-intervals-icu")]
 mod intervals_icu_provider_test;
 mod provider_401_requires_reauth_test;
 #[cfg(all(feature = "provider-strava", feature = "provider-whoop"))]

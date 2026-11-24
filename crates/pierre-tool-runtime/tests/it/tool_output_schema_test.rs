@@ -245,6 +245,9 @@ use pierre_tool_runtime::implementations::vo2max_estimate::{
 use pierre_tool_runtime::implementations::weather_forecast::{
     forecast, GetWeatherForecastTool, WeatherForecastResult,
 };
+use pierre_tool_runtime::implementations::workout_library::{
+    SaveWorkoutToLibraryTool, SavedLibraryWorkout,
+};
 use pierre_tool_runtime::runtime::ToolRuntime;
 use pierre_tool_runtime::training_history_compute::HistoryRefresh;
 use serde_json::json;
@@ -3815,6 +3818,13 @@ fn each_single_tool_schema_is_attached_to_the_tool_it_names() {
             "push_training_plan",
             <PushTrainingPlanTool as McpTool<dyn ToolRuntime>>::definition(&PushTrainingPlanTool),
             output_schema_for::<PushReport>(),
+        ),
+        (
+            "save_workout_to_library",
+            <SaveWorkoutToLibraryTool as McpTool<dyn ToolRuntime>>::definition(
+                &SaveWorkoutToLibraryTool,
+            ),
+            output_schema_for::<SavedLibraryWorkout>(),
         ),
         (
             "set_preferred_calendar",

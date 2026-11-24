@@ -350,6 +350,8 @@ pub mod training_plan_vision;
 pub mod training_plans;
 /// What the training-plan tools answer with, and the calendar block they share.
 pub mod training_plans_output;
+/// `save_workout_to_library` — one plan session into the caller's own workout library.
+pub mod workout_library;
 
 /// Mobility / stretching / yoga tools (`tools-mobility` feature).
 #[cfg(feature = "tools-mobility")]

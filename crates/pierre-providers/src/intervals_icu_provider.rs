@@ -108,8 +108,8 @@ use crate::intervals_icu_self_report::{
 use crate::intervals_icu_settings::thresholds_from_settings;
 use crate::intervals_icu_streams::{streams_to_time_series, IntervalsIcuStream};
 use crate::models::{
-    Activity, ActivityComment, Athlete, CalendarEventRef, PlannedSession, PlannedWorkout,
-    ProviderThresholds, SportType, TimeSeriesData,
+    Activity, ActivityComment, Athlete, CalendarEventRef, LibraryWorkoutRef, PlannedSession,
+    PlannedWorkout, ProviderThresholds, SportType, TimeSeriesData,
 };
 use crate::pagination::{CursorPage, PaginationParams};
 use crate::request_budget;
@@ -121,6 +121,8 @@ mod activity;
 /// The factory the registry builds the provider with, and the coach-key
 /// builders fixed to one coached athlete.
 mod factory;
+/// The workout-library save: the folder listing, then the folder and workout creates.
+mod library;
 /// The planned-workout read: the events request, then the pairing request.
 mod planned;
 
@@ -1156,5 +1158,13 @@ impl FitnessProvider for IntervalsIcuProvider {
             )
         })?;
         Ok(deleted.events_deleted)
+    }
+
+    async fn save_library_workout(
+        &self,
+        session: &PlannedSession,
+        folder: &str,
+    ) -> AppResult<LibraryWorkoutRef> {
+        self.save_to_library(session, folder).await
     }
 }
