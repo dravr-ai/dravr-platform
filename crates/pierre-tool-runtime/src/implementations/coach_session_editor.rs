@@ -13,8 +13,9 @@
 //!
 //! - [`thread_families`] — the families the thread's agent offers, as the
 //!   coach's save resolves them ([`PackagedCatalogue`] of the thread's
-//!   writer), each preset with its evidence ranges per sport as the kernel
-//!   reads them ([`WorkoutTemplate::effective_ranges`]);
+//!   writer), each preset with the evidence ranges per sport of the values
+//!   its shape reads ([`WorkoutTemplate::read_ranges`], carnet#1710): a
+//!   value the preset's steps never read is no knob of the coach's;
 //! - [`preview_session`] — the session a build makes, generated on the
 //!   athlete's stored anchors exactly as the save generates it
 //!   ([`instantiate_template_day`]) and projected through the plan card's
@@ -165,9 +166,10 @@ pub struct CataloguePreset {
     pub summary: Option<String>,
     /// The sports it has a form for.
     pub sports: Vec<SportFamily>,
-    /// Per sport it has a form for, the values the coach may state and their
-    /// evidence ranges: the sport's form, else the preset, else the family's
-    /// axes, key by key, as the kernel builds and measures the session.
+    /// Per sport it has a form for, the values its shape reads, which are the
+    /// ones the coach may state, and their evidence ranges: the sport's form,
+    /// else the preset, else the family's axes, key by key, as the kernel
+    /// builds and measures the session.
     pub params: BTreeMap<SportFamily, PresetRanges>,
 }
 
@@ -196,7 +198,8 @@ pub struct PresetRanges {
 }
 
 impl PresetRanges {
-    /// The six values' ranges out of the kernel's effective ranges.
+    /// The six values' ranges out of the ranges the kernel says a preset
+    /// reads.
     fn of(ranges: WorkoutParams) -> Self {
         Self {
             sets: ranges.sets,
@@ -420,13 +423,14 @@ fn catalogue_family(template: &WorkoutTemplate, words: EditorWords<'_>) -> Optio
     })
 }
 
-/// One preset with its ranges in each sport it has a form for.
+/// One preset with, in each sport it has a form for, the ranges of the
+/// values its shape reads.
 fn catalogue_preset(template: &WorkoutTemplate, preset: &WorkoutPreset) -> CataloguePreset {
     let sports: Vec<SportFamily> = preset.families().collect();
     let params = sports
         .iter()
         .map(|sport| {
-            let ranges = template.effective_ranges(preset, *sport);
+            let ranges = template.read_ranges(preset, *sport);
             (*sport, PresetRanges::of(ranges))
         })
         .collect();
@@ -830,7 +834,9 @@ fn sport_label(replaced: Option<&PlannedDay>, sport: SportFamily) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::implementations::tests::{catalogue_with_family, FAMILY_SLUG};
+    use crate::implementations::tests::{
+        catalogue_with_family, catalogue_with_shapes, FAMILY_SLUG, SHAPES_SLUG,
+    };
     use dravr_tronc::dates::Timestamp;
     use pierre_contremaitre::TrainingCatalogueRegistry;
     use pierre_memory::training_plans::WeekStatus;
@@ -914,6 +920,42 @@ mod tests {
         assert!(
             wire["params"].get("swim").is_none(),
             "bug: a sport the preset has no form for carries ranges: {wire}"
+        );
+    }
+
+    #[test]
+    fn a_preset_lists_only_the_values_its_shape_reads() {
+        let registry = catalogue_with_shapes();
+        let catalogue = PackagedCatalogue::catalogue_only(&registry);
+        let strings = MessagingStringsRegistry::new();
+        let words = EditorWords {
+            strings: &strings,
+            locale: "en",
+        };
+        let listed = families(&catalogue, words);
+        let family = listed
+            .iter()
+            .find(|family| family.slug == SHAPES_SLUG)
+            .expect("the fixture family is listed");
+        let ride = |key: &str| {
+            let preset = family
+                .presets
+                .iter()
+                .find(|preset| preset.key == key)
+                .expect("the preset is listed");
+            serde_json::to_value(preset).unwrap()["params"]["ride"].clone()
+        };
+        let steady = ride("steady");
+        assert_eq!(
+            steady,
+            json!({ "duration_minutes": { "min": 20, "max": 240, "default": 60 } }),
+            "bug: a continuous session offers its duration alone, not the axes' reps, work and rest: {steady}"
+        );
+        let openers = ride("openers");
+        assert_eq!(
+            openers,
+            json!({}),
+            "bug: literal steps scale with nothing, so they offer no value, not even a ranged duration: {openers}"
         );
     }
 

@@ -418,9 +418,11 @@ pub mod verification;
 
 #[cfg(test)]
 mod tests {
-    //! A two-preset workout family and a catalogue carrying it, shared by the
-    //! unit tests of the family paths. Its slugs and preset keys are its own,
-    //! so no compiled-in catalogue file can answer for them.
+    //! Workout families and catalogues carrying them, shared by the unit
+    //! tests of the family paths: a two-preset short-VO2max family, and one
+    //! whose presets are a continuous session and literal steps. Their slugs
+    //! and preset keys are their own, so no compiled-in catalogue file can
+    //! answer for them.
 
     use pierre_contremaitre::training_catalogue::{CatalogueItem, CatalogueKind};
     use pierre_contremaitre::TrainingCatalogueRegistry;
@@ -536,6 +538,84 @@ cycle = [
             CatalogueKind::Workout,
             FAMILY_SLUG,
             CatalogueItem::Workout(Box::new(family())),
+            "fixture".to_owned(),
+        );
+        registry
+    }
+
+    pub(super) const SHAPES_SLUG: &str = "fixture_every_shape";
+
+    /// A family whose presets are a continuous session (`steady`) and literal
+    /// steps (`openers`, carrying a ranged duration), over axes that range
+    /// every value: what each lists is what its shape reads, never the axes.
+    const SHAPES: &str = r#"
+id = "3b7e9d40-6a2c-5f18-8e41-0d9c2a7f5b63"
+slug = "fixture_every_shape"
+name = "Every shape"
+sport = "ride"
+sport_variants = ["ride"]
+intensity_distribution = "polarized"
+purpose = "endurance"
+evidence_tier = "grey"
+caveat = "Fixture."
+
+[params]
+sets = { min = 1, max = 5, default = 3 }
+reps = { min = 4, max = 30, default = 8 }
+work_seconds = { min = 10, max = 240, default = 30 }
+rest_seconds = { min = 10, max = 240, default = 30 }
+set_rest_seconds = { min = 60, max = 300, default = 180 }
+duration_minutes = { min = 20, max = 240, default = 60 }
+rpe = { min = 3, max = 9 }
+
+[params.intensity]
+ride = "Z2"
+
+[progression]
+order = ["add_rep"]
+
+[fit]
+phases = ["base", "build"]
+readiness_min = "p1"
+max_per_week = 3
+min_spacing_hours = 24
+
+[[presets]]
+key = "steady"
+name = "Steady"
+shape = "continuous"
+
+[presets.ride]
+badge = { status = "convention" }
+base = { target = "Z2", label = "Steady" }
+
+[[presets]]
+key = "openers"
+name = "Openers"
+shape = "fixed"
+
+[presets.ride]
+badge = { status = "convention" }
+params = { duration_minutes = { min = 25, max = 40, default = 30 } }
+steps = [
+  { label = "Warm-up", duration_seconds = 900, target_zone = "Z2" },
+  { label = "Opener", duration_seconds = 60, target_zone = "Z4", repeat = 3 },
+  { label = "Cool-down", duration_seconds = 600, target_zone = "Z1" },
+]
+"#;
+
+    /// The every-shape family, parsed and validated by the kernel.
+    pub(super) fn shapes() -> WorkoutTemplate {
+        WorkoutTemplate::from_toml(SHAPES).unwrap()
+    }
+
+    /// The compiled-in catalogue with the every-shape family laid over it.
+    pub(super) fn catalogue_with_shapes() -> TrainingCatalogueRegistry {
+        let registry = TrainingCatalogueRegistry::new();
+        registry.update(
+            CatalogueKind::Workout,
+            SHAPES_SLUG,
+            CatalogueItem::Workout(Box::new(shapes())),
             "fixture".to_owned(),
         );
         registry
