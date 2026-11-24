@@ -1,5 +1,5 @@
 // ABOUTME: Which stored activities a detail walk reads: a window's rows taken by whole seconds, newest first
-// ABOUTME: Of the walk's sport, the copies of one activity as one: those with no efforts, or read with no track
+// ABOUTME: Of the walk's sport, the copies of one activity as one: those with no efforts, or with no settled track
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -47,10 +47,11 @@ pub(super) struct Athlete<'run> {
 pub(super) enum Want {
     /// Its segment efforts, which no copy holds: a detail walk.
     Efforts,
-    /// Its track, which a detail read of its efforts stored before it kept
-    /// the route, never stored (carnet#1679): a track walk. A copy holds
-    /// its efforts, and no copy's track is settled
-    /// ([`activity_track::track_unsettled`]).
+    /// Its track, which no copy holds settled
+    /// ([`activity_track::track_unsettled`]): a track walk (carnet#1679).
+    /// Whether a detail read reached it before the route was kept, or no
+    /// detail read ever did (carnet#1779): a session's list row carries no
+    /// route, so only a detail read gives it one.
     Track,
 }
 
@@ -74,12 +75,9 @@ impl Want {
     }
 
     /// Whether the activity whose copies are `copies` is one to read: no
-    /// copy holds what the walk reads for, and, for its track, a copy holds
-    /// its efforts — an activity no detail read ever reached is the detail
-    /// walk's, whose read keeps the route.
+    /// copy holds what the walk reads for.
     fn reads(self, copies: &[CachedActivityRow]) -> bool {
         !copies.iter().any(|copy| self.holds(copy))
-            && (self == Self::Efforts || copies.iter().any(|copy| copy.segment_read))
     }
 }
 
@@ -544,7 +542,7 @@ mod tests {
     }
 
     #[test]
-    fn a_track_walk_reads_only_rides_read_for_their_efforts_whose_track_is_unsettled() {
+    fn a_track_walk_reads_every_ride_whose_track_is_unsettled_read_for_its_efforts_or_not() {
         let routed = |mut row: CachedActivityRow, route: StoredRouteOutcome| {
             row.route = Some(route);
             row
@@ -573,8 +571,24 @@ mod tests {
                 row("sciotte", "205", 1_000, SportType::Ride, true),
                 unavailable("no_gps"),
             ),
-            // Never read for its efforts: the detail walk's.
+            // Never reached by a detail read: its track is read too.
             row("sciotte", "206", 1_000, SportType::Ride, false),
+            // A trainer ride records no route.
+            {
+                let mut trainer = row("sciotte", "208", 1_000, SportType::Ride, false);
+                trainer.activity = ActivityBuilder::new(
+                    "208",
+                    "Ride",
+                    SportType::Ride,
+                    Timestamp::from_epoch_seconds(1_000).expect("a start"),
+                    3_600,
+                    "sciotte",
+                )
+                .source("strava")
+                .trainer(true)
+                .build();
+                trainer
+            },
             // A sport that records no route.
             row("sciotte", "207", 1_000, SportType::VirtualRide, true),
         ];
@@ -587,8 +601,8 @@ mod tests {
         ids.sort_unstable();
         assert_eq!(
             ids,
-            vec!["201", "202", "203"],
-            "bug: a track walk reads a ride whose track is settled, or one never read for its efforts"
+            vec!["201", "202", "203", "206"],
+            "bug: a track walk reads a ride whose track is settled, or skips one no detail read reached"
         );
         assert_eq!(
             unread

@@ -32,9 +32,10 @@ pub enum BackfillJobKind {
     /// gear id only a list row carries into the rows already stored. Its
     /// unit is a list page, counted in the row's `months_done`.
     TagWalk,
-    /// The walk that reads once more, newest first, the stored activities
-    /// whose segment efforts a detail read stored before it kept the route,
-    /// for the track only that read carries (carnet#1679). Its unit is an
+    /// The walk that reads once, newest first, the stored outdoor
+    /// activities whose track is unsettled, for the track only a detail read
+    /// carries (carnet#1679, carnet#1779): those a detail read reached before
+    /// it kept the route, and those no detail read reached. Its unit is an
     /// activity, its cursor the row's `before_ts`.
     TrackWalk,
 }

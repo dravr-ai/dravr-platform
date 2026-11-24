@@ -72,18 +72,22 @@
 //! ([`BackfillNotifier::push_detail_walk_complete`](crate::runtime::BackfillNotifier::push_detail_walk_complete)).
 //!
 //! **Track walks** (carnet#1679). A kept detail read keeps the route it
-//! carried as the ride's track, but a ride a detail read reached before
-//! that holds its efforts and no track, and is no walk's candidate. A
-//! [`BackfillJobKind::TrackWalk`] reads each such ride once more through the
-//! same step, newest first, over the whole stored history: a ride a copy of
-//! which holds its efforts while none holds a settled track
-//! ([`track_unsettled`](pierre_services::activity_track::track_unsettled)).
-//! Its reads are the detail walk's own, in the same day budget; a step waits
-//! while a detail walk is owed through the backend, so the rides no detail
-//! read ever reached go first. It is asked once per session connection
-//! ([`ask_track_walk`]), tells nobody when it ends, and keeps no tried range:
-//! its cursor passes each ride once, and a walk that ended short is asked
-//! again from it.
+//! carried as the ride's track, and a session's list row carries none, so a
+//! ride a detail read reached before that, and one no detail read ever
+//! reached (a detail walk reads only the window it is asked for), hold no
+//! track. A [`BackfillJobKind::TrackWalk`] reads each such ride once through
+//! the same step, newest first, over the whole stored history: an outdoor
+//! ride no copy of which holds a settled track
+//! ([`track_unsettled`](pierre_services::activity_track::track_unsettled)),
+//! its efforts stored or not. Its reads are the detail walk's own, in the
+//! same day budget; a step waits while a detail walk is owed through the
+//! backend, so a window the athlete asked for goes first. It is asked once
+//! per session connection ([`ask_track_walk`]) and tells nobody when it
+//! ends: its cursor passes each ride once, and a walk that ended short is
+//! asked again from it. It keeps no tried range: the walks of its first
+//! rule, which read only the rides a detail read had reached (carnet#1779),
+//! were cleared from the ledger by a migration, so each connection is walked
+//! once under this rule.
 
 mod candidates;
 mod step;

@@ -1,4 +1,4 @@
-// ABOUTME: The track walk: rides read for their efforts before a detail read kept the route are read once more, for their track
+// ABOUTME: The track walk: every outdoor ride whose track is unsettled is read once for it, detailed before or never
 // ABOUTME: Newest first, after any owed detail walk, in the detail walk's day budget, never a ride whose track is settled
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -10,11 +10,12 @@
 // without the features.
 //
 // A detail read keeps the route it carried as the ride's track, but the rides
-// a detail walk read before it did hold their efforts and no track, and are
-// no detail walk's candidates. The track walk reads each once more through
-// the athlete's session. The scraper is a loopback stand-in (a test double,
-// per the repo's mock rule) that records every detail read, in order, so
-// "once", "newest first" and "the detail walk first" are its log.
+// a detail walk read before it did, and the rides no detail read reached (a
+// session's list row carries no route), hold no track. The track walk reads
+// each once through the athlete's session. The scraper is a loopback
+// stand-in (a test double, per the repo's mock rule) that records every
+// detail read, in order, so "once", "newest first" and "the detail walk
+// first" are its log.
 #![cfg(all(
     feature = "provider-strava",
     feature = "provider-sciotte",
@@ -42,8 +43,10 @@ use axum::{Json, Router};
 use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::models::{ActivityBuilder, ConnectionType, SportType, TenantId};
+use pierre_database::backends::factory::DatabaseBackend;
 use pierre_database::repositories::{
-    ActivityDetail, BackfillJobKind, BackfillJobState, DetailWalkRow, StoredRouteTrack,
+    ActivityBackfillJobRow, ActivityDetail, BackfillJobKind, BackfillJobState, DetailWalkRow,
+    JobProgress, StoredRouteTrack,
 };
 use pierre_fitness_compute::encode_polyline;
 use pierre_fitness_compute::route_track::RouteTrack;
@@ -461,15 +464,15 @@ async fn a_ride_read_for_its_efforts_before_its_route_was_kept_is_read_once_more
 }
 
 /// A ride with a drawn track, a settled miss, or a route overview on a copy
-/// is never read for its track; nor is one no detail read ever reached,
-/// which is the detail walk's. An answer that settled nothing is read.
+/// is never read for its track, whether a detail read reached it or not. An
+/// answer that settled nothing is read.
 #[tokio::test]
 async fn a_ride_whose_track_is_settled_is_never_read_again() {
     let (scraper_url, scraper) = spawn_scraper().await;
     let resources = session_server(&scraper_url).await;
     let (user_id, tenant) = session_athlete(&resources, "track-walk-settled").await;
     let now = Timestamp::now().epoch_seconds();
-    let (drawn, no_gps, overview, never_read, unavailable) = (
+    let (drawn, no_gps, overview, never_read_drawn, unavailable) = (
         now - 25 * DAY,
         now - 20 * DAY,
         now - 15 * DAY,
@@ -484,8 +487,20 @@ async fn a_ride_whose_track_is_settled_is_never_read_again() {
         &[drawn, no_gps, overview, unavailable],
     )
     .await;
-    store_rides(&resources, user_id, tenant, SESSION, &[never_read]).await;
+    // No detail read reached it, and its track is drawn (a Home map read).
+    store_rides(&resources, user_id, tenant, SESSION, &[never_read_drawn]).await;
     let track = RouteTrack::from_overview(&loop_track()).unwrap();
+    settle_track(
+        &resources,
+        user_id,
+        tenant,
+        never_read_drawn,
+        &StoredRouteTrack::Drawn {
+            source: "streams".to_owned(),
+            track_json: serde_json::to_string(&track).unwrap(),
+        },
+    )
+    .await;
     settle_track(
         &resources,
         user_id,
@@ -561,7 +576,7 @@ async fn a_ride_whose_track_is_settled_is_never_read_again() {
     assert_eq!(
         scraper.reads(),
         vec![unavailable.to_string()],
-        "bug: the track walk read a ride whose track is settled, or one no detail read reached"
+        "bug: the track walk read a ride whose track is settled"
     );
     match track_of(&resources, user_id, tenant, unavailable).await {
         Some(StoredRouteTrack::Drawn { .. }) => {}
@@ -569,9 +584,354 @@ async fn a_ride_whose_track_is_settled_is_never_read_again() {
     }
 }
 
-/// The rides no detail read ever reached are read before any ride is read
-/// again for its track: a track walk waits while a detail walk is owed
-/// through the same session, whatever their starts.
+/// A ride no detail read ever reached (a session's list row carries no
+/// route, and no detail walk was asked over it) is read by the track walk,
+/// newest first, once, and keeps the track its read carried: drawn, or
+/// settled no GPS. Its efforts are stored by the same read.
+#[tokio::test]
+async fn a_ride_no_detail_read_reached_is_read_for_its_track() {
+    let (scraper_url, scraper) = spawn_scraper().await;
+    let resources = session_server(&scraper_url).await;
+    let (user_id, tenant) = session_athlete(&resources, "track-walk-never").await;
+    let now = Timestamp::now().epoch_seconds();
+    let (no_gps, drawn) = (now - 60 * DAY, now - 20 * DAY);
+    scraper.answer(drawn, Detail::Route);
+    scraper.answer(no_gps, Detail::NoGps);
+    store_rides(&resources, user_id, tenant, SESSION, &[no_gps, drawn]).await;
+    open_window(&resources).await;
+
+    let runtime: Arc<dyn ToolRuntime> = resources.clone();
+    assert_eq!(
+        ask_track_walk(&runtime, user_id, tenant, SESSION).await,
+        TrackWalkAsked::Started,
+        "bug: the session's track walk was not asked"
+    );
+    let ended = track_walk_ended(&resources, user_id, tenant).await;
+    assert_eq!(
+        ended.state,
+        BackfillJobState::Walked,
+        "bug: the track walk did not end: {ended:?}"
+    );
+    assert_eq!(
+        scraper.reads(),
+        vec![drawn.to_string(), no_gps.to_string()],
+        "bug: a ride no detail read reached is not read for its track, once, newest first"
+    );
+    match track_of(&resources, user_id, tenant, drawn).await {
+        Some(StoredRouteTrack::Drawn { .. }) => {}
+        other => panic!("bug: the never-detailed ride did not keep its track: {other:?}"),
+    }
+    assert_eq!(
+        track_of(&resources, user_id, tenant, no_gps).await,
+        Some(StoredRouteTrack::Unavailable {
+            source: "streams".to_owned(),
+            reason: "no_gps".to_owned(),
+            expires_at: None,
+        }),
+        "bug: the never-detailed ride with no GPS did not settle no_gps"
+    );
+    let rows = rows_under(&resources, user_id, tenant, SESSION).await;
+    assert!(
+        rows.iter().all(|row| row.segment_read),
+        "bug: the track walk's read did not store the ride's efforts: {rows:?}"
+    );
+}
+
+/// Keep the athlete's `kind` walk as walked down to the epoch, ended at
+/// `ended_ms`, as an earlier build's walk that reached its floor is kept.
+async fn end_as_walked(
+    resources: &Arc<ServerContext>,
+    user_id: Uuid,
+    kind: BackfillJobKind,
+    ended_ms: i64,
+) {
+    let sql = "UPDATE activity_backfill_jobs SET outcome = 'walked', before_ts = 0, \
+               ended_at_ms = $2 WHERE user_id = $1 AND kind = $3";
+    match resources.agent.database.backend() {
+        DatabaseBackend::SQLite(sqlite) => {
+            sqlx::query(sql)
+                .bind(user_id.to_string())
+                .bind(ended_ms)
+                .bind(kind.as_str())
+                .execute(sqlite.pool())
+                .await
+                .unwrap();
+        }
+        #[cfg(feature = "postgresql")]
+        DatabaseBackend::PostgreSQL(pg) => {
+            sqlx::query(sql)
+                .bind(user_id.to_string())
+                .bind(ended_ms)
+                .bind(kind.as_str())
+                .execute(pg.pool())
+                .await
+                .unwrap();
+        }
+    }
+}
+
+/// The migration that clears the track walks of the first rule
+/// (carnet#1779), per backend, so the test runs the statement a deploy runs.
+const CLEAR_TRACK_WALKS_SQLITE: &str =
+    include_str!("../../../../migrations/20261124090000_clear_first_rule_track_walks.sql");
+#[cfg(feature = "postgresql")]
+const CLEAR_TRACK_WALKS_POSTGRES: &str =
+    include_str!("../../../../migrations_pg/20261124090000_clear_first_rule_track_walks.sql");
+
+async fn clear_track_walks(resources: &Arc<ServerContext>) {
+    match resources.agent.database.backend() {
+        DatabaseBackend::SQLite(sqlite) => {
+            sqlx::raw_sql(CLEAR_TRACK_WALKS_SQLITE)
+                .execute(sqlite.pool())
+                .await
+                .unwrap();
+        }
+        #[cfg(feature = "postgresql")]
+        DatabaseBackend::PostgreSQL(pg) => {
+            sqlx::raw_sql(CLEAR_TRACK_WALKS_POSTGRES)
+                .execute(pg.pool())
+                .await
+                .unwrap();
+        }
+    }
+}
+
+/// Record the athlete's `kind` walk through the session as an earlier build
+/// left it: walked down to the epoch from `now`.
+async fn walked_row(
+    resources: &Arc<ServerContext>,
+    user_id: Uuid,
+    tenant: TenantId,
+    kind: BackfillJobKind,
+    now: i64,
+) {
+    let row = ActivityBackfillJobRow {
+        id: Uuid::new_v4().to_string(),
+        tenant_id: tenant,
+        user_id,
+        provider: SESSION.to_owned(),
+        kind,
+        after_ts: None,
+        before_ts: Some(now),
+        fetch_limit: None,
+        conversation_id: None,
+        created_at_ms: Timestamp::now().epoch_millis(),
+        leased_until_ms: 0,
+        attempts: 0,
+        lease_token: None,
+        progress: JobProgress::default(),
+        turn_id: None,
+        asked_message_id: None,
+        walk_backend: None,
+        walk_sport: None,
+    };
+    assert!(
+        resources
+            .common
+            .repos
+            .activity_backfill_jobs
+            .record_backfill_job(&row)
+            .await
+            .unwrap(),
+        "bug: the earlier build's {kind} fixture row was not recorded"
+    );
+    end_as_walked(resources, user_id, kind, Timestamp::now().epoch_millis()).await;
+}
+
+/// A connection whose track walk walked under the first rule (only rides a
+/// detail read reached, carnet#1779) stands until the migration clears its
+/// row, and only its track walk row; the next ask then walks it once more:
+/// the ride no detail read reached is read, the one the first walk gave a
+/// track is not, and the connection is never walked a third time.
+#[tokio::test]
+async fn a_track_walk_cleared_by_the_migration_reads_the_rides_the_first_rule_passed() {
+    let (scraper_url, scraper) = spawn_scraper().await;
+    let resources = session_server(&scraper_url).await;
+    let (user_id, tenant) = session_athlete(&resources, "track-walk-cleared").await;
+    let (other_user, other_tenant) = session_athlete(&resources, "track-walk-cleared-other").await;
+    let now = Timestamp::now().epoch_seconds();
+    let (never_read, reached) = (now - 40 * DAY, now - 10 * DAY);
+    scraper.answer(never_read, Detail::Route);
+    scraper.answer(reached, Detail::Route);
+    store_rides(&resources, user_id, tenant, SESSION, &[never_read]).await;
+    // The first walk read this one and kept its track.
+    store_walked_rides(&resources, user_id, tenant, &[reached]).await;
+    let track = RouteTrack::from_overview(&loop_track()).unwrap();
+    settle_track(
+        &resources,
+        user_id,
+        tenant,
+        reached,
+        &StoredRouteTrack::Drawn {
+            source: "streams".to_owned(),
+            track_json: serde_json::to_string(&track).unwrap(),
+        },
+    )
+    .await;
+    walked_row(&resources, user_id, tenant, BackfillJobKind::TrackWalk, now).await;
+    walked_row(
+        &resources,
+        user_id,
+        tenant,
+        BackfillJobKind::DetailWalk,
+        now,
+    )
+    .await;
+    walked_row(
+        &resources,
+        other_user,
+        other_tenant,
+        BackfillJobKind::TrackWalk,
+        now,
+    )
+    .await;
+    open_window(&resources).await;
+
+    let runtime: Arc<dyn ToolRuntime> = resources.clone();
+    assert_eq!(
+        ask_track_walk(&runtime, user_id, tenant, SESSION).await,
+        TrackWalkAsked::Standing,
+        "bug: a walked track walk was asked again before the migration cleared it"
+    );
+    clear_track_walks(&resources).await;
+    for (user, tenant) in [(user_id, tenant), (other_user, other_tenant)] {
+        assert_eq!(
+            walk_row(&resources, user, tenant, BackfillJobKind::TrackWalk).await,
+            None,
+            "bug: the migration left a track walk row standing"
+        );
+    }
+    assert!(
+        walk_row(&resources, user_id, tenant, BackfillJobKind::DetailWalk)
+            .await
+            .is_some(),
+        "bug: the migration deleted a walk of another kind"
+    );
+
+    assert_eq!(
+        ask_track_walk(&runtime, user_id, tenant, SESSION).await,
+        TrackWalkAsked::Started,
+        "bug: a connection whose track walk the migration cleared is not walked again"
+    );
+    let ended = track_walk_ended(&resources, user_id, tenant).await;
+    assert_eq!(
+        ended.state,
+        BackfillJobState::Walked,
+        "bug: the fresh walk did not end: {ended:?}"
+    );
+    assert_eq!(
+        scraper.reads(),
+        vec![never_read.to_string()],
+        "bug: the fresh walk skipped the ride no detail read reached, or re-read one whose track is stored"
+    );
+    match track_of(&resources, user_id, tenant, never_read).await {
+        Some(StoredRouteTrack::Drawn { .. }) => {}
+        other => panic!("bug: the never-detailed ride did not keep its track: {other:?}"),
+    }
+
+    assert_eq!(
+        ask_track_walk(&runtime, user_id, tenant, SESSION).await,
+        TrackWalkAsked::Standing,
+        "bug: the connection's track walk was asked a third time"
+    );
+    track_walk_ended(&resources, user_id, tenant).await;
+    assert_eq!(
+        scraper.reads(),
+        vec![never_read.to_string()],
+        "bug: a ride was read for its track again after the fresh walk"
+    );
+}
+
+/// A track walk over rides no detail read reached reads nothing once the
+/// athlete's walk day is spent: it waits, owed, and reads them in the next
+/// day's window.
+#[tokio::test]
+async fn a_track_walk_of_never_detailed_rides_waits_for_the_walk_day() {
+    let (scraper_url, scraper) = spawn_scraper().await;
+    let resources = session_server(&scraper_url).await;
+    let (user_id, tenant) = session_athlete(&resources, "track-walk-budget").await;
+    let now = Timestamp::now().epoch_seconds();
+    let (older, newer) = (now - 30 * DAY, now - 10 * DAY);
+    scraper.answer(older, Detail::Route);
+    scraper.answer(newer, Detail::Route);
+    store_rides(&resources, user_id, tenant, SESSION, &[older, newer]).await;
+    open_window(&resources).await;
+    let app = budget_counter_key(oauth_providers::STRAVA, "walk_client");
+    resources
+        .common
+        .repos
+        .usage_counters
+        .increment_counter(
+            PLATFORM_SCOPE,
+            PLATFORM_SCOPE,
+            &detail_walk_athlete_counter_key(&app, user_id),
+            &budget_period(Timestamp::now(), ONE_DAY),
+            10_000,
+        )
+        .await
+        .unwrap();
+
+    let runtime: Arc<dyn ToolRuntime> = resources.clone();
+    assert_eq!(
+        ask_track_walk(&runtime, user_id, tenant, SESSION).await,
+        TrackWalkAsked::Started,
+        "bug: the session's track walk was not asked"
+    );
+    let deadline = Instant::now() + WALK_DEADLINE;
+    for _ in 0..3 {
+        steps_settled_under(
+            &resources,
+            user_id,
+            tenant,
+            SESSION,
+            BackfillJobKind::TrackWalk,
+            deadline,
+        )
+        .await;
+        paused_retries_due(&resources, user_id).await;
+        age_job_rows(&resources, user_id).await;
+        resume_backfill_jobs(Arc::clone(&runtime)).await.unwrap();
+        time::sleep(Duration::from_millis(50)).await;
+    }
+    steps_settled_under(
+        &resources,
+        user_id,
+        tenant,
+        SESSION,
+        BackfillJobKind::TrackWalk,
+        deadline,
+    )
+    .await;
+    assert_eq!(
+        scraper.reads(),
+        Vec::<String>::new(),
+        "bug: the track walk read past the athlete's spent walk day"
+    );
+    let row = walk_row(&resources, user_id, tenant, BackfillJobKind::TrackWalk)
+        .await
+        .expect("bug: no track walk row was recorded");
+    assert_eq!(
+        row.state,
+        BackfillJobState::Owed,
+        "bug: a spent walk day ended the track walk instead of pausing it: {row:?}"
+    );
+
+    let ended = track_walk_ended(&resources, user_id, tenant).await;
+    assert_eq!(
+        ended.state,
+        BackfillJobState::Walked,
+        "bug: the track walk did not end once a new day opened: {ended:?}"
+    );
+    assert_eq!(
+        scraper.reads(),
+        vec![newer.to_string(), older.to_string()],
+        "bug: the paused track walk did not read the rides once the day opened"
+    );
+}
+
+/// The rides of a window a detail walk was asked over are read before any
+/// ride is read for its track: a track walk waits while a detail walk is
+/// owed through the same session, whatever their starts.
 #[tokio::test]
 async fn the_rides_no_detail_read_reached_go_before_the_re_reads() {
     let (scraper_url, scraper) = spawn_scraper().await;

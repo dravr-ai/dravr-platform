@@ -1,5 +1,5 @@
-// ABOUTME: Asking the track walk: rides read for their efforts before a detail read kept the route go back on the walk once
-// ABOUTME: Once per session connection, newest first, after any owed detail walk, within the detail walk's own day budget
+// ABOUTME: Asking the track walk: every outdoor ride whose track is unsettled is read once for it, newest first
+// ABOUTME: Once per session connection, after any owed detail walk, within the detail walk's own day budget
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -35,13 +35,14 @@ pub enum TrackWalkAsked {
 /// Ask for the track walk of `backend`'s session for the athlete, once
 /// (carnet#1679).
 ///
-/// A detail read keeps the route it carried as the ride's track, but the
-/// rides a detail read reached before it did (their efforts stored, their
-/// track not) are no detail walk's candidates any more. The track walk reads
-/// each of them once more, newest first, over the athlete's whole stored
-/// history, as the places pass reads it, through the step and the day budget
-/// the detail walk reads in ([`super::step`]), and waits while a detail walk
-/// is owed through the backend.
+/// A session's list row carries no route, so a ride's track is only what a
+/// detail read of it kept: a ride a detail read reached before the route was
+/// kept, and one no detail read ever reached (a detail walk reads only the
+/// window it is asked for; carnet#1779), hold none. The track walk reads each
+/// outdoor ride whose track is unsettled once, newest first, over the
+/// athlete's whole stored history, as the places pass reads it, through the
+/// step and the day budget the detail walk reads in ([`super::step`]), and
+/// waits while a detail walk is owed through the backend.
 ///
 /// Only a session the limiter counts is walked: its detail carries the
 /// route, which a grant's does not, and a grant's list row carries its route
