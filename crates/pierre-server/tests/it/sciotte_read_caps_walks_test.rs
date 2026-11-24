@@ -329,9 +329,11 @@ async fn a_sign_in_prefetch_spends_background_reads() {
 /// refused reads reach nothing.
 #[tokio::test]
 async fn a_capped_health_sync_keeps_its_days_and_resumes_at_the_refused_one() {
-    // Garmin's four wellness types each read a first window of 14 days,
-    // sleep first, then recovery: 14 + 8 reads leave recovery 8 days in.
-    const LEFT: u32 = 14 + 8;
+    // Garmin's four wellness types map one read of each day of a first
+    // 14-day window (dravr-enforme 0.22.1 reads a day once per sync pass):
+    // 8 reads take sleep 8 days in, recovery maps those 8 from the same
+    // reads, and both stop at the day the cap refuses.
+    const LEFT: u32 = 8;
     let (scraper, calls) = spawn_switchable_scraper(ScraperSwitch::default()).await;
     let resources = server(common::test_server_config_with_sciotte(&scraper)).await;
     let (user_id, _user, tenant, _token) = athlete(&resources).await;
