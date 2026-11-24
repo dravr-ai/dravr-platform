@@ -353,6 +353,7 @@ impl ImportTasks {
             service_account: &self.service_account,
             audience: &self.target_url,
             dispatch_deadline: STEP_DISPATCH_DEADLINE,
+            schedule_time: None,
         };
         create_http_task(self.tokens.as_ref(), &self.api_base, &http).await
     }

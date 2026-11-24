@@ -125,6 +125,8 @@ use std::sync::OnceLock;
 
 #[cfg(feature = "client-messaging")]
 use crate::services::platform_post::PlatformPost;
+#[cfg(feature = "client-messaging")]
+use crate::services::routine_engine::RoutineEngine;
 use crate::services::session_landed::SessionLandedRouter;
 use tokio::task::AbortHandle;
 
@@ -461,6 +463,12 @@ pub struct McpSlice {
     /// SSE protocol-factory install.
     #[cfg(feature = "client-messaging")]
     pub platform_post: Arc<OnceLock<Arc<dyn PlatformPost>>>,
+    /// The routine engine (ADR-036): the routes it is reached through — a
+    /// delivered wake, the admin reconcile, a changed check-in cadence — find
+    /// it here. Empty until the composition root installs it post-`Arc`,
+    /// beside the platform post it fires through.
+    #[cfg(feature = "client-messaging")]
+    pub routines: Arc<OnceLock<Arc<RoutineEngine>>>,
     /// Where a live write's landing goes (carnet#1486): exposed to every
     /// writer through
     /// [`pierre_tool_runtime::runtime::ToolRuntime::session_landed_sink`] and

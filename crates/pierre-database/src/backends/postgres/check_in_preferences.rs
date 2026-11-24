@@ -7,13 +7,12 @@
 use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{CheckInCadence, TenantId};
-use sqlx::Row;
 use uuid::Uuid;
 
 use crate::backends::postgres::PostgresDatabase;
 use crate::repositories::check_in_preferences::{
     cadence_from_column, impl_check_in_preference_repository, CheckInPreferenceRepository,
-    CheckInSubscriber, CHECK_IN_CADENCE_SQL, CHECK_IN_SUBSCRIBERS_SQL, SET_CHECK_IN_CADENCE_SQL,
+    CHECK_IN_CADENCE_SQL, SET_CHECK_IN_CADENCE_SQL,
 };
 use crate::repositories::uuid_columns::NativeUuid;
 

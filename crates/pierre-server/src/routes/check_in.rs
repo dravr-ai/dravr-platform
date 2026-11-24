@@ -32,6 +32,8 @@ use serde::{Deserialize, Serialize};
 use tracing::info;
 
 use crate::mcp::resources::ServerContext;
+#[cfg(feature = "client-messaging")]
+use crate::services::routine_engine;
 
 /// Body of `GET` and `PUT /api/me/check-in`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -87,6 +89,8 @@ async fn put_check_in(
         .check_in_preferences
         .set_check_in_cadence(tenant_id, auth.user_id, update.cadence, Timestamp::now())
         .await?;
+    #[cfg(feature = "client-messaging")]
+    routine_engine::reschedule_check_in(&resources, tenant_id, auth.user_id).await;
     info!(
         target: "notify",
         event = "coach.check_in_cadence_set",

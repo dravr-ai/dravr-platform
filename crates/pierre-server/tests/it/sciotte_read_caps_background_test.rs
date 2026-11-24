@@ -34,7 +34,7 @@ use pierre_core::llm::{
 use pierre_core::models::ConnectionType;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::services::platform_post::{
-    PipelinePlatformPost, PlatformPost, PlatformPostRequest, PostSurface,
+    PipelinePlatformPost, PlatformPost, PlatformPostRequest, PostAccess, PostSurface,
 };
 use pierre_providers::request_budget::{
     budget_period, is_background, session_read_counter_key, ONE_DAY, PLATFORM_SCOPE,
@@ -192,6 +192,7 @@ async fn a_platform_posts_turn_runs_its_tool_round_in_background() {
             surface: PostSurface::InApp,
             locale: "en",
             prompt: "Tell the athlete what their recovery says about this week.",
+            access: PostAccess::Owner,
         })
         .await;
 

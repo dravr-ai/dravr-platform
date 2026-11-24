@@ -1,4 +1,4 @@
-# ABOUTME: The Cloud Tasks queue that delivers a messaging turn to the backend as a request Cloud Run can see
+# ABOUTME: The Cloud Tasks queue that delivers messaging turns and routine wakes to the backend as requests Cloud Run sees
 # ABOUTME: Queue, its retry policy, the three IAM bindings the enqueue-and-dispatch loop needs, and the target URL
 #
 # SPDX-License-Identifier: MIT OR Apache-2.0
@@ -17,6 +17,19 @@
 # turn costs two or three, so the queue adds nothing to the bill; the
 # warm-instance alternative (backend_min_instances = 1, about $140/month) is
 # what this replaces.
+#
+# The routine engine (ADR-036, carnet#1790) queues its wakes here too: one task
+# per due routine slot, scheduled for that slot's hour and delivered as
+# `POST /internal/routines/wake` to the same run.app URL with the same OIDC
+# identity, so it needs no queue, binding or setting of its own. The 3-hourly
+# capture cron re-queues any wake this queue lost.
+#
+# Idle-cost: a routine wake that finds the backend scaled to zero keeps one
+# 2 vCPU instance up for the ~15 min Cloud Run lingers, about 5 cents. Slots
+# are on the hour, so routines due in the same hour share one wake, and none
+# fires between 00:00 and 05:00 local: at most 19 wakes a day (about $28/month
+# if every one found the instance cold), about $5/month for the pilot, and
+# nothing when user traffic already has an instance up.
 #
 # Deploy order is free in both directions. The binary reads PIERRE_TURN_RUNNER
 # and runs turns in-process when it is absent, so code deployed before this is

@@ -50,6 +50,7 @@ use serde_json::json;
 use std::sync::Arc;
 
 use crate::mcp::resources::ServerContext;
+use crate::routes::routines;
 use axum::Extension;
 use pierre_core::errors::AppError;
 use pierre_services::channel_adapters::ChannelAdapterFactory;
@@ -84,11 +85,17 @@ impl MessagingRoutes {
             );
         // The turn-run route exists only where Cloud Tasks delivers turns;
         // everywhere else the runner is in-process and the path is absent.
+        // So does the routine engine's wake (ADR-036): where turns run
+        // in-process, the process is its own waker.
         let router = if resources.common.turn_runner.cloud_tasks().is_some() {
-            router.route(
-                "/internal/turns/{turn_id}/run",
-                post(internal_turns::run_turn),
-            )
+            router
+                .route(
+                    "/internal/turns/{turn_id}/run",
+                    post(internal_turns::run_turn),
+                )
+                // `routine_waker::WAKE_PATH`, spelled out: the route scan
+                // reads only literal paths.
+                .route("/internal/routines/wake", post(routines::wake))
         } else {
             router
         };

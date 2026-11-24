@@ -263,6 +263,7 @@ account_reset_tables!(
     "user_unit_preferences",
     "user_home_preferences",
     "user_check_in_preferences",
+    "routines" where "CAST(owner_user_id AS TEXT) = $1",
     "calendar_preferences",
     "coach_data_reads",
     "peer_data_reads",

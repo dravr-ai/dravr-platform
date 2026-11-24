@@ -13,8 +13,10 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use dravr_tronc::dates::{Elapsed, Timestamp};
-use pierre_core::models::{CheckInCadence, PostPurpose, TenantId, User};
-use pierre_database::repositories::CheckInSubscriber;
+use pierre_core::models::{
+    CheckInCadence, PostPurpose, RoutineKind, RoutineState, Schedule, TenantId, User,
+};
+use pierre_database::repositories::NextFiring;
 use pierre_database::RepositoryRegistry;
 use pierre_test_support::db::create_test_db;
 use uuid::Uuid;
@@ -69,8 +71,11 @@ async fn a_choice_reads_back_in_its_tenant_only_and_a_change_replaces_it() {
     );
 }
 
+/// The routines the engine reconciles are the tenant's athletes whose
+/// cadence posts: `off`, no choice and another tenant's athlete are never
+/// read.
 #[tokio::test]
-async fn subscribers_are_the_tenants_athletes_whose_cadence_posts() {
+async fn active_routines_are_the_tenants_athletes_whose_cadence_posts() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
     let prefs = &repos.check_in_preferences;
@@ -101,21 +106,22 @@ async fn subscribers_are_the_tenants_athletes_whose_cadence_posts() {
         .await
         .unwrap();
 
-    let mut subscribers = prefs.check_in_subscribers(tenant).await.unwrap();
-    subscribers.sort_by_key(|subscriber| subscriber.user_id);
+    let mut active: Vec<(Uuid, Option<Schedule>)> = repos
+        .routines
+        .active_routines(tenant)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|routine| (routine.owner_user_id, routine.schedule()))
+        .collect();
+    active.sort_by_key(|(user_id, _)| *user_id);
     let mut expected = vec![
-        CheckInSubscriber {
-            user_id: daily,
-            cadence: CheckInCadence::Daily,
-        },
-        CheckInSubscriber {
-            user_id: weekly,
-            cadence: CheckInCadence::Weekly,
-        },
+        (daily, Schedule::of_check_in(CheckInCadence::Daily)),
+        (weekly, Schedule::of_check_in(CheckInCadence::Weekly)),
     ];
-    expected.sort_by_key(|subscriber| subscriber.user_id);
+    expected.sort_by_key(|(user_id, _)| *user_id);
     assert_eq!(
-        subscribers, expected,
+        active, expected,
         "off, no choice and another tenant's athlete are never listed"
     );
 }
@@ -290,5 +296,109 @@ async fn a_once_claim_is_retaken_only_when_abandoned_past_its_lease() {
             .await
             .unwrap(),
         "marking is scoped by tenant"
+    );
+}
+
+/// The cadence is also the athlete's check-in routine (ADR-036): written in
+/// the same transaction, active on the cadence's days at 08:00, paused for
+/// `off`, and unscheduled by every change so a wake queued for the old
+/// schedule finds nothing to fire.
+#[tokio::test]
+async fn a_cadence_writes_the_check_in_routine_it_schedules() {
+    let db = create_test_db().await.unwrap();
+    let repos = db.repositories();
+    let user_id = fresh_user(repos).await;
+    let tenant = TenantId::generate();
+    let routine = || async {
+        repos
+            .routines
+            .builtin_routine(tenant, user_id, RoutineKind::CheckIn)
+            .await
+            .unwrap()
+    };
+
+    repos
+        .check_in_preferences
+        .set_check_in_cadence(
+            tenant,
+            user_id,
+            CheckInCadence::ThreePerWeek,
+            Timestamp::now(),
+        )
+        .await
+        .unwrap();
+    let written = routine().await.expect("the cadence wrote its routine");
+    assert_eq!(
+        written.state,
+        RoutineState::Active,
+        "bug: a cadence that posts wrote a paused routine"
+    );
+    assert_eq!(
+        written.schedule(),
+        Schedule::of_check_in(CheckInCadence::ThreePerWeek),
+        "bug: the routine's schedule is not the cadence's days at the check-in hour"
+    );
+    assert_eq!(
+        (written.next_slot, written.next_fire),
+        (None, None),
+        "bug: a freshly written routine is already scheduled"
+    );
+
+    // The engine schedules it; only while the next firing is still the one
+    // it read.
+    // A slot is on the hour; the column keeps it to the millisecond.
+    let slot = Timestamp::parse_from_rfc3339("2026-11-25T13:00:00Z").unwrap();
+    let next = NextFiring {
+        slot: Some(slot),
+        fire: Some(slot),
+        deferrals: 0,
+    };
+    let moved = repos
+        .routines
+        .schedule_routine(tenant, written.id, None, next, Timestamp::now())
+        .await
+        .unwrap();
+    assert!(
+        moved,
+        "bug: an unscheduled routine refused its first schedule"
+    );
+    let stale = repos
+        .routines
+        .schedule_routine(tenant, written.id, None, next, Timestamp::now())
+        .await
+        .unwrap();
+    assert!(!stale, "a guard on the old firing no longer matches");
+    assert_eq!(
+        routine().await.unwrap().next_fire,
+        Some(slot),
+        "bug: the schedule the guard let through was not stored"
+    );
+
+    repos
+        .check_in_preferences
+        .set_check_in_cadence(tenant, user_id, CheckInCadence::Off, Timestamp::now())
+        .await
+        .unwrap();
+    let paused = routine().await.unwrap();
+    assert_eq!(paused.id, written.id, "one check-in routine per athlete");
+    assert_eq!(
+        paused.state,
+        RoutineState::Paused,
+        "bug: `off` left the routine active"
+    );
+    assert_eq!(
+        paused.schedule(),
+        None,
+        "bug: a paused routine still reads a schedule"
+    );
+    assert_eq!(paused.next_fire, None, "the change unscheduled it");
+    assert!(
+        repos
+            .routines
+            .active_routines(tenant)
+            .await
+            .unwrap()
+            .is_empty(),
+        "bug: a paused routine is still listed for the engine to reconcile"
     );
 }

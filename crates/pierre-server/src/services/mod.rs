@@ -145,6 +145,14 @@ pub mod first_sync_post;
 #[cfg(feature = "client-messaging")]
 pub mod check_in_post;
 
+/// The one engine that decides when the platform speaks first (ADR-036).
+#[cfg(feature = "client-messaging")]
+pub mod routine_engine;
+
+/// Wakes the server when a routine is due: a Cloud Tasks task per slot.
+#[cfg(feature = "client-messaging")]
+pub mod routine_waker;
+
 /// The coach's reaction to a workout a live sync just landed (carnet#1486).
 #[cfg(feature = "client-messaging")]
 pub mod activity_landed_post;

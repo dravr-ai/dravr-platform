@@ -15,7 +15,7 @@ use crate::services::backfill_delivery::{
     ChannelDelivery, InAppDelivery, PURPOSE_BACKFILL_COMPLETE,
 };
 use crate::services::messaging_ingress::block_render::RenderedReply;
-use crate::services::platform_post::{PlatformPostRequest, PostSurface, PostedReply};
+use crate::services::platform_post::{PlatformPostRequest, PostAccess, PostSurface, PostedReply};
 
 impl ServerBackfillNotifier {
     /// Whether the athlete has asked something newer in `conversation_id`
@@ -181,6 +181,8 @@ impl ServerBackfillNotifier {
                 surface,
                 locale,
                 prompt: &prompt,
+                // The athlete's own earlier question, answered now.
+                access: PostAccess::Owner,
             })
             .await
     }

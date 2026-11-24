@@ -14,7 +14,8 @@
 //! | cut an instant to microseconds or seconds | `next_setting_stamp`, a subscription's `last_event_at`, the usage stamp (`pierre-database`), coach attention |
 //! | the Sunday that starts a week | the usage counters' weekly period (`pierre-services`) |
 //! | the first day of a month | the monthly request window (`pierre-database`), the turn clock |
-//! | seconds since local midnight, the zoneless local date-time | the check-in schedule (`pierre-server`) |
+//! | seconds since local midnight, the zoneless local date-time | the landing post's day claim (`pierre-server`) |
+//! | a weekday-and-hour slot on a zone's clock, and its window | the check-in routine (`pierre-core`) |
 //! | an instant plus a lifetime, refusing an overflow | admin token expiry (`pierre-core`), and six other sites |
 //! | a `std` duration into a signed one and back | sweeps, schedulers, the turn ceiling |
 //! | every day from a date on | the training-history rollup (`pierre-services`) |
@@ -23,7 +24,7 @@
 //! Two of them have a public production function in `pierre-core`, and are
 //! asserted through it: token expiry through
 //! `CreateAdminTokenRequest::expires_at`, the check-in schedule through
-//! `CheckInCadence::due_at`. Two more are asserted through their repository in
+//! `Schedule::current_or_next`. Two more are asserted through their repository in
 //! `pierre-database` (`date_stamp_golden_sqlite_test`). The call sites in
 //! `pierre-services` and `pierre-server` are not reachable from these crates,
 //! so their rows go through this file's own helper and state what the call
@@ -33,7 +34,7 @@
 //! engine lives in [`engine`].
 
 use pierre_core::admin::models::CreateAdminTokenRequest;
-use pierre_core::models::CheckInCadence;
+use pierre_core::models::{CheckInCadence, RoutineKind, Schedule};
 
 /// Everything in this file that names the date engine.
 mod engine {
@@ -85,9 +86,9 @@ mod engine {
             .map_or_else(|| "none".to_owned(), |moved| moved.to_string())
     }
 
-    /// The zoneless date-time an instant shows in a zone.
-    pub(super) fn local_clock(value: Instant, zone: &str) -> CivilDateTime {
-        zone.parse::<Zone>().unwrap().civil_at(value)
+    /// The zone a name resolves to.
+    pub(super) fn zone(name: &str) -> Zone {
+        name.parse::<Zone>().unwrap()
     }
 
     /// Seconds since the zone's wall-clock midnight, the instant that many
@@ -384,7 +385,8 @@ fn seconds_since_local_midnight_read_the_wall_clock() {
 }
 
 /// The check-in schedule, through the production rule: a cadence is due on
-/// its weekdays inside the morning window of the athlete's own wall clock.
+/// its weekdays inside the morning window of the athlete's own wall clock —
+/// the routine engine fires an instant whose current slot is still open.
 #[test]
 fn a_check_in_is_due_on_the_athlete_s_wall_clock() {
     // zone, instant, due for [daily, three per week, weekly, off]
@@ -413,12 +415,15 @@ fn a_check_in_is_due_on_the_athlete_s_wall_clock() {
     let actual: Vec<(&str, &str, [u8; 4])> = rows
         .iter()
         .map(|(zone, at, _)| {
-            let local = engine::local_clock(instant(at), zone);
-            (
-                *zone,
-                *at,
-                cadences.map(|cadence| u8::from(cadence.due_at(local))),
-            )
+            let (clock, now) = (engine::zone(zone), instant(at));
+            let due = |cadence: CheckInCadence| {
+                Schedule::of_check_in(cadence)
+                    .and_then(|schedule| {
+                        schedule.current_or_next(&clock, now, RoutineKind::CheckIn.window())
+                    })
+                    .is_some_and(|slot| slot <= now)
+            };
+            (*zone, *at, cadences.map(|cadence| u8::from(due(cadence))))
         })
         .collect();
     assert_eq!(actual, rows.to_vec(), "cadences due per zone and instant");

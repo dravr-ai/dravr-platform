@@ -41,6 +41,8 @@ use crate::routes::contremaitre_webhook::routes as contremaitre_webhook_routes;
 use crate::routes::oauth_grants::OAuthGrantsRoutes;
 use crate::routes::request_support::declare_support_session;
 use crate::routes::request_transport::declare_request_transport;
+#[cfg(feature = "client-messaging")]
+use crate::routes::routines;
 #[cfg(feature = "client-settings")]
 use crate::routes::{
     athlete_gear, athlete_home, device_health, health_records, imports,
@@ -524,6 +526,12 @@ impl ProviderToolRouter {
             let diagnostics_ctx = DiagnosticsContext {
                 runtime: resources.clone(), // Safe: Arc clone coerced into the trait object
             };
+            // The routine engine's reconcile, which the 3-hourly capture cron
+            // calls (ADR-036).
+            #[cfg(feature = "client-messaging")]
+            let diagnostics_router = diagnostics_routes(diagnostics_ctx, auth_service.clone())
+                .merge(routines::admin_routes(Arc::clone(resources), auth_service));
+            #[cfg(not(feature = "client-messaging"))]
             let diagnostics_router = diagnostics_routes(diagnostics_ctx, auth_service);
 
             let cookie_admin_routes =

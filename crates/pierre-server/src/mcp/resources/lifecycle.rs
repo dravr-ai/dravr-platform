@@ -733,6 +733,8 @@ impl ServerContext {
             channel_adapters,
             #[cfg(feature = "client-messaging")]
             platform_post,
+            #[cfg(feature = "client-messaging")]
+            routines: Arc::new(OnceLock::new()),
             session_landed,
             // The coach's first post, installed post-`Arc` the same way.
             #[cfg(feature = "protocol-rest")]

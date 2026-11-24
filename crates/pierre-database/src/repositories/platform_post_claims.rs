@@ -113,6 +113,17 @@ pub trait PlatformPostClaimRepository: Send + Sync {
         user_id: Uuid,
         purpose: &str,
     ) -> AppResult<Option<Timestamp>>;
+
+    /// How many posts, of every purpose and subject, landed for the athlete
+    /// at or after `since` — the count the routine engine's daily cap reads
+    /// (ADR-036). A claim taken again on a later day counts once, for the day
+    /// it last landed.
+    async fn platform_posts_landed_since(
+        &self,
+        tenant_id: TenantId,
+        user_id: Uuid,
+        since: Timestamp,
+    ) -> AppResult<u32>;
 }
 
 /// The primary key is the claim: a row an earlier trigger inserted is left
@@ -158,6 +169,11 @@ pub(crate) const RELEASE_PLATFORM_POST_SQL: &str = r"
 pub(crate) const PLATFORM_POST_POSTED_AT_SQL: &str = r"
             SELECT MAX(posted_at_ms) AS posted_at_ms FROM platform_post_claims
             WHERE tenant_id = $1 AND user_id = $2 AND purpose = $3
+            ";
+
+pub(crate) const PLATFORM_POSTS_LANDED_SINCE_SQL: &str = r"
+            SELECT COUNT(*) FROM platform_post_claims
+            WHERE tenant_id = $1 AND user_id = $2 AND posted_at_ms >= $3
             ";
 
 /// Emit the whole [`PlatformPostClaimRepository`] implementation for one
@@ -295,6 +311,24 @@ macro_rules! impl_platform_post_claim_repository {
                         })
                     })
                     .transpose()
+            }
+
+            async fn platform_posts_landed_since(
+                &self,
+                tenant_id: TenantId,
+                user_id: Uuid,
+                since: Timestamp,
+            ) -> AppResult<u32> {
+                let landed: i64 = sqlx::query_scalar(PLATFORM_POSTS_LANDED_SINCE_SQL)
+                    .bind($ids::bind(tenant_id.as_uuid()))
+                    .bind($ids::bind(user_id))
+                    .bind(since.epoch_millis())
+                    .fetch_one(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to count the posts that landed: {e}"))
+                    })?;
+                Ok(u32::try_from(landed).unwrap_or(u32::MAX))
             }
         }
     };

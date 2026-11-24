@@ -16,9 +16,12 @@
 //! On such a day the check-in is due from [`CHECK_IN_HOUR`] local time for
 //! [`CHECK_IN_WINDOW_HOURS`] hours — a morning note, never a late-evening one
 //! for a morning the platform missed — and held while the athlete's quiet
-//! hours cover the moment ([`within_quiet_hours`]).
+//! hours cover the moment ([`within_quiet_hours`]). The routine engine applies
+//! both: the cadence is the athlete's check-in routine
+//! ([`super::routine::Schedule::of_check_in`]), its window is the routine's
+//! (ADR-036).
 
-use dravr_tronc::dates::{CivilDateTime, CivilTime, Weekday};
+use dravr_tronc::dates::{CivilTime, Weekday};
 use serde::{Deserialize, Serialize};
 
 /// The local hour a check-in becomes due on a day its cadence posts on.
@@ -75,14 +78,6 @@ impl CheckInCadence {
             Self::Off => false,
         }
     }
-
-    /// Whether a check-in is due at `local`, the athlete's own wall clock: a
-    /// day this cadence posts on, inside the morning window.
-    #[must_use]
-    pub fn due_at(self, local: CivilDateTime) -> bool {
-        self.posts_on(local.date().weekday())
-            && (CHECK_IN_HOUR..CHECK_IN_HOUR + CHECK_IN_WINDOW_HOURS).contains(&local.time().hour())
-    }
 }
 
 /// Whether `at` falls inside the quiet hours `start..end`, on one clock.
@@ -101,7 +96,6 @@ pub fn within_quiet_hours(start: CivilTime, end: CivilTime, at: CivilTime) -> bo
 
 #[cfg(test)]
 mod tests {
-    use dravr_tronc::dates::CivilDate;
     use dravr_tronc::dates::Elapsed;
 
     use super::*;
@@ -133,51 +127,8 @@ mod tests {
         assert!(days(CheckInCadence::Off).is_empty(), "off never posts");
     }
 
-    /// `hour:minute` on a Monday: 1970-01-05, four days after the default
-    /// date, the first of January 1970, a Thursday.
-    fn monday_at(hour: u32, minute: u32) -> CivilDateTime {
-        (CivilDate::default() + Elapsed::days(4)).and_time(time(hour, minute))
-    }
-
     fn time(hour: u32, minute: u32) -> CivilTime {
         CivilTime::MIDNIGHT + Elapsed::hours(i64::from(hour)) + Elapsed::minutes(i64::from(minute))
-    }
-
-    #[test]
-    fn the_fixture_monday_is_a_monday_at_the_asked_time() {
-        let at = monday_at(8, 30);
-        assert_eq!(at.date().weekday(), Weekday::Mon);
-        assert_eq!((at.time().hour(), at.time().minute()), (8, 30));
-    }
-
-    #[test]
-    fn a_check_in_is_due_only_inside_the_morning_window() {
-        let cadence = CheckInCadence::Weekly;
-        assert!(!cadence.due_at(monday_at(7, 59)), "before the hour");
-        assert!(cadence.due_at(monday_at(8, 0)));
-        assert!(cadence.due_at(monday_at(10, 59)));
-        assert!(!cadence.due_at(monday_at(11, 0)), "the window has closed");
-        assert!(!cadence.due_at(monday_at(21, 0)), "never a late note");
-    }
-
-    #[test]
-    fn a_check_in_is_due_on_its_cadences_days_only() {
-        let week: Vec<CivilDateTime> = (0..7)
-            .map(|offset| monday_at(8, 30) + Elapsed::days(offset))
-            .collect();
-        let due = |cadence: CheckInCadence| -> Vec<Weekday> {
-            week.iter()
-                .filter(|local| cadence.due_at(**local))
-                .map(|local| local.date().weekday())
-                .collect()
-        };
-        assert_eq!(due(CheckInCadence::Daily).len(), 7);
-        assert_eq!(
-            due(CheckInCadence::ThreePerWeek),
-            [Weekday::Mon, Weekday::Wed, Weekday::Fri]
-        );
-        assert_eq!(due(CheckInCadence::Weekly), [Weekday::Mon]);
-        assert!(due(CheckInCadence::Off).is_empty(), "off is never due");
     }
 
     #[test]

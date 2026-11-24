@@ -618,6 +618,15 @@ mod tests {
         ) -> AppResult<Option<Timestamp>> {
             panic!("test bug: no reader asks when a note was told")
         }
+
+        async fn platform_posts_landed_since(
+            &self,
+            _tenant_id: TenantId,
+            _user_id: Uuid,
+            _since: Timestamp,
+        ) -> AppResult<u32> {
+            panic!("test bug: a science note rides a reply, so no daily cap counts it")
+        }
     }
 
     fn reader() -> Reader {

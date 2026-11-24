@@ -11,6 +11,10 @@
 //! Settings. No row is an athlete who never chose, which reads as never
 //! checked in on, exactly like `off`.
 //!
+//! The cadence is the athlete's answer; the check-in *routine* it schedules
+//! (ADR-036) is written in the same transaction, so the engine that decides
+//! when the check-in fires never reads a schedule the athlete did not choose.
+//!
 //! Every statement is keyed by `tenant_id`, and by `user_id` wherever it
 //! reads or writes one athlete's choice.
 
@@ -19,15 +23,6 @@ use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{CheckInCadence, TenantId};
 use uuid::Uuid;
-
-/// An athlete of a tenant who chose a cadence that posts.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct CheckInSubscriber {
-    /// The athlete.
-    pub user_id: Uuid,
-    /// How often they asked to be checked in on — never `Off`.
-    pub cadence: CheckInCadence,
-}
 
 /// The check-in cadence each athlete chose.
 #[async_trait]
@@ -48,10 +43,6 @@ pub trait CheckInPreferenceRepository: Send + Sync {
         cadence: CheckInCadence,
         at: Timestamp,
     ) -> AppResult<()>;
-
-    /// The athletes of `tenant_id` whose cadence posts — every choice but
-    /// `off`.
-    async fn check_in_subscribers(&self, tenant_id: TenantId) -> AppResult<Vec<CheckInSubscriber>>;
 }
 
 pub(crate) const CHECK_IN_CADENCE_SQL: &str = r"
@@ -66,12 +57,6 @@ pub(crate) const SET_CHECK_IN_CADENCE_SQL: &str = r"
             ON CONFLICT (tenant_id, user_id) DO UPDATE SET
                 cadence = excluded.cadence,
                 updated_at_ms = excluded.updated_at_ms
-            ";
-
-pub(crate) const CHECK_IN_SUBSCRIBERS_SQL: &str = r"
-            SELECT user_id, cadence FROM user_check_in_preferences
-            WHERE tenant_id = $1 AND cadence <> 'off'
-            ORDER BY user_id
             ";
 
 /// A stored cadence as the choice it records.
@@ -118,41 +103,33 @@ macro_rules! impl_check_in_preference_repository {
                 cadence: CheckInCadence,
                 at: Timestamp,
             ) -> AppResult<()> {
+                let failed = |e: sqlx::Error| {
+                    AppError::database(format!("Failed to store the check-in cadence: {e}"))
+                };
+                // The cadence and the check-in routine it schedules move together.
+                let mut tx = self.pool().begin().await.map_err(failed)?;
                 sqlx::query(SET_CHECK_IN_CADENCE_SQL)
                     .bind($ids::bind(tenant_id.as_uuid()))
                     .bind($ids::bind(user_id))
                     .bind(cadence.as_str())
                     .bind(at.epoch_millis())
-                    .execute(self.pool())
+                    .execute(&mut *tx)
                     .await
-                    .map_err(|e| {
-                        AppError::database(format!("Failed to store the check-in cadence: {e}"))
-                    })?;
-                Ok(())
-            }
-
-            async fn check_in_subscribers(
-                &self,
-                tenant_id: TenantId,
-            ) -> AppResult<Vec<CheckInSubscriber>> {
-                let rows = sqlx::query(CHECK_IN_SUBSCRIBERS_SQL)
+                    .map_err(failed)?;
+                let (days_mask, local_hour, state) =
+                    $crate::repositories::routines::check_in_routine_columns(cadence);
+                sqlx::query($crate::repositories::routines::UPSERT_CHECK_IN_ROUTINE_SQL)
+                    .bind($ids::bind(Uuid::new_v4()))
                     .bind($ids::bind(tenant_id.as_uuid()))
-                    .fetch_all(self.pool())
+                    .bind($ids::bind(user_id))
+                    .bind(days_mask)
+                    .bind(local_hour)
+                    .bind(state)
+                    .bind(at.epoch_millis())
+                    .execute(&mut *tx)
                     .await
-                    .map_err(|e| {
-                        AppError::database(format!("Failed to list check-in subscribers: {e}"))
-                    })?;
-                rows.iter()
-                    .map(|row| {
-                        let cadence: String = row.try_get("cadence").map_err(|e| {
-                            AppError::database(format!("Invalid check-in cadence column: {e}"))
-                        })?;
-                        Ok(CheckInSubscriber {
-                            user_id: $ids::read(row, "user_id")?,
-                            cadence: cadence_from_column(&cadence)?,
-                        })
-                    })
-                    .collect()
+                    .map_err(failed)?;
+                tx.commit().await.map_err(failed)
             }
         }
     };

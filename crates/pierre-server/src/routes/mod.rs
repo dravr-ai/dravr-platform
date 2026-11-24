@@ -112,6 +112,9 @@ pub mod user_mcp_tokens;
 /// Multi-channel messaging gateway routes (webhook ingress and channel config)
 #[cfg(feature = "client-messaging")]
 pub mod messaging;
+/// The routine engine's wake and admin reconcile (ADR-036)
+#[cfg(feature = "client-messaging")]
+pub mod routines;
 
 /// GitHub webhook handler for the contremaitre source repository (push events).
 pub mod contremaitre_webhook;

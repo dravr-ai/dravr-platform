@@ -325,6 +325,13 @@ impl CloudTasksRunner {
         self.verifier.verify(token).await
     }
 
+    /// The bearer token source the Cloud Tasks API is called with, for the
+    /// routine waker that queues on the same queue (ADR-036).
+    #[must_use]
+    pub fn token_provider(&self) -> Arc<dyn TokenProvider> {
+        Arc::clone(&self.token_provider)
+    }
+
     /// How long the run route waits, inside the request, for a blocked claim.
     #[must_use]
     pub const fn claim_wait(&self) -> Duration {
@@ -382,6 +389,7 @@ impl CloudTasksRunner {
             service_account: &self.config.service_account,
             audience: &self.config.target_url,
             dispatch_deadline: self.dispatch_deadline,
+            schedule_time: None,
         };
         match create_http_task(self.token_provider.as_ref(), &self.config.api_base, &task).await {
             Ok(TaskCreated::Created) => {

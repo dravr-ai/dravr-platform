@@ -353,6 +353,18 @@ pub trait ChatRepository: Send + Sync {
         tenant_id: TenantId,
     ) -> AppResult<Option<String>>;
 
+    /// Whether the athlete wrote anything at or after `since`, in any
+    /// conversation of their own — the in-app thread or a messaging DM, both
+    /// of which store the athlete's words as `user` rows. A routine reads it
+    /// so it never posts into a conversation the athlete is in the middle of
+    /// (ADR-036).
+    async fn user_wrote_since(
+        &self,
+        tenant_id: TenantId,
+        user_id: Uuid,
+        since: Timestamp,
+    ) -> AppResult<bool>;
+
     /// [`Self::get_recent_messages`] for a turn's prompt: a row about a group
     /// member ([`MessageRecord::about_user_id`]) is returned only when that
     /// member is in `readable_about` (carnet#1174). Both rules are in the
@@ -1101,6 +1113,14 @@ pub(crate) const RECORD_AGENT_INTRODUCTION_SQL: &str = r"
     INSERT INTO agent_introductions (tenant_id, thread_id, agent_id, created_at)
     VALUES ($1, $2, $3, $4)
     ON CONFLICT DO NOTHING";
+
+/// The athlete's own `user` rows at or after `$3`. `since` binds as a
+/// timestamp, so the comparison is the one the column was written with on
+/// either backend.
+pub(crate) const USER_WROTE_SINCE_SQL: &str = r"
+    SELECT COUNT(*) FROM chat_messages m
+    INNER JOIN chat_conversations c ON c.id = m.conversation_id
+    WHERE c.tenant_id = $1 AND c.user_id = $2 AND m.role = 'user' AND m.created_at >= $3";
 
 /// The backfill walk over a tenant's assistant replies, oldest first.
 ///

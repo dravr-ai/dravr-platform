@@ -34,8 +34,8 @@ use crate::repositories::{
     PlatformPostClaimRepository, PlaybookRepository, PreApprovedEmailRepository,
     PrescribedWorkoutRepository, ProfileRepository, ProviderConnectionRepository,
     ProviderDataRepository, PushedDataRepository, RecipeRepository, RecoveryRepository,
-    ResumableTurnRepository, RouteSummaryRepository, SecurityRepository, SeederRepository,
-    SessionRefreshTokenRepository, ShortLinkRepository, SignupCodeRepository,
+    ResumableTurnRepository, RouteSummaryRepository, RoutineRepository, SecurityRepository,
+    SeederRepository, SessionRefreshTokenRepository, ShortLinkRepository, SignupCodeRepository,
     SignupCohortRepository, SleepRepository, StoreListingsRepository,
     StravaSeatReclaimWarningRepository, SubscriptionsRepository, SyncCursorRepository,
     SystemSettingsRepository, TenantRepository, ToolSelectionRepository, TrainingHistoryRepository,
@@ -156,6 +156,8 @@ pub struct RepositoryRegistry {
     pub platform_post_claims: Arc<dyn PlatformPostClaimRepository>,
     /// How often the coach checks in with each athlete, as they chose it (carnet#831)
     pub check_in_preferences: Arc<dyn CheckInPreferenceRepository>,
+    /// What makes the platform speak first, and when each fires next (ADR-036)
+    pub routines: Arc<dyn RoutineRepository>,
     /// The athletes' in-app feedback threads with the Dravr team (carnet#1235)
     pub feedback_messages: Arc<dyn FeedbackMessageRepository>,
     /// The T2–T3 health records imports and lab documents yield (carnet#1544)
@@ -378,6 +380,7 @@ impl RepositoryRegistry {
             persona_digest_returns: db.clone(),
             platform_post_claims: db.clone(),
             check_in_preferences: db.clone(),
+            routines: db.clone(),
             feedback_messages: db.clone(),
             health_records: db.clone(),
             user_onboarding: db.clone(),
@@ -497,6 +500,7 @@ impl RepositoryRegistry {
             persona_digest_returns: db.clone(),
             platform_post_claims: db.clone(),
             check_in_preferences: db.clone(),
+            routines: db.clone(),
             feedback_messages: db.clone(),
             health_records: db.clone(),
             user_onboarding: db.clone(),

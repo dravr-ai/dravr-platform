@@ -14,7 +14,7 @@ use pierre_chat_pipeline::{AssistantTurn, ReplyBlock};
 use pierre_core::models::{MessageRecord, TenantId};
 use pierre_core::transport::TransportPolicy;
 use pierre_mcp_server::services::platform_post::{
-    PlatformPost, PlatformPostRequest, PostSurface, PostedReply,
+    PlatformPost, PlatformPostRequest, PostAccess, PostSurface, PostedReply,
 };
 use uuid::Uuid;
 
@@ -29,6 +29,7 @@ pub(crate) struct Asked {
     pub conversation_id: String,
     pub surface: PostSurface,
     pub prompt: String,
+    pub access: PostAccess,
 }
 
 /// A platform post that records what it was asked to post and answers as a
@@ -61,6 +62,7 @@ impl PlatformPost for RecordingPost {
             conversation_id: request.conversation_id.to_owned(),
             surface: request.surface,
             prompt: request.prompt.to_owned(),
+            access: request.access,
         });
         self.posts.then(|| PostedReply {
             assistant: AssistantTurn {

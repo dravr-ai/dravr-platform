@@ -149,6 +149,8 @@ pub mod repositories;
 pub mod resumable_turns;
 /// Endurance cached GPX `route_summaries` repository (`SQLite`)
 pub mod route_summaries;
+/// Routines and when each fires next (`SQLite`)
+pub mod routines;
 /// Security repository: the RSA signing keypair and the system secrets
 pub mod security_repository;
 /// Seeder repository for seed-only database operations

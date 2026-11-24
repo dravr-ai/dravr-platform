@@ -570,6 +570,27 @@ macro_rules! impl_chat_repository {
                     .await
             }
 
+            async fn user_wrote_since(
+                &self,
+                tenant_id: TenantId,
+                user_id: Uuid,
+                since: Timestamp,
+            ) -> AppResult<bool> {
+                let written: i64 =
+                    sqlx::query_scalar($crate::repositories::chat::USER_WROTE_SINCE_SQL)
+                        .bind(tenant_id.to_string())
+                        .bind($ids::bind(user_id))
+                        .bind(since)
+                        .fetch_one(self.pool())
+                        .await
+                        .map_err(|e| {
+                            AppError::database(format!(
+                                "Failed to read whether the athlete wrote recently: {e}"
+                            ))
+                        })?;
+                Ok(written > 0)
+            }
+
             async fn get_recent_prompt_messages(
                 &self,
                 conversation_id: &str,

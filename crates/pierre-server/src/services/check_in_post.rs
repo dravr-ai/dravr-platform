@@ -1,5 +1,5 @@
 // ABOUTME: The coach's check-in on the cadence the athlete chose — every morning, three a week, weekly, or never
-// ABOUTME: A periodic tick finds athletes whose local morning is due, claims the day once, and posts through PlatformPost
+// ABOUTME: Run by the routine engine when the athlete's check-in routine fires: claims the day once, posts through PlatformPost
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -8,32 +8,37 @@
 //!
 //! The athlete chooses how often the coach writes to them first — asked
 //! during onboarding on every surface, changed in Settings
-//! ([`CheckInCadence`]). This worker keeps that promise.
+//! ([`CheckInCadence`]). Their choice is also their check-in *routine*
+//! (ADR-036): the cadence's days at 08:00 of their own clock, paused for
+//! `off`.
 //!
 //! ## When
 //!
-//! Every [`CHECK_IN_TICK_INTERVAL`] the tick reads, tenant by tenant, the
-//! athletes whose cadence posts: `off`, and an athlete who never chose, are
-//! not read at all. One is due when their own wall clock — the zone on their
-//! user row — is inside the morning window of a day their cadence posts on
-//! ([`CheckInCadence::due_at`]), and their quiet hours for coach
-//! notifications do not cover the moment: the rule that holds a push holds a
-//! check-in. An account that is not active is never checked in on, nor is
-//! one with no data yet — no activity and no sleep or recovery source
-//! (carnet#1099): a check-in reads the athlete's own data, and with none to
-//! read its reply could only be withheld. A plan is not needed: without one
-//! the check-in advises on the day.
+//! The routine engine ([`crate::services::routine_engine`]) decides: it wakes
+//! the server at the routine's slot, holds the check-in while the athlete's
+//! quiet hours cover the moment or they are mid-conversation, keeps it under
+//! the daily cap, and runs [`run_check_in`] once all of that passes. A
+//! check-in still not out
+//! [`CHECK_IN_WINDOW_HOURS`](pierre_core::models::check_in::CHECK_IN_WINDOW_HOURS)
+//! hours after its slot is skipped, never sent late.
+//!
+//! An account with no data yet — no activity and no sleep or recovery source
+//! (carnet#1099) — is not checked in on: a check-in reads the athlete's own
+//! data, and with none to read its reply could only be withheld. A plan is
+//! not needed: without one the check-in advises on the day.
 //!
 //! ## Once a day, across replicas
 //!
 //! Before any model call the day is claimed in `platform_post_claims` under
 //! [`PostPurpose::CheckIn`], retaken only once the last claim predates the
-//! athlete's local midnight. A turn that ran keeps its claim even when its
-//! reply was withheld, so a check-in costs at most one model call a day; only
-//! a check-in nothing could be attempted for — no instruction in the
-//! athlete's language, no thread to post into — releases it for the next
-//! tick. A check-in whose reply was stored is marked posted, which is how the
-//! athlete's reply that day is known to answer it (carnet#1099).
+//! athlete's local midnight — so a wake Cloud Tasks delivers twice still
+//! posts once. A turn that ran keeps its claim even when its reply was
+//! withheld, so a check-in costs at most one model call a day; only a
+//! check-in nothing could be attempted for — no instruction in the athlete's
+//! language, no thread to post into — releases it, and the engine tries again
+//! inside the window. A check-in whose reply was stored is marked posted,
+//! which is how the athlete's reply that day is known to answer it
+//! (carnet#1099).
 //!
 //! ## Where
 //!
@@ -44,264 +49,154 @@
 //! closed is held as the commitment reporter holds a verdict there — nothing
 //! is sent on it, `messaging.proactive_held` says so, and the check-in lands
 //! in the app.
+//!
+//! ## What the turn may do
+//!
+//! Suggest, never act ([`PostAccess::SuggestOnly`]): the athlete did not type
+//! this turn, so it reads their data and writes nothing — no plan saved, no
+//! calendar pushed, nobody else messaged.
 
-use std::fmt;
-use std::sync::{Arc, Weak};
-use std::time::Duration as StdDuration;
-
-use dravr_tronc::dates::{Elapsed, Timestamp, Zone};
+use dravr_tronc::dates::{Timestamp, Zone};
 use pierre_contremaitre::messaging_strings::{
     KEY_PLATFORM_POST_CHECK_IN_DAILY_PROMPT, KEY_PLATFORM_POST_CHECK_IN_THREE_PER_WEEK_PROMPT,
     KEY_PLATFORM_POST_CHECK_IN_WEEKLY_PROMPT,
 };
 use pierre_contremaitre::use_case_catalogue::Predicate;
-use pierre_core::civil_time::resolve_zone;
-use pierre_core::errors::AppResult;
-use pierre_core::models::{CheckInCadence, PostPurpose, TenantId, UserStatus};
-use pierre_database::repositories::CheckInSubscriber;
+use pierre_core::models::{CheckInCadence, PostPurpose, TenantId};
 use pierre_services::athlete_state::AthleteState;
-use pierre_services::periodic::spawn_periodic;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 use crate::mcp::resources::ServerContext;
-use crate::services::adapter_resolver::{config_adapter_resolver, AdapterResolver};
-use crate::services::platform_post::{PlatformPost, PostSurface};
-use crate::services::post_delivery::{coach_quiet_hours, linked_dms, post_to_one, PostAthlete};
+use crate::services::adapter_resolver::AdapterResolver;
+use crate::services::platform_post::{PlatformPost, PostAccess, PostSurface};
+use crate::services::post_delivery::{linked_dms, post_to_one, PostAthlete, PostIntent};
 
-/// How often the check-in tick runs.
-///
-/// Short against the morning window
-/// ([`pierre_core::models::check_in::CHECK_IN_WINDOW_HOURS`]), so a check-in
-/// lands soon after the hour and a tick held by quiet hours or a missed one
-/// is retried inside the same morning.
-pub const CHECK_IN_TICK_INTERVAL: StdDuration = StdDuration::from_mins(30);
-
-/// The worker's name in logs and in the worker-run ledger.
-const WORKER_NAME: &str = "coach check-in scheduler";
-
-/// Outcome of one check-in tick — exposed for tests and metrics.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct CheckInTickOutcome {
-    /// Tenants examined.
-    pub tenants_scanned: usize,
-    /// Athletes whose cadence posts, across those tenants.
-    pub subscribers: usize,
-    /// Athletes whose morning window was open on a day their cadence posts.
-    pub due: usize,
-    /// Due athletes held by their quiet hours.
-    pub quiet: usize,
-    /// Check-ins whose reply was stored, in the app or on a DM.
-    pub posted: usize,
-    /// Per-athlete or per-tenant errors. Logged; the sweep continues.
-    pub errors: usize,
+/// What one check-in did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CheckInRun {
+    /// The reply grounded in the athlete's data and was stored there.
+    Posted(PostSurface),
+    /// The turn ran on that surface and its reply was withheld.
+    Withheld(PostSurface),
+    /// The athlete's cadence is `off`, or they never chose one.
+    Off,
+    /// The athlete has no data for a check-in to read yet.
+    NoData,
+    /// Today's check-in was already claimed — posted, withheld, or running.
+    AlreadyClaimed,
+    /// Nothing could be attempted anywhere; the day's claim was released.
+    Unattempted,
 }
 
-/// The production check-in worker: posts each due athlete's check-in.
-pub struct CheckInPoster {
-    /// Weak handle to the composition root, for the reason
-    /// [`crate::services::platform_post::PipelinePlatformPost`] gives.
-    ctx: Weak<ServerContext>,
-    /// Runs each check-in through the chat pipeline.
-    post: Arc<dyn PlatformPost>,
+/// The services a check-in posts through.
+#[derive(Clone, Copy)]
+pub(crate) struct CheckInPoster<'svc> {
+    /// Runs the check-in through the chat pipeline.
+    pub post: &'svc dyn PlatformPost,
     /// Resolves a DM's channel to its adapter and config.
-    resolver: Arc<dyn AdapterResolver>,
+    pub resolver: &'svc dyn AdapterResolver,
 }
 
-impl fmt::Debug for CheckInPoster {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("CheckInPoster")
-            .field("ctx", &self.ctx)
-            .finish_non_exhaustive()
-    }
-}
-
-impl CheckInPoster {
-    /// A worker over the composition root, posting through `post` and
-    /// delivering DM check-ins through the adapters `resolver` builds.
-    #[must_use]
-    pub fn new(
-        ctx: Weak<ServerContext>,
-        post: Arc<dyn PlatformPost>,
-        resolver: Arc<dyn AdapterResolver>,
-    ) -> Self {
-        Self {
-            ctx,
-            post,
-            resolver,
-        }
-    }
-
-    /// Run one sweep at `now`: every due athlete of every tenant is checked
-    /// in on, at most once a day.
-    ///
-    /// Exposed, rather than only the loop [`start_check_in_scheduler`] runs,
-    /// so integration tests drive one sweep at the instant they choose.
-    ///
-    /// # Errors
-    ///
-    /// Returns the database error only when the tenant list cannot be read.
-    /// Per-tenant and per-athlete failures are counted in
-    /// [`CheckInTickOutcome::errors`] and do not stop the sweep.
-    pub async fn tick(&self, now: Timestamp) -> AppResult<CheckInTickOutcome> {
-        let Some(resources) = self.ctx.upgrade() else {
-            return Ok(CheckInTickOutcome::default());
-        };
-        let tenants = resources.common.repos.tenants.get_all().await?;
-        let mut outcome = CheckInTickOutcome {
-            tenants_scanned: tenants.len(),
-            ..CheckInTickOutcome::default()
-        };
-        for tenant in tenants {
-            self.sweep_tenant(&resources, tenant.id, now, &mut outcome)
-                .await;
-        }
-        log_sweep(&outcome);
-        Ok(outcome)
-    }
-
-    /// Check in on every athlete of `tenant_id` whose cadence posts.
-    async fn sweep_tenant(
-        &self,
-        resources: &ServerContext,
-        tenant_id: TenantId,
-        now: Timestamp,
-        outcome: &mut CheckInTickOutcome,
-    ) {
-        let subscribers = match resources
-            .common
-            .repos
-            .check_in_preferences
-            .check_in_subscribers(tenant_id)
-            .await
-        {
-            Ok(subscribers) => subscribers,
-            Err(e) => {
-                warn!(error = %e, tenant_id = %tenant_id, "Check-in: subscribers unreadable");
-                outcome.errors += 1;
-                return;
-            }
-        };
-        for subscriber in subscribers {
-            outcome.subscribers += 1;
-            self.check_in(resources, tenant_id, subscriber, now, outcome)
-                .await;
-        }
-    }
-
-    /// Check in on one athlete when their morning is due.
-    async fn check_in(
-        &self,
-        resources: &ServerContext,
-        tenant_id: TenantId,
-        subscriber: CheckInSubscriber,
-        now: Timestamp,
-        outcome: &mut CheckInTickOutcome,
-    ) {
-        let CheckInSubscriber { user_id, cadence } = subscriber;
-        let Some(zone) = due_zone(resources, subscriber, now, outcome).await else {
-            return;
-        };
-        outcome.due += 1;
-        if !has_data(resources, user_id, tenant_id, now).await {
-            debug!(
-                cadence = cadence.as_str(),
-                "Check-in skipped: no activity or recovery data to read yet"
-            );
-            return;
-        }
-        if coach_quiet_hours(resources, user_id, tenant_id, now, &zone).await {
-            info!(
-                cadence = cadence.as_str(),
-                "Check-in held: the athlete's quiet hours"
-            );
-            outcome.quiet += 1;
-            return;
-        }
-        // The athlete's local midnight: a claim taken before it was an
-        // earlier day's.
-        let since_midnight = zone.civil_at(now).time().num_seconds_from_midnight();
-        let since = now - Elapsed::seconds(i64::from(since_midnight));
-        let Some(lease) = claim_check_in(resources, user_id, tenant_id, since, now).await else {
-            return;
-        };
-        let athlete = PostAthlete { user_id, tenant_id };
-        match self.post_check_in(resources, athlete, cadence, now).await {
-            Some((surface, posted)) => {
-                report_check_in(user_id, tenant_id, cadence, surface, posted);
-                if posted {
-                    outcome.posted += 1;
-                    mark_check_in_posted(resources, user_id, tenant_id, &lease, now).await;
-                }
-            }
-            None => release_check_in(resources, user_id, tenant_id, &lease).await,
-        }
-    }
-
-    /// Post a claimed check-in to its one destination ([`post_to_one`]).
-    ///
-    /// Answers the destination and whether the reply was stored, or `None`
-    /// when nothing could be attempted anywhere.
-    async fn post_check_in(
-        &self,
-        resources: &ServerContext,
-        athlete: PostAthlete,
-        cadence: CheckInCadence,
-        now: Timestamp,
-    ) -> Option<(PostSurface, bool)> {
-        let prompt = |locale: &str| check_in_prompt(resources, cadence, locale);
-        let dms = linked_dms(resources, athlete, now).await;
-        post_to_one(
-            resources,
-            self.post.as_ref(),
-            self.resolver.as_ref(),
-            athlete,
-            dms,
-            &prompt,
-            PostPurpose::CheckIn,
-        )
-        .await
-    }
-}
-
-/// The athlete's own zone when their check-in is due at `now`: an active
-/// account, on a day their cadence posts on, inside the morning window.
-/// `None` otherwise, and when the account is unreadable (counted).
-async fn due_zone(
+/// Check in on `athlete` at `now`, whose clock is `zone`: claim the day,
+/// post, and mark the day posted.
+pub(crate) async fn run_check_in(
     resources: &ServerContext,
-    subscriber: CheckInSubscriber,
+    poster: CheckInPoster<'_>,
+    athlete: PostAthlete,
+    zone: &Zone,
     now: Timestamp,
-    outcome: &mut CheckInTickOutcome,
-) -> Option<Zone> {
-    let user = match resources
+) -> CheckInRun {
+    let cadence = match chosen_cadence(resources, athlete).await {
+        Ok(Some(cadence)) => cadence,
+        Ok(None) => return CheckInRun::Off,
+        Err(run) => return run,
+    };
+    if !has_data(resources, athlete.user_id, athlete.tenant_id, now).await {
+        debug!(
+            cadence = cadence.as_str(),
+            "Check-in skipped: no activity or recovery data to read yet"
+        );
+        return CheckInRun::NoData;
+    }
+    // The athlete's local midnight: a claim taken before it was an earlier day's.
+    let Ok(since) = zone.start_of_day(zone.date_at(now)) else {
+        warn!("Check-in: the athlete's local midnight is out of range");
+        return CheckInRun::Unattempted;
+    };
+    let Some(lease) =
+        claim_check_in(resources, athlete.user_id, athlete.tenant_id, since, now).await
+    else {
+        return CheckInRun::AlreadyClaimed;
+    };
+    post_claimed(resources, poster, athlete, cadence, &lease, now).await
+}
+
+/// The cadence the athlete chose, `None` for `off` or no choice;
+/// [`CheckInRun::Unattempted`] when it is unreadable (logged).
+async fn chosen_cadence(
+    resources: &ServerContext,
+    athlete: PostAthlete,
+) -> Result<Option<CheckInCadence>, CheckInRun> {
+    resources
         .common
         .repos
-        .users
-        .get_global(subscriber.user_id)
+        .check_in_preferences
+        .check_in_cadence(athlete.tenant_id, athlete.user_id)
         .await
-    {
-        Ok(user) => user?,
-        Err(e) => {
-            warn!(error = %e, "Check-in: the athlete's account is unreadable");
-            outcome.errors += 1;
-            return None;
-        }
+        .map(|cadence| cadence.filter(|chosen| *chosen != CheckInCadence::Off))
+        .map_err(|e| {
+            warn!(error = %e, "Check-in: the athlete's cadence is unreadable");
+            CheckInRun::Unattempted
+        })
+}
+
+/// Post the day's check-in under the claim `lease` names: mark the day posted
+/// when the reply was stored, release it when nothing could be attempted.
+async fn post_claimed(
+    resources: &ServerContext,
+    poster: CheckInPoster<'_>,
+    athlete: PostAthlete,
+    cadence: CheckInCadence,
+    lease: &str,
+    now: Timestamp,
+) -> CheckInRun {
+    let PostAthlete { user_id, tenant_id } = athlete;
+    let prompt = |locale: &str| check_in_prompt(resources, cadence, locale);
+    let dms = linked_dms(resources, athlete, now).await;
+    let intent = PostIntent {
+        purpose: PostPurpose::CheckIn,
+        access: PostAccess::SuggestOnly,
     };
-    if user.user_status != UserStatus::Active {
-        return None;
+    let Some((surface, stored)) = post_to_one(
+        resources,
+        poster.post,
+        poster.resolver,
+        athlete,
+        dms,
+        &prompt,
+        intent,
+    )
+    .await
+    else {
+        release_check_in(resources, user_id, tenant_id, lease).await;
+        return CheckInRun::Unattempted;
+    };
+    report_check_in(user_id, tenant_id, cadence, surface, stored);
+    if stored {
+        mark_check_in_posted(resources, user_id, tenant_id, lease, now).await;
+        CheckInRun::Posted(surface)
+    } else {
+        CheckInRun::Withheld(surface)
     }
-    let zone = resolve_zone(user.timezone.as_deref());
-    subscriber
-        .cadence
-        .due_at(zone.civil_at(now))
-        .then_some(zone)
 }
 
 /// Whether the athlete has data for the check-in to read: activities (or a
 /// connected provider nobody has read yet), or a sleep or recovery source (a
-/// stored night or recovery day, however it arrived) — the catalogue's `has_activities` and `has_recovery_source`, read as the
-/// starters read them. An unreadable state reads as none (logged): no model
-/// call is spent on a post that cannot ground.
+/// stored night or recovery day, however it arrived) — the catalogue's
+/// `has_activities` and `has_recovery_source`, read as the starters read
+/// them. An unreadable state reads as none (logged): no model call is spent
+/// on a post that cannot ground.
 async fn has_data(
     resources: &ServerContext,
     user_id: Uuid,
@@ -349,28 +244,8 @@ async fn mark_check_in_posted(
     }
 }
 
-/// Log one sweep: at info when anyone was due, else at debug.
-fn log_sweep(outcome: &CheckInTickOutcome) {
-    if outcome.due > 0 {
-        info!(
-            tenants_scanned = outcome.tenants_scanned,
-            subscribers = outcome.subscribers,
-            due = outcome.due,
-            quiet = outcome.quiet,
-            posted = outcome.posted,
-            errors = outcome.errors,
-            "check-in sweep complete"
-        );
-    } else {
-        debug!(
-            subscribers = outcome.subscribers,
-            "check-in sweep: nobody's morning is due"
-        );
-    }
-}
-
-/// Claim today's check-in. `false` when a replica or an earlier tick already
-/// holds it, or the claim failed (logged).
+/// Claim today's check-in. `None` when a replica or an earlier delivery
+/// already holds it, or the claim failed (logged).
 async fn claim_check_in(
     resources: &ServerContext,
     user_id: Uuid,
@@ -401,7 +276,7 @@ async fn claim_check_in(
 }
 
 /// Release today's claim of a check-in nothing could be attempted for, so the
-/// next tick of the same morning tries again.
+/// engine's next try inside the window can take it.
 async fn release_check_in(
     resources: &ServerContext,
     user_id: Uuid,
@@ -469,31 +344,5 @@ fn report_check_in(
         destination = %surface.destination(),
         grounded,
         "coach check-in"
-    );
-}
-
-/// Start the check-in worker: a [`CheckInPoster`] over the composition root,
-/// ticking every [`CHECK_IN_TICK_INTERVAL`] on the worker-run ledger, so
-/// across instances a tick runs once.
-pub fn start_check_in_scheduler(resources: &Arc<ServerContext>, post: Arc<dyn PlatformPost>) {
-    let poster = Arc::new(CheckInPoster::new(
-        Arc::downgrade(resources),
-        post,
-        config_adapter_resolver(
-            Arc::clone(&resources.common.repos),
-            Arc::clone(&resources.mcp.channel_adapters),
-        ),
-    ));
-    spawn_periodic(
-        WORKER_NAME,
-        CHECK_IN_TICK_INTERVAL,
-        Arc::clone(&resources.common.repos.worker_runs),
-        move || {
-            let poster = Arc::clone(&poster);
-            async move {
-                poster.tick(Timestamp::now()).await?;
-                Ok(())
-            }
-        },
     );
 }

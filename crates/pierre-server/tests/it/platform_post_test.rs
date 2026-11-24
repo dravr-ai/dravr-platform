@@ -50,7 +50,7 @@ use pierre_database::backends::factory::{Database, DatabaseBackend};
 use pierre_database::repositories::SubjectThreads;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::services::platform_post::{
-    PipelinePlatformPost, PlatformPost, PlatformPostRequest, PostSurface,
+    PipelinePlatformPost, PlatformPost, PlatformPostRequest, PostAccess, PostSurface,
 };
 use pierre_providers::ai_scope::{self, Provenance};
 use pierre_test_support::delegation::{create_coachless_group, create_group_agent};
@@ -270,6 +270,7 @@ async fn post(fx: &Fixture) -> Option<MessageRecord> {
             surface: PostSurface::InApp,
             locale: "en",
             prompt: INSTRUCTION,
+            access: PostAccess::Owner,
         })
         .await
         .map(|posted| posted.assistant.message)
@@ -624,6 +625,7 @@ async fn a_stored_post_ends_on_at_most_three_ranked_use_cases() {
             surface: PostSurface::InApp,
             locale: "en",
             prompt: INSTRUCTION,
+            access: PostAccess::Owner,
         })
         .await
         .expect("a reply grounded in the athlete's recovery is posted");

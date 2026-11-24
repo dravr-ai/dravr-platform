@@ -1,17 +1,18 @@
 // ABOUTME: The coach checks in on the cadence the athlete chose: on its mornings, once a day, never on off
-// ABOUTME: Pins CheckInPoster's due rule, quiet hours, once-a-day claim and DM window hold (carnet#831)
+// ABOUTME: Pins the check-in routine's slots, quiet hours, once-a-day claim and DM window hold (carnet#831, ADR-036)
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! carnet#831.
+//! carnet#831, on the routine engine (ADR-036).
 //!
 //! The athlete chooses how often the coach writes first — every morning,
-//! Monday-Wednesday-Friday, every Monday, or never. The worker ticks every
-//! half hour; these tests drive its sweep at chosen instants. The post itself
-//! is faked: whether a real reply is posted is the pipeline's rule, pinned in
-//! `platform_post_test`, so these tests can say exactly who was posted to,
-//! where, when and with which instruction.
+//! Monday-Wednesday-Friday, every Monday, or never. Their choice is their
+//! check-in routine; the engine queues a wake for each slot, and these tests
+//! deliver every queued wake at its own time, as Cloud Tasks would. The post
+//! itself is faked: whether a real reply is posted is the pipeline's rule,
+//! pinned in `platform_post_test`, so these tests can say exactly who was
+//! posted to, where, when and with which instruction.
 #![cfg(feature = "client-messaging")]
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
@@ -29,8 +30,9 @@ use pierre_core::models::messaging::ChannelType;
 use pierre_core::models::{CheckInCadence, ConnectionType, TenantId, SUPPORTED_LOCALES};
 use pierre_database::backends::factory::{Database, DatabaseBackend};
 use pierre_mcp_server::mcp::resources::ServerContext;
-use pierre_mcp_server::services::check_in_post::CheckInPoster;
-use pierre_mcp_server::services::platform_post::PostSurface;
+use pierre_mcp_server::services::platform_post::{PostAccess, PostSurface};
+use pierre_mcp_server::services::routine_engine::{HoldReason, RoutineEngine, WakeOutcome};
+use pierre_mcp_server::services::routine_waker::Wake;
 use uuid::Uuid;
 
 use crate::messaging_fixtures;
@@ -39,6 +41,7 @@ use messaging_fixtures::{
 };
 
 use crate::recording_post;
+use crate::routine_harness::{routine_deliveries, run_until, QueuedWakes};
 use dravr_tronc::dates::{CivilDate, CivilDateTime};
 use recording_post::{Asked, RecordingPost};
 
@@ -59,16 +62,42 @@ const INSTRUCTIONS: [(&str, &str); 3] = [
     ),
 ];
 
-struct Fixture {
-    resources: Arc<ServerContext>,
-    post: Arc<RecordingPost>,
-    channel: Arc<CapturingChannel>,
-    poster: CheckInPoster,
+pub(crate) struct Fixture {
+    pub resources: Arc<ServerContext>,
+    pub post: Arc<RecordingPost>,
+    pub channel: Arc<CapturingChannel>,
+    pub wakes: Arc<QueuedWakes>,
+    pub engine: RoutineEngine,
 }
 
-/// A server whose catalogue carries every cadence's instruction, and a
-/// worker posting through `post`, with every DM send captured.
-async fn fixture(post: RecordingPost) -> Fixture {
+impl Fixture {
+    /// Another engine over the same server and queue: a second replica.
+    pub(crate) fn replica(&self) -> RoutineEngine {
+        RoutineEngine::new(
+            Arc::downgrade(&self.resources),
+            Arc::<RecordingPost>::clone(&self.post),
+            Arc::new(FakeResolver::new(Arc::<CapturingChannel>::clone(
+                &self.channel,
+            ))),
+            Arc::<QueuedWakes>::clone(&self.wakes),
+        )
+    }
+
+    /// Reconcile at `now`, then deliver every wake due by `until`.
+    pub(crate) async fn run(&self, now: Timestamp, until: Timestamp) -> Vec<(Wake, WakeOutcome)> {
+        self.engine.reconcile(now).await.unwrap();
+        routine_deliveries(&run_until(&self.engine, &self.wakes, until).await)
+    }
+
+    /// Deliver every wake due by `until`.
+    pub(crate) async fn run_to(&self, until: Timestamp) -> Vec<(Wake, WakeOutcome)> {
+        routine_deliveries(&run_until(&self.engine, &self.wakes, until).await)
+    }
+}
+
+/// A server whose catalogue carries every cadence's instruction, and an
+/// engine posting through `post`, with every DM send captured.
+pub(crate) async fn fixture(post: RecordingPost) -> Fixture {
     let resources = common::create_test_server_resources().await.unwrap();
     for locale in SUPPORTED_LOCALES {
         for (key, text) in INSTRUCTIONS {
@@ -83,23 +112,26 @@ async fn fixture(post: RecordingPost) -> Fixture {
     let post = Arc::new(post);
     let channel = Arc::new(CapturingChannel::for_channel(ChannelType::WhatsApp));
     let resolver = Arc::new(FakeResolver::new(Arc::<CapturingChannel>::clone(&channel)));
-    let poster = CheckInPoster::new(
+    let wakes = Arc::new(QueuedWakes::default());
+    let engine = RoutineEngine::new(
         Arc::downgrade(&resources),
         Arc::<RecordingPost>::clone(&post),
         resolver,
+        Arc::<QueuedWakes>::clone(&wakes),
     );
     Fixture {
         resources,
         post,
         channel,
-        poster,
+        wakes,
+        engine,
     }
 }
 
 /// An athlete in their own tenant with WHOOP connected, who chose `cadence`
 /// (`None`: never chose), living in `timezone` (`None`: no zone on file,
 /// which reads as UTC).
-async fn athlete(
+pub(crate) async fn athlete(
     fx: &Fixture,
     cadence: Option<CheckInCadence>,
     timezone: Option<&str>,
@@ -125,7 +157,7 @@ async fn athlete(
 }
 
 /// `day` days after Monday 2026-10-12, at `hour:minute` UTC.
-fn at(day: i64, hour: u32, minute: u32) -> Timestamp {
+pub(crate) fn at(day: i64, hour: u32, minute: u32) -> Timestamp {
     CivilDate::from_ymd(2026, 10, 12)
         .and_then(|date| date.and_hms(hour, minute, 0))
         .and_then(CivilDateTime::and_utc)
@@ -134,7 +166,7 @@ fn at(day: i64, hour: u32, minute: u32) -> Timestamp {
 }
 
 /// The posts asked for `user_id`.
-fn asked_for(fx: &Fixture, user_id: Uuid) -> Vec<Asked> {
+pub(crate) fn asked_for(fx: &Fixture, user_id: Uuid) -> Vec<Asked> {
     fx.post
         .asked()
         .into_iter()
@@ -157,18 +189,16 @@ fn instruction(cadence: CheckInCadence) -> Option<&'static str> {
 }
 
 /// `off` is a real answer: an athlete who chose it, and one who never chose,
-/// are never checked in on, at any tick of the week.
+/// are never checked in on — not one wake is queued for them all week.
 #[tokio::test]
 async fn off_and_no_choice_never_post() {
     let fx = fixture(RecordingPost::posting(true)).await;
     let (off, _) = athlete(&fx, Some(CheckInCadence::Off), None).await;
     let (never_chose, _) = athlete(&fx, None, None).await;
 
-    for half_hour in 0..(7 * 48) {
-        let now = at(0, 0, 0) + Elapsed::minutes(30 * half_hour);
-        fx.poster.tick(now).await.unwrap();
-    }
+    let delivered = fx.run(at(0, 0, 0), at(7, 0, 0)).await;
 
+    assert!(delivered.is_empty(), "no routine wake: {delivered:?}");
     assert!(asked_for(&fx, off).is_empty(), "off never sends");
     assert!(
         asked_for(&fx, never_chose).is_empty(),
@@ -190,13 +220,20 @@ async fn an_athlete_with_no_provider_connected_gets_no_check_in() {
         .await
         .unwrap();
 
-    fx.poster.tick(at(0, 8, 15)).await.unwrap();
+    let delivered = fx.run(at(0, 0, 0), at(0, 12, 0)).await;
 
+    assert_eq!(delivered.len(), 1, "{delivered:?}");
+    assert_eq!(
+        delivered[0].1,
+        WakeOutcome::Skipped,
+        "bug: an athlete with no data was not skipped"
+    );
     assert!(asked_for(&fx, user_id).is_empty());
 }
 
 /// Each cadence posts on its own mornings — every day, Monday-Wednesday-
-/// Friday, or Monday — answering its own instruction.
+/// Friday, or Monday — answering its own instruction, read-only, and every
+/// wake lands on the hour of the athlete's 08:00.
 #[tokio::test]
 async fn each_cadence_posts_on_its_own_mornings() {
     let fx = fixture(RecordingPost::posting(true)).await;
@@ -210,10 +247,13 @@ async fn each_cadence_posts_on_its_own_mornings() {
         athletes.push((cadence, athlete(&fx, Some(cadence), None).await.0));
     }
 
-    for day in 0..7 {
-        fx.poster.tick(at(day, 8, 15)).await.unwrap();
-    }
+    let delivered = fx.run(at(0, 0, 0), at(7, 0, 0)).await;
 
+    for (wake, _) in &delivered {
+        let fired = wake.fire_at().unwrap();
+        assert_eq!(fired.utc_time().hour(), 8, "08:00 local (UTC): {wake:?}");
+        assert_eq!(fired.utc_time().minute(), 0, "on the hour: {wake:?}");
+    }
     for (cadence, user_id) in athletes {
         let asked = asked_for(&fx, user_id);
         let expected = match cadence {
@@ -234,81 +274,101 @@ async fn each_cadence_posts_on_its_own_mornings() {
                 .all(|asked| asked.surface == PostSurface::InApp),
             "no DM is linked, so the check-in lands in the app"
         );
+        assert!(
+            asked
+                .iter()
+                .all(|asked| asked.access == PostAccess::SuggestOnly),
+            "a routine's turn is read-only"
+        );
     }
 }
 
-/// A check-in is a morning note on the athlete's own clock: due from 08:00 for
-/// three hours, never before, never late in the day.
+/// A check-in is a morning note on the athlete's own clock: it fires at their
+/// 08:00, and a slot whose window went by is skipped, never sent late.
 #[tokio::test]
 async fn a_check_in_is_due_only_in_the_athletes_morning() {
     let fx = fixture(RecordingPost::posting(true)).await;
     let (utc, _) = athlete(&fx, Some(CheckInCadence::Daily), None).await;
     let (toronto, _) = athlete(&fx, Some(CheckInCadence::Daily), Some("America/Toronto")).await;
 
-    // 07:45 UTC: before anyone's morning.
-    fx.poster.tick(at(1, 7, 45)).await.unwrap();
-    assert!(asked_for(&fx, utc).is_empty());
-    // 08:15 UTC: the UTC athlete's morning, 04:15 in Toronto.
-    fx.poster.tick(at(1, 8, 15)).await.unwrap();
+    let delivered = fx.run(at(1, 0, 0), at(1, 23, 0)).await;
+    let fired_at = |hour: u32| {
+        delivered.iter().any(|(wake, outcome)| {
+            wake.fire_at().unwrap() == at(1, hour, 0) && matches!(outcome, WakeOutcome::Posted(_))
+        })
+    };
+    assert!(fired_at(8), "08:00 UTC is the UTC athlete's morning");
+    assert!(fired_at(12), "12:00 UTC is 08:00 in Toronto (EDT)");
     assert_eq!(asked_for(&fx, utc).len(), 1);
-    assert!(
-        asked_for(&fx, toronto).is_empty(),
-        "04:15 in Toronto is not the morning"
-    );
-    // 12:15 UTC is 08:15 in Toronto (EDT).
-    fx.poster.tick(at(1, 12, 15)).await.unwrap();
     assert_eq!(asked_for(&fx, toronto).len(), 1);
 
-    // A day whose morning window went by unticked is skipped, not sent late.
-    fx.poster.tick(at(2, 11, 30)).await.unwrap();
-    fx.poster.tick(at(2, 21, 0)).await.unwrap();
+    // A wake Cloud Tasks delivers after the window is held, not sent late.
+    let wake = fx
+        .wakes
+        .pending()
+        .into_iter()
+        .find(|wake| wake.fire_at() == Some(at(2, 8, 0)))
+        .expect("Wednesday's 08:00 is queued");
+    let late = fx.engine.handle(wake, at(2, 11, 30)).await.unwrap();
     assert_eq!(
-        asked_for(&fx, utc).len(),
-        1,
-        "past 11:00 the day's check-in is not sent"
+        late,
+        WakeOutcome::Held(HoldReason::WindowPassed),
+        "bug: a wake delivered past the window was not held"
     );
+    assert_eq!(asked_for(&fx, utc).len(), 1, "past 11:00 nothing is sent");
 }
 
-/// The day is claimed before any model call: a second tick the same morning,
-/// or a replica ticking at the same moment, posts nothing more; the next day
-/// the cadence posts on is owed again.
+/// The day is claimed before any model call: a wake delivered twice at once,
+/// to two replicas, posts once, and a third delivery finds the routine moved
+/// on; the next day the cadence posts on is owed again.
 #[tokio::test]
-async fn a_check_in_is_claimed_once_per_day_across_ticks_and_replicas() {
+async fn a_check_in_is_claimed_once_per_day_across_deliveries_and_replicas() {
     let fx = fixture(RecordingPost::posting(true)).await;
     let (user_id, _) = athlete(&fx, Some(CheckInCadence::Daily), None).await;
-    let replica = CheckInPoster::new(
-        Arc::downgrade(&fx.resources),
-        Arc::<RecordingPost>::clone(&fx.post),
-        Arc::new(FakeResolver::new(Arc::<CapturingChannel>::clone(
-            &fx.channel,
-        ))),
-    );
+    let replica = fx.replica();
+    fx.engine.reconcile(at(0, 0, 0)).await.unwrap();
+    let monday = fx.wakes.take_due(at(0, 8, 0)).expect("Monday's wake");
+    let monday = if matches!(monday, Wake::Routine { .. }) {
+        monday
+    } else {
+        fx.wakes
+            .take_due(at(0, 8, 0))
+            .expect("Monday's routine wake")
+    };
 
-    let (first, second) = tokio::join!(fx.poster.tick(at(0, 8, 15)), replica.tick(at(0, 8, 15)));
+    let (first, second) = tokio::join!(
+        fx.engine.handle(monday, at(0, 8, 0)),
+        replica.handle(monday, at(0, 8, 0))
+    );
     first.unwrap();
     second.unwrap();
-    fx.poster.tick(at(0, 8, 45)).await.unwrap();
-    replica.tick(at(0, 10, 15)).await.unwrap();
+    let again = fx.engine.handle(monday, at(0, 8, 45)).await.unwrap();
+    assert_eq!(again, WakeOutcome::Stale, "the routine moved on");
     assert_eq!(
         asked_for(&fx, user_id).len(),
         1,
-        "one check-in on Monday, however many ticks and replicas"
+        "one check-in on Monday, however many deliveries and replicas"
     );
 
-    fx.poster.tick(at(1, 8, 15)).await.unwrap();
+    fx.run_to(at(1, 9, 0)).await;
     assert_eq!(asked_for(&fx, user_id).len(), 2, "Tuesday's is owed again");
 }
 
 /// A check-in whose reply was withheld keeps its day's claim — the morning
 /// costs one model call at most — while one nothing could be attempted for
-/// (no instruction in the athlete's language) leaves the day owed.
+/// (no instruction in the athlete's language) is tried again half an hour
+/// later, inside the window.
 #[tokio::test]
-async fn a_withheld_check_in_keeps_its_claim_and_an_unattempted_one_does_not() {
+async fn a_withheld_check_in_keeps_its_claim_and_an_unattempted_one_retries() {
     let fx = fixture(RecordingPost::posting(false)).await;
     let (user_id, _) = athlete(&fx, Some(CheckInCadence::Daily), None).await;
 
-    fx.poster.tick(at(0, 8, 15)).await.unwrap();
-    fx.poster.tick(at(0, 8, 45)).await.unwrap();
+    let monday = fx.run(at(0, 0, 0), at(0, 23, 0)).await;
+    assert_eq!(monday.len(), 1, "{monday:?}");
+    assert!(
+        matches!(monday[0].1, WakeOutcome::Withheld(_)),
+        "bug: a withheld reply is not reported withheld: {monday:?}"
+    );
     assert_eq!(
         asked_for(&fx, user_id).len(),
         1,
@@ -324,7 +384,12 @@ async fn a_withheld_check_in_keeps_its_claim_and_an_unattempted_one_does_not() {
             String::new(),
         );
     }
-    fx.poster.tick(at(1, 8, 15)).await.unwrap();
+    let tuesday = fx.run_to(at(1, 8, 0)).await;
+    assert_eq!(
+        tuesday.last().map(|(_, outcome)| *outcome),
+        Some(WakeOutcome::Deferred(at(1, 8, 30))),
+        "bug: an unattempted check-in is not retried half an hour later"
+    );
     assert_eq!(asked_for(&fx, user_id).len(), 1, "nothing to ask with");
     for locale in SUPPORTED_LOCALES {
         fx.resources.mcp.messaging_strings_registry.update(
@@ -334,11 +399,11 @@ async fn a_withheld_check_in_keeps_its_claim_and_an_unattempted_one_does_not() {
             String::new(),
         );
     }
-    fx.poster.tick(at(1, 8, 45)).await.unwrap();
+    fx.run_to(at(1, 9, 0)).await;
     assert_eq!(
         asked_for(&fx, user_id).len(),
         2,
-        "the unattempted check-in released its claim, so the next tick posts"
+        "the unattempted check-in released its claim, so the retry posts"
     );
 }
 
@@ -407,10 +472,9 @@ pub(crate) async fn backdate_session(db: &Database, session_id: &str, last_messa
 async fn an_open_whatsapp_dm_gets_the_check_in() {
     let fx = fixture(RecordingPost::posting(true)).await;
     let (user_id, tenant_id) = athlete(&fx, Some(CheckInCadence::Weekly), None).await;
-    let now = at(0, 8, 15);
-    let dm = whatsapp_dm(&fx, user_id, tenant_id, now - Elapsed::hours(2)).await;
+    let dm = whatsapp_dm(&fx, user_id, tenant_id, at(0, 6, 0)).await;
 
-    fx.poster.tick(now).await.unwrap();
+    fx.run(at(0, 0, 0), at(0, 9, 0)).await;
 
     let asked = asked_for(&fx, user_id);
     assert_eq!(asked.len(), 1, "one destination per check-in: {asked:?}");
@@ -431,10 +495,9 @@ async fn an_open_whatsapp_dm_gets_the_check_in() {
 async fn a_closed_whatsapp_window_holds_the_dm_and_posts_in_the_app() {
     let fx = fixture(RecordingPost::posting(true)).await;
     let (user_id, tenant_id) = athlete(&fx, Some(CheckInCadence::Weekly), None).await;
-    let now = at(0, 8, 15);
-    let dm = whatsapp_dm(&fx, user_id, tenant_id, now - Elapsed::hours(30)).await;
+    let dm = whatsapp_dm(&fx, user_id, tenant_id, at(0, 8, 0) - Elapsed::hours(30)).await;
 
-    fx.poster.tick(now).await.unwrap();
+    fx.run(at(0, 0, 0), at(0, 9, 0)).await;
 
     let asked = asked_for(&fx, user_id);
     assert_eq!(asked.len(), 1, "{asked:?}");
@@ -479,14 +542,21 @@ mod quiet_hours {
             .await
             .unwrap();
 
-        let held = fx.poster.tick(at(0, 8, 15)).await.unwrap();
-        assert!(held.quiet >= 1, "the tick reports the hold: {held:?}");
+        let held = fx.run(at(0, 0, 0), at(0, 8, 45)).await;
+        assert_eq!(
+            held.iter().map(|(_, outcome)| *outcome).collect::<Vec<_>>(),
+            vec![
+                WakeOutcome::Deferred(at(0, 8, 30)),
+                WakeOutcome::Deferred(at(0, 9, 0)),
+            ],
+            "08:00 and 08:30 are inside 22:00-09:00"
+        );
         assert!(
             asked_for(&fx, user_id).is_empty(),
-            "08:15 is inside 22:00-09:00"
+            "bug: a check-in posted inside the athlete's quiet hours"
         );
 
-        fx.poster.tick(at(0, 9, 15)).await.unwrap();
+        fx.run_to(at(0, 9, 15)).await;
         assert_eq!(
             asked_for(&fx, user_id).len(),
             1,

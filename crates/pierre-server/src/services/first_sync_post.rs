@@ -92,9 +92,9 @@ use uuid::Uuid;
 
 use crate::mcp::resources::ServerContext;
 use crate::services::adapter_resolver::{config_adapter_resolver, AdapterResolver};
-use crate::services::platform_post::{PlatformPost, PostSurface};
+use crate::services::platform_post::{PlatformPost, PostAccess, PostSurface};
 use crate::services::post_delivery::{
-    linked_dms, post_in_app, post_to_dm, PostAthlete, POST_CLAIM_LEASE,
+    linked_dms, post_in_app, post_to_dm, PostAthlete, PostIntent, POST_CLAIM_LEASE,
 };
 use crate::services::training_status::request_status_depth;
 
@@ -185,7 +185,10 @@ impl FirstSyncPoster {
                     athlete,
                     dm,
                     &prompt,
-                    PostPurpose::FirstSync,
+                    PostIntent {
+                        purpose: PostPurpose::FirstSync,
+                        access: PostAccess::Owner,
+                    },
                 )
                 .await;
                 if let Some(posted) = posted {
@@ -200,7 +203,14 @@ impl FirstSyncPoster {
         let posted_in_app = if dm_is_the_thread && posted_to_dm.is_some() {
             None
         } else {
-            post_in_app(&resources, self.post.as_ref(), athlete, &prompt).await
+            post_in_app(
+                &resources,
+                self.post.as_ref(),
+                athlete,
+                &prompt,
+                PostAccess::Owner,
+            )
+            .await
         };
         if let Some(posted) = posted_in_app {
             report_first_post(&subject, PostSurface::InApp, posted);

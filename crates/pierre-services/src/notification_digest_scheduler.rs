@@ -1,5 +1,5 @@
 // ABOUTME: Returns the pushes an armed persona floor withheld, as digests on the contract's cadence
-// ABOUTME: A daily tick sends daily, weekly and per-athlete digests; a landed session sends per-session
+// ABOUTME: A daily run on the routine engine sends daily, weekly and per-athlete digests; a landed session per-session
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -50,17 +50,15 @@
 //! Every digest is a localized System notification dispatched at
 //! [`PushTier::P0`] — P0 so the digest itself can never be persona-gated.
 //!
-//! The tick mirrors the tick/run-loop shape of
-//! `pierre_routes_groups::group_digest_scheduler`: a Tokio task spawned at
-//! server bootstrap ticks every [`DEFAULT_TICK_INTERVAL`], and the testable
-//! [`tick`] does one full sweep.
+//! [`tick`] does one full sweep. The routine engine runs it once a day on a
+//! Cloud Tasks wake (ADR-036, carnet#1790): a 24-hour in-process timer never
+//! fires on a service that scales to zero (carnet#459), and the held rows it
+//! returns would never come back.
 
 use pierre_core::transport::TransportPolicy;
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Duration as StdDuration;
 
-use crate::periodic::spawn_periodic;
 use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
 use pierre_core::errors::AppResult;
@@ -78,10 +76,6 @@ use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 use crate::notification_text::NotificationTextRenderer;
-
-/// How often the digest tick fires. One day — the shortest calendar cadence
-/// the contracts name; longer cadences wait out their period across ticks.
-pub const DEFAULT_TICK_INTERVAL: StdDuration = StdDuration::from_hours(24);
 
 /// `notification_type` of the weekly digest.
 pub const PERSONA_DIGEST_TYPE: &str = NotificationEvent::PersonaDigest.wire();
@@ -525,34 +519,4 @@ fn split_by_subject(
         by_athlete[index].1.push(row);
     }
     (own, by_athlete)
-}
-
-/// Spawn the persona-digest scheduler as a background tokio task.
-///
-/// Called once at server bootstrap beside the group digest spawn, with the
-/// notification service whose persona gate withholds the pushes. The
-/// [`AbortHandle`](tokio::task::AbortHandle) is discarded because the scheduler
-/// is best-effort and the worker ledger carries the schedule across restarts;
-/// "already returned" is derived from the persisted digests, so a retry or a
-/// second instance re-sends nothing.
-pub fn start_persona_digest_scheduler(
-    repos: Arc<RepositoryRegistry>,
-    service: Arc<NotificationService>,
-    strings: Arc<MessagingStringsRegistry>,
-) {
-    let ledger = Arc::clone(&repos.worker_runs);
-    spawn_periodic(
-        "persona notification digest scheduler",
-        DEFAULT_TICK_INTERVAL,
-        ledger,
-        move || {
-            let repos = Arc::clone(&repos);
-            let service = Arc::clone(&service);
-            let strings = Arc::clone(&strings);
-            async move {
-                tick(&repos, &service, &strings).await?;
-                Ok(())
-            }
-        },
-    );
 }

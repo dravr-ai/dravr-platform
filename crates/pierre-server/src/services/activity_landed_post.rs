@@ -54,9 +54,9 @@ use uuid::Uuid;
 
 use crate::mcp::resources::ServerContext;
 use crate::services::adapter_resolver::{config_adapter_resolver, AdapterResolver};
-use crate::services::platform_post::{PlatformPost, PostSurface};
+use crate::services::platform_post::{PlatformPost, PostAccess, PostSurface};
 use crate::services::post_delivery::{
-    coach_quiet_hours, linked_dms, post_to_one, PostAthlete, POST_CLAIM_LEASE,
+    coach_quiet_hours, linked_dms, post_to_one, PostAthlete, PostIntent, POST_CLAIM_LEASE,
 };
 
 /// How old a workout may be when it lands and still be reacted to: past it,
@@ -350,7 +350,12 @@ impl ActivityLandedPoster {
             athlete,
             dms,
             &prompt,
-            PostPurpose::ActivityLanded,
+            PostIntent {
+                purpose: PostPurpose::ActivityLanded,
+                // The athlete's own workout landing; moves onto the routine
+                // engine, and its read-only grant, with carnet#1795.
+                access: PostAccess::Owner,
+            },
         )
         .await;
         match posted {

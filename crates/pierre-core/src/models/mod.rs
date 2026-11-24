@@ -70,6 +70,7 @@ pub mod provider_context;
 mod provider_thresholds;
 /// Where an activity's route geometry came from (summary polyline or streams).
 pub mod route_geometry;
+pub mod routine;
 /// The season walk's topic table and next-topic policy.
 pub mod season;
 mod sender_locale;
@@ -209,6 +210,10 @@ pub use onboarding::{
 };
 pub use pillar::Pillar;
 pub use platform_post::PostPurpose;
+pub use routine::{
+    Routine, RoutineKind, RoutineScope, RoutineState, RoutineTrigger, Schedule, Weekdays,
+    NO_WAKE_BEFORE_HOUR,
+};
 pub use season::{SeasonConditions, SeasonTopic};
 pub use sport_family::SportFamily;
 pub use training_history::{DailyTrainingKey, DailyTrainingState};

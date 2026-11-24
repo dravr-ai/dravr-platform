@@ -71,6 +71,31 @@ impl PostSurface {
     }
 }
 
+/// What the turn behind a platform post may do.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PostAccess {
+    /// What the athlete's own turn may: the post answers something the
+    /// athlete asked for — their own earlier question re-asked, the coach's
+    /// first word once their data lands, a reaction to a workout they synced.
+    Owner,
+    /// Read and suggest, never act (ADR-036): a routine fires without the
+    /// athlete typing anything, so its turn runs on a read-only grant and the
+    /// tool layer withholds every write tool — no plan saved, no calendar
+    /// pushed, nobody else messaged. Enforced on the grant, not in the prompt.
+    SuggestOnly,
+}
+
+impl PostAccess {
+    /// The grant the turn runs under.
+    #[must_use]
+    pub fn grant(self) -> Vec<OAuthScope> {
+        match self {
+            Self::Owner => OAuthScope::self_grant(),
+            Self::SuggestOnly => OAuthScope::default_grant(),
+        }
+    }
+}
+
 /// One platform post: who it is for, where it lands, and the instruction it
 /// answers. Borrowed so the request allocates nothing.
 pub struct PlatformPostRequest<'a> {
@@ -88,6 +113,8 @@ pub struct PlatformPostRequest<'a> {
     /// The instruction the turn answers — the athlete's own earlier question
     /// re-asked, or a prompt the platform composed. Never stored.
     pub prompt: &'a str,
+    /// What the turn may do.
+    pub access: PostAccess,
 }
 
 // The prompt can be the athlete's own question re-asked: only its size is printed.
@@ -100,6 +127,7 @@ impl fmt::Debug for PlatformPostRequest<'_> {
             .field("surface", &self.surface)
             .field("locale", &self.locale)
             .field("prompt_len", &self.prompt.len())
+            .field("access", &self.access)
             .finish()
     }
 }
@@ -208,8 +236,9 @@ impl PlatformPost for PipelinePlatformPost {
             // The platform answers on its own initiative, into the athlete's
             // own surface.
             transport: Transport::PlatformJob,
-            // The platform acting for the athlete on their own surface.
-            grant: OAuthScope::self_grant(),
+            // The platform acting for the athlete on their own surface: as
+            // the athlete for a post they asked for, read-only for a routine.
+            grant: request.access.grant(),
             is_direct_message: true,
             // The surface's own answers. The prompt is platform-authored and
             // never a command, so these only keep the surface's contract
@@ -290,6 +319,7 @@ mod tests {
             surface: PostSurface::InApp,
             locale: "en",
             prompt: &prompt,
+            access: PostAccess::SuggestOnly,
         };
         let printed = format!("{request:?} {request:#?}");
         assert!(!printed.contains(SENTINEL), "the prompt leaked: {printed}");

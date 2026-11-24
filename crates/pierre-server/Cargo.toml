@@ -460,5 +460,6 @@ ignored-paths = [
     "tests/helpers/live_incident_corpus.rs",
     "tests/helpers/messaging_fixtures.rs",
     "tests/helpers/recording_post.rs",
+    "tests/helpers/routine_harness.rs",
     "tests/helpers/scope_probes.rs",
 ]

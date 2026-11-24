@@ -650,10 +650,12 @@ fn spawn_background_workers(
     #[cfg(feature = "client-messaging")]
     {
         use pierre_mcp_server::services::activity_landed_post::install_activity_landed;
-        use pierre_mcp_server::services::check_in_post::start_check_in_scheduler;
         use pierre_mcp_server::services::platform_post::install_platform_post;
+        use pierre_mcp_server::services::routine_engine::install_routine_engine;
         let platform_post = install_platform_post(&resources);
-        start_check_in_scheduler(&resources, Arc::clone(&platform_post));
+        // The one engine that decides when the platform speaks first
+        // (ADR-036): the check-in and the persona digest fire on its wakes.
+        install_routine_engine(&resources, Arc::clone(&platform_post));
         // The coach's reaction to a synced workout, layered on the landing
         // sink every live write reports to (carnet#1486).
         install_activity_landed(&resources, Arc::clone(&platform_post));
@@ -930,22 +932,6 @@ fn spawn_background_workers(
             #[cfg(feature = "client-notifications")]
             resources.common.notification_service.clone(),
             poster,
-        );
-    }
-
-    // Start the persona notification digest scheduler (daily tick). Returns
-    // the notifications the armed persona policy withheld from push as
-    // localized digests on each user's daily, weekly or per-athlete cadence;
-    // the per-session digest goes out when a training session lands, from the
-    // activity-cache write-through. Unarmed users produce nothing, so this is
-    // inert while the policy ships in shadow mode.
-    #[cfg(feature = "client-notifications")]
-    if let Some(notification_service) = resources.common.notification_service.clone() {
-        use pierre_services::notification_digest_scheduler::start_persona_digest_scheduler;
-        start_persona_digest_scheduler(
-            Arc::clone(&resources.common.repos),
-            notification_service,
-            Arc::clone(&resources.mcp.messaging_strings_registry),
         );
     }
 

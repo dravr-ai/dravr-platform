@@ -18,6 +18,7 @@ use std::time::Duration;
 
 use base64::engine::general_purpose::STANDARD as Base64Standard;
 use base64::Engine as _;
+use dravr_tronc::dates::Timestamp;
 use dravr_tronc::iam::{GoogleIdTokenVerifier, GoogleKeySet, IamError};
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::gcp_token::TokenProvider;
@@ -49,6 +50,10 @@ pub struct HttpTask<'a> {
     pub audience: &'a str,
     /// How long one delivery may run before Cloud Tasks gives up on it.
     pub dispatch_deadline: Duration,
+    /// When Cloud Tasks first delivers it; `None` (or a time already past)
+    /// delivers it now. A scheduled routine is queued for its slot this way
+    /// (ADR-036), so nothing has to stay awake waiting for it.
+    pub schedule_time: Option<Timestamp>,
 }
 
 /// What creating a task did.
@@ -74,7 +79,7 @@ pub async fn create_http_task(
     task: &HttpTask<'_>,
 ) -> AppResult<TaskCreated> {
     let token = tokens.access_token().await?;
-    let payload = json!({
+    let mut payload = json!({
         "task": {
             "name": task.name,
             "dispatchDeadline": format!("{}s", task.dispatch_deadline.as_secs()),
@@ -90,6 +95,9 @@ pub async fn create_http_task(
             }
         }
     });
+    if let Some(at) = task.schedule_time {
+        payload["task"]["scheduleTime"] = Value::String(at.to_rfc3339());
+    }
     let url = format!("{api_base}/{}/tasks", task.queue);
     let response = api_client()
         .post(&url)

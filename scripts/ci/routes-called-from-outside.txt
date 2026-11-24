@@ -59,6 +59,7 @@
 # --- Requests this deployment schedules to itself
 /internal/turns/{turn_id}/run       Cloud Tasks: the task the turn runner enqueues for a recorded messaging turn
 /internal/imports/{id}/step         Cloud Tasks: the task the archive import runner enqueues per step
+/internal/routines/wake             Cloud Tasks: the task the routine engine schedules for each routine slot and system job
 
 # --- The dravr.ai website, a separate repository
 /admin/website/sign-in-link             The dravr.ai Cloudflare Worker: mails a docs sign-in link

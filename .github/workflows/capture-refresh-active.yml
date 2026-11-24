@@ -1,5 +1,5 @@
 # ABOUTME: Every three hours, refreshes the provider captures of the athletes who chatted this week
-# ABOUTME: Keeps a session-read head current between daily sweeps, since a chat's own read lands after its reply
+# ABOUTME: Keeps a session-read head current between daily sweeps, and re-queues any routine wake Cloud Tasks lost
 #
 # A session-read capture (sciotte Strava, Garmin, …) moves only when something reads
 # it. The daily sweep in monitor-capture-staleness.yml reads every live
@@ -23,6 +23,11 @@
 # The sweep runs inline on the request because the API scales to zero: a timer
 # inside the server would have no CPU between requests. It never attempts a
 # login, exactly like the daily sweep.
+#
+# The same wake also reconciles the routine engine (ADR-036, carnet#1790):
+# every routine's next firing is a Cloud Tasks task, and one Cloud Tasks lost
+# or refused is queued again here, within three hours. Queuing a wake already
+# queued is a no-op, so this reconcile never duplicates a firing.
 
 name: "Sync: Active Athlete Captures (dev)"
 
@@ -73,7 +78,38 @@ jobs:
             exit 1
           fi
 
+      # Before the sweep, so a failing sweep never skips it; the sweep runs
+      # even when this step fails, so neither skips the other.
+      - name: Queue the routine engine's pending wakes again
+        id: reconcile
+        env:
+          ADMIN_TOKEN: ${{ secrets.CANARY_ADMIN_TOKEN }}
+          BASE_URL: ${{ vars.DEV_PUBLIC_BASE_URL }}
+        run: |
+          set -euo pipefail
+          CODE=$(curl -sS -X POST \
+            -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+            -H "Accept: application/json" \
+            --max-time 120 \
+            -o /tmp/routines.json \
+            -w '%{http_code}' \
+            "${BASE_URL}/admin/routines/reconcile" || echo "000")
+          if [ "${CODE}" != "200" ]; then
+            echo "::error::routines reconcile answered HTTP ${CODE}"
+            head -c 2000 /tmp/routines.json 2>/dev/null || true
+            exit 1
+          fi
+          # Counts only: this repo's CI logs are public.
+          jq '{routines, queued, errors}' /tmp/routines.json
+          # A wake Cloud Tasks refused is a routine that stays silent until the
+          # next run, and an answer that never counted its errors fails too.
+          if ! jq -e '.errors == 0' /tmp/routines.json >/dev/null; then
+            echo "::error::routines reconcile could not queue every wake; see the server's 'Routines:' warnings"
+            exit 1
+          fi
+
       - name: Refresh the captures of athletes who chatted this week
+        if: ${{ success() || steps.reconcile.outcome == 'failure' }}
         env:
           ADMIN_TOKEN: ${{ secrets.CANARY_ADMIN_TOKEN }}
           BASE_URL: ${{ vars.DEV_PUBLIC_BASE_URL }}

@@ -209,6 +209,8 @@ pub mod recipes;
 pub mod resumable_turns;
 /// `RouteSummaryRepository`: cached GPX terrain + climbs JSON per activity
 pub mod route_summaries;
+/// Repository trait for routines and when each fires next (ADR-036).
+pub mod routines;
 /// Repository traits for security/audit/key-version persistence.
 pub mod security;
 /// Repository trait and shared statements for seed-only repository operations.
@@ -346,7 +348,7 @@ pub use athlete_places::{
 pub use calendar_preferences::{CalendarPreference, CalendarPreferenceRepository};
 pub use chat::*;
 pub use chat_subject::{NewSubjectConversation, OpenedSubjectThread, SubjectThreads};
-pub use check_in_preferences::{CheckInPreferenceRepository, CheckInSubscriber};
+pub use check_in_preferences::CheckInPreferenceRepository;
 pub use claim_verdicts::*;
 pub use coach_access_requests::CoachAccessRequestRepository;
 pub use coach_assistant::CoachAssistantRepository;
@@ -412,6 +414,7 @@ pub use pushed_data::*;
 pub use recipes::*;
 pub use resumable_turns::*;
 pub use route_summaries::*;
+pub use routines::{NextFiring, RoutineRepository};
 pub use security::*;
 pub use seeder::*;
 pub use short_links::*;

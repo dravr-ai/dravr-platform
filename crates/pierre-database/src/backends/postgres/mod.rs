@@ -149,6 +149,8 @@ pub mod recipes;
 pub mod resumable_turns;
 /// Endurance cached GPX `route_summaries` repository (Postgres)
 pub mod route_summaries;
+/// Routines and when each fires next (`PostgreSQL`)
+pub mod routines;
 /// Security and notification repository implementations
 pub mod security;
 /// Seeder repository for seed-only database operations

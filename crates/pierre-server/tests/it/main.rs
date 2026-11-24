@@ -23,6 +23,8 @@ mod injection_corpus;
 mod live_incident_corpus;
 #[path = "../helpers/recording_post.rs"]
 mod recording_post;
+#[path = "../helpers/routine_harness.rs"]
+mod routine_harness;
 #[path = "../helpers/scope_probes.rs"]
 mod scope_probes;
 
@@ -808,6 +810,7 @@ mod routes_dashboard_test;
 mod routes_health_http_test;
 mod routes_mcp_http_test;
 mod routes_test;
+mod routine_engine_test;
 mod rs256_integration_test;
 mod rsa_key_persistence_test;
 mod schema_completeness_test;

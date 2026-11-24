@@ -57,6 +57,7 @@ use tracing::{info, warn};
 use uuid::Uuid;
 
 use crate::mcp::resources::ServerContext;
+use crate::services::routine_engine;
 use pierre_services::conversation_forge::maybe_start_pillar_walk;
 use pierre_services::messaging_broadcast::{proactive_rich_text, proactive_text};
 
@@ -305,15 +306,18 @@ async fn persist_check_in(
         .set_check_in_cadence(tenant_id, uuid, cadence, Timestamp::now())
         .await
     {
-        Ok(()) => info!(
-            target: "notify",
-            event = "coach.check_in_cadence_set",
-            user_id = %uuid,
-            tenant_id = %tenant_id,
-            cadence = cadence.as_str(),
-            surface = "messaging",
-            "check-in cadence chosen"
-        ),
+        Ok(()) => {
+            info!(
+                target: "notify",
+                event = "coach.check_in_cadence_set",
+                user_id = %uuid,
+                tenant_id = %tenant_id,
+                cadence = cadence.as_str(),
+                surface = "messaging",
+                "check-in cadence chosen"
+            );
+            routine_engine::reschedule_check_in(resources, tenant_id, uuid).await;
+        }
         Err(e) => warn!(error = %e, "intake: failed to persist the check-in cadence"),
     }
 }

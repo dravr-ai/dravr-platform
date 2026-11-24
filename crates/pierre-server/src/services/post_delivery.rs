@@ -46,7 +46,7 @@ use crate::services::commitment_reporter::{channel_allows_proactive, session_las
 use crate::services::conversation_title::fresh_title_fallback;
 use crate::services::messaging_ingress::block_render::render_reply;
 use crate::services::messaging_ingress::surface::messaging_render_profile;
-use crate::services::platform_post::{PlatformPost, PlatformPostRequest, PostSurface};
+use crate::services::platform_post::{PlatformPost, PlatformPostRequest, PostAccess, PostSurface};
 
 /// How long an unposted, unreleased once-claim is a post under way.
 ///
@@ -66,6 +66,15 @@ pub(crate) struct PostAthlete {
     pub user_id: Uuid,
     /// The athlete's own tenant, where their threads and DM sessions live.
     pub tenant_id: TenantId,
+}
+
+/// Why a post is made and what its turn may do.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct PostIntent {
+    /// The purpose its claim and analytics report.
+    pub purpose: PostPurpose,
+    /// What the turn may do.
+    pub access: PostAccess,
 }
 
 /// The linked messaging DM a post can be written into right now.
@@ -145,6 +154,7 @@ pub(crate) async fn post_in_app(
     post: &dyn PlatformPost,
     athlete: PostAthlete,
     prompt: &(dyn Fn(&str) -> Option<String> + Sync),
+    access: PostAccess,
 ) -> Option<bool> {
     let locale = resolve_user_locale(resources.common.repos.users.as_ref(), athlete.user_id).await;
     let prompt = prompt(&locale)?;
@@ -157,6 +167,7 @@ pub(crate) async fn post_in_app(
             surface: PostSurface::InApp,
             locale: &locale,
             prompt: &prompt,
+            access,
         })
         .await
         .is_some();
@@ -206,7 +217,7 @@ pub(crate) async fn post_to_dm(
     athlete: PostAthlete,
     dm: OpenDm,
     prompt: &(dyn Fn(&str) -> Option<String> + Sync),
-    purpose: PostPurpose,
+    intent: PostIntent,
 ) -> Option<bool> {
     let channel_str = dm.channel_type.to_string();
     let locale = resolve_channel_locale(
@@ -227,6 +238,7 @@ pub(crate) async fn post_to_dm(
             surface: PostSurface::Channel(dm.channel_type),
             locale: &locale,
             prompt: &prompt,
+            access: intent.access,
         })
         .await
     else {
@@ -243,7 +255,7 @@ pub(crate) async fn post_to_dm(
     let delivery = ChannelDelivery {
         repos: &resources.common.repos,
         resolver,
-        purpose: purpose.as_str(),
+        purpose: intent.purpose.as_str(),
     };
     if delivery
         .send(
@@ -372,12 +384,12 @@ pub(crate) async fn post_to_one(
     athlete: PostAthlete,
     dms: LinkedDms,
     prompt: &(dyn Fn(&str) -> Option<String> + Sync),
-    purpose: PostPurpose,
+    intent: PostIntent,
 ) -> Option<(PostSurface, bool)> {
     if let Some(dm) = dms.open {
         let surface = PostSurface::Channel(dm.channel_type);
         if let Some(posted) =
-            post_to_dm(resources, post, resolver, athlete, dm, prompt, purpose).await
+            post_to_dm(resources, post, resolver, athlete, dm, prompt, intent).await
         {
             return Some((surface, posted));
         }
@@ -388,12 +400,12 @@ pub(crate) async fn post_to_one(
             report_held(
                 athlete.tenant_id,
                 *channel,
-                purpose.as_str(),
+                intent.purpose.as_str(),
                 HELD_WINDOW_CLOSED,
             );
         }
     }
-    post_in_app(resources, post, athlete, prompt)
+    post_in_app(resources, post, athlete, prompt, intent.access)
         .await
         .map(|posted| (PostSurface::InApp, posted))
 }
