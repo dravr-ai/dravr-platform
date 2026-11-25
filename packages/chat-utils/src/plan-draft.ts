@@ -55,6 +55,18 @@ export function coachRoomName(
   return group.name.trim() || fallbackName?.trim() || null;
 }
 
+/** The catalogue keys of the human coach's call on a session, « C'est mon choix » (carnet#1814). */
+export const COACH_CALL_KEYS = {
+  /** "Coach's call" — the mark on a session the coach kept. */
+  badge: 'humanCoach.coachCall.badge',
+  /** "It's my call" — keep the session as it is. */
+  action: 'humanCoach.coachCall.action',
+  /** "Withdraw my call". */
+  undo: 'humanCoach.coachCall.undo',
+  /** What keeping it means: Dravr describes it as the coach's call, without arguing it. */
+  hint: 'humanCoach.coachCall.hint',
+} as const;
+
 /** The catalogue keys of the draft controls on a plan card. */
 export const PLAN_DRAFT_KEYS = {
   /** "Draft · {{name}} can't see it yet". */

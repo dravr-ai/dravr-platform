@@ -359,9 +359,11 @@ export function createCoachPlanHooks({ chatApi }: CoachPlanApis) {
   }
 
   /**
-   * The plan thread's athlete as the coach reads them. An athlete who
-   * stopped sharing reads as `consentRevoked`; any other refusal fails the
-   * read as usual.
+   * The plan thread's athlete as the coach reads them — the live plan, the
+   * draft over it and where the draft stands: what a draft card judges
+   * against, and what the athlete workspace draws (carnet#1816). An athlete
+   * who stopped sharing reads as `consentRevoked`; any other refusal fails
+   * the read as usual.
    */
   function useSubjectPlan(conversationId: string | null, enabled: boolean) {
     const query = useQuery({
@@ -377,7 +379,13 @@ export function createCoachPlanHooks({ chatApi }: CoachPlanApis) {
       enabled: enabled && conversationId !== null,
       staleTime: SUBJECT_PLAN_STALE_MS,
     });
-    return { read: query.data, dataUpdatedAt: query.dataUpdatedAt, refetch: query.refetch };
+    return {
+      read: query.data,
+      dataUpdatedAt: query.dataUpdatedAt,
+      refetch: query.refetch,
+      isLoading: query.isLoading,
+      isError: query.isError,
+    };
   }
 
   /**
@@ -537,5 +545,12 @@ export function createCoachPlanHooks({ chatApi }: CoachPlanApis) {
     };
   }
 
-  return { useOpenAthleteThread, useOpenGroupRoom, useAthletePlan, usePlanDraftCard, usePlanThreadDraft };
+  return {
+    useOpenAthleteThread,
+    useOpenGroupRoom,
+    useAthletePlan,
+    usePlanDraftCard,
+    usePlanThreadDraft,
+    useSubjectPlan,
+  };
 }
