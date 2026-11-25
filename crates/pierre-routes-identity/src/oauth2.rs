@@ -564,7 +564,7 @@ impl OAuth2Routes {
                 },
             ),
             Err(e) => {
-                error!("Failed to mint the consent form token: {e}");
+                error!(error = %e, "Failed to mint the consent form token");
                 Self::render_oauth_error_response(
                     &OAuth2Error::server_error(consent::CONSENT_UNAVAILABLE),
                     &text,
@@ -711,7 +711,7 @@ impl OAuth2Routes {
         );
 
         Self::parse_token_request(form, headers).map_err(|error| {
-            warn!("OAuth token request parsing failed: {:?}", error);
+            warn!(error_code = %error.error, "OAuth token request parsing failed");
             error
         })
     }
