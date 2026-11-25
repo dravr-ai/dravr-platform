@@ -757,6 +757,7 @@ impl OAuth2AuthorizationServer {
             // request that narrowed an unbound grant bound only that token.
             resource: auth_code.resource,
             client_grant_id: auth_code.client_grant_id,
+            dpop_jkt: None,
         };
 
         // Store refresh token
@@ -928,6 +929,7 @@ impl OAuth2AuthorizationServer {
             code_challenge_method: params.code_challenge_method.map(str::to_owned),
             resource: params.resource.map(str::to_owned),
             client_grant_id: params.client_grant_id.map(str::to_owned),
+            dpop_jkt: None,
         };
 
         self.store_auth_code(&auth_code).await?;

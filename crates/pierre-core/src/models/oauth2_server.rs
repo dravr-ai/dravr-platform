@@ -170,6 +170,10 @@ pub struct OAuth2AuthCode {
     /// under; `None` for a code minted before grants were named, or for one
     /// no consent grant governs (Dravr's own apps).
     pub client_grant_id: Option<String>,
+    /// RFC 7638 thumbprint of the `DPoP` key the authorization was bound to
+    /// (RFC 9449 §10: a proof at PAR, or `dpop_jkt` on authorize). The token
+    /// endpoint then requires a proof with that key. `None` when unbound.
+    pub dpop_jkt: Option<String>,
 }
 
 impl fmt::Debug for OAuth2AuthCode {
@@ -188,6 +192,7 @@ impl fmt::Debug for OAuth2AuthCode {
             .field("code_challenge_method", &self.code_challenge_method)
             .field("resource", &self.resource)
             .field("client_grant_id", &self.client_grant_id)
+            .field("dpop_jkt", &self.dpop_jkt)
             .finish()
     }
 }
@@ -227,6 +232,10 @@ pub struct OAuth2RefreshToken {
     /// under, which every successor and access token minted from it carries.
     /// `None` for a family begun before grants were named.
     pub client_grant_id: Option<String>,
+    /// RFC 7638 thumbprint of the `DPoP` key the family is bound to: every
+    /// refresh needs a proof with that key (RFC 9449 §5), and every access
+    /// token minted from it carries `cnf.jkt`. `None` when unbound (Bearer).
+    pub dpop_jkt: Option<String>,
 }
 
 /// OAuth 2.0 State for CSRF Protection

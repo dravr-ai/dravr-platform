@@ -126,6 +126,7 @@ async fn authorize(database: &Database, client_id: &str) -> Timestamp {
         family_created_at: None,
         resource: None,
         client_grant_id: None,
+        dpop_jkt: None,
     };
     database
         .repositories()
@@ -158,6 +159,7 @@ async fn issue_dependents(database: &Database, client_id: &str) {
             code_challenge_method: None,
             resource: None,
             client_grant_id: None,
+            dpop_jkt: None,
         })
         .await
         .unwrap();

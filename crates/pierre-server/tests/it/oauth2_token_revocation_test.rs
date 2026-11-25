@@ -466,6 +466,7 @@ async fn a_token_written_after_its_grant_was_revoked_does_not_survive() {
             resource: None,
             family_created_at: Some(Timestamp::now()),
             client_grant_id: None,
+            dpop_jkt: None,
         })
         .await
         .unwrap();
@@ -557,6 +558,7 @@ async fn stored_refresh_token(
             family_created_at,
             resource: None,
             client_grant_id: None,
+            dpop_jkt: None,
         })
         .await
         .unwrap();

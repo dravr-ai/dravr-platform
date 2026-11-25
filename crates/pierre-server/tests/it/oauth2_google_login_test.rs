@@ -1454,6 +1454,7 @@ async fn proving_an_unverified_accounts_email_retires_every_credential_it_held()
             family_created_at: None,
             resource: None,
             client_grant_id: None,
+            dpop_jkt: None,
         })
         .await
         .unwrap();
