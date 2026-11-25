@@ -1,5 +1,5 @@
 // ABOUTME: The connect-stall scan finds the athletes who answered profile_type and never connected
-// ABOUTME: Pins its exclusions on the engine under test: skip, real connection in the tenant, no tenant
+// ABOUTME: Pins its exclusions and its tenant on the engine under test, an answer saved with no tenant included
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -17,7 +17,7 @@
 
 use crate::common;
 
-use pierre_core::models::{ConnectionType, TenantId};
+use pierre_core::models::{ConnectionType, TenantId, User};
 use pierre_database::backends::factory::Database;
 use uuid::Uuid;
 
@@ -83,19 +83,6 @@ async fn the_scan_finds_only_athletes_with_no_way_past_connect() {
         )
         .await
         .expect("skip connect");
-    let (no_tenant, _) = answered(&database, "no-tenant").await;
-    repos
-        .user_onboarding
-        .set_onboarding_step(
-            &no_tenant.to_string(),
-            "profile_type",
-            "complete",
-            None,
-            None,
-        )
-        .await
-        .expect("answer with no tenant");
-
     let found = repos
         .user_onboarding
         .list_stalled_at_connect(500)
@@ -124,8 +111,115 @@ async fn the_scan_finds_only_athletes_with_no_way_past_connect() {
     for (user, why) in [
         (connected, "a real connection in the tenant"),
         (skipped, "a connect_provider step"),
-        (no_tenant, "an answer with no tenant"),
     ] {
         assert!(ours(user).is_none(), "bug: {why} still read as stuck");
     }
+}
+
+/// Record `user`'s `profile_type` answer with no tenant, as the onboarding
+/// route does for an athlete who belonged to none when they answered.
+async fn answer_without_tenant(database: &Database, user: Uuid) {
+    database
+        .repositories()
+        .user_onboarding
+        .set_onboarding_step(&user.to_string(), "profile_type", "complete", None, None)
+        .await
+        .expect("answer with no tenant");
+}
+
+#[tokio::test]
+async fn an_answer_saved_without_a_tenant_is_checked_in_the_default_tenant() {
+    common::init_server_config();
+    let database = common::create_test_database().await.expect("test db");
+    let repos = database.repositories();
+
+    let (unplaced, unplaced_tenant) = answered(&database, "unplaced").await;
+    answer_without_tenant(&database, unplaced).await;
+
+    let (connected, connected_tenant) = answered(&database, "connected-home").await;
+    answer_without_tenant(&database, connected).await;
+    connect(
+        &database,
+        connected,
+        connected_tenant,
+        &ConnectionType::OAuth,
+    )
+    .await;
+
+    // Connected in a tenant they are not a member of: the stall stays in
+    // their own.
+    let (away, away_tenant) = answered(&database, "connected-away").await;
+    answer_without_tenant(&database, away).await;
+    connect(&database, away, unplaced_tenant, &ConnectionType::OAuth).await;
+
+    // A member of two tenants, joined to the second later, and connected
+    // only there: the stall is in the first, and never in the second.
+    let (both, first) = answered(&database, "two-tenants").await;
+    let (_, second) = answered(&database, "second-owner").await;
+    repos
+        .users
+        .update_tenant_id(both, second)
+        .await
+        .expect("join a second tenant");
+    answer_without_tenant(&database, both).await;
+    connect(&database, both, second, &ConnectionType::OAuth).await;
+
+    // No tenant on the answer and no membership: nowhere to look.
+    let nowhere = User::new(
+        format!("nowhere-{}@example.com", Uuid::new_v4().simple()),
+        "unused-hash".to_owned(),
+        None,
+    );
+    repos.users.create(&nowhere).await.expect("tenantless user");
+    answer_without_tenant(&database, nowhere.id).await;
+
+    let found = repos
+        .user_onboarding
+        .list_stalled_at_connect(500)
+        .await
+        .expect("scan");
+    let tenants_of = |user: Uuid| -> Vec<&str> {
+        found
+            .iter()
+            .filter(|s| s.user_id == user.to_string())
+            .map(|s| s.tenant_id.as_str())
+            .collect()
+    };
+
+    let unplaced_tenant = unplaced_tenant.to_string();
+    assert_eq!(
+        tenants_of(unplaced),
+        [unplaced_tenant.as_str()],
+        "bug: an answer saved without a tenant was not reported in the athlete's tenant"
+    );
+    assert!(
+        tenants_of(connected).is_empty(),
+        "bug: a real connection in the athlete's tenant still read as stuck"
+    );
+    let away_tenant = away_tenant.to_string();
+    assert_eq!(
+        tenants_of(away),
+        [away_tenant.as_str()],
+        "bug: a connection in another tenant hid the stall, or the stall moved there"
+    );
+    let default = repos
+        .tenants
+        .first_for_user(both)
+        .await
+        .expect("default tenant")
+        .expect("a member of two tenants has a default");
+    assert_eq!(
+        default, first,
+        "the tenant joined first is the account's default"
+    );
+    let first = first.to_string();
+    assert_eq!(
+        tenants_of(both),
+        [first.as_str()],
+        "bug: the stall was reported against the second tenant, or not in the default one"
+    );
+    assert!(
+        tenants_of(nowhere.id).is_empty(),
+        "bug: an athlete in no tenant was reported"
+    );
 }

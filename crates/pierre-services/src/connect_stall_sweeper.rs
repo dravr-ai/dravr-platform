@@ -17,7 +17,11 @@
 //! whether the athlete got through. An athlete who answered the `profile_type`
 //! step 30 minutes ago and still has no `connect_provider` step (connected,
 //! skipped or not applicable) and no real connection in that tenant is
-//! reported as `onboarding.stuck_at_connect`, once.
+//! reported as `onboarding.stuck_at_connect`, once. The tenant is the one
+//! the answer was recorded in, or the athlete's default tenant when the
+//! answer was recorded without one: the onboarding route resolves its
+//! tenant as optional, so an athlete who belonged to none yet when they
+//! answered is placed where a session of theirs would open now.
 //!
 //! Once is the ledger's doing, not a table of its own: the sweep keeps its
 //! watermark — the newest answer time it has reported up to — in the

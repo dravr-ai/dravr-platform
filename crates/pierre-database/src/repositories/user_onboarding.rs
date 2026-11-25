@@ -10,6 +10,8 @@ use async_trait::async_trait;
 use dravr_tronc::dates::{CivilDateTime, Timestamp};
 use pierre_core::errors::{AppError, AppResult};
 
+use super::tenants::{first_tenant_id_sql, session_tenants_sql};
+
 /// One persisted onboarding step state for a user.
 ///
 /// A record exists only for a step the user has reached; a step with no record is
@@ -35,12 +37,16 @@ pub struct OnboardingStepRecord {
 ///
 /// They answered the onboarding `profile_type` step and went no further: no
 /// `connect_provider` step (connected, skipped or not applicable) and no real
-/// provider connection in the tenant the answer was recorded in.
+/// provider connection in the athlete's tenant for that answer: the one it
+/// was recorded in, or, when it was recorded with none, the athlete's
+/// default tenant (the first of their memberships, where a session opens
+/// when nothing names a tenant).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StalledAtConnect {
     /// The athlete.
     pub user_id: String,
-    /// The tenant the `profile_type` answer was recorded in.
+    /// The tenant the stall is in: the `profile_type` answer's, else the
+    /// athlete's default tenant.
     pub tenant_id: String,
     /// When the `profile_type` answer was last written; `None` when the
     /// stored value does not read as an instant.
@@ -90,11 +96,12 @@ pub trait UserOnboardingRepository: Send + Sync {
     /// The athletes stalled at connect, most recent `profile_type` answer
     /// first, at most `limit` of them (see [`StalledAtConnect`]).
     ///
-    /// The connect-stall sweep's cross-tenant scan: each row is checked
-    /// against the provider connections of its own tenant, and a row with no
-    /// tenant (an account that belongs to none, so could hold no connection)
-    /// is left out. The order is the engine's own, so the caller picks the
-    /// time window from `profile_type_at`.
+    /// The connect-stall sweep's cross-tenant scan: each answer is placed
+    /// in one tenant (its own, else the athlete's default tenant) and
+    /// checked against the provider connections of that tenant alone. An
+    /// answer with no tenant from an account that belongs to none (so could
+    /// hold no connection) is left out. The order is the engine's own, so
+    /// the caller picks the time window from `profile_type_at`.
     async fn list_stalled_at_connect(&self, limit: i64) -> AppResult<Vec<StalledAtConnect>>;
 
     /// Return a user to the state onboarding starts from, in one transaction.
@@ -247,29 +254,41 @@ pub(crate) const SELECT_ONBOARDING_STEPS_SQL: &str = r"
             ";
 
 /// The connect-stall scan behind
-/// [`UserOnboardingRepository::list_stalled_at_connect`]. Every column it
-/// compares is `TEXT` on both engines, and `updated_at` orders correctly on
-/// both (`TIMESTAMPTZ`, and `SQLite`'s fixed-width UTC text), so one
-/// statement serves both.
-pub(crate) const SELECT_STALLED_AT_CONNECT_SQL: &str = r"
-            SELECT p.user_id, p.tenant_id, CAST(p.updated_at AS TEXT) AS updated_at
-            FROM user_onboarding p
-            WHERE p.step_id = 'profile_type'
-              AND p.status = 'complete'
-              AND p.tenant_id IS NOT NULL
-              AND NOT EXISTS (
-                  SELECT 1 FROM user_onboarding c
-                  WHERE c.user_id = p.user_id AND c.step_id = 'connect_provider'
-              )
-              AND NOT EXISTS (
-                  SELECT 1 FROM provider_connections pc
-                  WHERE pc.user_id = p.user_id
-                    AND pc.tenant_id = p.tenant_id
-                    AND pc.connection_type <> 'synthetic'
-              )
-            ORDER BY p.updated_at DESC
-            LIMIT $1
-            ";
+/// [`UserOnboardingRepository::list_stalled_at_connect`].
+///
+/// Each answer is placed in one tenant: the one it was recorded in, else the
+/// athlete's default tenant ([`first_tenant_id_sql`], the tenant a session
+/// opens in when nothing names one), and the connection check runs in that
+/// tenant alone. An answer that resolves to no tenant is left out. Every
+/// column it compares is `TEXT` on both engines (the membership's `uuid`
+/// columns are cast), and `updated_at` orders correctly on both
+/// (`TIMESTAMPTZ`, and `SQLite`'s fixed-width UTC text), so one statement
+/// serves both.
+pub(crate) const SELECT_STALLED_AT_CONNECT_SQL: &str = concat!(
+    "SELECT s.user_id, s.tenant_id, CAST(s.updated_at AS TEXT) AS updated_at \
+     FROM (\
+         SELECT p.user_id, p.updated_at, \
+                COALESCE(p.tenant_id, (",
+    first_tenant_id_sql!("p.user_id"),
+    ")) AS tenant_id \
+         FROM user_onboarding p \
+         WHERE p.step_id = 'profile_type' \
+           AND p.status = 'complete' \
+           AND NOT EXISTS (\
+               SELECT 1 FROM user_onboarding c \
+               WHERE c.user_id = p.user_id AND c.step_id = 'connect_provider'\
+           )\
+     ) s \
+     WHERE s.tenant_id IS NOT NULL \
+       AND NOT EXISTS (\
+           SELECT 1 FROM provider_connections pc \
+           WHERE pc.user_id = s.user_id \
+             AND pc.tenant_id = s.tenant_id \
+             AND pc.connection_type <> 'synthetic'\
+       ) \
+     ORDER BY s.updated_at DESC \
+     LIMIT $1"
+);
 
 /// Decode a row via `try_get` (never `Row::get`, which is `try_get().unwrap()`
 /// and panics on a type/NULL surprise) so a corrupt row is a recoverable error.

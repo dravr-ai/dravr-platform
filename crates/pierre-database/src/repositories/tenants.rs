@@ -52,7 +52,8 @@ pub trait TenantRepository: Send + Sync {
     /// here rather than taking the head of the list itself. A caller that
     /// needs the whole [`Tenant`] (its name, its plan) reads the head of
     /// [`Self::list_for_user`], which is the same tenant, instead of paying
-    /// a second lookup for it.
+    /// a second lookup for it. A statement that resolves many users at once
+    /// embeds the same rule as [`first_tenant_id_sql`].
     async fn first_for_user(&self, user_id: Uuid) -> AppResult<Option<TenantId>> {
         Ok(self
             .list_for_user(user_id)
@@ -156,16 +157,49 @@ pub(crate) const GET_TENANT_BY_SLUG_SQL: &str = concat!(
             WHERE t.slug = $1 AND t.is_active = true"
 );
 
+/// The tenants a session may act in, from `FROM` on: every active tenant
+/// with an owner that the user is a member of, in the order they joined.
+/// `$user_matches` is the condition that picks the user's membership rows
+/// (`tu`), so a statement can name the user in its own form. The one
+/// definition behind [`LIST_TENANTS_FOR_USER_SQL`] and [`first_tenant_id_sql`].
+macro_rules! session_tenants_sql {
+    ($($user_matches:tt)+) => {
+        concat!(
+            " FROM tenants t \
+             JOIN tenant_users tu ON t.id = tu.tenant_id \
+             JOIN tenant_users owner ON t.id = owner.tenant_id AND owner.role = 'owner' \
+             WHERE ",
+            $($user_matches)+,
+            " AND t.is_active = true \
+             ORDER BY tu.joined_at ASC"
+        )
+    };
+}
+pub(crate) use session_tenants_sql;
+
 /// Every active tenant the user is a member of, in the order they joined.
-pub(crate) const LIST_TENANTS_FOR_USER_SQL: &str = r"
-            SELECT DISTINCT t.id, t.name, t.slug, t.domain, t.subscription_tier,
-                   owner.user_id AS owner_user_id, t.created_at, t.updated_at, tu.joined_at
-            FROM tenants t
-            JOIN tenant_users tu ON t.id = tu.tenant_id
-            JOIN tenant_users owner ON t.id = owner.tenant_id AND owner.role = 'owner'
-            WHERE tu.user_id = $1 AND t.is_active = true
-            ORDER BY tu.joined_at ASC
-            ";
+pub(crate) const LIST_TENANTS_FOR_USER_SQL: &str = concat!(
+    "SELECT DISTINCT t.id, t.name, t.slug, t.domain, t.subscription_tier, \
+     owner.user_id AS owner_user_id, t.created_at, t.updated_at, tu.joined_at",
+    session_tenants_sql!("tu.user_id = $1")
+);
+
+/// [`TenantRepository::first_for_user`] as a scalar subquery: the head of
+/// [`LIST_TENANTS_FOR_USER_SQL`], as text, or `NULL` when the account
+/// belongs to none. `$user` is the SQL that names the user as text, so a
+/// scan over many users can resolve each one's default tenant in the same
+/// statement; the membership's user column is cast because it is `uuid` on
+/// Postgres.
+macro_rules! first_tenant_id_sql {
+    ($($user:tt)+) => {
+        concat!(
+            "SELECT CAST(t.id AS TEXT)",
+            session_tenants_sql!("CAST(tu.user_id AS TEXT) = ", $($user)+),
+            " LIMIT 1"
+        )
+    };
+}
+pub(crate) use first_tenant_id_sql;
 
 /// The tenants a user's rows reach, as text: every tenant they hold a
 /// membership row in, active or not, owned or not, and the tenant their user
