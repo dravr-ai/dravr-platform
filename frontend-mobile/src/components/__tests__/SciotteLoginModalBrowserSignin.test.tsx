@@ -2,11 +2,12 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: carnet#1617 — on the phone, a provider sign-in runs in a WebView of the provider's own page, and its cookies connect it
-// ABOUTME: Pins the button that opens it, the hand-over that connects, and the cookie read that keeps only the provider's domain
+// ABOUTME: Pins the button that opens it, the hand-over that connects, a refused hand-over's OAuth offer, and the cookie read that keeps only the provider's domain
 
 import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react-native';
 import CookieManager from '@react-native-cookies/cookies';
+import { i18n } from '@pierre/i18n';
 import { SciotteLoginModal } from '../SciotteLoginModal';
 import { readProviderCookies } from '../auth/BrowserSigninWebView';
 import { oauthApi } from '../../services/api';
@@ -78,6 +79,35 @@ describe('SciotteLoginModal (mobile) — a sign-in on the phone itself', () => {
       tosConsent: false,
       signal: expect.any(AbortSignal),
     });
+  });
+
+  // A sign-in window never dead-ends (carnet#1477): a hand-over the server
+  // refuses shows the failure with its retry and, beside it, the card's
+  // OAuth, opened only by the athlete's tap.
+  it('offers the OAuth beside the retry when the phone sign-in is refused', async () => {
+    (oauthApi.browserSignin as jest.Mock).mockRejectedValue({
+      response: { status: 400, data: { details: { reason: 'login_flow_expired' } } },
+    });
+    const onFallBackToOAuth = jest.fn();
+    render(
+      <SciotteLoginModal
+        visible
+        onClose={jest.fn()}
+        onConnected={jest.fn()}
+        target="garmin"
+        onFallBackToOAuth={onFallBackToOAuth}
+      />,
+    );
+
+    fireEvent.press(screen.getByTestId('sciotte-browser-signin'));
+
+    expect(await screen.findByText(i18n.t('app.connectionFailed'))).toBeTruthy();
+    expect(screen.getByText(i18n.t('app.tryAgain'))).toBeTruthy();
+    const offer = screen.getByTestId('sciotte-oauth-fallback');
+    expect(offer).toHaveTextContent(i18n.t('app.continueWithProvider', { provider: 'Garmin' }));
+    expect(onFallBackToOAuth).not.toHaveBeenCalled();
+    fireEvent.press(offer);
+    expect(onFallBackToOAuth).toHaveBeenCalledTimes(1);
   });
 
   it('connects nothing when the cookie read finishes after the window was closed', async () => {

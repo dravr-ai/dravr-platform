@@ -208,8 +208,9 @@ async function until(condition: () => boolean, withinMs: number): Promise<boolea
  *
  * It answers the calls the platform makes for a Strava-mirror athlete: the
  * credential login (its code step when {@link SciotteDouble.login} is
- * `code`, its rejection when it is `rejected`) and the session export that store the connection, the
- * session import that precedes every session read, the activity list and one
+ * `code`, its rejection when it is `rejected`) and the session export that
+ * store the connection, the session import that precedes every session read,
+ * the activity list and one
  * activity's detail. Like the service, it holds sessions in memory: a read
  * naming a session it does not hold is a `401 session_not_found`, and a
  * restart forgets every session. Anything else is a `404`.
