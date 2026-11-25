@@ -17,11 +17,11 @@
 --   host_profile_basis   how the host satisfied Host Profile T2 (owl §6.2):
 --                        declared_cimd | declared_request | assessed
 --   host_profile_tier    the tier the basis allows (T2)
-ALTER TABLE oauth_client_grants ADD COLUMN parent_grant_id TEXT;
-ALTER TABLE oauth_client_grants ADD COLUMN step_up_auth_time INTEGER;
-ALTER TABLE oauth_client_grants ADD COLUMN step_up_acr TEXT;
-ALTER TABLE oauth_client_grants ADD COLUMN host_profile_basis TEXT;
-ALTER TABLE oauth_client_grants ADD COLUMN host_profile_tier TEXT;
+ALTER TABLE oauth_client_grants ADD COLUMN parent_grant_id TEXT; -- idempotency-ok: SQLite ADD COLUMN has no IF NOT EXISTS; _sqlx_migrations prevents re-run
+ALTER TABLE oauth_client_grants ADD COLUMN step_up_auth_time INTEGER; -- idempotency-ok: SQLite ADD COLUMN has no IF NOT EXISTS; _sqlx_migrations prevents re-run
+ALTER TABLE oauth_client_grants ADD COLUMN step_up_acr TEXT; -- idempotency-ok: SQLite ADD COLUMN has no IF NOT EXISTS; _sqlx_migrations prevents re-run
+ALTER TABLE oauth_client_grants ADD COLUMN host_profile_basis TEXT; -- idempotency-ok: SQLite ADD COLUMN has no IF NOT EXISTS; _sqlx_migrations prevents re-run
+ALTER TABLE oauth_client_grants ADD COLUMN host_profile_tier TEXT; -- idempotency-ok: SQLite ADD COLUMN has no IF NOT EXISTS; _sqlx_migrations prevents re-run
 
 -- The one-live-grant-per-scope rule holds for parents only; a child is held
 -- to one live child per parent, so a new step-up revokes the old child first.
@@ -36,14 +36,14 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_oauth_client_grants_live_child
 -- The Host Profile a client's CIMD document declares (`mcp_host_profile`,
 -- owl §6.2 carrier A), as JSON {tier_max, version}; NULL when it declares
 -- none, and for every client registered by DCR.
-ALTER TABLE oauth2_clients ADD COLUMN host_profile TEXT;
+ALTER TABLE oauth2_clients ADD COLUMN host_profile TEXT; -- idempotency-ok: SQLite ADD COLUMN has no IF NOT EXISTS; _sqlx_migrations prevents re-run
 
 -- oauth_grant_events: `consume` (a single-use grant's first read) and
 -- `step_up` (a child approved) join issue | revoke | expire (owl §8.1).
 -- SQLite cannot alter a CHECK, so the table is rebuilt, every row copied,
 -- and all five indexes recreated; `consume` joins the terminal predicate, so
 -- a consumed grant has exactly one terminal receipt.
-CREATE TABLE oauth_grant_events_rebuilt (
+CREATE TABLE IF NOT EXISTS oauth_grant_events_rebuilt (
     id TEXT PRIMARY KEY,
     tenant_id TEXT NOT NULL,
     user_id TEXT NOT NULL,
@@ -64,7 +64,7 @@ INSERT INTO oauth_grant_events_rebuilt
 SELECT id, tenant_id, user_id, client_grant_id, event, actor, at, payload,
        payload_sha256, jws, logged_at, attempts, poisoned_at
 FROM oauth_grant_events;
-DROP TABLE oauth_grant_events;
+DROP TABLE IF EXISTS oauth_grant_events;
 ALTER TABLE oauth_grant_events_rebuilt RENAME TO oauth_grant_events;
 
 CREATE INDEX IF NOT EXISTS idx_oauth_grant_events_owner
