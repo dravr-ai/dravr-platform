@@ -10,7 +10,9 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
+use pierre_auth::auth::PDPP_TOKEN_KINDS;
 use pierre_auth::config::oauth::DIALED_HOST_HEADERS;
+use pierre_auth::dpop::signing_algorithms;
 use pierre_auth::oauth2_server::authorization_details::AUTHORIZATION_DETAILS_TYPES;
 use pierre_core::permissions::scopes::OAuthScope;
 use tokio::task::spawn_blocking;
@@ -59,7 +61,9 @@ impl OAuth2Routes {
                 // is fetched and validated instead of registered.
                 "client_id_metadata_document_supported": true,
                 // RFC 9396: the detail types this server resolves.
-                "authorization_details_types_supported": AUTHORIZATION_DETAILS_TYPES
+                "authorization_details_types_supported": AUTHORIZATION_DETAILS_TYPES,
+                // RFC 9449 §5.1: the token endpoint binds to a DPoP proof.
+                "dpop_signing_alg_values_supported": signing_algorithms()
             })
         })
         .await
@@ -133,7 +137,13 @@ impl OAuth2Routes {
                 "authorization_servers": [issuer_url],
                 "jwks_uri": format!("{issuer_url}/.well-known/jwks.json"),
                 "scopes_supported": OAuthScope::advertised_as_str(),
-                "bearer_methods_supported": ["header"]
+                "bearer_methods_supported": ["header"],
+                // RFC 9728 §2 / RFC 9449: a key-bound token is presented with
+                // a DPoP proof; unbound Bearer tokens are still accepted.
+                "dpop_signing_alg_values_supported": signing_algorithms(),
+                "dpop_bound_access_tokens_required": false,
+                // Owl PDPP §5.1: the kinds of token this resource serves.
+                "pdpp_token_kinds_supported": PDPP_TOKEN_KINDS
             })
         })
         .await

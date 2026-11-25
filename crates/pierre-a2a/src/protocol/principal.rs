@@ -19,6 +19,8 @@ use pierre_core::models::a2a::{user_task_key, A2AClient};
 use pierre_core::permissions::impersonation::{CallerCredential, CredentialKind};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_logging::record_identity;
+use pierre_auth::dpop::{check_binding, PresentedScheme, DPOP_SCHEME};
+use pierre_middleware::dpop_request::{authorization_value, dialed_uri, dpop_context};
 use pierre_middleware::rate_limiting::{
     enforce_request_budget, log_budget_refusal, report_a2a_client_request, report_request_budget,
     report_request_operation, A2AClientCall,
@@ -28,6 +30,10 @@ use tracing::error;
 use uuid::Uuid;
 
 use super::{A2AResources, A2AServer, A2ATask};
+
+/// The JSON-RPC binding's path, which a `DPoP` proof names for a request
+/// that recorded no path of its own.
+const A2A_JSONRPC_PATH: &str = "/a2a/jsonrpc";
 use crate::protocol_types::{rate_limit_details, A2ASpecError, Message, A2A_VERSION};
 use crate::{A2ARequest, A2AResponse};
 
@@ -172,10 +178,28 @@ impl A2AServer {
                 ))
             })?;
 
+        // How the token was presented, `Bearer` or `DPoP` (RFC 9449), and
+        // what a proof must name: the A2A URL the client dialed.
+        let auth_header = authorization_value(request, auth_token);
+        let htu = dialed_uri(request, resources.ctx.oauth2_server_config(), A2A_JSONRPC_PATH);
+        let dpop = dpop_context(request, htu.as_deref());
+
         // Client-credentials JWT: the client is the subject. Read off the two
         // claims together before anything parses `sub` as a user, so a client
-        // is never taken for one.
+        // is never taken for one. It is never key-bound, so only the scheme
+        // rules apply to it.
         if let Some(client_id) = claims.client_credentials_client() {
+            let scheme = if auth_header.starts_with(DPOP_SCHEME) {
+                PresentedScheme::Dpop
+            } else {
+                PresentedScheme::Bearer
+            };
+            check_binding(&claims, scheme).map_err(|refusal| {
+                Box::new(Self::auth_error(
+                    format!("Authentication refused: DPoP: {refusal}"),
+                    Some(request_id.clone()),
+                ))
+            })?;
             let granted = OAuthScope::parse_granted(&claims.scope);
             return Self::resolve_client_principal(
                 client_id,
@@ -197,8 +221,9 @@ impl A2AServer {
             let admitted = resources
                 .auth_middleware
                 .authenticate_scoped_request_naming_caller(
-                    Some(&format!("Bearer {auth_token}")),
+                    Some(&auth_header),
                     &a2a_resources,
+                    Some(&dpop),
                 )
                 .await
                 .map_err(|refusal| RefusedCall {

@@ -29,6 +29,7 @@ use crate::services::turn_lifecycle::InFlightTurns;
 use crate::services::turn_runner::TurnRunner;
 use pierre_auth::admin::jwks::{load_or_store_first_keypair, JwksManager};
 use pierre_auth::auth::AuthManager;
+use pierre_auth::dpop::DpopProofs;
 use pierre_auth::firebase::FirebaseAuth;
 use pierre_auth::human_check::{HumanCheck, TurnstileCheck};
 use pierre_auth::oauth2_server::first_party::MOBILE_PLAY_PACKAGE_NAME;
@@ -347,6 +348,11 @@ impl ServerContext {
             Self::resolve_jwks_manager(jwks_manager, database_arc.as_ref(), rsa_key_size_bits)
                 .await?;
 
+        // DPoP proofs (RFC 9449) are burned in the shared cache, so a proof is
+        // good once across every replica; the token endpoint, PAR and the
+        // resource servers' middleware verify through the one instance.
+        let dpop_proofs = Arc::new(DpopProofs::new(cache_arc.clone()));
+
         // Create auth middleware after jwks_manager is initialized
         let auth_middleware = Arc::new(
             McpAuthMiddleware::new(
@@ -357,7 +363,8 @@ impl ServerContext {
             .with_grant_standings(GrantStandings::new(
                 repos.oauth2_server.clone(),
                 cache_arc.clone(),
-            )),
+            ))
+            .with_dpop_proofs(dpop_proofs.clone()),
         );
 
         // On Redis every replica counts into the same OAuth2 window; an
@@ -625,6 +632,7 @@ impl ServerContext {
             csrf_manager,
             firebase_auth,
             oauth2_rate_limiter,
+            dpop_proofs,
             play_integrity: Arc::new(GooglePlayIntegrityDecoder::from_metadata_server(
                 MOBILE_PLAY_PACKAGE_NAME,
             )),

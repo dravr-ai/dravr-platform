@@ -88,10 +88,11 @@ impl OAuth2AuthorizationServer {
             revoked: false,
             family_id: consumed.family_id.clone(),
             family_created_at: consumed.family_created_at,
-            // Rotation keeps the grant's resource binding and its consent grant.
+            // Rotation keeps the grant's resource binding and its consent grant,
             resource: consumed.resource.clone(),
             client_grant_id: consumed.client_grant_id.clone(),
-            dpop_jkt: None,
+            // And the key the family is bound to: every successor needs it.
+            dpop_jkt: consumed.dpop_jkt.clone(),
         };
         self.store_refresh_token(&successor).await?;
 

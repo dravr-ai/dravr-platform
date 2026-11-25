@@ -133,6 +133,7 @@ fn test_authorize_request_clone() {
         resource: None,
         request_uri: None,
         authorization_details: None,
+        dpop_jkt: None,
     };
 
     let cloned = request.clone();

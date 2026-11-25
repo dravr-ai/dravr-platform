@@ -296,6 +296,31 @@ impl OAuth2ServerConfig {
         )
     }
 
+    /// The URI a client dialed to reach `path`, as a `DPoP` proof's `htu`
+    /// names it (RFC 9449 §4.3): the scheme the proxy forwarded (`proto`, an
+    /// `X-Forwarded-Proto` value, `https` when absent), the dialed authority
+    /// (`host`, as [`Self::mcp_resource_for_host`] reads it) and `path`.
+    /// Scheme and host are lowercased and a default port dropped.
+    ///
+    /// `None` unless that origin is one of this server's resource origins: a
+    /// forged header can name only another of this server's own names, never
+    /// make a proof for another server's URL pass.
+    #[must_use]
+    pub fn dialed_uri(&self, proto: Option<&str>, host: Option<&str>, path: &str) -> Option<String> {
+        let first = |value: &str| value.split(',').next().unwrap_or_default().trim().to_owned();
+        let scheme = proto.map(first).filter(|p| !p.is_empty());
+        let host = host.map(first).filter(|h| !h.is_empty())?;
+        let scheme = scheme.as_deref().unwrap_or("https");
+        let origin = Url::parse(&format!("{scheme}://{host}"))
+            .ok()?
+            .origin()
+            .ascii_serialization();
+        self.mcp_resources()
+            .into_iter()
+            .any(|resource| origin_of(resource) == origin)
+            .then(|| format!("{origin}{path}"))
+    }
+
     /// The identifier a path-suffixed metadata document describes: the MCP or
     /// A2A resource at `path` on the dialed host. `None` when this server
     /// publishes no such resource.
@@ -311,6 +336,31 @@ impl OAuth2ServerConfig {
 #[cfg(test)]
 mod tests {
     use super::www_authenticate_challenge;
+    use crate::config::OAuth2ServerConfig;
+
+    #[test]
+    fn the_dialed_uri_is_one_of_the_servers_origins_or_none() {
+        let config = OAuth2ServerConfig {
+            mcp_resource_url: "https://mcp.example.test/mcp".to_owned(),
+            mcp_resource_aliases: vec!["http://localhost:8081/mcp".to_owned()],
+            ..OAuth2ServerConfig::default()
+        };
+        assert_eq!(
+            config.dialed_uri(None, Some("MCP.example.test:443"), "/mcp"),
+            Some("https://mcp.example.test/mcp".to_owned()),
+            "bug: scheme defaults to https, host is lowercased, default port dropped"
+        );
+        assert_eq!(
+            config.dialed_uri(Some("http, https"), Some("localhost:8081"), "/a2a"),
+            Some("http://localhost:8081/a2a".to_owned())
+        );
+        assert_eq!(
+            config.dialed_uri(Some("https"), Some("evil.example.test"), "/mcp"),
+            None,
+            "bug: an origin that is none of the server's must never be an htu"
+        );
+        assert_eq!(config.dialed_uri(None, None, "/mcp"), None);
+    }
 
     /// The dev environment's MCP resource, read from where terraform sets it.
     fn dev_mcp_resource_url() -> &'static str {

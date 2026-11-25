@@ -102,6 +102,7 @@ fn oauth2_routes(resources: &Arc<ServerContext>) -> Router {
             OAuth2RateLimiter::local_window_store(),
             &resources.common.config.rate_limiting,
         )),
+        dpop_proofs: resources.auth.dpop_proofs.clone(),
         refresh_token_expiry_days: 30,
         session_cookie_max_age_secs: 86_400,
         csrf_manager: resources.auth.csrf_manager.clone(),

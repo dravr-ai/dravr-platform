@@ -6,7 +6,9 @@
 
 use dravr_tronc::mcp::auth::AuthError;
 use pierre_auth::config::{protected_resource_metadata_url, www_authenticate_challenge};
-use pierre_core::errors::{AppError, ErrorCode};
+use pierre_auth::dpop::dpop_challenge;
+use pierre_core::errors::ErrorCode;
+use pierre_middleware::auth::AuthRefusal;
 use pierre_core::permissions::scopes::OAuthScope;
 use tracing::{debug, error};
 
@@ -32,8 +34,12 @@ pub(super) fn insufficient_scope_challenge(resource_url: &str, missing: OAuthSco
 /// server-side failure (a database error reading the user or the usage
 /// counter) is a 500: neither says anything about the credential, and a 401
 /// for either loops the client through re-authorization only to be refused
-/// again. Mirrors [`AppError::into_auth_refusal`] on the REST routes.
-pub(super) fn auth_refusal(error: &AppError, resource_url: &str) -> AuthError {
+/// again. Mirrors `AppError::into_auth_refusal` on the REST routes.
+///
+/// A refusal of the `DPoP` binding rules adds the `DPoP` challenge naming its
+/// code and the accepted algorithms beside the Bearer one (RFC 9449 §7.1).
+pub(super) fn auth_refusal(refusal: &AuthRefusal, resource_url: &str) -> AuthError {
+    let error = &refusal.error;
     if error.code == ErrorCode::RateLimitExceeded {
         debug!(error = %error, "MCP request refused: the credential's request budget is spent");
         return AuthError::RateLimited {
@@ -48,7 +54,10 @@ pub(super) fn auth_refusal(error: &AppError, resource_url: &str) -> AuthError {
         };
     }
     debug!(error = %error, "MCP request rejected: bearer token failed validation");
-    AuthError::Unauthorized {
-        www_authenticate: www_authenticate_challenge(resource_url, Some("invalid_token")),
-    }
+    let bearer = www_authenticate_challenge(resource_url, Some("invalid_token"));
+    let www_authenticate = refusal.dpop_error.map_or_else(
+        || bearer.clone(),
+        |code| format!("{}, {bearer}", dpop_challenge(code)),
+    );
+    AuthError::Unauthorized { www_authenticate }
 }

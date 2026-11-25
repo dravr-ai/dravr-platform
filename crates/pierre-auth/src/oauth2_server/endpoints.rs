@@ -23,8 +23,9 @@ use super::pkce::{check_code_challenge, check_pkce};
 use super::rate_limiting::OAuth2RateLimiter;
 use super::request_text::{refuse_control_characters, refuse_oversized_state};
 use super::resource::bound_audience;
+use grant_checks::{require_refresh_dpop_binding, token_type};
 use crate::admin::jwks::JwksManager;
-use crate::auth::{AuthManager, TokenLineage};
+use crate::auth::{oauth_access_token_lifetime_secs, AuthManager, TokenLineage};
 use crate::config::oauth::ClientRetentionConfig;
 use crate::config::OAuth2ServerConfig;
 use crate::refresh_rotation::{
@@ -45,6 +46,8 @@ use uuid::Uuid;
 
 /// Minting the access token a grant is redeemed for, under its refresh family
 mod access_token;
+mod auth_code;
+use auth_code::{check_dpop_jkt, AuthCodeParams};
 /// Admin access at consent: the one way a grant holds `admin` (carnet#1511)
 mod admin_grant;
 pub use admin_grant::{without_admin, AdminAccess};
@@ -59,21 +62,6 @@ pub use first_party_code::RedeemedFirstPartyCode;
 mod validate_refresh;
 pub use validate_refresh::ADMIN_REFRESHES_AT_TOKEN_ENDPOINT;
 
-/// Parameters for authorization code generation
-struct AuthCodeParams<'a> {
-    client_id: &'a str,
-    user_id: Uuid,
-    tenant_id: &'a str,
-    redirect_uri: &'a str,
-    scope: Option<&'a str>,
-    state: Option<&'a str>,
-    code_challenge: Option<&'a str>,
-    code_challenge_method: Option<&'a str>,
-    resource: Option<&'a str>,
-    /// The consent grant the code is issued under; `None` for a code no
-    /// consent grant governs
-    client_grant_id: Option<&'a str>,
-}
 
 /// What an accepted authorization request is granted: the scope the code
 /// carries and the RFC 8707 resource its tokens are bound to, if it named one.
@@ -435,6 +423,7 @@ impl OAuth2AuthorizationServer {
         let scope = Self::authorized_scope(client, requested.as_deref())?;
 
         check_code_challenge(request)?;
+        check_dpop_jkt(request.dpop_jkt.as_deref())?;
 
         // RFC 8707 §2: a resource this server does not serve is refused with
         // `invalid_target` now, before the user is asked to consent to it.
@@ -539,6 +528,7 @@ impl OAuth2AuthorizationServer {
                 code_challenge_method: request.code_challenge_method.as_deref(),
                 resource: checked.resource.as_deref(),
                 client_grant_id: client_grant_id.as_deref(),
+                dpop_jkt: request.dpop_jkt.as_deref(),
             })
             .await
             .map_err(|e| {
@@ -562,11 +552,35 @@ impl OAuth2AuthorizationServer {
         })
     }
 
-    /// Handle token request (POST /oauth/token)
+    /// Handle token request (POST /oauth/token) that carries no `DPoP` proof.
     ///
     /// # Errors
     /// Returns an error if client validation fails or token generation fails
     pub async fn token(&self, request: TokenRequest) -> Result<TokenResponse, OAuth2Error> {
+        self.token_with_dpop(request, None).await
+    }
+
+    /// Handle a token request whose `DPoP` proof (RFC 9449 §5), when it
+    /// carried one, the route already verified and burned: `dpop_jkt` is that
+    /// proof's key thumbprint.
+    ///
+    /// - A code bound to a key (`dpop_jkt` at PAR or authorize) is redeemed
+    ///   only with a proof by that key, and is left unspent otherwise.
+    /// - A refresh token bound to a key is rotated only with a proof by it.
+    /// - A proof binds what is minted: the access token carries `cnf.jkt` and
+    ///   is answered as `token_type: DPoP`, and a code grant's refresh family
+    ///   is bound to the same key. Without one the token is Bearer, as before.
+    /// - The client-credentials grant ignores a proof: its token acts for no
+    ///   user and stays Bearer.
+    ///
+    /// # Errors
+    /// As [`Self::token`], plus `invalid_dpop_proof` for a missing or
+    /// mismatched proof on a bound grant.
+    pub async fn token_with_dpop(
+        &self,
+        request: TokenRequest,
+        dpop_jkt: Option<&str>,
+    ) -> Result<TokenResponse, OAuth2Error> {
         // Dravr's own apps are public clients with no secret to present here;
         // they redeem their codes at the first-party `/oauth/token` (carnet#787).
         if is_first_party(&request.client_id) {
@@ -642,9 +656,12 @@ impl OAuth2AuthorizationServer {
         ])?;
 
         let response = match request.grant_type.as_str() {
-            "authorization_code" => self.handle_authorization_code_grant(request).await,
+            "authorization_code" => {
+                self.handle_authorization_code_grant(request, dpop_jkt)
+                    .await
+            }
             "client_credentials" => self.handle_client_credentials_grant(&client, &request),
-            "refresh_token" => self.handle_refresh_token_grant(request).await,
+            "refresh_token" => self.handle_refresh_token_grant(request, dpop_jkt).await,
             _ => Err(OAuth2Error::unsupported_grant_type()),
         }?;
         // A refresh token was issued through this client: it is in use.
@@ -658,6 +675,7 @@ impl OAuth2AuthorizationServer {
     async fn handle_authorization_code_grant(
         &self,
         request: TokenRequest,
+        dpop_jkt: Option<&str>,
     ) -> Result<TokenResponse, OAuth2Error> {
         let code = request
             .code
@@ -671,6 +689,10 @@ impl OAuth2AuthorizationServer {
         // spent, so a client that named the wrong one can still correct it.
         self.check_requested_resource(request.resource.as_deref())?;
 
+        // A code bound to a key is refused without a proof by it before it is
+        // spent, so the client holding the key can still redeem it.
+        self.require_code_dpop_binding(&code, &request.client_id, &redirect_uri, dpop_jkt)
+            .await?;
         self.admit_code_user(&code, &request.client_id, &redirect_uri)
             .await?;
 
@@ -716,6 +738,7 @@ impl OAuth2AuthorizationServer {
                 Some(TokenLineage {
                     family_id: &family_id,
                     client_grant_id: auth_code.client_grant_id.as_deref(),
+                    dpop_jkt,
                 }),
                 &granted,
                 audience.as_deref(),
@@ -757,7 +780,9 @@ impl OAuth2AuthorizationServer {
             // request that narrowed an unbound grant bound only that token.
             resource: auth_code.resource,
             client_grant_id: auth_code.client_grant_id,
-            dpop_jkt: None,
+            // The family is bound to the key the code was redeemed with
+            // (RFC 9449 §5): every refresh needs a proof by it.
+            dpop_jkt: dpop_jkt.map(str::to_owned),
         };
 
         // Store refresh token
@@ -773,8 +798,8 @@ impl OAuth2AuthorizationServer {
 
         Ok(TokenResponse {
             access_token: SecretString::from(access_token),
-            token_type: "Bearer".to_owned(),
-            expires_in: 3600, // 1 hour
+            token_type: token_type(dpop_jkt).to_owned(),
+            expires_in: oauth_access_token_lifetime_secs(&request.client_id),
             scope: Self::rendered_scope(&granted),
             refresh_token: Some(SecretString::from(refresh_token_value)),
             authorization_details,
@@ -826,6 +851,7 @@ impl OAuth2AuthorizationServer {
     async fn handle_refresh_token_grant(
         &self,
         request: TokenRequest,
+        dpop_jkt: Option<&str>,
     ) -> Result<TokenResponse, OAuth2Error> {
         let refresh_token_value = request
             .refresh_token
@@ -841,6 +867,9 @@ impl OAuth2AuthorizationServer {
                 request.resource.as_deref(),
             )
             .await?;
+        // A family bound to a key rotates only with a proof by it (RFC 9449
+        // §5), checked before the token is rotated away.
+        require_refresh_dpop_binding(grant.as_ref(), dpop_jkt)?;
         self.admit_refresh_user(grant.as_ref(), &request.client_id)
             .await?;
 
@@ -883,6 +912,7 @@ impl OAuth2AuthorizationServer {
                 Some(TokenLineage {
                     family_id: &old_refresh_token.family_id,
                     client_grant_id: old_refresh_token.client_grant_id.as_deref(),
+                    dpop_jkt,
                 }),
                 &granted,
                 audience.as_deref(),
@@ -902,101 +932,14 @@ impl OAuth2AuthorizationServer {
 
         Ok(TokenResponse {
             access_token: SecretString::from(access_token),
-            token_type: "Bearer".to_owned(),
-            expires_in: 3600, // 1 hour
+            token_type: token_type(dpop_jkt).to_owned(),
+            expires_in: oauth_access_token_lifetime_secs(&request.client_id),
             scope: Self::rendered_scope(&granted),
             refresh_token: Some(SecretString::from(new_refresh_token_value)),
             authorization_details,
         })
     }
 
-    /// Generate authorization code
-    async fn generate_authorization_code(&self, params: AuthCodeParams<'_>) -> AppResult<String> {
-        let code = Self::generate_random_string(32)?;
-        let expires_at = Timestamp::now() + Elapsed::minutes(10); // 10 minute expiry
-
-        let auth_code = OAuth2AuthCode {
-            code: code.clone(), // Safe: String ownership for OAuth2AuthCode struct
-            client_id: params.client_id.to_owned(),
-            user_id: params.user_id,
-            tenant_id: params.tenant_id.to_owned(),
-            redirect_uri: params.redirect_uri.to_owned(),
-            scope: params.scope.map(str::to_owned),
-            expires_at,
-            used: false,
-            state: params.state.map(str::to_owned),
-            code_challenge: params.code_challenge.map(str::to_owned),
-            code_challenge_method: params.code_challenge_method.map(str::to_owned),
-            resource: params.resource.map(str::to_owned),
-            client_grant_id: params.client_grant_id.map(str::to_owned),
-            dpop_jkt: None,
-        };
-
-        self.store_auth_code(&auth_code).await?;
-
-        // Server-Side State Validation (Defense-in-Depth CSRF Protection)
-        //
-        // RFC 6749 § 10.12 BASELINE: State is client-side CSRF protection. Server echoes state unchanged.
-        // The state parameter is OPAQUE to the server - clients generate it, store it in their session,
-        // and validate it matches on callback. Server's only job is to echo it back.
-        //
-        // OWASP ENHANCEMENT: We ALSO validate state server-side for defense-in-depth security.
-        //
-        // Why defense-in-depth?
-        // 1. Early CSRF Detection: Detects attacks at the server level before client validation
-        // 2. Replay Prevention: 10-minute TTL + single-use flag prevents state reuse
-        // 3. Client Binding: State bound to client_id prevents cross-client attacks
-        // 4. Tenant Isolation: State bound to tenant_id enforces multi-tenant security
-        // 5. Audit Trail: Server-side validation provides security event logging
-        //
-        // Implementation: oauth2_states table (src/database/mod.rs:232)
-        // Consumption: validate_and_consume_auth_code() below (line ~457)
-        // Tests: tests/oauth2_state_validation_test.rs (7 security scenarios)
-        if let Some(state_value) = params.state {
-            let oauth2_state = super::models::OAuth2State {
-                state: state_value.to_owned(),
-                client_id: params.client_id.to_owned(),
-                user_id: Some(params.user_id),
-                tenant_id: Some(params.tenant_id.to_owned()),
-                redirect_uri: params.redirect_uri.to_owned(),
-                scope: params.scope.map(str::to_owned),
-                code_challenge: params.code_challenge.map(str::to_owned),
-                code_challenge_method: params.code_challenge_method.map(str::to_owned),
-                created_at: Timestamp::now(),
-                expires_at,
-                used: false,
-            };
-
-            self.store_state(&oauth2_state).await?;
-        }
-
-        Ok(code)
-    }
-
-    /// Store the state an authorization binds its code to.
-    ///
-    /// `state` is the client's own value and the table's primary key, so a
-    /// repeat is the client reusing one (a reloaded authorize URL): refused at
-    /// WARN. The insert failing otherwise is the server's, and pages.
-    async fn store_state(&self, state: &super::models::OAuth2State) -> AppResult<()> {
-        if let Err(e) = self.oauth2_server.store_state(state).await {
-            if e.is_server_fault() {
-                error!(
-                    "Failed to store OAuth2 state for client_id={}: {:#}",
-                    state.client_id, e
-                );
-            } else {
-                warn!(client_id = %state.client_id, "OAuth2 authorization refused: state already used");
-            }
-            return Err(e);
-        }
-        debug!(
-            "Stored OAuth2 state for server-side validation: client_id={}, state_length={}",
-            state.client_id,
-            state.state.len()
-        );
-        Ok(())
-    }
 
     /// Validate and consume authorization code
     async fn validate_and_consume_auth_code(

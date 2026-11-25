@@ -11,6 +11,7 @@ use futures_util::future::BoxFuture;
 use pierre_auth::admin::jwks::JwksManager;
 use pierre_auth::api_keys::ApiKeyManager;
 use pierre_auth::auth::{AuthManager, AuthMethod, AuthResult, Claims};
+use pierre_auth::dpop::{DpopContext, DpopProofs};
 use pierre_auth::oauth2_server::grant_standing::GrantStandings;
 use pierre_auth::rate_limiting::{
     api_key_window_start, calculate_api_key_rate_limit, calculate_jwt_rate_limit,
@@ -33,6 +34,8 @@ use uuid::Uuid;
 
 use crate::rate_limiting::{enforce_request_budget, log_budget_refusal, report_api_key_request};
 
+/// The DPoP binding rules a JWT meets before it is admitted (RFC 9449 §7)
+mod dpop_binding;
 /// The consent grant a delegated token is admitted under, and its ceiling
 mod grant;
 mod impersonation;
@@ -40,6 +43,7 @@ mod impersonation;
 mod outcome;
 
 pub use outcome::AuthRefusal;
+use dpop_binding::{jwt_credential, Presented};
 use outcome::{settle, Admitted, Checked, Refused};
 
 /// How stale `users.last_active` may grow before an authenticated request
@@ -173,6 +177,9 @@ pub struct McpAuthMiddleware {
     /// [`Self::with_grant_standings`] names them, which reads the grant on
     /// every call
     grant_standings: Option<GrantStandings>,
+    /// Verifies the `DPoP` proof a bound token is presented with; `None`
+    /// refuses every bound token
+    dpop: Option<Arc<DpopProofs>>,
 }
 
 impl McpAuthMiddleware {
@@ -189,7 +196,16 @@ impl McpAuthMiddleware {
             repos,
             jwks_manager,
             grant_standings: None,
+            dpop: None,
         }
+    }
+
+    /// Verify the `DPoP` proofs bound tokens are presented with through
+    /// `proofs`, whose replay memory every replica shares.
+    #[must_use]
+    pub fn with_dpop_proofs(mut self, proofs: Arc<DpopProofs>) -> Self {
+        self.dpop = Some(proofs);
+        self
     }
 
     /// Read where a delegated token's consent stands through `standings`.
@@ -235,7 +251,7 @@ impl McpAuthMiddleware {
             debug!("Found JWT in httpOnly cookie, attempting authentication");
             tracing::Span::current().record("auth_method", "JWT_COOKIE");
             match self
-                .authenticate_jwt_token(&jwt_token, GrantPolicy::DirectOnly)
+                .authenticate_jwt_token(&jwt_token, GrantPolicy::DirectOnly, Presented::BEARER)
                 .await
             {
                 Ok(admitted) => {
@@ -296,7 +312,7 @@ impl McpAuthMiddleware {
     /// - Rate limit calculations fail
     /// - User lookup fails
     pub async fn authenticate_request(&self, auth_header: Option<&str>) -> AppResult<AuthResult> {
-        self.authenticate_header(auth_header, GrantPolicy::DirectOnly)
+        self.authenticate_header(auth_header, GrantPolicy::DirectOnly, None)
             .await
             .map_err(|refusal| refusal.error)
     }
@@ -325,7 +341,7 @@ impl McpAuthMiddleware {
         auth_header: Option<&str>,
         resources: &[&str],
     ) -> AppResult<AuthResult> {
-        self.authenticate_scoped_request_naming_caller(auth_header, resources)
+        self.authenticate_scoped_request_naming_caller(auth_header, resources, None)
             .await
             .map_err(|refusal| refusal.error)
     }
@@ -337,15 +353,22 @@ impl McpAuthMiddleware {
     /// owner the account-status gate turns away, a delegated grant whose
     /// consent was withdrawn.
     ///
+    /// `auth_header` is the `Authorization` value as presented, `Bearer` or
+    /// `DPoP`; `dpop` is the request's proofs, method and dialed URI, which a
+    /// `DPoP`-bound token needs (RFC 9449 §7) and an unbound Bearer token
+    /// ignores.
+    ///
     /// # Errors
     ///
-    /// As [`Self::authenticate_scoped_request`], with the caller beside it.
+    /// As [`Self::authenticate_scoped_request`], with the caller beside it,
+    /// plus a refusal of the `DPoP` binding rules, which names its code.
     pub async fn authenticate_scoped_request_naming_caller(
         &self,
         auth_header: Option<&str>,
         resources: &[&str],
+        dpop: Option<&DpopContext<'_>>,
     ) -> Result<AuthResult, AuthRefusal> {
-        self.authenticate_header(auth_header, GrantPolicy::ScopesEnforced { resources })
+        self.authenticate_header(auth_header, GrantPolicy::ScopesEnforced { resources }, dpop)
             .await
     }
 
@@ -367,6 +390,7 @@ impl McpAuthMiddleware {
         &'a self,
         auth_header: Option<&'a str>,
         policy: GrantPolicy<'a>,
+        dpop: Option<&'a DpopContext<'a>>,
     ) -> BoxFuture<'a, Result<AuthResult, AuthRefusal>> {
         Box::pin(async move {
             debug!("=== AUTH MIDDLEWARE AUTHENTICATE_REQUEST START ===");
@@ -438,11 +462,12 @@ impl McpAuthMiddleware {
                     }
                 }
             }
-            // Then try Bearer token authentication
-            else if let Some(token) = auth_str.strip_prefix("Bearer ") {
+            // Then a JWT, presented as Bearer or, bound to a key, as DPoP
+            else if let Some((token, scheme)) = jwt_credential(auth_str) {
                 tracing::Span::current().record("auth_method", "JWT_TOKEN");
                 debug!("Attempting JWT token authentication");
-                match settle(self.authenticate_jwt_token(token, policy).await) {
+                let presented = Presented { scheme, dpop };
+                match settle(self.authenticate_jwt_token(token, policy, presented).await) {
                     Ok(result) => {
                         tracing::Span::current().record("success", true);
                         record_authenticated(&result);
@@ -837,6 +862,7 @@ impl McpAuthMiddleware {
         &'a self,
         token: &'a str,
         policy: GrantPolicy<'a>,
+        presented: Presented<'a>,
     ) -> BoxFuture<'a, Checked> {
         Box::pin(async move {
             // The audience check: every path takes the platform audience, and the
@@ -854,6 +880,8 @@ impl McpAuthMiddleware {
 
             // A client-credentials token names no user, and is refused here.
             let user_id = token_user_id(&claims)?;
+            // A key-bound token proves possession before it spends anything.
+            self.require_dpop_binding(&claims, token, presented).await?;
             self.admit_jwt(claims, user_id, policy)
                 .await
                 .map_err(|refused| refused.of_caller(user_id))
@@ -1110,6 +1138,7 @@ mod tests {
             client_id: client_id.map(str::to_owned),
             grant_id: None,
             client_grant_id: None,
+            cnf: None,
         }
     }
 

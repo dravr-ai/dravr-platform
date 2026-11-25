@@ -6,12 +6,16 @@
 
 use dravr_tronc::dates::{Elapsed, Timestamp};
 use jsonwebtoken::{encode, Algorithm, Header};
-use pierre_core::constants::{limits::OAUTH_ACCESS_TOKEN_EXPIRY_HOURS, service_names::MCP};
+use pierre_core::constants::limits::{
+    OAUTH_ACCESS_TOKEN_EXPIRY_HOURS, OAUTH_DELEGATED_ACCESS_TOKEN_EXPIRY_MINUTES,
+};
+use pierre_core::constants::service_names::MCP;
 use pierre_core::errors::{AppError, AppResult};
 use uuid::Uuid;
 
-use super::{AuthManager, Claims, DelegatedGrant};
+use super::{AuthManager, Claims, Confirmation, DelegatedGrant};
 use crate::admin::jwks::JwksManager;
+use crate::oauth2_server::first_party::names_third_party;
 
 /// Where a delegated access token comes from: the refresh family its
 /// authorization started, and the consent grant that authorization was given
@@ -23,6 +27,26 @@ pub struct TokenLineage<'grant> {
     /// The consent grant ([`Claims::client_grant_id`]); `None` for a family
     /// begun before grants were named
     pub client_grant_id: Option<&'grant str>,
+    /// The RFC 7638 thumbprint of the `DPoP` key the token is bound to, which
+    /// it carries as `cnf.jkt` ([`Claims::cnf`]); `None` mints a Bearer token
+    pub dpop_jkt: Option<&'grant str>,
+}
+
+/// How long an access token minted for `client_id` lives, in seconds: 15
+/// minutes for a third-party client, an hour for Dravr's own apps. The token's
+/// `exp`, the token response's `expires_in` and introspection all follow it.
+#[must_use]
+pub fn oauth_access_token_lifetime_secs(client_id: &str) -> i64 {
+    oauth_access_token_lifetime(client_id).num_seconds()
+}
+
+/// [`oauth_access_token_lifetime_secs`] as a duration.
+fn oauth_access_token_lifetime(client_id: &str) -> Elapsed {
+    if names_third_party(Some(client_id)) {
+        Elapsed::minutes(OAUTH_DELEGATED_ACCESS_TOKEN_EXPIRY_MINUTES)
+    } else {
+        Elapsed::hours(OAUTH_ACCESS_TOKEN_EXPIRY_HOURS)
+    }
 }
 
 impl AuthManager {
@@ -86,7 +110,7 @@ impl AuthManager {
         active_tenant_id: Option<String>,
     ) -> AppResult<String> {
         let now = Timestamp::now();
-        let expiry = now + Elapsed::hours(OAUTH_ACCESS_TOKEN_EXPIRY_HOURS);
+        let expiry = now + oauth_access_token_lifetime(grant.client_id);
 
         let claims = Claims {
             sub: user_id.to_string(),
@@ -107,6 +131,11 @@ impl AuthManager {
             client_grant_id: lineage
                 .and_then(|lineage| lineage.client_grant_id)
                 .map(str::to_owned),
+            cnf: lineage
+                .and_then(|lineage| lineage.dpop_jkt)
+                .map(|jkt| Confirmation {
+                    jkt: jkt.to_owned(),
+                }),
         };
 
         // Get active RSA key from JWKS manager

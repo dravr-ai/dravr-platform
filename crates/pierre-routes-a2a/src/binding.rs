@@ -51,7 +51,8 @@ use pierre_a2a::{
     INVALID_PARAMS, JSONRPC_VERSION, METHOD_NOT_FOUND, PARSE_ERROR, SERVER_ERROR_START,
 };
 use pierre_auth::config::{www_authenticate_challenge, DIALED_HOST_HEADERS};
-use pierre_core::auth_header::extract_bearer_token;
+use pierre_auth::dpop::{dpop_credential, signing_algorithms, DPOP_HEADER, DPOP_SCHEME};
+use pierre_middleware::dpop_request::PresentedCall;
 use pierre_runtime_context::{A2ACtx, MiddlewareCtx};
 use serde_json::{json, Value};
 use tokio::sync::broadcast;
@@ -93,15 +94,6 @@ fn version_supported(headers: &HeaderMap, query: Option<&str>) -> bool {
     requested_version(headers, query).is_some_and(|version| version == A2A_VERSION)
 }
 
-/// Bearer token from the `Authorization` header, if present.
-fn bearer_token(headers: &HeaderMap) -> Option<String> {
-    headers
-        .get(AUTHORIZATION)
-        .and_then(|value| value.to_str().ok())
-        .and_then(|header| extract_bearer_token(header).ok())
-        .map(str::to_owned)
-}
-
 /// Attach the RFC 9728 challenge to every 401 the protocol routes answer, on
 /// either binding, so a client finds the authorization server from the refusal.
 ///
@@ -123,6 +115,15 @@ pub(crate) async fn challenge_unauthorized<C: MiddlewareCtx + A2ACtx>(
             .map(str::to_owned)
     });
     let presented = request.headers().contains_key(AUTHORIZATION);
+    // A request that used DPoP (RFC 9449 §7.1) is also told the scheme and
+    // the algorithms a proof may use.
+    let used_dpop = request.headers().contains_key(DPOP_HEADER)
+        || request
+            .headers()
+            .get(AUTHORIZATION)
+            .and_then(|value| value.to_str().ok())
+            .and_then(dpop_credential)
+            .is_some();
 
     let mut response = next.run(request).await;
     if response.status() == StatusCode::UNAUTHORIZED {
@@ -130,7 +131,12 @@ pub(crate) async fn challenge_unauthorized<C: MiddlewareCtx + A2ACtx>(
             .ctx
             .oauth2_server_config()
             .a2a_resource_for_host(host.as_deref());
-        let challenge = www_authenticate_challenge(&resource, presented.then_some("invalid_token"));
+        let bearer = www_authenticate_challenge(&resource, presented.then_some("invalid_token"));
+        let challenge = if used_dpop {
+            format!("{DPOP_SCHEME} algs=\"{}\", {bearer}", signing_algorithms().join(" "))
+        } else {
+            bearer
+        };
         match HeaderValue::from_str(&challenge) {
             Ok(value) => {
                 response.headers_mut().insert(WWW_AUTHENTICATE, value);
@@ -180,10 +186,12 @@ fn has_reason(error: &JsonRpcError, reason: &str) -> bool {
         })
 }
 
-/// Build a bare A2A request for a spec method (REST binding path).
-fn wire_request(method: &str, params: Value, auth_token: Option<String>) -> A2ARequest {
+/// Build a bare A2A request for a spec method (REST binding path), carrying
+/// the credential as it was presented: its scheme, and the `DPoP` proof, method
+/// and path a key-bound token is checked against (RFC 9449).
+fn wire_request(method: &str, params: Value, presented: PresentedCall) -> A2ARequest {
     let mut request = A2ARequest::notification(method, Some(params));
-    request.auth_token = auth_token;
+    presented.attach(&mut request);
     request
 }
 
@@ -277,6 +285,7 @@ fn parse_jsonrpc_body(body: &[u8]) -> Result<A2ARequest, Box<A2AResponse>> {
 pub(crate) async fn handle_jsonrpc<C: MiddlewareCtx + A2ACtx>(
     State(state): State<A2ARoutesState<C>>,
     headers: HeaderMap,
+    presented: PresentedCall,
     RawQuery(query): RawQuery,
     body: Bytes,
 ) -> Response {
@@ -285,7 +294,8 @@ pub(crate) async fn handle_jsonrpc<C: MiddlewareCtx + A2ACtx>(
         Err(response) => return (StatusCode::OK, Json(*response)).into_response(),
     };
 
-    request.auth_token = bearer_token(&headers);
+    // The credential as presented, `Bearer` or `DPoP` with its proof.
+    presented.attach(&mut request);
 
     if !version_supported(&headers, query.as_deref()) {
         let spec_error = A2ASpecError::VersionNotSupported;
@@ -433,11 +443,11 @@ fn rest_parse_body(body: &Bytes) -> Result<Value, Box<Response>> {
 /// Dispatch one REST call through the protocol layer.
 async fn rest_dispatch<C: MiddlewareCtx + A2ACtx>(
     state: &A2ARoutesState<C>,
-    headers: &HeaderMap,
+    presented: PresentedCall,
     method: &str,
     params: Value,
 ) -> Response {
-    let request = wire_request(method, params, bearer_token(headers));
+    let request = wire_request(method, params, presented);
     let server = protocol_server(state);
     rest_response(server.handle_request(request).await)
 }
@@ -446,6 +456,7 @@ async fn rest_dispatch<C: MiddlewareCtx + A2ACtx>(
 pub(crate) async fn rest_message_send<C: MiddlewareCtx + A2ACtx>(
     State(state): State<A2ARoutesState<C>>,
     headers: HeaderMap,
+    presented: PresentedCall,
     RawQuery(query): RawQuery,
     body: Bytes,
 ) -> Response {
@@ -459,13 +470,14 @@ pub(crate) async fn rest_message_send<C: MiddlewareCtx + A2ACtx>(
         Ok(params) => params,
         Err(response) => return *response,
     };
-    rest_dispatch(&state, &headers, "SendMessage", params).await
+    rest_dispatch(&state, presented, "SendMessage", params).await
 }
 
 /// `POST /a2a/message:stream` — SSE with bare `StreamResponse` frames.
 pub(crate) async fn rest_message_stream<C: MiddlewareCtx + A2ACtx>(
     State(state): State<A2ARoutesState<C>>,
     headers: HeaderMap,
+    presented: PresentedCall,
     RawQuery(query): RawQuery,
     body: Bytes,
 ) -> Response {
@@ -480,7 +492,7 @@ pub(crate) async fn rest_message_stream<C: MiddlewareCtx + A2ACtx>(
         Err(response) => return *response,
     };
 
-    let request = wire_request("SendStreamingMessage", params, bearer_token(&headers));
+    let request = wire_request("SendStreamingMessage", params, presented);
     let server = protocol_server(&state);
     match server.start_streaming_message(request).await {
         Ok((snapshot, receiver)) => sse_task_stream(snapshot, receiver, None),
@@ -501,13 +513,14 @@ pub(crate) async fn rest_get_task<C: MiddlewareCtx + A2ACtx>(
     Path(id): Path<String>,
     Query(query_map): Query<HashMap<String, String>>,
     headers: HeaderMap,
+    presented: PresentedCall,
 ) -> Response {
     if let Err(response) = rest_version_guard(&headers, query_string(&query_map).as_deref()) {
         return *response;
     }
     if let Some((task_id, verb)) = id.rsplit_once(':') {
         return match verb {
-            "subscribe" => rest_subscribe(&state, &headers, task_id).await,
+            "subscribe" => rest_subscribe(&state, presented, task_id).await,
             _ => unknown_task_action(),
         };
     }
@@ -518,7 +531,7 @@ pub(crate) async fn rest_get_task<C: MiddlewareCtx + A2ACtx>(
     {
         params["historyLength"] = json!(history_length);
     }
-    rest_dispatch(&state, &headers, "GetTask", params).await
+    rest_dispatch(&state, presented, "GetTask", params).await
 }
 
 /// Rebuild a raw query string from the parsed map (for the version guard).
@@ -533,6 +546,7 @@ pub(crate) async fn rest_list_tasks<C: MiddlewareCtx + A2ACtx>(
     State(state): State<A2ARoutesState<C>>,
     Query(query_map): Query<HashMap<String, String>>,
     headers: HeaderMap,
+    presented: PresentedCall,
 ) -> Response {
     if let Err(response) = rest_version_guard(&headers, query_string(&query_map).as_deref()) {
         return *response;
@@ -563,7 +577,7 @@ pub(crate) async fn rest_list_tasks<C: MiddlewareCtx + A2ACtx>(
         params.insert("historyLength".into(), json!(history_length));
     }
 
-    rest_dispatch(&state, &headers, "ListTasks", Value::Object(params)).await
+    rest_dispatch(&state, presented, "ListTasks", Value::Object(params)).await
 }
 
 /// `POST /a2a/tasks/{id}:cancel` / `POST /a2a/tasks/{id}:subscribe`
@@ -572,6 +586,7 @@ pub(crate) async fn rest_task_action<C: MiddlewareCtx + A2ACtx>(
     Path(id_action): Path<String>,
     RawQuery(query): RawQuery,
     headers: HeaderMap,
+    presented: PresentedCall,
 ) -> Response {
     if let Err(response) = rest_version_guard(&headers, query.as_deref()) {
         return *response;
@@ -582,8 +597,8 @@ pub(crate) async fn rest_task_action<C: MiddlewareCtx + A2ACtx>(
     };
 
     match action {
-        "cancel" => rest_dispatch(&state, &headers, "CancelTask", json!({ "id": task_id })).await,
-        "subscribe" => rest_subscribe(&state, &headers, task_id).await,
+        "cancel" => rest_dispatch(&state, presented, "CancelTask", json!({ "id": task_id })).await,
+        "subscribe" => rest_subscribe(&state, presented, task_id).await,
         _ => unknown_task_action(),
     }
 }
@@ -592,14 +607,10 @@ pub(crate) async fn rest_task_action<C: MiddlewareCtx + A2ACtx>(
 /// frames.
 async fn rest_subscribe<C: MiddlewareCtx + A2ACtx>(
     state: &A2ARoutesState<C>,
-    headers: &HeaderMap,
+    presented: PresentedCall,
     task_id: &str,
 ) -> Response {
-    let request = wire_request(
-        "SubscribeToTask",
-        json!({ "id": task_id }),
-        bearer_token(headers),
-    );
+    let request = wire_request("SubscribeToTask", json!({ "id": task_id }), presented);
     let server = protocol_server(state);
     match server.start_task_subscription(request).await {
         Ok((snapshot, receiver)) => sse_task_stream(snapshot, receiver, None),
@@ -623,6 +634,7 @@ pub(crate) async fn rest_push_create<C: MiddlewareCtx + A2ACtx>(
     Path(id): Path<String>,
     RawQuery(query): RawQuery,
     headers: HeaderMap,
+    presented: PresentedCall,
     body: Bytes,
 ) -> Response {
     if let Err(response) = rest_version_guard(&headers, query.as_deref()) {
@@ -637,7 +649,7 @@ pub(crate) async fn rest_push_create<C: MiddlewareCtx + A2ACtx>(
     };
     rest_dispatch(
         &state,
-        &headers,
+        presented,
         "CreateTaskPushNotificationConfig",
         json!({ "taskId": id, "config": config }),
     )
@@ -650,13 +662,14 @@ pub(crate) async fn rest_push_list<C: MiddlewareCtx + A2ACtx>(
     Path(id): Path<String>,
     Query(query_map): Query<HashMap<String, String>>,
     headers: HeaderMap,
+    presented: PresentedCall,
 ) -> Response {
     if let Err(response) = rest_version_guard(&headers, query_string(&query_map).as_deref()) {
         return *response;
     }
     rest_dispatch(
         &state,
-        &headers,
+        presented,
         "ListTaskPushNotificationConfigs",
         json!({ "taskId": id }),
     )
@@ -669,13 +682,14 @@ pub(crate) async fn rest_push_get<C: MiddlewareCtx + A2ACtx>(
     Path((id, config_id)): Path<(String, String)>,
     Query(query_map): Query<HashMap<String, String>>,
     headers: HeaderMap,
+    presented: PresentedCall,
 ) -> Response {
     if let Err(response) = rest_version_guard(&headers, query_string(&query_map).as_deref()) {
         return *response;
     }
     rest_dispatch(
         &state,
-        &headers,
+        presented,
         "GetTaskPushNotificationConfig",
         json!({ "taskId": id, "configId": config_id }),
     )
@@ -688,13 +702,14 @@ pub(crate) async fn rest_push_delete<C: MiddlewareCtx + A2ACtx>(
     Path((id, config_id)): Path<(String, String)>,
     RawQuery(query): RawQuery,
     headers: HeaderMap,
+    presented: PresentedCall,
 ) -> Response {
     if let Err(response) = rest_version_guard(&headers, query.as_deref()) {
         return *response;
     }
     rest_dispatch(
         &state,
-        &headers,
+        presented,
         "DeleteTaskPushNotificationConfig",
         json!({ "taskId": id, "configId": config_id }),
     )
@@ -706,12 +721,13 @@ pub(crate) async fn rest_push_delete<C: MiddlewareCtx + A2ACtx>(
 pub(crate) async fn rest_extended_card<C: MiddlewareCtx + A2ACtx>(
     State(state): State<A2ARoutesState<C>>,
     headers: HeaderMap,
+    presented: PresentedCall,
     RawQuery(query): RawQuery,
 ) -> Response {
     if let Err(response) = rest_version_guard(&headers, query.as_deref()) {
         return *response;
     }
-    rest_dispatch(&state, &headers, "GetExtendedAgentCard", Value::Null).await
+    rest_dispatch(&state, presented, "GetExtendedAgentCard", Value::Null).await
 }
 
 #[cfg(test)]
