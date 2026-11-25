@@ -797,7 +797,8 @@
     "claimVerdictSummaryStatusOnlyOne": "{{count}} claim verdict — overall: {{status}}",
     "claimVerdictSummaryStatusOnlyN": "{{count}} claim verdicts — overall: {{status}}",
     "signInOnProviderPage": "Sign in on {{provider}}'s page",
-    "signInOnProviderPageHint": "{{provider}}'s own sign-in page opens in a tab of this browser."
+    "signInOnProviderPageHint": "{{provider}}'s own sign-in page opens in a tab of this browser.",
+    "confirmRevokeAlwaysAllowedApp": "Revoke access for “{{app}}”? You always allow it, so Dravr renews its access the next time it connects. Stop always allowing it to end that too."
   },
   "auth": {
     "activatesOnConfirm": "Your account activates as soon as the address is confirmed",
@@ -4059,7 +4060,8 @@
       "unverifiedPublishedBy": "It is published by {0}; the name it gives itself is not checked.",
       "unverifiedTitle": "Unverified app.",
       "useAnotherAccount": "Use another account",
-      "verified": "Verified: {0} by {1}"
+      "verified": "Verified: {0} by {1}",
+      "standingPolicy": "Always allow {0} this choice: when it ends, Dravr renews it without asking you again. You can stop this in Connected apps."
     },
     "error": {
       "accountGone": "The account you are signed in as no longer exists; sign in again",
@@ -5294,7 +5296,29 @@
     "setupInstructions": "Setup Instructions",
     "setupInstructionsFor": "for Claude & ChatGPT",
     "statusActive": "Active",
-    "title": "MCP tokens"
+    "title": "MCP tokens",
+    "connectedAppsAlwaysAllowed": "Always allowed",
+    "standingPolicies": "Always allowed",
+    "standingPoliciesHint": "Apps you let renew their access without asking you again. Stopping one leaves its current access as it is; revoke the app as well to end that now.",
+    "standingPoliciesEmpty": "No app is always allowed",
+    "standingPoliciesLoadFailed": "Could not load the apps you always allow.",
+    "standingPolicySince": "Always allowed since {{date}}",
+    "standingPolicyStop": "Stop",
+    "standingPolicyStopLabel": "Stop always allowing {{app}}",
+    "standingPolicyStopQ": "Stop always allowing this app?",
+    "standingPolicyStopConfirm": "“{{app}}” will have to ask for your approval again once its current access ends.",
+    "standingPolicyStopFailed": "Could not stop always allowing the app",
+    "grantHistory": "Consent history",
+    "grantHistoryHint": "Each time you allowed an app, its access was renewed for you, or it ended.",
+    "grantHistoryEmpty": "No consent recorded yet",
+    "grantHistoryLoadFailed": "Could not load your consent history.",
+    "grantHistoryOlder": "Show older",
+    "grantEventAllowed": "Allowed",
+    "grantEventRenewed": "Renewed automatically",
+    "grantEventEndedByYou": "Ended by you",
+    "grantEventEndedByApp": "Ended by the app",
+    "grantEventEndedByDravr": "Ended by Dravr",
+    "grantEventExpired": "Expired"
   },
   "usage": {
     "counter": {

@@ -797,7 +797,8 @@
     "claimVerdictSummaryStatusOnlyOne": "{{count}} veredicto sobre afirmaciones: en conjunto, {{status}}",
     "claimVerdictSummaryStatusOnlyN": "{{count}} veredictos sobre afirmaciones: en conjunto, {{status}}",
     "signInOnProviderPage": "Iniciar sesión en la página de {{provider}}",
-    "signInOnProviderPageHint": "La página de inicio de sesión de {{provider}} se abre en una pestaña de este navegador."
+    "signInOnProviderPageHint": "La página de inicio de sesión de {{provider}} se abre en una pestaña de este navegador.",
+    "confirmRevokeAlwaysAllowedApp": "¿Revocar el acceso de «{{app}}»? La permite siempre, así que Dravr renovará su acceso en su próxima conexión. Deje de permitirla siempre para terminar también eso."
   },
   "auth": {
     "activatesOnConfirm": "Tu cuenta se activa en cuanto se confirme la dirección",
@@ -4059,7 +4060,8 @@
       "unverifiedPublishedBy": "La publica {0}; el nombre que se da a sí misma no se comprueba.",
       "unverifiedTitle": "Aplicación no verificada.",
       "useAnotherAccount": "Usar otra cuenta",
-      "verified": "Verificada: {0} de {1}"
+      "verified": "Verificada: {0} de {1}",
+      "standingPolicy": "Permitir siempre a {0} esta opción: cuando termine, Dravr la renovará sin volver a preguntarle. Puede detenerlo en Aplicaciones conectadas."
     },
     "error": {
       "accountGone": "La cuenta con la que inició sesión ya no existe; vuelva a iniciar sesión",
@@ -5294,7 +5296,29 @@
     "setupInstructions": "Instrucciones de configuración",
     "setupInstructionsFor": "para Claude y ChatGPT",
     "statusActive": "Activo",
-    "title": "Tokens MCP"
+    "title": "Tokens MCP",
+    "connectedAppsAlwaysAllowed": "Siempre permitida",
+    "standingPolicies": "Siempre permitidas",
+    "standingPoliciesHint": "Las aplicaciones cuyo acceso deja renovar sin volver a preguntarle. Detener una deja su acceso actual como está; revoque también la aplicación para terminarlo ahora.",
+    "standingPoliciesEmpty": "Ninguna aplicación está siempre permitida",
+    "standingPoliciesLoadFailed": "No se pudieron cargar las aplicaciones que siempre permite.",
+    "standingPolicySince": "Siempre permitida desde el {{date}}",
+    "standingPolicyStop": "Detener",
+    "standingPolicyStopLabel": "Dejar de permitir siempre {{app}}",
+    "standingPolicyStopQ": "¿Dejar de permitir siempre esta aplicación?",
+    "standingPolicyStopConfirm": "«{{app}}» tendrá que volver a pedir su autorización cuando termine su acceso actual.",
+    "standingPolicyStopFailed": "No se pudo dejar de permitir siempre la aplicación",
+    "grantHistory": "Historial de consentimientos",
+    "grantHistoryHint": "Cada vez que permitió una aplicación, que su acceso se renovó por usted o que terminó.",
+    "grantHistoryEmpty": "Aún no hay consentimientos registrados",
+    "grantHistoryLoadFailed": "No se pudo cargar su historial de consentimientos.",
+    "grantHistoryOlder": "Mostrar anteriores",
+    "grantEventAllowed": "Permitida",
+    "grantEventRenewed": "Renovada automáticamente",
+    "grantEventEndedByYou": "Terminada por usted",
+    "grantEventEndedByApp": "Terminada por la aplicación",
+    "grantEventEndedByDravr": "Terminada por Dravr",
+    "grantEventExpired": "Caducada"
   },
   "usage": {
     "counter": {

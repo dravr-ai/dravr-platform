@@ -797,7 +797,8 @@
     "claimVerdictSummaryStatusOnlyOne": "{{count}} Urteil zu Aussagen — insgesamt: {{status}}",
     "claimVerdictSummaryStatusOnlyN": "{{count}} Urteile zu Aussagen — insgesamt: {{status}}",
     "signInOnProviderPage": "Auf der Seite von {{provider}} anmelden",
-    "signInOnProviderPageHint": "Die Anmeldeseite von {{provider}} öffnet sich in einem Tab dieses Browsers."
+    "signInOnProviderPageHint": "Die Anmeldeseite von {{provider}} öffnet sich in einem Tab dieses Browsers.",
+    "confirmRevokeAlwaysAllowedApp": "Zugriff für „{{app}}“ widerrufen? Sie erlauben sie immer, daher verlängert Dravr ihren Zugriff bei der nächsten Verbindung. Erlauben Sie sie nicht mehr immer, um auch das zu beenden."
   },
   "auth": {
     "activatesOnConfirm": "Dein Konto wird aktiv, sobald die Adresse bestätigt ist",
@@ -4059,7 +4060,8 @@
       "unverifiedPublishedBy": "Sie wird von {0} veröffentlicht; der Name, den sie sich selbst gibt, wird nicht geprüft.",
       "unverifiedTitle": "Nicht verifizierte App.",
       "useAnotherAccount": "Anderes Konto verwenden",
-      "verified": "Verifiziert: {0} von {1}"
+      "verified": "Verifiziert: {0} von {1}",
+      "standingPolicy": "{0} diese Auswahl immer erlauben: Wenn sie endet, verlängert Dravr sie, ohne Sie erneut zu fragen. Sie können das unter Verbundene Apps beenden."
     },
     "error": {
       "accountGone": "Das Konto, mit dem Sie angemeldet sind, existiert nicht mehr; melden Sie sich erneut an",
@@ -5294,7 +5296,29 @@
     "setupInstructions": "Einrichtungsanleitung",
     "setupInstructionsFor": "für Claude & ChatGPT",
     "statusActive": "Aktiv",
-    "title": "MCP-Tokens"
+    "title": "MCP-Tokens",
+    "connectedAppsAlwaysAllowed": "Immer erlaubt",
+    "standingPolicies": "Immer erlaubt",
+    "standingPoliciesHint": "Apps, deren Zugriff Sie ohne erneute Nachfrage verlängern lassen. Wenn Sie eine beenden, bleibt ihr aktueller Zugriff bestehen; widerrufen Sie die App zusätzlich, um ihn jetzt zu beenden.",
+    "standingPoliciesEmpty": "Keine App ist immer erlaubt",
+    "standingPoliciesLoadFailed": "Die Apps, die Sie immer erlauben, konnten nicht geladen werden.",
+    "standingPolicySince": "Immer erlaubt seit {{date}}",
+    "standingPolicyStop": "Beenden",
+    "standingPolicyStopLabel": "{{app}} nicht mehr immer erlauben",
+    "standingPolicyStopQ": "Diese App nicht mehr immer erlauben?",
+    "standingPolicyStopConfirm": "„{{app}}“ muss Sie erneut um Erlaubnis bitten, sobald ihr aktueller Zugriff endet.",
+    "standingPolicyStopFailed": "Die App konnte nicht von „Immer erlaubt“ entfernt werden",
+    "grantHistory": "Verlauf der Einwilligungen",
+    "grantHistoryHint": "Jedes Mal, wenn Sie eine App erlaubt haben, ihr Zugriff für Sie verlängert wurde oder er endete.",
+    "grantHistoryEmpty": "Noch keine Einwilligung erfasst",
+    "grantHistoryLoadFailed": "Ihr Verlauf der Einwilligungen konnte nicht geladen werden.",
+    "grantHistoryOlder": "Ältere anzeigen",
+    "grantEventAllowed": "Erlaubt",
+    "grantEventRenewed": "Automatisch verlängert",
+    "grantEventEndedByYou": "Von Ihnen beendet",
+    "grantEventEndedByApp": "Von der App beendet",
+    "grantEventEndedByDravr": "Von Dravr beendet",
+    "grantEventExpired": "Abgelaufen"
   },
   "usage": {
     "counter": {
