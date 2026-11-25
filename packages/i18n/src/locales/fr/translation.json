@@ -2132,7 +2132,7 @@
     "actionFailed": "Ça n'a pas abouti. Réessaie.",
     "alreadyLinked": "Ton {{platform}} est déjà associé via un autre groupe.",
     "alreadyProposed": "Ce membre a déjà un lien {{platform}} dans ce groupe.",
-    "apiKeyRequired": "{{platform}} ne donne ta liste d'athlètes qu'avec une clé API. Reconnecte {{platform}} avec ta clé API pour lire ta liste.",
+    "apiKeyRequired": "{{platform}} ne donne ta liste d'athlètes qu'avec une clé API. Dans Dravr, ouvre Réglages, Fournisseurs, puis {{platform}}, et connecte-le avec ta clé API pour lire ta liste.",
     "athleteAlreadyLinked": "Cet athlète est déjà associé.",
     "athleteConnectsThemselves": "Cet athlète connecte lui-même {{platform}} dans Dravr : il n'y a rien à lier, tu accèdes à son calendrier par ton propre compte.",
     "athleteEmailMismatch": "Le courriel {{platform}} de cet athlète n'est pas le courriel Dravr du membre : impossible de les associer.",

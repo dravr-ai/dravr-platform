@@ -2132,7 +2132,7 @@
     "actionFailed": "That did not go through. Try again.",
     "alreadyLinked": "Your {{platform}} is already linked through another group.",
     "alreadyProposed": "This member already has a {{platform}} link in this group.",
-    "apiKeyRequired": "{{platform}} lists your athletes for an API key only. Reconnect {{platform}} with your API key to read your roster.",
+    "apiKeyRequired": "{{platform}} lists your athletes for an API key only. In Dravr, open Settings, Data Providers, then {{platform}}, and link it with your API key to read your roster.",
     "athleteAlreadyLinked": "This athlete is already linked.",
     "athleteConnectsThemselves": "This athlete connects {{platform}} themselves in Dravr, so there is nothing to link: you reach their calendar through your own account.",
     "athleteEmailMismatch": "This athlete's {{platform}} email is not the member's Dravr email, so they cannot be linked.",
