@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # ABOUTME: Tail dev Cloud Run (dravr-mcp-server-api) logs, keeping ONLY the binary's
-# ABOUTME: structured tracing output (jsonPayload) — drops 100% of the gcsfuse sidecar noise.
+# ABOUTME: structured tracing output (jsonPayload) — drops plain-text sidecar and runtime noise.
 #
 # SPDX-License-Identifier: MIT OR Apache-2.0
 # Copyright (c) 2026 dravr.ai
 #
-# The dev service mounts the dravr-dev-sciotte-scripts GCS bucket via gcsfuse, which
-# floods Cloud Run logs with plain-text banners (GCSFuse Config / mount-id / ...).
-# gcsfuse only ever emits `textPayload`; the dravr binary logs via tracing -> `jsonPayload`.
-# So filtering on `jsonPayload:*` keeps every app line and discards every gcsfuse line,
+# The API mounts no bucket (only the sciotte services mount dravr-dev-sciotte-scripts
+# via gcsfuse). Any plain-text line, from a sidecar or the runtime, arrives as
+# `textPayload`; the dravr binary logs via tracing -> `jsonPayload`.
+# So filtering on `jsonPayload:*` keeps every app line and discards every plain-text line,
 # regardless of what new banners Google adds. The only thing it misses is genuinely
 # unstructured app output (raw panics on stderr, pre-tracing-init lines) — `--errors`
 # adds a targeted `severity>=ERROR AND textPayload:*` pass to catch those.

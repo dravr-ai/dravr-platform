@@ -38,12 +38,14 @@ resource "google_project_iam_member" "app_secret_accessor" {
   member  = "serviceAccount:${google_service_account.app.email}"
 }
 
-# Storage Object Admin (for any storage operations)
-resource "google_project_iam_member" "app_storage_admin" {
-  project = var.project_id
-  role    = "roles/storage.objectAdmin"
-  member  = "serviceAccount:${google_service_account.app.email}"
-}
+# No project-wide storage role (carnet#1549). Each bucket the app reaches
+# grants it the narrowest role it needs, beside the bucket's definition:
+#   - dev barrage bucket, objectUser: blobs are create-only, and the expiry,
+#     retention and erasure sweeps delete them
+#     (infra/environments/dev/archive_imports.tf)
+#   - dev sciotte-scripts bucket, objectViewer: the read-only gcsfuse mount
+#     of the sciotte services (infra/environments/dev/main.tf)
+# A new bucket the app uses brings its own google_storage_bucket_iam_member.
 
 # AI Platform User (for Vertex AI access)
 resource "google_project_iam_member" "app_aiplatform_user" {
