@@ -154,6 +154,28 @@ impl CacheProvider for InMemoryCache {
         Ok(())
     }
 
+    async fn set_if_absent<T: Serialize + Send + Sync>(
+        &self,
+        key: &CacheKey,
+        value: &T,
+        ttl: Duration,
+    ) -> AppResult<bool> {
+        let serialized = serde_json::to_vec(value)
+            .map_err(|e| AppError::internal(format!("Cache serialization failed: {e}")))?;
+        let key = key.to_string();
+        let mut store = self.store.write().await;
+
+        // One write guard covers the test and the write, so of two concurrent
+        // callers in this process exactly one stores.
+        if store.peek(&key).is_some_and(|entry| !entry.is_expired()) {
+            drop(store);
+            return Ok(false);
+        }
+        store.push(key, CacheEntry::new(serialized, ttl));
+        drop(store);
+        Ok(true)
+    }
+
     async fn get<T: for<'de> Deserialize<'de>>(&self, key: &CacheKey) -> AppResult<Option<T>> {
         let mut store = self.store.write().await;
 
@@ -314,5 +336,92 @@ impl Drop for InMemoryCache {
                 debug!(error = ?e, "Cache shutdown signal send failed (channel likely closed)");
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    use uuid::Uuid;
+
+    use super::InMemoryCache;
+    use crate::models::TenantId;
+    use crate::{CacheConfig, CacheKey, CacheProvider, CacheResource};
+
+    fn cache() -> InMemoryCache {
+        InMemoryCache::new_with_config(&CacheConfig {
+            enable_background_cleanup: false,
+            ..CacheConfig::default()
+        })
+    }
+
+    fn key(name: &str) -> CacheKey {
+        CacheKey::new(
+            TenantId::nil(),
+            Uuid::nil(),
+            "test".to_owned(),
+            CacheResource::Custom(name.to_owned()),
+        )
+    }
+
+    #[tokio::test]
+    async fn set_if_absent_stores_once_and_leaves_the_first_value() {
+        let cache = cache();
+        let key = key("once");
+        assert!(cache
+            .set_if_absent(&key, &"first", Duration::from_secs(60))
+            .await
+            .unwrap());
+        assert!(
+            !cache
+                .set_if_absent(&key, &"second", Duration::from_secs(60))
+                .await
+                .unwrap(),
+            "bug: a live entry must refuse the second write"
+        );
+        let held: Option<String> = cache.get(&key).await.unwrap();
+        assert_eq!(held.as_deref(), Some("first"));
+    }
+
+    #[tokio::test]
+    async fn set_if_absent_takes_a_key_whose_entry_expired() {
+        let cache = cache();
+        let key = key("expired");
+        assert!(cache
+            .set_if_absent(&key, &1_u8, Duration::from_millis(1))
+            .await
+            .unwrap());
+        tokio::time::sleep(Duration::from_millis(5)).await;
+        assert!(
+            cache
+                .set_if_absent(&key, &2_u8, Duration::from_secs(60))
+                .await
+                .unwrap(),
+            "bug: an expired entry no longer holds its key"
+        );
+    }
+
+    #[tokio::test]
+    async fn exactly_one_of_many_concurrent_callers_stores() {
+        let cache = Arc::new(cache());
+        let mut tasks = Vec::new();
+        for _ in 0..16 {
+            let cache = Arc::clone(&cache);
+            tasks.push(tokio::spawn(async move {
+                cache
+                    .set_if_absent(&key("race"), &true, Duration::from_secs(60))
+                    .await
+                    .unwrap()
+            }));
+        }
+        let mut stored = 0;
+        for task in tasks {
+            if task.await.unwrap() {
+                stored += 1;
+            }
+        }
+        assert_eq!(stored, 1, "bug: the test and the write must be atomic");
     }
 }
