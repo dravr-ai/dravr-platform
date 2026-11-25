@@ -55,6 +55,7 @@ use crate::llm_usage_recorder::{LlmUsageSink, UsageRepoCallRecorder};
 use crate::memory_dedup::{
     anchor_of, decide, introduces_a_number, normalize_object, Candidate, DedupConfig, FactWrite,
 };
+use crate::memory_tier::MemoryReach;
 use pierre_llm::ChatProvider;
 
 /// Minimum confidence for an extracted fact to be persisted.
@@ -363,10 +364,15 @@ where
     // The extractor is a model: it never reads a fact naming a withdrawn
     // consent or data kept out of AI memory (carnet#1157, #1158). It reads
     // under the athlete's consents as the turn declared them; a job queued
-    // without them leaves every consent-gated fact out.
+    // without them leaves every consent-gated fact out. Nor does it read a
+    // fact the athlete's tier consent keeps from AI — the medical ones
+    // without `sensitive_t2`, the rest without `sensitive_t3` — so without
+    // it the extractor answers against no list and a restatement is written
+    // as a new fact (carnet#1544).
     let candidates = ai_scope::for_model(async move {
         let mut existing = existing;
         ai_scope::retain_consented(&mut existing, |fact| &fact.ai_consent_sources, true);
+        MemoryReach::now().retain_facts(&mut existing);
         existing
     });
     let existing = match req.consent_withheld {

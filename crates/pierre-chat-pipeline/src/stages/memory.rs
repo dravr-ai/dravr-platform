@@ -33,6 +33,7 @@ use pierre_providers::ai_scope;
 use pierre_providers::registry::global_registry;
 use pierre_services::agent_package::{load_agent_package, PackagedCatalogue};
 use pierre_services::memory_facts::SentenceRenderer;
+use pierre_services::memory_tier::MemoryReach;
 use pierre_services::okf::render_okf_bundle_default;
 use pierre_services::plan_fueling::FuelingDisclosure;
 use pierre_services::playbook_render::{render_archetype_block, render_playbooks_block};
@@ -67,6 +68,13 @@ impl ChatPipelineContext {
 /// Composes the dossier for the given (tenant, user) and renders its pillar
 /// context. Errors and empty context both pass through silently — the bundle
 /// is a best-effort enhancement, not a hard dependency of the dispatch path.
+///
+/// Only what the athlete's tier consent lets the agent read is rendered
+/// ([`MemoryReach`], carnet#1544): the medical facts under `sensitive_t2`,
+/// the North Star and pillar facts under `sensitive_t3`. In place of what it
+/// withholds the prompt says the athlete keeps it from AI, whether or not
+/// anything is stored, so the agent neither pretends to remember nor learns
+/// what is on file.
 pub async fn inject_okf_bundle(
     dossier_repo: &dyn DossierRepository,
     tenant_id: TenantId,
@@ -74,7 +82,8 @@ pub async fn inject_okf_bundle(
     base_prompt: String,
     sentences: SentenceRenderer<'_>,
 ) -> String {
-    match dossier_repo
+    let reach = MemoryReach::now();
+    let prompt = match dossier_repo
         .compose_dossier(
             tenant_id,
             user_id,
@@ -83,14 +92,21 @@ pub async fn inject_okf_bundle(
         )
         .await
     {
-        Ok(dossier) => match render_okf_bundle_default(&dossier, sentences) {
-            Some(block) => format!("{base_prompt}{block}"),
-            None => base_prompt,
-        },
+        Ok(mut dossier) => {
+            reach.withhold_from_dossier(&mut dossier);
+            match render_okf_bundle_default(&dossier, sentences) {
+                Some(block) => format!("{base_prompt}{block}"),
+                None => base_prompt,
+            }
+        }
         Err(e) => {
             tracing::warn!(error = %e, "okf bundle compose failed; continuing without pillar context");
             base_prompt
         }
+    };
+    match reach.framing() {
+        Some(framing) => format!("{prompt}{framing}"),
+        None => prompt,
     }
 }
 
@@ -278,9 +294,13 @@ pub async fn inject_playbooks(
         // external turn (carnet#769). A playbook is the agent's memory of
         // what worked: none naming a withdrawn consent, or data kept out of
         // AI memory, reaches the prompt (carnet#1157, #1158).
+        //
+        // A playbook is the agent's memory, labelled T3: none reaches the
+        // prompt without the athlete's `sensitive_t3` (carnet#1544).
         Ok(mut p) => {
             ai_scope::retain_admitted(&mut p, |playbook| playbook.transport_policy);
             ai_scope::retain_consented(&mut p, |playbook| &playbook.ai_consent_sources, true);
+            MemoryReach::now().retain_memory(&mut p);
             p
         }
         Err(e) => {

@@ -37,6 +37,7 @@ use pierre_services::agent_generation::resolve_chat_provider;
 use pierre_services::agent_selection::{record_agent_selection, AgentSelectionSource};
 use pierre_services::agents as agents_service;
 use pierre_services::locale::resolve_user_locale;
+use pierre_services::memory_tier::MemoryReach;
 use pierre_services::stored_health;
 use pierre_services::team_rules::{self, pick_members, TeamPick, TeamRule, TeamSignals};
 use pierre_tool_runtime::activity_fetch::fetch_recent_activities_all_providers;
@@ -377,7 +378,24 @@ pub async fn build_agent_proposal<C: AgentsCtx + MiddlewareCtx + ToolRuntime>(
         )
         .await
         .ok();
-    let pillar_context = dossier.as_ref().and_then(pillar_context_prompt);
+    // The re-rank is a model call: its pillar context is the agent's memory
+    // (T3), sent only under the athlete's `sensitive_t3` (carnet#1544). The
+    // team rules beside it read the whole dossier, as the platform's own
+    // logic.
+    let pillar_context = match dossier.as_ref() {
+        Some(dossier) => {
+            let reach = MemoryReach::for_agent(
+                MiddlewareCtx::repos(ctx.as_ref()),
+                tenant_id.as_uuid(),
+                user_id,
+            )
+            .await;
+            let mut readable = dossier.clone();
+            reach.withhold_from_dossier(&mut readable);
+            pillar_context_prompt(&readable)
+        }
+        None => None,
+    };
     if let Some(context) = &pillar_context {
         profile_view.prompt_text = format!("{}\n\n{context}", profile_view.prompt_text);
     }

@@ -17,6 +17,7 @@ use dravr_barrage::Stream;
 use pierre_core::constants::oauth_providers::names_kept_out_source;
 use pierre_providers::ai_scope;
 use pierre_services::memory_facts::SentenceRenderer;
+use pierre_services::memory_tier::MemoryReach;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -414,6 +415,10 @@ impl McpTool<dyn ToolRuntime> for RecallUserMemoryTool {
             // Nor one naming a withdrawn consent, or data kept out of AI
             // memory (carnet#1157, #1158).
             ai_scope::retain_consented(&mut facts, |fact| &fact.ai_consent_sources, true);
+            // Nor, for any AI, one the athlete's tier consent keeps from it:
+            // the medical facts without `sensitive_t2`, the rest without
+            // `sensitive_t3`; the result's note says so (carnet#1544).
+            MemoryReach::now().retain_facts(&mut facts);
             // What the agent remembered is the agent's own writing, and the
             // result's trust label says so.
             if !facts.is_empty() {

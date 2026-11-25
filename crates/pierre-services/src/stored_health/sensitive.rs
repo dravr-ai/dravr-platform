@@ -36,13 +36,14 @@ pub(super) fn withhold_clinical_readings(rows: &mut [StoredHealthMetrics]) {
 }
 
 /// The note the athlete typed into their source's daily log is theirs, a T3
-/// record: an outside client (MCP, A2A, an API key) reads it only while the
-/// athlete gives `sensitive_t3`, by the tier rule
-/// ([`ai_scope::tier_readable`]), each nulled note tallied once as the
-/// athlete's choice. Dravr's own agent and the human coach read it as before
-/// (E3; JF 2026-11-20, "Gate for third parties").
+/// record: any AI — an outside client (MCP, A2A, an API key) or Dravr's own
+/// agent, theirs or their coach's — reads it only while the athlete gives
+/// `sensitive_t3`, by the tier rule ([`ai_scope::ai_reads_tier`]), each
+/// nulled note tallied once as the athlete's choice (JF 2026-11-20, "Gate for
+/// third parties"; JF 2026-11-25, "Gate on tier consent"). A human coach's
+/// own screen reads what the athlete shares with them, no AI asked.
 pub(super) fn withhold_daily_notes(rows: &mut [StoredRecoveryMetrics]) {
-    if !ai_scope::serving_external() || ai_scope::tier_readable(Tier::T3) {
+    if ai_scope::ai_reads_tier(Tier::T3) {
         return;
     }
     for row in rows.iter_mut().filter(|row| row.athlete_note.is_some()) {
@@ -58,7 +59,7 @@ mod tests {
     use dravr_tronc::dates::Timestamp;
     use pierre_core::constants::oauth_providers::SENSITIVE_T3;
     use pierre_core::transport::Transport;
-    use pierre_providers::ai_scope::{ai_read, serve_over, with_ai_consent};
+    use pierre_providers::ai_scope::{ai_read, for_human_coach, serve_over, with_ai_consent};
 
     use super::*;
 
@@ -121,11 +122,49 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn dravrs_own_agent_reads_the_daily_note_without_consent() {
+    async fn dravrs_own_agent_reads_the_daily_note_only_under_sensitive_t3() {
+        for transport in [
+            Transport::WebApp,
+            Transport::MobileApp,
+            Transport::Messaging,
+        ] {
+            assert_eq!(
+                read(transport, &[SENSITIVE_T3]).await,
+                (vec![None, None], 1),
+                "bug: JF 2026-11-25 holds the agent to the tier consent ({transport:?})"
+            );
+            assert_eq!(
+                read(transport, &[]).await,
+                (vec![Some("legs heavy".to_owned()), None], 0),
+                "given: the agent reads it ({transport:?})"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn the_athletes_and_the_coachs_own_screens_keep_the_note() {
+        let withheld = BTreeSet::from([SENSITIVE_T3.to_owned()]);
+        let rows = |withheld: BTreeSet<String>, coach: bool| async move {
+            let read = async {
+                let mut rows = vec![morning(Some("legs heavy"))];
+                withhold_daily_notes(&mut rows);
+                rows.remove(0).athlete_note
+            };
+            let read = with_ai_consent(withheld, read);
+            if coach {
+                serve_over(Transport::WebApp, for_human_coach(read)).await
+            } else {
+                serve_over(Transport::WebApp, read).await
+            }
+        };
         assert_eq!(
-            read(Transport::WebApp, &[SENSITIVE_T3]).await,
-            (vec![Some("legs heavy".to_owned()), None], 0),
-            "bug: E3 keeps the note for the first-party agent"
+            rows(withheld.clone(), false).await.as_deref(),
+            Some("legs heavy")
+        );
+        assert_eq!(
+            rows(withheld, true).await.as_deref(),
+            Some("legs heavy"),
+            "bug: the coach's own screen is no AI read"
         );
     }
 }

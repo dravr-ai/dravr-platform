@@ -247,6 +247,34 @@ pub fn tier_readable(tier: Tier) -> bool {
     tier_refusal(tier).is_none()
 }
 
+/// Whether a `tier` record may reach the AI a read made now feeds.
+///
+/// JF 2026-11-25 ("Gate on tier consent", carnet#1544): what Dravr's own
+/// agent reads of the athlete's notes and of its memory (T3) and of their
+/// PAR-Q medical facts (T2) is held to the athlete's tier consent, like an
+/// outside client's, by the one tier rule ([`tier_readable`]). A read feeding
+/// no AI ([`read_by_ai`](super::read_by_ai)) — the athlete's own screens, a
+/// human coach's own screen — is not asked here, so the coach keeps reading
+/// what the athlete shares with them.
+#[must_use]
+pub fn ai_reads_tier(tier: Tier) -> bool {
+    !super::read_by_ai() || tier_readable(tier)
+}
+
+/// Keep only the `items` whose tier ([`ai_reads_tier`]) may reach the AI a
+/// read made now feeds, tallying each one left out ([`withhold_tier`]) so the
+/// result carries the withheld note.
+pub fn retain_ai_readable<T>(items: &mut Vec<T>, tier: impl Fn(&T) -> Tier) {
+    items.retain(|item| {
+        let tier = tier(item);
+        let readable = ai_reads_tier(tier);
+        if !readable {
+            withhold_tier(tier);
+        }
+        readable
+    });
+}
+
 /// Tally one field of `tier` a filter nulled because [`tier_readable`] said no.
 ///
 /// Under the athlete's tier consent it counts as a sensitive reduction; a T2
@@ -268,7 +296,9 @@ mod tests {
 
     use super::*;
 
-    use crate::ai_scope::{ai_read, filter_activities, serve_over, tallied};
+    use crate::ai_scope::{
+        ai_read, filter_activities, for_display, for_human_coach, serve_over, tallied,
+    };
     use crate::provider_terms::WHOOP;
 
     /// A sensitive read as a refusing reader asks it: [`tier_readable`],
@@ -780,6 +810,105 @@ mod tests {
             outer,
             Some(BTreeSet::from(["oura".to_owned(), "whoop".to_owned()])),
             "the outer call's result carries both reads, so it withholds what either withheld"
+        );
+    }
+
+    // JF 2026-11-25 ("Gate on tier consent"): Dravr's own agent reads the
+    // athlete's notes and its memory (T3) and their PAR-Q facts (T2) only
+    // under the matching class; a person's own read is never asked.
+    #[tokio::test]
+    async fn dravr_s_agent_reads_a_tier_only_under_its_class_and_a_person_always() {
+        let neither = || BTreeSet::from([SENSITIVE_T2.to_owned(), SENSITIVE_T3.to_owned()]);
+        for transport in [Transport::WebApp, Transport::Messaging] {
+            let (read, _) = serve_over(
+                transport,
+                with_ai_consent(
+                    neither(),
+                    ai_read(async { (ai_reads_tier(Tier::T2), ai_reads_tier(Tier::T3)) }),
+                ),
+            )
+            .await;
+            assert_eq!(
+                read,
+                (false, false),
+                "bug: withheld from the agent ({transport:?})"
+            );
+
+            let (read, _) = serve_over(
+                transport,
+                with_ai_consent(
+                    t2_withheld(),
+                    ai_read(async { (ai_reads_tier(Tier::T2), ai_reads_tier(Tier::T3)) }),
+                ),
+            )
+            .await;
+            assert_eq!(
+                read,
+                (false, true),
+                "each class opens its own tier ({transport:?})"
+            );
+
+            let (read, _) = serve_over(
+                transport,
+                with_ai_consent(
+                    BTreeSet::new(),
+                    ai_read(async { (ai_reads_tier(Tier::T2), ai_reads_tier(Tier::T3)) }),
+                ),
+            )
+            .await;
+            assert_eq!(read, (true, true), "both given ({transport:?})");
+        }
+
+        // The athlete's own screen, a chart drawn for them, the coach's own
+        // screen: no AI reads, so nothing is asked.
+        let own = serve_over(
+            Transport::WebApp,
+            with_ai_consent(neither(), async { ai_reads_tier(Tier::T3) }),
+        )
+        .await;
+        assert!(own, "the athlete's own screen");
+        let (drawn, _) = serve_over(
+            Transport::WebApp,
+            with_ai_consent(
+                neither(),
+                ai_read(for_display(async { ai_reads_tier(Tier::T3) })),
+            ),
+        )
+        .await;
+        assert!(drawn, "a chart drawn for the athlete");
+        let coach_screen = serve_over(
+            Transport::WebApp,
+            with_ai_consent(
+                neither(),
+                for_human_coach(async { ai_reads_tier(Tier::T3) }),
+            ),
+        )
+        .await;
+        assert!(
+            coach_screen,
+            "bug: the coach's own screen keeps what is shared"
+        );
+    }
+
+    #[tokio::test]
+    async fn retain_ai_readable_keeps_the_readable_tiers_and_tallies_the_rest() {
+        let (kept, tally) = serve_over(
+            Transport::WebApp,
+            with_ai_consent(
+                t3_withheld(),
+                ai_read(async {
+                    let mut items = vec![Tier::T1, Tier::T2, Tier::T3, Tier::T3];
+                    retain_ai_readable(&mut items, |tier| *tier);
+                    items
+                }),
+            ),
+        )
+        .await;
+        assert_eq!(kept, vec![Tier::T1, Tier::T2]);
+        assert_eq!(
+            (tally.sensitive_reduced, tally.off_interface),
+            (2, 0),
+            "one per item left out, as the athlete's choice: {tally:?}"
         );
     }
 }
