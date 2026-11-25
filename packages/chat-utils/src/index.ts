@@ -253,7 +253,7 @@ export type { PlanConflictText, PlanDraftConflict } from './plan-draft';
 
 // A coach's athlete workspace (carnet#1816): the dates the draft proposes
 // over the live plan, a week by date, and the sessions asked about before publish
-export { entriesByDate, evidenceCallReason, planProposedDates, prePublishChecks } from './plan-proposals';
+export { entriesByDate, evidenceCallReason, prePublishChecks } from './plan-proposals';
 export type { EvidenceCallReason, PrePublishItem } from './plan-proposals';
 
 // Whose composer it is, and when that is not yet known.

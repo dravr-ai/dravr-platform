@@ -360,7 +360,7 @@ describe("ChatThread in a coach's own threads", () => {
   const DRAFT: DraftState = { draft_id: 'draft-7', updated_at: '2026-10-16T14:05:00Z', conflicts: [], season_relaid: false };
 
   function subjectPlan(draft: DraftState | null): SubjectPlanResponse {
-    return { athlete: ALICE, today: '2026-10-16', live: null, draft: draft ? PLAN : null, draft_state: draft };
+    return { athlete: ALICE, today: '2026-10-16', live: null, draft: draft ? PLAN : null, draft_state: draft, proposed_dates: [] };
   }
 
   function group(coachId: string): CoachingGroup {
@@ -586,18 +586,18 @@ describe("ChatThread in a coach's own threads", () => {
       scene_blocks: JSON.stringify([{ kind: 'workout_plan', plan: proposed, subject: ALICE, draft: DRAFT }]),
     };
 
-    it('draws a plan card as one line counting the days it changes, and no open draft at the end', async () => {
-      getSubjectPlan.mockResolvedValue({ ...subjectPlan(DRAFT), live, draft: proposed });
+    it('draws a plan card as one line leading to the calendar, counting nothing, and no open draft at the end', async () => {
+      getSubjectPlan.mockResolvedValue({ ...subjectPlan(DRAFT), live, draft: proposed, proposed_dates: ['2026-10-16', '2026-10-17'] });
       getConversationMessages.mockResolvedValue({ messages: [PROPOSAL_ROW] });
       const onShowCalendar = vi.fn();
       const user = userEvent.setup();
       renderThread({ initial: PLAN_ID, openThread, planSurface: { kind: 'workspace', onShowCalendar } });
 
       const entry = await screen.findByTestId('plan-change-entry');
-      await waitFor(() =>
-        expect(entry).toHaveTextContent(
-          `${i18n.t('plan.workspace.changeEntry')} · ${i18n.t('plan.workspace.changeEntryDaysN', { count: 2 })}`,
-        ),
+      await waitFor(() => expect(getSubjectPlan).toHaveBeenCalledWith(PLAN_ID));
+      // The calendar marks the proposed dates; the line names no count of them.
+      expect(entry).toHaveTextContent(
+        new RegExp(`^${i18n.t('plan.workspace.changeEntry')}·${i18n.t('plan.workspace.showOnCalendar')}$`),
       );
       expect(screen.queryByText('Harricana 65K')).not.toBeInTheDocument();
       expect(screen.queryByTestId('chat-plan-thread-open-draft')).not.toBeInTheDocument();

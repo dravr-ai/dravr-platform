@@ -447,6 +447,7 @@ describe('createSessionEditorHooks', () => {
       live: null,
       draft: null,
       draft_state: null,
+      proposed_dates: [],
     };
     chatApi.saveSubjectDraftDay.mockResolvedValue(answered);
     const { result } = renderHook(() => hooks.useSaveDraftDay('conv-1', 'en'), { wrapper });
@@ -467,6 +468,7 @@ describe('createSessionEditorHooks', () => {
       live: null,
       draft: null,
       draft_state: null,
+      proposed_dates: [],
     };
     const restored: SubjectPlanResponse = { ...answered, today: '2026-11-22' };
     chatApi.saveSubjectDraftHandDay.mockResolvedValue(answered);
@@ -496,6 +498,7 @@ describe('createSessionEditorHooks', () => {
       live: null,
       draft: null,
       draft_state: null,
+      proposed_dates: [],
     };
     chatApi.removeSubjectDraftDay.mockResolvedValue(answered);
     chatApi.addSubjectDraftSession.mockResolvedValue({ ...answered, today: '2026-11-23' });
@@ -524,6 +527,7 @@ describe('createSessionEditorHooks', () => {
       live: null,
       draft: null,
       draft_state: null,
+      proposed_dates: [],
     };
     const older = { events: [{ kind: 'agent_draft', source: 'agent', dates: ['2026-11-26'], created_at: '2026-11-25T13:00:00Z' }] };
     const newer = {

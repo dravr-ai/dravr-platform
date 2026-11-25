@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: A coach's athlete workspace on both clients — the fortnight laid out as seven dates a week, and each plan change worded « when · who · what »
-// ABOUTME: Layout and words only: which dates are proposed is chat-utils' one comparison, what changed is the server's history (carnet#1816)
+// ABOUTME: Layout and words only: which dates are proposed is the server's `proposed_dates`, what changed is the server's history (carnet#1816)
 
 import { COACH_CALL_KEYS, countKey, entriesByDate, formatList, type CountKeys, type Translate } from '@pierre/chat-utils';
 import type {
@@ -63,8 +63,6 @@ export const PLAN_WORKSPACE_KEYS = {
   loadFailed: 'plan.workspace.loadFailed',
   /** "Plan proposed" — a plan card in the Dravr tab, drawn as one line. */
   changeEntry: 'plan.workspace.changeEntry',
-  /** "N days changed" beside it. */
-  changeEntryDays: { one: 'plan.workspace.changeEntryDaysOne', many: 'plan.workspace.changeEntryDaysN' } satisfies CountKeys,
   /** "See it on the calendar". */
   showOnCalendar: 'plan.workspace.showOnCalendar',
 } as const;

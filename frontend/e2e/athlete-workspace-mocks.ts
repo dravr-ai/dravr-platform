@@ -90,15 +90,21 @@ function plans(today: string): { live: WorkoutPlan; draft: WorkoutPlan } {
   return { live: { ...base, weeks: weeks(false) }, draft: { ...base, weeks: weeks(true) } };
 }
 
-/** `GET …/subject-plan` for Léa: her live plan and the coach's open draft over it. */
+/**
+ * `GET …/subject-plan` for Léa: her live plan, the coach's open draft over it,
+ * and the dates the server names proposed — the swap and Saturday's added
+ * session.
+ */
 export function workspaceSubjectPlan(today = localToday()): SubjectPlanResponse {
   const { live, draft } = plans(today);
+  const monday = mondayOf(today);
   return {
     athlete: ATHLETE,
     today,
     live,
     draft,
     draft_state: { draft_id: 'draft-lea-1', updated_at: todayAt(10, 5), conflicts: [], season_relaid: false },
+    proposed_dates: [2, 3, 5].map((offset) => dayOffset(monday, offset)),
   };
 }
 
@@ -133,7 +139,11 @@ export function trifectaRoster(roster: CoachRosterResponse): CoachRosterResponse
 
 const json = (body: unknown) => ({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
 
-/** The subject plan once « Refuser » put the live entries back on `date` of the draft, as the server's revert does. */
+/**
+ * The subject plan once « Refuser » put the live entries back on `date` of the
+ * draft, as the server's revert does: the date reads as the live plan's, so
+ * the server proposes it no more.
+ */
 function revertDate(plan: SubjectPlanResponse, date: string): SubjectPlanResponse {
   const { live, draft } = plan;
   if (draft === null) return plan;
@@ -143,7 +153,7 @@ function revertDate(plan: SubjectPlanResponse, date: string): SubjectPlanRespons
     const days = [...week.days.filter((entry) => entry.date !== date), ...liveEntries];
     return { ...week, days: days.sort((a, b) => a.date.localeCompare(b.date) || (a.position ?? 0) - (b.position ?? 0)) };
   });
-  return { ...plan, draft: { ...draft, weeks } };
+  return { ...plan, draft: { ...draft, weeks }, proposed_dates: plan.proposed_dates.filter((proposed) => proposed !== date) };
 }
 
 /** What a workspace route records: the dates refused, and the coach's calls made. */

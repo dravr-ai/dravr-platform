@@ -9,7 +9,7 @@ import { ArrowLeft } from 'lucide-react';
 import { clsx } from 'clsx';
 import { useTranslation, type TFunction } from '@pierre/i18n';
 import type { CoachRosterAthlete, DraftState, PlanSubject, WorkoutPlan } from '@pierre/shared-types';
-import { PLAN_DRAFT_KEYS, PLAN_THREAD_KEYS, countKey, planProposedDates, prePublishChecks } from '@pierre/chat-utils';
+import { PLAN_DRAFT_KEYS, PLAN_THREAD_KEYS, countKey, prePublishChecks } from '@pierre/chat-utils';
 import { PLAN_WORKSPACE_KEYS, formatCivilDate, openThreadRefusalText, planCalendarWeeks } from '@pierre/ui-logic';
 import { useAuth } from '../../../hooks/useAuth';
 import { useIsDesktop, useIsMobile } from '../../../hooks/useBreakpoint';
@@ -135,9 +135,9 @@ function SeasonBand({ plan }: { plan: WorkoutPlan }) {
  * and publish, the pre-publish check, the season and the two weeks, and the
  * panel of Historique, the private thread with the agent and the athlete's
  * room. The plan is the plan thread's subject-plan read: the draft when one
- * is open, else the live plan; a date the draft changes over the live plan is
- * a proposal the coach accepts — for this session only (decision W1) — or
- * refuses, which puts the live plan back on it.
+ * is open, else the live plan; a date the read names proposed — one the draft
+ * changes over the live plan — is a proposal the coach accepts, for this
+ * session only (decision W1), or refuses, which puts the live plan back on it.
  */
 export default function AthleteWorkspace({ athlete, onNavigate, destinations }: AthleteWorkspaceProps) {
   const { t, language } = useTranslation();
@@ -150,10 +150,9 @@ export default function AthleteWorkspace({ athlete, onNavigate, destinations }: 
   const name = subject?.athlete.display_name.trim() || athlete.name;
 
   const shown = subject ? (subject.draft ?? subject.live) : null;
-  const proposed = useMemo(
-    () => (subject?.draft ? planProposedDates(subject.draft, subject.live) : []),
-    [subject],
-  );
+  // Which dates are proposed is the server's to say, by the rule a publish
+  // announces them with; a read with no draft proposes none.
+  const proposed = useMemo(() => (subject?.draft ? subject.proposed_dates : []), [subject]);
   const weeks = useMemo(
     () => (shown && subject ? planCalendarWeeks(shown, proposed, subject.today) : []),
     [shown, subject, proposed],

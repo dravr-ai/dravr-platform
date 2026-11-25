@@ -349,7 +349,6 @@ const MessageItem = memo(function MessageItem({
             <PlanChangeEntry
               key={key}
               conversationId={conversationId}
-              plan={plan}
               draft={planCardDraft(block)?.draft ?? null}
               onShowCalendar={planSurface.onShowCalendar}
             />

@@ -332,6 +332,11 @@ async fn the_read_shows_the_live_plan_and_the_draft_in_the_home_shape() {
         body["draft"].is_null() && body["draft_state"].is_null(),
         "{body}"
     );
+    assert_eq!(
+        body["proposed_dates"],
+        json!([]),
+        "bug: with no draft open, no date is proposed: {body}"
+    );
 
     fx.coach_drafts().await;
     let (status, body) = fx.get_plan(&fx.thread, &fx.coach.auth).await;
@@ -343,6 +348,16 @@ async fn the_read_shows_the_live_plan_and_the_draft_in_the_home_shape() {
     assert_eq!(weeks[0]["week_start"], ymd(monday(0)));
     assert_eq!(weeks[0]["days"][0]["workout"], COACH_WORKOUT);
     assert_eq!(weeks[1]["days"][0]["workout"], "athlete run");
+    // Every date of the drafted week changes; the week the coach never
+    // drafted proposes nothing.
+    let drafted_week: Vec<String> = (0..7)
+        .map(|offset| ymd(monday(0) + Elapsed::days(offset)))
+        .collect();
+    assert_eq!(
+        body["proposed_dates"],
+        json!(drafted_week),
+        "bug: the draft proposes the dates whose sessions it changes, and only those: {body}"
+    );
     let state = &body["draft_state"];
     assert_eq!(state["conflicts"], json!([]), "{body}");
     assert_eq!(state["season_relaid"], false);
@@ -429,6 +444,11 @@ async fn a_conflicted_publish_is_a_409_in_the_shape_the_clients_parse() {
     let (_, read) = fx.get_plan(&fx.thread, &fx.coach.auth).await;
     assert!(read["live"].to_string().contains(COACH_WORKOUT), "{read}");
     assert!(read["draft"].is_null(), "{read}");
+    assert_eq!(
+        read["proposed_dates"],
+        json!([]),
+        "bug: a published draft proposes nothing more: {read}"
+    );
 
     // Published: there is no draft left to publish or discard.
     let (status, body) = fx.publish(false).await;
@@ -450,6 +470,11 @@ async fn discard_is_a_204_and_leaves_the_live_plan() {
     assert!(
         read["draft"].is_null() && read["draft_state"].is_null(),
         "{read}"
+    );
+    assert_eq!(
+        read["proposed_dates"],
+        json!([]),
+        "bug: a discarded draft proposes nothing: {read}"
     );
     assert!(!read["live"].to_string().contains(COACH_WORKOUT));
     let (status, body) = fx.discard().await;

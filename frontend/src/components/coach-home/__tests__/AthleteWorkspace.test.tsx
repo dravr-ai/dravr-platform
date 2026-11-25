@@ -141,6 +141,9 @@ function plans(): { live: WorkoutPlan; draft: WorkoutPlan } {
   return { live: { ...base, weeks: weeks(false) }, draft: { ...base, weeks: weeks(true) } };
 }
 
+/** The dates the server names proposed in the draft `plans()` lays: the swap and the added session. */
+const PROPOSED = ['2026-11-25', '2026-11-26', '2026-11-28'];
+
 function subjectPlan(draft = true): SubjectPlanResponse {
   const { live, draft: drafted } = plans();
   return {
@@ -149,16 +152,28 @@ function subjectPlan(draft = true): SubjectPlanResponse {
     live,
     draft: draft ? drafted : null,
     draft_state: draft ? { draft_id: 'draft-1', updated_at: '2026-11-25T10:05:00Z', conflicts: [], season_relaid: false } : null,
+    proposed_dates: draft ? PROPOSED : [],
   };
 }
 
-/** The plan once « Refuser » put Wednesday back: the live entries on the date. */
+/** The plan once « Refuser » put Wednesday back: the live entries on the date, which the server proposes no more. */
 function withWednesdayRefused(): SubjectPlanResponse {
   const plan = subjectPlan();
   const draft = plan.draft as WorkoutPlan;
   const weeks = draft.weeks.map((week, index) =>
     index === 0
       ? { ...week, days: week.days.map((entry) => (entry.date === '2026-11-25' ? day('2026-11-25', 'Track endurance') : entry)) }
+      : week,
+  );
+  return { ...plan, draft: { ...draft, weeks }, proposed_dates: PROPOSED.filter((date) => date !== '2026-11-25') };
+}
+
+/** `plan` once the agent proposed Thursday again, with another session on it. */
+function withThursdayReproposed(plan: SubjectPlanResponse): SubjectPlanResponse {
+  const draft = plan.draft as WorkoutPlan;
+  const weeks = draft.weeks.map((week, index) =>
+    index === 0
+      ? { ...week, days: week.days.map((entry) => (entry.date === '2026-11-26' ? day('2026-11-26', 'Track tempo') : entry)) }
       : week,
   );
   return { ...plan, draft: { ...draft, weeks } };
@@ -298,6 +313,16 @@ describe('the athlete workspace (carnet#1816)', () => {
     expect(screen.getByTestId('workspace-goal')).toHaveTextContent('The Traka 200');
   });
 
+  it('marks the dates the server names proposed and no other, whatever the entries hold', async () => {
+    api.getSubjectPlan.mockResolvedValue({ ...subjectPlan(), proposed_dates: ['2026-12-01'] });
+    renderWorkspace();
+
+    await screen.findByTestId('workspace-calendar');
+    const proposed = dateCells().filter((cell) => cell.dataset.proposed === 'true');
+    expect(proposed.map((cell) => cell.dataset.testid)).toEqual(['workspace-date-2026-12-01']);
+    expect(await screen.findByTestId('plan-draft-publish')).toHaveTextContent(i18n.t('plan.workspace.publishOne', { count: 1 }));
+  });
+
   it('marks only a convention or outside-evidence session, and a coach’s call in its own words', async () => {
     renderWorkspace();
     await screen.findByTestId('workspace-calendar');
@@ -368,6 +393,27 @@ describe('the athlete workspace (carnet#1816)', () => {
     expect(screen.getByTestId('workspace-refuse-2026-11-26')).toBeInTheDocument();
     expect(api.revertSubjectDraftDate).not.toHaveBeenCalled();
     expect(api.setSubjectDraftDayCoachCall).not.toHaveBeenCalled();
+  });
+
+  it('asks again on a date accepted this session once the draft proposes other sessions on it', async () => {
+    // Refusing Wednesday answers a plan in which the agent has since put
+    // another session on Thursday.
+    const answered = withThursdayReproposed(withWednesdayRefused());
+    api.revertSubjectDraftDate.mockImplementation(async () => {
+      api.getSubjectPlan.mockResolvedValue(answered);
+      return answered;
+    });
+    const user = userEvent.setup();
+    renderWorkspace();
+    await screen.findByTestId('workspace-calendar');
+
+    await user.click(screen.getByTestId('workspace-accept-2026-11-26'));
+    expect(within(dateCell('2026-11-26')).getByTestId('workspace-date-accepted')).toBeInTheDocument();
+
+    await user.click(screen.getByTestId('workspace-refuse-2026-11-25'));
+    await waitFor(() => expect(within(dateCell('2026-11-26')).getByText('Track tempo')).toBeInTheDocument());
+    expect(within(dateCell('2026-11-26')).queryByTestId('workspace-date-accepted')).not.toBeInTheDocument();
+    expect(screen.getByTestId('workspace-accept-2026-11-26')).toBeInTheDocument();
   });
 
   it('says each date’s proposal in its heading, and leaves focus on the date once the coach answers', async () => {

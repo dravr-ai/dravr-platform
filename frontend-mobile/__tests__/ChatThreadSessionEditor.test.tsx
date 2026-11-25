@@ -105,6 +105,7 @@ function subjectPlan(draftState: DraftState | null): SubjectPlanResponse {
     live: mockThreadPlan,
     draft: draftState ? mockThreadPlan : null,
     draft_state: draftState,
+    proposed_dates: [],
   };
 }
 

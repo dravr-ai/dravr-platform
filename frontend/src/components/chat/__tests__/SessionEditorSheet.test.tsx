@@ -270,7 +270,7 @@ function previewFor(request: SessionPreviewRequest): SessionPreview {
 }
 
 function subjectPlan(plan: WorkoutPlan = PLAN): SubjectPlanResponse {
-  return { athlete: ALICE, today: '2026-11-21', live: plan, draft: plan, draft_state: null };
+  return { athlete: ALICE, today: '2026-11-21', live: plan, draft: plan, draft_state: null, proposed_dates: [] };
 }
 
 function reply(): Message {
