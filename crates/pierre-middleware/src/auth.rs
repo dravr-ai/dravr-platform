@@ -42,8 +42,8 @@ mod impersonation;
 /// One credential's outcome, and how it becomes the request's answer.
 mod outcome;
 
-pub use outcome::AuthRefusal;
 use dpop_binding::{jwt_credential, Presented};
+pub use outcome::AuthRefusal;
 use outcome::{settle, Admitted, Checked, Refused};
 
 /// How stale `users.last_active` may grow before an authenticated request

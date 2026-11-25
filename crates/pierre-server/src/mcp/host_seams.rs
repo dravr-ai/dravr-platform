@@ -47,9 +47,7 @@ use pierre_core::models::TenantId;
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::Transport;
 use pierre_mcp_transport::tenant_isolation::{extract_tenant_context_internal, log_tenant_failure};
-use pierre_middleware::dpop_request::{
-    authorization_value, dialed_host, dialed_uri, dpop_context,
-};
+use pierre_middleware::dpop_request::{authorization_value, dialed_host, dialed_uri, dpop_context};
 use pierre_middleware::rate_limiting::{
     report_request_ceiling, report_request_credential, report_request_operation,
 };

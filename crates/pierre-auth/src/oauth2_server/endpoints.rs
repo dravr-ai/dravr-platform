@@ -23,7 +23,6 @@ use super::pkce::{check_code_challenge, check_pkce};
 use super::rate_limiting::OAuth2RateLimiter;
 use super::request_text::{refuse_control_characters, refuse_oversized_state};
 use super::resource::bound_audience;
-use grant_checks::{require_refresh_dpop_binding, token_type};
 use crate::admin::jwks::JwksManager;
 use crate::auth::{oauth_access_token_lifetime_secs, AuthManager, TokenLineage};
 use crate::config::oauth::ClientRetentionConfig;
@@ -33,6 +32,7 @@ use crate::refresh_rotation::{
 };
 use base64::{engine::general_purpose, Engine as _};
 use dravr_tronc::dates::{Elapsed, Timestamp};
+use grant_checks::{require_refresh_dpop_binding, token_type};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::redaction;
@@ -61,7 +61,6 @@ mod rotate_refresh;
 pub use first_party_code::RedeemedFirstPartyCode;
 mod validate_refresh;
 pub use validate_refresh::ADMIN_REFRESHES_AT_TOKEN_ENDPOINT;
-
 
 /// What an accepted authorization request is granted: the scope the code
 /// carries and the RFC 8707 resource its tokens are bound to, if it named one.
@@ -939,7 +938,6 @@ impl OAuth2AuthorizationServer {
             authorization_details,
         })
     }
-
 
     /// Validate and consume authorization code
     async fn validate_and_consume_auth_code(

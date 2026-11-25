@@ -27,9 +27,7 @@ use dravr_tronc::mcp::protocol::JsonRpcRequest;
 use dravr_tronc::mcp::transport::http::forwarded_headers;
 use dravr_tronc::server::auth::{bearer_credential, dpop_credential};
 use pierre_auth::config::{OAuth2ServerConfig, DIALED_HOST_HEADERS, DIALED_PROTO_HEADER};
-use pierre_auth::dpop::{
-    DpopContext, PresentedProofs, BEARER_SCHEME, DPOP_HEADER, DPOP_SCHEME,
-};
+use pierre_auth::dpop::{DpopContext, PresentedProofs, BEARER_SCHEME, DPOP_HEADER, DPOP_SCHEME};
 use pierre_core::auth_header::is_api_key_format;
 use serde_json::Value;
 
@@ -102,7 +100,11 @@ impl<S: Send + Sync> FromRequestParts<S> for PresentedCall {
             .extensions
             .get::<OriginalUri>()
             .map_or_else(|| parts.uri.path().to_owned(), |uri| uri.path().to_owned());
-        Ok(Self::from_http(&parts.headers, parts.method.as_str(), &path))
+        Ok(Self::from_http(
+            &parts.headers,
+            parts.method.as_str(),
+            &path,
+        ))
     }
 }
 

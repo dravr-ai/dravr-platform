@@ -205,8 +205,14 @@ async fn a_third_party_token_is_the_client_kind_and_lives_fifteen_minutes() {
     assert_eq!(answer["active"], true, "{answer}");
     assert_eq!(answer["pdpp_token_kind"], "client", "{answer}");
     assert_eq!(answer["token_type"], "Bearer", "{answer}");
-    assert_eq!(answer["exp"], claims.exp, "introspection's exp is the token's");
-    assert!(answer.get("cnf").is_none(), "an unbound token has no cnf: {answer}");
+    assert_eq!(
+        answer["exp"], claims.exp,
+        "introspection's exp is the token's"
+    );
+    assert!(
+        answer.get("cnf").is_none(),
+        "an unbound token has no cnf: {answer}"
+    );
 
     // A refresh mints the same lifetime.
     let refreshed = AxumTestRequest::post("/oauth2/token")
@@ -271,7 +277,10 @@ async fn first_party_lifetimes_are_unchanged() {
             .unwrap();
         let claims = insecure_decode::<Claims>(&token).unwrap().claims;
         assert_eq!(claims.exp - claims.iat, lifetime, "{client_id}");
-        assert!(claims.cnf.is_none(), "a token minted with no proof is unbound");
+        assert!(
+            claims.cnf.is_none(),
+            "a token minted with no proof is unbound"
+        );
     }
 }
 
@@ -286,7 +295,10 @@ async fn discovery_names_the_kinds_and_the_dpop_algorithms() {
         .await;
     assert_eq!(prm.status(), 200, "{}", prm.body_text());
     let prm: Value = serde_json::from_str(&prm.body_text()).unwrap();
-    assert_eq!(prm["pdpp_token_kinds_supported"], json!(["owner", "client"]));
+    assert_eq!(
+        prm["pdpp_token_kinds_supported"],
+        json!(["owner", "client"])
+    );
     assert_eq!(prm["dpop_bound_access_tokens_required"], false);
     assert!(
         prm["dpop_signing_alg_values_supported"]
@@ -302,8 +314,7 @@ async fn discovery_names_the_kinds_and_the_dpop_algorithms() {
     assert_eq!(metadata.status(), 200, "{}", metadata.body_text());
     let metadata: Value = serde_json::from_str(&metadata.body_text()).unwrap();
     assert_eq!(
-        metadata["dpop_signing_alg_values_supported"],
-        prm["dpop_signing_alg_values_supported"],
+        metadata["dpop_signing_alg_values_supported"], prm["dpop_signing_alg_values_supported"],
         "one list of algorithms, published twice"
     );
 }

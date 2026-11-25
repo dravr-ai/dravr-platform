@@ -306,8 +306,20 @@ impl OAuth2ServerConfig {
     /// forged header can name only another of this server's own names, never
     /// make a proof for another server's URL pass.
     #[must_use]
-    pub fn dialed_uri(&self, proto: Option<&str>, host: Option<&str>, path: &str) -> Option<String> {
-        let first = |value: &str| value.split(',').next().unwrap_or_default().trim().to_owned();
+    pub fn dialed_uri(
+        &self,
+        proto: Option<&str>,
+        host: Option<&str>,
+        path: &str,
+    ) -> Option<String> {
+        let first = |value: &str| {
+            value
+                .split(',')
+                .next()
+                .unwrap_or_default()
+                .trim()
+                .to_owned()
+        };
         let scheme = proto.map(first).filter(|p| !p.is_empty());
         let host = host.map(first).filter(|h| !h.is_empty())?;
         let scheme = scheme.as_deref().unwrap_or("https");

@@ -5,7 +5,9 @@
 // Copyright (c) 2026 dravr.ai
 
 use pierre_auth::auth::Claims;
-use pierre_auth::dpop::{check_binding, dpop_credential, DpopContext, DpopRefusal, PresentedScheme};
+use pierre_auth::dpop::{
+    check_binding, dpop_credential, DpopContext, DpopRefusal, PresentedScheme,
+};
 use pierre_core::errors::AppError;
 use tracing::warn;
 
