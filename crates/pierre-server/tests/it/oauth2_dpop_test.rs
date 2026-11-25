@@ -15,7 +15,9 @@
 
 use crate::common;
 use crate::helpers::axum_test::{AxumTestRequest, AxumTestResponse};
-use crate::helpers::consent_form::plain_digest;
+use crate::helpers::consent_form::{
+    authorize_query, consent_page, hidden_field, plain_digest, review_digest,
+};
 
 use std::net::SocketAddr;
 use std::slice;
@@ -667,6 +669,65 @@ async fn pushed_dpop_jkt_binds_the_code_and_must_name_the_proofs_key() {
         issued(&exchange(&world, &client, &code, &[B.proof("POST", &token_url, None)]).await);
     let claims = insecure_decode::<Claims>(&access).unwrap().claims;
     assert_eq!(claims.cnf.map(|cnf| cnf.jkt), Some(B.thumbprint()));
+}
+
+/// `dpop_jkt` sent in the authorization query (RFC 9449 §10) crosses the
+/// consent screen as a hidden field and binds the code: redeemed without a
+/// proof by that key it is refused, with one it mints a `DPoP` token.
+#[tokio::test]
+async fn a_query_dpop_jkt_crosses_the_consent_screen_and_binds_the_code() {
+    let world = world().await;
+    let client = register(&world).await;
+    let challenge = challenge();
+    let state = format!("state-{}", Uuid::new_v4().simple());
+    let jkt = A.thumbprint();
+    let query = authorize_query(&[
+        ("response_type", "code"),
+        ("client_id", client.id.as_str()),
+        ("redirect_uri", REDIRECT),
+        ("state", state.as_str()),
+        ("code_challenge", challenge.as_str()),
+        ("code_challenge_method", "S256"),
+        ("dpop_jkt", jkt.as_str()),
+    ]);
+    let page = consent_page(app(&world.resources), &world.cookie, &query).await;
+    let carried = hidden_field(&page, "dpop_jkt");
+    assert_eq!(
+        carried.as_deref(),
+        Some(jkt.as_str()),
+        "the consent form carries dpop_jkt"
+    );
+    let (digest_field, digest) = review_digest(&page);
+    let csrf = world
+        .resources
+        .auth
+        .csrf_manager
+        .generate_token(world.user.id)
+        .unwrap();
+    let approved = AxumTestRequest::post("/oauth2/consent")
+        .header("cookie", &world.cookie)
+        .form(&[
+            ("response_type", "code"),
+            ("client_id", client.id.as_str()),
+            ("redirect_uri", REDIRECT),
+            ("state", state.as_str()),
+            ("code_challenge", challenge.as_str()),
+            ("code_challenge_method", "S256"),
+            ("dpop_jkt", carried.as_deref().unwrap_or_default()),
+            ("decision", "approve"),
+            ("csrf_token", csrf.as_str()),
+            (digest_field, digest.as_str()),
+        ])
+        .send(app(&world.resources))
+        .await;
+    assert_eq!(approved.status(), 303, "{}", approved.body_text());
+    let code = code_in(approved.header("location").unwrap());
+
+    let token_url = world.issuer_url("/oauth2/token");
+    assert_proof_refused(&exchange(&world, &client, &code, &[]).await);
+    let proof = A.proof("POST", &token_url, None);
+    let (_, _, body) = issued(&exchange(&world, &client, &code, &[proof]).await);
+    assert_eq!(body["token_type"], "DPoP", "{body}");
 }
 
 /// `token` with its claims unchanged but for an expiry an hour past,

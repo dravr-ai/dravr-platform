@@ -344,6 +344,8 @@ mod tests {
     use std::sync::Arc;
     use std::time::Duration;
 
+    use tokio::spawn;
+    use tokio::time::sleep;
     use uuid::Uuid;
 
     use super::InMemoryCache;
@@ -393,7 +395,7 @@ mod tests {
             .set_if_absent(&key, &1_u8, Duration::from_millis(1))
             .await
             .unwrap());
-        tokio::time::sleep(Duration::from_millis(5)).await;
+        sleep(Duration::from_millis(5)).await;
         assert!(
             cache
                 .set_if_absent(&key, &2_u8, Duration::from_secs(60))
@@ -409,7 +411,7 @@ mod tests {
         let mut tasks = Vec::new();
         for _ in 0..16 {
             let cache = Arc::clone(&cache);
-            tasks.push(tokio::spawn(async move {
+            tasks.push(spawn(async move {
                 cache
                     .set_if_absent(&key("race"), &true, Duration::from_secs(60))
                     .await

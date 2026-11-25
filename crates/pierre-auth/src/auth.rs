@@ -263,10 +263,11 @@ pub const PDPP_TOKEN_KINDS: [&str; 2] = ["owner", "client"];
 impl Claims {
     /// The token's PDPP kind, derived and never stored.
     ///
-    /// `owner` for a session ([`Self::is_session`]), `client` for a delegated
-    /// token ([`Self::is_delegated`]); `None` for anything else (an
-    /// impersonation, a client-credentials token, a token minted before
-    /// scopes).
+    /// `owner` for a session ([`Self::is_session`]), an impersonation
+    /// included; `client` for a token a third party holds
+    /// ([`Self::is_delegated`]), a client-credentials token included; `None`
+    /// for anything else (a token naming no client and holding less than the
+    /// self grant, minted before the `client_id` or `scope` claim).
     #[must_use]
     pub fn pdpp_token_kind(&self) -> Option<&'static str> {
         if self.is_session() {
