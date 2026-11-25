@@ -126,6 +126,9 @@ where
         client_grant_id: row
             .try_get("client_grant_id")
             .map_err(|e| column_error("client_grant_id", e))?,
+        dpop_jkt: row
+            .try_get("dpop_jkt")
+            .map_err(|e| column_error("dpop_jkt", e))?,
     })
 }
 
@@ -178,6 +181,9 @@ where
         client_grant_id: row
             .try_get("client_grant_id")
             .map_err(|e| column_error("client_grant_id", e))?,
+        dpop_jkt: row
+            .try_get("dpop_jkt")
+            .map_err(|e| column_error("dpop_jkt", e))?,
     })
 }
 

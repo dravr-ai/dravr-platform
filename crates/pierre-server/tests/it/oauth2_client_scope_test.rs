@@ -447,6 +447,7 @@ async fn a_refresh_token_holding_admin_mints_a_token_without_it() {
             family_created_at: Some(Timestamp::now()),
             resource: None,
             client_grant_id: None,
+            dpop_jkt: None,
         })
         .await
         .unwrap();
@@ -506,6 +507,7 @@ async fn a_refresh_family_holding_admin_with_no_recorded_start_mints_nothing() {
             family_created_at: None,
             resource: None,
             client_grant_id: None,
+            dpop_jkt: None,
         })
         .await
         .unwrap();

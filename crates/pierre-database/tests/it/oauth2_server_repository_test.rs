@@ -109,6 +109,7 @@ async fn an_auth_code_is_exchanged_once_and_only_by_its_client_and_redirect() {
         code_challenge_method: Some("S256".to_owned()),
         resource: Some("https://mcp.example".to_owned()),
         client_grant_id: None,
+        dpop_jkt: None,
     };
     repos.oauth2_server.store_auth_code(&code).await.unwrap();
 
@@ -230,6 +231,7 @@ async fn a_refresh_token_rotates_once_for_its_client_and_is_stored_hashed() {
         family_created_at: None,
         resource: Some("https://mcp.example".to_owned()),
         client_grant_id: None,
+        dpop_jkt: None,
     };
     repos
         .oauth2_server

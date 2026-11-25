@@ -91,6 +91,7 @@ impl OAuth2AuthorizationServer {
             // Rotation keeps the grant's resource binding and its consent grant.
             resource: consumed.resource.clone(),
             client_grant_id: consumed.client_grant_id.clone(),
+            dpop_jkt: None,
         };
         self.store_refresh_token(&successor).await?;
 
