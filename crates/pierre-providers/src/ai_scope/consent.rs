@@ -651,9 +651,7 @@ mod tests {
             Transport::WebApp,
             with_ai_consent(
                 t2_withheld(),
-                tallied(for_human_coach(async {
-                    consented_tier(Tier::T2)
-                })),
+                tallied(for_human_coach(async { consented_tier(Tier::T2) })),
             ),
         )
         .await;
@@ -670,9 +668,7 @@ mod tests {
             Transport::WebApp,
             with_ai_consent(
                 BTreeSet::new(),
-                tallied(for_human_coach(async {
-                    consented_tier(Tier::T2)
-                })),
+                tallied(for_human_coach(async { consented_tier(Tier::T2) })),
             ),
         )
         .await;
