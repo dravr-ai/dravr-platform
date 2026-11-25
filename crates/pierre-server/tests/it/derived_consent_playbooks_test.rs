@@ -523,7 +523,7 @@ async fn withdrawing_whoop_keeps_its_playbook_out_of_the_tool_answer() {
 }
 
 /// JF 2026-11-25 ("Gate on tier consent", carnet#1544): a playbook is the
-/// agent's memory, labelled T3. Once the athlete withholds sensitive_t3, no
+/// agent's memory, labelled T3. Once the athlete withholds `sensitive_t3`, no
 /// playbook reaches the prompt or the tool answer, WHOOP consent or not; the
 /// commitment, which is not memory, still does.
 #[tokio::test]

@@ -694,7 +694,7 @@ fn the_catalogue_holds_the_team_agents_and_each_needs_no_provider() {
 
 /// JF 2026-11-25 ("Gate on tier consent", carnet#1544): the re-rank is a
 /// model call, and its pillar context is the agent's memory (T3). Without the
-/// athlete's sensitive_t3 none reaches the model — with nothing else to
+/// athlete's `sensitive_t3` none reaches the model — with nothing else to
 /// reason about the proposal takes the deterministic order — and the team
 /// rules beside it still read the goal, as the platform's own logic.
 #[tokio::test]
