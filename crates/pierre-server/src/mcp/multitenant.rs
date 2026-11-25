@@ -595,6 +595,7 @@ impl ProviderToolRouter {
                 // OAuth2ServerConfig so the leaf crate has no pierre-server import.
                 config: Arc::new(resources.common.config.oauth2_server.clone()),
                 rate_limiter: resources.auth.oauth2_rate_limiter.clone(),
+                dpop_proofs: resources.auth.dpop_proofs.clone(),
                 refresh_token_expiry_days: resources.common.config.auth.refresh_token_expiry_days,
                 session_cookie_max_age_secs: resources.common.config.session_cookie.max_age_secs,
                 csrf_manager: resources.auth.csrf_manager.clone(),

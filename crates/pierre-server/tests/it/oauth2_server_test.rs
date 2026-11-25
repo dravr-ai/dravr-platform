@@ -133,6 +133,7 @@ fn test_authorize_request_clone() {
         resource: None,
         request_uri: None,
         authorization_details: None,
+        dpop_jkt: None,
     };
 
     let cloned = request.clone();
@@ -399,6 +400,7 @@ fn test_oauth2_auth_code_creation() {
         code_challenge_method: Some("S256".to_owned()),
         resource: None,
         client_grant_id: None,
+        dpop_jkt: None,
     };
 
     assert_eq!(auth_code.code, "auth_code_abc123");
@@ -423,6 +425,7 @@ fn test_oauth2_auth_code_clone() {
         code_challenge_method: None,
         resource: None,
         client_grant_id: None,
+        dpop_jkt: None,
     };
 
     let cloned = auth_code.clone();
@@ -485,6 +488,7 @@ fn test_oauth2_refresh_token_creation() {
         family_created_at: None,
         resource: None,
         client_grant_id: None,
+        dpop_jkt: None,
     };
 
     assert_eq!(refresh_token.token.expose_secret(), "refresh_token_abc");
@@ -506,6 +510,7 @@ fn test_oauth2_refresh_token_revoked() {
         family_created_at: None,
         resource: None,
         client_grant_id: None,
+        dpop_jkt: None,
     };
 
     assert!(refresh_token.revoked);

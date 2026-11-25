@@ -4398,6 +4398,7 @@ dependencies = [
  "proptest",
  "regex",
  "serde",
+ "serde_json",
  "tokio",
  "tower-http",
  "tracing",
@@ -4806,6 +4807,7 @@ version = "0.3.0"
 dependencies = [
  "dravr-tronc",
  "futures-util",
+ "jsonwebtoken",
  "log",
  "pierre-config",
  "pierre-core",

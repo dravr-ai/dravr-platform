@@ -66,6 +66,7 @@ use dravr_canot::commands::CommandRegistry;
 use dravr_canot::ChannelRegistry;
 use pierre_auth::admin::jwks::JwksManager;
 use pierre_auth::auth::AuthManager;
+use pierre_auth::dpop::DpopProofs;
 use pierre_auth::firebase::FirebaseAuth;
 use pierre_auth::human_check::HumanCheck;
 use pierre_auth::oauth2_server::play_integrity_decoder::PlayIntegrityDecoder;
@@ -278,6 +279,9 @@ pub struct AuthSlice {
     pub firebase_auth: Option<Arc<FirebaseAuth>>,
     /// Rate limiter for `OAuth2` endpoints.
     pub oauth2_rate_limiter: Arc<OAuth2RateLimiter>,
+    /// `DPoP` proof verification and replay memory (RFC 9449), shared by the
+    /// token endpoint, PAR and the auth middleware.
+    pub dpop_proofs: Arc<DpopProofs>,
     /// Decodes the Android app's Play Integrity token at Google, on the
     /// mobile sign-in's code exchange.
     pub play_integrity: Arc<dyn PlayIntegrityDecoder>,

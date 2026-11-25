@@ -26,6 +26,7 @@ use axum::extract::ConnectInfo;
 use axum::http::{header, Request as HttpRequest, StatusCode};
 use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_auth::config::{ClientRetentionConfig, OAuth2ServerConfig, RateLimitConfig};
+use pierre_auth::dpop::DpopProofs;
 use pierre_auth::oauth2_server::client_registration::ClientRegistrationManager;
 use pierre_auth::oauth2_server::models::{
     ClientRegistrationRequest, ClientRegistrationResponse, OAuth2Error,
@@ -126,6 +127,7 @@ async fn authorize(database: &Database, client_id: &str) -> Timestamp {
         family_created_at: None,
         resource: None,
         client_grant_id: None,
+        dpop_jkt: None,
     };
     database
         .repositories()
@@ -158,6 +160,7 @@ async fn issue_dependents(database: &Database, client_id: &str) {
             code_challenge_method: None,
             resource: None,
             client_grant_id: None,
+            dpop_jkt: None,
         })
         .await
         .unwrap();
@@ -572,6 +575,9 @@ async fn the_register_endpoint_answers_past_the_ceiling_with_429_and_an_rfc7591_
             OAuth2RateLimiter::local_window_store(),
             &RateLimitConfig::default(),
         )),
+        dpop_proofs: Arc::new(DpopProofs::new(Arc::new(
+            common::create_test_cache().await.unwrap(),
+        ))),
     });
 
     let (status, admitted) = post_register(&router, "First").await;

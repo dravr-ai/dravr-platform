@@ -20,6 +20,7 @@ use dravr_tronc::dates::Timestamp;
 use pierre_auth::admin::jwks::JwksManager;
 use pierre_auth::auth::{AuthManager, Claims};
 use pierre_auth::config::oauth::OAuth2ServerConfig;
+use pierre_auth::dpop::DpopProofs;
 use pierre_auth::oauth2_server::{
     client_auth::{is_basic_authorization, resolve_client_credentials},
     client_registration::ClientRegistrationManager,
@@ -68,6 +69,8 @@ mod consent_role;
 mod consent_text;
 /// Which consent text a grant was approved under, and whether it is current.
 mod consent_version;
+/// The `DPoP` proof a token or pushed authorization request carries (RFC 9449)
+mod dpop_proof;
 /// "Continue with Google": server-side Google sign-in on the hosted login page
 mod google_login;
 /// RFC 7662 token introspection for the resource servers an admin named
@@ -130,6 +133,9 @@ pub struct OAuth2Context {
     pub config: Arc<OAuth2ServerConfig>,
     /// Rate limiter for OAuth endpoints
     pub rate_limiter: Arc<OAuth2RateLimiter>,
+    /// Verifies and burns the `DPoP` proofs (RFC 9449) PAR and the token
+    /// endpoint bind a grant to
+    pub dpop_proofs: Arc<DpopProofs>,
     /// Refresh-token lifetime in days, the `REFRESH_TOKEN_EXPIRY_DAYS` sessions read too
     pub refresh_token_expiry_days: i64,
     /// `Max-Age` of the sign-in cookie in seconds, the configured
@@ -558,7 +564,7 @@ impl OAuth2Routes {
                 },
             ),
             Err(e) => {
-                error!("Failed to mint the consent form token: {e}");
+                error!(error = %e, "Failed to mint the consent form token");
                 Self::render_oauth_error_response(
                     &OAuth2Error::server_error(consent::CONSENT_UNAVAILABLE),
                     &text,
@@ -684,9 +690,14 @@ impl OAuth2Routes {
             Err(error) => return Self::token_error_response(&error, basic),
         };
 
+        // A proof binds what the exchange mints (RFC 9449 §5).
+        let dpop_jkt = match Self::proven_dpop_key(&context, &headers, "/oauth2/token").await {
+            Ok(jkt) => jkt,
+            Err(error) => return Self::token_error_response(&error, basic),
+        };
         let auth_server = Self::authorization_server(&context);
 
-        Self::execute_token_exchange(auth_server, request, basic).await
+        Self::execute_token_exchange(auth_server, request, dpop_jkt.as_deref(), basic).await
     }
 
     fn parse_and_log_token_request(
@@ -699,19 +710,19 @@ impl OAuth2Routes {
             form.get("client_id")
         );
 
-        Self::parse_token_request(form, headers).map_err(|error| {
-            warn!("OAuth token request parsing failed: {:?}", error);
-            error
+        Self::parse_token_request(form, headers).inspect_err(|error| {
+            warn!(error_code = %error.error, "OAuth token request parsing failed");
         })
     }
 
     async fn execute_token_exchange(
         auth_server: OAuth2AuthorizationServer,
         request: TokenRequest,
+        dpop_jkt: Option<&str>,
         basic: bool,
     ) -> Response {
         let client_id = request.client_id.clone();
-        match auth_server.token(request).await {
+        match auth_server.token_with_dpop(request, dpop_jkt).await {
             Ok(response) => {
                 info!("OAuth token exchange successful for client: {}", client_id);
                 (StatusCode::OK, Json(response)).into_response()
@@ -854,6 +865,9 @@ impl OAuth2Routes {
         let resource = params
             .get("resource")
             .map_or_else(String::new, ToString::to_string);
+        let dpop_jkt = params
+            .get("dpop_jkt")
+            .map_or_else(String::new, ToString::to_string);
         let request_uri = params
             .get("request_uri")
             .map_or_else(String::new, ToString::to_string);
@@ -904,6 +918,7 @@ impl OAuth2Routes {
                 code_challenge: &code_challenge,
                 code_challenge_method: &code_challenge_method,
                 resource: &resource,
+                dpop_jkt: &dpop_jkt,
                 request_uri: &request_uri,
                 authorization_details: &authorization_details,
                 default_email: &default_email,

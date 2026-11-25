@@ -124,6 +124,24 @@ pub trait CacheProvider: Send + Sync + Clone {
         ttl: Duration,
     ) -> AppResult<()>;
 
+    /// Store `value` at `key` for `ttl` only when no live entry is there.
+    ///
+    /// Returns `true` when this call stored it and `false` when a live entry
+    /// already held the key, which is left untouched. The test and the write
+    /// are one atomic step in every backend (`SET NX EX` on Redis, one write
+    /// guard in memory), so of two concurrent callers exactly one stores:
+    /// what a one-time token's replay memory needs.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if serialization fails or the backend cannot be reached
+    async fn set_if_absent<T: Serialize + Send + Sync>(
+        &self,
+        key: &CacheKey,
+        value: &T,
+        ttl: Duration,
+    ) -> AppResult<bool>;
+
     /// Retrieve value from cache
     ///
     /// # Errors

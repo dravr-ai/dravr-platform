@@ -34,12 +34,17 @@ pub(super) enum Refused {
         error: AppError,
         caller: Option<Uuid>,
     },
+    /// Refused by the `DPoP` binding rules (RFC 9449 §7): answered with a
+    /// `DPoP` challenge naming `code` beside the Bearer one.
+    Dpop { error: AppError, code: &'static str },
 }
 
 impl Refused {
     pub(super) const fn error(&self) -> &AppError {
         match self {
-            Self::OverBudget { error, .. } | Self::Failed { error, .. } => error,
+            Self::OverBudget { error, .. }
+            | Self::Failed { error, .. }
+            | Self::Dpop { error, .. } => error,
         }
     }
 
@@ -80,6 +85,10 @@ pub struct AuthRefusal {
     pub caller: Option<Uuid>,
     /// The refusal the request is answered with.
     pub error: AppError,
+    /// The RFC 9449 error code when the `DPoP` binding rules refused the
+    /// request, which a resource server answers with a `DPoP` challenge;
+    /// `None` for every other refusal.
+    pub dpop_error: Option<&'static str>,
 }
 
 impl From<AppError> for AuthRefusal {
@@ -87,6 +96,7 @@ impl From<AppError> for AuthRefusal {
         Self {
             caller: None,
             error,
+            dpop_error: None,
         }
     }
 }
@@ -118,8 +128,18 @@ pub(super) fn settle(checked: Checked) -> Result<AuthResult, AuthRefusal> {
             Err(AuthRefusal {
                 caller: Some(caller),
                 error,
+                dpop_error: None,
             })
         }
-        Err(Refused::Failed { error, caller }) => Err(AuthRefusal { caller, error }),
+        Err(Refused::Failed { error, caller }) => Err(AuthRefusal {
+            caller,
+            error,
+            dpop_error: None,
+        }),
+        Err(Refused::Dpop { error, code }) => Err(AuthRefusal {
+            caller: None,
+            error,
+            dpop_error: Some(code),
+        }),
     }
 }

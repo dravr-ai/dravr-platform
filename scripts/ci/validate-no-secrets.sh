@@ -53,8 +53,9 @@ SRC_GLOB=(-g 'crates/*/src/**/*.rs')
 # carrying `// secret-scan-ok: <reason>` is dropped from every scan below. The
 # reason lives on the line it excuses rather than in a central list of paths that
 # nobody prunes — which is how this script came to exclude a file deleted months
-# earlier. The one current use is the plaintext-PEM detector, whose doc example
-# has to contain PEM armour to demonstrate what it recognises.
+# earlier. Its uses are the plaintext-PEM detector, whose doc example
+# has to contain PEM armour to demonstrate what it recognises, and the DPoP test
+# client keys in pierre-test-support, which a dev-only crate signs proofs with.
 SCAN_SKIP_MARKER='secret-scan-ok:'
 
 # Print `path:line:text` for every source line matching $1, minus skipped lines.

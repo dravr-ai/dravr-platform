@@ -17,6 +17,8 @@
 //!   ([`db::create_test_db`] and friends), honouring `DATABASE_URL`.
 //! - [`delegation`] — the group, agent and membership a coach's delegated
 //!   link rests on.
+//! - `dpop` (feature `dpop`) — two client keys and the `DPoP` proofs they
+//!   sign, for the suites that present a key-bound token.
 //! - [`garmin`] — an athlete's Garmin session and the API grant that pushes
 //!   their wellness.
 //! - `group_tier` (feature `groups`) — a plan whose tier includes no group
@@ -74,6 +76,9 @@ pub mod activity_fields;
 pub mod db;
 /// Coaching-group rows a coach's delegated link rests on.
 pub mod delegation;
+/// Two P-256 client keys and the `DPoP` proofs a test signs with them.
+#[cfg(feature = "dpop")]
+pub mod dpop;
 /// A loopback TCP relay that injects network faults: refuse, blackhole, latency, sever.
 pub mod fault_proxy;
 /// Small, valid FIT activity files written for tests.

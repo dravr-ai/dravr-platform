@@ -185,6 +185,7 @@ mod support_session_assistant_tests {
                     resource: None,
                     family_created_at: Some(now),
                     client_grant_id: None,
+                    dpop_jkt: None,
                 })
                 .await
                 .unwrap();
@@ -203,6 +204,7 @@ mod support_session_assistant_tests {
                     &TokenLineage {
                         family_id: &family,
                         client_grant_id: None,
+                        dpop_jkt: None,
                     },
                     &who.id,
                     Some(who.tenant.to_string()),

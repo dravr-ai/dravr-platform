@@ -296,6 +296,55 @@ impl OAuth2ServerConfig {
         )
     }
 
+    /// The URI a client dialed to reach `path`, as a `DPoP` proof's `htu`
+    /// names it (RFC 9449 §4.3).
+    ///
+    /// The origin is the configured resource origin whose authority is the
+    /// dialed one (`host`, as [`Self::mcp_resource_for_host`] reads it), host
+    /// lowercased and a default port dropped; `proto` (an `X-Forwarded-Proto`
+    /// value) only picks between two such origins that differ by scheme. The
+    /// scheme is never taken from the header alone: a proxy behind a TLS
+    /// front end forwards `http` for a client that dialed `https`.
+    ///
+    /// `None` unless the dialed authority is one of this server's: a forged
+    /// header can name only another of this server's own origins, never make
+    /// a proof for another server's URL pass.
+    #[must_use]
+    pub fn dialed_uri(
+        &self,
+        proto: Option<&str>,
+        host: Option<&str>,
+        path: &str,
+    ) -> Option<String> {
+        let first = |value: &str| {
+            value
+                .split(',')
+                .next()
+                .unwrap_or_default()
+                .trim()
+                .to_ascii_lowercase()
+        };
+        let proto = proto.map(first).filter(|p| !p.is_empty());
+        let host = host.map(first).filter(|h| !h.is_empty())?;
+        // Each configured origin the dialed authority names, read with that
+        // origin's own scheme so its default port is the one dropped.
+        let matching: Vec<Url> = self
+            .mcp_resources()
+            .into_iter()
+            .filter_map(|resource| Url::parse(resource).ok())
+            .filter(|resource| {
+                Url::parse(&format!("{}://{host}", resource.scheme())).is_ok_and(|dialed| {
+                    dialed.origin().ascii_serialization() == resource.origin().ascii_serialization()
+                })
+            })
+            .collect();
+        let chosen = matching
+            .iter()
+            .find(|resource| proto.as_deref() == Some(resource.scheme()))
+            .or_else(|| matching.first())?;
+        Some(format!("{}{path}", chosen.origin().ascii_serialization()))
+    }
+
     /// The identifier a path-suffixed metadata document describes: the MCP or
     /// A2A resource at `path` on the dialed host. `None` when this server
     /// publishes no such resource.
@@ -311,6 +360,40 @@ impl OAuth2ServerConfig {
 #[cfg(test)]
 mod tests {
     use super::www_authenticate_challenge;
+    use crate::config::OAuth2ServerConfig;
+
+    #[test]
+    fn the_dialed_uri_is_one_of_the_servers_origins_or_none() {
+        let config = OAuth2ServerConfig {
+            mcp_resource_url: "https://mcp.example.test/mcp".to_owned(),
+            mcp_resource_aliases: vec!["http://localhost:8081/mcp".to_owned()],
+            ..OAuth2ServerConfig::default()
+        };
+        assert_eq!(
+            config.dialed_uri(None, Some("MCP.example.test:443"), "/mcp"),
+            Some("https://mcp.example.test/mcp".to_owned()),
+            "bug: scheme defaults to https, host is lowercased, default port dropped"
+        );
+        assert_eq!(
+            config.dialed_uri(Some("http, https"), Some("localhost:8081"), "/a2a"),
+            Some("http://localhost:8081/a2a".to_owned())
+        );
+        assert_eq!(
+            config.dialed_uri(Some("http"), Some("mcp.example.test"), "/mcp"),
+            Some("https://mcp.example.test/mcp".to_owned()),
+            "bug: a TLS front end's proxy forwards http; the configured origin's scheme wins"
+        );
+        assert_eq!(
+            config.dialed_uri(Some("https"), Some("evil.example.test"), "/mcp"),
+            None,
+            "bug: an origin that is none of the server's must never be an htu"
+        );
+        assert_eq!(
+            config.dialed_uri(None, None, "/mcp"),
+            None,
+            "bug: a request naming no host dialed none of the server's origins"
+        );
+    }
 
     /// The dev environment's MCP resource, read from where terraform sets it.
     fn dev_mcp_resource_url() -> &'static str {

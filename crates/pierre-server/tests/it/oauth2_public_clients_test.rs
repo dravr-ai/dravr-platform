@@ -135,6 +135,7 @@ fn authorize_request(client_id: &str, redirect: &str, scope: Option<&str>) -> Au
         resource: None,
         request_uri: None,
         authorization_details: None,
+        dpop_jkt: None,
     }
 }
 
@@ -1057,6 +1058,7 @@ fn oauth2_routes(resources: &Arc<ServerContext>) -> Router {
             OAuth2RateLimiter::local_window_store(),
             &resources.common.config.rate_limiting,
         )),
+        dpop_proofs: resources.auth.dpop_proofs.clone(),
     };
     OAuth2Routes::routes(context).layer(MockConnectInfo(SocketAddr::from(([127, 0, 0, 1], 40_000))))
 }

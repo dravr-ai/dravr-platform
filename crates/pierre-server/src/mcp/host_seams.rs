@@ -40,14 +40,14 @@ use dravr_tronc::mcp::tasks::{
 };
 use dravr_tronc::mcp::tool::{ToolCapabilities, ToolContext, ToolRegistry};
 use pierre_auth::auth::AuthResult;
-use pierre_auth::config::{www_authenticate_challenge, DIALED_HOST_HEADERS};
+use pierre_auth::config::www_authenticate_challenge;
 use pierre_auth::oauth2_server::first_party::names_third_party;
 use pierre_config::timeouts::ServerTimeouts;
-use pierre_core::auth_header::is_api_key_format;
 use pierre_core::models::TenantId;
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::Transport;
 use pierre_mcp_transport::tenant_isolation::{extract_tenant_context_internal, log_tenant_failure};
+use pierre_middleware::dpop_request::{authorization_value, dialed_host, dialed_uri, dpop_context};
 use pierre_middleware::rate_limiting::{
     report_request_ceiling, report_request_credential, report_request_operation,
 };
@@ -316,14 +316,9 @@ fn mcp_operation(request: &JsonRpcRequest) -> &str {
     called_tool(request).unwrap_or(&request.method)
 }
 
-/// The authority the client dialed, from the headers the transport forwards:
-/// the first `X-Forwarded-Host` entry the frontend proxy writes, else `Host`.
-fn dialed_host(request: &JsonRpcRequest) -> Option<&str> {
-    let headers = request.headers.as_ref()?;
-    DIALED_HOST_HEADERS
-        .iter()
-        .find_map(|name| headers.get(*name).and_then(Value::as_str))
-}
+/// The path the MCP engine is mounted at, which a `DPoP` proof's `htu` names
+/// for a request the engine built.
+const MCP_PATH: &str = "/mcp";
 
 #[async_trait]
 impl AuthHook<dyn ToolRuntime> for PierreAuthHook {
@@ -346,15 +341,10 @@ impl AuthHook<dyn ToolRuntime> for PierreAuthHook {
             });
         };
 
-        // The transport strips the `Bearer ` prefix; the auth middleware expects
-        // the HTTP header form — `Bearer <jwt>` for JWTs, or a bare API key — so
-        // reconstruct it from the stripped token with the classifier the
-        // middleware itself uses, so `/mcp` accepts every key format REST does.
-        let auth_header = if is_api_key_format(token) {
-            token.to_owned()
-        } else {
-            format!("Bearer {token}")
-        };
+        // The header form the middleware reads, under the scheme presented.
+        let auth_header = authorization_value(request, token);
+        let htu = dialed_uri(request, oauth2_server, MCP_PATH);
+        let dpop = dpop_context(request, htu.as_deref());
 
         // The scoped entry point: a delegated OAuth grant authenticates here,
         // because this hook refuses any `tools/call` its scopes do not cover
@@ -363,7 +353,7 @@ impl AuthHook<dyn ToolRuntime> for PierreAuthHook {
             .resources
             .auth
             .auth_middleware
-            .authenticate_scoped_request_naming_caller(Some(&auth_header), &resources)
+            .authenticate_scoped_request_naming_caller(Some(&auth_header), &resources, Some(&dpop))
             .await
         {
             Ok(result) => result,
@@ -375,7 +365,7 @@ impl AuthHook<dyn ToolRuntime> for PierreAuthHook {
                 if let Some(caller) = refusal.caller {
                     self.record_refusal(request, caller, None).await;
                 }
-                return Err(auth_refusal(&refusal.error, resource_url));
+                return Err(auth_refusal(&refusal, resource_url));
             }
         };
         // The usage row an API key's request writes names the tool it
@@ -1043,6 +1033,8 @@ pub fn build_mcp_server(resources: Arc<ServerContext>) -> Arc<McpServer<dyn Tool
     .with_instructions_source(instructions)
     .with_supported_versions(supported)
     .with_allowed_origins(allowed_origins)
+    // A key-bound token arrives as `Authorization: DPoP` (RFC 9449 §7.1).
+    .with_dpop_scheme()
     .with_auth_hook(Arc::new(PierreAuthHook {
         resources: resources.clone(),
     }))

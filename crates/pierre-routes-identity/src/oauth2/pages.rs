@@ -53,6 +53,8 @@ pub struct LoginHtmlParams<'a> {
     pub code_challenge_method: &'a str,
     /// RFC 8707 resource the authorization is for (empty when none was named)
     pub resource: &'a str,
+    /// RFC 9449 §10 `dpop_jkt` the code is to be bound to (empty when none)
+    pub dpop_jkt: &'a str,
     /// RFC 9126 `request_uri` of a pushed request, carried in place of the
     /// parameters (empty for a request sent in the query)
     pub request_uri: &'a str,
@@ -82,6 +84,7 @@ impl fmt::Debug for LoginHtmlParams<'_> {
             .field("code_challenge", &self.code_challenge)
             .field("code_challenge_method", &self.code_challenge_method)
             .field("resource", &self.resource)
+            .field("dpop_jkt", &self.dpop_jkt)
             .field("request_uri", &"[REDACTED]")
             .field("authorization_details", &self.authorization_details)
             .field("default_email", &self.default_email)
@@ -114,6 +117,8 @@ pub struct ConsentHtmlParams<'a> {
     pub code_challenge_method: &'a str,
     /// RFC 8707 resource the authorization is for (empty when none was named)
     pub resource: &'a str,
+    /// RFC 9449 §10 `dpop_jkt` the code is to be bound to (empty when none)
+    pub dpop_jkt: &'a str,
     /// RFC 9126 `request_uri` of a pushed request, which the submission
     /// resolves again (empty for a request sent in the query)
     pub request_uri: &'a str,
@@ -173,6 +178,7 @@ impl fmt::Debug for ConsentHtmlParams<'_> {
             .field("code_challenge", &self.code_challenge)
             .field("code_challenge_method", &self.code_challenge_method)
             .field("resource", &self.resource)
+            .field("dpop_jkt", &self.dpop_jkt)
             .field("request_uri", &"[REDACTED]")
             .field("csrf_token", &"[REDACTED]")
             .field("client_label", &self.client_label)
@@ -258,6 +264,7 @@ impl OAuth2Routes {
             code_challenge: request.code_challenge.as_deref().unwrap_or_default(),
             code_challenge_method: request.code_challenge_method.as_deref().unwrap_or_default(),
             resource: request.resource.as_deref().unwrap_or_default(),
+            dpop_jkt: request.dpop_jkt.as_deref().unwrap_or_default(),
             request_uri: request.request_uri.as_deref().unwrap_or_default(),
             csrf_token,
             client_label,
@@ -316,6 +323,7 @@ impl OAuth2Routes {
                 &escape_html_attribute(params.code_challenge_method),
             )
             .replace("{{RESOURCE}}", &escape_html_attribute(params.resource))
+            .replace("{{DPOP_JKT}}", &escape_html_attribute(params.dpop_jkt))
             .replace(
                 "{{REQUEST_URI}}",
                 &escape_html_attribute(params.request_uri),
@@ -339,11 +347,11 @@ impl OAuth2Routes {
     /// Render the OAuth consent page for a client requesting access.
     #[must_use]
     pub fn generate_consent_html(params: ConsentHtmlParams<'_>) -> String {
-        Self::consent_html_from(Self::OAUTH_CONSENT_TEMPLATE, params)
+        Self::consent_html_from(Self::OAUTH_CONSENT_TEMPLATE, &params)
     }
 
     /// Render the consent page `template` lays out for `params`.
-    pub(super) fn consent_html_from(template: &str, params: ConsentHtmlParams<'_>) -> String {
+    pub(super) fn consent_html_from(template: &str, params: &ConsentHtmlParams<'_>) -> String {
         let text = params.text;
         // `admin` is never a scope the screen lists or the form echoes: it is
         // the Admin access box, offered to an admin alone.
@@ -458,6 +466,7 @@ impl OAuth2Routes {
                 &escape_html_attribute(params.code_challenge_method),
             )
             .replace("{{RESOURCE}}", &escape_html_attribute(params.resource))
+            .replace("{{DPOP_JKT}}", &escape_html_attribute(params.dpop_jkt))
             .replace(
                 "{{REQUEST_URI}}",
                 &escape_html_attribute(params.request_uri),
@@ -546,6 +555,12 @@ impl OAuth2Routes {
                 "{{RESOURCE}}",
                 &escape_html_attribute(
                     urlencoding::encode(form.get("resource").map_or("", |v| v)).as_ref(),
+                ),
+            )
+            .replace(
+                "{{DPOP_JKT}}",
+                &escape_html_attribute(
+                    urlencoding::encode(form.get("dpop_jkt").map_or("", |v| v)).as_ref(),
                 ),
             )
             // A pushed request's retry carries its request_uri (RFC 9126);

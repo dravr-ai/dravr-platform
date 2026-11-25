@@ -93,6 +93,25 @@ impl Cache {
         }
     }
 
+    /// Store `value` at `key` for `ttl` only when no live entry is there;
+    /// `true` when this call stored it. Atomic in every backend.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if serialization fails or the backend cannot be reached
+    pub async fn set_if_absent<T: Serialize + Send + Sync>(
+        &self,
+        key: &CacheKey,
+        value: &T,
+        ttl: Duration,
+    ) -> AppResult<bool> {
+        match &self.inner {
+            CacheBackend::InMemory(cache) => cache.set_if_absent(key, value, ttl).await,
+            #[cfg(feature = "redis")]
+            CacheBackend::Redis(cache) => cache.set_if_absent(key, value, ttl).await,
+        }
+    }
+
     /// Retrieve value from cache
     ///
     /// # Errors
@@ -260,6 +279,15 @@ impl CacheProvider for Cache {
         ttl: Duration,
     ) -> AppResult<()> {
         Self::set(self, key, value, ttl).await
+    }
+
+    async fn set_if_absent<T: Serialize + Send + Sync>(
+        &self,
+        key: &CacheKey,
+        value: &T,
+        ttl: Duration,
+    ) -> AppResult<bool> {
+        Self::set_if_absent(self, key, value, ttl).await
     }
 
     async fn get<T: for<'de> Deserialize<'de>>(&self, key: &CacheKey) -> AppResult<Option<T>> {

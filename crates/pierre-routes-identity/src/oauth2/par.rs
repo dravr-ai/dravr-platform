@@ -117,6 +117,16 @@ impl OAuth2Routes {
             })
             .collect();
         params.insert("client_id".to_owned(), client_id.clone());
+        // RFC 9449 §10.1: a proof at PAR binds the code to its key, as a
+        // `dpop_jkt` parameter does; given both, they must name one key.
+        if let Some(jkt) = Self::proven_dpop_key(context, headers, "/oauth2/par").await? {
+            if params.get("dpop_jkt").is_some_and(|named| *named != jkt) {
+                return Err(OAuth2Error::invalid_dpop_proof(
+                    "dpop_jkt does not name the key the DPoP proof is signed with",
+                ));
+            }
+            params.insert("dpop_jkt".to_owned(), jkt);
+        }
         let request = Self::parse_authorize_request(&params)?;
         Self::authorization_server(context)
             .check_authorize_request(&request)
@@ -173,11 +183,11 @@ impl OAuth2Routes {
         params: &HashMap<String, String>,
     ) -> Result<PushedRequestResponse, OAuth2Error> {
         let request_uri = new_request_uri().map_err(|e| {
-            error!("Pushed authorization request not stored: {e}");
+            error!(error = %e, "Pushed authorization request not stored");
             OAuth2Error::server_error(PUSHED_REQUEST_UNAVAILABLE)
         })?;
         let parameters = serde_json::to_string(params).map_err(|e| {
-            error!("Pushed authorization request not stored: {e}");
+            error!(error = %e, "Pushed authorization request not stored");
             OAuth2Error::server_error(PUSHED_REQUEST_UNAVAILABLE)
         })?;
         let now = Timestamp::now();
@@ -195,7 +205,7 @@ impl OAuth2Routes {
             .store_pushed_request(&row)
             .await
             .map_err(|e| {
-                error!(client_id = %client_id, "Pushed authorization request not stored: {e}");
+                error!(client_id = %client_id, error = %e, "Pushed authorization request not stored");
                 OAuth2Error::server_error(PUSHED_REQUEST_UNAVAILABLE)
             })?;
         info!(client_id = %client_id, "Pushed authorization request stored");

@@ -10,6 +10,7 @@ use uuid::Uuid;
 
 use super::details::granted_details;
 use super::OAuth2AuthorizationServer;
+use crate::dpop::{BEARER_SCHEME, DPOP_SCHEME};
 use crate::oauth2_server::authorization_details::ResolvedDetails;
 use crate::oauth2_server::models::{OAuth2Error, OAuth2RefreshToken};
 use crate::oauth2_server::resource::{token_audience, ResourceServers};
@@ -28,7 +29,78 @@ pub struct TokenGrant {
     pub scope: String,
 }
 
+/// The `token_type` a token response names: `DPoP` for a token bound to the
+/// key `dpop_jkt` names (RFC 9449 §5), `Bearer` otherwise.
+pub(super) const fn token_type(dpop_jkt: Option<&str>) -> &'static str {
+    if dpop_jkt.is_some() {
+        DPOP_SCHEME
+    } else {
+        BEARER_SCHEME
+    }
+}
+
+/// Whether a grant bound to `bound` may mint for a request whose verified
+/// proof was signed by `presented`: always for an unbound grant, and only with
+/// a proof by the bound key otherwise.
+fn dpop_binding_holds(bound: Option<&str>, presented: Option<&str>) -> Result<(), OAuth2Error> {
+    match (bound, presented) {
+        (None, _) => Ok(()),
+        (Some(_), None) => Err(OAuth2Error::invalid_dpop_proof(
+            "This grant is bound to a DPoP key; a DPoP proof signed by it is required",
+        )),
+        (Some(bound), Some(presented)) if bound == presented => Ok(()),
+        (Some(_), Some(_)) => Err(OAuth2Error::invalid_dpop_proof(
+            "The DPoP proof is not signed by the key this grant is bound to",
+        )),
+    }
+}
+
+/// Refuse to rotate a refresh family bound to a `DPoP` key without a proof by
+/// that key (RFC 9449 §5). `grant` is the presented token's row, read before
+/// rotation; `None` (unknown or revoked) is left to the rotation to refuse.
+///
+/// # Errors
+/// `invalid_dpop_proof` when the proof is missing or signed by another key.
+pub(super) fn require_refresh_dpop_binding(
+    grant: Option<&OAuth2RefreshToken>,
+    dpop_jkt: Option<&str>,
+) -> Result<(), OAuth2Error> {
+    let bound = grant.and_then(|grant| grant.dpop_jkt.as_deref());
+    dpop_binding_holds(bound, dpop_jkt).inspect_err(|_| {
+        warn!("Refresh refused: the family is DPoP-bound and the proof is missing or mismatched");
+    })
+}
+
 impl OAuth2AuthorizationServer {
+    /// Refuse to redeem a code bound to a `DPoP` key (RFC 9449 §10) without a
+    /// proof by that key, before the code is spent: the client holding the
+    /// key can still redeem it. A code that no longer matches (spent,
+    /// expired, another client's) is left to the exchange to refuse.
+    ///
+    /// # Errors
+    /// `invalid_dpop_proof` when the proof is missing or signed by another
+    /// key; `server_error` when the code cannot be read.
+    pub(super) async fn require_code_dpop_binding(
+        &self,
+        code: &str,
+        client_id: &str,
+        redirect_uri: &str,
+        dpop_jkt: Option<&str>,
+    ) -> Result<(), OAuth2Error> {
+        let live = self
+            .oauth2_server
+            .peek_auth_code(code, client_id, redirect_uri, Timestamp::now())
+            .await
+            .map_err(|e| {
+                error!(client_id, error = %e, "Could not read the authorization code's DPoP binding");
+                OAuth2Error::server_error("Failed to read the authorization code")
+            })?;
+        let bound = live.as_ref().and_then(|live| live.dpop_jkt.as_deref());
+        dpop_binding_holds(bound, dpop_jkt).inspect_err(|_| {
+            warn!(client_id, "Code exchange refused: the code is DPoP-bound and the proof is missing or mismatched");
+        })
+    }
+
     /// The audience of a token minted from a grant bound to `granted`, when
     /// the request names `requested`: [`token_audience`] over the platform's
     /// MCP and A2A identifiers and the satellites'.

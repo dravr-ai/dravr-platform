@@ -40,6 +40,7 @@ use pierre_auth::oauth2_server::models::ClientRegistrationRequest;
 use pierre_auth::oauth2_server::rate_limiting::OAuth2RateLimiter;
 use pierre_config::environment::ServerConfig;
 use pierre_contremaitre::MessagingStringsRegistry;
+use pierre_core::constants::limits::OAUTH_DELEGATED_ACCESS_TOKEN_EXPIRY_MINUTES;
 use pierre_core::constants::oauth2_client_retention::MAX_PENDING_REGISTRATIONS;
 use pierre_core::constants::service_names::MCP;
 use pierre_core::models::{Tenant, TenantId, User};
@@ -102,6 +103,7 @@ fn oauth2_routes(resources: &Arc<ServerContext>) -> axum::Router {
             OAuth2RateLimiter::local_window_store(),
             &resources.common.config.rate_limiting,
         )),
+        dpop_proofs: resources.auth.dpop_proofs.clone(),
         refresh_token_expiry_days: 30,
         session_cookie_max_age_secs: 86_400,
         csrf_manager: resources.auth.csrf_manager.clone(),
@@ -1200,7 +1202,11 @@ async fn validate_and_refresh_rotates_a_bound_grant_into_a_token_still_bound() {
     let refreshed = validate_and_refresh(&resources, &stale, Some(&refresh_token)).await;
     assert_eq!(refreshed["status"], "refreshed", "{refreshed}");
     assert_eq!(refreshed["token_type"], "Bearer");
-    assert_eq!(refreshed["expires_in"], 3600);
+    assert_eq!(
+        refreshed["expires_in"],
+        OAUTH_DELEGATED_ACCESS_TOKEN_EXPIRY_MINUTES * 60,
+        "a third-party client's token lives 15 minutes"
+    );
     let rotated = refreshed["refresh_token"].as_str().unwrap().to_owned();
     assert_ne!(rotated, refresh_token, "the refresh token is rotated");
     let claims = resources
@@ -1251,7 +1257,7 @@ async fn a_refused_login_links_back_with_every_oauth_parameter_and_the_resource(
     assert!(page.contains("Invalid email or password"), "{page}");
     assert!(!page.contains("{{"), "every placeholder is filled: {page}");
     let retry = format!(
-        "href=\"/oauth2/login?client_id=client%20%22quoted%22%20%3Cid%3E&redirect_uri={}&response_type=code&state={}&scope=fitness%3Aread&code_challenge={challenge}&code_challenge_method=S256&resource={}&ui_locales=en\"",
+        "href=\"/oauth2/login?client_id=client%20%22quoted%22%20%3Cid%3E&redirect_uri={}&response_type=code&state={}&scope=fitness%3Aread&code_challenge={challenge}&code_challenge_method=S256&resource={}&dpop_jkt=&ui_locales=en\"",
         urlencoding::encode(REDIRECT),
         urlencoding::encode(STATE),
         urlencoding::encode(MCP_RESOURCE),

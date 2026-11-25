@@ -13,7 +13,7 @@ use uuid::Uuid;
 
 use super::admin_grant::holds_admin;
 use super::OAuth2AuthorizationServer;
-use crate::auth::{Claims, JwtValidationError, TokenLineage};
+use crate::auth::{oauth_access_token_lifetime_secs, Claims, JwtValidationError, TokenLineage};
 use crate::oauth2_server::first_party::is_first_party;
 use crate::oauth2_server::models::{
     OAuth2Error, OAuth2RefreshToken, ValidateRefreshRequest, ValidateRefreshResponse,
@@ -111,10 +111,11 @@ impl OAuth2AuthorizationServer {
     fn create_refreshed_response(
         new_access_token: String,
         refresh_token_value: &str,
+        client_id: &str,
     ) -> ValidateRefreshResponse {
         ValidateRefreshResponse {
             status: ValidationStatus::Refreshed,
-            expires_in: Some(3600), // 1 hour
+            expires_in: Some(oauth_access_token_lifetime_secs(client_id)),
             access_token: Some(SecretString::from(new_access_token)),
             refresh_token: Some(SecretString::from(refresh_token_value.to_owned())),
             token_type: Some("Bearer".to_owned()),
@@ -196,6 +197,8 @@ impl OAuth2AuthorizationServer {
             Some(TokenLineage {
                 family_id: &consumed.family_id,
                 client_grant_id: consumed.client_grant_id.as_deref(),
+                // A bound family never reaches here (`refused_here`).
+                dpop_jkt: None,
             }),
             &granted,
             audience.as_deref(),
@@ -209,6 +212,7 @@ impl OAuth2AuthorizationServer {
         Ok(Self::create_refreshed_response(
             new_access_token,
             &new_refresh_token_value,
+            &refresh_token_data.client_id,
         ))
     }
 
@@ -224,6 +228,13 @@ impl OAuth2AuthorizationServer {
     fn refused_here(refresh_token: &OAuth2RefreshToken) -> Option<ValidateRefreshResponse> {
         if holds_admin(refresh_token.scope.as_deref()) {
             warn!(user_id = %refresh_token.user_id, client_id = %refresh_token.client_id, "validate-and-refresh refused an admin grant; it refreshes at /oauth2/token");
+            return Some(Self::create_token_endpoint_response());
+        }
+        // A family bound to a `DPoP` key rotates only with a proof by it,
+        // which this route has no way to carry: it refreshes at
+        // `/oauth2/token`, where nothing here has rotated it away.
+        if refresh_token.dpop_jkt.is_some() {
+            warn!(user_id = %refresh_token.user_id, client_id = %refresh_token.client_id, "validate-and-refresh refused a DPoP-bound grant; it refreshes at /oauth2/token");
             return Some(Self::create_token_endpoint_response());
         }
         if is_first_party(&refresh_token.client_id) {

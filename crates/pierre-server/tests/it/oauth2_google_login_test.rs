@@ -336,6 +336,7 @@ fn oauth2_routes(resources: &Arc<ServerContext>) -> axum::Router {
             OAuth2RateLimiter::local_window_store(),
             &resources.common.config.rate_limiting,
         )),
+        dpop_proofs: resources.auth.dpop_proofs.clone(),
         refresh_token_expiry_days: 30,
         session_cookie_max_age_secs: 86_400,
         csrf_manager: resources.auth.csrf_manager.clone(),
@@ -1454,6 +1455,7 @@ async fn proving_an_unverified_accounts_email_retires_every_credential_it_held()
             family_created_at: None,
             resource: None,
             client_grant_id: None,
+            dpop_jkt: None,
         })
         .await
         .unwrap();

@@ -74,6 +74,7 @@ fn routes(resources: &Arc<ServerContext>, limiter: Arc<OAuth2RateLimiter>) -> Ro
         strings: Arc::new(MessagingStringsRegistry::new()),
         first_party_only_sources: Arc::default(),
         rate_limiter: limiter,
+        dpop_proofs: resources.auth.dpop_proofs.clone(),
     };
     OAuth2Routes::routes(context).layer(MockConnectInfo(SocketAddr::from(([127, 0, 0, 1], 40_000))))
 }
@@ -146,6 +147,7 @@ async fn code_for(resources: &Arc<ServerContext>, client_id: &str, user: &User) 
             resource: None,
             request_uri: None,
             authorization_details: None,
+            dpop_jkt: None,
         },
         Some(user.id),
         None,

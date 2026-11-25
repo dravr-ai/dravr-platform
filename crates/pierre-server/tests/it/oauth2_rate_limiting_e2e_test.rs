@@ -16,6 +16,7 @@ use axum::http::{Request, StatusCode};
 use axum::response::Response;
 use axum::Router;
 use futures_util::future::join_all;
+use pierre_auth::dpop::DpopProofs;
 use pierre_auth::security::csrf::CsrfTokenManager;
 use pierre_auth::{
     config::{rate_limit::trusted_proxies, OAuth2ServerConfig, RateLimitConfig},
@@ -745,6 +746,9 @@ async fn oauth2_routes(limiter: OAuth2RateLimiter) -> (Router, String) {
         strings: Arc::new(MessagingStringsRegistry::new()),
         first_party_only_sources: Arc::default(),
         rate_limiter: Arc::new(limiter),
+        dpop_proofs: Arc::new(DpopProofs::new(Arc::new(
+            common::create_test_cache().await.unwrap(),
+        ))),
     });
     (routes, client_id)
 }

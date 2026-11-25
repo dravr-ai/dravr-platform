@@ -668,10 +668,9 @@ impl<C: CacheProvider> NonceStore<C> {
     /// Mark a `jti` as used. Returns `Ok(())` if it was unused, or an error if
     /// it was already recorded (within its TTL window).
     ///
-    /// Uses `exists` + `set` on the cache. The TOCTOU window between these two
-    /// calls is negligible for this use case (each jti is unique per mint, and
-    /// burn happens on user click — simultaneous clicks on the same link across
-    /// two replicas within milliseconds is practically impossible).
+    /// One atomic `set_if_absent` on the cache, so of two concurrent loads of
+    /// the same link (on one replica or two sharing Redis) exactly one burns
+    /// it. The sentinel lives as long as a link-token can.
     ///
     /// # Errors
     ///
@@ -680,15 +679,13 @@ impl<C: CacheProvider> NonceStore<C> {
         let key = Self::cache_key(jti);
         let ttl = StdDuration::from_secs(MAX_LINK_TOKEN_LIFETIME_SECS);
 
-        if self.cache.exists(&key).await? {
-            return Err(AppError::auth_invalid(
+        if self.cache.set_if_absent(&key, &true, ttl).await? {
+            Ok(())
+        } else {
+            Err(AppError::auth_invalid(
                 "Link-token has already been used — request a fresh link",
-            ));
+            ))
         }
-
-        // Store a sentinel value with TTL so it auto-expires when the link-token would.
-        self.cache.set(&key, &true, ttl).await?;
-        Ok(())
     }
 
     fn cache_key(jti: &str) -> CacheKey {

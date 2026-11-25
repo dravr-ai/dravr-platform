@@ -32,7 +32,7 @@ pub const RESOLVED_REQUEST_LIFETIME_SECS: i64 = 30 * 60;
 /// The authorization parameters a push stores, beside `client_id`: what
 /// `/oauth2/authorize` reads from a request. Client credentials are never
 /// among them.
-pub const PUSHED_PARAMETERS: [&str; 10] = [
+pub const PUSHED_PARAMETERS: [&str; 11] = [
     "response_type",
     "redirect_uri",
     "scope",
@@ -43,6 +43,7 @@ pub const PUSHED_PARAMETERS: [&str; 10] = [
     "prompt",
     "ui_locales",
     "authorization_details",
+    "dpop_jkt",
 ];
 
 /// A fresh `request_uri`: the URN prefix and 32 bytes of OS randomness,

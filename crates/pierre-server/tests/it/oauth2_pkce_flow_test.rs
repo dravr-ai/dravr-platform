@@ -153,6 +153,7 @@ async fn test_pkce_enforcement_no_code_challenge() {
         resource: None,
         request_uri: None,
         authorization_details: None,
+        dpop_jkt: None,
     };
 
     let result = oauth_server
@@ -191,6 +192,7 @@ async fn test_pkce_valid_s256_flow() {
         resource: None,
         request_uri: None,
         authorization_details: None,
+        dpop_jkt: None,
     };
 
     let auth_response = oauth_server
@@ -240,6 +242,7 @@ async fn test_pkce_invalid_code_verifier() {
         resource: None,
         request_uri: None,
         authorization_details: None,
+        dpop_jkt: None,
     };
 
     let auth_response = oauth_server
@@ -291,6 +294,7 @@ async fn test_pkce_code_verifier_with_invalid_characters() {
         resource: None,
         request_uri: None,
         authorization_details: None,
+        dpop_jkt: None,
     };
 
     let auth_response = oauth_server
@@ -346,6 +350,7 @@ async fn test_pkce_missing_code_verifier() {
         resource: None,
         request_uri: None,
         authorization_details: None,
+        dpop_jkt: None,
     };
 
     let auth_response = oauth_server
@@ -397,6 +402,7 @@ async fn test_auth_code_replay_prevention() {
         resource: None,
         request_uri: None,
         authorization_details: None,
+        dpop_jkt: None,
     };
 
     let auth_response = oauth_server
@@ -483,6 +489,7 @@ async fn test_auth_code_client_binding() {
         resource: None,
         request_uri: None,
         authorization_details: None,
+        dpop_jkt: None,
     };
 
     let auth_response = oauth_server
@@ -537,6 +544,7 @@ async fn test_redirect_uri_exact_match() {
         resource: None,
         request_uri: None,
         authorization_details: None,
+        dpop_jkt: None,
     };
 
     let auth_response = oauth_server
@@ -591,6 +599,7 @@ async fn test_refresh_token_rotation() {
         resource: None,
         request_uri: None,
         authorization_details: None,
+        dpop_jkt: None,
     };
 
     let auth_response = oauth_server

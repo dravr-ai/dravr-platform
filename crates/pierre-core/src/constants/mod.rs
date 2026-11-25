@@ -82,6 +82,11 @@ pub mod limits {
     pub const DEFAULT_SESSION_HOURS: i64 = 24;
     /// OAuth access token expiry hours (1 hour per RFC 8252 Security Best Practices)
     pub const OAUTH_ACCESS_TOKEN_EXPIRY_HOURS: i64 = 1;
+    /// Lifetime of an access token minted for a third-party client, in minutes.
+    ///
+    /// Owl §5.1 SHOULD: short-lived external tokens; the client refreshes.
+    /// Dravr's own apps keep `OAUTH_ACCESS_TOKEN_EXPIRY_HOURS`.
+    pub const OAUTH_DELEGATED_ACCESS_TOKEN_EXPIRY_MINUTES: i64 = 15;
     /// Maximum request size in bytes
     pub const MAX_REQUEST_SIZE: usize = 1_048_576; // 1MB
     /// Maximum response size in bytes

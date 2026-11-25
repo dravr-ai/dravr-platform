@@ -532,9 +532,24 @@ pub fn resolve_mcp_resource_url(
 /// The request headers that carry the authority a client dialed.
 ///
 /// Most specific first: the `X-Forwarded-Host` the frontend proxy writes (the
-/// backend's own `Host` is rewritten on the way in), then `Host`. Read in this
-/// order into [`OAuth2ServerConfig::mcp_resource_for_host`].
-pub const DIALED_HOST_HEADERS: [&str; 2] = ["x-forwarded-host", "host"];
+/// backend's own `Host` is rewritten on the way in), then `Host`.
+const DIALED_HOST_HEADERS: [&str; 2] = ["x-forwarded-host", "host"];
+
+/// The authority a client dialed, as [`OAuth2ServerConfig::mcp_resource_for_host`]
+/// and [`OAuth2ServerConfig::dialed_uri`] read it.
+///
+/// `header` looks a request header up by its lowercase name. It is the one
+/// reader of the dialed host, whatever holds the headers: an axum
+/// `HeaderMap`, or the forwarded headers of a JSON-RPC request.
+#[must_use]
+pub fn dialed_host<'h>(header: impl Fn(&str) -> Option<&'h str>) -> Option<&'h str> {
+    DIALED_HOST_HEADERS.into_iter().find_map(header)
+}
+
+/// The request header that carries the scheme a client dialed, as the
+/// frontend proxy forwards it; read beside [`dialed_host`] into
+/// [`OAuth2ServerConfig::dialed_uri`].
+pub const DIALED_PROTO_HEADER: &str = "x-forwarded-proto";
 
 /// The first of `explicit` and `base_url` that is set and not blank, else
 /// `http://localhost:{http_port}`.

@@ -141,6 +141,7 @@ fn an_auth_code_never_prints_its_code_or_state() {
         code_challenge_method: None,
         resource: None,
         client_grant_id: None,
+        dpop_jkt: None,
     };
     let printed = printed_without(
         &auth_code,

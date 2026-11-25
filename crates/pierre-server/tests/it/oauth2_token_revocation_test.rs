@@ -86,6 +86,7 @@ fn oauth2_routes(resources: &Arc<ServerContext>) -> Router {
             OAuth2RateLimiter::local_window_store(),
             &resources.common.config.rate_limiting,
         )),
+        dpop_proofs: resources.auth.dpop_proofs.clone(),
     };
     OAuth2Routes::routes(context).layer(MockConnectInfo(SocketAddr::from(([127, 0, 0, 1], 40_002))))
 }
@@ -185,6 +186,7 @@ async fn connect(world: &World) -> Connection {
                 resource: None,
                 request_uri: None,
                 authorization_details: None,
+                dpop_jkt: None,
             },
             Some(world.user_id),
             Some(world.tenant_id.to_string()),
@@ -395,6 +397,7 @@ async fn a_code_issued_before_its_grant_was_revoked_is_not_redeemed() {
                 resource: None,
                 request_uri: None,
                 authorization_details: None,
+                dpop_jkt: None,
             },
             Some(world.user_id),
             Some(world.tenant_id.to_string()),
@@ -466,6 +469,7 @@ async fn a_token_written_after_its_grant_was_revoked_does_not_survive() {
             resource: None,
             family_created_at: Some(Timestamp::now()),
             client_grant_id: None,
+            dpop_jkt: None,
         })
         .await
         .unwrap();
@@ -557,6 +561,7 @@ async fn stored_refresh_token(
             family_created_at,
             resource: None,
             client_grant_id: None,
+            dpop_jkt: None,
         })
         .await
         .unwrap();

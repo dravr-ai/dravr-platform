@@ -29,7 +29,8 @@ use dravr_tronc::mcp::auth::{AuthError, AuthHook};
 use dravr_tronc::mcp::host::ToolDispatcher;
 use dravr_tronc::mcp::protocol::JsonRpcRequest;
 use dravr_tronc::mcp::schema::Tool;
-use dravr_tronc::mcp::transport::http::{bearer_token, mcp_router, origin_allowed};
+use dravr_tronc::mcp::transport::http::{mcp_router, origin_allowed};
+use pierre_middleware::dpop_request::PresentedCall;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use serde_json::json;
 use sha2::{Digest, Sha256};
@@ -84,7 +85,11 @@ impl McpRoutes {
     /// the RFC 9728 `WWW-Authenticate` challenge instead of the catalog. A
     /// credential over its request budget gets the 429 and `Retry-After`
     /// `POST /mcp` answers with.
-    async fn handle_tools(State(state): State<McpRoutesState>, headers: HeaderMap) -> Response {
+    async fn handle_tools(
+        State(state): State<McpRoutesState>,
+        headers: HeaderMap,
+        presented: PresentedCall,
+    ) -> Response {
         // Yield to scheduler for cooperative multitasking
         yield_now().await;
 
@@ -97,8 +102,10 @@ impl McpRoutes {
             return (StatusCode::FORBIDDEN, "Origin not allowed").into_response();
         }
 
+        // The credential under the scheme it was presented with, and what a
+        // `DPoP` proof is checked against (`GET` to `/mcp/tools`).
         let mut request = JsonRpcRequest::new("tools/list", None);
-        request.auth_token = bearer_token(&headers);
+        presented.attach(&mut request);
 
         let runtime: Arc<dyn ToolRuntime> = state.resources.clone();
         let auth_hook = PierreAuthHook {
