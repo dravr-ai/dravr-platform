@@ -15,41 +15,11 @@ all-features = true
 # ============================================================================
 # Advisory Database - Security Vulnerability Scanning
 # ============================================================================
-# Replaces: cargo audit --ignore RUSTSEC-2023-0071 --no-fetch --color always
+# Replaces: cargo audit --no-fetch --color always
 [advisories]
 version = 2
 # Ignored advisories with risk assessment and mitigation plans
 ignore = [
-    # -------------------------------------------------------------------------
-    # RUSTSEC-2023-0071: RSA 0.9.x - Marvin Attack (timing sidechannel)
-    # -------------------------------------------------------------------------
-    # Severity: 5.9/10 (Medium)
-    # Crate: rsa 0.9.8
-    # Issue: Potential key recovery through timing sidechannels during decryption
-    # Advisory: https://rustsec.org/advisories/RUSTSEC-2023-0071
-    #
-    # Risk Assessment: LOW for our usage
-    # - Only used for JWT signing/verification (RS256) in
-    #   crates/pierre-auth/src/admin/jwks.rs
-    # - NOT used for decryption operations (primary attack vector)
-    # - Admin-only feature with limited attack surface
-    # - 4096-bit RSA keys provide additional security margin
-    #
-    # Mitigation:
-    # - Monitor for rsa 0.10.0 stable release (currently RC)
-    # - Upgrade to 0.10.0 when stable (fixes this vulnerability)
-    # - Consider Ed25519 migration for future admin tokens (faster, smaller keys)
-    #
-    # Status: Accepted risk until stable fix available
-    # Reviewed: 2026-10-23 — rsa 0.9.10 is still the latest stable (0.10 is at
-    #   rc.19), so no fixed release exists; the assessment above is unchanged.
-    # Reviewed: 2026-11-24 — rsa 0.10.0 went stable on 2026-11-08: the fix
-    #   exists, and this entry ends with the upgrade (carnet#1785), not another
-    #   renewal. The lock still resolves 0.9.10; the assessment above holds
-    #   until then.
-    # Next Review: 2026-12-01
-    "RUSTSEC-2023-0071",
-
     # -------------------------------------------------------------------------
     # RUSTSEC-2026-0192: ttf-parser 0.25.1 is unmaintained (no vulnerability)
     # -------------------------------------------------------------------------
@@ -95,56 +65,6 @@ ignore = [
     # Next Review: 2026-12-24
     "RUSTSEC-2026-0194",
     "RUSTSEC-2026-0195",
-
-    # -------------------------------------------------------------------------
-    # RUSTSEC-2026-0387: crypto-bigint 0.5.5 - timing variability in
-    # operations intended to be constant-time
-    # -------------------------------------------------------------------------
-    # Severity: no CVSS score published; category crypto-failure (timing
-    # side channel)
-    # Crate: crypto-bigint 0.5.5 (the only version in Cargo.lock)
-    # Issue: subtraction, zero counting, division and Montgomery multiplication
-    # may branch on secret data, depending on compiler and target CPU, so a
-    # co-located observer could learn secret integers through timing. Fixed
-    # only in crypto-bigint >= 0.7.6; no 0.5.x release exists.
-    # Advisory: https://rustsec.org/advisories/RUSTSEC-2026-0387
-    #
-    # Risk Assessment: NONE reachable in our usage
-    # - crypto-bigint 0.5.5 enters only through jsonwebtoken's `rust_crypto`
-    #   feature (elliptic-curve 0.13 -> p256 / p384, the ES256 / ES384
-    #   algorithms). pierre-auth, pierre-middleware and dravr-tronc 6.2.1 all
-    #   enable it, so the crate is in the shipped build graph.
-    # - Every token Pierre signs or verifies is RS256 or HS256:
-    #   `Algorithm::RS256` / `Algorithm::HS256` are the only ones in crates/
-    #   and in dravr-tronc 6.2.1. Each `Validation::new(..)` allows only that
-    #   one algorithm, so jsonwebtoken refuses an ES256 / ES384 header before
-    #   any signature check, and every key is RSA or HMAC (`from_rsa_pem`,
-    #   `from_rsa_components`, `from_secret`). No ECDSA arithmetic runs in
-    #   jsonwebtoken.
-    # - The ECDSA we do run, App Attest
-    #   (crates/pierre-auth/src/oauth2_server/app_attest.rs: P-256 assertions,
-    #   a P-384 / P-256 certificate chain), goes through ring / webpki, not
-    #   crypto-bigint.
-    #
-    # Mitigation:
-    # - Remove when jsonwebtoken moves to p256 / p384 0.14 (elliptic-curve
-    #   0.14) and Cargo.lock resolves crypto-bigint >= 0.7.6; elliptic-curve
-    #   0.14.1 still accepts the affected 0.7.5.
-    # - Or switch jsonwebtoken to its `aws_lc_rs` backend, which drops p256
-    #   and p384. Cargo unifies features, so the switch has to land in
-    #   dravr-tronc as well as pierre-auth, pierre-middleware and pierre-server.
-    #   It does not clear RUSTSEC-2023-0071: pierre-auth depends on rsa
-    #   directly (key generation in crates/pierre-auth/src/admin/jwks.rs).
-    #
-    # Reviewed: 2026-10-24 — published 2026-10-23; jsonwebtoken 11.1.0, the
-    #   latest, still depends on p256 / p384 0.13, so no upgrade clears it.
-    # Reviewed: 2026-11-24 — jsonwebtoken 12.0.0 (2026-11-13) depends on
-    #   p256 / p384 ^0.14 and rsa ^0.10: the upgrade path exists and is tracked
-    #   with the rsa one (carnet#1785), across the platform and dravr-tronc.
-    #   We are still on jsonwebtoken 10.4 and crypto-bigint 0.5.5; the
-    #   reachability assessment above is unchanged.
-    # Next Review: 2026-12-01
-    "RUSTSEC-2026-0387",
 
     # -------------------------------------------------------------------------
     # RUSTSEC-2026-0459 (CVE-2026-119375): bundled SQLite < 3.54.0 returns
