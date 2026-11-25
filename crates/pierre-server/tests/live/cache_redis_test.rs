@@ -7,7 +7,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use pierre_auth::dpop::{DpopProofs, DpopRefusal, PresentedProofs};
 use pierre_cache::{Cache, CacheConfig, CacheKey, CacheResource};
 use pierre_core::models::TenantId;
@@ -196,7 +196,7 @@ async fn test_redis_dpop_replay_is_refused_across_replicas() -> Result<()> {
     let verified = replica_one
         .verify(presented, "POST", Some(htu), None)
         .await
-        .map_err(|refusal| anyhow::anyhow!("a fresh proof is admitted: {refusal}"))?;
+        .map_err(|refusal| anyhow!("a fresh proof is admitted: {refusal}"))?;
     assert_eq!(verified.jkt, A.thumbprint()?);
 
     for replica in [&replica_two, &replica_one] {

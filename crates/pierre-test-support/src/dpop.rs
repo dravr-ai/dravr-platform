@@ -11,6 +11,7 @@
 
 use dravr_tronc::dates::Timestamp;
 use dravr_tronc::dpop::{access_token_hash, jwk_thumbprint, DpopError};
+use jsonwebtoken::errors::Error as JwtError;
 use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
 use serde_json::{json, Value};
 use uuid::Uuid;
@@ -81,7 +82,7 @@ impl Key {
         htu: &str,
         token: Option<&str>,
         age: i64,
-    ) -> Result<String, jsonwebtoken::errors::Error> {
+    ) -> Result<String, JwtError> {
         let mut header = Header::new(Algorithm::ES256);
         header.typ = Some("dpop+jwt".to_owned());
         header.jwk = Some(serde_json::from_value(self.jwk())?);
@@ -103,12 +104,7 @@ impl Key {
     /// # Errors
     ///
     /// As [`Self::proof_aged`].
-    pub fn proof(
-        self,
-        htm: &str,
-        htu: &str,
-        token: Option<&str>,
-    ) -> Result<String, jsonwebtoken::errors::Error> {
+    pub fn proof(self, htm: &str, htu: &str, token: Option<&str>) -> Result<String, JwtError> {
         self.proof_aged(htm, htu, token, 0)
     }
 }
