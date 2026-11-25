@@ -230,9 +230,47 @@ async function sweepSettings(page: Page, theme: (typeof THEMES)[number]) {
   );
   await page.route('**/api/me/oauth-grants', (route) =>
     route.fulfill(
-      json({ grants: [{ id: 'g1', client_id: 'client-claude', client_name: 'Claude', client_host: 'claude.ai', scope: 'fitness:read', granted_at: '2026-11-01T10:00:00Z' }] }),
+      json({
+        grants: [
+          { id: 'g1', client_id: 'client-claude', client_name: 'Claude', client_host: 'claude.ai', scope: 'fitness:read', granted_at: '2026-11-01T10:00:00Z', preset: null, max_tier: null, expires_at: null },
+          { id: 'g2', client_id: 'client-coach', client_name: 'Coach app', client_host: 'coach.example', scope: 'fitness:read', granted_at: '2026-11-20T10:00:00Z', preset: 'training_coach', max_tier: 'T1', expires_at: '2026-12-20T10:00:00Z' },
+        ],
+      }),
     ),
   );
+  // Connected apps' always-allowed list and consent history (carnet#1544).
+  await page.route('**/api/me/oauth-standing-policies', (route) =>
+    route.fulfill(
+      json({
+        policies: [
+          { id: 'p1', client_id: 'client-coach', client_name: 'Coach app', client_host: 'coach.example', preset: 'training_coach', created_at: '2026-11-02T10:00:00Z' },
+        ],
+      }),
+    ),
+  );
+  await page.route('**/api/me/oauth-grant-receipts**', (route) => {
+    const receipt = (id: string, event: string, actor: string, clientId: string, at: string, policy = false) => ({
+      id,
+      client_grant_id: `grant-${id}`,
+      event,
+      actor,
+      at,
+      payload: { grant: { client_id: clientId }, approval: { actor, standing_policy_ref: policy ? { id: 'p1' } : null } },
+      payload_sha256: 'ab',
+      jws: null,
+      logged_at: null,
+    });
+    return route.fulfill(
+      json({
+        receipts: [
+          receipt('r4', 'issue', 'auto', 'client-coach', '2026-11-20T10:00:00Z', true),
+          receipt('r3', 'expire', 'auto', 'client-coach', '2026-11-20T09:00:00Z'),
+          receipt('r2', 'revoke', 'client', 'https://retired.example/client.json', '2026-11-10T10:00:00Z'),
+          receipt('r1', 'issue', 'user', 'client-claude', '2026-11-01T10:00:00Z'),
+        ],
+      }),
+    );
+  });
   await loginToDashboard(page);
   page.setDefaultTimeout(5_000);
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
@@ -251,6 +289,14 @@ async function sweepSettings(page: Page, theme: (typeof THEMES)[number]) {
     await setTheme(page, theme);
     await page.screenshot({ path: `design-sweep/${theme}/user-settings-${id}.png`, fullPage: true });
     layoutFailures.push(...describeLayoutFailures(`user/settings-${id}`, await measurePageLayout(page)));
+    if (id === 'account') {
+      // Connected apps scrolls inside the pane: its apps, the always-allowed
+      // list and the consent history, captured on their own (carnet#1544).
+      const apps = page.getByTestId('account-section-connected-mcp-apps');
+      await expect(apps.getByTestId('grant-receipt-r4')).toBeVisible();
+      await apps.scrollIntoViewIfNeeded();
+      await apps.screenshot({ path: `design-sweep/${theme}/user-settings-connected-apps.png` });
+    }
     if (id === 'privacy') {
       // The health records block on its own, then the confirmation its
       // delete asks for: both are read in this pane only.

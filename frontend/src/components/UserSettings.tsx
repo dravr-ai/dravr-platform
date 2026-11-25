@@ -1497,7 +1497,7 @@ Authorization: Bearer <your-token-here>`}
                   // the consent screen. Distinct from the A2A "Connected Apps" card in
                   // the API Tokens pane, which lists self-registered agent clients.
                   return (
-                      <div key={section} data-testid="account-section-connected-mcp-apps">
+                      <div key={section} data-testid="account-section-connected-mcp-apps" className="space-y-10">
                         <Section title={t('tokens.connectedMcpApps')} description={t('tokens.connectedAppsHint')}>
 
                         {isLoadingConnectedApps ? (
