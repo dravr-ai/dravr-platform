@@ -1116,7 +1116,9 @@ async fn an_api_key_never_reads_the_memory_facts_even_under_sensitive_t3() {
     assert_eq!(status, StatusCode::FORBIDDEN, "{refused}");
     assert!(!refused.to_string().contains("morning runs"), "{refused}");
     assert!(
-        refused.to_string().contains("never served to outside AI apps"),
+        refused
+            .to_string()
+            .contains("never served to outside AI apps"),
         "no switch opens it, so none is named: {refused}"
     );
     let (status, own) = get(&app, "/api/memory/facts", &session).await;

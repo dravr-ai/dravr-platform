@@ -503,7 +503,10 @@ async fn the_agents_memory_and_the_dossier_never_reach_an_outside_caller() {
                 !response.success,
                 "bug: {tool} over {transport:?} served T3 under sensitive_t3"
             );
-            let result = response.result.as_ref().expect("the refusal carries a result");
+            let result = response
+                .result
+                .as_ref()
+                .expect("the refusal carries a result");
             assert_eq!(
                 result["error_code"], "sensitive_tier_withheld",
                 "{tool} over {transport:?}: {result}"
@@ -627,7 +630,10 @@ async fn no_outside_surface_serves_t3_under_sensitive_t3() {
     assert_eq!(discovery.status(), StatusCode::OK, "GET /mcp/tools answers");
     let bytes = to_bytes(discovery.into_body(), usize::MAX).await.unwrap();
     let catalogue: Value = serde_json::from_slice(&bytes).unwrap();
-    assert!(!leaks(&catalogue), "bug: /mcp/tools carried T3: {catalogue}");
+    assert!(
+        !leaks(&catalogue),
+        "bug: /mcp/tools carried T3: {catalogue}"
+    );
 
     let session = format!(
         "Bearer {}",
@@ -652,8 +658,15 @@ async fn no_outside_surface_serves_t3_under_sensitive_t3() {
         }
     };
     let (status, outside) = rest(key).await;
-    assert_eq!(status, StatusCode::FORBIDDEN, "bug: REST over a key: {outside}");
-    assert!(!outside.contains("morning workouts"), "bug: REST leaked T3: {outside}");
+    assert_eq!(
+        status,
+        StatusCode::FORBIDDEN,
+        "bug: REST over a key: {outside}"
+    );
+    assert!(
+        !outside.contains("morning workouts"),
+        "bug: REST leaked T3: {outside}"
+    );
     let (status, own) = rest(session).await;
     assert_eq!(status, StatusCode::OK, "{own}");
     assert!(

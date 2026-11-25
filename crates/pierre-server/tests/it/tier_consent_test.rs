@@ -517,7 +517,8 @@ fn tier_refused(response: &UniversalResponse) -> bool {
     !response.success
         && result["error_code"] == "sensitive_tier_withheld"
         && response.error.as_deref().is_some_and(|message| {
-            message.contains("never served to outside AI apps") && !message.contains("Privacy & Data")
+            message.contains("never served to outside AI apps")
+                && !message.contains("Privacy & Data")
         })
         && !result.to_string().contains(REMEMBERED)
 }
