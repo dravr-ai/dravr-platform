@@ -2033,6 +2033,10 @@ async fn every_own_connection_refusal_is_named_and_reaches_no_calendar() {
         "{refusal}"
     );
     assert!(error_text(&refusal).contains("API key"), "{refusal}");
+    assert!(
+        error_text(&refusal).contains("Settings, Data providers"),
+        "the refusal names where the key is entered: {refusal}"
+    );
 
     assert!(
         w.api.event_calls().is_empty(),

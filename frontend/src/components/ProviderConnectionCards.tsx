@@ -175,6 +175,14 @@ interface ProviderConnectionCardsProps {
    * themselves when one of them is connected.
    */
   leadProviders?: readonly string[];
+  /**
+   * The cards are the coach's way to a coaching platform. Intervals.icu then
+   * links with the coach's own API key alone — only a key reads the athletes
+   * a coach coaches, an authorization cannot — so a new link opens the key
+   * form without the authorization, and a card the coach already authorized
+   * offers the key beside its connection.
+   */
+  coachKey?: boolean;
 }
 
 export default function ProviderConnectionCards({
@@ -183,6 +191,7 @@ export default function ProviderConnectionCards({
   onlyProviders,
   plain = false,
   leadProviders,
+  coachKey = false,
 }: ProviderConnectionCardsProps) {
   const { t } = useTranslation();
   const { scheme } = useTheme();
@@ -351,13 +360,27 @@ export default function ProviderConnectionCards({
     startOAuthInThisTab(oauthApi.authorizeUrl(providerName, { tosConsent, ...offeredConsents(consents) }));
   };
 
+  // An authorized Intervals.icu card on a coach screen: it connects, yet it
+  // cannot read the coach's athletes, so the key form is its action.
+  const offersCoachKey = (provider: ProviderStatus) =>
+    coachKey &&
+    provider.provider === 'intervals_icu' &&
+    provider.connected &&
+    provider.connection_type === 'oauth' &&
+    cardStatus(provider) !== 'reconnect';
+
   // A tap follows what the card shows (`cardStatus`) and how it connects
   // (`connectPlan`): a connected WHOOP that owes its owner authorization asks
   // for the notice; a card still needing its history opens the sign-in that
   // copies it; any card to connect or reconnect follows its plan's primary
-  // way in. Connected cards are inert.
+  // way in. Connected cards are inert, bar the authorized Intervals.icu card
+  // on a coach screen, which opens the key form.
   const handleConnect = (provider: ProviderStatus) => {
     const status = cardStatus(provider);
+    if (offersCoachKey(provider)) {
+      setIntervalsModal({ offersAuthorize: false });
+      return;
+    }
     if (status === 'authorize_owed') {
       setNoticeProvider(provider.provider);
       return;
@@ -394,10 +417,10 @@ export default function ProviderConnectionCards({
       // The provider's own account sign-in, after its notice when it has one.
       signIn: (target) => openSignIn(provider, target, false, true, consents),
       // Intervals.icu's dialog for a new link or a key-linked card: the
-      // authorization first while the server offers it, with the coach's
-      // API-key form one tap away; the key form alone otherwise. A card the
-      // athlete authorized never comes here: it reconnects through `authorize`.
-      intervalsDialog: (offersAuthorize) => setIntervalsModal({ offersAuthorize }),
+      // authorization first while the server offers it, with the API-key form
+      // one tap away; the key form alone otherwise, and always on a coach
+      // screen. An authorized card reconnects through `authorize`.
+      intervalsDialog: (offersAuthorize) => setIntervalsModal({ offersAuthorize: offersAuthorize && !coachKey }),
       // Non-OAuth providers (like synthetic) skip directly to chat.
       none: () => onSkip?.(),
     });
@@ -447,7 +470,8 @@ export default function ProviderConnectionCards({
         const offersHistory = historySignInNow(provider, status) !== null;
         // A card whose history has no sign-in to copy it is connected and inert.
         const historyWithoutSignIn = status === 'history_needed' && !offersHistory;
-        const actionable = ACTIONABLE.has(status) && !historyWithoutSignIn;
+        const keyOffered = offersCoachKey(provider);
+        const actionable = (ACTIONABLE.has(status) && !historyWithoutSignIn) || keyOffered;
         const refused =
           refusedCard === provider.provider && (status === 'connect' || status === 'reconnect');
         // Garmin's OAuth card is named Garmin Connect in full and wears its
@@ -473,7 +497,7 @@ export default function ProviderConnectionCards({
               aria-label={
                 status === 'authorize_owed'
                   ? t('providers.authorizeToKeepSyncing', name)
-                  : offersHistory || status === 'reconnect' || refused
+                  : offersHistory || status === 'reconnect' || refused || keyOffered
                   ? undefined
                   : provider.connected
                   ? t('providers.isConnectedAria', name)
@@ -509,7 +533,9 @@ export default function ProviderConnectionCards({
               )}
               {actionable && status !== 'authorize_owed' && !isNonOAuth && (
                 <span className="flex-shrink-0 text-sm font-medium text-primary transition-colors group-hover:text-primary-hover">
-                  {offersHistory
+                  {keyOffered
+                    ? t('shell.intervalsCoachKeyAction')
+                    : offersHistory
                     ? t(HISTORY_ACTION_KEYS.add)
                     : status === 'reconnect'
                       ? t('app.reconnect')

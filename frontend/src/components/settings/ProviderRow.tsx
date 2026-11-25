@@ -41,6 +41,12 @@ interface ProviderRowProps {
   /** Open the account sign-in that copies the card's history (`connectPlan(card).history.signIn`). */
   onAddHistory: () => void;
   onDisconnect: () => void;
+  /**
+   * Opens the API-key form for an Intervals.icu card the athlete authorized:
+   * a coach's key reads the athletes they coach and an authorization cannot,
+   * so the card needs a way to the key short of disconnecting first.
+   */
+  onLinkKey: () => void;
   onWithdrawAiConsent: () => void;
 }
 
@@ -52,6 +58,7 @@ export default function ProviderRow({
   onConnect,
   onAddHistory,
   onDisconnect,
+  onLinkKey,
   onWithdrawAiConsent,
 }: ProviderRowProps) {
   const { t, language } = useTranslation();
@@ -206,6 +213,16 @@ export default function ProviderRow({
                   title={t(HISTORY_ACTION_KEYS.explainer, name)}
                 >
                   {t(HISTORY_ACTION_KEYS.add)}
+                </Button>
+              )}
+              {provider.provider === 'intervals_icu' && provider.connection_type === 'oauth' && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={onLinkKey}
+                  data-testid="provider-link-key-intervals_icu"
+                >
+                  {t('shell.intervalsCoachKeyAction')}
                 </Button>
               )}
               {connectable && (

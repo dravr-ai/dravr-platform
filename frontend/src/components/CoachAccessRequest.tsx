@@ -467,7 +467,7 @@ function SeatBlock({
           <CancelOutcome justCancelled={justCancelled} cancelFailed={false} />
           <div className="!mt-4 border-t ghost-border pt-3" data-testid="coach-seat-routes">
             <p className="text-xs text-outline">{t(COACH_SEAT_KEYS.routesLabel)}</p>
-            <ProviderConnectionCards onlyProviders={COACH_PLATFORM_PROVIDERS} plain />
+            <ProviderConnectionCards onlyProviders={COACH_PLATFORM_PROVIDERS} plain coachKey />
           </div>
         </>
       )}

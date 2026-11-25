@@ -584,6 +584,19 @@ export function ConnectionsScreen() {
                 {refusedConnectLine(t, provider.display_name)}
               </Text>
             )}
+            {id === 'intervals_icu' && isConnected && provider.connection_type === 'oauth' && (
+              // A coach's key reads the athletes they coach and an
+              // authorization cannot: the row offers the key form without a
+              // disconnect first (carnet#1820).
+              <Text
+                className="text-sm font-medium text-primary self-start"
+                onPress={() => setIntervalsSheet({ displayName: provider.display_name, offersAuthorize: false })}
+                accessibilityRole="button"
+                testID={`provider-link-key-${id}`}
+              >
+                {t('shell.intervalsCoachKeyAction')}
+              </Text>
+            )}
             {exportSource && (
               <Text
                 className="text-sm font-medium text-primary self-start"

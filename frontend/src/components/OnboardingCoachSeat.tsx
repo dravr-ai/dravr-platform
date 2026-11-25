@@ -96,7 +96,7 @@ export default function OnboardingCoachSeat({ onComplete }: { onComplete: () => 
         </p>
 
         <div className="mt-8" data-testid="coach-seat-providers">
-          <ProviderConnectionCards onlyProviders={COACH_PLATFORM_PROVIDERS} plain />
+          <ProviderConnectionCards onlyProviders={COACH_PLATFORM_PROVIDERS} plain coachKey />
         </div>
 
         {seat.kind === 'open' ? (

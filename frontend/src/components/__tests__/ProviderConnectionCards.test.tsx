@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+import type { ComponentProps } from 'react';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen, waitFor, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -136,11 +137,14 @@ function garminCard(recommended_backend: 'oauth' | 'mirror') {
   };
 }
 
-function renderCards(queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })) {
+function renderCards(
+  queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } }),
+  props: ComponentProps<typeof ProviderConnectionCards> = {},
+) {
   return render(
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
-        <ProviderConnectionCards />
+        <ProviderConnectionCards {...props} />
       </ThemeProvider>
     </QueryClientProvider>,
   );
@@ -836,6 +840,43 @@ describe('ProviderConnectionCards — Intervals.icu', () => {
 
     expect(await screen.findByTestId('intervals-modal')).toHaveAttribute('data-offers-authorize', 'false');
     expect(assign).not.toHaveBeenCalled();
+  });
+
+  // carnet#1820: a coach's Intervals.icu key reads their athletes and an
+  // authorization cannot, so the coach's screens never lead with the
+  // authorization, and an authorized card gets a way to the key.
+  it('opens the key form alone for a new link on a coach screen', async () => {
+    getProvidersStatus.mockResolvedValue({ providers: [intervalsCard(false)] });
+    const user = userEvent.setup();
+    renderCards(undefined, { coachKey: true });
+
+    await user.click(await screen.findByLabelText('Connect to Intervals.icu'));
+
+    expect(await screen.findByTestId('intervals-modal')).toHaveAttribute('data-offers-authorize', 'false');
+    expect(assign).not.toHaveBeenCalled();
+  });
+
+  it('offers the key on a coach screen card the coach authorized, which had no action', async () => {
+    getProvidersStatus.mockResolvedValue({
+      providers: [{ ...intervalsCard(false), connected: true, connection_type: 'oauth' }],
+    });
+    const user = userEvent.setup();
+    renderCards(undefined, { coachKey: true });
+
+    await user.click(await screen.findByText(i18n.t('shell.intervalsCoachKeyAction')));
+
+    expect(await screen.findByTestId('intervals-modal')).toHaveAttribute('data-offers-authorize', 'false');
+    expect(assign).not.toHaveBeenCalled();
+  });
+
+  it('leaves an authorized card inert outside a coach screen', async () => {
+    getProvidersStatus.mockResolvedValue({
+      providers: [{ ...intervalsCard(false), connected: true, connection_type: 'oauth' }],
+    });
+    renderCards();
+
+    await screen.findByTestId('provider-card-intervals_icu');
+    expect(screen.queryByText(i18n.t('shell.intervalsCoachKeyAction'))).toBeNull();
   });
 });
 

@@ -869,6 +869,7 @@ export default function UserSettings({
                         if (target) setSignIn({ target, consentRequired: provider.consent_required, historyMode: true, fallback: null });
                       }}
                       onDisconnect={() => setProviderToDisconnect({ id: provider.provider, name: provider.display_name })}
+                      onLinkKey={() => setIntervalsModal({ offersAuthorize: false })}
                       onWithdrawAiConsent={() => handleWithdrawAiConsent(provider.provider, provider.display_name)}
                     />
                   ))}

@@ -60,6 +60,11 @@ describe('IntervalsIcuLinkModal', () => {
     ).toBeInTheDocument();
   });
 
+  it('tells a coach to use their own key, on the email they signed up with', () => {
+    renderModal();
+    expect(screen.getByText(/your own Athlete ID and API key, not your athlete/)).toBeInTheDocument();
+  });
+
   it('links with trimmed athlete id + api key and fires onConnected', async () => {
     vi.mocked(providersApi.linkIntervalsIcu).mockResolvedValue({
       status: 'connected',

@@ -359,7 +359,7 @@ function PlatformContent({ setup, done }: { setup: CoachSetupResponse; done: boo
     <>
       <p className="text-sm text-on-surface-variant">{t(COACH_SETUP_KEYS.platformBody)}</p>
       <div className="pt-1" data-testid="coach-setup-platforms">
-        <ProviderConnectionCards onlyProviders={COACH_PLATFORM_PROVIDERS} plain />
+        <ProviderConnectionCards onlyProviders={COACH_PLATFORM_PROVIDERS} plain coachKey />
       </div>
     </>
   );

@@ -432,9 +432,10 @@ impl AuthService {
             return Ok(Err(refused(
                 Refusal::ApiKeyRequired.as_str(),
                 format!(
-                    "{brand} lets a coach reach their athletes through a personal API key only: \
-                     reconnect {brand} in Dravr with your API key, and this athlete's calendar \
-                     can be {} after that.",
+                    "{brand} lets a coach reach their athletes through a personal API key only, \
+                     yours and not the athlete's: in Dravr, open Settings, Data providers, \
+                     {brand}, and choose \"Link with your API key\" (the {brand} account must \
+                     use your Dravr email). This athlete's calendar can be {} after that.",
                     access.participle()
                 ),
             )));
@@ -675,7 +676,8 @@ fn coach_session_refusal(
             Refusal::NotConnected.as_str(),
             format!(
                 "You hold no {brand} connection of your own, so this athlete's calendar cannot \
-                 be {} through it: connect your {brand} account first.",
+                 be {} through it: in Dravr, open Settings, Data providers, then {brand}, and \
+                 link your own account first.",
                 access.participle()
             ),
         ),
@@ -792,6 +794,13 @@ mod tests {
             Access::Write,
         );
         assert!(words.message.contains("Intervals.icu"), "{}", words.message);
+        assert!(
+            words
+                .message
+                .contains("Settings, Data providers, then Intervals.icu"),
+            "the refusal names where to link the coach's own account: {}",
+            words.message
+        );
     }
 
     #[cfg(feature = "tools-data")]

@@ -203,6 +203,9 @@ export default function IntervalsIcuLinkModal({
               <p className="text-sm text-on-surface-variant leading-snug">
                 {t('shell.intervalsCredentialsHelp')}
               </p>
+              <p className="text-sm text-on-surface-variant leading-snug">
+                {t('shell.intervalsCoachKeyHelp')}
+              </p>
 
               <div>
                 <label htmlFor="intervals-athlete-id" className="block text-sm text-on-surface/60 mb-1.5">

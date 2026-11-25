@@ -180,8 +180,11 @@ export function IntervalsIcuLinkModal({ visible, onClose, onConnected, onAuthori
                 {t('common.back')}
               </Text>
             )}
-            <Text className="text-sm text-text-secondary mb-4">
+            <Text className="text-sm text-text-secondary mb-2">
               {t('shell.intervalsCredentialsHelp')}
+            </Text>
+            <Text className="text-sm text-text-secondary mb-4">
+              {t('shell.intervalsCoachKeyHelp')}
             </Text>
 
             <Input

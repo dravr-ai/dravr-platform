@@ -146,4 +146,28 @@ describe('ConnectionsScreen — Intervals.icu', () => {
     );
     expect(screen.queryByTestId('intervals-sheet')).toBeNull();
   });
+
+  // carnet#1820: only a key reads the athletes a coach coaches, so an
+  // authorized row offers the key form without a disconnect first.
+  it('offers the key form from a working authorized row, and only there', async () => {
+    getProvidersStatus.mockResolvedValue({
+      providers: [intervalsCard({ connected: true, connection_type: 'oauth' })],
+    });
+    render(<ConnectionsScreen />, { wrapper: queryWrapper() });
+
+    fireEvent.press(await screen.findByTestId('provider-link-key-intervals_icu'));
+
+    expect(await screen.findByText('intervals-sheet:key')).toBeTruthy();
+    expect(initMobileOAuth).not.toHaveBeenCalled();
+  });
+
+  it('shows no key action on a key-linked row', async () => {
+    getProvidersStatus.mockResolvedValue({
+      providers: [intervalsCard({ connected: true, connection_type: 'manual' })],
+    });
+    render(<ConnectionsScreen />, { wrapper: queryWrapper() });
+
+    await screen.findByTestId('provider-row-intervals_icu');
+    expect(screen.queryByTestId('provider-link-key-intervals_icu')).toBeNull();
+  });
 });
