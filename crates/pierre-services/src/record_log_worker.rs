@@ -208,7 +208,7 @@ impl fmt::Debug for KeyedNameStores {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("KeyedNameStores")
             .field("uploads", &self.uploads)
-            .field("rekeys", &self.apple_rekey.is_some())
+            .field("apple_rekey", &self.apple_rekey.is_some())
             .finish_non_exhaustive()
     }
 }

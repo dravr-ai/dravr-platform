@@ -21,6 +21,8 @@ use pierre_test_support::db::create_test_db;
 use secrecy::SecretString;
 use uuid::Uuid;
 
+// Read as files on purpose: the test runs the shipped migration SQL itself
+// (the data under test), since the test database is already past it.
 const SQLITE_MIGRATION: &str =
     include_str!("../../../../migrations/20261126001550_refresh_token_grant_backfill.sql");
 #[cfg(feature = "postgresql")]
@@ -62,11 +64,14 @@ async fn fresh_client(repos: &RepositoryRegistry) -> OAuth2Client {
         created_at: Timestamp::now(),
         expires_at: None,
     };
-    assert!(repos
-        .oauth2_server
-        .store_client_within_ceiling(&client, u64::MAX)
-        .await
-        .unwrap());
+    assert!(
+        repos
+            .oauth2_server
+            .store_client_within_ceiling(&client, u64::MAX)
+            .await
+            .unwrap(),
+        "premise: an unbounded ceiling stores the client"
+    );
     client
 }
 
@@ -216,16 +221,19 @@ async fn the_backfill_links_a_token_to_its_one_live_grant_and_leaves_the_rest_nu
 
     let beside = Uuid::new_v4();
     let revoked_grant = grant(repos, &client, beside, TENANT, "write", None).await;
-    assert!(repos
-        .oauth2_server
-        .revoke_client_grant(
-            &revoked_grant,
-            &beside.to_string(),
-            TENANT,
-            GrantActor::User
-        )
-        .await
-        .unwrap());
+    assert!(
+        repos
+            .oauth2_server
+            .revoke_client_grant(
+                &revoked_grant,
+                &beside.to_string(),
+                TENANT,
+                GrantActor::User
+            )
+            .await
+            .unwrap(),
+        "premise: the athlete revokes their own live grant"
+    );
     let beside_grant = grant(repos, &client, beside, TENANT, "read", later).await;
     let beside_token = token(repos, &client, beside, TENANT, false, None).await;
 
@@ -282,7 +290,10 @@ async fn the_backfill_links_a_token_to_its_one_live_grant_and_leaves_the_rest_nu
             );
         }
     }
-    assert_ne!(kept_grant, other_grant);
+    assert_ne!(
+        kept_grant, other_grant,
+        "premise: the kept token names a grant other than its athlete's live one"
+    );
 
     let mut left = repos
         .oauth2_server

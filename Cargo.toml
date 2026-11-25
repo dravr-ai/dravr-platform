@@ -34,8 +34,8 @@ dravr-canot = { git = "https://github.com/dravr-ai/dravr-canot.git", tag = "v0.1
 # Activity history: kept originals, archive imports and the one FIT decoder.
 # Its dravr-cageux pin is a companion of this one (see its satellites.toml
 # stanza): the two move in one commit or Cargo.lock holds two.
-# carnet#1550 (legacy Apple re-key): pinned to the unreleased branch
-# feature/owl-rekey-apple for now; consolidation swaps to the next barrage tag.
+# carnet#1550 (legacy Apple re-key): pinned to a rev of the unreleased branch
+# feature/owl-rekey-apple until consolidation swaps it to the next barrage tag.
 dravr-barrage = { git = "https://github.com/dravr-ai/dravr-barrage.git", rev = "8255738fc4f92923bfd76997fd62571e8e97042a", default-features = false }
 
 # Notification transport.

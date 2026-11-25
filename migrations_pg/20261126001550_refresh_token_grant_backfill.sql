@@ -1,4 +1,4 @@
--- ABOUTME: Links each live refresh token minted before grants were named to its grant, when exactly one live grant matches (PostgreSQL)
+-- ABOUTME: Links each unrevoked refresh token minted before grants were named to its grant, when exactly one live grant matches (PostgreSQL)
 -- ABOUTME: carnet#1550, JF 2026-11-25 "backfill grant ids": UPDATE only; the rest stay NULL and the server logs them at boot
 
 -- SPDX-License-Identifier: MIT OR Apache-2.0

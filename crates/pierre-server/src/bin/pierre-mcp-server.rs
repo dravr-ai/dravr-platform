@@ -615,10 +615,10 @@ fn select_turn_runner(timeouts: &ServerTimeouts) -> Arc<TurnRunner> {
     Arc::new(runner)
 }
 
-/// Spawn background workers (messaging outbound, Discord, Slack), returning shared resources
-/// Log each live refresh-token family group that names no grant, by tenant,
-/// client and user, and how many there are (carnet#1550). Never a token or
-/// family id.
+/// Log the live refresh-token families that name no grant (carnet#1550).
+///
+/// One line per tenant, client and user, with how many families each holds;
+/// never a token or family id.
 async fn report_ungranted_refresh_families(oauth2: &dyn OAuth2ServerRepository) {
     match oauth2
         .refresh_families_without_grant(Timestamp::now())
@@ -657,6 +657,7 @@ async fn select_original_stores(
     (blobs, archive_imports)
 }
 
+/// Spawn background workers (messaging outbound, Discord, Slack), returning shared resources
 fn spawn_background_workers(
     resources_instance: ServerContext,
     barrage: &RecordStores,

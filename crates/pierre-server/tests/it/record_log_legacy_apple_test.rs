@@ -253,3 +253,43 @@ async fn a_worker_without_an_importer_re_keys_nothing() {
         "bug: a worker without an importer re-keys"
     );
 }
+
+/// A workout the athlete deleted under its legacy id stays where it is: the
+/// tick counts it refused, and what remains is what was refused, tick after
+/// tick.
+#[tokio::test]
+async fn a_tick_counts_an_erased_legacy_workout_refused() {
+    let resources = create_test_server_resources().await.unwrap();
+    let repos = &resources.common.repos;
+    let (user_id, tenant_id) = seed_athlete(repos).await;
+    let scope = Scope::new(Uuid::from(tenant_id), user_id);
+    let records: Arc<dyn ActivityRecordStore> = Arc::new(memory_records());
+    let legacy = ActivityId::parse("apple-fedcba9876543210").unwrap();
+    let workout = legacy_workout(scope, &legacy);
+    records
+        .upsert(&scope, slice::from_ref(&workout))
+        .await
+        .unwrap();
+    records
+        .remember_erased(&scope, &workout, &[])
+        .await
+        .unwrap();
+    let worker = rekeying_worker(&resources, &records);
+
+    for tick in ["first", "second"] {
+        assert_eq!(
+            worker.run().await.unwrap().legacy_apple,
+            Some(LegacyApplePage {
+                rekeyed: 0,
+                refused: 1,
+                remaining: 1,
+                sweep_done: true,
+            }),
+            "bug: {tick} tick: an erased legacy workout is not refused, or remaining is not what was refused"
+        );
+    }
+    assert!(
+        records.get(&scope, APPLE, &legacy).await.unwrap().is_some(),
+        "bug: the tick deleted the refused legacy record"
+    );
+}

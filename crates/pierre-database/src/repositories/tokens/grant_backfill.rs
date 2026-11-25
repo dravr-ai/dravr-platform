@@ -73,7 +73,7 @@ where
 macro_rules! impl_ungranted_refresh_families {
     ($ty:ty) => {
         impl $ty {
-            /// `refresh_families_without_grant`.
+            /// The rows behind `refresh_families_without_grant`.
             async fn ungranted_family_rows(
                 &self,
                 now: Timestamp,
