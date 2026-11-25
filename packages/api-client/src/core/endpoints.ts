@@ -211,6 +211,8 @@ export const ENDPOINTS = {
     /** Give (PUT) or withdraw (DELETE) the consent to AI use of a provider's data */
     AI_CONSENT: (provider: string) => `/api/providers/${provider}/ai-consent`,
     TRANSFER_CONSENT: (provider: string) => `/api/providers/${provider}/transfer-consent`,
+    /** Read (GET) or answer (POST) the one-time question about the agent's tier consents */
+    AGENT_CONSENT_PROMPT: '/api/consents/agent-prompt',
     /**
      * WebSocket of a sign-in parked at a provider's robot check (ADR-034),
      * opened with `?token=` (the takeover token). Under `/ws`, which the web

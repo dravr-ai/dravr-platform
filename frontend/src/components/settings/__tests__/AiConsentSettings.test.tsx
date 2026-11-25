@@ -132,7 +132,7 @@ describe('AiConsentSettings', () => {
     getProvidersStatus.mockResolvedValue({ providers: [card('strava', 'Strava', true)] });
     renderPane();
     const records = await screen.findByRole('switch', {
-      name: 'Let my AI agent read my health records (lab results, clinical records, blood glucose)',
+      name: 'Let my AI agent read my health records (medical screening answers, injuries, lab results, clinical records, blood glucose)',
     });
     await vi.waitFor(() => expect(records).toHaveAttribute('aria-checked', 'false'));
     expect(screen.getByText('Sensitive health records')).toBeInTheDocument();
@@ -161,15 +161,17 @@ describe('AiConsentSettings', () => {
     expect(screen.getByRole('status')).toHaveTextContent('Your agent no longer reads these records');
   });
 
-  it('gives the intimate records consent its own switch, naming outside AI apps', async () => {
+  it('gives the notes, memory and intimate records consent its own switch, naming Dravr\'s agent and outside AI apps', async () => {
     const user = userEvent.setup();
     renderPane();
     const intimate = await screen.findByRole('switch', {
-      name: 'Let AI read my intimate health records (cycle tracking, mental and reproductive health)',
+      name: "Let AI read my notes, my agent's memory and my intimate health records (cycle tracking, mental and reproductive health)",
     });
     await vi.waitFor(() => expect(intimate).not.toBeDisabled());
     expect(getAiConsent).toHaveBeenCalledWith('sensitive_t3');
     expect(screen.getByTestId('ai-consent-hint-sensitive_t3')).toHaveTextContent('Claude or ChatGPT');
+    // carnet#1544: the switch now governs Dravr's own agent too.
+    expect(screen.getByTestId('ai-consent-hint-sensitive_t3')).toHaveTextContent('Covers your Dravr agent');
 
     await user.click(intimate);
     expect(grantAiConsent).toHaveBeenCalledWith('sensitive_t3');

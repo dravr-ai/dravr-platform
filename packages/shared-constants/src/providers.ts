@@ -303,29 +303,51 @@ export const AI_CONSENT_KEYS = {
 } as const;
 
 /**
- * The consent class of the athlete's health records (lab results, clinical
- * records, blood glucose): a consent to AI use with no provider card, read
- * and changed through the same `ai-consent` endpoints as a provider's.
+ * The consent class of the athlete's health records (their medical screening
+ * answers, injuries, lab results, clinical records, blood glucose): a consent
+ * to AI use with no provider card, read and changed through the same
+ * `ai-consent` endpoints as a provider's. Dravr's own agent reads them only
+ * under it (carnet#1544).
  */
 export const SENSITIVE_T2_CONSENT = 'sensitive_t2';
 
 /**
  * The consent class of the athlete's intimate health records (cycle
- * tracking, mental and reproductive health). It also lets AI apps the athlete
- * connects (Claude, ChatGPT) read their notes and their agent's memory, which
- * Dravr's own agent and the human coach read either way (carnet#1544).
+ * tracking, mental and reproductive health), their notes and their agent's
+ * memory: Dravr's own agent and the AI apps the athlete connects (Claude,
+ * ChatGPT) read them only under it (carnet#1544).
  */
 export const SENSITIVE_T3_CONSENT = 'sensitive_t3';
 
-/** The privacy settings' Sensitive health records block, shown to every account. */
+/**
+ * The privacy settings' Sensitive health records block, shown to every
+ * account. Its copy names Dravr's own agent, which both switches now govern
+ * (carnet#1544).
+ */
 export const SENSITIVE_CONSENT_KEYS = {
   title: 'providers.aiConsent.sensitive.title',
-  blurb: 'providers.aiConsent.sensitive.blurb',
-  t2Label: 'providers.aiConsent.sensitive.t2Label',
-  t3Label: 'providers.aiConsent.sensitive.t3Label',
-  t3Hint: 'providers.aiConsent.sensitive.t3Hint',
+  blurb: 'providers.aiConsent.sensitive.agentBlurb',
+  t2Label: 'providers.aiConsent.sensitive.agentT2Label',
+  t3Label: 'providers.aiConsent.sensitive.agentT3Label',
+  t3Hint: 'providers.aiConsent.sensitive.agentT3Hint',
   allowed: 'providers.aiConsent.sensitive.allowed',
   withdrawn: 'providers.aiConsent.sensitive.withdrawn',
+} as const;
+
+/**
+ * The one-time question asking the athlete to let their agent read its
+ * memory (`sensitive_t3`) and their health records (`sensitive_t2`), shown
+ * once in Dravr's app until answered (carnet#1544).
+ */
+export const AGENT_CONSENT_PROMPT_KEYS = {
+  title: 'providers.aiConsent.agentPrompt.title',
+  body: 'providers.aiConsent.agentPrompt.body',
+  memoryLabel: 'providers.aiConsent.agentPrompt.memoryLabel',
+  medicalLabel: 'providers.aiConsent.agentPrompt.medicalLabel',
+  save: 'providers.aiConsent.agentPrompt.save',
+  notNow: 'providers.aiConsent.agentPrompt.notNow',
+  saved: 'providers.aiConsent.agentPrompt.saved',
+  failed: 'providers.aiConsent.agentPrompt.failed',
 } as const;
 
 /**

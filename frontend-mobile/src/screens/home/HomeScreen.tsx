@@ -25,6 +25,7 @@ import {
 import { CONNECTIONS_ROUTE, DISCOVER_ROUTE, activityHref, threadHref } from '../../navigation/routes';
 import { useFindPersonalThread } from '../chat/usePersonalThread';
 import { HomeJoinStrip } from './HomeJoinStrip';
+import { AgentConsentPrompt } from './AgentConsentPrompt';
 import { HomePlan } from './HomePlan';
 import { HomeWeek } from './HomeWeek';
 import { HomeStatus } from './HomeStatus';
@@ -158,6 +159,7 @@ export function HomeScreen({ scopeSwitch }: HomeScreenProps = {}) {
         {scopeSwitch !== undefined && <View className="px-4">{scopeSwitch}</View>}
         {/* An invite the server holds for this account: the one button that joins it. */}
         <HomeJoinStrip />
+        <AgentConsentPrompt />
         <HomePlan
           response={plan.data ?? null}
           isError={plan.isError}

@@ -69,6 +69,8 @@ vi.mock('../../../services/api', () => ({
   messagingLinkApi: { getAvailableChannels: api.getAvailableChannels, listLinks: api.listLinks },
   // The route-marker beta is off: these suites pin the map without its markers.
   featureFlagsApi: { getMyFeatures: async () => ({ flags: {}, known: [] }) },
+  // The agent consent question is answered: its own suite pins it.
+  oauthApi: { getAgentConsentPrompt: async () => ({ due: false, memory: false, medical: false }) },
 }));
 
 // Today reads the session for the held-invite strip and Your team's coach line.

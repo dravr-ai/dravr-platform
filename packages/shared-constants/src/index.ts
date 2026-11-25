@@ -182,6 +182,7 @@ export {
 // Provider capability scopes (the wire slugs a provider card lists, and the
 // catalogue key naming each one)
 export {
+  AGENT_CONSENT_PROMPT_KEYS,
   AI_CONSENT_KEYS,
   CONNECT_CONSENTS,
   GARMIN_AI_CONSENT,

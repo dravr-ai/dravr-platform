@@ -45,6 +45,8 @@ vi.mock('../../../services/api', () => ({
   providersApi: { getProvidersStatus: (...a: unknown[]) => getProvidersStatus(...a) },
   // Read by the shared hook bindings at import; this spec asserts nothing they fetch.
   groupsApi: {},
+  // The agent consent question is answered: its own suite pins it.
+  oauthApi: { getAgentConsentPrompt: async () => ({ due: false, memory: false, medical: false }) },
 }));
 
 vi.mock('../../../services/analytics', () => ({ track: vi.fn() }));
