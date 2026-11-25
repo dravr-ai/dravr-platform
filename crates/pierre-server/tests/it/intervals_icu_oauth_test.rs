@@ -680,3 +680,59 @@ async fn an_api_key_links_reads_stop_at_the_keys_window() {
         "the refused read never reached Intervals.icu"
     );
 }
+
+/// A coach who pastes their own API key over an authorized link replaces the
+/// grant, so Intervals.icu is told to withdraw it: the key then stands alone
+/// and the app no longer counts as authorized in their settings.
+#[tokio::test]
+async fn linking_a_key_over_an_oauth_link_revokes_the_grant() {
+    let (base, mock) = mock_intervals().await;
+    let resources = context_pointed_at(&base).await;
+    let (user_id, user, tenant_id) = common::create_test_user_with_plan(
+        &resources.agent.database,
+        "icu-key-over-oauth@example.com",
+        "starter",
+    )
+    .await
+    .unwrap();
+    complete_oauth_link(&resources, user_id, tenant_id).await;
+    let token = resources
+        .auth
+        .auth_manager
+        .generate_token_with_tenant(
+            &user,
+            &resources.auth.jwks_manager,
+            Some(tenant_id.to_string()),
+        )
+        .unwrap();
+
+    let mut config = common::offline_provider_config(PROVIDER).unwrap();
+    config.api_base_url = base.clone();
+    let mut registry = common::offline_provider_registry();
+    registry.set_default_config(PROVIDER, config);
+    let mut context = resources.auth_routes_context();
+    context.provider_registry = Arc::new(registry);
+
+    let response = AxumTestRequest::post("/api/providers/intervals_icu/link-credentials")
+        .header("authorization", &format!("Bearer {token}"))
+        .json(&json!({ "athlete_id": "i2049151", "api_key": "coach-own-key" }))
+        .send(AuthRoutes::routes(context))
+        .await;
+    assert_eq!(
+        response.status(),
+        StatusCode::OK,
+        "{}",
+        response.body_text()
+    );
+
+    let stored = stored_token(&resources, user_id, tenant_id)
+        .await
+        .expect("the key is stored");
+    assert_eq!(stored.token_type, API_KEY_TOKEN_TYPE);
+    assert!(
+        mock.requests()
+            .contains(&"DELETE /api/v1/disconnect-app Bearer icu-oauth-token".to_owned()),
+        "the replaced grant is withdrawn upstream: {:?}",
+        mock.requests()
+    );
+}

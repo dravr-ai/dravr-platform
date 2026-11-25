@@ -41,7 +41,7 @@ use pierre_services::delegated_connections::{forget_coach_roster, supersede_dele
 use pierre_services::import_tombstones::{provider_account_tombstone, refuse_provider_account};
 use pierre_services::oauth_flow::OAuthService;
 use pierre_services::provider_connected::{self, ConnectVia, ProviderConnected};
-use pierre_services::provider_revocation::DisconnectReason;
+use pierre_services::provider_revocation::{self, DisconnectReason, RevocationOutcome};
 use serde::Deserialize;
 use tracing::{info, warn};
 use uuid::Uuid;
@@ -177,6 +177,40 @@ pub(crate) async fn handle_intervals_icu_link(
     .into_response())
 }
 
+/// The authorized (OAuth) Intervals.icu token a pasted key is about to replace.
+async fn replaced_oauth_grant(
+    resources: &AuthRoutesContext,
+    user_id: Uuid,
+    tenant: TenantId,
+) -> Result<Option<UserOAuthToken>, AppError> {
+    Ok(resources
+        .repos
+        .oauth_tokens
+        .get_token(user_id, tenant, INTERVALS_ICU)
+        .await?
+        .filter(|stored| stored.token_type != API_KEY_TOKEN_TYPE))
+}
+
+/// Withdraw a replaced grant at Intervals.icu. Best effort: the key is already
+/// linked, so a refusal is logged and never undoes it.
+async fn revoke_replaced_grant(
+    resources: &AuthRoutesContext,
+    grant: UserOAuthToken,
+    tenant: TenantId,
+) {
+    let user_id = grant.user_id;
+    let service = OAuthService::new(resources.data.clone(), resources.config.clone());
+    if let RevocationOutcome::Unconfirmed(reason) =
+        provider_revocation::revoke_stored_grant(&service, grant, tenant).await
+    {
+        warn!(
+            user_id = %user_id,
+            reason = %reason,
+            "Intervals.icu grant replaced by an API key could not be revoked upstream"
+        );
+    }
+}
+
 /// Validate an athlete id + API key against the live Intervals.icu API, then
 /// persist them for `user_id` in `tenant_id` and register the connection.
 ///
@@ -272,7 +306,14 @@ pub(crate) async fn link_intervals_icu_account(
         INTERVALS_ICU,
     )
     .await?;
+    // An authorized (OAuth) link this key replaces keeps a live grant at
+    // Intervals.icu once its row is overwritten: read it before the upsert so
+    // it can be withdrawn after.
+    let replaced_grant = replaced_oauth_grant(resources, user_id, tenant).await?;
     resources.repos.oauth_tokens.upsert_token(&token).await?;
+    if let Some(grant) = replaced_grant {
+        revoke_replaced_grant(resources, grant, tenant).await;
+    }
     // A roster read through the key this one replaces may name another
     // account's athletes.
     forget_coach_roster(&resources.cache, user_id, tenant, INTERVALS_ICU).await;

@@ -118,8 +118,8 @@ impl Refusal {
             Self::DravrEmailUnverified => "Verify your Dravr email first".to_owned(),
             Self::ReconnectNeeded => format!("Reconnect {brand} to read your roster"),
             Self::ApiKeyRequired => format!(
-                "{brand} lists your athletes for an API key only: reconnect {brand} with your \
-                 API key to read your roster"
+                "{brand} lists your athletes for an API key only: in Dravr, open Settings, Data \
+                 providers, then {brand}, and choose \"Link with your API key\" to read your roster"
             ),
             Self::TermsOutdated => {
                 format!("Reconnect {brand} and accept the updated notice to read your roster")
