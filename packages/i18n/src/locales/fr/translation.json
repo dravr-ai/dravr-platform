@@ -1502,7 +1502,6 @@
       "muted_none": "Personne n’est exclu.",
       "save_failed": "Impossible d’enregistrer. Réessaie.",
       "reason": {
-        "consentRevoked": "A coupé le partage",
         "unverifiedFigure": "Chiffre non vérifié dans une réponse de l’agent",
         "providerReconnect": "Un service à reconnecter",
         "nothingReceived": "Rien reçu",
@@ -4689,7 +4688,21 @@
         "t3Label": "Autoriser l’IA à lire mes dossiers de santé intime (suivi du cycle, santé mentale et reproductive)",
         "allowed": "Autorisé. Ton agent lit ces dossiers dès maintenant.",
         "withdrawn": "Retiré. Ton agent ne lit plus ces dossiers.",
-        "t3Hint": "Permet aussi aux applications d’IA que tu connectes à Dravr, comme Claude ou ChatGPT, de lire tes notes et la mémoire de ton agent. Ton agent Dravr et ton coach humain les lisent dans tous les cas."
+        "t3Hint": "Permet aussi aux applications d’IA que tu connectes à Dravr, comme Claude ou ChatGPT, de lire tes notes et la mémoire de ton agent. Ton agent Dravr et ton coach humain les lisent dans tous les cas.",
+        "agentBlurb": "Tes dossiers de santé (tes réponses au questionnaire médical, tes blessures, résultats de laboratoire, dossiers cliniques, glycémie), tes dossiers de santé intime (suivi du cycle, santé mentale et reproductive), tes notes et la mémoire de ton agent restent fermés à l’IA, ton agent Dravr compris, tant que tu ne les autorises pas ici. Ton coach humain lit tes dossiers de santé seulement si tu les partages aussi dans ton groupe, et jamais tes dossiers de santé intime. Tu vois toujours tout dans l’application. Retirer l’autorisation arrête l’utilisation par l’IA immédiatement.",
+        "agentT2Label": "Autoriser mon agent IA à lire mes dossiers de santé (réponses au questionnaire médical, blessures, résultats de laboratoire, dossiers cliniques, glycémie)",
+        "agentT3Label": "Autoriser l’IA à lire mes notes, la mémoire de mon agent et mes dossiers de santé intime (suivi du cycle, santé mentale et reproductive)",
+        "agentT3Hint": "Vaut pour ton agent Dravr et pour les applications d’IA que tu connectes à Dravr, comme Claude ou ChatGPT. Sans cette autorisation, ton agent ne se souvient pas de ce que tu lui as dit dans vos conversations précédentes."
+      },
+      "agentPrompt": {
+        "title": "Ton agent peut-il se souvenir de toi?",
+        "body": "Ton agent Dravr demande maintenant ton accord avant d’utiliser sa mémoire de toi ou tes dossiers de santé. Tant que tu ne l’autorises pas, il travaille sans eux et te redemande ce dont il a besoin. Tu peux changer ce choix en tout temps dans les réglages Confidentialité et données.",
+        "memoryLabel": "Autoriser mon agent à utiliser sa mémoire et mes notes : ce que je lui ai dit, mes objectifs et mes préférences. Cela permet aussi à l’IA de lire mes dossiers de santé intime (suivi du cycle, santé mentale et reproductive), y compris les applications d’IA que je connecte à Dravr, comme Claude ou ChatGPT.",
+        "medicalLabel": "Autoriser mon agent à lire mes dossiers de santé : mes réponses au questionnaire médical (Q-AAP), mes blessures, mes résultats de laboratoire, mes dossiers cliniques et ma glycémie.",
+        "save": "Enregistrer mon choix",
+        "notNow": "Pas maintenant",
+        "saved": "Enregistré. Tu peux changer ce choix en tout temps dans les réglages Confidentialité et données.",
+        "failed": "Impossible d’enregistrer ton choix. Réessaie."
       }
     },
     "garminConsent": {
