@@ -72,10 +72,10 @@ pub fn signing_algorithms() -> Vec<String> {
 #[must_use]
 pub fn dpop_challenge(error: Option<&str>) -> String {
     let algs = signing_algorithms().join(" ");
-    match error {
-        Some(error) => format!("{DPOP_SCHEME} error=\"{error}\", algs=\"{algs}\""),
-        None => format!("{DPOP_SCHEME} algs=\"{algs}\""),
-    }
+    error.map_or_else(
+        || format!("{DPOP_SCHEME} algs=\"{algs}\""),
+        |error| format!("{DPOP_SCHEME} error=\"{error}\", algs=\"{algs}\""),
+    )
 }
 
 /// The scheme an access token was presented under.
