@@ -139,10 +139,17 @@ echo -e "${GREEN}✅ No duplicate sqlx migration versions${NC}"
 # One resolution rule for every diff-scoped gate, and it is the rule that keeps
 # a push to main armed: actions/checkout leaves origin/main == HEAD there, which
 # would make this compare HEAD against itself and read nothing.
+#
+# "Already landed" is a fact about main, not about the push, so the freeze base
+# comes ahead of $GATE_BASE_REF exactly as in check-migration-immutability.sh.
+# ci-backend.yml sets $GATE_BASE_REF to the push's before-sha, which on a branch
+# is the branch's own previous push: a migration added in push 1 and edited in
+# push 2 read as landed though no deploy applied it (carnet#1318). The workflow
+# resolves $MIGRATION_FREEZE_BASE_REF in `fork` mode, the fork point from main.
 # shellcheck source=scripts/ci/gate-base-ref.sh
 . "$(dirname "${BASH_SOURCE[0]}")/gate-base-ref.sh"
 
-if ! BASE="$(resolve_gate_base_ref "${1:-}")"; then
+if ! BASE="$(resolve_gate_base_ref "${1:-${MIGRATION_FREEZE_BASE_REF:-}}")"; then
   # Only a root commit reaches here: there is genuinely no earlier tree, so
   # nothing can have "already landed". Check 1 above still ran over the whole
   # tree, which is the part that does not need a baseline.
