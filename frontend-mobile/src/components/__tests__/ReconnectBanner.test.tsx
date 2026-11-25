@@ -67,7 +67,7 @@ describe('ReconnectBanner', () => {
     mockGetProvidersStatus.mockResolvedValue(PROVIDERS_RECONNECT);
     const screen = renderBanner();
 
-    // strava and sciotte are both "Strava"; the disconnected COROS is never named.
+    // The strava and session-read rows are both "Strava"; the disconnected COROS is never named.
     expect(await screen.findByTestId('reconnect-banner-providers')).toHaveTextContent(
       'Reconnect Strava, Garmin to see your new activities.',
     );

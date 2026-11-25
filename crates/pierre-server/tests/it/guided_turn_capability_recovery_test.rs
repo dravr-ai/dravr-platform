@@ -190,7 +190,7 @@ mod guided_turn {
         conversation_id: String,
     }
 
-    /// An athlete whose sciotte connection serves one ride through the
+    /// An athlete whose session-read connection serves one ride through the
     /// stand-in session reader, so a verification fetch succeeds and a re-ask runs
     /// whenever the stage decides it should.
     async fn setup(email: &str, reply: &str) -> Fixture {

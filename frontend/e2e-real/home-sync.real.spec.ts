@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Real-backend E2E: Home against a scripted service — the 2026-09-29 incident, a restarted or shedding service, hung reads, and every retry
-// ABOUTME: Connects a fresh athlete's Strava through the real sciotte login, then drives the SPA; only the sciotte service is a double
+// ABOUTME: Connects a fresh athlete's Strava through the real credential login, then drives the SPA; only the session-read service is a double
 
 import { DatabaseSync } from 'node:sqlite';
 import { test, expect, request as apiRequest, type APIRequestContext, type Page } from '@playwright/test';
@@ -26,7 +26,7 @@ import { signInThroughUi } from './ui-sign-in';
 // `scripts/e2e-home-sync-local.sh`: it boots an isolated server and SPA on
 // their own ports and database, runs this spec against them, and tears them
 // down. Everything between the browser and the service is the real product —
-// the sciotte credential login and session export, the Home refresh, the
+// the credential login and session export, the Home refresh, the
 // freshness judgement and its pause, the route read and the map.
 const PIERRE_URL = process.env.PIERRE_URL ?? 'http://127.0.0.1:8081';
 const FRONTEND_URL = process.env.FRONTEND_URL ?? 'http://localhost:5173';
@@ -239,7 +239,7 @@ test.describe('Home sync truth — real backend, scripted service', () => {
     });
     expect(
       connected.ok(),
-      `sciotte login failed (${connected.status()}): is the server started with DRAVR_SCIOTTE_REMOTE_URL=http://127.0.0.1:${SCIOTTE_DOUBLE_PORT}? scripts/e2e-home-sync-local.sh starts one that is. ${await connected.text()}`,
+      `credential login failed (${connected.status()}): is the server started with DRAVR_SCIOTTE_REMOTE_URL=http://127.0.0.1:${SCIOTTE_DOUBLE_PORT}? scripts/e2e-home-sync-local.sh starts one that is. ${await connected.text()}`,
     ).toBeTruthy();
     expect((await connected.json()).status).toBe('connected');
 

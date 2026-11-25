@@ -1,5 +1,5 @@
 // ABOUTME: carnet#1617 — a provider sign-in run in the athlete's own browser hands Dravr its cookies
-// ABOUTME: Pins the catalogue from sciotte, the domain check, the read that proves the session, and its storage
+// ABOUTME: Pins the catalogue from the service, the domain check, the read that proves the session, and its storage
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -7,7 +7,7 @@
 //! The Dravr extension (or the app's `WebView`) signs the athlete in to the
 //! provider in their own browser and posts that provider's cookies to
 //! `POST /api/providers/browser-signin/{target}`. These tests run the
-//! platform's real routes against a loopback stand-in of the dravr-sciotte service
+//! platform's real routes against a loopback stand-in of the session-read service
 //! (a test double, per the repo's mock rule), on a thread of its own so it
 //! outlives each test's runtime.
 
@@ -113,7 +113,7 @@ async fn drop_session(State(seen): State<Arc<Seen>>, Path(id): Path<String>) -> 
 }
 
 /// The athlete's profile for a session holding the signed-in cookie; a 401
-/// as sciotte answers a session the provider refused, for any other.
+/// as the service answers a session the provider refused, for any other.
 async fn athlete(State(seen): State<Arc<Seen>>, headers: HeaderMap) -> Response {
     let session_id = headers
         .get("x-session-id")
@@ -293,11 +293,11 @@ async fn the_catalogue_is_sciottes_own() {
     );
     assert_eq!(
         body["providers"][0]["provider"], "garmin",
-        "bug: the catalogue is not sciotte's: {body}"
+        "bug: the catalogue is not the service's: {body}"
     );
     assert_eq!(
         body["providers"][0]["cookie_domain"], "garmin.com",
-        "bug: the catalogue is not sciotte's: {body}"
+        "bug: the catalogue is not the service's: {body}"
     );
 }
 
@@ -327,7 +327,7 @@ async fn a_browser_signed_in_to_garmin_connects_it() {
     let imported = imports_holding(SIGNED_IN);
     assert!(
         !imported.is_empty(),
-        "bug: the accepted session never reached sciotte"
+        "bug: the accepted session never reached the service"
     );
     assert!(
         imported.iter().all(|id| !dropped(id)),
@@ -418,7 +418,7 @@ async fn a_cookie_of_another_site_refuses_the_hand_over_before_any_import() {
     );
     assert!(
         imports_holding(&marker).is_empty(),
-        "bug: a foreign cookie reached sciotte"
+        "bug: a foreign cookie reached the service"
     );
     assert!(
         !athlete.holds_garmin_session().await,
@@ -469,7 +469,7 @@ async fn a_channels_link_token_reaches_neither_route() {
     );
     assert!(
         imports_holding(&marker).is_empty(),
-        "bug: a link-token's hand-over reached sciotte"
+        "bug: a link-token's hand-over reached the service"
     );
     assert!(
         !hosted.holds_garmin_session().await,

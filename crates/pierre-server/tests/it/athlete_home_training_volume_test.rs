@@ -311,7 +311,7 @@ async fn one_ride_synced_to_two_providers_counts_once() {
             5_460,
             oauth_providers::SCIOTTE,
         )
-        // A capture names the service it signed in to, as sciotte stamps it.
+        // A capture names the service it signed in to, as the session-read service stamps it.
         .source(oauth_providers::GARMIN)
         .distance_meters(42_000.0)
         .build()],

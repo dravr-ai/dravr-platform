@@ -1,13 +1,13 @@
-// ABOUTME: Every platform read through a sciotte session: import, read, then store a session the provider rotated
+// ABOUTME: Every platform read through a signed-in session: import, read, then store a session the provider rotated
 // ABOUTME: The platform is the session-of-record (ADR-021), so a rotated copy replaces the stored one or the session dies
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! Reads through a platform-held sciotte session.
+//! Reads through a platform-held signed-in session.
 //!
 //! The platform stores each athlete's signed-in provider session on the athlete's token row and
-//! imports it into the dravr-sciotte service before every read, so a service
+//! imports it into the session-read service before every read, so a service
 //! instance that scaled to zero is re-seeded from the stored copy (ADR-021).
 //! A provider can rotate a session's cookies on a read: Garmin changes its
 //! `session` cookie and logs the old value out. The service says so on the
@@ -81,7 +81,7 @@ where
         Err(error) => warn!(
             provider,
             error = %error,
-            "a read rotated the sciotte session, but exporting the rotated copy failed; \
+            "a read rotated the signed-in session, but exporting the rotated copy failed; \
              the next read through the session exports it again"
         ),
     }
@@ -105,7 +105,7 @@ pub async fn store_over_row(
         Err(error) => warn!(
             provider = row.provider(),
             error = %error,
-            "a rotated sciotte session could not be stored"
+            "a rotated signed-in session could not be stored"
         ),
     }
 }

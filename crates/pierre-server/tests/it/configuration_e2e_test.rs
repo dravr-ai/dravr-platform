@@ -96,6 +96,7 @@ async fn create_test_tool_executor_with_user() -> (Arc<UniversalToolExecutor>, S
                 blobs: None,
                 lab_reader: None,
                 pdf_text_bin: None,
+                contremaitre: None,
                 #[cfg(feature = "client-messaging")]
                 channel_adapters: common::offline_adapters(),
             },

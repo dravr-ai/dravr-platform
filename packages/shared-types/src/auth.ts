@@ -422,7 +422,7 @@ export interface ExtendedProviderStatus {
   connection_type?: 'oauth' | 'synthetic' | 'manual' | 'delegated';
   /**
    * A connected provider whose session is no longer usable and needs the user
-   * to reconnect (a dead sciotte signed-in session or a non-recoverable OAuth
+   * to reconnect (a dead signed-in session or a non-recoverable OAuth
    * refresh). Only meaningful when `connected` is true — render "Reconnect
    * needed" instead of a healthy "Connected".
    */
@@ -568,7 +568,7 @@ export interface ProviderDelegation {
 export type SciotteTarget = 'strava' | 'garmin' | 'trainingpeaks' | 'coros';
 
 /**
- * Answer of a sciotte credential sign-in step
+ * Answer of a credential sign-in step
  * (`/api/providers/sciotte/{login,select-2fa,submit-otp}`).
  */
 export type SciotteLoginResponse =
@@ -621,7 +621,7 @@ export type SciotteLoginResponse =
 
 /**
  * One input message a takeover viewer sends on
- * `/ws/providers/sciotte/takeover`, as JSON text. Mirrors sciotte's
+ * `/ws/providers/sciotte/takeover`, as JSON text. Mirrors the service's
  * `wire::TakeoverInput`; anything else is dropped by the server. Coordinates
  * are the frame's own pixels, which are the page viewport's CSS pixels.
  */
@@ -661,7 +661,7 @@ export interface SciotteTakeoverOutcome {
 
 /**
  * One JSON text event a takeover sends. Frames are not events: each is a
- * binary message holding one JPEG of the page. Mirrors sciotte's
+ * binary message holding one JPEG of the page. Mirrors the service's
  * `wire::TakeoverEvent`; the outcome is always the last, then the socket
  * closes.
  */
@@ -699,11 +699,12 @@ export interface SciotteCancelResponse {
 /**
  * How one provider is signed in to from the athlete's own browser (the Dravr
  * extension or the app's WebView), as `GET /api/providers/browser-signin`
- * serves it from sciotte: the page to open, the URLs that say the athlete is
- * signed in, and the domain of the session's cookies (carnet#1617).
+ * serves it from the session-read service: the page to open, the URLs that
+ * say the athlete is signed in, and the domain of the session's cookies
+ * (carnet#1617).
  */
 export interface BrowserSignin {
-  /** sciotte's provider name: `garmin`, `strava`, `trainingpeaks`, `coros` */
+  /** The service's provider name: `garmin`, `strava`, `trainingpeaks`, `coros` */
   provider: string;
   login_url: string;
   success_patterns: string[];

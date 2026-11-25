@@ -542,7 +542,7 @@ pub async fn token_tenant(repos: &AuthRepos, user_uuid: Uuid, backend: &str) -> 
 /// athlete.
 ///
 /// A session-read sync loads one browser page per day it reads, on the
-/// dedicated sciotte service. What it reads — the night's sleep, resting heart
+/// dedicated session-read service. What it reads — the night's sleep, resting heart
 /// rate, overnight HRV, body metrics — changes once a day, so the 15-minute
 /// poll that suits an API provider would load several hundred pages per
 /// athlete per day across the server's instances for nothing new, and would

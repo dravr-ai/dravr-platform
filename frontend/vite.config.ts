@@ -98,7 +98,7 @@ export default defineConfig(({ mode }) => {
           // shell so an installed app opens offline. Backend/proxied paths are
           // denylisted so the SW never shadows a real network call to them.
           navigateFallback: '/index.html',
-          // `/r/` (short-link redirects) and `/providers/` (the hosted Sciotte
+          // `/r/` (short-link redirects) and `/providers/` (the hosted sign-in
           // reconnect/login + connect picker) are BACKEND routes proxied by nginx,
           // not SPA hash routes. Without them here the SW served the app shell for
           // a tapped reconnect link → user landed on the home dashboard instead of

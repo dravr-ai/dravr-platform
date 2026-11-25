@@ -22,7 +22,7 @@
 //! - `AuthSlice` — authentication + authorization + per-tenant OAuth: auth
 //!   manager, JWKS manager, auth middleware, CSRF manager, Firebase auth,
 //!   `OAuth2` rate limiter, admin JWT secret, tenant OAuth client, OAuth
-//!   notification sender, sciotte nonce store + mint rate limiter. Also
+//!   notification sender, hosted sign-in nonce store + mint rate limiter. Also
 //!   carries an `AuthRepos` view-struct projection.
 //! - `AgentSlice` — agent generation context: database handle (still needed
 //!   for migrations / pool access by `NotificationService` / `AdminConfigService`),

@@ -1,5 +1,5 @@
-// ABOUTME: Hosted connect picker for channel-initiated provider connection (OAuth + Sciotte)
-// ABOUTME: Generalizes the Sciotte hosted-login bridge into a provider picker authed by a connect link-token
+// ABOUTME: Hosted connect picker for channel-initiated provider connection (OAuth + session sign-in)
+// ABOUTME: Generalizes the hosted session sign-in bridge into a provider picker authed by a connect link-token
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -20,7 +20,7 @@
 //!    back to the credential flow once the cap is reached. A refused grant
 //!    goes back to the picker with a retry, Strava's with its credential
 //!    fallback.
-//! 3. Routes the user's choice to the Sciotte credential state machine
+//! 3. Routes the user's choice to the session sign-in credential state machine
 //!    (`/api/providers/sciotte/*`), the link-token-authed OAuth init
 //!    (`/api/providers/connect/oauth-init/{provider}`), or — for Intervals.icu,
 //!    which an athlete authorizes and a coach links with an API key — the
@@ -127,7 +127,7 @@ pub(crate) struct ConnectSuccessQuery {
 const CREDENTIALS_KIND: &str = "credentials";
 
 /// One selectable card on the hosted picker. Serialized into the page so its JS
-/// can route a click to the OAuth or Sciotte sub-flow, or to the card's own
+/// can route a click to the OAuth or session sign-in sub-flow, or to the card's own
 /// hosted form.
 #[derive(Debug, Serialize)]
 struct ConnectProviderCard {
@@ -163,7 +163,7 @@ struct ConnectProviderCard {
     /// card is "oauth" while its authorization is offered, and opens its
     /// hosted page either way.
     kind: &'static str,
-    /// Sciotte target ("strava" / "garmin" / "trainingpeaks" / "coros"), or
+    /// Session sign-in target ("strava" / "garmin" / "trainingpeaks" / "coros"), or
     /// `intervals_icu` for the Intervals.icu card whichever its kind; empty
     /// for the other OAuth cards.
     target: String,
@@ -179,13 +179,13 @@ struct ConnectProviderCard {
     /// Where picking the card navigates, for a card whose flow is a hosted
     /// page of its own (the Intervals.icu page, with its authorization and
     /// its API-key form): a same-origin path carrying the connect link-token.
-    /// Absent for the other OAuth cards and the Sciotte cards, whose flows the
+    /// Absent for the other OAuth cards and the session sign-in cards, whose flows the
     /// picker page runs itself.
     #[serde(skip_serializing_if = "Option::is_none")]
     form_url: Option<String>,
     /// What the provider's own login asks for: `"username"` (TrainingPeaks),
     /// `"email_or_username"` (Garmin) or `"email"`. Read by the page for
-    /// Sciotte cards only.
+    /// session sign-in cards only.
     login_identifier: &'static str,
     /// The card's account sign-in goes first while an OAuth seat is free (the
     /// admin's extension-first or sign-in-first connect order): a sign-in that cannot complete
@@ -371,7 +371,7 @@ async fn build_connect_providers(
                 oauth_fallback: false,
                 consents: offered_at_connect(&provider_name).collect(),
             }),
-            // Non-OAuth, non-Sciotte (e.g. synthetic) is not offered in chat.
+            // Neither OAuth nor session sign-in (e.g. synthetic): not offered in chat.
             _ => {}
         }
     }

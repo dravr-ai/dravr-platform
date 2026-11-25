@@ -334,7 +334,7 @@ function activityTime(row: ConversationRowModel): number {
 }
 
 /** The rows newest activity first. Returns a new array; the input is untouched. */
-export function sortRowsByActivity(rows: readonly ConversationRowModel[]): ConversationRowModel[] {
+export function sortRowsByActivity<R extends ConversationRowModel>(rows: readonly R[]): R[] {
   return [...rows].sort((a, b) => activityTime(b) - activityTime(a));
 }
 
@@ -344,10 +344,7 @@ export function sortRowsByActivity(rows: readonly ConversationRowModel[]): Conve
  * preview. A leading `@` on the query is the mention grammar, not part of the
  * handle. An empty query keeps every row.
  */
-export function filterRows(
-  rows: readonly ConversationRowModel[],
-  query: string,
-): ConversationRowModel[] {
+export function filterRows<R extends ConversationRowModel>(rows: readonly R[], query: string): R[] {
   const needle = query.trim().replace(/^@/, '').toLowerCase();
   if (!needle) return [...rows];
   return rows.filter(

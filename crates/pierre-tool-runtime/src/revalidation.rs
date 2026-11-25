@@ -23,7 +23,7 @@ use uuid::Uuid;
 
 /// Upper bound on a single revalidation.
 ///
-/// A sciotte/Garmin session read that hangs on
+/// A session read (Garmin's or any other) that hangs on
 /// a provider-side throttle must not hold the single-flight slot (nor the
 /// per-profile Chrome `SingletonLock`) open indefinitely, blocking every later
 /// revalidation for the same user. Generous relative to a healthy ~2-minute

@@ -1,4 +1,4 @@
-# ABOUTME: The enforme lane — the shared bump spine (which moves the diamond), then the sciotte image and deploy
+# ABOUTME: The enforme lane — the shared bump spine (which moves the diamond), then the session-read image and deploy
 # ABOUTME: Everything version-shaped is in satellite-bump.yml and satellites.toml; this file is triggers and shipping
 
 # SPDX-License-Identifier: MIT OR Apache-2.0
@@ -6,35 +6,35 @@
 #
 # enforme-specific knowledge, and nothing else:
 #
-# * Why this listens to enforme rather than to sciotte. This repo pins dravr-sciotte
-#   directly (pierre-logging, pierre-providers, pierre-routes-auth, pierre-services,
-#   pierre-tool-runtime) and also depends
-#   on dravr-enforme, which pins dravr-sciotte itself for its Garmin and Strava
+# * Why this listens to enforme rather than to the session-read satellite. This repo
+#   pins dravr-sciotte directly (pierre-logging, pierre-providers, pierre-routes-auth,
+#   pierre-services, pierre-tool-runtime) and also depends on dravr-enforme, which
+#   pins dravr-sciotte itself for its Garmin and Strava
 #   reads — a diamond. ci-backend.yml hard-fails any build where a dravr-* crate
-#   resolves to two versions, so moving the sciotte pin alone produces a lockfile with
+#   resolves to two versions, so moving the session-read pin alone produces a lockfile with
 #   two dravr-sciotte entries and a branch that can never merge.
 #
-#   That is the real reason the pin sat on v0.8.0 through five sciotte releases. It
+#   That is the real reason the pin sat on v0.8.0 through five session-read satellite releases. It
 #   read as neglect and was actually a blocked edge with nothing reporting the block:
 #   the old sciotte-pin-check.yml faithfully filed "the pin is behind" issues for a
 #   bump that could not have succeeded.
 #
-#   So sciotte announces to enforme, enforme bumps and releases, and the spine moves
-#   every arm of the diamond in one commit — taking each companion version from what
+#   So the session-read satellite announces to enforme, enforme bumps and releases,
+#   and the spine moves every arm of the diamond in one commit — taking each companion version from what
 #   the released enforme pins, so they converge by construction rather than by two
-#   workflows happening to agree. The diamond is wider than sciotte:
+#   workflows happening to agree. The diamond is wider than the session-read satellite:
 #   satellites.toml declares dravr-equilibre as a companion too, because
-#   carnet#323 was dravr-equilibre at 0.2.4 beside 0.2.5, in a run whose sciotte
+#   carnet#323 was dravr-equilibre at 0.2.4 beside 0.2.5, in a run whose session-read
 #   and enforme counts both read one.
 #
-# * Ordering is the other safety property: the sciotte image is built and :latest
+# * Ordering is the other safety property: the session-read image is built and :latest
 #   advanced only after main has merged. Building earlier would leave :latest pointing
 #   at a version this repo never accepted, and since terraform's sciotte_image is that
 #   moving tag, the next unrelated apply would deploy it.
 #
-# * There are TWO things to ship. This lane deploys the sciotte SERVICE, and it also
+# * There are TWO things to ship. This lane deploys the session-read SERVICE, and it also
 #   has to rebuild the platform binary — pierre-services compiles dravr-enforme in.
-#   The lane once did not: it deployed sciotte and left main carrying an enforme the
+#   The lane once did not: it deployed the service and left main carrying an enforme the
 #   running binary did not have. That is carnet#94's shape, and the platform dispatch
 #   in the deploy job below is the fix.
 
@@ -83,26 +83,26 @@ jobs:
       DRAVR_PRIVATE_DEPS_TOKEN: ${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}
       DRAVR_CARNET_TOKEN: ${{ secrets.DRAVR_CARNET_TOKEN }}
   # ---------------------------------------------------------------------------
-  # 5. Build the sciotte image — only now that main has accepted this version
+  # 5. Build the session-read image — only now that main has accepted this version
   # ---------------------------------------------------------------------------
   image:
-    name: Build and publish the sciotte image
+    name: Build and publish the session-read image
     needs: bump
     # Runs whether or not a bump was needed, so the deployment converges on whatever
-    # sciotte version main pins. Gating this on "a bump happened" instead meant a
+    # session-read version main pins. Gating this on "a bump happened" instead meant a
     # re-run after a merge skipped everything, leaving no way to finish a deploy that
     # had failed after the bump already landed — which is precisely the state a
     # false-alarm rollback leaves behind.
     #
     # `state` is read, not just `result`, because two of the spine's clean outcomes
     # leave main pinning the OLD version: a stand-down and a dry run. Building either
-    # would advance :latest to a sciotte this repo never accepted, and terraform's
+    # would advance :latest to a session-read version this repo never accepted, and terraform's
     # sciotte_image is that moving tag — the next unrelated apply would deploy it.
     #
     # `!inputs.dry_run` is load-bearing, not belt-and-braces. dry_run suppresses the
     # PIN PUSH inside the spine, and when every pin is already current the spine skips
     # its bump job entirely — so `state` is 'current', this job's condition holds, and
-    # a rehearsal builds an image and deploys sciotte to dev. That happened on
+    # a rehearsal builds an image and deploys the session-read service to dev. That happened on
     # the first dispatch of this lane (run 34503834779): same source tag, so identical
     # bytes and no functional change, but a Cloud Run revision is not what "dry run"
     # means to whoever typed it.
@@ -120,31 +120,31 @@ jobs:
       sciotte_ref: v${{ fromJSON(needs.bump.outputs.companions)['dravr-sciotte'] }}
 
   # ---------------------------------------------------------------------------
-  # 6. Deploy sciotte, verify the bytes, roll back, tag, then ship the platform
+  # 6. Deploy the session-read service, verify the bytes, roll back, tag, then ship the platform
   # ---------------------------------------------------------------------------
   #
   # deploy-satellite-cloud-run.yml carries the deploy, the digest assertion, the
   # rollback, the `deployed-dev` tag and the platform dispatch for every lane with
-  # a service. What is sciotte's and enforme's alone is below.
+  # a service. What is this service's and enforme's alone is below.
   #
-  # * The HTTP probe. sciotte enforces Cloud Run IAM (backend_sciotte_iam, on since
+  # * The HTTP probe. The service enforces Cloud Run IAM (backend_sciotte_iam, on since
   #   118571ed3), so the probe mints an identity token. The audience mirrors
   #   terraform's local.sciotte_audience ("dravr-sciotte-${var.environment}"), and
   #   the suffix is "development", not "dev": the tfvars directory is named
   #   environments/dev/ but the `environment` variable inside it is "development".
   #   Guessing "dev" from the path yields a token Cloud Run rejects with 401 — a
   #   valid token for an audience the service does not accept, which looks nothing
-  #   like the 403 an unauthenticated call gets. The probe asserts both sciotte
+  #   like the 403 an unauthenticated call gets. The probe asserts both session-read
   #   providers, because a build that lost one still boots.
   #
   # * The platform binary. dravr-enforme is a Rust crate compiled INTO
   #   dravr-mcp-server-api — pierre-services depends on it and `server-production`
   #   turns on `health-sync`, so the Whoop, Garmin and Strava sync paths in the
-  #   running binary are enforme's code. This lane once deployed sciotte and left
+  #   running binary are enforme's code. This lane once deployed the service and left
   #   main carrying an enforme the running binary did not have, until an unrelated
   #   push happened to rebuild it: carnet#94's shape, six green jobs and nothing
-  #   shipped. The dispatch runs after the sciotte deploy because enforme talks to
-  #   the sciotte service, so the service has to be on the version enforme expects
+  #   shipped. The dispatch runs after the service's deploy because enforme talks to
+  #   the session-read service, so the service has to be on the version enforme expects
   #   before the binary that calls it starts up.
   deploy:
     needs: [bump, image]
@@ -153,7 +153,7 @@ jobs:
     secrets: inherit
     with:
       service: sciotte
-      # sciotte runs as several services on the one sciotte image — the read
+      # The session-read service runs as several services on one image — the read
       # service, extra read services and the sign-in service, all labelled
       # component=sciotte by terraform (carnet#1504) — and every one of them
       # moves with this deploy, so none is left serving an older image.
@@ -164,7 +164,7 @@ jobs:
       probe_audience: dravr-sciotte-development
       probe_providers: garmin strava
       # A boot that advertises both providers can still fail every read:
-      # sciotte v1.0.0 did (carnet#1278). Read real heads before the platform
+      # the session-read service's v1.0.0 did (carnet#1278). Read real heads before the platform
       # that calls this service is rebuilt on top of it. The prefix is the
       # switch; an unset base URL fails the probe instead of skipping it.
       read_probe_provider_prefix: sciotte
@@ -172,6 +172,6 @@ jobs:
       ship_platform: ${{ needs.bump.outputs.merged == 'true' }}
       release: enforme v${{ needs.bump.outputs.version }}
       platform_summary: |-
-        The sciotte service is on **v${{ fromJSON(needs.bump.outputs.companions)['dravr-sciotte'] }}**; the platform binary that
+        The session-read service is on **v${{ fromJSON(needs.bump.outputs.companions)['dravr-sciotte'] }}**; the platform binary that
         compiles dravr-enforme **v${{ needs.bump.outputs.version }}** and calls that service is now
         rebuilding to match.

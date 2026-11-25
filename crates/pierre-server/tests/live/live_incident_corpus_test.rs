@@ -275,10 +275,10 @@ fn slack_sig(secret: &str, timestamp: &str, body: &str) -> String {
     format!("v0={}", hex::encode(mac.finalize().into_bytes()))
 }
 
-/// A sciotte stand-in that serves the fixture's OWN activities.
+/// A session-read stand-in that serves the fixture's OWN activities.
 ///
 /// The live fetch path returns its result directly, so whatever this serves
-/// IS the athlete's history for any turn that resolves sciotte. Serving
+/// IS the athlete's history for any turn that resolves `sciotte`. Serving
 /// anything other than what the fixture seeds gives the agent two
 /// disagreeing accounts of one athlete and then grades it for noticing.
 async fn spawn_eval_session_reader() -> String {
@@ -752,7 +752,7 @@ async fn judge(
 ///
 /// The lane drives production's whole messaging path — webhook, turn
 /// dispatch, chat pipeline, tool loop, a tool that dispatches another
-/// through the registry, a sciotte read — on ONE thread: `#[tokio::test]`
+/// through the registry, a session read — on ONE thread: `#[tokio::test]`
 /// is a current-thread runtime, so the turns it spawns run on the test
 /// thread too. Production runs that path in a release build on a 2 MiB tokio
 /// worker; this lane runs it in a debug build, whose poll frames are several
@@ -810,11 +810,11 @@ async fn run_corpus() {
     );
     println!("live lane model: {model}");
 
-    // Point the sciotte client at a stand-in that serves THIS lane's data.
+    // Point the session-read client at a stand-in that serves THIS lane's data.
     //
     // The shared `spawn_mock_session_reader` serves one canned 21 km ride, and a
     // successful live fetch is returned directly rather than merged with the
-    // cache — so seeding a session against it made sciotte the resolved
+    // cache — so seeding a session against it made `sciotte` the resolved
     // provider and shrank the athlete's history to that single activity. The
     // agent said so («je ne vois qu'une seule sortie cette semaine … ça ne
     // colle pas avec ce que je t'ai dit plus tôt sur ta sortie de 200 km»),

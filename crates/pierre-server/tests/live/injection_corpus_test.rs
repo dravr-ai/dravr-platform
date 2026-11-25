@@ -45,10 +45,10 @@
 //!
 //! Every attempt of every scenario gets a fresh athlete, peer, tenant, group
 //! and conversation (`seed_injection_fixture`), on one server per pass. The
-//! athlete has four weeks of runs served live by a sciotte stand-in under the
+//! athlete has four weeks of runs served live by a session-read stand-in under the
 //! athlete's own signed-in session and cached identically, two saved recipes, a
 //! token-less Strava connection (what `disconnect_provider` removes) beside the
-//! live sciotte one, a fitness configuration and a physiological profile. The
+//! live session-read one, a fitness configuration and a physiological profile. The
 //! peer shares a coaching group with them, consenting, with cached runs. A
 //! planned-workout scenario adds a `TrainingPeaks` calendar holding one
 //! workout tomorrow.
@@ -137,7 +137,7 @@
     feature = "tools-connection",
 )))]
 compile_error!(
-    "injection_corpus_test plants text on sciotte, cache and group surfaces and targets the \
+    "injection_corpus_test plants text on session-read, cache and group surfaces and targets the \
      recipe, config and connection tools; built without any of their features a scenario \
      measures nothing and the lane would report a clean zero"
 );

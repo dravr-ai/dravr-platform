@@ -4,11 +4,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! Sciotte session-expiry honesty unit tests.
+//! Signed-in session expiry honesty unit tests.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 //! Since the Phase 4 cutover the platform holds no in-pod Chrome to probe a
-//! stored sciotte session, so `is_authenticated` derives liveness from the
+//! stored signed-in session, so `is_authenticated` derives liveness from the
 //! session's own `expires_at`. These tests pin that an already-expired session
 //! reports NOT authenticated (so a caller never treats a dead session as live),
 //! while a future or unknown expiry reports authenticated.
@@ -21,7 +21,7 @@ use pierre_providers::core::{
 use pierre_providers::sciotte_provider::SciotteProviderFactory;
 use secrecy::SecretString;
 
-/// Build a bare sciotte provider (no service, no client — the client is only
+/// Build a bare session-read provider (no service, no client — the client is only
 /// touched on an actual fetch, never on construction or `is_authenticated`).
 fn sciotte_provider() -> Box<dyn FitnessProvider> {
     let config = ProviderConfig {
@@ -34,7 +34,7 @@ fn sciotte_provider() -> Box<dyn FitnessProvider> {
     };
     SciotteProviderFactory::new(None)
         .create(config)
-        .expect("sciotte provider construction is infallible")
+        .expect("session-read provider construction is infallible")
 }
 
 /// Serialize an `AuthSession` with the given expiry into the JSON blob

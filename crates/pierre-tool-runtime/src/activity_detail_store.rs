@@ -18,7 +18,7 @@
 //! walk.
 //!
 //! A kept detail read's route is kept too, as the activity's stored track
-//! (`keep_route`): a sciotte list row carries no route overview, so the
+//! (`keep_route`): a session-read list row carries no route overview, so the
 //! session-read detail's `route` is the only line the places path can form a
 //! place from (carnet#1679).
 //!

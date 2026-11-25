@@ -71,6 +71,13 @@
 //! names for Slack and answers through an adapter the factory builds. Each
 //! is driven below against a stand-in that must be asked.
 //!
+//! The context constructor also read the contremaitre overlay from the
+//! environment and started its sync, so a shell exporting
+//! `CONTREMAITRE_REPO` and `CONTREMAITRE_GITHUB_PAT` had every test context
+//! ask `api.github.com` on its first poll tick. The overlay is now an option
+//! of the context that only the server binary fills from the environment;
+//! the test exports those variables, and the trap must be asked for nothing.
+//!
 //! What the trap cannot see: a client built with `.no_proxy()`, which
 //! ignores the proxy variables by construction (dravr-tronc's A2A push and
 //! client-metadata fetchers), a WebSocket, which takes no HTTP proxy (the
@@ -2880,6 +2887,11 @@ async fn a_test_built_context_calls_no_real_host() {
         // and the weather backfill is on unless this reads `false`.
         ("META_GRAPH_API_BASE", SHELL_GRAPH_API_BASE),
         ("FITNESS_WEATHER_ENABLED", "true"),
+        // A contremaitre overlay the server binary would sync from GitHub.
+        ("CONTREMAITRE_REPO", "test-owner/test-contremaitre"),
+        ("CONTREMAITRE_GITHUB_PAT", "test-contremaitre-pat"),
+        ("CONTREMAITRE_BRANCH", "test-branch"),
+        ("CONTREMAITRE_WEBHOOK_SECRET", "test-contremaitre-secret"),
     ] {
         env::set_var(var, value);
     }
@@ -2932,6 +2944,17 @@ async fn a_test_built_context_calls_no_real_host() {
             && config.channels.discord_bot_token.is_none()
             && config.webhooks.slack_bot_token.is_none(),
         "a test server's config carried a channel credential from the environment"
+    );
+    // Only the server binary reads the contremaitre overlay from the
+    // environment: a test context syncs none, so its compiled-in tool
+    // descriptions are final at once.
+    assert!(
+        resources.mcp.contremaitre_config.is_none(),
+        "a test-built context read a contremaitre overlay from the environment"
+    );
+    assert!(
+        resources.mcp.tool_description_registry.is_settled(),
+        "a test-built context syncs no overlay, so its tool descriptions settle at once"
     );
 
     let calls = watch_for_real_host_calls(&asked).await;

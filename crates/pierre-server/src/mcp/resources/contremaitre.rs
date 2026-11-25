@@ -181,7 +181,8 @@ pub(super) struct ContremaitreRegistrySet {
 
 /// Build the prompt, tool-description, evidence, messaging-strings and
 /// training-catalogue registries, and kick off the contremaitre overlay sync
-/// in the background when configured.
+/// `config` names in the background, or settle the tool descriptions at once
+/// when it names none.
 ///
 /// The registries are returned immediately holding their compiled-in
 /// defaults; the spawned poll's first (immediate) tick overlays the
@@ -192,6 +193,7 @@ pub(super) struct ContremaitreRegistrySet {
 /// feature is enabled; when contremaitre IS enabled, its sync also populates
 /// the cageux registry via the manifest's `config.cageux` entry.
 pub(super) fn init_contremaitre_registries(
+    config: Option<ContremaitreConfig>,
     cageux_config_registry: &Arc<CageuxConfigRegistry>,
     persona_contract_registry: &Arc<PersonaContractRegistry>,
 ) -> ContremaitreRegistrySet {
@@ -219,7 +221,7 @@ pub(super) fn init_contremaitre_registries(
     }
 
     start_overlay_sync(
-        ContremaitreConfig::from_env(),
+        config,
         ContremaitreLiveRegistries {
             prompt: Arc::clone(&prompt_registry),
             tool_desc: Arc::clone(&tool_desc_registry),

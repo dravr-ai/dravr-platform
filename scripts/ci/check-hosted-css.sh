@@ -6,8 +6,8 @@
 
 # WHY THIS EXISTS
 # ---------------
-# Every server-rendered hosted page (OAuth login and consent, the Sciotte and
-# connect pages a chat link opens, the messaging link pages) embeds one
+# Every server-rendered hosted page (OAuth login and consent, the session sign-in
+# and connect pages a chat link opens, the messaging link pages) embeds one
 # stylesheet, crates/pierre-core/src/hosted_page.css, generated from the Boreal
 # tokens in packages/shared-constants. The Rust crates cannot run the
 # generator, so the file is committed — and a committed generated file goes

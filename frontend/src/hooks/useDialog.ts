@@ -107,7 +107,7 @@ function onDocumentKeyDown(event: KeyboardEvent) {
  *
  * The scroll lock is counted rather than toggled. The previous implementation
  * set `document.body.style.overflow = 'hidden'` on open and `'unset'` on
- * close. With two dialogs stacked — the Sciotte login opens the OAuth setup
+ * close. With two dialogs stacked — the credential login opens the OAuth setup
  * modal over itself — closing the inner one unfroze the page while the outer
  * was still up, and the background scrolled under it.
  */

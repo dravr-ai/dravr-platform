@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: The bring-your-own OAuth app modal's intro reads as one sentence in the app language
-// ABOUTME: The developer-portal link sits inside the translated sentence, not glued between English halves; over the Sciotte login it is the top layer
+// ABOUTME: The developer-portal link sits inside the translated sentence, not glued between English halves; over the credential login it is the top layer
 
 import { useState } from 'react';
 import { describe, it, expect, vi } from 'vitest';
@@ -77,7 +77,7 @@ describe('OAuthAppSetupModal intro', () => {
 });
 
 /**
- * The Sciotte login with the OAuth setup opened over it. The login renders the
+ * The credential login with the OAuth setup opened over it. The login renders the
  * setup beside its own dialog container, never inside it, as here.
  */
 function SetupOverLogin({ onLoginClose }: { onLoginClose: () => void }) {
@@ -102,7 +102,7 @@ function SetupOverLogin({ onLoginClose }: { onLoginClose: () => void }) {
   );
 }
 
-describe('OAuthAppSetupModal over the Sciotte login', () => {
+describe('OAuthAppSetupModal over the credential login', () => {
   it('closes alone on one Escape and keeps Tab inside it', async () => {
     const user = userEvent.setup();
     const onLoginClose = vi.fn();

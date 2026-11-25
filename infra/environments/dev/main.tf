@@ -168,7 +168,7 @@ module "kms" {
 }
 
 # -----------------------------------------------------------------------------
-# Sciotte Scripts Bucket (hot-swappable page scripts for the sciotte service)
+# Session-read Scripts Bucket (hot-swappable page scripts for the session-read service)
 # -----------------------------------------------------------------------------
 
 resource "google_storage_bucket" "sciotte_scripts" {
@@ -182,8 +182,8 @@ resource "google_storage_bucket" "sciotte_scripts" {
   labels = merge(var.labels, { component = "sciotte" })
 }
 
-# Grant the app service account read access to the scripts bucket: the sciotte
-# service runs as it and mounts the bucket
+# Grant the app service account read access to the scripts bucket: the
+# session-read service runs as it and mounts the bucket
 resource "google_storage_bucket_iam_member" "sciotte_scripts_reader" {
   bucket = google_storage_bucket.sciotte_scripts.name
   role   = "roles/storage.objectViewer"
@@ -513,7 +513,7 @@ module "backend" {
       # non-empty, which runs the declared servers' tools to completion; the
       # prompts this policy cancels are the ones for Copilot's OWN shell/git/file
       # tools, which is precisely the surface the 2026-08-13 incident reached.
-      # The sciotte vision path sends inline base64 PNGs rather than file paths,
+      # The session-read vision path sends inline base64 PNGs rather than file paths,
       # so it needs no runnable tool either.
       #
       # The dependency runs through Autopilot: if it ever fails to arm
@@ -540,7 +540,7 @@ module "backend" {
       # SDK's own: EMBACLE_SDK_PROMPT_TIMEOUT_SECS caps a whole turn (the
       # runtime streams, so a long synthesis is not what trips it) and
       # EMBACLE_SDK_SESSION_TIMEOUT_SECS caps the session handshake. The
-      # headless block serves the sciotte vision-login fallback; either
+      # headless block serves the session-read vision-login fallback; either
       # MCP_TOOL_CALLING flag arms the loopback tool bridge every tier's
       # tools run over, so neither goes to "false" while its provider is in
       # the chain.
@@ -642,8 +642,8 @@ module "backend" {
       CONTREMAITRE_REPO   = "dravr-ai/dravr-contremaitre"
       CONTREMAITRE_BRANCH = "main"
 
-      # Sciotte sign-in step timeouts (consumed by the dravr-sciotte
-      # crate). The crate's compiled defaults (login 120s, password-step 30s,
+      # Session-read sign-in step timeouts (consumed by the session-read
+      # satellite's crate). The crate's compiled defaults (login 120s, password-step 30s,
       # phone-tap 60s) are too short for Strava's
       # number-match 2FA, where the user must read a number off the login
       # screen and tap it on their phone — a 3-4 minute interactive step.
@@ -651,8 +651,8 @@ module "backend" {
       DRAVR_SCIOTTE_PASSWORD_STEP_TIMEOUT = tostring(var.backend_sciotte_password_step_timeout_secs)
       DRAVR_SCIOTTE_PHONE_TAP_TIMEOUT     = tostring(var.backend_sciotte_phone_tap_timeout_secs)
 
-      # The sciotte vision login runs on the dedicated sciotte service (module
-      # "sciotte" below, ADR-021), which sets its own DRAVR_SCIOTTE_LOGIN_MODE,
+      # The vision login runs on the dedicated session-read service (the module
+      # below, ADR-021), which sets its own DRAVR_SCIOTTE_LOGIN_MODE,
       # and the COPILOT_HEADLESS_MODEL set there is the vision model. This
       # process holds no Chrome and builds no vision analyzer: here the
       # variable is only the Copilot headless runner's default, which a chain
@@ -662,16 +662,16 @@ module "backend" {
       # chat chain's models are set per entry by PIERRE_LLM_CHAIN above.
       COPILOT_HEADLESS_MODEL = "claude-sonnet-5.5"
 
-      # ADR-021 remote toggle: when backend_sciotte_remote is on, sciotte
-      # sign-ins and reads route to the dedicated sciotte services, listed in
-      # order (the platform picks each session's service by its position).
-      # Empty string = toggle off (the client treats it as unset), and sciotte
-      # is then disabled: this pod runs no Chrome and has no in-process
+      # ADR-021 remote toggle: when backend_sciotte_remote is on, provider
+      # sign-ins and session reads route to the dedicated session-read services,
+      # listed in order (the platform picks each session's service by its
+      # position). Empty string = toggle off (the client treats it as unset), and
+      # session reads are then disabled: this pod runs no Chrome and has no in-process
       # session reader.
       DRAVR_SCIOTTE_REMOTE_URL = var.backend_sciotte_remote ? join(",", module.sciotte[*].service_url) : ""
 
       # Audience the API addresses its identity token to. Must equal what the
-      # sciotte service accepts, which is why both read one local.
+      # session-read service accepts, which is why both read one local.
       DRAVR_SCIOTTE_AUDIENCE = var.backend_sciotte_remote ? local.sciotte_audience : ""
 
       # Chart press. Empty = the capability is absent rather than broken: the
@@ -692,10 +692,10 @@ module "backend" {
       # filled by the weather backfill, so coaching has what it needs without it.
       # Enrichment only adds precise UTC start-time + HR/power/cadence.
       #
-      # "true" asks the sciotte service for a detail pass over every activity
+      # "true" asks the session-read service for a detail pass over every activity
       # the list returns (detail=every on GET /api/activities). The service
       # bounds that pass by its own per-request ceiling,
-      # DRAVR_SCIOTTE_MAX_DETAIL_NAVIGATIONS (set on the sciotte service below),
+      # DRAVR_SCIOTTE_MAX_DETAIL_NAVIGATIONS (set on the service below),
       # at ~3.4s a navigation; it stays off because the list page already
       # carries what coaching reads.
       #
@@ -891,8 +891,8 @@ locals {
   # against prod.
   photograveur_audience = "dravr-photograveur-${var.environment}"
 
-  # Same contract for sciotte: the service accepts it, the service requires
-  # it, and the API mints against it.
+  # Same contract for the session-read service: the service accepts it, the
+  # service requires it, and the API mints against it.
   sciotte_audience = "dravr-sciotte-${var.environment}"
 
   seed_env_vars = var.enable_database ? {
@@ -1082,8 +1082,8 @@ module "sql_client" {
 # -----------------------------------------------------------------------------
 
 # -----------------------------------------------------------------------------
-# Sciotte service (ADR-021) — the dedicated provider session service the
-# API routes sciotte reads (and, until backend_sciotte_login_split, sign-ins)
+# Session-read service (ADR-021) — the dedicated provider session service the
+# API routes session reads (and, until backend_sciotte_login_split, sign-ins)
 # to when DRAVR_SCIOTTE_REMOTE_URL is set. sciotte_read_services services, each
 # one instance: a read's import, read and export, and the cookie jar holding
 # the provider's rotated cookie, live on one instance, so the platform sends
@@ -1100,7 +1100,7 @@ module "sql_client" {
 # the API binary over the 80MB gate CI enforces, and most turns never draw a
 # chart.
 #
-# Sized far below sciotte: no browser, no session state. One vCPU presses a
+# Sized far below the session-read service: no browser, no session state. One vCPU presses a
 # 640x360 scene in well under a second; 512Mi covers resvg's pixmap plus the
 # font database.
 # -----------------------------------------------------------------------------
@@ -1136,7 +1136,7 @@ module "photograveur" {
   # and an internal-only ingress drops it. That is not theoretical — this
   # service sat internal-only and unreachable from the API, failing silently,
   # because the messaging path drops the chart and sends prose on any error.
-  # sciotte carries the same constraint and the same comment.
+  # The session-read service carries the same constraint and the same comment.
   #
   # Reachable is not the same as open. allow_unauthenticated stays false, so
   # Cloud Run verifies a Google-signed identity token and roles/run.invoker
@@ -1195,7 +1195,7 @@ module "sciotte" {
   # launch out of the chat turn's 15s wait (DEFAULT_WAIT_FOR_REFRESH_TIMEOUT_SECS).
   # A read that misses it is not lost: the turn answers from the cache, marked
   # incomplete, and the read finishes in the background and posts a follow-up.
-  # With the first service kept warm, sciotte's Cloud Run cost went from about
+  # With the first service kept warm, its Cloud Run cost went from about
   # CA$0.02 to CA$2.2 a day, while that service sat idle in 11 to 19 of 24
   # hours (2026-11-15..17). A session's cookie jar lives only as
   # long as the instance; each read imports and exports it.

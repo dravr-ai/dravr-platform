@@ -21,7 +21,7 @@ use uuid::Uuid;
 /// How the athlete was signing in to the provider.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SignInPath {
-    /// The email and password sciotte signs in with (Google and Apple
+    /// The email and password the sign-in service signs in with (Google and Apple
     /// included), and the code steps that continue it.
     #[cfg(feature = "provider-sciotte")]
     Credential,

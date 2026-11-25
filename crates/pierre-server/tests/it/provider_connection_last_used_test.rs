@@ -104,14 +104,14 @@ async fn touch_last_used_promotes_provider_in_resolution_order() {
         .unwrap();
     // Wait briefly so the timestamps are distinguishable in SQLite TEXT format
     sleep(Duration::from_millis(20)).await;
-    // Register sciotte SECOND (newer connected_at → would win by default)
+    // Register `sciotte` SECOND (newer connected_at → would win by default)
     repos
         .provider_connections
         .register_connection(user_id, tenant_id, "sciotte", &ConnectionType::Manual, None)
         .await
         .unwrap();
 
-    // Without any touch, sciotte wins on connected_at DESC
+    // Without any touch, `sciotte` wins on connected_at DESC
     let resolved = repos
         .provider_connections
         .rank_for_election(user_id, Some(tenant_id))
@@ -125,7 +125,7 @@ async fn touch_last_used_promotes_provider_in_resolution_order() {
         "with no touches, newest connection wins by connected_at"
     );
 
-    // Touch garmin — it should now sort ahead of sciotte (NULLS LAST clause)
+    // Touch garmin — it should now sort ahead of `sciotte` (NULLS LAST clause)
     sleep(Duration::from_millis(20)).await;
     repos
         .provider_connections

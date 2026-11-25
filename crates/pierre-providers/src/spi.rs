@@ -973,7 +973,7 @@ impl ProviderDescriptor for CorosDescriptor {
     }
 }
 
-/// The four sciotte backends' descriptors.
+/// The four session-read backends' descriptors.
 #[cfg(feature = "provider-sciotte")]
 mod sciotte_descriptors;
 #[cfg(feature = "provider-sciotte")]

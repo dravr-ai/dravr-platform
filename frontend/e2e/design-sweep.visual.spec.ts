@@ -23,7 +23,7 @@ import { mockSignedOut, mockSignupConfig, takeoverToken } from './auth-mocks';
 import { describeLayoutFailures, measurePageLayout } from './layout-gate';
 import { mockCoach } from './coach-home-mocks';
 import { PENDING_REQUEST, SEAT_CONVERSATION_ID, setupCoachSeatMocks } from './coach-seat-mocks';
-import { WORKSPACE_ATHLETE_ID, mockWorkspace, trifectaRoster } from './athlete-workspace-mocks';
+import { WORKSPACE_ATHLETE_ID, WORKSPACE_ROOM_ID, mockWorkspace, trifectaRoster } from './athlete-workspace-mocks';
 
 // A colour or primitive change touches dozens of files at once. Type-checks and
 // lint prove the classes exist; they cannot show that a status chip still reads
@@ -790,11 +790,35 @@ async function sweepAthleteWorkspace(page: Page, theme: (typeof THEMES)[number])
   await captureWorkspace(page, theme, 'phone-sheet');
 }
 
+// The same athlete from Groups (carnet#1817): her room and the coach's plan
+// thread are one row named after her, and her open room's header carries
+// « Ouvrir le plan », at a desktop width and on a phone, where the list and
+// the room take turns.
+async function sweepGroupsAthleteRow(page: Page, theme: (typeof THEMES)[number]) {
+  await page.setViewportSize({ width: 1440, height: 960 });
+  await mockCoach(page, { roster: trifectaRoster, routes: (routed) => mockWorkspace(routed) });
+  page.setDefaultTimeout(5_000);
+  await page.goto(`/#chat/${WORKSPACE_ROOM_ID}`);
+  await expect(page.locator('[data-testid="conversation-row"][data-opens-workspace="true"]')).toHaveCount(1);
+  await expect(page.getByTestId('thread-open-workspace')).toBeVisible();
+  await captureWorkspace(page, theme, 'groups-room');
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.getByTestId('thread-open-workspace')).toBeVisible();
+  await captureWorkspace(page, theme, 'groups-room-phone');
+  await page.goto('/#chat');
+  await expect(page.locator('[data-testid="conversation-row"][data-opens-workspace="true"]')).toBeVisible();
+  await captureWorkspace(page, theme, 'groups-list-phone');
+}
+
 test.describe('design sweep — athlete workspace', () => {
   test.describe.configure({ timeout: 180_000 });
   for (const theme of THEMES) {
     test(`an athlete's workspace renders in ${theme}`, async ({ page }) => {
       await sweepAthleteWorkspace(page, theme);
+    });
+    test(`an athlete's Groups row and room header render in ${theme}`, async ({ page }) => {
+      await sweepGroupsAthleteRow(page, theme);
     });
   }
 });

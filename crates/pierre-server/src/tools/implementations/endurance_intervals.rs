@@ -224,7 +224,7 @@ impl McpTool<dyn ToolRuntime> for ExportRoutesTool {
             // Intervals.icu, Wahoo, uploaded files, the Garmin API (the samples
             // its activity details or FIT file pushed, stored in
             // activity_streams; an activity whose details have not arrived has
-            // none yet) and sciotte (except TrainingPeaks). WHOOP serves no
+            // none yet) and signed-in sessions (except TrainingPeaks). WHOOP serves no
             // per-sample data upstream, so this branch always fires there.
             // LIMITATION(registre#859): Terra samples are parsed then dropped.
             // LIMITATION(registre#509): COROS has no sample source wired.
@@ -360,7 +360,7 @@ impl McpTool<dyn ToolRuntime> for ExtractActivityStreamsTool {
             // Intervals.icu, Wahoo, uploaded files, the Garmin API (the samples
             // its activity details or FIT file pushed, stored in
             // activity_streams; an activity whose details have not arrived has
-            // none yet) and sciotte (except TrainingPeaks). WHOOP serves no
+            // none yet) and signed-in sessions (except TrainingPeaks). WHOOP serves no
             // per-sample data upstream, so this branch always fires there.
             // LIMITATION(registre#859): Terra samples are parsed then dropped.
             // LIMITATION(registre#509): COROS has no sample source wired.

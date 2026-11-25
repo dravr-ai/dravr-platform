@@ -162,7 +162,7 @@ vi.mock('../../services/api', () => ({
   notificationsApi: {},
 }));
 
-// Render the Sciotte modal as a testid carrying its target so a fallback that
+// Render the sign-in modal as a testid carrying its target so a fallback that
 // opens it (target="strava") is observable.
 vi.mock('../SciotteLoginModal', () => ({
   default: ({
@@ -1248,7 +1248,7 @@ describe('UserSettings Component', () => {
     });
   });
 
-  describe('Data Providers — Strava OAuth-first with Sciotte fallback', () => {
+  describe('Data Providers — Strava OAuth-first with sign-in fallback', () => {
     const stravaCard = (recommended_backend: 'oauth' | 'mirror') => ({
       provider: 'sciotte',
       display_name: 'Strava',
@@ -1266,7 +1266,7 @@ describe('UserSettings Component', () => {
       assign = stubConnectNavigation();
     });
 
-    it('launches Strava OAuth (not Sciotte) while seats remain', async () => {
+    it('launches Strava OAuth (not the sign-in modal) while seats remain', async () => {
       getProvidersStatus.mockResolvedValue({ providers: [stravaCard('oauth')] });
       const user = userEvent.setup();
       await act(async () => {
@@ -1283,7 +1283,7 @@ describe('UserSettings Component', () => {
       expect(screen.queryByTestId('sciotte-modal')).not.toBeInTheDocument();
     });
 
-    it('opens the Sciotte modal directly once the pool is exhausted', async () => {
+    it('opens the sign-in modal directly once the pool is exhausted', async () => {
       getProvidersStatus.mockResolvedValue({ providers: [stravaCard('mirror')] });
       const user = userEvent.setup();
       await act(async () => {

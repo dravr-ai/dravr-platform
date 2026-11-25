@@ -5,6 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use pierre_auth::admin::jwks::JwksManager;
+use pierre_contremaitre::ContremaitreConfig;
 use pierre_core::billing::BillingProvider;
 use pierre_llm::ChatProvider;
 use pierre_llm::LlmProvider;
@@ -90,6 +91,13 @@ pub struct ServerContextOptions {
     /// test passes the one cargo built for it. Unset, the one beside this
     /// executable (`services::lab_documents::pdf_text_bin_beside_server`).
     pub pdf_text_bin: Option<PathBuf>,
+    /// The contremaitre overlay this context syncs its prompts, tool
+    /// descriptions and the rest of its registries from, and verifies the
+    /// push webhook with. The server binary passes the one the environment
+    /// names (`ContremaitreConfig::from_env`). Unset, no overlay is synced:
+    /// the compiled-in text is final and the tool descriptions settle at
+    /// once, so a context built anywhere else asks no repository host.
+    pub contremaitre: Option<ContremaitreConfig>,
     /// What builds the channel adapter every message of this context is
     /// verified or sent through: the webhook routes, the retry and resume
     /// workers, and the proactive senders (carnet#1600). The server binary
@@ -142,6 +150,7 @@ impl ServerContextOptions {
             blobs: None,
             lab_reader: None,
             pdf_text_bin: None,
+            contremaitre: None,
             #[cfg(feature = "client-messaging")]
             channel_adapters,
         }

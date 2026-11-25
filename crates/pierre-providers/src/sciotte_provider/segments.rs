@@ -1,4 +1,4 @@
-// ABOUTME: Sciotte's segment efforts mapped to cageux's, keeping None (not read) apart from Some([]) (read, none)
+// ABOUTME: Session-read segment efforts mapped to cageux's, keeping None (not read) apart from Some([]) (read, none)
 // ABOUTME: An effort without a start date is skipped, and an answer whose efforts all fail to map stays unread
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -10,7 +10,7 @@
 //! (`strava_provider::segments`), so a row read by either backend answers
 //! the segment history alike.
 //!
-//! Sciotte's `segment_efforts` is `None` when the page's efforts were not
+//! The service's `segment_efforts` is `None` when the page's efforts were not
 //! read and `Some([])` when they were and the activity crossed no segment.
 //! That difference is what stamps a stored row's segments as read, so the
 //! mapping keeps it: an absent list stays absent, an empty one stays empty,
@@ -18,14 +18,14 @@
 //! no word that the activity crossed no segment.
 //!
 //! An effort without a start date is skipped, never given an invented one:
-//! sciotte leaves it out when the activity's streams were not read, and a
+//! the service leaves it out when the activity's streams were not read, and a
 //! made-up start would rank the effort among the athlete's real ones.
 
 use dravr_sciotte::models::{Activity as SciotteActivity, SegmentEffort as SciotteEffort};
 
 use crate::models::SegmentEffort;
 
-/// The entry type on which sciotte's `effort_rank` is the athlete's own
+/// The entry type on which the service's `effort_rank` is the athlete's own
 /// personal-record rank (Strava's `pr_rank`).
 const PERSONAL_RECORD: &str = "pr";
 
@@ -35,7 +35,7 @@ const PERSONAL_RECORD: &str = "pr";
 /// with no coordinates: a trainer ride, a treadmill run, a manual entry)
 /// crosses no segment, because Strava matches segments on the GPS track. Its
 /// page carries no `segmentEfforts()` block at all (measured on a no-GPS run
-/// page, carnet#1603), so sciotte answers `None`, which would leave the row
+/// page, carnet#1603), so the service answers `None`, which would leave the row
 /// unread and a candidate of every detail walk forever. A read that settled
 /// there is no track reads as `Some` and empty, but only when the page had no
 /// efforts block at all: efforts that were listed and none of which mapped
@@ -52,7 +52,7 @@ pub(super) fn read_efforts(sciotte: &SciotteActivity) -> Option<Vec<SegmentEffor
     mapped.or_else(|| (no_block && recorded_no_gps).then(Vec::new))
 }
 
-/// The activity's efforts as cageux's: `None` when sciotte read none
+/// The activity's efforts as cageux's: `None` when the service read none
 /// (`None`) or every effort it listed failed to map, `Some` of the ones that
 /// mapped otherwise, an empty list when it read the page and found none.
 fn segment_efforts(raw: Option<&[SciotteEffort]>) -> Option<Vec<SegmentEffort>> {
@@ -61,7 +61,7 @@ fn segment_efforts(raw: Option<&[SciotteEffort]>) -> Option<Vec<SegmentEffort>> 
     (raw.is_empty() || !efforts.is_empty()).then_some(efforts)
 }
 
-/// One sciotte effort as cageux's [`SegmentEffort`], or `None` when it lacks
+/// One session-read effort as cageux's [`SegmentEffort`], or `None` when it lacks
 /// a field cageux requires: a start date or a name.
 ///
 /// The rank crosses as `pr_rank` only on the athlete's own ladder

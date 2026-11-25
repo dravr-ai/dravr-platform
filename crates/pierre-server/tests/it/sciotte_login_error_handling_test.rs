@@ -1,4 +1,4 @@
-// ABOUTME: Regression test for sciotte credential-login failure handling (no raw error to the user)
+// ABOUTME: Regression test for session credential-login failure handling (no raw error to the user)
 // ABOUTME: Pins the friendly, provider-aware copy and that system failures never leak browser stderr
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -7,7 +7,7 @@
 //! Guards the user-facing contract of `report_login_system_failure` /
 //! `friendly_login_failure_message` in `pierre_routes_auth::sciotte`.
 //!
-//! A sciotte credential login runs an in-process headless Chrome. When that
+//! A session credential login runs an in-process headless Chrome. When that
 //! Chrome fails to launch (the container's dbus/crashpad case), the reader
 //! returns an `Err(SessionReadError::Browser)` whose `Display` is a multi-line
 //! dump of raw browser stderr. Historically the handler built

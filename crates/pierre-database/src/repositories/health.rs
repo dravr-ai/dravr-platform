@@ -65,7 +65,7 @@ pub struct ConnectedUserRow {
     /// Tenant identifier
     pub tenant_id: TenantId,
     /// Stored credential kind from `user_oauth_tokens.token_type` —
-    /// `"Bearer"` for OAuth exchanges, `"session"` for sciotte browser
+    /// `"Bearer"` for OAuth exchanges, `"session"` for signed-in browser
     /// sessions (a plain string column, not a UUID, so `String` is fine
     /// here). Lets sync callers skip users whose stored credential the
     /// provider's sync implementation cannot use.

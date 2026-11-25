@@ -71,7 +71,7 @@ impl SciotteProvider {
                 warn!(
                     provider = self.provider_name,
                     error = %error,
-                    "a rotated sciotte session could not be serialized; keeping the session held"
+                    "a rotated signed-in session could not be serialized; keeping the session held"
                 );
                 return;
             }
@@ -87,7 +87,7 @@ impl SciotteProvider {
         } else {
             warn!(
                 provider = self.provider_name,
-                "a read rotated the sciotte session, and nothing stores it for this provider: \
+                "a read rotated the signed-in session, and nothing stores it for this provider: \
                  the stored copy is stale until the athlete signs in again"
             );
         }
@@ -98,7 +98,7 @@ impl SciotteProvider {
         if self.token_refresh_callback.set(callback).is_err() {
             debug!(
                 provider = self.provider_name,
-                "sciotte token refresh callback already set; keeping the first"
+                "session-read token refresh callback already set; keeping the first"
             );
         }
     }

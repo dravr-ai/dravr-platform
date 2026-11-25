@@ -131,7 +131,7 @@ async fn user(resources: &Arc<ServerContext>, label: &str) -> (Uuid, TenantId) {
     (user_id, tenant_id)
 }
 
-/// A signed-in session as dravr-sciotte serializes it.
+/// A signed-in session as the session-read service serializes it.
 fn session_json(session_id: &str) -> String {
     json!({
         "session_id": session_id,

@@ -278,7 +278,7 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
             //     `build_activities_success_response` per hit, so weather/mode/format
             //     stay fresh (no "stale formatted response" — only normal TTL age).
             //     Read on the RECENT path just below; on a MISS the recent path does a
-            //     LIVE provider fetch — for sciotte a full ~tens-of-seconds Chrome
+            //     LIVE provider fetch — for a session-read mirror a full ~tens-of-seconds Chrome
             //     session read. This is the ONLY read-cache between a recent coaching
             //     turn and that read; a miss is a near-free `get -> None`, a hit saves
             //     the read (asymmetric payoff — low hit-rate does not mean low value).
@@ -478,8 +478,8 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
             // depth is served from it on every backend (`covered_history`
             // below). One it does not must NOT be read inline — paging a
             // provider's reverse-chronological feed back across years stalls the
-            // turn and trips the sciotte navigation timeout — so an uncovered
-            // deep window on a session-read mirror (sciotte / sciotte_garmin)
+            // turn and trips the session-read navigation timeout — so an uncovered
+            // deep window on a session-read mirror (`sciotte` / `sciotte_garmin`)
             // goes to a bounded background backfill and the caller is told to ask
             // again shortly, while a fast OAuth API provider (Strava, WHOOP, …)
             // fetches it inline. `provider_name` is already canonicalized to the
@@ -664,7 +664,7 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                     // Cold cache OR a shallow (limit-capped / never-backfilled)
                     // window: page the WHOLE window in the background. The fetch
                     // limit is decoupled from the user's display limit so the
-                    // sciotte date-bounded read pages until `oldest <= after`
+                    // session's date-bounded read pages until `oldest <= after`
                     // (or the feed end) instead of stopping at the recent tail
                     // once `in_window_count >= limit`. A partial cache self-heals:
                     // the completion push then re-answers with the full window.

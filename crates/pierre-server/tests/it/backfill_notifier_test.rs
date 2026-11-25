@@ -188,7 +188,7 @@ async fn push_provider_reauth_nudges_dm_and_resends_until_reconnect() {
         &conversation_id,
     )
     .await;
-    // A connected Garmin (sciotte mirror), the connection the nudge names.
+    // A connected Garmin (session-read mirror), the connection the nudge names.
     repos
         .provider_connections
         .register_connection(

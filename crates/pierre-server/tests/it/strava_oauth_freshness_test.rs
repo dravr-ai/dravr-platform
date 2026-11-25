@@ -9,7 +9,7 @@
 
 //! Honest freshness + sync roster for OAuth-connected Strava.
 //!
-//! Strava was once registered with the enforme orchestrator for sciotte TSB
+//! Strava was once registered with the enforme orchestrator for session-read TSB
 //! session reads, but enforme background-syncs no activity data for anyone, and
 //! for OAuth-connected users (Bearer token, no browser session) it could sync
 //! nothing at all. Two live failure modes followed (2026-07-11):
@@ -44,7 +44,7 @@ use pierre_services::provider_refresh::RefreshService;
 use uuid::Uuid;
 
 /// Seed a Strava token row. `token_type` distinguishes an OAuth exchange
-/// (`"Bearer"`, opaque access token) from a sciotte browser session
+/// (`"Bearer"`, opaque access token) from a signed-in browser session
 /// (`"session"`, serialized session JSON) — mirroring what the OAuth
 /// callback and `store_sciotte_session` write respectively.
 async fn seed_strava_token(
@@ -257,7 +257,7 @@ async fn a_mirror_only_providers_roster_reads_its_session_rows_never_oauth_rows(
     )
     .await;
     // A session-connected athlete: the session Garmin's health sync reads, on
-    // the mirror backend's row as the sciotte login writes it.
+    // the mirror backend's row as the session sign-in writes it.
     seed_token(
         repos,
         sciotte_user,

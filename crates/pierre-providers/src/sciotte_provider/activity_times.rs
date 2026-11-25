@@ -1,4 +1,4 @@
-// ABOUTME: Splits the duration fields of an activity read through sciotte into elapsed time and moving time
+// ABOUTME: Splits the duration fields of an activity read through a signed-in session into elapsed time and moving time
 // ABOUTME: A detail page reads moving time as its duration; the platform's duration is elapsed time
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -12,9 +12,9 @@ use pierre_core::models::GearRef;
 /// and moving time is `Some` only when the page stated it.
 ///
 /// A page states it two ways. Strava's list and detail name it outright
-/// (`moving_time_seconds`, sciotte 2.0), and that figure stands as long as it
-/// fits in the elapsed time. Otherwise a detail page carries the moving time
-/// in `duration_seconds` and the elapsed time beside it in
+/// (`moving_time_seconds`, session-read satellite 2.0), and that figure stands
+/// as long as it fits in the elapsed time. Otherwise a detail page carries the
+/// moving time in `duration_seconds` and the elapsed time beside it in
 /// `elapsed_time_seconds`, while a list row carries elapsed time alone,
 /// sometimes copied into both fields. Only when the elapsed time is the
 /// longer of the two is that pair split; otherwise `duration_seconds` stands

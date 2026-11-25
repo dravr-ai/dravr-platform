@@ -181,6 +181,8 @@ export async function mockWorkspace(page: Page, calls: WorkspaceCalls = { revert
     subject_user_id: WORKSPACE_ATHLETE_ID,
     subject_group_id: GROUP.id,
     subject_display_name: ATHLETE.display_name,
+    // The server names the room's one athlete on her coach's rows (carnet#1817).
+    solo_athlete: ATHLETE,
     message_count: 2,
     unread_count: 0,
     created_at: todayAt(9, 0, 11),
@@ -194,6 +196,7 @@ export async function mockWorkspace(page: Page, calls: WorkspaceCalls = { revert
     agent_title: 'Dravr',
     group_id: GROUP.id,
     group_name: GROUP.name,
+    solo_athlete: ATHLETE,
     message_count: 1,
     unread_count: 1,
     created_at: todayAt(9, 0, 30),

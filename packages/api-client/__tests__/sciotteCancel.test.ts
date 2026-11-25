@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Unit cover for the explicit sciotte sign-in cancel — every step names its attempt, the cancel names it too (carnet#1300)
+// ABOUTME: Unit cover for the explicit credential sign-in cancel — every step names its attempt, the cancel names it too (carnet#1300)
 // ABOUTME: Red if a step drops attempt_id, a step without one sends it, or the best-effort cancel retries a busy answer
 
 import { describe, expect, it, vi } from 'vitest';
@@ -14,7 +14,7 @@ function stubAxios(post = vi.fn().mockResolvedValue({ data: { status: 'connected
 
 const ATTEMPT = '0b7e3c1a-5f2d-4e8b-9a61-2c4d8e0f1a3b';
 
-describe('sciotte sign-in — explicit cancel', () => {
+describe('credential sign-in — explicit cancel', () => {
   it('sends the attempt id on all three steps', async () => {
     const { post, api } = stubAxios();
 

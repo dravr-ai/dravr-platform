@@ -12,7 +12,7 @@
 //! before the profile read lands; a coach account whose TrainingPeaks email is
 //! the user's verified Dravr email is granted `manages_roster` for as long as
 //! a coach connection earns it, and the workouts misfiled under it before
-//! sciotte 0.14 are deleted. A coach account that is someone else's, or shares
+//! the service's 0.14 are deleted. A coach account that is someone else's, or shares
 //! no email, earns nothing. Once the role is known, a read of the
 //! coach account's own workouts is refused in words before any session read;
 //! a connection made before roles were recorded learns its role from the
@@ -145,7 +145,7 @@ fn session_json(session_id: &str) -> Value {
     })
 }
 
-/// A stand-in for the sciotte service: a login's email picks the account it
+/// A stand-in for the session-read service: a login's email picks the account it
 /// signs in to, and each read answers by the session it carries.
 async fn spawn_session_reader(calls: Calls) -> String {
     let app = Router::new()

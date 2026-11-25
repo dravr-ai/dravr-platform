@@ -94,7 +94,7 @@ async fn a_no_provider_ask_merges_all_connections_and_keeps_the_gps_row() {
         .await
         .unwrap();
 
-    // sciotte second, so the activity-source election picks it as the primary — the
+    // `sciotte` second, so the activity-source election picks it as the primary — the
     // live-fetch path then serves the mock session reader's GPS ride.
     resources
         .common

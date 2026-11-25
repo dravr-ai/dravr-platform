@@ -474,7 +474,7 @@ async fn spawn_session_reader() -> (Arc<SessionReader>, String) {
     (reader, format!("http://{addr}"))
 }
 
-/// A fresh athlete whose Strava is served by the sciotte mirror: a `sciotte`
+/// A fresh athlete whose Strava is served by the session-read mirror: a `sciotte`
 /// connection, a live stored session behind it, and the session reader stand-in the
 /// platform reads it through.
 async fn athlete_on_the_mirror() -> (Fixture, Arc<SessionReader>) {

@@ -401,9 +401,9 @@ check_tag "  ...and latest is not moved past the failure" "${SERVER}" latest "${
 echo "tag-deployed-digest: deploy-satellite-cloud-run.yml tag-deployed, as the runner runs it"
 registry "${REG}/sciotte" deployed-dev "${D1}" "${REG}/sciotte" v0.9.0 "${D1}"
 run_cmd IMAGE="${REG}/sciotte@${D2}" -- bash -e -o pipefail "${WORK}/satellite-step.sh"
-check "sciotte: the outgoing digest is anchored" 0 "Tagging the outgoing ${REG}/sciotte@${D1}"
-check_tag "  ...sciotte N-1 anchored" "${REG}/sciotte" deployed-dev-previous "${D1}"
-check_tag "  ...sciotte deployed-dev on N" "${REG}/sciotte" deployed-dev "${D2}"
+check "session-read image: the outgoing digest is anchored" 0 "Tagging the outgoing ${REG}/sciotte@${D1}"
+check_tag "  ...session-read N-1 anchored" "${REG}/sciotte" deployed-dev-previous "${D1}"
+check_tag "  ...session-read deployed-dev on N" "${REG}/sciotte" deployed-dev "${D2}"
 registry
 run_cmd IMAGE="${REG}/photograveur@${D1}" -- bash -e -o pipefail "${WORK}/satellite-step.sh"
 check "photograveur's first deploy tags deployed-dev alone" 0 "its first deploy"

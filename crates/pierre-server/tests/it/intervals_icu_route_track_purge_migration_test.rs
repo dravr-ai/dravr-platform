@@ -1,5 +1,5 @@
 // ABOUTME: carnet#682 — the migration that deletes every stored intervals.icu route track, drawn from a misread latlng stream
-// ABOUTME: Runs the shipped SQL of the test backend against seeded tracks: intervals.icu rows go, Strava and sciotte rows stay
+// ABOUTME: Runs the shipped SQL of the test backend against seeded tracks: intervals.icu rows go, Strava and session-read rows stay
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai

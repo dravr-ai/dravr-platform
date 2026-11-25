@@ -274,7 +274,7 @@ jobs:
           # new conversation, and nothing behind it is required at boot.
           PIERRE_LLM_DEFAULT_MODEL: "ci-test-model"
           # home-sync/01 connects the Maestro athlete's Strava through a
-          # scripted stand-in for the sciotte service on this port.
+          # scripted stand-in for the session-read service on this port.
           DRAVR_SCIOTTE_REMOTE_URL: "http://127.0.0.1:8097"
           # The route request's own bound, shortened as the web e2e-real lane does.
           PIERRE_HOME_ROUTE_ANSWER_SECS: "5"
@@ -333,7 +333,7 @@ jobs:
           RUST_LOG: "info"
 
       # home-sync/01 scripts the session reader through this process: it runs the
-      # sciotte double on 8097 and a control API on 8098 that the flow's
+      # session-read double on 8097 and a control API on 8098 that the flow's
       # runScript steps call from the host, and it writes a past sync time
       # into the server's database, so it is given that file. onboarding/02
       # asks it for fresh coaches, approved by the seeded tester (an admin)

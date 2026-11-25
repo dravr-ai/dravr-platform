@@ -10,16 +10,16 @@
 //! provider's own sign-in page, and the session is handed to the server with
 //! their consent: the Dravr browser extension, or the app's `WebView`, opens
 //! that page, waits for its signed-in landing and hands Dravr that provider's
-//! cookies. sciotte then reads the athlete's own data with them as after any
+//! cookies. The service then reads the athlete's own data with them as after any
 //! sign-in.
 //!
-//! - `GET /api/providers/browser-signin` is sciotte's
+//! - `GET /api/providers/browser-signin` is the service's
 //!   [`BrowserSigninCatalog`]: per provider the page to open, the URLs that
 //!   say the athlete is signed in and the domain of the session's cookies.
-//!   sciotte's provider configs are its one source.
+//!   The service's provider configs are its one source.
 //! - `POST /api/providers/browser-signin/{target}` takes the cookies. Only
 //!   cookies set under the provider's domain are accepted, and the session is
-//!   stored only once a read through it succeeds, then exactly as a sciotte
+//!   stored only once a read through it succeeds, then exactly as a credential
 //!   sign-in's ([`store_sciotte_session`]): its exposure notice first, the
 //!   connection, the notice, the warm-up.
 //!
@@ -93,7 +93,7 @@ pub(crate) struct BrowserSigninRequest {
 }
 
 /// `GET /api/providers/browser-signin`: how each provider is signed in to
-/// from the athlete's own browser, as sciotte serves it.
+/// from the athlete's own browser, as the service serves it.
 pub(crate) async fn handle_browser_signin_catalog(
     State(resources): State<AuthRoutesContext>,
     headers: HeaderMap,
@@ -218,7 +218,7 @@ fn target_named(target: &str) -> Result<SciotteTarget, AppError> {
     }
 }
 
-/// sciotte's [`BrowserSignin`] for `target`.
+/// The service's [`BrowserSignin`] for `target`.
 async fn catalog_entry(
     resources: &AuthRoutesContext,
     target: SciotteTarget,

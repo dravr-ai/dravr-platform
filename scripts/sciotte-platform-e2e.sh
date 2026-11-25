@@ -1,8 +1,8 @@
 #!/bin/bash
-# ABOUTME: Drives the platform's sciotte login flow end-to-end for the ADR-021 remote path.
-# ABOUTME: Reads GARMIN_USER/GARMIN_PASSWORD from .envrc; hits Pierre (:8081), which routes to the local sciotte (scripts/sciotte-local.sh port).
+# ABOUTME: Drives the platform's session-read login flow end-to-end for the ADR-021 remote path.
+# ABOUTME: Reads GARMIN_USER/GARMIN_PASSWORD from .envrc; hits Pierre (:8081), which routes to the local session-read service (scripts/sciotte-local.sh port).
 
-# With DRAVR_SCIOTTE_REMOTE_URL set, Pierre forwards sciotte login/otp/2fa to the
+# With DRAVR_SCIOTTE_REMOTE_URL set, Pierre forwards session-read login/otp/2fa to the
 # dedicated dravr-sciotte-server. This script exercises that from the platform edge:
 # it mints a JWT for a local test user, then drives login -> otp/2fa -> status using
 # the Garmin creds in .envrc. Credentials never appear on the command line — they are
@@ -15,7 +15,7 @@ SCIOTTE_REPO="${SCIOTTE_REPO:-$(cd "$HERE/../dravr-sciotte" 2>/dev/null && pwd |
 set -a
 # Platform .envrc: PIERRE_MASTER_ENCRYPTION_KEY, DRAVR_SCIOTTE_REMOTE_URL, DATABASE_URL, …
 source "$HERE/.envrc" >/dev/null 2>&1 || true
-# dravr-sciotte .envrc: GARMIN_USER / GARMIN_PASSWORD (the provider test credentials live with sciotte).
+# dravr-sciotte .envrc: GARMIN_USER / GARMIN_PASSWORD (the provider test credentials live with the session-read satellite).
 [ -f "$SCIOTTE_REPO/.envrc" ] && source "$SCIOTTE_REPO/.envrc" >/dev/null 2>&1 || true
 set +a
 
@@ -87,7 +87,7 @@ cmd_login() {
   # Login method: email (default) | google | apple. The Strava test account
   # authenticates via Google OAuth, so strava defaults to the google button.
   local method="${SCIOTTE_METHOD:-$([ "$TARGET" = "strava" ] && echo google || echo email)}"
-  info "Platform login for $PROVIDER_USER (target=$TARGET, method=$method) → routes to the sciotte service"
+  info "Platform login for $PROVIDER_USER (target=$TARGET, method=$method) → routes to the session-read service"
   local body
   body=$(jq -n --arg e "$PROVIDER_USER" --arg p "$PROVIDER_PASSWORD" --arg m "$method" --arg t "$TARGET" \
     '{email:$e, password:$p, method:$m, target:$t}')
@@ -115,7 +115,7 @@ cmd_status() {
 
 usage() {
   cat <<EOF
-$(echo -e "${BLUE}sciotte-platform-e2e${NC}") — drive Pierre's sciotte login (ADR-021 remote path)
+$(echo -e "${BLUE}sciotte-platform-e2e${NC}") — drive Pierre's session-read login (ADR-021 remote path)
 
   Platform: $PLATFORM   target: $TARGET   user: $E2E_USER
 

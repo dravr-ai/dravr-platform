@@ -14,7 +14,7 @@
 //! stale window, and the next ask re-armed the disarming. A capture that stops
 //! reports itself current forever.
 //!
-//! Observed on dev: jf@dravr.ai's sciotte capture froze at 2026-08-28 02:59Z,
+//! Observed on dev: jf@dravr.ai's session-read capture froze at 2026-08-28 02:59Z,
 //! and two days later all 109 cached rows carried one identical `synced_at`
 //! while `activity_fetch_freshness` still held the last real provider fetch,
 //! five days older. A 5.3 km trail run recorded in between never landed, and
@@ -63,7 +63,7 @@ async fn serving_a_covered_window_from_cache_does_not_restamp_its_freshness() {
         .expect("list tenants");
     let tenant = tenants.first().expect("user has a tenant").id;
 
-    // sciotte is a session-read mirror backend — the only kind whose deep
+    // `sciotte` is a session-read mirror backend — the only kind whose deep
     // windows route to the durable cache instead of an inline provider fetch.
     resources
         .common

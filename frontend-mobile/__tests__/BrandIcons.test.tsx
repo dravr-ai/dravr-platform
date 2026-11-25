@@ -21,7 +21,7 @@ import { PROVIDER_COLORS } from '../src/constants/theme';
 
 describe('providerGlyph', () => {
   // Turns red if a provider the connection screens list loses its mark, or
-  // if the captured sciotte ids stop sharing the brand's glyph.
+  // if the session-read provider ids stop sharing the brand's glyph.
   it.each([
     ['sciotte', StravaLogo],
     ['strava', StravaLogo],

@@ -9,7 +9,7 @@
 //! Live incidents 2026-07-24 and 2026-08-11 (Telegram): the agent answered
 //! «Je ne suis pas capable de récupérer tes activités … (problème de
 //! connexion de mon côté)» on turns where **no tool was ever invoked** and
-//! every sciotte session read in the surrounding weeks had succeeded. The claim was
+//! every session read in the surrounding weeks had succeeded. The claim was
 //! fabricated, then persisted, then replayed — teaching the model the access
 //! was broken (the learned-helplessness loop the replay scrub exists to
 //! break, defeated there by a phrasing mutation).

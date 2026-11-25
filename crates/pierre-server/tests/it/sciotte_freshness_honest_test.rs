@@ -1,5 +1,5 @@
-// ABOUTME: Pins that on-demand providers (sciotte) report honest freshness from the activity cache
-// ABOUTME: Regression for the "sciotte always Fresh" bug that made the agent claim stale data was current
+// ABOUTME: Pins that on-demand providers (the session read) report honest freshness from the activity cache
+// ABOUTME: Regression for the "session read always Fresh" bug that made the agent claim stale data was current
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -9,17 +9,17 @@
 
 //! Honest freshness for on-demand providers.
 //!
-//! sciotte is read per chat request and never background-synced, so its
+//! A session-read provider is read per chat request and never background-synced, so its
 //! `oauth_tokens.last_sync` is stamped once at login and never moves. The
 //! refresh service used to short-circuit on-demand providers to `Fresh`, so the
-//! agent believed sciotte data was current even when the session-read cache was
+//! agent believed session-read data was current even when the session-read cache was
 //! hours old (the user-visible "tu parles à travers ton chapeau" bug).
 //!
 //! The freshness now derives from the activity cache's `synced_at` — the real
 //! timestamp of the last successful session read. These tests pin that contract:
-//!  1. No cached activities -> sciotte is reported stale (in `refreshing`), and
+//!  1. No cached activities -> the provider is reported stale (in `refreshing`), and
 //!     the agent hint warns about it.
-//!  2. Freshly cached activities -> sciotte is reported `fresh`, and the hint is
+//!  2. Freshly cached activities -> the provider is reported `fresh`, and the hint is
 //!     suppressed.
 
 use crate::common;
@@ -34,7 +34,7 @@ use pierre_core::models::{ActivityBuilder, RefreshConfig, SportType, UserOAuthTo
 use pierre_services::provider_refresh::RefreshService;
 use uuid::Uuid;
 
-/// Seed a sciotte session token so `get_provider_freshness` iterates the
+/// Seed a signed-in session token so `get_provider_freshness` iterates the
 /// provider, mirroring what `store_sciotte_session` writes after login.
 async fn seed_sciotte_token(
     repos: &pierre_database::RepositoryRegistry,
@@ -92,14 +92,14 @@ async fn sciotte_with_no_cache_is_reported_stale_not_fresh() {
 
     assert!(
         status.refreshing.iter().any(|p| p == "sciotte"),
-        "sciotte with no cached activities must be stale (in `refreshing`), not Fresh; \
+        "the session-read provider with no cached activities must be stale (in `refreshing`), not Fresh; \
          got refreshing={:?} fresh={:?}",
         status.refreshing,
         status.fresh
     );
     assert!(
         !status.fresh.iter().any(|p| p == "sciotte"),
-        "sciotte must not be reported Fresh without cached data"
+        "the session-read provider must not be reported Fresh without cached data"
     );
 
     let hint = RefreshService::build_agent_hint(&status.details);
@@ -143,7 +143,7 @@ async fn sciotte_with_fresh_cache_is_reported_fresh() {
 
     seed_sciotte_token(repos, user_id, &tenant_id.to_string()).await;
 
-    // Cache a sciotte activity now -> synced_at = now -> fresh.
+    // Cache a session-read activity now -> synced_at = now -> fresh.
     let activity = ActivityBuilder::new(
         "sc1".to_owned(),
         "morning ride".to_owned(),
@@ -159,7 +159,7 @@ async fn sciotte_with_fresh_cache_is_reported_fresh() {
         .upsert_activities(user_id, &tenant_id, "sciotte", &[activity])
         .await
         .unwrap();
-    assert_eq!(written, 1, "one sciotte activity should be cached");
+    assert_eq!(written, 1, "one session-read activity should be cached");
 
     let service = RefreshService::new(
         &repos.auth_repos(),
@@ -174,7 +174,7 @@ async fn sciotte_with_fresh_cache_is_reported_fresh() {
 
     assert!(
         status.fresh.iter().any(|p| p == "sciotte"),
-        "sciotte with a just-written cache must be Fresh; got fresh={:?} refreshing={:?}",
+        "the session-read provider with a just-written cache must be Fresh; got fresh={:?} refreshing={:?}",
         status.fresh,
         status.refreshing
     );

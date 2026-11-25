@@ -44,7 +44,7 @@ const PROVIDER_DISPLAY_NAMES: &[(&str, &str)] = &[
     ("provider-strava", "Strava"),
     ("provider-garmin", "Garmin"),
     ("provider-whoop", "Whoop"),
-    ("provider-sciotte", "Sciotte"),
+    ("provider-sciotte", "session reads"),
     ("provider-intervals-icu", "Intervals.icu"),
     ("provider-terra", "Terra"),
     ("provider-coros", "Coros"),

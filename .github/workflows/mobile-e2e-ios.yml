@@ -289,7 +289,7 @@ jobs:
           # new conversation, and nothing behind it is required at boot.
           PIERRE_LLM_DEFAULT_MODEL: "ci-test-model"
           # onboarding/02's coaches connect Strava through a scripted stand-in
-          # for the sciotte service on this port (the control process below).
+          # for the session-read service on this port (the control process below).
           DRAVR_SCIOTTE_REMOTE_URL: "http://127.0.0.1:8097"
           # The app signs in on the hosted login page and returns to
           # exp://<host>:8082/--/auth/callback inside Expo Go, an address the
@@ -332,7 +332,7 @@ jobs:
       # onboarding/02 asks this process for fresh coaches over HTTP from its
       # runScript steps (Maestro runs on the host, so 127.0.0.1 reaches it): it
       # registers each one, approves it as the seeded tester (an admin) and
-      # connects its Strava through the sciotte double it runs on 8097.
+      # connects its Strava through the session-read double it runs on 8097.
       # coach-plan/01 asks it for a fresh coach and athlete on every attempt,
       # made and seeded by the pierre-cli PIERRE_CLI names, with the server's
       # key and model. Every flow but login/ asks it for a seeded session,

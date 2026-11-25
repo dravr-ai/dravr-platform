@@ -169,7 +169,7 @@ fn connect_token_carries_connect_scope_and_target() {
 #[test]
 fn connect_scope_is_a_superset_accepted_at_provider_endpoints() {
     // A connect-scoped token authorizes the whole picker, so it must be accepted
-    // wherever a provider-specific token is (e.g. the Sciotte endpoints).
+    // wherever a provider-specific token is (e.g. the session sign-in endpoints).
     let (user_id, tenant_id) = sample_ids();
     let token = mint_connect_link_token(user_id, tenant_id, "telegram", None, TEST_SECRET).unwrap();
 
@@ -180,7 +180,7 @@ fn connect_scope_is_a_superset_accepted_at_provider_endpoints() {
 
 #[test]
 fn narrow_provider_token_is_rejected_at_connect_endpoints() {
-    // A Canot-minted sciotte-only token must NOT be able to reach the generic
+    // A Canot-minted sign-in-only token must NOT be able to reach the generic
     // connect / OAuth-init endpoints — only a connect-scoped token may.
     let (user_id, tenant_id) = sample_ids();
     let sciotte_token = mint_link_token(

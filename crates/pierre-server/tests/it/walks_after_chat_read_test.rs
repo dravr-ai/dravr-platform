@@ -1,4 +1,4 @@
-// ABOUTME: A chat turn whose live read of a sciotte session carried the list head asks the session's walks
+// ABOUTME: A chat turn whose live read of a signed-in session carried the list head asks the session's walks
 // ABOUTME: Its incomplete history walk resumes from its cursor past the back-off; a head-less, grant-served or grant read asks nothing
 
 // SPDX-License-Identifier: MIT OR Apache-2.0

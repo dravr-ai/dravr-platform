@@ -7,8 +7,8 @@
 //! Short-lived provider link-tokens for channel-initiated hosted login.
 //!
 //! A link-token is a JWT that authorizes a user's browser to call a specific
-//! provider's hosted-login endpoints (e.g. Sciotte) without an existing
-//! Pierre session cookie.
+//! provider's hosted-login endpoints (e.g. a session sign-in) without an
+//! existing Pierre session cookie.
 //!
 //! ## Flow
 //!
@@ -20,7 +20,7 @@
 //! 3. The hosted-login URL (with `?token=...`) is posted to the user in their channel.
 //! 4. User's browser opens the URL. Server validates the token, embeds it in the page.
 //! 5. The page's JS calls `/api/providers/{provider}/*` with `Authorization: Bearer <token>`.
-//! 6. The sciotte login, 2FA and OTP handlers accept the link-token as an
+//! 6. The session sign-in's login, 2FA and OTP handlers accept the link-token as an
 //!    alternative to normal cookie/JWT auth (via [`verify_link_token`]) and
 //!    extract user_id + tenant_id from the claims. No other route accepts one.
 //!
@@ -40,7 +40,7 @@
 //! - **One-time page load**: each token's `jti` is burned on the first
 //!   `GET` of the hosted sign-in page ([`HOSTED_SIGNIN_PATH`]) (see [`NonceStore`]);
 //!   subsequent page loads receive an error. The token remains valid for the
-//!   login, 2FA and OTP POST endpoints within its TTL so the multi-step Sciotte flow
+//!   login, 2FA and OTP POST endpoints within its TTL so the multi-step sign-in flow
 //!   (credentials -> 2FA -> OTP) can complete.
 //! - **Minted in-process only**: no HTTP route mints a provider or connect
 //!   token, so there is no caller to rate-limit; every mint follows a platform
@@ -70,7 +70,7 @@ use pierre_core::errors::{AppError, AppResult};
 /// These tokens back the channel reconnect nudges a user reads whenever they
 /// next open their chat app — often hours after the nudge was sent — so the
 /// validity window must outlast a single sitting. The earlier 20-minute value
-/// (sized to the sciotte hosted-login completion timeout) expired stale clicks
+/// (sized to the session sign-in's hosted-login completion timeout) expired stale clicks
 /// and served the "Link error" page instead of the reconnect form. The
 /// hosted-login page burns the token's nonce on first load and the token is
 /// scoped to one (user, tenant, provider) in the user's own DM, so the longer
@@ -123,7 +123,7 @@ pub const CONNECT_OAUTH_INIT_PATH: &str = "/api/providers/connect/oauth-init";
 ///
 /// A token minted with this provider carries the scope `provider:connect:login`
 /// and authorizes the whole hosted connect picker — both the credential
-/// (Sciotte) endpoints and the OAuth-init endpoint — rather than a single
+/// (session sign-in) endpoints and the OAuth-init endpoint — rather than a single
 /// provider's login. The concrete provider is chosen by the user on the hosted
 /// page. [`verify_link_token`] accepts a connect-scoped token wherever a
 /// provider-specific token is accepted (the connect scope is a superset), while
@@ -173,6 +173,18 @@ pub struct MintProviderLinkTokenArgs<'a> {
     pub channel: &'a str,
     /// Optional channel thread/DM id for follow-up confirmation
     pub channel_thread: Option<&'a str>,
+}
+
+/// The HS256 signing key for a link-token, refused when the admin secret is empty
+fn encoding_key(admin_jwt_secret: &str) -> AppResult<EncodingKey> {
+    EncodingKey::from_secret(admin_jwt_secret.as_bytes())
+        .map_err(|e| AppError::internal(format!("Invalid link-token signing secret: {e}")))
+}
+
+/// The HS256 verification key for a link-token, refused when the admin secret is empty
+fn decoding_key(admin_jwt_secret: &str) -> AppResult<DecodingKey> {
+    DecodingKey::from_secret(admin_jwt_secret.as_bytes())
+        .map_err(|e| AppError::internal(format!("Invalid link-token verification secret: {e}")))
 }
 
 /// Build the scope claim string for a given provider
@@ -257,7 +269,7 @@ fn mint_link_token_with_ttl(
     };
 
     let header = Header::new(Algorithm::HS256);
-    let key = EncodingKey::from_secret(admin_jwt_secret.as_bytes());
+    let key = encoding_key(admin_jwt_secret)?;
     encode(&header, &claims, &key)
         .map_err(|e| AppError::internal(format!("Failed to encode provider link-token: {e}")))
 }
@@ -268,7 +280,7 @@ fn mint_link_token_with_ttl(
 /// own messaging pipeline (which already resolved `user_id` + `tenant_id` for
 /// the turn) — there is no admin-authed HTTP round-trip. The resulting token
 /// carries the [`CONNECT_PROVIDER`] scope, so the hosted page can route the user
-/// to either the credential (Sciotte) flow or the OAuth flow for whichever
+/// to either the credential (session sign-in) flow or the OAuth flow for whichever
 /// provider they pick.
 ///
 /// `tgt` is set to [`CONNECT_PROVIDER`] (the concrete platform is decided on the
@@ -352,7 +364,7 @@ pub fn verify_link_token(
     admin_jwt_secret: &str,
     expected_provider: &str,
 ) -> AppResult<ProviderLinkTokenClaims> {
-    let key = DecodingKey::from_secret(admin_jwt_secret.as_bytes());
+    let key = decoding_key(admin_jwt_secret)?;
 
     let mut validation = Validation::new(Algorithm::HS256);
     validation.validate_exp = true;
@@ -445,7 +457,7 @@ pub fn mint_import_link_token(
         iat: now.epoch_seconds(),
         exp: expiry,
     };
-    let key = EncodingKey::from_secret(admin_jwt_secret.as_bytes());
+    let key = encoding_key(admin_jwt_secret)?;
     encode(&Header::new(Algorithm::HS256), &claims, &key)
         .map_err(|e| AppError::internal(format!("Failed to encode import link-token: {e}")))
 }
@@ -466,7 +478,7 @@ pub fn verify_import_link_token(
     admin_jwt_secret: &str,
     source: &str,
 ) -> AppResult<ProviderLinkTokenClaims> {
-    let key = DecodingKey::from_secret(admin_jwt_secret.as_bytes());
+    let key = decoding_key(admin_jwt_secret)?;
     let mut validation = Validation::new(Algorithm::HS256);
     validation.validate_exp = true;
     validation.set_issuer(&[PROVIDER_LINK_TOKEN_ISSUER]);
@@ -586,7 +598,7 @@ pub fn mint_takeover_link_token(
         iat: now.epoch_seconds(),
         exp: (now + Elapsed::minutes(TAKEOVER_LINK_TOKEN_TTL_MINUTES)).epoch_seconds(),
     };
-    let key = EncodingKey::from_secret(admin_jwt_secret.as_bytes());
+    let key = encoding_key(admin_jwt_secret)?;
     encode(&Header::new(Algorithm::HS256), &claims, &key)
         .map_err(|e| AppError::internal(format!("Failed to encode takeover link-token: {e}")))
 }
@@ -605,7 +617,7 @@ pub fn verify_takeover_link_token(
     token: &str,
     admin_jwt_secret: &str,
 ) -> AppResult<TakeoverTokenClaims> {
-    let key = DecodingKey::from_secret(admin_jwt_secret.as_bytes());
+    let key = decoding_key(admin_jwt_secret)?;
     let mut validation = Validation::new(Algorithm::HS256);
     validation.validate_exp = true;
     validation.set_issuer(&[PROVIDER_LINK_TOKEN_ISSUER]);
@@ -901,12 +913,33 @@ mod tests {
         let token = encode(
             &Header::new(Algorithm::HS256),
             &claims,
-            &EncodingKey::from_secret(b"secret"),
+            &EncodingKey::from_secret(b"secret").unwrap(),
         )
         .unwrap();
         assert!(
             verify_takeover_link_token(&token, "secret").is_err(),
             "an expired takeover token was accepted"
+        );
+    }
+
+    #[test]
+    fn an_empty_admin_secret_neither_mints_nor_verifies_a_link_token() {
+        let minted = mint_connect_link_token(Uuid::new_v4(), Uuid::new_v4(), "slack", None, "");
+        assert!(
+            minted.is_err(),
+            "a link-token was signed with an empty admin secret"
+        );
+
+        let token = mint_connect_link_token(Uuid::new_v4(), Uuid::new_v4(), "slack", None, SECRET)
+            .expect("mint connect token");
+        let verified = verify_link_token(&token, "", CONNECT_PROVIDER);
+        assert!(
+            verified.is_err(),
+            "a link-token was verified against an empty admin secret"
+        );
+        assert!(
+            verify_link_token(&token, SECRET, CONNECT_PROVIDER).is_ok(),
+            "the same token failed against the secret it was signed with"
         );
     }
 }

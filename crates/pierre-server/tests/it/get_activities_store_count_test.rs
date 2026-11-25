@@ -53,7 +53,7 @@ async fn reader() -> (Arc<AtomicBool>, String) {
     session_reader_riding(2).await
 }
 
-/// A fresh athlete on one live sciotte connection, an empty store, and the
+/// A fresh athlete on one live session-read connection, an empty store, and the
 /// context a tool call runs in.
 async fn athlete(resources: &Arc<ServerContext>) -> (Uuid, TenantId, ToolContext) {
     let (user_id, user) = create_test_user(&resources.agent.database)
@@ -272,7 +272,7 @@ async fn the_window_total_is_the_stores_count_not_the_pages() {
     );
 }
 
-/// A capture whose head sciotte never saw is served but, by design, never
+/// A capture whose head the service never saw is served but, by design, never
 /// stored (carnet#149). The count leaves it out and says so, rather than
 /// counting a page the store cannot stand behind; the window is incomplete,
 /// so a reply quoting its count is re-asked.

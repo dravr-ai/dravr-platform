@@ -49,7 +49,7 @@ pub struct AuthUrlOptions<'a> {
     /// callback decodes it and redirects success/failure there instead of the
     /// SPA. The channel-initiated hosted connect flow passes its picker URL so
     /// a failed Strava OAuth bounces the user back to the picker (which opens
-    /// the Sciotte credential fallback) rather than stranding them on the SPA
+    /// the session sign-in fallback) rather than stranding them on the SPA
     /// error page. The URL is validated against the redirect allowlist by the
     /// callback before it is honored.
     pub return_redirect: Option<&'a str>,

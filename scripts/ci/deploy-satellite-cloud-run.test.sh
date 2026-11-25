@@ -419,14 +419,14 @@ echo "deploy-satellite-cloud-run: platform dispatch"
 scenario
 SUMMARY_FILE="${WORK}/summary.md"; : > "${SUMMARY_FILE}"
 run_step dispatch.sh GITHUB_STEP_SUMMARY="${SUMMARY_FILE}" RELEASE="enforme v0.5.1" \
-  SUMMARY=$'The sciotte service is on **v0.9.0**;\nrebuilding to match.'
+  SUMMARY=$'The session-read service is on **v0.9.0**;\nrebuilding to match.'
 check "the dispatch log names the release the binary picks up" 0 "so the binary picks up enforme v0.5.1"
 if [ "$(cat "${GH_LOG}")" = "workflow run publish-images.yml --ref main" ]; then
   pass "  ...and dispatches publish-images.yml on main"
 else
   fail "  ...gh was called with '$(cat "${GH_LOG}")'"
 fi
-WANT=$'### Platform deploy dispatched\n\nThe sciotte service is on **v0.9.0**;\nrebuilding to match.'
+WANT=$'### Platform deploy dispatched\n\nThe session-read service is on **v0.9.0**;\nrebuilding to match.'
 if [ "$(cat "${SUMMARY_FILE}")" = "${WANT}" ]; then
   pass "  ...and writes the caller's summary under the heading, line breaks intact"
 else

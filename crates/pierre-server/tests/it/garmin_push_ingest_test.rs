@@ -1161,7 +1161,7 @@ async fn the_same_garmin_day_by_push_and_by_export_is_one_record() {
     );
 }
 
-/// T2, capture-only: the same Garmin day captured by sciotte (filed under
+/// T2, capture-only: the same Garmin day captured by a session read (filed under
 /// `garmin`, as the push is, §3.6) and brought in by the athlete's export
 /// is one merged record. The capture is Garmin's API key, so it is primary
 /// over the export; the export fills what the capture lacks.
@@ -1180,7 +1180,7 @@ async fn the_same_garmin_day_by_capture_and_by_export_is_one_record() {
     let user = user_id.to_string();
     let repos = &resources.common.repos;
 
-    // The capture's day, as the sciotte sync files it: a whole day under
+    // The capture's day, as the session-read sync files it: a whole day under
     // Garmin's key.
     let store = WellnessStore::new(repos);
     let capture = store

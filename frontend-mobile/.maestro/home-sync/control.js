@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Maestro runScript step that calls the sciotte double's control API (frontend/e2e-real/home-sync-control.ts)
+// ABOUTME: Maestro runScript step that calls the session-read service double's control API (frontend/e2e-real/home-sync-control.ts)
 // ABOUTME: ACTION names the call; its JSON answer is merged into output.homeSync, so setup's names outlive later calls
 
 // Maestro's script runtime provides these: `http`, `json` and `output`, and

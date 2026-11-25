@@ -1,10 +1,10 @@
-// ABOUTME: The sciotte read services a server calls, and the one a session's id picks among them
+// ABOUTME: The session-read services a server calls, and the one a session's id picks among them
 // ABOUTME: Every call naming a session reaches one instance, so the session meets one cookie jar (carnet#1504)
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! A sciotte read service runs one instance: a read imports the session,
+//! A session-read service runs one instance: a read imports the session,
 //! reads, then exports the copy a rotation left, and the instance's cookie
 //! jar holds the provider's rotated cookie between reads. Reads scale by
 //! running several such services and sending every call that names a session
@@ -26,7 +26,7 @@ use super::factory;
 /// The multiplier of the jump consistent hash's linear congruential step.
 const JUMP_MULTIPLIER: u64 = 2_862_933_555_777_941_757;
 
-/// The sciotte read services this server calls, in their configured order.
+/// The session-read services this server calls, in their configured order.
 ///
 /// Never empty: a server with no read service holds no `SciotteReads`.
 #[derive(Clone)]
@@ -60,7 +60,7 @@ impl SciotteReads {
         if self.clients.len() > 1 {
             info!(
                 sciotte_service = index,
-                "sciotte call routed to its read service"
+                "session-read call routed to its read service"
             );
         }
         &self.clients[index]
@@ -111,7 +111,7 @@ pub fn startup_reads(urls: &[String], audience: Option<&str>) -> Option<SciotteR
         let Some(client) = factory::startup_client(url, audience) else {
             error!(
                 read_service = index,
-                "a sciotte read service could not be built; every read service is turned off \
+                "a session-read service could not be built; every read service is turned off \
                  rather than moving its sessions to another"
             );
             return None;

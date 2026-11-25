@@ -1,4 +1,4 @@
-// ABOUTME: A Strava athlete holding a session beside a live grant reads old windows sciotte first, never the API
+// ABOUTME: A Strava athlete holding a session beside a live grant reads old windows session first, never the API
 // ABOUTME: A walked window is served from the store under any key a walk covered, both keys merged; an unwalked one is read live
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -281,7 +281,7 @@ async fn a_window_the_session_walked_is_served_without_the_api() {
 }
 
 /// No walk covered the window: a Strava athlete with a live grant and a
-/// session still reads it sciotte first (carnet#1482, overriding the
+/// session still reads it session first (carnet#1482, overriding the
 /// carnet#1494 rule that kept deep windows on the API while a grant is
 /// alive): the window goes to the session's background backfill, and the
 /// Strava API is never listed.

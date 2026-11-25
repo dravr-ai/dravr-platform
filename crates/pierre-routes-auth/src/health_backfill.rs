@@ -36,7 +36,7 @@ use crate::AuthRoutesContext;
 ///
 /// `after` is the activity pre-fetch a sign-in connect started on the same
 /// session: the backfill's first read waits for it, because each read is a
-/// browser on the sciotte service and a connect that fires both at once sheds
+/// browser on the session-read service and a connect that fires both at once sheds
 /// its own reads (carnet#736). An API connect has none to wait on.
 ///
 /// A backfill that lands records is reported to the [`crate::FirstSyncHook`] as the
@@ -188,7 +188,7 @@ enum FailedBackfill {
 /// Settle a connect backfill of `provider` for `user_id` that ended on
 /// `error`.
 ///
-/// The sciotte login's backfill reads Garmin wellness from the session; the
+/// The session sign-in's backfill reads Garmin wellness from the session; the
 /// Garmin OAuth callback that follows it can store the push grant while
 /// that backfill runs, and the backfill's next cursor read then ends on the
 /// push-fed error. Only that error, with the push confirmed to serve the
@@ -226,7 +226,7 @@ mod tests {
             .expect_err("test setup: the grant serves the wellness, so the pull must not read")
     }
 
-    /// carnet#1590: the sciotte login's backfill runs on the session and the
+    /// carnet#1590: the session sign-in's backfill runs on the session and the
     /// Garmin grant lands mid-sync, so the sync ends on the push-fed error.
     /// Its report tells the athlete nothing, while a store error, with the
     /// same grant live, still claims their sync-failure notice.

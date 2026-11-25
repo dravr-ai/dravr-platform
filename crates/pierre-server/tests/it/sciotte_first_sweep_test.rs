@@ -1,10 +1,10 @@
-// ABOUTME: Under sciotte first the capture sweep refreshes the usr/pwd session and passes over the grant beside it
+// ABOUTME: Under session first the capture sweep refreshes the usr/pwd session and passes over the grant beside it
 // ABOUTME: Pins the background share on the grant's fallback read, and that a webhook or first read never reads the session
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! Sciotte first, the capture sweep and the exact reads (carnet#1494).
+//! Session first, the capture sweep and the exact reads (carnet#1494).
 //
 // This `//!` precedes the module-level `#![cfg]` so the docs survive a build
 // without the features.
@@ -106,7 +106,7 @@ async fn serve(app: Router) -> String {
     format!("http://{addr}")
 }
 
-/// A stand-in for the sciotte service over a Strava account holding one
+/// A stand-in for the session-read service over a Strava account holding one
 /// ride from yesterday, its capture having reached the list head.
 async fn spawn_session_reader() -> (String, Arc<Backend>) {
     let backend = Arc::new(Backend::default());

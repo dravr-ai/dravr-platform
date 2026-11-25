@@ -1,10 +1,10 @@
-// ABOUTME: Sciotte provider — reads the athlete's own data from their signed-in provider session, with their consent
-// ABOUTME: Holds the platform's AuthSession and forwards each read to the dravr-sciotte service over HTTP (ADR-021)
+// ABOUTME: Session-read provider — reads the athlete's own data from their signed-in provider session, with their consent
+// ABOUTME: Holds the platform's AuthSession and forwards each read to the session-read service over HTTP (ADR-021)
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! # Sciotte Provider
+//! # Session-read Provider
 //!
 //! Implements `FitnessProvider` by delegating to the dedicated `dravr-sciotte`
 //! service over HTTP (ADR-021). This provider holds the platform-held
@@ -120,7 +120,7 @@ impl LoginIdentifier {
     }
 }
 
-/// Target fitness platform for the sciotte session reader
+/// Target fitness platform for the session reader
 #[derive(Debug, Clone, Copy)]
 pub enum SciotteTarget {
     /// Read activities from Strava (strava.com)
@@ -148,7 +148,7 @@ impl SciotteTarget {
         }
     }
 
-    /// Pierre provider name attached to OAuth/Sciotte rows for this target.
+    /// Pierre provider name attached to session-read rows for this target.
     #[must_use]
     pub const fn provider_name(self) -> &'static str {
         match self {
@@ -173,7 +173,7 @@ impl SciotteTarget {
         }
     }
 
-    /// Provider name the dravr-sciotte service uses for this target
+    /// Provider name the session-read service uses for this target
     /// (`"garmin"`, `"strava"`, `"trainingpeaks"`) — sent on remote login/import so the
     /// multi-provider service routes to the right session reader (ADR-021).
     #[must_use]
@@ -247,9 +247,9 @@ const NAME_FENCE_MAX_CHARS: usize = 80;
 /// with the username and password they gave Dravr.
 const UNNAMED_ATHLETE: &str = "Athlete";
 
-/// Sciotte provider — a thin session-holder over the dedicated session-read service.
+/// Session-read provider — a thin session-holder over the dedicated session-read service.
 ///
-/// Routes every session read to the dedicated dravr-sciotte service ([[ADR-021]]).
+/// Routes every session read to that service ([[ADR-021]]).
 /// Since the Phase 4 cutover it holds no in-process Chrome; it keeps the
 /// platform-held [`AuthSession`] and forwards it to the service on each fetch.
 ///
@@ -268,7 +268,7 @@ pub struct SciotteProvider {
     /// reported it. Starts `true`: nothing has been fetched, so nothing is
     /// known to be missing.
     head_complete: AtomicBool,
-    /// The server's read services, shared with every other sciotte call so
+    /// The server's read services, shared with every other session-read call so
     /// they reuse one connection pool and one cached identity token per
     /// service. `None` when the server started with no service configured:
     /// every remote call then reports that.
@@ -294,7 +294,7 @@ impl fmt::Debug for SciotteProvider {
 impl SciotteProvider {
     fn new(config: ProviderConfig, target: SciotteTarget, reads: Option<SciotteReads>) -> Self {
         let provider_name = target.provider_name();
-        info!(target = ?target, "Sciotte provider initialized (remote service)");
+        info!(target = ?target, "Session-read provider initialized (remote service)");
         Self {
             config,
             session: RwLock::new(None),
@@ -329,7 +329,9 @@ impl SciotteProvider {
         athlete: AthleteId,
         reads: Option<SciotteReads>,
     ) -> Self {
-        info!("Sciotte provider initialized for a coached TrainingPeaks athlete (remote service)");
+        info!(
+            "Session-read provider initialized for a coached TrainingPeaks athlete (remote service)"
+        );
         Self {
             subject: Some(athlete),
             ..Self::new(config, SciotteTarget::TrainingPeaks, reads)
@@ -387,7 +389,7 @@ impl SciotteProvider {
                 error,
                 ClientError::AthleteNotAccessible { .. } | ClientError::Unexpected { .. }
             ) {
-                warn!(error = %error, "sciotte refused or failed a read of the signed-in account's own data");
+                warn!(error = %error, "the service refused or failed a read of the signed-in account's own data");
             }
             own_read_error(error, brand)
         };
@@ -548,9 +550,9 @@ fn roster_athlete(profile: AthleteProfile, athlete: &AthleteId) -> AppResult<Ath
     })
 }
 
-/// Direct sciotte → cageux `SportType` conversion.
+/// Direct session-read → cageux `SportType` conversion.
 ///
-/// Both enums share variant names (sciotte mirrors cageux's canonical set),
+/// Both enums share variant names (the session-read enum mirrors cageux's canonical set),
 /// so a 1:1 match is bulletproof; the previous round-trip via `display_name()` →
 /// `from_internal_string()` was lossy because `display_name` returns
 /// human-readable Title-Case-with-spaces ("Cross-Country Skiing") while
@@ -603,11 +605,11 @@ pub fn convert_sport_type(s: &SciotteSportType) -> SportType {
     }
 }
 
-/// Convert a sciotte `Activity` read from `target` to a Pierre `Activity`.
+/// Convert a session-read `Activity` read from `target` to a Pierre `Activity`.
 ///
 /// The athlete's self-report crosses in the platform's scales (see
 /// [`self_report`]), and the comments cross entry for entry in the order
-/// sciotte gives them — the notes a provider keeps in a single field first,
+/// the service gives them — the notes a provider keeps in a single field first,
 /// then its timestamped thread, oldest first — whichever platform they were
 /// read from.
 ///
@@ -693,7 +695,7 @@ fn convert_activity(sciotte: &SciotteActivity, target: SciotteTarget) -> Activit
     .build()
 }
 
-/// Translate one of sciotte's [`SciotteComment`]s into cageux's
+/// Translate one of the service's [`SciotteComment`]s into cageux's
 /// [`ActivityComment`]. The two mirror each other field for field; an author
 /// the provider only names by role (`coach`, `athlete`) stays that word.
 fn convert_comment(comment: &SciotteComment) -> ActivityComment {
@@ -704,8 +706,8 @@ fn convert_comment(comment: &SciotteComment) -> ActivityComment {
     }
 }
 
-/// Translate sciotte's [`SciotteSplit`] into cageux's [`Split`] — same
-/// field set, re-emitted under cageux's canonical names so the chat
+/// Translate the service's [`SciotteSplit`] into cageux's [`Split`] —
+/// same field set, re-emitted under cageux's canonical names so the chat
 /// pipeline treats OAuth-Strava splits and session-read Strava splits
 /// identically.
 fn convert_split(s: &SciotteSplit) -> Split {
@@ -721,7 +723,7 @@ fn convert_split(s: &SciotteSplit) -> Split {
     }
 }
 
-/// Translate sciotte's [`SciotteLap`] into cageux's [`Lap`].
+/// Translate the service's [`SciotteLap`] into cageux's [`Lap`].
 fn convert_lap(l: &SciotteLap) -> Lap {
     Lap {
         id: l.id.clone(),
@@ -768,7 +770,7 @@ impl FitnessProvider for SciotteProvider {
 
         let session: AuthSession =
             serde_json::from_str(session_json.expose_secret()).map_err(|e| {
-                warn!(provider = self.provider_name, error = %e, "stored sciotte session failed to deserialize");
+                warn!(provider = self.provider_name, error = %e, "stored signed-in session failed to deserialize");
                 AppError::internal(format!("The saved {brand} sign-in could not be read"))
             })?;
 
@@ -796,7 +798,7 @@ impl FitnessProvider for SciotteProvider {
     }
 
     async fn refresh_token_if_needed(&self) -> AppResult<()> {
-        // Sciotte sessions don't refresh — user must re-login when expired
+        // Signed-in sessions don't refresh — user must re-login when expired
         Ok(())
     }
 
@@ -878,12 +880,12 @@ impl FitnessProvider for SciotteProvider {
         if list.head_complete {
             info!(
                 count = activities.len(),
-                "Sciotte session read completed (remote service)"
+                "Session read completed (remote service)"
             );
         } else {
             warn!(
                 count = activities.len(),
-                "Sciotte session read fell short of its window: the fresh-head fetch or a \
+                "Session read fell short of its window: the fresh-head fetch or a \
                  later page or month failed, so activities the request covers may be missing \
                  from this capture"
             );
@@ -968,7 +970,7 @@ impl FitnessProvider for SciotteProvider {
     }
 
     /// Only the TrainingPeaks mirror reads a planned calendar — the one
-    /// sciotte target whose descriptor declares `PLANNED_WORKOUTS`. The
+    /// session-read target whose descriptor declares `PLANNED_WORKOUTS`. The
     /// Strava and Garmin mirrors share this type and answer the same refusal
     /// every provider without the capability does.
     async fn list_planned_workouts(
@@ -1001,7 +1003,7 @@ impl FitnessProvider for SciotteProvider {
             count = planned.len(),
             %after,
             %before,
-            "Sciotte planned-workout read completed (remote service)"
+            "Planned-workout session read completed (remote service)"
         );
         Ok(planned
             .iter()

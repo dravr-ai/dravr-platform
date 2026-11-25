@@ -1,4 +1,4 @@
-// ABOUTME: The platform error for a sciotte answer that is no login outcome: a cancelled step, a lost flow, a login step with no status
+// ABOUTME: The platform error for a session-read service answer that is no login outcome: a cancelled step, a lost flow, a login step with no status
 // ABOUTME: A code step the service no longer holds a browser for is a lapsed sign-in, never a system failure (carnet#1504)
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -23,7 +23,10 @@ pub(super) fn unexpected_error(error: ClientError, operation: Option<Operation>)
             )
         }
         lost @ ClientError::Unexpected { .. } if is_lost_flow(&lost, operation) => {
-            warn!(error = %lost, "sciotte no longer holds the sign-in a code step continues");
+            warn!(
+                error = %lost,
+                "the session-read service no longer holds the sign-in a code step continues"
+            );
             with_refusal_marker(
                 AppError::invalid_input(
                     "The sign-in service no longer holds this sign-in; start the sign-in again",

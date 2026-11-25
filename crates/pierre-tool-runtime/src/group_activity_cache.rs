@@ -141,7 +141,7 @@ pub(crate) async fn fetch_member_activities(
 
     // Dedup on read. Write-through persists each provider's activities under its
     // own cache key, so a workout synced from two providers (e.g. Strava +
-    // sciotte/Garmin) is cached twice. The live-fetch path dedups before
+    // a Garmin session) is cached twice. The live-fetch path dedups before
     // returning (see `fetch_and_merge_all_providers`); the warm-cache path
     // must do the same or cross-provider duplicates double-count in the snapshot.
     //

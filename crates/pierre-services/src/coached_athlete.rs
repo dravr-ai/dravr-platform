@@ -43,7 +43,10 @@ use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::groups::{CoachConsents, CoachingGroup};
 use pierre_core::models::TenantId;
 use pierre_database::RepositoryRegistry;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
+use std::collections::{HashMap, HashSet};
+use std::hash::BuildHasher;
 use uuid::Uuid;
 
 use crate::athlete_display_name::fetch_user_display_name;
@@ -240,10 +243,10 @@ pub async fn coached_athlete_access(
 /// The coach holds no membership row unless they also own the group, and a
 /// coach is never their own athlete, so they are left out of the count
 /// either way. Every surface that treats a room as one coach's and one
-/// athlete's asks here — the coach's view of the group and the line a plan
-/// publish leaves in its room — so no two count a different room. Neither the
-/// group's state nor the athlete's consent is asked: each caller runs its own
-/// gates.
+/// athlete's asks here — the coach's view of the group, the coach's
+/// conversation list and the line a plan publish leaves in its room — so no
+/// two count a different room. Neither the group's state nor the athlete's
+/// consent is asked: each caller runs its own gates.
 ///
 /// # Errors
 ///
@@ -261,6 +264,78 @@ pub async fn solo_athlete(
         (Some(athlete), None) => Some(athlete.user_id),
         _ => None,
     })
+}
+
+/// The one athlete of a one-coach, one-athlete room, as its coach reads it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SoloAthleteResponse {
+    /// The athlete's user ID
+    pub user_id: String,
+    /// The athlete's roster name: their display name, else the local part of
+    /// their email
+    pub display_name: String,
+}
+
+async fn named(repos: &RepositoryRegistry, athlete: Uuid) -> SoloAthleteResponse {
+    SoloAthleteResponse {
+        user_id: athlete.to_string(),
+        display_name: fetch_user_display_name(repos, athlete).await,
+    }
+}
+
+/// The room's one athlete ([`solo_athlete`]), named when `reader` is
+/// `group`'s human coach; `None` for every other reader.
+///
+/// The athlete's consent is not asked here: the coach's thread about them
+/// runs the gates on every turn, and this only says the room is shaped for
+/// one.
+///
+/// # Errors
+///
+/// Returns the repository error from the member listing.
+pub async fn named_solo_athlete(
+    repos: &RepositoryRegistry,
+    group: &CoachingGroup,
+    reader: Uuid,
+) -> AppResult<Option<SoloAthleteResponse>> {
+    if group.coach_user_id != Some(reader) {
+        return Ok(None);
+    }
+    Ok(match solo_athlete(repos, group).await? {
+        Some(athlete) => Some(named(repos, athlete).await),
+        None => None,
+    })
+}
+
+/// The one athlete of each room among `group_ids` that `coach` coaches, by
+/// group, named for them (carnet#1817).
+///
+/// The coach's conversation list names a room and the plan thread on its
+/// athlete by it, which a client folds into one row. A group they do not
+/// coach, an archived one, or one whose room holds no athlete or several, is
+/// absent.
+///
+/// # Errors
+///
+/// Returns the repository error from the group or member listing.
+pub async fn solo_athletes_coached_by<S: BuildHasher + Sync>(
+    repos: &RepositoryRegistry,
+    coach: Uuid,
+    group_ids: &HashSet<Uuid, S>,
+) -> AppResult<HashMap<Uuid, SoloAthleteResponse>> {
+    let mut athletes = HashMap::new();
+    if group_ids.is_empty() {
+        return Ok(athletes);
+    }
+    for group in repos.groups.list_groups_coached_by(coach).await? {
+        if !group_ids.contains(&group.id) {
+            continue;
+        }
+        if let Some(athlete) = solo_athlete(repos, &group).await? {
+            athletes.insert(group.id, named(repos, athlete).await);
+        }
+    }
+    Ok(athletes)
 }
 
 #[cfg(test)]

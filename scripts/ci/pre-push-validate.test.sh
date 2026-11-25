@@ -50,7 +50,8 @@ require_fixture() {
 STUBS="check-inline-paths.sh architectural-validation.sh check-contremaitre-sync.sh \
 check-phantom-surfaces.sh check-turn-envelope.sh check-moved-symbols.sh check-backend-pairs.sh \
 pre-push-frontend-tests.sh design-system-validation.sh pre-push-mobile-tests.sh check-workflow-test-targets.sh \
-check-merge-risk.sh check-unused-deps.sh check-actions-lock.sh check-actions-lock.test.sh"
+check-merge-risk.sh check-unused-deps.sh check-actions-lock.sh check-actions-lock.test.sh \
+check-eas-submit-config.sh check-maestro-assertions.sh"
 
 make_repo() {
   local dir
@@ -72,6 +73,13 @@ make_repo() {
   # every tier diffs against, so the fixture runs the real rule.
   cp "$SCRIPT_DIR/gate-base-ref.sh" "$dir/scripts/ci/gate-base-ref.sh"
   cp "$SCRIPT_DIR/server-suites.sh" "$dir/scripts/ci/server-suites.sh"
+  # The branch CI proof answers from FIXTURE_PROVEN (the tiers a case declares proven)
+  # rather than GitHub, and proves nothing by default, as a branch never pushed does.
+  # Single quotes on purpose: the stub expands its variables when it runs, not here.
+  # shellcheck disable=SC2016
+  printf '#!/bin/sh\ncase " ${FIXTURE_PROVEN:-} " in *" $2 "*) echo "proven by branch CI: fixture"; exit 0 ;; esac\necho "no proof: fixture"\nexit 1\n' \
+    >"$dir/scripts/ci/branch-ci-proof.sh"
+  chmod +x "$dir/scripts/ci/branch-ci-proof.sh"
   # Tier 1-shared runs the .build submodule's validate.sh on every push and
   # fails closed when it is missing, so the fixture carries a no-op in its place.
   mkdir -p "$dir/.build/validation"
@@ -388,6 +396,18 @@ expect_contains "a CLEAN for HEAD's tree skips the local compile" "skipped: clou
 expect_absent "a covered push compiles nothing" "  cargo clippy -p pierre_mcp_server --test"
 expect_absent "a covered push gets no clippy advice" "NOT COVERED HERE — clippy"
 expect_exit "a covered push passes" 0
+# No cloud verdict, but branch CI linted the workspace on this tree: the other proof.
+dir="$(make_repo)"
+cp "$SCRIPT_DIR/remote-clippy-verdict.sh" "$dir/scripts/ci/remote-clippy-verdict.sh"
+git -C "$dir" add -A
+git -C "$dir" commit -qm "verdict script"
+export FIXTURE_PROVEN="1e"
+run_change "$dir" crates/pierre-server/tests/it/probe.rs "#[test] fn probe() {}"
+unset FIXTURE_PROVEN
+expect_contains "the tier says why the cloud verdict did not cover it" "cloud clippy: no cloud clippy verdict recorded"
+expect_contains "a branch CI proof skips the local compile" "skipped: branch CI linted the whole workspace on this tree"
+expect_absent "a proven push compiles nothing" "  cargo clippy -p pierre_mcp_server --test"
+expect_exit "a proven push passes" 0
 # With no verdict, the closing advice names the cloud run, never a local cargo clippy.
 dir="$(make_repo)"
 cp "$SCRIPT_DIR/remote-clippy-verdict.sh" "$dir/scripts/ci/remote-clippy-verdict.sh"
@@ -397,6 +417,42 @@ run_change "$dir" crates/probe/src/lib.rs "pub fn probe() {}"
 expect_contains "uncovered clippy advice names the cloud run" ".claude/skills/remote-work/remote-work.sh prepare"
 expect_contains "the advice names the crate the push reaches" "this push reaches: probe"
 expect_absent "the advice prints no local clippy command" "cargo clippy -p probe"
+
+# 19. A branch CI proof of HEAD's tree skips a compile tier, and only that tier. The
+#     frontend and mobile suites are stubbed to fail here, so a pass is the proof they
+#     were not run; with no proof the same failing suite fails the push. The mobile tier
+#     keeps its compile-free checks when proven.
+echo "  case 19: a tier branch CI proved is skipped, one it did not prove runs"
+dir="$(make_repo)"
+printf '#!/bin/sh\necho "frontend suite ran"\nexit 1\n' >"$dir/scripts/ci/pre-push-frontend-tests.sh"
+export FIXTURE_PROVEN="5"
+run_change "$dir" frontend/src/App.tsx "export const App = () => null;"
+unset FIXTURE_PROVEN
+expect_contains "the proof line names the tier" "branch CI (tier 5): proven by branch CI: fixture"
+expect_contains "a proven tier says it skipped" "skipped: branch CI type-checked, linted and tested the frontend"
+expect_absent "a proven tier runs nothing" "frontend suite ran"
+expect_exit "a proven frontend push passes" 0
+dir="$(make_repo)"
+printf '#!/bin/sh\necho "frontend suite ran"\nexit 1\n' >"$dir/scripts/ci/pre-push-frontend-tests.sh"
+run_change "$dir" frontend/src/App.tsx "export const App = () => null;"
+expect_contains "no proof says why" "branch CI (tier 5): no proof: fixture"
+expect_contains "no proof runs the suite" "frontend suite ran"
+expect_exit "no proof leaves the suite's verdict in charge" 1
+dir="$(make_repo)"
+printf '#!/bin/sh\necho "mobile suite ran"\nexit 1\n' >"$dir/scripts/ci/pre-push-mobile-tests.sh"
+printf '#!/bin/sh\necho "maestro check ran"\nexit 0\n' >"$dir/scripts/ci/check-maestro-assertions.sh"
+export FIXTURE_PROVEN="7"
+run_change "$dir" frontend-mobile/src/App.tsx "export const App = () => null;"
+unset FIXTURE_PROVEN
+expect_absent "a proven mobile tier skips the compiled suite" "mobile suite ran"
+expect_contains "a proven mobile tier still runs its compile-free checks" "maestro check ran"
+expect_exit "a proven mobile push passes" 0
+dir="$(make_repo)"
+printf '#!/bin/sh\necho "maestro check failed"\nexit 1\n' >"$dir/scripts/ci/check-maestro-assertions.sh"
+export FIXTURE_PROVEN="7"
+run_change "$dir" frontend-mobile/src/App.tsx "export const App = () => null;"
+unset FIXTURE_PROVEN
+expect_exit "a compile-free failure still fails a proven mobile push" 1
 
 echo ""
 if [ "$failures" -ne 0 ]; then

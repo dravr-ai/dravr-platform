@@ -475,6 +475,7 @@ async fn test_mcp_server_tenant_isolation() -> Result<()> {
                 blobs: None,
                 lab_reader: None,
                 pdf_text_bin: None,
+                contremaitre: None,
                 #[cfg(feature = "client-messaging")]
                 channel_adapters: common::offline_adapters(),
             },

@@ -312,7 +312,7 @@ async fn activity_cache_other_sport_type_populates_indexed_column() {
     )
     .build();
     // A Strava type cageux has no named variant for (e.g. an e-bike ride):
-    // sciotte maps it to `SportType::Other("e_bike_ride")`.
+    // The session read maps it to `SportType::Other("e_bike_ride")`.
     let other = ActivityBuilder::new(
         "other".to_owned(),
         "other ride".to_owned(),

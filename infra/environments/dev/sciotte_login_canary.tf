@@ -1,14 +1,14 @@
-# ABOUTME: Garmin credential-login canary — a fresh login through the deployed sciotte service every 6 h
+# ABOUTME: Garmin credential-login canary — a fresh login through the deployed session-read service every 6 h
 # ABOUTME: Added 2026-10-16 (carnet#1078) after Garmin sign-in failed for every new athlete for a week unnoticed
 #
 # Background
 # ----------
 # From about 2026-10-09 until 2026-10-16 no new athlete could connect Garmin:
-# the sign-in never reached its code step and sciotte waited out its whole
+# the sign-in never reached its code step and the service waited out its whole
 # budget (carnet#1035). The only signal was athletes failing.
 #
 # This job signs a dedicated canary account in through the deployed
-# sciotte sign-in service — the revision, flags and Cloud Run egress
+# session-read sign-in service — the revision, flags and Cloud Run egress
 # athletes get — with `pierre-cli canary sciotte-login --provider garmin`,
 # and stops at the first decision point (a code step passes; an added
 # verification step, a stall or a refusal fails). A failed run logs at ERROR, which the
@@ -71,7 +71,7 @@ resource "google_secret_manager_secret_version" "sciotte_canary_password_placeho
 # -----------------------------------------------------------------------------
 # Cloud Run Job — sciotte-login-canary-job
 # -----------------------------------------------------------------------------
-# Runs as the app service account, which the sciotte service already admits
+# Runs as the app service account, which the session-read service already admits
 # (DRAVR_SCIOTTE_ALLOWED_CALLERS) and which reads every project secret. It
 # needs no database: no Cloud SQL socket.
 
@@ -126,7 +126,7 @@ module "sciotte_login_canary" {
 # -----------------------------------------------------------------------------
 # Cloud Scheduler — every 6 h, off the hour
 # -----------------------------------------------------------------------------
-# Idle-cost: each run wakes the sciotte sign-in service (sciotte_login.tf;
+# Idle-cost: each run wakes the session-read sign-in service (sciotte_login.tf;
 # the read service before backend_sciotte_login_split) for one login (up to
 # ~330 s of Chrome). The sign-in service is request-billed (cpu_idle
 # = true, min 0), and every 6 h is far outside the ~15 min idle window, so no

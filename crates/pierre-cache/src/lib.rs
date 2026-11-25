@@ -331,10 +331,10 @@ pub enum CacheResource {
     /// coach's access and private wellness fields), so a roster cached in an
     /// older shape is never served as one that reports them.
     ProviderRoster,
-    /// The sciotte login flow an athlete has parked on the sciotte service,
+    /// The session-read login flow an athlete has parked on the service,
     /// awaiting its OTP/2FA continuation. Shared rather than process-local so a
     /// continuation reaches the flow whichever pod it lands on. TTL is
-    /// caller-specified because it has to track the sciotte service's own
+    /// caller-specified because it has to track the service's own
     /// deployed pending-login window (`DRAVR_SCIOTTE_PENDING_LOGIN_TTL`),
     /// a knob this crate has no visibility into — so `recommended_ttl` returns
     /// 0 for it, as it does for [`CacheResource::Custom`].

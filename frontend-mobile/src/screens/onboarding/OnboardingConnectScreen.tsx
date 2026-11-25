@@ -205,7 +205,7 @@ export function OnboardingConnectScreen({ mode = 'connect' }: { mode?: 'connect'
 
   // Standard OAuth flow used by providers with a built-in client_id/secret on
   // the platform (currently only WHOOP once the user has registered a BYO
-  // app). Sciotte providers handle their own credential flow via the modal.
+  // app). Session-read providers handle their own credential flow via the modal.
   // `consents` are the keys the athlete ticked on the connect's consent sheet
   // (Garmin), carried to the start and to any sign-in a refusal opens instead.
   const launchOAuth = useCallback(
@@ -279,7 +279,7 @@ export function OnboardingConnectScreen({ mode = 'connect' }: { mode?: 'connect'
           }
         }
         // type === 'cancel' / 'dismiss' — user backed out of the auth sheet;
-        // that's a deliberate choice, so we do NOT push the Sciotte fallback.
+        // that's a deliberate choice, so we do NOT push the sign-in fallback.
       } catch (err) {
         setAwaitingOAuthFor(null);
         const message = describeApiError(err, { t, fallbackKey: 'app.failedToConnect' });

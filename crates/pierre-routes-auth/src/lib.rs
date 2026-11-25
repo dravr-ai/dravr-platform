@@ -1,4 +1,4 @@
-// ABOUTME: Authentication route group — credential login, OAuth callback, Sciotte hosted login, provider-link webhook
+// ABOUTME: Authentication route group — credential login, OAuth callback, hosted sign-in, provider-link webhook
 // ABOUTME: Decoupled from pierre-server via AuthRoutesContext; mounted by the composition root
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -19,7 +19,7 @@
 //!   (`/api/oauth/*`, `/api/providers/*`) — handles fitness provider OAuth
 //!   flows (Strava, Garmin, WHOOP, …) including mobile in-app browser
 //!   initiation, callback redirect to web/mobile, and explicit sync triggers.
-//! - Sciotte (Strava-mirror) credential-login endpoints
+//! - Session-read provider credential-login endpoints
 //!   (`/api/providers/sciotte/*`) and the channel-initiated hosted-login UI
 //!   (`/providers/signin`, `/providers/signin/{success,error}`; the earlier
 //!   `/providers/sciotte/{login,success,error}` paths serve the same pages),
@@ -35,7 +35,7 @@
 //! The context-struct pattern (rather than a 13-method `AuthRoutesCtx`
 //! trait) matches the precedent set by [`pierre_routes_identity::oauth2`]
 //! (`OAuth2Context`) and `pierre_routes_admin::AdminApiContext` — fields
-//! pulled from disparate optional crates (Firebase, Resend, Sciotte) where
+//! pulled from disparate optional crates (Firebase, Resend, the session-read satellite) where
 //! growing the trait would force `pierre-runtime-context` to depend on the
 //! union of all of them.
 
@@ -154,7 +154,7 @@ mod token_grant;
 #[cfg(feature = "provider-sciotte")]
 mod trainingpeaks_account;
 
-// Re-exported for the sciotte login error-handling and challenge regression
+// Re-exported for the session sign-in error-handling and challenge regression
 // tests (`sciotte_login_error_handling_test`, `sciotte_login_challenge_test`):
 // the `sciotte` module is private, so
 // these pure/near-pure helpers are the testable seam guarding the "no raw
@@ -165,7 +165,7 @@ pub use sciotte::{
     friendly_login_challenge_message, friendly_login_failure_message, report_login_system_failure,
 };
 
-// Re-exported for the sciotte flow-binding and backpressure regression tests
+// Re-exported for the session sign-in flow-binding and backpressure regression tests
 // (`sciotte_flow_binding_test`, `sciotte_backpressure_test`): the `sciotte`
 // module is private, and the cache-backed pending-flow registry is the whole of
 // the caller-to-parked-browser binding, so these are the seam for asserting
@@ -243,7 +243,7 @@ pub struct AuthRoutesContext {
     /// Shared with the composition root, which installs the hook after its
     /// own `Arc` exists; empty until then.
     pub first_sync: FirstSyncSlot,
-    /// Shared cache handle — used by the Sciotte prefetch path.
+    /// Shared cache handle — used by the session-read prefetch path.
     pub cache: Arc<Cache>,
     /// The context's one activity record store, which live reads and archive
     /// imports write: the athlete's export reads their records from it.
@@ -269,8 +269,8 @@ pub struct AuthRoutesContext {
     /// (carnet#1128); `None` in a build without group coaching, where no
     /// coach code can have been minted.
     pub group_service: Option<Arc<GroupService>>,
-    /// Admin-token JWT signing secret — also used to verify the Sciotte
-    /// hosted-login link-token.
+    /// Admin-token JWT signing secret — also used to verify the hosted
+    /// sign-in link-token.
     pub admin_jwt_secret: Arc<str>,
     /// The import sources this server offers an athlete (carnet#1218): the
     /// keys `GET /api/imports` lists, empty when imports do not run here.
@@ -543,7 +543,7 @@ impl AuthRoutes {
             // every channel surface can hand out dot-free, WhatsApp-clickable links.
             .route("/r/{code}", get(short_link::handle_short_link_redirect));
 
-        // Sciotte provider routes (credential login + session management)
+        // Session-read provider routes (credential login + session management)
         #[cfg(feature = "provider-sciotte")]
         let router = router
             .route(
@@ -559,7 +559,7 @@ impl AuthRoutes {
                 post(sciotte::handle_sciotte_submit_otp),
             )
             // Explicit cancel of the sign-in a closed window left running:
-            // the dropped connection never reaches the sciotte service.
+            // the dropped connection never reaches the session-read service.
             .route(
                 "/api/providers/sciotte/cancel",
                 post(sciotte_cancel::handle_sciotte_cancel),
@@ -603,7 +603,7 @@ impl AuthRoutes {
             )
             // Channel-initiated hosted CONNECT picker: a generic, connect-scoped
             // link-token (minted in-process by the messaging pipeline) lands the
-            // user on a provider picker that routes to OAuth or the Sciotte flow.
+            // user on a provider picker that routes to OAuth or the session sign-in flow.
             .route(
                 "/providers/connect",
                 get(connect_hosted::handle_connect_hosted_page),

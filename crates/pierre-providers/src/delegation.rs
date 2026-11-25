@@ -298,7 +298,7 @@ fn service_off_roster(error: &AppError) -> bool {
     sciotte_refusal(error) == Some(ATHLETE_NOT_ACCESSIBLE)
 }
 
-/// A build without the sciotte service has no service refusal to read.
+/// A build without the session-read service has no service refusal to read.
 #[cfg(not(feature = "provider-sciotte"))]
 const fn service_off_roster(_error: &AppError) -> bool {
     false

@@ -2,14 +2,14 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: A conversation list — its title and "+", a quiet search, text-tab filters, then flat rows sorted by last activity
-// ABOUTME: Scoped to one side of the app: the Groups tab's rooms, or the athlete's own threads in Home's history
+// ABOUTME: Scoped to one side of the app: the Groups tab's rooms, where a coach's trifecta athlete is one row that opens their workspace (carnet#1817), or the athlete's own threads in Home's history
 
 import { useMemo, useState, type ReactNode } from 'react';
 import { clsx } from 'clsx';
-import { scopeOfKind, type ConversationRowModel, type ConversationScope } from '@pierre/chat-utils';
+import { filterRows, scopeOfKind, type ConversationRowModel, type ConversationScope } from '@pierre/chat-utils';
 import { useConversationList, useConversationMutations } from '../../hooks/useConversationList';
 import ConversationItem from '../chat/ConversationItem';
-import type { CoachAccessViewer } from '@pierre/ui-logic';
+import { foldAthleteRows, type CoachAccessViewer, type GroupsListRow } from '@pierre/ui-logic';
 import { useGroupSeatLines } from '../../hooks/coachAccessHooks';
 import { Button, ConfirmDialog, SearchField } from '../ui';
 import { useTranslation } from '@pierre/i18n';
@@ -31,10 +31,22 @@ interface ConversationListProps {
    * stands (carnet#1521); without one no row reads its group.
    */
   seatViewer?: CoachAccessViewer | null;
+  /**
+   * Opens a trifecta athlete's workspace. Given on a coach's Groups side, it
+   * folds each such athlete's room and plan thread into one row that opens it
+   * (carnet#1817); without it every conversation keeps its own row.
+   */
+  onOpenWorkspace?: (athleteId: string) => void;
 }
 
 /** No rows: the seat lines of a list that is not the Groups side. */
 const NO_ROWS: readonly ConversationRowModel[] = [];
+
+/** Whether `row` is the open thread's: its own id, or one of the conversations an athlete's row stands for. */
+function holdsConversation(row: GroupsListRow, conversationId: string | null): boolean {
+  if (conversationId === null) return false;
+  return row.workspace === null ? row.id === conversationId : row.workspace.conversationIds.includes(conversationId);
+}
 
 /** Which rows the chips above the list keep. */
 type RowFilter = 'all' | 'unread' | 'coaches';
@@ -88,6 +100,7 @@ export default function ConversationList({
   compose,
   showTitle = true,
   seatViewer = null,
+  onOpenWorkspace,
 }: ConversationListProps) {
   const { t } = useTranslation();
   const [searchQuery, setSearchQuery] = useState('');
@@ -96,14 +109,26 @@ export default function ConversationList({
   const [editedTitleValue, setEditedTitleValue] = useState('');
   const [deleteConfirmation, setDeleteConfirmation] = useState<ConversationRowModel | null>(null);
 
-  const { rows, isLoading, isError, hasMore, isLoadingMore, loadMore, refetch } =
-    useConversationList(searchQuery);
+  const { rows, conversations, isLoading, isError, hasMore, isLoadingMore, loadMore, refetch } =
+    useConversationList();
   const { rename, remove, isRemoving, markUnread } = useConversationMutations();
+
+  // Folded before the search, so a search for the athlete finds their row
+  // by the name it now carries.
+  const folds = scope === 'groups' && onOpenWorkspace !== undefined && seatViewer?.manages_roster === true;
+  const listRows = useMemo<GroupsListRow[]>(
+    () =>
+      folds
+        ? foldAthleteRows(rows, conversations)
+        : rows.map((row) => ({ ...row, workspace: null })),
+    [folds, rows, conversations],
+  );
 
   const searchActive = searchQuery.trim().length > 0;
   const visibleRows = useMemo(
-    () => rows.filter((row) => scopeOfKind(row.kind) === scope && keepsRow(filter, row)),
-    [rows, filter, scope],
+    () =>
+      filterRows(listRows, searchQuery).filter((row) => scopeOfKind(row.kind) === scope && keepsRow(filter, row)),
+    [listRows, searchQuery, filter, scope],
   );
   // A room the viewer owns says where their coach seat stands while it moves
   // (carnet#1521): the Groups side only, and only when the shell names them.
@@ -216,11 +241,16 @@ export default function ConversationList({
                   <ConversationItem
                     key={row.id}
                     row={row}
-                    isSelected={selectedConversation === row.id}
+                    isSelected={holdsConversation(row, selectedConversation)}
+                    opensWorkspace={row.workspace !== null}
                     seatLine={seatLines.get(row.id) ?? null}
                     isEditing={editingConversationId === row.id}
                     editedTitleValue={editedTitleValue}
-                    onSelect={() => onSelectConversation(row.id)}
+                    onSelect={() =>
+                      row.workspace !== null && onOpenWorkspace !== undefined
+                        ? onOpenWorkspace(row.workspace.athleteId)
+                        : onSelectConversation(row.id)
+                    }
                     onStartRename={() => handleStartRename(row)}
                     onMarkUnread={() => void markUnread(row.id)}
                     onDelete={() => setDeleteConfirmation(row)}

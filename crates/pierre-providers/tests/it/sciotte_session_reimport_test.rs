@@ -1,13 +1,13 @@
-// ABOUTME: Pins the one re-import a sciotte read gets when the service answers that it holds no session
+// ABOUTME: Pins the one re-import a session read gets when the service answers that it holds no session
 // ABOUTME: 401 session_not_found straight after an import is re-sent once; a refused session or import never is
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! Sciotte re-import contract.
+//! Session-read re-import contract.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-//! The sciotte service keeps each session in the memory of the instance that
+//! The session-read service keeps each session in the memory of the instance that
 //! imported it, and nothing pins the read that follows an import to that
 //! instance. On 2026-09-25 an import was answered by one instance and the
 //! activity list, sent 20 ms later, by another that was still starting: it
@@ -226,7 +226,7 @@ async fn provider_holding(
             revoke_url: None,
             default_scopes: vec![],
         })
-        .expect("sciotte provider construction is infallible"); // Safe: factory returns Ok unconditionally
+        .expect("session-read provider construction is infallible"); // Safe: factory returns Ok unconditionally
     let session = AuthSession {
         session_id: session_id.to_owned(),
         cookies: vec![],

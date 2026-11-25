@@ -82,7 +82,7 @@ resource "google_compute_router" "router" {
 
 # The one public address everything behind the NAT leaves from. Reserved, so
 # it belongs to this project alone and stays the same across deploys. That
-# is why dev routes the sciotte service's provider sign-ins through it
+# is why dev routes the session-read service's provider sign-ins through it
 # (module "sciotte" in environments/dev/main.tf says how sign-ins fared from
 # the shared Cloud Run egress pool).
 resource "google_compute_address" "nat_egress" {

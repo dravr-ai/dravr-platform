@@ -1,5 +1,5 @@
-// ABOUTME: Local stand-in for the dravr-sciotte service plus a seeded signed-in session
-// ABOUTME: Lets integration tests exercise the live sciotte fetch path without Chrome
+// ABOUTME: Local stand-in for the session-read service plus a seeded signed-in session
+// ABOUTME: Lets integration tests exercise the live session-read fetch path without Chrome
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -26,7 +26,7 @@ pub(crate) const MOCK_SESSION_RIDE_ID: &str = "15551234567";
 /// Spawn a local stand-in for the `dravr-sciotte` service: session
 /// import always succeeds and the activity list serves one canned ride whose
 /// capture reached the list head.
-/// Returns the base URL the server's sciotte client is built to reach it at.
+/// Returns the base URL the server's session-read client is built to reach it at.
 // Shared across test binaries; any single binary may use only part of it.
 #[allow(dead_code)]
 pub(crate) async fn spawn_mock_session_reader() -> String {
@@ -41,7 +41,7 @@ pub(crate) async fn spawn_mock_session_reader() -> String {
 /// ride's start instant under the caller's control.
 ///
 /// `head_complete` is read on every `/api/activities` answer, so one reader
-/// can first play a capture whose head sciotte never saw and then, flipped,
+/// can first play a capture whose head the service never saw and then, flipped,
 /// one that reached it — the two halves of the write-through gate.
 // Shared across test binaries; any single binary may use only part of it.
 #[allow(dead_code)]
@@ -100,7 +100,7 @@ async fn serve_mock_session_reader(head_complete: Arc<AtomicBool>, activity: Val
     format!("http://{addr}")
 }
 
-/// Seed a live sciotte session the way the hosted login stores it:
+/// Seed a live signed-in session the way the hosted login stores it:
 /// a `UserOAuthToken` row whose `access_token` is the serialized
 /// `AuthSession` (the provider deserializes it in `set_credentials`).
 // Shared across test binaries; any single binary may use only part of it.

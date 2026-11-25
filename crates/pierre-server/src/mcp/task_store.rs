@@ -29,7 +29,7 @@ use serde_json::{Map, Value};
 
 /// Retention for a task handle: 30 minutes.
 ///
-/// Long enough for the slowest conversion target (a full-season sciotte
+/// Long enough for the slowest conversion target (a full-season
 /// session read measured at ~4.5 minutes) plus generous client polling margin,
 /// short enough that abandoned handles don't accrete.
 pub const MCP_TASK_TTL_MS: u64 = 1_800_000;

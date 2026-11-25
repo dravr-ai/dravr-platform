@@ -1540,7 +1540,7 @@ else
     echo -e "${GREEN}  ✅ No heavy crate duplication detected${NC}"
 fi
 
-# The platform never runs Chrome: the browser stack belongs to sciotte's own
+# The platform never runs Chrome: the browser stack belongs to the session-read
 # service (carnet#980). `cargo tree -i` exits non-zero when nothing depends on
 # the crate, so success here means chromiumoxide came back into the graph.
 if CHROME_PATH=$(cargo tree --workspace --all-features -e normal,build -i chromiumoxide 2>/dev/null); then

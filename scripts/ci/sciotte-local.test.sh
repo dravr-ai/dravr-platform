@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# ABOUTME: Fixture test for scripts/sciotte-local.sh — what the harness sends a local sciotte server
+# ABOUTME: Fixture test for scripts/sciotte-local.sh — what the harness sends a local session-read server
 # ABOUTME: Pins X-Session-Id on every per-athlete read, flow_id on otp/2fa, and refusal when neither is known
 #
 # SPDX-License-Identifier: MIT OR Apache-2.0
 # Copyright (c) 2026 dravr.ai
 #
-# One sciotte instance serves every athlete, so it answers a per-athlete read
+# One session-read instance serves every athlete, so it answers a per-athlete read
 # only for the session named in X-Session-Id and resumes a login only by the
 # flow_id its first step minted (carnet#566): a request naming neither gets a
 # 401 or a 400, never the latest session. The harness drives that server one
@@ -188,7 +188,7 @@ expect_contains "sessions is reported unknown" "$out" "unknown command: sessions
 if called; then fail "sessions sends nothing"; else pass "sessions sends nothing"; fi
 
 # `serve <provider>` hands the provider's config to the binary; a fixture
-# sciotte checkout whose binary echoes its argv stands in for the real one.
+# session-read checkout whose binary echoes its argv stands in for the real one.
 repo="$root/dravr-sciotte"
 mkdir -p "$repo/target/debug" "$repo/providers"
 : >"$repo/providers/garmin.toml"
@@ -218,7 +218,7 @@ expect "userinfo in the URL does not hide its port" \
 expect "an IPv6 literal's port is read past its brackets" \
     "$(DRAVR_SCIOTTE_REMOTE_URL='http://[::1]:8128' "$UNDER_TEST" port)" "8128"
 
-echo "check-port: refuse a Pierre port that collides with the sciotte it calls"
+echo "check-port: refuse a Pierre port that collides with the session-read service it calls"
 check() { # expected_rc label server_port [VAR=value...]
     local want="$1" label="$2" server="$3"
     shift 3
@@ -226,7 +226,7 @@ check() { # expected_rc label server_port [VAR=value...]
     out="$(env "$@" "$UNDER_TEST" check-port "$server" 2>&1)" || rc=$?
     expect "$label" "$rc" "$want"
 }
-check 0 "no remote sciotte configured: nothing to refuse" 8091
+check 0 "no remote session-read service configured: nothing to refuse" 8091
 check 1 "the URL's port is the server's own" 8091 DRAVR_SCIOTTE_REMOTE_URL=http://127.0.0.1:8091
 expect_contains "the refusal names both sides" "$out" "both use port 8091"
 check 0 "distinct ports pass" 8091 DRAVR_SCIOTTE_REMOTE_URL=http://127.0.0.1:8096

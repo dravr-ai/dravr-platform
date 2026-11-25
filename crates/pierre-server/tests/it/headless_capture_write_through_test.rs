@@ -1,4 +1,4 @@
-// ABOUTME: A sciotte capture whose head the service never saw is served but never written to the
+// ABOUTME: A session-read capture whose head the service never saw is served but never written to the
 // ABOUTME: activity cache on any of the three write-through paths; a complete capture is persisted
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -6,7 +6,7 @@
 
 //! The activity-cache write-through gate, end to end (carnet#149, carnet#151).
 //!
-//! sciotte's Strava walk carries every complete week and tops it up with one
+//! The session read's Strava walk carries every complete week and tops it up with one
 //! best-effort fetch of the in-progress week; when that fetch fails the
 //! capture reports `head_complete: false`. Writing such a capture through
 //! moves every row's `synced_at` to now and stamps the fetch mark, so
@@ -58,7 +58,7 @@ async fn session_reader_head_flag() -> (Arc<AtomicBool>, String) {
     (head_complete, url)
 }
 
-/// A fresh athlete with one live sciotte (Strava mirror) connection and an
+/// A fresh athlete with one live session-read (Strava mirror) connection and an
 /// empty activity cache.
 async fn athlete_on_sciotte(resources: &Arc<ServerContext>) -> (Uuid, TenantId) {
     let (user_id, user) = create_test_user(&resources.agent.database)

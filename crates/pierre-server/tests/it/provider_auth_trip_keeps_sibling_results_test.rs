@@ -159,7 +159,7 @@ async fn an_auth_trip_keeps_the_window_a_sibling_call_already_served() {
     let tenant = tenants.first().expect("user has a tenant").id;
 
     // A healthy connection whose live fetch really answers (the `strava` ask
-    // resolves to the seeded sciotte session), and a dead one with no token.
+    // resolves to the seeded signed-in session), and a dead one with no token.
     resources
         .common
         .repos

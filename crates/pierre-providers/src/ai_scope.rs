@@ -1113,7 +1113,7 @@ mod tests {
         );
     }
 
-    /// The same Strava session read through the API and through the sciotte
+    /// The same Strava session read through the API and through the session-read
     /// Strava backend, which stamps it `sciotte` with `source = "strava"`.
     #[cfg(all(feature = "provider-strava", feature = "provider-sciotte"))]
     fn strava_sessions() -> Vec<Activity> {

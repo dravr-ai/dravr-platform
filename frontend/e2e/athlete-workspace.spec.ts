@@ -1,13 +1,15 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: E2E for a coach's athlete workspace (carnet#1816) — opened from À traiter, Dravr's swap proposed, Refuser and « C'est mon choix » sent, the panel's tabs by keyboard, back to the athlete
+// ABOUTME: E2E for a coach's athlete workspace (carnet#1816) — opened from À traiter, or from Groups' one row and thread header (carnet#1817), Dravr's swap proposed, Refuser and « C'est mon choix » sent, the panel's tabs by keyboard, back to the athlete
 // ABOUTME: Every route is mocked and dated from the day the spec runs; the routes record what the workspace wrote, so the spec reads the request, not only the page
 
 import { test, expect, type Page } from '@playwright/test';
 import { mockCoach } from './coach-home-mocks';
 import {
   WORKSPACE_ATHLETE_ID,
+  WORKSPACE_PLAN_ID,
+  WORKSPACE_ROOM_ID,
   mockWorkspace,
   trifectaRoster,
   workspaceSubjectPlan,
@@ -125,5 +127,43 @@ test.describe('athlete workspace', () => {
     await page.getByTestId('workspace-back').click();
     await expect(page).toHaveURL(new RegExp(`#home/athlete/${WORKSPACE_ATHLETE_ID}$`));
     await expect(page.getByTestId('coach-athlete-pane')).toBeVisible();
+  });
+});
+
+test.describe("a trifecta athlete in Groups (carnet#1817)", () => {
+  test('her room and plan thread are one row, named after her, that opens her workspace', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 960 });
+    await mockCoach(page, { roster: trifectaRoster, routes: (routed) => mockWorkspace(routed, { reverted: [], coachCalls: [] }) });
+    await page.goto('/#chat');
+
+    const list = page.getByTestId('conversation-list');
+    const athlete = list.locator('[data-testid="conversation-row"][data-opens-workspace="true"]');
+    await expect(athlete).toHaveCount(1);
+    await expect(list.getByTestId('conversation-row')).toHaveCount(1);
+    await expect(athlete.getByTestId('conversation-title')).toHaveText('Léa Gagnon');
+    // The plan thread spoke last, and both threads' unread messages count.
+    await expect(athlete.getByTestId('conversation-preview')).toHaveText("C'est proposé sur le calendrier.");
+    await expect(athlete.getByTestId('conversation-unread-count')).toHaveText('1');
+    await expect(athlete.getByTestId('conversation-actions-trigger')).toHaveCount(0);
+
+    await athlete.getByRole('button').click();
+    await expect(page).toHaveURL(new RegExp(`#home/athlete/${WORKSPACE_ATHLETE_ID}/plan$`));
+    await expect(page.getByTestId('workspace-calendar')).toBeVisible();
+  });
+
+  test('« Ouvrir le plan » in her room and in the plan thread opens her workspace', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 960 });
+    await mockCoach(page, { roster: trifectaRoster, routes: (routed) => mockWorkspace(routed, { reverted: [], coachCalls: [] }) });
+
+    for (const conversationId of [WORKSPACE_ROOM_ID, WORKSPACE_PLAN_ID]) {
+      await page.goto(`/#chat/${conversationId}`);
+      // The athlete's one row is the open thread's, whichever of the two it is.
+      await expect(
+        page.locator('[data-testid="conversation-row"][data-opens-workspace="true"] button').first(),
+      ).toHaveAttribute('aria-current', 'true');
+      await page.getByTestId('thread-open-workspace').click();
+      await expect(page).toHaveURL(new RegExp(`#home/athlete/${WORKSPACE_ATHLETE_ID}/plan$`));
+      await expect(page.getByTestId('workspace-calendar')).toBeVisible();
+    }
   });
 });

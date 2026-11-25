@@ -614,7 +614,7 @@ pub(crate) async fn compute_providers_status(
 
     // A connection whose lifecycle status is NeedsReauth/Revoked still has a row
     // (so it reads as "connected") but its session no longer works — a dead
-    // sciotte session or a non-recoverable OAuth refresh. Track those separately so
+    // signed-in session or a non-recoverable OAuth refresh. Track those separately so
     // the screen can show "Reconnect needed" rather than a healthy "Connected".
     let reauth_providers: HashSet<String> = connections
         .iter()

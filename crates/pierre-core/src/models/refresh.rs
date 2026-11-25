@@ -212,8 +212,8 @@ impl Default for SmartScheduleWeights {
 /// Default on-chat max age: 4 hours.
 const DEFAULT_ON_CHAT_MAX_AGE_SECS: u64 = 14_400;
 /// Default per-provider blocking-refresh budget: 15 seconds.
-/// Long enough to absorb a Strava round-trip + sciotte session read; short
-/// enough that a hung provider can't stall the user's chat indefinitely.
+/// Long enough to absorb a Strava round-trip + a session read; short enough
+/// that a hung provider can't stall the user's chat indefinitely.
 const DEFAULT_WAIT_FOR_REFRESH_TIMEOUT_SECS: u64 = 15;
 
 impl Default for RefreshConfig {

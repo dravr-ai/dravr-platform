@@ -1,10 +1,10 @@
-# ABOUTME: Builds the dedicated sciotte service image (ADR-021) from the dravr-sciotte
-# ABOUTME: repo at a chosen ref and publishes it to the central Artifact Registry as images/sciotte
+# ABOUTME: Builds the dedicated session-read service image (ADR-021) from the session-read
+# ABOUTME: satellite's repo at a chosen ref and publishes it to the central Artifact Registry as images/sciotte
 
-name: "Deploy: Sciotte Image"
+name: "Deploy: Session-Read Image"
 
-# The sciotte service image changes when dravr-sciotte releases, not on platform
-# pushes, so this never runs on push. It is called two ways:
+# The session-read service image changes when the session-read satellite releases,
+# not on platform pushes, so this never runs on push. It is called two ways:
 #
 #   workflow_call — sciotte-bump.yml invokes it as the first link of the release
 #     chain, so a release builds its own image without anyone remembering to.
@@ -15,7 +15,7 @@ on:
   workflow_call:
     inputs:
       sciotte_ref:
-        description: "dravr-sciotte ref to build (tag, branch, or SHA)"
+        description: "Session-read satellite ref to build (tag, branch, or SHA)"
         required: true
         type: string
     outputs:
@@ -28,7 +28,7 @@ on:
   workflow_dispatch:
     inputs:
       sciotte_ref:
-        description: "dravr-sciotte ref to build (tag, branch, or SHA)"
+        description: "Session-read satellite ref to build (tag, branch, or SHA)"
         required: true
         type: string
         default: "main"
@@ -48,7 +48,7 @@ env:
 
 jobs:
   publish-sciotte:
-    name: Publish Sciotte Image
+    name: Publish Session-Read Image
     runs-on: ubuntu-24.04
     timeout-minutes: 45  # image build and Trivy, ~7 min on its buildcache
 
@@ -65,7 +65,7 @@ jobs:
         with:
           path: platform
 
-      - name: Checkout dravr-sciotte
+      - name: Checkout the session-read satellite
         uses: actions/checkout@v6
         with:
           repository: dravr-ai/dravr-sciotte
@@ -73,7 +73,7 @@ jobs:
           token: ${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}
           path: sciotte
 
-      - name: Resolve sciotte SHA
+      - name: Resolve the session-read satellite SHA
         id: sha
         run: |
           cd sciotte
@@ -100,7 +100,7 @@ jobs:
           REGISTRY_HOST="$(echo '${{ vars.GCP_ARTIFACTS_REGISTRY_URL }}' | cut -d'/' -f1)"
           gcloud auth configure-docker "${REGISTRY_HOST}" --quiet
 
-      - name: Compute sciotte image tags
+      - name: Compute session-read image tags
         id: tags
         run: |
           REGISTRY="${{ vars.GCP_ARTIFACTS_REGISTRY_URL }}"
@@ -116,7 +116,7 @@ jobs:
           echo "sciotte_tags=${SCIOTTE_TAGS}" >> "$GITHUB_OUTPUT"
           echo "registry=${REGISTRY}" >> "$GITHUB_OUTPUT"
 
-      - name: Build and push sciotte image
+      - name: Build and push the session-read image
         id: build
         uses: docker/build-push-action@v7
         with:
@@ -144,7 +144,7 @@ jobs:
           mode: restore
           name: trivy-fanal-sciotte-${{ hashFiles('sciotte/Dockerfile') }}
 
-      - name: Scan sciotte image for vulnerabilities (report)
+      - name: Scan the session-read image for vulnerabilities (report)
         # Reporting pass: no allowlist, never blocks. Trivy applies --ignorefile
         # as a result filter before it writes the report, so a SARIF from the
         # gating run below would omit every allowlisted CVE and raise no GitHub
@@ -164,7 +164,7 @@ jobs:
           mode: save
           name: trivy-fanal-sciotte-${{ hashFiles('sciotte/Dockerfile') }}
 
-      - name: Scan sciotte image for vulnerabilities (gate)
+      - name: Scan the session-read image for vulnerabilities (gate)
         # Gating pass over the same digest with an explicit --ignorefile — the
         # trivy-action wrapper did not apply the allowlist (see
         # publish-images.yml). The vulnerability DB and the analyzed image layers
@@ -184,7 +184,7 @@ jobs:
           sarif_file: "trivy-sciotte.sarif"
           category: "sciotte-image"
 
-      - name: Output sciotte image digest
+      - name: Output the session-read image digest
         run: |
           echo "Published: ${{ steps.tags.outputs.registry }}/sciotte@${{ steps.build.outputs.digest }}"
           echo "Tags: ${{ steps.tags.outputs.sciotte_tags }}"

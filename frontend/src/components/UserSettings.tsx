@@ -96,7 +96,7 @@ import { alwaysAllowedClients, connectedAppPresetLabel, describeApiError, follow
 const ConnectConsentDialog = lazy(() => import('./ConnectConsentDialog'));
 
 // BYO-OAuth-app credentials are only collected for WHOOP. Strava and Garmin
-// use the Sciotte hosted-login flow (credentials handled in SciotteLoginModal)
+// use the session-read hosted-login flow (credentials handled in SciotteLoginModal)
 // and have no developer-app registration step the user controls.
 const PROVIDERS = [{ id: 'whoop', name: PROVIDER_BRAND.whoop }];
 

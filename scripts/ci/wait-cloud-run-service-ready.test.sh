@@ -234,7 +234,7 @@ case_quiesce_reads_every_dev_service_in_the_given_region() {
   quiesce --timeout-seconds 5
   expect_code 0 || return 1
   for s in "${ALL[@]}"; do expect_calls "${PREFIX}-${s}" -eq 1 || return 1; done
-  # Four describes and the one discovery list, which finds only the sciotte
+  # Four describes and the one discovery list, which finds only the session-read
   # service the fixed list already names, so it adds no describe.
   local lines other lists
   lines=$(wc -l <"${STUB_DIR}/calls.log" | tr -d ' ')
@@ -479,7 +479,7 @@ case_service_rejects_an_unknown_suffix() {
 }
 
 # ---------------------------------------------------------------------------
-# Discovered services: the sciotte read and sign-in services terraform adds,
+# Discovered services: the session-read services (read and sign-in) terraform adds,
 # all labelled component=sciotte (carnet#1504)
 # ---------------------------------------------------------------------------
 case_quiesce_waits_on_a_discovered_service() {
@@ -491,7 +491,7 @@ case_quiesce_waits_on_a_discovered_service() {
     && expect_out "Quiescent: no dev Cloud Run" && expect_calls "${PREFIX}-sciotte-read-1" -eq 3
 }
 
-# Another environment's sciotte in the same region carries the same label.
+# Another environment's session-read service in the same region carries the same label.
 case_quiesce_ignores_a_labelled_service_outside_the_prefix() {
   for s in "${ALL[@]}"; do settled "${s}"; done
   printf '%s\n' "${PREFIX}-sciotte" "dravr-staging-sciotte-read-1" "${PREFIX}" > "${STUB_DIR}/services.list"
@@ -535,7 +535,7 @@ case_service_accepts_a_discovered_suffix() {
 }
 
 # List mode prints every labelled service under the prefix, the fixed list's
-# sciotte included, once each, and describes nothing: the deploy lane moves
+# session-read service included, once each, and describes nothing: the deploy lane moves
 # exactly what it prints.
 case_list_prints_every_labelled_service_once() {
   printf '%s\n' "${PREFIX}-sciotte" "${PREFIX}-sciotte-read-1" "dravr-staging-sciotte-read-1" \

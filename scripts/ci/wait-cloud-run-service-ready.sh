@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ABOUTME: Serialises dev Cloud Run rollouts: waits until no dev service is mid-rollout, or until one service settles
-# ABOUTME: Holds the dev Cloud Run services every deploy waits on, plus the labelled sciotte ones; fails closed on every unknown
+# ABOUTME: Holds the dev Cloud Run services every deploy waits on, plus the labelled session-read ones; fails closed on every unknown
 #
 # SPDX-License-Identifier: MIT OR Apache-2.0
 # Copyright (c) 2026 dravr.ai
@@ -26,10 +26,10 @@
 # passes. Rolls that do not touch the database leave the flag off, so an
 # emergency frontend redeploy never waits on it.
 #
-# Discovered services (carnet#1504): sciotte runs as several services on one
-# image, all labelled component=sciotte — the read service <prefix>-sciotte, extra
-# read services <prefix>-sciotte-read-<n> and the sign-in service
-# <prefix>-sciotte-login. Terraform decides how many exist, so a fixed list here
+# Discovered services (carnet#1504): the session-read service runs as several
+# services on one image, all labelled component=sciotte — the read service
+# <prefix>-sciotte, extra read services <prefix>-sciotte-read-<n> and the sign-in
+# service <prefix>-sciotte-login. Terraform decides how many exist, so a fixed list here
 # would go stale on the next apply and a deploy would roll beside a service it
 # never saw. Quiesce mode therefore also lists the services carrying
 # DISCOVERY_LABEL in the region, keeps those named <prefix>-<suffix>, and waits
@@ -108,11 +108,11 @@
 
 set -euo pipefail
 
-# The fixed dev Cloud Run services; the labelled sciotte services are discovered
+# The fixed dev Cloud Run services; the labelled session-read services are discovered
 # beside them (see the header). Every deploy workflow reaches both through this
 # script, and the test harness pins which jobs must call it.
 DEV_SERVICE_SUFFIXES=(api frontend photograveur sciotte)
-# The label every sciotte service carries (infra/environments/dev), read and
+# The label every session-read service carries (infra/environments/dev), read and
 # sign-in alike. deploy-satellite-cloud-run.yml's `also_label` deploys the same
 # set, so the two must name the same label: a service it deploys that this
 # script cannot find fails that deploy's settle wait instead of going unwatched.

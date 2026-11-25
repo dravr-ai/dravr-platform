@@ -156,7 +156,7 @@ FIXTURE_PORT=9555  # dev fixture API serving seeded Strava/Garmin activities
 export HTTP_PORT="$SERVER_PORT"
 export EXPO_PORT
 
-# Refuse a sciotte that would share this server's port before anything is
+# Refuse a session-read service that would share this server's port before anything is
 # stopped, deleted or built: Pierre takes its port by killing what holds it
 # (carnet#898).
 if ! "$PROJECT_ROOT/scripts/sciotte-local.sh" check-port "$SERVER_PORT"; then
@@ -361,10 +361,10 @@ point_providers_at_fixture() {
 }
 point_providers_at_fixture
 
-# Step 4c: Start the dedicated sciotte service (ADR-021), but ONLY when
+# Step 4c: Start the dedicated session-read service (ADR-021), but ONLY when
 # the platform is pointed at it. DRAVR_SCIOTTE_REMOTE_URL set => the server
-# routes sciotte logins and session reads to this service instead of in-pod Chrome, so it
-# must be up; unset => the in-process path and this block is skipped entirely
+# routes provider sign-ins and session reads to this service instead of in-pod
+# Chrome, so it must be up; unset => the in-process path and this block is skipped entirely
 # (dev loop unchanged). Delegates to sciotte-local.sh so the serve invocation
 # has a single source of truth. Never fatal: a missing ../dravr-sciotte checkout
 # or a failed build warns and skips so the core stack always comes up (a port
@@ -373,17 +373,17 @@ point_providers_at_fixture
 # stack, so stop-all.sh stops it by its `sciotte` record, and only this
 # checkout's.
 if [ -n "${DRAVR_SCIOTTE_REMOTE_URL:-}" ]; then
-    echo -e "${CYAN}    Starting sciotte service (ADR-021 -> $DRAVR_SCIOTTE_REMOTE_URL)...${NC}"
+    echo -e "${CYAN}    Starting the session-read service (ADR-021 -> $DRAVR_SCIOTTE_REMOTE_URL)...${NC}"
     if [ -d "$PROJECT_ROOT/../dravr-sciotte" ]; then
         # No provider arg: one instance serving garmin+strava (ADR-021);
         # set SCIOTTE_PROVIDER to pin a single provider instead.
         if "$PROJECT_ROOT/scripts/sciotte-local.sh" serve-bg; then
-            echo "    Sciotte service ready"
+            echo "    Session-read service ready"
         else
-            echo -e "${YELLOW}    Sciotte service failed to start — remote sciotte session reads will error until it is up (see logs/sciotte-service-*.log)${NC}"
+            echo -e "${YELLOW}    Session-read service failed to start — remote session reads will error until it is up (see logs/sciotte-service-*.log)${NC}"
         fi
     else
-        echo -e "${YELLOW}    ../dravr-sciotte not found — skipping sciotte service; remote sciotte session reads will error${NC}"
+        echo -e "${YELLOW}    ../dravr-sciotte not found — skipping the session-read service; remote session reads will error${NC}"
     fi
 fi
 
@@ -411,7 +411,7 @@ echo "    Server ready (PID: $SERVER_PID)"
 # Step 5a: Start the Maestro control process (if --maestro). It mints the
 # seeded sessions every flow outside login/ starts signed in with, through the
 # pierre-cli built above, against this stack's SQLite database, and serves the
-# onboarding and coach plan-thread setups. It also runs the sciotte double the
+# onboarding and coach plan-thread setups. It also runs the session-read double the
 # home-sync/ flow scripts, which this server is not pointed at: that flow
 # still needs scripts/e2e-home-sync-local.sh --mobile.
 CONTROL_PID=""
