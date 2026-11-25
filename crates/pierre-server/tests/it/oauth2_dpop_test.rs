@@ -27,6 +27,7 @@ use axum::extract::connect_info::MockConnectInfo;
 use base64::{engine::general_purpose, Engine as _};
 use dravr_tronc::dates::Timestamp;
 use jsonwebtoken::dangerous::insecure_decode;
+use jsonwebtoken::{encode, Algorithm, Header};
 use pierre_auth::auth::Claims;
 use pierre_auth::oauth2_server::client_registration::ClientRegistrationManager;
 use pierre_auth::oauth2_server::models::ClientRegistrationRequest;
