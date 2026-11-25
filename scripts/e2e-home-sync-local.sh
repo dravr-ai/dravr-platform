@@ -128,6 +128,7 @@ echo "starting Pierre on $PIERRE_PORT, its scraper at the double on $DOUBLE_PORT
         STRAVA_CLIENT_ID=test_client_id_local \
         STRAVA_CLIENT_SECRET=test_client_secret_local \
         STRAVA_REDIRECT_URI="http://localhost:$PIERRE_PORT/auth/strava/callback" \
+        FRONTEND_URL="http://localhost:$VITE_PORT" \
         DRAVR_SCIOTTE_REMOTE_URL="http://127.0.0.1:$DOUBLE_PORT" \
         PIERRE_HOME_ROUTE_ANSWER_SECS="$ROUTE_ANSWER_SECS" \
         PIERRE_LLM_DEFAULT_MODEL="$E2E_MODEL" \
