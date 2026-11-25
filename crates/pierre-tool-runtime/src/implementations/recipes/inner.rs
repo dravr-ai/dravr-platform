@@ -382,7 +382,10 @@ pub(super) fn handle_get_recipe_constraints(
 
     let macro_targets =
         MacroTargets::from_calories_and_timing(calories, meal_timing, &cageux_config.nutrition);
-    let (protein_pct, carbs_pct, fat_pct) = meal_timing.macro_distribution();
+    let (protein_pct, carbs_pct, fat_pct) = cageux_config
+        .nutrition
+        .meal_timing_macros
+        .get_distribution(meal_timing);
 
     let tdee_ctx = TdeeContext {
         tdee_based,

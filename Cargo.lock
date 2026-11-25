@@ -1454,8 +1454,8 @@ checksum = "1aaf95b3e5c8f23aa320147307562d361db0ae0d51242340f558153b4eb2439b"
 
 [[package]]
 name = "dravr-barrage"
-version = "0.33.1"
-source = "git+https://github.com/dravr-ai/dravr-barrage.git?tag=v0.33.1#45670f715eacf3e058aa2f345f8ee917993a615d"
+version = "0.35.0"
+source = "git+https://github.com/dravr-ai/dravr-barrage.git?tag=v0.35.0#d784759e36b63d4d8cec513b365e0217fe0da689"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -1464,8 +1464,8 @@ dependencies = [
  "crc32fast",
  "csv",
  "dravr-cageux",
- "dravr-equilibre 0.11.0",
- "dravr-tronc 7.4.0",
+ "dravr-equilibre",
+ "dravr-tronc",
  "fitparser",
  "flate2",
  "futures-util",
@@ -1489,7 +1489,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "825cc9b1fd889fa025a1e835f6f24b68c2eb5f6ee82fb8d1c3d5dab66a1160e8"
 dependencies = [
  "async-trait",
- "dravr-tronc 8.1.0",
+ "dravr-tronc",
  "getrandom 0.3.4",
  "serde",
  "serde_json",
@@ -1500,11 +1500,11 @@ dependencies = [
 
 [[package]]
 name = "dravr-cageux"
-version = "0.57.1"
-source = "git+https://github.com/dravr-ai/dravr-cageux.git?tag=v0.57.1#1a51ab3ea2532745363136201145deb196315f92"
+version = "0.60.0"
+source = "git+https://github.com/dravr-ai/dravr-cageux.git?tag=v0.60.0#f4954eda0eb34d9d15e320088056d0b01f919267"
 dependencies = [
  "async-trait",
- "dravr-tronc 7.4.0",
+ "dravr-tronc",
  "schemars 1.2.3",
  "serde",
  "serde-saphyr",
@@ -1523,7 +1523,7 @@ version = "0.15.0"
 source = "git+https://github.com/dravr-ai/dravr-canot.git?tag=v0.15.0#c36accc5cad7d53b2eca69a98e06df76a97c6f36"
 dependencies = [
  "async-trait",
- "dravr-tronc 8.1.0",
+ "dravr-tronc",
  "ed25519-dalek 2.2.0",
  "futures-util",
  "hex",
@@ -1549,7 +1549,7 @@ source = "git+https://github.com/dravr-ai/dravr-commere.git?tag=v0.12.0#7f69369b
 dependencies = [
  "async-trait",
  "croner",
- "dravr-tronc 8.1.0",
+ "dravr-tronc",
  "jiff 0.2.46",
  "reqwest",
  "serde",
@@ -1573,9 +1573,9 @@ source = "git+https://github.com/dravr-ai/dravr-enforme.git?tag=v0.23.0#b2ad4bce
 dependencies = [
  "async-trait",
  "base64 0.22.1",
- "dravr-equilibre 0.12.0",
+ "dravr-equilibre",
  "dravr-sciotte",
- "dravr-tronc 8.1.0",
+ "dravr-tronc",
  "http",
  "reqwest",
  "ring",
@@ -1589,23 +1589,10 @@ dependencies = [
 
 [[package]]
 name = "dravr-equilibre"
-version = "0.11.0"
-source = "git+https://github.com/dravr-ai/dravr-equilibre.git?tag=v0.11.0#3c65596efe501baa810060bc22a3f3d246bc3d9c"
-dependencies = [
- "dravr-tronc 7.4.0",
- "schemars 1.2.3",
- "serde",
- "serde_json",
- "thiserror 2.0.21",
- "tracing",
-]
-
-[[package]]
-name = "dravr-equilibre"
 version = "0.12.0"
 source = "git+https://github.com/dravr-ai/dravr-equilibre.git?tag=v0.12.0#75c9036fa43725440030b7bea83a5b35733c9a29"
 dependencies = [
- "dravr-tronc 8.1.0",
+ "dravr-tronc",
  "schemars 1.2.3",
  "serde",
  "serde_json",
@@ -1619,7 +1606,7 @@ version = "0.12.0"
 source = "git+https://github.com/dravr-ai/dravr-meteo.git?tag=v0.12.0#c2a43f612b81358b7a1f211767846b3c9b2391d3"
 dependencies = [
  "async-trait",
- "dravr-tronc 8.1.0",
+ "dravr-tronc",
  "reqwest",
  "serde",
  "serde_json",
@@ -1634,7 +1621,7 @@ version = "0.7.0"
 source = "git+https://github.com/dravr-ai/dravr-riviere.git?tag=v0.7.0#9cf1731b0efa71ada941f5a435db82a2afdec673"
 dependencies = [
  "async-trait",
- "dravr-tronc 8.1.0",
+ "dravr-tronc",
  "schemars 1.2.3",
  "serde",
  "serde_json",
@@ -1651,7 +1638,7 @@ dependencies = [
  "async-trait",
  "dirs 6.0.0",
  "dravr-browser",
- "dravr-tronc 8.1.0",
+ "dravr-tronc",
  "futures",
  "reqwest",
  "serde",
@@ -1667,7 +1654,7 @@ name = "dravr-stripe"
 version = "0.13.0"
 source = "git+https://github.com/dravr-ai/dravr-stripe.git?tag=v0.13.0#1fc79fdb0f3882186feedcf59066e4c279cf9fe6"
 dependencies = [
- "dravr-tronc 8.1.0",
+ "dravr-tronc",
  "hex",
  "hmac 0.12.1",
  "reqwest",
@@ -1677,33 +1664,6 @@ dependencies = [
  "subtle",
  "thiserror 2.0.21",
  "tracing",
-]
-
-[[package]]
-name = "dravr-tronc"
-version = "7.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e0bfb3b0868a4398919c2a72116274e085fc54a1ac44f916966a5d2fcf92d989"
-dependencies = [
- "async-trait",
- "axum",
- "base64 0.22.1",
- "bitflags 2.13.2",
- "clap",
- "futures",
- "getrandom 0.3.4",
- "jiff 1.0.1",
- "jiff-tzdb 1.0.0",
- "schemars 1.2.3",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "sqlx",
- "subtle",
- "tokio",
- "tokio-util",
- "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]
@@ -1865,9 +1825,9 @@ dependencies = [
 
 [[package]]
 name = "embacle"
-version = "0.47.3"
+version = "0.48.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4023885a1d9b35d9284acb19132221dbd7d98f0c94910952df286ad6db830532"
+checksum = "0554803356a65f6d541af3097399ce366ccfeb816450e7ecfcea2a6ad0135673"
 dependencies = [
  "agent-client-protocol-schema",
  "async-trait",
@@ -1888,13 +1848,13 @@ dependencies = [
 
 [[package]]
 name = "embacle-tool-host"
-version = "0.47.3"
+version = "0.48.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "25784b97418167c4fa543c2d496505edb6d2597cf8850f50965cdb37d1e3e7fc"
+checksum = "fa0c2dd6d384b73cdca62d55d5000af7854e0b9e08c8b445be629a67de171b1e"
 dependencies = [
  "async-trait",
  "axum",
- "dravr-tronc 7.4.0",
+ "dravr-tronc",
  "embacle",
  "rand 0.10.3",
  "serde_json",
@@ -3906,7 +3866,7 @@ name = "photograveur"
 version = "0.9.1"
 source = "git+https://github.com/dravr-ai/dravr-photograveur.git?tag=v0.9.1#e27cc8be4d46e9a98ebd71c9293ab2566d51fde4"
 dependencies = [
- "dravr-tronc 8.1.0",
+ "dravr-tronc",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
@@ -3917,7 +3877,7 @@ name = "pierre-a2a"
 version = "0.3.0"
 dependencies = [
  "async-trait",
- "dravr-tronc 8.1.0",
+ "dravr-tronc",
  "pierre-auth",
  "pierre-core",
  "pierre-database",
@@ -3971,7 +3931,7 @@ dependencies = [
  "ciborium",
  "der 0.7.10",
  "dravr-barrage",
- "dravr-tronc 8.1.0",
+ "dravr-tronc",
  "getrandom 0.4.3",
  "http",
  "jsonwebtoken",
@@ -4021,7 +3981,7 @@ dependencies = [
  "dravr-canot",
  "dravr-contremaitre",
  "dravr-enforme",
- "dravr-tronc 8.1.0",
+ "dravr-tronc",
  "embacle",
  "embacle-tool-host",
  "futures-util",
@@ -4065,7 +4025,7 @@ dependencies = [
  "clap",
  "dirs 7.0.0",
  "dravr-sciotte",
- "dravr-tronc 8.1.0",
+ "dravr-tronc",
  "glob",
  "open",
  "pierre-agent-parser",
@@ -4101,7 +4061,7 @@ version = "0.3.0"
 dependencies = [
  "async-trait",
  "dravr-canot",
- "dravr-tronc 8.1.0",
+ "dravr-tronc",
  "pierre-auth",
  "pierre-contremaitre",
  "pierre-core",
@@ -4124,7 +4084,7 @@ name = "pierre-config"
 version = "0.3.0"
 dependencies = [
  "dravr-cageux",
- "dravr-tronc 8.1.0",
+ "dravr-tronc",
  "pierre-auth",
  "pierre-cache",
  "pierre-core",
@@ -4148,7 +4108,7 @@ dependencies = [
  "brotli-decompressor",
  "dravr-cageux",
  "dravr-contremaitre",
- "dravr-tronc 8.1.0",
+ "dravr-tronc",
  "hex",
  "pierre-core",
  "pierre-database",
@@ -4177,9 +4137,9 @@ dependencies = [
  "bcrypt",
  "dravr-cageux",
  "dravr-canot",
- "dravr-equilibre 0.12.0",
+ "dravr-equilibre",
  "dravr-stripe",
- "dravr-tronc 8.1.0",
+ "dravr-tronc",
  "embacle",
  "hex",
  "hmac 0.12.1",
@@ -4216,7 +4176,7 @@ dependencies = [
  "async-trait",
  "base64 0.22.1",
  "dravr-riviere",
- "dravr-tronc 8.1.0",
+ "dravr-tronc",
  "hex",
  "pierre-core",
  "pierre-memory",
@@ -4239,7 +4199,7 @@ version = "0.3.0"
 dependencies = [
  "axum",
  "dravr-barrage",
- "dravr-tronc 8.1.0",
+ "dravr-tronc",
  "pierre-config",
  "pierre-core",
  "pierre-providers",
@@ -4257,7 +4217,7 @@ dependencies = [
 name = "pierre-email"
 version = "0.3.0"
 dependencies = [
- "dravr-tronc 8.1.0",
+ "dravr-tronc",
  "html-escape",
  "pierre-core",
  "reqwest",
@@ -4270,7 +4230,7 @@ version = "0.3.0"
 dependencies = [
  "async-trait",
  "dravr-contremaitre",
- "dravr-tronc 8.1.0",
+ "dravr-tronc",
  "futures-util",
  "pierre-core",
  "pierre-llm",
@@ -4303,7 +4263,7 @@ dependencies = [
  "dravr-barrage",
  "dravr-cageux",
  "dravr-meteo",
- "dravr-tronc 8.1.0",
+ "dravr-tronc",
  "hex",
  "pierre-core",
  "pierre-database",
@@ -4332,7 +4292,7 @@ name = "pierre-groups"
 version = "0.3.0"
 dependencies = [
  "async-trait",
- "dravr-tronc 8.1.0",
+ "dravr-tronc",
  "pierre-core",
  "pierre-database",
  "pierre-providers",
@@ -4349,7 +4309,7 @@ version = "0.3.0"
 dependencies = [
  "async-trait",
  "dravr-contremaitre",
- "dravr-tronc 8.1.0",
+ "dravr-tronc",
  "embacle",
  "futures-util",
  "pierre-core",
@@ -4366,7 +4326,7 @@ name = "pierre-logging"
 version = "0.3.0"
 dependencies = [
  "async-trait",
- "dravr-tronc 8.1.0",
+ "dravr-tronc",
  "gethostname",
  "opentelemetry",
  "opentelemetry-http",
@@ -4386,7 +4346,7 @@ dependencies = [
 name = "pierre-mcp-schema"
 version = "0.3.0"
 dependencies = [
- "dravr-tronc 8.1.0",
+ "dravr-tronc",
  "pierre-config",
  "serde",
 ]
@@ -4409,7 +4369,7 @@ dependencies = [
 name = "pierre-memory"
 version = "0.3.0"
 dependencies = [
- "dravr-tronc 8.1.0",
+ "dravr-tronc",
  "pierre-core",
  "schemars 1.2.3",
  "serde",
@@ -4423,7 +4383,7 @@ version = "0.3.0"
 dependencies = [
  "axum",
  "bitflags 2.13.2",
- "dravr-tronc 8.1.0",
+ "dravr-tronc",
  "futures-util",
  "http",
  "jsonwebtoken",
@@ -4452,7 +4412,7 @@ version = "0.3.0"
 dependencies = [
  "async-trait",
  "dravr-commere",
- "dravr-tronc 8.1.0",
+ "dravr-tronc",
  "pierre-core",
  "pierre-test-support",
  "serde_json",
@@ -4484,9 +4444,9 @@ dependencies = [
  "dravr-barrage",
  "dravr-cageux",
  "dravr-enforme",
- "dravr-equilibre 0.12.0",
+ "dravr-equilibre",
  "dravr-sciotte",
- "dravr-tronc 8.1.0",
+ "dravr-tronc",
  "hex",
  "num-traits",
  "pierre-auth",
@@ -4527,7 +4487,7 @@ name = "pierre-routes-admin"
 version = "0.3.0"
 dependencies = [
  "axum",
- "dravr-tronc 8.1.0",
+ "dravr-tronc",
  "pierre-auth",
  "pierre-cache",
  "pierre-config",
@@ -4560,7 +4520,7 @@ name = "pierre-routes-agents"
 version = "0.3.0"
 dependencies = [
  "axum",
- "dravr-tronc 8.1.0",
+ "dravr-tronc",
  "pierre-auth",
  "pierre-cache",
  "pierre-config",
@@ -4588,7 +4548,7 @@ dependencies = [
  "dravr-barrage",
  "dravr-enforme",
  "dravr-sciotte",
- "dravr-tronc 8.1.0",
+ "dravr-tronc",
  "futures",
  "futures-util",
  "hex",
@@ -4626,7 +4586,7 @@ name = "pierre-routes-billing"
 version = "0.3.0"
 dependencies = [
  "axum",
- "dravr-tronc 8.1.0",
+ "dravr-tronc",
  "pierre-core",
  "pierre-database",
  "pierre-middleware",
@@ -4641,7 +4601,7 @@ name = "pierre-routes-dashboard"
 version = "0.3.0"
 dependencies = [
  "axum",
- "dravr-tronc 8.1.0",
+ "dravr-tronc",
  "pierre-auth",
  "pierre-core",
  "pierre-middleware",
@@ -4655,7 +4615,7 @@ name = "pierre-routes-groups"
 version = "0.3.0"
 dependencies = [
  "axum",
- "dravr-tronc 8.1.0",
+ "dravr-tronc",
  "pierre-auth",
  "pierre-core",
  "pierre-database",
@@ -4680,7 +4640,7 @@ version = "0.3.0"
 dependencies = [
  "axum",
  "base64 0.22.1",
- "dravr-tronc 8.1.0",
+ "dravr-tronc",
  "hex",
  "pierre-auth",
  "pierre-contremaitre",
@@ -4706,7 +4666,7 @@ version = "0.3.0"
 dependencies = [
  "async-trait",
  "axum",
- "dravr-tronc 8.1.0",
+ "dravr-tronc",
  "pierre-auth",
  "pierre-config",
  "pierre-core",
@@ -4727,7 +4687,7 @@ name = "pierre-runtime-context"
 version = "0.3.0"
 dependencies = [
  "async-trait",
- "dravr-tronc 8.1.0",
+ "dravr-tronc",
  "pierre-auth",
  "pierre-cache",
  "pierre-contremaitre",
@@ -4759,7 +4719,7 @@ dependencies = [
  "bcrypt",
  "clap",
  "dravr-cageux",
- "dravr-tronc 8.1.0",
+ "dravr-tronc",
  "glob",
  "pierre-agent-parser",
  "pierre-contremaitre",
@@ -4788,11 +4748,11 @@ dependencies = [
  "dravr-cageux",
  "dravr-canot",
  "dravr-enforme",
- "dravr-equilibre 0.12.0",
+ "dravr-equilibre",
  "dravr-meteo",
  "dravr-riviere",
  "dravr-sciotte",
- "dravr-tronc 8.1.0",
+ "dravr-tronc",
  "embacle",
  "futures-util",
  "hex",
@@ -4844,7 +4804,7 @@ dependencies = [
 name = "pierre-test-support"
 version = "0.3.0"
 dependencies = [
- "dravr-tronc 8.1.0",
+ "dravr-tronc",
  "futures-util",
  "log",
  "pierre-config",
@@ -4876,7 +4836,7 @@ dependencies = [
  "dravr-enforme",
  "dravr-meteo",
  "dravr-riviere",
- "dravr-tronc 8.1.0",
+ "dravr-tronc",
  "embacle",
  "futures-util",
  "jsonschema",
@@ -4947,12 +4907,12 @@ dependencies = [
  "dravr-canot",
  "dravr-contremaitre",
  "dravr-enforme",
- "dravr-equilibre 0.12.0",
+ "dravr-equilibre",
  "dravr-meteo",
  "dravr-riviere",
  "dravr-sciotte",
  "dravr-stripe",
- "dravr-tronc 8.1.0",
+ "dravr-tronc",
  "ed25519-dalek 2.2.0",
  "embacle",
  "embacle-tool-host",
