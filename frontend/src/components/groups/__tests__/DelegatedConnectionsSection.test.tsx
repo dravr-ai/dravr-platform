@@ -290,7 +290,7 @@ describe('DelegatedConnectionsSection — coach', () => {
 
     const refused = await screen.findByTestId('delegation-roster-refused');
     expect(refused).toHaveTextContent(
-      'Intervals.icu lists your athletes for an API key only. Reconnect Intervals.icu with your API key to read your roster.',
+      'Intervals.icu lists your athletes for an API key only. In Dravr, open Settings, Data Providers, then Intervals.icu, and link it with your API key to read your roster.',
     );
     expect(refused).not.toHaveTextContent('TrainingPeaks');
     await user.click(within(refused).getByTestId('delegation-open-connections'));

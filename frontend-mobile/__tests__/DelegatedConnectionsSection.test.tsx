@@ -200,7 +200,7 @@ describe('DelegatedConnectionsSection', () => {
     const { findByTestId } = renderSection({ onOpenConnections: jest.fn() });
 
     const refused = await findByTestId('delegation-roster-refused');
-    expect(refused).toHaveTextContent(/Reconnect Intervals\.icu with your API key to read your roster\./);
+    expect(refused).toHaveTextContent(/open Settings, Data Providers, then Intervals\.icu, and link it with your API key to read your roster\./);
     expect(refused).not.toHaveTextContent(/TrainingPeaks/);
   });
 
