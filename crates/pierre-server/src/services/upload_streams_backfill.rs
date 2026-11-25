@@ -222,14 +222,23 @@ async fn backfill_file(
     })
     .await?
     .map_err(|e| AppError::internal(format!("stored upload no longer decodes: {e}")))?;
+    // A keyed file's samples name its keyed blob, never its digest.
+    let keyed_name = match base {
+        OwedBase::Sha(_) => None,
+        OwedBase::Keyed(_) => Some(originals.keyed_name(&tenant_id, user_id, &sha)?.to_string()),
+    };
+    let ids = keyed_name.as_deref().map_or_else(
+        || UploadedFileIds::by_digest(&sha),
+        |source_ref| UploadedFileIds {
+            id_base: base.id_base(),
+            source_ref,
+        },
+    );
     store_upload_series(
         repos.activity_streams.as_ref(),
         &tenant_id,
         user_id,
-        UploadedFileIds {
-            sha256: &sha,
-            id_base: base.id_base(),
-        },
+        ids,
         &series,
         Timestamp::now(),
     )

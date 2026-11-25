@@ -150,6 +150,118 @@ pub trait UploadedActivityFileRepository: Send + Sync {
         user_id: Uuid,
         file_sha256: &str,
     ) -> AppResult<bool>;
+
+    /// One page of the files `holder` names that are not kept under their
+    /// keyed name yet (`blob_keyed = FALSE`), in every scope, after `after`,
+    /// in `(tenant_id, user_id, digest)` order: what the keyed-name backfill
+    /// copies (carnet#1701). A digest several rows of one athlete name is
+    /// one file.
+    ///
+    /// # Errors
+    /// Returns a database error when the read fails, or a row's ids do not
+    /// parse.
+    async fn content_named_files(
+        &self,
+        holder: UploadHolder,
+        after: Option<&ContentNamedFile>,
+        limit: u32,
+    ) -> AppResult<Vec<ContentNamedFile>>;
+
+    /// How many files `holder` names that are not kept under their keyed
+    /// name yet, in every scope.
+    ///
+    /// # Errors
+    /// Returns a database error when the count fails.
+    async fn count_content_named(&self, holder: UploadHolder) -> AppResult<u64>;
+
+    /// Whether a row of `holder` still names the athlete's file
+    /// `file_sha256` in this tenant and says it is not kept under its keyed
+    /// name: what the backfill checks under the file's lease before it
+    /// copies.
+    ///
+    /// # Errors
+    /// Returns a database error when the read fails.
+    async fn names_content_named(
+        &self,
+        holder: UploadHolder,
+        tenant_id: &TenantId,
+        user_id: Uuid,
+        file_sha256: &str,
+    ) -> AppResult<bool>;
+
+    /// Mark every row of `holder` naming the athlete's file `file_sha256` in
+    /// this tenant as kept under its keyed name. Returns how many rows it
+    /// marked.
+    ///
+    /// # Errors
+    /// Returns a database error when the update fails.
+    async fn mark_blob_keyed(
+        &self,
+        holder: UploadHolder,
+        tenant_id: &TenantId,
+        user_id: Uuid,
+        file_sha256: &str,
+    ) -> AppResult<u64>;
+}
+
+/// A table whose rows name a file the athlete uploaded by its digest, kept
+/// under the upload key ([`UploadedActivityFileRepository::content_named_files`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UploadHolder {
+    /// `uploaded_activity_files`: an uploaded activity file.
+    ActivityFiles,
+    /// `feedback_messages`: a screenshot attached to a feedback message.
+    FeedbackImages,
+    /// `lab_documents`: a lab report's PDF.
+    LabDocuments,
+}
+
+impl UploadHolder {
+    /// Every holder, in the order the backfill sweeps them.
+    pub const ALL: [Self; 3] = [
+        Self::ActivityFiles,
+        Self::FeedbackImages,
+        Self::LabDocuments,
+    ];
+
+    /// The holder's table.
+    #[must_use]
+    pub const fn table(self) -> &'static str {
+        match self {
+            Self::ActivityFiles => "uploaded_activity_files",
+            Self::FeedbackImages => "feedback_messages",
+            Self::LabDocuments => "lab_documents",
+        }
+    }
+
+    /// The statements over the holder's table.
+    pub(crate) const fn sql(self) -> &'static HolderSql {
+        match self {
+            Self::ActivityFiles => &ACTIVITY_FILES_SQL,
+            Self::FeedbackImages => &FEEDBACK_IMAGES_SQL,
+            Self::LabDocuments => &LAB_DOCUMENTS_SQL,
+        }
+    }
+
+    /// Whether the table keeps its owner ids as `TEXT` on both engines
+    /// (`uploaded_activity_files`); the others are `uuid` on Postgres.
+    pub(crate) const fn text_ids(self) -> bool {
+        matches!(self, Self::ActivityFiles)
+    }
+}
+
+/// A file a holder table names that is not kept under its keyed name yet.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ContentNamedFile {
+    /// The tenant it was uploaded in.
+    pub tenant_id: TenantId,
+    /// The athlete who uploaded it.
+    pub user_id: Uuid,
+    /// Its SHA-256, lowercase hex.
+    pub file_sha256: String,
+    /// The media type its row records, when the table records one
+    /// (`feedback_messages`).
+    pub media_type: Option<String>,
 }
 
 /// One uploaded file to record.
@@ -381,6 +493,102 @@ pub(crate) fn file_activity_id_pattern(base: &str) -> String {
     pattern
 }
 
+/// The statements the keyed-name backfill runs over one holder table.
+#[derive(Debug)]
+pub(crate) struct HolderSql {
+    /// The first page of content-named files, in every scope.
+    pub(crate) first_page: &'static str,
+    /// A page after the cursor `($2, $3, $4)`, in every scope.
+    pub(crate) next_page: &'static str,
+    /// How many content-named files, in every scope.
+    pub(crate) count: &'static str,
+    /// Whether a content-named row names the file, in its scope.
+    pub(crate) names: &'static str,
+    /// Mark every row naming the file, in its scope.
+    pub(crate) mark: &'static str,
+}
+
+/// The [`HolderSql`] of `$table`, whose digest column is `$digest` and
+/// whose media type is `$media`.
+///
+/// ISOLATION EXEMPTION: `first_page`, `next_page` and `count` have no
+/// `tenant_id` or `user_id` filter, on purpose. They serve only the
+/// `record_log` worker's keyed-name backfill, which copies every athlete's
+/// files (carnet#1701); every write it makes (`names`, `mark`) filters on the
+/// tenant and the user. No tenant- or user-facing path may run them. The
+/// owner ids are compared and read as text, so the order is one on both
+/// engines.
+macro_rules! holder_sql {
+    ($table:literal, $digest:literal, $media:literal) => {
+        HolderSql {
+            first_page: concat!(
+                "SELECT CAST(tenant_id AS TEXT) AS tenant_text, CAST(user_id AS TEXT) AS user_text, ",
+                $digest, " AS file_sha256, ", $media, " AS media_type FROM ", $table,
+                " WHERE blob_keyed = FALSE AND ", $digest, " IS NOT NULL",
+                " GROUP BY tenant_id, user_id, ", $digest,
+                " ORDER BY tenant_text, user_text, file_sha256 LIMIT $1"
+            ),
+            next_page: concat!(
+                "SELECT CAST(tenant_id AS TEXT) AS tenant_text, CAST(user_id AS TEXT) AS user_text, ",
+                $digest, " AS file_sha256, ", $media, " AS media_type FROM ", $table,
+                " WHERE blob_keyed = FALSE AND ", $digest, " IS NOT NULL",
+                " AND (CAST(tenant_id AS TEXT), CAST(user_id AS TEXT), ", $digest, ") > ($2, $3, $4)",
+                " GROUP BY tenant_id, user_id, ", $digest,
+                " ORDER BY tenant_text, user_text, file_sha256 LIMIT $1"
+            ),
+            count: concat!(
+                "SELECT COUNT(*) FROM (SELECT 1 AS one FROM ", $table,
+                " WHERE blob_keyed = FALSE AND ", $digest, " IS NOT NULL",
+                " GROUP BY tenant_id, user_id, ", $digest, ") AS files"
+            ),
+            names: concat!(
+                "SELECT 1 AS held FROM ", $table,
+                " WHERE tenant_id = $1 AND user_id = $2 AND ", $digest, " = $3",
+                " AND blob_keyed = FALSE LIMIT 1"
+            ),
+            mark: concat!(
+                "UPDATE ", $table, " SET blob_keyed = TRUE",
+                " WHERE tenant_id = $1 AND user_id = $2 AND ", $digest, " = $3"
+            ),
+        }
+    };
+}
+
+/// The backfill's statements over `uploaded_activity_files`.
+const ACTIVITY_FILES_SQL: HolderSql = holder_sql!(
+    "uploaded_activity_files",
+    "file_sha256",
+    "CAST(NULL AS TEXT)"
+);
+
+/// The backfill's statements over `feedback_messages`: one athlete may
+/// attach the same screenshot to several messages.
+const FEEDBACK_IMAGES_SQL: HolderSql =
+    holder_sql!("feedback_messages", "image_sha256", "MIN(image_media_type)");
+
+/// The backfill's statements over `lab_documents`.
+const LAB_DOCUMENTS_SQL: HolderSql =
+    holder_sql!("lab_documents", "file_sha256", "CAST(NULL AS TEXT)");
+
+/// One content-named file of a page, from its text columns.
+///
+/// # Errors
+/// Returns a database error when an owner id does not parse.
+pub(crate) fn content_named_file(
+    (tenant, user, file_sha256, media_type): (String, String, String, Option<String>),
+) -> AppResult<ContentNamedFile> {
+    let tenant_id = TenantId::parse_str(&tenant)
+        .map_err(|e| AppError::database(format!("content-named file tenant {tenant}: {e}")))?;
+    let user_id = Uuid::parse_str(&user)
+        .map_err(|e| AppError::database(format!("content-named file user {user}: {e}")))?;
+    Ok(ContentNamedFile {
+        tenant_id,
+        user_id,
+        file_sha256,
+        media_type,
+    })
+}
+
 /// Delete one file's row, by its owner and hash.
 pub(crate) const DELETE_UPLOADED_FILE_SQL: &str = r"
     DELETE FROM uploaded_activity_files
@@ -392,7 +600,7 @@ pub(crate) const DELETE_UPLOADED_FILE_SQL: &str = r"
 /// expansion. The body names its consts and types unqualified, so the
 /// invoking shell must `use` every one of them.
 macro_rules! impl_uploaded_activity_file_repository {
-    ($ty:ty) => {
+    ($ty:ty, $ids:ident) => {
         #[async_trait::async_trait]
         impl UploadedActivityFileRepository for $ty {
             async fn record_uploaded_file(&self, file: &UploadedFileWrite<'_>) -> AppResult<bool> {
@@ -561,6 +769,82 @@ macro_rules! impl_uploaded_activity_file_repository {
                     .await
                     .map_err(|e| AppError::database(format!("delete_uploaded_file: {e}")))?;
                 Ok(deleted.rows_affected() > 0)
+            }
+
+            async fn content_named_files(
+                &self,
+                holder: UploadHolder,
+                after: Option<&ContentNamedFile>,
+                limit: u32,
+            ) -> AppResult<Vec<ContentNamedFile>> {
+                let sql = holder.sql();
+                let query = match after {
+                    None => sqlx::query_as(sql.first_page).bind(i64::from(limit)),
+                    Some(cursor) => sqlx::query_as(sql.next_page)
+                        .bind(i64::from(limit))
+                        .bind(cursor.tenant_id.to_string())
+                        .bind(cursor.user_id.to_string())
+                        .bind(cursor.file_sha256.as_str()),
+                };
+                let rows: Vec<(String, String, String, Option<String>)> = query
+                    .fetch_all(self.pool())
+                    .await
+                    .map_err(|e| AppError::database(format!("content_named_files: {e}")))?;
+                rows.into_iter().map(content_named_file).collect()
+            }
+
+            async fn count_content_named(&self, holder: UploadHolder) -> AppResult<u64> {
+                let count: i64 = sqlx::query_scalar(holder.sql().count)
+                    .fetch_one(self.pool())
+                    .await
+                    .map_err(|e| AppError::database(format!("count_content_named: {e}")))?;
+                Ok(u64::try_from(count).unwrap_or(0))
+            }
+
+            async fn names_content_named(
+                &self,
+                holder: UploadHolder,
+                tenant_id: &TenantId,
+                user_id: Uuid,
+                file_sha256: &str,
+            ) -> AppResult<bool> {
+                let query = sqlx::query(holder.sql().names);
+                let query = if holder.text_ids() {
+                    query.bind(tenant_id.to_string()).bind(user_id.to_string())
+                } else {
+                    query
+                        .bind($ids::bind(tenant_id.as_uuid()))
+                        .bind($ids::bind(user_id))
+                };
+                let row = query
+                    .bind(file_sha256)
+                    .fetch_optional(self.pool())
+                    .await
+                    .map_err(|e| AppError::database(format!("names_content_named: {e}")))?;
+                Ok(row.is_some())
+            }
+
+            async fn mark_blob_keyed(
+                &self,
+                holder: UploadHolder,
+                tenant_id: &TenantId,
+                user_id: Uuid,
+                file_sha256: &str,
+            ) -> AppResult<u64> {
+                let query = sqlx::query(holder.sql().mark);
+                let query = if holder.text_ids() {
+                    query.bind(tenant_id.to_string()).bind(user_id.to_string())
+                } else {
+                    query
+                        .bind($ids::bind(tenant_id.as_uuid()))
+                        .bind($ids::bind(user_id))
+                };
+                let marked = query
+                    .bind(file_sha256)
+                    .execute(self.pool())
+                    .await
+                    .map_err(|e| AppError::database(format!("mark_blob_keyed: {e}")))?;
+                Ok(marked.rows_affected())
             }
         }
     };

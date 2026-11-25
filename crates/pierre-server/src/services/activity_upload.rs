@@ -13,7 +13,7 @@
 //! see it, through the activity store every provider's activities are kept
 //! in (`pierre_services::live_activities`). Each kept session's per-sample series is decoded once, here, and
 //! written to the one per-activity sample store (`activity_streams`,
-//! `origin = 'upload'`, the file's SHA-256 as `source_ref`, carnet#1219), which
+//! `origin = 'upload'`, the file's keyed blob name as `source_ref`, carnet#1219), which
 //! the series and route reads answer from
 //! (`pierre_providers::upload_provider`). The file is kept in the originals
 //! store (`pierre_providers::originals`: the deployment's blob store, with a
@@ -22,8 +22,11 @@
 //! activity uploaded before the store held uploads is read from it until the
 //! backfill ([`crate::services::upload_streams_backfill`]) writes its row.
 //!
-//! A session the athlete already holds is not written twice: the same file
-//! uploaded again names the same activity ids, and a workout a provider has
+//! Each session's id is the file's keyed base and the session's index
+//! (`upload-k<hex16>-<n>`, carnet#1701). A session the athlete already holds
+//! is not written twice: the same file uploaded again names the same
+//! activity ids, or the digest ids it had when uploaded before keyed ids
+//! (`<sha>-<n>`), which are looked up too; and a workout a provider has
 //! already synced is found by the session merger the Home list and the
 //! agent's reads merge copies with. A file all of whose sessions are already
 //! held is refused as a conflict; the error names the copy that holds the
@@ -39,6 +42,7 @@
 //! stored activities change, so either one drops the agent's cached lists and
 //! recomputes the training-load rollup the way a provider capture does.
 
+use std::iter;
 use std::sync::Arc;
 
 use bytes::Bytes;
@@ -127,21 +131,25 @@ pub async fn upload_activity_file(
         )));
     }
     let decoding = bytes.clone(); // Safe: a refcount bump, not a copy of the file
-    let (sessions, series, sha) = decode_bounded(move || {
+    let originals = Arc::clone(runtime.originals());
+    // Each session is named by the file's keyed base, never by its digest
+    // (carnet#1701): the base is a MAC of the athlete and the digest.
+    let (sessions, series, sha, base) = decode_bounded(move || {
         FitActivityFile::parse(&decoding).map(|file| {
             let sha = file_sha256(&decoding);
-            let sessions = file.activities(|index| upload_activity_id(&sha, index), UPLOAD);
+            let base = originals.upload_record_base(&tenant_id, user_id, &sha)?;
+            let sessions = file.activities(|index| upload_activity_id(&base, index), UPLOAD);
             let series = upload_session_series(&file, 0..file.session_count());
-            (sessions, series, sha)
+            Ok::<_, AppError>((sessions, series, sha, base))
         })
     })
     .await?
-    .map_err(|e| AppError::invalid_input(format!("the file is not a completed activity: {e}")))?;
+    .map_err(|e| AppError::invalid_input(format!("the file is not a completed activity: {e}")))??;
 
     let mut stored = Vec::with_capacity(sessions.len());
     let mut already_held = Vec::new();
     for session in sessions {
-        match held_copy(runtime, tenant_id, user_id, &session).await? {
+        match held_copy(runtime, tenant_id, user_id, &sha, &session).await? {
             Some(copy) => already_held.push(copy),
             None => stored.push(session),
         }
@@ -161,8 +169,12 @@ pub async fn upload_activity_file(
         .collect();
     let kept_series: Vec<_> = series
         .into_iter()
-        .filter(|(index, _)| kept.contains(&upload_activity_id(&sha, *index)))
+        .filter(|(index, _)| kept.contains(&upload_activity_id(&base, *index)))
         .collect();
+    let keyed_name = runtime
+        .originals()
+        .keyed_name(&tenant_id, user_id, &sha)?
+        .to_string();
     let repos = runtime.repos();
     let synced_at = Timestamp::now();
     runtime
@@ -173,7 +185,10 @@ pub async fn upload_activity_file(
         repos.activity_streams.as_ref(),
         &tenant_id,
         user_id,
-        UploadedFileIds::by_digest(&sha),
+        UploadedFileIds {
+            id_base: &base,
+            source_ref: &keyed_name,
+        },
         &kept_series,
         synced_at,
     )
@@ -298,24 +313,31 @@ async fn finish_file_delete(
 }
 
 /// The copy of `session` the athlete already holds in this tenant, if any:
-/// the same session from an earlier upload of the same file, or a copy of the
-/// same workout the session merger pairs it with.
+/// the same session from an earlier upload of the same file `sha` (under its
+/// keyed id, or under the digest id a file uploaded before keyed ids gave
+/// it), or a copy of the same workout the session merger pairs it with.
 async fn held_copy(
     runtime: &Arc<dyn ToolRuntime>,
     tenant_id: TenantId,
     user_id: Uuid,
+    sha: &str,
     session: &Activity,
 ) -> AppResult<Option<HeldCopy>> {
     let cache = &runtime.repos().activity_cache;
-    if cache
-        .get_cached_activity(user_id, &tenant_id, UPLOAD, session.id())
-        .await?
-        .is_some()
-    {
-        return Ok(Some(HeldCopy {
-            provider: UPLOAD.to_owned(),
-            id: session.id().to_owned(),
-        }));
+    let digest_id =
+        parse_upload_activity_id(session.id()).map(|id| upload_activity_id(sha, id.index()));
+    let ids = iter::once(session.id()).chain(digest_id.as_deref());
+    for id in ids {
+        if cache
+            .get_cached_activity(user_id, &tenant_id, UPLOAD, id)
+            .await?
+            .is_some()
+        {
+            return Ok(Some(HeldCopy {
+                provider: UPLOAD.to_owned(),
+                id: id.to_owned(),
+            }));
+        }
     }
     let window = Elapsed::hours(DUPLICATE_WINDOW_HOURS);
     let end = session.start_date()

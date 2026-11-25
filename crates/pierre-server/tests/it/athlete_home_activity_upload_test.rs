@@ -54,7 +54,7 @@ use pierre_mcp_server::routes::athlete_home::athlete_home_routes;
 use pierre_mcp_server::services::activity_upload::MAX_UPLOAD_BYTES;
 use pierre_mcp_server::services::retention_sweep_worker::retention_sweeper;
 use pierre_providers::originals::{keyed_upload_key, OriginalsStore};
-use pierre_providers::upload_provider::{file_sha256, UploadActivityId};
+use pierre_providers::upload_provider::{file_sha256, parse_upload_activity_id, UploadActivityId};
 use pierre_services::barrage_keys::memory_records;
 use pierre_test_support::fit::{bloated_file, course_file, FitWorkout};
 use pierre_tool_runtime::protocol::{
@@ -643,8 +643,10 @@ async fn the_file_stays_while_another_of_its_sessions_is_cached() {
     let athlete = seed_athlete(&resources, "upload-delete-multi").await;
     let row = uploaded_ride(&resources, &athlete).await;
     let id = row["id"].as_str().unwrap();
-    let (sha, _) = id.rsplit_once('-').unwrap();
-    let second_id = format!("{sha}-1");
+    let (base, _) = id.rsplit_once('-').unwrap();
+    let second_id = format!("{base}-1");
+    let sha = file_sha256(&FitWorkout::ride(yesterday_morning(), 600).encode());
+    let sha = sha.as_str();
     let second_session = ActivityBuilder::new(
         second_id.as_str(),
         "",
@@ -921,12 +923,20 @@ async fn an_upload_is_kept_in_the_blob_store_with_a_row_naming_it() {
     );
     assert_eq!(
         blobs
-            .get(&upload_key(&athlete, &sha))
+            .get(&keyed_key(&resources, &athlete, &sha))
             .await
             .unwrap()
             .as_deref(),
         Some(file.as_slice()),
-        "bug: the bytes live in the blob store under the upload key"
+        "bug: the bytes live in the blob store under the keyed upload name"
+    );
+    assert!(
+        blobs
+            .get(&upload_key(&athlete, &sha))
+            .await
+            .unwrap()
+            .is_none(),
+        "bug: a new upload is written under its content name"
     );
     let scope = Scope::new(athlete.tenant.as_uuid(), athlete.user_id);
     assert!(
@@ -965,7 +975,7 @@ async fn an_upload_is_kept_in_the_blob_store_with_a_row_naming_it() {
     );
     assert!(
         blobs
-            .get(&upload_key(&athlete, &sha))
+            .get(&keyed_key(&resources, &athlete, &sha))
             .await
             .unwrap()
             .is_none(),
@@ -1184,7 +1194,7 @@ async fn a_delete_that_failed_on_the_file_is_finished_by_its_retry() {
     assert_eq!(status, StatusCode::CREATED, "upload: {body}");
 
     blobs.failing_deletes.store(1, Ordering::SeqCst);
-    let id = format!("{sha}-0");
+    let id = body["activities"][0]["id"].as_str().unwrap().to_owned();
     let (status, _) = delete(&resources, &athlete.token, &id).await;
     assert!(
         status.is_server_error(),
@@ -1198,7 +1208,7 @@ async fn a_delete_that_failed_on_the_file_is_finished_by_its_retry() {
     );
     assert!(
         blobs
-            .get(&upload_key(&athlete, &sha))
+            .get(&keyed_key(&resources, &athlete, &sha))
             .await
             .unwrap()
             .is_none(),
@@ -1600,24 +1610,19 @@ async fn a_named_file_reads_and_deletes_under_both_names() {
         .await
         .unwrap();
     drop(lock);
+    assert_eq!(
+        blobs.get(&keyed).await.unwrap().as_deref(),
+        Some(png.as_slice()),
+        "bug: a named file was not kept under its keyed name"
+    );
     assert!(
         blobs
             .get(&upload_key(&athlete, &sha))
             .await
             .unwrap()
-            .is_some(),
-        "bug: a named file was not kept under its content name"
+            .is_none(),
+        "bug: a named file was written under its content name too"
     );
-
-    blobs
-        .put(
-            &keyed,
-            Bytes::from(png.clone()),
-            &BlobMeta::new("image/png"),
-        )
-        .await
-        .unwrap();
-    blobs.delete(&upload_key(&athlete, &sha)).await.unwrap();
     assert_eq!(
         originals
             .get_named_file(&athlete.tenant, athlete.user_id, &sha)
@@ -1627,6 +1632,34 @@ async fn a_named_file_reads_and_deletes_under_both_names() {
         Some(png.as_slice()),
         "bug: a keyed-named file does not read"
     );
+
+    // A file kept before keyed names, under its content name only.
+    blobs.delete(&keyed).await.unwrap();
+    blobs
+        .put(
+            &upload_key(&athlete, &sha),
+            Bytes::from(png.clone()),
+            &BlobMeta::new("image/png"),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        originals
+            .get_named_file(&athlete.tenant, athlete.user_id, &sha)
+            .await
+            .unwrap()
+            .as_deref(),
+        Some(png.as_slice()),
+        "bug: a content-named file does not read"
+    );
+    blobs
+        .put(
+            &keyed,
+            Bytes::from(png.clone()),
+            &BlobMeta::new("image/png"),
+        )
+        .await
+        .unwrap();
 
     blobs
         .put(
@@ -1735,5 +1768,198 @@ async fn concurrent_writes_of_one_file_end_consistent() {
         read.as_deref(),
         held.then_some(file.as_slice()),
         "bug: a write racing a delete left a row without its file, or a file without its row"
+    );
+}
+
+/// The `source_ref` the sample row of the athlete's uploaded activity `id`
+/// names.
+async fn stream_source(resources: &Arc<ServerContext>, athlete: &Athlete, id: &str) -> String {
+    const SQL: &str = "SELECT source_ref FROM activity_streams \
+         WHERE tenant_id = $1 AND CAST(user_id AS TEXT) = $2 AND provider = 'upload' \
+           AND activity_id = $3";
+    macro_rules! read {
+        ($pool:expr) => {
+            sqlx::query_scalar::<_, Option<String>>(SQL)
+                .bind(athlete.tenant.to_string())
+                .bind(athlete.user_id.to_string())
+                .bind(id)
+                .fetch_one($pool)
+                .await
+                .unwrap()
+        };
+    }
+    let source = match resources.agent.database.backend() {
+        DatabaseBackend::SQLite(sqlite) => read!(sqlite.pool()),
+        #[cfg(feature = "postgresql")]
+        DatabaseBackend::PostgreSQL(postgres) => read!(postgres.pool()),
+    };
+    source.expect("an uploaded activity's samples name their source")
+}
+
+/// A new upload names its activities by the file's keyed base, which its
+/// row records, and its samples by the keyed blob name: the digest is in
+/// neither (carnet#1701).
+#[tokio::test]
+async fn an_upload_names_its_activities_and_samples_by_keyed_ids() {
+    let resources = common::create_test_server_resources().await.unwrap();
+    let athlete = seed_athlete(&resources, "keyed-ids").await;
+    let file = FitWorkout::ride(yesterday_morning(), 600).encode();
+    let sha = file_sha256(&file);
+    let originals = &resources.common.originals;
+    let base = originals
+        .upload_record_base(&athlete.tenant, athlete.user_id, &sha)
+        .unwrap();
+
+    let row = uploaded_ride(&resources, &athlete).await;
+
+    let id = row["id"].as_str().unwrap();
+    assert_eq!(
+        id,
+        format!("{base}-0"),
+        "bug: the activity is not named by its keyed base"
+    );
+    assert!(
+        matches!(
+            parse_upload_activity_id(id),
+            Some(UploadActivityId::Keyed { index: 0, .. })
+        ),
+        "bug: {id} does not parse as a keyed upload id"
+    );
+    assert!(
+        !id.contains(&sha),
+        "bug: the activity id carries the file's digest"
+    );
+    assert_eq!(
+        resources
+            .common
+            .repos
+            .uploaded_activity_files
+            .file_of_record_base(&athlete.tenant, athlete.user_id, &base)
+            .await
+            .unwrap()
+            .as_deref(),
+        Some(sha.as_str()),
+        "bug: the row does not record the keyed base"
+    );
+    assert_eq!(
+        stream_source(&resources, &athlete, id).await,
+        keyed_key(&resources, &athlete, &sha).to_string(),
+        "bug: the samples do not name the keyed blob"
+    );
+    let stranger = seed_athlete(&resources, "keyed-ids-stranger").await;
+    assert_ne!(
+        originals
+            .upload_record_base(&stranger.tenant, stranger.user_id, &sha)
+            .unwrap(),
+        base,
+        "bug: two athletes' copies of one file share a keyed base"
+    );
+}
+
+/// A file uploaded before keyed ids, one of whose sessions was deleted, is
+/// uploaded again (amendment 2): a session still held under its digest id
+/// is found held, the deleted one is stored under its keyed id, and the row
+/// keeps naming the file under both shapes until its last session goes.
+#[tokio::test]
+async fn a_legacy_file_re_uploaded_keeps_its_held_session_and_keys_the_new_one() {
+    let resources = common::create_test_server_resources().await.unwrap();
+    let athlete = seed_athlete(&resources, "keyed-reupload").await;
+    let file = FitWorkout::ride(yesterday_morning(), 600).encode();
+    let sha = file_sha256(&file);
+    let repos = &resources.common.repos;
+    let size = u64::try_from(file.len()).unwrap();
+    repos
+        .uploaded_activity_files
+        .record_uploaded_file(&legacy_file(&athlete, &sha, size))
+        .await
+        .unwrap();
+    // Session `n` of the file, recorded `3n` hours after the first, so the
+    // merger never pairs two of them.
+    let held_session = |id: &str, n: i64| {
+        let start = yesterday_morning() + Elapsed::hours(3 * n);
+        ActivityBuilder::new(id, "", SportType::Ride, start, 600, UPLOAD).build()
+    };
+    // Session 0 is still held under its digest id: the upload is refused.
+    let digest_id = format!("{sha}-0");
+    repos
+        .activity_cache
+        .upsert_activities(
+            athlete.user_id,
+            &athlete.tenant,
+            UPLOAD,
+            &[held_session(&digest_id, 0)],
+        )
+        .await
+        .unwrap();
+    let (status, body) = upload(&resources, &athlete.token, file.clone()).await;
+    assert_eq!(
+        status,
+        StatusCode::CONFLICT,
+        "bug: a session held under its digest id is uploaded again: {body}"
+    );
+
+    // Session 0 deleted, the file's other session (1) still held under its
+    // digest id: the upload stores session 0 under its keyed id.
+    repos
+        .activity_cache
+        .delete_cached_activity(athlete.user_id, &athlete.tenant, UPLOAD, &digest_id)
+        .await
+        .unwrap();
+    let other_digest_id = format!("{sha}-1");
+    repos
+        .activity_cache
+        .upsert_activities(
+            athlete.user_id,
+            &athlete.tenant,
+            UPLOAD,
+            &[held_session(&other_digest_id, 1)],
+        )
+        .await
+        .unwrap();
+    let (status, body) = upload(&resources, &athlete.token, file).await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    let base = resources
+        .common
+        .originals
+        .upload_record_base(&athlete.tenant, athlete.user_id, &sha)
+        .unwrap();
+    let keyed_id = body["activities"][0]["id"].as_str().unwrap().to_owned();
+    assert_eq!(
+        keyed_id,
+        format!("{base}-0"),
+        "bug: the new session is not keyed"
+    );
+    assert_eq!(
+        repos
+            .uploaded_activity_files
+            .file_of_record_base(&athlete.tenant, athlete.user_id, &base)
+            .await
+            .unwrap()
+            .as_deref(),
+        Some(sha.as_str()),
+        "bug: the legacy row did not gain the keyed base"
+    );
+
+    let (status, body) = delete(&resources, &athlete.token, &keyed_id).await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+    assert!(
+        kept_file(
+            &resources,
+            &athlete,
+            &FitWorkout::ride(yesterday_morning(), 600).encode()
+        )
+        .await,
+        "bug: the file went while its digest-named session is cached"
+    );
+    let (status, body) = delete(&resources, &athlete.token, &other_digest_id).await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+    assert!(
+        !kept_file(
+            &resources,
+            &athlete,
+            &FitWorkout::ride(yesterday_morning(), 600).encode()
+        )
+        .await,
+        "bug: the file outlived its last session"
     );
 }

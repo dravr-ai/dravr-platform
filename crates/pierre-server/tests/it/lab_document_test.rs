@@ -42,10 +42,10 @@ use pierre_core::constants::oauth::providers::SENSITIVE_T2;
 use pierre_core::errors::ErrorCode;
 use pierre_core::models::TenantId;
 use pierre_database::backends::factory::DatabaseBackend;
-use pierre_database::repositories::UploadNameLock;
 use pierre_database::repositories::{
     ClinicalSelection, PurgeReason, RecordWindow, ReviewDecision, LAB_DOCUMENT_PROVIDER,
 };
+use pierre_database::repositories::{UploadHolder, UploadNameLock};
 use pierre_mcp_server::mcp::resources::{ServerContext, ServerContextOptions};
 use pierre_mcp_server::services::lab_documents::{delete_lab_document, upload_lab_document};
 use pierre_services::lab_document_model::LabReaderModel;
@@ -319,6 +319,7 @@ async fn a_scan_is_kept_unread_and_a_non_pdf_is_refused() {
     let resources = context(LabReaderModel::rules()).await;
     let athlete = seed_athlete(&resources, "lab-scan").await;
 
+    let sha = Sha256::of(&textless_pdf()).to_hex();
     let scan = upload_lab_document(&resources, athlete.tenant, athlete.user_id, textless_pdf())
         .await
         .unwrap();
@@ -327,6 +328,30 @@ async fn a_scan_is_kept_unread_and_a_non_pdf_is_refused() {
         "bug: a scan read as text: {scan:?}"
     );
     assert!(scan.records.is_empty(), "bug: a scan yielded records");
+    let repos = &resources.common.repos;
+    let sha = &sha;
+    assert!(
+        repos
+            .health_records
+            .find_lab_document_by_file(&athlete.tenant, athlete.user_id, sha)
+            .await
+            .unwrap()
+            .is_some(),
+        "bug: the scan's row is not stored"
+    );
+    assert!(
+        !repos
+            .uploaded_activity_files
+            .names_content_named(
+                UploadHolder::LabDocuments,
+                &athlete.tenant,
+                athlete.user_id,
+                sha
+            )
+            .await
+            .unwrap(),
+        "bug: a new report's row says it is kept under its content name (carnet#1701)"
+    );
 
     let refused = upload_lab_document(
         &resources,

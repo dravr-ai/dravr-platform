@@ -22,7 +22,6 @@ use axum::response::{IntoResponse, Response};
 use axum::{Extension, Json};
 use bytes::Bytes;
 use dravr_barrage::blob::BlobKey;
-use dravr_barrage::digest::Sha256;
 use dravr_barrage::store::{PageReq, RecordQuery};
 use dravr_barrage::Scope;
 use dravr_tronc::dates::{Elapsed, Timestamp};
@@ -1149,13 +1148,15 @@ async fn reset_erases_the_activity_stores_provider_reads_where_imports_do_not_ru
 async fn upload_ride(resources: &ServerContext, athlete: &Athlete, days_ago: i64) -> BlobKey {
     let upload = FitWorkout::ride(Timestamp::now() - Elapsed::days(days_ago), 600).encode();
     let sha = file_sha256(&upload);
-    resources
-        .common
-        .originals
+    let originals = &resources.common.originals;
+    originals
         .put_upload(&athlete.tenant, athlete.user_id, &sha, Bytes::from(upload))
         .await
         .expect("the upload is kept");
-    BlobKey::upload(scope_of(athlete), Sha256::parse_hex(&sha).expect("a hash"))
+    // The name the upload is written under (carnet#1701).
+    originals
+        .keyed_name(&athlete.tenant, athlete.user_id, &sha)
+        .expect("a keyed name")
 }
 
 /// The reset erases the imported history and uploads itself, before its wipe,

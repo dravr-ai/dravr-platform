@@ -443,7 +443,8 @@ pub use tenants::*;
 pub use tool_selection::*;
 pub use training_plans::*;
 pub use uploaded_activity_files::{
-    UploadNameLock, UploadedActivityFileRepository, UploadedFileWrite, UPLOAD_ORIGIN,
+    ContentNamedFile, UploadHolder, UploadNameLock, UploadedActivityFileRepository,
+    UploadedFileWrite, UPLOAD_ORIGIN,
 };
 pub use usage::*;
 pub use use_case_exposures::{UseCaseExposure, UseCaseExposureRepository};

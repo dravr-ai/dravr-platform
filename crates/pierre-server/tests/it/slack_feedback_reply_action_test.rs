@@ -119,6 +119,7 @@ mod slack_feedback_reply_action {
                 locale: None,
                 about: None,
                 image: None,
+                image_keyed: false,
                 at: Timestamp::now(),
             })
             .await

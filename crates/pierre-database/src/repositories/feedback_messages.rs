@@ -130,6 +130,9 @@ pub struct NewFeedbackMessage<'req> {
     pub about: Option<&'req FeedbackAbout>,
     /// The screenshot attached to it, already kept in the blob store.
     pub image: Option<&'req FeedbackImage>,
+    /// Whether the screenshot is kept under its keyed name
+    /// (`OriginalsStore::put_named_file` writes only that one, carnet#1701).
+    pub image_keyed: bool,
     /// When it was sent.
     pub at: Timestamp,
 }
@@ -196,9 +199,9 @@ pub(crate) const INSERT_FEEDBACK_MESSAGE_SQL: &str = r"
             INSERT INTO feedback_messages (
                 id, tenant_id, user_id, author, replier_slack_user_id, body, screen,
                 app_version, locale, about_conversation_id, about_message_id,
-                image_sha256, image_media_type, created_at_ms
+                image_sha256, image_media_type, created_at_ms, blob_keyed
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
             ";
 
 /// Newest first so `LIMIT` keeps the latest window; the caller reverses it.
@@ -323,6 +326,7 @@ macro_rules! impl_feedback_message_repository {
                     .bind(message.image.map(|i| i.sha256.as_str()))
                     .bind(message.image.map(|i| i.media_type.as_str()))
                     .bind(message.at.epoch_millis())
+                    .bind(message.image.is_some() && message.image_keyed)
                     .execute(self.pool())
                     .await
                     .map_err(|e| {

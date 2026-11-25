@@ -51,12 +51,14 @@ use pierre_core::models::{
 use pierre_database::backends::factory::DatabaseBackend;
 use pierre_database::repositories::{
     email_identity_hash, provider_identity_hash, verify_receipt_chain, AccountDeletion,
-    AccountDeletionPlan, AccountDeletionRepository, DeletionActor, DeletionReceipt, PlannedBackend,
-    ReceiptAnchor, TombstoneKind, GENESIS_HASH,
+    AccountDeletionPlan, AccountDeletionRepository, DeletionActor, DeletionReceipt, FeedbackImage,
+    FeedbackWriter, LabDocumentWrite, NewFeedbackMessage, PlannedBackend, ReceiptAnchor,
+    TombstoneKind, UploadHolder, UploadedFileWrite, GENESIS_HASH, UPLOAD_ORIGIN,
 };
 use pierre_database::RepositoryRegistry;
 use pierre_mcp_server::constants::system_config::STARTER_MONTHLY_LIMIT;
 use pierre_mcp_server::mcp::resources::ServerContext;
+use pierre_providers::originals::OriginalsStore;
 use pierre_routes_admin::handlers::deletion_ledger::{
     handle_list_deletion_receipts, ReceiptPageQuery,
 };
@@ -69,7 +71,9 @@ use pierre_services::barrage_keys::{
 };
 use pierre_services::import_tombstones::clear_by_admin;
 use pierre_services::provider_revocation::{DisconnectReason, RevocationOutcome};
-use pierre_services::record_log_worker::{GrantReceiptOutbox, KeyedNamesPage, RecordLogWorker};
+use pierre_services::record_log_worker::{
+    GrantReceiptOutbox, KeyedNameStores, KeyedNamesPage, RecordLogWorker, UploadNamesPage,
+};
 use pierre_services::user_removal::{
     remove_user, ProviderDisconnector, RemovalReport, UserRemoval,
 };
@@ -79,6 +83,7 @@ use ring::signature::{UnparsedPublicKey, ED25519};
 use secrecy::SecretString;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
+use tokio::time;
 use uuid::Uuid;
 
 use axum::body::to_bytes;
@@ -1497,11 +1502,7 @@ async fn the_worker_renames_content_named_originals_and_reports_what_remains() {
             issuer_url: "https://api.dravr.test".to_owned(),
         },
         None,
-        Some(BarrageStores {
-            blobs: blobs.clone(),
-            records: Arc::clone(&records),
-            jobs: Arc::new(MemoryImportJobStore::new()),
-        }),
+        Some(rename_stores(&resources, blobs.clone(), &records)),
     );
 
     let tick = worker.run().await.unwrap();
@@ -1593,11 +1594,11 @@ async fn the_keyed_name_backfill_resumes_across_ticks_and_restarts_after_a_sweep
             issuer_url: "https://api.dravr.test".to_owned(),
         },
         None,
-        Some(BarrageStores {
-            blobs: Arc::new(MemoryBlobStore::new()),
-            records: Arc::clone(&records),
-            jobs: Arc::new(MemoryImportJobStore::new()),
-        }),
+        Some(rename_stores(
+            &resources,
+            Arc::new(MemoryBlobStore::new()),
+            &records,
+        )),
     );
 
     let first = worker.run().await.unwrap().keyed_names;
@@ -1627,6 +1628,408 @@ async fn the_keyed_name_backfill_resumes_across_ticks_and_restarts_after_a_sweep
         third, first,
         "bug: the tick after a finished sweep does not start a new one"
     );
+}
+
+// ============================================================================
+// Keyed names of uploaded files (carnet#1701)
+// ============================================================================
+
+/// The content name (`upload/<sha256>`) the athlete's upload `bytes` was
+/// kept under before keyed names, with the bytes put there.
+async fn content_named_upload(
+    blobs: &Arc<MemoryBlobStore>,
+    tenant_id: &TenantId,
+    user_id: Uuid,
+    bytes: &'static [u8],
+) -> String {
+    let digest = BarrageSha256::of(bytes);
+    blobs
+        .put(
+            &BlobKey::upload(Scope::new(tenant_id.as_uuid(), user_id), digest),
+            Bytes::from_static(bytes),
+            &BlobMeta::new("application/octet-stream"),
+        )
+        .await
+        .unwrap();
+    digest.to_hex()
+}
+
+/// The row of an activity file uploaded before keyed names.
+async fn legacy_upload_row(
+    repos: &RepositoryRegistry,
+    tenant_id: &TenantId,
+    user_id: Uuid,
+    sha: &str,
+) {
+    repos
+        .uploaded_activity_files
+        .record_uploaded_file(&UploadedFileWrite {
+            tenant_id,
+            user_id,
+            file_sha256: sha,
+            byte_size: 4,
+            origin: UPLOAD_ORIGIN,
+            record_base: None,
+            blob_keyed: false,
+        })
+        .await
+        .unwrap();
+}
+
+/// A worker renaming in `blobs`, with no signer.
+fn renaming_worker(
+    resources: &ServerContext,
+    blobs: Arc<MemoryBlobStore>,
+    records: &Arc<dyn ActivityRecordStore>,
+) -> RecordLogWorker {
+    let repos = &resources.common.repos;
+    RecordLogWorker::new(
+        Arc::clone(records),
+        Arc::clone(&repos.import_tombstones),
+        Arc::clone(&repos.account_deletion),
+        Arc::clone(&repos.users),
+        GrantReceiptOutbox {
+            events: Arc::clone(&repos.oauth_grant_events),
+            issuer_url: "https://api.dravr.test".to_owned(),
+        },
+        None,
+        Some(rename_stores(resources, blobs, records)),
+    )
+}
+
+/// The worker copies each uploaded file still named by its content — an
+/// activity file, a screenshot two feedback messages share, a lab report —
+/// to its keyed name, one table a tick, marks every row naming it, keeps the
+/// content name, counts a file neither name holds, and ends the sweep
+/// reporting it as what remains.
+#[tokio::test]
+async fn the_worker_copies_content_named_uploads_to_their_keyed_names() {
+    let resources = create_test_server_resources().await.unwrap();
+    let repos = &resources.common.repos;
+    let (user_id, tenant_id, _) = seed_athlete(repos, "upload-names").await;
+    let records: Arc<dyn ActivityRecordStore> = Arc::new(memory_records());
+    let blobs = Arc::new(MemoryBlobStore::new());
+    let ride = content_named_upload(&blobs, &tenant_id, user_id, b"a ride uploaded before").await;
+    legacy_upload_row(repos, &tenant_id, user_id, &ride).await;
+    let lost = BarrageSha256::of(b"bytes no store holds").to_hex();
+    legacy_upload_row(repos, &tenant_id, user_id, &lost).await;
+    let shot = content_named_upload(&blobs, &tenant_id, user_id, b"a screenshot").await;
+    let image = FeedbackImage {
+        sha256: shot.clone(),
+        media_type: "image/png".to_owned(),
+    };
+    for body in ["first", "second"] {
+        repos
+            .feedback_messages
+            .insert_feedback_message(&NewFeedbackMessage {
+                tenant_id,
+                user_id,
+                writer: FeedbackWriter::Athlete,
+                body,
+                screen: None,
+                app_version: None,
+                locale: None,
+                about: None,
+                image: Some(&image),
+                image_keyed: false,
+                at: Timestamp::now(),
+            })
+            .await
+            .unwrap();
+    }
+    let lab = content_named_upload(&blobs, &tenant_id, user_id, b"%PDF a lab report").await;
+    repos
+        .health_records
+        .insert_lab_document(
+            &tenant_id,
+            user_id,
+            &LabDocumentWrite {
+                file_sha256: lab.clone(),
+                size_bytes: 17,
+                pages: 1,
+                status: "no_text".to_owned(),
+                engine: None,
+                flagged_lines: 0,
+                skipped: 0,
+                dropped: 0,
+                model_failure: None,
+                received_at: Timestamp::now(),
+                blob_keyed: false,
+            },
+        )
+        .await
+        .unwrap()
+        .expect("the lab document is new");
+    let worker = renaming_worker(&resources, blobs.clone(), &records);
+
+    let mut pages = Vec::new();
+    for _ in UploadHolder::ALL {
+        pages.push(
+            worker
+                .run()
+                .await
+                .unwrap()
+                .upload_names
+                .expect("a blob store copies uploads"),
+        );
+    }
+
+    assert_eq!(
+        pages,
+        vec![
+            UploadNamesPage {
+                holder: UploadHolder::ActivityFiles,
+                copied: 1,
+                unreadable: 1,
+                remaining: None,
+            },
+            UploadNamesPage {
+                holder: UploadHolder::FeedbackImages,
+                copied: 1,
+                unreadable: 0,
+                remaining: None,
+            },
+            UploadNamesPage {
+                holder: UploadHolder::LabDocuments,
+                copied: 1,
+                unreadable: 0,
+                remaining: Some(1),
+            },
+        ],
+        "bug: the sweep does not copy one table a tick and report the unreadable file as what remains"
+    );
+    let uploads = &rename_stores(&resources, blobs.clone(), &records).uploads;
+    for (sha, holder) in [
+        (&ride, UploadHolder::ActivityFiles),
+        (&shot, UploadHolder::FeedbackImages),
+        (&lab, UploadHolder::LabDocuments),
+    ] {
+        let keyed = uploads.keyed_name(&tenant_id, user_id, sha).unwrap();
+        let held = blobs
+            .get(&keyed)
+            .await
+            .unwrap()
+            .expect("the keyed copy is kept");
+        assert_eq!(
+            BarrageSha256::of(&held).to_hex(),
+            *sha,
+            "bug: the keyed copy of a {} file is not its bytes",
+            holder.table()
+        );
+        let content = BlobKey::upload(
+            Scope::new(tenant_id.as_uuid(), user_id),
+            BarrageSha256::parse_hex(sha).unwrap(),
+        );
+        assert!(
+            blobs.get(&content).await.unwrap().is_some(),
+            "bug: the copy deleted the content name, which stays until carnet#1550"
+        );
+        assert!(
+            !repos
+                .uploaded_activity_files
+                .names_content_named(holder, &tenant_id, user_id, sha)
+                .await
+                .unwrap(),
+            "bug: a row of {} still names the copied file as content-named",
+            holder.table()
+        );
+    }
+    assert_eq!(
+        repos
+            .uploaded_activity_files
+            .count_content_named(UploadHolder::FeedbackImages)
+            .await
+            .unwrap(),
+        0,
+        "bug: the second message sharing the screenshot was not marked"
+    );
+}
+
+/// A file deleted while the worker waits on its lease is not copied: the
+/// copy checks, under the lease, that a row still names it, so no keyed
+/// copy outlives the delete.
+#[tokio::test]
+async fn the_worker_copies_nothing_for_a_file_deleted_under_its_lease() {
+    let resources = create_test_server_resources().await.unwrap();
+    let repos = &resources.common.repos;
+    let (user_id, tenant_id, _) = seed_athlete(repos, "upload-names-delete").await;
+    let records: Arc<dyn ActivityRecordStore> = Arc::new(memory_records());
+    let blobs = Arc::new(MemoryBlobStore::new());
+    let sha = content_named_upload(&blobs, &tenant_id, user_id, b"a ride deleted mid-copy").await;
+    legacy_upload_row(repos, &tenant_id, user_id, &sha).await;
+    let uploads = rename_stores(&resources, blobs.clone(), &records).uploads;
+    let lock = uploads.lock_file(&tenant_id, user_id, &sha).await.unwrap();
+    let worker = Arc::new(renaming_worker(&resources, blobs.clone(), &records));
+    let tick = tokio::spawn({
+        let worker = Arc::clone(&worker);
+        async move { worker.run().await }
+    });
+    time::sleep(StdDuration::from_millis(300)).await;
+    assert!(
+        !tick.is_finished(),
+        "bug: the copy did not wait on the file's lease"
+    );
+
+    // The delete, as `delete_upload` makes it under the lease: the bytes,
+    // then the row.
+    blobs
+        .delete(&BlobKey::upload(
+            Scope::new(tenant_id.as_uuid(), user_id),
+            BarrageSha256::parse_hex(&sha).unwrap(),
+        ))
+        .await
+        .unwrap();
+    assert!(
+        repos
+            .uploaded_activity_files
+            .delete_uploaded_file(&tenant_id, user_id, &sha)
+            .await
+            .unwrap(),
+        "bug: the legacy upload's row was not there to delete"
+    );
+    drop(lock);
+    let page = tick.await.unwrap().unwrap().upload_names.unwrap();
+
+    assert_eq!(
+        (page.copied, page.unreadable),
+        (0, 0),
+        "bug: a file deleted under its lease was copied or counted"
+    );
+    assert!(
+        blobs
+            .get(&uploads.keyed_name(&tenant_id, user_id, &sha).unwrap())
+            .await
+            .unwrap()
+            .is_none(),
+        "bug: a keyed copy outlives the delete of its file"
+    );
+}
+
+/// A re-upload racing the copy of the same file ends consistent: whichever
+/// holds the lease first, the file is kept under its keyed name, its row
+/// marked, and nothing is left to copy.
+#[tokio::test]
+async fn a_re_upload_racing_the_copy_ends_keyed() {
+    let resources = create_test_server_resources().await.unwrap();
+    let repos = &resources.common.repos;
+    let (user_id, tenant_id, _) = seed_athlete(repos, "upload-names-reupload").await;
+    let records: Arc<dyn ActivityRecordStore> = Arc::new(memory_records());
+    let blobs = Arc::new(MemoryBlobStore::new());
+    let bytes: &'static [u8] = b"a ride uploaded twice";
+    let sha = content_named_upload(&blobs, &tenant_id, user_id, bytes).await;
+    legacy_upload_row(repos, &tenant_id, user_id, &sha).await;
+    let uploads = rename_stores(&resources, blobs.clone(), &records).uploads;
+    let lock = uploads.lock_file(&tenant_id, user_id, &sha).await.unwrap();
+    let worker = Arc::new(renaming_worker(&resources, blobs.clone(), &records));
+    let tick = tokio::spawn({
+        let worker = Arc::clone(&worker);
+        async move { worker.run().await }
+    });
+    let reupload = tokio::spawn({
+        let uploads = Arc::clone(&uploads);
+        let sha = sha.clone();
+        async move {
+            uploads
+                .put_upload(&tenant_id, user_id, &sha, Bytes::from_static(bytes))
+                .await
+        }
+    });
+    time::sleep(StdDuration::from_millis(300)).await;
+    drop(lock);
+    tick.await.unwrap().unwrap();
+    assert!(
+        !reupload.await.unwrap().unwrap(),
+        "bug: the re-upload of a held file is new to the athlete"
+    );
+
+    let keyed = blobs
+        .get(&uploads.keyed_name(&tenant_id, user_id, &sha).unwrap())
+        .await
+        .unwrap()
+        .expect("the keyed copy is kept");
+    assert_eq!(keyed.as_ref(), bytes, "bug: the keyed copy is not the file");
+    assert_eq!(
+        repos
+            .uploaded_activity_files
+            .count_content_named(UploadHolder::ActivityFiles)
+            .await
+            .unwrap(),
+        0,
+        "bug: the row still says the file is content-named"
+    );
+}
+
+/// The backfill's page reads every content-named file of every athlete
+/// exactly once when it pages one file at a time past its cursor, and its
+/// last page is empty: the keyset cursor neither repeats nor skips a file.
+#[tokio::test]
+async fn the_content_named_page_walks_every_scope_past_its_cursor() {
+    let resources = create_test_server_resources().await.unwrap();
+    let repos = &resources.common.repos;
+    let (first_user, first_tenant, _) = seed_athlete(repos, "upload-names-page-a").await;
+    let (second_user, second_tenant, _) = seed_athlete(repos, "upload-names-page-b").await;
+    let mut expected = Vec::new();
+    for (tenant_id, user_id, bytes) in [
+        (&first_tenant, first_user, b"first ride".as_slice()),
+        (&first_tenant, first_user, b"second ride".as_slice()),
+        (
+            &second_tenant,
+            second_user,
+            b"another athlete's ride".as_slice(),
+        ),
+    ] {
+        let sha = BarrageSha256::of(bytes).to_hex();
+        legacy_upload_row(repos, tenant_id, user_id, &sha).await;
+        expected.push((tenant_id.to_string(), user_id, sha));
+    }
+
+    let mut seen = Vec::new();
+    let mut cursor = None;
+    for _ in 0..=expected.len() {
+        let page = repos
+            .uploaded_activity_files
+            .content_named_files(UploadHolder::ActivityFiles, cursor.as_ref(), 1)
+            .await
+            .unwrap();
+        let Some(file) = page.last().cloned() else {
+            break;
+        };
+        assert_eq!(page.len(), 1, "bug: a page of one returned {page:?}");
+        seen.push((
+            file.tenant_id.to_string(),
+            file.user_id,
+            file.file_sha256.clone(),
+        ));
+        cursor = Some(file);
+    }
+
+    expected.sort();
+    seen.sort();
+    assert_eq!(
+        seen, expected,
+        "bug: paging past the cursor repeated, skipped or crossed out of the content-named files"
+    );
+}
+
+/// The stores the worker renames in: `records`' originals and the
+/// context's uploaded files, both over `blobs`.
+fn rename_stores(
+    resources: &ServerContext,
+    blobs: Arc<dyn BlobStore>,
+    records: &Arc<dyn ActivityRecordStore>,
+) -> KeyedNameStores {
+    KeyedNameStores {
+        originals: BarrageStores {
+            blobs: Arc::clone(&blobs),
+            records: Arc::clone(records),
+            jobs: Arc::new(MemoryImportJobStore::new()),
+        },
+        uploads: Arc::new(OriginalsStore::new(
+            Ok(blobs),
+            Arc::clone(records),
+            Arc::clone(&resources.common.repos.uploaded_activity_files),
+        )),
+    }
 }
 
 /// One archive ride of `scope`.

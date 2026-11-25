@@ -47,7 +47,7 @@ use std::time::Duration;
 use bytes::Bytes;
 use dravr_barrage::digest::Sha256;
 use dravr_barrage::import::ingest_reader::{DocumentReading, LabDocument, LabDocumentReader};
-use dravr_barrage::Tier;
+use dravr_barrage::{Scope, Tier};
 use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{ConversationTurnId, DataSource, DeviceType, TenantId};
@@ -434,8 +434,11 @@ async fn read_pages(
         sha256,
         received,
     };
+    // Its records are keyed for the athlete, under the Index key the files
+    // and the activity records share.
+    let scope = Scope::new(tenant_id.as_uuid(), user_id);
     reader
-        .read(&document)
+        .read(&document, resources.common.originals.keyed(), &scope)
         .await
         .map(Some)
         .map_err(|e| AppError::internal(format!("lab reader: {e}")))
@@ -465,6 +468,8 @@ fn document_write(
         dropped: reading.map_or(0, |reading| reading.dropped),
         model_failure: reading.and_then(failure_name),
         received_at,
+        // The PDF is put under its keyed name only (`put_named_file`).
+        blob_keyed: true,
     }
 }
 

@@ -34,12 +34,18 @@
 //!
 //! # Keyed names (carnet#1701)
 //!
-//! A file is kept under its keyed name ([`BlobKey::keyed_upload`], a MAC of
-//! the athlete and the digest under the Index key) or, kept before that name
-//! was written, under its content name. Every row naming a file keeps its
+//! A file is written under its keyed name only ([`BlobKey::keyed_upload`], a
+//! MAC of the athlete and the digest under the Index key), and its row says
+//! so (`blob_keyed`). A file kept before that name was written is under its
+//! content name until the `record_log` worker copies it
+//! ([`OriginalsStore::copy_to_keyed_name`]). Every row naming a file keeps its
 //! digest, so every reader derives both names: a read tries the keyed name,
 //! then the content name, and checks the bytes against the digest; a delete
 //! removes both. The content names stay until carnet#1550.
+//!
+//! An uploaded file's activities are named by its keyed base
+//! ([`OriginalsStore::upload_record_base`], `upload-k<hex16>`), which its row
+//! records; one uploaded before keeps the ids its digest names.
 //!
 //! The write, the delete and the keyed-name copy of one file each run under
 //! that file's lease ([`OriginalsStore::lock_file`]), held across the bytes
@@ -61,22 +67,52 @@ use std::sync::Arc;
 use bytes::Bytes;
 use dravr_barrage::blob::{BlobKey, BlobMeta, BlobPrefix, BlobStore};
 use dravr_barrage::digest::Sha256;
+use dravr_barrage::keyed::{self, Keyed, KeyedDomain};
 use dravr_barrage::store::ActivityRecordStore;
 use dravr_barrage::{BarrageError, Scope, UserId};
 use pierre_database::repositories::{
-    UploadNameLock, UploadedActivityFileRepository, UploadedFileWrite, UPLOAD_ORIGIN,
+    ContentNamedFile, UploadHolder, UploadNameLock, UploadedActivityFileRepository,
+    UploadedFileWrite, UPLOAD_ORIGIN,
 };
+use tracing::warn;
 use uuid::Uuid;
 
 use crate::errors::{AppError, AppResult};
 use crate::models::TenantId;
-use crate::upload_provider::UploadActivityId;
+use crate::upload_provider::{UploadActivityId, UPLOAD_ID_PREFIX};
 
 /// The media type an uploaded activity file is stored with.
 const FIT_MEDIA_TYPE: &str = "application/vnd.ant.fit";
 
+/// The media type a file whose row records none is copied with.
+const UNTYPED_MEDIA_TYPE: &str = "application/octet-stream";
+
 /// The media type an uploaded lab report is stored with.
 pub const LAB_DOCUMENT_MEDIA_TYPE: &str = "application/pdf";
+
+/// What one page of the keyed-name copy of uploaded files did
+/// ([`OriginalsStore::rename_uploads_page`]).
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct UploadRenamePage {
+    /// Files copied to their keyed name, their rows marked.
+    pub copied: u64,
+    /// Files whose bytes neither name holds, or whose copy failed: left as
+    /// they are, the cursor past them.
+    pub unreadable: u64,
+    /// Where the next page starts; `None` once the holder's table is swept.
+    pub next: Option<ContentNamedFile>,
+}
+
+/// What the keyed-name copy of one file did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum KeyedCopy {
+    /// Copied, and every row naming it marked.
+    Copied,
+    /// No content-named row names it any more: deleted, or marked meanwhile.
+    Gone,
+    /// Neither name holds its bytes.
+    Unreadable,
+}
 
 /// The files athletes uploaded, over the blob store and the table naming them.
 pub struct OriginalsStore {
@@ -115,6 +151,56 @@ impl OriginalsStore {
             records,
             files,
         }
+    }
+
+    /// The Index key the files and the records are keyed under: what a lab
+    /// reading keys its records' ids with.
+    #[must_use]
+    pub fn keyed(&self) -> &dyn Keyed {
+        self.records.keyed()
+    }
+
+    /// The keyed base of the activities the athlete's file `file_sha256`
+    /// becomes in this tenant: `upload-k<hex16>`, a MAC of the athlete and
+    /// the digest under the Index key ([`keyed::keyed_id`], `UploadRecordId`), so
+    /// the id says nothing of the bytes and never moves when the key rotates.
+    ///
+    /// # Errors
+    ///
+    /// [`AppError::invalid_input`] when the hash is not 64 lowercase hex
+    /// characters; an internal error when the Index key fails.
+    pub fn upload_record_base(
+        &self,
+        tenant_id: &TenantId,
+        user_id: Uuid,
+        file_sha256: &str,
+    ) -> AppResult<String> {
+        upload_key(tenant_id, user_id, file_sha256)?;
+        keyed::keyed_id(
+            self.keyed(),
+            KeyedDomain::UploadRecordId,
+            UPLOAD_ID_PREFIX,
+            &Scope::new(tenant_id.as_uuid(), user_id),
+            file_sha256,
+        )
+        .map_err(|e| AppError::internal(format!("keyed upload id: {e}")))
+    }
+
+    /// The keyed name of the athlete's file `file_sha256` in this tenant
+    /// ([`keyed_upload_key`]): where it is written, and what a sample row
+    /// decoded from it names as its source.
+    ///
+    /// # Errors
+    ///
+    /// [`AppError::invalid_input`] when the hash is not 64 hex characters; an
+    /// internal error when the Index key fails.
+    pub fn keyed_name(
+        &self,
+        tenant_id: &TenantId,
+        user_id: Uuid,
+        file_sha256: &str,
+    ) -> AppResult<BlobKey> {
+        keyed_upload_key(self.records.as_ref(), tenant_id, user_id, file_sha256)
     }
 
     /// Wait for, then hold, the lock on the athlete's file `file_sha256` in
@@ -231,9 +317,11 @@ impl OriginalsStore {
         })
     }
 
-    /// Keep the file `file_sha256` the athlete uploaded in this tenant.
-    /// Returns `true` when it was new to them, `false` when they already
-    /// held it.
+    /// Keep the file `file_sha256` the athlete uploaded in this tenant, under
+    /// its keyed name, its row recording that and its keyed base
+    /// ([`Self::upload_record_base`]). Returns `true` when it was new to them,
+    /// `false` when they already held it: a row kept before keeps its digest
+    /// ids and gains the keyed base and the keyed name beside them.
     ///
     /// # Errors
     ///
@@ -250,17 +338,11 @@ impl OriginalsStore {
         bytes: Bytes,
     ) -> AppResult<bool> {
         let blobs = self.blobs()?;
+        let record_base = self.upload_record_base(tenant_id, user_id, file_sha256)?;
+        let key = self.keyed_name(tenant_id, user_id, file_sha256)?;
         let lock = self.lock_file(tenant_id, user_id, file_sha256).await?;
         let size = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
-        put_verified(
-            blobs,
-            tenant_id,
-            user_id,
-            file_sha256,
-            FIT_MEDIA_TYPE,
-            bytes,
-        )
-        .await?;
+        put_verified(blobs, &key, file_sha256, FIT_MEDIA_TYPE, bytes).await?;
         self.files.fence_upload_name(&lock).await?;
         let recorded = self
             .files
@@ -270,8 +352,8 @@ impl OriginalsStore {
                 file_sha256,
                 byte_size: size,
                 origin: UPLOAD_ORIGIN,
-                record_base: None,
-                blob_keyed: false,
+                record_base: Some(&record_base),
+                blob_keyed: true,
             })
             .await;
         drop(lock);
@@ -345,9 +427,9 @@ impl OriginalsStore {
 
     /// Keep the locked file, one the athlete uploaded that its own table's
     /// row names — a screenshot attached to a feedback message
-    /// (`feedback_messages`), a lab report (`lab_documents`) — under the
-    /// upload key its digest names. The caller writes that row once this
-    /// returns, still holding the lock.
+    /// (`feedback_messages`), a lab report (`lab_documents`) — under its
+    /// keyed name. The caller writes that row once this returns, still
+    /// holding the lock, with `blob_keyed` set.
     ///
     /// # Errors
     ///
@@ -361,15 +443,8 @@ impl OriginalsStore {
         media_type: &str,
         bytes: Bytes,
     ) -> AppResult<()> {
-        put_verified(
-            self.blobs()?,
-            lock.tenant_id(),
-            lock.user_id(),
-            lock.file_sha256(),
-            media_type,
-            bytes,
-        )
-        .await?;
+        let key = self.keyed_name(lock.tenant_id(), lock.user_id(), lock.file_sha256())?;
+        put_verified(self.blobs()?, &key, lock.file_sha256(), media_type, bytes).await?;
         self.files.fence_upload_name(lock).await
     }
 
@@ -407,6 +482,101 @@ impl OriginalsStore {
         self.files.fence_upload_name(lock).await
     }
 
+    /// Copy one page of the files `holder` names under their content name
+    /// to their keyed name, after `after`, in every scope: the keyed-name
+    /// backfill the `record_log` worker runs (carnet#1701). It never deletes:
+    /// the content name stays until carnet#1550.
+    ///
+    /// A file whose copy fails is counted unreadable and logged, so one file
+    /// never holds the sweep.
+    ///
+    /// # Errors
+    ///
+    /// [`AppError::resource_unavailable`] when no blob store is placed here;
+    /// a database error when the page cannot be read.
+    pub async fn rename_uploads_page(
+        &self,
+        holder: UploadHolder,
+        after: Option<&ContentNamedFile>,
+        limit: u32,
+    ) -> AppResult<UploadRenamePage> {
+        self.blobs()?;
+        let files = self.files.content_named_files(holder, after, limit).await?;
+        let mut page = UploadRenamePage::default();
+        for file in &files {
+            match self.copy_to_keyed_name(holder, file).await {
+                Ok(KeyedCopy::Copied) => page.copied += 1,
+                Ok(KeyedCopy::Gone) => {}
+                Ok(KeyedCopy::Unreadable) => page.unreadable += 1,
+                Err(e) => {
+                    page.unreadable += 1;
+                    warn!(
+                        table = holder.table(),
+                        tenant_id = %file.tenant_id,
+                        user_id = %file.user_id,
+                        error = %e,
+                        "uploaded file not copied to its keyed name"
+                    );
+                }
+            }
+        }
+        if u32::try_from(files.len()).is_ok_and(|read| read >= limit) {
+            page.next = files.last().cloned();
+        }
+        Ok(page)
+    }
+
+    /// Copy the content-named file `file` that `holder` names to its keyed
+    /// name, under the file's lease: only while a row still names it
+    /// unrenamed, so a copy never outlives a delete. The bytes are checked
+    /// against the digest before the copy, and every row naming the file is
+    /// marked once its lease is fenced.
+    async fn copy_to_keyed_name(
+        &self,
+        holder: UploadHolder,
+        file: &ContentNamedFile,
+    ) -> AppResult<KeyedCopy> {
+        let (tenant_id, user_id, sha) = (&file.tenant_id, file.user_id, file.file_sha256.as_str());
+        let blobs = self.blobs()?;
+        let key = self.keyed_name(tenant_id, user_id, sha)?;
+        let lock = self.lock_file(tenant_id, user_id, sha).await?;
+        if !self
+            .files
+            .names_content_named(holder, tenant_id, user_id, sha)
+            .await?
+        {
+            return Ok(KeyedCopy::Gone);
+        }
+        let Some(bytes) = self.read_file(tenant_id, user_id, sha).await? else {
+            return Ok(KeyedCopy::Unreadable);
+        };
+        let media_type = match (holder, file.media_type.as_deref()) {
+            (_, Some(media_type)) => media_type,
+            (UploadHolder::ActivityFiles, None) => FIT_MEDIA_TYPE,
+            (UploadHolder::LabDocuments, None) => LAB_DOCUMENT_MEDIA_TYPE,
+            // A screenshot row records its type with its digest; one that
+            // lost it is copied as bytes of no stated type.
+            (UploadHolder::FeedbackImages, None) => UNTYPED_MEDIA_TYPE,
+        };
+        put_verified(blobs, &key, sha, media_type, bytes).await?;
+        self.files.fence_upload_name(&lock).await?;
+        self.files
+            .mark_blob_keyed(holder, tenant_id, user_id, sha)
+            .await?;
+        drop(lock);
+        Ok(KeyedCopy::Copied)
+    }
+
+    /// How many files `holder` names that are not kept under their keyed
+    /// name yet, in every scope: what the backfill's done signal compares.
+    ///
+    /// # Errors
+    ///
+    /// A database error when the count fails.
+    pub async fn count_content_named(&self, holder: UploadHolder) -> AppResult<u64> {
+        self.files.count_content_named(holder).await
+    }
+
     /// Erase every file the account `user_id` uploaded, in every tenant,
     /// with everything else the blob store keeps for it. Returns how many
     /// blobs were removed: none where no blob store is placed, as nothing
@@ -436,29 +606,27 @@ impl OriginalsStore {
     }
 }
 
-/// Store `bytes` as `media_type` under the upload key `file_sha256` names,
-/// and refuse unless the blob store reports it stored exactly those bytes:
-/// the digest the key names and their length. A write that stored anything
-/// else is removed.
+/// Store `bytes` as `media_type` under `key`, a name of the upload
+/// `file_sha256`, and refuse unless the blob store reports it stored exactly
+/// those bytes: the digest `file_sha256` names and their length. A write
+/// that stored anything else is removed.
 async fn put_verified(
     blobs: &Arc<dyn BlobStore>,
-    tenant_id: &TenantId,
-    user_id: Uuid,
+    key: &BlobKey,
     file_sha256: &str,
     media_type: &str,
     bytes: Bytes,
 ) -> AppResult<()> {
-    let key = upload_key(tenant_id, user_id, file_sha256)?;
     let size = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
     let stat = blobs
-        .put(&key, bytes, &BlobMeta::new(media_type))
+        .put(key, bytes, &BlobMeta::new(media_type))
         .await
         .map_err(|e| blob_error(&e))?;
     if stat.sha256.to_hex() == file_sha256 && stat.size == size {
         return Ok(());
     }
     // The bytes are not the ones the hash names: never leave them under it.
-    blobs.delete(&key).await.map_err(|e| blob_error(&e))?;
+    blobs.delete(key).await.map_err(|e| blob_error(&e))?;
     Err(AppError::internal(format!(
         "the blob store stored {} bytes with digest {} under upload {file_sha256} ({size} bytes)",
         stat.size,

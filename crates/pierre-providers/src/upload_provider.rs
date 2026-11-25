@@ -15,7 +15,9 @@
 //! instead of a connection: the summary and laps come from the cached row,
 //! the per-sample series and the route from the one per-activity sample store
 //! (`activity_streams`), where the upload wrote them once, decoded, with
-//! `origin = 'upload'` and the file's SHA-256 as `source_ref` (carnet#1219).
+//! `origin = 'upload'` and the file's name as `source_ref` (carnet#1219): its
+//! keyed blob name, or its SHA-256 for a file uploaded before keyed ids
+//! ([`UploadedFileIds`], carnet#1701).
 //!
 //! An uploaded activity whose samples the store does not hold at its current
 //! format version — one uploaded before the store held uploads, or stored
@@ -71,7 +73,12 @@ pub fn upload_activity_id(id_base: &str, index: usize) -> String {
     format!("{id_base}-{index}")
 }
 
-/// The prefix of an uploaded file's keyed base (`upload-k<hex16>`).
+/// The prefix barrage's keyed id puts before its `k` for an uploaded file's
+/// keyed base (`dravr_barrage::keyed::keyed_id`).
+pub(crate) const UPLOAD_ID_PREFIX: &str = "upload-";
+
+/// The prefix of an uploaded file's keyed base (`upload-k<hex16>`):
+/// [`UPLOAD_ID_PREFIX`] and the `k` barrage's keyed ids carry.
 const KEYED_BASE_PREFIX: &str = "upload-k";
 
 /// How many hex characters follow [`KEYED_BASE_PREFIX`].
@@ -142,24 +149,28 @@ pub fn upload_session_series(
         .collect()
 }
 
-/// How an uploaded file's activities are named: the file's digest, and the
-/// base its activities' ids carry (the digest itself, or the keyed base its
-/// row records).
+/// How an uploaded file's activities and their samples name it: the base
+/// their ids carry, and the source their sample rows name.
+///
+/// A file uploaded before keyed ids ([`Self::by_digest`]) is named by its
+/// digest in both. A file whose row records a keyed base is named by that
+/// base and by its keyed blob name, never by its digest in clear
+/// (carnet#1701).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct UploadedFileIds<'file> {
-    /// The file's SHA-256.
-    pub sha256: &'file str,
     /// The base of its activities' ids ([`upload_activity_id`]).
     pub id_base: &'file str,
+    /// What its sample rows name as their source (`source_ref`).
+    pub source_ref: &'file str,
 }
 
 impl<'file> UploadedFileIds<'file> {
-    /// A file whose activities' ids carry its digest.
+    /// A file whose activities' ids and samples carry its digest.
     #[must_use]
     pub const fn by_digest(sha256: &'file str) -> Self {
         Self {
-            sha256,
             id_base: sha256,
+            source_ref: sha256,
         }
     }
 }
@@ -167,8 +178,8 @@ impl<'file> UploadedFileIds<'file> {
 /// Store each session series of the uploaded `file`.
 ///
 /// Each goes to the one per-activity sample store, under the activity id
-/// that session became, with `origin = 'upload'` and the file's hash as
-/// `source_ref`.
+/// that session became, with `origin = 'upload'` and the source `file`
+/// names as `source_ref`.
 ///
 /// Idempotent: the same series written again replaces the row with itself.
 ///
@@ -191,7 +202,7 @@ pub async fn store_upload_series(
                 provider: UPLOAD,
                 activity_id: &activity_id,
                 origin: StreamOrigin::Upload,
-                source_ref: Some(file.sha256),
+                source_ref: Some(file.source_ref),
                 streams: samples,
                 synced_at,
             })

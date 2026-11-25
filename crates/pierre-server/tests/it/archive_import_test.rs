@@ -25,8 +25,7 @@ use axum::body::{to_bytes, Body};
 use axum::http::{Request, StatusCode};
 use bytes::Bytes;
 use dravr_barrage::blob::memory::MemoryBlobStore;
-use dravr_barrage::blob::{BlobId, BlobKey};
-use dravr_barrage::digest::Sha256;
+use dravr_barrage::blob::BlobId;
 use dravr_barrage::record::ActivityId;
 use dravr_barrage::store::memory::MemoryImportJobStore;
 use dravr_barrage::store::{BarrageStores, PageReq, RecordQuery};
@@ -1154,10 +1153,12 @@ async fn a_deleted_account_is_erased_from_barrage() {
         )
         .await
         .expect("the upload is kept");
-    let upload_key = BlobKey::upload(
-        athlete.scope(),
-        Sha256::parse_hex(&upload_sha).expect("a hash"),
-    );
+    // The name the upload is written under (carnet#1701).
+    let upload_key = resources
+        .common
+        .originals
+        .keyed_name(&athlete.tenant, athlete.user_id, &upload_sha)
+        .expect("a keyed name");
     assert!(
         stores
             .blobs

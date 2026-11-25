@@ -24,10 +24,11 @@ use helpers::notify_capture::{capture_notify, named, only};
 use pierre_core::models::agents::{AgentCategory, AgentVisibility, CreateSystemAgentRequest};
 use pierre_core::models::{AddMessageParams, TenantId, UpsertMessageFeedbackParams};
 use pierre_core::transport::TransportPolicy;
-use pierre_database::repositories::{FeedbackWriter, NewFeedbackMessage};
+use pierre_database::repositories::{FeedbackWriter, NewFeedbackMessage, UploadHolder};
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::chat::ChatRoutes;
 use pierre_mcp_server::routes::feedback::FeedbackRoutes;
+use pierre_providers::upload_provider::file_sha256;
 use uuid::Uuid;
 
 /// A thread with nothing in it, as `thread` reads one.
@@ -589,6 +590,7 @@ async fn team_reply(setup: &Setup, athlete: &Athlete, body: &str) {
             locale: None,
             about: None,
             image: None,
+            image_keyed: false,
             at: Timestamp::now(),
         })
         .await
@@ -729,6 +731,22 @@ async fn a_screenshot_is_kept_with_its_message_and_served_only_to_its_athlete() 
         "bug: the stored message says it carries a screenshot"
     );
     assert_eq!(created["message"]["body"], "", "bug: no words came with it");
+    assert!(
+        !setup
+            .resources
+            .common
+            .repos
+            .uploaded_activity_files
+            .names_content_named(
+                UploadHolder::FeedbackImages,
+                &a.tenant_id,
+                a.user_id,
+                &file_sha256(PNG),
+            )
+            .await
+            .unwrap(),
+        "bug: a new screenshot's row says it is kept under its content name (carnet#1701)"
+    );
     assert_eq!(
         only(&events, FEEDBACK_RECORDED).field("has_image"),
         "true",
@@ -859,6 +877,7 @@ async fn messages_written_in_one_millisecond_read_back_in_the_order_they_were_se
                 locale: None,
                 about: None,
                 image: None,
+                image_keyed: false,
                 at,
             })
             .await

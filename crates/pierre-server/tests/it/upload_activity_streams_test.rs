@@ -117,6 +117,17 @@ async fn stored(
         .unwrap()
 }
 
+/// The keyed blob name the athlete's upload of `file` is kept under: what
+/// its samples name as their source (carnet#1701), never its digest.
+fn keyed_name(resources: &Arc<ServerContext>, athlete: &Athlete, file: &[u8]) -> String {
+    resources
+        .common
+        .originals
+        .keyed_name(&athlete.tenant, athlete.user_id, &file_sha256(file))
+        .unwrap()
+        .to_string()
+}
+
 /// The `origin`, `source_ref` and `format_version` columns of one stored row.
 async fn provenance(
     resources: &Arc<ServerContext>,
@@ -260,7 +271,7 @@ async fn an_upload_stores_its_decoded_samples_once_naming_the_file() {
         provenance(&resources, &athlete, &id).await,
         (
             "upload".to_owned(),
-            Some(file_sha256(&file)),
+            Some(keyed_name(&resources, &athlete, &file)),
             STREAMS_FORMAT_VERSION
         ),
         "the row says it came from an upload and names the file"
@@ -350,7 +361,7 @@ async fn the_backfill_stores_an_earlier_uploads_samples_once() {
         provenance(&resources, &athlete, &id).await,
         (
             "upload".to_owned(),
-            Some(file_sha256(&file)),
+            Some(keyed_name(&resources, &athlete, &file)),
             STREAMS_FORMAT_VERSION
         ),
         "the backfilled row says it came from an upload and names the file"
@@ -535,7 +546,11 @@ async fn a_gap_filled_upload_row_is_replayed_from_its_file() {
     );
     assert_eq!(
         provenance(&resources, &athlete, &id).await,
-        ("upload".to_owned(), Some(sha), STREAMS_FORMAT_VERSION),
+        (
+            "upload".to_owned(),
+            Some(keyed_name(&resources, &athlete, &file)),
+            STREAMS_FORMAT_VERSION
+        ),
         "the replayed row is at the current version"
     );
     assert_eq!(

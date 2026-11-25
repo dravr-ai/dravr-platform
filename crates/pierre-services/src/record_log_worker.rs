@@ -17,7 +17,12 @@
 //!    content to their keyed names (`backfill_keyed_names`), resuming where
 //!    the last tick stopped; when a sweep completes it logs what remains and
 //!    how much of it could not be read, the backfill's done signal being the
-//!    two equal (carnet#1550 then drops the old names);
+//!    two equal (carnet#1550 then drops the old names); then it copies one
+//!    page of uploaded files still named by their content (activity files,
+//!    feedback screenshots, lab reports) to their keyed names
+//!    (`OriginalsStore::rename_uploads_page`, carnet#1701), one table after
+//!    the other, the same done signal logged when the last table's sweep
+//!    ends;
 //! 4. deletes the log of an account the platform no longer holds (an older
 //!    binary's account deletion leaves it behind; see the plan's D2b);
 //! 5. with a signer, cuts a checkpoint anchoring the deletion receipt chain's
@@ -55,9 +60,11 @@ use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{GrantEvent, OAuthGrantEvent};
 use pierre_database::repositories::{
-    subject_hash, AccountDeletionRepository, ImportTombstoneRepository, OAuthGrantEventRepository,
-    ReceiptAnchor, UserRepository, WorkerRunRepository, MAX_GRANT_RECEIPT_ATTEMPTS,
+    subject_hash, AccountDeletionRepository, ContentNamedFile, ImportTombstoneRepository,
+    OAuthGrantEventRepository, ReceiptAnchor, UploadHolder, UserRepository, WorkerRunRepository,
+    MAX_GRANT_RECEIPT_ATTEMPTS,
 };
+use pierre_providers::originals::OriginalsStore;
 use tokio::task::AbortHandle;
 use tracing::{error, info, warn};
 use uuid::Uuid;
@@ -86,6 +93,9 @@ pub struct RecordLogTick {
     pub baselined: u64,
     /// Originals renamed to their keyed name; `None` without a blob store.
     pub keyed_names: Option<KeyedNamesPage>,
+    /// Uploaded files copied to their keyed name; `None` without a blob
+    /// store.
+    pub upload_names: Option<UploadNamesPage>,
     /// Deleted accounts whose log was swept.
     pub orphans_swept: u64,
     /// The checkpoint cut, with the receipt it anchors; or the newest
@@ -120,6 +130,49 @@ struct KeyedNamesSweep {
     cursor: Option<RecordPlace>,
     /// Records the sweep skipped as unreadable so far.
     unreadable: u64,
+}
+
+/// What one tick's page of the uploaded files' keyed-name copy did.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UploadNamesPage {
+    /// The table whose files the page copied.
+    pub holder: UploadHolder,
+    /// Files copied to their keyed name.
+    pub copied: u64,
+    /// Files of the page neither name holds, or whose copy failed.
+    pub unreadable: u64,
+    /// Files still named only by their content, over every table, counted
+    /// when this page ended a sweep over every table; `None` otherwise.
+    pub remaining: Option<u64>,
+}
+
+/// Where the uploaded files' keyed-name copy resumes, and what its sweep
+/// could not read.
+#[derive(Debug, Default)]
+struct UploadNamesSweep {
+    /// The index in [`UploadHolder::ALL`] of the table being swept.
+    phase: usize,
+    /// The next page's start in that table; `None` starts it.
+    cursor: Option<ContentNamedFile>,
+    /// Files the sweep skipped as unreadable so far, over every table.
+    unreadable: u64,
+}
+
+/// The stores the keyed-name backfills rename in, where a blob store is
+/// placed.
+pub struct KeyedNameStores {
+    /// The stores whose content-named originals are renamed.
+    pub originals: BarrageStores,
+    /// The uploaded files, copied to their keyed names.
+    pub uploads: Arc<OriginalsStore>,
+}
+
+impl fmt::Debug for KeyedNameStores {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("KeyedNameStores")
+            .field("uploads", &self.uploads)
+            .finish_non_exhaustive()
+    }
 }
 
 /// The consent grant receipts the worker drains, and the issuer they name.
@@ -168,20 +221,23 @@ pub struct RecordLogWorker {
     /// Consent grant receipts: the outbox the grant steps drain.
     grant_receipts: GrantReceiptOutbox,
     signer: Option<Arc<dyn Signer>>,
-    /// The stores the keyed-name backfill renames originals in; `None`
-    /// without a blob store, where no original is kept.
-    originals: Option<BarrageStores>,
+    /// The stores the keyed-name backfills rename originals and uploaded
+    /// files in; `None` without a blob store, where neither is kept.
+    renames: Option<KeyedNameStores>,
     /// Where the orphan sweep resumes: one page per tick, wrapping around.
     orphan_cursor: Mutex<Option<KeyedDigest>>,
     /// Where the keyed-name backfill resumes: one page per tick, wrapping around.
     keyed_names: Mutex<KeyedNamesSweep>,
+    /// Where the uploaded files' copy resumes: one page per tick, one table
+    /// after the other, wrapping around.
+    upload_names: Mutex<UploadNamesSweep>,
 }
 
 impl fmt::Debug for RecordLogWorker {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("RecordLogWorker")
             .field("signs", &self.signer.is_some())
-            .field("renames_originals", &self.originals.is_some())
+            .field("renames", &self.renames.is_some())
             .finish_non_exhaustive()
     }
 }
@@ -189,9 +245,9 @@ impl fmt::Debug for RecordLogWorker {
 impl RecordLogWorker {
     /// The worker over `records`, the platform's repositories, the consent
     /// grant receipts to drain (`grant_receipts`), `signer` (`None`: no
-    /// checkpoint is cut and no grant receipt signed) and `originals`, the
-    /// stores whose content-named originals it renames (`None`: no blob
-    /// store, no rename).
+    /// checkpoint is cut and no grant receipt signed) and `renames`, the
+    /// stores whose content-named originals and uploaded files it renames
+    /// (`None`: no blob store, no rename).
     #[must_use]
     pub fn new(
         records: Arc<dyn ActivityRecordStore>,
@@ -200,7 +256,7 @@ impl RecordLogWorker {
         users: Arc<dyn UserRepository>,
         grant_receipts: GrantReceiptOutbox,
         signer: Option<Arc<dyn Signer>>,
-        originals: Option<BarrageStores>,
+        renames: Option<KeyedNameStores>,
     ) -> Self {
         Self {
             records,
@@ -209,9 +265,10 @@ impl RecordLogWorker {
             users,
             grant_receipts,
             signer,
-            originals,
+            renames,
             orphan_cursor: Mutex::new(None),
             keyed_names: Mutex::new(KeyedNamesSweep::default()),
+            upload_names: Mutex::new(UploadNamesSweep::default()),
         }
     }
 
@@ -239,8 +296,9 @@ impl RecordLogWorker {
                 .map_err(barrage)?,
             ..RecordLogTick::default()
         };
-        if let Some(originals) = &self.originals {
-            tick.keyed_names = Some(self.rename_originals(originals).await?);
+        if let Some(renames) = &self.renames {
+            tick.keyed_names = Some(self.rename_originals(&renames.originals).await?);
+            tick.upload_names = Some(self.rename_uploads(&renames.uploads).await?);
         }
         tick.orphans_swept = self.sweep_orphans().await?;
         if let Some(signer) = &self.signer {
@@ -437,6 +495,73 @@ impl RecordLogWorker {
             unreadable: report.unreadable,
             remaining: report.remaining,
             sweep_done,
+        })
+    }
+
+    /// Copy one page of uploaded files still named by their content to their
+    /// keyed names, in the table the sweep is on, after where the last tick
+    /// stopped. The page that ends the last table's sweep counts what
+    /// remains over every table and logs it with what the sweep could not
+    /// read: once they are equal, every readable upload has its keyed name.
+    async fn rename_uploads(&self, uploads: &OriginalsStore) -> AppResult<UploadNamesPage> {
+        let (phase, cursor) = {
+            let sweep = self
+                .upload_names
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            (sweep.phase, sweep.cursor.clone())
+        };
+        let holder = UploadHolder::ALL
+            .get(phase)
+            .copied()
+            .unwrap_or(UploadHolder::ActivityFiles);
+        let page = uploads
+            .rename_uploads_page(holder, cursor.as_ref(), BACKFILL_PER_TICK)
+            .await?;
+        let (sweep_done, swept_unreadable) = {
+            let mut sweep = self
+                .upload_names
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            sweep.unreadable += page.unreadable;
+            let unreadable = sweep.unreadable;
+            let sweep_done = match page.next {
+                Some(next) => {
+                    sweep.cursor = Some(next);
+                    false
+                }
+                None if phase + 1 < UploadHolder::ALL.len() => {
+                    sweep.phase = phase + 1;
+                    sweep.cursor = None;
+                    false
+                }
+                None => {
+                    *sweep = UploadNamesSweep::default();
+                    true
+                }
+            };
+            (sweep_done, unreadable)
+        };
+        let remaining = if sweep_done {
+            let mut remaining = 0;
+            for holder in UploadHolder::ALL {
+                remaining += uploads.count_content_named(holder).await?;
+            }
+            info!(
+                remaining,
+                unreadable = swept_unreadable,
+                done = remaining == swept_unreadable,
+                "Uploaded files keyed-name backfill sweep complete"
+            );
+            Some(remaining)
+        } else {
+            None
+        };
+        Ok(UploadNamesPage {
+            holder,
+            copied: page.copied,
+            unreadable: page.unreadable,
+            remaining,
         })
     }
 

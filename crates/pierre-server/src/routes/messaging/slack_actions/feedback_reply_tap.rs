@@ -260,6 +260,7 @@ async fn store_team_reply(
             locale: None,
             about: given.rated_reply.as_ref(),
             image: None,
+            image_keyed: false,
             at: Timestamp::now(),
         })
         .await
@@ -1052,6 +1053,7 @@ mod tests {
                 locale: None,
                 about: None,
                 image: None,
+                image_keyed: false,
                 at: Timestamp::now(),
             })
             .await

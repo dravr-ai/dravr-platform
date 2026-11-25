@@ -402,6 +402,8 @@ async fn uploads_and_feedback_images_are_in_the_bundle() {
             locale: None,
             about: None,
             image: Some(&image),
+            // `put_named_file` above kept it under its keyed name.
+            image_keyed: true,
             at: Timestamp::now(),
         })
         .await

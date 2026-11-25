@@ -264,6 +264,9 @@ pub struct LabDocumentWrite {
     pub model_failure: Option<String>,
     /// When it was received.
     pub received_at: Timestamp,
+    /// Whether its PDF is kept under its keyed name
+    /// (`OriginalsStore::put_named_file` writes only that one, carnet#1701).
+    pub blob_keyed: bool,
 }
 
 /// Where a lab document's PDF is kept: whose upload, under which hash.
@@ -597,9 +600,9 @@ pub(crate) const DECIDE_CLINICAL_RECORD_SQL: &str = r"
 pub(crate) const INSERT_LAB_DOCUMENT_SQL: &str = r"
     INSERT INTO lab_documents (
         id, tenant_id, user_id, file_sha256, size_bytes, pages, status, engine, flagged_lines,
-        skipped, dropped, model_failure, received_at
+        skipped, dropped, model_failure, received_at, blob_keyed
     )
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
     ON CONFLICT (tenant_id, user_id, file_sha256) DO NOTHING";
 
 /// Every column a lab document is read with.
@@ -957,6 +960,7 @@ macro_rules! impl_health_record_repository {
                     .bind(i64::from(document.dropped))
                     .bind(document.model_failure.as_deref())
                     .bind(document.received_at)
+                    .bind(document.blob_keyed)
                     .execute(self.pool())
                     .await
                     .map_err(|e| AppError::database(format!("insert_lab_document: {e}")))?;

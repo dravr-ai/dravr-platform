@@ -259,6 +259,7 @@ async fn post_message(
             locale: locale.as_deref(),
             about: about.as_ref(),
             image: kept_image,
+            image_keyed: kept_image.is_some(),
             at: Timestamp::now(),
         })
         .await?;
