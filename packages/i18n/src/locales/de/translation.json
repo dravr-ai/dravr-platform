@@ -4688,7 +4688,21 @@
         "t3Label": "KI erlauben, meine intimen Gesundheitsdaten zu lesen (Zyklustracking, psychische und reproduktive Gesundheit)",
         "allowed": "Erlaubt. Dein Agent liest diese Daten ab jetzt.",
         "withdrawn": "Widerrufen. Dein Agent liest diese Daten nicht mehr.",
-        "t3Hint": "Erlaubt auch KI-Apps, die du mit Dravr verbindest, etwa Claude oder ChatGPT, deine Notizen und das Gedächtnis deines Agenten zu lesen. Dein Dravr-Agent und dein menschlicher Coach lesen diese in jedem Fall."
+        "t3Hint": "Erlaubt auch KI-Apps, die du mit Dravr verbindest, etwa Claude oder ChatGPT, deine Notizen und das Gedächtnis deines Agenten zu lesen. Dein Dravr-Agent und dein menschlicher Coach lesen diese in jedem Fall.",
+        "agentBlurb": "Deine Gesundheitsakten (deine Antworten im medizinischen Fragebogen, Verletzungen, Laborwerte, klinische Unterlagen, Blutzucker), deine intimen Gesundheitsdaten (Zyklustracking, psychische und reproduktive Gesundheit), deine Notizen und das Gedächtnis deines Agenten bleiben für KI gesperrt, auch für deinen Dravr-Agenten, bis du sie hier erlaubst. Dein menschlicher Coach liest deine Gesundheitsakten nur, wenn du sie zusätzlich in deiner Gruppe teilst, und deine intimen Gesundheitsdaten nie. In der App siehst du weiterhin alles. Ein Widerruf beendet die KI-Nutzung sofort.",
+        "agentT2Label": "Meinem KI-Agenten erlauben, meine Gesundheitsakten zu lesen (Antworten im medizinischen Fragebogen, Verletzungen, Laborwerte, klinische Unterlagen, Blutzucker)",
+        "agentT3Label": "KI erlauben, meine Notizen, das Gedächtnis meines Agenten und meine intimen Gesundheitsdaten zu lesen (Zyklustracking, psychische und reproduktive Gesundheit)",
+        "agentT3Hint": "Gilt für deinen Dravr-Agenten und für KI-Apps, die du mit Dravr verbindest, etwa Claude oder ChatGPT. Ohne diese Erlaubnis erinnert sich dein Agent nicht an das, was du ihm in früheren Gesprächen gesagt hast."
+      },
+      "agentPrompt": {
+        "title": "Darf sich dein Agent an dich erinnern?",
+        "body": "Dein Dravr-Agent fragt jetzt, bevor er sein Gedächtnis über dich oder deine Gesundheitsakten nutzt. Bis du es erlaubst, arbeitet er ohne sie und fragt dich erneut, was er braucht. Du kannst das jederzeit in den Einstellungen unter Datenschutz und Daten ändern.",
+        "memoryLabel": "Meinem Agenten erlauben, sein Gedächtnis und meine Notizen zu nutzen: was ich ihm gesagt habe, meine Ziele und Vorlieben. Damit darf KI auch meine intimen Gesundheitsdaten lesen (Zyklustracking, psychische und reproduktive Gesundheit), auch KI-Apps, die ich mit Dravr verbinde, etwa Claude oder ChatGPT.",
+        "medicalLabel": "Meinem Agenten erlauben, meine Gesundheitsakten zu lesen: meine Antworten im medizinischen Fragebogen (PAR-Q), meine Verletzungen, Laborwerte, klinische Unterlagen und meinen Blutzucker.",
+        "save": "Auswahl speichern",
+        "notNow": "Nicht jetzt",
+        "saved": "Gespeichert. Du kannst das jederzeit in den Einstellungen unter Datenschutz und Daten ändern.",
+        "failed": "Deine Auswahl konnte nicht gespeichert werden. Bitte versuche es erneut."
       }
     },
     "garminConsent": {

@@ -4688,7 +4688,21 @@
         "t3Label": "Permitir que a IA leia meus registros de saúde íntima (acompanhamento do ciclo, saúde mental e reprodutiva)",
         "allowed": "Permitido. Seu agente lê esses registros a partir de agora.",
         "withdrawn": "Retirado. Seu agente não lê mais esses registros.",
-        "t3Hint": "Também permite que os apps de IA que você conecta ao Dravr, como Claude ou ChatGPT, leiam suas notas e a memória do seu agente. Seu agente Dravr e seu coach humano as leem de qualquer forma."
+        "t3Hint": "Também permite que os apps de IA que você conecta ao Dravr, como Claude ou ChatGPT, leiam suas notas e a memória do seu agente. Seu agente Dravr e seu coach humano as leem de qualquer forma.",
+        "agentBlurb": "Seus registros de saúde (suas respostas ao questionário médico, lesões, resultados de laboratório, prontuários clínicos, glicemia), seus registros de saúde íntima (acompanhamento do ciclo, saúde mental e reprodutiva), suas notas e a memória do seu agente ficam fechados para a IA, incluindo seu agente Dravr, até você permitir aqui. Seu coach humano lê seus registros de saúde só se você também os compartilhar no seu grupo, e nunca seus registros de saúde íntima. Você continua vendo tudo no app. Retirar a permissão interrompe o uso pela IA na hora.",
+        "agentT2Label": "Permitir que meu agente de IA leia meus registros de saúde (respostas ao questionário médico, lesões, resultados de laboratório, prontuários clínicos, glicemia)",
+        "agentT3Label": "Permitir que a IA leia minhas notas, a memória do meu agente e meus registros de saúde íntima (acompanhamento do ciclo, saúde mental e reprodutiva)",
+        "agentT3Hint": "Vale para seu agente Dravr e para os apps de IA que você conecta ao Dravr, como Claude ou ChatGPT. Sem essa permissão, seu agente não se lembra do que você disse em conversas anteriores."
+      },
+      "agentPrompt": {
+        "title": "Seu agente pode se lembrar de você?",
+        "body": "Seu agente Dravr agora pede permissão antes de usar a memória que tem de você ou seus registros de saúde. Até você permitir, ele trabalha sem eles e volta a perguntar o que precisar. Você pode mudar isso a qualquer momento nas configurações de Privacidade e dados.",
+        "memoryLabel": "Permitir que meu agente use a memória dele e minhas notas: o que eu disse a ele, meus objetivos e preferências. Isso também permite que a IA leia meus registros de saúde íntima (acompanhamento do ciclo, saúde mental e reprodutiva), incluindo os apps de IA que conecto ao Dravr, como Claude ou ChatGPT.",
+        "medicalLabel": "Permitir que meu agente leia meus registros de saúde: minhas respostas ao questionário médico (PAR-Q), minhas lesões, resultados de laboratório, prontuários clínicos e glicemia.",
+        "save": "Salvar minha escolha",
+        "notNow": "Agora não",
+        "saved": "Salvo. Você pode mudar isso a qualquer momento nas configurações de Privacidade e dados.",
+        "failed": "Não foi possível salvar sua escolha. Tente novamente."
       }
     },
     "garminConsent": {
