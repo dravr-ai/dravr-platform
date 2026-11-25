@@ -261,20 +261,6 @@ pub fn ai_reads_tier(tier: Tier) -> bool {
     !super::read_by_ai() || tier_readable(tier)
 }
 
-/// Keep only the `items` whose tier ([`ai_reads_tier`]) may reach the AI a
-/// read made now feeds, tallying each one left out ([`withhold_tier`]) so the
-/// result carries the withheld note.
-pub fn retain_ai_readable<T>(items: &mut Vec<T>, tier: impl Fn(&T) -> Tier) {
-    items.retain(|item| {
-        let tier = tier(item);
-        let readable = ai_reads_tier(tier);
-        if !readable {
-            withhold_tier(tier);
-        }
-        readable
-    });
-}
-
 /// Tally one field of `tier` a filter nulled because [`tier_readable`] said no.
 ///
 /// Under the athlete's tier consent it counts as a sensitive reduction; a T2
@@ -841,7 +827,7 @@ mod tests {
             assert_eq!(
                 read,
                 (false, true),
-                "each class opens its own tier ({transport:?})"
+                "bug: each class opens its own tier ({transport:?})"
             );
 
             let (read, _) = serve_over(
@@ -852,7 +838,11 @@ mod tests {
                 ),
             )
             .await;
-            assert_eq!(read, (true, true), "both given ({transport:?})");
+            assert_eq!(
+                read,
+                (true, true),
+                "bug: both given, the agent reads both tiers ({transport:?})"
+            );
         }
 
         // The athlete's own screen, a chart drawn for them, the coach's own
@@ -862,7 +852,7 @@ mod tests {
             with_ai_consent(neither(), async { ai_reads_tier(Tier::T3) }),
         )
         .await;
-        assert!(own, "the athlete's own screen");
+        assert!(own, "bug: the athlete's own screen is no AI read");
         let (drawn, _) = serve_over(
             Transport::WebApp,
             with_ai_consent(
@@ -871,7 +861,7 @@ mod tests {
             ),
         )
         .await;
-        assert!(drawn, "a chart drawn for the athlete");
+        assert!(drawn, "bug: a chart drawn for the athlete is no AI read");
         let coach_screen = serve_over(
             Transport::WebApp,
             with_ai_consent(
@@ -883,28 +873,6 @@ mod tests {
         assert!(
             coach_screen,
             "bug: the coach's own screen keeps what is shared"
-        );
-    }
-
-    #[tokio::test]
-    async fn retain_ai_readable_keeps_the_readable_tiers_and_tallies_the_rest() {
-        let (kept, tally) = serve_over(
-            Transport::WebApp,
-            with_ai_consent(
-                t3_withheld(),
-                ai_read(async {
-                    let mut items = vec![Tier::T1, Tier::T2, Tier::T3, Tier::T3];
-                    retain_ai_readable(&mut items, |tier| *tier);
-                    items
-                }),
-            ),
-        )
-        .await;
-        assert_eq!(kept, vec![Tier::T1, Tier::T2]);
-        assert_eq!(
-            (tally.sensitive_reduced, tally.off_interface),
-            (2, 0),
-            "one per item left out, as the athlete's choice: {tally:?}"
         );
     }
 }

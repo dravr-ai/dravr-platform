@@ -250,7 +250,10 @@ async fn sensitive_t3_opens_the_memory_and_sensitive_t2_the_parq_flag() {
             !memory_only.contains(MEDICAL_FLAGS) && memory_only.contains(MEDICAL_WITHHELD),
             "bug: T3 opens nothing of T2 ({transport:?})"
         );
-        assert!(!memory_only.contains(MEMORY_WITHHELD), "({transport:?})");
+        assert!(
+            !memory_only.contains(MEMORY_WITHHELD),
+            "bug: sensitive_t3 given, the memory line is not said ({transport:?})"
+        );
 
         f.consent(SENSITIVE_T2, true).await;
         let both = f.prompt(&conversation, transport).await;

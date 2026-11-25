@@ -159,7 +159,8 @@ mod tests {
         };
         assert_eq!(
             rows(withheld.clone(), false).await.as_deref(),
-            Some("legs heavy")
+            Some("legs heavy"),
+            "bug: the athlete's own screen is no AI read"
         );
         assert_eq!(
             rows(withheld, true).await.as_deref(),

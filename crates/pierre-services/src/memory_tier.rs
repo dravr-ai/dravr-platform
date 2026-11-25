@@ -31,19 +31,19 @@ use crate::provider_notice;
 
 /// The tier of a medical fact: a PAR-Q answer, or a flag a coach tool raised.
 /// Owl files a condition as T2.
-pub const MEDICAL_FACT_TIER: Tier = Tier::T2;
+const MEDICAL_FACT_TIER: Tier = Tier::T2;
 
 /// The tier of the agent's memory: every fact but a medical one, and every
 /// playbook. It is the athlete's `RestrictedNotes` stream, as the memory and
 /// playbook tools declare it.
 #[must_use]
-pub fn memory_tier() -> Tier {
+fn memory_tier() -> Tier {
     Stream::RestrictedNotes.tier()
 }
 
 /// The tier of a memory fact of `kind`.
 #[must_use]
-pub fn fact_tier(kind: FactKind) -> Tier {
+fn fact_tier(kind: FactKind) -> Tier {
     match kind {
         FactKind::Medical => MEDICAL_FACT_TIER,
         _ => memory_tier(),
@@ -72,9 +72,9 @@ const MEDICAL_WITHHELD: &str = "\n\n# Medical screening\n\nThis athlete keeps th
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MemoryReach {
     /// The PAR-Q medical facts (T2, `sensitive_t2`).
-    pub medical: bool,
+    medical: bool,
     /// The agent's memory and the athlete's notes (T3, `sensitive_t3`).
-    pub memory: bool,
+    memory: bool,
 }
 
 impl MemoryReach {
@@ -104,7 +104,7 @@ impl MemoryReach {
 
     /// Whether a fact of `kind` may be read.
     #[must_use]
-    pub const fn reads_kind(self, kind: FactKind) -> bool {
+    const fn reads_kind(self, kind: FactKind) -> bool {
         match kind {
             FactKind::Medical => self.medical,
             _ => self.memory,
@@ -180,8 +180,16 @@ mod tests {
 
     #[test]
     fn a_medical_fact_is_t2_and_every_other_fact_is_the_notes_tier() {
-        assert_eq!(fact_tier(FactKind::Medical), Tier::T2);
-        assert_eq!(memory_tier(), Tier::T3);
+        assert_eq!(
+            fact_tier(FactKind::Medical),
+            Tier::T2,
+            "bug: a PAR-Q fact is a health record (T2)"
+        );
+        assert_eq!(
+            memory_tier(),
+            Tier::T3,
+            "bug: the agent's memory is the restricted-notes tier (T3)"
+        );
         for kind in [
             FactKind::Preference,
             FactKind::Goal,
@@ -189,7 +197,7 @@ mod tests {
             FactKind::Injury,
             FactKind::Other,
         ] {
-            assert_eq!(fact_tier(kind), Tier::T3, "{kind:?}");
+            assert_eq!(fact_tier(kind), Tier::T3, "bug: {kind:?} is memory (T3)");
         }
     }
 
@@ -199,7 +207,7 @@ mod tests {
             medical: true,
             memory: true,
         };
-        assert_eq!(both.framing(), None);
+        assert_eq!(both.framing(), None, "bug: nothing withheld, nothing said");
         let neither = MemoryReach {
             medical: false,
             memory: false,
@@ -208,11 +216,11 @@ mod tests {
         .unwrap();
         assert!(
             neither.contains("their agent's memory from AI"),
-            "{neither}"
+            "bug: the memory line is said without sensitive_t3: {neither}"
         );
         assert!(
             neither.contains("whether any medical flag is on file"),
-            "{neither}"
+            "bug: the medical line is said without sensitive_t2: {neither}"
         );
         let memory_only = MemoryReach {
             medical: true,
@@ -220,6 +228,9 @@ mod tests {
         }
         .framing()
         .unwrap();
-        assert!(!memory_only.contains("PAR-Q"), "{memory_only}");
+        assert!(
+            !memory_only.contains("PAR-Q"),
+            "bug: sensitive_t2 given, no medical line: {memory_only}"
+        );
     }
 }

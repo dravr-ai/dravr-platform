@@ -94,8 +94,8 @@ mod source_classes;
 mod stored_health;
 
 pub use consent::{
-    ai_consent_withheld, ai_reads_tier, consented_read, retain_ai_readable, subject_consents,
-    tier_readable, with_ai_consent, with_subject_consent, withheld_providers, withhold_tier,
+    ai_consent_withheld, ai_reads_tier, consented_read, subject_consents, tier_readable,
+    with_ai_consent, with_subject_consent, withheld_providers, withhold_tier,
 };
 pub use derived_consent::{
     admit_consent_sources, admit_memory, derived_consent_sources, retain_consented,

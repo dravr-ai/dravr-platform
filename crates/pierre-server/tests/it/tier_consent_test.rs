@@ -604,9 +604,12 @@ async fn the_in_app_agent_reads_its_memory_only_under_sensitive_t3() {
         );
         assert_eq!(
             own["_withheld"]["reason"], "sensitive_tier",
-            "{tool}: {own}"
+            "bug: the result says the athlete's choice withheld it: {tool}: {own}"
         );
-        assert_eq!(own["_withheld"]["sensitive_withheld"], 1, "{tool}: {own}");
+        assert_eq!(
+            own["_withheld"]["sensitive_withheld"], 1,
+            "bug: the one remembered fact is tallied once: {tool}: {own}"
+        );
     }
 
     athlete_sets(&f, SENSITIVE_T3, true).await;
@@ -654,7 +657,7 @@ async fn a_human_coachs_agent_reads_the_note_under_the_athletes_sensitive_t3() {
     );
     assert_eq!(
         recovery["_withheld"]["reason"], "sensitive_tier",
-        "{recovery}"
+        "bug: the result says the athlete's choice withheld the note: {recovery}"
     );
     assert!(
         mentions(&recovery, "61.5"),
@@ -785,7 +788,10 @@ async fn the_daily_note_reaches_an_mcp_client_only_under_sensitive_t3() {
         !mentions(&in_app, NOTE),
         "bug: the in-app agent needs sensitive_t3 too: {in_app}"
     );
-    assert_eq!(in_app["_withheld"]["reason"], "sensitive_tier", "{in_app}");
+    assert_eq!(
+        in_app["_withheld"]["reason"], "sensitive_tier",
+        "bug: the result says the athlete's choice withheld the note: {in_app}"
+    );
 
     athlete_sets(&f, SENSITIVE_T3, true).await;
     let given = ok(
