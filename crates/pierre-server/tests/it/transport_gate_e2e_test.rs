@@ -2065,7 +2065,7 @@ async fn an_external_callers_unread_count_leaves_out_first_party_only_rows() {
 async fn an_athlete_without_a_first_party_only_connection_keeps_api_key_access() {
     let resources = server_with_relay().await;
     let email = format!("open-{}@example.com", Uuid::new_v4());
-    let (user_id, _, tenant) =
+    let (user_id, _, _tenant) =
         create_test_user_with_plan(&resources.agent.database, &email, "starter")
             .await
             .unwrap();
