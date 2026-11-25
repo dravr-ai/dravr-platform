@@ -125,28 +125,34 @@ function ThreadLoading() {
  * what », a page at a time. « Afficher les changements plus anciens » reads
  * the page before the oldest change shown and adds it below; it goes once a
  * page comes back short. The first change it adds takes focus, so a keyboard
- * reader carries on from where the list grew.
+ * reader carries on from where the list grew; when nothing older comes back,
+ * the oldest change shown takes it.
  */
 function HistoryTab({ planThreadId, agentName }: { planThreadId: string | null; agentName: string }) {
   const { t, language } = useTranslation();
   const history = useSubjectPlanHistory(planThreadId);
   const events = history.data?.pages.flatMap((page) => page.events);
 
-  // The index of the first change the older page adds, while it is read.
+  // The index of the change that takes focus once the older page is read.
   const listRef = useRef<HTMLOListElement>(null);
   const [focusFrom, setFocusFrom] = useState<number | null>(null);
   const shown = events?.length ?? 0;
   useEffect(() => {
     if (focusFrom === null || shown <= focusFrom) return;
-    const first = listRef.current?.children.item(focusFrom);
-    if (first instanceof HTMLElement) first.focus();
+    const change = listRef.current?.children.item(focusFrom);
+    if (change instanceof HTMLElement) change.focus();
     setFocusFrom(null);
   }, [focusFrom, shown]);
   const showOlder = () => {
-    setFocusFrom(shown);
+    const from = shown;
+    setFocusFrom(from);
     void history.fetchNextPage().then((result) => {
-      // A page that could not be read adds nothing to take focus.
+      const held = result.data?.pages.reduce((count, page) => count + page.events.length, 0) ?? 0;
+      // A page that could not be read adds nothing to take focus, and the
+      // button stays to try again. An empty page takes the button away, so
+      // the oldest change shown takes focus in its place.
       if (result.isError) setFocusFrom(null);
+      else if (held <= from) setFocusFrom(from - 1);
     });
   };
 

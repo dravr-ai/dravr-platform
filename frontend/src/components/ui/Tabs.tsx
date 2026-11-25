@@ -30,8 +30,11 @@ export interface TabsProps {
   'aria-label'?: string;
 }
 
-/** The keys that move between tabs, and which way: a step either side, or to either end. */
-const MOVE_KEYS: Record<string, 'previous' | 'next' | 'first' | 'last'> = {
+/** Which way a key moves between tabs: a step either side, or to either end. */
+type TabMove = 'previous' | 'next' | 'first' | 'last';
+
+/** The keys that move between tabs; every other key is left to the page. */
+const MOVE_KEYS: Partial<Record<string, TabMove>> = {
   ArrowLeft: 'previous',
   ArrowRight: 'next',
   Home: 'first',
@@ -43,7 +46,7 @@ const MOVE_KEYS: Record<string, 'previous' | 'next' | 'first' | 'last'> = {
  * that way, wrapping round the ends, or the first or last enabled one.
  * `undefined` when no tab is enabled.
  */
-function landingTab(tabs: readonly Tab[], from: number, move: 'previous' | 'next' | 'first' | 'last'): number | undefined {
+function landingTab(tabs: readonly Tab[], from: number, move: TabMove): number | undefined {
   const count = tabs.length;
   const enabled = (index: number) => !tabs[index].disabled;
   if (move === 'first' || move === 'last') {

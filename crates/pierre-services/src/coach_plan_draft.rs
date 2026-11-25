@@ -235,7 +235,10 @@ impl CoachPlanView {
         let Some(draft) = &self.draft else {
             return Vec::new();
         };
-        let live = self.live.as_ref().map_or(&[][..], |l| l.weeks.as_slice());
+        let live = self
+            .live
+            .as_ref()
+            .map_or(&[][..], |season| season.weeks.as_slice());
         plan_change_history::dates_changed(live, &draft.weeks)
     }
 }

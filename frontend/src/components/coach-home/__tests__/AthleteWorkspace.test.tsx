@@ -548,6 +548,29 @@ describe('the athlete workspace (carnet#1816)', () => {
     expect(screen.getAllByTestId('workspace-history-event')[50]).toHaveFocus();
   });
 
+  it('says an older page could not be read and offers it again, and gives focus to the oldest change when nothing older comes back', async () => {
+    const change = (createdAt: string) => ({ kind: 'day_edit' as const, source: 'coach' as const, dates: ['2026-11-26'], created_at: createdAt });
+    // Exactly one full page: the page after it is empty.
+    const newest = { events: Array.from({ length: 50 }, (_, index) => change(`2026-11-24T09:${String(59 - index).padStart(2, '0')}:00Z`)) };
+    api.getSubjectPlanHistory
+      .mockResolvedValueOnce(newest)
+      .mockRejectedValueOnce(new Error('network down'))
+      .mockResolvedValueOnce({ events: [] });
+    const user = userEvent.setup();
+    renderWorkspace();
+    await waitFor(() => expect(screen.getAllByTestId('workspace-history-event')).toHaveLength(50));
+
+    await user.click(screen.getByTestId('workspace-history-more'));
+    expect(await screen.findByTestId('workspace-history-more-failed')).toHaveTextContent(i18n.t('plan.workspace.historyFailed'));
+    expect(screen.getAllByTestId('workspace-history-event')).toHaveLength(50);
+
+    await user.click(screen.getByTestId('workspace-history-more'));
+    await waitFor(() => expect(screen.queryByTestId('workspace-history-more')).not.toBeInTheDocument());
+    expect(api.getSubjectPlanHistory).toHaveBeenLastCalledWith(PLAN_ID, { before: '2026-11-24T09:10:00Z', limit: 50 });
+    expect(screen.queryByTestId('workspace-history-more-failed')).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getAllByTestId('workspace-history-event')[49]).toHaveFocus());
+  });
+
   it('draws the plan thread under the agent’s tab with one-line plan cards, and the room alone under Groupe', async () => {
     const user = userEvent.setup();
     renderWorkspace();

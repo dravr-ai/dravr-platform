@@ -251,8 +251,8 @@ export {
 } from './plan-draft';
 export type { PlanConflictText, PlanDraftConflict } from './plan-draft';
 
-// A coach's athlete workspace (carnet#1816): the dates the draft proposes
-// over the live plan, a week by date, and the sessions asked about before publish
+// A coach's athlete workspace (carnet#1816): a week by date, why a session is
+// the coach's call to make, and the sessions asked about before publish
 export { entriesByDate, evidenceCallReason, prePublishChecks } from './plan-proposals';
 export type { EvidenceCallReason, PrePublishItem } from './plan-proposals';
 

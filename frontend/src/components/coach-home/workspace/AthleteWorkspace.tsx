@@ -151,8 +151,8 @@ export default function AthleteWorkspace({ athlete, onNavigate, destinations }: 
 
   const shown = subject ? (subject.draft ?? subject.live) : null;
   // Which dates are proposed is the server's to say, by the rule a publish
-  // announces them with; a read with no draft proposes none.
-  const proposed = useMemo(() => (subject?.draft ? subject.proposed_dates : []), [subject]);
+  // announces them with: it names none when no draft is open.
+  const proposed = useMemo(() => subject?.proposed_dates ?? [], [subject]);
   const weeks = useMemo(
     () => (shown && subject ? planCalendarWeeks(shown, proposed, subject.today) : []),
     [shown, subject, proposed],
