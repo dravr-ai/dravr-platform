@@ -31,7 +31,7 @@
 //!
 //! The role is read by [`probe_trainingpeaks_role`], which runs after every
 //! `TrainingPeaks` login and once for a connection made before roles were
-//! recorded, and is also learned from the scraper's refusal of a coach
+//! recorded, and is also learned from the service's refusal of a coach
 //! account's own read, which the read path records. That refusal carries no
 //! email, so it grants nothing: the grant waits for a profile read.
 //!
@@ -403,7 +403,7 @@ async fn purge_misfiled_activities(
 }
 
 /// The profile of the `TrainingPeaks` account `session` signed in with, read
-/// on the scraper service: its names, whether it trains or coaches, and a
+/// on the sciotte service: its names, whether it trains or coaches, and a
 /// coach account's roster.
 ///
 /// The read goes through the one of `registry`'s read services the session
@@ -421,7 +421,7 @@ async fn purge_misfiled_activities(
 ///
 /// # Errors
 ///
-/// Returns an error when the scraper service is not configured, when the
+/// Returns an error when the sciotte service is not configured, when the
 /// owner's session-read windows refuse the read, or when the service
 /// cannot import the session or read the profile. A session the service no
 /// longer holds names `sciotte_trainingpeaks`, whose sign-in renews it.
@@ -446,7 +446,7 @@ pub async fn trainingpeaks_profile(
     read_imported_persisting(
         remote,
         session,
-        SciotteTarget::TrainingPeaks.scraper_provider_name(),
+        SciotteTarget::TrainingPeaks.service_provider_name(),
         || remote.get_athlete(&session.session_id),
         |rotated| async move { store_over_row(tokens, read_from, &rotated).await },
     )
@@ -478,12 +478,12 @@ pub fn account_role(profile: &AthleteProfile) -> ProviderAccountRole {
 /// `read_from` is the token row the session was stored as
 /// ([`trainingpeaks_profile`]).
 ///
-/// The probe costs one profile read on the scraper service, so callers run it
+/// The probe costs one profile read on the sciotte service, so callers run it
 /// off the request that stored the session.
 ///
 /// # Errors
 ///
-/// Returns the scraper error when the profile cannot be read (nothing is
+/// Returns the session-read error when the profile cannot be read (nothing is
 /// recorded then), or the repository error when recording fails.
 pub async fn probe_trainingpeaks_role(
     repos: &RepositoryRegistry,

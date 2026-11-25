@@ -10,9 +10,9 @@
 //! Two defects are pinned here, and they pull in opposite directions.
 //!
 //! **The one that shipped.** `compute_and_persist_history` used to fetch up to
-//! 500 activities live from the provider on every call. On a scrape backend
+//! 500 activities live from the provider on every call. On a session-read backend
 //! that is minutes of browser work inside a chat turn bounded at 90s: on
-//! 2026-09-08 a sciotte scrape returned 378 activities after 171 seconds, the
+//! 2026-09-08 a sciotte session read returned 378 activities after 171 seconds, the
 //! platform had already dropped the future at 90, and the athlete was told the
 //! calculation timed out. `computes_a_full_window_from_cache_without_a_provider`
 //! fails against that implementation — no provider token is registered, so the
@@ -50,9 +50,9 @@ use pierre_tool_runtime::training_history_compute::{
 use uuid::Uuid;
 
 use crate::common::{create_test_server_resources, create_test_user};
-use crate::helpers::sciotte_mock::seed_scrape_session;
+use crate::helpers::sciotte_mock::seed_signed_in_session;
 
-/// The backend the seeded rows are written under. A scrape mirror, because that
+/// The backend the seeded rows are written under. A session-read backend, because that
 /// is the class whose live fetch is expensive enough to have caused the outage.
 const BACKEND: &str = "sciotte";
 
@@ -66,7 +66,7 @@ struct Fixture {
     tenant: TenantId,
 }
 
-/// A user with a connected scrape backend, real physiology, and nothing cached.
+/// A user with a connected session-read backend, real physiology, and nothing cached.
 ///
 /// No OAuth token is ever registered: every test here would fail if the compute
 /// reached for the provider.
@@ -93,7 +93,7 @@ async fn fixture() -> Fixture {
         .await
         .unwrap();
     // A session for it, so a missing depth has a live source to walk.
-    seed_scrape_session(&resources, user_id, tenant, BACKEND, "history-session").await;
+    seed_signed_in_session(&resources, user_id, tenant, BACKEND, "history-session").await;
 
     // Real physiology so TSS is HR-derived and the resulting CTL is non-zero —
     // a series of zeros would pass a row-count assertion while proving nothing.

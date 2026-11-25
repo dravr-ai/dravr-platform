@@ -1,5 +1,5 @@
 // ABOUTME: PHASE 6 tests — MessageItem paints the server's reply blocks through one switch
-// ABOUTME: Red the moment a renderer goes back to scraping a URL, a panel or a control out of the prose
+// ABOUTME: Red the moment a renderer goes back to pulling a URL, a panel or a control out of the prose
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -25,7 +25,7 @@ function assistantMessage(content = 'Your load is climbing.'): Message {
 describe('MessageItem reply-block switch', () => {
   it('renders the reconnect call to action from the block, not from a URL in the prose', () => {
     // The regression this turns red: the deleted
-    // `/https?:\/\/\S*\/providers\/sciotte\/login\?token=\S+/` scrape coming
+    // `/https?:\/\/\S*\/providers\/sciotte\/login\?token=\S+/` match coming
     // back. The prose here carries NO url at all — on a surface that renders a
     // reconnect control the server does not fold the sentence in — so a
     // regex-driven renderer produces no button and this fails.

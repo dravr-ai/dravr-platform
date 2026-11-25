@@ -27,7 +27,7 @@ use crate::garmin_sign_in_test::{
 };
 use crate::history_walk_test::{
     age_job_rows, ask_walk, job_row, job_state, job_state_of, query_bound, rows_under,
-    spawn_switchable_scraper, walk_ended, ScraperSwitch, WALK_DEADLINE,
+    spawn_switchable_session_reader, walk_ended, SessionReaderSwitch, WALK_DEADLINE,
 };
 
 use std::slice;
@@ -174,8 +174,8 @@ async fn a_walk_is_recorded_beside_the_ordinary_job_owed_for_its_session() {
 /// stands beside it, so its end retires nothing.
 #[tokio::test]
 async fn a_resumed_ordinary_backfill_beside_a_grant_is_no_walk() {
-    let (scraper, calls) = spawn_switchable_scraper(ScraperSwitch::default()).await;
-    let resources = server(common::test_server_config_with_sciotte(&scraper)).await;
+    let (reader, calls) = spawn_switchable_session_reader(SessionReaderSwitch::default()).await;
+    let resources = server(common::test_server_config_with_sciotte(&reader)).await;
     let (user_id, _user, tenant, _token) = athlete(&resources).await;
     hold_grant(&resources, user_id, tenant).await;
     hold_session(&resources, user_id, tenant, LIVE_SESSION).await;
@@ -230,15 +230,15 @@ async fn a_resumed_ordinary_backfill_beside_a_grant_is_no_walk() {
     );
 }
 
-/// The scraper fails the walk's read once: the job stays owed for the
+/// The service fails the walk's read once: the job stays owed for the
 /// resume sweep and the session stays for it — nothing is dropped or marked
 /// incomplete on a hiccup.
 #[tokio::test]
 async fn a_transient_failure_keeps_the_walk_owed_and_the_session() {
-    let switch = ScraperSwitch::default();
+    let switch = SessionReaderSwitch::default();
     switch.fail_next.store(true, Ordering::SeqCst);
-    let (scraper, calls) = spawn_switchable_scraper(switch).await;
-    let resources = server(common::test_server_config_with_sciotte(&scraper)).await;
+    let (reader, calls) = spawn_switchable_session_reader(switch).await;
+    let resources = server(common::test_server_config_with_sciotte(&reader)).await;
     let (user_id, _user, tenant, _token) = athlete(&resources).await;
     hold_grant(&resources, user_id, tenant).await;
 
@@ -276,9 +276,9 @@ async fn a_transient_failure_keeps_the_walk_owed_and_the_session() {
 /// sends one.
 #[tokio::test]
 async fn a_walk_never_sends_the_per_session_digest() {
-    let (scraper, _calls) = spawn_switchable_scraper(ScraperSwitch::default()).await;
+    let (reader, _calls) = spawn_switchable_session_reader(SessionReaderSwitch::default()).await;
     let resources = common::create_test_server_resources_with_config(
-        common::test_server_config_with_sciotte(&scraper),
+        common::test_server_config_with_sciotte(&reader),
     )
     .await
     .unwrap();
@@ -395,8 +395,8 @@ async fn a_walk_never_sends_the_per_session_digest() {
 /// session (B1).
 #[tokio::test]
 async fn a_step_that_fills_its_limit_reads_the_next_below_its_oldest_activity() {
-    let (scraper, calls) = spawn_switchable_scraper(ScraperSwitch::default()).await;
-    let resources = server(common::test_server_config_with_sciotte(&scraper)).await;
+    let (reader, calls) = spawn_switchable_session_reader(SessionReaderSwitch::default()).await;
+    let resources = server(common::test_server_config_with_sciotte(&reader)).await;
     let (user_id, _user, tenant, _token) = athlete(&resources).await;
     hold_grant(&resources, user_id, tenant).await;
     hold_session(&resources, user_id, tenant, LIVE_SESSION).await;
@@ -497,10 +497,10 @@ async fn a_step_that_fills_its_limit_reads_the_next_below_its_oldest_activity() 
 /// a hiccup never costs the athlete their sleep history.
 #[tokio::test]
 async fn a_failed_wellness_copy_keeps_the_session_for_the_next_run() {
-    let switch = ScraperSwitch::default();
+    let switch = SessionReaderSwitch::default();
     switch.fail_summaries.store(true, Ordering::SeqCst);
-    let (scraper, calls) = spawn_switchable_scraper(switch).await;
-    let resources = server(common::test_server_config_with_sciotte(&scraper)).await;
+    let (reader, calls) = spawn_switchable_session_reader(switch).await;
+    let resources = server(common::test_server_config_with_sciotte(&reader)).await;
     let (user_id, _user, tenant, _token) = athlete(&resources).await;
     hold_grant(&resources, user_id, tenant).await;
 
@@ -532,11 +532,11 @@ async fn a_failed_wellness_copy_keeps_the_session_for_the_next_run() {
 /// day is kept and the walk stays owed, rather than retired over a hole.
 #[tokio::test]
 async fn one_unread_wellness_day_keeps_the_session_for_the_next_run() {
-    let switch = ScraperSwitch::default();
+    let switch = SessionReaderSwitch::default();
     let hole = Timestamp::now().utc_date() - Elapsed::days(200);
     *switch.fail_summary_on.lock().unwrap() = Some(hole);
-    let (scraper, calls) = spawn_switchable_scraper(switch).await;
-    let resources = server(common::test_server_config_with_sciotte(&scraper)).await;
+    let (reader, calls) = spawn_switchable_session_reader(switch).await;
+    let resources = server(common::test_server_config_with_sciotte(&reader)).await;
     let (user_id, _user, tenant, _token) = athlete(&resources).await;
     hold_grant(&resources, user_id, tenant).await;
 

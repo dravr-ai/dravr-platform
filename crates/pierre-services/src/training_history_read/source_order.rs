@@ -173,7 +173,7 @@ pub async fn walk_source(
 /// (carnet#1482).
 ///
 /// The session reads years a request, so it walks first; what it never
-/// listed (a workout older than the scraper reaches) is still the API's to
+/// listed (a workout older than the session read reaches) is still the API's to
 /// page, below the oldest row the session stored. `None` when `backend` is
 /// not a session, and when no such grant is live: a push holds nothing from
 /// before the athlete connected it, so it is never walked.

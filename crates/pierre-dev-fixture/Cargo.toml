@@ -29,7 +29,8 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # The numeric id rule the seeders warm the activity cache with.
 pierre-core = { version = "0.3.0", path = "../pierre-core" }
-pierre-fitness-compute = { version = "0.3.0", path = "../pierre-fitness-compute" }
+# The encoded-polyline codec the seeded summary polylines are written with.
+dravr-barrage = { workspace = true }
 # The Garmin stand-in posts its pushes to the local webhook route and builds
 # the consent redirect; both versions are the ones the workspace already locks.
 reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }

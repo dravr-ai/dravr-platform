@@ -376,7 +376,7 @@ pub async fn handle_capture_refresh(
     Query(params): Query<CaptureRefreshQuery>,
 ) -> AppResult<impl IntoResponse> {
     // Mutating, and it spends provider calls: this flips connection status and
-    // wakes the scraper, so it takes the manage permission rather than the view
+    // wakes the session reader, so it takes the manage permission rather than the view
     // one its read-only sibling is content with.
     admin_token.require_permission(&AdminPermission::ManageConfiguration)?;
 

@@ -395,7 +395,7 @@ describe('provider-auth refusals', () => {
     expect(refusalCode(responded(403, { code: 7 }))).toBeUndefined();
   });
 
-  it('names a scraper backend by the service it signs in to, and a plain id by its brand', () => {
+  it('names a session-read backend by the service it signs in to, and a plain id by its brand', () => {
     expect(describeProviderAuthRefusal(expired('sciotte_garmin'), t)).toBe('errors.providerReconnect(Garmin)');
     expect(describeProviderAuthRefusal(expired('garmin'), t)).toBe('errors.providerReconnect(Garmin)');
     expect(describeProviderAuthRefusal(expired('strava'), t)).toBe('errors.providerReconnect(Strava)');

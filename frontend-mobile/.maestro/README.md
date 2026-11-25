@@ -55,7 +55,7 @@ This directory contains Maestro E2E tests for the Pierre mobile app.
 ├── settings/                # Settings screen tests
 ├── chat/                    # Chat functionality tests (11: the verdict sheet, on a seeded verdict)
 ├── onboarding/              # Onboarding steps (02: the coach's group step, on fresh coaches)
-├── home-sync/               # Home's sync failure and retry, against the scripted scraper
+├── home-sync/               # Home's sync failure and retry, against the scripted service
 ├── coach-plan/              # A coach publishes a draft from their thread about an athlete, on a fresh seeded pair
 ├── store/                   # Discover/Store tests (browse, install → hint, uninstall)
 ├── discover/                # The edit sheet on an installed agent (the only agent editor)

@@ -36,7 +36,7 @@ use pierre_groups::GroupService;
 use pierre_services::account_reset::AccountArchiveEraser;
 use pierre_services::coach_access::CoachAccessNotices;
 use pierre_services::live_activities::LiveActivityStore;
-use pierre_services::scrape_session::ScrapeSessionInstaller;
+use pierre_services::signed_in_session::SessionInstaller;
 use pierre_services::user_approval::UserApprovalNotifier;
 use pierre_services::user_removal::ProviderDisconnector;
 use pierre_tool_runtime::guardian::GuardianConfigRegistry;
@@ -114,10 +114,10 @@ pub struct AdminApiContext {
     /// the account owns when asked to (injected by the composition root;
     /// `None` until wired, in which case such a reset refuses).
     pub group_service: Option<Arc<GroupService>>,
-    /// Stores a scrape session on an account and warms its data the way a
+    /// Stores a signed-in session on an account and warms its data the way a
     /// login does, for the admin clone (injected by the composition root;
     /// `None` until wired, in which case the clone route refuses).
-    pub session_installer: Option<Arc<dyn ScrapeSessionInstaller>>,
+    pub session_installer: Option<Arc<dyn SessionInstaller>>,
     /// Meters the device-approval sign-in per client address and account
     /// (carnet#804). A process-local limiter until the composition root
     /// injects the server's shared one, so the page is never unmetered.

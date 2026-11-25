@@ -293,7 +293,7 @@ pub(crate) async fn grant_window(
 
 /// A sibling connection's rows for [`serve_without_primary`], read as its
 /// health allows: a flagged one from its durable cache, a deep historical
-/// window on a scrape-backed mirror from its cache too, any other live.
+/// window on a session-read mirror from its cache too, any other live.
 async fn sibling_rows(
     context: &ToolExecutionContext,
     conn: &ProviderConnection,
@@ -402,8 +402,8 @@ pub struct FallbackServe {
 /// them to the flag the first read raised. A `revoked` sibling is skipped: the
 /// athlete withdrew that access. Cross-tenant like the peer path, so
 /// a provider connected under the athlete's own tenant answers from a group
-/// conversation. A deep historical window on a scrape-backed mirror reads that
-/// sibling's durable cache rather than scraping inline — the historical branch
+/// conversation. A deep historical window on a session-read mirror reads that
+/// sibling's durable cache rather than reading the session inline — the historical branch
 /// exists precisely to keep a multi-year page out of the turn. The union is
 /// merged the same way [`maybe_merge_other_connections`] merges it, so a
 /// watch's misclassified twin of a GPS session collapses into it.

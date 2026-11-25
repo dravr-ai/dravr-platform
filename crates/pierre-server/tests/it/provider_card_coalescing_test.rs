@@ -8,7 +8,7 @@
 #![allow(missing_docs)]
 
 //! The Strava and Garmin cards are named for their MIRROR backends (`sciotte`,
-//! `sciotte_garmin`), because the scrape is the supported way in. A connection
+//! `sciotte_garmin`), because the session sign-in is the supported way in. A connection
 //! made through OAuth is stored under the user-facing name (`strava`,
 //! `garmin`). One athlete and one provider therefore have two possible row
 //! names, and the card has to light up for either.
@@ -155,8 +155,8 @@ async fn strava_oauth_row_lights_the_strava_card() {
     );
 }
 
-/// Coalescing must not have broken the path it was already serving: a scrape
-/// connection is stored under the mirror name and lights the same card.
+/// Coalescing must not have broken the path it was already serving: a signed-in
+/// session's connection is stored under the mirror name and lights the same card.
 #[tokio::test]
 async fn mirror_row_still_lights_its_own_card() {
     let (resources, user_id, tenant_id, user) = test_setup().await;
@@ -176,7 +176,7 @@ async fn mirror_row_still_lights_its_own_card() {
     );
 }
 
-/// TrainingPeaks has only its mirror, so its scrape row is the whole card —
+/// TrainingPeaks has only its mirror, so its session row is the whole card —
 /// and must light that card alone.
 #[tokio::test]
 async fn trainingpeaks_mirror_row_lights_its_own_card_and_no_other() {

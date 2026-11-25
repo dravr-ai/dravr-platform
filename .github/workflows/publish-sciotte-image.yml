@@ -1,4 +1,4 @@
-# ABOUTME: Builds the dedicated sciotte scraper service image (ADR-021) from the dravr-sciotte
+# ABOUTME: Builds the dedicated sciotte service image (ADR-021) from the dravr-sciotte
 # ABOUTME: repo at a chosen ref and publishes it to the central Artifact Registry as images/sciotte
 
 name: "Deploy: Sciotte Image"

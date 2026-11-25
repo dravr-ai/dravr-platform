@@ -51,7 +51,7 @@ impl SciotteProvider {
         request_budget::admit(budget.as_ref(), self.provider_name)
             .await
             .map_err(|e| request_budget::with_brand(e, target.brand()))?;
-        let provider = target.scraper_provider_name();
+        let provider = target.service_provider_name();
         read_imported_persisting(remote, session, provider, read, |rotated| {
             self.adopt_rotated(rotated)
         })

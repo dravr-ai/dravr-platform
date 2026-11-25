@@ -7,11 +7,11 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
+use dravr_barrage::parse::polyline::{decode_polyline, encode_polyline};
 use pierre_core::models::TimeSeriesData;
 use pierre_fitness_compute::routes::haversine_meters_between;
 use pierre_fitness_compute::{
-    decode_polyline, encode_polyline, trimmed_overview_polyline, RouteTrack, RouteTrackError,
-    DEFAULT_PRIVACY_RADIUS_METERS,
+    trimmed_overview_polyline, RouteTrack, RouteTrackError, DEFAULT_PRIVACY_RADIUS_METERS,
 };
 
 /// Parc La Fontaine, Montréal.

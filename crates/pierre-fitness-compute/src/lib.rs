@@ -46,10 +46,6 @@ pub use routes::{
 pub mod route_privacy;
 pub use route_privacy::{trim_route_endpoints, TrimmedRoute, DEFAULT_PRIVACY_RADIUS_METERS};
 
-/// Google encoded-polyline codec — the route overview format Strava's `summary_polyline` uses.
-pub mod polyline;
-pub use polyline::{decode_polyline, encode_polyline};
-
 /// Drawable route tracks: privacy-trimmed geometry from streams or a route overview.
 pub mod route_track;
 pub use route_track::{

@@ -19,7 +19,7 @@
 //!    ([`link_binding`]);
 //! 4. the coach's own session must be live, and its credential one that
 //!    reads athletes ([`CoachPlatform::coach_credentials`]), counted against
-//!    the coach's own key, or the coach's own session reads for a scraper
+//!    the coach's own key, or the coach's own session reads for a signed-in
 //!    session ([`with_request_budget`]).
 //!
 //! The live read path (the tool runtime's delegated subject), the scheduled

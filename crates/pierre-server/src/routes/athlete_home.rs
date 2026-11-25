@@ -18,7 +18,7 @@
 //!   own cache is older than the freshness bands allow, a refresh is started
 //!   in the background through the same stale-head path the chat turn uses,
 //!   and the answer says so (`stale`), so the client asks once more a little
-//!   later. A scrape session flagged `needs_reauth` is refreshed too, on the
+//!   later. A signed-in session flagged `needs_reauth` is refreshed too, on the
 //!   throttle `pierre_tool_runtime::reauth_retry` holds: a read it serves
 //!   re-arms it. A refresh that failed — the provider errored or timed out,
 //!   or answered with a list it did not vouch for — moves no freshness, and
@@ -26,7 +26,7 @@
 //!   last synced well (`sync_failure`). A provider whose last refresh failed
 //!   is refreshed again whatever its freshness, once the failure's pause is
 //!   over (`pierre_tool_runtime::activity_fetch::sync_verdict::sync_backoff_until`), so a
-//!   failing scraper is not scraped on every load; `?retry=true` — the
+//!   failing session is not read on every load; `?retry=true` — the
 //!   athlete's own retry — refreshes it at once.
 //!   Each row's `has_gps` is `false` only when the activity's stored route
 //!   read found no GPS; a row whose route has not been read says `true`,
@@ -147,7 +147,7 @@ use pierre_services::plan_card::{try_load_plan_card, PlanCard};
 use pierre_services::workouts::{served_rows, sport_bucket, workouts, Workout};
 use pierre_tool_runtime::activity_fetch::sync_verdict::{record_sync_failure, sync_backoff_until};
 use pierre_tool_runtime::activity_fetch::{refresh_head, CACHED_ACTIVITY_LOOKBACK_DAYS};
-use pierre_tool_runtime::reauth_retry::{claim_scrape_session_retry, retries_flagged_session};
+use pierre_tool_runtime::reauth_retry::{claim_flagged_session_retry, retries_flagged_session};
 use pierre_tool_runtime::revalidation::{revalidation_timeout, RevalidationRegistry};
 use pierre_tool_runtime::runtime::ToolRuntime;
 use serde::{Deserialize, Serialize};
@@ -413,7 +413,7 @@ pub struct RecentActivitiesResponse {
     /// `true` when this load started, or found running, a refresh of a
     /// provider that needs one: past the freshness bands (or never fetched),
     /// judged by that provider's own last fetch, or whose last refresh failed
-    /// — an active connection, or a flagged scrape session whose throttled
+    /// — an active connection, or a flagged signed-in session whose throttled
     /// retry this load claimed. The client may ask once more. So `stale` can
     /// be `true` while `as_of` is recent: a fresh provider does not make a
     /// stale one current. `false` while a failing provider is paused between

@@ -594,7 +594,7 @@ enum UserCommand {
     /// Disconnect one provider for a user over the admin API, revoking the grant at the provider
     Disconnect(commands::user_admin::DisconnectArgs),
 
-    /// Copy one account's scrape-session provider connection onto another (super-admin only)
+    /// Copy one account's signed-in-session provider connection onto another (super-admin only)
     CloneProvider(commands::user_admin::CloneProviderArgs),
 
     /// Remove a user completely over the admin API; every provider grant is revoked first

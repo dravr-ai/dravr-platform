@@ -10,10 +10,10 @@
 // without the features.
 //
 // A sciotte list row carries no route overview: the ride's GPS line arrives
-// only on a detail read, as the scraped detail's `route`. A detail read that
+// only on a detail read, as the session-read detail's `route`. A detail read that
 // already happens — the activity view's, the detail walk's — keeps that line
 // as the ride's stored track, under the trimming the Home map applies, so the places pass
-// can form a place from it. The scraper is a loopback stand-in (a test
+// can form a place from it. The session reader is a loopback stand-in (a test
 // double, per the repo's mock rule) that counts its detail reads, so "no
 // extra provider call" is a count.
 #![cfg(all(
@@ -67,25 +67,25 @@ const TRAILHEAD: (f64, f64) = (45.6012, -73.8044);
 /// The key a sciotte session files its rides under.
 const SESSION: &str = "sciotte";
 
-/// What the scraper stand-in answers for a ride's detail read.
+/// What the session reader stand-in answers for a ride's detail read.
 #[derive(Clone)]
 enum Detail {
     /// A detail carrying this route.
     Route(Vec<(f64, f64)>),
     /// A detail with no `route` key: the page was read before its map.
     NoRoute,
-    /// A `503`: the scraper is down.
+    /// A `503`: the service is down.
     Fails,
 }
 
-/// The scraper stand-in: each ride's answer, and every detail read it saw.
+/// The session reader stand-in: each ride's answer, and every detail read it saw.
 #[derive(Default)]
-struct Scraper {
+struct SessionReader {
     answers: Mutex<HashMap<String, Detail>>,
     reads: AtomicUsize,
 }
 
-impl Scraper {
+impl SessionReader {
     fn answer(&self, id: &str, detail: Detail) {
         self.answers.lock().unwrap().insert(id.to_owned(), detail);
     }
@@ -95,15 +95,15 @@ impl Scraper {
     }
 }
 
-/// `GET /api/activities/{id}`: the ride's detail as [`Scraper::answer`] set it,
+/// `GET /api/activities/{id}`: the ride's detail as [`SessionReader::answer`] set it,
 /// started at its id when the id is a unix second (a walk's rides), else two
 /// days ago.
 async fn detail(
-    State(scraper): State<Arc<Scraper>>,
+    State(reader): State<Arc<SessionReader>>,
     Path(id): Path<String>,
 ) -> Result<Json<Value>, StatusCode> {
-    scraper.reads.fetch_add(1, Ordering::SeqCst);
-    let answer = scraper
+    reader.reads.fetch_add(1, Ordering::SeqCst);
+    let answer = reader
         .answers
         .lock()
         .unwrap()
@@ -136,21 +136,21 @@ async fn detail(
     Ok(Json(body))
 }
 
-async fn spawn_scraper() -> (String, Arc<Scraper>) {
-    let scraper = Arc::new(Scraper::default());
+async fn spawn_session_reader() -> (String, Arc<SessionReader>) {
+    let reader = Arc::new(SessionReader::default());
     let app = Router::new()
         .route(
             "/auth/import-session",
             post(|| async { Json(json!({ "session_id": "cap-verified-session" })) }),
         )
         .route("/api/activities/{id}", get(detail))
-        .with_state(Arc::clone(&scraper));
+        .with_state(Arc::clone(&reader));
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     tokio::spawn(async move {
         axum::serve(listener, app).await.unwrap();
     });
-    (format!("http://{addr}"), scraper)
+    (format!("http://{addr}"), reader)
 }
 
 struct Athlete {
@@ -314,15 +314,15 @@ fn metres(a: (f64, f64), b: (f64, f64)) -> f64 {
 
 #[tokio::test]
 async fn a_detail_read_carrying_a_route_stores_the_rides_trimmed_track_with_no_extra_read() {
-    let (scraper_url, scraper) = spawn_scraper().await;
+    let (reader_url, reader) = spawn_session_reader().await;
     let resources = common::create_test_server_resources_with_config(
-        common::test_server_config_with_sciotte(&scraper_url),
+        common::test_server_config_with_sciotte(&reader_url),
     )
     .await
     .unwrap();
     let athlete = sciotte_athlete(&resources, "sciotte-track").await;
     let recorded = loop_track(0.0);
-    scraper.answer("t1", Detail::Route(recorded.clone()));
+    reader.answer("t1", Detail::Route(recorded.clone()));
     cache_rides(
         &resources,
         &athlete,
@@ -331,7 +331,7 @@ async fn a_detail_read_carrying_a_route_stores_the_rides_trimmed_track_with_no_e
     .await;
 
     open_view(&resources, &athlete, "t1").await;
-    assert_eq!(scraper.reads(), 1, "bug: the view reads the detail once");
+    assert_eq!(reader.reads(), 1, "bug: the view reads the detail once");
 
     let track = drawn(&resources, &athlete, "t1").await;
     let first = track.first_point().unwrap();
@@ -368,7 +368,7 @@ async fn a_detail_read_carrying_a_route_stores_the_rides_trimmed_track_with_no_e
         "bug: the Home map does not draw the stored track: {route}"
     );
     assert_eq!(
-        scraper.reads(),
+        reader.reads(),
         1,
         "bug: the Home map read the provider again for a track the detail read stored"
     );
@@ -376,15 +376,15 @@ async fn a_detail_read_carrying_a_route_stores_the_rides_trimmed_track_with_no_e
 
 #[tokio::test]
 async fn the_stored_track_is_the_athletes_own_in_their_own_tenant() {
-    let (scraper_url, scraper) = spawn_scraper().await;
+    let (reader_url, reader) = spawn_session_reader().await;
     let resources = common::create_test_server_resources_with_config(
-        common::test_server_config_with_sciotte(&scraper_url),
+        common::test_server_config_with_sciotte(&reader_url),
     )
     .await
     .unwrap();
     let athlete = sciotte_athlete(&resources, "sciotte-track-scope").await;
     let other = sciotte_athlete(&resources, "sciotte-track-other").await;
-    scraper.answer("t2", Detail::Route(loop_track(0.4)));
+    reader.answer("t2", Detail::Route(loop_track(0.4)));
     let ride = listed_ride("t2", Timestamp::now() - Elapsed::days(2));
     cache_rides(&resources, &athlete, slice_of(&ride)).await;
     cache_rides(&resources, &other, slice_of(&ride)).await;
@@ -414,15 +414,15 @@ fn slice_of(ride: &Activity) -> &[Activity] {
 
 #[tokio::test]
 async fn an_empty_route_settles_no_gps_and_only_a_drawn_track_replaces_it() {
-    let (scraper_url, scraper) = spawn_scraper().await;
+    let (reader_url, reader) = spawn_session_reader().await;
     let resources = common::create_test_server_resources_with_config(
-        common::test_server_config_with_sciotte(&scraper_url),
+        common::test_server_config_with_sciotte(&reader_url),
     )
     .await
     .unwrap();
     let athlete = sciotte_athlete(&resources, "sciotte-track-nogps").await;
-    scraper.answer("indoor", Detail::Route(Vec::new()));
-    scraper.answer("drawn", Detail::Route(loop_track(0.8)));
+    reader.answer("indoor", Detail::Route(Vec::new()));
+    reader.answer("drawn", Detail::Route(loop_track(0.8)));
     cache_rides(
         &resources,
         &athlete,
@@ -445,12 +445,12 @@ async fn an_empty_route_settles_no_gps_and_only_a_drawn_track_replaces_it() {
     );
 
     // A later read that draws the ride's line proves the empty one lost it.
-    scraper.answer("indoor", Detail::Route(loop_track(0.2)));
+    reader.answer("indoor", Detail::Route(loop_track(0.2)));
     pass_detail_rechecks(&resources, athlete.user_id).await;
-    let before = scraper.reads();
+    let before = reader.reads();
     open_view(&resources, &athlete, "indoor").await;
     assert_eq!(
-        scraper.reads(),
+        reader.reads(),
         before + 1,
         "bug: the fixture did not make the view read the ride's detail again"
     );
@@ -458,14 +458,14 @@ async fn an_empty_route_settles_no_gps_and_only_a_drawn_track_replaces_it() {
 
     open_view(&resources, &athlete, "drawn").await;
     drawn(&resources, &athlete, "drawn").await;
-    // A later read of the same ride whose route came back empty is a scrape
+    // A later read of the same ride whose route came back empty is a read
     // glitch, never a reason to drop the line a read already drew.
-    scraper.answer("drawn", Detail::Route(Vec::new()));
+    reader.answer("drawn", Detail::Route(Vec::new()));
     pass_detail_rechecks(&resources, athlete.user_id).await;
-    let before = scraper.reads();
+    let before = reader.reads();
     open_view(&resources, &athlete, "drawn").await;
     assert_eq!(
-        scraper.reads(),
+        reader.reads(),
         before + 1,
         "bug: the fixture did not make the view read the ride's detail again"
     );
@@ -474,15 +474,15 @@ async fn an_empty_route_settles_no_gps_and_only_a_drawn_track_replaces_it() {
 
 #[tokio::test]
 async fn a_read_with_no_route_or_a_failed_read_settles_nothing() {
-    let (scraper_url, scraper) = spawn_scraper().await;
+    let (reader_url, reader) = spawn_session_reader().await;
     let resources = common::create_test_server_resources_with_config(
-        common::test_server_config_with_sciotte(&scraper_url),
+        common::test_server_config_with_sciotte(&reader_url),
     )
     .await
     .unwrap();
     let athlete = sciotte_athlete(&resources, "sciotte-track-unread").await;
-    scraper.answer("unrendered", Detail::NoRoute);
-    scraper.answer("down", Detail::Fails);
+    reader.answer("unrendered", Detail::NoRoute);
+    reader.answer("down", Detail::Fails);
     cache_rides(
         &resources,
         &athlete,
@@ -496,7 +496,7 @@ async fn a_read_with_no_route_or_a_failed_read_settles_nothing() {
     open_view(&resources, &athlete, "unrendered").await;
     open_view(&resources, &athlete, "down").await;
     assert!(
-        scraper.reads() >= 2,
+        reader.reads() >= 2,
         "bug: the fixture's views did not read the provider"
     );
     for id in ["unrendered", "down"] {
@@ -511,9 +511,9 @@ async fn a_read_with_no_route_or_a_failed_read_settles_nothing() {
 
 #[tokio::test]
 async fn the_next_places_pass_forms_a_place_from_the_stored_tracks() {
-    let (scraper_url, scraper) = spawn_scraper().await;
+    let (reader_url, reader) = spawn_session_reader().await;
     let resources = common::create_test_server_resources_with_config(
-        common::test_server_config_with_sciotte(&scraper_url),
+        common::test_server_config_with_sciotte(&reader_url),
     )
     .await
     .unwrap();
@@ -526,7 +526,7 @@ async fn the_next_places_pass_forms_a_place_from_the_stored_tracks() {
         .map(|(id, days)| listed_ride(id, Timestamp::now() - Elapsed::days(days * 2)))
         .collect();
     for (id, phase) in ids.iter().zip([0.0, 0.5, 1.0]) {
-        scraper.answer(id, Detail::Route(loop_track(phase)));
+        reader.answer(id, Detail::Route(loop_track(phase)));
     }
     cache_rides(&resources, &athlete, &rides).await;
     // Home is not the trailhead: no start is excluded as home.
@@ -558,7 +558,7 @@ async fn the_next_places_pass_forms_a_place_from_the_stored_tracks() {
     for id in ids {
         open_view(&resources, &athlete, id).await;
     }
-    let reads = scraper.reads();
+    let reads = reader.reads();
     assert_eq!(reads, ids.len(), "bug: each view reads its ride once");
 
     // Within the day's backstop: only the stored tracks make the athlete due.
@@ -582,7 +582,7 @@ async fn the_next_places_pass_forms_a_place_from_the_stored_tracks() {
         "bug: the place does not hold the three rides"
     );
     assert_eq!(
-        scraper.reads(),
+        reader.reads(),
         reads,
         "bug: the places pass asked the provider for a track"
     );
@@ -593,8 +593,8 @@ async fn the_next_places_pass_forms_a_place_from_the_stored_tracks() {
 /// session the walk reads.
 #[tokio::test]
 async fn a_session_detail_walk_stores_each_rides_route_with_its_one_read() {
-    let (scraper_url, scraper) = spawn_scraper().await;
-    let mut config = common::test_server_config_with_sciotte(&scraper_url);
+    let (reader_url, reader) = spawn_session_reader().await;
+    let mut config = common::test_server_config_with_sciotte(&reader_url);
     common::set_server_app(&mut config, "strava", "walk_client", "walk_secret");
     let resources = common::create_test_server_resources_with_config(config)
         .await
@@ -603,9 +603,9 @@ async fn a_session_detail_walk_stores_each_rides_route_with_its_one_read() {
     let athlete = sciotte_athlete(&resources, "sciotte-track-walk").await;
     let now = Timestamp::now().epoch_seconds();
     let (outdoor, indoor, unrendered) = (now - 10 * DAY, now - 8 * DAY, now - 6 * DAY);
-    scraper.answer(&outdoor.to_string(), Detail::Route(loop_track(0.3)));
-    scraper.answer(&indoor.to_string(), Detail::Route(Vec::new()));
-    scraper.answer(&unrendered.to_string(), Detail::NoRoute);
+    reader.answer(&outdoor.to_string(), Detail::Route(loop_track(0.3)));
+    reader.answer(&indoor.to_string(), Detail::Route(Vec::new()));
+    reader.answer(&unrendered.to_string(), Detail::NoRoute);
     store_rides(
         &resources,
         athlete.user_id,
@@ -637,7 +637,7 @@ async fn a_session_detail_walk_stores_each_rides_route_with_its_one_read() {
         "bug: the session walk did not end at its floor: {ended:?}"
     );
     assert_eq!(
-        scraper.reads(),
+        reader.reads(),
         3,
         "bug: the walk read a ride more than once to keep its route"
     );

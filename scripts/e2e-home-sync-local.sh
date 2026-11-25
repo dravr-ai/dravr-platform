@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# ABOUTME: Runs the real-backend Home sync spec (web) or Maestro flow (--mobile) locally, on an isolated Pierre server pointed at the scraper double
-# ABOUTME: Own ports, own SQLite file, own processes: the dev stack on 8081 and the real scraper it talks to are left alone
+# ABOUTME: Runs the real-backend Home sync spec (web) or Maestro flow (--mobile) locally, on an isolated Pierre server pointed at the session-reader double
+# ABOUTME: Own ports, own SQLite file, own processes: the dev stack on 8081 and the real session-read service it talks to are left alone
 #
 # SPDX-License-Identifier: MIT OR Apache-2.0
 # Copyright (c) 2026 dravr.ai
 #
 # frontend/e2e-real/home-sync.real.spec.ts needs a Pierre server whose
-# DRAVR_SCIOTTE_REMOTE_URL names the scraper double the spec starts, and whose
+# DRAVR_SCIOTTE_REMOTE_URL names the session-reader double the spec starts, and whose
 # SQLite file it can write a past sync time into. The standard dev stack
 # (bin/setup-db-with-seeds-and-oauth-and-start-servers.sh) points the server
-# at the real scraper instead, so this script boots the stack the spec needs
+# at the real service instead, so this script boots the stack the spec needs
 # the way CI's integration workflow does — a fresh database with the seeded
 # admin, the server, the SPA proxied to it — runs the spec, and stops
 # everything it started, whatever the outcome.
@@ -119,7 +119,7 @@ export DATABASE_URL="sqlite:$DATABASE_PATH"
 export PIERRE_MASTER_ENCRYPTION_KEY="$MASTER_KEY"
 "$ROOT/target/debug/pierre-cli" user create --email "$ADMIN_EMAIL" --password "$ADMIN_PASSWORD" --force
 
-echo "starting Pierre on $PIERRE_PORT, its scraper at the double on $DOUBLE_PORT"
+echo "starting Pierre on $PIERRE_PORT, its session reader at the double on $DOUBLE_PORT"
 (
     cd "$ROOT"
     HTTP_PORT="$PIERRE_PORT" \
@@ -140,7 +140,7 @@ wait_for "http://127.0.0.1:$PIERRE_PORT/health" "Pierre"
 if [ "$MOBILE" = true ]; then
     "$ROOT/target/debug/pierre-cli" user create --email "$MOBILE_EMAIL" --password "$MOBILE_PASSWORD" --force
 
-    echo "starting the scraper double on $DOUBLE_PORT behind its control API on $CONTROL_PORT"
+    echo "starting the session-reader double on $DOUBLE_PORT behind its control API on $CONTROL_PORT"
     (
         cd "$ROOT/frontend"
         PIERRE_URL="http://127.0.0.1:$PIERRE_PORT" \

@@ -66,7 +66,7 @@ fn run(days_ago: i64, duration_seconds: u64) -> Activity {
 /// The provider's own ordering: newest first.
 ///
 /// Passing an already-sorted list would hide the defect entirely, which is why
-/// the fixture is built in the order the scraper actually returns.
+/// the fixture is built in the order the service actually returns.
 fn newest_first(mut activities: Vec<Activity>) -> Vec<Activity> {
     activities.sort_by_key(|a| Reverse(a.start_date()));
     activities

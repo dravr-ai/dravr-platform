@@ -249,7 +249,7 @@ interface RecentActivitiesProps {
  * out: the empty sentence would promise a sync no connection can make, and
  * the only true thing left to say — reconnect — is the banner's. It stays
  * only while new activities are fetched — a refresh the server says is
- * running, which for a flagged scrape session is its retry, or the
+ * running, which for a flagged signed-in session is its retry, or the
  * athlete's own Retry — or while a read has failed, and then shows just that.
  *
  * While new activities are fetched the list is headed by a row that says so;

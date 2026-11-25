@@ -177,7 +177,7 @@ fn detail_mode_fences_each_comment_and_defangs_its_author() {
     assert_eq!(comments[0]["created_at"], "2026-09-20T19:00:00Z");
 }
 
-/// A workout as the TrainingPeaks scrape delivers it: the coach's and the
+/// A workout as the TrainingPeaks session read delivers it: the coach's and the
 /// athlete's single-field notes first, attributed by role and untimed, then
 /// the thread under each commenter's display name.
 fn trainingpeaks_workout(comments: Vec<ActivityComment>) -> Activity {

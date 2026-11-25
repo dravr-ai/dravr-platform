@@ -1,4 +1,4 @@
-// ABOUTME: Pins the planned-workout read end to end against a loopback stand-in for the scraper service
+// ABOUTME: Pins the planned-workout read end to end against a loopback stand-in for the sciotte service
 // ABOUTME: The provider's request, the converted plan, the coach-account refusal kept apart from a dead session, and the capability flag
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -7,7 +7,7 @@
 //! Sciotte planned-workout read contract.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-//! `GET /api/planned-workouts` answers the plan, or one of the scraper's
+//! `GET /api/planned-workouts` answers the plan, or one of the service's
 //! refusals. A coach account that named no athlete (`400 athlete_required`)
 //! is not a dead session: a `401 session_expired` sends the athlete through a
 //! re-login, while a coach account is the same after one. These pin that each
@@ -15,12 +15,12 @@
 //! converts the plan, and that the Strava and Garmin mirrors refuse the read
 //! rather than answering an empty calendar.
 //!
-//! The scraper here is a loopback stand-in (a test double, per the repo's
+//! The service here is a loopback stand-in (a test double, per the repo's
 //! mock rule): it answers by the `X-Session-Id` each seeded session sends and
 //! records every request, so the test reads the bytes the provider put on
 //! the wire. The client's own request lines and the service's refusals are
 //! pinned in dravr-sciotte (`client_test`, `client_contract_test`), and the
-//! code each refusal lands as in `sciotte_error`'s unit tests. The scraped
+//! code each refusal lands as in `sciotte_error`'s unit tests. The session-read
 //! scenarios share one test over one stand-in, which every provider reaches
 //! through a client built for it rather than through the environment.
 
@@ -172,7 +172,7 @@ fn session_of(request: &str) -> String {
 
 /// Serve the import, the planned read and the activity list, recording every
 /// request. Any other path answers 404, so an unexpected call fails the test.
-fn spawn_scraper_stub(listener: TcpListener, seen: Arc<Mutex<Vec<String>>>) {
+fn spawn_session_reader_stub(listener: TcpListener, seen: Arc<Mutex<Vec<String>>>) {
     tokio::spawn(async move {
         while let Ok((mut stream, _)) = listener.accept().await {
             let request = read_request(&mut stream).await;
@@ -414,12 +414,12 @@ async fn the_strava_and_garmin_mirrors_refuse_the_read(
     }
     assert!(
         request_lines(seen, "/api/planned-workouts", STRAVA_SESSION).is_empty(),
-        "a mirror without the capability never asks the scraper"
+        "a mirror without the capability never asks the service"
     );
 }
 
 #[tokio::test]
-async fn the_planned_read_reaches_the_scraper_and_keeps_its_refusals_apart() {
+async fn the_planned_read_reaches_the_service_and_keeps_its_refusals_apart() {
     let listener = TcpListener::bind("127.0.0.1:0")
         .await
         .expect("bind loopback"); // Safe: ephemeral port on loopback
@@ -427,7 +427,7 @@ async fn the_planned_read_reaches_the_scraper_and_keeps_its_refusals_apart() {
         .local_addr()
         .expect("bound listener has an address"); // Safe: listener is bound
     let seen = Arc::new(Mutex::new(Vec::new()));
-    spawn_scraper_stub(listener, seen.clone());
+    spawn_session_reader_stub(listener, seen.clone());
 
     let client = startup_reads(&[String::from(&format!("http://{addr}"))], None)
         .expect("a loopback client needs no audience"); // Safe: loopback URL
@@ -439,7 +439,7 @@ async fn the_planned_read_reaches_the_scraper_and_keeps_its_refusals_apart() {
 }
 
 #[test]
-fn the_trainingpeaks_mirror_is_the_one_scraped_target_with_a_planned_calendar() {
+fn the_trainingpeaks_mirror_is_the_one_session_read_target_with_a_planned_calendar() {
     let trainingpeaks = SciotteTrainingPeaksDescriptor.capabilities();
     assert!(trainingpeaks.supports_planned_workouts());
     assert!(trainingpeaks.supports_activities());

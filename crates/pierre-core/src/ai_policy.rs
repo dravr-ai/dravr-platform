@@ -28,7 +28,7 @@
 //! [`Transport`](crate::transport::Transport), its items are dropped whole —
 //! whether a model reads them or not — by the same relay-then-origin lookup.
 //! The relay's policy is resolved per item where one name serves several
-//! backends' data: a sciotte item answers to the backend that scraped it
+//! backends' data: a sciotte item answers to the backend that read it
 //! (carnet#765). A relay whose terms name a source settles that source's
 //! items by its own rule alone (carnet#767): intervals.icu licenses the
 //! Garmin-recorded data it relays on its own terms.
@@ -60,7 +60,7 @@ pub enum SourceClass {
     /// strap, or a file exported from one.
     Device,
     /// Written or computed by another application before it reached Dravr: a
-    /// coaching platform, an aggregator, a scraped service. A provider name
+    /// coaching platform, an aggregator, a service read through a session. A provider name
     /// Dravr does not know is one too, the class that claims the least.
     ThirdPartyApp,
     /// Entered by the athlete by hand.
@@ -141,8 +141,8 @@ pub trait ProviderTerms: Send + Sync {
     ///
     /// A relay's own terms bind everything it serves, so this is `provider`'s
     /// [`Self::transport_policy`] unless a provider serves several backends'
-    /// data under one name: the sciotte scrapers stamp every item `sciotte`
-    /// with the scraped service as its `source`, and the backend that scraped
+    /// data under one name: the sciotte session readers stamp every item `sciotte`
+    /// with the service they read as its `source`, and the backend that read
     /// it is the one whose policy holds (carnet#765). `source` arrives as
     /// stamped, in any case.
     fn item_transport_policy(
@@ -942,19 +942,19 @@ mod tests {
         assert!(!first_party_only(&Lookup, "unknown", Some("other")));
     }
 
-    /// One name serving two backends' data, as the sciotte scrapers do: its
+    /// One name serving two backends' data, as the sciotte session readers do: its
     /// `strava` backend keeps its data first-party, its `garmin` one does not.
-    struct Scrapers;
+    struct SessionReaders;
 
-    impl ProviderTerms for Scrapers {
+    impl ProviderTerms for SessionReaders {
         fn ai_policy(&self, _provider: &str) -> Option<&'static SourcePolicy> {
             None
         }
 
         fn transport_policy(&self, provider: &str) -> Option<TransportPolicy> {
             match provider {
-                "scraper" => Some(TransportPolicy::FirstPartyOnly),
-                "scraper_garmin" | "garmin" => Some(TransportPolicy::AnyTransport),
+                "reader" => Some(TransportPolicy::FirstPartyOnly),
+                "reader_garmin" | "garmin" => Some(TransportPolicy::AnyTransport),
                 _ => None,
             }
         }
@@ -965,7 +965,7 @@ mod tests {
             source: Option<&str>,
         ) -> Option<TransportPolicy> {
             match (provider, source) {
-                ("scraper", Some("garmin")) => self.transport_policy("scraper_garmin"),
+                ("reader", Some("garmin")) => self.transport_policy("reader_garmin"),
                 _ => self.transport_policy(provider),
             }
         }
@@ -973,23 +973,23 @@ mod tests {
 
     #[test]
     fn a_relay_serving_several_backends_is_judged_by_the_backend_that_read_the_item() {
-        assert!(first_party_only(&Scrapers, "scraper", None));
-        assert!(first_party_only(&Scrapers, "scraper", Some("strava")));
+        assert!(first_party_only(&SessionReaders, "reader", None));
+        assert!(first_party_only(&SessionReaders, "reader", Some("strava")));
         assert!(
-            !first_party_only(&Scrapers, "scraper", Some("garmin")),
+            !first_party_only(&SessionReaders, "reader", Some("garmin")),
             "the garmin backend's policy, not the strava backend's"
         );
 
         let none = BTreeSet::new();
         let consented = WithConsent {
-            terms: &Scrapers,
+            terms: &SessionReaders,
             withheld: &none,
         };
         assert!(
-            !first_party_only(&consented, "scraper", Some("garmin")),
+            !first_party_only(&consented, "reader", Some("garmin")),
             "consent forwards the per-item resolution"
         );
-        assert!(first_party_only(&consented, "scraper", None));
+        assert!(first_party_only(&consented, "reader", None));
     }
 
     #[test]

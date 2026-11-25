@@ -1,4 +1,4 @@
-// ABOUTME: Regression tests pinning that a sciotte scraper load-shed is backpressure, not a system failure
+// ABOUTME: Regression tests pinning that a sciotte service load-shed is backpressure, not a system failure
 // ABOUTME: Asserts the 503 + Retry-After answer and that no admin alert or sync.failed event is emitted
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -8,9 +8,9 @@
 #![allow(missing_docs)]
 
 //! The dedicated `dravr-sciotte` service sheds load by design when its Chrome
-//! concurrency budget is saturated: `503` with
-//! `{"error":"scraper_busy","reason":…,"retry_after_secs":N}` and a
-//! `Retry-After` header (its `busy_response`). That body carries no login
+//! concurrency budget is saturated: `503` with a body whose `error` is the
+//! service's busy value (`SERVICE_BUSY`), a `reason` and a `retry_after_secs`,
+//! and a `Retry-After` header (its `busy_response`). That body carries no login
 //! `status` field. Read as a system failure, every shed request cost one
 //! `error!` forwarded to the `#dev-dravr-errors` Slack channel *plus* one
 //! `sync.failed` business event, precisely while the service was saturated,
@@ -50,7 +50,7 @@ fn exchange(operation: Operation) -> Exchange {
 }
 
 /// The platform error for the service shedding a login step, as the sciotte
-/// client reports its `503` + `{"error":"scraper_busy","retry_after_secs":N}`.
+/// client reports its `503` with `SERVICE_BUSY` and a `retry_after_secs`.
 fn login_shed(retry_after_secs: u64) -> AppError {
     to_app_error(ClientError::Service(ServiceError::Shed {
         exchange: exchange(Operation::Login).into(),

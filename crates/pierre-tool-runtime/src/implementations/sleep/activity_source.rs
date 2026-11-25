@@ -26,7 +26,7 @@ use crate::protocols::ProtocolError;
 /// else the one [`resolve_provider_for_request`] elects for every activity tool
 /// (the `provider` argument, the deployment override, then the athlete's
 /// most-recently-used connection) — so an Intervals.icu, TrainingPeaks or
-/// scrape-connected Garmin athlete is read like any other, and an athlete with
+/// session-connected Garmin athlete is read like any other, and an athlete with
 /// no connection gets the canonical reconnect refusal instead of a Strava
 /// fetch they never set up. The rows come through the shared
 /// [`fetch_provider_activities`], which writes a live fetch through to the

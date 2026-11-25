@@ -1008,9 +1008,9 @@ mod tests {
     }
 
     // carnet#1207: the athlete reads the provider and the card's action,
-    // never the scraper behind the sign-in.
+    // never the service behind the sign-in.
     #[test]
-    fn every_locales_line_names_the_provider_and_never_the_scraper() {
+    fn every_locales_line_names_the_provider_and_never_the_service() {
         let strings = english();
         for locale in ["en", "fr", "de", "es", "pt"] {
             let templates = FirstWelcomeTemplates::resolve(&strings, locale);

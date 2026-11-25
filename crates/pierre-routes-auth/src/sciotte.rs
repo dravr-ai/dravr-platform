@@ -21,7 +21,7 @@ use pierre_providers::backend_resolver;
 use pierre_providers::registry::global_registry;
 use pierre_providers::sciotte_provider::SciotteTarget;
 use pierre_services::provider_connected::{self, ConnectVia, ProviderConnected};
-use pierre_services::scrape_session::{persist_sciotte_session, StoredSession};
+use pierre_services::signed_in_session::{persist_sciotte_session, StoredSession};
 use serde::{Deserialize, Serialize};
 use tracing::{error, info, warn};
 use uuid::Uuid;
@@ -53,7 +53,7 @@ use pierre_middleware::provider_link_token::CONNECT_PROVIDER;
 
 /// The parked remote-login state the platform remembers between the initial
 /// login call and its OTP/2FA continuations. The heavy state — parked browser +
-/// permit — lives on the scraper service; the platform keeps only this so a
+/// permit — lives on the sciotte service; the platform keeps only this so a
 /// continuation can name the right server-side flow *and* alert admins with
 /// the right platform on a system failure.
 #[derive(Clone, Serialize, Deserialize)]
@@ -75,7 +75,7 @@ pub(crate) struct RemoteFlowState {
 
 /// How long a remembered flow stays usable.
 ///
-/// Mirrors the pending-login window on the scraper service — one window
+/// Mirrors the pending-login window on the sciotte service — one window
 /// since dravr-sciotte 0.24.0, `DRAVR_SCIOTTE_PENDING_LOGIN_TTL`, 30 minutes
 /// by default (carnet#979). It is the cache entry's TTL, so once the
 /// service's reaper has released that browser the entry is gone on its own —
@@ -202,7 +202,7 @@ pub async fn remember_remote_flow_for(
 
 /// The user's remembered remote flow state, when the cache still holds one.
 ///
-/// Expiry is the entry's TTL, matching the scraper service's parked-flow
+/// Expiry is the entry's TTL, matching the sciotte service's parked-flow
 /// lifetime: past it the id names a browser the reaper has already released, so
 /// the entry is gone and counts as no entry at all — sending its id would
 /// resume nothing and surface the service's `no_pending_login` 404 as a
@@ -233,7 +233,7 @@ pub(crate) async fn recall_remote_flow(
 /// client error naming the recovery.
 ///
 /// The id is the whole of the caller-to-flow binding: `submit-otp` /
-/// `select-2fa` authenticate the caller, but the scraper service resumes
+/// `select-2fa` authenticate the caller, but the sciotte service resumes
 /// whichever parked browser the id names, and `remote_login_to_response` then
 /// persists that session under the caller's `user_id`/`tenant_id`. The id is
 /// therefore only ever the caller's own remembered one; a caller with no live
@@ -374,12 +374,12 @@ impl fmt::Debug for SciotteOtpRequest {
     }
 }
 
-/// Announce an established scrape session
+/// Announce an established signed-in session
 /// ([`provider_connected::announce`]): the `provider.connected` event under
 /// the user-facing provider name
 /// ("strava"/"garmin"/"trainingpeaks"/"coros"), so the connect/disconnect
 /// pair is measured on the same axis as the OAuth surface, with `backend`
-/// naming the scrape cohort; and the connect entry in the athlete's log.
+/// naming the session-read cohort; and the connect entry in the athlete's log.
 /// Only an athlete's own sign-in announces: an admin's session clone does not.
 async fn notify_sciotte_connected(
     resources: &AuthRoutesContext,
@@ -393,7 +393,7 @@ async fn notify_sciotte_connected(
             user_id,
             tenant_id: TenantId::from_uuid(tenant_id),
             backend,
-            via: ConnectVia::Scrape,
+            via: ConnectVia::SignIn,
         },
     )
     .await;
@@ -465,7 +465,7 @@ pub(crate) fn warm_from_session(
     // role is read first and decides whether there is anything to prefetch.
     // Registered before anything else reads the session: a list read that
     // arrives meanwhile (the onboarding proposal) waits for this one instead
-    // of scraping the fresh session beside it (carnet#736).
+    // of reading the fresh session beside it (carnet#736).
     let prefetch = if provider_name == SCIOTTE_TRAININGPEAKS {
         spawn_login_probe(resources, user_id, tenant_id, session, stored)
     } else {
@@ -475,7 +475,7 @@ pub(crate) fn warm_from_session(
     // The session also feeds the health sync (Garmin's and COROS's nights,
     // resting heart rate, HRV, body metrics): read its window now rather than
     // at the next scheduled cycle — once the pre-fetch has finished with the
-    // session, so the two never hold two of the scraper's browsers at once.
+    // session, so the two never hold two of the service's browsers at once.
     #[cfg(feature = "health-sync")]
     let settled = spawn_health_backfill(
         resources,
@@ -564,7 +564,7 @@ async fn hold_code_step(
     }
 }
 
-/// Map a [`LoginOutcome`] from the dedicated scraper service to an HTTP
+/// Map a [`LoginOutcome`] from the dedicated sciotte service to an HTTP
 /// response.
 ///
 /// The service holds the interactive browser state across the multi-step 2FA
@@ -710,7 +710,7 @@ async fn drop_signed_in_copy(remote: &SciotteClient, session_id: &str, user_id: 
 
 /// Log + alert a sciotte login *system* failure and build the user-facing error.
 ///
-/// A *system* failure is an `Err` from the dedicated scraper service (transport
+/// A *system* failure is an `Err` from the dedicated sciotte service (transport
 /// fault, service 5xx, browser-launch failure), as opposed to a
 /// `LoginOutcome::Failed` credential rejection (a *user* failure surfaced
 /// in `remote_login_to_response`). `stage` names where in the flow it failed
@@ -779,7 +779,7 @@ pub fn friendly_login_failure_message(provider: &str) -> String {
 }
 
 /// Friendly, provider-aware copy shown to the user when the provider stopped a
-/// sign-in at a challenge (a captcha) the scraper service could not answer.
+/// sign-in at a challenge (a captcha) the sciotte service could not answer.
 ///
 /// The English fallback of `hosted.common.signInChallenged`; the hosted login
 /// pages show the catalogue's copy in the athlete's locale instead.
@@ -809,7 +809,7 @@ fn login_challenge_refusal(provider: &str) -> AppError {
     refusal
 }
 
-/// Turn an `Err` from the dedicated scraper service into what the athlete gets
+/// Turn an `Err` from the dedicated sciotte service into what the athlete gets
 /// back: a retryable shed response, the cancel or challenge refusal, or the
 /// admin-alerting system failure.
 ///
@@ -873,12 +873,12 @@ pub fn login_failure_response(
         provider = %provider,
         stage = %stage,
         retry_after_secs,
-        "Sciotte login shed by scraper backpressure — retryable, not a system failure"
+        "Sciotte login shed by service backpressure — retryable, not a system failure"
     );
     Ok(shed_response(provider, retry_after_secs))
 }
 
-/// The athlete-facing answer to a scraper-service load-shed: the service's own
+/// The athlete-facing answer to a sciotte-service load-shed: the service's own
 /// `503` status, the wait it computed both as a `Retry-After` header and in
 /// `details` (one value, attached once, which `impl IntoResponse for AppError`
 /// renders as the header), and the same friendly copy a login failure carries.
@@ -900,7 +900,7 @@ fn shed_response(provider: &str, retry_after_secs: u64) -> Response {
     shed.with_retry_after(retry_after_secs).into_response()
 }
 
-/// Credential-based login via the dedicated dravr-sciotte scraper service (ADR-021)
+/// Credential-based login via the dedicated dravr-sciotte service (ADR-021)
 pub(crate) async fn handle_sciotte_login(
     State(resources): State<AuthRoutesContext>,
     headers: HeaderMap,
@@ -989,7 +989,7 @@ pub(crate) async fn handle_sciotte_login(
             &request.email,
             request.password.expose_secret(),
             request.method,
-            SciotteTarget::from_target_param(target).scraper_provider_name(),
+            SciotteTarget::from_target_param(target).service_provider_name(),
             prior_session.as_ref(),
             (
                 attempt.as_ref().map(StepAttempt::cancel_key),

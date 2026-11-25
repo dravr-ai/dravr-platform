@@ -204,7 +204,7 @@ describe('computeWarningState', () => {
 })
 
 describe('warningStateFromNotice', () => {
-  it('states the counter the turn actually measured, not a scraped countdown', () => {
+  it('states the counter the turn actually measured, not a countdown pulled from prose', () => {
     // The regression this turns red: going back to `errorMessage.match(/in (\d+)
     // seconds/)`. That read a number out of an English sentence and never knew
     // which cap had been hit; the block carries the counter, the cap and the

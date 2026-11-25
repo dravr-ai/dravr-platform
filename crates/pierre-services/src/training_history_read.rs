@@ -185,7 +185,7 @@ pub async fn user_timezone(repos: &RepositoryRegistry, user_id: Uuid) -> AppResu
 /// and warm-up rule as the persisted compute, so the page and the agent read
 /// one series — but it writes no row, clears none, and asks the capture rail
 /// for nothing. A page is opened many times a day by an athlete who asked for
-/// no history; a capture per visit would page a scrape backend again every
+/// no history; a capture per visit would page a session-read backend again every
 /// time a thin history was looked at.
 ///
 /// An athlete with no connected provider and no upload has no stored

@@ -38,7 +38,7 @@ use crate::core::ActivityQueryParams;
 
 /// Longest a reader waits on a pre-fetch before reading live itself.
 ///
-/// The scraper client bounds one list read at 330 s, so a pre-fetch still
+/// The sciotte client bounds one list read at 330 s, so a pre-fetch still
 /// running past this is wedged, and the reader stops waiting on it.
 pub const PREFETCH_WAIT_CAP: Duration = Duration::from_mins(6);
 

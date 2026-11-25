@@ -31,7 +31,7 @@
 //! Its factory's delegated reads
 //! ([`pierre_providers::delegation::DelegatedReads`]) build the provider fixed
 //! to one athlete. `TrainingPeaks` and Intervals.icu keep their own rules
-//! (a scraper session and a coach account role; an API key only); every
+//! (a signed-in session and a coach account role; an API key only); every
 //! other platform reads its roster with
 //! [`read_coach_roster`](pierre_providers::CoreFitnessProvider::read_coach_roster)
 //! through the coach's stored credential, as it was stored.
@@ -140,7 +140,7 @@ pub trait CoachPlatform: Send + Sync {
     }
 }
 
-/// `TrainingPeaks`, read on the scraper service through the coach's session.
+/// `TrainingPeaks`, read on the sciotte service through the coach's session.
 ///
 /// A `TrainingPeaks` coach account keeps no calendar of its own, and only an
 /// account `TrainingPeaks` reports as a coach's lists a roster.
@@ -212,7 +212,7 @@ impl CoachPlatform for TrainingPeaksPlatform {
             .collect())
     }
 
-    /// The coach's scraper session, stored as the token's access token.
+    /// The coach's signed-in session, stored as the token's access token.
     fn coach_credentials(&self, token: &UserOAuthToken) -> Option<OAuth2Credentials> {
         Some(OAuth2Credentials {
             client_id: String::new(),
@@ -366,8 +366,8 @@ impl CoachPlatform for ApiCoachPlatform {
 }
 
 /// `credentials`, built from the coach's stored `token`, counted against
-/// the key's own windows when the token is a personal API key, and against
-/// the coach's session-read windows when it is a scraper session.
+/// the key's own windows for a personal API key, and against the coach's
+/// session-read windows for a signed-in session.
 ///
 /// The windows are the ones its provider keeps for each key, under the
 /// provider's id for the account the key belongs to: a coach's key reads

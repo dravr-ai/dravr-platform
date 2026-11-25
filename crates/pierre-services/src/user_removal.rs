@@ -93,7 +93,7 @@ pub trait ProviderDisconnector: Send + Sync {
     ) -> AppResult<RevocationOutcome>;
 
     /// Withdraw every grant `provider` holds for `user_id` in `tenant_id` at
-    /// the provider (the revocation, and the scrape session's drop), deleting
+    /// the provider (the revocation, and the signed-in session's drop), deleting
     /// nothing here: the account deletion deletes the rows afterwards, in one
     /// transaction. Best-effort, so never an error: returns what the provider
     /// said.

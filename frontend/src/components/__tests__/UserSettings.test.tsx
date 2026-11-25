@@ -1232,7 +1232,7 @@ describe('UserSettings Component', () => {
     });
 
     it('renders a connected-but-dead session as "Reconnect needed", not "Connected"', async () => {
-      // A connected provider whose scrape session died (needs_reauth) must show
+      // A connected provider whose signed-in session died (needs_reauth) must show
       // the warning badge + a "Reconnect" affordance instead of a healthy pill.
       getProvidersStatus.mockResolvedValue({
         providers: [{ ...stravaCard('mirror'), connected: true, needs_reauth: true }],

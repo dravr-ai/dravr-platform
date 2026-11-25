@@ -59,7 +59,7 @@ struct Athlete {
 }
 
 /// A user with real physiology and nothing cached; `connected` registers the
-/// scrape backend the seeded rows are read under.
+/// session-read backend the seeded rows are read under.
 async fn athlete(resources: &Arc<ServerContext>, connected: bool) -> Athlete {
     let email = format!("status-{}@example.com", Uuid::new_v4());
     let (user_id, user, tenant) =

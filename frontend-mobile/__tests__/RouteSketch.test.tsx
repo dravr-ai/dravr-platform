@@ -187,7 +187,7 @@ describe('ActivitySketch after a route answer the server can take back', () => {
         <ActivitySketch activity={ACTIVITIES[4]} />
       </QueryClientProvider>
     );
-    // The incident's answer: a failing scraper had the route stored as no GPS.
+    // The incident's answer: a failing session read had the route stored as no GPS.
     mockGetActivityRoute.mockResolvedValueOnce(NO_GPS_ROUTE_RESPONSE);
     const first = render(sketch);
     await waitFor(() => expect(mockGetActivityRoute).toHaveBeenCalledTimes(1));

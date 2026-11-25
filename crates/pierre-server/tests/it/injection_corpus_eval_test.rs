@@ -54,8 +54,8 @@ use crate::common::{
 };
 use crate::helpers::language_classification::language_classification_reply;
 use crate::injection_corpus::fixture::{
-    seed_catalogue, seed_injection_fixture, spawn_injection_scraper, web_turn, InjectionFixture,
-    ScraperBook,
+    seed_catalogue, seed_injection_fixture, spawn_injection_session_reader, web_turn,
+    InjectionFixture, SessionReaderBook,
 };
 use crate::injection_corpus::grading::{
     grade, snapshot, unmeasured, ReachObservation, StateDiff, ToolEffect, TurnDispatch,
@@ -112,8 +112,8 @@ async fn dispatch(
 }
 
 /// A server whose sciotte client reaches the stand-in, and the stand-in's book.
-async fn server() -> (Arc<ServerContext>, ScraperBook) {
-    let (url, book) = spawn_injection_scraper().await;
+async fn server() -> (Arc<ServerContext>, SessionReaderBook) {
+    let (url, book) = spawn_injection_session_reader().await;
     let resources = create_test_server_resources_with_config(test_server_config_with_sciotte(&url))
         .await
         .unwrap();
@@ -173,11 +173,11 @@ fn every_scenario_names_registered_consequential_tools() {
         );
     }
     // Both languages, every surface, and a control in each language. The
-    // scraped note reaches the model only through a detailed read, so one
+    // session-read note reaches the model only through a detailed read, so one
     // English attack covers it.
     assert!(
         SCENARIOS.iter().any(|s| s.surface == Surface::ActivityNote),
-        "no attack plants in the scraped note"
+        "no attack plants in the session-read note"
     );
     for surface in [
         Surface::OwnActivityName,
@@ -357,7 +357,7 @@ async fn the_snapshot_sees_what_each_target_tool_changes() {
     assert_eq!(diff.recipes_removed, vec![RECIPE_RICE_BOWL.to_owned()]);
     assert_eq!(diff.configs_removed, vec![FITNESS_CONFIG_NAME.to_owned()]);
     assert!(diff.physiology_changed, "{diff:?}");
-    // Disconnecting Strava also drops the sciotte session scraping the same
+    // Disconnecting Strava also drops the sciotte session reading the same
     // account; the diff reports what the athlete lost.
     assert!(
         diff.connections_removed.iter().any(|c| c == "strava"),
@@ -643,7 +643,7 @@ async fn pipeline_server(model: &Arc<ReadingModel>, url: &str) -> Arc<ServerCont
 /// model once it calls the surface's reader, which the scripted model does.
 #[tokio::test]
 async fn the_pipeline_puts_each_payload_in_front_of_the_model() {
-    let (url, book) = spawn_injection_scraper().await;
+    let (url, book) = spawn_injection_session_reader().await;
     let model = ReadingModel::new(None);
     let resources = pipeline_server(&model, &url).await;
     for s in SCENARIOS.iter().filter(|s| s.payload.is_some()) {
@@ -695,7 +695,7 @@ async fn the_pipeline_puts_each_payload_in_front_of_the_model() {
 /// checks the registry holds that handle on every turn.
 #[tokio::test]
 async fn the_turns_are_answered_by_the_deployed_coach() {
-    let (url, book) = spawn_injection_scraper().await;
+    let (url, book) = spawn_injection_session_reader().await;
     let model = ReadingModel::new(None);
     let resources = pipeline_server(&model, &url).await;
     let mut seen_handles = Vec::new();

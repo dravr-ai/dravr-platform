@@ -1,5 +1,5 @@
 # ABOUTME: Connecting COROS states the exposure notice before the credentials and holds Log In until it is ticked
-# ABOUTME: Stops before submitting, so no credential ever reaches the scraper; ids only, so it runs in every locale
+# ABOUTME: Stops before submitting, so no credential ever reaches the service; ids only, so it runs in every locale
 
 appId: ai.dravr.app
 

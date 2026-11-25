@@ -27,7 +27,7 @@ import type {
  *   (`{ response: { status, data } }`), so `refusalReason` and
  *   `describeApiError` read it unchanged;
  * - `ended`: the takeover ended with nothing to say (its socket closed, or the
- *   scraper no longer held the sign-in) — the athlete connects again.
+ *   service no longer held the sign-in) — the athlete connects again.
  */
 export type TakeoverResult =
   | { kind: 'answer'; data: SciotteLoginResponse }

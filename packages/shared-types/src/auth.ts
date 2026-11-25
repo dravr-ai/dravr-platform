@@ -422,7 +422,7 @@ export interface ExtendedProviderStatus {
   connection_type?: 'oauth' | 'synthetic' | 'manual' | 'delegated';
   /**
    * A connected provider whose session is no longer usable and needs the user
-   * to reconnect (a dead sciotte scrape session or a non-recoverable OAuth
+   * to reconnect (a dead sciotte signed-in session or a non-recoverable OAuth
    * refresh). Only meaningful when `connected` is true — render "Reconnect
    * needed" instead of a healthy "Connected".
    */
@@ -562,7 +562,7 @@ export interface ProviderDelegation {
 
 /**
  * The platforms the credential login (`POST /api/providers/sciotte/login`)
- * takes as `target`: one per scrape-mirror backend, named as the athlete
+ * takes as `target`: one per session-read backend, named as the athlete
  * knows the provider.
  */
 export type SciotteTarget = 'strava' | 'garmin' | 'trainingpeaks' | 'coros';
@@ -689,7 +689,7 @@ export type SciotteTakeoverBridgeMessage =
 /**
  * Answer of `POST /api/providers/sciotte/cancel`: whether the cancel ended a
  * running step or released a parked flow. `false` also when there was
- * nothing to cancel, or the scraper could not be reached: a cancel is best
+ * nothing to cancel, or the service could not be reached: a cancel is best
  * effort.
  */
 export interface SciotteCancelResponse {

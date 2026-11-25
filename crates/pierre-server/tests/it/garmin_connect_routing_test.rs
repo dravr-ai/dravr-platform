@@ -26,7 +26,9 @@
 
 use crate::common;
 use crate::helpers;
-use crate::helpers::sciotte_mock::{seed_scrape_session, spawn_mock_scraper_with_activity};
+use crate::helpers::sciotte_mock::{
+    seed_signed_in_session, spawn_mock_session_reader_with_activity,
+};
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -701,7 +703,7 @@ async fn a_garmin_api_users_read_serves_the_pushes_and_never_calls_garmin() {
     );
 }
 
-/// Mark the user's `provider` connection dead, as a failed scrape or refresh does.
+/// Mark the user's `provider` connection dead, as a failed session read or refresh does.
 async fn mark_dead(
     resources: &Arc<ServerContext>,
     user_id: Uuid,
@@ -841,7 +843,7 @@ async fn store_under(
 /// history it imported: their Garmin read serves what the session stored
 /// under its mirror key beside what Garmin pushed (`history_store_keys(garmin)`,
 /// kept by carnet#1494). A workout both recorded is one session, the API's
-/// copy standing for it; nothing calls Garmin or the scraper.
+/// copy standing for it; nothing calls Garmin or the service.
 #[tokio::test]
 async fn a_grant_holders_garmin_read_serves_the_sessions_history_merged_with_the_pushes() {
     common::init_server_config();
@@ -923,12 +925,12 @@ async fn a_grant_holders_garmin_read_serves_the_sessions_history_merged_with_the
 }
 
 /// A usr/pwd-only Garmin athlete (no grant) keeps reading through their
-/// session: the scrape answers the read.
+/// session: the service answers the read.
 #[tokio::test]
 async fn a_usr_pwd_only_garmin_athlete_still_reads_through_the_session() {
     common::init_server_config();
     common::init_test_http_clients();
-    let scraper = spawn_mock_scraper_with_activity(json!({
+    let reader = spawn_mock_session_reader_with_activity(json!({
         "id": "18000000001",
         "name": "Morning Run",
         "sport_type": "run",
@@ -938,7 +940,7 @@ async fn a_usr_pwd_only_garmin_athlete_still_reads_through_the_session() {
         "distance_meters": 8_000.0,
     }))
     .await;
-    let config = common::test_server_config_with_sciotte(&scraper);
+    let config = common::test_server_config_with_sciotte(&reader);
     let resources = common::create_test_server_resources_with_config(config)
         .await
         .unwrap();
@@ -951,7 +953,7 @@ async fn a_usr_pwd_only_garmin_athlete_still_reads_through_the_session() {
         None,
     )
     .await;
-    seed_scrape_session(
+    seed_signed_in_session(
         &resources,
         user_id,
         tenant,
@@ -1314,9 +1316,9 @@ async fn a_read_naming_the_session_beside_a_flagged_grant_is_the_grants() {
     );
 }
 
-/// A scraper stand-in whose activity list fails with a `500`: the session
+/// A session reader stand-in whose activity list fails with a `500`: the session
 /// authenticates, and its read fails.
-async fn scraper_failing_its_list() -> String {
+async fn session_reader_failing_its_list() -> String {
     let app = Router::new()
         .route(
             "/auth/import-session",
@@ -1346,13 +1348,13 @@ async fn scraper_failing_its_list() -> String {
 /// dead grant is never read.
 #[tokio::test]
 async fn a_dead_garmin_grant_still_serves_the_stored_history() {
-    let scraper = scraper_failing_its_list().await;
-    let config = common::test_server_config_with_sciotte(&scraper);
+    let reader = session_reader_failing_its_list().await;
+    let config = common::test_server_config_with_sciotte(&reader);
     let resources = common::create_test_server_resources_with_config(config)
         .await
         .unwrap();
     let (user_id, _, tenant) = dual_key_athlete(&resources, "garmin-dead-grant@example.com").await;
-    seed_scrape_session(
+    seed_signed_in_session(
         &resources,
         user_id,
         tenant,
@@ -1393,8 +1395,8 @@ async fn a_dead_garmin_grant_still_serves_the_stored_history() {
 /// missed, so it does not stand in.
 #[tokio::test]
 async fn a_live_garmin_grant_answers_a_failed_session_read_with_its_pushes() {
-    let scraper = scraper_failing_its_list().await;
-    let config = common::test_server_config_with_sciotte(&scraper);
+    let reader = session_reader_failing_its_list().await;
+    let config = common::test_server_config_with_sciotte(&reader);
     let resources = common::create_test_server_resources_with_config(config)
         .await
         .unwrap();
@@ -1419,7 +1421,7 @@ async fn a_live_garmin_grant_answers_a_failed_session_read_with_its_pushes() {
     };
 
     let (user_id, _, tenant) = dual_key_athlete(&resources, "garmin-live-grant@example.com").await;
-    seed_scrape_session(
+    seed_signed_in_session(
         &resources,
         user_id,
         tenant,
@@ -1472,7 +1474,7 @@ async fn a_live_garmin_grant_answers_a_failed_session_read_with_its_pushes() {
         None,
     )
     .await;
-    seed_scrape_session(
+    seed_signed_in_session(
         &resources,
         empty_user,
         empty_tenant,
@@ -1614,7 +1616,7 @@ async fn the_agents_prompt_says_a_garmin_grants_past_is_not_in_until_it_is() {
     );
     assert!(
         !context.to_lowercase().contains("sciotte"),
-        "the scraper never reaches the prompt: {context}"
+        "the service is never named in the prompt: {context}"
     );
 
     let exported = ActivityBuilder::new(

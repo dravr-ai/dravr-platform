@@ -1,5 +1,5 @@
 // ABOUTME: Capability recovery leaves an interview's answer alone, and frames its re-ask as evidence
-// ABOUTME: Real turns through the chat pipeline against a recording model and a stand-in scraper
+// ABOUTME: Real turns through the chat pipeline against a recording model and a stand-in session reader
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -39,7 +39,7 @@ mod guided_turn {
         create_test_server_resources_with_llm_and_config, create_test_user_with_plan,
         test_server_config_with_sciotte,
     };
-    use crate::helpers::sciotte_mock::{seed_sciotte_session, spawn_mock_scraper};
+    use crate::helpers::sciotte_mock::{seed_sciotte_session, spawn_mock_session_reader};
     use pierre_chat_pipeline::stages::capability_recovery::REPAIR_EVIDENCE_FRAME;
     use pierre_chat_pipeline::{
         CommandPersistence, InputSource, PipelineHooks, ServedTurn, SurfaceId, SurfaceProfile,
@@ -191,17 +191,17 @@ mod guided_turn {
     }
 
     /// An athlete whose sciotte connection serves one ride through the
-    /// stand-in scraper, so a verification fetch succeeds and a re-ask runs
+    /// stand-in session reader, so a verification fetch succeeds and a re-ask runs
     /// whenever the stage decides it should.
     async fn setup(email: &str, reply: &str) -> Fixture {
-        let scraper_url = spawn_mock_scraper().await;
+        let reader_url = spawn_mock_session_reader().await;
         let provider = Arc::new(RecordingProvider {
             requests: Mutex::new(Vec::new()),
             reply: reply.to_owned(),
         });
         let resources = create_test_server_resources_with_llm_and_config(
             provider.clone(),
-            test_server_config_with_sciotte(&scraper_url),
+            test_server_config_with_sciotte(&reader_url),
         )
         .await
         .unwrap();
@@ -634,7 +634,7 @@ mod guided_turn {
         );
         assert!(
             evidence.content.contains("Sortie vélo matinale"),
-            "the stand-in scraper's ride is the evidence the re-ask is built on"
+            "the stand-in session reader's ride is the evidence the re-ask is built on"
         );
         assert!(evidence.content.contains(REASK_MARKER));
 

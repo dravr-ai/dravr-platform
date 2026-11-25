@@ -346,7 +346,7 @@ fn zone_distribution_credits_no_zone_for_a_heart_rate_gap() {
     assert_eq!(zd.total_seconds(), 270);
 }
 
-/// A stream set served without a time axis (`timestamps` empty, as a scraped
+/// A stream set served without a time axis (`timestamps` empty, as a session-read
 /// route or a streams answer without its `time` stream) has no seconds to
 /// credit: its sample indices are never read as one second each
 /// (carnet#1220).

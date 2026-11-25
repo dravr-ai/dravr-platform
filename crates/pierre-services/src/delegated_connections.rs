@@ -331,7 +331,7 @@ pub enum CoachSession {
 /// Read from the coach's own rows, never a delegated connection: a session
 /// is missing without a stored token, needs reconnecting when that token has
 /// expired or the coach's connection is flagged, and is live otherwise.
-/// Scraper sessions never refresh, so an expired one stays expired until the
+/// Signed-in sessions never refresh, so an expired one stays expired until the
 /// coach signs in again.
 ///
 /// # Errors

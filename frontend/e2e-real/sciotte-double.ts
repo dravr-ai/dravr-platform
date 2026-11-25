@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: A scripted stand-in for the dravr-sciotte scraper service, speaking its REST contract and error shapes over real HTTP
+// ABOUTME: A scripted stand-in for the dravr-sciotte session-read service, speaking its REST contract and error shapes over real HTTP
 // ABOUTME: The real-backend specs point the Pierre server at it (DRAVR_SCIOTTE_REMOTE_URL), script each answer, stop and restart it
 
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
@@ -12,12 +12,12 @@ export const SCIOTTE_DOUBLE_PORT = Number(process.env.SCIOTTE_DOUBLE_PORT ?? '80
 /**
  * What `GET /api/activities` answers:
  *
- * - `rows` — the rides, and the scraper vouches for the list head;
+ * - `rows` — the rides, and the service vouches for the list head;
  * - `empty` — `count: 0` and `head_complete: true`;
  * - `incomplete` — the rides, with `head_complete: false`: the fresh-head
  *   fetch failed;
- * - `fails` — a failed scrape: `500 {"error": <message>}`;
- * - `busy` — the scraper shed the read: `503 scraper_busy` with `Retry-After`;
+ * - `fails` — a failed session read: `500 {"error": <message>}`;
+ * - `busy` — the service shed the read: `503` with the service's busy value and `Retry-After`;
  * - `dies_under_a_detail` — the 2026-09-29 incident: the list walk waits for
  *   a detail read on the same session to finish (that read closes the browser
  *   the walk shares), then answers `count: 0`, `head_complete: true` as a
@@ -28,7 +28,7 @@ export const SCIOTTE_DOUBLE_PORT = Number(process.env.SCIOTTE_DOUBLE_PORT ?? '80
 export type ListScript = 'rows' | 'empty' | 'incomplete' | 'fails' | 'busy' | 'dies_under_a_detail';
 
 /**
- * What `GET /api/activities/{id}` answers, in the shapes the scraper sends:
+ * What `GET /api/activities/{id}` answers, in the shapes the service sends:
  *
  * - `route` — a detail carrying the GPS route;
  * - `no_route` — no `route` key at all: no read settled the page's route;
@@ -38,7 +38,7 @@ export type ListScript = 'rows' | 'empty' | 'incomplete' | 'fails' | 'busy' | 'd
  * - `hangs` — no answer until {@link SciotteDouble.release} or a stop.
  *
  * Every detail that answers carries the ride's per-kilometre splits, as the
- * scraper's detail page does.
+ * service's detail page does.
  */
 export type DetailScript = 'route' | 'no_route' | 'empty_route' | 'fails' | 'hangs';
 
@@ -48,12 +48,12 @@ export type DetailScript = 'route' | 'no_route' | 'empty_route' | 'fails' | 'han
  * - `authenticated` — signed in at once, as a Strava login without 2FA is;
  * - `code` — the provider asks for a one-time code: `otp_required` with a
  *   fresh flow, which `POST /auth/submit-otp` continues. A code other than
- *   {@link SciotteDouble.acceptedCode} is refused the way the scraper refuses
+ *   {@link SciotteDouble.acceptedCode} is refused the way the service refuses
  *   it (dravr-sciotte v0.22.0): `otp_required` naming the same flow, with
  *   `rejected: "code_rejected"`, and the flow stays pending.
  * - `rejected` — the provider turned the sign-in down: `200 {"status":
  *   "failed", "reason": <SciotteDouble.rejectionReason>}`, the shape the
- *   scraper sends for an account the provider does not know by that email
+ *   service sends for an account the provider does not know by that email
  *   (the 2026-11-24 dead end: Strava answered « Couldn't find this account »
  *   to an athlete whose account was opened with Google).
  */
@@ -65,11 +65,11 @@ export interface CodeSubmission {
   code: string;
 }
 
-/** The scraper's reason for a code its code step did not take as complete. */
+/** The service's reason for a code its code step did not take as complete. */
 const CODE_NOT_SUBMITTED = 'The code step did not take the code as complete, so it was not submitted';
 
-/** One scraped ride, as the scraper's list serves it. */
-export interface ScrapedRide {
+/** One ride read from the session, as the service's list serves it. */
+export interface SessionRide {
   id: string;
   name: string;
   sport_type: string;
@@ -103,8 +103,8 @@ function weavingTrack(): [number, number][] {
   ]);
 }
 
-/** One split as the scraper's detail page serves it: `index`, `distance_meters`, `elapsed_time_seconds`, … */
-interface ScrapedSplit {
+/** One split as the service's detail page serves it: `index`, `distance_meters`, `elapsed_time_seconds`, … */
+interface SessionSplit {
   index: number;
   distance_meters: number;
   elapsed_time_seconds: number;
@@ -118,7 +118,7 @@ interface ScrapedSplit {
  * kilometres, then the remainder, at a pace that drifts a little from one to
  * the next so no two rows read alike.
  */
-function kilometreSplits(ride: ScrapedRide): ScrapedSplit[] {
+function kilometreSplits(ride: SessionRide): SessionSplit[] {
   const whole = Math.floor(ride.distance_meters / 1000);
   const rest = ride.distance_meters - whole * 1000;
   const lengths = [...Array.from({ length: whole }, () => 1000), ...(rest >= 1 ? [rest] : [])];
@@ -148,7 +148,7 @@ export interface SciotteDouble {
   readonly codeSubmissions: () => CodeSubmission[];
   list: ListScript;
   detail: DetailScript;
-  rides: ScrapedRide[];
+  rides: SessionRide[];
   readonly listReads: () => number;
   /** Every list read, in order. */
   readonly listReadLog: () => ListRead[];
@@ -161,11 +161,11 @@ export interface SciotteDouble {
   readonly maxInFlight: () => number;
   /** List walks that a detail read on the same session finished under, which then answered empty. */
   readonly walksKilledByADetail: () => number;
-  /** Answer every hung detail read with the scraper's error. */
+  /** Answer every hung detail read with the service's error. */
   readonly release: () => void;
   /** Stop listening and close every connection: the platform's next call is refused. */
   readonly stop: () => Promise<void>;
-  /** Listen again on the same port holding no session, as a restarted scraper does. */
+  /** Listen again on the same port holding no session, as a restarted service does. */
   readonly restart: () => Promise<void>;
 }
 
@@ -179,8 +179,8 @@ function json(res: ServerResponse, status: number, body: unknown, headers: Recor
   res.end(JSON.stringify(body));
 }
 
-/** The scraper service's answer to a scraper error: `500 {"error": "<kind> error: <reason>"}`. */
-function scraperError(res: ServerResponse, reason: string): void {
+/** The service's answer to a failed session read: `500 {"error": "<kind> error: <reason>"}`. */
+function serviceError(res: ServerResponse, reason: string): void {
   json(res, 500, { error: `browser error: ${reason}` });
 }
 
@@ -209,12 +209,12 @@ async function until(condition: () => boolean, withinMs: number): Promise<boolea
  * It answers the calls the platform makes for a Strava-mirror athlete: the
  * credential login (its code step when {@link SciotteDouble.login} is
  * `code`, its rejection when it is `rejected`) and the session export that store the connection, the
- * session import that precedes every scrape, the activity list and one
- * activity's detail. Like the scraper, it holds sessions in memory: a read
+ * session import that precedes every session read, the activity list and one
+ * activity's detail. Like the service, it holds sessions in memory: a read
  * naming a session it does not hold is a `401 session_not_found`, and a
  * restart forgets every session. Anything else is a `404`.
  */
-export async function startSciotteDouble(rides: ScrapedRide[]): Promise<SciotteDouble> {
+export async function startSciotteDouble(rides: SessionRide[]): Promise<SciotteDouble> {
   const listReadLog: ListRead[] = [];
   const detailReadLog: DetailRead[] = [];
   const held = new Set<string>();
@@ -256,19 +256,20 @@ export async function startSciotteDouble(rides: ScrapedRide[]): Promise<SciotteD
   const release = (): void => {
     for (const res of hung.splice(0)) {
       if (!res.writableEnded) {
-        scraperError(res, 'detail page never rendered');
+        serviceError(res, 'detail page never rendered');
       }
     }
   };
 
   const listActivities = async (res: ServerResponse): Promise<void> => {
     if (double.list === 'fails') {
-      scraperError(res, 'browser closed during the scrape');
+      serviceError(res, 'browser closed during the read');
     } else if (double.list === 'busy') {
       json(
         res,
         503,
-        { error: 'scraper_busy', reason: 'scrape queue full', retry_after_secs: 1 },
+        // The service's wire value for a shed read, matched by its client.
+        { error: 'scraper_busy', reason: 'read queue full', retry_after_secs: 1 },
         { 'Retry-After': '1' },
       );
     } else if (double.list === 'empty') {
@@ -296,12 +297,12 @@ export async function startSciotteDouble(rides: ScrapedRide[]): Promise<SciotteD
     }
     const ride = double.rides.find((candidate) => candidate.id === id);
     if (ride === undefined) {
-      scraperError(res, `no activity ${id} on the page`);
+      serviceError(res, `no activity ${id} on the page`);
     } else if (double.detail === 'hangs') {
       hung.push(res);
       await new Promise<void>((resolve) => res.once('close', () => resolve()));
     } else if (double.detail === 'fails') {
-      scraperError(res, 'detail page timed out');
+      serviceError(res, 'detail page timed out');
     } else if (double.detail === 'route') {
       json(res, 200, { ...ride, splits: kilometreSplits(ride), route: { coordinates: weavingTrack() } });
     } else if (double.detail === 'empty_route') {

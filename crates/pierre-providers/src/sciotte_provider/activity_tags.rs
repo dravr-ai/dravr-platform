@@ -30,7 +30,7 @@ mod tests {
     use super::super::{convert_activity, SciotteTarget};
     use super::{ActivityTag, SciotteActivity, TagSource};
 
-    fn scraped(tags: Option<serde_json::Value>) -> SciotteActivity {
+    fn session_row(tags: Option<serde_json::Value>) -> SciotteActivity {
         let mut payload = serde_json::json!({
             "id": "16002",
             "name": "Easy spin",
@@ -47,7 +47,7 @@ mod tests {
 
     #[test]
     fn strava_tag_ids_become_provider_tags_in_id_order() {
-        let row = scraped(Some(
+        let row = session_row(Some(
             serde_json::json!({"12": true, "3": true, "1": false, "7": true}),
         ));
         let activity = convert_activity(&row, SciotteTarget::Strava);
@@ -67,7 +67,7 @@ mod tests {
 
     #[test]
     fn only_strava_reads_the_tag_map() {
-        let row = scraped(Some(serde_json::json!({"1": true})));
+        let row = session_row(Some(serde_json::json!({"1": true})));
         let activity = convert_activity(&row, SciotteTarget::Garmin);
         assert!(
             activity.tags().is_none(),
@@ -77,14 +77,14 @@ mod tests {
 
     #[test]
     fn a_page_without_a_tag_map_claims_nothing() {
-        let activity = convert_activity(&scraped(None), SciotteTarget::Strava);
+        let activity = convert_activity(&session_row(None), SciotteTarget::Strava);
         assert!(activity.tags().is_none(), "bug: unread tags became Some");
     }
 
     #[test]
     fn a_read_page_with_no_tag_set_is_an_empty_list() {
         let activity = convert_activity(
-            &scraped(Some(serde_json::json!({"1": false}))),
+            &session_row(Some(serde_json::json!({"1": false}))),
             SciotteTarget::Strava,
         );
         assert_eq!(

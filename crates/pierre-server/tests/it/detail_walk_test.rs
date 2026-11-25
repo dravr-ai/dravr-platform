@@ -359,7 +359,7 @@ pub(crate) fn since(after: i64) -> DetailWalkAsk<'static> {
     }
 }
 
-/// The scraper's session reads segment efforts on a detail read too
+/// The service reads a session's segment efforts on a detail read too
 /// (sciotte 2.1): an athlete holding it is walked through it, grant or no
 /// grant, as every Strava read goes to the session first (carnet#1494), and
 /// one holding only the grant is walked through the grant.
@@ -439,14 +439,14 @@ async fn a_walk_goes_through_the_session_first_and_the_grant_without_one() {
     );
 }
 
-/// What the scraper stand-in answered.
+/// What the session reader stand-in answered.
 #[derive(Default)]
-struct MockScraper {
+struct MockSessionReader {
     /// Every detail read's id, in the order they came.
     details: Mutex<Vec<String>>,
 }
 
-impl MockScraper {
+impl MockSessionReader {
     fn detail_reads(&self) -> Vec<String> {
         self.details.lock().unwrap().clone()
     }
@@ -455,8 +455,8 @@ impl MockScraper {
 /// `GET /api/activities/{id}`: the ride whose id is its start, with one
 /// effort on Camillien-Houde; a ride whose id is in [`NO_GPS`] has no
 /// segment block and a track with no points, as a no-GPS page reads.
-async fn scraper_detail(
-    State(mock): State<Arc<MockScraper>>,
+async fn session_reader_detail(
+    State(mock): State<Arc<MockSessionReader>>,
     Path(id): Path<String>,
 ) -> Json<Value> {
     mock.details.lock().unwrap().push(id.clone());
@@ -485,16 +485,16 @@ async fn scraper_detail(
     Json(detail)
 }
 
-/// A scraper stand-in: session import and detail reads. A ride with an odd
+/// A session reader stand-in: session import and detail reads. A ride with an odd
 /// id is a no-GPS one.
-async fn mock_scraper() -> (String, Arc<MockScraper>) {
-    let mock = Arc::new(MockScraper::default());
+async fn mock_session_reader() -> (String, Arc<MockSessionReader>) {
+    let mock = Arc::new(MockSessionReader::default());
     let app = Router::new()
         .route(
             "/auth/import-session",
             post(|| async { Json(json!({ "session_id": "cap-verified-session" })) }),
         )
-        .route("/api/activities/{id}", get(scraper_detail))
+        .route("/api/activities/{id}", get(session_reader_detail))
         .with_state(Arc::clone(&mock));
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -504,10 +504,10 @@ async fn mock_scraper() -> (String, Arc<MockScraper>) {
     (format!("http://{addr}"), mock)
 }
 
-/// A server reaching the scraper stand-in, and an athlete holding the live
+/// A server reaching the session reader stand-in, and an athlete holding the live
 /// session alone (no grant).
-async fn session_athlete(scraper_url: &str) -> (Arc<ServerContext>, Uuid, TenantId) {
-    let mut config = common::test_server_config_with_sciotte(scraper_url);
+async fn session_athlete(reader_url: &str) -> (Arc<ServerContext>, Uuid, TenantId) {
+    let mut config = common::test_server_config_with_sciotte(reader_url);
     common::set_server_app(&mut config, "strava", "walk_client", "walk_secret");
     let resources = common::create_test_server_resources_with_config(config)
         .await
@@ -531,17 +531,17 @@ async fn session_athlete(scraper_url: &str) -> (Arc<ServerContext>, Uuid, Tenant
     (resources, user_id, tenant)
 }
 
-/// A walk through the session, end to end against a scraper stand-in: the
+/// A walk through the session, end to end against a session reader stand-in: the
 /// session answers each ride, whose efforts land under the session's key,
 /// the grant's row for a ride only the grant listed left untouched (a
-/// disconnect of the session takes its scraped data and no more), and a ride
+/// disconnect of the session takes its session-read data and no more), and a ride
 /// whose page has no segment block and no GPS reads as read, with none. The
 /// reads are counted in the walk windows of the server's Strava app, the
 /// ones a grant's walk spends, never in that app's own API day.
 #[tokio::test]
 async fn a_session_walk_keeps_its_answers_under_the_session() {
-    let (scraper_url, scraper) = mock_scraper().await;
-    let (resources, user_id, tenant) = session_athlete(&scraper_url).await;
+    let (reader_url, reader) = mock_session_reader().await;
+    let (resources, user_id, tenant) = session_athlete(&reader_url).await;
     let now = Timestamp::now().epoch_seconds();
     // Even ids carry an effort, the odd one is a no-GPS ride.
     let base = (now - 20 * DAY) / 2 * 2;
@@ -585,7 +585,7 @@ async fn a_session_walk_keeps_its_answers_under_the_session() {
         BackfillJobState::Walked,
         "bug: the session walk ends at its floor"
     );
-    let mut reads = scraper.detail_reads();
+    let mut reads = reader.detail_reads();
     reads.sort();
     let mut expected = vec![
         listed_by_session.to_string(),
@@ -613,7 +613,7 @@ async fn a_session_walk_keeps_its_answers_under_the_session() {
     let grant_rows = rows_under(&resources, user_id, tenant, oauth_providers::STRAVA).await;
     assert!(
         grant_rows.iter().all(|row| !row.segment_read),
-        "bug: scraped efforts landed on the grant's rows: {grant_rows:?}"
+        "bug: session-read efforts landed on the grant's rows: {grant_rows:?}"
     );
     assert_eq!(
         grant_rows.len(),
@@ -667,19 +667,19 @@ async fn a_session_walk_keeps_its_answers_under_the_session() {
 }
 
 /// The live path keeps a session's answer for a ride the grant listed beside
-/// the grant's row, device and all, but not its scraped efforts: they never
+/// the grant's row, device and all, but not its session-read efforts: they never
 /// stamp the grant's row as read, so it stays a walk candidate and the
 /// session-first walk files the efforts under the session's key.
 #[tokio::test]
 async fn a_live_session_answer_on_a_grant_row_keeps_its_detail_but_not_its_efforts() {
-    let (scraper_url, scraper) = mock_scraper().await;
-    let (resources, user_id, tenant) = session_athlete(&scraper_url).await;
+    let (reader_url, reader) = mock_session_reader().await;
+    let (resources, user_id, tenant) = session_athlete(&reader_url).await;
     let now = Timestamp::now().epoch_seconds();
     let at = (now - 10 * DAY) / 2 * 2;
     store_rides(&resources, user_id, tenant, oauth_providers::STRAVA, &[at]).await;
     open_window(&resources).await;
 
-    // What the session's read by id answers: named for the scraper, with the
+    // What the session's read by id answers: named for the session reader, with the
     // service it read as its source, carrying a device and an effort.
     let effort: SegmentEffort = serde_json::from_value(json!({
         "id": "9001",
@@ -728,7 +728,7 @@ async fn a_live_session_answer_on_a_grant_row_keeps_its_detail_but_not_its_effor
     );
     assert!(
         !grant_rows[0].segment_read,
-        "bug: scraped efforts stamped the grant's row as read: {grant_rows:?}"
+        "bug: session-read efforts stamped the grant's row as read: {grant_rows:?}"
     );
 
     let asked = ask_detail_walk(&runtime, user_id, tenant, SESSION, since(now - 30 * DAY)).await;
@@ -740,7 +740,7 @@ async fn a_live_session_answer_on_a_grant_row_keeps_its_detail_but_not_its_effor
     let ended = walk_ended_under(&resources, user_id, tenant, SESSION).await;
     assert_eq!(ended.state, BackfillJobState::Walked, "{ended:?}");
     assert_eq!(
-        scraper.detail_reads(),
+        reader.detail_reads(),
         vec![at.to_string()],
         "bug: the session walk did not read the ride"
     );
@@ -763,8 +763,8 @@ async fn a_live_session_answer_on_a_grant_row_keeps_its_detail_but_not_its_effor
 /// reading on.
 #[tokio::test]
 async fn a_session_walk_never_loads_more_than_ten_pages_at_once() {
-    let (scraper_url, scraper) = mock_scraper().await;
-    let (resources, user_id, tenant) = session_athlete(&scraper_url).await;
+    let (reader_url, reader) = mock_session_reader().await;
+    let (resources, user_id, tenant) = session_athlete(&reader_url).await;
     let now = Timestamp::now().epoch_seconds();
     let base = (now - 25 * DAY) / 2 * 2;
     let starts: Vec<i64> = (0..25).map(|day| base + day * DAY).collect();
@@ -779,11 +779,11 @@ async fn a_session_walk_never_loads_more_than_ten_pages_at_once() {
         "bug: the twenty-five rides are owed"
     );
     let deadline = Instant::now() + WALK_DEADLINE;
-    while scraper.detail_reads().len() < 10 {
+    while reader.detail_reads().len() < 10 {
         assert!(
             Instant::now() < deadline,
             "bug: the walk read only {} pages",
-            scraper.detail_reads().len()
+            reader.detail_reads().len()
         );
         paused_retries_due(&resources, user_id).await;
         age_job_rows(&resources, user_id).await;
@@ -799,7 +799,7 @@ async fn a_session_walk_never_loads_more_than_ten_pages_at_once() {
     }
 
     assert_eq!(
-        scraper.detail_reads().len(),
+        reader.detail_reads().len(),
         10,
         "bug: the session walk loaded more than its 10 pages in 15 minutes"
     );

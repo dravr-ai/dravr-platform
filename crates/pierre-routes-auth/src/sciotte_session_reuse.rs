@@ -88,7 +88,7 @@ fn has_expired(session: &AuthSession) -> bool {
 /// that provider can count.
 ///
 /// Sciotte sessions carry no `expires_at` in practice, so the connection is
-/// what records a session the provider refused: a scrape answered
+/// what records a session the provider refused: a session read answered
 /// `session_expired` flags it `needs_reauth`.
 ///
 /// # Errors
@@ -138,7 +138,7 @@ fn answers_login(
     // A session whose expiry is already past, or whose connection a refused
     // read flagged, is certainly dead. Without Chrome we can't probe the
     // cookies, but these cheap local checks stop us returning "connected" for
-    // a session the next scrape would reject (the reconnect-loop trap). A
+    // a session the next session read would reject (the reconnect-loop trap). A
     // session with no expiry on an `active` connection is "unknown, assume
     // usable" — the service re-auths on import if the cookies turn out stale.
     if health == SessionHealth::ObservedDead {
@@ -156,7 +156,7 @@ fn answers_login(
 /// session for `provider_name`.
 ///
 /// A session written within [`SESSION_REUSE_WINDOW`] answers the login — the
-/// double tap / refresh-after-connect case, which then costs no scraper work.
+/// double tap / refresh-after-connect case, which then costs the service no work.
 /// Any older session is not reused: the login runs with the credentials
 /// submitted, so a dead session without an expiry, or a coach switching
 /// accounts, gets a real sign-in (and the session store's side effects, such

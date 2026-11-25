@@ -208,7 +208,7 @@ fn test_stats_serialization() {
     assert!((ytd.total_distance - 300_000.0).abs() < f64::EPSILON);
 }
 
-/// Strava's own streak rides on the athlete when the scraped session reported
+/// Strava's own streak rides on the athlete when the signed-in session reported
 /// one, is left out of the wire when it did not, and a cached athlete document
 /// without the field still reads.
 #[test]

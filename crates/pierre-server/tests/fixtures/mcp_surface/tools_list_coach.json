@@ -11758,7 +11758,7 @@
                     "type": "null"
                   }
                 ],
-                "description": "The athlete's current activity streak, as Strava itself reports it\non the profile (the scraped Strava session only, the athlete's own\naccount). It is Strava's own figure, never a\nDravr computation: nothing derives or recomputes it from activities,\nand `None` means the provider did not report one, not that the\nathlete has no streak."
+                "description": "The athlete's current activity streak, as Strava itself reports it\non the profile (the signed-in Strava session only, the athlete's own\naccount). It is Strava's own figure, never a\nDravr computation: nothing derives or recomputes it from activities,\nand `None` means the provider did not report one, not that the\nathlete has no streak."
               },
               "created_at": {
                 "description": "When the athlete's account was created at the provider, when the\nprovider reports it (Strava's athlete `created_at`): no activity is\nrecorded before it, so a history walk stops there.",
@@ -12220,7 +12220,7 @@
       },
       "_meta": {
         "ai.dravr.vault/tool": {
-          "def_hash": "sha256:7f801ebc12c9f602b76135e23bcbc9039db979afee63fb34ebe88656b725072c"
+          "def_hash": "sha256:14dc6ff51f305f765fe1ad8b3d672aeac5253c349a930fdf7c1b0b97a9cbb660"
         }
       }
     },

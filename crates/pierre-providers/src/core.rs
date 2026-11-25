@@ -469,7 +469,7 @@ pub trait FitnessProvider: Send + Sync {
     /// provider read the newest activities its source shows.
     ///
     /// `true` for every API provider: their list endpoint is the head. A
-    /// scraped source can hand back a capture whose head it never saw —
+    /// session-read source can hand back a capture whose head it never saw —
     /// sciotte's Strava walk carries complete weeks, and the in-progress week
     /// comes from one best-effort fetch that can fail — and reports `false`
     /// so the caller declines to stamp that capture as fresh (carnet#151).
@@ -702,7 +702,7 @@ pub trait FitnessProvider: Send + Sync {
     // The methods below are the whole surface a provider with a training
     // calendar offers: a key, a listing, a detail read, and three writes. The
     // listing and the writes default to an unsupported-capability error: the
-    // read-side providers (Strava, WHOOP, the scraped mirrors) have no
+    // read-side providers (Strava, WHOOP, the session-read mirrors) have no
     // planned-workout write API and inherit the defaults; Intervals.icu, Wahoo
     // and Garmin (its Training API) override them, and a future calendar
     // provider (TrainingPeaks) implements the same set. The reconciler in
@@ -815,7 +815,7 @@ pub trait FitnessProvider: Send + Sync {
 
 /// The refusal of a planned-workout read by a provider that has none.
 ///
-/// Names the provider the way the athlete knows it — a scraped mirror's
+/// Names the provider the way the athlete knows it — a session-read mirror's
 /// backend slug (`sciotte_garmin`) never reaches a reply — so the agent can
 /// say which account cannot answer instead of reporting an empty calendar.
 #[must_use]
@@ -831,7 +831,7 @@ pub fn planned_workouts_unsupported(provider: &str) -> AppError {
 ///
 /// The answer a streams read gives when it reached the provider and the
 /// provider has nothing — Strava's streams endpoint answering `404` for a
-/// manual entry, or a stream set without a single channel, a scraped detail
+/// manual entry, or a stream set without a single channel, a session-read detail
 /// whose route holds no coordinates. It is kept apart from `None`, a read
 /// that never reached the samples, so a caller can tell "recorded no GPS"
 /// from "could not read it just now".
@@ -873,7 +873,7 @@ pub(crate) fn keep_timed<T>(values: Vec<T>, timed: &[bool]) -> Vec<T> {
 /// its channels.
 ///
 /// `timestamps` holds seconds from the activity start, never sample
-/// indices. A stream set whose provider served no time axis (a scraped route
+/// indices. A stream set whose provider served no time axis (a session-read route
 /// track, a streams answer without its `time` stream) leaves `timestamps`
 /// empty and keeps its channels as served, so its length is read from the
 /// channels and every time-based consumer finds nothing to time.
@@ -905,7 +905,7 @@ pub trait ProviderFactory: Send + Sync {
     /// # Errors
     ///
     /// Returns an error when the provider cannot be constructed — e.g. the
-    /// sciotte-backed providers parse an embedded scraper config that, while
+    /// sciotte-backed providers parse an embedded session-read config that, while
     /// validated at build time, surfaces a structured error rather than panics.
     fn create(&self, config: ProviderConfig) -> AppResult<Box<dyn FitnessProvider>>;
 

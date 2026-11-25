@@ -1,4 +1,4 @@
-// ABOUTME: Throttled retry of a scrape session flagged needs_reauth — one attempt per connection per interval
+// ABOUTME: Throttled retry of a signed-in session flagged needs_reauth — one attempt per connection per interval
 // ABOUTME: OAuth connections are never retried; a served retry re-arms the connection through the live-read path
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -8,27 +8,27 @@
 //!
 //! A `needs_reauth` flag is a verdict one attempt reached. For an OAuth
 //! connection it is final: the provider refused the refresh token, and only a
-//! reconnect mints a new one. A scrape session is different — its credential
-//! is a cookie jar the scraper service holds, and one refusal can be the
-//! scraper rather than the session: on 2026-09-25 the capture sweep flagged a
-//! connection over a single `401` from a scraper instance that had not seen
+//! reconnect mints a new one. A signed-in session is different — its credential
+//! is a cookie jar the service holds, and one refusal can be the service
+//! rather than the session: on 2026-09-25 the capture sweep flagged a
+//! connection over a single `401` from a service instance that had not seen
 //! the session import, and the flag then stood while the session was fine,
 //! because every refresh path acts on `active` connections only.
 //!
 //! So the capture sweep and the athlete's Home page also attempt a flagged
-//! connection whose backend is a scrape mirror
+//! connection whose backend is a session-read mirror
 //! ([`backend_resolver::is_mirror_backend`]), at most once per
-//! [`SCRAPE_SESSION_RETRY_INTERVAL_HOURS`] per connection, across every caller
-//! and replica ([`claim_scrape_session_retry`]). The attempt is an ordinary
+//! [`FLAGGED_SESSION_RETRY_INTERVAL_HOURS`] per connection, across every caller
+//! and replica ([`claim_flagged_session_retry`]). The attempt is an ordinary
 //! live read through [`crate::activity_fetch::fetch_provider_head`]: a read
 //! the session serves re-arms the connection there, and a refused one leaves
 //! the flag standing without a second notice, since the notice is claimed once
 //! per transition. The interval is what keeps a retry from hammering the
-//! scraper, and the sweep never logs in, so no retry can prompt a 2FA tap.
+//! service, and the sweep never logs in, so no retry can prompt a 2FA tap.
 //!
 //! Every other on-demand read leaves a flagged session alone
 //! ([`flagged_session`]): a chat turn's list read, a Home page's burst of
-//! route reads. Each scraper call on a dead session is a headless sign-in
+//! route reads. Each service call on a dead session is a headless sign-in
 //! attempt that fails the same way, so those reads go to the live OAuth grant
 //! behind the session when one stands there (carnet#1494), and otherwise
 //! serve the cache and answer the reconnect. The Home retry claims its
@@ -51,21 +51,21 @@ tokio::task_local! {
     static CLAIMED_RETRY: ();
 }
 
-/// Run `work` as the retry of a flagged scrape session its caller claimed
-/// ([`claim_scrape_session_retry`]): within it, [`flagged_session`] lets the
+/// Run `work` as the retry of a flagged signed-in session its caller claimed
+/// ([`claim_flagged_session_retry`]): within it, [`flagged_session`] lets the
 /// read through.
 pub async fn claimed_retry<F: Future>(work: F) -> F::Output {
     CLAIMED_RETRY.scope((), work).await
 }
 
-/// The flagged scrape session a read of `provider` would go to, or `None`
+/// The flagged signed-in session a read of `provider` would go to, or `None`
 /// when the read may go ahead.
 ///
 /// `Some(backend)` when `provider` resolves to a mirror backend
 /// ([`resolve_backend`]) whose connection in `tenant_id` is `needs_reauth`
 /// (or revoked), outside a [`claimed_retry`]: the caller reads the live
 /// grant behind `backend` when one stands there, and otherwise answers the
-/// reconnect, naming `backend`, without calling the scraper. Only a reconnect
+/// reconnect, naming `backend`, without calling the service. Only a reconnect
 /// (which re-registers the connection as active) or a claimed retry the
 /// session serves clears the flag. A connection list that cannot be read
 /// reads as not flagged: the read then goes ahead and reports what it finds.
@@ -92,40 +92,44 @@ pub async fn flagged_session(
                 user_id = %user_id,
                 provider = %backend,
                 error = %e,
-                "could not read whether the scrape session is flagged; reading it"
+                "could not read whether the signed-in session is flagged; reading it"
             );
         })
         .ok()?;
     let flagged = connection_needs_reauth(&connections, &backend);
     if flagged {
-        debug!(user_id = %user_id, provider = %backend, "the scrape session is flagged; not read");
+        debug!(
+            user_id = %user_id,
+            provider = %backend,
+            "the signed-in session is flagged; not read"
+        );
     }
     flagged.then_some(backend)
 }
 
-/// Fewest hours between two attempts of one flagged scrape session.
+/// Fewest hours between two attempts of one flagged signed-in session.
 ///
 /// The flag itself counts as an attempt, so the first retry comes this long
-/// after the flag. Six hours lets a scraper-side blip clear within the day
+/// after the flag. Six hours lets a service-side blip clear within the day
 /// while costing each flagged connection at most four headless reads a day.
-pub const SCRAPE_SESSION_RETRY_INTERVAL_HOURS: i64 = 6;
+pub const FLAGGED_SESSION_RETRY_INTERVAL_HOURS: i64 = 6;
 
 /// Whether a flagged connection on `provider` is one the platform retries at
-/// all: a scrape session, never an OAuth grant.
+/// all: a signed-in session, never an OAuth grant.
 #[must_use]
 pub fn retries_flagged_session(provider: &str) -> bool {
     is_mirror_backend(provider)
 }
 
-/// Claim this interval's one retry of the flagged scrape session
+/// Claim this interval's one retry of the flagged signed-in session
 /// `(user_id, tenant_id, provider)`.
 ///
-/// `false` — attempt nothing — for a provider that is not a scrape mirror, for
+/// `false` — attempt nothing — for a provider that is not a session-read mirror, for
 /// a connection that is not `needs_reauth`, and for one flagged or retried
-/// within [`SCRAPE_SESSION_RETRY_INTERVAL_HOURS`]. A claim that cannot be
+/// within [`FLAGGED_SESSION_RETRY_INTERVAL_HOURS`]. A claim that cannot be
 /// written reads as `false` too: an unthrottled attempt is the thing this
 /// exists to prevent.
-pub async fn claim_scrape_session_retry(
+pub async fn claim_flagged_session_retry(
     runtime: &Arc<dyn ToolRuntime>,
     user_id: Uuid,
     tenant_id: TenantId,
@@ -134,7 +138,7 @@ pub async fn claim_scrape_session_retry(
     if !retries_flagged_session(provider) {
         return false;
     }
-    let due_before = Timestamp::now() - Elapsed::hours(SCRAPE_SESSION_RETRY_INTERVAL_HOURS);
+    let due_before = Timestamp::now() - Elapsed::hours(FLAGGED_SESSION_RETRY_INTERVAL_HOURS);
     match runtime
         .repos()
         .provider_connections
@@ -146,7 +150,7 @@ pub async fn claim_scrape_session_retry(
                 user_id = %user_id,
                 provider = %provider,
                 claimed,
-                "flagged scrape session retry claim"
+                "flagged signed-in session retry claim"
             );
             claimed
         }
@@ -155,7 +159,7 @@ pub async fn claim_scrape_session_retry(
                 user_id = %user_id,
                 provider = %provider,
                 error = %e,
-                "flagged scrape session retry claim failed; not retrying"
+                "flagged signed-in session retry claim failed; not retrying"
             );
             false
         }

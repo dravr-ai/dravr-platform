@@ -15,7 +15,7 @@
 // them it resumes, from its cursor, the session's history walk that ended
 // incomplete, once its failing end is a day old: nothing else asks such a
 // walk again on its own. A grant is no session the walks count, so its read
-// resumes nothing. The scraper and Strava's API are one loopback stand-in
+// resumes nothing. The session reader and Strava's API are one loopback stand-in
 // (a test double, per the repo's mock rule) that counts the list reads each
 // serves.
 #![cfg(all(
@@ -83,7 +83,7 @@ const WALKS: [BackfillJobKind; 2] = [BackfillJobKind::TagWalk, BackfillJobKind::
 
 /// What the stand-in serves and saw.
 struct StandIn {
-    /// Whether the scraper's capture reached the list head.
+    /// Whether the session reader's capture reached the list head.
     head_complete: AtomicBool,
     /// The session's list reads.
     session_lists: AtomicUsize,
@@ -163,7 +163,7 @@ fn grant_ride() -> Value {
     })
 }
 
-/// A server reaching the stand-in as the scraper and as Strava's API, its
+/// A server reaching the stand-in as the session reader and as Strava's API, its
 /// session walks counted in the walk windows of its Strava app.
 async fn server(url: &str) -> Arc<ServerContext> {
     let mut config = common::test_server_config_with_sciotte(url);

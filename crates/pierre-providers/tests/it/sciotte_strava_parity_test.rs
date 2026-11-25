@@ -1,10 +1,10 @@
-// ABOUTME: Pins what the scraped Strava session carries beyond the core summary: segment efforts, grade and moving streams, gear id, streak
-// ABOUTME: Drives the provider against a loopback scraper stub; the streak rides get_athlete's one profile read
+// ABOUTME: Pins what the signed-in Strava session carries beyond the core summary: segment efforts, grade and moving streams, gear id, streak
+// ABOUTME: Drives the provider against a loopback session reader stub; the streak rides get_athlete's one profile read
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! Strava parity of the scraped session (carnet#1602, carnet#1603).
+//! Strava parity of the signed-in session (carnet#1602, carnet#1603).
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use dravr_sciotte::models::AuthSession;
@@ -27,14 +27,18 @@ enum Profile {
     Streak,
     /// A profile with no streak on it.
     NoStreak,
-    /// A profile whose streak is not the shape the scraper documents.
+    /// A profile whose streak is not the shape the service documents.
     MalformedStreak,
 }
 
-/// Serve the scraper endpoints a `get_athlete` and a `get_activity` call: the
+/// Serve the service endpoints a `get_athlete` and a `get_activity` call: the
 /// session import, the profile and one detail. Every profile read is counted
 /// in `profile_reads`.
-fn spawn_scraper_stub(listener: TcpListener, profile: Profile, profile_reads: Arc<AtomicUsize>) {
+fn spawn_session_reader_stub(
+    listener: TcpListener,
+    profile: Profile,
+    profile_reads: Arc<AtomicUsize>,
+) {
     tokio::spawn(async move {
         while let Ok((mut stream, _)) = listener.accept().await {
             let mut buf = vec![0_u8; 8192];
@@ -143,7 +147,7 @@ async fn provider_counting_reads(profile: Profile) -> (Box<dyn FitnessProvider>,
     let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
     let addr = listener.local_addr().expect("address");
     let profile_reads = Arc::new(AtomicUsize::new(0));
-    spawn_scraper_stub(listener, profile, Arc::clone(&profile_reads));
+    spawn_session_reader_stub(listener, profile, Arc::clone(&profile_reads));
     let provider = connected_provider(&format!("http://{addr}")).await;
     (provider, profile_reads)
 }

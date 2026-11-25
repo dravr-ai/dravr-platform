@@ -1,4 +1,4 @@
-// ABOUTME: get_planned_workouts end to end — connection, session, scraper stand-in, conversion and the fenced reply
+// ABOUTME: get_planned_workouts end to end — connection, session, session reader stand-in, conversion and the fenced reply
 // ABOUTME: Pins the plan the model reads, the coach-written text arriving as data, the window rules and every refusal
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -10,7 +10,7 @@
 //! The tool reads what the athlete's coach planned through the provider that
 //! declares a planned calendar — TrainingPeaks — from a seeded
 //! `sciotte_trainingpeaks` connection and session, through the real provider
-//! and remote client, against a stand-in for the scraper service (a test
+//! and remote client, against a stand-in for the dravr-sciotte service (a test
 //! double: the service itself is pinned in dravr-sciotte). What the model
 //! then reads is the contract:
 //!
@@ -22,7 +22,7 @@
 //! - a coach account told it has no calendar, never sent to log in again;
 //! - a dead session answered with the reconnect signal.
 //!
-//! One test drives the scraper scenarios against one stand-in; the
+//! One test drives the session-read scenarios against one stand-in; the
 //! registration contract is a test of its own.
 
 use std::collections::HashMap;
@@ -47,7 +47,7 @@ use tokio::net::TcpListener;
 use uuid::Uuid;
 
 use crate::common::{create_test_server_resources_with_sciotte, create_test_user_with_plan};
-use crate::helpers::sciotte_mock::seed_scrape_session;
+use crate::helpers::sciotte_mock::seed_signed_in_session;
 
 /// The session the stand-in serves a plan for.
 const ATHLETE_SESSION: &str = "tp-athlete-session";
@@ -111,10 +111,10 @@ fn plan_body() -> Value {
     })
 }
 
-/// A stand-in for the scraper service: imports any session, serves the plan
+/// A stand-in for the dravr-sciotte service: imports any session, serves the plan
 /// to the athlete's session and the coach-account refusal to the coach's,
 /// recording each planned read.
-async fn spawn_planned_scraper(seen: Seen) -> String {
+async fn spawn_planned_session_reader(seen: Seen) -> String {
     let app = Router::new()
         .route(
             "/auth/import-session",
@@ -182,7 +182,7 @@ async fn connect(
         .await
         .unwrap();
     if let Some(session) = session {
-        seed_scrape_session(resources, user_id, tenant, backend, session).await;
+        seed_signed_in_session(resources, user_id, tenant, backend, session).await;
     }
 }
 
@@ -338,7 +338,7 @@ async fn the_plan_reaches_the_model_oldest_first_with_its_text_fenced(
             ("after".to_owned(), "2026-09-28".to_owned()),
             ("before".to_owned(), "2026-10-04".to_owned()),
         ])],
-        "the window reaches the scraper as asked, naming no athlete"
+        "the window reaches the service as asked, naming no athlete"
     );
 }
 
@@ -406,7 +406,7 @@ async fn a_window_the_tool_cannot_read_is_refused_before_the_provider(
     assert_eq!(
         seen.lock().unwrap().len(),
         1,
-        "only the readable window reached the scraper"
+        "only the readable window reached the service"
     );
 }
 
@@ -509,10 +509,11 @@ async fn a_connection_with_no_session_asks_for_a_reconnect(resources: &Arc<Serve
 #[tokio::test]
 async fn the_planned_calendar_reaches_the_model_as_data() {
     let seen: Seen = Arc::new(Mutex::new(Vec::new()));
-    let resources =
-        create_test_server_resources_with_sciotte(&spawn_planned_scraper(seen.clone()).await)
-            .await
-            .unwrap();
+    let resources = create_test_server_resources_with_sciotte(
+        &spawn_planned_session_reader(seen.clone()).await,
+    )
+    .await
+    .unwrap();
 
     the_plan_reaches_the_model_oldest_first_with_its_text_fenced(&resources, &seen).await;
     an_unstated_window_is_today_through_two_weeks_out(&resources, &seen).await;

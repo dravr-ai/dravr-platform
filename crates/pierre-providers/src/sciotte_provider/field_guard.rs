@@ -20,8 +20,8 @@ mod tests {
         SciotteTrainingPeaksDescriptor,
     };
 
-    /// A scraped activity: the identity every row carries, then `fields`.
-    fn scraped(provider: &str, fields: &Value) -> SciotteActivity {
+    /// A session-read activity: the identity every row carries, then `fields`.
+    fn session_row(provider: &str, fields: &Value) -> SciotteActivity {
         let mut row = json!({
             "id": "16001",
             "name": "Session",
@@ -69,12 +69,12 @@ mod tests {
         list: &Value,
         detail: &Value,
     ) {
-        let provider = target.scraper_provider_name();
+        let provider = target.service_provider_name();
         assert_mapper_fills(
             backend,
             declared,
-            &convert_activity(&scraped(provider, list), target),
-            &convert_activity(&scraped(provider, &with(list, detail)), target),
+            &convert_activity(&session_row(provider, list), target),
+            &convert_activity(&session_row(provider, &with(list, detail)), target),
         );
     }
 
@@ -112,7 +112,7 @@ mod tests {
     }
 
     #[test]
-    fn the_strava_scrape_fills_what_its_descriptor_declares() {
+    fn the_strava_session_read_fills_what_its_descriptor_declares() {
         // The list feed carries the athlete's words and tags and the heart
         // rate; the detail page's stat block, its embedded activity values
         // and its streams the rest.
@@ -162,7 +162,7 @@ mod tests {
             "private_note": "Note test"
         });
         let strava = convert_activity(
-            &scraped(SciotteTarget::Strava.scraper_provider_name(), &words),
+            &session_row(SciotteTarget::Strava.service_provider_name(), &words),
             SciotteTarget::Strava,
         );
         assert_eq!(
@@ -180,7 +180,8 @@ mod tests {
             SciotteTarget::TrainingPeaks,
             SciotteTarget::Coros,
         ] {
-            let other = convert_activity(&scraped(target.scraper_provider_name(), &words), target);
+            let other =
+                convert_activity(&session_row(target.service_provider_name(), &words), target);
             assert!(
                 other.description().is_none() && other.private_note().is_none(),
                 "bug: {target:?}'s text crossed as the athlete's own words"
@@ -189,7 +190,7 @@ mod tests {
     }
 
     #[test]
-    fn the_garmin_scrape_fills_what_its_descriptor_declares() {
+    fn the_garmin_session_read_fills_what_its_descriptor_declares() {
         let list = json!({
             "average_heart_rate": 141,
             "max_heart_rate": 176,
@@ -217,7 +218,7 @@ mod tests {
     }
 
     #[test]
-    fn the_trainingpeaks_scrape_fills_what_its_descriptor_declares() {
+    fn the_trainingpeaks_session_read_fills_what_its_descriptor_declares() {
         let list = json!({
             "average_heart_rate": 141,
             "max_heart_rate": 176,
@@ -241,7 +242,7 @@ mod tests {
     }
 
     #[test]
-    fn the_coros_scrape_fills_what_its_descriptor_declares() {
+    fn the_coros_session_read_fills_what_its_descriptor_declares() {
         let list = json!({
             "average_heart_rate": 141,
             "calories": 980,

@@ -1008,7 +1008,7 @@ async fn a_row_left_empty_by_the_private_fields_is_not_filed() {
 }
 
 /// A source of the member's own wins over the link: their own Intervals.icu
-/// key, a scraped Garmin session, or a WHOOP connection, in the tenant the
+/// key, a signed-in Garmin session, or a WHOOP connection, in the tenant the
 /// link files under. None of them spends a request.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_source_of_the_members_own_wins_over_the_link() {
@@ -1251,7 +1251,7 @@ async fn the_refresh_answer_claims_no_schedule_a_link_does_not_have() {
         "{body}"
     );
 
-    // A granted link whose member keeps a scraped Garmin of their own syncs
+    // A granted link whose member keeps a signed-in Garmin of their own syncs
     // none of their wellness, and the answer says where it comes from.
     let (garmin, _) = w.granted("garmin@wellness.test", "i202").await;
     repos

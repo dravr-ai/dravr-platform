@@ -1,5 +1,5 @@
 // ABOUTME: The activity pre-fetch a fresh sciotte session starts, and the registry every reader waits on
-// ABOUTME: One scrape per connection: later readers and the health backfill wait on it (carnet#736)
+// ABOUTME: One session read per connection: later readers and the health backfill wait on it (carnet#736)
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -19,7 +19,7 @@ use pierre_providers::core::{
 };
 use pierre_providers::registry::ProviderRegistry;
 use pierre_providers::request_budget::in_background;
-use pierre_services::scrape_session::StoredSession;
+use pierre_services::signed_in_session::StoredSession;
 use secrecy::ExposeSecret;
 use tracing::{info, warn};
 use uuid::Uuid;
@@ -84,7 +84,7 @@ pub(crate) fn spawn_activity_prefetch(
     Some(wait)
 }
 
-/// What a pre-fetch's provider writes a session the scraped platform rotated
+/// What a pre-fetch's provider writes a session the provider's platform rotated
 /// on its reads through: the write-back over the row the login stored the
 /// session as, while that row still stands.
 pub(crate) fn persist_rotated(
@@ -162,7 +162,7 @@ pub(crate) async fn prefetch_activities(
     info!(
         user_id = %user_id,
         provider = %provider_name,
-        "Starting background activity pre-fetch (remote scrape)"
+        "Starting background activity pre-fetch (remote session read)"
     );
     let limit = prefetch_limit();
     let Some((activities, head_complete)) = fetch_prefetch_window(

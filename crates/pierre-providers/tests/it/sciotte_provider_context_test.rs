@@ -1,10 +1,10 @@
-// ABOUTME: Pins the scraped Strava's provider-context reads: zones, gear, records, best efforts, weight, paged search
-// ABOUTME: Drives the provider against a loopback scraper stub whose unstubbed paths answer 500, so a stray request never reads as absence
+// ABOUTME: Pins the session-read Strava's provider-context reads: zones, gear, records, best efforts, weight, paged search
+// ABOUTME: Drives the provider against a loopback session reader stub whose unstubbed paths answer 500, so a stray request never reads as absence
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! Provider context of the scraped Strava session (carnet#1622, sciotte 2.3).
+//! Provider context of the signed-in Strava session (carnet#1622, sciotte 2.3).
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use std::sync::{Arc, Mutex};
@@ -24,7 +24,7 @@ use secrecy::SecretString;
 use serde_json::{json, Value};
 use tokio::net::TcpListener;
 
-/// One stubbed scraper route: the exact path, the status, the JSON body.
+/// One stubbed service route: the exact path, the status, the JSON body.
 type Route = (&'static str, u16, Value);
 
 /// The request lines the stub served, in order.
@@ -43,7 +43,7 @@ fn reason(status: u16) -> &'static str {
 /// Serve the session import and `routes`, matched on the exact request path.
 /// Any other path answers 500: a request the test did not expect is never
 /// mistaken for an absent value.
-fn spawn_scraper_stub(listener: TcpListener, routes: Vec<Route>, seen: Seen) {
+fn spawn_session_reader_stub(listener: TcpListener, routes: Vec<Route>, seen: Seen) {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     tokio::spawn(async move {
@@ -125,14 +125,14 @@ async fn strava(routes: Vec<Route>) -> (Box<dyn FitnessProvider>, Seen) {
     let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
     let addr = listener.local_addr().expect("address");
     let seen = Seen::default();
-    spawn_scraper_stub(listener, routes, Arc::clone(&seen));
+    spawn_session_reader_stub(listener, routes, Arc::clone(&seen));
     (
         connected(&format!("http://{addr}"), "sciotte", false).await,
         seen,
     )
 }
 
-/// The scraper's `500` for a provider answer that may pass, as it writes it.
+/// The service's `500` for a provider answer that may pass, as it writes it.
 fn provider_answered(status: u16) -> Value {
     json!({ "error": format!("network error: https://www.strava.com/x answered HTTP {status}") })
 }
@@ -247,7 +247,7 @@ async fn a_failure_is_never_absence() {
         (
             "/api/activities/16001/zones",
             500,
-            json!({ "error": "scraping error: x" }),
+            json!({ "error": "session read error: x" }),
         ),
     ])
     .await;
@@ -282,7 +282,7 @@ async fn a_failure_is_never_absence() {
     assert_eq!(
         internal.code,
         ErrorCode::InternalError,
-        "bug: a plain scraper 500 is not an internal error"
+        "bug: a plain service 500 is not an internal error"
     );
     let unstubbed = provider.read_activity_best_efforts("16001").await;
     assert!(unstubbed.is_err(), "bug: an unstubbed path read as absence");
@@ -431,7 +431,7 @@ async fn a_profile_with_no_weight_is_none() {
 }
 
 #[tokio::test]
-async fn an_id_that_is_not_digits_never_reaches_the_scraper() {
+async fn an_id_that_is_not_digits_never_reaches_the_service() {
     let (provider, seen) = strava(vec![]).await;
     for bad in ["12a", "", "../x"] {
         let zones = provider
@@ -447,7 +447,7 @@ async fn an_id_that_is_not_digits_never_reaches_the_scraper() {
     }
     assert!(
         seen.lock().unwrap().is_empty(),
-        "bug: a bad id cost a scraper call: {:?}",
+        "bug: a bad id cost a service call: {:?}",
         seen.lock().unwrap()
     );
 }
@@ -484,7 +484,7 @@ async fn search_sends_its_page_and_says_whether_the_walk_was_complete() {
     let lines = seen.lock().unwrap().join("\n");
     assert!(
         lines.contains("page=3"),
-        "bug: the page never reached the scraper: {lines}"
+        "bug: the page never reached the service: {lines}"
     );
     assert!(
         provider.head_complete(),
@@ -493,11 +493,11 @@ async fn search_sends_its_page_and_says_whether_the_walk_was_complete() {
 }
 
 #[tokio::test]
-async fn the_other_scraped_backends_refuse_every_context_read() {
+async fn the_other_session_read_backends_refuse_every_context_read() {
     let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
     let addr = listener.local_addr().expect("address");
     let seen = Seen::default();
-    spawn_scraper_stub(listener, vec![], Arc::clone(&seen));
+    spawn_session_reader_stub(listener, vec![], Arc::clone(&seen));
     let garmin = connected(&format!("http://{addr}"), "sciotte_garmin", true).await;
     let refusals = [
         garmin.read_activity_zones("16001").await.map(|_| ()),
@@ -520,6 +520,6 @@ async fn the_other_scraped_backends_refuse_every_context_read() {
     }
     assert!(
         seen.lock().unwrap().is_empty(),
-        "bug: a refused read still asked the scraper"
+        "bug: a refused read still asked the service"
     );
 }

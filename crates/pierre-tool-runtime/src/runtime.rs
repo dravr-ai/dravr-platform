@@ -181,7 +181,7 @@ pub struct DetailWalkCompletion<'job> {
 /// Best-effort sink that pushes a "your historical backfill finished" notice
 /// back to the messaging channel that triggered it.
 ///
-/// A deep-history `get_activities` ask on a scrape-backed mirror provider warms
+/// A deep-history `get_activities` ask on a session-read mirror provider warms
 /// the durable cache off the request path (see [`crate::activity_backfill`]) and
 /// returns silently. When the originating turn came from a messaging channel,
 /// the backfill job can later resolve that channel from the Pierre conversation

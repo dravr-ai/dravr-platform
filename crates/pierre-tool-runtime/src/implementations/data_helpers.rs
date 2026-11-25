@@ -66,12 +66,12 @@ pub const fn historical_window_read_limit() -> usize {
     HISTORICAL_WINDOW_READ_LIMIT
 }
 
-/// Default fetch limit a background backfill passes to the provider so the scrape
+/// Default fetch limit a background backfill passes to the provider so the read
 /// pages the WHOLE requested window instead of stopping at the user's display
-/// limit. The sciotte date-bounded scrape stops on `in_window_count >= limit`
+/// limit. The sciotte date-bounded read stops on `in_window_count >= limit`
 /// OR `oldest <= after`; with a small (display) limit it caps at the recent tail
 /// and never reaches the window start. A generous limit makes `oldest <= after`
-/// the binding condition, so the scrape pages the full season.
+/// the binding condition, so the read pages the full season.
 const DEFAULT_HISTORICAL_BACKFILL_FETCH_LIMIT: usize = 2_000;
 
 /// Fetch limit a background backfill requests.
@@ -130,7 +130,7 @@ pub const fn pagination_has_more(
 /// `Revoked`) and so needs an interactive reconnect.
 ///
 /// The historical gate consults this BEFORE spawning a background backfill: a
-/// dead session would just fail the scrape and leave the user looping on
+/// dead session would just fail the read and leave the user looping on
 /// "fetching, ask again shortly". When true, `get_activities` returns
 /// `provider_auth_required` instead, so the chat pipeline hands back the
 /// reconnect link this turn.
@@ -504,7 +504,7 @@ impl PrimaryStandIn {
     ///
     /// `CaptureFreshness::last_used_at` promises "live fetch or cache
     /// alike", and the active-athlete sweep selects on it. Touching only a
-    /// live answer let a scrape that outlives every turn's 15 s budget freeze
+    /// live answer let a session read that outlives every turn's 15 s budget freeze
     /// the mark on 2026-10-19, and the sweep passed the athlete over for ten
     /// days while chat served him daily (carnet#1278). A sibling's answer
     /// (`Dead`, `Unreachable`) is still not the primary's serve.

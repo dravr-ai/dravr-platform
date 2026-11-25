@@ -9,7 +9,7 @@
 //! Live incidents 2026-07-24 and 2026-08-11 (Telegram): the agent answered
 //! «Je ne suis pas capable de récupérer tes activités … (problème de
 //! connexion de mon côté)» on turns where **no tool was ever invoked** and
-//! every sciotte scrape in the surrounding weeks had succeeded. The claim was
+//! every sciotte session read in the surrounding weeks had succeeded. The claim was
 //! fabricated, then persisted, then replayed — teaching the model the access
 //! was broken (the learned-helplessness loop the replay scrub exists to
 //! break, defeated there by a phrasing mutation).
@@ -29,7 +29,7 @@
 //!    `pending_provider_auth_required` so [`super::auth_recovery`] replaces
 //!    the apology with a localized reconnect link — the athlete gets a
 //!    re-challenge they can act on instead of a dead end.
-//! 5. On any other failure (backpressure, scraper fault) the reply stands —
+//! 5. On any other failure (backpressure, service fault) the reply stands —
 //!    an honest "can't fetch right now" during a real outage must reach the
 //!    athlete.
 
@@ -659,7 +659,7 @@ pub(super) enum VerificationOutcome {
     /// The fetch needs re-auth: the claim was right but useless — the athlete
     /// needs the reconnect link, not an apology. Carries the provider slug.
     AuthRequired(String),
-    /// The fetch failed non-auth (backpressure, scraper fault): the claim may
+    /// The fetch failed non-auth (backpressure, service fault): the claim may
     /// be an honest outage report, so the reply stands. Already logged.
     Unverifiable,
     /// Not fetched: the sender is not the turn's subject, so their own

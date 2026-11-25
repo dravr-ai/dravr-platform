@@ -14,20 +14,20 @@ use super::{OAuthEndpoints, OAuthParams, OAuthRefresh, ProviderCapabilities, Pro
 use crate::field_support::{ActivityFieldSupport, ActivityFields as F, StreamChannels as S};
 use crate::provider_terms;
 
-/// The channels every scraped route carries: the track and its elevations.
-/// A scraped route has no time axis and no sensor channel.
+/// The channels every session-read route carries: the track and its elevations.
+/// A session-read route has no time axis and no sensor channel.
 const ROUTE: S = S::LATLNG.union(S::ALTITUDE);
 
-/// Sciotte web scraping provider descriptor
+/// Sciotte session-read provider descriptor
 ///
-/// Sciotte uses browser-based web scraping via CDP to capture session cookies
+/// Sciotte signs in through a browser over CDP to capture session cookies
 /// and extract activity data from fitness platform HTML pages (Strava, Garmin, etc.).
 /// It does not use OAuth — authentication happens via a streamed browser login session.
 #[derive(Debug)]
 pub struct SciotteDescriptor;
 
 impl ProviderDescriptor for SciotteDescriptor {
-    /// What the pinned client scrapes from Strava's pages (sciotte 2.0): a
+    /// What the pinned client reads from Strava's pages (sciotte 2.0): a
     /// list row carries the athlete's description, the workout tag, the
     /// commute flag, the athlete's tags (the first page only) and the average
     /// heart rate; the detail page adds the private note, the trainer flag
@@ -106,7 +106,7 @@ impl ProviderDescriptor for SciotteDescriptor {
     }
 }
 
-/// Sciotte Garmin Connect web scraping provider descriptor
+/// Sciotte Garmin Connect session-read provider descriptor
 #[derive(Debug)]
 pub struct SciotteGarminDescriptor;
 
@@ -151,7 +151,7 @@ impl ProviderDescriptor for SciotteGarminDescriptor {
         provider_terms::GARMIN_AUDIENCE
     }
 
-    /// Activities are scraped on demand; the night's sleep, resting heart
+    /// Activities are read on demand; the night's sleep, resting heart
     /// rate, overnight HRV, stress, Body Battery, body metrics and `VO2max`
     /// are synced from the same session's daily summary by the health sync.
     fn capabilities(&self) -> ProviderCapabilities {
@@ -183,12 +183,12 @@ impl ProviderDescriptor for SciotteGarminDescriptor {
     }
 }
 
-/// Sciotte TrainingPeaks web scraping provider descriptor.
+/// Sciotte TrainingPeaks session-read provider descriptor.
 ///
 /// Activities and the calendar's planned workouts, and never
 /// `CHEAP_ACTIVITY_DETAIL`: a TrainingPeaks workout's detail is a browser
-/// round trip per workout on the scraper service, the same N+1 the Garmin and
-/// Strava mirrors ration. The planned read is one scraper call per window.
+/// round trip per workout on the service, the same N+1 the Garmin and
+/// Strava mirrors ration. The planned read is one service call per window.
 #[derive(Debug)]
 pub struct SciotteTrainingPeaksDescriptor;
 
@@ -221,7 +221,7 @@ impl ProviderDescriptor for SciotteTrainingPeaksDescriptor {
     }
 
     /// The planned workouts are stamped `trainingpeaks`
-    /// ([`crate::trainingpeaks_plan`]), as is every scraped activity's source.
+    /// ([`crate::trainingpeaks_plan`]), as is every session-read activity's source.
     fn origin(&self) -> Option<&'static str> {
         Some(TRAININGPEAKS)
     }
@@ -231,7 +231,7 @@ impl ProviderDescriptor for SciotteTrainingPeaksDescriptor {
     }
 
     fn capabilities(&self) -> ProviderCapabilities {
-        // A coach account reads its athletes through the coach's scraper
+        // A coach account reads its athletes through the coach's signed-in
         // session (`SciotteTrainingPeaksProviderFactory::delegated_reads`).
         ProviderCapabilities::ACTIVITIES
             .union(ProviderCapabilities::RECORDED_ACTIVITIES)
@@ -260,7 +260,7 @@ impl ProviderDescriptor for SciotteTrainingPeaksDescriptor {
     }
 }
 
-/// Sciotte COROS Training Hub web scraping provider descriptor
+/// Sciotte COROS Training Hub session-read provider descriptor
 #[derive(Debug)]
 pub struct SciotteCorosDescriptor;
 
@@ -302,7 +302,7 @@ impl ProviderDescriptor for SciotteCorosDescriptor {
         provider_terms::COROS_TRANSPORT
     }
 
-    /// Activities are scraped on demand; the resting heart rate, sleep HRV
+    /// Activities are read on demand; the resting heart rate, sleep HRV
     /// and `VO2max` are synced from the Training Hub's daily analysis by the
     /// health sync. The Training Hub carries no sleep sessions.
     fn capabilities(&self) -> ProviderCapabilities {
@@ -338,14 +338,14 @@ mod tests {
     use super::{ProviderDescriptor, SciotteDescriptor};
     use crate::field_support::StreamChannels;
 
-    /// The scraped Strava path fills Strava's own `grade_smooth` and `moving`
+    /// The session-read Strava path fills Strava's own `grade_smooth` and `moving`
     /// channels (sciotte 2.1), so its descriptor claims all eleven.
     #[test]
-    fn the_scraped_strava_descriptor_claims_grade_smooth_and_moving() {
+    fn the_session_read_strava_descriptor_claims_grade_smooth_and_moving() {
         let streams = SciotteDescriptor.activity_fields().streams;
         assert!(
             streams.contains(StreamChannels::GRADE_SMOOTH | StreamChannels::MOVING),
-            "bug: the scraped Strava path serves channels its descriptor does not claim"
+            "bug: the session-read Strava path serves channels its descriptor does not claim"
         );
         assert_eq!(
             streams,

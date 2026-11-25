@@ -42,15 +42,15 @@ use serde_json::{json, Value};
 use uuid::Uuid;
 
 use crate::common;
-use crate::helpers::sciotte_mock::seed_scrape_session;
+use crate::helpers::sciotte_mock::seed_signed_in_session;
 
-/// What Strava's API supplies and its scrape does not: the normalized power,
+/// What Strava's API supplies and its session read does not: the normalized power,
 /// the route's summary polyline and the finer sport label.
 const API_ONLY: ActivityFields = ActivityFields::NORMALIZED_POWER
     .union(ActivityFields::SUMMARY_POLYLINE)
     .union(ActivityFields::SPORT_TYPE_DETAIL);
 
-/// What the scrape of Strava's pages reads since sciotte 2.0, as the API
+/// What the session read of Strava's pages reads since sciotte 2.0, as the API
 /// does: the athlete's words, the workout tag and the trainer and commute
 /// flags.
 const READ_BOTH_WAYS: ActivityFields = ActivityFields::DESCRIPTION
@@ -97,24 +97,24 @@ fn strava_is_read_two_ways_and_both_carry_the_athletes_words_and_flags() {
         "bug: Strava's dictionary is filed under another provider"
     );
     let api = support.oauth.expect("Strava's API serves activities");
-    let scrape = support.mirror.expect("Strava's mirror serves activities");
+    let session = support.mirror.expect("Strava's mirror serves activities");
     assert!(
         api.supplied().contains(API_ONLY | READ_BOTH_WAYS),
         "the API supplies the description, private note, workout tag and flags"
     );
     assert!(
-        scrape.not_supplied().contains(API_ONLY),
-        "bug: the pinned scrape is declared to supply a field it never reads"
+        session.not_supplied().contains(API_ONLY),
+        "bug: the pinned session read is declared to supply a field it never reads"
     );
     assert!(
-        scrape.supplied().contains(READ_BOTH_WAYS),
-        "bug: the pinned scrape reads the athlete's words and flags, and does not declare them"
+        session.supplied().contains(READ_BOTH_WAYS),
+        "bug: the pinned session read takes the athlete's words and flags but never declares them"
     );
     assert!(
-        scrape.detail_only.contains(ActivityFields::PRIVATE_NOTE),
-        "a scraped Strava row carries the private note only once read in detail"
+        session.detail_only.contains(ActivityFields::PRIVATE_NOTE),
+        "a session-read Strava row carries the private note only once read in detail"
     );
-    assert_eq!(support.served(), Some(scrape), "the session serves");
+    assert_eq!(support.served(), Some(session), "the session serves");
 
     let by_backend = field_support(&registry, "sciotte", Some(FieldMode::Mirror)).unwrap();
     assert_eq!(
@@ -128,7 +128,10 @@ fn a_provider_read_one_way_has_only_that_mode() {
     let registry = offline_provider_registry();
 
     let trainingpeaks = field_support(&registry, "trainingpeaks", Some(FieldMode::Oauth)).unwrap();
-    assert!(trainingpeaks.mirror.is_some(), "TrainingPeaks is scraped");
+    assert!(
+        trainingpeaks.mirror.is_some(),
+        "TrainingPeaks is read from the session"
+    );
     assert!(
         trainingpeaks.oauth.is_none(),
         "TrainingPeaks has no API Dravr reads"
@@ -163,7 +166,9 @@ fn trainingpeaks_and_coros_comments_reach_the_model() {
     let registry = offline_provider_registry();
     for provider in ["trainingpeaks", "coros"] {
         let support = field_support(&registry, provider, Some(FieldMode::Mirror)).unwrap();
-        let mirror = support.mirror.expect("the provider is scraped");
+        let mirror = support
+            .mirror
+            .expect("the provider is read from the session");
         assert!(
             mirror.supplied().contains(ActivityFields::COMMENTS),
             "bug: {provider} does not declare the comments its capture carries"
@@ -247,7 +252,7 @@ fn the_activities_header_names_what_each_serving_connection_never_supplies() {
     for field in API_ONLY.names() {
         assert!(
             not_supplied(0).contains(&field),
-            "the scrape's rows never carry {field}: {connections:#}"
+            "the session's rows never carry {field}: {connections:#}"
         );
         assert!(
             !not_supplied(1).contains(&field),
@@ -256,14 +261,14 @@ fn the_activities_header_names_what_each_serving_connection_never_supplies() {
     }
     assert!(
         !not_supplied(0).contains(&"tags") && not_supplied(1).contains(&"tags"),
-        "tags are read by the scrape alone (carnet#1618): {connections:#}"
+        "tags are read by the session alone (carnet#1618): {connections:#}"
     );
     assert!(
         connections[0]["detail_only"]
             .as_array()
             .unwrap()
             .contains(&json!("max_heart_rate")),
-        "a scraped Strava row carries its maximum heart rate only once read in detail"
+        "a session-read Strava row carries its maximum heart rate only once read in detail"
     );
 
     let payload = json!({
@@ -328,7 +333,7 @@ async fn connection_status_carries_each_providers_dictionary_and_the_mode_servin
         common::create_test_user_with_plan(&resources.agent.database, &email, "starter")
             .await
             .unwrap();
-    seed_scrape_session(&resources, user_id, tenant_id, "sciotte", "fields-session").await;
+    seed_signed_in_session(&resources, user_id, tenant_id, "sciotte", "fields-session").await;
     let runtime: Arc<dyn ToolRuntime> = resources.clone();
     let executor = UniversalToolExecutor::new(runtime).with_scopes(OAuthScope::self_grant());
 
@@ -347,7 +352,7 @@ async fn connection_status_carries_each_providers_dictionary_and_the_mode_servin
         names(&fields["mirror"]["list"]).contains(&"tags")
             && !names(&fields["oauth"]["list"]).contains(&"tags")
             && !names(&fields["oauth"]["detail_only"]).contains(&"tags"),
-        "tags are scrape-only: {fields:#}"
+        "tags are session-only: {fields:#}"
     );
     assert!(
         names(&fields["oauth"]["detail_only"]).contains(&"description"),

@@ -59,7 +59,7 @@ mod activity_tags;
 mod activity_times;
 mod context;
 mod factory;
-/// The field dictionary guard for the four scraped targets.
+/// The field dictionary guard for the four session-read targets.
 mod field_guard;
 mod reads;
 mod rotation;
@@ -120,14 +120,14 @@ impl LoginIdentifier {
     }
 }
 
-/// Target fitness platform for the sciotte scraper
+/// Target fitness platform for the sciotte session reader
 #[derive(Debug, Clone, Copy)]
 pub enum SciotteTarget {
-    /// Scrape activities from Strava (strava.com)
+    /// Read activities from Strava (strava.com)
     Strava,
-    /// Scrape activities from Garmin Connect (connect.garmin.com)
+    /// Read activities from Garmin Connect (connect.garmin.com)
     Garmin,
-    /// Scrape workouts from the TrainingPeaks calendar (app.trainingpeaks.com)
+    /// Read workouts from the TrainingPeaks calendar (app.trainingpeaks.com)
     TrainingPeaks,
     /// Read activities from COROS Training Hub (t.coros.com)
     Coros,
@@ -173,11 +173,11 @@ impl SciotteTarget {
         }
     }
 
-    /// Provider name the dravr-sciotte scraper service uses for this target
+    /// Provider name the dravr-sciotte service uses for this target
     /// (`"garmin"`, `"strava"`, `"trainingpeaks"`) — sent on remote login/import so the
-    /// multi-provider service routes to the right scraper (ADR-021).
+    /// multi-provider service routes to the right session reader (ADR-021).
     #[must_use]
-    pub const fn scraper_provider_name(self) -> &'static str {
+    pub const fn service_provider_name(self) -> &'static str {
         match self {
             Self::Strava => "strava",
             Self::Garmin => "garmin",
@@ -190,7 +190,7 @@ impl SciotteTarget {
     /// TrainingPeaks' asks for a username; Garmin Connect's takes either,
     /// since accounts from before Garmin moved to email sign-in still have a
     /// username. A login form typed as `email` would reject either before the
-    /// scraper ever sees it.
+    /// service ever sees it.
     #[must_use]
     pub const fn login_identifier(self) -> LoginIdentifier {
         match self {
@@ -220,8 +220,8 @@ impl SciotteTarget {
     /// athlete's workouts through the account is a link the coach makes from
     /// a group they coach, which the athlete confirms, so the text points
     /// there. It names the brand the account signed in to, and reaches the
-    /// reader and the model as written — from the provider when the scraper
-    /// refuses the read, and from the read path before any scrape once the
+    /// reader and the model as written — from the provider when the service
+    /// refuses the read, and from the read path before any session read once the
     /// connection is known to be a coach account.
     #[must_use]
     pub fn coach_account_refusal(self) -> String {
@@ -247,9 +247,9 @@ const NAME_FENCE_MAX_CHARS: usize = 80;
 /// with the username and password they gave Dravr.
 const UNNAMED_ATHLETE: &str = "Athlete";
 
-/// Sciotte provider — a thin session-holder over the dedicated scraper service.
+/// Sciotte provider — a thin session-holder over the dedicated session-read service.
 ///
-/// Routes every scrape to the dedicated dravr-sciotte service ([[ADR-021]]).
+/// Routes every session read to the dedicated dravr-sciotte service ([[ADR-021]]).
 /// Since the Phase 4 cutover it holds no in-process Chrome; it keeps the
 /// platform-held [`AuthSession`] and forwards it to the service on each fetch.
 ///
@@ -264,7 +264,7 @@ pub struct SciotteProvider {
     /// Whose calendar a delegated provider reads, by the provider's athlete
     /// id; `None` reads the signed-in account's own.
     subject: Option<AthleteId>,
-    /// Whether the last list scrape read the list's head, as the service
+    /// Whether the last list read reached the list's head, as the service
     /// reported it. Starts `true`: nothing has been fetched, so nothing is
     /// known to be missing.
     head_complete: AtomicBool,
@@ -346,7 +346,7 @@ impl SciotteProvider {
     /// Clone the authenticated session and release the lock before returning.
     ///
     /// Every caller follows this with a remote round trip — `import_session`
-    /// plus a scrape on the dedicated service — bounded only by the 330s client
+    /// plus a session read on the dedicated service — bounded only by the 330s client
     /// timeout. `tokio::sync::RwLock` is write-preferring with a FIFO queue, so
     /// a read guard held across that call would park the `authenticate` writer
     /// at the head of the queue and every later reader behind the writer: this
@@ -368,7 +368,7 @@ impl SciotteProvider {
             .clone())
     }
 
-    /// The platform error for a failed call to the scraper service.
+    /// The platform error for a failed call to the service.
     ///
     /// Only this provider knows whether the read named an athlete: the
     /// service echoes an athlete id even on a read that named none, the one it
@@ -436,7 +436,7 @@ impl SciotteProvider {
     /// athlete's calendar.
     ///
     /// `TrainingPeaks` addresses a workout detail as `athleteId:workoutId`, and
-    /// the scraper reads whichever athlete that names under the session it is
+    /// the service reads whichever athlete that names under the session it is
     /// handed. A coach session can read every athlete on the roster, so
     /// without this a reader holding a link to one athlete could read another
     /// athlete's workout by editing the prefix. The refusal is a plain
@@ -490,13 +490,13 @@ fn own_athlete(profile: AthleteProfile, target: SciotteTarget) -> Athlete {
     Athlete {
         active_streak,
         created_at: None,
-        id: target.scraper_provider_name().to_owned(),
+        id: target.service_provider_name().to_owned(),
         username: profile_name(profile.display_name, target)
             .unwrap_or_else(|| UNNAMED_ATHLETE.to_owned()),
         firstname: profile_name(profile.firstname, target),
         lastname: profile_name(profile.lastname, target),
         profile_picture: profile.profile_picture_url,
-        provider: target.scraper_provider_name().to_owned(),
+        provider: target.service_provider_name().to_owned(),
         sex: None,
     }
 }
@@ -524,7 +524,7 @@ fn window_bound(epoch_secs: Option<i64>, bound: &str) -> AppResult<Option<Timest
 ///
 /// The roster is the authority on who the coach may read: an athlete it no
 /// longer lists is the [`athlete_not_accessible`] refusal, the answer the
-/// scraper gives a read that names one. The roster carries an id and a name
+/// service gives a read that names one. The roster carries an id and a name
 /// only, so the other profile fields stay empty.
 fn roster_athlete(profile: AthleteProfile, athlete: &AthleteId) -> AppResult<Athlete> {
     let entry = profile
@@ -541,7 +541,7 @@ fn roster_athlete(profile: AthleteProfile, athlete: &AthleteId) -> AppResult<Ath
         lastname: None,
         profile_picture: None,
         provider: SciotteTarget::TrainingPeaks
-            .scraper_provider_name()
+            .service_provider_name()
             .to_owned(),
         sex: None,
         active_streak: None,
@@ -603,13 +603,13 @@ pub fn convert_sport_type(s: &SciotteSportType) -> SportType {
     }
 }
 
-/// Convert a sciotte `Activity` scraped from `target` to a Pierre `Activity`.
+/// Convert a sciotte `Activity` read from `target` to a Pierre `Activity`.
 ///
 /// The athlete's self-report crosses in the platform's scales (see
 /// [`self_report`]), and the comments cross entry for entry in the order
 /// sciotte gives them — the notes a provider keeps in a single field first,
 /// then its timestamped thread, oldest first — whichever platform they were
-/// scraped from.
+/// read from.
 ///
 /// The athlete's description and private note cross from Strava alone. The
 /// text `TrainingPeaks` keeps in a workout's description is the coach's
@@ -643,9 +643,9 @@ fn convert_activity(sciotte: &SciotteActivity, target: SciotteTarget) -> Activit
         duration_seconds,
         "sciotte",
     )
-    // The service the scraper read: its terms bind its data whichever path
+    // The service the session read: its terms bind its data whichever path
     // brought it in (carnet#723).
-    .source(target.scraper_provider_name())
+    .source(target.service_provider_name())
     .distance_meters_opt(sciotte.distance_meters)
     .elevation_gain_opt(sciotte.elevation_gain)
     .average_heart_rate_opt(sciotte.average_heart_rate)
@@ -682,7 +682,7 @@ fn convert_activity(sciotte: &SciotteActivity, target: SciotteTarget) -> Activit
     .private_note_opt(sciotte.private_note.clone().filter(|_| own_words))
     .device_name_opt(activity_times::device_name(sciotte))
     .gear_opt(activity_times::gear(sciotte))
-    // Strava's tag ids are Strava's own vocabulary: no other scraped
+    // Strava's tag ids are Strava's own vocabulary: no other session-read
     // target's tag map is read through them.
     .tags_opt(
         matches!(target, SciotteTarget::Strava)
@@ -706,7 +706,7 @@ fn convert_comment(comment: &SciotteComment) -> ActivityComment {
 
 /// Translate sciotte's [`SciotteSplit`] into cageux's [`Split`] — same
 /// field set, re-emitted under cageux's canonical names so the chat
-/// pipeline treats OAuth-Strava splits and scraper-Strava splits
+/// pipeline treats OAuth-Strava splits and session-read Strava splits
 /// identically.
 fn convert_split(s: &SciotteSplit) -> Split {
     Split {
@@ -783,10 +783,10 @@ impl FitnessProvider for SciotteProvider {
 
     async fn is_authenticated(&self) -> bool {
         // A held, non-expired session means "connected". Without an in-pod
-        // scraper (Phase 4 cutover) we can't probe cookies, but a stored expiry
-        // already in the past is certainly dead — report it honestly so callers
+        // session reader (Phase 4 cutover) we can't probe cookies, but a stored
+        // expiry already in the past is certainly dead — report it honestly so callers
         // never treat an expired session as live. A `None` expiry is "unknown,
-        // assume usable"; the dedicated service re-auths on the next scrape
+        // assume usable"; the dedicated service re-auths on the next session
         // import if the cookies turn out stale (ADR-021).
         self.session
             .read()
@@ -805,7 +805,7 @@ impl FitnessProvider for SciotteProvider {
     async fn get_athlete(&self) -> AppResult<Athlete> {
         let session = &self.session_snapshot().await?;
 
-        // ADR-021: scrape on the dedicated service (there is no in-process
+        // ADR-021: read on the dedicated service (there is no in-process
         // fallback since the Phase 4 cutover). Import the platform-held session
         // — re-hydrates the service after a scale-to-zero / redeploy — then fetch.
         let target = SciotteTarget::from_backend_name(self.provider_name);
@@ -831,16 +831,16 @@ impl FitnessProvider for SciotteProvider {
         // through the headless browser, so it stays OFF by default to keep
         // interactive paths (chat, group snapshots) fast. It's opt-in per
         // deployment via PIERRE_SCIOTTE_ENRICH_DETAILS=true (dev leaves it off)
-        // when correct start times matter more than the latency; the scraper
+        // when correct start times matter more than the latency; the service
         // bounds the pass by its own per-request ceiling.
         let enrich_details =
             env::var("PIERRE_SCIOTTE_ENRICH_DETAILS").is_ok_and(|v| v == "true" || v == "1");
 
         // ADR-021: fetch on the dedicated service (no in-process fallback since
         // the Phase 4 cutover). Import the platform-held session — re-hydrates
-        // the service after a scale-to-zero / redeploy — then scrape over HTTP;
+        // the service after a scale-to-zero / redeploy — then read over HTTP;
         // convert_activity keeps the returned shape identical for every caller.
-        // before/after bound the scrape by date, matching the API providers
+        // before/after bound the read by date, matching the API providers
         // (Strava/Whoop); the client sends each as epoch seconds.
         let target = SciotteTarget::from_backend_name(self.provider_name);
         let remote = self.remote_for(session)?;
@@ -878,13 +878,14 @@ impl FitnessProvider for SciotteProvider {
         if list.head_complete {
             info!(
                 count = activities.len(),
-                "Sciotte scrape completed (remote service)"
+                "Sciotte session read completed (remote service)"
             );
         } else {
             warn!(
                 count = activities.len(),
-                "Sciotte scrape fell short of its window: the fresh-head fetch or a later page \
-                 or month failed, so activities the request covers may be missing from this capture"
+                "Sciotte session read fell short of its window: the fresh-head fetch or a \
+                 later page or month failed, so activities the request covers may be missing \
+                 from this capture"
             );
         }
         Ok(activities)
@@ -894,7 +895,7 @@ impl FitnessProvider for SciotteProvider {
         self.head_complete.load(Ordering::Relaxed)
     }
 
-    // A scraped Strava, Garmin or COROS detail folds the page's recorded
+    // A session-read Strava, Garmin or COROS detail folds the page's recorded
     // streams or track into the activity's (`streams::time_series`); a
     // TrainingPeaks calendar workout carries no track at all.
     fn serves_activity_streams(&self) -> bool {
@@ -1032,7 +1033,7 @@ mod tests {
         }
     }
 
-    /// The scraper's `403 athlete_not_accessible` to an activity list, naming
+    /// The service's `403 athlete_not_accessible` to an activity list, naming
     /// the athlete id it read under, as it does for a read that named none.
     fn activities_refused() -> ClientError {
         ClientError::AthleteNotAccessible {
@@ -1123,8 +1124,8 @@ mod tests {
     }
 
     #[test]
-    fn a_scraped_activity_names_the_service_it_was_read_from() {
-        let scraped: SciotteActivity = serde_json::from_value(serde_json::json!({
+    fn a_session_read_activity_names_the_service_it_was_read_from() {
+        let read: SciotteActivity = serde_json::from_value(serde_json::json!({
             "id": "s1",
             "name": "Tempo",
             "sport_type": "run",
@@ -1132,13 +1133,13 @@ mod tests {
             "duration_seconds": 1800,
             "provider": "strava",
         }))
-        .expect("a minimal scraped activity");
+        .expect("a minimal session-read activity");
         for (target, origin) in [
             (SciotteTarget::Strava, "strava"),
             (SciotteTarget::Garmin, "garmin"),
             (SciotteTarget::Coros, "coros"),
         ] {
-            let activity = convert_activity(&scraped, target);
+            let activity = convert_activity(&read, target);
             assert_eq!(activity.provider(), "sciotte");
             assert_eq!(activity.source(), Some(origin));
         }
@@ -1156,7 +1157,7 @@ mod tests {
                 serde_json::from_value(serde_json::json!({})).expect("a profile with no fields");
             let athlete = own_athlete(unnamed, target);
             assert_eq!(athlete.username, UNNAMED_ATHLETE);
-            assert_eq!(athlete.provider, target.scraper_provider_name());
+            assert_eq!(athlete.provider, target.service_provider_name());
             let said = serde_json::to_string(&athlete).expect("an athlete serialises");
             assert!(
                 !said.to_lowercase().contains("sciotte"),

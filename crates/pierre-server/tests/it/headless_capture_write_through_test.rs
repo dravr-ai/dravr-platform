@@ -1,4 +1,4 @@
-// ABOUTME: A sciotte capture whose head the scraper never saw is served but never written to the
+// ABOUTME: A sciotte capture whose head the service never saw is served but never written to the
 // ABOUTME: activity cache on any of the three write-through paths; a complete capture is persisted
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -16,7 +16,7 @@
 //! Three paths write a fetched window through, and each must decline a
 //! headless capture: `get_activities`' inline recent-window fetch, the group
 //! snapshot loop, and the inline historical backfill. Every test drives the
-//! real `SciotteProvider` against a local scraper stand-in whose
+//! real `SciotteProvider` against a local session-reader stand-in whose
 //! `head_complete` flag it flips, and asserts the cache's content — empty
 //! while the head is missing, holding the ride once it is not.
 
@@ -41,20 +41,20 @@ use uuid::Uuid;
 
 use crate::common::{create_test_server_resources_with_sciotte, create_test_user};
 use crate::helpers::sciotte_mock::{
-    seed_sciotte_session, spawn_mock_scraper_serving, MOCK_SCRAPER_RIDE_ID,
+    seed_sciotte_session, spawn_mock_session_reader_serving, MOCK_SESSION_RIDE_ID,
 };
 
-/// Spawn this test's scraper stand-in and hand back the `head_complete` flag
+/// Spawn this test's session-reader stand-in and hand back the `head_complete` flag
 /// its activity list reads on every answer, with the URL it serves at. A
 /// stand-in per test rather than one for the binary: the stand-in lives on the
 /// runtime that spawned it, and every `#[tokio::test]` gets a runtime of its
 /// own.
-async fn scraper_head_flag() -> (Arc<AtomicBool>, String) {
+async fn session_reader_head_flag() -> (Arc<AtomicBool>, String) {
     let head_complete = Arc::new(AtomicBool::new(true));
     // Two days old: inside every window the three paths read, and inside the
     // retention prune the write-through applies.
     let ride_start = (Timestamp::now() - Elapsed::days(2)).to_rfc3339();
-    let url = spawn_mock_scraper_serving(Arc::clone(&head_complete), ride_start).await;
+    let url = spawn_mock_session_reader_serving(Arc::clone(&head_complete), ride_start).await;
     (head_complete, url)
 }
 
@@ -85,7 +85,7 @@ async fn athlete_on_sciotte(resources: &Arc<ServerContext>) -> (Uuid, TenantId) 
 }
 
 /// Every row the cache holds for the athlete, any provider, over a window
-/// wide enough that nothing the scraper serves can fall outside it.
+/// wide enough that nothing the session reader serves can fall outside it.
 async fn cached_rows(
     resources: &Arc<ServerContext>,
     user_id: Uuid,
@@ -134,7 +134,7 @@ fn assert_cache_holds_ride(rows: &[Activity], fresh: bool, path: &str) {
     let ids: Vec<&str> = rows.iter().map(Activity::id).collect();
     assert_eq!(
         ids,
-        vec![MOCK_SCRAPER_RIDE_ID],
+        vec![MOCK_SESSION_RIDE_ID],
         "{path}: a complete capture is written through, cache holds {ids:?}"
     );
     assert!(
@@ -159,8 +159,8 @@ fn served_ids(payload: &Value) -> Vec<String> {
 /// `implementations/data.rs`.
 #[tokio::test]
 async fn recent_window_declines_a_headless_capture_and_persists_a_complete_one() {
-    let (head_complete, scraper_url) = scraper_head_flag().await;
-    let resources = create_test_server_resources_with_sciotte(&scraper_url)
+    let (head_complete, reader_url) = session_reader_head_flag().await;
+    let resources = create_test_server_resources_with_sciotte(&reader_url)
         .await
         .unwrap();
     let (user_id, tenant) = athlete_on_sciotte(&resources).await;
@@ -180,7 +180,7 @@ async fn recent_window_declines_a_headless_capture_and_persists_a_complete_one()
     );
     assert_eq!(
         served_ids(&payload),
-        vec![MOCK_SCRAPER_RIDE_ID],
+        vec![MOCK_SESSION_RIDE_ID],
         "the headless capture is served to the athlete, just not persisted"
     );
     let rows = cached_rows(&resources, user_id, tenant).await;
@@ -207,8 +207,8 @@ async fn recent_window_declines_a_headless_capture_and_persists_a_complete_one()
 /// `fetch_member_snapshots` on a member whose cache is empty.
 #[tokio::test]
 async fn group_snapshot_declines_a_headless_capture_and_persists_a_complete_one() {
-    let (head_complete, scraper_url) = scraper_head_flag().await;
-    let resources = create_test_server_resources_with_sciotte(&scraper_url)
+    let (head_complete, reader_url) = session_reader_head_flag().await;
+    let resources = create_test_server_resources_with_sciotte(&reader_url)
         .await
         .unwrap();
     let (user_id, tenant) = athlete_on_sciotte(&resources).await;
@@ -255,8 +255,8 @@ async fn group_snapshot_declines_a_headless_capture_and_persists_a_complete_one(
 /// declares the tasks extension so the backfill runs on the caller's future.
 #[tokio::test]
 async fn historical_backfill_declines_a_headless_capture_and_persists_a_complete_one() {
-    let (head_complete, scraper_url) = scraper_head_flag().await;
-    let resources = create_test_server_resources_with_sciotte(&scraper_url)
+    let (head_complete, reader_url) = session_reader_head_flag().await;
+    let resources = create_test_server_resources_with_sciotte(&reader_url)
         .await
         .unwrap();
     let (user_id, tenant) = athlete_on_sciotte(&resources).await;
@@ -340,8 +340,8 @@ fn old_run(id: &str, provider: &str, age_days: i64) -> Activity {
 /// activity once, so a Garmin row a write took would be gone for good.
 #[tokio::test]
 async fn a_strava_write_through_prunes_no_old_row() {
-    let (_head_complete, scraper_url) = scraper_head_flag().await;
-    let resources = create_test_server_resources_with_sciotte(&scraper_url)
+    let (_head_complete, reader_url) = session_reader_head_flag().await;
+    let resources = create_test_server_resources_with_sciotte(&reader_url)
         .await
         .unwrap();
     let (user_id, tenant) = athlete_on_sciotte(&resources).await;
@@ -388,7 +388,7 @@ async fn a_strava_write_through_prunes_no_old_row() {
         }
     };
     assert!(
-        held("sciotte", MOCK_SCRAPER_RIDE_ID).await,
+        held("sciotte", MOCK_SESSION_RIDE_ID).await,
         "the write-through landed"
     );
     assert!(

@@ -43,7 +43,7 @@ test.describe('TrainingPeaks exposure notice — real backend (no mocks)', () =>
     expect(card.display_name).toBe('TrainingPeaks');
     expect(card.consent_required).toBe(true);
 
-    // Refused before any credential leaves the server: the scraper is never
+    // Refused before any credential leaves the server: the service is never
     // reached, so a made-up account is enough to prove the gate.
     const refused = await ctx.post('/api/providers/sciotte/login', {
       data: {

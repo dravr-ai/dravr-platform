@@ -8,7 +8,7 @@
 //! the reconnect link — lands in the session store, and every one of them is
 //! probed here for the account's role
 //! ([`probe_trainingpeaks_role`](pierre_services::trainingpeaks_accounts::probe_trainingpeaks_role)).
-//! The probe is one profile read on the scraper service, so it runs in a task
+//! The probe is one profile read on the sciotte service, so it runs in a task
 //! of its own and the login answers as soon as the session is stored.
 
 use std::sync::Arc;
@@ -18,7 +18,7 @@ use pierre_core::constants::oauth_providers::SCIOTTE_TRAININGPEAKS;
 use pierre_core::models::{ConnectionType, ProviderAccountRole, TenantId};
 use pierre_providers::request_budget::in_background;
 use pierre_providers::token_writeback::StoredTokenRow;
-use pierre_services::scrape_session::StoredSession;
+use pierre_services::signed_in_session::StoredSession;
 use pierre_services::trainingpeaks_accounts::probe_trainingpeaks_role;
 use secrecy::ExposeSecret;
 use tracing::{info, warn};
@@ -37,11 +37,11 @@ use crate::AuthRoutesContext;
 /// and whose prefetch could only be refused.
 ///
 /// A probe that cannot read the profile leaves the role unknown and still
-/// prefetches: the read path records a coach account from the scraper's
+/// prefetches: the read path records a coach account from the service's
 /// refusal.
 ///
 /// The pre-fetch is registered before the probe starts, so a list read that
-/// arrives meanwhile waits for both instead of scraping the session beside
+/// arrives meanwhile waits for both instead of reading the session beside
 /// them; the returned wait is on it, or on the pre-fetch already in flight
 /// when there is one.
 pub(crate) fn spawn_login_probe(

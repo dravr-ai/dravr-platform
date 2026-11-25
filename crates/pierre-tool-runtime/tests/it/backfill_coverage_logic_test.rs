@@ -118,7 +118,7 @@ fn shallow_backfill_short_of_floor_is_not_covered() {
 fn feed_end_short_of_floor_is_covered() {
     // Oldest reached is July 2022, short of the January request, BUT the feed
     // ended there — the athlete genuinely has no older data, so it is covered
-    // and must NOT loop re-scraping.
+    // and must NOT loop re-reading.
     let c = BackfillCoverage {
         oldest_reached_ts: JUL_2022,
         hit_feed_end: true,
@@ -134,9 +134,9 @@ fn feed_end_short_of_floor_is_covered() {
 #[test]
 fn covered_floor_is_the_requested_after_when_not_count_capped() {
     // A year query asks back to Jan 1 00:00 but the oldest activity sits in
-    // mid-year; the scrape was not count-capped, so it returned the WHOLE
+    // mid-year; the read was not count-capped, so it returned the WHOLE
     // window. The covered floor is the requested `after` (Jan 2022), NOT the
-    // oldest activity (Jul 2022) — otherwise the same year re-scrapes forever
+    // oldest activity (Jul 2022) — otherwise the same year is re-read forever
     // because oldest > after.
     assert_eq!(
         backfill_covered_floor_ts(JAN_2022, JUL_2022, 46, 2_000),
@@ -146,7 +146,7 @@ fn covered_floor_is_the_requested_after_when_not_count_capped() {
 
 #[test]
 fn covered_floor_is_the_oldest_activity_when_count_capped() {
-    // Filled the fetch limit: the scrape stopped early, so it can only claim
+    // Filled the fetch limit: the read stopped early, so it can only claim
     // down to the oldest activity it actually fetched, not the requested floor.
     assert_eq!(
         backfill_covered_floor_ts(JAN_2022, JUL_2022, 2_000, 2_000),
@@ -155,8 +155,8 @@ fn covered_floor_is_the_oldest_activity_when_count_capped() {
 }
 
 #[test]
-fn covered_floor_clamps_to_oldest_when_scrape_overshoots_the_floor() {
-    // Defensive: if a scrape returns an activity older than the requested
+fn covered_floor_clamps_to_oldest_when_the_session_read_overshoots_the_floor() {
+    // Defensive: if a session read returns an activity older than the requested
     // `after`, the deeper of the two is covered.
     assert_eq!(
         backfill_covered_floor_ts(JAN_2022, DEC_2021, 200, 2_000),

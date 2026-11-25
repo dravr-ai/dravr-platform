@@ -30,7 +30,7 @@ pub struct AmendedReads {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ActivityFetchFailure {
     /// The provider could not be reached or refused the read: a transport
-    /// error, a scrape error, a timeout.
+    /// error, a session-read error, a timeout.
     FetchError,
     /// The provider answered, but said its capture never read the list head
     /// (`head_complete: false`), so the newest activities may be missing.

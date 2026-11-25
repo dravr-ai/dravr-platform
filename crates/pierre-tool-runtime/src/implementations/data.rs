@@ -279,9 +279,9 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
             //     stay fresh (no "stale formatted response" — only normal TTL age).
             //     Read on the RECENT path just below; on a MISS the recent path does a
             //     LIVE provider fetch — for sciotte a full ~tens-of-seconds Chrome
-            //     scrape. This is the ONLY read-cache between a recent coaching turn
-            //     and that scrape; a miss is a near-free `get -> None`, a hit saves the
-            //     scrape (asymmetric payoff — low hit-rate does not mean low value).
+            //     session read. This is the ONLY read-cache between a recent coaching
+            //     turn and that read; a miss is a near-free `get -> None`, a hit saves
+            //     the read (asymmetric payoff — low hit-rate does not mean low value).
             //
             //  2. Durable `activity_cache` (SQL rows) — the persistent store. Read
             //     ONLY in the historical branch (`read_cached_window`), written-through
@@ -344,7 +344,7 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
             // On an HTTP API a detail fetch is milliseconds; on a
             // headless-browser provider it is a full page navigation. A live
             // 2026-08-12 Telegram turn returned its list in 37s and then spent
-            // 3m41s scraping 30 detail pages one at a time — 4m37s for an
+            // 3m41s reading 30 detail pages one at a time — 4m37s for an
             // answer the list already supported. The list is newest-first, so
             // a rationed budget spends itself on the activities an agent
             // reasons about ("hier", "ma dernière sortie"); what it leaves is
@@ -399,11 +399,11 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
 
             // A deep historical `after` must reach the coverage-aware gate below,
             // never a cached response. The gate reads the durable window + backfill
-            // coverage and re-scrapes a stale/partial slice; a CacheKey response
+            // coverage and re-reads a stale/partial slice; a CacheKey response
             // (shared across replicas, TTL'd) would short-circuit that and keep
             // serving the old slice even after the coverage was purged (the "2022
             // stuck at Jul–Dec after the coverage purge" bug). The gate still serves
-            // covered windows from the durable cache, so this costs no extra scrape.
+            // covered windows from the durable cache, so this costs no extra read.
             let is_historical = after.is_some_and(is_historical_backfill_window);
 
             // An external call neither reads nor writes the response cache
@@ -476,10 +476,10 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
 
             // Cache miss path. A deep historical window the store holds to its
             // depth is served from it on every backend (`covered_history`
-            // below). One it does not must NOT scrape inline — paging a
+            // below). One it does not must NOT be read inline — paging a
             // provider's reverse-chronological feed back across years stalls the
             // turn and trips the sciotte navigation timeout — so an uncovered
-            // deep window on a scrape-backed mirror (sciotte / sciotte_garmin)
+            // deep window on a session-read mirror (sciotte / sciotte_garmin)
             // goes to a bounded background backfill and the caller is told to ask
             // again shortly, while a fast OAuth API provider (Strava, WHOOP, …)
             // fetches it inline. `provider_name` is already canonicalized to the
@@ -562,7 +562,7 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                 // live read of the window does (the recent days, or what
                 // `mode=detailed` asks); a grant that cannot authenticate leaves
                 // them summaries. A mirror's covered window is never detailed by
-                // a scrape.
+                // a session read.
                 let provider = if backend_resolver::is_mirror_backend(&provider_name) {
                     None
                 } else {
@@ -664,7 +664,7 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                     // Cold cache OR a shallow (limit-capped / never-backfilled)
                     // window: page the WHOLE window in the background. The fetch
                     // limit is decoupled from the user's display limit so the
-                    // sciotte date-bounded scrape pages until `oldest <= after`
+                    // sciotte date-bounded read pages until `oldest <= after`
                     // (or the feed end) instead of stopping at the recent tail
                     // once `in_window_count >= limit`. A partial cache self-heals:
                     // the completion push then re-answers with the full window.
@@ -719,7 +719,7 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                 // authenticate and fetch from the provider inline. The answer is
                 // judged like every other live list read: a read that failed, or
                 // an empty answer over rows the cache holds for this window (a
-                // scrape whose page died answers exactly that as a success), is
+                // session read whose page died answers exactly that as a success), is
                 // recorded as a failed sync and answered from the provider's own
                 // cached window with a caveat, never as "no activities".
                 let executor = UniversalExecutor::new(context.resources.clone());

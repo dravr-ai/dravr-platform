@@ -22,7 +22,7 @@
 //! The session is read by the caller's own (user, tenant): another athlete's
 //! is never sent, and a fresh connect sends none.
 //!
-//! The scraper is a loopback stand-in (a test double, per the repo's mock
+//! The session reader is a loopback stand-in (a test double, per the repo's mock
 //! rule) that records, per email, whether a login carried a prior session and
 //! which session it named. It runs on a thread of its own, because each
 //! `#[tokio::test]` drops its runtime when it ends and a stand-in spawned on
@@ -90,12 +90,12 @@ struct Seen {
     logins: Mutex<Vec<(String, Option<PriorSeen>)>>,
 }
 
-static SCRAPER: OnceLock<(Arc<Seen>, String)> = OnceLock::new();
+static READER: OnceLock<(Arc<Seen>, String)> = OnceLock::new();
 
 /// What the stand-in saw and the URL it serves at, started once for the binary
 /// on a thread with its own runtime.
-fn scraper() -> &'static (Arc<Seen>, String) {
-    SCRAPER.get_or_init(|| {
+fn reader() -> &'static (Arc<Seen>, String) {
+    READER.get_or_init(|| {
         let seen = Arc::new(Seen::default());
         let (sender, receiver) = mpsc::channel();
         let state = Arc::clone(&seen);
@@ -156,7 +156,7 @@ async fn login(State(seen): State<Arc<Seen>>, Json(body): Json<Value>) -> Respon
     .into_response()
 }
 
-/// The scraper service stand-in: a Garmin login that records its prior
+/// The service stand-in: a Garmin login that records its prior
 /// session, a code step stopped at a challenge, and the session the platform
 /// exports and reads after a sign-in.
 fn stand_in(seen: Arc<Seen>) -> Router {
@@ -197,7 +197,7 @@ fn stand_in(seen: Arc<Seen>) -> Router {
 
 /// The prior sessions the logins from `email` sent, in order.
 fn priors_sent_by(email: &str) -> Vec<Option<PriorSeen>> {
-    scraper()
+    reader()
         .0
         .logins
         .lock()
@@ -225,7 +225,7 @@ struct Athlete {
 impl Athlete {
     async fn new() -> Self {
         let resources = common::create_test_server_resources_with_config(
-            common::test_server_config_with_sciotte_usr_pwd_garmin(&scraper().1),
+            common::test_server_config_with_sciotte_usr_pwd_garmin(&reader().1),
         )
         .await
         .unwrap();
@@ -382,7 +382,7 @@ impl Athlete {
             .status
     }
 
-    /// Flag the athlete's Garmin connection as a scrape the provider answered
+    /// Flag the athlete's Garmin connection as a session read the provider answered
     /// `session_expired` does.
     async fn flag_garmin_connection_as_a_refused_read_does(&self) {
         let mark = self
@@ -649,8 +649,8 @@ async fn a_re_login_after_expiry_sends_the_stored_session_as_prior() {
 
 #[tokio::test]
 async fn a_session_without_expiry_whose_connection_needs_reauth_is_sent_as_prior() {
-    // What production stores: sciotte never sets `expires_at`. A scrape the
-    // provider answered `session_expired` flagged the connection, so the
+    // What production stores: sciotte never sets `expires_at`. A session read
+    // the provider answered `session_expired` flagged the connection, so the
     // session's sign-in cookies are dead and only its device trust is left.
     let athlete = Athlete::new().await;
     athlete

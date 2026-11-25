@@ -9,7 +9,7 @@
 //! had expired. Every failure was reported, flagged and noticed as `garmin`:
 //! the athlete reconnected the grant, which was fine, and the session stayed
 //! dead and unflagged, so every sync and every Home load signed in to it again.
-//! These tests drive the reads against a scraper stand-in that counts what
+//! These tests drive the reads against a session reader stand-in that counts what
 //! reaches it and assert which connection is left flagged. Since carnet#1386
 //! the grant is Garmin's one ongoing source, so a session beside it is never
 //! read at all.
@@ -38,26 +38,26 @@ use serde_json::json;
 use tokio::net::TcpListener;
 use uuid::Uuid;
 
-use crate::helpers::sciotte_mock::seed_scrape_session;
+use crate::helpers::sciotte_mock::seed_signed_in_session;
 
 /// The session id the athlete's username-and-password row carries.
 const SESSION_ID: &str = "garmin-web-session";
 
-/// A scraper stand-in that counts the activity-list reads it answers.
-struct Scraper {
+/// A session reader stand-in that counts the activity-list reads it answers.
+struct SessionReader {
     /// Whether Garmin still honours the session; `false` answers `401`.
     session_alive: AtomicBool,
     reads: AtomicUsize,
 }
 
-impl Scraper {
+impl SessionReader {
     fn reads(&self) -> usize {
         self.reads.load(Ordering::SeqCst)
     }
 }
 
-async fn spawn_scraper() -> (Arc<Scraper>, String) {
-    let scraper = Arc::new(Scraper {
+async fn spawn_session_reader() -> (Arc<SessionReader>, String) {
+    let session_reader = Arc::new(SessionReader {
         session_alive: AtomicBool::new(false),
         reads: AtomicUsize::new(0),
     });
@@ -68,53 +68,55 @@ async fn spawn_scraper() -> (Arc<Scraper>, String) {
         )
         .route(
             "/api/activities",
-            get(|State(scraper): State<Arc<Scraper>>| async move {
-                scraper.reads.fetch_add(1, Ordering::SeqCst);
-                if !scraper.session_alive.load(Ordering::SeqCst) {
-                    return (
-                        StatusCode::UNAUTHORIZED,
-                        Json(json!({ "error": "session_expired" })),
-                    );
-                }
-                (
-                    StatusCode::OK,
-                    Json(json!({
-                        "count": 1,
-                        "activities": [{
-                            "id": "21550000001",
-                            "name": "Course du matin",
-                            "sport_type": "run",
-                            "start_date": (Timestamp::now() - Elapsed::days(1)).to_rfc3339(),
-                            "duration_seconds": 3000,
-                            "provider": "garmin",
-                            "distance_meters": 10000.0
-                        }],
-                        "head_complete": true
-                    })),
-                )
-            }),
+            get(
+                |State(session_reader): State<Arc<SessionReader>>| async move {
+                    session_reader.reads.fetch_add(1, Ordering::SeqCst);
+                    if !session_reader.session_alive.load(Ordering::SeqCst) {
+                        return (
+                            StatusCode::UNAUTHORIZED,
+                            Json(json!({ "error": "session_expired" })),
+                        );
+                    }
+                    (
+                        StatusCode::OK,
+                        Json(json!({
+                            "count": 1,
+                            "activities": [{
+                                "id": "21550000001",
+                                "name": "Course du matin",
+                                "sport_type": "run",
+                                "start_date": (Timestamp::now() - Elapsed::days(1)).to_rfc3339(),
+                                "duration_seconds": 3000,
+                                "provider": "garmin",
+                                "distance_meters": 10000.0
+                            }],
+                            "head_complete": true
+                        })),
+                    )
+                },
+            ),
         )
-        .with_state(Arc::clone(&scraper));
+        .with_state(Arc::clone(&session_reader));
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     tokio::spawn(async move {
         axum::serve(listener, app).await.unwrap();
     });
-    (scraper, format!("http://{addr}"))
+    (session_reader, format!("http://{addr}"))
 }
 
 /// One athlete with a username-and-password Garmin session, and a Garmin API
 /// grant beside it when `with_grant`.
 struct Fixture {
     resources: Arc<ServerContext>,
-    scraper: Arc<Scraper>,
+    session_reader: Arc<SessionReader>,
     user_id: Uuid,
     tenant: TenantId,
 }
 
 async fn fixture(label: &str, with_grant: bool) -> Fixture {
-    let (scraper, scraper_url) = spawn_scraper().await;
-    let resources = common::create_test_server_resources_with_sciotte(&scraper_url)
+    let (session_reader, reader_url) = spawn_session_reader().await;
+    let resources = common::create_test_server_resources_with_sciotte(&reader_url)
         .await
         .unwrap();
     let email = format!("{label}-{}@example.com", Uuid::new_v4());
@@ -124,7 +126,7 @@ async fn fixture(label: &str, with_grant: bool) -> Fixture {
             .unwrap();
     let f = Fixture {
         resources,
-        scraper,
+        session_reader,
         user_id,
         tenant,
     };
@@ -143,7 +145,7 @@ impl Fixture {
     /// The username-and-password session and its connection, as the hosted
     /// login writes them; a reconnect writes the same.
     async fn connect_session(&self) {
-        seed_scrape_session(
+        seed_signed_in_session(
             &self.resources,
             self.user_id,
             self.tenant,
@@ -246,7 +248,7 @@ async fn a_dead_session_beside_a_garmin_grant_is_read_and_flagged_not_the_grant(
 
     f.read(oauth_providers::GARMIN).await;
     assert_eq!(
-        f.scraper.reads(),
+        f.session_reader.reads(),
         1,
         "bug: the session serving first must be the one read"
     );
@@ -264,7 +266,7 @@ async fn a_dead_session_beside_a_garmin_grant_is_read_and_flagged_not_the_grant(
     f.read(oauth_providers::SCIOTTE_GARMIN).await;
     f.read(oauth_providers::GARMIN).await;
     assert_eq!(
-        f.scraper.reads(),
+        f.session_reader.reads(),
         1,
         "bug: a flagged session must not be signed in to again"
     );
@@ -275,7 +277,7 @@ async fn a_dead_session_beside_a_garmin_grant_is_read_and_flagged_not_the_grant(
 /// grant answers from its pushes and the session beside it, which serves the
 /// athlete's own reads, is never signed in to nor flagged.
 #[tokio::test]
-async fn an_exact_read_of_the_grant_never_starts_a_scrape_of_the_session_beside_it() {
+async fn an_exact_read_of_the_grant_never_starts_a_read_of_the_session_beside_it() {
     let f = fixture("exact", true).await;
     let params = ActivityQueryParams {
         after: Some((Timestamp::now() - Elapsed::days(14)).epoch_seconds()),
@@ -295,9 +297,9 @@ async fn an_exact_read_of_the_grant_never_starts_a_scrape_of_the_session_beside_
 
     assert!(read.is_ok(), "the grant's own window answers: {read:?}");
     assert_eq!(
-        f.scraper.reads(),
+        f.session_reader.reads(),
         0,
-        "bug: an exact read of the grant started a scrape of the session"
+        "bug: an exact read of the grant started a read of the session"
     );
     assert_eq!(
         f.status(oauth_providers::SCIOTTE_GARMIN).await,
@@ -307,7 +309,7 @@ async fn an_exact_read_of_the_grant_never_starts_a_scrape_of_the_session_beside_
 }
 
 /// With no grant to fall back on, a flagged session is served from the cache:
-/// no read reaches the scraper until the athlete reconnects, and the reads
+/// no read reaches the service until the athlete reconnects, and the reads
 /// resume once they have.
 #[tokio::test]
 async fn a_flagged_session_is_not_read_again_until_the_athlete_reconnects() {
@@ -315,9 +317,9 @@ async fn a_flagged_session_is_not_read_again_until_the_athlete_reconnects() {
 
     f.read(oauth_providers::GARMIN).await;
     assert_eq!(
-        f.scraper.reads(),
+        f.session_reader.reads(),
         1,
-        "bug: the first read must reach the scraper once"
+        "bug: the first read must reach the service once"
     );
     assert_eq!(
         f.status(oauth_providers::SCIOTTE_GARMIN).await,
@@ -336,17 +338,21 @@ async fn a_flagged_session_is_not_read_again_until_the_athlete_reconnects() {
         f.read(oauth_providers::SCIOTTE_GARMIN).await;
     }
     assert_eq!(
-        f.scraper.reads(),
+        f.session_reader.reads(),
         1,
-        "bug: every read after the first refusal must be served without the scraper"
+        "bug: every read after the first refusal must be served without the service"
     );
 
     // A claimed retry (the capture sweep's, Home's) is the one read let through.
     claimed_retry(f.read(oauth_providers::GARMIN)).await;
-    assert_eq!(f.scraper.reads(), 2, "a claimed retry reaches the scraper");
+    assert_eq!(
+        f.session_reader.reads(),
+        2,
+        "a claimed retry reaches the service"
+    );
 
     // The athlete signs in again: the connection is re-armed and reads resume.
-    f.scraper.session_alive.store(true, Ordering::SeqCst);
+    f.session_reader.session_alive.store(true, Ordering::SeqCst);
     f.connect_session().await;
     assert_eq!(
         f.status(oauth_providers::SCIOTTE_GARMIN).await,
@@ -359,7 +365,7 @@ async fn a_flagged_session_is_not_read_again_until_the_athlete_reconnects() {
         "bug: a reconnected session must be read again"
     );
     assert_eq!(
-        f.scraper.reads(),
+        f.session_reader.reads(),
         3,
         "bug: a reconnected session is read again"
     );
@@ -373,14 +379,13 @@ mod health_sync {
     use std::sync::Mutex;
 
     use async_trait::async_trait;
-    use dravr_enforme::providers::sciotte_reader::{
-        AuthSession, DailySummary, DailySummaryReader, ScraperError, ScraperResult,
-    };
+    use dravr_enforme::providers::sciotte_reader::{AuthSession, DailySummary, DailySummaryReader};
     use dravr_enforme::traits::credential_store::CredentialStore;
     use dravr_tronc::dates::CivilDate;
     use pierre_core::constants::oauth_providers;
     use pierre_core::models::ConnectionStatus;
     use pierre_mcp_server::services::health_sync_refresher::install_health_sync_refresher;
+    use pierre_providers::sciotte_names::{SessionReadError, SessionReadResult};
     use std::sync::Arc;
 
     /// A reader every session read of which Garmin refuses, recording each.
@@ -402,7 +407,7 @@ mod health_sync {
             _provider: &str,
             session: &AuthSession,
             date: CivilDate,
-        ) -> ScraperResult<DailySummary> {
+        ) -> SessionReadResult<DailySummary> {
             assert_eq!(
                 session.session_id, SESSION_ID,
                 "bug: the sync must read the athlete's own session"
@@ -411,7 +416,7 @@ mod health_sync {
                 .lock()
                 .unwrap()
                 .push((session.session_id.clone(), date));
-            Err(ScraperError::SessionExpired {
+            Err(SessionReadError::SessionExpired {
                 reason: "session_expired".to_owned(),
             })
         }

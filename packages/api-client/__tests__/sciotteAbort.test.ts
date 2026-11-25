@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AxiosInstance } from 'axios';
 import { createOAuthApi } from '../src/domains/oauth';
 
-/** The refusal the platform answers while the sciotte scraper sheds load. */
+/** The refusal the platform answers while the sciotte service sheds load. */
 function busy() {
   return { response: { status: 503, headers: { 'retry-after': '30' }, data: { error: 'busy' } } };
 }

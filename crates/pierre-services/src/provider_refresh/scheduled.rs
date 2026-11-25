@@ -352,7 +352,7 @@ async fn sync_provider_users(
 ) {
     let repos = registry.auth_repos();
     for user in users {
-        if !user.is_active || scrape_sync_not_due(&repos, user, provider_name).await {
+        if !user.is_active || session_sync_not_due(&repos, user, provider_name).await {
             continue;
         }
 
@@ -538,25 +538,25 @@ pub async fn token_tenant(repos: &AuthRepos, user_uuid: Uuid, backend: &str) -> 
         .and_then(|t| TenantId::parse_str(&t.tenant_id).ok())
 }
 
-/// Least time between two scheduled syncs of a scrape-backed provider for one
+/// Least time between two scheduled syncs of a session-read provider for one
 /// athlete.
 ///
-/// A scrape-backed sync loads one browser page per day it reads, on the
-/// dedicated scraper service. What it reads — the night's sleep, resting heart
+/// A session-read sync loads one browser page per day it reads, on the
+/// dedicated sciotte service. What it reads — the night's sleep, resting heart
 /// rate, overnight HRV, body metrics — changes once a day, so the 15-minute
 /// poll that suits an API provider would load several hundred pages per
 /// athlete per day across the server's instances for nothing new, and would
 /// show the provider an automated login every few minutes. Four reads a day
 /// keep a morning's night current by midday; connecting, and an athlete's own
 /// refresh request, sync at once.
-pub const SCRAPE_SYNC_MIN_INTERVAL: Duration = Duration::from_hours(6);
+pub const SESSION_SYNC_MIN_INTERVAL: Duration = Duration::from_hours(6);
 
 /// Whether the scheduled cycle should skip `provider_name` for this athlete.
 ///
-/// True when its sync is scrape-backed and the token row it reads was synced
-/// less than [`SCRAPE_SYNC_MIN_INTERVAL`] ago. The stamp is shared by every
-/// server instance, so the instances' cycles do not each scrape the athlete.
-pub async fn scrape_sync_not_due(
+/// True when its sync reads a signed-in session and the token row it reads was synced
+/// less than [`SESSION_SYNC_MIN_INTERVAL`] ago. The stamp is shared by every
+/// server instance, so the instances' cycles do not each read the athlete's session.
+pub async fn session_sync_not_due(
     repos: &AuthRepos,
     user: &ConnectedUser,
     provider_name: &str,
@@ -581,7 +581,7 @@ pub async fn scrape_sync_not_due(
     Timestamp::now()
         .signed_duration_since(last_sync)
         .to_std()
-        .is_ok_and(|age| age < SCRAPE_SYNC_MIN_INTERVAL)
+        .is_ok_and(|age| age < SESSION_SYNC_MIN_INTERVAL)
 }
 
 #[cfg(test)]

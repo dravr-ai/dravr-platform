@@ -27,10 +27,10 @@ use pierre_tool_runtime::runtime::ToolRuntime;
 use serde_json::{json, Value};
 
 use crate::common::{create_test_server_resources_with_sciotte, create_test_user};
-use crate::helpers::sciotte_mock::{seed_sciotte_session, spawn_mock_scraper_serving};
+use crate::helpers::sciotte_mock::{seed_sciotte_session, spawn_mock_session_reader_serving};
 
-/// The canned ride the mock scraper serves (the "GPS provider" side).
-const SCRAPER_RIDE_ID: &str = "15551234567";
+/// The canned ride the mock session reader serves (the "GPS provider" side).
+const SESSION_RIDE_ID: &str = "15551234567";
 
 #[tokio::test]
 async fn a_no_provider_ask_merges_all_connections_and_keeps_the_gps_row() {
@@ -40,9 +40,10 @@ async fn a_no_provider_ask_merges_all_connections_and_keeps_the_gps_row() {
     let ride_start: Timestamp =
         Timestamp::from_epoch_seconds((Timestamp::now() - Elapsed::days(3)).epoch_seconds())
             .unwrap();
-    let scraper_url =
-        spawn_mock_scraper_serving(Arc::new(AtomicBool::new(true)), ride_start.to_rfc3339()).await;
-    let resources = create_test_server_resources_with_sciotte(&scraper_url)
+    let reader_url =
+        spawn_mock_session_reader_serving(Arc::new(AtomicBool::new(true)), ride_start.to_rfc3339())
+            .await;
+    let resources = create_test_server_resources_with_sciotte(&reader_url)
         .await
         .unwrap();
     let (user_id, user) = create_test_user(&resources.agent.database)
@@ -58,7 +59,7 @@ async fn a_no_provider_ask_merges_all_connections_and_keeps_the_gps_row() {
         .expect("list tenants");
     let tenant = tenants.first().expect("user has a tenant").id;
 
-    // WHOOP first: a distance-less sensor twin of the scraper's ride (same
+    // WHOOP first: a distance-less sensor twin of the session reader's ride (same
     // window, misclassified sport) plus a WHOOP-only session the day before.
     resources
         .common
@@ -94,7 +95,7 @@ async fn a_no_provider_ask_merges_all_connections_and_keeps_the_gps_row() {
         .unwrap();
 
     // sciotte second, so the activity-source election picks it as the primary — the
-    // live-fetch path then serves the mock scraper's GPS ride.
+    // live-fetch path then serves the mock session reader's GPS ride.
     resources
         .common
         .repos
@@ -131,7 +132,7 @@ async fn a_no_provider_ask_merges_all_connections_and_keeps_the_gps_row() {
         .collect();
 
     assert!(
-        ids.contains(&SCRAPER_RIDE_ID),
+        ids.contains(&SESSION_RIDE_ID),
         "the primary provider's GPS ride must be served, got ids: {ids:?}"
     );
     assert!(

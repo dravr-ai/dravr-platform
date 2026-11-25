@@ -65,10 +65,10 @@ pub struct RefreshService {
     /// refresh). On-demand providers' freshness comes from `activity_cache`.
     repos: AuthRepos,
     /// Source of truth for on-demand providers' freshness. sciotte (and other
-    /// scrape-only providers) aren't background-synced, so their
+    /// session-read providers) aren't background-synced, so their
     /// `oauth_tokens.last_sync` is written once at login and never updated —
     /// the cache's `synced_at` is the real timestamp of the last successful
-    /// scrape. Read for on-demand providers so the agent hint reflects honest
+    /// session read. Read for on-demand providers so the agent hint reflects honest
     /// staleness instead of unconditionally reporting them Fresh.
     activity_cache: Arc<dyn ActivityCacheRepository>,
     /// The repository registry every request reads through: the user's
@@ -156,12 +156,12 @@ impl RefreshService {
 
     /// The effective last-sync timestamp used to judge a provider's freshness.
     ///
-    /// On-demand providers (sciotte) are scraped per chat request and never
+    /// On-demand providers (sciotte) are read per chat request and never
     /// background-synced, so their `oauth_tokens.last_sync` is stamped once at
     /// login and never moves — reading it would report perpetual staleness (or,
     /// with the old shortcut, perpetual freshness). Their real freshness is the
     /// activity cache's `synced_at`, the timestamp of the last successful
-    /// scrape. Orchestrator-managed providers keep using `oauth_tokens.last_sync`,
+    /// session read. Orchestrator-managed providers keep using `oauth_tokens.last_sync`,
     /// which their background sync updates.
     async fn last_sync_for(
         &self,
@@ -209,7 +209,7 @@ impl RefreshService {
         }
     }
 
-    /// Whether a provider is scraped on demand (per chat request) rather than
+    /// Whether a provider is read on demand (per chat request) rather than
     /// synced in the background by the orchestrator. On-demand providers source
     /// their freshness from the activity cache and have no sync to trigger.
     ///
@@ -225,11 +225,11 @@ impl RefreshService {
     /// channels).
     ///
     /// A token row is sync-managed only when it is the row the sync reads
-    /// ([`sync_backend`] of its own name). A scrape-connected athlete's
+    /// ([`sync_backend`] of its own name). A signed-in athlete's
     /// session row (`sciotte_garmin`) is named by no sync, and a leftover
     /// `garmin` OAuth row is not what the Garmin sync reads: both stay
-    /// on-demand, so a chat turn never scrapes on their account and their
-    /// freshness is the activity cache's.
+    /// on-demand, so a chat turn never starts a session read on their account
+    /// and their freshness is the activity cache's.
     #[cfg(feature = "health-sync")]
     fn is_on_demand_provider(&self, provider: &str) -> bool {
         if is_activity_only_provider(provider) || sync_backend(provider) != provider {
@@ -296,7 +296,7 @@ impl RefreshService {
             {
                 // On-demand providers (sciotte) reaching here are genuinely
                 // stale per the activity cache, and there is no background sync
-                // to trigger — they are re-scraped per chat request via
+                // to trigger — they are read again per chat request via
                 // get_activities (the agent hint instructs the model to do so).
                 // Report them honestly as stale instead of the previous
                 // unconditional Fresh shortcut, which made the agent claim
@@ -570,7 +570,7 @@ impl RefreshService {
             };
 
             // Skip providers the orchestrator doesn't manage (e.g. sciotte, an
-            // on-demand scrape-only provider fetched per chat request). Spawning
+            // on-demand session-read provider fetched per chat request). Spawning
             // a sync for them only yields a "provider not registered" failure.
             if !orchestrator.provider_names().contains(&provider.as_str()) {
                 tracing::debug!(
@@ -613,7 +613,7 @@ impl RefreshService {
         };
 
         // On-demand providers (e.g. sciotte) are not registered with the
-        // orchestrator — there is no background sync to run; they are scraped
+        // orchestrator — there is no background sync to run; they are read
         // per chat request. The chat path already classifies their freshness
         // from the activity cache (see `check_and_refresh`/`last_sync_for`), so
         // this only handles the explicit `refresh_provider` endpoint: report a
@@ -914,7 +914,7 @@ use background::BackgroundSync;
 pub use scheduled::token_tenant;
 #[cfg(feature = "health-sync")]
 pub use scheduled::{
-    scrape_sync_not_due, start_scheduled_sync, sync_delegated_members, SCRAPE_SYNC_MIN_INTERVAL,
+    session_sync_not_due, start_scheduled_sync, sync_delegated_members, SESSION_SYNC_MIN_INTERVAL,
 };
 
 // ============================================================================

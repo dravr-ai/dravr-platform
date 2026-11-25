@@ -20,7 +20,7 @@ use crate::sciotte_provider::SciotteTarget;
 use crate::strava_self_report::rpe_from_strava_label;
 use crate::trainingpeaks_self_report::{feel_from_trainingpeaks, rpe_from_trainingpeaks};
 
-/// The athlete's self-report on a scraped row as `(perceived exertion, feel)`
+/// The athlete's self-report on a session-read row as `(perceived exertion, feel)`
 /// in the platform's scales: a 1–10 CR-10 rating and a named [`Feel`].
 ///
 /// - `TrainingPeaks` states both: [`crate::trainingpeaks_self_report`].
@@ -54,7 +54,7 @@ mod tests {
     use super::*;
     use serde_json::{json, Value};
 
-    fn scraped(provider: &str, report: &Value) -> SciotteActivity {
+    fn session_row(provider: &str, report: &Value) -> SciotteActivity {
         let mut row = json!({
             "id": "a1",
             "name": "Session",
@@ -66,12 +66,12 @@ mod tests {
         if let (Some(row), Some(report)) = (row.as_object_mut(), report.as_object()) {
             row.extend(report.clone());
         }
-        serde_json::from_value(row).expect("a scraped activity")
+        serde_json::from_value(row).expect("a session-read activity")
     }
 
     #[test]
     fn a_garmin_row_carries_its_effort_over_ten_and_its_feel() {
-        let row = scraped("garmin", &json!({ "perceived_exertion": "60", "feel": 75 }));
+        let row = session_row("garmin", &json!({ "perceived_exertion": "60", "feel": 75 }));
         assert_eq!(
             self_report(&row, SciotteTarget::Garmin),
             (Some(6.0), Some(Feel::Good))
@@ -81,7 +81,7 @@ mod tests {
     #[test]
     fn a_garmin_row_rated_very_weak_keeps_its_feel() {
         // 0 is Garmin's "Very Weak", a rating — not an absent one.
-        let row = scraped("garmin", &json!({ "feel": 0 }));
+        let row = session_row("garmin", &json!({ "feel": 0 }));
         assert_eq!(
             self_report(&row, SciotteTarget::Garmin),
             (None, Some(Feel::Weak))
@@ -90,13 +90,13 @@ mod tests {
 
     #[test]
     fn a_garmin_row_off_its_scales_carries_nothing() {
-        let row = scraped("garmin", &json!({ "perceived_exertion": "6", "feel": 200 }));
+        let row = session_row("garmin", &json!({ "perceived_exertion": "6", "feel": 200 }));
         assert_eq!(self_report(&row, SciotteTarget::Garmin), (None, None));
     }
 
     #[test]
     fn a_row_without_a_self_report_carries_nothing() {
-        let row = scraped("garmin", &json!({}));
+        let row = session_row("garmin", &json!({}));
         for target in [
             SciotteTarget::Garmin,
             SciotteTarget::Strava,
@@ -109,7 +109,7 @@ mod tests {
 
     #[test]
     fn a_strava_band_label_becomes_its_midpoint_and_no_feel() {
-        let row = scraped(
+        let row = session_row(
             "strava",
             &json!({ "perceived_exertion": "Moderate", "feel": 1 }),
         );
@@ -118,14 +118,14 @@ mod tests {
 
     #[test]
     fn a_strava_number_is_read_as_the_rating() {
-        let row = scraped("strava", &json!({ "perceived_exertion": "7" }));
+        let row = session_row("strava", &json!({ "perceived_exertion": "7" }));
         assert_eq!(self_report(&row, SciotteTarget::Strava), (Some(7.0), None));
     }
 
     #[test]
     fn a_strava_label_off_the_slider_is_no_rating() {
         for label in ["Somewhat hard", "", "0", "12"] {
-            let row = scraped("strava", &json!({ "perceived_exertion": label }));
+            let row = session_row("strava", &json!({ "perceived_exertion": label }));
             assert_eq!(
                 self_report(&row, SciotteTarget::Strava),
                 (None, None),

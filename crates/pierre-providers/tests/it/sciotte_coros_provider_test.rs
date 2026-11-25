@@ -1,5 +1,5 @@
-// ABOUTME: Pins the sciotte_coros backend: registry wiring, target names, and a scrape routed to the COROS scraper
-// ABOUTME: Drives the provider against a loopback scraper stub and asserts the session import names "coros"
+// ABOUTME: Pins the sciotte_coros backend: registry wiring, target names, and a session read routed to the COROS reader
+// ABOUTME: Drives the provider against a loopback session reader stub and asserts the session import names "coros"
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -11,8 +11,8 @@
 //! released in dravr-sciotte v0.15.0) until the partner API of carnet#509 is
 //! approved. The platform's `sciotte_coros` backend is one more
 //! [`SciotteTarget`]: its rows are named `sciotte_coros`, and every call it
-//! makes to the multi-provider scraper service names the service's own
-//! provider, `coros`. A backend that sent the wrong name would scrape Strava
+//! makes to the multi-provider service names the service's own
+//! provider, `coros`. A backend that sent the wrong name would read Strava
 //! with a COROS session, so the import request is asserted on the wire.
 //!
 //! The provider reaches the stub through a client built for it, never through
@@ -38,13 +38,13 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 
 #[test]
-fn the_coros_target_names_its_backend_and_the_scrapers_provider() {
+fn the_coros_target_names_its_backend_and_the_services_provider() {
     let target = SciotteTarget::from_target_param("coros");
     assert_eq!(target.provider_name(), "sciotte_coros");
-    assert_eq!(target.scraper_provider_name(), "coros");
+    assert_eq!(target.service_provider_name(), "coros");
     // A row named sciotte_coros resolves back to the same target.
     assert_eq!(
-        SciotteTarget::from_backend_name("sciotte_coros").scraper_provider_name(),
+        SciotteTarget::from_backend_name("sciotte_coros").service_provider_name(),
         "coros"
     );
     // The two targets that existed before are unchanged.
@@ -53,7 +53,7 @@ fn the_coros_target_names_its_backend_and_the_scrapers_provider() {
         "sciotte_garmin"
     );
     assert_eq!(
-        SciotteTarget::from_backend_name("sciotte").scraper_provider_name(),
+        SciotteTarget::from_backend_name("sciotte").service_provider_name(),
         "strava"
     );
 }
@@ -80,7 +80,7 @@ fn the_registry_serves_sciotte_coros_as_coros() {
         .expect("sciotte_coros registers a descriptor");
     assert_eq!(descriptor.name(), "sciotte_coros");
     assert_eq!(descriptor.display_name(), "COROS");
-    // Activities are scraped on demand; resting HR, sleep HRV and VO2max are
+    // Activities are read on demand; resting HR, sleep HRV and VO2max are
     // synced from the Training Hub's daily analysis, which holds no sleep.
     // The activities are the watch's recordings (carnet#133).
     assert_eq!(
@@ -93,7 +93,7 @@ fn the_registry_serves_sciotte_coros_as_coros() {
     assert!(!descriptor.capabilities().supports_sleep());
     assert!(
         descriptor.oauth_endpoints().is_none(),
-        "a scraped backend has no OAuth flow"
+        "a session-read backend has no OAuth flow"
     );
     let provider = registry
         .create_provider(SCIOTTE_COROS)
@@ -104,10 +104,10 @@ fn the_registry_serves_sciotte_coros_as_coros() {
 /// Every request line and body the stub received, in order.
 type Seen = Arc<Mutex<Vec<String>>>;
 
-/// Serve the scraper endpoints a single-activity fetch calls, recording each
+/// Serve the service endpoints a single-activity fetch calls, recording each
 /// request: `POST /auth/import-session`, then `GET /api/activities/{id}`
 /// answered with a COROS detail as dravr-sciotte v0.15.0 returns it.
-fn spawn_scraper_stub(listener: TcpListener, seen: Seen) {
+fn spawn_session_reader_stub(listener: TcpListener, seen: Seen) {
     tokio::spawn(async move {
         while let Ok((mut stream, _)) = listener.accept().await {
             let mut buf = vec![0_u8; 16384];
@@ -130,7 +130,7 @@ fn spawn_scraper_stub(listener: TcpListener, seen: Seen) {
     });
 }
 
-/// A COROS run as the scraper serves it: moving and elapsed time apart (a
+/// A COROS run as the service serves it: moving and elapsed time apart (a
 /// 60 s pause) and a lap timed both ways.
 fn coros_activity_json() -> String {
     serde_json::json!({
@@ -149,7 +149,7 @@ fn coros_activity_json() -> String {
         "device_name": "COROS PACE 4",
         "temperature": 21.2,
         "feel": 4,
-        "provider": "scraper",
+        "provider": "coros",
         "laps": [{
             "id": "1",
             "index": 1,
@@ -201,7 +201,7 @@ async fn connected_provider(base_url: &str) -> Box<dyn FitnessProvider> {
 }
 
 #[tokio::test]
-async fn a_coros_scrape_imports_its_session_as_coros_and_keeps_the_run_whole() {
+async fn a_coros_session_read_imports_its_session_as_coros_and_keeps_the_run_whole() {
     let listener = TcpListener::bind("127.0.0.1:0")
         .await
         .expect("bind loopback"); // Safe: ephemeral port on loopback
@@ -209,19 +209,19 @@ async fn a_coros_scrape_imports_its_session_as_coros_and_keeps_the_run_whole() {
         .local_addr()
         .expect("bound listener has an address"); // Safe: listener is bound
     let seen: Seen = Arc::new(Mutex::new(Vec::new()));
-    spawn_scraper_stub(listener, Arc::clone(&seen));
+    spawn_session_reader_stub(listener, Arc::clone(&seen));
 
     let provider = connected_provider(&format!("http://{addr}")).await;
     let activity = provider
         .get_activity("910000000000000001")
         .await
-        .expect("the stub answers a parseable activity"); // Safe: the stub body follows the scraper's model
+        .expect("the stub answers a parseable activity"); // Safe: the stub body follows the service's model
 
     let requests = seen.lock().unwrap().clone();
     let import = requests
         .iter()
         .find(|r| r.contains("/auth/import-session"))
-        .expect("the session is imported before the scrape");
+        .expect("the session is imported before the read");
     assert!(
         import.contains(r#""provider":"coros""#),
         "the multi-provider service must be told this is a COROS session: {import}"

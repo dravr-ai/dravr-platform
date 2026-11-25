@@ -216,7 +216,7 @@ pub fn athlete_off_roster(brand: &str) -> AppError {
 }
 
 /// Whether `error` says the coach may no longer read the athlete a delegated
-/// read named: [`athlete_off_roster`], or the scraper's `athlete_not_accessible`
+/// read named: [`athlete_off_roster`], or the service's `athlete_not_accessible`
 /// refusal of a `TrainingPeaks` read.
 #[must_use]
 pub fn is_athlete_off_roster(error: &AppError) -> bool {
@@ -226,7 +226,7 @@ pub fn is_athlete_off_roster(error: &AppError) -> bool {
         .and_then(|details| details.get(DELEGATION_REFUSAL_DETAIL))
         .and_then(Value::as_str)
         == Some(OFF_ROSTER);
-    marked || scraper_off_roster(error)
+    marked || service_off_roster(error)
 }
 
 /// The refusal of a delegated read of an athlete's settings that the coach's
@@ -292,15 +292,15 @@ pub(crate) fn coach_write_refused(brand: &str) -> AppError {
     error
 }
 
-/// Whether the scraper refused the athlete a `TrainingPeaks` read named.
+/// Whether the service refused the athlete a `TrainingPeaks` read named.
 #[cfg(feature = "provider-sciotte")]
-fn scraper_off_roster(error: &AppError) -> bool {
+fn service_off_roster(error: &AppError) -> bool {
     sciotte_refusal(error) == Some(ATHLETE_NOT_ACCESSIBLE)
 }
 
-/// A build without the scraper has no scraper refusal to read.
+/// A build without the sciotte service has no service refusal to read.
 #[cfg(not(feature = "provider-sciotte"))]
-const fn scraper_off_roster(_error: &AppError) -> bool {
+const fn service_off_roster(_error: &AppError) -> bool {
     false
 }
 

@@ -7,7 +7,7 @@
 //! Sciotte re-import contract.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-//! The scraper service keeps each session in the memory of the instance that
+//! The sciotte service keeps each session in the memory of the instance that
 //! imported it, and nothing pins the read that follows an import to that
 //! instance. On 2026-09-25 an import was answered by one instance and the
 //! activity list, sent 20 ms later, by another that was still starting: it
@@ -21,7 +21,7 @@
 //! refusing the session's cookies and an import the service refuses is no
 //! session problem at all, so neither is repeated.
 //!
-//! The scraper here is a loopback stand-in (a test double, per the repo's mock
+//! The service here is a loopback stand-in (a test double, per the repo's mock
 //! rule) that records every request under the session it names — the import's
 //! in its body, a read's in `X-Session-Id` — and answers by that session. The
 //! scenarios share one test over that one stand-in, which every provider
@@ -58,8 +58,8 @@ const HELD_SESSION: &str = "held";
 const IMPORT_REFUSED_SESSION: &str = "import-refused";
 /// A Garmin session whose cookies Garmin refuses (carnet#1148).
 const REFUSED_GARMIN_SESSION: &str = "garmin-refused-by-the-provider";
-/// A Garmin session whose scrape failed for a reason that may pass.
-const FAILED_SCRAPE_SESSION: &str = "garmin-scrape-failed";
+/// A Garmin session whose read failed for a reason that may pass.
+const FAILED_SESSION_READ: &str = "garmin-read-failed";
 
 /// The id of the one ride the stand-in serves.
 const RIDE_ID: &str = "777001";
@@ -154,7 +154,7 @@ fn answer_for(seen: &Seen, earlier: usize) -> (u16, Value) {
         (ACTIVITIES_PATH, REFUSED_SESSION | REFUSED_GARMIN_SESSION) => {
             (401, json!({ "error": "session_expired" }))
         }
-        (ACTIVITIES_PATH, FAILED_SCRAPE_SESSION) => (
+        (ACTIVITIES_PATH, FAILED_SESSION_READ) => (
             500,
             json!({ "error": "network error: List page fetch failed: http 502" }),
         ),
@@ -165,7 +165,7 @@ fn answer_for(seen: &Seen, earlier: usize) -> (u16, Value) {
 }
 
 /// Serve the stand-in, recording every request it reads.
-fn spawn_scraper_stub(listener: TcpListener, log: Arc<Mutex<Vec<Seen>>>) {
+fn spawn_session_reader_stub(listener: TcpListener, log: Arc<Mutex<Vec<Seen>>>) {
     tokio::spawn(async move {
         while let Ok((mut stream, _)) = listener.accept().await {
             let request = read_request(&mut stream).await;
@@ -265,7 +265,7 @@ async fn a_read_the_imports_instance_did_not_answer_is_reimported_once() {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let base = format!("http://{}", listener.local_addr().unwrap());
     let log = Arc::new(Mutex::new(Vec::new()));
-    spawn_scraper_stub(listener, Arc::clone(&log));
+    spawn_session_reader_stub(listener, Arc::clone(&log));
     let client =
         startup_reads(&[String::from(&base)], None).expect("a loopback client needs no audience"); // Safe: loopback URL
 
@@ -276,7 +276,7 @@ async fn a_read_the_imports_instance_did_not_answer_is_reimported_once() {
     a_refused_import_sends_no_read(&client, &log).await;
     a_profile_that_missed_the_import_once_is_served(&client, &log).await;
     a_garmin_session_the_provider_refused_asks_for_a_garmin_reconnect(&client, &log).await;
-    a_garmin_scrape_that_failed_is_never_a_reconnect(&client, &log).await;
+    a_garmin_session_read_that_failed_is_never_a_reconnect(&client, &log).await;
 }
 
 /// The incident's shape: the read after the import finds no session, the
@@ -342,7 +342,7 @@ async fn a_list_that_missed_the_import_twice_asks_for_a_relogin(
 }
 
 /// `session_expired` is the provider refusing the cookies the service holds:
-/// importing the same cookies again would only scrape into the same refusal.
+/// importing the same cookies again would only read into the same refusal.
 async fn a_session_the_provider_refused_is_never_reimported(
     client: &SciotteReads,
     log: &Mutex<Vec<Seen>>,
@@ -366,7 +366,7 @@ async fn a_session_the_provider_refused_is_never_reimported(
     assert_eq!(
         paths_for(log, REFUSED_SESSION),
         vec![IMPORT_PATH, ACTIVITIES_PATH],
-        "a dead session costs one scrape, not two"
+        "a dead session costs one read, not two"
     );
 }
 
@@ -477,36 +477,36 @@ async fn a_garmin_session_the_provider_refused_asks_for_a_garmin_reconnect(
     assert_eq!(
         paths_for(log, REFUSED_GARMIN_SESSION),
         vec![IMPORT_PATH, ACTIVITIES_PATH],
-        "a dead session costs one scrape, not two"
+        "a dead session costs one read, not two"
     );
 }
 
-/// A scrape the service could not finish (its `500`) says nothing about the
+/// A session read the service could not finish (its `500`) says nothing about the
 /// session: it stays a failed sync the next refresh retries, never a
 /// reconnect the athlete is asked for, whatever words its message carries.
-async fn a_garmin_scrape_that_failed_is_never_a_reconnect(
+async fn a_garmin_session_read_that_failed_is_never_a_reconnect(
     client: &SciotteReads,
     log: &Mutex<Vec<Seen>>,
 ) {
     let provider = provider_holding(
         &SciotteGarminProviderFactory::new(Some(client.clone())),
         "sciotte_garmin",
-        FAILED_SCRAPE_SESSION,
+        FAILED_SESSION_READ,
     )
     .await;
 
     let error = provider
         .get_activities_with_params(&list_params())
         .await
-        .expect_err("the scrape failed");
+        .expect_err("the session read failed");
 
     assert!(
         error.provider_auth_required_provider().is_none(),
-        "a failed scrape is not the athlete's re-login: {error:?}"
+        "a failed session read is not the athlete's re-login: {error:?}"
     );
     assert_eq!(
-        paths_for(log, FAILED_SCRAPE_SESSION),
+        paths_for(log, FAILED_SESSION_READ),
         vec![IMPORT_PATH, ACTIVITIES_PATH],
-        "bug: a failed scrape was retried or reimported within one read"
+        "bug: a failed session read was retried or reimported within one read"
     );
 }

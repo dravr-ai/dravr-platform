@@ -6,7 +6,7 @@
 
 //! Landing a step (carnet#1698).
 //!
-//! A scrape that read some months of a step's window and then failed on one
+//! A session read that covered some months of a step's window and then failed on one
 //! returns what it read, short of its window (`head_complete` false), and
 //! never skips the month it failed on. A read that covers the list head (the
 //! first step's) refuses such a capture as every write-through does

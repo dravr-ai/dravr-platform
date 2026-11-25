@@ -123,7 +123,7 @@ export function createHomeReadHooks(athleteApi: HomeReadApi, { useLanguage }: Ho
    * Reading this never reaches a provider: the server answers from its durable
    * cache and, when the cache is past its freshness window, refreshes it in the
    * background and says `stale`. That refresh can take minutes through a
-   * scraped provider, so the hook follows {@link HOME_STALE_REFETCH_DELAYS_MS}:
+   * session-read provider, so the hook follows {@link HOME_STALE_REFETCH_DELAYS_MS}:
    * it waits the first delay and asks, and while the answer is still stale it
    * waits the next delay and asks again, each wait measured from the answer
    * before it. The schedule ends at the first answer that is not stale, and

@@ -555,7 +555,7 @@ async fn mint_reconnect_url(
     mint_oauth_reconnect_url(deps, provider_slug, user_id, input, profile).await
 }
 
-/// The Dravr-hosted login (email + password) for the scrape mirror whose
+/// The Dravr-hosted login (email + password) for the session-read mirror whose
 /// login `target` names, shortened, or `None` after logging why it could not
 /// be minted — the same short-TTL link-token mint the channel bots use.
 async fn mint_hosted_login_url(

@@ -70,7 +70,7 @@ on:
         default: ""
         type: string
       read_probe_provider_prefix:
-        description: "Provider-key prefix of the connections the read probe judges (sciotte for every scrape backend); a failed head among them, or none to judge, rolls the deploy back. Empty skips the read probe"
+        description: "Provider-key prefix of the connections the read probe judges (sciotte for every session-read backend); a failed head among them, or none to judge, rolls the deploy back. Empty skips the read probe"
         required: false
         type: string
         default: ""

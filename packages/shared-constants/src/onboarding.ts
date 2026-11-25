@@ -401,7 +401,7 @@ export function isConnectProviderSkipped(steps: PersistedOnboardingStep[] | unde
 
 /**
  * The provider cards Tes données leads with, by the ids the providers list
- * serves them under: Garmin and Strava by their scrape-mirror card or, in a
+ * serves them under: Garmin and Strava by their session-read card or, in a
  * build without the mirror, their raw one (only one of each pair is served),
  * then Intervals.icu. Every other card folds behind « Plus de services ».
  */

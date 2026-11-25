@@ -1,11 +1,11 @@
-// ABOUTME: carnet#1144 — an admin copies one account's scrape-session provider connection onto another
+// ABOUTME: carnet#1144 — an admin copies one account's signed-in-session provider connection onto another
 // ABOUTME: The copy decrypts to the same session, the source is untouched; OAuth grants, dead sessions and lesser tokens are refused
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
 //! `POST /admin/users/{id}/providers/{provider}/clone` gives an e2e test
-//! account a working Garmin connection by copying an admin's scrape
+//! account a working Garmin connection by copying an admin's signed-in
 //! session. Every test drives the real handler, with the session installer the
 //! composition root wires (the auth route context), against a real database,
 //! and asserts on rows: a refusal that answered the right status while writing
@@ -131,7 +131,7 @@ async fn user(resources: &Arc<ServerContext>, label: &str) -> (Uuid, TenantId) {
     (user_id, tenant_id)
 }
 
-/// A scrape session as dravr-sciotte serializes it.
+/// A signed-in session as dravr-sciotte serializes it.
 fn session_json(session_id: &str) -> String {
     json!({
         "session_id": session_id,

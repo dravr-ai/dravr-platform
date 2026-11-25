@@ -61,7 +61,7 @@ pub(crate) async fn card_backend(
 /// backend serving it, and `reauth_providers`, the backends flagged for
 /// reconnect.
 ///
-/// Only the serving backend counts: its session died (a dead scrape, a
+/// Only the serving backend counts: its session died (a dead signed-in session, a
 /// refused OAuth refresh), so the UI prompts a reconnect instead of a healthy
 /// "Connected". A grant left behind a serving session is not the card's
 /// backend, so its flag asks nothing of the athlete: the card reads

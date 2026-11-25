@@ -6,7 +6,7 @@
 
 //! Binary-side implementation of [`BackfillNotifier`].
 //!
-//! A deep-history `get_activities` ask on a scrape-backed mirror provider warms
+//! A deep-history `get_activities` ask on a session-read mirror provider warms
 //! the durable activity cache off the request path (see
 //! `pierre_tool_runtime::activity_backfill`) and returns silently. Once it is
 //! warm, this notifier answers the conversation that asked, wherever it is
@@ -919,7 +919,7 @@ impl BackfillNotifier for ServerBackfillNotifier {
             last_inbound: _,
         } = route;
 
-        // The historical backfill only ever runs on the scrape-backed mirrors,
+        // The historical backfill only ever runs on the session-read mirrors,
         // so this is always a hosted-login path. A slug with no hosted login
         // means that gate widened: a wrong-brand link is worse than none, so
         // nothing is sent and the admin hears of it.

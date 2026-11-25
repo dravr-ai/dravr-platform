@@ -9,7 +9,7 @@
 //! `/sign-in-check` carrying a takeover token in its fragment; the page opens
 //! `/ws/providers/sciotte/takeover?token=…`, and the platform relays it to
 //! sciotte's own takeover socket. These tests run the platform's real routes
-//! against a loopback stand-in of the scraper service (a test double, per the
+//! against a loopback stand-in of the service (a test double, per the
 //! repo's mock rule), on a thread of its own so it outlives each test's
 //! runtime.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
@@ -81,7 +81,7 @@ const WAIT: Duration = Duration::from_secs(10);
 type Viewer = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
 // ============================================================================
-// The scraper service stand-in
+// The service stand-in
 // ============================================================================
 
 /// What the stand-in received.
@@ -95,13 +95,13 @@ struct Seen {
     cancels: Mutex<Vec<String>>,
 }
 
-static SCRAPER: OnceLock<(Arc<Seen>, String)> = OnceLock::new();
+static READER: OnceLock<(Arc<Seen>, String)> = OnceLock::new();
 
 /// A read service nothing listens on: a sign-in step sent there fails.
 const UNREACHABLE_READ_SERVICE: &str = "http://127.0.0.1:9";
 
-fn scraper() -> &'static (Arc<Seen>, String) {
-    SCRAPER.get_or_init(|| {
+fn reader() -> &'static (Arc<Seen>, String) {
+    READER.get_or_init(|| {
         let seen = Arc::new(Seen::default());
         let (sender, receiver) = mpsc::channel();
         let state = Arc::clone(&seen);
@@ -247,7 +247,7 @@ struct Athlete {
 impl Athlete {
     async fn new() -> Self {
         let resources = common::create_test_server_resources_with_config(
-            common::test_server_config_with_sciotte_usr_pwd_garmin(&scraper().1),
+            common::test_server_config_with_sciotte_usr_pwd_garmin(&reader().1),
         )
         .await
         .unwrap();
@@ -260,7 +260,7 @@ impl Athlete {
     async fn on_a_separate_sign_in_service() -> Self {
         let mut config =
             common::test_server_config_with_sciotte_usr_pwd_garmin(UNREACHABLE_READ_SERVICE);
-        config.external_services.sciotte.login_url = Some(scraper().1.clone());
+        config.external_services.sciotte.login_url = Some(reader().1.clone());
         let resources = common::create_test_server_resources_with_config(config)
             .await
             .unwrap();
@@ -270,7 +270,7 @@ impl Athlete {
     /// An athlete of a platform whose Garmin OAuth is served too: a sign-in
     /// still ends at `connected`, never at Garmin's authorization.
     async fn with_garmin_oauth() -> Self {
-        Self::on(server_with_garmin_oauth(&scraper().1).await).await
+        Self::on(server_with_garmin_oauth(&reader().1).await).await
     }
 
     async fn on(resources: Arc<ServerContext>) -> Self {
@@ -435,7 +435,7 @@ async fn send(viewer: &mut Viewer, input: Value) {
 }
 
 fn inputs_of(flow_id: &str) -> Vec<Value> {
-    scraper()
+    reader()
         .0
         .inputs
         .lock()
@@ -473,7 +473,7 @@ async fn a_window_with_an_attempt_asks_for_a_takeover_and_one_without_does_not()
         "a login that cannot cancel keeps the challenge answer: {body}"
     );
 
-    let logins = scraper().0.logins.lock().unwrap().clone();
+    let logins = reader().0.logins.lock().unwrap().clone();
     assert!(
         logins.contains(&(with, true)),
         "the login naming an attempt asked for a takeover"
@@ -650,7 +650,7 @@ async fn the_viewer_closing_cancels_the_attempt() {
 
     let key = athlete.cancel_key(&attempt_id);
     eventually("the relay cancelled the attempt on the service", || {
-        scraper().0.cancels.lock().unwrap().contains(&key)
+        reader().0.cancels.lock().unwrap().contains(&key)
     })
     .await;
     assert!(
@@ -790,7 +790,7 @@ async fn the_service_ending_with_no_answer_cancels_the_attempt_and_says_it_ended
     );
     let key = athlete.cancel_key(&attempt_id);
     eventually("the relay cancelled the attempt on the service", || {
-        scraper().0.cancels.lock().unwrap().contains(&key)
+        reader().0.cancels.lock().unwrap().contains(&key)
     })
     .await;
     assert!(
@@ -826,7 +826,7 @@ async fn a_cancel_reaches_a_sign_in_service_of_its_own() {
 
     let key = athlete.cancel_key(&attempt_id);
     eventually("the cancel reached the sign-in service", || {
-        scraper().0.cancels.lock().unwrap().contains(&key)
+        reader().0.cancels.lock().unwrap().contains(&key)
     })
     .await;
 }

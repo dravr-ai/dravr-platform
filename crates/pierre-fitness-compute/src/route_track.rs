@@ -34,11 +34,11 @@ use std::collections::BinaryHeap;
 use std::error::Error;
 use std::fmt;
 
+use dravr_barrage::parse::polyline::{decode_polyline, encode_polyline};
 use pierre_core::models::TimeSeriesData;
 use serde::{Deserialize, Serialize};
 use tracing::warn;
 
-use crate::polyline::{decode_polyline, encode_polyline};
 use crate::route_privacy::{trim_route_endpoints, DEFAULT_PRIVACY_RADIUS_METERS};
 use crate::routes::{
     build_route_summary_from_streams, haversine_meters_between, ClimbCategory, EARTH_RADIUS_METERS,

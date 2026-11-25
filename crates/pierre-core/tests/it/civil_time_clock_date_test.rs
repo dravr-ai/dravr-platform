@@ -11,7 +11,7 @@
 //! purpose, at exactly one instant per day.
 //!
 //! [`local_date`] refuses to convert midnight UTC, because a date-only provider
-//! row — a Strava-mirror scrape — uses that as its sentinel for "a day, not a
+//! row — a Strava-mirror session read — uses that as its sentinel for "a day, not a
 //! moment", and converting it into a negative-offset zone moves the workout to
 //! the previous day (registre#258).
 //!

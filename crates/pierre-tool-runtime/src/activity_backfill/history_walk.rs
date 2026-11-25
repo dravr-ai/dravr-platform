@@ -13,7 +13,7 @@
 //!
 //! **Which source.** The first live, pageable source of
 //! [`walk_source`]'s one order: the usr/pwd session before the grant (D2),
-//! since one scrape reads three years where an API pages two hundred
+//! since one session read covers three years where an API pages two hundred
 //! activities, even while a grant is alive (carnet#1482). The source is read
 //! exactly as named ([`crate::protocol::AuthService::create_exact_provider`]),
 //! never resolved to the backend the live-read plan serves, and a session
@@ -22,7 +22,7 @@
 //!
 //! **Two phases, one row.** Once the session finds nothing more, a live API
 //! grant beside it ([`walk_hand_off`]) pages strictly below the oldest row
-//! the session itself stored: what the scraper never listed is still the
+//! the session itself stored: what the service never listed is still the
 //! API's, and a deep page an old live read left under the grant's key never
 //! makes it skip the years above that page. The hand-off is written on the
 //! row before the API is asked anything ([`WalkHandOff`]), so a restart or a
@@ -74,7 +74,7 @@
 //! costs one step.
 //!
 //! - A session step reads [`SCIOTTE_WALK_STEP_MONTHS`] in one request,
-//!   bounded by [`SCIOTTE_STEP_TIMEOUT`], under the scraper's own deadline.
+//!   bounded by [`SCIOTTE_STEP_TIMEOUT`], under the service's own deadline.
 //! - An API step reads a year at a time, [`API_WALK_PAGE`] activities a
 //!   page. A budget refusal pauses the walk: the claim is handed back with
 //!   its cursor and its attempt, and the sweep resumes it in a later window.
@@ -144,11 +144,11 @@ mod wellness;
 pub(crate) const WHOLE_ACCOUNT_AFTER: i64 = 946_684_800;
 
 /// Months one session step reads in one request. Three years of a busy
-/// athlete is a few hundred list rows, which the scraper reads well inside
+/// athlete is a few hundred list rows, which the service reads well inside
 /// its request deadline with the detail pass off.
 pub(crate) const SCIOTTE_WALK_STEP_MONTHS: i64 = 36;
 
-/// How long one session step may take: under the scraper service's own
+/// How long one session step may take: under the service's own
 /// 320 s request deadline, so the step fails here, cleanly, before the
 /// service gives up on it.
 const SCIOTTE_STEP_TIMEOUT: StdDuration = StdDuration::from_secs(300);

@@ -248,7 +248,7 @@ pub(crate) async fn server(api_base: &str, per_window: u32) -> Arc<ServerContext
 }
 
 /// `resources` with a Strava window of `per_window` requests a day, reaching
-/// the scraper service its config names.
+/// the session-read service its config names.
 pub(crate) fn with_window(resources: &Arc<ServerContext>, per_window: u32) -> Arc<ServerContext> {
     let limiter = ProviderRateLimiter::new(
         Arc::clone(&resources.common.repos.usage_counters),

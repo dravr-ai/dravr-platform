@@ -16,7 +16,7 @@
 //! Dravr email nobody verified is refused with its reason, which the clients
 //! branch on.
 //!
-//! The scraper is a loopback stand-in (a test double, per the repo's mock rule) that
+//! The session reader is a loopback stand-in (a test double, per the repo's mock rule) that
 //! answers the profile read by the coach session it carries.
 
 use crate::common;
@@ -108,7 +108,7 @@ fn coach_profile(session: &str) -> Value {
     profile
 }
 
-async fn spawn_scraper() -> String {
+async fn spawn_session_reader() -> String {
     let app = Router::new()
         .route(
             "/auth/import-session",
@@ -264,10 +264,10 @@ struct World {
 }
 
 impl World {
-    /// The world, its server reading TrainingPeaks through the scraper at
-    /// `scraper`.
-    async fn new(scraper: &str) -> Self {
-        let res = create_test_server_resources_with_sciotte(scraper)
+    /// The world, its server reading TrainingPeaks through the session reader at
+    /// `reader`.
+    async fn new(reader: &str) -> Self {
+        let res = create_test_server_resources_with_sciotte(reader)
             .await
             .unwrap();
         let owner = person(&res, "owner@binding.test", true).await;
@@ -544,7 +544,7 @@ async fn a_bound_athlete_is_linked_once(w: &World) {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_trainingpeaks_link_binds_each_account_to_its_dravr_account_by_email() {
-    let w = World::new(&spawn_scraper().await).await;
+    let w = World::new(&spawn_session_reader().await).await;
 
     the_roster_binds_the_coach_account_by_email(&w).await;
     let bound = a_proposal_binds_the_athlete_to_the_member(&w).await;

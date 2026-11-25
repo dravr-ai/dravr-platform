@@ -92,7 +92,7 @@ const CANDIDATES_PER_PASS: i64 = 50;
 ///
 /// They are the walks of athletes whose history no walk was ever asked for:
 /// the first passes after a rollout spread every connected athlete's walk
-/// over many, so their scrapes and pages never start at once.
+/// over many, so their session reads and pages never start at once.
 pub const WALKS_ASKED_PER_PASS: i64 = 10;
 
 /// What one pass did.
@@ -284,7 +284,7 @@ fn ask_missing_walks(
 /// The backend itself, never the one the athlete's live reads are planned
 /// to: a Strava grant is never swapped for the session the reads serve
 /// first, since the samples are the API's and the seed must never start a
-/// scrape (carnet#1494).
+/// session read (carnet#1494).
 pub async fn exact_provider(
     resources: &Arc<ServerContext>,
     provider: &str,

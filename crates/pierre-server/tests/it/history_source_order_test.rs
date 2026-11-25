@@ -23,7 +23,7 @@
 #![allow(missing_docs)]
 
 use crate::common;
-use crate::helpers::sciotte_mock::seed_scrape_session;
+use crate::helpers::sciotte_mock::seed_signed_in_session;
 use crate::history_walk_api_test::{mock_strava, server, strava_athlete};
 
 use dravr_tronc::dates::Timestamp;
@@ -52,7 +52,7 @@ async fn a_walk_reads_a_live_session_before_the_grant_and_never_the_push() {
         Some(oauth_providers::STRAVA.to_owned()),
         "bug: with no session, the grant is walked"
     );
-    seed_scrape_session(
+    seed_signed_in_session(
         &resources,
         user_id,
         tenant,
@@ -120,7 +120,7 @@ async fn a_walk_reads_a_live_session_before_the_grant_and_never_the_push() {
     )
     .await
     .unwrap();
-    seed_scrape_session(
+    seed_signed_in_session(
         &resources,
         garmin_user,
         garmin_tenant,
@@ -164,7 +164,7 @@ async fn a_garmin_session_is_walked_before_its_push_grant() {
         (oauth_providers::GARMIN, ConnectionType::OAuth),
         (oauth_providers::SCIOTTE_GARMIN, ConnectionType::Manual),
     ] {
-        seed_scrape_session(&resources, user_id, tenant, backend, "pair").await;
+        seed_signed_in_session(&resources, user_id, tenant, backend, "pair").await;
         repos
             .provider_connections
             .register_connection(user_id, tenant, backend, &connection, None)
@@ -207,7 +207,7 @@ async fn a_strava_athlete_with_a_live_grant_and_a_session_is_walked_sciotte_firs
     let resources = server(&api_base, 400).await;
     let (user_id, tenant) = strava_athlete(&resources).await;
     let repos = &resources.common.repos;
-    seed_scrape_session(
+    seed_signed_in_session(
         &resources,
         user_id,
         tenant,

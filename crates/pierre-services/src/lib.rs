@@ -529,8 +529,8 @@ pub mod user_approval;
 /// Admin removal of a user and of one provider grant, through the disconnect chokepoint.
 pub mod user_removal;
 
-/// Sciotte scrape-session persistence, and the admin clone of one account's session onto another.
-pub mod scrape_session;
+/// Sciotte signed-in-session persistence, and the admin clone of one account's session onto another.
+pub mod signed_in_session;
 
 /// The doors a deleted account's identities are refused at, and the explicit clear that reopens them.
 pub mod import_tombstones;

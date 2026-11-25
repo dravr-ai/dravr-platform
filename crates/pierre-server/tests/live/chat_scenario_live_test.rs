@@ -247,7 +247,7 @@ fn live_driver_executes_every_scenario() {
     let mut failures: Vec<String> = Vec::new();
     // The attempt each scenario first passed on, `None` when none did.
     // Retries make the verdict pass@MAX_SCENARIO_ATTEMPTS, which on its own
-    // cannot tell a scenario that passes first time from one that scrapes
+    // cannot tell a scenario that passes first time from one that squeaks
     // through on its last draw; the tally keeps that difference visible.
     let mut tally: Vec<(String, Option<usize>)> = Vec::new();
 

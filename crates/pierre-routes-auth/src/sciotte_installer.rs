@@ -7,7 +7,7 @@
 use dravr_sciotte::models::AuthSession;
 use pierre_core::errors::AppResult;
 use pierre_core::models::TenantId;
-use pierre_services::scrape_session::{persist_sciotte_session, ScrapeSessionInstaller};
+use pierre_services::signed_in_session::{persist_sciotte_session, SessionInstaller};
 use uuid::Uuid;
 
 use crate::sciotte::warm_from_session;
@@ -17,7 +17,7 @@ use crate::AuthRoutesContext;
 /// with no `provider.connected` event, since an admin copying a session
 /// onto a test account is not an athlete connecting and must not count as one.
 #[async_trait::async_trait]
-impl ScrapeSessionInstaller for AuthRoutesContext {
+impl SessionInstaller for AuthRoutesContext {
     async fn install_session(
         &self,
         user_id: Uuid,

@@ -1,4 +1,4 @@
-// ABOUTME: Pins how a scraped TrainingPeaks plan becomes a cageux PlannedWorkout, step by step and target by target
+// ABOUTME: Pins how a session-read TrainingPeaks plan becomes a cageux PlannedWorkout, step by step and target by target
 // ABOUTME: The three captured structure shapes with exact values, plus every target the grammar cannot hold left empty
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0

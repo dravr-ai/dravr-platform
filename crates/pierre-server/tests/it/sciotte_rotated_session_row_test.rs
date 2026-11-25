@@ -5,14 +5,14 @@
 // Copyright (c) 2026 dravr.ai
 
 //! Garmin rotates its `session` cookie on a read and logs the old value out.
-//! The platform stores each scrape session on a token row and imports it
+//! The platform stores each signed-in session on a token row and imports it
 //! before every read (ADR-021), so the copy the service now holds must
 //! replace the stored one, or the next import re-seeds a dead session. The
 //! health sync and the `TrainingPeaks` profile read reach the service outside
 //! any provider, so each writes the rotated copy over the row the session
 //! came from, while that row still stands.
 //!
-//! The scraper is a loopback stand-in (a test double, per the repo's mock
+//! The session reader is a loopback stand-in (a test double, per the repo's mock
 //! rule): every read is answered rotated, and an export answers the session
 //! with its `session` cookie changed. It can replace the token row on the
 //! first read, as a reconnect landing during the read would.
@@ -118,7 +118,7 @@ fn requested_date(request: &str) -> String {
 }
 
 /// Serve the stand-in; returns its base URL and how many exports it answered.
-async fn spawn_rotating_scraper(replacement: Replacement) -> (String, Arc<Mutex<usize>>) {
+async fn spawn_rotating_session_reader(replacement: Replacement) -> (String, Arc<Mutex<usize>>) {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let base = format!("http://{}", listener.local_addr().unwrap());
     let exports = Arc::new(Mutex::new(0_usize));
@@ -184,7 +184,7 @@ async fn a_health_sync_read_that_rotated_the_session_stores_it_over_the_row() {
         .upsert_token(&session_row(user_id, tenant, SCIOTTE_GARMIN, STORED_COOKIE))
         .await
         .unwrap();
-    let (base, exports) = spawn_rotating_scraper(Arc::new(Mutex::new(None))).await;
+    let (base, exports) = spawn_rotating_session_reader(Arc::new(Mutex::new(None))).await;
     let client = startup_reads(&[String::from(&base)], None).unwrap();
     let storage = Arc::new(PierreSyncStorage::new(&repos));
     let orchestrator = storage
@@ -217,7 +217,8 @@ async fn a_health_sync_never_overwrites_a_row_a_reconnect_replaced_during_the_re
         .unwrap();
     let reconnect = session_row(user_id, tenant, SCIOTTE_GARMIN, RECONNECTED_COOKIE);
     let (base, exports) =
-        spawn_rotating_scraper(Arc::new(Mutex::new(Some((Arc::clone(&repos), reconnect))))).await;
+        spawn_rotating_session_reader(Arc::new(Mutex::new(Some((Arc::clone(&repos), reconnect)))))
+            .await;
     let client = startup_reads(&[String::from(&base)], None).unwrap();
     let storage = Arc::new(PierreSyncStorage::new(&repos));
     let orchestrator = storage
@@ -249,7 +250,7 @@ async fn a_trainingpeaks_profile_read_stores_a_rotated_session_only_over_a_stand
     let session = session_with(STORED_COOKIE);
 
     let replacement: Replacement = Arc::new(Mutex::new(None));
-    let (base, _) = spawn_rotating_scraper(Arc::clone(&replacement)).await;
+    let (base, _) = spawn_rotating_session_reader(Arc::clone(&replacement)).await;
     let registry = offline_provider_registry()
         .with_sciotte_reads(Some(startup_reads(&[String::from(&base)], None).unwrap()));
 
@@ -294,8 +295,8 @@ async fn a_trainingpeaks_profile_read_reaches_the_read_service_its_session_names
     let row = session_row(user_id, tenant, SCIOTTE_TRAININGPEAKS, STORED_COOKIE);
     repos.oauth_tokens.upsert_token(&row).await.unwrap();
     let read_from = StoredTokenRow::of(&row).unwrap();
-    let (first, first_exports) = spawn_rotating_scraper(Arc::new(Mutex::new(None))).await;
-    let (second, second_exports) = spawn_rotating_scraper(Arc::new(Mutex::new(None))).await;
+    let (first, first_exports) = spawn_rotating_session_reader(Arc::new(Mutex::new(None))).await;
+    let (second, second_exports) = spawn_rotating_session_reader(Arc::new(Mutex::new(None))).await;
     let registry = offline_provider_registry()
         .with_sciotte_reads(Some(startup_reads(&[first, second], None).unwrap()));
 
@@ -369,7 +370,7 @@ async fn a_provider_read_that_rotates_a_cloned_session_stores_it_on_the_row_read
         .await
         .unwrap();
 
-    let (base, exports) = spawn_rotating_scraper(Arc::new(Mutex::new(None))).await;
+    let (base, exports) = spawn_rotating_session_reader(Arc::new(Mutex::new(None))).await;
     let registry = offline_provider_registry()
         .with_sciotte_reads(Some(startup_reads(&[String::from(&base)], None).unwrap()));
     let provider = registry.create_provider(SCIOTTE_GARMIN).unwrap();
@@ -426,7 +427,7 @@ async fn a_health_sync_never_writes_an_admin_clone_of_the_session() {
             .await
             .unwrap();
     }
-    let (base, exports) = spawn_rotating_scraper(Arc::new(Mutex::new(None))).await;
+    let (base, exports) = spawn_rotating_session_reader(Arc::new(Mutex::new(None))).await;
     let storage = Arc::new(PierreSyncStorage::new(&repos));
     let orchestrator = storage
         .build_orchestrator(

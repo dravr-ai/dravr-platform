@@ -11,13 +11,13 @@
 //! confirmed, and every read through it checks that binding again. A link
 //! stored before links carried the athlete's email, or one whose email is not
 //! the member's verified email, reads nothing: the read is refused in words
-//! that say why, before any scrape, and the link is left standing so no stored
+//! that say why, before any session read, and the link is left standing so no stored
 //! state flips. The coach's group list, the member's provider card and the
 //! connection-status tool carry the reason, which is how the coach sees why.
 //! Once the coach proposes the athlete again and the member confirms, the
 //! link reads.
 //!
-//! The scraper is a loopback stand-in (a test double, per the repo's mock rule) that
+//! The session reader is a loopback stand-in (a test double, per the repo's mock rule) that
 //! answers the coach's profile and each athlete's workouts, and records the
 //! athlete every workout read names.
 
@@ -81,11 +81,11 @@ const SPAWN_DEADLINE: Duration = Duration::from_secs(15);
 
 /// The athlete each workout read named, in order.
 #[derive(Clone, Default)]
-struct Scraper {
+struct SessionReader {
     reads: Arc<Mutex<Vec<String>>>,
 }
 
-impl Scraper {
+impl SessionReader {
     fn reads_of(&self, athlete: &str) -> usize {
         self.reads
             .lock()
@@ -113,7 +113,7 @@ async fn athlete_route() -> Json<Value> {
 }
 
 async fn activities_route(
-    State(scraper): State<Scraper>,
+    State(reader): State<SessionReader>,
     Query(query): Query<HashMap<String, String>>,
 ) -> (StatusCode, Json<Value>) {
     let Some(athlete) = query.get("athlete") else {
@@ -122,7 +122,7 @@ async fn activities_route(
             Json(json!({ "error": "athlete_required" })),
         );
     };
-    scraper.reads.lock().unwrap().push(athlete.clone());
+    reader.reads.lock().unwrap().push(athlete.clone());
     let row = json!({
         "id": format!("{athlete}:5001"),
         "name": "Tempo",
@@ -137,7 +137,7 @@ async fn activities_route(
     )
 }
 
-async fn spawn_scraper(scraper: Scraper) -> String {
+async fn spawn_session_reader(reader: SessionReader) -> String {
     let app = Router::new()
         .route(
             "/auth/import-session",
@@ -147,7 +147,7 @@ async fn spawn_scraper(scraper: Scraper) -> String {
         )
         .route("/api/athlete", get(athlete_route))
         .route("/api/activities", get(activities_route))
-        .with_state(scraper);
+        .with_state(reader);
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     tokio::spawn(async move {
@@ -201,7 +201,7 @@ struct World {
     res: Arc<ServerContext>,
     runtime: Arc<dyn ToolRuntime>,
     router: Router,
-    scraper: Scraper,
+    reader: SessionReader,
     group: Uuid,
     coach: Person,
     m1: Person,
@@ -209,8 +209,8 @@ struct World {
     m3: Person,
 }
 
-/// The world, its server reading through the scraper stand-in at `url`.
-async fn world(scraper: Scraper, url: &str) -> World {
+/// The world, its server reading through the session reader stand-in at `url`.
+async fn world(reader: SessionReader, url: &str) -> World {
     let res = create_test_server_resources_with_sciotte(url)
         .await
         .unwrap();
@@ -339,7 +339,7 @@ async fn world(scraper: Scraper, url: &str) -> World {
         res,
         runtime,
         router,
-        scraper,
+        reader,
         group,
         coach,
         m1,
@@ -406,7 +406,7 @@ impl World {
     /// The coach proposes `athlete` as `member` over REST and the member
     /// confirms; the warm-up read the confirm spawns lands. Returns the id.
     async fn link(&self, athlete: &str, member: &Person) -> Uuid {
-        let before = self.scraper.reads_of(athlete);
+        let before = self.reader.reads_of(athlete);
         let body = json!({
             "provider": "trainingpeaks",
             "provider_athlete_id": athlete,
@@ -430,7 +430,7 @@ impl World {
         assert_eq!(confirmed["read_refused"], Value::Null, "{confirmed}");
 
         let deadline = Instant::now() + SPAWN_DEADLINE;
-        while self.scraper.reads_of(athlete) == before {
+        while self.reader.reads_of(athlete) == before {
             assert!(Instant::now() < deadline, "the warm-up read never happened");
             sleep(Duration::from_millis(50)).await;
         }
@@ -545,7 +545,7 @@ async fn a_link_without_an_email_refuses_the_read(w: &World) -> Uuid {
         "{refused}"
     );
     assert_eq!(
-        w.scraper.reads_of(M1_ATHLETE),
+        w.reader.reads_of(M1_ATHLETE),
         0,
         "refused before any read reached TrainingPeaks"
     );
@@ -573,7 +573,7 @@ async fn a_link_with_another_email_refuses_the_read(w: &World) {
         refused.contains("is not this athlete's verified Dravr email"),
         "{refused}"
     );
-    assert_eq!(w.scraper.reads_of(M3_ATHLETE), 0);
+    assert_eq!(w.reader.reads_of(M3_ATHLETE), 0);
     assert_eq!(
         w.listed(other).await["read_refused"],
         "athlete_email_mismatch"
@@ -585,11 +585,11 @@ async fn a_link_with_another_email_refuses_the_read(w: &World) {
 /// coach, and shows no refusal.
 async fn a_matching_link_reads(w: &World) {
     let bound = w.link(M2_ATHLETE, &w.m2).await;
-    let before = w.scraper.reads_of(M2_ATHLETE);
+    let before = w.reader.reads_of(M2_ATHLETE);
 
     assert_eq!(w.refusal(&w.m2).await, None);
     assert_eq!(w.read(&w.m2).await, 1);
-    assert_eq!(w.scraper.reads_of(M2_ATHLETE), before + 1);
+    assert_eq!(w.reader.reads_of(M2_ATHLETE), before + 1);
     assert_eq!(w.listed(bound).await["read_refused"], Value::Null);
     assert_eq!(w.card_delegation(&w.m2).await["read_refused"], Value::Null);
     assert_eq!(w.status_word(&w.m2).await, "connected");
@@ -602,18 +602,18 @@ async fn relinking_reads_again(w: &World, old: Uuid) {
     let relinked = w.link(M1_ATHLETE, &w.m1).await;
 
     assert_eq!(w.refusal(&w.m1).await, None);
-    let before = w.scraper.reads_of(M1_ATHLETE);
+    let before = w.reader.reads_of(M1_ATHLETE);
     assert_eq!(w.read(&w.m1).await, 1);
-    assert_eq!(w.scraper.reads_of(M1_ATHLETE), before + 1);
+    assert_eq!(w.reader.reads_of(M1_ATHLETE), before + 1);
     assert_eq!(w.listed(relinked).await["read_refused"], Value::Null);
     assert_eq!(w.status_word(&w.m1).await, "connected");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_coach_link_reads_only_while_its_athlete_is_the_member_by_email() {
-    let scraper = Scraper::default();
-    let url = spawn_scraper(scraper.clone()).await;
-    let w = world(scraper, &url).await;
+    let reader = SessionReader::default();
+    let url = spawn_session_reader(reader.clone()).await;
+    let w = world(reader, &url).await;
 
     let old = a_link_without_an_email_refuses_the_read(&w).await;
     a_link_with_another_email_refuses_the_read(&w).await;

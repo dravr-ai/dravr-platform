@@ -25,10 +25,10 @@
 //!   answers, and the reconnect signal is raised only when none could.
 //!
 //! Intervals.icu is a loopback stand-in and TrainingPeaks a stand-in for the
-//! scraper service, both reached through a fresh provider registry; one test
+//! session-read service, both reached through a fresh provider registry; one test
 //! drives every scenario against the pair. Both are test doubles: the real Intervals.icu
-//! requests are pinned in pierre-providers' loopback tests, and the scraper
-//! in dravr-sciotte.
+//! requests are pinned in pierre-providers' loopback tests, and the session
+//! reads in dravr-sciotte.
 
 use crate::common::{offline_provider_config, offline_provider_registry};
 use secrecy::SecretString;
@@ -55,9 +55,9 @@ use tokio::net::TcpListener;
 use uuid::Uuid;
 
 use crate::common::{create_test_server_resources, create_test_user_with_plan};
-use crate::helpers::sciotte_mock::seed_scrape_session;
+use crate::helpers::sciotte_mock::seed_signed_in_session;
 
-/// The TrainingPeaks session the scraper stand-in serves a plan for.
+/// The TrainingPeaks session the session-reader stand-in serves a plan for.
 const ATHLETE_SESSION: &str = "tp-athlete-session";
 /// The TrainingPeaks session the stand-in answers as a coach account.
 const COACH_SESSION: &str = "tp-coach-session";
@@ -65,7 +65,7 @@ const COACH_SESSION: &str = "tp-coach-session";
 const PLANNING_ATHLETE: &str = "i300";
 /// The Intervals.icu athlete whose calendar the stand-in fails to serve.
 const FAILING_ATHLETE: &str = "i301";
-const SCRAPER_PLANNED: &str = "/api/planned-workouts";
+const READER_PLANNED: &str = "/api/planned-workouts";
 
 /// Every request a stand-in received: the path, or the session it named,
 /// and the query.
@@ -148,14 +148,14 @@ fn trainingpeaks_plan() -> Value {
     })
 }
 
-async fn spawn_scraper(seen: Seen) -> String {
+async fn spawn_session_reader(seen: Seen) -> String {
     let app = Router::new()
         .route(
             "/auth/import-session",
             post(|| async { Json(json!({ "session_id": "stub-session" })) }),
         )
         .route(
-            SCRAPER_PLANNED,
+            READER_PLANNED,
             get(
                 |State(seen): State<Seen>,
                  headers: HeaderMap,
@@ -194,15 +194,15 @@ async fn serve(app: Router) -> String {
 }
 
 /// The server's context with Intervals.icu pointed at `intervals_base` and
-/// the scraper service at `scraper_base`.
-async fn resources_against(intervals_base: String, scraper_base: &str) -> Arc<ServerContext> {
+/// the session-read service at `reader_base`.
+async fn resources_against(intervals_base: String, reader_base: &str) -> Arc<ServerContext> {
     let resources = create_test_server_resources().await.unwrap();
     let mut config = offline_provider_config(INTERVALS_ICU).unwrap();
     config.api_base_url = intervals_base;
     // Built as the server builds its registry's sciotte client, so the
-    // TrainingPeaks reads reach the scraper stand-in.
+    // TrainingPeaks reads reach the session-reader stand-in.
     let mut registry = offline_provider_registry()
-        .with_sciotte_reads(startup_reads(&[String::from(scraper_base)], None));
+        .with_sciotte_reads(startup_reads(&[String::from(reader_base)], None));
     registry.set_default_config(INTERVALS_ICU, config);
     let mut context = (*resources).clone();
     context.fitness.provider_registry = Arc::new(registry);
@@ -256,7 +256,7 @@ async fn connect_intervals(res: &Arc<ServerContext>, user_id: Uuid, tenant: Tena
         .unwrap();
 }
 
-/// Connect TrainingPeaks, with a live scraper session when one is given.
+/// Connect TrainingPeaks, with a live signed-in session when one is given.
 async fn connect_trainingpeaks(
     res: &Arc<ServerContext>,
     user_id: Uuid,
@@ -276,7 +276,7 @@ async fn connect_trainingpeaks(
         .await
         .unwrap();
     if let Some(session) = session {
-        seed_scrape_session(res, user_id, tenant, "sciotte_trainingpeaks", session).await;
+        seed_signed_in_session(res, user_id, tenant, "sciotte_trainingpeaks", session).await;
     }
 }
 
@@ -386,12 +386,12 @@ async fn the_athletes_own_intervals_calendar_reaches_the_model(
 
 async fn both_calendars_merge_oldest_first_each_naming_its_provider(
     res: &Arc<ServerContext>,
-    scraper: &Seen,
+    reader: &Seen,
 ) {
     let (user_id, tenant) = athlete(res, "both").await;
     connect_trainingpeaks(res, user_id, tenant, Some(ATHLETE_SESSION)).await;
     connect_intervals(res, user_id, tenant, PLANNING_ATHLETE).await;
-    scraper.lock().unwrap().clear();
+    reader.lock().unwrap().clear();
 
     let body = call(res, user_id, tenant, the_week()).await;
     assert_eq!(
@@ -411,7 +411,7 @@ async fn both_calendars_merge_oldest_first_each_naming_its_provider(
         ]
     );
     assert_eq!(
-        scraper.lock().unwrap().len(),
+        reader.lock().unwrap().len(),
         1,
         "TrainingPeaks was read once"
     );
@@ -431,7 +431,7 @@ async fn both_calendars_merge_oldest_first_each_naming_its_provider(
 
 async fn a_trainingpeaks_coach_account_leaves_intervals_to_answer_alone(
     res: &Arc<ServerContext>,
-    scraper: &Seen,
+    reader: &Seen,
 ) {
     let (user_id, tenant) = athlete(res, "tp-coach").await;
     connect_trainingpeaks(res, user_id, tenant, Some(COACH_SESSION)).await;
@@ -448,7 +448,7 @@ async fn a_trainingpeaks_coach_account_leaves_intervals_to_answer_alone(
         .await
         .unwrap());
     connect_intervals(res, user_id, tenant, PLANNING_ATHLETE).await;
-    scraper.lock().unwrap().clear();
+    reader.lock().unwrap().clear();
 
     let body = call(res, user_id, tenant, the_week()).await;
     assert_eq!(body["providers"], json!([INTERVALS_ICU]), "{body}");
@@ -459,7 +459,7 @@ async fn a_trainingpeaks_coach_account_leaves_intervals_to_answer_alone(
     );
     assert_eq!(body["count"], 2, "{body}");
     assert!(
-        scraper.lock().unwrap().is_empty(),
+        reader.lock().unwrap().is_empty(),
         "the coach account's calendar is never asked for"
     );
 }
@@ -511,14 +511,14 @@ async fn no_readable_calendar_and_a_dead_session_asks_for_the_reconnect(res: &Ar
 
 #[tokio::test]
 async fn planned_calendars_on_intervals_icu_and_trainingpeaks_reach_the_model() {
-    let scraper: Seen = Arc::new(Mutex::new(Vec::new()));
+    let reader: Seen = Arc::new(Mutex::new(Vec::new()));
     let intervals: Seen = Arc::new(Mutex::new(Vec::new()));
-    let scraper_base = spawn_scraper(scraper.clone()).await;
-    let res = resources_against(spawn_intervals(intervals.clone()).await, &scraper_base).await;
+    let reader_base = spawn_session_reader(reader.clone()).await;
+    let res = resources_against(spawn_intervals(intervals.clone()).await, &reader_base).await;
 
     the_athletes_own_intervals_calendar_reaches_the_model(&res, &intervals).await;
-    both_calendars_merge_oldest_first_each_naming_its_provider(&res, &scraper).await;
-    a_trainingpeaks_coach_account_leaves_intervals_to_answer_alone(&res, &scraper).await;
+    both_calendars_merge_oldest_first_each_naming_its_provider(&res, &reader).await;
+    a_trainingpeaks_coach_account_leaves_intervals_to_answer_alone(&res, &reader).await;
     a_failing_calendar_is_listed_while_the_other_answers(&res).await;
     a_dead_session_beside_a_readable_calendar_is_listed_not_raised(&res).await;
     no_readable_calendar_and_a_dead_session_asks_for_the_reconnect(&res).await;

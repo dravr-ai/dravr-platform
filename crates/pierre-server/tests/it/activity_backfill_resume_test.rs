@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 //! Before the ledger, a backfill lived only in the tokio task that ran it: a
-//! scale-to-zero reclaim mid-scrape lost the job, and the athlete who had been
+//! scale-to-zero reclaim mid-read lost the job, and the athlete who had been
 //! told "no need to ask again" got nothing (carnet#460). Now
 //! `spawn_activity_backfill` writes a row before it spawns, a run that reaches
 //! an outcome the athlete is told about deletes it, a transient failure leaves

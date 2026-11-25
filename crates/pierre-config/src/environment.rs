@@ -126,7 +126,7 @@ pub struct ServerConfig {
     /// group coaching snapshots, and chat orchestration context building. Higher
     /// values give more accurate CTL (42-day EMA) at the cost of more API calls and
     /// longer response latency — every additional activity is one more round-trip on
-    /// providers that require per-activity detail fetches (e.g., headless scrapers).
+    /// providers that require per-activity detail fetches (e.g., session reads).
     pub activity_fetch_limit: usize,
     /// Goal management and feasibility configuration
     pub goal_management: GoalManagementConfig,

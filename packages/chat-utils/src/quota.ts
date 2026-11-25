@@ -103,7 +103,7 @@ export function formatCompactNumber(value: number, t: Translate, language: strin
  *
  * The block carries the counter the pre-turn quota check actually measured —
  * its value, its cap, its level and its reset instant. Reading those replaced
- * scraping `/in (\d+) seconds/` out of the refusal sentence, which only ever
+ * extracting `/in (\d+) seconds/` out of the refusal sentence, which only ever
  * matched English and told the athlete nothing about which cap they had hit.
  */
 export function quotaNoticeBanner(notice: ReplyNotice, resetFallback: string, language: string): QuotaBanner {

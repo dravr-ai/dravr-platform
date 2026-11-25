@@ -74,8 +74,8 @@ mod tests {
     use super::super::{convert_activity, SciotteTarget};
     use super::SciotteActivity;
 
-    /// A scraped Strava activity with the given duration fields.
-    fn scraped(duration: u64, elapsed: Option<u64>) -> SciotteActivity {
+    /// A session-read Strava activity with the given duration fields.
+    fn session_row(duration: u64, elapsed: Option<u64>) -> SciotteActivity {
         let mut payload = serde_json::json!({
             "id": "16001",
             "name": "Bûcheronner !",
@@ -94,7 +94,7 @@ mod tests {
 
     #[test]
     fn a_detail_page_splits_into_elapsed_duration_and_moving_time() {
-        let activity = convert_activity(&scraped(4_080, Some(13_320)), SciotteTarget::Strava);
+        let activity = convert_activity(&session_row(4_080, Some(13_320)), SciotteTarget::Strava);
         assert_eq!(
             activity.duration_seconds(),
             13_320,
@@ -115,7 +115,7 @@ mod tests {
 
     #[test]
     fn a_stated_moving_time_stands_beside_the_elapsed_duration() {
-        let mut row = scraped(13_320, None);
+        let mut row = session_row(13_320, None);
         row.moving_time_seconds = Some(4_080);
         let activity = convert_activity(&row, SciotteTarget::Strava);
         assert_eq!(
@@ -141,7 +141,7 @@ mod tests {
     #[test]
     fn a_row_without_a_longer_elapsed_time_claims_no_moving_time() {
         for elapsed in [None, Some(4_080), Some(1_000)] {
-            let activity = convert_activity(&scraped(4_080, elapsed), SciotteTarget::Strava);
+            let activity = convert_activity(&session_row(4_080, elapsed), SciotteTarget::Strava);
             assert_eq!(activity.duration_seconds(), 4_080, "{elapsed:?}");
             assert_eq!(activity.moving_time_seconds(), None, "{elapsed:?}");
         }
@@ -149,7 +149,7 @@ mod tests {
 
     #[test]
     fn a_named_gear_carries_the_id_the_list_read() {
-        let mut row = scraped(4_080, None);
+        let mut row = session_row(4_080, None);
         row.gear_name = Some(" Gravel (2 140 km) ".to_owned());
         row.gear_id = Some("b9000001".to_owned());
         let gear = convert_activity(&row, SciotteTarget::Strava)

@@ -581,9 +581,10 @@ mod tests {
     fn a_source_is_named_by_the_service_not_the_backend() {
         use pierre_core::models::{ActivityBuilder, SportType};
 
-        let scraped = ActivityBuilder::new("g1", "Run", SportType::Run, now(), 3_600, "sciotte")
-            .source("garmin")
-            .build();
+        let session_run =
+            ActivityBuilder::new("g1", "Run", SportType::Run, now(), 3_600, "sciotte")
+                .source("garmin")
+                .build();
         let whoop =
             ActivityBuilder::new("w1", "Run", SportType::Run, now(), 1_800, "whoop").build();
         let recorded = |a: &Activity| RecordedActivity {
@@ -596,7 +597,7 @@ mod tests {
             average_hr_bpm: None,
         };
 
-        let sources: Vec<String> = sessions_by_source(&[scraped, whoop], recorded)
+        let sources: Vec<String> = sessions_by_source(&[session_run, whoop], recorded)
             .into_iter()
             .map(|own| own.source)
             .collect();

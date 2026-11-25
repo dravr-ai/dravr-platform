@@ -290,8 +290,8 @@ mod owed_grant {
     use super::*;
 
     use crate::garmin_sign_in_test::{
-        athlete, hold_grant, hold_session, server_with_garmin_oauth, spawn_switchable_scraper,
-        ScraperSwitch, LIVE_SESSION,
+        athlete, hold_grant, hold_session, server_with_garmin_oauth,
+        spawn_switchable_session_reader, SessionReaderSwitch, LIVE_SESSION,
     };
     use pierre_core::constants::oauth::providers as oauth_providers;
     use pierre_middleware::provider_link_token::HOSTED_SIGNIN_PATH;
@@ -303,8 +303,9 @@ mod owed_grant {
     /// authorization link (JF's directive 8), never the hosted sign-in.
     #[tokio::test]
     async fn a_garmin_calendar_whose_grant_is_dead_is_refused_with_its_authorization_link() {
-        let (scraper, _calls) = spawn_switchable_scraper(ScraperSwitch::default()).await;
-        let resources = server_with_garmin_oauth(&scraper).await;
+        let (reader, _calls) =
+            spawn_switchable_session_reader(SessionReaderSwitch::default()).await;
+        let resources = server_with_garmin_oauth(&reader).await;
         let (user_id, _user, tenant, token) = athlete(&resources).await;
         hold_session(&resources, user_id, tenant, LIVE_SESSION).await;
         hold_grant(&resources, user_id, tenant).await;

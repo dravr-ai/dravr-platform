@@ -280,7 +280,7 @@ impl fmt::Display for ConnectionType {
 ///
 /// A TrainingPeaks coach account keeps no training calendar of its own, so a
 /// read of the account's own workouts has nothing to return; knowing the role
-/// lets a read refuse in words before any scrape, and lets the recency
+/// lets a read refuse in words before any session read, and lets the recency
 /// election prefer the user's other connections. `None` on a connection means
 /// the role has not been read yet.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

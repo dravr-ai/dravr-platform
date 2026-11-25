@@ -110,11 +110,11 @@ pub struct ProviderRegistry {
     /// signing OAuth app or personal API key. `None` counts nothing (a
     /// registry built for a test).
     request_limiter: Option<Arc<ProviderRateLimiter>>,
-    /// The read services every sciotte backend calls the scraper through,
+    /// The read services every sciotte backend calls the service through,
     /// shared so they reuse one connection pool and one cached identity token
     /// per service. A session's calls go to the one its id picks. `None` (a
     /// registry built for a test, or a server started with no service
-    /// configured) makes every scrape report the service missing.
+    /// configured) makes every session read report the service missing.
     #[cfg(feature = "provider-sciotte")]
     sciotte_reads: Option<SciotteReads>,
     /// The client sign-ins go through: their own service when one is
@@ -299,10 +299,10 @@ impl ProviderRegistry {
     #[cfg(not(feature = "provider-coros"))]
     fn register_coros(_registry: &mut Self) {}
 
-    /// Register Sciotte web scraping provider
+    /// Register Sciotte session-read provider
     ///
     /// Sciotte uses browser-based session cookies for authentication (not OAuth).
-    /// It runs as a separate sidecar service and provides activity data scraped
+    /// It runs as a separate sidecar service and provides activity data read
     /// from fitness platform HTML pages (Strava, Garmin, etc.).
     #[cfg(feature = "provider-sciotte")]
     fn register_sciotte(registry: &mut Self) {
@@ -324,7 +324,7 @@ impl ProviderRegistry {
     #[cfg(not(feature = "provider-sciotte"))]
     fn register_sciotte(_registry: &mut Self) {}
 
-    /// Register Sciotte Garmin Connect provider (in-process web scraping)
+    /// Register Sciotte Garmin Connect provider (session read)
     #[cfg(feature = "provider-sciotte")]
     fn register_sciotte_garmin(registry: &mut Self) {
         registry.register_descriptor(
@@ -347,7 +347,7 @@ impl ProviderRegistry {
     #[cfg(not(feature = "provider-sciotte"))]
     fn register_sciotte_garmin(_registry: &mut Self) {}
 
-    /// Register Sciotte TrainingPeaks provider (web scraping on the scraper service)
+    /// Register Sciotte TrainingPeaks provider (session read on the service)
     #[cfg(feature = "provider-sciotte")]
     fn register_sciotte_trainingpeaks(registry: &mut Self) {
         registry.register_descriptor(
@@ -370,7 +370,7 @@ impl ProviderRegistry {
     #[cfg(not(feature = "provider-sciotte"))]
     fn register_sciotte_trainingpeaks(_registry: &mut Self) {}
 
-    /// Register the COROS Training Hub mirror (sciotte scraping), the
+    /// Register the COROS Training Hub mirror (sciotte session read), the
     /// `coros` backend until the partner API (carnet#509) is approved.
     #[cfg(feature = "provider-sciotte")]
     fn register_sciotte_coros(registry: &mut Self) {
@@ -597,7 +597,7 @@ impl ProviderRegistry {
     /// The descriptor whose terms govern data stamped `name`: the one
     /// registered under it, or else the one whose backend reads that service
     /// ([`ProviderDescriptor::origin`]) — `trainingpeaks` planned workouts and
-    /// `coros` sources answer to the scraper that reads them (carnet#767).
+    /// `coros` sources answer to the session reader that reads them (carnet#767).
     /// Several readers of one service are first in name order; the registry
     /// test pins that they declare the same terms.
     pub(crate) fn terms_descriptor(&self, name: &str) -> Option<&dyn ProviderDescriptor> {
@@ -640,9 +640,9 @@ impl ProviderTerms for ProviderRegistry {
             .map(ProviderDescriptor::audience_policy)
     }
 
-    /// Every sciotte backend stamps its items `sciotte` with the scraped
+    /// Every sciotte backend stamps its items `sciotte` with the session-read
     /// service as `source`, while `sciotte` is also the name of its Strava
-    /// backend: a Garmin activity it scraped is the `sciotte_garmin` backend's
+    /// backend: a Garmin activity it read is the `sciotte_garmin` backend's
     /// to govern, not the Strava one's (carnet#765). An unstamped read names
     /// its backend itself.
     #[cfg(feature = "provider-sciotte")]
@@ -652,8 +652,8 @@ impl ProviderTerms for ProviderRegistry {
         source: Option<&str>,
     ) -> Option<TransportPolicy> {
         let backend = match source {
-            Some(scraped) if provider == oauth_providers::SCIOTTE => {
-                SciotteTarget::from_target_param(&scraped.to_ascii_lowercase()).provider_name()
+            Some(origin) if provider == oauth_providers::SCIOTTE => {
+                SciotteTarget::from_target_param(&origin.to_ascii_lowercase()).provider_name()
             }
             _ => provider,
         };
@@ -787,7 +787,7 @@ impl ProviderRegistry {
         self
     }
 
-    /// This registry, calling the scraper's read services through `reads`
+    /// This registry, calling the sciotte read services through `reads`
     /// from every sciotte backend it builds and handing the same services to
     /// the other sciotte calls through [`Self::sciotte_reads`]. The server
     /// builds them once, at startup; `None` leaves the service unconfigured.
@@ -799,7 +799,7 @@ impl ProviderRegistry {
         self
     }
 
-    /// The server's read services, for the calls to the scraper that are not
+    /// The server's read services, for the calls to the service that are not
     /// a provider's own reads (session drops, health reads, profile reads),
     /// or `None` when no service is configured.
     #[cfg(feature = "provider-sciotte")]
@@ -812,7 +812,7 @@ impl ProviderRegistry {
     ///
     /// # Errors
     ///
-    /// The not-configured error when the server started with no scraper
+    /// The not-configured error when the server started with no session-read
     /// service.
     #[cfg(feature = "provider-sciotte")]
     pub fn require_sciotte_reads(&self) -> AppResult<&SciotteReads> {
@@ -845,7 +845,7 @@ impl ProviderRegistry {
                 .is_some_and(|reads| reads.names_primary(session_id))
     }
 
-    /// The client a sign-in calls the scraper service through.
+    /// The client a sign-in calls the service through.
     ///
     /// Every step of one sign-in must reach the instance that parked its
     /// browser, so it is the sign-in service's client when one is configured,
@@ -912,7 +912,7 @@ impl ProviderRegistry {
     /// The budget every read of `user_id`'s signed-in session at `backend`
     /// is counted in: that athlete's session-read windows, by tier
     /// (carnet#1661). `None` when this registry counts nothing, or `backend`
-    /// is not one of the scraper's sessions.
+    /// is not one of the service's sessions.
     #[must_use]
     pub fn session_read_budget(&self, backend: &str, user_id: Uuid) -> Option<RequestBudget> {
         self.request_limiter

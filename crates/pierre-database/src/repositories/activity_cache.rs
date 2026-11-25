@@ -21,13 +21,13 @@ use super::activity_route_tracks::StoredRouteOutcome;
 #[derive(Debug, Clone, Copy)]
 pub struct BackfillCoverage {
     /// Deepest floor (unix seconds) a backfill has confirmed covered. When the
-    /// scrape returned the whole requested window (not count-capped) this is the
+    /// read returned the whole requested window (not count-capped) this is the
     /// requested `after`, not the oldest activity fetched — so a sparse year
     /// whose oldest activity sits just after Jan 1 00:00 still reads as covered.
     pub oldest_reached_ts: i64,
     /// `true` only when the provider EXPLICITLY reports its feed exhausted
     /// (next-page disabled), so no older data exists and a deeper ask is covered
-    /// without re-scraping. The date-floored scrape path cannot prove this (it
+    /// without reading again. The date-floored session-read path cannot prove this (it
     /// stops at `after`, never below it), so it leaves this `false`; the gate
     /// still honors a `true` set by a provider that does report feed-end.
     pub hit_feed_end: bool,
@@ -163,7 +163,7 @@ pub struct StoredActivityRow {
 ///
 /// Every provider fetch writes through here; chat reads serve the cached rows
 /// immediately and trigger a background revalidation when the data is stale.
-/// This removes the slow per-request scrape (notably Garmin/sciotte) from the
+/// This removes the slow per-request session read (notably Garmin/sciotte) from the
 /// chat critical path and avoids redundant API calls for token providers.
 #[async_trait]
 pub trait ActivityCacheRepository: Send + Sync {

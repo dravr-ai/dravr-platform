@@ -63,7 +63,7 @@ async fn serving_a_covered_window_from_cache_does_not_restamp_its_freshness() {
         .expect("list tenants");
     let tenant = tenants.first().expect("user has a tenant").id;
 
-    // sciotte is a scrape-backed mirror backend — the only kind whose deep
+    // sciotte is a session-read mirror backend — the only kind whose deep
     // windows route to the durable cache instead of an inline provider fetch.
     resources
         .common
@@ -264,9 +264,9 @@ fn a_window_ending_now_is_an_open_head_not_a_closed_window() {
 /// Observed 2026-09-18: the capture had just been fixed to read elevation, a
 /// "cette semaine" turn triggered the stale-head refresh, and the live read came
 /// back with 811 m on the athlete's 26 km trail run. The merge kept the cached
-/// copy — scraped before the fix, no elevation — because its id was already in
+/// copy — read before the fix, no elevation — because its id was already in
 /// the window, and appended only the one activity the cache had never seen. The
-/// coach answered "non dispo" on twelve of thirteen rows from a scrape that had
+/// coach answered "non dispo" on twelve of thirteen rows from a session read that had
 /// returned all thirteen.
 #[test]
 fn a_live_row_replaces_the_cached_copy_of_the_same_activity() {

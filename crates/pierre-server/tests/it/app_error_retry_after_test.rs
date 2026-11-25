@@ -111,7 +111,7 @@ async fn test_unparseable_reset_instant_attaches_nothing() {
 #[tokio::test]
 async fn test_backpressure_503_renders_retry_after() {
     let error =
-        AppError::new(ErrorCode::ExternalRateLimited, "the scraper is busy").with_retry_after(7);
+        AppError::new(ErrorCode::ExternalRateLimited, "the service is busy").with_retry_after(7);
     assert_eq!(error.retry_after_secs(), Some(7));
     let (status, retry_after, body) = render(error).await;
     assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);

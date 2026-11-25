@@ -62,7 +62,7 @@ pub(super) async fn reads_pushed_store(
 ///
 /// The session is then the provider's primary (carnet#1494), so a walk of
 /// the athlete's connections reads the session and passes over the grant:
-/// the API is never read beside the scrape, and a grant flagged behind a
+/// the API is never read beside the session, and a grant flagged behind a
 /// serving session asks nothing of the athlete. A row whose tenant does not
 /// parse is not one.
 pub(crate) async fn connection_grant_beside_session(

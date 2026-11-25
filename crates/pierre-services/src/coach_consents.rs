@@ -611,11 +611,11 @@ mod tests {
 
     use super::*;
 
-    /// A scrape-connected Garmin athlete's session and connection are both
+    /// A signed-in Garmin athlete's session and connection are both
     /// stored under the mirror's slug, so checking Garmin by its own name
     /// alone would miss nearly every Garmin athlete.
     #[test]
-    fn an_own_garmin_source_counts_under_its_scraped_mirror_too() {
+    fn an_own_garmin_source_counts_under_its_session_read_mirror_too() {
         let registry = ProviderRegistry::new();
         for link in [INTERVALS_ICU, TRAININGPEAKS] {
             let backends = own_wellness_backends(&registry, link);

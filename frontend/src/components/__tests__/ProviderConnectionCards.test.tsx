@@ -839,7 +839,7 @@ describe('ProviderConnectionCards — Intervals.icu', () => {
   });
 });
 
-// JF, 2026-10-27: "We will not drop scrape at all, this is major." Importing
+// JF, 2026-10-27: session reads are never dropped, "this is major." Importing
 // your own data arrives beside the connections, never in place of one: the
 // Strava and Garmin credential logins stay offered on the same cards, and
 // each card the server names an export for carries its own export link.

@@ -6,7 +6,7 @@
 
 //! Tag walks (carnet#1622).
 //
-// The scraper is a loopback stand-in (a test double, per the repo's mock
+// The session reader is a loopback stand-in (a test double, per the repo's mock
 // rule): its `/api/activity-search` serves the pages the test gives it, in
 // pages of twenty, and records every request it sees.
 #![cfg(all(
@@ -58,9 +58,9 @@ const DEADLINE: Duration = Duration::from_secs(30);
 /// Rows one stand-in page holds.
 const PAGE_ROWS: usize = 20;
 
-/// What the scraper stand-in serves and saw.
+/// What the session reader stand-in serves and saw.
 #[derive(Default)]
-struct MockScraper {
+struct MockSessionReader {
     /// The search pages, page one first; a page past them is empty.
     pages: Mutex<Vec<Vec<Value>>>,
     /// The pages it answers `head_complete: false` for, once each.
@@ -69,7 +69,7 @@ struct MockScraper {
     searches: Mutex<Vec<(u32, Option<u32>)>>,
 }
 
-impl MockScraper {
+impl MockSessionReader {
     fn searched_pages(&self) -> Vec<u32> {
         self.searches
             .lock()
@@ -82,7 +82,7 @@ impl MockScraper {
 
 /// `GET /api/activity-search`.
 async fn search(
-    State(mock): State<Arc<MockScraper>>,
+    State(mock): State<Arc<MockSessionReader>>,
     Query(query): Query<BTreeMap<String, String>>,
 ) -> Json<Value> {
     let page: u32 = query.get("page").and_then(|p| p.parse().ok()).unwrap_or(1);
@@ -103,10 +103,10 @@ async fn search(
     }))
 }
 
-async fn mock_scraper(pages: Vec<Vec<Value>>) -> (String, Arc<MockScraper>) {
-    let mock = Arc::new(MockScraper {
+async fn mock_session_reader(pages: Vec<Vec<Value>>) -> (String, Arc<MockSessionReader>) {
+    let mock = Arc::new(MockSessionReader {
         pages: Mutex::new(pages),
-        ..MockScraper::default()
+        ..MockSessionReader::default()
     });
     let app = Router::new()
         .route(
@@ -133,7 +133,7 @@ fn run_start(n: usize) -> Timestamp {
         - Elapsed::days(i64::try_from(n).unwrap())
 }
 
-/// Search page row `n`, as the scraper lists it, with the athlete's tag map
+/// Search page row `n`, as the service lists it, with the athlete's tag map
 /// when `tags` is given.
 fn listed(n: usize, tags: Option<Value>) -> Value {
     let mut row = json!({
@@ -177,10 +177,10 @@ fn stored_run_under(n: usize, key: &str) -> Activity {
     .build()
 }
 
-/// A server reaching the scraper stand-in, and an athlete holding the live
+/// A server reaching the session reader stand-in, and an athlete holding the live
 /// session, whose history walk ended and whose store holds `stored` runs.
-async fn athlete(scraper_url: &str, stored: usize) -> (Arc<ServerContext>, Uuid, TenantId) {
-    let mut config = common::test_server_config_with_sciotte(scraper_url);
+async fn athlete(reader_url: &str, stored: usize) -> (Arc<ServerContext>, Uuid, TenantId) {
+    let mut config = common::test_server_config_with_sciotte(reader_url);
     common::set_server_app(&mut config, "strava", "walk_client", "walk_secret");
     let resources = common::create_test_server_resources_with_config(config)
         .await
@@ -282,7 +282,7 @@ fn race() -> [TaggedBy; 1] {
 /// asked again for the connection.
 #[tokio::test]
 async fn a_walk_fills_the_tags_of_the_whole_stored_history() {
-    let (url, scraper) = mock_scraper(pages_of(50, true)).await;
+    let (url, reader) = mock_session_reader(pages_of(50, true)).await;
     let (resources, user_id, tenant) = athlete(&url, 50).await;
     history_walked(&resources, user_id, tenant).await;
     let runtime: Arc<dyn ToolRuntime> = resources.clone();
@@ -309,12 +309,12 @@ async fn a_walk_fills_the_tags_of_the_whole_stored_history() {
         );
     }
     assert_eq!(
-        scraper.searched_pages(),
+        reader.searched_pages(),
         vec![1, 2, 3, 4],
         "bug: the walk did not read one page a call, in order, to the empty one"
     );
     assert!(
-        scraper
+        reader
             .searches
             .lock()
             .unwrap()
@@ -333,7 +333,7 @@ async fn a_walk_fills_the_tags_of_the_whole_stored_history() {
 /// the stored history, and no row is created for what it lists.
 #[tokio::test]
 async fn a_walk_ends_past_the_stored_history_and_creates_no_row() {
-    let (url, scraper) = mock_scraper(pages_of(60, true)).await;
+    let (url, reader) = mock_session_reader(pages_of(60, true)).await;
     let (resources, user_id, tenant) = athlete(&url, 20).await;
     history_walked(&resources, user_id, tenant).await;
     let runtime: Arc<dyn ToolRuntime> = resources.clone();
@@ -350,7 +350,7 @@ async fn a_walk_ends_past_the_stored_history_and_creates_no_row() {
     );
 
     assert_eq!(
-        scraper.searched_pages(),
+        reader.searched_pages(),
         vec![1, 2],
         "bug: the walk read on past the stored history"
     );
@@ -374,7 +374,7 @@ async fn a_walk_ends_past_the_stored_history_and_creates_no_row() {
 async fn a_walk_never_replaces_a_stored_tag_read_with_none() {
     let mut rows = pages_of(3, false);
     rows[0][2] = listed(2, Some(json!({ "12": true })));
-    let (url, _scraper) = mock_scraper(rows).await;
+    let (url, _reader) = mock_session_reader(rows).await;
     let (resources, user_id, tenant) = athlete(&url, 3).await;
     let kept = ActivityBuilder::new(
         run_id(0),
@@ -417,12 +417,12 @@ async fn a_walk_never_replaces_a_stored_tag_read_with_none() {
     );
 }
 
-/// A page the scraper did not read whole is read again at the same page and
+/// A page the service did not read whole is read again at the same page and
 /// never counted: the cursor does not move past it.
 #[tokio::test]
-async fn a_page_the_scraper_did_not_read_whole_is_read_again() {
-    let (url, scraper) = mock_scraper(pages_of(40, true)).await;
-    scraper.short_once.lock().unwrap().insert(2);
+async fn a_page_the_service_did_not_read_whole_is_read_again() {
+    let (url, reader) = mock_session_reader(pages_of(40, true)).await;
+    reader.short_once.lock().unwrap().insert(2);
     let (resources, user_id, tenant) = athlete(&url, 40).await;
     history_walked(&resources, user_id, tenant).await;
     let runtime: Arc<dyn ToolRuntime> = resources.clone();
@@ -435,7 +435,7 @@ async fn a_page_the_scraper_did_not_read_whole_is_read_again() {
     );
 
     assert_eq!(
-        scraper.searched_pages(),
+        reader.searched_pages(),
         vec![1, 2, 2, 3],
         "bug: the short page was skipped or the walk lost its place"
     );
@@ -454,18 +454,18 @@ async fn a_page_the_scraper_did_not_read_whole_is_read_again() {
 /// its window, owing the eleventh.
 #[tokio::test]
 async fn a_walk_reads_no_more_than_the_session_burst() {
-    let (url, scraper) = mock_scraper(pages_of(600, true)).await;
+    let (url, reader) = mock_session_reader(pages_of(600, true)).await;
     let (resources, user_id, tenant) = athlete(&url, 600).await;
     history_walked(&resources, user_id, tenant).await;
     let runtime: Arc<dyn ToolRuntime> = resources.clone();
 
     ask_tag_walk(&runtime, user_id, tenant, SESSION).await;
     let deadline = Instant::now() + DEADLINE;
-    while scraper.searched_pages().len() < 10 {
+    while reader.searched_pages().len() < 10 {
         assert!(
             Instant::now() < deadline,
             "bug: the walk read only {} pages",
-            scraper.searched_pages().len()
+            reader.searched_pages().len()
         );
         paused_retries_due(&resources, user_id).await;
         age_job_rows(&resources, user_id).await;
@@ -479,7 +479,7 @@ async fn a_walk_reads_no_more_than_the_session_burst() {
     }
 
     assert_eq!(
-        scraper.searched_pages(),
+        reader.searched_pages(),
         (1..=10).collect::<Vec<u32>>(),
         "bug: the walk did not read ten pages once each, in order, and wait"
     );
@@ -506,7 +506,7 @@ async fn a_walk_reads_no_more_than_the_session_burst() {
 /// only for a backend that is a counted session.
 #[tokio::test]
 async fn a_walk_is_asked_only_after_the_history_walk_and_only_for_a_session() {
-    let (url, scraper) = mock_scraper(pages_of(20, true)).await;
+    let (url, reader) = mock_session_reader(pages_of(20, true)).await;
     let (resources, user_id, tenant) = athlete(&url, 20).await;
     let runtime: Arc<dyn ToolRuntime> = resources.clone();
 
@@ -526,9 +526,9 @@ async fn a_walk_is_asked_only_after_the_history_walk_and_only_for_a_session() {
         "bug: a walk row was recorded before the history ended"
     );
     assert_eq!(
-        scraper.searched_pages(),
+        reader.searched_pages(),
         Vec::<u32>::new(),
-        "bug: the scraper was asked before the history ended"
+        "bug: the service was asked before the history ended"
     );
 
     end_history_walk(&resources.common.repos, user_id, tenant, SESSION, &lease).await;
@@ -549,7 +549,7 @@ async fn a_walk_is_asked_only_after_the_history_walk_and_only_for_a_session() {
 /// same.
 #[tokio::test]
 async fn a_connection_with_no_history_walk_row_still_gets_its_tag_walk() {
-    let (url, _scraper) = mock_scraper(pages_of(20, true)).await;
+    let (url, _reader) = mock_session_reader(pages_of(20, true)).await;
     let (resources, user_id, tenant) = athlete(&url, 20).await;
     let runtime: Arc<dyn ToolRuntime> = resources.clone();
     assert!(
@@ -589,7 +589,7 @@ async fn a_connection_with_no_history_walk_row_still_gets_its_tag_walk() {
 /// the stored history, and its runs are tagged where they are stored.
 #[tokio::test]
 async fn a_walk_amends_a_history_split_across_the_session_and_the_grant() {
-    let (url, scraper) = mock_scraper(pages_of(40, true)).await;
+    let (url, reader) = mock_session_reader(pages_of(40, true)).await;
     let (resources, user_id, tenant) = athlete(&url, 0).await;
     history_walked(&resources, user_id, tenant).await;
     let cache = &resources.common.repos.activity_cache;
@@ -618,7 +618,7 @@ async fn a_walk_amends_a_history_split_across_the_session_and_the_grant() {
     );
 
     assert_eq!(
-        scraper.searched_pages(),
+        reader.searched_pages(),
         vec![1, 2, 3],
         "bug: a page whose runs sit under the grant ended the walk"
     );

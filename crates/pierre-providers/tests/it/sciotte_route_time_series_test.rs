@@ -7,10 +7,10 @@
 //! Sciotte route → `TimeSeriesData` conversion contract.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-//! A scraped Garmin/Strava activity carries its GPS track in
+//! A session-read Garmin/Strava activity carries its GPS track in
 //! `Activity.route`, and route rendering reads geometry from cageux's
 //! `TimeSeriesData` — `gps_coordinates` plus `altitude`. This binary drives the
-//! provider against a loopback scraper stub and pins the boundary between the
+//! provider against a loopback session reader stub and pins the boundary between the
 //! two: the coordinate list arrives verbatim, the elevation series arrives
 //! index-aligned as `f32`, and an elevation series whose length disagrees with
 //! the track is dropped rather than passed on misaligned.
@@ -39,7 +39,7 @@ const TRACK: [(f64, f64); 4] = [
 /// Elevations index-aligned with [`TRACK`].
 const ELEVATIONS: [f64; 4] = [312.5, 344.0, 389.25, 421.75];
 
-/// Serve the scraper endpoints the provider calls on a single-activity fetch:
+/// Serve the service endpoints the provider calls on a single-activity fetch:
 /// `POST /auth/import-session` re-hydrates the session, then
 /// `GET /api/activities/{id}` returns the detail payload. Two activity ids are
 /// served — `aligned` carries a well-formed track, `misaligned` carries an
@@ -47,7 +47,7 @@ const ELEVATIONS: [f64; 4] = [312.5, 344.0, 389.25, 421.75];
 ///
 /// Answers `connection: close` so each request lands on its own accept, and
 /// keeps serving until the test drops the listener with the runtime.
-fn spawn_scraper_stub(listener: TcpListener) {
+fn spawn_session_reader_stub(listener: TcpListener) {
     tokio::spawn(async move {
         while let Ok((mut stream, _)) = listener.accept().await {
             let mut buf = vec![0_u8; 8192];
@@ -72,8 +72,8 @@ fn spawn_scraper_stub(listener: TcpListener) {
     });
 }
 
-/// A scraper detail payload for `id` whose route carries [`TRACK`] and the
-/// given elevation series. Optional fields the scraper omits stay absent, as
+/// A service detail payload for `id` whose route carries [`TRACK`] and the
+/// given elevation series. Optional fields the service omits stay absent, as
 /// they do on a real detail extract that found no power or weather.
 fn activity_json(id: &str, elevations: &[f64]) -> String {
     let coordinates: Vec<[f64; 2]> = TRACK.iter().map(|(lat, lon)| [*lat, *lon]).collect();
@@ -85,7 +85,7 @@ fn activity_json(id: &str, elevations: &[f64]) -> String {
         "duration_seconds": 3_142,
         "distance_meters": 8_450.0,
         "elevation_gain": 421.0,
-        "provider": "strava-scraper",
+        "provider": "strava",
         "route": {
             "coordinates": coordinates,
             "altitudes_meters": elevations,
@@ -142,14 +142,14 @@ async fn connected_provider(base_url: &str) -> Box<dyn FitnessProvider> {
 }
 
 #[tokio::test]
-async fn a_scraped_gps_track_becomes_index_aligned_time_series_data() {
+async fn a_session_read_gps_track_becomes_index_aligned_time_series_data() {
     let listener = TcpListener::bind("127.0.0.1:0")
         .await
         .expect("bind loopback"); // Safe: ephemeral port on loopback
     let addr = listener
         .local_addr()
         .expect("bound listener has an address"); // Safe: listener is bound
-    spawn_scraper_stub(listener);
+    spawn_session_reader_stub(listener);
 
     let provider = connected_provider(&format!("http://{addr}")).await;
 
@@ -161,13 +161,17 @@ async fn a_scraped_gps_track_becomes_index_aligned_time_series_data() {
 
     let series = activity
         .time_series_data()
-        .expect("a scraped route must reach cageux TimeSeriesData"); // Safe: asserted behaviour of this test
+        .expect("a session-read route must reach cageux TimeSeriesData"); // Safe: asserted behaviour of this test
 
     let coordinates = series
         .gps_coordinates
         .as_ref()
         .expect("the track populates gps_coordinates"); // Safe: asserted behaviour of this test
-    assert_eq!(coordinates.len(), 4, "every scraped point must survive");
+    assert_eq!(
+        coordinates.len(),
+        4,
+        "every session-read point must survive"
+    );
     assert_eq!(
         coordinates.as_slice(),
         TRACK
@@ -191,7 +195,7 @@ async fn a_scraped_gps_track_becomes_index_aligned_time_series_data() {
 
     assert!(
         series.timestamps.is_empty(),
-        "a scraped track has no time axis; a sample index is never served as seconds: {:?}",
+        "a session-read track has no time axis; a sample index is never served as seconds: {:?}",
         series.timestamps
     );
     assert!(

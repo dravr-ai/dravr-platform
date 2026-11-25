@@ -21,14 +21,14 @@
 //! storage records each row it hands a session out of ([`SessionRows`]) and
 //! the reader finds it again by the session's id.
 //!
-//! The service's answers map onto the scraper errors the adapters branch on:
-//! a dead session is [`ScraperError::SessionExpired`] (the sync reports expired
+//! The service's answers map onto the session-read errors the adapters branch on:
+//! a dead session is [`SessionReadError::SessionExpired`] (the sync reports expired
 //! credentials instead of an empty day), and a load-shed is
-//! [`ScraperError::Busy`] carrying the service's own wait.
+//! [`SessionReadError::Busy`] carrying the service's own wait.
 //!
 //! Every read is first admitted against its owner's session-read windows at
 //! the session's backend (carnet#1661), the athlete whose row the session was
-//! handed out of. A refusal is [`ScraperError::Busy`] with the wait: the one
+//! handed out of. A refusal is [`SessionReadError::Busy`] with the wait: the one
 //! error that stops enforme's day loop, so the days read before it are kept
 //! and the next sync resumes from the refused day. Inside [`capped_scope`]
 //! the first refused day is recorded, so a copy that reads a fixed window
@@ -38,14 +38,12 @@
 //! ([`RefusedSessionReader`]). enforme reads each data type on its own, so a
 //! dead session was asked once per data type, and once more after the
 //! credential refresh a sync allows, each read a headless sign-in attempt on
-//! the scraper that fails the same way. The refusal is held until the
+//! the service that fails the same way. The refusal is held until the
 //! session's row is handed out to the next sync ([`SessionRows::remember`]).
 
 use async_trait::async_trait;
 use dravr_enforme::error::{EnformeError, EnformeResult};
-use dravr_enforme::providers::sciotte_reader::{
-    AuthSession, DailySummary, DailySummaryReader, ScraperError, ScraperResult,
-};
+use dravr_enforme::providers::sciotte_reader::{AuthSession, DailySummary, DailySummaryReader};
 use dravr_tronc::dates::CivilDate;
 use pierre_core::constants::oauth::providers::TOKEN_TYPE_SESSION;
 use pierre_core::errors::{AppError, ErrorCode};
@@ -55,6 +53,7 @@ use pierre_providers::request_budget::{
     self, refused_before_send, session_read_disabled, ProviderRateLimiter, RequestBudget,
 };
 use pierre_providers::sciotte_error::{require_client, shed_retry_after_secs, to_app_error};
+use pierre_providers::sciotte_names::{SessionReadError, SessionReadResult};
 use pierre_providers::sciotte_provider::SciotteReads;
 use pierre_providers::sciotte_session::{read_imported_persisting, store_over_row};
 use pierre_providers::token_writeback::{self, StoredTokenRow};
@@ -113,12 +112,12 @@ fn note_capped(capped: CappedDay) {
     }
 }
 
-/// The token rows the health sync handed a scrape session out of.
+/// The token rows the health sync handed a signed-in session out of.
 ///
 /// A session rotated on a read is written back over the row it came from.
 ///
 /// Each connection holds one entry, the session its row carried when last
-/// handed out, so the registry is as large as the set of scrape connections
+/// handed out, so the registry is as large as the set of signed-in connections
 /// synced and an entry is replaced, never added, when a row's session changes.
 #[derive(Clone)]
 pub struct SessionRows {
@@ -159,7 +158,7 @@ impl SessionRows {
     }
 
     /// Record that `token`'s session is handed out to a sync, when it is a
-    /// scrape session; any other token is left out.
+    /// signed-in session; any other token is left out.
     ///
     /// A new sync reads the session afresh: a refusal an earlier sync met
     /// ([`Self::refuse`]) is forgotten, for this session and for the one the
@@ -229,7 +228,7 @@ impl SessionRows {
     }
 
     /// Whether a read found the session `token` carries dead since its row
-    /// was last handed out; `false` for a token that is no scrape session.
+    /// was last handed out; `false` for a token that is no signed-in session.
     #[must_use]
     pub(crate) fn refused_token(&self, token: &UserOAuthToken) -> bool {
         token.token_type == TOKEN_TYPE_SESSION
@@ -276,9 +275,9 @@ impl SessionRows {
 /// A [`DailySummaryReader`] that reads a session the service refused no more
 /// until its row is handed out again ([`SessionRows::remember`]).
 ///
-/// The first [`ScraperError::SessionExpired`] or [`ScraperError::Auth`] a
+/// The first [`SessionReadError::SessionExpired`] or [`SessionReadError::Auth`] a
 /// session meets is recorded ([`SessionRows::refuse`]); every later read of
-/// that session answers [`ScraperError::SessionExpired`] without reaching
+/// that session answers [`SessionReadError::SessionExpired`] without reaching
 /// `inner`. Every health sync reads through it, whichever reader backs it.
 pub(crate) struct RefusedSessionReader {
     inner: Arc<dyn DailySummaryReader>,
@@ -307,16 +306,16 @@ impl DailySummaryReader for RefusedSessionReader {
         provider: &str,
         session: &AuthSession,
         date: CivilDate,
-    ) -> ScraperResult<DailySummary> {
+    ) -> SessionReadResult<DailySummary> {
         if self.rows.refused(&session.session_id) {
-            return Err(ScraperError::SessionExpired {
+            return Err(SessionReadError::SessionExpired {
                 reason: "the session was refused earlier in this sync; not read again".to_owned(),
             });
         }
         let read = self.inner.daily_summary(provider, session, date).await;
         if matches!(
             read,
-            Err(ScraperError::SessionExpired { .. } | ScraperError::Auth { .. })
+            Err(SessionReadError::SessionExpired { .. } | SessionReadError::Auth { .. })
         ) {
             self.rows.refuse(&session.session_id);
         }
@@ -324,7 +323,7 @@ impl DailySummaryReader for RefusedSessionReader {
     }
 }
 
-/// Reads daily summaries on the dravr-sciotte scraper service.
+/// Reads daily summaries on the dravr-sciotte service.
 ///
 /// Every read goes through the read services it was built with
 /// ([`SciotteReads`]), on the one each session names: every day a sync reads
@@ -349,7 +348,7 @@ impl fmt::Debug for SciotteServiceReader {
 }
 
 impl SciotteServiceReader {
-    /// A reader calling the scraper's read services through `reads`; `None`
+    /// A reader calling the sciotte read services through `reads`; `None`
     /// (no service configured) makes every read report that. A session
     /// rotated on a read is written back over the row `rows` handed it out of.
     #[must_use]
@@ -371,12 +370,12 @@ impl SciotteServiceReader {
     }
 
     /// Admit the read of `session`'s `day` against its owner's session-read
-    /// windows: [`ScraperError::Busy`] with the wait when they refuse it,
+    /// windows: [`SessionReadError::Busy`] with the wait when they refuse it,
     /// the day recorded for [`capped_scope`] unless the refusing cap is `0`
     /// ([`session_read_disabled`]): a copy cannot resume from a day no window
     /// will ever read, so it fails instead. A session no handed-out row
     /// carries has no owner to count it for.
-    async fn admit(&self, session: &AuthSession, day: CivilDate) -> ScraperResult<()> {
+    async fn admit(&self, session: &AuthSession, day: CivilDate) -> SessionReadResult<()> {
         let Some(limiter) = &self.read_budget else {
             return Ok(());
         };
@@ -395,12 +394,12 @@ impl SciotteServiceReader {
                             retry_after_secs,
                         });
                     }
-                    ScraperError::Busy {
+                    SessionReadError::Busy {
                         reason: e.message,
                         retry_after_secs,
                     }
                 }
-                _ => scraper_error(e),
+                _ => session_read_error(e),
             })
     }
 }
@@ -412,13 +411,13 @@ impl DailySummaryReader for SciotteServiceReader {
         provider: &str,
         session: &AuthSession,
         date: CivilDate,
-    ) -> ScraperResult<DailySummary> {
+    ) -> SessionReadResult<DailySummary> {
         let remote = require_client(
             self.reads
                 .as_ref()
                 .map(|reads| reads.for_session(&session.session_id)),
         )
-        .map_err(scraper_error)?;
+        .map_err(session_read_error)?;
         self.admit(session, date).await?;
         read_imported_persisting(
             remote,
@@ -428,11 +427,11 @@ impl DailySummaryReader for SciotteServiceReader {
             |rotated| async move { self.rows.store_rotated(&rotated).await },
         )
         .await
-        .map_err(|e| scraper_error(to_app_error(e)))
+        .map_err(|e| session_read_error(to_app_error(e)))
     }
 }
 
-/// Whether `token` is a scrape session whose connection in `tenant` is
+/// Whether `token` is a signed-in session whose connection in `tenant` is
 /// flagged for a reconnect (or revoked).
 ///
 /// A sync hands such a session out to no read: it is read again only after a
@@ -458,21 +457,21 @@ pub(crate) async fn session_flagged(
     Ok(connection_needs_reauth(&connections, &token.provider))
 }
 
-/// The scraper error a failed remote read is, by what the service answered.
+/// The session-read error a failed remote read is, by what the service answered.
 #[must_use]
-pub fn scraper_error(error: AppError) -> ScraperError {
+pub fn session_read_error(error: AppError) -> SessionReadError {
     if matches!(error.code, ErrorCode::ProviderAuthRequired) {
-        return ScraperError::SessionExpired {
+        return SessionReadError::SessionExpired {
             reason: error.message,
         };
     }
     if let Some(retry_after_secs) = shed_retry_after_secs(&error) {
-        return ScraperError::Busy {
+        return SessionReadError::Busy {
             reason: error.message,
             retry_after_secs,
         };
     }
-    ScraperError::Internal {
+    SessionReadError::Internal {
         reason: error.message,
     }
 }
@@ -508,7 +507,7 @@ mod tests {
         .unwrap_or_else(|e| panic!("bug: the session fixture does not parse: {e}"))
     }
 
-    /// `user_id`'s Garmin session row, as the scraper login stores it.
+    /// `user_id`'s Garmin session row, as the hosted login stores it.
     fn garmin_session_row(user_id: Uuid) -> UserOAuthToken {
         let now = Timestamp::now();
         UserOAuthToken {
@@ -568,7 +567,7 @@ mod tests {
             .await
             .unwrap_or_else(|e| panic!("bug: the day could not be spent: {e}"));
         let refused = request_budget::in_background(reader.admit(&session(), november(1))).await;
-        let Err(ScraperError::Busy {
+        let Err(SessionReadError::Busy {
             retry_after_secs, ..
         }) = refused
         else {
@@ -617,8 +616,8 @@ mod tests {
             .await;
         assert!(third.is_ok(), "bug: the day's last read was refused");
         assert!(
-            matches!(fourth, Err(ScraperError::Busy { .. }))
-                && matches!(fifth, Err(ScraperError::Busy { .. })),
+            matches!(fourth, Err(SessionReadError::Busy { .. }))
+                && matches!(fifth, Err(SessionReadError::Busy { .. })),
             "bug: a read past the first fill's day was not Busy: {fourth:?} {fifth:?}"
         );
         let capped = capped.unwrap_or_else(|| panic!("bug: the scope recorded no refused day"));

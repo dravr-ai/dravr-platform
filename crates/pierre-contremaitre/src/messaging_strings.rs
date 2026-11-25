@@ -247,7 +247,7 @@ pub const KEY_SCOPE_REFUSAL: &str = "messaging.scope.refusal";
 /// Key: canonical refusal for missing-capability requests.
 ///
 /// Emitted when the user asks for a capability the assistant does not have
-/// (web scraping, image generation, etc.). Interpolated into the system
+/// (reading arbitrary web pages, image generation, etc.). Interpolated into the system
 /// prompt at turn-time for deterministic output.
 pub const KEY_CAPABILITY_REFUSAL: &str = "messaging.capability.refusal";
 /// Key: the language this turn is conducted in.
@@ -685,7 +685,7 @@ pub const KEY_CONNECT_TITLE: &str = "messaging.connect.title";
 /// Key: a connected fitness provider needs to be (re)authenticated.
 ///
 /// Surfaced deterministically by the chat pipeline's auth-recovery
-/// short-circuit when the underlying scrape returns
+/// short-circuit when the underlying session read returns
 /// `AppError::ProviderAuthRequired`. `{0}` = provider display name
 /// (e.g. `Garmin Connect`, `Strava`); `{1}` = one-time hosted-login URL.
 pub const KEY_PROVIDER_REAUTH_REQUIRED: &str = "messaging.provider.reauth_required";

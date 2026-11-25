@@ -562,7 +562,7 @@ export default function UserSettings({
       }
       if (!result.timestamp || Date.now() - result.timestamp > OAUTH_RESULT_FRESH_MS) return;
       // The card's display name for the backend the connect launched. The
-      // server withholds the raw card of a backend with a scrape mirror (native
+      // server withholds the raw card of a backend with a session-read mirror (native
       // `garmin`), so that backend is matched to the card it serves through the
       // card's `connected_backend`. Native `strava` reads as the Strava card's
       // label, and a backend no card serves by the brand table's name for its id.

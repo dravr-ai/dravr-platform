@@ -497,7 +497,7 @@ impl ProviderToolRouter {
             // An account reset asked to delete the groups the account owns
             // archives each through the owner's own delete.
             admin_context.group_service = Some(Arc::clone(&resources.common.group_service));
-            // The admin clone stores a scrape session through the same
+            // The admin clone stores a signed-in session through the same
             // write and data warm-up a sciotte login runs.
             #[cfg(all(feature = "provider-sciotte", feature = "protocol-rest"))]
             {

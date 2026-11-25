@@ -529,7 +529,7 @@ describe('the Home tab over the wire', () => {
   });
 
   // The server says stale only when it started a refresh — for a flagged
-  // scrape session, its throttled retry — so then, and only then, the
+  // signed-in session, its throttled retry — so then, and only then, the
   // section says it is checking, and nothing else.
   it('says it is checking, and nothing more, while the server retries a flagged session', async () => {
     stub = installHttpStub(

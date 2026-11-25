@@ -322,8 +322,8 @@ const STORED_START_DIGITS: u16 = 6;
 ///   after `held_before`; `kept_around` is grouped as every reader's dedup
 ///   groups it ([`merge_duplicates`]), and the newest candidate whose group
 ///   holds no workout started at or before `held_before` lands. An id that
-///   two providers share in the window counts as held — a scrape keeps the
-///   provider's own id — so that case fails closed.
+///   two providers share in the window counts as held — a session read keeps
+///   the provider's own id — so that case fails closed.
 #[must_use]
 pub fn landed_session(
     provider: &str,
@@ -487,14 +487,14 @@ mod tests {
     }
 
     #[test]
-    fn the_timed_copy_of_a_held_date_only_scrape_does_not_land() {
+    fn the_timed_copy_of_a_held_date_only_session_read_does_not_land() {
         let midnight = Timestamp::parse_from_rfc3339("2026-11-18T00:00:00Z").unwrap();
-        let scrape = ride("t1", "sciotte_strava", midnight);
+        let session_copy = ride("t1", "sciotte_strava", midnight);
         let api = ride("s1", "strava", midnight + Elapsed::hours(10));
         assert_eq!(
-            land("strava", &[&api], true, Some(midnight), &[&scrape, &api]),
+            land("strava", &[&api], true, Some(midnight), &[&session_copy, &api]),
             None,
-            "bug: the API's timed copy of a held date-only scrape of the same day must not land"
+            "bug: the API's timed copy of a held date-only session read of the same day must not land"
         );
     }
 
@@ -594,15 +594,21 @@ mod tests {
     }
 
     #[test]
-    fn an_api_copy_sharing_a_held_scrapes_id_does_not_land() {
+    fn an_api_copy_sharing_a_held_session_reads_id_does_not_land() {
         let midnight = Timestamp::parse_from_rfc3339("2026-11-18T00:00:00Z").unwrap();
-        // A scrape of Strava keeps Strava's own id, under the sciotte key.
-        let scrape = ride("1234567", "sciotte", midnight);
+        // A session read of Strava keeps Strava's own id, under the sciotte key.
+        let session_copy = ride("1234567", "sciotte", midnight);
         let api = ride("1234567", "strava", midnight + Elapsed::hours(10));
         assert_eq!(
-            land("strava", &[&api], true, Some(midnight), &[&scrape, &api]),
+            land(
+                "strava",
+                &[&api],
+                true,
+                Some(midnight),
+                &[&session_copy, &api]
+            ),
             None,
-            "bug: the API copy of a held scrape with the same id must not land"
+            "bug: the API copy of a held session read with the same id must not land"
         );
         let run = ActivityBuilder::new(
             "1234567",
@@ -614,7 +620,13 @@ mod tests {
         )
         .build();
         assert_eq!(
-            land("strava", &[&run], true, Some(midnight), &[&scrape, &run]),
+            land(
+                "strava",
+                &[&run],
+                true,
+                Some(midnight),
+                &[&session_copy, &run]
+            ),
             None,
             "bug: an id another source's held row carries must fail closed"
         );

@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! On 2026-09-25 the capture sweep flagged an athlete's scrape session and
+//! On 2026-09-25 the capture sweep flagged an athlete's signed-in session and
 //! nobody was told: the sweep's flag path sent nothing, and only the OAuth
 //! refresh path ever notified. Every test here drives a real flagging path
 //! against the real connection rows, the real notification pipeline and a
@@ -391,11 +391,11 @@ async fn a_sweep_flag_tells_the_athlete_once_in_the_app_and_on_every_linked_chat
     assert_eq!(f.app_notices().await.len(), 1, "no second notification");
 }
 
-/// A scrape session reconnects on the hosted login page, so each chat gets
-/// its own one-time link, minted for that chat's channel and opening the
+/// A signed-in session reconnects on the hosted login page, so each chat gets
+/// its own one-time link, minted for its channel and opening the
 /// provider the athlete connected — never the backend slug.
 #[tokio::test]
-async fn a_scrape_session_notice_links_each_chat_to_its_hosted_login() {
+async fn a_signed_in_session_notice_links_each_chat_to_its_hosted_login() {
     let f = fixture().await;
     f.connect("sciotte_garmin").await;
     f.link_chat("whatsapp", "15145550102").await;

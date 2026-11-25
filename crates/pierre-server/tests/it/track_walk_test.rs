@@ -12,7 +12,7 @@
 // A detail read keeps the route it carried as the ride's track, but the rides
 // a detail walk read before it did, and the rides no detail read reached (a
 // session's list row carries no route), hold no track. The track walk reads
-// each once through the athlete's session. The scraper is a loopback
+// each once through the athlete's session. The session reader is a loopback
 // stand-in (a test double, per the repo's mock rule) that records every
 // detail read, in order, so "once", "newest first" and "the detail walk
 // first" are its log.
@@ -40,6 +40,7 @@ use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::routing::{get, post};
 use axum::{Json, Router};
+use dravr_barrage::parse::polyline::encode_polyline;
 use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::models::{ActivityBuilder, ConnectionType, SportType, TenantId};
@@ -48,7 +49,6 @@ use pierre_database::repositories::{
     ActivityBackfillJobRow, ActivityDetail, BackfillJobKind, BackfillJobState, DetailWalkRow,
     JobProgress, StoredRouteTrack,
 };
-use pierre_fitness_compute::encode_polyline;
 use pierre_fitness_compute::route_track::RouteTrack;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_providers::request_budget::{
@@ -73,7 +73,7 @@ const SESSION: &str = "sciotte";
 /// The trailhead every fixture ride starts at.
 const TRAILHEAD: (f64, f64) = (45.6012, -73.8044);
 
-/// What the scraper stand-in answers for a ride's detail read. Every answer
+/// What the session reader stand-in answers for a ride's detail read. Every answer
 /// carries the ride's segment block, as sciotte 2.1 reads it: a re-read
 /// keeps the ride's efforts read.
 #[derive(Clone)]
@@ -84,18 +84,18 @@ enum Detail {
     NoGps,
     /// A detail with no `route` key: the page was read before its map.
     NoRoute,
-    /// A `503`: the scraper is down.
+    /// A `503`: the service is down.
     Fails,
 }
 
-/// The scraper stand-in: each ride's answer, and every detail read it saw.
+/// The session reader stand-in: each ride's answer, and every detail read it saw.
 #[derive(Default)]
-struct Scraper {
+struct SessionReader {
     answers: Mutex<HashMap<String, Detail>>,
     reads: Mutex<Vec<String>>,
 }
 
-impl Scraper {
+impl SessionReader {
     fn answer(&self, start: i64, detail: Detail) {
         self.answers
             .lock()
@@ -129,13 +129,13 @@ fn loop_track() -> Vec<(f64, f64)> {
 }
 
 /// `GET /api/activities/{id}`: the ride whose id is its start, as
-/// [`Scraper::answer`] set it.
+/// [`SessionReader::answer`] set it.
 async fn detail(
-    State(scraper): State<Arc<Scraper>>,
+    State(reader): State<Arc<SessionReader>>,
     Path(id): Path<String>,
 ) -> Result<Json<Value>, StatusCode> {
-    scraper.reads.lock().unwrap().push(id.clone());
-    let answer = scraper
+    reader.reads.lock().unwrap().push(id.clone());
+    let answer = reader
         .answers
         .lock()
         .unwrap()
@@ -174,27 +174,27 @@ async fn detail(
     Ok(Json(body))
 }
 
-async fn spawn_scraper() -> (String, Arc<Scraper>) {
-    let scraper = Arc::new(Scraper::default());
+async fn spawn_session_reader() -> (String, Arc<SessionReader>) {
+    let reader = Arc::new(SessionReader::default());
     let app = Router::new()
         .route(
             "/auth/import-session",
             post(|| async { Json(json!({ "session_id": "cap-verified-session" })) }),
         )
         .route("/api/activities/{id}", get(detail))
-        .with_state(Arc::clone(&scraper));
+        .with_state(Arc::clone(&reader));
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     tokio::spawn(async move {
         axum::serve(listener, app).await.unwrap();
     });
-    (format!("http://{addr}"), scraper)
+    (format!("http://{addr}"), reader)
 }
 
-/// A server reaching the scraper stand-in, its session walks counted in the
+/// A server reaching the session reader stand-in, its session walks counted in the
 /// walk windows of its Strava app.
-async fn session_server(scraper_url: &str) -> Arc<ServerContext> {
-    let mut config = common::test_server_config_with_sciotte(scraper_url);
+async fn session_server(reader_url: &str) -> Arc<ServerContext> {
+    let mut config = common::test_server_config_with_sciotte(reader_url);
     common::set_server_app(&mut config, "strava", "walk_client", "walk_secret");
     let resources = common::create_test_server_resources_with_config(config)
         .await
@@ -360,15 +360,15 @@ async fn day_count(resources: &Arc<ServerContext>, key: &str) -> i64 {
 /// copies of the same rides are neither read nor written.
 #[tokio::test]
 async fn a_ride_read_for_its_efforts_before_its_route_was_kept_is_read_once_more() {
-    let (scraper_url, scraper) = spawn_scraper().await;
-    let resources = session_server(&scraper_url).await;
+    let (reader_url, reader) = spawn_session_reader().await;
+    let resources = session_server(&reader_url).await;
     let (user_id, tenant) = session_athlete(&resources, "track-walk").await;
     let (other_user, other_tenant) = session_athlete(&resources, "track-walk-other").await;
     let now = Timestamp::now().epoch_seconds();
     let (unrendered, no_gps, drawn) = (now - 30 * DAY, now - 20 * DAY, now - 10 * DAY);
-    scraper.answer(drawn, Detail::Route);
-    scraper.answer(no_gps, Detail::NoGps);
-    scraper.answer(unrendered, Detail::NoRoute);
+    reader.answer(drawn, Detail::Route);
+    reader.answer(no_gps, Detail::NoGps);
+    reader.answer(unrendered, Detail::NoRoute);
     store_walked_rides(&resources, user_id, tenant, &[unrendered, no_gps, drawn]).await;
     store_walked_rides(
         &resources,
@@ -402,7 +402,7 @@ async fn a_ride_read_for_its_efforts_before_its_route_was_kept_is_read_once_more
         unrendered.to_string(),
     ];
     assert_eq!(
-        scraper.reads(),
+        reader.reads(),
         order,
         "bug: each walked ride is not read exactly once, newest first"
     );
@@ -457,7 +457,7 @@ async fn a_ride_read_for_its_efforts_before_its_route_was_kept_is_read_once_more
     );
     track_walk_ended(&resources, user_id, tenant).await;
     assert_eq!(
-        scraper.reads(),
+        reader.reads(),
         order,
         "bug: a ride was read for its track a second time"
     );
@@ -468,8 +468,8 @@ async fn a_ride_read_for_its_efforts_before_its_route_was_kept_is_read_once_more
 /// answer that settled nothing is read.
 #[tokio::test]
 async fn a_ride_whose_track_is_settled_is_never_read_again() {
-    let (scraper_url, scraper) = spawn_scraper().await;
-    let resources = session_server(&scraper_url).await;
+    let (reader_url, reader) = spawn_session_reader().await;
+    let resources = session_server(&reader_url).await;
     let (user_id, tenant) = session_athlete(&resources, "track-walk-settled").await;
     let now = Timestamp::now().epoch_seconds();
     let (drawn, no_gps, overview, never_read_drawn, unavailable) = (
@@ -479,7 +479,7 @@ async fn a_ride_whose_track_is_settled_is_never_read_again() {
         now - 10 * DAY,
         now - 5 * DAY,
     );
-    scraper.answer(unavailable, Detail::Route);
+    reader.answer(unavailable, Detail::Route);
     store_walked_rides(
         &resources,
         user_id,
@@ -574,7 +574,7 @@ async fn a_ride_whose_track_is_settled_is_never_read_again() {
         "bug: the track walk did not end: {ended:?}"
     );
     assert_eq!(
-        scraper.reads(),
+        reader.reads(),
         vec![unavailable.to_string()],
         "bug: the track walk read a ride whose track is settled"
     );
@@ -590,13 +590,13 @@ async fn a_ride_whose_track_is_settled_is_never_read_again() {
 /// settled no GPS. Its efforts are stored by the same read.
 #[tokio::test]
 async fn a_ride_no_detail_read_reached_is_read_for_its_track() {
-    let (scraper_url, scraper) = spawn_scraper().await;
-    let resources = session_server(&scraper_url).await;
+    let (reader_url, reader) = spawn_session_reader().await;
+    let resources = session_server(&reader_url).await;
     let (user_id, tenant) = session_athlete(&resources, "track-walk-never").await;
     let now = Timestamp::now().epoch_seconds();
     let (no_gps, drawn) = (now - 60 * DAY, now - 20 * DAY);
-    scraper.answer(drawn, Detail::Route);
-    scraper.answer(no_gps, Detail::NoGps);
+    reader.answer(drawn, Detail::Route);
+    reader.answer(no_gps, Detail::NoGps);
     store_rides(&resources, user_id, tenant, SESSION, &[no_gps, drawn]).await;
     open_window(&resources).await;
 
@@ -613,7 +613,7 @@ async fn a_ride_no_detail_read_reached_is_read_for_its_track() {
         "bug: the track walk did not end: {ended:?}"
     );
     assert_eq!(
-        scraper.reads(),
+        reader.reads(),
         vec![drawn.to_string(), no_gps.to_string()],
         "bug: a ride no detail read reached is not read for its track, once, newest first"
     );
@@ -745,14 +745,14 @@ async fn walked_row(
 /// track is not, and the connection is never walked a third time.
 #[tokio::test]
 async fn a_track_walk_cleared_by_the_migration_reads_the_rides_the_first_rule_passed() {
-    let (scraper_url, scraper) = spawn_scraper().await;
-    let resources = session_server(&scraper_url).await;
+    let (reader_url, reader) = spawn_session_reader().await;
+    let resources = session_server(&reader_url).await;
     let (user_id, tenant) = session_athlete(&resources, "track-walk-cleared").await;
     let (other_user, other_tenant) = session_athlete(&resources, "track-walk-cleared-other").await;
     let now = Timestamp::now().epoch_seconds();
     let (never_read, reached) = (now - 40 * DAY, now - 10 * DAY);
-    scraper.answer(never_read, Detail::Route);
-    scraper.answer(reached, Detail::Route);
+    reader.answer(never_read, Detail::Route);
+    reader.answer(reached, Detail::Route);
     store_rides(&resources, user_id, tenant, SESSION, &[never_read]).await;
     // The first walk read this one and kept its track.
     store_walked_rides(&resources, user_id, tenant, &[reached]).await;
@@ -820,7 +820,7 @@ async fn a_track_walk_cleared_by_the_migration_reads_the_rides_the_first_rule_pa
         "bug: the fresh walk did not end: {ended:?}"
     );
     assert_eq!(
-        scraper.reads(),
+        reader.reads(),
         vec![never_read.to_string()],
         "bug: the fresh walk skipped the ride no detail read reached, or re-read one whose track is stored"
     );
@@ -836,7 +836,7 @@ async fn a_track_walk_cleared_by_the_migration_reads_the_rides_the_first_rule_pa
     );
     track_walk_ended(&resources, user_id, tenant).await;
     assert_eq!(
-        scraper.reads(),
+        reader.reads(),
         vec![never_read.to_string()],
         "bug: a ride was read for its track again after the fresh walk"
     );
@@ -847,13 +847,13 @@ async fn a_track_walk_cleared_by_the_migration_reads_the_rides_the_first_rule_pa
 /// day's window.
 #[tokio::test]
 async fn a_track_walk_of_never_detailed_rides_waits_for_the_walk_day() {
-    let (scraper_url, scraper) = spawn_scraper().await;
-    let resources = session_server(&scraper_url).await;
+    let (reader_url, reader) = spawn_session_reader().await;
+    let resources = session_server(&reader_url).await;
     let (user_id, tenant) = session_athlete(&resources, "track-walk-budget").await;
     let now = Timestamp::now().epoch_seconds();
     let (older, newer) = (now - 30 * DAY, now - 10 * DAY);
-    scraper.answer(older, Detail::Route);
-    scraper.answer(newer, Detail::Route);
+    reader.answer(older, Detail::Route);
+    reader.answer(newer, Detail::Route);
     store_rides(&resources, user_id, tenant, SESSION, &[older, newer]).await;
     open_window(&resources).await;
     let app = budget_counter_key(oauth_providers::STRAVA, "walk_client");
@@ -903,7 +903,7 @@ async fn a_track_walk_of_never_detailed_rides_waits_for_the_walk_day() {
     )
     .await;
     assert_eq!(
-        scraper.reads(),
+        reader.reads(),
         Vec::<String>::new(),
         "bug: the track walk read past the athlete's spent walk day"
     );
@@ -923,7 +923,7 @@ async fn a_track_walk_of_never_detailed_rides_waits_for_the_walk_day() {
         "bug: the track walk did not end once a new day opened: {ended:?}"
     );
     assert_eq!(
-        scraper.reads(),
+        reader.reads(),
         vec![newer.to_string(), older.to_string()],
         "bug: the paused track walk did not read the rides once the day opened"
     );
@@ -934,13 +934,13 @@ async fn a_track_walk_of_never_detailed_rides_waits_for_the_walk_day() {
 /// owed through the same session, whatever their starts.
 #[tokio::test]
 async fn the_rides_no_detail_read_reached_go_before_the_re_reads() {
-    let (scraper_url, scraper) = spawn_scraper().await;
-    let resources = session_server(&scraper_url).await;
+    let (reader_url, reader) = spawn_session_reader().await;
+    let resources = session_server(&reader_url).await;
     let (user_id, tenant) = session_athlete(&resources, "track-walk-order").await;
     let now = Timestamp::now().epoch_seconds();
     let (never_read, walked) = (now - 20 * DAY, now - 5 * DAY);
-    scraper.answer(never_read, Detail::Route);
-    scraper.answer(walked, Detail::Route);
+    reader.answer(never_read, Detail::Route);
+    reader.answer(walked, Detail::Route);
     store_rides(&resources, user_id, tenant, SESSION, &[never_read]).await;
     store_walked_rides(&resources, user_id, tenant, &[walked]).await;
     open_window(&resources).await;
@@ -963,26 +963,26 @@ async fn the_rides_no_detail_read_reached_go_before_the_re_reads() {
         "bug: the track walk did not end once the detail walk had: {ended:?}"
     );
     assert_eq!(
-        scraper.reads(),
+        reader.reads(),
         vec![never_read.to_string(), walked.to_string()],
         "bug: a newer ride was read again for its track before the older one no read reached"
     );
 }
 
-/// A re-read the scraper fails stops the walk at that ride, which is read
+/// A re-read the service fails stops the walk at that ride, which is read
 /// again only up to the attempt cap before the walk ends short; asked again,
 /// the walk starts from where it stopped, so the ride it read before the
 /// failing one is never read twice.
 #[tokio::test]
 async fn a_failed_re_read_ends_the_walk_short_and_the_next_ask_resumes_below_it() {
-    let (scraper_url, scraper) = spawn_scraper().await;
-    let resources = session_server(&scraper_url).await;
+    let (reader_url, reader) = spawn_session_reader().await;
+    let resources = session_server(&reader_url).await;
     let (user_id, tenant) = session_athlete(&resources, "track-walk-fails").await;
     let now = Timestamp::now().epoch_seconds();
     let (older, failing, newest) = (now - 20 * DAY, now - 10 * DAY, now - 5 * DAY);
-    scraper.answer(newest, Detail::NoRoute);
-    scraper.answer(failing, Detail::Fails);
-    scraper.answer(older, Detail::Route);
+    reader.answer(newest, Detail::NoRoute);
+    reader.answer(failing, Detail::Fails);
+    reader.answer(older, Detail::Route);
     store_walked_rides(&resources, user_id, tenant, &[older, failing, newest]).await;
     open_window(&resources).await;
 
@@ -996,25 +996,25 @@ async fn a_failed_re_read_ends_the_walk_short_and_the_next_ask_resumes_below_it(
     assert_eq!(
         ended.state,
         BackfillJobState::Incomplete,
-        "bug: a ride the scraper keeps failing did not end the walk short: {ended:?}"
+        "bug: a ride the service keeps failing did not end the walk short: {ended:?}"
     );
     assert_eq!(
         ended.before_ts,
         Some(newest),
         "bug: the walk did not stop above the failing ride"
     );
-    let failed_reads = scraper.reads_of(failing);
+    let failed_reads = reader.reads_of(failing);
     assert!(
         (1..=usize::try_from(MAX_BACKFILL_ATTEMPTS).unwrap() + 1).contains(&failed_reads),
         "bug: the failing ride was read {failed_reads} times, past the attempt cap"
     );
     assert_eq!(
-        scraper.reads_of(older),
+        reader.reads_of(older),
         0,
         "bug: the walk read past a ride it failed on"
     );
 
-    scraper.answer(failing, Detail::Route);
+    reader.answer(failing, Detail::Route);
     assert_eq!(
         ask_track_walk(&runtime, user_id, tenant, SESSION).await,
         TrackWalkAsked::Started,
@@ -1027,7 +1027,7 @@ async fn a_failed_re_read_ends_the_walk_short_and_the_next_ask_resumes_below_it(
         "bug: the resumed walk did not end: {ended:?}"
     );
     assert_eq!(
-        scraper.reads_of(newest),
+        reader.reads_of(newest),
         1,
         "bug: the resumed walk read again a ride the first one read"
     );

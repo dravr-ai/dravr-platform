@@ -434,7 +434,7 @@ async fn a_bound_agent_introduces_itself_once() {
 #[tokio::test]
 async fn a_reply_the_platform_replaced_introduced_nobody() {
     let fx = setup("intro-replaced@test.com").await;
-    // A scrape connection with no stored session: reading it fails
+    // A signed-in connection with no stored session: reading it fails
     // auth-shaped, so the platform answers with the reconnect re-challenge. An
     // athlete with no connection at all gets the model's own answer instead.
     fx.resources

@@ -19,7 +19,7 @@
 //!
 //! A kept detail read's route is kept too, as the activity's stored track
 //! (`keep_route`): a sciotte list row carries no route overview, so the
-//! scraped detail's `route` is the only line the places path can form a
+//! session-read detail's `route` is the only line the places path can form a
 //! place from (carnet#1679).
 //!
 //! `get_activities` reads every served list's cached rows once
@@ -102,7 +102,7 @@ pub fn answered_key<'a>(listed_under: &'a str, detailed: &'a Activity) -> &'a st
 /// grant listed is a `strava` row in a `sciotte` window, and its detail
 /// belongs beside that row, as the activity view keeps it, whichever half of
 /// the pair read the detail ([`answered_key`] keeps a grant's answer under the grant). Any
-/// other summary is `serving`'s own row: a capture names the scraper
+/// other summary is `serving`'s own row: a capture names the service
 /// (`sciotte`), never the session key it is cached under.
 #[must_use]
 pub fn listed_key<'a>(serving: &'a str, listed_by: &str) -> &'a str {
@@ -136,7 +136,7 @@ pub async fn store_detail(
     let copy = copy_under_grant(repos, store, tenant_id, user_id, answered, detailed);
     // A session's answer (named `sciotte` by the activity it returns, never
     // the grant's `strava`) kept under the grant's key must not stamp that
-    // row's segments as read: scraped efforts never hide the row from the
+    // row's segments as read: session-read efforts never hide the row from the
     // session-first detail walk, which files them under the session
     // (carnet#1603). The rest of the detail is kept.
     let session_answer_on_grant_row =
@@ -196,7 +196,7 @@ pub(crate) enum DetailKept {
 ///
 /// The session's answer for a ride only the grant listed is the session's
 /// own copy (`copy` writes it), never a change to the grant's row, so
-/// disconnecting the session takes the scraped data and leaves the grant's
+/// disconnecting the session takes the session-read data and leaves the grant's
 /// rows as the API wrote them (carnet#1603).
 pub(crate) async fn store_detail_answered_by(
     repos: &RepositoryRegistry,
@@ -239,11 +239,11 @@ pub(crate) async fn store_detail_answered_by(
 /// under `answered`, the key its detail is kept under (carnet#1679).
 ///
 /// The read's time series is its route: an API provider's recorded streams,
-/// or a scraped detail's `route` folded into them. It is turned into a track
+/// or a session-read detail's `route` folded into them. It is turned into a track
 /// exactly as the Home map's route read turns one (trimmed past the privacy
 /// radius, simplified to a map's points) and stored through the one
 /// route-track write, which never replaces a drawn track. A stream
-/// set without coordinates — a scraped route whose coordinate list is empty,
+/// set without coordinates — a session-read route whose coordinate list is empty,
 /// Strava's streams of a trainer ride — settles `no_gps`. A read with no time
 /// series at all proves nothing (a page read before its map rendered) and
 /// stores nothing. Only a provider's own answer reaches here: a read that
@@ -618,7 +618,7 @@ mod tests {
         assert_eq!(
             answered_key("sciotte_garmin", &read_by("sciotte")),
             "sciotte_garmin",
-            "a capture names the scraper, never the grant"
+            "a capture names the service, never the grant"
         );
         assert_eq!(
             answered_key("intervals_icu", &read_by("strava")),
@@ -669,7 +669,7 @@ mod tests {
         assert_eq!(
             listed_key("sciotte_garmin", "sciotte"),
             "sciotte_garmin",
-            "bug: a Garmin capture names the scraper, and lives under the session's key"
+            "bug: a Garmin capture names the service, and lives under the session's key"
         );
         assert_eq!(
             listed_key("sciotte_garmin", "garmin"),

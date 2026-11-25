@@ -284,7 +284,7 @@ pub(crate) struct DisconnectArgs {
     pub token: Option<SecretString>,
 }
 
-/// `user clone-provider` — copy one account's scrape-session provider
+/// `user clone-provider` — copy one account's signed-in-session provider
 /// connection onto another.
 #[derive(Debug, Args)]
 pub(crate) struct CloneProviderArgs {
@@ -434,7 +434,7 @@ pub(crate) async fn disconnect_provider(
     Ok(())
 }
 
-/// Copy `from`'s scrape-session connection for `provider` onto `to`
+/// Copy `from`'s signed-in-session connection for `provider` onto `to`
 /// over the admin API.
 ///
 /// # Errors

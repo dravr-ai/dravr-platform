@@ -1296,10 +1296,10 @@ test.describe('Athlete Home', () => {
   test('a stale cache is asked for again until an answer is fresh, each ask after its own delay', async ({ page }) => {
     await page.clock.install({ time: new Date('2026-09-24T10:00:00Z') });
     await signInAthlete(page);
-    // The token provider's refresh lands within seconds; the scraped one
+    // The token provider's refresh lands within seconds; the session-read one
     // takes longer, and the cache stays stale until it has answered too.
     const fromToken = activity('act-6', { name: 'Lunch run', start_date: '2026-09-24T09:00:00Z' });
-    const fromScrape = activity('act-7', {
+    const fromSession = activity('act-7', {
       name: 'Dawn ride',
       provider: 'garmin',
       sport_type: 'ride',
@@ -1310,7 +1310,7 @@ test.describe('Athlete Home', () => {
         { activities: ACTIVITIES, as_of: '2026-09-22T06:00:00Z', stale: true },
         { activities: [fromToken, ...ACTIVITIES.slice(0, 4)], as_of: '2026-09-22T06:00:00Z', stale: true },
         {
-          activities: [fromScrape, fromToken, ...ACTIVITIES.slice(0, 3)],
+          activities: [fromSession, fromToken, ...ACTIVITIES.slice(0, 3)],
           as_of: '2026-09-24T10:00:40Z',
           stale: false,
         },

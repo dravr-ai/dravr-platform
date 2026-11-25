@@ -11,8 +11,8 @@
 //!
 //! The stale-while-revalidate path spawns a background refresh when a user's
 //! cached activities are stale. Concurrent chat turns must collapse onto a
-//! single refresh — the per-profile Chrome `SingletonLock` serializes scrapes,
-//! so N un-deduped revalidations would queue N ~2-minute scrapes behind one
+//! single refresh — the per-profile Chrome `SingletonLock` serializes session
+//! reads, so N un-deduped revalidations would queue N ~2-minute reads behind one
 //! lock. These tests pin the claim/release behavior that prevents that.
 
 use pierre_core::models::TenantId;

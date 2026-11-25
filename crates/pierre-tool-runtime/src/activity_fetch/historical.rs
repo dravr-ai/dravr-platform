@@ -1,5 +1,5 @@
 // ABOUTME: A covered historical window as get_activities serves it: covered under any history key, its head slice, a stale head topped up
-// ABOUTME: The top-up is a budgeted live read, so a slow scrape answers from the cache and lands for the next turn
+// ABOUTME: The top-up is a budgeted live read, so a slow session read answers from the cache and lands for the next turn
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -40,12 +40,12 @@ use crate::runtime::ToolRuntime;
 /// again, so the report and the behaviour cannot disagree.
 ///
 /// Bounded windows are exempt: a closed `before` names a period that is over, so
-/// there is no live head it could be missing, and refreshing one would re-scrape
+/// there is no live head it could be missing, and refreshing one would re-read
 /// history that cannot have changed.
 ///
 /// A head whose last refreshes failed is read again only once
 /// [`sync_backoff_until`](super::sync_verdict::sync_backoff_until) allows it: a provider that keeps failing is not
-/// scraped on every turn and every Home load.
+/// read again on every turn and every Home load.
 ///
 /// Best-effort. A failed refresh leaves the cached window exactly as it was —
 /// slightly old data beats no data, which is the same posture

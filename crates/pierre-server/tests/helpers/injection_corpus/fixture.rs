@@ -1,4 +1,4 @@
-// ABOUTME: The injection eval's per-scenario fixture: scraper stand-in, athlete, peer, group, catalogue coach, turn
+// ABOUTME: The injection eval's per-scenario fixture: session reader stand-in, athlete, peer, group, catalogue coach, turn
 // ABOUTME: A submodule of injection_corpus.rs, named by its callers as `injection_corpus::fixture`
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -12,7 +12,7 @@ use crate::helpers::live_seed::{
     create_athlete, create_group, day_at, seed_onboarded, seed_recipes, weekly_slots,
     AthleteProfile, NewGroup,
 };
-use crate::helpers::sciotte_mock::seed_scrape_session;
+use crate::helpers::sciotte_mock::seed_signed_in_session;
 use axum::extract::{Path, State};
 use axum::http::HeaderMap;
 use axum::routing::{get, post};
@@ -50,21 +50,21 @@ use super::{
 use dravr_tronc::dates::SecondsFormat;
 
 // -----------------------------------------------------------------------
-// Scraper stand-in
+// Session reader stand-in
 // -----------------------------------------------------------------------
 
-/// The activity lists the scraper stand-in serves, by scrape session id.
+/// The activity lists the session reader stand-in serves, by session id.
 ///
 /// One stand-in serves every fixture; each athlete's seeded session carries its
-/// own id, which the provider sends as `X-Session-Id` on every scrape, so each
+/// own id, which the provider sends as `X-Session-Id` on every session read, so each
 /// fixture reads its own history and nobody else's payload.
 #[derive(Clone, Default)]
-pub(crate) struct ScraperBook {
+pub(crate) struct SessionReaderBook {
     lists: Arc<Mutex<HashMap<String, Vec<Value>>>>,
     plans: Arc<Mutex<HashMap<String, Vec<Value>>>>,
 }
 
-impl ScraperBook {
+impl SessionReaderBook {
     fn serve(&self, session_id: &str, activities: Vec<Value>) {
         self.lists
             .lock()
@@ -100,59 +100,58 @@ impl ScraperBook {
     }
 }
 
-/// Spawn the scraper stand-in; returns its base URL and the book it serves.
-pub(crate) async fn spawn_injection_scraper() -> (String, ScraperBook) {
-    let book = ScraperBook::default();
-    let app =
-        Router::new()
-            .route(
-                "/auth/import-session",
-                post(|Json(body): Json<Value>| async move {
-                    Json(json!({ "session_id": body["session"]["session_id"] }))
-                }),
-            )
-            .route(
-                "/api/athlete",
-                get(|| async { Json(json!({ "display_name": ATHLETE_DISPLAY })) }),
-            )
-            .route(
-                "/api/activities",
-                get(
-                    |State(book): State<ScraperBook>, headers: HeaderMap| async move {
-                        let activities = book.list(&headers);
-                        Json(json!({
-                            "count": activities.len(),
-                            "activities": activities,
-                            "head_complete": true,
-                        }))
-                    },
-                ),
-            )
-            .route(
-                "/api/activities/{id}",
-                get(
-                    |State(book): State<ScraperBook>,
-                     headers: HeaderMap,
-                     Path(id): Path<String>| async move {
-                        let found = book
-                            .list(&headers)
-                            .into_iter()
-                            .find(|a| a["id"] == id.as_str())
-                            .unwrap_or(Value::Null);
-                        Json(found)
-                    },
-                ),
-            )
-            .route(
-                "/api/planned-workouts",
-                get(
-                    |State(book): State<ScraperBook>, headers: HeaderMap| async move {
-                        let workouts = book.planned(&headers);
-                        Json(json!({ "count": workouts.len(), "planned_workouts": workouts }))
-                    },
-                ),
-            )
-            .with_state(book.clone());
+/// Spawn the session reader stand-in; returns its base URL and the book it serves.
+pub(crate) async fn spawn_injection_session_reader() -> (String, SessionReaderBook) {
+    let book = SessionReaderBook::default();
+    let app = Router::new()
+        .route(
+            "/auth/import-session",
+            post(|Json(body): Json<Value>| async move {
+                Json(json!({ "session_id": body["session"]["session_id"] }))
+            }),
+        )
+        .route(
+            "/api/athlete",
+            get(|| async { Json(json!({ "display_name": ATHLETE_DISPLAY })) }),
+        )
+        .route(
+            "/api/activities",
+            get(
+                |State(book): State<SessionReaderBook>, headers: HeaderMap| async move {
+                    let activities = book.list(&headers);
+                    Json(json!({
+                        "count": activities.len(),
+                        "activities": activities,
+                        "head_complete": true,
+                    }))
+                },
+            ),
+        )
+        .route(
+            "/api/activities/{id}",
+            get(
+                |State(book): State<SessionReaderBook>,
+                 headers: HeaderMap,
+                 Path(id): Path<String>| async move {
+                    let found = book
+                        .list(&headers)
+                        .into_iter()
+                        .find(|a| a["id"] == id.as_str())
+                        .unwrap_or(Value::Null);
+                    Json(found)
+                },
+            ),
+        )
+        .route(
+            "/api/planned-workouts",
+            get(
+                |State(book): State<SessionReaderBook>, headers: HeaderMap| async move {
+                    let workouts = book.planned(&headers);
+                    Json(json!({ "count": workouts.len(), "planned_workouts": workouts }))
+                },
+            ),
+        )
+        .with_state(book.clone());
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     tokio::spawn(async move {
@@ -165,7 +164,7 @@ pub(crate) async fn spawn_injection_scraper() -> (String, ScraperBook) {
 // Fixture
 // -----------------------------------------------------------------------
 
-/// One seeded run, as both the scraper and the cache carry it.
+/// One seeded run, as both the session reader and the cache carry it.
 struct SeededRun {
     id: String,
     name: String,
@@ -176,7 +175,7 @@ struct SeededRun {
 }
 
 impl SeededRun {
-    fn scraper_json(&self) -> Value {
+    fn session_reader_json(&self) -> Value {
         let mut row = json!({
             "id": self.id,
             "name": self.name,
@@ -269,12 +268,12 @@ pub(crate) struct InjectionFixture {
 
 /// Seed a fresh athlete, peer, group and conversation for `scenario`.
 ///
-/// Unique emails, tenant and scrape session per call, so one server can host
+/// Unique emails, tenant and signed-in session per call, so one server can host
 /// every attempt of every scenario and none reads another's data or payload.
 /// `model` is the model the conversation is created under.
 pub(crate) async fn seed_injection_fixture(
     resources: &Arc<ServerContext>,
-    book: &ScraperBook,
+    book: &SessionReaderBook,
     scenario: &Scenario,
     model: &str,
 ) -> InjectionFixture {
@@ -311,13 +310,16 @@ pub(crate) async fn seed_injection_fixture(
         None,
     );
 
-    // The athlete's history is served live by the scraper stand-in under this
+    // The athlete's history is served live by the session reader stand-in under this
     // fixture's own session, and cached identically, so a read through either
     // path sees the same rows.
     let session_id = format!("injection-{tag}");
     book.serve(
         &session_id,
-        own_runs.iter().map(SeededRun::scraper_json).collect(),
+        own_runs
+            .iter()
+            .map(SeededRun::session_reader_json)
+            .collect(),
     );
     // A TrainingPeaks calendar only for a planned-workout scenario, registered
     // first so the sciotte Strava capture stays the activity primary. Its
@@ -333,9 +335,9 @@ pub(crate) async fn seed_injection_fixture(
                 payload.unwrap_or("Easy 45 min."),
             )],
         );
-        seed_scrape_session(resources, athlete, tenant, PLAN_CONNECTION, &plan_session).await;
+        seed_signed_in_session(resources, athlete, tenant, PLAN_CONNECTION, &plan_session).await;
     }
-    seed_scrape_session(resources, athlete, tenant, "sciotte", &session_id).await;
+    seed_signed_in_session(resources, athlete, tenant, "sciotte", &session_id).await;
 
     let registrations = planned
         .then_some((athlete, PLAN_CONNECTION))
@@ -482,7 +484,7 @@ async fn seed_physiology(resources: &Arc<ServerContext>, athlete: Uuid, tenant: 
 const PLAN_CONNECTION: &str = "sciotte_trainingpeaks";
 
 /// One workout planned for tomorrow on the athlete's `TrainingPeaks`
-/// calendar, as the scraper serves it, its description `description`.
+/// calendar, as the session reader serves it, its description `description`.
 fn planned_workout(tag: &str, now: Timestamp, description: &str) -> Value {
     json!({
         "id": format!("900001:{}", 910_000 + tag.len()),

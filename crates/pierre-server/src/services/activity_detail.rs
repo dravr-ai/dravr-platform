@@ -31,7 +31,7 @@
 //!
 //! The read takes the athlete's provider turn, the one the route reads take
 //! (`crate::services::activity_route::take_turn`), so it never runs beside
-//! another read on the same scraper session, and once the turn is its own it
+//! another read on the same signed-in session, and once the turn is its own it
 //! looks at the cache again: a read of the same activity that went first —
 //! the view opened twice, or read again when its thread was linked — has
 //! stored the splits and laps, and the provider is not asked twice.
@@ -62,15 +62,16 @@ use crate::services::turn_lifecycle::InFlightTurns;
 /// Seconds the activity view waits for a detail read it started.
 ///
 /// An API provider answers a detail read in well under a second; a mirror
-/// backend scrapes the page and takes seconds. Past this the view is answered
+/// backend reads the page from the session and takes seconds. Past this the view is answered
 /// from what the cache holds, and the read stores its detail for the next
 /// open.
 pub const DETAIL_ANSWER_TIMEOUT_SECS: u64 = 8;
 
 /// Seconds one detail read may run before it is given up, storing nothing.
 ///
-/// Past the scraper's own request deadline (320 s), as the route read's
-/// bound is, so a scrape is answered by the scraper and not cut off here.
+/// Past the service's own request deadline (320 s), as the route read's
+/// bound is, so a session read is answered by the service and not cut off
+/// here.
 pub const DETAIL_PROVIDER_READ_TIMEOUT_SECS: u64 = 330;
 
 /// Read the activity's detail from its provider, store it beside the cached

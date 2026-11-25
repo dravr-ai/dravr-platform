@@ -570,7 +570,7 @@ async fn suppressed_in_app(
 /// The backend the error carries when it is one of `provider_slug`'s own
 /// ([`backend_pair_for`]): a `garmin` read the athlete's username-and-password
 /// session served fails as `sciotte_garmin`, and that is the connection to
-/// flag, not the Garmin grant beside it. Any other slug (the scraper's unnamed
+/// flag, not the Garmin grant beside it. Any other slug (the service's unnamed
 /// `sciotte`) falls back to `provider_slug`.
 #[must_use]
 pub(crate) fn refused_backend(error: &AppError, provider_slug: &str) -> Option<String> {
@@ -669,7 +669,7 @@ mod tests {
             Some(oauth_providers::SCIOTTE_GARMIN),
             "bug: a refusal of Garmin's own session must name that session, not the grant"
         );
-        // The scraper's unnamed slug is not one of Garmin's: the read's own
+        // The service's unnamed slug is not one of Garmin's: the read's own
         // name stands.
         let unnamed = AppError::provider_auth_required("sciotte");
         assert_eq!(

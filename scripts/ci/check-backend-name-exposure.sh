@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: MIT OR Apache-2.0
 # Copyright (c) 2026 dravr.ai
-# ABOUTME: Fails when the scraping backend's name (sciotte) reaches an athlete or coach: a
+# ABOUTME: Fails when the session-read backend's name (sciotte) reaches an athlete or coach: a
 # ABOUTME: translation VALUE in the string catalogue, or the served text of a hosted page template
 
 # carnet#1207. Directive from ChefFamille: "SCIOTTE must not be visible to the

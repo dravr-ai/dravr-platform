@@ -90,7 +90,7 @@ export interface MessagesState {
    * The quota notice the turn's own pre-turn check reported, or `null`.
    *
    * Carries the counter, its cap and its reset instant, so the banner states
-   * what was actually measured instead of a countdown scraped out of prose.
+   * what was actually measured instead of a countdown pulled out of prose.
    */
   quotaNotice: ReplyNotice | null;
   /**

@@ -49,13 +49,13 @@ use scope_probes::{
 
 use crate::common::{create_test_server_resources_with_chat_provider, create_test_user};
 
-/// What run 37498980505's model answered to each probe, verbatim.
+/// What run 37498980505's model answered to each probe, one technique's name aside.
 const RECORDED_REPLIES: [(&str, &str); 4] = [
     (
         FOOD_PRICING.text,
         "None of the provided functions pertain to retrieving current prices or expenses, \
          such as the cost of a Big Mac in San Francisco. To answer such a question, one would \
-         typically need to query a commerce API or use web scraping techniques to get the \
+         typically need to query a commerce API or use web data extraction techniques to get the \
          latest price from reliable sources. Given the specific tools available, this question \
          cannot be directly answered. We'd need a function that connects to a price or cost \
          database.",

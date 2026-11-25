@@ -1,11 +1,11 @@
-// ABOUTME: carnet#1300 — closing a sign-in window cancels its login on the scraper by a key bound to the caller
+// ABOUTME: carnet#1300 — closing a sign-in window cancels its login on the service by a key bound to the caller
 // ABOUTME: Pins the key on every step, the per-user binding, the 400, the quiet 409, the released flow, and the cancelled attempt refused on any instance
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
 //! A closed sign-in window aborts its request, but on a deployed stack that
-//! disconnect never crosses the hops in front of the scraper service, so the
+//! disconnect never crosses the hops in front of the service, so the
 //! login ran on with its browser and its permit. The window now names each
 //! opening with an attempt id, and on close posts
 //! `POST /api/providers/sciotte/cancel` naming it. The platform keeps no
@@ -16,7 +16,7 @@
 //! step that ran on a service instance the cancel never reached — a second
 //! instance a cold start brought up — still links nothing.
 //!
-//! The scraper is a loopback stand-in (a test double, per the repo's mock
+//! The session reader is a loopback stand-in (a test double, per the repo's mock
 //! rule) recording the keys each step and each cancel named. It runs on a
 //! thread of its own, because each `#[tokio::test]` drops its runtime when it
 //! ends and a stand-in spawned on one would die with the first test to finish.
@@ -53,11 +53,11 @@ use tokio::runtime::Builder;
 use tokio::time::sleep;
 use uuid::Uuid;
 
-/// The header a step names its cancel key in — a wire value the scraper
-/// service parses (`dravr_sciotte::wire::HEADER_CANCEL_KEY`).
+/// The header a step names its cancel key in — a wire value the service
+/// parses (`dravr_sciotte::wire::HEADER_CANCEL_KEY`).
 const CANCEL_KEY_HEADER: &str = "x-sciotte-cancel-key";
 
-/// `details.reason` of a step the cancel ended — the scraper service's own
+/// `details.reason` of a step the cancel ended — the service's own
 /// wire marker (`dravr_sciotte::wire::LOGIN_CANCELLED`).
 const LOGIN_CANCELLED_REASON: &str = "login_cancelled";
 
@@ -89,12 +89,12 @@ struct Seen {
     outcomes: Mutex<HashMap<String, (bool, bool)>>,
 }
 
-static SCRAPER: OnceLock<(Arc<Seen>, String)> = OnceLock::new();
+static READER: OnceLock<(Arc<Seen>, String)> = OnceLock::new();
 
 /// What the stand-in saw and the URL it serves at, started once for the
 /// binary on a thread with its own runtime.
-fn scraper() -> &'static (Arc<Seen>, String) {
-    SCRAPER.get_or_init(|| {
+fn reader() -> &'static (Arc<Seen>, String) {
+    READER.get_or_init(|| {
         let seen = Arc::new(Seen::default());
         let (sender, receiver) = mpsc::channel();
         let state = Arc::clone(&seen);
@@ -200,7 +200,7 @@ async fn submit_otp(State(seen): State<Arc<Seen>>, headers: HeaderMap) -> Respon
     continuation(&seen, SUBMIT_OTP_PATH, &headers)
 }
 
-/// The scraper service stand-in: a Garmin login, a 2FA pick and a code step
+/// The service stand-in: a Garmin login, a 2FA pick and a code step
 /// that record their cancel key (the two continuations ended by a cancel),
 /// and the cancel itself.
 fn stand_in(seen: Arc<Seen>) -> Router {
@@ -214,7 +214,7 @@ fn stand_in(seen: Arc<Seen>) -> Router {
 
 /// The service paths of every step that named `key`, in arrival order.
 fn steps_keyed(key: &str) -> Vec<&'static str> {
-    scraper()
+    reader()
         .0
         .steps
         .lock()
@@ -227,7 +227,7 @@ fn steps_keyed(key: &str) -> Vec<&'static str> {
 
 /// How many cancels named `key`.
 fn cancels_of(key: &str) -> usize {
-    scraper()
+    reader()
         .0
         .cancels
         .lock()
@@ -239,7 +239,7 @@ fn cancels_of(key: &str) -> usize {
 
 /// The cancel keys the logins from `email` named.
 fn login_keys_of(email: &str) -> Vec<Option<String>> {
-    scraper()
+    reader()
         .0
         .logins
         .lock()
@@ -252,7 +252,7 @@ fn login_keys_of(email: &str) -> Vec<Option<String>> {
 
 /// Make a cancel of `key` answer `(cancelled_running, released_parked)`.
 fn answer_cancel_of(key: &str, outcome: (bool, bool)) {
-    scraper()
+    reader()
         .0
         .outcomes
         .lock()
@@ -289,10 +289,10 @@ struct Athlete {
 
 impl Athlete {
     async fn new() -> Self {
-        Self::on(&scraper().1).await
+        Self::on(&reader().1).await
     }
 
-    /// An athlete on a server whose scraper lives at `url`.
+    /// An athlete on a server whose service lives at `url`.
     async fn on(url: &str) -> Self {
         let resources = common::create_test_server_resources_with_config(
             common::test_server_config_with_sciotte_usr_pwd_garmin(url),

@@ -49,7 +49,7 @@
 #![deny(unsafe_code)]
 #![warn(missing_docs)]
 
-/// Background historical-activity backfill (deep `after` never scrapes inline).
+/// Background historical-activity backfill (deep `after` never reads inline).
 ///
 /// Gated to match its only consumer, the `tools-data` `data` module — without
 /// it the whole module is dead-code when the crate is built as a dependency
@@ -134,7 +134,7 @@ pub mod protocol;
 pub mod protocols;
 /// Whose data a read tool reads: the caller's own or a coached athlete's (carnet#1387).
 pub mod read_subject;
-/// Throttled retry of a scrape session flagged `needs_reauth`.
+/// Throttled retry of a signed-in session flagged `needs_reauth`.
 pub mod reauth_retry;
 /// The served-without-a-provider signal and its per-turn store.
 pub mod reconnect;

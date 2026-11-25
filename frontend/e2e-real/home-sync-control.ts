@@ -2,11 +2,11 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Runs the sciotte double behind a small control API, so a flow that cannot start processes (Maestro) can script it
-// ABOUTME: Scripts the Home sync flow's scraper, makes fresh coaches and coach plan-thread pairs, and mints the seeded sessions flows start signed in with
+// ABOUTME: Scripts the Home sync flow's service double, makes fresh coaches and coach plan-thread pairs, and mints the seeded sessions flows start signed in with
 
 import { Database } from 'bun:sqlite';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import { startSciotteDouble, type ScrapedRide } from './sciotte-double';
+import { startSciotteDouble, type SessionRide } from './sciotte-double';
 import { firstPartySignIn } from '../../scripts/auth/first-party-sign-in.js';
 import { coachStepState, freshOnboardingCoach, type CoachServer } from './onboarding-coach';
 import { athletePlanState, freshCoachPlanThread, type PlanServer } from './coach-plan-thread';
@@ -58,7 +58,7 @@ const PLAN_SERVER: PlanServer = {
 /** Minted sessions waiting for the app to redeem their code. */
 const SEEDED_SESSIONS = new SeededSessionCodes();
 
-/** The rides of the good sync, and the one the scraper brings back once it recovers. */
+/** The rides of the good sync, and the one the service brings back once it recovers. */
 export const HOME_SYNC_RIDES = {
   older: 'Sortie de mardi e2e',
   oldest: 'Sortie de dimanche e2e',
@@ -73,7 +73,7 @@ const ATHLETE_TABLES = [
   'activity_route_tracks',
 ] as const;
 
-function ride(id: string, name: string, hoursAgo: number, durationSeconds = 5400): ScrapedRide {
+function ride(id: string, name: string, hoursAgo: number, durationSeconds = 5400): SessionRide {
   return {
     id,
     name,
@@ -148,14 +148,14 @@ function clock(at: Date, timeZone: string): string {
   );
 }
 
-const scraper = await startSciotteDouble([]);
+const service = await startSciotteDouble([]);
 let listMark = 0;
 let detailMark = 0;
 
 /**
  * The athlete's Strava connected through the double, one good sync of two
  * rides, that sync moved five hours back so Home refreshes on its next load,
- * and a scraper whose every list read and detail read now fails.
+ * and a service whose every list read and detail read now fails.
  */
 async function setup(): Promise<Record<string, unknown>> {
   const db = database();
@@ -173,9 +173,9 @@ async function setup(): Promise<Record<string, unknown>> {
     db.close();
   }
 
-  scraper.rides = [ride('e2e-ride-2', HOME_SYNC_RIDES.older, 30), ride('e2e-ride-1', HOME_SYNC_RIDES.oldest, 72)];
-  scraper.list = 'rows';
-  scraper.detail = 'fails';
+  service.rides = [ride('e2e-ride-2', HOME_SYNC_RIDES.older, 30), ride('e2e-ride-1', HOME_SYNC_RIDES.oldest, 72)];
+  service.list = 'rows';
+  service.detail = 'fails';
   const token = await signIn();
   const connected = await api(
     '/api/providers/sciotte/login',
@@ -216,8 +216,8 @@ async function setup(): Promise<Record<string, unknown>> {
   } finally {
     aged.close();
   }
-  scraper.list = 'fails';
-  listMark = scraper.listReads();
+  service.list = 'fails';
+  listMark = service.listReads();
   const hostZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   return {
     lastGood: lastGood.toISOString(),
@@ -228,29 +228,29 @@ async function setup(): Promise<Record<string, unknown>> {
   };
 }
 
-/** The scraper answers again, with the day's ride on top; its route read still fails. */
+/** The service answers again, with the day's ride on top; its route read still fails. */
 function recover(): Record<string, unknown> {
-  scraper.rides = [ride('e2e-ride-3', HOME_SYNC_RIDES.recovered, 2, 1800), ...scraper.rides];
-  scraper.list = 'rows';
-  scraper.detail = 'fails';
-  return { failedReads: scraper.listReads() - listMark, ...mark() };
+  service.rides = [ride('e2e-ride-3', HOME_SYNC_RIDES.recovered, 2, 1800), ...service.rides];
+  service.list = 'rows';
+  service.detail = 'fails';
+  return { failedReads: service.listReads() - listMark, ...mark() };
 }
 
-/** The scraper reads routes again. */
+/** The service reads routes again. */
 function routes(): Record<string, unknown> {
-  scraper.detail = 'route';
+  service.detail = 'route';
   return mark();
 }
 
 function mark(): Record<string, number> {
-  listMark = scraper.listReads();
-  detailMark = scraper.detailReads();
+  listMark = service.listReads();
+  detailMark = service.detailReads();
   return { listReads: listMark, detailReads: detailMark };
 }
 
-/** What the scraper was asked since the last `recover` or `routes`. */
+/** What the service was asked since the last `recover` or `routes`. */
 function reads(): Record<string, number> {
-  return { listReads: scraper.listReads() - listMark, detailReads: scraper.detailReads() - detailMark };
+  return { listReads: service.listReads() - listMark, detailReads: service.detailReads() - detailMark };
 }
 
 function reply(res: ServerResponse, status: number, body: unknown): void {

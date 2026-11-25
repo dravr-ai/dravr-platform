@@ -22,7 +22,7 @@
 //! transport. The Intervals.icu provider is a stand-in (a test double, per the
 //! repo's mock rule: the real one's roster read is pinned by
 //! `delegated_intervals_icu_read_test`) answering the roster each test writes
-//! and counting its reads. TrainingPeaks reads its roster on the scraper
+//! and counting its reads. TrainingPeaks reads its roster through the
 //! service, which no test here reaches: its roster is served from the cache,
 //! as a coach account's is, so only the transport gate decides whether it is
 //! read at all.
@@ -382,7 +382,7 @@ impl World {
 
     /// `coach`'s own TrainingPeaks coach-account session, with `athletes`
     /// cached as the roster it last read: a coach account's roster is served
-    /// from the cache, so no scraper is reached.
+    /// from the cache, so the service is never reached.
     async fn connect_trainingpeaks(&self, coach: Person, athletes: Vec<RosterAthlete>) {
         let now = Timestamp::now();
         let repos = &self.res.common.repos;

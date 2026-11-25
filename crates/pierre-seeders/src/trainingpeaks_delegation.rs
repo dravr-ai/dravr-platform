@@ -23,7 +23,7 @@
 //!   a confirm binds the athlete to the member by that email.
 //!
 //! The session is a stand-in: nothing reads the coach's real `TrainingPeaks`
-//! through it, so a read after the member confirms fails at the scraper and is
+//! through it, so a read after the member confirms fails at the service and is
 //! logged, as any dead session is. Run it after `seed demo-data`, which
 //! creates the three accounts. It is idempotent: a coach who already coaches
 //! a group of that name is left as they are.

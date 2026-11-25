@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Real-backend E2E: a COROS code the scraper refuses keeps the sign-in dialog on its code step, then the right code connects
-// ABOUTME: Drives the real modal and sciotte routes against the scripted scraper double, as a fresh athlete it suspends after
+// ABOUTME: Real-backend E2E: a COROS code the service refuses keeps the sign-in dialog on its code step, then the right code connects
+// ABOUTME: Drives the real modal and sciotte routes against the scripted service double, as a fresh athlete it suspends after
 
 import { test, expect, request as apiRequest, type APIRequestContext } from '@playwright/test';
 import { SCIOTTE_DOUBLE_PORT, startSciotteDouble, type SciotteDouble } from './sciotte-double';
@@ -11,7 +11,7 @@ import { signInThroughUi } from './ui-sign-in';
 
 // Opt-in real-server spec (`bun run test:e2e:real`). Like home-sync, it needs a
 // Pierre server started with DRAVR_SCIOTTE_REMOTE_URL=http://127.0.0.1:8097
-// (SCIOTTE_DOUBLE_PORT) and starts the scraper double there itself; the
+// (SCIOTTE_DOUBLE_PORT) and starts the service double there itself; the
 // config runs the two one after the other. The athlete is registered for the
 // run: the `provider_exposure_notice` flag is off for a new account, so COROS
 // asks for no notice, and no seeded account's notice state is touched (the
@@ -22,8 +22,8 @@ const FRONTEND_URL = process.env.FRONTEND_URL ?? 'http://localhost:5173';
 const CODE_LABEL = 'Enter the 6-digit code COROS sent you';
 const CODE_REJECTED = "That code wasn't accepted. Check it and enter it again.";
 
-test.describe('COROS code step — real backend, scripted scraper', () => {
-  let scraper: SciotteDouble;
+test.describe('COROS code step — real backend, scripted service', () => {
+  let service: SciotteDouble;
   let ctx: APIRequestContext;
   let userId: string;
   let token: string;
@@ -31,9 +31,9 @@ test.describe('COROS code step — real backend, scripted scraper', () => {
   const password = 'CorosCodePassw0rd!';
 
   test.beforeAll(async () => {
-    scraper = await startSciotteDouble([]);
-    scraper.login = 'code';
-    scraper.list = 'empty';
+    service = await startSciotteDouble([]);
+    service.login = 'code';
+    service.list = 'empty';
     ctx = await apiRequest.newContext({ baseURL: PIERRE_URL });
     ({ userId, token } = await freshAthlete(ctx, email, password, 'COROS Code E2E'));
     await skipOnboarding(ctx, token);
@@ -42,7 +42,7 @@ test.describe('COROS code step — real backend, scripted scraper', () => {
   test.afterAll(async () => {
     await retireAthlete(ctx, userId, email, 'coros code step');
     await ctx?.dispose();
-    await scraper?.stop();
+    await service?.stop();
   });
 
   test('a refused code stays on the code step, and the right code connects', async ({ page }) => {
@@ -91,7 +91,7 @@ test.describe('COROS code step — real backend, scripted scraper', () => {
       )
       .toBe(true);
 
-    const submissions = scraper.codeSubmissions();
+    const submissions = service.codeSubmissions();
     expect(submissions.map((s) => s.code)).toEqual(['000000', '246810']);
     expect(new Set(submissions.map((s) => s.flow_id)).size).toBe(1);
   });

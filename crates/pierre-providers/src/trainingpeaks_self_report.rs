@@ -59,7 +59,7 @@
 //! ## RPE: 1–10
 //!
 //! The API documents `Rpe` as "Rated perceived exertion scale of 1 to 10",
-//! the same range as the platform's CR-10 rating. The scraper writes it as
+//! the same range as the platform's CR-10 rating. The service writes it as
 //! its decimal string (`"6"`); a value that does not parse, or falls outside
 //! 1–10, is not a rating and maps to `None`. The web app's level table also
 //! names 0 ("No Exertion"), which the CR-10 field does not hold.

@@ -147,7 +147,7 @@ mod tests {
 
     /// Session ids whose service is pinned at two read services. The suites
     /// `sciotte_session_rotation_test` (pierre-providers) and
-    /// `scrape_health_sync_test` (pierre-server) read these same ids, one per
+    /// `session_health_sync_test` (pierre-server) read these same ids, one per
     /// service.
     const ON_SERVICE_0: &str = "shard-session-f";
     const ON_SERVICE_1: &str = "shard-session-b";

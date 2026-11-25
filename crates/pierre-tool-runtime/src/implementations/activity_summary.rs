@@ -281,7 +281,7 @@ pub fn summary_json(summaries: &[ActivitySummary]) -> serde_json::Result<Value> 
 /// is the provider's untrimmed line, starting and ending at the athlete's
 /// door. So is the GPS channel of the streams (`gps_coordinates`), which a
 /// detail read carries when the provider's detail answer holds the track (a
-/// scraped Garmin or TrainingPeaks page does): every recorded point, door to
+/// session-read Garmin or TrainingPeaks page does): every recorded point, door to
 /// door. Geometry leaves the server only through the privacy-trimmed route
 /// track, never as the provider sent it. Where the activity took place stays:
 /// its start coordinates, city, region and country.

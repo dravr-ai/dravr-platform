@@ -146,7 +146,7 @@ pub const DETAIL_WALK_DAILY_CALLS: u32 = 50;
 pub(crate) const SESSION_WALK_BURST_CALLS: u32 = 10;
 
 /// The sessions whose detail walk and context reads are counted: the
-/// scraper's Strava session.
+/// signed-in Strava session.
 const SESSION_BACKENDS: [&str; 1] = ["sciotte"];
 
 /// The provider whose app windows a session walk spends: a session backend
@@ -910,7 +910,7 @@ mod tests {
         (repos, limiter)
     }
 
-    /// One request of the scraper's signed-in session, made inside
+    /// One request of the signed-in Strava session, made inside
     /// `user_id`'s detail walk, as the walk admits it.
     async fn session_walk_call(budget: &RequestBudget, user_id: Uuid) -> Result<(), ErrorCode> {
         in_detail_walk(user_id, budget.admit("sciotte"))
@@ -925,7 +925,7 @@ mod tests {
             .map_err(|e| e.code)
     }
 
-    /// The scraper's session has no app and no API, yet its detail walk
+    /// The signed-in session has no app and no API, yet its detail walk
     /// draws from the very windows the grant's does (carnet#1483): 50 a day
     /// for one athlete and 125 for every athlete's walk together, across both
     /// backends, never two pools. A session read takes none of the app's own
@@ -935,7 +935,7 @@ mod tests {
         let (repos, limiter) = limiter().await;
         let grant = RequestBudget::new(Arc::clone(&limiter), "server-app".to_owned(), None);
         let session = RequestBudget::for_session(&limiter, "sciotte", Some(&grant), "unused")
-            .unwrap_or_else(|| panic!("bug: the scraper's session has no windows to count in"));
+            .unwrap_or_else(|| panic!("bug: the signed-in session has no windows to count in"));
         assert_eq!(
             session.detail_walk_daily_calls("sciotte").await,
             Some(DETAIL_WALK_DAILY_CALLS),
@@ -1032,7 +1032,7 @@ mod tests {
     async fn a_session_walk_reads_ten_pages_in_fifteen_minutes() {
         let (repos, limiter) = limiter().await;
         let budget = RequestBudget::for_session(&limiter, "sciotte", None, "server-app")
-            .unwrap_or_else(|| panic!("bug: the scraper's session has no windows to count in"));
+            .unwrap_or_else(|| panic!("bug: the signed-in session has no windows to count in"));
         let key = budget_counter_key("strava", "server-app");
         let (athlete, other) = (Uuid::new_v4(), Uuid::new_v4());
 
@@ -1092,7 +1092,7 @@ mod tests {
     async fn a_session_read_outside_the_walk_spends_nothing() {
         let (repos, limiter) = limiter().await;
         let budget = RequestBudget::for_session(&limiter, "sciotte", None, "server-app")
-            .unwrap_or_else(|| panic!("bug: the scraper's session has no windows to count in"));
+            .unwrap_or_else(|| panic!("bug: the signed-in session has no windows to count in"));
         for call in 0..=SESSION_WALK_BURST_CALLS {
             assert_eq!(
                 budget.admit("sciotte").await.map_err(|e| e.code),
@@ -1117,11 +1117,11 @@ mod tests {
     /// Only a session the limiter counts has a budget to walk in: Strava's
     /// own grant has an app, and a provider it never counted has neither.
     #[tokio::test]
-    async fn only_the_scrapers_strava_session_has_a_session_budget() {
+    async fn only_the_services_strava_session_has_a_session_budget() {
         let (_, limiter) = limiter().await;
         assert!(
             RequestBudget::for_session(&limiter, "sciotte", None, "server-app").is_some(),
-            "bug: the scraper's session has no budget"
+            "bug: the signed-in session has no budget"
         );
         for other in ["strava", "sciotte_garmin", "garmin"] {
             assert!(

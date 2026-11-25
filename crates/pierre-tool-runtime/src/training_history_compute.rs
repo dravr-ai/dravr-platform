@@ -9,10 +9,10 @@
 //! ## Why this never calls a provider
 //!
 //! It used to. `compute_and_persist_history` fetched up to 500 activities live
-//! on every call, which on a scrape backend is minutes of browser work inside a
-//! chat turn bounded at 90s — and the turn that motivated this change threw a
-//! completed 171s scrape away because the bound fired first. The data was
-//! already on disk: the same turn's `get_activities` had served the athlete's
+//! on every call, which on a session-read backend is minutes of browser work
+//! inside a chat turn bounded at 90s — and the turn that motivated this change
+//! threw a completed 171s session read away because the bound fired first. The
+//! data was already on disk: the same turn's `get_activities` had served the athlete's
 //! window from `cached_activities` 51 seconds earlier.
 //!
 //! So the provider is not this module's business. `get_activities` and the

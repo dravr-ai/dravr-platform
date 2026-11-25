@@ -109,7 +109,7 @@ pub fn map_track(track: RouteTrack) -> RouteTrack {
 ///
 /// A completed activity's route does not change. A drawn track that still
 /// decodes is never replaced: a later read whose line came back empty is a
-/// scrape that lost it. A read's word that the activity has no track
+/// session read that lost it. A read's word that the activity has no track
 /// (`no_gps`, `too_short`) is replaced only by a drawn track — a line a read
 /// drew proves the earlier read lost it — never by another miss. An
 /// `unavailable` answer, an expired one, a track that no longer decodes and a
@@ -256,11 +256,11 @@ pub(crate) fn records_outdoor_route(activity: &Activity) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use dravr_barrage::parse::polyline::encode_polyline;
     use dravr_tronc::dates::Elapsed;
     use pierre_core::models::{ActivityBuilder, TimeSeriesData, User};
     use pierre_database::backends::factory::Database;
     use pierre_database::repositories::{ActivityStreamsWrite, StoredRouteTrack, StreamOrigin};
-    use pierre_fitness_compute::encode_polyline;
     use pierre_fitness_compute::routes::haversine_meters_between;
     use pierre_test_support::db::create_test_db;
 

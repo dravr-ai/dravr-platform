@@ -105,7 +105,7 @@ pub(crate) const PHIL_ALIAS_DISPLAY: &str = "Phil";
 /// one with a credential behind it (see `seed_fixture`).
 pub(crate) const ATHLETE_CONNECTIONS: &[&str] = &["whoop", "strava", "sciotte"];
 /// The one connection the fixture holds a credential for: the athlete's
-/// sciotte session, seeded against the scraper stand-in.
+/// sciotte session, seeded against the session reader stand-in.
 pub(crate) const ATHLETE_LIVE_CONNECTION: &str = "sciotte";
 /// The connections each peer-side roster identity holds — Philippe and his
 /// «Phil» alias alike — none with a token behind it.
@@ -116,8 +116,8 @@ pub(crate) const ATHLETE_LIVE_CONNECTION: &str = "sciotte";
 /// judge graded that true statement as invented (carnet#1037).
 pub(crate) const PEER_CONNECTIONS: &[&str] = &["strava"];
 
-/// The name every seeded run carries, in the activity cache, the scraper
-/// stand-in and the judge's ledger alike.
+/// The name every seeded run carries, in the activity cache, the session
+/// reader stand-in and the judge's ledger alike.
 pub(crate) const SEEDED_RUN_NAME: &str = "Course";
 
 /// The title of the fixture's one system agent, the coach every DM episode
@@ -157,12 +157,12 @@ pub(crate) const SAVED_RECIPES: &[SavedRecipe] = &[
 
 /// The instant the fixture's activity history is measured back from.
 ///
-/// One per process, so the activity cache, the scraper stand-in and the
-/// judge's ledger give every activity the same start, to the second. Each
+/// One per process, so the activity cache, the session reader stand-in and
+/// the judge's ledger give every activity the same start, to the second. Each
 /// read `Timestamp::now()` on its own, so the ledger could only give dates: the
 /// agent quoted a run's real 09:52 start and the judge, shown no times,
 /// graded it invented. Per process rather than per pass because the lane
-/// builds the scraper's payload once, before its first pass, and every
+/// builds the session reader's payload once, before its first pass, and every
 /// later pass's cache seed has to match it.
 fn fixture_clock() -> Timestamp {
     static ANCHOR: OnceLock<Timestamp> = OnceLock::new();
@@ -180,7 +180,7 @@ const WEEKLY_START_SHIFT_MINUTES: u32 = 11;
 
 /// One seeded run, as every reader of the fixture sees it.
 ///
-/// The activity-cache seed, the scraper stand-in and [`ground_truth`] all
+/// The activity-cache seed, the session reader stand-in and [`ground_truth`] all
 /// read these lists, so the history the agent is served and the evidence
 /// the judge grades it against are one set of rows. When they were three
 /// hand-written copies, the judge's copy carried distance ranges and no
@@ -1054,13 +1054,13 @@ pub(crate) async fn seed_fixture(resources: &Arc<ServerContext>) -> Fixture {
     // produced two findings that were exactly that: «la connexion semble
     // buggée» and «Essaie de reconnecter ton compte Strava», both correct,
     // both about the fixture. Seeding a live sciotte session against the
-    // mock scraper gives the fetch path something that actually succeeds, so
+    // mock session reader gives the fetch path something that actually succeeds, so
     // an episode asking for a chart is testing the chart and not the absence
     // of a credential.
-    // The ATHLETE only. The shared mock scraper serves one canned ride —
+    // The ATHLETE only. The shared mock session reader serves one canned ride —
     // «Sortie vélo matinale», 21 km, 2026-08-10 — to whoever fetches, and
     // giving the peer a live session too put two disagreeing sources behind
-    // one person: the cache says Philippe ran 6.1 km yesterday, the scraper
+    // one person: the cache says Philippe ran 6.1 km yesterday, the reader
     // says he rode 21 km on the 10th. The agent spotted the contradiction
     // and reported it («le relevé précis montre plutôt une sortie vélo, pas
     // une course, et la date ne colle pas exactement à hier») — exactly the

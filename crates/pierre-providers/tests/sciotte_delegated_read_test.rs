@@ -1,4 +1,4 @@
-// ABOUTME: Pins a delegated TrainingPeaks read against a loopback stand-in for the scraper service
+// ABOUTME: Pins a delegated TrainingPeaks read against a loopback stand-in for the sciotte service
 // ABOUTME: The athlete named on every read, the detail-id fence, the roster profile, and the coach's dead session kept off the reader
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -16,16 +16,16 @@
 //! reads each athlete on its roster by that athlete's id. A delegated
 //! provider holds the coach's session and one athlete id, and must name that
 //! athlete on every read — the list, the plan, the profile — while refusing a
-//! detail id that addresses anyone else before the scraper sees it, since the
-//! scraper reads whichever athlete a detail id names. A dead coach session is
+//! detail id that addresses anyone else before the service sees it, since the
+//! service reads whichever athlete a detail id names. A dead coach session is
 //! not the reader's to renew, so it must never surface as the reader's
 //! reconnect prompt.
 //!
-//! The scraper here is a loopback stand-in (a test double, per the repo's
+//! The service here is a loopback stand-in (a test double, per the repo's
 //! mock rule): it answers by the `X-Session-Id` each seeded session sends and
 //! the `athlete` a read names, and records every request, so the test reads
 //! the bytes the client put on the wire. Every provider reaches it through a
-//! client built for it, never through the environment. The scraped scenarios
+//! client built for it, never through the environment. The session-read scenarios
 //! share one test because the enrichment switch they read is process-wide;
 //! the pure functions are tested on their own.
 
@@ -89,7 +89,7 @@ fn coach_profile() -> Value {
     })
 }
 
-/// A scraped workout row, as the service returns it.
+/// A session-read workout row, as the service returns it.
 fn workout(id: &str) -> Value {
     json!({
         "id": id,
@@ -219,7 +219,7 @@ fn session_of(request: &str) -> String {
 /// Serve the import, the profile, the list, one detail and an empty plan,
 /// recording every request. Any other path answers 404, so an unexpected
 /// call fails the test.
-fn spawn_scraper_stub(listener: TcpListener, seen: Arc<Mutex<Vec<String>>>) {
+fn spawn_session_reader_stub(listener: TcpListener, seen: Arc<Mutex<Vec<String>>>) {
     tokio::spawn(async move {
         while let Ok((mut stream, _)) = listener.accept().await {
             let request = read_request(&mut stream).await;
@@ -380,7 +380,7 @@ async fn the_enrichment_switch_asks_for_every_detail_page_uncapped(
         targets(seen, "/api/activities?", COACH_SESSION)
             .into_iter()
             .rfind(|target| athlete_of(target).as_deref() == Some(UNNAMED_ATHLETE))
-            .expect("the list read reached the scraper") // Safe: each read below is recorded
+            .expect("the list read reached the service") // Safe: each read below is recorded
     };
 
     for on in ["true", "1"] {
@@ -419,7 +419,7 @@ async fn the_enrichment_switch_asks_for_every_detail_page_uncapped(
     env::remove_var(ENRICH_DETAILS_ENV);
 }
 
-async fn a_detail_outside_the_athlete_never_reaches_the_scraper(
+async fn a_detail_outside_the_athlete_never_reaches_the_service(
     registry: &ProviderRegistry,
     seen: &Mutex<Vec<String>>,
 ) {
@@ -445,7 +445,7 @@ async fn a_detail_outside_the_athlete_never_reaches_the_scraper(
     }
     assert!(
         targets(seen, "/api/activities/", COACH_SESSION).is_empty(),
-        "a refused id never reaches the scraper"
+        "a refused id never reaches the service"
     );
 
     let detail = provider
@@ -502,12 +502,12 @@ async fn the_athlete_is_read_off_the_coach_roster_as_data(registry: &ProviderReg
     assert_eq!(sciotte_refusal(&error), Some(ATHLETE_NOT_ACCESSIBLE));
 }
 
-async fn an_athlete_the_scraper_refuses_keeps_its_refusal(registry: &ProviderRegistry) {
+async fn an_athlete_the_service_refuses_keeps_its_refusal(registry: &ProviderRegistry) {
     let error = delegated(registry, OFF_ROSTER_ATHLETE, COACH_SESSION)
         .await
         .get_activities(Some(5), None)
         .await
-        .expect_err("the scraper refuses an athlete off the roster"); // Safe: the stand-in answers 403
+        .expect_err("the service refuses an athlete off the roster"); // Safe: the stand-in answers 403
     assert_eq!(error.code, ErrorCode::PermissionDenied, "{error:?}");
     assert_eq!(sciotte_refusal(&error), Some(ATHLETE_NOT_ACCESSIBLE));
     assert_eq!(error.provider_auth_required_provider(), None);
@@ -618,7 +618,7 @@ async fn a_delegated_read_names_its_athlete_and_reaches_no_other() {
         .local_addr()
         .expect("bound listener has an address"); // Safe: listener is bound
     let seen = Arc::new(Mutex::new(Vec::new()));
-    spawn_scraper_stub(listener, seen.clone());
+    spawn_session_reader_stub(listener, seen.clone());
 
     let client = startup_reads(&[String::from(&format!("http://{addr}"))], None)
         .expect("a loopback client needs no audience"); // Safe: loopback URL
@@ -627,9 +627,9 @@ async fn a_delegated_read_names_its_athlete_and_reaches_no_other() {
 
     every_read_names_the_athlete_under_the_coach_session(&registry, &seen).await;
     the_enrichment_switch_asks_for_every_detail_page_uncapped(&registry, &seen).await;
-    a_detail_outside_the_athlete_never_reaches_the_scraper(&registry, &seen).await;
+    a_detail_outside_the_athlete_never_reaches_the_service(&registry, &seen).await;
     the_athlete_is_read_off_the_coach_roster_as_data(&registry).await;
-    an_athlete_the_scraper_refuses_keeps_its_refusal(&registry).await;
+    an_athlete_the_service_refuses_keeps_its_refusal(&registry).await;
     a_dead_coach_session_is_not_the_readers_to_renew(&registry).await;
     an_own_trainingpeaks_profile_is_fenced_and_strava_is_not(&registry).await;
 }

@@ -462,7 +462,7 @@ pub(super) async fn report_sync(
 ///
 /// Goes through [`read_exact_backend`]: it authenticates the Strava grant
 /// itself (refreshing the token when needed), never the session the
-/// athlete's reads serve first, so a webhook never starts a scrape
+/// athlete's reads serve first, so a webhook never starts a session read
 /// (carnet#1494). It fetches the window that opens
 /// [`STRAVA_WEBHOOK_LOOKBACK_DAYS`] before the event, and writes the rows
 /// through to the activity cache with the freshness mark. A successful fetch

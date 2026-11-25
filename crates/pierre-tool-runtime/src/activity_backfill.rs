@@ -1,4 +1,4 @@
-// ABOUTME: Background historical-activity backfill so a deep `after` never scrapes inline
+// ABOUTME: Background historical-activity backfill so a deep `after` never reads inline
 // ABOUTME: Recorded as a durable job row before it spawns, leased while it runs, resumed by the sweep if its instance dies
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -7,20 +7,20 @@
 //! Historical activity backfill.
 //!
 //! A coaching turn that asks for an old window (e.g. "my 2022 races") must
-//! never trigger an inline provider scrape: paginating a provider's
+//! never trigger an inline provider read: paginating a provider's
 //! reverse-chronological feed back across years stalls the turn and trips the
 //! known sciotte navigation timeout. Instead the `get_activities` handler
 //! serves deep windows from the durable activity cache, and — on a cold cache —
 //! kicks off one of these bounded background jobs. The job authenticates the
 //! provider, pages the feed back to the requested `after` via the date-aware
-//! scrape, and writes the results through to the cache so the next ask is a
+//! read, and writes the results through to the cache so the next ask is a
 //! plain cache hit. Jobs are de-duplicated per `(user, provider)` and inherit
-//! the provider's global scrape-concurrency permit, so they cannot stampede
+//! the provider's global read-concurrency permit, so they cannot stampede
 //! Chrome.
 //!
 //! # A backfill is a row before it is a task
 //!
-//! The job runs detached from the turn that asked for it, minutes of scraping
+//! The job runs detached from the turn that asked for it, minutes of reading
 //! after the athlete was told "I'm pulling that now, no need to ask again".
 //! On a scale-to-zero service the instance holding it can be reclaimed at any
 //! moment, and a job that dies with it left nothing behind: no rows, no
@@ -103,7 +103,7 @@ use reauth::notify_backfill_reauth;
 use settle::{remove_backfill_job, settle_backfill_job, wait_out};
 
 /// Default age (days) past which an activity request is served via background
-/// backfill instead of an inline provider scrape.
+/// backfill instead of an inline provider read.
 const DEFAULT_HISTORICAL_BACKFILL_THRESHOLD_DAYS: i64 = 90;
 
 /// Threshold (days) past which an `after` lower bound triggers background
@@ -119,7 +119,7 @@ fn historical_backfill_threshold_days() -> i64 {
 }
 
 /// Whether an `after` lower bound (unix seconds) is deep enough to require
-/// background backfill instead of an inline provider scrape.
+/// background backfill instead of an inline provider read.
 ///
 /// Compares the bound against the [`historical_backfill_threshold_days`]
 /// window. `pub` so the gate decision can be exercised by the integration
@@ -133,13 +133,13 @@ pub fn is_historical_backfill_window(after_ts: i64) -> bool {
 
 /// The depth a completed backfill may claim as covered, in unix seconds.
 ///
-/// When the scrape did NOT fill `fetch_limit` it returned every activity in the
+/// When the read did NOT fill `fetch_limit` it returned every activity in the
 /// requested `[after, before]` window, so it reached the requested floor
 /// `after_ts` itself — record that floor. Crucially this is the REQUESTED floor,
 /// not the oldest activity fetched: at a clean period boundary (a year query has
 /// `after` = Jan 1 00:00:00) the oldest activity sits just above `after_ts`, so
 /// recording the activity timestamp would leave the window looking uncovered and
-/// re-scrape forever. When the scrape filled the limit it stopped early
+/// re-read forever. When the read filled the limit it stopped early
 /// (count-capped), so the deepest it can honestly claim is the oldest activity
 /// fetched. `pub` so the decision is exercisable by the integration test suite.
 #[must_use]
@@ -151,7 +151,7 @@ pub fn backfill_covered_floor_ts(
 ) -> i64 {
     if fetched_count < fetch_limit {
         // Not count-capped: the whole window came back, so the requested floor
-        // was reached. `min` is defensive — the scrape only returns activities
+        // was reached. `min` is defensive — the read only returns activities
         // at or after `after_ts`, so `oldest_reached_ts >= after_ts` normally.
         after_ts.min(oldest_reached_ts)
     } else {
@@ -161,7 +161,7 @@ pub fn backfill_covered_floor_ts(
 
 /// How long one runner holds a job row before the resume sweep may take it.
 ///
-/// A full sciotte season scrape sits under its 330s client ceiling, so ten
+/// A full sciotte season read sits under its 330s client ceiling, so ten
 /// minutes covers the slowest legitimate run several times over; a live run
 /// renews well inside it, so only a dead one ever lets it lapse.
 pub const BACKFILL_JOB_LEASE: StdDuration = StdDuration::from_mins(10);
@@ -198,9 +198,9 @@ pub struct ActivityBackfillJob {
     /// Tenant id as a string for provider authentication (`None` for the nil
     /// tenant) — see [`provider_tenant_id_str`].
     pub tenant_id_str: Option<String>,
-    /// Backend provider slug to scrape (already resolved to the sciotte mirror if any).
+    /// Backend provider slug to read (already resolved to the sciotte mirror if any).
     pub provider_name: String,
-    /// The original request window — its deep `after` drives the page-to-date scrape.
+    /// The original request window — its deep `after` drives the page-to-date read.
     pub query_params: ActivityQueryParams,
     /// Originating Pierre conversation id when the backfill was triggered from a
     /// chat turn: the completion notice and the reconnect nudge go back to the
@@ -667,7 +667,7 @@ fn lease_ms() -> i64 {
 const IN_FLIGHT_WAIT_POLL: StdDuration = StdDuration::from_millis(500);
 
 /// Upper bound on waiting for a concurrent job's claim. A full sciotte
-/// season scrape sits under its 330s client ceiling, so 8 minutes covers the
+/// season read sits under its 330s client ceiling, so 8 minutes covers the
 /// slowest legitimate holder; past it the wait gives up instead of hanging
 /// the task on a holder that never ends.
 const IN_FLIGHT_WAIT_CAP: StdDuration = StdDuration::from_mins(8);
@@ -695,12 +695,12 @@ pub(crate) enum BackfillRunOutcome {
 
 /// Run a backfill to completion on the caller's own future, serializing on
 /// the same in-flight key as [`spawn_activity_backfill`] so concurrent asks
-/// for one `(tenant, user, provider)` never stack scrapes.
+/// for one `(tenant, user, provider)` never stack reads.
 ///
 /// When another job holds the key this waits for it to clear, then runs its
 /// own window anyway: the concurrent job may have paged a shallower `after`,
 /// and re-running is the only way to guarantee the requested depth without
-/// re-deriving the coverage gate here. The redundant scrape costs one
+/// re-deriving the coverage gate here. The redundant read costs one
 /// serialized provider pass in the rare double-ask race; the wrong answer
 /// would cost serving a shallow window as if it were complete.
 async fn run_activity_backfill_inline(job: ActivityBackfillJob) -> BackfillRunOutcome {
@@ -806,7 +806,7 @@ enum BackfillFetch {
 /// Classify a fetched capture by the provider's own verdict on its head.
 ///
 /// A capture whose head the provider never saw (`FitnessProvider::head_complete`
-/// is `false`: a scraped walk that carries every complete week and missed the
+/// is `false`: a session-read walk that carries every complete week and missed the
 /// in-progress one) is declined on the same rule as every other write-through
 /// site. The upsert of a capture that covers the head moves each row's
 /// `synced_at` to now, `latest_activity_sync`
@@ -877,7 +877,7 @@ async fn fetch_backfill_activities(
         Ok(activities) => capture_with_head(job, provider.as_ref(), activities),
         Err(e) => {
             // sciotte surfaces a lapsed session HERE (cookies existed at auth
-            // time but the scrape redirected to sign-in) as
+            // time but the read redirected to sign-in) as
             // `AppError::provider_auth_required`; any other error is transient.
             let auth_required = e.provider_auth_required_provider().is_some();
             warn!(
@@ -924,12 +924,12 @@ async fn record_backfill_coverage(
             fetched_count,
             fetch_limit,
         ),
-        // The scrape path cannot PROVE the provider feed is exhausted: a
-        // date-floored scrape stops at `after`, never paging below it, so
+        // The session-read path cannot PROVE the provider feed is exhausted: a
+        // date-floored read stops at `after`, never paging below it, so
         // "fewer than the limit" only means the requested window was exhausted,
         // not the whole feed. Inferring feed-end from the count falsely marked
         // every deeper query covered, serving an empty slice from a shallow
-        // cache (a 2024-bounded scrape masking real 2022/2023 data). Reaching
+        // cache (a 2024-bounded read masking real 2022/2023 data). Reaching
         // the requested floor is already captured by oldest_reached_ts above;
         // hit_feed_end stays reserved for an explicit provider feed-exhaustion
         // signal, which the gate still honors when set.
@@ -974,7 +974,7 @@ async fn run_activity_backfill(job: &ActivityBackfillJob) -> BackfillRunOutcome 
     let executor =
         UniversalExecutor::new(job.resources.clone()).with_scopes(OAuthScope::self_grant());
     // Taken before the fetch reads the session: a reconnect that lands during
-    // a long scrape is newer than the failure the scrape reports.
+    // a long read is newer than the failure the read reports.
     let attempt_started_at = Timestamp::now();
     let activities = match fetch_backfill_activities(job, &executor).await {
         BackfillFetch::Activities(activities) => activities,
@@ -1093,7 +1093,7 @@ struct Persisted {
     refused: u64,
 }
 
-/// Write the scraped historical activities through to the durable cache as
+/// Write the historical activities the read returned through to the durable cache as
 /// `write` says, and return what it persisted ([`Persisted`]), or `None`
 /// when the write-through fails. A failed/partial write must not let the caller
 /// record coverage — recording it would leave the gate believing the window is

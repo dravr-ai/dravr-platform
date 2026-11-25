@@ -77,7 +77,7 @@ export interface RecentActivitiesResponse {
   as_of: string | null;
   /**
    * The latest refresh of one of the athlete's providers that failed — a
-   * scrape that errored or never answered, or an answer the server judged
+   * session read that errored or never answered, or an answer the server judged
    * incomplete — with no good sync of that provider after it; null when
    * every provider's latest attempt succeeded. It names the provider and
    * that provider's own last good sync, which is how old its rows on the

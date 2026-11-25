@@ -30,7 +30,7 @@ pub enum ConnectVia {
     /// A provider's OAuth grant.
     OAuth,
     /// A sciotte sign-in on the provider's own pages.
-    Scrape,
+    SignIn,
     /// A link their coach proposed, confirmed by the athlete.
     Delegated,
     /// An API key the athlete pasted (intervals.icu).
@@ -43,7 +43,7 @@ impl ConnectVia {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::OAuth => "oauth",
-            Self::Scrape => "scrape",
+            Self::SignIn => "sign_in",
             Self::Delegated => "delegated",
             Self::ApiKey => "api_key",
         }
@@ -133,7 +133,7 @@ mod tests {
                 user_id,
                 tenant_id,
                 backend: "sciotte_garmin",
-                via: ConnectVia::Scrape,
+                via: ConnectVia::SignIn,
             },
         )
         .await;
@@ -159,7 +159,7 @@ mod tests {
         );
         assert_eq!(
             field("via"),
-            Some("scrape"),
+            Some("sign_in"),
             "bug: the event does not say how"
         );
         assert_eq!(

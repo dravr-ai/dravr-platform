@@ -281,7 +281,7 @@ fn slack_sig(secret: &str, timestamp: &str, body: &str) -> String {
 /// IS the athlete's history for any turn that resolves sciotte. Serving
 /// anything other than what the fixture seeds gives the agent two
 /// disagreeing accounts of one athlete and then grades it for noticing.
-async fn spawn_eval_scraper() -> String {
+async fn spawn_eval_session_reader() -> String {
     let sunday = sunday_ride_start().to_rfc3339_opts(SecondsFormat::Secs, true);
     let mut activities = vec![json!({
         "id": "eval-sunday-strava",
@@ -812,14 +812,14 @@ async fn run_corpus() {
 
     // Point the sciotte client at a stand-in that serves THIS lane's data.
     //
-    // The shared `spawn_mock_scraper` serves one canned 21 km ride, and a
+    // The shared `spawn_mock_session_reader` serves one canned 21 km ride, and a
     // successful live fetch is returned directly rather than merged with the
     // cache — so seeding a session against it made sciotte the resolved
     // provider and shrank the athlete's history to that single activity. The
     // agent said so («je ne vois qu'une seule sortie cette semaine … ça ne
     // colle pas avec ce que je t'ai dit plus tôt sur ta sortie de 200 km»),
     // was right, and every episode downstream inherited the contradiction.
-    let scraper_url = spawn_eval_scraper().await;
+    let reader_url = spawn_eval_session_reader().await;
 
     // The production construction path, not a hand-rolled one: whatever
     // `PIERRE_LLM_CHAIN` says here is
@@ -853,7 +853,7 @@ async fn run_corpus() {
     // turn the incident recorded.
     for pass in 1..=attempts {
         println!("\n########## corpus pass {pass}/{attempts}");
-        run_pass(&provider, &chain, &scraper_url, &mut tally).await;
+        run_pass(&provider, &chain, &reader_url, &mut tally).await;
     }
     let Tally {
         findings,
@@ -997,7 +997,7 @@ fn usda_api_key() -> SecretString {
 async fn run_pass(
     provider: &Arc<ChatProvider>,
     chain: &LlmChain,
-    scraper_url: &str,
+    reader_url: &str,
     tally: &mut Tally,
 ) {
     let resources = create_test_server_resources_with_real_chat_provider_and_config(
@@ -1009,7 +1009,7 @@ async fn run_pass(
             // loaded, the baseline a deferral run is compared against.
             chat_tools: ChatToolSettings::from_env(),
             usda_api_key: Some(usda_api_key()),
-            ..test_server_config_with_sciotte(scraper_url)
+            ..test_server_config_with_sciotte(reader_url)
         },
     )
     .await

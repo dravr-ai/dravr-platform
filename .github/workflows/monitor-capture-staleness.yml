@@ -296,7 +296,7 @@ jobs:
               `Check the provider service first — for \`sciotte\`, the most recent log line`,
               `of each Cloud Run service labelled \`component=sciotte\` (\`dravr-mcp-server-sciotte\`,`,
               `any \`-sciotte-read-<n>\`, the \`-sciotte-login\` sign-in service) tells you`,
-              `whether the scraper is running at all.`,
+              `whether the session-read service is running at all.`,
               ``,
               `Close this once capture is healthy — the monitor reopens if it regresses, and`,
               `comments here only when a new stale run appears.`,

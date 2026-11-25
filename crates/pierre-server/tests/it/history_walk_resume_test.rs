@@ -1,4 +1,4 @@
-// ABOUTME: A history walk whose scrape fell short of a step's window: what lands, where it reads next, how it ends
+// ABOUTME: A history walk whose session read fell short of a step's window: what lands, where it reads next, how it ends
 // ABOUTME: Pins the bounded step that keeps its rows, the first step that refuses, the resumed cursor and the back-off
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -9,15 +9,15 @@
 // This `//!` precedes the module-level `#![cfg]` so the docs survive a build
 // without the features.
 //
-// A scrape that read some months of a step and then failed on one returns
+// A session read that covered some months of a step and then failed on one returns
 // what it read, short of its window (`head_complete` false). A step below
 // the head lands those rows and reads the next step below the oldest of them;
 // the first step, which reads the head, still refuses such a capture. A walk
 // that still ended incomplete resumes from its cursor with its counters when
 // asked again, and no sooner than a day after its failing end, so a walk that
-// keeps failing never storms the scraper.
+// keeps failing never storms the service.
 //
-// The scraper is the history walk suite's loopback stand-in (a test double,
+// The session reader is the history walk suite's loopback stand-in (a test double,
 // per the repo's mock rule), told where its month walk fails.
 #![cfg(all(feature = "provider-garmin", feature = "health-sync"))]
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
@@ -29,7 +29,7 @@ use crate::garmin_sign_in_test::{
 };
 use crate::history_walk_test::{
     age_job_rows, ask_walk, job_row, job_state, paused_retries_due, query_bound, rows_under,
-    spawn_switchable_scraper, ScraperSwitch, WALK_DEADLINE,
+    spawn_switchable_session_reader, SessionReaderSwitch, WALK_DEADLINE,
 };
 
 use std::sync::atomic::Ordering;
@@ -152,11 +152,11 @@ async fn oldest_stored(resources: &Arc<ServerContext>, user_id: Uuid, tenant: Te
 /// more to give, so the walk ends there, walked, with every row in.
 #[tokio::test]
 async fn a_bounded_step_short_of_its_window_lands_and_reads_below_its_oldest_row() {
-    let switch = ScraperSwitch::default();
+    let switch = SessionReaderSwitch::default();
     let cut = (Timestamp::now() - Elapsed::days(8 * 365 + 1)).epoch_seconds();
     *switch.short_below.lock().unwrap() = Some(cut);
-    let (scraper, calls) = spawn_switchable_scraper(switch).await;
-    let resources = server(common::test_server_config_with_sciotte(&scraper)).await;
+    let (reader, calls) = spawn_switchable_session_reader(switch).await;
+    let resources = server(common::test_server_config_with_sciotte(&reader)).await;
     let (user_id, _user, tenant, _token) = athlete(&resources).await;
     hold_grant(&resources, user_id, tenant).await;
     hold_session(&resources, user_id, tenant, SIGNED_IN_SESSION).await;
@@ -193,12 +193,12 @@ async fn a_bounded_step_short_of_its_window_lands_and_reads_below_its_oldest_row
     );
 }
 
-/// The scraper's month walk reaches the start of the athlete's history: the
+/// The service's month walk reaches the start of the athlete's history: the
 /// step below the oldest run reads that run's month whole again, nothing
 /// below it, and falls short of its window on a month before the account
 /// (carnet#1780).
-fn at_the_start_of_the_history() -> ScraperSwitch {
-    let switch = ScraperSwitch::default();
+fn at_the_start_of_the_history() -> SessionReaderSwitch {
+    let switch = SessionReaderSwitch::default();
     let cut = (Timestamp::now() - Elapsed::days(8 * 365 + 1)).epoch_seconds();
     *switch.short_below.lock().unwrap() = Some(cut);
     switch.whole_before_month.store(true, Ordering::SeqCst);
@@ -229,8 +229,8 @@ async fn holds_tag_walk_back(
 /// the tag walk is asked.
 #[tokio::test]
 async fn a_short_capture_at_its_cursor_on_every_attempt_ends_the_walk_walked() {
-    let (scraper, calls) = spawn_switchable_scraper(at_the_start_of_the_history()).await;
-    let resources = server(common::test_server_config_with_sciotte(&scraper)).await;
+    let (reader, calls) = spawn_switchable_session_reader(at_the_start_of_the_history()).await;
+    let resources = server(common::test_server_config_with_sciotte(&reader)).await;
     let (user_id, _user, tenant, _token) = athlete(&resources).await;
     hold_grant(&resources, user_id, tenant).await;
     hold_session(&resources, user_id, tenant, SIGNED_IN_SESSION).await;
@@ -277,8 +277,8 @@ async fn a_transient_failure_ends_incomplete_and_the_resumed_walk_reaches_the_st
     // it reads.
     let failing = (Timestamp::now() - Elapsed::days(8 * 365)).epoch_seconds() + 3_600;
     *switch.fail_below.lock().unwrap() = Some(failing);
-    let (scraper, _calls) = spawn_switchable_scraper(switch.clone()).await;
-    let resources = server(common::test_server_config_with_sciotte(&scraper)).await;
+    let (reader, _calls) = spawn_switchable_session_reader(switch.clone()).await;
+    let resources = server(common::test_server_config_with_sciotte(&reader)).await;
     let (user_id, _user, tenant, _token) = athlete(&resources).await;
     hold_grant(&resources, user_id, tenant).await;
     hold_session(&resources, user_id, tenant, SIGNED_IN_SESSION).await;
@@ -332,11 +332,11 @@ async fn a_transient_failure_ends_incomplete_and_the_resumed_walk_reaches_the_st
 /// resumes it.
 #[tokio::test]
 async fn the_first_step_refuses_a_short_capture_and_a_re_ask_waits_out_the_day() {
-    let switch = ScraperSwitch::default();
+    let switch = SessionReaderSwitch::default();
     let cut = (Timestamp::now() - Elapsed::days(10)).epoch_seconds();
     *switch.short_below.lock().unwrap() = Some(cut);
-    let (scraper, calls) = spawn_switchable_scraper(switch).await;
-    let resources = server(common::test_server_config_with_sciotte(&scraper)).await;
+    let (reader, calls) = spawn_switchable_session_reader(switch).await;
+    let resources = server(common::test_server_config_with_sciotte(&reader)).await;
     let (user_id, _user, tenant, _token) = athlete(&resources).await;
     hold_grant(&resources, user_id, tenant).await;
     hold_session(&resources, user_id, tenant, SIGNED_IN_SESSION).await;
@@ -369,7 +369,7 @@ async fn the_first_step_refuses_a_short_capture_and_a_re_ask_waits_out_the_day()
     assert_eq!(
         session_reads(&calls).len(),
         reads,
-        "bug: the held-off ask read the scraper"
+        "bug: the held-off ask reached the service"
     );
 
     update_walk_row(
@@ -395,11 +395,11 @@ async fn the_first_step_refuses_a_short_capture_and_a_re_ask_waits_out_the_day()
 /// walked on it.
 #[tokio::test]
 async fn an_empty_first_step_short_of_its_head_never_ends_the_walk() {
-    let switch = ScraperSwitch::default();
+    let switch = SessionReaderSwitch::default();
     let cut = (Timestamp::now() - Elapsed::hours(1)).epoch_seconds();
     *switch.short_below.lock().unwrap() = Some(cut);
-    let (scraper, _calls) = spawn_switchable_scraper(switch).await;
-    let resources = server(common::test_server_config_with_sciotte(&scraper)).await;
+    let (reader, _calls) = spawn_switchable_session_reader(switch).await;
+    let resources = server(common::test_server_config_with_sciotte(&reader)).await;
     let (user_id, _user, tenant, _token) = athlete(&resources).await;
     hold_grant(&resources, user_id, tenant).await;
     hold_session(&resources, user_id, tenant, SIGNED_IN_SESSION).await;
@@ -420,8 +420,8 @@ async fn an_empty_first_step_short_of_its_head_never_ends_the_walk() {
 /// its counters, never from the head, and walks on to the end.
 #[tokio::test]
 async fn a_re_asked_incomplete_walk_resumes_from_its_cursor_with_its_counters() {
-    let (scraper, calls) = spawn_switchable_scraper(ScraperSwitch::default()).await;
-    let resources = server(common::test_server_config_with_sciotte(&scraper)).await;
+    let (reader, calls) = spawn_switchable_session_reader(SessionReaderSwitch::default()).await;
+    let resources = server(common::test_server_config_with_sciotte(&reader)).await;
     let (user_id, _user, tenant, _token) = athlete(&resources).await;
     hold_grant(&resources, user_id, tenant).await;
     hold_session(&resources, user_id, tenant, SIGNED_IN_SESSION).await;

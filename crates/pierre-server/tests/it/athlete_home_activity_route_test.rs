@@ -12,7 +12,7 @@
 //! not a hope. Geometry assertions are on real coordinates: a handler that
 //! drew the untrimmed track, an empty line or another tenant's route fails.
 //! The mirror-backend cases point the sciotte provider at a local stand-in
-//! for the scraper service (`DRAVR_SCIOTTE_REMOTE_URL`) that counts its
+//! for the dravr-sciotte service (`DRAVR_SCIOTTE_REMOTE_URL`) that counts its
 //! detail reads the same way.
 //
 // This `//!` must precede the crate-level `#![cfg]`: when a feature is off the
@@ -36,6 +36,7 @@ use axum::http::StatusCode as HttpStatus;
 use axum::http::{Request, StatusCode};
 use axum::routing::{get, post};
 use axum::{Json, Router};
+use dravr_barrage::parse::polyline::encode_polyline;
 use dravr_tronc::dates::{Elapsed, Timestamp};
 use futures_util::future::join_all;
 use pierre_core::models::{
@@ -45,7 +46,7 @@ use pierre_database::backends::factory::DatabaseBackend;
 use pierre_database::repositories::StoredRouteTrack;
 use pierre_fitness_compute::route_track::MAP_MAX_POINTS;
 use pierre_fitness_compute::routes::haversine_meters_between;
-use pierre_fitness_compute::{encode_polyline, DEFAULT_PRIVACY_RADIUS_METERS};
+use pierre_fitness_compute::DEFAULT_PRIVACY_RADIUS_METERS;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::athlete_home::athlete_home_routes;
 use pierre_mcp_server::services::activity_route::UNREAD_ROUTE_RECHECK_MINUTES;
@@ -641,14 +642,14 @@ async fn link_oauth(resources: &Arc<ServerContext>, athlete: &Athlete, provider:
 }
 
 // ---------------------------------------------------------------------------
-// A stand-in for the scraper service a mirror backend reads through
+// A stand-in for the dravr-sciotte service a mirror backend reads through
 // ---------------------------------------------------------------------------
 
-/// A scraper stand-in answering one activity's detail read. The first
-/// `misses` answers carry no route, as a detail page scraped before its map
+/// A session reader stand-in answering one activity's detail read. The first
+/// `misses` answers carry no route, as a detail page read before its map
 /// rendered does; every later one carries `track`. Returns the base URL and
 /// the count of detail reads.
-async fn mock_scraper_missing_the_route_first(
+async fn mock_session_reader_missing_the_route_first(
     track: &[(f64, f64)],
     misses: usize,
 ) -> (String, Arc<AtomicUsize>) {
@@ -694,7 +695,7 @@ async fn mock_scraper_missing_the_route_first(
 }
 
 /// Connect the athlete's Strava through the mirror backend, with a live
-/// scrape session.
+/// signed-in session.
 async fn link_strava_mirror(resources: &Arc<ServerContext>, athlete: &Athlete) {
     resources
         .common
@@ -1233,9 +1234,9 @@ async fn a_provider_with_no_stream_source_answers_no_gps_without_a_read() {
 #[tokio::test]
 async fn a_mirror_detail_read_with_no_route_is_unavailable_and_read_again_once_it_expires() {
     let recorded = weaving_track(900, 0.0);
-    let (scraper, reads) = mock_scraper_missing_the_route_first(&recorded, 1).await;
+    let (reader, reads) = mock_session_reader_missing_the_route_first(&recorded, 1).await;
     let mut config = common::test_server_config();
-    config.external_services.sciotte.read_urls = vec![scraper];
+    config.external_services.sciotte.read_urls = vec![reader];
     let resources = common::create_test_server_resources_with_config(config)
         .await
         .unwrap();

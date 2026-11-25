@@ -37,7 +37,7 @@ pub(crate) const END_HISTORY_WALK_SQL: &str = "UPDATE activity_backfill_jobs \
 /// Moves a running walk to its API phase ([`super::WalkHandOff`]) and releases it
 /// for that phase's first step. The floor is learned again from the grant's
 /// profile (`after_ts` NULL), and the pace measured anew (`secs_per_unit`
-/// NULL): an API page is not a scrape.
+/// NULL): an API page is not a session read.
 pub(crate) const HAND_OFF_HISTORY_WALK_SQL: &str = "UPDATE activity_backfill_jobs \
      SET walk_backend = $3, before_ts = $4, months_done = $5, \
          rows_landed = rows_landed + $6, fetch_limit = $7, after_ts = NULL, \

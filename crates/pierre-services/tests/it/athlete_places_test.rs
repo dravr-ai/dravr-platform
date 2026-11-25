@@ -16,6 +16,7 @@
 use std::f64::consts::TAU;
 use std::sync::atomic::{AtomicI64, Ordering};
 
+use dravr_barrage::parse::polyline::encode_polyline;
 use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::models::{Activity, ActivityBuilder, SegmentEffort, SportType, TenantId, User};
 use pierre_database::backends::factory::{Database, DatabaseBackend};
@@ -23,7 +24,6 @@ use pierre_database::repositories::{
     AthletePlace, CachedActivityRow, CachedRowsQuery, PlaceNameSource,
 };
 use pierre_database::RepositoryRegistry;
-use pierre_fitness_compute::encode_polyline;
 use pierre_fitness_compute::routes::haversine_meters_between;
 use pierre_services::athlete_places::{
     declare_home, name_place, places_pass, HomeChoice, NamedPlace, PlaceRefusal, PlaceTarget,

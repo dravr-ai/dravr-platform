@@ -14,8 +14,8 @@
 //! A `TrainingPeaks` coach account keeps no calendar of its own, so a read of
 //! the account's own workouts has nothing to return. Once the connection is
 //! known to be a coach account, [`AuthService::delegated_subject`] refuses
-//! that read before any scrape, with the platform's own words
-//! ([`CoachPlatform::own_calendar_refusal`]). Until then the scraper answers
+//! that read before any session read, with the platform's own words
+//! ([`CoachPlatform::own_calendar_refusal`]). Until then the service answers
 //! the read with its `athlete_required` refusal, and
 //! [`AuthService::react_to_delegated_refusal`] records the role, so the next
 //! read refuses at the first step. An Intervals.icu coach account trains too,
@@ -437,11 +437,11 @@ impl AuthService {
     /// - The platform refused the athlete a linked read named: it no longer
     ///   lets the coach read the athlete, so the link ends and both sides are
     ///   told.
-    /// - The scraper refused a `TrainingPeaks` read that named no athlete
+    /// - The service refused a `TrainingPeaks` read that named no athlete
     ///   because the session is a coach account's (`athlete_required`): the
     ///   connection is recorded as a coach account — which removes the
     ///   workouts misfiled under it (see [`record_trainingpeaks_role`]) — so
-    ///   the next read is refused before any scrape. The refusal carries no
+    ///   the next read is refused before any session read. The refusal carries no
     ///   email, so it grants no `manages_roster`: that waits for a profile
     ///   read binding the account to the user.
     ///
@@ -647,7 +647,7 @@ impl AuthService {
             Err(e) => warn!(
                 user_id = %user_id,
                 error = %e,
-                "Could not record the TrainingPeaks coach account the scraper reported"
+                "Could not record the TrainingPeaks coach account the service reported"
             ),
         }
     }

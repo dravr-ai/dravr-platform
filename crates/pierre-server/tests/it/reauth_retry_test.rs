@@ -1,14 +1,14 @@
-// ABOUTME: A scrape session flagged needs_reauth is retried by the capture sweep and Athlete Home, once per interval
+// ABOUTME: A signed-in session flagged needs_reauth is retried by the capture sweep and Athlete Home, once per interval
 // ABOUTME: A served retry re-arms it, a refused one waits out the throttle, and a flagged OAuth grant is never retried
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! On 2026-09-25 one `401` from a scraper instance that had not seen a session
+//! On 2026-09-25 one `401` from a service instance that had not seen a session
 //! import flagged an athlete's Strava mirror, and the flag then stood for days:
 //! the sweep and Home refreshed `active` connections only, and only a chat
 //! turn's live read could clear it. These tests drive the sweep and the Home
-//! endpoint against a scraper stand-in that counts the reads it answers, and
+//! endpoint against a session-reader stand-in that counts the reads it answers, and
 //! assert the reads that reach it and the status the row is left in.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
@@ -30,7 +30,7 @@ use pierre_database::backends::factory::DatabaseBackend;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::athlete_home::athlete_home_routes;
 use pierre_tool_runtime::capture_sweep::{refresh_captures, SweepBudget, SweepSelection};
-use pierre_tool_runtime::reauth_retry::SCRAPE_SESSION_RETRY_INTERVAL_HOURS;
+use pierre_tool_runtime::reauth_retry::FLAGGED_SESSION_RETRY_INTERVAL_HOURS;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use serde_json::{json, Value};
 use tokio::net::TcpListener;
@@ -40,11 +40,11 @@ use uuid::Uuid;
 
 use crate::helpers::sciotte_mock::seed_sciotte_session;
 
-/// The id of the one ride the scraper stand-in serves.
+/// The id of the one ride the session-reader stand-in serves.
 const RIDE_ID: &str = "15559990077";
 
-/// A scraper stand-in that counts the activity reads it answers.
-struct Scraper {
+/// A session-reader stand-in that counts the activity reads it answers.
+struct SessionReader {
     /// Whether the provider still honours the session; `false` answers the
     /// list `401 session_expired`.
     session_alive: AtomicBool,
@@ -52,7 +52,7 @@ struct Scraper {
     reads: AtomicUsize,
 }
 
-impl Scraper {
+impl SessionReader {
     fn reads(&self) -> usize {
         self.reads.load(Ordering::SeqCst)
     }
@@ -60,8 +60,8 @@ impl Scraper {
 
 /// Spawn the stand-in, returning it with the URL the server context is built
 /// to reach it at.
-async fn spawn_scraper() -> (Arc<Scraper>, String) {
-    let scraper = Arc::new(Scraper {
+async fn spawn_session_reader() -> (Arc<SessionReader>, String) {
+    let reader = Arc::new(SessionReader {
         session_alive: AtomicBool::new(true),
         reads: AtomicUsize::new(0),
     });
@@ -72,9 +72,9 @@ async fn spawn_scraper() -> (Arc<Scraper>, String) {
         )
         .route(
             "/api/activities",
-            get(|State(scraper): State<Arc<Scraper>>| async move {
-                scraper.reads.fetch_add(1, Ordering::SeqCst);
-                if !scraper.session_alive.load(Ordering::SeqCst) {
+            get(|State(reader): State<Arc<SessionReader>>| async move {
+                reader.reads.fetch_add(1, Ordering::SeqCst);
+                if !reader.session_alive.load(Ordering::SeqCst) {
                     return (
                         StatusCode::UNAUTHORIZED,
                         Json(json!({ "error": "session_expired" })),
@@ -98,28 +98,28 @@ async fn spawn_scraper() -> (Arc<Scraper>, String) {
                 )
             }),
         )
-        .with_state(Arc::clone(&scraper));
+        .with_state(Arc::clone(&reader));
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     tokio::spawn(async move {
         axum::serve(listener, app).await.unwrap();
     });
-    (scraper, format!("http://{addr}"))
+    (reader, format!("http://{addr}"))
 }
 
 /// One athlete whose Strava is served by the sciotte mirror, flagged as the
 /// incident left it, plus a bearer for their Home page.
 struct Fixture {
     resources: Arc<ServerContext>,
-    scraper: Arc<Scraper>,
+    reader: Arc<SessionReader>,
     user_id: Uuid,
     tenant: TenantId,
     token: String,
 }
 
 async fn fixture(label: &str) -> Fixture {
-    let (scraper, scraper_url) = spawn_scraper().await;
-    let resources = common::create_test_server_resources_with_sciotte(&scraper_url)
+    let (reader, reader_url) = spawn_session_reader().await;
+    let resources = common::create_test_server_resources_with_sciotte(&reader_url)
         .await
         .unwrap();
     let email = format!("{label}-{}@example.com", Uuid::new_v4());
@@ -130,7 +130,7 @@ async fn fixture(label: &str) -> Fixture {
     let token = common::generate_test_token(&resources, &user).await;
     let f = Fixture {
         resources,
-        scraper,
+        reader,
         user_id,
         tenant,
         token,
@@ -215,7 +215,7 @@ impl Fixture {
     async fn age_past_interval(&self, provider: &str) {
         self.age_flag(
             provider,
-            Timestamp::now() - Elapsed::hours(SCRAPE_SESSION_RETRY_INTERVAL_HOURS + 1),
+            Timestamp::now() - Elapsed::hours(FLAGGED_SESSION_RETRY_INTERVAL_HOURS + 1),
         )
         .await;
     }
@@ -265,13 +265,13 @@ impl Fixture {
     }
 }
 
-/// The sweep retries a flagged scrape session once its interval has passed,
+/// The sweep retries a flagged signed-in session once its interval has passed,
 /// and not again within it however often it runs; the retry is the ordinary
 /// read, so one the session serves puts the connection back among the live.
 #[tokio::test]
-async fn the_sweep_retries_a_flagged_scrape_session_once_per_interval() {
+async fn the_sweep_retries_a_flagged_signed_in_session_once_per_interval() {
     let f = fixture("sweep-retry").await;
-    f.scraper.session_alive.store(false, Ordering::SeqCst);
+    f.reader.session_alive.store(false, Ordering::SeqCst);
 
     let within = refresh_captures(
         &f.runtime(),
@@ -281,7 +281,7 @@ async fn the_sweep_retries_a_flagged_scrape_session_once_per_interval() {
     .await
     .unwrap();
     assert_eq!(within.retried, 0, "a flag younger than the interval waits");
-    assert_eq!(f.scraper.reads(), 0);
+    assert_eq!(f.reader.reads(), 0);
 
     f.age_past_interval("sciotte").await;
     let refused = refresh_captures(
@@ -293,7 +293,7 @@ async fn the_sweep_retries_a_flagged_scrape_session_once_per_interval() {
     .unwrap();
     assert_eq!((refused.retried, refused.attempted), (1, 1));
     assert_eq!(refused.flagged, 1, "the refused retry is reported flagged");
-    assert_eq!(f.scraper.reads(), 1);
+    assert_eq!(f.reader.reads(), 1);
     assert_eq!(f.status("sciotte").await, ConnectionStatus::NeedsReauth);
 
     let throttled = refresh_captures(
@@ -304,9 +304,9 @@ async fn the_sweep_retries_a_flagged_scrape_session_once_per_interval() {
     .await
     .unwrap();
     assert_eq!(throttled.retried, 0, "retried within the interval");
-    assert_eq!(f.scraper.reads(), 1, "the scraper is not asked again");
+    assert_eq!(f.reader.reads(), 1, "the service is not asked again");
 
-    f.scraper.session_alive.store(true, Ordering::SeqCst);
+    f.reader.session_alive.store(true, Ordering::SeqCst);
     f.age_past_interval("sciotte").await;
     let served = refresh_captures(
         &f.runtime(),
@@ -316,7 +316,7 @@ async fn the_sweep_retries_a_flagged_scrape_session_once_per_interval() {
     .await
     .unwrap();
     assert_eq!((served.retried, served.refreshed), (1, 1));
-    assert_eq!(f.scraper.reads(), 2);
+    assert_eq!(f.reader.reads(), 2);
     assert_eq!(
         f.status("sciotte").await,
         ConnectionStatus::Active,
@@ -360,25 +360,25 @@ async fn the_sweep_never_retries_a_flagged_oauth_grant() {
     assert!(claimable, "the sweep never stamped a retry on it");
 }
 
-/// Home starts a refresh for a flagged scrape session whose interval passed,
+/// Home starts a refresh for a flagged signed-in session whose interval passed,
 /// says the page is stale while it runs, and does not start another within
-/// the interval: a second load reads no scraper and reports nothing stale.
+/// the interval: a second load reaches no service and reports nothing stale.
 #[tokio::test]
-async fn home_retries_a_flagged_scrape_session_once_within_the_interval() {
+async fn home_retries_a_flagged_signed_in_session_once_within_the_interval() {
     let f = fixture("home-retry").await;
-    f.scraper.session_alive.store(false, Ordering::SeqCst);
+    f.reader.session_alive.store(false, Ordering::SeqCst);
     f.age_past_interval("sciotte").await;
 
     let first = f.home().await;
     assert_eq!(first["stale"], true, "{first}");
     f.await_background().await;
-    assert_eq!(f.scraper.reads(), 1, "one retry reached the scraper");
+    assert_eq!(f.reader.reads(), 1, "one retry reached the service");
     assert_eq!(f.status("sciotte").await, ConnectionStatus::NeedsReauth);
 
     let second = f.home().await;
     assert_eq!(second["stale"], false, "{second}");
     f.await_background().await;
-    assert_eq!(f.scraper.reads(), 1, "no second retry within the interval");
+    assert_eq!(f.reader.reads(), 1, "no second retry within the interval");
 }
 
 /// A Home retry the session serves re-arms the connection and writes the ride
@@ -390,7 +390,7 @@ async fn a_home_retry_the_session_serves_rearms_the_connection() {
 
     assert_eq!(f.home().await["stale"], true);
     f.await_background().await;
-    assert_eq!(f.scraper.reads(), 1);
+    assert_eq!(f.reader.reads(), 1);
     assert_eq!(f.status("sciotte").await, ConnectionStatus::Active);
 
     let body = f.home().await;
@@ -408,7 +408,7 @@ async fn a_home_retry_the_session_serves_rearms_the_connection() {
 #[tokio::test]
 async fn home_never_retries_a_flagged_oauth_grant() {
     let f = fixture("home-oauth").await;
-    // The scrape session is flagged too recently to retry, leaving the OAuth
+    // The signed-in session is flagged too recently to retry, leaving the OAuth
     // grant the only candidate.
     f.connect("strava").await;
     f.flag("strava").await;
@@ -420,7 +420,7 @@ async fn home_never_retries_a_flagged_oauth_grant() {
         f.resources.common.turns.is_empty(),
         "no background refresh was started"
     );
-    assert_eq!(f.scraper.reads(), 0);
+    assert_eq!(f.reader.reads(), 0);
     let claimable = f
         .resources
         .common
@@ -456,7 +456,7 @@ async fn hold_live_grant(f: &Fixture) {
 
 /// A flagged usr/pwd session is its provider's primary source even with a
 /// live grant beside it (carnet#1494), so the sweep retries it on the same
-/// throttle as any flagged session: the scraper is asked once, a retry the
+/// throttle as any flagged session: the service is asked once, a retry the
 /// session serves re-arms it, and the grant beside it is never walked.
 #[tokio::test]
 async fn a_flagged_session_beside_a_live_grant_is_retried() {
@@ -477,7 +477,7 @@ async fn a_flagged_session_beside_a_live_grant_is_retried() {
         "bug: the sweep must retry a flagged session beside a grant: {:?}",
         report.connections
     );
-    assert_eq!(f.scraper.reads(), 1, "the retry is the session's own read");
+    assert_eq!(f.reader.reads(), 1, "the retry is the session's own read");
     assert!(
         report
             .connections
@@ -495,7 +495,7 @@ async fn a_flagged_session_beside_a_live_grant_is_retried() {
 
 /// Home refreshes a live usr/pwd session beside a grant, its provider's
 /// primary (carnet#1494), and never the grant beside it: with both
-/// connections active the scraper is read once, for the session alone.
+/// connections active the service is read once, for the session alone.
 #[tokio::test]
 async fn home_refreshes_a_live_session_and_never_the_grant_beside_it() {
     let f = fixture("home-beside-grant").await;
@@ -511,7 +511,7 @@ async fn home_refreshes_a_live_session_and_never_the_grant_beside_it() {
     let body = f.home().await;
     f.await_background().await;
     assert_eq!(
-        f.scraper.reads(),
+        f.reader.reads(),
         1,
         "bug: Home must refresh the session once and pass over the grant: {body}"
     );

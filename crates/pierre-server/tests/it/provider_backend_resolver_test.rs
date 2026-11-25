@@ -166,7 +166,7 @@ fn user_facing_name_strips_mirror_backends() {
 }
 
 #[test]
-fn mirror_backend_for_only_maps_the_scraped_providers() {
+fn mirror_backend_for_only_maps_the_session_read_providers() {
     assert_eq!(
         backend_resolver::mirror_backend_for("strava"),
         Some(oauth_providers::SCIOTTE)
@@ -523,7 +523,7 @@ async fn resolve_backend_collapses_garmin_aliases_to_one_cache_key() {
     let (user_id, _) = create_test_user(&resources.agent.database).await.unwrap();
     let tenant_id = user_primary_tenant(&resources, user_id).await;
 
-    // The user's only Garmin connection is the scraper mirror (no OAuth row) —
+    // The user's only Garmin connection is the session mirror (no OAuth row) —
     // the real-world shape that triggered the split.
     seed_token(
         &resources,
@@ -1307,7 +1307,7 @@ async fn create_authenticated_provider_signals_reauth_for_active_but_tokenless_c
 // ============================================================================
 
 /// A disconnect must clear BOTH sources of truth — the `user_oauth_tokens` row
-/// (drives `resolve_backend` + the scrape session) and the `provider_connections`
+/// (drives `resolve_backend` + the signed-in session) and the `provider_connections`
 /// row (drives the "connected" badge + coaching fetch enumeration). Leaving an
 /// orphaned connection row is exactly what made a disconnected Garmin keep
 /// showing "Connected" and routed the next fetch to the then-uncredentialed
@@ -1529,7 +1529,7 @@ fn brand_name_reads_either_half_of_a_mirror_pair_from_the_registry() {
         backend_resolver::brand_name(&registry, "sciotte_trainingpeaks"),
         Some("TrainingPeaks")
     );
-    // The athlete connected Garmin through the scrape: the OAuth descriptor's
+    // The athlete connected Garmin through the session sign-in: the OAuth descriptor's
     // "Garmin Connect" names an API they never touched.
     assert_eq!(
         backend_resolver::brand_name(&registry, "garmin"),
@@ -1858,7 +1858,7 @@ async fn multi_provider_status_lists_trainingpeaks_and_hides_its_mirror() {
 
 /// A mirror's dead session is stored under the BACKEND name while the status
 /// tool reports the user-facing one, so a lookup keyed by the user-facing
-/// name never saw it: a Garmin or TrainingPeaks athlete whose scrape session
+/// name never saw it: a Garmin or TrainingPeaks athlete whose signed-in session
 /// died read "connected" to the agent.
 #[tokio::test]
 async fn status_reports_needs_reauth_for_a_dead_mirror_session() {
@@ -2171,7 +2171,7 @@ async fn push_garmin_activity(resources: &Arc<ServerContext>, user_id: Uuid, ten
 }
 
 /// Flag `provider`'s connection `needs_reauth`, as a refused refresh or a dead
-/// scrape does.
+/// session read does.
 async fn flag(resources: &Arc<ServerContext>, user_id: Uuid, tenant_id: TenantId, provider: &str) {
     resources
         .common
@@ -2823,7 +2823,7 @@ async fn a_strava_session_serves_before_its_grant_whatever_the_cache_holds() {
 /// The rows Strava's API stored before the session became the primary stay
 /// served (carnet#1494): a read of the athlete's Strava, now served by their
 /// session, answers from both keys. The session is flagged, so the read
-/// answers from the cache without a scrape.
+/// answers from the cache without a session read.
 #[tokio::test]
 async fn a_strava_session_read_still_serves_the_rows_the_api_stored() {
     let resources = create_test_server_resources().await.unwrap();

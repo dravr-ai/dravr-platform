@@ -274,7 +274,7 @@ jobs:
           # new conversation, and nothing behind it is required at boot.
           PIERRE_LLM_DEFAULT_MODEL: "ci-test-model"
           # home-sync/01 connects the Maestro athlete's Strava through a
-          # scripted stand-in for the sciotte scraper on this port.
+          # scripted stand-in for the sciotte service on this port.
           DRAVR_SCIOTTE_REMOTE_URL: "http://127.0.0.1:8097"
           # The route request's own bound, shortened as the web e2e-real lane does.
           PIERRE_HOME_ROUTE_ANSWER_SECS: "5"
@@ -332,7 +332,7 @@ jobs:
           PIERRE_MASTER_ENCRYPTION_KEY: "rEFe91l6lqLahoyl9OSzum9dKa40VvV5RYj8bHGNTeo="
           RUST_LOG: "info"
 
-      # home-sync/01 scripts the scraper through this process: it runs the
+      # home-sync/01 scripts the session reader through this process: it runs the
       # sciotte double on 8097 and a control API on 8098 that the flow's
       # runScript steps call from the host, and it writes a past sync time
       # into the server's database, so it is given that file. onboarding/02
@@ -534,7 +534,7 @@ jobs:
           # on it and login/07 is refused by it.
           echo "Running critical-path subset with per-test retry..."
           # home-sync/01 runs last: it connects the shared Maestro athlete's Strava
-          # through the scraper double, and each of its attempts resets that
+          # through the session-reader double, and each of its attempts resets that
           # athlete's activity state before it starts. Its copy assertions accept
           # English and French, so the chrome's language does not decide it.
           # chat/11 reads the seeded verdict conversation (carnet#802) and

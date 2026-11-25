@@ -58,7 +58,7 @@ export interface ProviderNoticeKeys {
  * names it by (`PROVIDER_NOTICES` in
  * `crates/pierre-core/src/constants/oauth/providers.rs`, which also says which
  * accounts the server asks for each). TrainingPeaks and COROS state the
- * account risk of a signed-in scrape; WHOOP asks every account for the owner
+ * account risk of a session read; WHOOP asks every account for the owner
  * authorization its API terms require before Dravr keeps any WHOOP data.
  */
 export const PROVIDER_NOTICES: Record<string, ProviderNoticeKeys> = {
@@ -79,7 +79,7 @@ export const PROVIDER_NOTICES: Record<string, ProviderNoticeKeys> = {
   },
 };
 
-/** How the credential login presents one scrape-mirror target. */
+/** How the credential login presents one session-read target. */
 export interface SciotteLoginPreset {
   /** The provider card (and glyph) id the target is connected through. */
   backend: string;
@@ -130,7 +130,7 @@ export function loginIdentifierField(identifier: LoginIdentifier): LoginIdentifi
 }
 
 /**
- * The login facts of every scrape-mirror target, read by both clients' login
+ * The login facts of every session-read target, read by both clients' login
  * modals. Each backend is the server's `backend_resolver::hosted_login_target`
  * pairing, which the hosted pages read, so the web and mobile cards open the
  * same login the channel link does.
@@ -197,7 +197,7 @@ export const SCIOTTE_LOGIN_FLOW_EXPIRED = 'login_flow_expired' as const;
 
 /**
  * `details.reason` of the refusal a sciotte sign-in gets when the provider
- * stopped it at a security check (a captcha) the scraper cannot answer: the
+ * stopped it at a security check (a captcha) the service cannot answer: the
  * athlete retries later. Mirrors the server's `LOGIN_CHALLENGE_REASON`; read
  * it with `refusalReason` from `@pierre/ui-logic`.
  */
@@ -205,7 +205,7 @@ export const SCIOTTE_LOGIN_CHALLENGE = 'login_challenge' as const;
 
 /**
  * `details.reason` of the answer a takeover ends with when it ended with no
- * outcome from the scraper (its socket closed, or it refused the flow).
+ * outcome from the service (its socket closed, or it refused the flow).
  * Mirrors the server's `TAKEOVER_ENDED_REASON` (`sciotte_takeover.rs`).
  */
 export const SCIOTTE_TAKEOVER_ENDED = 'takeover_ended' as const;

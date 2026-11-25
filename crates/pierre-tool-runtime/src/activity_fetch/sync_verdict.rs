@@ -10,7 +10,7 @@
 //! head: an incomplete capture, an empty answer over a window the cache holds
 //! activities in, and a read that failed are each recorded as a failed sync
 //! instead, and a provider that keeps failing is paused before its head is
-//! read again. On 2026-09-29 a scrape whose page died answered `count=0` as a
+//! read again. On 2026-09-29 a session read whose page died answered `count=0` as a
 //! success, was stamped fresh, and nothing looked again for four hours. An
 //! empty answer the provider repeats across an hour is the one exception: it
 //! is believed, and the cached rows it contradicts are evicted
@@ -55,7 +55,7 @@ pub fn covers_list_head(params: &ActivityQueryParams, now_ts: i64) -> bool {
 ///
 /// A failed refresh leaves the head stale, so without a pause every Home
 /// load, each of its follow-ups and every stale-head turn would start
-/// another scrape against a scraper that has just failed — the shared
+/// another session read against a service that has just failed — the shared
 /// service whose failures the athlete is already being told about.
 const SYNC_FAILURE_BACKOFF_MINUTES: [i64; 4] = [2, 5, 15, 60];
 
@@ -64,7 +64,7 @@ const SYNC_FAILURE_BACKOFF_MINUTES: [i64; 4] = [2, 5, 15, 60];
 const EMPTY_ANSWERS_BELIEVED: u32 = 3;
 
 /// How long before the latest of those empty answers the first of them must
-/// have come in: a burst of empty answers inside this span is a scraper
+/// have come in: a burst of empty answers inside this span is a service
 /// failing the same way on each retry, not a list the athlete emptied.
 const EMPTY_ANSWERS_SPAN_MINUTES: i64 = 60;
 
@@ -212,7 +212,7 @@ pub struct LiveRead<'a> {
 /// A read the provider answered re-arms a connection flagged `needs_reauth`
 /// ([`rearm_after_live_read`]) — except one judged
 /// [`HeadVerdict::EmptyOverCached`], which is a failed read presented as a
-/// success (a page that died, a scrape that read nothing) and so shows
+/// success (a page that died, a session read that found nothing) and so shows
 /// nothing about whether the session is alive. `pub` for the chat tool's
 /// primary read, which authenticates on its own to keep its reconnect
 /// handling and lives behind the `tools-data` feature.
@@ -220,7 +220,7 @@ pub struct LiveRead<'a> {
 /// A read that arrives while the connection's connect pre-fetch is in flight
 /// waits for it and takes its answer when that covers `params`
 /// ([`connect_prefetch_answer`]), so a connect's reads never press one fresh
-/// session with two scrapes at once.
+/// session with two reads at once.
 ///
 /// Every live list read passes here — a turn's, Home's, the capture sweep's
 /// — so its span is the one per provider read: whose, which tenant, which
@@ -326,7 +326,7 @@ pub async fn judge_live_read(
 ///
 /// A connect pre-fetches the fresh session's newest activities, and the
 /// screen the athlete lands on asks for them again within a second. Reading
-/// live beside the pre-fetch put a second browser on the scraper service for
+/// live beside the pre-fetch put a second browser on the service for
 /// the same session, which shed it (carnet#736); the pre-fetch's own read is
 /// the same provider answer, moments old, so it is judged and written through
 /// exactly as a live read would be.
@@ -364,7 +364,7 @@ async fn connect_prefetch_answer(
 /// forwards: every caller that reads a head — a chat turn, its live-read
 /// job, Home, the capture sweep — passes through here, and each
 /// then serves the athlete from the cache under a caveat the athlete is not
-/// shown. On 2026-10-30 a scraper release failed every Strava read for
+/// shown. On 2026-10-30 a service release failed every Strava read for
 /// hours, the chat answered from yesterday's cache, and the only trace was
 /// a `warn` nobody is paged for (carnet#1278). An authentication failure
 /// stays out of it: the reconnect notice is that failure's page. So does the
@@ -636,16 +636,16 @@ async fn evict_window(
 /// current failure record, whose streak holds only failures of that same
 /// reason since the last good sync.
 ///
-/// A provider has no delete signal on a scrape mirror (the Strava OAuth
+/// A provider has no delete signal on a session-read mirror (the Strava OAuth
 /// webhook is the only one), so an athlete who deletes the only activity of
 /// the head window is seen as the provider answering an empty list the cache
 /// contradicts. Judged a failed read every time, that answer would never be
 /// written through, the row would never be pruned, and Home would say "Sync
 /// failed" until the row aged out of the window, for up to thirty days. A
-/// scraper that answers a failed list walk with an error rather than an
+/// service that answers a failed list walk with an error rather than an
 /// empty success (dravr-sciotte#654) makes an empty answer that holds across
 /// an hour of retries a list the athlete emptied, not a page that died; a
-/// burst inside the hour is still treated as the failing scrape it most
+/// burst inside the hour is still treated as the failing read it most
 /// likely is.
 async fn believes_repeated_empty(
     runtime: &Arc<dyn ToolRuntime>,
@@ -679,7 +679,7 @@ async fn believes_repeated_empty(
 ///
 /// The rule: a provider that answers "no activities" for a window the cache
 /// holds this provider's activities in is not believed. Activities recorded
-/// on a provider do not disappear between two reads, while a scrape that
+/// on a provider do not disappear between two reads, while a session read that
 /// failed half-way — a browser closed under it, a page read before it
 /// rendered — has answered exactly that as a success. So the empty answer is
 /// a failed read: it is not written through, freshness stays where it was,
@@ -765,10 +765,10 @@ pub async fn record_sync_failure(
 /// served a live read.
 ///
 /// A flag is a verdict one failed attempt reached, and nothing else revisits
-/// it for a scrape session: those are never refreshed, so the re-arm a
+/// it for a signed-in session: those are never refreshed, so the re-arm a
 /// successful token refresh performs never runs for them. A connection flagged
 /// over an answer that was not the session dying (on 2026-09-25 the capture
-/// sweep flagged one over a single `401` from a scraper instance that had not
+/// sweep flagged one over a single `401` from a service instance that had not
 /// seen the session import) then stays flagged while every later read through
 /// the same session succeeds, and the sweep and the athlete's Home page, which
 /// act on `active` connections only, stop refreshing it.
@@ -864,9 +864,9 @@ mod tests {
             "bug: an empty answer the cache contradicts stayed on the session"
         );
         for error in [
-            AppError::external_service("sciotte", "500 from the scraper"),
+            AppError::external_service("sciotte", "500 from the service"),
             AppError::new(ErrorCode::ExternalServiceUnavailable, "the browser wedged"),
-            AppError::resource_unavailable("the scraper shed the read").with_retry_after(30),
+            AppError::resource_unavailable("the service shed the read").with_retry_after(30),
             AppError::provider_auth_required("sciotte"),
             AppError::internal("unexpected answer"),
             AppError::new(ErrorCode::ExternalRateLimited, "429 from Strava"),

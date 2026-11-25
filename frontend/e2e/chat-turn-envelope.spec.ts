@@ -960,7 +960,7 @@ test.describe('Chat - one transport for every turn', () => {
   });
 });
 
-test.describe('Chat - the client paints the block, it does not scrape the prose', () => {
+test.describe('Chat - the client paints the block, it does not mine the prose', () => {
   const RECONNECT_URL =
     'https://www.strava.com/oauth/authorize?client_id=1&scope=activity:read_all';
 
@@ -968,7 +968,7 @@ test.describe('Chat - the client paints the block, it does not scrape the prose'
     page,
   }) => {
     // Regression this turns red: the deleted
-    // `/https?:\/\/\S*\/providers\/sciotte\/login\?token=\S+/` scrape coming
+    // `/https?:\/\/\S*\/providers\/sciotte\/login\?token=\S+/` match coming
     // back. The prose here carries NO url — on a surface that renders a
     // reconnect control the server does not fold the sentence in — so a
     // regex-driven renderer draws no button and this fails.

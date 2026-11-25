@@ -54,12 +54,12 @@ fn tp_terms_version() -> &'static str {
 /// athletes who confirm a link.
 const PREVIOUS_NOTICE_VERSION: &str = "2026-09-22";
 
-/// Every login body the stand-in scraper received, in order.
+/// Every login body the stand-in session reader received, in order.
 type Logins = Arc<Mutex<Vec<Value>>>;
 
-/// A stand-in for the scraper service: records each credential login, answers
+/// A stand-in for the service: records each credential login, answers
 /// it as authenticated for the provider it named, and exports a session.
-async fn spawn_recording_scraper(logins: Logins) -> String {
+async fn spawn_recording_session_reader(logins: Logins) -> String {
     let app = Router::new()
         .route(
             "/auth/login-with-credentials",
@@ -149,7 +149,7 @@ async fn a_trainingpeaks_login_needs_the_accounts_consent_and_keeps_it() {
     let logins: Logins = Arc::new(Mutex::new(Vec::new()));
     let resources = common::create_test_server_resources_with_config(
         common::test_server_config_with_sciotte_usr_pwd_garmin(
-            &spawn_recording_scraper(logins.clone()).await,
+            &spawn_recording_session_reader(logins.clone()).await,
         ),
     )
     .await
@@ -178,7 +178,7 @@ async fn a_trainingpeaks_login_needs_the_accounts_consent_and_keeps_it() {
     );
     assert!(!card_consent_required(&resources, &token, oauth_providers::SCIOTTE_GARMIN).await);
 
-    // 1. No consent: refused, and the credentials never reached the scraper.
+    // 1. No consent: refused, and the credentials never reached the service.
     let (status, body) = login(&resources, &token, "trainingpeaks", false).await;
     assert_eq!(
         status, 400,
@@ -204,7 +204,7 @@ async fn a_trainingpeaks_login_needs_the_accounts_consent_and_keeps_it() {
     );
 
     // 2. Consent on this attempt: recorded, then the login runs, on the
-    //    TrainingPeaks scraper, and the session lands on the TrainingPeaks mirror.
+    //    TrainingPeaks reader, and the session lands on the TrainingPeaks mirror.
     let (status, body) = login(&resources, &token, "trainingpeaks", true).await;
     assert_eq!(
         status, 200,
@@ -296,7 +296,7 @@ async fn a_trainingpeaks_login_needs_the_accounts_consent_and_keeps_it() {
     assert_eq!(
         providers_seen(&logins),
         vec!["trainingpeaks", "trainingpeaks", "garmin"],
-        "the refused login reached no scraper"
+        "the refused login reached no reader"
     );
     let (status, body) = login(&resources, &token, "trainingpeaks", true).await;
     assert_eq!(
@@ -313,9 +313,9 @@ async fn a_trainingpeaks_login_needs_the_accounts_consent_and_keeps_it() {
     );
 
     // 7. COROS asks for its own notice: the TrainingPeaks answer is no answer
-    //    to it, a login without it never reaches the scraper, and accepting it
+    //    to it, a login without it never reaches the service, and accepting it
     //    records it under COROS' backend and lets the login through to the
-    //    COROS scraper.
+    //    COROS reader.
     assert!(card_consent_required(&resources, &token, "sciotte_coros").await);
     let seen_before_coros = providers_seen(&logins);
     let (status, body) = login(&resources, &token, "coros", false).await;
@@ -366,7 +366,7 @@ async fn a_trainingpeaks_login_needs_the_accounts_consent_and_keeps_it() {
     assert!(!card_consent_required(&resources, &token, "sciotte_coros").await);
 
     // 8. An account the flag leaves off is never asked: its cards carry no
-    //    notice, and a login without one reaches the scraper and records no
+    //    notice, and a login without one reaches the service and records no
     //    acceptance, since none was asked for.
     let (other_id, other) =
         create_test_user_with_email(&resources.agent.database, "no-notice@example.test")
@@ -389,7 +389,7 @@ async fn a_trainingpeaks_login_needs_the_accounts_consent_and_keeps_it() {
         assert_eq!(
             providers_seen(&logins)[seen..],
             [target.to_owned()],
-            "the unarmed {target} login reaches its scraper"
+            "the unarmed {target} login reaches its reader"
         );
     }
     for backend in [TP_NOTICE_BACKEND, "sciotte_coros"] {

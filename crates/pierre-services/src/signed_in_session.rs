@@ -12,11 +12,11 @@
 //! consent — which the platform stores as a `session` token row and
 //! registers as a manual connection. [`persist_sciotte_session`] is that write,
 //! and the only one: the hosted login calls it, and so does the admin
-//! clone through [`ScrapeSessionInstaller`], which the auth route crate
+//! clone through [`SessionInstaller`], which the auth route crate
 //! implements because the activity prefetch and health backfill that follow a
 //! store live there.
 //!
-//! The clone ([`find_clone_source`] then [`ScrapeSessionInstaller`]) lets an
+//! The clone ([`find_clone_source`] then [`SessionInstaller`]) lets an
 //! admin give another account — a fresh test account, or one they
 //! impersonate — a working Garmin or Strava-mirror connection without a second
 //! provider login: the source account's session is copied verbatim, same
@@ -36,7 +36,7 @@
 //! rotates a session two accounts share, nothing is stored at all: the sync's
 //! reader cannot tell which account it read for.
 //!
-//! Only a scrape session can be shared that way. An OAuth grant cannot: its
+//! Only a signed-in session can be shared that way. An OAuth grant cannot: its
 //! refresh rotates the pair (the first account to refresh strands the other)
 //! and a disconnect revokes it upstream for both. `TrainingPeaks` is excluded
 //! too: its session decides a coach's roster and delegated links, which belong
@@ -69,7 +69,7 @@ use crate::delegated_connections::{forget_coach_roster, supersede_delegated_link
 /// account. See the module doc for why the others are refused.
 const CLONEABLE_BACKENDS: [&str; 2] = [SCIOTTE, SCIOTTE_GARMIN];
 
-/// Store `session` as `user_id`'s `provider_name` scrape session in
+/// Store `session` as `user_id`'s `provider_name` signed-in session in
 /// `tenant_id` and register the manual connection.
 ///
 /// A fresh row id is written, encrypted under this user and tenant. A
@@ -141,7 +141,7 @@ pub async fn persist_sciotte_session(
     })
 }
 
-/// A scrape session [`persist_sciotte_session`] stored.
+/// A signed-in session [`persist_sciotte_session`] stored.
 #[derive(Debug, Clone)]
 pub struct StoredSession {
     /// The session as the JSON stored on the row.
@@ -150,7 +150,7 @@ pub struct StoredSession {
     pub row: StoredTokenRow,
 }
 
-/// Installs a scrape session on an account the way a login would, minus the
+/// Installs a signed-in session on an account the way a login would, minus the
 /// connect event.
 ///
 /// The session is stored through [`persist_sciotte_session`], then the
@@ -160,7 +160,7 @@ pub struct StoredSession {
 /// the composition root injects this seam, the same shape as the provider
 /// disconnector beside it.
 #[async_trait]
-pub trait ScrapeSessionInstaller: Send + Sync {
+pub trait SessionInstaller: Send + Sync {
     /// Store `session` as `user_id`'s `backend` session in `tenant_id` and
     /// warm the account's data from it in the background.
     async fn install_session(
@@ -172,10 +172,10 @@ pub trait ScrapeSessionInstaller: Send + Sync {
     ) -> AppResult<()>;
 }
 
-/// Why a scrape-session clone was refused. Nothing was written in any case.
+/// Why a signed-in-session clone was refused. Nothing was written in any case.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CloneRefusal {
-    /// The provider names no cloneable scrape backend.
+    /// The provider names no cloneable session-read backend.
     NotCloneable {
         /// The backend the provider resolved to.
         backend: String,
@@ -185,7 +185,7 @@ pub enum CloneRefusal {
         /// The backend looked up.
         backend: String,
     },
-    /// The source holds the provider as a credential that is not a scrape
+    /// The source holds the provider as a credential that is not a signed-in
     /// session (an OAuth grant).
     NotASession {
         /// The backend whose row is not a session.
@@ -205,7 +205,7 @@ impl CloneRefusal {
     pub fn message(&self) -> String {
         match self {
             Self::NotCloneable { backend } => format!(
-                "{backend} cannot be cloned: only a scrape session of {} can be shared",
+                "{backend} cannot be cloned: only a signed-in session of {} can be shared",
                 CLONEABLE_BACKENDS.join(" or ")
             ),
             Self::NoSource { backend } => {
@@ -223,7 +223,7 @@ impl CloneRefusal {
     }
 }
 
-/// The live scrape session a clone copies.
+/// The live signed-in session a clone copies.
 pub struct CloneSource {
     /// Backend the session is stored under (`sciotte`, `sciotte_garmin`).
     pub backend: String,
@@ -251,7 +251,7 @@ fn clone_backend(provider: &str) -> &str {
     backend_resolver::mirror_backend_for(provider).unwrap_or(provider)
 }
 
-/// Find `from_user`'s live, cloneable scrape session for `provider`.
+/// Find `from_user`'s live, cloneable signed-in session for `provider`.
 ///
 /// When the source holds the backend in more than one tenant, the most
 /// recently written row is taken. `Ok(Err(_))` is a refusal the admin

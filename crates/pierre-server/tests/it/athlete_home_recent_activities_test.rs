@@ -33,6 +33,7 @@ use axum::extract::Query;
 use axum::http::{Request, StatusCode};
 use axum::routing::get;
 use axum::{Json, Router};
+use dravr_barrage::parse::polyline::encode_polyline;
 use dravr_tronc::dates::{Elapsed, Timestamp};
 use futures_util::future::join_all;
 use pierre_core::constants::oauth::providers as oauth_providers;
@@ -42,9 +43,7 @@ use pierre_core::models::{
 };
 use pierre_database::backends::factory::DatabaseBackend;
 use pierre_database::repositories::StoredRouteTrack;
-use pierre_fitness_compute::{
-    encode_polyline, trimmed_overview_polyline, RouteTrack, RouteTrackError,
-};
+use pierre_fitness_compute::{trimmed_overview_polyline, RouteTrack, RouteTrackError};
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::athlete_home::athlete_home_routes;
 use serde_json::{json, Value};
@@ -1268,7 +1267,7 @@ async fn an_unproven_no_gps_read_says_so_only_until_it_expires() {
     let resources = common::create_test_server_resources().await.unwrap();
     let athlete = seed_athlete(&resources, "gps-unproven").await;
     let backend = oauth_providers::SCIOTTE;
-    let rides: Vec<Activity> = ["scraped", "trainer"]
+    let rides: Vec<Activity> = ["outdoor", "trainer"]
         .iter()
         .zip(1..)
         .map(|(id, day)| mirror_ride(id, days_ago(day)))
@@ -1284,30 +1283,30 @@ async fn an_unproven_no_gps_read_says_so_only_until_it_expires() {
 
     store_unproven_no_gps(
         &resources,
-        RouteKey::of(&athlete, backend, "scraped"),
+        RouteKey::of(&athlete, backend, "outdoor"),
         Timestamp::now() + Elapsed::hours(1),
     )
     .await;
     assert_eq!(
         gps_by_id(&recent(&resources, &athlete.token, "").await),
-        gps(&[("scraped", false), ("trainer", false)]),
+        gps(&[("outdoor", false), ("trainer", false)]),
         "before it expires, the unproven read is the stored answer"
     );
 
     store_unproven_no_gps(
         &resources,
-        RouteKey::of(&athlete, backend, "scraped"),
+        RouteKey::of(&athlete, backend, "outdoor"),
         Timestamp::now() - Elapsed::minutes(1),
     )
     .await;
     assert_eq!(
         gps_by_id(&recent(&resources, &athlete.token, "").await),
-        gps(&[("scraped", true), ("trainer", false)]),
+        gps(&[("outdoor", true), ("trainer", false)]),
         "an expired read is no read: the client asks for the route again"
     );
     let repo = &resources.common.repos.activity_route_tracks;
     assert_eq!(
-        repo.get_route_track(&athlete.tenant, athlete.user_id, backend, "scraped")
+        repo.get_route_track(&athlete.tenant, athlete.user_id, backend, "outdoor")
             .await
             .unwrap(),
         None,

@@ -168,7 +168,7 @@ pub use sciotte::{
 // the caller-to-parked-browser binding, so these are the seam for asserting
 // that a continuation without a live flow of the caller's own is refused, that
 // the entry is reachable from any pod sharing the cache, that it is scoped to
-// the tenant that parked it, and that a scraper load-shed answers with a
+// the tenant that parked it, and that a service load-shed answers with a
 // retryable 503 instead of an admin alert. Doc-hidden — internal-only.
 #[cfg(feature = "provider-sciotte")]
 #[doc(hidden)]
@@ -556,7 +556,7 @@ impl AuthRoutes {
                 post(sciotte::handle_sciotte_submit_otp),
             )
             // Explicit cancel of the sign-in a closed window left running:
-            // the dropped connection never reaches the scraper service.
+            // the dropped connection never reaches the sciotte service.
             .route(
                 "/api/providers/sciotte/cancel",
                 post(sciotte_cancel::handle_sciotte_cancel),

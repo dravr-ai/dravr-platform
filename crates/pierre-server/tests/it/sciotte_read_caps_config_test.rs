@@ -232,7 +232,7 @@ async fn a_cap_set_through_the_admin_config_is_what_the_limiter_refuses_at() -> 
         Duration::ZERO,
     );
     let budget = RequestBudget::for_session_read(&limiter, "sciotte", athlete_id)
-        .expect("the scraper's Strava session is counted");
+        .expect("the service's Strava session is counted");
 
     let day = SessionReadCap::AskedDaily.config_key(&UserTier::Starter);
     set(
@@ -314,7 +314,7 @@ async fn the_running_server_counts_session_reads_by_the_athletes_tier() -> Resul
         .data()
         .provider_registry()
         .session_read_budget("sciotte", pro)
-        .expect("the server counts the scraper's Strava session");
+        .expect("the server counts the service's Strava session");
     assert!(
         budget.admit("sciotte").await.is_ok(),
         "a Professional athlete was held to the Starter day: the limiter is not bound"
@@ -439,7 +439,7 @@ async fn every_cap_is_changed_by_pierre_cli_config_set_with_no_restart() -> Resu
         .data()
         .provider_registry()
         .session_read_budget("sciotte", athlete_id)
-        .expect("the server counts the scraper's Strava session");
+        .expect("the server counts the service's Strava session");
     for read in 0..2 {
         assert!(
             budget.admit("sciotte").await.is_ok(),

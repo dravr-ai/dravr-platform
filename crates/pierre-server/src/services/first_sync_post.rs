@@ -278,7 +278,7 @@ impl FirstSyncHook for FirstSyncPoster {
         let provider = provider.to_owned();
         self.run_tracked(async move {
             poster.post_first_sync(user_id, tenant_id, &provider).await;
-            // After the post, not beside it: on a scrape provider the capture
+            // After the post, not beside it: on a session-read provider the capture
             // and the post's turn would read the one browser session at once.
             if let Some(resources) = poster.ctx.upgrade() {
                 walk_history(

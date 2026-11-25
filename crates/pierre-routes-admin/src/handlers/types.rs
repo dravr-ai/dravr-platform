@@ -66,7 +66,7 @@ pub struct AllowEmailRequest {
     pub return_link: bool,
 }
 
-/// Scrape-session clone request — copy the source account's provider
+/// Signed-in-session clone request — copy the source account's provider
 /// connection onto the account the path names.
 #[derive(Debug, Deserialize)]
 pub struct CloneProviderRequest {

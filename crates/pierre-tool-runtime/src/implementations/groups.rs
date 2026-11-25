@@ -851,7 +851,7 @@ impl McpTool<dyn ToolRuntime> for GetGroupMemberActivitiesTool {
             // the tenant it lives under, never the requester's (carnet#1419).
             // A grant beside a usr/pwd session of its provider is passed
             // over: its name resolves to the session (carnet#1494), so
-            // reading it too would scrape the session a second time, and the
+            // a read of it too would read the session a second time, and the
             // session's own read serves the grant's stored rows.
             let mut activities = Vec::new();
             let mut any_fetch_succeeded = false;
@@ -948,7 +948,7 @@ mod tests {
     }
 
     #[test]
-    fn a_scraped_peer_activity_names_the_service_not_the_backend() {
+    fn a_session_read_peer_activity_names_the_service_not_the_backend() {
         let start = Timestamp::parse_from_rfc3339("2026-10-13T17:00:00Z").unwrap();
         for origin in ["garmin", "strava", "coros", "trainingpeaks"] {
             let ride =

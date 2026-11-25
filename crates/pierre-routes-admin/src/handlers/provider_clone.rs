@@ -1,4 +1,4 @@
-// ABOUTME: Super-admin route that copies one account's scrape-session provider connection onto another
+// ABOUTME: Super-admin route that copies one account's signed-in-session provider connection onto another
 // ABOUTME: Refuses OAuth grants and dead sessions, audits every clone it runs, and never logs the session itself
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -12,7 +12,7 @@
 //! can be shared with a test account instead: this route copies the
 //! source account's session onto the target, same session id, through the
 //! same store and data warm-up a login runs
-//! ([`pierre_services::scrape_session`] has the rules on what may be cloned
+//! ([`pierre_services::signed_in_session`] has the rules on what may be cloned
 //! and why).
 //!
 //! Super-admin only, since it hands one account read access to another's
@@ -39,7 +39,7 @@ use uuid::Uuid;
 
 use pierre_core::admin::models::{AdminAction, AdminTokenUsage, ValidatedAdminToken};
 use pierre_core::errors::{AppError, AppResult};
-use pierre_services::scrape_session::{find_clone_source, CloneRefusal};
+use pierre_services::signed_in_session::{find_clone_source, CloneRefusal};
 
 use super::api_keys::json_response;
 use super::strava_pool::deny_if_not_super_admin;
@@ -106,7 +106,7 @@ const fn refusal_status(refusal: &CloneRefusal) -> StatusCode {
 }
 
 /// `POST /admin/users/{user_id}/providers/{provider}/clone` — copy
-/// `from_user_id`'s scrape session for `provider` onto `user_id`.
+/// `from_user_id`'s signed-in session for `provider` onto `user_id`.
 ///
 /// `provider` is the user-facing name (`garmin`, `strava`) or the backend
 /// itself (`sciotte_garmin`, `sciotte`). Answers 403 for anything but a
@@ -188,7 +188,7 @@ pub async fn handle_clone_user_provider(
         source_tenant = %source.tenant_id,
         target_tenant = %tenant_id,
         token_id = %admin_token.token_id,
-        "Admin cloned a scrape-session provider connection"
+        "Admin cloned a signed-in-session provider connection"
     );
 
     Ok(json_response(

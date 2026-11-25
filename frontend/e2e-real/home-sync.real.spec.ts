@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Real-backend E2E: Home against a scripted scraper — the 2026-09-29 incident, a restarted or shedding scraper, hung reads, and every retry
-// ABOUTME: Connects a fresh athlete's Strava through the real sciotte login, then drives the SPA; only the scraper is a double
+// ABOUTME: Real-backend E2E: Home against a scripted service — the 2026-09-29 incident, a restarted or shedding service, hung reads, and every retry
+// ABOUTME: Connects a fresh athlete's Strava through the real sciotte login, then drives the SPA; only the sciotte service is a double
 
 import { DatabaseSync } from 'node:sqlite';
 import { test, expect, request as apiRequest, type APIRequestContext, type Page } from '@playwright/test';
@@ -11,21 +11,21 @@ import {
   startSciotteDouble,
   type ListRead,
   type SciotteDouble,
-  type ScrapedRide,
+  type SessionRide,
 } from './sciotte-double';
 import { freshAthlete, retireAthlete, skipOnboarding } from './fresh-athlete';
 import { signInThroughUi } from './ui-sign-in';
 
 // Opt-in real-server spec (`bun run test:e2e:real`). It needs a Pierre
 // server started with DRAVR_SCIOTTE_REMOTE_URL=http://127.0.0.1:8097 (the
-// port is SCIOTTE_DOUBLE_PORT) — this spec starts the scraper double there
+// port is SCIOTTE_DOUBLE_PORT) — this spec starts the service double there
 // itself — on the SQLite file E2E_REAL_DATABASE_PATH names, which one case
 // writes a past sync time into, plus the SPA in front of it. CI's
 // integration workflow starts that stack. Locally, the standard dev stack
-// points the server at the real scraper instead, so run
+// points the server at the real service instead, so run
 // `scripts/e2e-home-sync-local.sh`: it boots an isolated server and SPA on
 // their own ports and database, runs this spec against them, and tears them
-// down. Everything between the browser and the scraper is the real product —
+// down. Everything between the browser and the service is the real product —
 // the sciotte credential login and session export, the Home refresh, the
 // freshness judgement and its pause, the route read and the map.
 const PIERRE_URL = process.env.PIERRE_URL ?? 'http://127.0.0.1:8081';
@@ -37,7 +37,7 @@ const ROUTE_ANSWER_SECS = Number(process.env.PIERRE_HOME_ROUTE_ANSWER_SECS ?? '2
 const ROUTE_PROVIDER_READ_SECS = Number(process.env.PIERRE_HOME_ROUTE_PROVIDER_READ_SECS ?? '330');
 
 const TODAYS_RIDE = 'Sortie du jour e2e';
-/** The scraper's id for {@link TODAYS_RIDE}: the latest card's map is its route. */
+/** The service's id for {@link TODAYS_RIDE}: the latest card's map is its route. */
 const TODAYS_RIDE_ID = 'e2e-ride-3';
 const EVENING_RIDE = 'Sortie du soir e2e';
 const NIGHT_RIDE = 'Sortie de nuit e2e';
@@ -65,7 +65,7 @@ const SYNC_TIME = new Intl.DateTimeFormat('en', {
  * recorded twice to the platform's de-duplication, so the rides a case adds
  * later are short and start after the earlier ones ended.
  */
-function ride(id: string, name: string, hoursAgo: number, durationSeconds = 5400): ScrapedRide {
+function ride(id: string, name: string, hoursAgo: number, durationSeconds = 5400): SessionRide {
   return {
     id,
     name,
@@ -195,7 +195,7 @@ async function expectDrawnTrack(page: Page, rideName: string): Promise<void> {
 
 /** The Home head window a list read asked for: from thirty days back, open-ended, no detail pass. */
 function expectHeadWindow(read: ListRead | undefined, askedAt: number): void {
-  expect(read, 'a list read reached the scraper').toBeTruthy();
+  expect(read, 'a list read reached the service').toBeTruthy();
   const query = (read as ListRead).query;
   const after = Number(query.get('after')) * 1000;
   expect(Math.abs(after - (askedAt - 30 * 86_400_000)), query.toString()).toBeLessThan(120_000);
@@ -203,10 +203,10 @@ function expectHeadWindow(read: ListRead | undefined, askedAt: number): void {
   expect(query.get('detail'), `no detail pass inside Home's list read: ${query.toString()}`).toBeNull();
 }
 
-test.describe('Home sync truth — real backend, scripted scraper', () => {
+test.describe('Home sync truth — real backend, scripted service', () => {
   test.describe.configure({ mode: 'serial' });
 
-  let scraper: SciotteDouble;
+  let service: SciotteDouble;
   let ctx: APIRequestContext;
   let userId: string;
   let bearer: string;
@@ -214,7 +214,7 @@ test.describe('Home sync truth — real backend, scripted scraper', () => {
   const password = 'HomeSyncPassw0rd!';
 
   test.beforeAll(async () => {
-    scraper = await startSciotteDouble([
+    service = await startSciotteDouble([
       ride(TODAYS_RIDE_ID, TODAYS_RIDE, 4),
       ride('e2e-ride-2', 'Sortie de mardi e2e', 30),
       ride('e2e-ride-1', 'Sortie de dimanche e2e', 72),
@@ -230,9 +230,9 @@ test.describe('Home sync truth — real backend, scripted scraper', () => {
     ({ userId, token: bearer } = await freshAthlete(ctx, email, password, 'Home Sync E2E'));
     const auth = { Authorization: `Bearer ${bearer}` };
 
-    // The scraper is failing from the start: the connect succeeds (the login
+    // The service is failing from the start: the connect succeeds (the login
     // and the export answer), but every list read fails.
-    scraper.list = 'fails';
+    service.list = 'fails';
     const connected = await ctx.post('/api/providers/sciotte/login', {
       headers: auth,
       data: { email: 'athlete@strava.example', password: 'never-real', method: 'email', target: 'strava', tos_consent: true },
@@ -249,10 +249,10 @@ test.describe('Home sync truth — real backend, scripted scraper', () => {
   test.afterAll(async () => {
     await retireAthlete(ctx, userId, email, 'home sync');
     await ctx?.dispose();
-    await scraper?.stop();
+    await service?.stop();
   });
 
-  test('a failed scrape is said with a retry that lands the rides, and a map that failed draws on its own retry', async ({
+  test('a failed session read is said with a retry that lands the rides, and a map that failed draws on its own retry', async ({
     page,
   }) => {
     // The retry is clicked late in the page's refetch schedule, past its
@@ -266,11 +266,11 @@ test.describe('Home sync truth — real backend, scripted scraper', () => {
     const latest = page.getByTestId('home-activity-latest');
     const loaded = Date.now();
 
-    await test.step('the failed scrape is said, naming the provider, never read as synced', async () => {
+    await test.step('the failed session read is said, naming the provider, never read as synced', async () => {
       await expect(failed).toBeVisible({ timeout: 45_000 });
       await expect(failed).toHaveAttribute('role', 'alert');
       await expect(failed).toContainText('Strava · Sync failed');
-      expect(scraper.listReads()).toBeGreaterThanOrEqual(1);
+      expect(service.listReads()).toBeGreaterThanOrEqual(1);
       await expect(section).not.toContainText(TODAYS_RIDE);
 
       const recent = await ctx.get('/api/me/activities/recent', { headers: { Authorization: `Bearer ${bearer}` } });
@@ -283,50 +283,50 @@ test.describe('Home sync truth — real backend, scripted scraper', () => {
       await page.screenshot({ path: test.info().outputPath('home-sync-failed.png'), fullPage: true });
     });
 
-    await test.step('the scraper recovers; a retry late in the schedule reads it at once and lands the rides', async () => {
+    await test.step('the service recovers; a retry late in the schedule reads it at once and lands the rides', async () => {
       await page.waitForTimeout(Math.max(0, loaded + 50_000 - Date.now()));
       await expect(failed).toBeVisible();
-      scraper.list = 'rows';
+      service.list = 'rows';
       // The route read is still failing: the latest map says so below.
-      scraper.detail = 'fails';
+      service.detail = 'fails';
       const clicked = Date.now();
       await failed.getByTestId('home-sync-retry').click();
       await expect(failed).toHaveCount(0);
       await expect(section).toContainText(TODAYS_RIDE, { timeout: 20_000 });
       await expect(section).toContainText('Sortie de dimanche e2e');
       await expect(failed).toHaveCount(0);
-      const afterClick = scraper.listReadLog().filter((read) => read.at >= clicked);
-      expect(afterClick.length, 'the retry itself read the scraper').toBeGreaterThanOrEqual(1);
+      const afterClick = service.listReadLog().filter((read) => read.at >= clicked);
+      expect(afterClick.length, 'the retry itself read the service').toBeGreaterThanOrEqual(1);
       expectHeadWindow(afterClick[0], clicked);
     });
 
-    await test.step('the latest map could not be loaded, and its retry draws it once the scraper reads it', async () => {
+    await test.step('the latest map could not be loaded, and its retry draws it once the service reads it', async () => {
       const mapFailed = latest.getByTestId('home-route-failed');
       await expect(mapFailed).toContainText("The map couldn't be loaded.", { timeout: 30_000 });
       await expect(latest).not.toContainText('This activity recorded no GPS track.');
       await page.screenshot({ path: test.info().outputPath('home-map-failed.png'), fullPage: true });
 
-      scraper.detail = 'route';
+      service.detail = 'route';
       // The retry is counted on the latest ride's reads alone. Home asks for
       // its five routes in one burst, and the server reads them one at a
       // time per athlete, newest first, so this map says it failed while the
       // older rows' first reads may still be queued: on a slow runner they
-      // reach the scraper after this point (CI run 36804877054 sampled four
+      // reach the service after this point (CI run 36804877054 sampled four
       // reads, then saw the fifth row's first read land beside the retry).
       // Those are other activities' first reads, each made once.
-      const todaysReads = (): number => scraper.detailReadLog().filter((read) => read.id === TODAYS_RIDE_ID).length;
+      const todaysReads = (): number => service.detailReadLog().filter((read) => read.id === TODAYS_RIDE_ID).length;
       const readsBefore = todaysReads();
       await mapFailed.getByRole('button', { name: 'Retry' }).click();
       await expectDrawnTrack(page, TODAYS_RIDE);
-      const log = JSON.stringify(scraper.detailReadLog());
-      expect(todaysReads(), `the retry read the scraper once, past the stored answer: ${log}`).toBe(readsBefore + 1);
-      const others = scraper.detailReadLog().filter((read) => read.id !== TODAYS_RIDE_ID);
+      const log = JSON.stringify(service.detailReadLog());
+      expect(todaysReads(), `the retry read the service once, past the stored answer: ${log}`).toBe(readsBefore + 1);
+      const others = service.detailReadLog().filter((read) => read.id !== TODAYS_RIDE_ID);
       expect(new Set(others.map((read) => read.id)).size, `no other route was read twice: ${log}`).toBe(others.length);
       await page.screenshot({ path: test.info().outputPath('home-sync-recovered.png'), fullPage: true });
     });
   });
 
-  test('the 2026-09-29 incident: a list scrape and a route read at once, the list dying empty, is a failed sync with the rides and map kept', async ({
+  test('the 2026-09-29 incident: a list read and a route read at once, the list dying empty, is a failed sync with the rides and map kept', async ({
     page,
   }) => {
     test.setTimeout(180_000);
@@ -336,9 +336,9 @@ test.describe('Home sync truth — real backend, scripted scraper', () => {
     // The latest ride's map is unread, so the page reads it while the
     // refresh's list walk is on the same session.
     forgetRoute(userId, TODAYS_RIDE_ID);
-    scraper.list = 'dies_under_a_detail';
-    scraper.detail = 'route';
-    const killedBefore = scraper.walksKilledByADetail();
+    service.list = 'dies_under_a_detail';
+    service.detail = 'route';
+    const killedBefore = service.walksKilledByADetail();
 
     const loaded = Date.now();
     await signIn(page, email, password);
@@ -348,14 +348,14 @@ test.describe('Home sync truth — real backend, scripted scraper', () => {
     await test.step('the dead walk is a failed sync, dated from the last good one, with the rides and the map kept', async () => {
       await expect(failed).toBeVisible({ timeout: 45_000 });
       expect(
-        scraper.listReadLog().some((read) => read.at >= loaded),
-        'the stale head was read, and the scraper answered it empty',
+        service.listReadLog().some((read) => read.at >= loaded),
+        'the stale head was read, and the service answered it empty',
       ).toBe(true);
       expect(
-        scraper.walksKilledByADetail(),
+        service.walksKilledByADetail(),
         'the list walk and the route read were in flight together, and the route read finished first',
       ).toBeGreaterThan(killedBefore);
-      expect(scraper.maxInFlight()).toBeGreaterThanOrEqual(2);
+      expect(service.maxInFlight()).toBeGreaterThanOrEqual(2);
       await expect(failed).toContainText('Strava · Sync failed');
       await expect(section).toContainText(TODAYS_RIDE);
       await expect(page.getByTestId('home-activity-row')).toHaveCount(4);
@@ -372,9 +372,9 @@ test.describe('Home sync truth — real backend, scripted scraper', () => {
       await page.screenshot({ path: test.info().outputPath('home-sync-incident.png'), fullPage: true });
     });
 
-    await test.step("the scraper recovers with the evening's ride; the retry lands it on top with its map", async () => {
-      scraper.rides = [ride('e2e-ride-4', EVENING_RIDE, 2, 1800), ...scraper.rides];
-      scraper.list = 'rows';
+    await test.step("the service recovers with the evening's ride; the retry lands it on top with its map", async () => {
+      service.rides = [ride('e2e-ride-4', EVENING_RIDE, 2, 1800), ...service.rides];
+      service.list = 'rows';
       await failed.getByTestId('home-sync-retry').click();
       const latest = page.getByTestId('home-activity-latest');
       await expect(latest).toContainText(EVENING_RIDE, { timeout: 30_000 });
@@ -383,14 +383,14 @@ test.describe('Home sync truth — real backend, scripted scraper', () => {
     });
   });
 
-  test('a scraper that went down is a failed sync; restarted without its sessions, the retry lands the night ride', async ({
+  test('a service that went down is a failed sync; restarted without its sessions, the retry lands the night ride', async ({
     page,
   }) => {
     test.setTimeout(180_000);
     await hermeticBasemap(page);
     const lastGood = new Date(Date.now() - 5 * 3600_000);
     ageLastSync(userId, lastGood);
-    await scraper.stop();
+    await service.stop();
 
     await signIn(page, email, password);
     const section = page.getByTestId('home-activities');
@@ -404,25 +404,25 @@ test.describe('Home sync truth — real backend, scripted scraper', () => {
     });
 
     await test.step('back up with no session held: the retry imports it again and lands the night ride', async () => {
-      await scraper.restart();
-      scraper.rides = [ride('e2e-ride-5', NIGHT_RIDE, 1, 1800), ...scraper.rides];
-      scraper.list = 'rows';
-      const imports = scraper.imports();
+      await service.restart();
+      service.rides = [ride('e2e-ride-5', NIGHT_RIDE, 1, 1800), ...service.rides];
+      service.list = 'rows';
+      const imports = service.imports();
       await failed.getByTestId('home-sync-retry').click();
       const latest = page.getByTestId('home-activity-latest');
       await expect(latest).toContainText(NIGHT_RIDE, { timeout: 30_000 });
       await expect(failed).toHaveCount(0);
-      expect(scraper.imports(), 'the restarted scraper was given the session again').toBeGreaterThan(imports);
+      expect(service.imports(), 'the restarted service was given the session again').toBeGreaterThan(imports);
       await expectDrawnTrack(page, NIGHT_RIDE);
     });
   });
 
-  test('a scraper shedding the read (503 scraper_busy) is a failed sync, and the retry lands once it has room', async () => {
+  test("a service shedding the read (503 with the service's busy value) is a failed sync, and the retry lands once it has room", async () => {
     const auth = { Authorization: `Bearer ${bearer}` };
     const lastGood = new Date(Date.now() - 5 * 3600_000);
     ageLastSync(userId, lastGood);
-    scraper.list = 'busy';
-    const reads = scraper.listReads();
+    service.list = 'busy';
+    const reads = service.listReads();
     const asked = Date.now();
 
     const first = await (await ctx.get('/api/me/activities/recent', { headers: auth })).json();
@@ -432,7 +432,7 @@ test.describe('Home sync truth — real backend, scripted scraper', () => {
         timeout: 30_000,
       })
       .toMatchObject({ provider: 'strava' });
-    expect(scraper.listReads()).toBeGreaterThan(reads);
+    expect(service.listReads()).toBeGreaterThan(reads);
     const failedBody = await (await ctx.get('/api/me/activities/recent', { headers: auth })).json();
     expect(failedBody.activities.map((a: { name: string }) => a.name)).toContain(NIGHT_RIDE);
     expect(Math.abs(Date.parse(failedBody.as_of) - lastGood.getTime())).toBeLessThan(2_000);
@@ -440,7 +440,7 @@ test.describe('Home sync truth — real backend, scripted scraper', () => {
       asked - 1_000,
     );
 
-    scraper.list = 'rows';
+    service.list = 'rows';
     const retried = await (await ctx.get('/api/me/activities/recent?retry=true', { headers: auth })).json();
     expect(retried.stale, JSON.stringify(retried)).toBe(true);
     await expect
@@ -454,7 +454,7 @@ test.describe('Home sync truth — real backend, scripted scraper', () => {
     test.setTimeout(ROUTE_ANSWER_SECS * 1000 + 90_000);
     const auth = { Authorization: `Bearer ${bearer}` };
     const path = '/api/me/activities/strava/e2e-ride-h/route';
-    scraper.detail = 'hangs';
+    service.detail = 'hangs';
     const started = Date.now();
     const route = await ctx.get(path, { headers: auth, timeout: (ROUTE_ANSWER_SECS + 30) * 1000 });
     const took = Date.now() - started;
@@ -468,24 +468,24 @@ test.describe('Home sync truth — real backend, scripted scraper', () => {
     expect(took, 'answered at its bound, not held by the hung read').toBeLessThan((ROUTE_ANSWER_SECS + 5) * 1000);
     expect(took).toBeGreaterThanOrEqual((ROUTE_ANSWER_SECS - 1) * 1000);
 
-    // The hung read gives up with the scraper's error: the read that was
-    // pending is stored, and the next read answers it without a scrape.
-    const readsAtRelease = scraper.detailReads();
-    scraper.release();
+    // The hung read gives up with the service's error: the read that was
+    // pending is stored, and the next read answers it without a session read.
+    const readsAtRelease = service.detailReads();
+    service.release();
     await expect
       .poll(async () => (await (await ctx.get(path, { headers: auth })).json()).reason, { timeout: 15_000 })
       .toBe('unavailable');
-    expect(scraper.detailReads(), 'the stored unavailable answered, not a second scrape').toBe(readsAtRelease);
+    expect(service.detailReads(), 'the stored unavailable answered, not a second session read').toBe(readsAtRelease);
 
     // The athlete's retry reads past it, and lands the route.
-    scraper.detail = 'route';
+    service.detail = 'route';
     const retried = await (await ctx.get(`${path}?retry=true`, { headers: auth })).json();
     expect(retried.route?.coordinates?.length ?? 0, JSON.stringify(retried)).toBeGreaterThan(2);
-    expect(scraper.detailReads()).toBe(readsAtRelease + 1);
+    expect(service.detailReads()).toBe(readsAtRelease + 1);
   });
 
-  test('a route the scraper could not read answers unavailable, never "no GPS", and keeps has_gps', async () => {
-    scraper.detail = 'no_route';
+  test('a route the service could not read answers unavailable, never "no GPS", and keeps has_gps', async () => {
+    service.detail = 'no_route';
     const auth = { Authorization: `Bearer ${bearer}` };
     const route = await ctx.get('/api/me/activities/strava/e2e-ride-0/route', { headers: auth });
     expect(route.ok()).toBeTruthy();
@@ -496,15 +496,15 @@ test.describe('Home sync truth — real backend, scripted scraper', () => {
     expect(row?.has_gps, JSON.stringify(recent)).toBe(true);
   });
 
-  test('a ride the scraper read without GPS settles no_gps for good, and the list says so', async () => {
-    scraper.detail = 'empty_route';
+  test('a ride the service read without GPS settles no_gps for good, and the list says so', async () => {
+    service.detail = 'empty_route';
     const auth = { Authorization: `Bearer ${bearer}` };
-    const readsBefore = scraper.detailReads();
+    const readsBefore = service.detailReads();
     const route = await ctx.get('/api/me/activities/strava/e2e-ride-00/route', { headers: auth });
     expect(await route.json()).toEqual({ route: null, reason: 'no_gps' });
     const retried = await ctx.get('/api/me/activities/strava/e2e-ride-00/route?retry=true', { headers: auth });
     expect(await retried.json()).toEqual({ route: null, reason: 'no_gps' });
-    expect(scraper.detailReads(), 'a settled answer is never read again').toBe(readsBefore + 1);
+    expect(service.detailReads(), 'a settled answer is never read again').toBe(readsBefore + 1);
 
     const recent = await (await ctx.get('/api/me/activities/recent?limit=20', { headers: auth })).json();
     const row = recent.activities.find((activity: { id: string }) => activity.id === 'e2e-ride-00');

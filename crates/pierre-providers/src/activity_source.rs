@@ -77,7 +77,7 @@ impl ProviderRegistry {
     ///
     /// Resolved like the terms are: the descriptor registered under `provider`,
     /// else the one whose backend reads that service (a `garmin` connection
-    /// in a build without the Garmin OAuth backend answers to the scraper that
+    /// in a build without the Garmin OAuth backend answers to the session reader that
     /// reads Garmin). A provider no descriptor describes is not demoted.
     #[must_use]
     pub fn activity_source_rank(&self, provider: &str) -> ActivitySourceRank {

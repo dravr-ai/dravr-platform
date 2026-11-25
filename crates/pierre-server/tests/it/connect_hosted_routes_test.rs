@@ -435,7 +435,7 @@ async fn success_page_renders_with_channel_and_target() {
     );
 }
 
-/// TrainingPeaks has only the scrape path, so the picker offers it as a
+/// TrainingPeaks has only the sign-in path, so the picker offers it as a
 /// credential card, and its mirror row is what lights it.
 #[tokio::test]
 async fn connect_page_offers_trainingpeaks_and_lights_it_on_the_mirror_row() {

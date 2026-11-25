@@ -1,4 +1,4 @@
-// ABOUTME: connection_needs_reauth and backend resolution for the TrainingPeaks scrape mirror
+// ABOUTME: connection_needs_reauth and backend resolution for the TrainingPeaks session-read mirror
 // ABOUTME: A dead TrainingPeaks session hands back a reconnect link, never a doomed backfill
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0

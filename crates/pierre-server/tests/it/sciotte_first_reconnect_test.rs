@@ -31,8 +31,8 @@
 use crate::common;
 use crate::garmin_sign_in_test::{
     athlete, calls_matching, connections, hold_grant, hold_session, reconnect_notices, rows_under,
-    server, server_with_garmin_oauth, session_token_held, sign_in, spawn_switchable_scraper,
-    ScraperSwitch, LIVE_SESSION,
+    server, server_with_garmin_oauth, session_token_held, sign_in, spawn_switchable_session_reader,
+    SessionReaderSwitch, LIVE_SESSION,
 };
 use crate::helpers::axum_test::AxumTestRequest;
 use crate::reconnect_prompt_on_served_turn_test::{
@@ -126,8 +126,8 @@ async fn garmin_card(resources: &Arc<ServerContext>, token: &str) -> Value {
 /// is free on Garmin's OAuth.
 #[tokio::test]
 async fn a_dead_grant_reconnects_through_the_hosted_sign_in_in_chat_and_on_its_card() {
-    let (scraper, _calls) = spawn_switchable_scraper(ScraperSwitch::default()).await;
-    let resources = server_with_garmin_oauth(&scraper).await;
+    let (reader, _calls) = spawn_switchable_session_reader(SessionReaderSwitch::default()).await;
+    let resources = server_with_garmin_oauth(&reader).await;
     let (user_id, _user, tenant, token) = athlete(&resources).await;
     hold_grant(&resources, user_id, tenant).await;
     kill_grant(&resources, user_id, tenant).await;
@@ -165,8 +165,8 @@ async fn a_dead_grant_reconnects_through_the_hosted_sign_in_in_chat_and_on_its_c
 /// web launch with a redirect to it. A live grant still starts the OAuth.
 #[tokio::test]
 async fn an_oauth_start_of_a_dead_grant_answers_with_the_hosted_sign_in() {
-    let (scraper, _calls) = spawn_switchable_scraper(ScraperSwitch::default()).await;
-    let resources = server_with_garmin_oauth(&scraper).await;
+    let (reader, _calls) = spawn_switchable_session_reader(SessionReaderSwitch::default()).await;
+    let resources = server_with_garmin_oauth(&reader).await;
     let secret = resources.auth.admin_jwt_secret.to_string();
     let (user_id, _user, tenant, token) = athlete(&resources).await;
     hold_grant(&resources, user_id, tenant).await;
@@ -223,8 +223,8 @@ async fn an_oauth_start_of_a_dead_grant_answers_with_the_hosted_sign_in() {
 /// (carnet#1667).
 #[tokio::test]
 async fn an_oauth_start_after_a_blocked_sign_in_authorizes_a_dead_grant() {
-    let (scraper, _calls) = spawn_switchable_scraper(ScraperSwitch::default()).await;
-    let resources = server_with_garmin_oauth(&scraper).await;
+    let (reader, _calls) = spawn_switchable_session_reader(SessionReaderSwitch::default()).await;
+    let resources = server_with_garmin_oauth(&reader).await;
     let (user_id, _user, tenant, token) = athlete(&resources).await;
     hold_grant(&resources, user_id, tenant).await;
     kill_grant(&resources, user_id, tenant).await;
@@ -258,8 +258,8 @@ async fn an_oauth_start_after_a_blocked_sign_in_authorizes_a_dead_grant() {
 /// A live grant beside a sign-in is kept, as the session's fallback.
 #[tokio::test]
 async fn a_sign_in_over_a_dead_grant_deletes_its_rows_and_keeps_its_data() {
-    let (scraper, _calls) = spawn_switchable_scraper(ScraperSwitch::default()).await;
-    let resources = server(common::test_server_config_with_sciotte(&scraper)).await;
+    let (reader, _calls) = spawn_switchable_session_reader(SessionReaderSwitch::default()).await;
+    let resources = server(common::test_server_config_with_sciotte(&reader)).await;
     let (user_id, _user, tenant, token) = athlete(&resources).await;
     hold_grant(&resources, user_id, tenant).await;
     let ride = ActivityBuilder::new(
@@ -332,8 +332,8 @@ async fn a_sign_in_over_a_dead_grant_deletes_its_rows_and_keeps_its_data() {
 /// card.
 #[tokio::test]
 async fn a_reclaim_or_a_revocation_keeps_the_session_and_the_athletes_disconnect_clears_both() {
-    let (scraper, _calls) = spawn_switchable_scraper(ScraperSwitch::default()).await;
-    let resources = server(common::test_server_config_with_sciotte(&scraper)).await;
+    let (reader, _calls) = spawn_switchable_session_reader(SessionReaderSwitch::default()).await;
+    let resources = server(common::test_server_config_with_sciotte(&reader)).await;
     let service = OAuthService::new(resources.data(), resources.common.config.clone());
 
     for reason in [
@@ -396,8 +396,8 @@ async fn a_reclaim_or_a_revocation_keeps_the_session_and_the_athletes_disconnect
 /// writes need it again (JF's directive 8), and a redelivery sends nothing.
 #[tokio::test]
 async fn a_withdrawn_grant_tells_a_grant_only_athlete_once() {
-    let (scraper, _calls) = spawn_switchable_scraper(ScraperSwitch::default()).await;
-    let resources = server(common::test_server_config_with_sciotte(&scraper)).await;
+    let (reader, _calls) = spawn_switchable_session_reader(SessionReaderSwitch::default()).await;
+    let resources = server(common::test_server_config_with_sciotte(&reader)).await;
     let runtime: Arc<dyn ToolRuntime> = resources.clone();
     let withdrawal = GrantWithdrawal::new(
         OAuthService::new(resources.data(), resources.common.config.clone()),
@@ -450,8 +450,8 @@ async fn a_withdrawn_grant_tells_a_grant_only_athlete_once() {
 /// further redelivery sends nothing.
 #[tokio::test]
 async fn a_withdrawal_retried_after_its_token_delete_still_tells_the_athlete_once() {
-    let (scraper, _calls) = spawn_switchable_scraper(ScraperSwitch::default()).await;
-    let resources = server(common::test_server_config_with_sciotte(&scraper)).await;
+    let (reader, _calls) = spawn_switchable_session_reader(SessionReaderSwitch::default()).await;
+    let resources = server(common::test_server_config_with_sciotte(&reader)).await;
     let runtime: Arc<dyn ToolRuntime> = resources.clone();
     let withdrawal = GrantWithdrawal::new(
         OAuthService::new(resources.data(), resources.common.config.clone()),
@@ -496,8 +496,8 @@ async fn a_withdrawal_retried_after_its_token_delete_still_tells_the_athlete_onc
 /// only one claim wins.
 #[tokio::test]
 async fn concurrent_withdrawals_of_one_grant_tell_the_athlete_once() {
-    let (scraper, _calls) = spawn_switchable_scraper(ScraperSwitch::default()).await;
-    let resources = server(common::test_server_config_with_sciotte(&scraper)).await;
+    let (reader, _calls) = spawn_switchable_session_reader(SessionReaderSwitch::default()).await;
+    let resources = server(common::test_server_config_with_sciotte(&reader)).await;
     let runtime: Arc<dyn ToolRuntime> = resources.clone();
     let withdrawal = GrantWithdrawal::new(
         OAuthService::new(resources.data(), resources.common.config.clone()),
@@ -528,8 +528,8 @@ async fn concurrent_withdrawals_of_one_grant_tell_the_athlete_once() {
 /// nothing sends the athlete on to Garmin's own sign-in page.
 #[tokio::test]
 async fn a_garmin_sign_in_ends_connected_with_no_grant_redirect() {
-    let (scraper, _calls) = spawn_switchable_scraper(ScraperSwitch::default()).await;
-    let resources = server_with_garmin_oauth(&scraper).await;
+    let (reader, _calls) = spawn_switchable_session_reader(SessionReaderSwitch::default()).await;
+    let resources = server_with_garmin_oauth(&reader).await;
     let (user_id, _user, tenant, token) = athlete(&resources).await;
     hold_grant(&resources, user_id, tenant).await;
     kill_grant(&resources, user_id, tenant).await;
@@ -556,8 +556,8 @@ async fn a_garmin_sign_in_ends_connected_with_no_grant_redirect() {
 /// answer carries no Garmin authorization URL to navigate to.
 #[tokio::test]
 async fn the_hosted_garmin_sign_in_carries_no_grant_authorization_url() {
-    let (scraper, _calls) = spawn_switchable_scraper(ScraperSwitch::default()).await;
-    let resources = server_with_garmin_oauth(&scraper).await;
+    let (reader, _calls) = spawn_switchable_session_reader(SessionReaderSwitch::default()).await;
+    let resources = server_with_garmin_oauth(&reader).await;
     let (user_id, _user, tenant, _token) = athlete(&resources).await;
     let link = mint_link_token(
         &MintProviderLinkTokenArgs {
@@ -586,8 +586,8 @@ async fn the_hosted_garmin_sign_in_carries_no_grant_authorization_url() {
 /// workouts. A dead grant alone still answers with the sign-in (above).
 #[tokio::test]
 async fn an_oauth_start_of_a_dead_garmin_grant_beside_a_live_session_authorizes_it() {
-    let (scraper, _calls) = spawn_switchable_scraper(ScraperSwitch::default()).await;
-    let resources = server_with_garmin_oauth(&scraper).await;
+    let (reader, _calls) = spawn_switchable_session_reader(SessionReaderSwitch::default()).await;
+    let resources = server_with_garmin_oauth(&reader).await;
     let (user_id, _user, tenant, token) = athlete(&resources).await;
     hold_session(&resources, user_id, tenant, LIVE_SESSION).await;
     hold_grant(&resources, user_id, tenant).await;
@@ -612,8 +612,8 @@ async fn an_oauth_start_of_a_dead_garmin_grant_beside_a_live_session_authorizes_
 /// is flagged, and again once a deregistration deleted its rows.
 #[tokio::test]
 async fn the_grant_writes_link_opens_garmins_authorization_beside_a_live_session() {
-    let (scraper, _calls) = spawn_switchable_scraper(ScraperSwitch::default()).await;
-    let resources = server_with_garmin_oauth(&scraper).await;
+    let (reader, _calls) = spawn_switchable_session_reader(SessionReaderSwitch::default()).await;
+    let resources = server_with_garmin_oauth(&reader).await;
     let (user_id, _user, tenant, _token) = athlete(&resources).await;
     hold_session(&resources, user_id, tenant, LIVE_SESSION).await;
     hold_grant(&resources, user_id, tenant).await;
@@ -665,8 +665,8 @@ async fn the_grant_writes_link_opens_garmins_authorization_beside_a_live_session
 /// grant is dead or live: it never sends the athlete to Garmin's own sign-in.
 #[tokio::test]
 async fn the_hosted_picker_offers_no_garmin_grant_on_a_connected_card() {
-    let (scraper, _calls) = spawn_switchable_scraper(ScraperSwitch::default()).await;
-    let resources = server_with_garmin_oauth(&scraper).await;
+    let (reader, _calls) = spawn_switchable_session_reader(SessionReaderSwitch::default()).await;
+    let resources = server_with_garmin_oauth(&reader).await;
     let picker = |user_id: Uuid, tenant: TenantId| {
         let token = mint_connect_link_token(
             user_id,
@@ -726,8 +726,8 @@ fn picker_garmin_card(page: &str) -> Value {
 /// (directive 8), never sent to the session.
 #[tokio::test]
 async fn a_write_for_a_dead_garmin_grant_is_refused_with_its_authorization_link() {
-    let (scraper, _calls) = spawn_switchable_scraper(ScraperSwitch::default()).await;
-    let resources = server_with_garmin_oauth(&scraper).await;
+    let (reader, _calls) = spawn_switchable_session_reader(SessionReaderSwitch::default()).await;
+    let resources = server_with_garmin_oauth(&reader).await;
     let (user_id, _user, tenant, _token) = athlete(&resources).await;
     hold_session(&resources, user_id, tenant, LIVE_SESSION).await;
     hold_grant(&resources, user_id, tenant).await;
@@ -767,8 +767,8 @@ async fn a_write_for_a_dead_garmin_grant_is_refused_with_its_authorization_link(
 /// with Garmin's authorization link, through the tool the model calls.
 #[tokio::test]
 async fn an_unnamed_prescription_for_a_dead_garmin_grant_gets_its_authorization_link() {
-    let (scraper, _calls) = spawn_switchable_scraper(ScraperSwitch::default()).await;
-    let resources = server_with_garmin_oauth(&scraper).await;
+    let (reader, _calls) = spawn_switchable_session_reader(SessionReaderSwitch::default()).await;
+    let resources = server_with_garmin_oauth(&reader).await;
     let (user_id, _user, tenant, _token) = athlete(&resources).await;
     hold_session(&resources, user_id, tenant, LIVE_SESSION).await;
     hold_grant(&resources, user_id, tenant).await;
@@ -808,8 +808,8 @@ async fn an_unnamed_prescription_for_a_dead_garmin_grant_gets_its_authorization_
 /// sign-in first (JF's directives 1 and 8).
 #[tokio::test]
 async fn an_unnamed_prescription_for_a_dead_garmin_grant_alone_is_refused() {
-    let (scraper, _calls) = spawn_switchable_scraper(ScraperSwitch::default()).await;
-    let resources = server_with_garmin_oauth(&scraper).await;
+    let (reader, _calls) = spawn_switchable_session_reader(SessionReaderSwitch::default()).await;
+    let resources = server_with_garmin_oauth(&reader).await;
     let (user_id, _user, tenant, _token) = athlete(&resources).await;
     hold_grant(&resources, user_id, tenant).await;
     kill_grant(&resources, user_id, tenant).await;
@@ -846,8 +846,8 @@ async fn an_unnamed_prescription_for_a_dead_garmin_grant_alone_is_refused() {
 /// stored, and ends at `connected` with no grant redirect either time.
 #[tokio::test]
 async fn a_repeated_garmin_sign_in_is_answered_from_its_session() {
-    let (scraper, calls) = spawn_switchable_scraper(ScraperSwitch::default()).await;
-    let resources = server_with_garmin_oauth(&scraper).await;
+    let (reader, calls) = spawn_switchable_session_reader(SessionReaderSwitch::default()).await;
+    let resources = server_with_garmin_oauth(&reader).await;
     let (_user_id, _user, _tenant, token) = athlete(&resources).await;
 
     let (_, first) = sign_in(&resources, &token).await;

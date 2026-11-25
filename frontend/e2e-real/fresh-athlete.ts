@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: A fresh athlete for a real-backend spec: registered, approved by the seeded admin, past onboarding, suspended after
-// ABOUTME: Shared by the specs that drive the SPA against the scraper double, so none of them touches a seeded account
+// ABOUTME: Shared by the specs that drive the SPA against the service double, so none of them touches a seeded account
 
 import { expect, type APIRequestContext } from '@playwright/test';
 import { accessToken } from './first-party-sign-in';

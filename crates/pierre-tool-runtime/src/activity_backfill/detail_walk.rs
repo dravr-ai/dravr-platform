@@ -18,7 +18,7 @@
 //!
 //! **Which backend.** Any backend the athlete holds live, grant or session,
 //! whose descriptor declares segment efforts on a detail read
-//! ([`segment_detail_backend`]): the Strava grant and the scraper's Strava
+//! ([`segment_detail_backend`]): the Strava grant and the service's Strava
 //! session (`sciotte`). The session is read first, as every Strava read is
 //! (carnet#1494, the order of [`history_source_order`]); the grant answers
 //! for the athlete whose session is absent, flagged or expired. A session
@@ -47,7 +47,7 @@
 //! answerer's copy is written first, through the walk's owed-write guard
 //! ([`owed_write`](super::owed_write)), when only the other half listed the
 //! activity, so a session's answer never lands on a grant's row and its
-//! disconnect takes what it scraped and no more. The cursor then moves to the
+//! disconnect takes what it read and no more. The cursor then moves to the
 //! oldest second it finished, and the row records the step ([`JobProgress`]):
 //! activities read, activities stored, the seconds one took.
 //!

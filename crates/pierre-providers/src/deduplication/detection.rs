@@ -158,7 +158,7 @@ impl FragmentReport {
 ///   bike computer on one provider or two), or
 /// - **same sport, two providers**: their starts sit within
 ///   `time_window_minutes` — or on the same calendar day when either side is a
-///   date-only scrape (`T00:00:00`) — and their distances agree within
+///   date-only session read (`T00:00:00`) — and their distances agree within
 ///   `distance_tolerance_pct` (or either lacks a distance), or
 /// - **different sports, two providers** (or two recorders' copies under one
 ///   relay key, `precedence::two_recorders_of_one_relay`): their windows
@@ -863,7 +863,7 @@ fn group_members(activities: &[Activity], config: &DedupConfig) -> Vec<Vec<usize
         .max(Elapsed::minutes(config.time_window_minutes));
     let mut sets = DisjointSets::new(activities.len());
     // One service's activity id is one workout, whatever the times say: a
-    // usr/pwd row scraped date-only sits at midnight, beyond the time-sorted
+    // usr/pwd row read date-only sits at midnight, beyond the time-sorted
     // reach of the API row's or the export's exact start, and may carry the
     // sport the athlete relabelled it to.
     let mut by_native_id: HashMap<(&str, &str), usize> = HashMap::new();
@@ -889,7 +889,7 @@ fn group_members(activities: &[Activity], config: &DedupConfig) -> Vec<Vec<usize
             let b = &activities[j];
             // Sorted by start: once `b` starts past `a`'s horizon on a later
             // calendar day, no later row can match `a` either. Same-day rows
-            // stay in reach for the date-only scrape match.
+            // stay in reach for the date-only session-read match.
             if b.start_date() > horizon && b.start_date().utc_date() > a.start_date().utc_date() {
                 break;
             }
@@ -1036,7 +1036,7 @@ fn windows_touch(a: &Activity, b: &Activity, tolerance_secs: u64) -> bool {
 }
 
 /// Two providers' records of one sport: starts close (or the same day when
-/// either is a date-only scrape) and distances within tolerance when both
+/// either is a date-only session read) and distances within tolerance when both
 /// carry one.
 fn starts_and_distances_agree(a: &Activity, b: &Activity, config: &DedupConfig) -> bool {
     let starts_agree = if has_known_time(a) && has_known_time(b) {
@@ -1076,7 +1076,7 @@ fn overlaps_substantially(a: &Activity, b: &Activity) -> bool {
 }
 
 /// True when the activity has a real start time-of-day. Sciotte's date-only
-/// list scraping yields `T00:00:00` (UTC midnight) when the start time is
+/// list read yields `T00:00:00` (UTC midnight) when the start time is
 /// unknown; such rows never match on temporal overlap.
 fn has_known_time(activity: &Activity) -> bool {
     activity.start_date().utc_time() != CivilTime::MIDNIGHT

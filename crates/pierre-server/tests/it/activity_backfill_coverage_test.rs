@@ -203,7 +203,7 @@ async fn the_capture_version_follows_the_backfill() {
         .expect("coverage was just written");
     assert_eq!(old.capture_version, BASELINE_CAPTURE_VERSION);
 
-    // A sixteen-week re-capture through the corrected scraper.
+    // A sixteen-week re-capture through the corrected session reader.
     let sixteen_weeks = (Timestamp::now() - Elapsed::weeks(16)).epoch_seconds();
     cache
         .upsert_backfill_coverage(

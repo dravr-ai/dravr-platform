@@ -642,7 +642,7 @@ pub enum AdminAction {
     /// Clear a deleted account's import tombstone, so its identity is
     /// accepted again
     ClearImportTombstone,
-    /// Copy one account's scrape-session provider connection onto another
+    /// Copy one account's signed-in-session provider connection onto another
     CloneProviderConnection,
 }
 

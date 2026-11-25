@@ -289,7 +289,7 @@ echo "    Seeding dev provider activities (Strava + Garmin) for test users..."
 # A group coached by alice whose TrainingPeaks link waits for mobiletest's
 # answer: the member-confirm flows (mobile Maestro chat/10) need one to answer.
 # After synthetic-activities, which gives alice her Strava; alice's
-# TrainingPeaks session is a stand-in, so reads through it fail at the scraper.
+# TrainingPeaks session is a stand-in, so reads through it fail at the service.
 echo "    Seeding a TrainingPeaks coach link for $MOBILE_TEST_EMAIL..."
 "$PIERRE_CLI" seed trainingpeaks-delegation --member-email "$MOBILE_TEST_EMAIL" 2>&1 | tail -1
 # A reply carrying a supported claim verdict with a DOI: the verdict-sheet
@@ -363,7 +363,7 @@ point_providers_at_fixture
 
 # Step 4c: Start the dedicated sciotte service (ADR-021), but ONLY when
 # the platform is pointed at it. DRAVR_SCIOTTE_REMOTE_URL set => the server
-# routes sciotte login/scrape to this service instead of in-pod Chrome, so it
+# routes sciotte logins and session reads to this service instead of in-pod Chrome, so it
 # must be up; unset => the in-process path and this block is skipped entirely
 # (dev loop unchanged). Delegates to sciotte-local.sh so the serve invocation
 # has a single source of truth. Never fatal: a missing ../dravr-sciotte checkout
@@ -380,10 +380,10 @@ if [ -n "${DRAVR_SCIOTTE_REMOTE_URL:-}" ]; then
         if "$PROJECT_ROOT/scripts/sciotte-local.sh" serve-bg; then
             echo "    Sciotte service ready"
         else
-            echo -e "${YELLOW}    Sciotte service failed to start — remote sciotte scrapes will error until it is up (see logs/sciotte-service-*.log)${NC}"
+            echo -e "${YELLOW}    Sciotte service failed to start — remote sciotte session reads will error until it is up (see logs/sciotte-service-*.log)${NC}"
         fi
     else
-        echo -e "${YELLOW}    ../dravr-sciotte not found — skipping sciotte service; remote sciotte scrapes will error${NC}"
+        echo -e "${YELLOW}    ../dravr-sciotte not found — skipping sciotte service; remote sciotte session reads will error${NC}"
     fi
 fi
 

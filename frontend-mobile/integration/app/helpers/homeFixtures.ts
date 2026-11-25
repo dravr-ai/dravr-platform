@@ -303,7 +303,7 @@ export const PROVIDERS_RECONNECT = {
 };
 
 /**
- * Every connected provider flagged: a Garmin scrape session and its Strava
+ * Every connected provider flagged: a Garmin signed-in session and its Strava
  * mirror whose sessions died, and a disconnected COROS. Nothing connected
  * still syncs.
  */

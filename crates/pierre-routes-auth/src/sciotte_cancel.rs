@@ -5,9 +5,9 @@
 // Copyright (c) 2026 dravr.ai
 
 //! Closing a sign-in window aborts its request, but that disconnect does not
-//! reach the scraper service: the frontend proxy, the API and the service are
+//! reach the sciotte service: the frontend proxy, the API and the service are
 //! separate hops, and none of them carries a client's dropped connection on
-//! to the next. The login kept its browser and its scrape permit until it
+//! to the next. The login kept its browser and its sign-in permit until it
 //! finished on its own. So a window names each opening with an attempt id,
 //! sends it on every step, and on close asks for that attempt to be cancelled.
 //!
@@ -344,7 +344,7 @@ pub(crate) async fn handle_sciotte_cancel(
 /// # Errors
 ///
 /// [`AppError::invalid_input`] for a malformed attempt id, and the error of
-/// an unconfigured scraper service.
+/// an unconfigured sciotte service.
 pub(crate) async fn cancel_attempt(
     resources: &AuthRoutesContext,
     tenant_id: Uuid,

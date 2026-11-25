@@ -486,7 +486,7 @@ async fn the_picker_offers_the_import_beside_the_credential_connect() {
         picker.contains("\"importExportLink\":\"Have an export? Import it\""),
         "{picker}"
     );
-    // Scraping is never retired: the Strava and Garmin cards stay, and the
+    // Session reads are never retired: the Strava and Garmin cards stay, and the
     // credential sign-in stays offered beside the import.
     assert!(picker.contains("\"target\":\"strava\""), "{picker}");
     assert!(picker.contains("\"target\":\"garmin\""), "{picker}");

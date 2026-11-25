@@ -660,7 +660,7 @@ describe('useActivityRoute', () => {
     expect(api.getActivityRoute).toHaveBeenCalledWith('strava', 'act-9', expect.objectContaining({ burst: false }));
   });
 
-  // 2026-09-29: a failing scraper had the server store `no_gps` for rides
+  // 2026-09-29: a failing session read had the server store `no_gps` for rides
   // that recorded GPS, and the list said `has_gps: false` with it. The server
   // has since deleted those rows, so the list says `has_gps: true` again —
   // and a tab left open since must ask the route again, not keep the old

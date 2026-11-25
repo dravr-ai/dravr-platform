@@ -42,14 +42,14 @@ pub(super) fn startup_client(base_url: &str, audience: Option<&str>) -> Option<S
         Err(e) => {
             error!(
                 error = %e,
-                "The sciotte client could not be built; scraper calls will report the service unconfigured"
+                "The sciotte client could not be built; session reads will report the service unconfigured"
             );
             None
         }
     }
 }
 
-/// The client sign-ins reach the scraper service through, as the server's
+/// The client sign-ins reach the sciotte service through, as the server's
 /// configuration built it at startup.
 ///
 /// A sign-in parks its browser in one instance's memory while the athlete
@@ -106,7 +106,7 @@ pub fn startup_login_client(login_url: Option<&str>, audience: Option<&str>) -> 
 /// Factory for Strava — Sciotte provider
 ///
 /// Every factory holds a clone of the server's read services ([`SciotteReads`], `None`
-/// when no scraper service is configured), so each provider it builds shares
+/// when no sciotte service is configured), so each provider it builds shares
 /// those clients' connection pools and identity-token caches.
 pub struct SciotteProviderFactory {
     reads: Option<SciotteReads>,
@@ -120,7 +120,7 @@ impl fmt::Debug for SciotteProviderFactory {
 }
 
 impl SciotteProviderFactory {
-    /// A factory whose providers call the scraper services through `reads`.
+    /// A factory whose providers call the sciotte services through `reads`.
     #[must_use]
     pub const fn new(reads: Option<SciotteReads>) -> Self {
         Self { reads }
@@ -154,7 +154,7 @@ impl fmt::Debug for SciotteGarminProviderFactory {
 }
 
 impl SciotteGarminProviderFactory {
-    /// A factory whose providers call the scraper services through `reads`.
+    /// A factory whose providers call the sciotte services through `reads`.
     #[must_use]
     pub const fn new(reads: Option<SciotteReads>) -> Self {
         Self { reads }
@@ -188,7 +188,7 @@ impl fmt::Debug for SciotteTrainingPeaksProviderFactory {
 }
 
 impl SciotteTrainingPeaksProviderFactory {
-    /// A factory whose providers call the scraper services through `reads`.
+    /// A factory whose providers call the sciotte services through `reads`.
     #[must_use]
     pub const fn new(reads: Option<SciotteReads>) -> Self {
         Self { reads }
@@ -250,7 +250,7 @@ impl fmt::Debug for SciotteCorosProviderFactory {
 }
 
 impl SciotteCorosProviderFactory {
-    /// A factory whose providers call the scraper services through `reads`.
+    /// A factory whose providers call the sciotte services through `reads`.
     #[must_use]
     pub const fn new(reads: Option<SciotteReads>) -> Self {
         Self { reads }

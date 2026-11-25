@@ -22,8 +22,8 @@
 
 use crate::common;
 use crate::garmin_sign_in_test::{
-    athlete, calls_matching, hold_session, server, sign_in, spawn_switchable_scraper,
-    ScraperSwitch, LIVE_SESSION,
+    athlete, calls_matching, hold_session, server, sign_in, spawn_switchable_session_reader,
+    SessionReaderSwitch, LIVE_SESSION,
 };
 use crate::helpers::axum_test::AxumTestRequest;
 
@@ -43,10 +43,10 @@ use pierre_routes_auth::AuthRoutes;
 use secrecy::ExposeSecret;
 use serde_json::{json, Value};
 
-/// A config whose Garmin client holds `cap` seats, with `scraper` as the
+/// A config whose Garmin client holds `cap` seats, with `reader` as the
 /// usr/pwd sign-in service.
-fn config_with_cap(scraper: &str, cap: u32) -> ServerConfig {
-    let mut config = common::test_server_config_with_sciotte(scraper);
+fn config_with_cap(reader: &str, cap: u32) -> ServerConfig {
+    let mut config = common::test_server_config_with_sciotte(reader);
     config.oauth.garmin_seat_cap = Some(cap);
     config
 }
@@ -88,8 +88,8 @@ async fn garmin_card(resources: &Arc<ServerContext>, token: &str) -> Value {
 /// first, the same card recommends Garmin's OAuth.
 #[tokio::test]
 async fn the_default_order_takes_a_new_usr_pwd_sign_in_with_seats_free() {
-    let (scraper, calls) = spawn_switchable_scraper(ScraperSwitch::default()).await;
-    let resources = server(config_with_cap(&scraper, 5)).await;
+    let (reader, calls) = spawn_switchable_session_reader(SessionReaderSwitch::default()).await;
+    let resources = server(config_with_cap(&reader, 5)).await;
     let (_user_id, _user, _tenant, token) = athlete(&resources).await;
 
     let card = garmin_card(&resources, &token).await;
@@ -127,8 +127,8 @@ async fn the_default_order_takes_a_new_usr_pwd_sign_in_with_seats_free() {
 /// OAuth with seats to spare, and leaves the Garmin card on its sign-in.
 #[tokio::test]
 async fn an_oauth_first_strava_order_sends_only_the_strava_card_to_the_oauth() {
-    let (scraper, _calls) = spawn_switchable_scraper(ScraperSwitch::default()).await;
-    let resources = server(config_with_cap(&scraper, 5)).await;
+    let (reader, _calls) = spawn_switchable_session_reader(SessionReaderSwitch::default()).await;
+    let resources = server(config_with_cap(&reader, 5)).await;
     let (_user_id, _user, _tenant, token) = athlete(&resources).await;
     let strava = card(&resources, &token, oauth_providers::SCIOTTE).await;
     assert_eq!(
@@ -153,8 +153,8 @@ async fn an_oauth_first_strava_order_sends_only_the_strava_card_to_the_oauth() {
 /// seats are free: the order decides new connections only.
 #[tokio::test]
 async fn a_reconnect_signs_in_under_every_order() {
-    let (scraper, _calls) = spawn_switchable_scraper(ScraperSwitch::default()).await;
-    let resources = server(config_with_cap(&scraper, 5)).await;
+    let (reader, _calls) = spawn_switchable_session_reader(SessionReaderSwitch::default()).await;
+    let resources = server(config_with_cap(&reader, 5)).await;
     let (user_id, _user, tenant, token) = athlete(&resources).await;
     hold_session(&resources, user_id, tenant, LIVE_SESSION).await;
     resources
@@ -214,8 +214,8 @@ async fn a_reconnect_signs_in_under_every_order() {
 /// carries none.
 #[tokio::test]
 async fn every_sign_in_card_carries_its_order_and_no_other_card_does() {
-    let (scraper, _calls) = spawn_switchable_scraper(ScraperSwitch::default()).await;
-    let resources = server(config_with_cap(&scraper, 5)).await;
+    let (reader, _calls) = spawn_switchable_session_reader(SessionReaderSwitch::default()).await;
+    let resources = server(config_with_cap(&reader, 5)).await;
     let (_user_id, _user, _tenant, token) = athlete(&resources).await;
     let sign_in_cards = [
         oauth_providers::SCIOTTE,

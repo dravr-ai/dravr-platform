@@ -20,6 +20,8 @@ pierre-core = { version = "0.3.0", path = "../pierre-core", features = ["http-cl
 pierre-database = { version = "0.3.0", path = "../pierre-database", default-features = false }
 dravr-meteo = { workspace = true }
 dravr-cageux = { workspace = true }
+# The encoded-polyline codec route overviews are read and written through.
+dravr-barrage = { workspace = true }
 
 # Derives the JSON Schemas the endurance export tools declare.
 schemars = "1.2"
@@ -37,8 +39,6 @@ uuid = { version = "1.29", features = ["v4"] }
 tokio = { version = "1.54", features = ["time"] }
 
 [dev-dependencies]
-# Property tests for the polyline codec (carnet#1143).
-proptest = { version = "1", default-features = false, features = ["std"] }
 tokio = { version = "1.54", features = ["macros", "rt", "net", "io-util", "time"] }
 
 [lints]

@@ -439,7 +439,7 @@ pub(super) async fn run_live_read(
         None => (None, None),
     };
     // Taken before the session is read, whoever authenticated it: a reconnect
-    // that lands during a long scrape is newer than the failure it reports.
+    // that lands during a long session read is newer than the failure it reports.
     let attempt_started_at = authenticated
         .as_ref()
         .map_or_else(Timestamp::now, |authenticated| {

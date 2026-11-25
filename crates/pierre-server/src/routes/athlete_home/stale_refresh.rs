@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use super::{
-    claim_scrape_session_retry, debug, into_runtime, record_sync_failure, refresh_head,
+    claim_flagged_session_retry, debug, into_runtime, record_sync_failure, refresh_head,
     retries_flagged_session, revalidation_timeout, sync_backoff_until, timeout, user_facing_name,
     warn, ActivityFetchFailure, AppResult, Arc, ConnectionStatus, DataFreshness,
     ProviderConnection, RevalidationRegistry, ServerContext, SyncFailure, TenantId, ToolRuntime,
@@ -31,7 +31,7 @@ fn is_stale(as_of: Option<Timestamp>) -> bool {
 pub(super) struct StaleRefreshPlan {
     /// Active connections whose own head needs a refresh.
     active: Vec<String>,
-    /// Scrape sessions flagged `needs_reauth` whose own head needs a refresh:
+    /// Signed-in sessions flagged `needs_reauth` whose own head needs a refresh:
     /// each is refreshed only when its throttled retry can be claimed.
     flagged: Vec<String>,
     /// The newest failed refresh among the judged providers that no good
@@ -50,13 +50,13 @@ pub(super) struct StaleRefreshPlan {
 /// head it did not bring in is missing — unless that failure's pause is not
 /// over ([`sync_backoff_until`]) and this is not the athlete's own `retry`.
 /// A connection flagged `needs_reauth` is refreshed on the same terms only
-/// when it is a scrape session ([`retries_flagged_session`]), since one
-/// failed read can be the scraper's and not the session's; a flagged OAuth
+/// when it is a signed-in session ([`retries_flagged_session`]), since one
+/// failed read can be the service's and not the session's; a flagged OAuth
 /// grant is dead until the athlete reconnects, and a revoked connection is
 /// theirs to restore. An OAuth grant beside a usr/pwd session of its
 /// provider ([`grant_beside_session`]) is never refreshed: the session is the
 /// provider's primary and the grant only its fallback (carnet#1494), so the
-/// API is never read beside the scrape.
+/// API is never read beside the session.
 pub(super) async fn stale_refresh_plan(
     resources: &Arc<ServerContext>,
     user_id: Uuid,
@@ -128,18 +128,18 @@ pub(super) async fn stale_refresh_plan(
 /// is stale.
 ///
 /// Stale means a provider this load refreshes was past the freshness bands:
-/// an active connection with a stale head, or a flagged scrape session whose
+/// an active connection with a stale head, or a flagged signed-in session whose
 /// retry this load claimed. The client then asks once more a little later.
 ///
 /// One refresh per `(user, tenant)` at a time, shared with every other
 /// stale-cache revalidation: a Home page reloaded ten times while a two-minute
-/// scrape runs starts it once, and every one of those loads still says stale.
+/// session read runs starts it once, and every one of those loads still says stale.
 /// A flagged session's retry is claimed only by the load that starts the
 /// refresh, so the claim is never spent on a refresh that does not run; it is
 /// throttled across every caller and replica
-/// ([`claim_scrape_session_retry`]). Tracked on the server's drain tracker so
+/// ([`claim_flagged_session_retry`]). Tracked on the server's drain tracker so
 /// shutdown waits for it, and capped at the shared revalidation timeout so a
-/// hung scrape frees the slot.
+/// hung session read frees the slot.
 pub(super) async fn start_stale_refresh(
     resources: &Arc<ServerContext>,
     user_id: Uuid,
@@ -161,7 +161,7 @@ pub(super) async fn start_stale_refresh(
     let runtime = into_runtime(resources);
     let mut retried = Vec::new();
     for provider in flagged {
-        if claim_scrape_session_retry(&runtime, user_id, tenant_id, &provider).await {
+        if claim_flagged_session_retry(&runtime, user_id, tenant_id, &provider).await {
             retried.push(provider.clone());
             providers.push(provider);
         }
@@ -203,7 +203,7 @@ pub(super) async fn start_stale_refresh(
 struct HeadReads<'load> {
     /// Every provider to read, in order.
     providers: &'load [String],
-    /// The flagged scrape sessions among them whose retry this load claimed.
+    /// The flagged signed-in sessions among them whose retry this load claimed.
     retried: &'load [String],
 }
 

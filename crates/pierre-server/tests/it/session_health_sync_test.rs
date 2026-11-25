@@ -1,11 +1,11 @@
-// ABOUTME: carnet#513 — health sync reaches scrape-connected Garmin and COROS athletes through their mirror sessions
-// ABOUTME: Roster, credentials, tenant, stored rows, dead sessions, the scrape cadence and the sciotte-service reader
+// ABOUTME: carnet#513 — health sync reaches session-connected Garmin and COROS athletes through their mirror sessions
+// ABOUTME: Roster, credentials, tenant, stored rows, dead sessions, the session-read cadence and the sciotte-service reader
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
 //! The health sync knows a provider by its own name (`garmin`, `coros`),
-//! while a scrape-connected athlete's session lives on the mirror backend's
+//! while a session-connected athlete's session lives on the mirror backend's
 //! token row (`sciotte_garmin`, `sciotte_coros`). Before this bridge the sync
 //! looked the athlete up under the provider name, found nobody, and wrote
 //! nothing — silently. These tests seed the rows exactly as the sciotte login
@@ -32,9 +32,7 @@ use async_trait::async_trait;
 use db_fixtures::seed_user;
 use dravr_enforme::error::EnformeError;
 use dravr_enforme::models::connection::ConnectedUser;
-use dravr_enforme::providers::sciotte_reader::{
-    AuthSession, DailySummary, DailySummaryReader, ScraperError, ScraperResult,
-};
+use dravr_enforme::providers::sciotte_reader::{AuthSession, DailySummary, DailySummaryReader};
 use dravr_enforme::traits::connection_store::UserConnectionStore;
 use dravr_enforme::traits::credential_store::CredentialStore;
 use dravr_enforme::traits::cursor_store::SyncCursorStore;
@@ -45,10 +43,11 @@ use pierre_core::models::{
 };
 use pierre_database::backends::factory::Database;
 use pierre_database::RepositoryRegistry;
+use pierre_providers::sciotte_names::{SessionReadError, SessionReadResult, SERVICE_BUSY};
 use pierre_services::health_sync::{
     history_walk_scope, sync_error_is_push_stand_down, wellness_pull_stands_down, PierreSyncStorage,
 };
-use pierre_services::provider_refresh::{scrape_sync_not_due, RefreshService};
+use pierre_services::provider_refresh::{session_sync_not_due, RefreshService};
 use pierre_services::sciotte_health_reader::{SciotteServiceReader, SessionRows};
 use pierre_test_support::db::create_test_db_with_key;
 use pierre_test_support::garmin::{connect_garmin_session, grant_garmin_push};
@@ -67,13 +66,13 @@ fn session() -> AuthSession {
 }
 
 async fn create_test_db() -> Database {
-    create_test_db_with_key(b"scrape-health-sync-key-32-bytes!".to_vec())
+    create_test_db_with_key(b"session-health-sync-key-32bytes!".to_vec())
         .await
         .unwrap()
 }
 
 /// A token row exactly as `store_sciotte_session` writes it.
-async fn connect_scrape(
+async fn connect_signed_in(
     repos: &RepositoryRegistry,
     user_id: Uuid,
     tenant: TenantId,
@@ -141,20 +140,20 @@ fn window() -> (Timestamp, Timestamp) {
     )
 }
 
-/// Test double for the scraper: the summary sciotte's `provider` config
+/// Test double for the service: the summary sciotte's `provider` config
 /// returns for a day, as the service would serialize it. Records every
 /// (provider, day) it is asked for. The real reader is exercised against a
 /// stub service in `the_service_reader_*` below.
-type Answer = Box<dyn Fn(&str, CivilDate) -> ScraperResult<DailySummary> + Send + Sync>;
+type Answer = Box<dyn Fn(&str, CivilDate) -> SessionReadResult<DailySummary> + Send + Sync>;
 
-struct FakeScraper {
+struct FakeSessionReader {
     answer: Answer,
     asked: Mutex<Vec<(String, CivilDate)>>,
 }
 
-impl FakeScraper {
+impl FakeSessionReader {
     fn reader(
-        answer: impl Fn(&str, CivilDate) -> ScraperResult<DailySummary> + Send + Sync + 'static,
+        answer: impl Fn(&str, CivilDate) -> SessionReadResult<DailySummary> + Send + Sync + 'static,
     ) -> (Arc<Self>, Arc<dyn DailySummaryReader>) {
         let fake = Arc::new(Self {
             answer: Box::new(answer),
@@ -166,13 +165,13 @@ impl FakeScraper {
 }
 
 #[async_trait]
-impl DailySummaryReader for FakeScraper {
+impl DailySummaryReader for FakeSessionReader {
     async fn daily_summary(
         &self,
         provider: &str,
         _session: &AuthSession,
         date: CivilDate,
-    ) -> ScraperResult<DailySummary> {
+    ) -> SessionReadResult<DailySummary> {
         self.asked.lock().unwrap().push((provider.to_owned(), date));
         (self.answer)(provider, date)
     }
@@ -216,8 +215,8 @@ fn garmin_yesterday(provider: &str, date: CivilDate) -> DailySummary {
     }
 }
 
-fn dead_session(_: &str, _: CivilDate) -> ScraperResult<DailySummary> {
-    Err(ScraperError::SessionExpired {
+fn dead_session(_: &str, _: CivilDate) -> SessionReadResult<DailySummary> {
+    Err(SessionReadError::SessionExpired {
         reason: "access token is invalid".to_owned(),
     })
 }
@@ -227,7 +226,7 @@ async fn a_coros_athlete_is_on_the_roster_under_coros_with_its_session() {
     let db = create_test_db().await;
     let (user_id, tenant) = seed_user(&db).await;
     let repos = Arc::clone(db.repositories());
-    connect_scrape(&repos, user_id, tenant, "sciotte_coros").await;
+    connect_signed_in(&repos, user_id, tenant, "sciotte_coros").await;
     let storage = PierreSyncStorage::new(&repos);
 
     let roster = storage.list_connected_users("coros").await.unwrap();
@@ -255,9 +254,9 @@ async fn a_coros_sync_stores_resting_hr_sleep_hrv_and_vo2max_as_coros() {
     let db = create_test_db().await;
     let (user_id, tenant) = seed_user(&db).await;
     let repos = Arc::clone(db.repositories());
-    connect_scrape(&repos, user_id, tenant, "sciotte_coros").await;
+    connect_signed_in(&repos, user_id, tenant, "sciotte_coros").await;
     let storage = Arc::new(PierreSyncStorage::new(&repos));
-    let (fake, reader) = FakeScraper::reader(|p, d| Ok(coros_yesterday(p, d)));
+    let (fake, reader) = FakeSessionReader::reader(|p, d| Ok(coros_yesterday(p, d)));
     let orchestrator = storage
         .build_orchestrator_with_reader(&reader, REFUSED_WELLNESS, None)
         .unwrap();
@@ -318,9 +317,9 @@ async fn a_garmin_sync_stores_the_night_the_morning_and_the_body_as_garmin() {
     let db = create_test_db().await;
     let (user_id, tenant) = seed_user(&db).await;
     let repos = Arc::clone(db.repositories());
-    connect_scrape(&repos, user_id, tenant, "sciotte_garmin").await;
+    connect_signed_in(&repos, user_id, tenant, "sciotte_garmin").await;
     let storage = Arc::new(PierreSyncStorage::new(&repos));
-    let (_fake, reader) = FakeScraper::reader(|p, d| Ok(garmin_yesterday(p, d)));
+    let (_fake, reader) = FakeSessionReader::reader(|p, d| Ok(garmin_yesterday(p, d)));
     let orchestrator = storage
         .build_orchestrator_with_reader(&reader, REFUSED_WELLNESS, None)
         .unwrap();
@@ -373,9 +372,9 @@ async fn a_dead_coros_session_writes_nothing_and_keeps_no_cursor() {
     let db = create_test_db().await;
     let (user_id, tenant) = seed_user(&db).await;
     let repos = Arc::clone(db.repositories());
-    connect_scrape(&repos, user_id, tenant, "sciotte_coros").await;
+    connect_signed_in(&repos, user_id, tenant, "sciotte_coros").await;
     let storage = Arc::new(PierreSyncStorage::new(&repos));
-    let (fake, reader) = FakeScraper::reader(dead_session);
+    let (fake, reader) = FakeSessionReader::reader(dead_session);
     let orchestrator = storage
         .build_orchestrator_with_reader(&reader, REFUSED_WELLNESS, None)
         .unwrap();
@@ -428,7 +427,7 @@ async fn a_flagged_coros_session_is_not_read_by_a_sync() {
     let db = create_test_db().await;
     let (user_id, tenant) = seed_user(&db).await;
     let repos = Arc::clone(db.repositories());
-    connect_scrape(&repos, user_id, tenant, "sciotte_coros").await;
+    connect_signed_in(&repos, user_id, tenant, "sciotte_coros").await;
     repos
         .provider_connections
         .register_connection(
@@ -452,7 +451,7 @@ async fn a_flagged_coros_session_is_not_read_by_a_sync() {
         .await
         .unwrap();
     let storage = Arc::new(PierreSyncStorage::new(&repos));
-    let (fake, reader) = FakeScraper::reader(dead_session);
+    let (fake, reader) = FakeSessionReader::reader(dead_session);
 
     assert!(
         storage
@@ -527,25 +526,25 @@ async fn no_row_is_written_under_another_providers_tenant() {
 }
 
 #[tokio::test]
-async fn a_scrape_sync_waits_six_hours_and_an_api_sync_never_waits() {
+async fn a_session_sync_waits_six_hours_and_an_api_sync_never_waits() {
     let db = create_test_db().await;
     let (user_id, tenant) = seed_user(&db).await;
     let repos = Arc::clone(db.repositories());
-    connect_scrape(&repos, user_id, tenant, "sciotte_coros").await;
+    connect_signed_in(&repos, user_id, tenant, "sciotte_coros").await;
     connect_oauth(&repos, user_id, tenant, "whoop").await;
     let auth = repos.auth_repos();
     let coros = ConnectedUser::new(user_id.to_string(), "coros");
     let whoop = ConnectedUser::new(user_id.to_string(), "whoop");
 
     // Never synced: due.
-    assert!(!scrape_sync_not_due(&auth, &coros, "coros").await);
+    assert!(!session_sync_not_due(&auth, &coros, "coros").await);
 
     repos
         .oauth_tokens
         .update_provider_last_sync(user_id, tenant, "sciotte_coros", Timestamp::now())
         .await
         .unwrap();
-    assert!(scrape_sync_not_due(&auth, &coros, "coros").await);
+    assert!(session_sync_not_due(&auth, &coros, "coros").await);
 
     repos
         .oauth_tokens
@@ -557,7 +556,7 @@ async fn a_scrape_sync_waits_six_hours_and_an_api_sync_never_waits() {
         )
         .await
         .unwrap();
-    assert!(!scrape_sync_not_due(&auth, &coros, "coros").await);
+    assert!(!session_sync_not_due(&auth, &coros, "coros").await);
 
     // An API provider is polled every cycle, whatever its last sync.
     repos
@@ -565,20 +564,20 @@ async fn a_scrape_sync_waits_six_hours_and_an_api_sync_never_waits() {
         .update_provider_last_sync(user_id, tenant, "whoop", Timestamp::now())
         .await
         .unwrap();
-    assert!(!scrape_sync_not_due(&auth, &whoop, "whoop").await);
+    assert!(!session_sync_not_due(&auth, &whoop, "whoop").await);
 }
 
 #[tokio::test]
-async fn a_chat_turn_never_scrapes_for_a_garmin_session_or_a_leftover_garmin_row() {
+async fn a_chat_turn_never_reads_a_garmin_session_or_a_leftover_garmin_row() {
     let db = create_test_db().await;
     let (user_id, tenant) = seed_user(&db).await;
     let repos = Arc::clone(db.repositories());
-    connect_scrape(&repos, user_id, tenant, "sciotte_garmin").await;
+    connect_signed_in(&repos, user_id, tenant, "sciotte_garmin").await;
     // A Garmin API row, which the Garmin sync does not read (Garmin pushes
     // its data) and whose last_sync nothing stamps.
     connect_oauth(&repos, user_id, tenant, "garmin").await;
     let storage = Arc::new(PierreSyncStorage::new(&repos));
-    let (fake, reader) = FakeScraper::reader(|p, d| Ok(garmin_yesterday(p, d)));
+    let (fake, reader) = FakeSessionReader::reader(|p, d| Ok(garmin_yesterday(p, d)));
     let service = RefreshService::new(
         &repos.auth_repos(),
         repos.activity_cache.clone(),
@@ -595,7 +594,7 @@ async fn a_chat_turn_never_scrapes_for_a_garmin_session_or_a_leftover_garmin_row
         .await;
 
     // Both rows are judged by the activity cache, which is cold: stale,
-    // reported for get_activities to re-fetch, and nothing scraped in the turn.
+    // reported for get_activities to re-fetch, and nothing read in the turn.
     assert!(
         status.refreshing.iter().any(|p| p == "garmin"),
         "{status:?}"
@@ -607,12 +606,17 @@ async fn a_chat_turn_never_scrapes_for_a_garmin_session_or_a_leftover_garmin_row
     assert!(fake.asked.lock().unwrap().is_empty());
 }
 
-/// Every request the stub scraper service received, in order.
+/// Every request the stub service received, in order.
 type Seen = Arc<Mutex<Vec<String>>>;
 
-/// A scraper service that imports any session and answers the daily summary
+/// A service stand-in that imports any session and answers the daily summary
 /// with `status` and `body`.
-fn spawn_scraper_stub(listener: TcpListener, seen: Seen, status: &'static str, body: &'static str) {
+fn spawn_session_reader_stub(
+    listener: TcpListener,
+    seen: Seen,
+    status: &'static str,
+    body: &'static str,
+) {
     tokio::spawn(async move {
         while let Ok((mut stream, _)) = listener.accept().await {
             let mut buf = vec![0_u8; 16384];
@@ -650,11 +654,11 @@ async fn stub_service(status: &'static str, body: &'static str) -> (Seen, Sciott
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let seen: Seen = Arc::new(Mutex::new(Vec::new()));
-    spawn_scraper_stub(listener, Arc::clone(&seen), status, body);
+    spawn_session_reader_stub(listener, Arc::clone(&seen), status, body);
     (seen, reader_for(addr).await)
 }
 
-/// A scraper service of several instances: it imports any session, and
+/// A service stand-in of several instances: it imports any session, and
 /// answers the first `misses` daily-summary reads `401 session_not_found`, as
 /// an instance the import never reached does, and every later one with
 /// `body`.
@@ -749,7 +753,7 @@ async fn an_instance_that_never_saw_the_import_is_imported_once_more(day: CivilD
         .await
         .unwrap_err();
     assert!(
-        matches!(dead, ScraperError::SessionExpired { .. }),
+        matches!(dead, SessionReadError::SessionExpired { .. }),
         "{dead:?}"
     );
     let requests = seen.lock().unwrap().clone();
@@ -797,7 +801,7 @@ async fn the_service_reader_imports_the_session_and_maps_every_answer() {
     );
     assert!(
         requests[1].contains("sess-513"),
-        "the scrape names the imported session"
+        "the session read names the imported session"
     );
 
     // A dead session is expired, not an empty day, and is not read twice.
@@ -811,7 +815,7 @@ async fn the_service_reader_imports_the_session_and_maps_every_answer() {
         .await
         .unwrap_err();
     assert!(
-        matches!(dead, ScraperError::SessionExpired { .. }),
+        matches!(dead, SessionReadError::SessionExpired { .. }),
         "{dead:?}"
     );
     assert_eq!(
@@ -823,7 +827,8 @@ async fn the_service_reader_imports_the_session_and_maps_every_answer() {
     // A load-shed carries the service's own wait.
     let (_, reader) = stub_service(
         "503 Service Unavailable",
-        r#"{"error":"scraper_busy","reason":"queue full","retry_after_secs":9}"#,
+        format!(r#"{{"error":"{SERVICE_BUSY}","reason":"queue full","retry_after_secs":9}}"#)
+            .leak(),
     )
     .await;
     match reader
@@ -831,7 +836,7 @@ async fn the_service_reader_imports_the_session_and_maps_every_answer() {
         .await
         .unwrap_err()
     {
-        ScraperError::Busy {
+        SessionReadError::Busy {
             retry_after_secs, ..
         } => assert_eq!(retry_after_secs, 9),
         other => panic!("expected Busy, got {other:?}"),
@@ -885,7 +890,7 @@ async fn a_live_garmin_session_beside_a_push_grant_leaves_the_wellness_to_the_pu
         .unwrap();
     grant_garmin_push(&repos, user_id, tenant).await.unwrap();
     let storage = Arc::new(PierreSyncStorage::new(&repos));
-    let (fake, reader) = FakeScraper::reader(|p, d| Ok(garmin_yesterday(p, d)));
+    let (fake, reader) = FakeSessionReader::reader(|p, d| Ok(garmin_yesterday(p, d)));
 
     let roster = storage.list_connected_users("garmin").await.unwrap();
     assert!(
@@ -936,7 +941,7 @@ async fn a_push_only_garmin_athlete_stands_down_quietly() {
     let repos = Arc::clone(db.repositories());
     grant_garmin_push(&repos, user_id, tenant).await.unwrap();
     let storage = Arc::new(PierreSyncStorage::new(&repos));
-    let (fake, reader) = FakeScraper::reader(|p, d| Ok(garmin_yesterday(p, d)));
+    let (fake, reader) = FakeSessionReader::reader(|p, d| Ok(garmin_yesterday(p, d)));
 
     assert!(
         wellness_pull_stands_down(&repos, &user_id.to_string(), "garmin").await,
@@ -1023,7 +1028,7 @@ async fn a_push_grant_stored_before_the_credential_read_ends_the_sync_as_a_stand
         .unwrap();
     grant_garmin_push(&repos, user_id, tenant).await.unwrap();
     let storage = Arc::new(PierreSyncStorage::new(&repos));
-    let (fake, reader) = FakeScraper::reader(|p, d| Ok(garmin_yesterday(p, d)));
+    let (fake, reader) = FakeSessionReader::reader(|p, d| Ok(garmin_yesterday(p, d)));
     let user = user_id.to_string();
 
     let err = storage
@@ -1081,7 +1086,7 @@ impl DailySummaryReader for ActsMidSync {
         provider: &str,
         _session: &AuthSession,
         date: CivilDate,
-    ) -> ScraperResult<DailySummary> {
+    ) -> SessionReadResult<DailySummary> {
         if !self.acted.swap(true, Ordering::SeqCst) {
             match self.action {
                 MidSync::GrantPush => {
@@ -1179,7 +1184,7 @@ async fn a_dead_garmin_session_beside_a_push_grant_leaves_the_wellness_to_the_pu
         .await
         .unwrap();
     let storage = Arc::new(PierreSyncStorage::new(&repos));
-    let (fake, reader) = FakeScraper::reader(|p, d| Ok(garmin_yesterday(p, d)));
+    let (fake, reader) = FakeSessionReader::reader(|p, d| Ok(garmin_yesterday(p, d)));
 
     let roster = storage.list_connected_users("garmin").await.unwrap();
     assert!(
@@ -1229,7 +1234,7 @@ async fn the_history_walk_reads_the_session_beside_a_push_grant_for_the_days_bef
         .unwrap();
     grant_garmin_push(&repos, user_id, tenant).await.unwrap();
     let storage = Arc::new(PierreSyncStorage::new(&repos));
-    let (fake, reader) = FakeScraper::reader(|p, d| Ok(garmin_yesterday(p, d)));
+    let (fake, reader) = FakeSessionReader::reader(|p, d| Ok(garmin_yesterday(p, d)));
     let orchestrator = storage
         .build_orchestrator_with_reader(&reader, REFUSED_WELLNESS, None)
         .unwrap();
@@ -1340,7 +1345,7 @@ async fn a_sessions_daily_reads_reach_the_read_service_its_id_names() {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         bases.push(format!("http://{}", listener.local_addr().unwrap()));
         let requests: Seen = Arc::new(Mutex::new(Vec::new()));
-        spawn_scraper_stub(listener, Arc::clone(&requests), "200 OK", MEASURED);
+        spawn_session_reader_stub(listener, Arc::clone(&requests), "200 OK", MEASURED);
         seen.push(requests);
     }
     let reads = startup_reads(&bases, None).expect("loopback services need no audience");

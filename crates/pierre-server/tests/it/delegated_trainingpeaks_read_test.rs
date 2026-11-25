@@ -27,7 +27,7 @@
 //! - a link whose member left without the eager end, or whose coach holds no
 //!   session any more, ends on the member's next read.
 //!
-//! The scraper is a loopback stand-in (a test double, per the repo's mock rule) that
+//! The session reader is a loopback stand-in (a test double, per the repo's mock rule) that
 //! answers by the session and athlete each request names and records every
 //! request, so the test reads what the platform put on the wire.
 
@@ -132,13 +132,13 @@ struct Hit {
 
 /// The stand-in's record and its one switch.
 #[derive(Clone, Default)]
-struct Scraper {
+struct SessionReader {
     hits: Arc<Mutex<Vec<Hit>>>,
     /// TrainingPeaks no longer lists the second athlete on the roster.
     drop_second: Arc<AtomicBool>,
 }
 
-impl Scraper {
+impl SessionReader {
     fn record(&self, path: &str, headers: &HeaderMap, athlete: Option<&String>) -> String {
         let session = headers
             .get("x-session-id")
@@ -193,7 +193,10 @@ fn workout_row(id: &str) -> Value {
     })
 }
 
-async fn athlete_route(State(s): State<Scraper>, headers: HeaderMap) -> (StatusCode, Json<Value>) {
+async fn athlete_route(
+    State(s): State<SessionReader>,
+    headers: HeaderMap,
+) -> (StatusCode, Json<Value>) {
     if s.record("/api/athlete", &headers, None) != COACH_SESSION {
         return dead();
     }
@@ -221,7 +224,7 @@ async fn athlete_route(State(s): State<Scraper>, headers: HeaderMap) -> (StatusC
 }
 
 async fn activities_route(
-    State(s): State<Scraper>,
+    State(s): State<SessionReader>,
     headers: HeaderMap,
     Query(query): Query<HashMap<String, String>>,
 ) -> (StatusCode, Json<Value>) {
@@ -251,7 +254,7 @@ async fn activities_route(
 }
 
 async fn planned_route(
-    State(s): State<Scraper>,
+    State(s): State<SessionReader>,
     headers: HeaderMap,
     Query(query): Query<HashMap<String, String>>,
 ) -> (StatusCode, Json<Value>) {
@@ -282,7 +285,7 @@ async fn planned_route(
 }
 
 async fn detail_route(
-    State(s): State<Scraper>,
+    State(s): State<SessionReader>,
     headers: HeaderMap,
     Path(id): Path<String>,
 ) -> (StatusCode, Json<Value>) {
@@ -290,7 +293,7 @@ async fn detail_route(
     (StatusCode::OK, Json(workout_row(&id)))
 }
 
-async fn spawn_scraper(scraper: Scraper) -> String {
+async fn spawn_session_reader(reader: SessionReader) -> String {
     let app = Router::new()
         .route(
             "/auth/import-session",
@@ -302,7 +305,7 @@ async fn spawn_scraper(scraper: Scraper) -> String {
         .route("/api/activities", get(activities_route))
         .route("/api/activities/{id}", get(detail_route))
         .route("/api/planned-workouts", get(planned_route))
-        .with_state(scraper);
+        .with_state(reader);
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     tokio::spawn(async move {
@@ -322,7 +325,7 @@ struct World {
     res: Arc<ServerContext>,
     runtime: Arc<dyn ToolRuntime>,
     router: Router,
-    scraper: Scraper,
+    reader: SessionReader,
     group: Uuid,
     coach: Person,
     m1: Person,
@@ -391,8 +394,8 @@ fn agent_request() -> CreateAgentRequest {
     }
 }
 
-/// The world, its server reading through the scraper stand-in at `url`.
-async fn world(scraper: Scraper, url: &str) -> World {
+/// The world, its server reading through the session reader stand-in at `url`.
+async fn world(reader: SessionReader, url: &str) -> World {
     let res = create_test_server_resources_with_sciotte(url)
         .await
         .unwrap();
@@ -496,7 +499,7 @@ async fn world(scraper: Scraper, url: &str) -> World {
         res,
         runtime,
         router,
-        scraper,
+        reader,
         group,
         coach,
         m1,
@@ -567,7 +570,7 @@ impl World {
         // The confirm reads the member's recent workouts off the request,
         // through the link, under the coach's session and the member's id.
         self.wait_for("the warm-up read after the confirm", || {
-            self.scraper
+            self.reader
                 .hits_on("/api/activities")
                 .iter()
                 .any(|h| h.session == COACH_SESSION && h.athlete.as_deref() == Some(athlete))
@@ -689,7 +692,7 @@ impl World {
 /// member's athlete id, writes through under the member, and the title the
 /// coach wrote reaches the model as one defanged line.
 async fn get_activities_reads_through_the_coach(w: &World) {
-    w.scraper.clear();
+    w.reader.clear();
     let response = GetActivitiesTool
         .execute(
             &w.runtime,
@@ -706,7 +709,7 @@ async fn get_activities_reads_through_the_coach(w: &World) {
     assert_eq!(name, display_line(INJECTED_NAME, ACTIVITY_NAME_MAX_CHARS));
     assert_eq!(name, "Threshold 2x20 ![x] (https://evil.example/leak?q=)");
 
-    let reads = w.scraper.hits_on("/api/activities");
+    let reads = w.reader.hits_on("/api/activities");
     assert_eq!(reads.len(), 1, "{reads:?}");
     assert_eq!(reads[0].session, COACH_SESSION);
     assert_eq!(reads[0].athlete.as_deref(), Some(M1_ATHLETE));
@@ -720,7 +723,7 @@ async fn get_activities_reads_through_the_coach(w: &World) {
 /// The member's `get_planned_workouts` reads the member's plan through the
 /// coach's session.
 async fn get_planned_workouts_reads_through_the_coach(w: &World) {
-    w.scraper.clear();
+    w.reader.clear();
     let today = Timestamp::now().utc_date();
     let end = today.checked_add_days(14).unwrap();
     let response = GetPlannedWorkoutsTool
@@ -741,7 +744,7 @@ async fn get_planned_workouts_reads_through_the_coach(w: &World) {
     assert_eq!(planned.len(), 1, "{body}");
     assert_eq!(planned[0]["title"], "Sweet spot 3x15");
 
-    let reads = w.scraper.hits_on("/api/planned-workouts");
+    let reads = w.reader.hits_on("/api/planned-workouts");
     assert_eq!(reads.len(), 1, "{reads:?}");
     assert_eq!(reads[0].session, COACH_SESSION);
     assert_eq!(reads[0].athlete.as_deref(), Some(M1_ATHLETE));
@@ -751,7 +754,7 @@ async fn get_planned_workouts_reads_through_the_coach(w: &World) {
 /// through the coach's own session naming the member's athlete id, once the
 /// member shares with them: the link alone does not carry it (carnet#1066).
 async fn the_coach_reads_the_members_plan_once_they_share(w: &World) {
-    w.scraper.clear();
+    w.reader.clear();
     let today = Timestamp::now().utc_date();
     let end = today.checked_add_days(14).unwrap();
     let args = json!({
@@ -775,7 +778,7 @@ async fn the_coach_reads_the_members_plan_once_they_share(w: &World) {
             .is_some_and(|error| error.contains("stopped sharing")),
         "{body}"
     );
-    assert!(w.scraper.hits_on("/api/planned-workouts").is_empty());
+    assert!(w.reader.hits_on("/api/planned-workouts").is_empty());
 
     let groups = &w.res.common.repos.groups;
     assert!(groups
@@ -794,7 +797,7 @@ async fn the_coach_reads_the_members_plan_once_they_share(w: &World) {
         .expect("planned_workouts");
     assert_eq!(planned.len(), 1, "{body}");
     assert_eq!(planned[0]["title"], "Sweet spot 3x15");
-    let reads = w.scraper.hits_on("/api/planned-workouts");
+    let reads = w.reader.hits_on("/api/planned-workouts");
     assert_eq!(reads.len(), 1, "{reads:?}");
     assert_eq!(reads[0].session, COACH_SESSION);
     assert_eq!(reads[0].athlete.as_deref(), Some(M1_ATHLETE));
@@ -835,7 +838,7 @@ async fn the_status_names_the_coach(w: &World) {
 /// call leaves the platform.
 async fn the_detail_fence_holds(w: &World) {
     let provider = w.authenticate(&w.m1).await.expect("the link serves");
-    w.scraper.clear();
+    w.reader.clear();
     let refused = provider
         .get_activity(OTHER_ATHLETES_WORKOUT)
         .await
@@ -844,7 +847,7 @@ async fn the_detail_fence_holds(w: &World) {
         refused.to_string().to_lowercase().contains("not found"),
         "{refused}"
     );
-    assert!(w.scraper.hits().is_empty(), "{:?}", w.scraper.hits());
+    assert!(w.reader.hits().is_empty(), "{:?}", w.reader.hits());
 
     let own = provider
         .get_activity(M1_WORKOUT)
@@ -852,20 +855,20 @@ async fn the_detail_fence_holds(w: &World) {
         .expect("own workout");
     assert_eq!(own.id(), M1_WORKOUT);
     assert_eq!(
-        w.scraper
+        w.reader
             .hits_on(&format!("/api/activities/{M1_WORKOUT}"))
             .len(),
         1
     );
 }
 
-/// The coach's own read is refused as a coach account's before any scrape:
+/// The coach's own read is refused as a coach account's before any session read:
 /// the roster read the proposals needed recorded the role.
 async fn the_coachs_own_read_is_refused_in_words(w: &World) {
-    w.scraper.clear();
+    w.reader.clear();
     let refused = w.authenticate(&w.coach).await.err().expect("refused");
     assert!(refused.contains("coach account"), "{refused}");
-    assert!(w.scraper.hits().is_empty(), "{:?}", w.scraper.hits());
+    assert!(w.reader.hits().is_empty(), "{:?}", w.reader.hits());
 }
 
 /// A dead coach session flags the coach's connection and never the
@@ -903,16 +906,16 @@ async fn a_dead_coach_session_flags_the_coach(w: &World) {
 }
 
 /// Once the coach's session is known dead, the member's next read is refused
-/// before any scrape, naming the coach; both status surfaces say the coach
+/// before any session read, naming the coach; both status surfaces say the coach
 /// must reconnect; the sweep records the member's attempt as transient.
 async fn the_member_is_told_the_coach_must_reconnect(w: &World) {
-    w.scraper.clear();
+    w.reader.clear();
     let refused = w.authenticate(&w.m1).await.err().expect("refused");
     assert!(
         refused.contains(&format!("{COACH_NAME} needs to reconnect")),
         "{refused}"
     );
-    assert!(w.scraper.hits().is_empty(), "{:?}", w.scraper.hits());
+    assert!(w.reader.hits().is_empty(), "{:?}", w.reader.hits());
 
     let status = w.connection_status(&w.m1).await;
     assert_eq!(status["status"], "coach_reconnect_needed", "{status}");
@@ -964,7 +967,7 @@ async fn the_coach_signs_in_again(w: &World) {
 /// TrainingPeaks drops the second athlete from the coach's roster: their
 /// next read ends the link, and their delegated connection goes with it.
 async fn a_roster_drop_ends_the_link(w: &World, link: Uuid) {
-    w.scraper.drop_second.store(true, Ordering::SeqCst);
+    w.reader.drop_second.store(true, Ordering::SeqCst);
     let error = w
         .head(&w.m2)
         .await
@@ -1000,13 +1003,13 @@ async fn a_member_who_left_reads_nothing(w: &World, link: Uuid) {
     let card = w.trainingpeaks_card(&w.m1).await;
     assert!(card.get("delegation").is_none(), "{card}");
     assert_eq!(card["connected"], false, "{card}");
-    w.scraper.clear();
+    w.reader.clear();
     let refused = w.authenticate(&w.m1).await.err().expect("refused");
     assert!(
         refused.contains("link through the athlete's coach has ended"),
         "{refused}"
     );
-    assert!(w.scraper.hits().is_empty(), "{:?}", w.scraper.hits());
+    assert!(w.reader.hits().is_empty(), "{:?}", w.reader.hits());
 
     let ended = w.stored(link).await;
     assert_eq!(ended.status, DelegationStatus::Revoked);
@@ -1037,13 +1040,13 @@ async fn a_coach_without_a_session_ends_the_link(w: &World, link: Uuid) {
         .delete_token(w.coach.id, w.coach.tenant, PROVIDER)
         .await
         .unwrap();
-    w.scraper.clear();
+    w.reader.clear();
     let refused = w.authenticate(&w.m3).await.err().expect("refused");
     assert!(
         refused.contains("link through the athlete's coach has ended"),
         "{refused}"
     );
-    assert!(w.scraper.hits().is_empty(), "{:?}", w.scraper.hits());
+    assert!(w.reader.hits().is_empty(), "{:?}", w.reader.hits());
 
     let ended = w.stored(link).await;
     assert_eq!(ended.status, DelegationStatus::Revoked);
@@ -1056,9 +1059,9 @@ async fn a_coach_without_a_session_ends_the_link(w: &World, link: Uuid) {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_linked_member_reads_trainingpeaks_through_the_coach() {
-    let scraper = Scraper::default();
-    let url = spawn_scraper(scraper.clone()).await;
-    let w = world(scraper, &url).await;
+    let reader = SessionReader::default();
+    let url = spawn_session_reader(reader.clone()).await;
+    let w = world(reader, &url).await;
 
     let m1_link = w.link(M1_ATHLETE, &w.m1).await;
     let m2_link = w.link(M2_ATHLETE, &w.m2).await;

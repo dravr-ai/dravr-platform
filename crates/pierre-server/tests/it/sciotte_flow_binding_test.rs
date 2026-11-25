@@ -9,7 +9,7 @@
 
 //! `POST /api/providers/sciotte/{submit-otp,select-2fa}` authenticate the caller
 //! but the *`flow_id`* is the only thing binding the call to the login that
-//! caller started: the scraper service resumes its sole pending flow when a
+//! caller started: the service resumes its sole pending flow when a
 //! continuation carries no id. A caller with no server-side flow of their own
 //! therefore used to resume whichever browser happened to be parked — and the
 //! exported session was persisted under the *caller's* `user_id`/`tenant_id`,
@@ -178,7 +178,7 @@ async fn unauthenticated_continuation_is_rejected_before_the_flow_gate() {
 
 /// A fresh login supersedes whatever the user left parked. Driven through the
 /// stored-session short-circuit so the whole request stays in-process: the
-/// handler clears the remembered flow *before* it reaches the scraper service,
+/// handler clears the remembered flow *before* it reaches the service,
 /// and the short-circuit returns without one.
 #[tokio::test]
 async fn a_new_login_supersedes_the_previously_parked_flow() {
@@ -242,9 +242,9 @@ async fn a_new_login_supersedes_the_previously_parked_flow() {
     );
 }
 
-/// The login method is a closed set (carnet#988): a name the scraper has no
+/// The login method is a closed set (carnet#988): a name the service has no
 /// login for is refused when the body is read, before the handler runs, so
-/// nothing the user left parked is touched; each method the scraper knows is
+/// nothing the user left parked is touched; each method the service knows is
 /// accepted. A body that names none is the login
 /// `a_new_login_supersedes_the_previously_parked_flow` sends.
 #[tokio::test]
@@ -261,7 +261,7 @@ async fn a_login_method_outside_the_closed_set_is_refused_before_the_handler() {
     )
     .await;
 
-    // A miscased known method ("Google") is refused like a name the scraper
+    // A miscased known method ("Google") is refused like a name the service
     // has no login for ("gmail", "sms"): none is ever driven as the
     // provider's own form.
     for method in ["Google", "gmail", "sms"] {
@@ -306,7 +306,7 @@ async fn a_login_method_outside_the_closed_set_is_refused_before_the_handler() {
         let body = accepted.text();
         assert_eq!(
             status, 200,
-            "method {method} is a login the scraper runs: {body}"
+            "method {method} is a login the service runs: {body}"
         );
         assert!(
             body.contains("\"short_circuit\":true"),
@@ -316,7 +316,7 @@ async fn a_login_method_outside_the_closed_set_is_refused_before_the_handler() {
 }
 
 /// Store a sciotte session written moments ago, so a login inside the reuse
-/// window short-circuits instead of reaching the scraper service.
+/// window short-circuits instead of reaching the service.
 async fn seed_fresh_session(resources: &Arc<ServerContext>, user_id: Uuid, tenant_id: TenantId) {
     let now = Timestamp::now();
     let session = serde_json::json!({

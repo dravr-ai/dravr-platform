@@ -13,7 +13,7 @@
 //! 2026-07-24 live incident: the agent had the human-readable date
 //! (`2026-07-24`) in its prompt but converted it to `before=1753362000`
 //! (2025-07-24, a year early) — human-date→epoch is exactly the arithmetic
-//! LLMs botch — so the scrape returned year-old activities. The fix carries
+//! LLMs botch — so the session read returned year-old activities. The fix carries
 //! the exact epoch so the model copies it instead of computing one.
 
 use dravr_tronc::dates::Timestamp;

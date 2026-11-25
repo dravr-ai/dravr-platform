@@ -62,7 +62,7 @@ const SESSION: &str = "coros-1504";
 /// stand-in's handlers on its own thread and the test that reads it.
 type Seen = Arc<Mutex<Vec<String>>>;
 
-/// A scraper stand-in started on a thread of its own: its base URL and what
+/// A session reader stand-in started on a thread of its own: its base URL and what
 /// it saw.
 fn stand_in() -> (String, Seen) {
     let seen = Seen::default();

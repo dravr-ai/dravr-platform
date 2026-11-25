@@ -116,7 +116,7 @@ pub fn mirror_is_default(provider: &str) -> bool {
 /// The hosted login page's `target` for a mirror backend (`strava`, `garmin`,
 /// `trainingpeaks`, `coros`), or `None` for a slug with no hosted login.
 ///
-/// The scraper keys a login on the name the athlete knows the provider by, so
+/// The service keys a login on the name the athlete knows the provider by, so
 /// the target is the mirror's user-facing name — the same string
 /// `SciotteTarget::from_target_param` reads back when the page posts. A `None`
 /// is an OAuth provider, which reconnects through its authorization URL.
@@ -152,7 +152,7 @@ pub fn hosted_login_targets() -> Vec<&'static str> {
 ///
 /// Either half of a mirror pair reads as the mirror's descriptor ("Garmin"
 /// for both `garmin` and `sciotte_garmin`): the athlete connected through the
-/// scrape, and the OAuth descriptor's "Garmin Connect" names an API they never
+/// signed-in session, and the OAuth descriptor's "Garmin Connect" names an API they never
 /// touched. The registry is the one source, so the reconnect copy, the hosted
 /// pages and the connect cards cannot disagree on a label.
 #[must_use]
@@ -263,7 +263,7 @@ pub fn backend_pair_for(provider: &str) -> Vec<String> {
 /// connection it came through.
 ///
 /// [`user_facing_name`] of the row's provider alone is wrong here: the bare
-/// stamp maps to `strava`, which would name every scraped Garmin, COROS and
+/// stamp maps to `strava`, which would name every session-read Garmin, COROS and
 /// TrainingPeaks row Strava.
 #[must_use]
 pub fn activity_origin<'a>(provider: &'a str, source: Option<&'a str>) -> &'a str {
@@ -367,7 +367,7 @@ enum Half {
     /// row: nothing ever flagged it.
     Live,
     /// A token row whose connection is `needs_reauth`: a refused refresh, a
-    /// dead scrape session.
+    /// dead signed-in session.
     Flagged,
     /// A token row whose connection was revoked.
     Revoked,
@@ -540,7 +540,7 @@ pub async fn read_plan(
 ///
 /// The session is then the provider's primary ([`read_plan`]), so a walk of
 /// the athlete's connections reads the session and passes over the grant:
-/// the API is never read beside the scrape. `false` for a mirror, for a
+/// the API is never read beside the session. `false` for a mirror, for a
 /// provider whose OAuth backend never serves beside its mirror, and for a
 /// grant with no session beside it, a dead grant alone included, whose flag
 /// is the athlete's reconnect.

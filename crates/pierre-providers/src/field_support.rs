@@ -272,7 +272,7 @@ impl ActivityFieldSupport {
 /// Which of a provider's two backends answers a read.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum FieldMode {
-    /// The scrape that signs in as the athlete (a sciotte backend).
+    /// The session read that signs in as the athlete (a sciotte backend).
     Mirror,
     /// The provider's own API, behind its OAuth grant or API key.
     Oauth,
@@ -290,7 +290,7 @@ impl FieldMode {
 
     /// The user-facing provider an activity row came from and the mode that
     /// served it, read off the row's stored `provider` and `source`: a mirror
-    /// row names its mirror backend and carries the service it scraped as its
+    /// row names its mirror backend and carries the service it read as its
     /// source.
     #[must_use]
     pub fn of_row<'a>(provider: &'a str, source: Option<&'a str>) -> (&'a str, Self) {

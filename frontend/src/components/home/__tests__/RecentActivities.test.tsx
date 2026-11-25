@@ -490,7 +490,7 @@ describe('RecentActivities', () => {
     expect(screen.queryByText(/Reconnect Garmin/)).toBeNull();
     cleanup();
 
-    // `stale: true`: the server did start a refresh (a flagged scrape session
+    // `stale: true`: the server did start a refresh (a flagged signed-in session
     // is retried on its own schedule), so saying it is checking is true.
     api.getRecentActivities.mockResolvedValue(recentResponse({ stale: true }));
     renderSection();

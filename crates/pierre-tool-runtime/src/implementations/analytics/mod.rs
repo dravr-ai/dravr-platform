@@ -409,7 +409,7 @@ impl McpTool<dyn ToolRuntime> for AnalyzeActivityTool {
             // No pre-flight fetch: `get_activity_intelligence` authenticates
             // and fetches the activity itself, so a validation fetch here
             // doubled the provider round trips (two headless-browser passes on
-            // a scrape-backed mirror) — and worse, its early bail on a missing
+            // a session-read mirror) — and worse, its early bail on a missing
             // id suppressed the analytics handler's deliberate not-found
             // fallback, which analyzes the most recent activity and names the
             // missing id in an `auto_selected` block.

@@ -11,7 +11,7 @@
 //!
 //! An LLM commonly asks for every sport with `sport_type: "all"` (or the
 //! French `"tous"`). 2026-07-20 dev incident: "all" was matched literally
-//! against sport names, dropping all 10 scraped activities and making the
+//! against sport names, dropping all 10 session-read activities and making the
 //! agent report "no recent data" while fresh activities existed. Wildcards
 //! must pass the list through untouched; real sport filters must keep
 //! filtering.

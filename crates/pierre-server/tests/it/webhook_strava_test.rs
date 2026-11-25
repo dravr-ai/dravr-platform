@@ -12,7 +12,7 @@
 // `missing_docs`.
 //
 // The route used to call enforme's `sync_user`, which is the sciotte TSB
-// scraper — an OAuth-connected athlete's activity never reached the cache.
+// session reader — an OAuth-connected athlete's activity never reached the cache.
 // It now goes through `fetch_provider_head`, the platform's real OAuth
 // activity path, so these tests point the Strava provider at a local mock
 // (`PIERRE_STRAVA_API_BASE_URL`, the registry seam) and read the

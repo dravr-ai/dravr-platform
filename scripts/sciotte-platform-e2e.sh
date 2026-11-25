@@ -31,11 +31,11 @@ E2E_PASS="${PLATFORM_E2E_PASSWORD:-E2eTest123!}"
 TARGET="${SCIOTTE_TARGET:-garmin}"        # garmin | strava
 # Provider test-account credentials picked by target (both live in dravr-sciotte/.envrc).
 if [ "$TARGET" = "strava" ]; then
-  SCRAPE_USER="${STRAVA_USER:-}"
-  SCRAPE_PASSWORD="${STRAVA_PASSWORD:-}"
+  PROVIDER_USER="${STRAVA_USER:-}"
+  PROVIDER_PASSWORD="${STRAVA_PASSWORD:-}"
 else
-  SCRAPE_USER="${GARMIN_USER:-}"
-  SCRAPE_PASSWORD="${GARMIN_PASSWORD:-}"
+  PROVIDER_USER="${GARMIN_USER:-}"
+  PROVIDER_PASSWORD="${GARMIN_PASSWORD:-}"
 fi
 JWT_CACHE="${TMPDIR:-/tmp}/pierre-e2e-jwt.txt"
 
@@ -61,8 +61,8 @@ mint_jwt() {
 jwt() { [ -s "$JWT_CACHE" ] && cat "$JWT_CACHE" || mint_jwt; }
 
 require_creds() {
-  [ -n "$SCRAPE_USER" ]     || { err "${TARGET^^}_USER not set — add it to dravr-sciotte/.envrc"; exit 1; }
-  [ -n "$SCRAPE_PASSWORD" ] || { err "${TARGET^^}_PASSWORD not set — add it to dravr-sciotte/.envrc"; exit 1; }
+  [ -n "$PROVIDER_USER" ]     || { err "${TARGET^^}_USER not set — add it to dravr-sciotte/.envrc"; exit 1; }
+  [ -n "$PROVIDER_PASSWORD" ] || { err "${TARGET^^}_PASSWORD not set — add it to dravr-sciotte/.envrc"; exit 1; }
 }
 
 # POST a JSON body to a platform path with the bearer, print status + body.
@@ -87,9 +87,9 @@ cmd_login() {
   # Login method: email (default) | google | apple. The Strava test account
   # authenticates via Google OAuth, so strava defaults to the google button.
   local method="${SCIOTTE_METHOD:-$([ "$TARGET" = "strava" ] && echo google || echo email)}"
-  info "Platform login for $SCRAPE_USER (target=$TARGET, method=$method) → routes to the sciotte service"
+  info "Platform login for $PROVIDER_USER (target=$TARGET, method=$method) → routes to the sciotte service"
   local body
-  body=$(jq -n --arg e "$SCRAPE_USER" --arg p "$SCRAPE_PASSWORD" --arg m "$method" --arg t "$TARGET" \
+  body=$(jq -n --arg e "$PROVIDER_USER" --arg p "$PROVIDER_PASSWORD" --arg m "$method" --arg t "$TARGET" \
     '{email:$e, password:$p, method:$m, target:$t}')
   post_json "/api/providers/sciotte/login" "$body"
   warn "otp_required → $0 otp <code>   |   two_factor_choice → $0 2fa <id>   |   number_match → approve on phone, then $0 status"

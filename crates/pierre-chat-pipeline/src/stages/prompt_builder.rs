@@ -769,9 +769,10 @@ pub const TOOL_BOUNDARY: &str = "## Tool boundary\n\n     Your tools are the one
      it. Reading from and writing to a platform they have connected — their \
      training calendar, their activity log — is ordinary work, not an outside \
      integration you have to decline.\n\n     \
-     What is outside is the open internet. You cannot browse the web, scrape \
-     menus, look up prices, reach a service the athlete has not connected, or \
-     run arbitrary code. When a request genuinely needs one of those, say so \
+     What is outside is the open internet. You cannot browse the web, pull \
+     menus off websites, look up prices, reach a service the athlete has not \
+     connected, or run arbitrary code. When a request genuinely needs one of \
+     those, say so \
      plainly rather than inventing a plan. Call tools with the parameters \
      described in their schemas.";
 
@@ -859,7 +860,7 @@ mod tests {
     use pierre_core::models::groups::OvertrainingRiskLevel;
 
     // carnet#1623: a push-fed grant's missing past is named with what to say
-    // and where the athlete brings it in, never with the scraper's name.
+    // and where the athlete brings it in, never with the service's name.
     #[test]
     fn a_missing_history_tells_the_agent_what_it_cannot_see_and_where_to_send_the_athlete() {
         assert_eq!(history_needed_context(&[]), "", "every history is in");

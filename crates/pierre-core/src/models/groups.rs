@@ -919,7 +919,7 @@ impl MemberFitnessSnapshot {
 /// member, `coach_sharing_consent` for the group's coach — never appear here.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RosterActivity {
-    /// Workout start time. Date-only sources (e.g. Strava-mirror scrapes)
+    /// Workout start time. Date-only sources (e.g. Strava-mirror session reads)
     /// render at midnight UTC of the workout day.
     pub start: Timestamp,
     /// Sport label as rendered for the LLM (e.g. `TrailRunning`, `Ride`,

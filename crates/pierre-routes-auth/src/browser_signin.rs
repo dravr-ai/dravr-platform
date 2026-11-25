@@ -194,7 +194,7 @@ async fn catalog_entry(
         .browser_signin()
         .await
         .map_err(sciotte_error::to_app_error)?;
-    let provider = target.scraper_provider_name();
+    let provider = target.service_provider_name();
     catalog
         .providers
         .into_iter()
@@ -268,7 +268,7 @@ async fn verify_session(
         .provider_registry
         .require_sciotte_reads()?
         .for_session(&session.session_id);
-    let provider = target.scraper_provider_name();
+    let provider = target.service_provider_name();
     let session_id = client
         .import_session(session, provider)
         .await

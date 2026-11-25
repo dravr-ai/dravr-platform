@@ -1,4 +1,4 @@
-// ABOUTME: Local stand-in for the dravr-sciotte scraper plus a seeded scrape session
+// ABOUTME: Local stand-in for the dravr-sciotte service plus a seeded signed-in session
 // ABOUTME: Lets integration tests exercise the live sciotte fetch path without Chrome
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -18,39 +18,39 @@ use serde_json::{json, Value};
 use tokio::net::TcpListener;
 use uuid::Uuid;
 
-/// The id of the one canned ride the mock scraper serves.
+/// The id of the one canned ride the mock session reader serves.
 // Shared across test binaries; any single binary may use only part of it.
 #[allow(dead_code)]
-pub(crate) const MOCK_SCRAPER_RIDE_ID: &str = "15551234567";
+pub(crate) const MOCK_SESSION_RIDE_ID: &str = "15551234567";
 
-/// Spawn a local stand-in for the `dravr-sciotte` scraper service: session
+/// Spawn a local stand-in for the `dravr-sciotte` service: session
 /// import always succeeds and the activity list serves one canned ride whose
 /// capture reached the list head.
 /// Returns the base URL the server's sciotte client is built to reach it at.
 // Shared across test binaries; any single binary may use only part of it.
 #[allow(dead_code)]
-pub(crate) async fn spawn_mock_scraper() -> String {
-    spawn_mock_scraper_serving(
+pub(crate) async fn spawn_mock_session_reader() -> String {
+    spawn_mock_session_reader_serving(
         Arc::new(AtomicBool::new(true)),
         "2026-08-10T12:00:00Z".to_owned(),
     )
     .await
 }
 
-/// [`spawn_mock_scraper`] with the capture's `head_complete` verdict and the
+/// [`spawn_mock_session_reader`] with the capture's `head_complete` verdict and the
 /// ride's start instant under the caller's control.
 ///
-/// `head_complete` is read on every `/api/activities` answer, so one scraper
+/// `head_complete` is read on every `/api/activities` answer, so one reader
 /// can first play a capture whose head sciotte never saw and then, flipped,
 /// one that reached it — the two halves of the write-through gate.
 // Shared across test binaries; any single binary may use only part of it.
 #[allow(dead_code)]
-pub(crate) async fn spawn_mock_scraper_serving(
+pub(crate) async fn spawn_mock_session_reader_serving(
     head_complete: Arc<AtomicBool>,
     ride_start: String,
 ) -> String {
     let ride = json!({
-        "id": MOCK_SCRAPER_RIDE_ID,
+        "id": MOCK_SESSION_RIDE_ID,
         "name": "Sortie vélo matinale",
         "sport_type": "ride",
         "start_date": ride_start,
@@ -59,20 +59,20 @@ pub(crate) async fn spawn_mock_scraper_serving(
         "distance_meters": 21000.0,
         "elevation_gain": 250.0
     });
-    serve_mock_scraper(head_complete, ride).await
+    serve_mock_session_reader(head_complete, ride).await
 }
 
-/// [`spawn_mock_scraper`] serving `activity`, the scraper's JSON for one
+/// [`spawn_mock_session_reader`] serving `activity`, the service's JSON for one
 /// activity, as the whole list, its capture having reached the list head.
 // Shared across test binaries; any single binary may use only part of it.
 #[allow(dead_code)]
-pub(crate) async fn spawn_mock_scraper_with_activity(activity: Value) -> String {
-    serve_mock_scraper(Arc::new(AtomicBool::new(true)), activity).await
+pub(crate) async fn spawn_mock_session_reader_with_activity(activity: Value) -> String {
+    serve_mock_session_reader(Arc::new(AtomicBool::new(true)), activity).await
 }
 
-/// Serve the scraper's routes on loopback, its activity list holding
+/// Serve the service's routes on loopback, its activity list holding
 /// `activity` alone; the base URL to reach them at.
-async fn serve_mock_scraper(head_complete: Arc<AtomicBool>, activity: Value) -> String {
+async fn serve_mock_session_reader(head_complete: Arc<AtomicBool>, activity: Value) -> String {
     let app = Router::new()
         .route(
             "/auth/import-session",
@@ -100,7 +100,7 @@ async fn serve_mock_scraper(head_complete: Arc<AtomicBool>, activity: Value) -> 
     format!("http://{addr}")
 }
 
-/// Seed a live sciotte scrape session the way the hosted login stores it:
+/// Seed a live sciotte session the way the hosted login stores it:
 /// a `UserOAuthToken` row whose `access_token` is the serialized
 /// `AuthSession` (the provider deserializes it in `set_credentials`).
 // Shared across test binaries; any single binary may use only part of it.
@@ -110,7 +110,7 @@ pub(crate) async fn seed_sciotte_session(
     user_id: Uuid,
     tenant_id: TenantId,
 ) {
-    seed_scrape_session(
+    seed_signed_in_session(
         resources,
         user_id,
         tenant_id,
@@ -120,14 +120,14 @@ pub(crate) async fn seed_sciotte_session(
     .await;
 }
 
-/// [`seed_sciotte_session`] for any scrape backend (`sciotte_garmin`,
+/// [`seed_sciotte_session`] for any session-read backend (`sciotte_garmin`,
 /// `sciotte_trainingpeaks`) under a caller-chosen session id.
 ///
 /// The provider sends the stored session's id as `X-Session-Id` on every
-/// scrape, so a stand-in scraper can answer each seeded athlete differently.
+/// session read, so a stand-in reader can answer each seeded athlete differently.
 // Shared across test binaries; any single binary may use only part of it.
 #[allow(dead_code)]
-pub(crate) async fn seed_scrape_session(
+pub(crate) async fn seed_signed_in_session(
     resources: &Arc<ServerContext>,
     user_id: Uuid,
     tenant_id: TenantId,
@@ -165,5 +165,5 @@ pub(crate) async fn seed_scrape_session(
         .oauth_tokens
         .upsert_token(&token)
         .await
-        .expect("upsert scrape session token");
+        .expect("upsert signed-in session token");
 }

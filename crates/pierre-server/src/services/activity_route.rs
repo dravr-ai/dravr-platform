@@ -26,16 +26,16 @@
 //! A `no_gps` answer is only as good as the read behind it. A detail read that
 //! carries a stream set without coordinates is the provider saying the
 //! activity recorded none (Strava's and intervals.icu's streams of a trainer
-//! ride or a manual entry, a scraped detail whose route holds no
+//! ride or a manual entry, a session-read detail whose route holds no
 //! coordinates), and it stands. So does the answer for a provider
 //! integration with no stream source at all (WHOOP, COROS, Terra, the direct
 //! Garmin API — `FitnessProvider::serves_activity_streams`): no read of it
 //! can ever carry a track, so none is spent, and the activity has no track
 //! the platform can draw. Every other way a detail read can come back proves
 //! nothing about the activity, and is answered `unavailable` instead: a read
-//! that carries no stream set at all (a mirror backend's scrape answers that
+//! that carries no stream set at all (a mirror backend's session read answers that
 //! way whenever no read settled the page's route — a page read before it
-//! finished rendering, a detail read past the scraper's navigation budget —
+//! finished rendering, a detail read past the service's navigation budget —
 //! and an API provider serves its activity without streams when the streams
 //! request fails), a read that failed, and one that did not finish within
 //! [`ROUTE_PROVIDER_READ_TIMEOUT_SECS`]. `unavailable` is stored with an
@@ -44,13 +44,13 @@
 //! Home list keeps the activity's `has_gps` true. The athlete's own retry
 //! reads past a stored `unavailable`: it is the one request that asks for the
 //! provider again, and it still takes the athlete's turn. On 2026-09-29 every
-//! detail read came back without streams while the scraper was failing, each
+//! detail read came back without streams while the service was failing, each
 //! was stored as `no_gps` for a day, and Home drew no map and said nothing
 //! about why. A read refused for authentication is the one failure answered
 //! as an error: the athlete has to reconnect, and the client says so.
 //!
 //! A Home page asks for several routes at once, and a streams read is the
-//! expensive step: through a mirror backend it is a headless scrape of a few
+//! expensive step: through a mirror backend it is a headless session read of a few
 //! seconds, on a service that sheds the requests it cannot queue. So one
 //! athlete's streams reads take turns — a `(user, tenant)` reads its provider
 //! for one activity at a time — and a request that waited for its turn looks
@@ -81,8 +81,8 @@
 //! [`ROUTE_PROVIDER_READ_TIMEOUT_SECS`] — and the client keeps asking within
 //! it, so a read queued behind several slow ones is still followed. A
 //! finished read's outcome answers the next ask from the store.
-//! A request that gives up never leaves a scrape running with the turn
-//! released — the next read on the same scraper session waits for it.
+//! A request that gives up never leaves a session read running with the turn
+//! released — the next read on the same signed-in session waits for it.
 //!
 //! A streams read is a detail read, and it carries what no list read does:
 //! the activity's splits and laps. They are stored beside the activity's
@@ -117,8 +117,8 @@ use crate::services::turn_lifecycle::InFlightTurns;
 /// Minutes an `unavailable` answer stands before the route is read again.
 ///
 /// Long enough that a Home page reloaded, or several of its rows asking at
-/// once, does not send a scraper that has just failed a burst of detail
-/// reads, and that the read-again reaches past the scraper's own detail cache
+/// once, does not reach a service that has just failed a burst of detail
+/// reads, and that the read-again reaches past the service's own detail cache
 /// (fifteen minutes by default) often enough to matter. Short enough that a
 /// page opened a few minutes later reaches the provider again; the athlete's
 /// own retry reads past it at once.
@@ -132,8 +132,8 @@ pub const UNREAD_ROUTE_RECHECK_MINUTES: i64 = 10;
 ///
 /// Under the clients' thirty-second route request timeout
 /// (`HOME_ROUTE_REQUEST_TIMEOUT_MS` in `@pierre/shared-constants`), so the
-/// client always has an answer before it gives up on the request: a scrape
-/// queued behind four others on a slow scraper can take minutes. The read
+/// client always has an answer before it gives up on the request: a session
+/// read queued behind four others on a slow service can take minutes. The read
 /// it started keeps running past it and stores what the provider says, and
 /// the client's next request is answered from the store.
 pub const ROUTE_READ_TIMEOUT_SECS: u64 = 25;
@@ -144,8 +144,8 @@ pub const ROUTE_READ_TIMEOUT_SECS: u64 = 25;
 /// `PIERRE_HOME_ROUTE_PROVIDER_READ_SECS` overrides it
 /// ([`route_provider_read_bound`]).
 ///
-/// Past the scraper's own request deadline (320 s), so a scrape is answered
-/// by the scraper and not cut off here; a provider that has not answered by
+/// Past the service's own request deadline (320 s), so a session read is
+/// answered by the service and not cut off here; a provider that has not answered by
 /// then has failed, and the athlete's next route read must not wait behind it
 /// forever.
 pub const ROUTE_PROVIDER_READ_TIMEOUT_SECS: u64 = 330;
@@ -157,7 +157,7 @@ pub const ROUTE_PROVIDER_READ_TIMEOUT_SECS: u64 = 330;
 /// order they reach the server is the network's, not the page's. The wait
 /// lets the burst queue, so the turn goes to the newest activity in it — the
 /// big map — rather than to whichever request landed first. A fraction of
-/// one scrape, which takes seconds; a read that is not one of a burst never
+/// one session read, which takes seconds; a read that is not one of a burst never
 /// pays it.
 pub const ROUTE_TURN_GATHER_MS: u64 = 200;
 
@@ -809,7 +809,7 @@ async fn settle(
 /// every [`UNREAD_ROUTE_RECHECK_MINUTES`]. Otherwise a stream set without
 /// coordinates is the provider's own word that none were recorded, and
 /// settles `no_gps`. A detail answer with no stream set settles nothing — the
-/// mirror backends fold a scraped route into the streams and leave them out
+/// mirror backends fold a session-read route into the streams and leave them out
 /// when no read settled the page's route, and the API providers serve an
 /// activity without them when the streams request fails — so it is
 /// [`RouteMiss::Unavailable`].
@@ -830,7 +830,7 @@ async fn read_streams(
 ) -> AppResult<(String, ActivityRouteOutcome)> {
     // A session already flagged for a reconnect is not signed in to again:
     // every read of a Home page's burst would fail the same way, each a
-    // headless sign-in attempt on the scraper. The Strava grant behind it
+    // headless sign-in attempt on the service. The Strava grant behind it
     // reads the activity in its place (carnet#1494).
     let tenant = tenant_id.to_string();
     let provider = match flagged_session(runtime, user_id, tenant_id, cached.provider).await {

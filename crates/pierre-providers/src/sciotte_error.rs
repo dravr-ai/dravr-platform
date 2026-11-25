@@ -29,7 +29,7 @@
 //!   roster refusal: `own_read_error` reports it as a marker-less
 //!   [`ErrorCode::ExternalServiceError`] carrying the service's words, and
 //!   keeps the service's words on any status the client has no name for,
-//!   the `500` a failed scrape answers included;
+//!   the `500` a failed session read answers included;
 //! - a login step its caller cancelled (the window closed, and the platform
 //!   asked the service to stop it) is [`ErrorCode::ResourceLocked`], a `409`,
 //!   carrying the [`LOGIN_CANCELLED`] marker, read back by
@@ -58,6 +58,8 @@ use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use serde_json::{Map, Value};
 use tracing::warn;
 
+use crate::sciotte_names::SERVICE_BUSY;
+
 mod context_read;
 mod login_answer;
 
@@ -68,12 +70,13 @@ use login_answer::unexpected_error;
 /// replaces it with the backend that owns the session.
 const AUTH_PROVIDER: &str = "sciotte";
 
-/// Key of the [`AppError::details`] entry naming which scraper refusal an
+/// Key of the [`AppError::details`] entry naming which service refusal an
 /// error carries, read back by [`sciotte_refusal`].
 const SCIOTTE_REFUSAL_DETAIL: &str = "sciotte_refusal";
 
-/// The reason a shed that names none is reported under.
-const UNNAMED_SHED_REASON: &str = "scraper_busy";
+/// The reason a shed that names none is reported under: the service's own
+/// busy value.
+const UNNAMED_SHED_REASON: &str = SERVICE_BUSY;
 
 /// What a login answer that names no marker is reported as carrying.
 const NO_MARKER: &str = "none";
@@ -85,13 +88,13 @@ const NO_SERVICE_WORDS: &str = "no detail";
 const UNNAMED_BRAND: &str = "The provider";
 
 /// What the coach-account refusal ([`ATHLETE_REQUIRED`]) says when its caller
-/// has no words of its own: the scraper's refusal, and a pre-read refusal that
+/// has no words of its own: the service's refusal, and a pre-read refusal that
 /// arrived without text.
 pub const COACH_ACCOUNT_REFUSAL: &str = "This account is a coach account, and a coach account has \
      no training calendar of its own. To read an athlete's workouts, link each athlete from a \
      group you coach; the athlete confirms the link.";
 
-/// The platform error for a failed call to the sciotte scraper service, its
+/// The platform error for a failed call to the sciotte service, its
 /// words naming no provider. A caller that knows which provider the session
 /// signed in to uses [`to_app_error_as`].
 #[must_use]
@@ -115,7 +118,7 @@ pub fn to_app_error_for(error: ClientError, backend: &str, brand: &str) -> AppEr
     }
 }
 
-/// The platform error for a failed call to the sciotte scraper service,
+/// The platform error for a failed call to the sciotte service,
 /// worded about `brand`, the provider the athlete signed in to ("Garmin").
 ///
 /// Both matches are exhaustive on purpose: a variant added to the client
@@ -126,7 +129,7 @@ pub fn to_app_error_as(error: ClientError, brand: &str) -> AppError {
     match error {
         ClientError::NotConfigured => AppError::internal(
             "DRAVR_SCIOTTE_REMOTE_URL must be set (with DRAVR_SCIOTTE_AUDIENCE \
-             for a non-loopback service) — the in-process sciotte scrape path \
+             for a non-loopback service) — the in-process sciotte session-read path \
              was removed in the ADR-021 Phase 4 cutover",
         ),
         ClientError::Config(config) => AppError::internal(config.to_string()),
@@ -246,7 +249,7 @@ fn answer_marker(body: &Value) -> &str {
 
 /// The refusal of an athlete the session may not read.
 ///
-/// It carries the [`ATHLETE_NOT_ACCESSIBLE`] marker: the scraper's `403` to a
+/// It carries the [`ATHLETE_NOT_ACCESSIBLE`] marker: the service's `403` to a
 /// read that named an athlete maps to it, and a delegated read answers it when
 /// the coach's roster no longer lists the athlete it names. A read that named
 /// none is [`own_read_error`]'s.
@@ -264,7 +267,7 @@ pub(crate) fn athlete_not_accessible() -> AppError {
 /// The platform error for a failed read of the signed-in account's own data,
 /// a read that named no athlete.
 ///
-/// The scraper's `athlete_not_accessible` refusal means something else there
+/// The service's `athlete_not_accessible` refusal means something else there
 /// than on a read that names a coached athlete: no roster was consulted, the
 /// provider refused the account's own calendar. It is reported as the
 /// provider failure it is, under `brand` and with the service's own words,
@@ -273,7 +276,7 @@ pub(crate) fn athlete_not_accessible() -> AppError {
 /// link, and a self-read has none to end.
 ///
 /// An answer the client has no name for — the `500` a service that reports
-/// such a refusal as a failed scrape answers, with the reason as its marker,
+/// such a refusal as a failed session read answers, with the reason as its marker,
 /// among them — keeps that marker in the internal error's message, which
 /// [`to_app_error`] leaves out of an answer it cannot name.
 ///
@@ -321,8 +324,8 @@ pub(crate) fn own_read_error(error: ClientError, brand: &str) -> AppError {
 
 /// The coach-account refusal ([`ATHLETE_REQUIRED`]) worded as `message`.
 ///
-/// The error the scraper's refusal maps to, and the one a read refused before
-/// it reached the scraper reports, because the account is already recorded as
+/// The error the service's refusal maps to, and the one a read refused before
+/// it reached the service reports, because the account is already recorded as
 /// a coach's: both carry the marker [`is_coach_account_refusal`] reads, so a
 /// caller judges the refusal the same whichever step answered it.
 #[must_use]
@@ -341,7 +344,7 @@ fn with_refusal_marker(mut error: AppError, marker: &str) -> AppError {
     error
 }
 
-/// The scraper refusal `error` carries ([`ATHLETE_REQUIRED`],
+/// The service refusal `error` carries ([`ATHLETE_REQUIRED`],
 /// [`ATHLETE_NOT_ACCESSIBLE`], [`LOGIN_CHALLENGE`], [`LOGIN_CANCELLED`],
 /// [`NO_PENDING_LOGIN`](dravr_sciotte::wire::NO_PENDING_LOGIN)), or `None` for
 /// any other error.
@@ -354,7 +357,7 @@ pub fn sciotte_refusal(error: &AppError) -> Option<&str> {
         .as_str()
 }
 
-/// Whether `error` is the scraper's refusal of a coach account read as an
+/// Whether `error` is the service's refusal of a coach account read as an
 /// athlete's own ([`ATHLETE_REQUIRED`]): the account has no calendar of its
 /// own, and a read must name one of the athletes it coaches.
 #[must_use]
@@ -363,7 +366,7 @@ pub fn is_coach_account_refusal(error: &AppError) -> bool {
 }
 
 /// The server's sciotte client, or the not-configured error a call that needs
-/// the scraper service reports when the server started without one.
+/// the sciotte service reports when the server started without one.
 ///
 /// # Errors
 ///
@@ -800,7 +803,7 @@ mod tests {
 
     #[test]
     fn a_self_read_the_service_failed_keeps_its_words() {
-        let reason = "scraping error: the signed-in account's own calendar was refused: \
+        let reason = "session read error: the signed-in account's own calendar was refused: \
                       the provider answered HTTP 400: \"Invalid athleteId (4242)\"";
         for operation in [Operation::Activities, Operation::PlannedWorkouts] {
             let client_error = unexpected(

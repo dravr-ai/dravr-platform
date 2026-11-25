@@ -213,7 +213,7 @@ impl McpTool<dyn ToolRuntime> for GetAthleteTool {
             // Canonicalize to the serving backend before any cache op — same
             // single-key rule as get_activities: an explicit "garmin" arg and
             // the stored "sciotte_garmin" connection must hit ONE profile key,
-            // not two parallel ones that each miss and re-scrape.
+            // not two parallel ones that each miss and re-read.
             let provider_name = backend_resolver::resolve_backend(
                 context.resources.repos(),
                 context.user_id,

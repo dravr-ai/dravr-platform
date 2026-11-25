@@ -1,5 +1,5 @@
 // ABOUTME: The health backfill a provider connect starts, and how its landing or failure is reported
-// ABOUTME: Shared by the OAuth callback, the pasted-key connect and the scrape login
+// ABOUTME: Shared by the OAuth callback, the pasted-key connect and the provider sign-in
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -28,21 +28,21 @@ use crate::AuthRoutesContext;
 /// Runs the sync orchestrator's incremental sync, whose reach is the
 /// provider's own recent window, so the user gets recent data immediately
 /// after connecting a wearable provider, whether through OAuth, a pasted API
-/// key (intervals.icu) or a scrape login (Garmin, COROS). `provider` is the
+/// key (intervals.icu) or a provider sign-in (Garmin, COROS). `provider` is the
 /// name the sync knows it under; a provider the sync does not manage
 /// (Strava's activities, read on demand) has nothing to backfill. A backfill
 /// that fails tells the athlete once, through the sync-failure notices; one
 /// that lands re-arms them.
 ///
-/// `after` is the activity pre-fetch a scrape connect started on the same
+/// `after` is the activity pre-fetch a sign-in connect started on the same
 /// session: the backfill's first read waits for it, because each read is a
-/// browser on the scraper service and a connect that fires both at once sheds
+/// browser on the sciotte service and a connect that fires both at once sheds
 /// its own reads (carnet#736). An API connect has none to wait on.
 ///
 /// A backfill that lands records is reported to the [`crate::FirstSyncHook`] as the
 /// athlete's data landing (carnet#831); whether it is their first is the
 /// hook's to decide. A provider the sync does not manage lands its data
-/// through the scrape pre-fetch instead, when the connect started one, and
+/// through the session-read pre-fetch instead, when the connect started one, and
 /// that is reported the same way.
 ///
 /// Returns the task the backfill (or the pre-fetch's landing) runs on, which

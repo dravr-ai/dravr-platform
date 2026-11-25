@@ -8,8 +8,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-//! A healthy scrape takes about two minutes and the chat tool loop gives a
-//! tool call ninety seconds, so `get_activities` reading a scraped provider
+//! A healthy session read takes about two minutes and the chat tool loop gives a
+//! tool call ninety seconds, so `get_activities` reading a session-read provider
 //! inline could fail on a provider that was working. These tests drive
 //! [`read_live_window_within_budget`] with a provider that answers only when
 //! the test lets it. The read is a `live_read` job row from the moment it
@@ -56,7 +56,7 @@ pub(crate) const BUDGET: StdDuration = StdDuration::from_millis(200);
 
 /// A provider whose list read waits until the test notifies it, then
 /// answers its rows — or, when `expired`, finds its session signed out, and
-/// when `fails`, fails as a scrape that broke does.
+/// when `fails`, fails as a session read that broke does.
 pub(crate) struct GatedProvider {
     config: ProviderConfig,
     gate: Arc<Notify>,
@@ -103,7 +103,10 @@ impl FitnessProvider for GatedProvider {
             return Err(AppError::provider_auth_required(PROVIDER));
         }
         if self.fails {
-            return Err(AppError::external_service(PROVIDER, "the scrape broke"));
+            return Err(AppError::external_service(
+                PROVIDER,
+                "the session read broke",
+            ));
         }
         Ok(self.rows.clone())
     }
@@ -690,7 +693,7 @@ async fn the_sweep_resumes_a_live_read_whose_instance_died() {
     assert_eq!(state, None, "bug: a settled live read leaves no row behind");
 }
 
-/// The session a live read was reading expires mid-scrape, after the athlete
+/// The session a live read was reading expires mid-read, after the athlete
 /// reconnected: the reconnected connection is newer than the failure, so it
 /// stays active and nothing tells them to reconnect again.
 #[cfg(feature = "client-messaging")]
@@ -715,7 +718,7 @@ async fn a_read_that_expires_after_a_reconnect_leaves_the_new_connection_alone()
         matches!(outcome, BudgetedRead::Cached(_)),
         "the turn answers from the cache past its budget"
     );
-    // The athlete reconnects while the scrape still runs on the old session.
+    // The athlete reconnects while the session read still runs on the old session.
     connections
         .register_connection(user_id, tenant_id, PROVIDER, &ConnectionType::OAuth, None)
         .await

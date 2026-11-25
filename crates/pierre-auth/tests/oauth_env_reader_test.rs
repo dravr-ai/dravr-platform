@@ -132,7 +132,7 @@ fn the_startup_reader_resolves_provider_settings() {
         })
     );
 
-    // A zero cap would wedge every athlete onto the scraper: it reads as the
+    // A zero cap would wedge every athlete onto the session read: it reads as the
     // default.
     env::set_var("STRAVA_OAUTH_SEAT_CAP", "0");
     assert_eq!(

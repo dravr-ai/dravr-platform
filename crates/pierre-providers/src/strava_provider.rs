@@ -717,7 +717,7 @@ impl FitnessProvider for StravaProvider {
         let strava_athlete: StravaAthleteResponse = self.api_request("athlete").await?;
 
         Ok(Athlete {
-            // Strava's API serves no streak; only the scraped session's
+            // Strava's API serves no streak; only the signed-in session's
             // profile read carries one.
             active_streak: None,
             created_at: strava_athlete.created_at,

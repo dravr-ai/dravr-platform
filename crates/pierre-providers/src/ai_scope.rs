@@ -1120,7 +1120,7 @@ mod tests {
         let start = Timestamp::parse_from_rfc3339("2026-10-06T06:00:00Z").unwrap();
         vec![
             ActivityBuilder::new("api", "Tempo", SportType::Run, start, 3600, "strava").build(),
-            ActivityBuilder::new("scraped", "Tempo", SportType::Run, start, 3600, "sciotte")
+            ActivityBuilder::new("session", "Tempo", SportType::Run, start, 3600, "sciotte")
                 .source("strava")
                 .build(),
         ]
@@ -1131,7 +1131,7 @@ mod tests {
     /// whichever backend read it; Dravr's own surfaces get all of it.
     #[cfg(all(feature = "provider-strava", feature = "provider-sciotte"))]
     #[tokio::test]
-    async fn strava_data_direct_or_scraped_is_served_only_to_dravrs_own_surfaces() {
+    async fn strava_data_direct_or_session_read_is_served_only_to_dravrs_own_surfaces() {
         let registry = ProviderRegistry::new();
         for transport in [Transport::McpHttp, Transport::A2a, Transport::ApiKey] {
             let served = serve_over(transport, async {
@@ -1174,7 +1174,7 @@ mod tests {
                 filter_activities(&registry, strava_sessions())
             })
             .await;
-            assert_eq!(ids(&served), vec!["api", "scraped"], "{transport:?}");
+            assert_eq!(ids(&served), vec!["api", "session"], "{transport:?}");
 
             let (for_model, withheld) = serve_over(
                 transport,
@@ -1184,7 +1184,7 @@ mod tests {
                 ),
             )
             .await;
-            assert_eq!(ids(&for_model), vec!["api", "scraped"], "{transport:?}");
+            assert_eq!(ids(&for_model), vec!["api", "session"], "{transport:?}");
             assert!(withheld.is_empty(), "{transport:?}");
 
             for backend in ["strava", "sciotte"] {

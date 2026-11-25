@@ -1,5 +1,5 @@
 // ABOUTME: Under sciotte first the capture sweep refreshes the usr/pwd session and passes over the grant beside it
-// ABOUTME: Pins the background share on the grant's fallback read, and that a webhook or a first read never scrapes
+// ABOUTME: Pins the background share on the grant's fallback read, and that a webhook or first read never reads the session
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -12,14 +12,14 @@
 // A Strava athlete holding both a usr/pwd session (`sciotte`) and an OAuth
 // grant (`strava`) is read through the session; the grant only answers when
 // the session cannot. The sweep therefore refreshes the session and passes
-// over the grant, so the API is never read beside the scrape, and a group
+// over the grant, so the API is never read beside the session, and a group
 // snapshot walks the athlete's connections the same way. A session read
 // that fails falls back to the grant, and that fallback read is still held
 // to the background share of the signing app's budget (carnet#1491). The
 // Strava webhook and the connect-time first read name the grant exactly:
-// a pushed event or a fresh connect never starts a scrape.
+// a pushed event or a fresh connect never starts a session read.
 //
-// The scraper and Strava are loopback stand-ins (test doubles, per the
+// The session reader and Strava are loopback stand-ins (test doubles, per the
 // repo's mock rule) that count every activity-list read they answer, so
 // what reached each backend is counted, not inferred.
 #![cfg(all(
@@ -106,9 +106,9 @@ async fn serve(app: Router) -> String {
     format!("http://{addr}")
 }
 
-/// A stand-in for the sciotte scraper over a Strava account holding one
+/// A stand-in for the sciotte service over a Strava account holding one
 /// ride from yesterday, its capture having reached the list head.
-async fn spawn_scraper() -> (String, Arc<Backend>) {
+async fn spawn_session_reader() -> (String, Arc<Backend>) {
     let backend = Arc::new(Backend::default());
     let app = Router::new()
         .route(
@@ -126,7 +126,7 @@ async fn spawn_scraper() -> (String, Arc<Backend>) {
                 if backend.failing.load(Ordering::SeqCst) {
                     return (
                         StatusCode::SERVICE_UNAVAILABLE,
-                        Json(json!({ "error": "unavailable", "message": "scraper busy" })),
+                        Json(json!({ "error": "unavailable", "message": "service busy" })),
                     );
                 }
                 (
@@ -135,7 +135,7 @@ async fn spawn_scraper() -> (String, Arc<Backend>) {
                         "count": 1,
                         "activities": [{
                             "id": "15550001111",
-                            "name": "Scraped ride",
+                            "name": "Session ride",
                             "sport_type": "ride",
                             "start_date": (Timestamp::now() - Elapsed::days(1)).to_rfc3339(),
                             "duration_seconds": 3600,
@@ -175,30 +175,30 @@ async fn spawn_strava() -> (String, Arc<Backend>) {
     (serve(app).await, backend)
 }
 
-/// The scraper, Strava, and a server reaching both, whose Strava app is
+/// The session reader, Strava, and a server reaching both, whose Strava app is
 /// [`APP`] and whose Strava webhook subscription is [`SUBSCRIPTION_ID`].
 pub(crate) struct World {
     pub(crate) resources: Arc<ServerContext>,
-    pub(crate) scraper: Arc<Backend>,
+    pub(crate) reader: Arc<Backend>,
     pub(crate) strava: Arc<Backend>,
 }
 
 pub(crate) async fn world() -> World {
-    let (scraper_url, scraper) = spawn_scraper().await;
+    let (reader_url, reader) = spawn_session_reader().await;
     let (strava_url, strava) = spawn_strava().await;
     let resources =
-        common::create_test_server_resources_with_config(config(&scraper_url, &strava_url))
+        common::create_test_server_resources_with_config(config(&reader_url, &strava_url))
             .await
             .unwrap();
     World {
         resources,
-        scraper,
+        reader,
         strava,
     }
 }
 
-fn config(scraper_url: &str, strava_url: &str) -> ServerConfig {
-    let mut config = common::test_server_config_with_sciotte(scraper_url);
+fn config(reader_url: &str, strava_url: &str) -> ServerConfig {
+    let mut config = common::test_server_config_with_sciotte(reader_url);
     let api = common::test_server_config_with_api_base("strava", strava_url);
     config.oauth.endpoints = api.oauth.endpoints;
     common::set_server_app(&mut config, "strava", APP, "test_secret");
@@ -288,11 +288,11 @@ async fn the_sweep_refreshes_the_session_and_never_reads_the_grant() {
         "bug: the session's own read refreshes it: {:?}",
         lines[0].outcome
     );
-    assert_eq!(w.scraper.reads(), 1, "the session is read once");
+    assert_eq!(w.reader.reads(), 1, "the session is read once");
     assert_eq!(
         w.strava.reads(),
         0,
-        "bug: the sweep read Strava's API beside the scrape"
+        "bug: the sweep read Strava's API beside the session"
     );
     assert!(
         report.passed_over >= 1,
@@ -329,12 +329,12 @@ async fn the_sweeps_fallback_to_the_grant_keeps_to_the_background_share() {
     );
     let runtime: Arc<dyn ToolRuntime> = Arc::new(context);
     let (user_id, tenant) = athlete_with_both(&w.resources).await;
-    w.scraper.failing.store(true, Ordering::SeqCst);
+    w.reader.failing.store(true, Ordering::SeqCst);
 
     refresh_captures(&runtime, SweepBudget::default(), SweepSelection::default())
         .await
         .expect("refresh report");
-    assert_eq!(w.scraper.reads(), 1, "the session is read first");
+    assert_eq!(w.reader.reads(), 1, "the session is read first");
     assert_eq!(
         w.strava.reads(),
         1,
@@ -355,7 +355,7 @@ async fn the_sweeps_fallback_to_the_grant_keeps_to_the_background_share() {
     refresh_captures(&runtime, SweepBudget::default(), SweepSelection::default())
         .await
         .expect("refresh report");
-    assert_eq!(w.scraper.reads(), 2, "the session is read first again");
+    assert_eq!(w.reader.reads(), 2, "the session is read first again");
     assert_eq!(
         w.strava.reads(),
         1,
@@ -373,10 +373,10 @@ async fn the_sweeps_fallback_to_the_grant_keeps_to_the_background_share() {
 }
 
 /// A Strava webhook reads the grant it was pushed for, exactly: the event
-/// lands through Strava's API and never starts a scrape of the session
+/// lands through Strava's API and never starts a read of the session
 /// beside it.
 #[tokio::test]
-async fn a_strava_webhook_reads_the_grant_and_never_starts_a_scrape() {
+async fn a_strava_webhook_reads_the_grant_and_never_starts_a_session_read() {
     let w = world().await;
     athlete_with_both(&w.resources).await;
     let event = json!({
@@ -415,9 +415,9 @@ async fn a_strava_webhook_reads_the_grant_and_never_starts_a_scrape() {
 
     assert_eq!(w.strava.reads(), 1, "the event is read through the grant");
     assert_eq!(
-        w.scraper.reads(),
+        w.reader.reads(),
         0,
-        "bug: a pushed event started a scrape of the session"
+        "bug: a pushed event started a read of the session"
     );
 }
 
@@ -458,9 +458,9 @@ async fn pair_walk_owed(resources: &Arc<ServerContext>, user_id: Uuid, tenant: T
 /// a Strava grant's first read goes to Strava's API, never to the session
 /// standing beside it. The history walk the read's depth ask may start does
 /// read the session first (carnet#1482, JF 2026-11-12), so the pair's walk is
-/// already owed here and every scrape counted is the first read's own.
+/// already owed here and every session read counted is the first read's own.
 #[tokio::test]
-async fn a_first_read_of_the_grant_never_starts_a_scrape() {
+async fn a_first_read_of_the_grant_never_starts_a_session_read() {
     let w = world().await;
     let (user_id, tenant) = athlete_with_both(&w.resources).await;
     pair_walk_owed(&w.resources, user_id, tenant).await;
@@ -475,19 +475,19 @@ async fn a_first_read_of_the_grant_never_starts_a_scrape() {
 
     assert_eq!(w.strava.reads(), 1, "the first read goes to the grant");
     assert_eq!(
-        w.scraper.reads(),
+        w.reader.reads(),
         0,
-        "bug: a first read of the grant started a scrape of the session"
+        "bug: a first read of the grant started a read of the session"
     );
 }
 
 /// A group snapshot of a member holding both walks the session alone: the
-/// grant's name resolves to the session, so reading it too scraped the
-/// session twice and wrote the scraped rows under the grant's key. The
-/// session is scraped once, Strava's API is never read, and nothing is
-/// cached under `strava`.
+/// grant's name resolves to the session, so reading it too read the
+/// session twice and wrote the session-read rows under the grant's key. The
+/// session is read once, Strava's API is never read, and nothing is cached
+/// under `strava`.
 #[tokio::test]
-async fn a_group_snapshot_scrapes_the_session_once_and_never_writes_it_under_the_grant() {
+async fn a_group_snapshot_reads_the_session_once_and_never_writes_it_under_the_grant() {
     let w = world().await;
     let (user_id, tenant) = athlete_with_both(&w.resources).await;
     let runtime: Arc<dyn ToolRuntime> = w.resources.clone();
@@ -502,18 +502,18 @@ async fn a_group_snapshot_scrapes_the_session_once_and_never_writes_it_under_the
     assert_eq!(
         snapshots[0].recent_activities.len(),
         1,
-        "the scraped ride reaches the snapshot once: {:?}",
+        "the session-read ride reaches the snapshot once: {:?}",
         snapshots[0].recent_activities
     );
     assert_eq!(
-        w.scraper.reads(),
+        w.reader.reads(),
         1,
-        "bug: the snapshot scraped the session once per half of the pair"
+        "bug: the snapshot read the session once per half of the pair"
     );
     assert_eq!(
         w.strava.reads(),
         0,
-        "bug: the snapshot read Strava's API beside the scrape"
+        "bug: the snapshot read Strava's API beside the session"
     );
     let cache = &w.resources.common.repos.activity_cache;
     assert!(
@@ -530,18 +530,18 @@ async fn a_group_snapshot_scrapes_the_session_once_and_never_writes_it_under_the
             .await
             .unwrap()
             .is_none(),
-        "bug: scraped rows were written under the grant's key"
+        "bug: session-read rows were written under the grant's key"
     );
 }
 
 /// A coach's read of a group member holding both reads the session alone:
-/// the grant's name resolves to the session, so reading it too scraped the
-/// session a second time and wrote the scraped rows under the grant's key.
-/// The session is scraped once per call, Strava's API is never read, and
+/// the grant's name resolves to the session, so reading it too read the
+/// session a second time and wrote the session-read rows under the grant's
+/// key. The session is read once per call, Strava's API is never read, and
 /// nothing is cached under `strava`.
 #[cfg(feature = "tools-groups")]
 #[tokio::test]
-async fn a_group_member_read_scrapes_the_session_once_and_never_writes_it_under_the_grant() {
+async fn a_group_member_read_reads_the_session_once_and_never_writes_it_under_the_grant() {
     use dravr_tronc::mcp::tool::{McpTool, ToolContext};
     use pierre_core::models::agents::{AgentCategory, AgentVisibility, CreateSystemAgentRequest};
     use pierre_core::models::groups::{
@@ -652,16 +652,16 @@ async fn a_group_member_read_scrapes_the_session_once_and_never_writes_it_under_
         .structured_content
         .expect("the tool answers with structured content");
     assert!(payload.get("error").is_none(), "{payload}");
-    assert_eq!(payload["count"], 1, "the scraped ride once: {payload}");
+    assert_eq!(payload["count"], 1, "the session-read ride once: {payload}");
     assert_eq!(
-        w.scraper.reads(),
+        w.reader.reads(),
         1,
-        "bug: the member read scraped the session once per half of the pair"
+        "bug: the member read reached the session once per half of the pair"
     );
     assert_eq!(
         w.strava.reads(),
         0,
-        "bug: the member read reached Strava's API beside the scrape"
+        "bug: the member read reached Strava's API beside the session"
     );
     assert!(
         repos
@@ -670,7 +670,7 @@ async fn a_group_member_read_scrapes_the_session_once_and_never_writes_it_under_
             .await
             .unwrap()
             .is_none(),
-        "bug: scraped rows were written under the grant's key"
+        "bug: session-read rows were written under the grant's key"
     );
 }
 
@@ -679,11 +679,11 @@ const COMMITMENT_REFRESH_DONE: &str =
     "Commitment refresh: fetched the commitment window across connected providers";
 
 /// A commitment refresh of an athlete holding both reads the session alone:
-/// the grant's name resolves to the session, so walking it too scraped the
-/// session a second time. The session is scraped once, Strava's API is never
+/// the grant's name resolves to the session, so walking it too read the
+/// session a second time. The session is read once, Strava's API is never
 /// read, and nothing is cached under `strava`.
 #[tokio::test]
-async fn a_commitment_refresh_scrapes_the_session_once_and_never_reads_the_api() {
+async fn a_commitment_refresh_reads_the_session_once_and_never_the_api() {
     let w = world().await;
     let (user_id, tenant) = athlete_with_both(&w.resources).await;
     let runtime: Arc<dyn ToolRuntime> = w.resources.clone();
@@ -707,14 +707,14 @@ async fn a_commitment_refresh_scrapes_the_session_once_and_never_reads_the_api()
     assert!(finished.is_ok(), "the refresh walked every connection");
 
     assert_eq!(
-        w.scraper.reads(),
+        w.reader.reads(),
         1,
-        "bug: the commitment refresh scraped the session once per half of the pair"
+        "bug: the commitment refresh read the session once per half of the pair"
     );
     assert_eq!(
         w.strava.reads(),
         0,
-        "bug: the commitment refresh reached Strava's API beside the scrape"
+        "bug: the commitment refresh reached Strava's API beside the session"
     );
     assert!(
         w.resources
@@ -725,6 +725,6 @@ async fn a_commitment_refresh_scrapes_the_session_once_and_never_reads_the_api()
             .await
             .unwrap()
             .is_none(),
-        "bug: scraped rows were written under the grant's key"
+        "bug: session-read rows were written under the grant's key"
     );
 }

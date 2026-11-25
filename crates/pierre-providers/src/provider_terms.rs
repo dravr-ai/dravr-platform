@@ -20,7 +20,7 @@
 //! Strava's June 2026 terms bar AI use, but direct Strava data stays allowed
 //! by product decision (2026-10-02) until that question is settled on its own.
 //! Those terms also keep Strava data off every MCP and agent interface, so
-//! Strava — through its API or the sciotte scraper — is served only to Dravr's
+//! Strava — through its API or a sciotte session read — is served only to Dravr's
 //! own surfaces ([`STRAVA_TRANSPORT`]). WHOOP's descriptor keeps its data
 //! first-party too ([`WHOOP_TRANSPORT`], carnet#766). Garmin, COROS and
 //! `TrainingPeaks` keep their data first-party; intervals.icu serves its own
@@ -82,8 +82,9 @@ pub const WHOOP: SourcePolicy = SourcePolicy {
 /// §2.3 lets Strava data be displayed only to the athlete it belongs to, and
 /// §5.10 says the athlete's consent does not lift either rule, so the
 /// athlete's own API key is no exception. Both the `strava` API provider and
-/// the sciotte Strava backend declare it: the scraper reads the same data,
-/// under the stricter §5.5 ban on scraping besides (carnet#765).
+/// the sciotte Strava backend declare it: the session reader reads the same
+/// data, under §5.5's stricter ban on automated collection besides
+/// (carnet#765).
 ///
 /// Read: dravr-vault `Work Log/2026-08/Strava June 2026 API Terms — Legal
 /// Read and Action Plan (2026-08-16).md`, Part 2.
@@ -167,7 +168,7 @@ pub const NOLIO_TRANSPORT: TransportPolicy = TransportPolicy::FirstPartyOnly;
 /// software applications, platforms, services, or products that have not been
 /// approved by Garmin in writing" — what an MCP server, A2A or an API key
 /// is. Binds `garmin` and the `sciotte_garmin` read of Garmin Connect alike
-/// (§5.2(j) bars scraping outright).
+/// (§5.2(j) bars automated collection outright).
 pub const GARMIN_TRANSPORT: TransportPolicy = TransportPolicy::FirstPartyOnly;
 
 /// Garmin Connect Developer Program Agreement: Garmin data stays out of a
@@ -203,7 +204,7 @@ pub const COROS_TRANSPORT: TransportPolicy = TransportPolicy::FirstPartyOnly;
 /// surfaces.
 ///
 /// The summary commits a client to "not share data without consent" and to
-/// "not scrape" (dravr-vault `TP Terms and conditions.md:16`); the Terms
+/// collect nothing by automated means (dravr-vault `TP Terms and conditions.md:16`); the Terms
 /// forbid exposing a user's Content "to other users or to third parties
 /// without explicit opt-in consent from that user" (line 168) and conveying
 /// or distributing it to any third party (lines 135, 179). Binds the
@@ -373,34 +374,34 @@ mod tests {
     }
 
     /// The sciotte Strava backend is registered as `sciotte`, and every
-    /// sciotte backend stamps its items `sciotte` with the scraped service as
-    /// `source`: each item is governed by the backend that scraped it.
+    /// sciotte backend stamps its items `sciotte` with the service it read as
+    /// `source`: each item is governed by the backend that read it.
     #[cfg(feature = "provider-sciotte")]
     #[test]
-    fn a_scraped_item_is_governed_by_the_backend_that_scraped_it() {
+    fn a_session_read_item_is_governed_by_the_backend_that_read_it() {
         let registry = ProviderRegistry::new();
         assert_eq!(
             registry.transport_policy("sciotte"),
             Some(TransportPolicy::FirstPartyOnly),
             "the Strava backend's own reads"
         );
-        for scraped in ["strava", "Strava", "sciotte"] {
+        for origin in ["strava", "Strava", "sciotte"] {
             assert_eq!(
-                registry.item_transport_policy("sciotte", Some(scraped)),
+                registry.item_transport_policy("sciotte", Some(origin)),
                 Some(TransportPolicy::FirstPartyOnly),
-                "{scraped}"
+                "{origin}"
             );
         }
-        for (scraped, backend) in [
+        for (origin, backend) in [
             ("garmin", "sciotte_garmin"),
             ("trainingpeaks", "sciotte_trainingpeaks"),
             ("coros", "sciotte_coros"),
         ] {
             assert!(registry.transport_policy(backend).is_some(), "{backend}");
             assert_eq!(
-                registry.item_transport_policy("sciotte", Some(scraped)),
+                registry.item_transport_policy("sciotte", Some(origin)),
                 registry.transport_policy(backend),
-                "{scraped} is {backend}'s to govern, not the Strava backend's"
+                "{origin} is {backend}'s to govern, not the Strava backend's"
             );
         }
     }
@@ -529,7 +530,7 @@ mod tests {
         assert_eq!(registry.relayed_transport_policy("sciotte", "garmin"), None);
     }
 
-    /// A scraper and the provider it reads hold one set of terms, so the name
+    /// A session reader and the provider it reads hold one set of terms, so the name
     /// both answer to resolves the same whichever descriptor serves it.
     #[test]
     fn a_reader_declares_the_terms_of_the_service_it_reads() {
@@ -555,7 +556,7 @@ mod tests {
     /// The two lists the athlete is told — what stays in Dravr (the OAuth
     /// consent screen) and what an external caller is pointed to instead
     /// (the transport gate's note) — come from the descriptors, never overlap,
-    /// and name a scraper as the service it reads.
+    /// and name a session reader as the service it reads.
     #[cfg(all(
         feature = "provider-strava",
         feature = "provider-garmin",
@@ -585,7 +586,7 @@ mod tests {
         }
         assert_eq!(
             first_party, expected,
-            "each service once, a scraper under the name of what it reads"
+            "each service once, a session reader under the name of what it reads"
         );
         let everywhere = registry.served_over_every_transport();
         for name in ["Intervals.icu", "Wahoo", "Uploaded file"] {

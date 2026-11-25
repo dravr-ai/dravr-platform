@@ -29,7 +29,7 @@ use crate::models::SegmentEffort;
 /// personal-record rank (Strava's `pr_rank`).
 const PERSONAL_RECORD: &str = "pr";
 
-/// The scraped activity's efforts as cageux's.
+/// The session-read activity's efforts as cageux's.
 ///
 /// An activity whose detail read settled that it recorded no GPS (a `route`
 /// with no coordinates: a trainer ride, a treadmill run, a manual entry)
@@ -119,7 +119,7 @@ mod tests {
     use super::{SciotteActivity, SciotteEffort};
     use crate::models::SegmentEffort;
 
-    /// A scraped effort, `extra` laid over a complete one.
+    /// A session-read effort, `extra` laid over a complete one.
     fn effort(extra: &Value) -> SciotteEffort {
         let mut body = json!({
             "id": "9001",

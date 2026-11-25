@@ -47,7 +47,7 @@ test.describe('COROS exposure notice — real backend (no mocks)', () => {
     // COROS is mirror-only: the raw `coros` row is never offered beside it.
     expect(providers.providers.some((p: { provider: string }) => p.provider === 'coros')).toBe(false);
 
-    // Refused before any credential leaves the server: the scraper is never
+    // Refused before any credential leaves the server: the service is never
     // reached, so a made-up account is enough to prove the gate.
     const refused = await ctx.post('/api/providers/sciotte/login', {
       data: {

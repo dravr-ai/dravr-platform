@@ -23,7 +23,7 @@ use uuid::Uuid;
 
 /// In-flight job keys (`tenant_id:user_id:provider:kind`) so repeated asks
 /// while a job is already paginating a user's history don't stack duplicate
-/// scrapes. Each kind holds its own key, as it holds its own row: a chat's
+/// reads. Each kind holds its own key, as it holds its own row: a chat's
 /// live read never waits behind a history walk of the same provider. Each
 /// tenant holds its own too: one athlete's run under one tenant never holds
 /// back, nor answers, an ask under another. The key is held for the

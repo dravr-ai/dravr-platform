@@ -232,7 +232,7 @@ describe('the moving time and duration figures', () => {
   // Garmin's `duration` is the timer time, which leaves out every pause; its
   // elapsed time is a separate field the provider does not map. The same
   // `duration_seconds` is elapsed time on Strava and moving time on a
-  // scraped detail page, so nothing the view prints may claim which it is.
+  // session-read detail page, so nothing the view prints may claim which it is.
   it('names a Garmin timer time a duration, and works out no pace "over elapsed" from it', () => {
     const garmin = detail(
       {

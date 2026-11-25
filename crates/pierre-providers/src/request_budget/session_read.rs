@@ -60,7 +60,7 @@ use super::{
     Window, FIFTEEN_MINUTES, ONE_DAY, PLATFORM_SCOPE,
 };
 
-/// The signed-in sessions whose every read is counted: the scraper's
+/// The signed-in sessions whose every read is counted: the service's
 /// Strava, Garmin, COROS and `TrainingPeaks` sessions.
 pub(crate) const SESSION_READ_BACKENDS: [&str; 4] = [
     oauth_providers::SCIOTTE,
@@ -536,7 +536,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn only_the_four_scraper_sessions_are_counted_each_on_its_own_key() {
+    async fn only_the_four_signed_in_sessions_are_counted_each_on_its_own_key() {
         let (repos, limiter) = limiter().await;
         let athlete = Uuid::new_v4();
         for backend in SESSION_READ_BACKENDS {
@@ -556,7 +556,7 @@ mod tests {
         for other in ["strava", "garmin", "intervals_icu"] {
             assert!(
                 RequestBudget::for_session_read(&limiter, other, athlete).is_none(),
-                "bug: {other} reads as a scraper session"
+                "bug: {other} reads as a signed-in session"
             );
         }
     }
@@ -856,10 +856,10 @@ mod tests {
             "bug: the refusal does not name the brand: {}",
             branded.message
         );
-        let other = AppError::new(ErrorCode::ExternalServiceError, "the scraper is down");
+        let other = AppError::new(ErrorCode::ExternalServiceError, "the service is down");
         assert_eq!(
             with_brand(other, "Garmin").message,
-            "the scraper is down",
+            "the service is down",
             "bug: another error's message was rewritten"
         );
     }

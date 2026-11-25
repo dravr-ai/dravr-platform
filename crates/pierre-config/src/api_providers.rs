@@ -16,7 +16,7 @@ pub struct ExternalServicesConfig {
     pub strava_api: StravaApiConfig,
     /// Garmin API configuration
     pub garmin_api: GarminApiConfig,
-    /// The dravr-sciotte scraper service every sciotte call goes through
+    /// The dravr-sciotte service every sciotte call goes through
     pub sciotte: SciotteServiceConfig,
     /// Meta's Graph API base (`META_GRAPH_API_BASE`), where a `WhatsApp`
     /// link asks the number it dials; `None` is the version dravr-canot's
@@ -48,10 +48,10 @@ impl ExternalServicesConfig {
     }
 }
 
-/// Where the dravr-sciotte scraper services are, read once at startup.
+/// Where the dravr-sciotte services are, read once at startup.
 ///
 /// The server builds its sciotte clients from this; no read URL means no
-/// scraper service is configured.
+/// sciotte service is configured.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct SciotteServiceConfig {
     /// The read services' base URLs, in order (`DRAVR_SCIOTTE_REMOTE_URL`, a
@@ -80,7 +80,7 @@ pub struct SciotteServiceConfig {
 }
 
 impl SciotteServiceConfig {
-    /// Load the scraper services' addresses from the environment
+    /// Load the sciotte services' addresses from the environment
     #[must_use]
     pub fn from_env() -> Self {
         let read_urls =

@@ -4,7 +4,7 @@
 # The phone half of frontend/e2e/onboarding-coach-group.spec.ts, against the
 # real server (carnet#740). Each coach is a new account the control process
 # registers through the server's own routes: approved, "I coach others"
-# recorded, and Strava connected through the scraper double, so the server
+# recorded, and Strava connected through the service double, so the server
 # reports them past the provider gate with the group step still ahead. The
 # control checks that premise before it answers. A new account per path and
 # per attempt matters: the app keeps the step's done flag on the device per

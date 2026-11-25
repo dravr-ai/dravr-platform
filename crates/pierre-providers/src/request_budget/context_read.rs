@@ -110,7 +110,7 @@ mod tests {
 
     fn context_budget(limiter: &Arc<ProviderRateLimiter>, user_id: Uuid) -> RequestBudget {
         RequestBudget::for_session_context(limiter, SESSION, user_id)
-            .unwrap_or_else(|| panic!("bug: the scraper's session has context windows"))
+            .unwrap_or_else(|| panic!("bug: the signed-in session has context windows"))
     }
 
     #[tokio::test]
@@ -119,7 +119,7 @@ mod tests {
         let user_id = Uuid::new_v4();
         assert!(
             RequestBudget::for_session_context(&limiter, SESSION, user_id).is_some(),
-            "bug: the scraper's session reads are counted"
+            "bug: the signed-in session's reads are counted"
         );
         for backend in ["strava", "intervals_icu", "sciotte_garmin"] {
             assert!(

@@ -16,12 +16,12 @@
 #[cfg(feature = "tools-groups")]
 mod roster_start_tests {
     use crate::common::create_test_server_resources;
+    use dravr_barrage::parse::polyline::encode_polyline;
     use dravr_tronc::dates::{Elapsed, Timestamp};
     use pierre_core::models::groups::RosterActivity;
     use pierre_core::models::{
         Activity, ActivityBuilder, ConnectionType, SportType, Tenant, TenantId, User, UserStatus,
     };
-    use pierre_fitness_compute::encode_polyline;
     use pierre_fitness_compute::route_track::RouteTrack;
     use pierre_mcp_server::mcp::resources::ServerContext;
     use pierre_tool_runtime::group_fitness::fetch_member_snapshots;

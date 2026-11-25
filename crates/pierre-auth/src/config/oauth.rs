@@ -131,7 +131,7 @@ impl OAuthConfig {
     /// at runtime. This is the admin-configured cap, else
     /// [`STRAVA_OAUTH_SEAT_CAP_DEFAULT`] (the Standard Tier entry-level cap).
     /// A zero cap reads as the default: it would wedge every athlete onto the
-    /// scraper fallback, which is never the intent.
+    /// session-read fallback, which is never the intent.
     #[must_use]
     pub fn strava_seat_cap(&self) -> u32 {
         self.strava_seat_cap

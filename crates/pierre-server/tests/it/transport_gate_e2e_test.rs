@@ -2048,19 +2048,19 @@ async fn an_athlete_without_a_first_party_only_connection_keeps_api_key_access()
     }
 }
 
-/// D3: what the sciotte scraper reads stays on Dravr's own surfaces.
+/// D3: what the sciotte service reads stays on Dravr's own surfaces.
 #[cfg(feature = "provider-sciotte")]
-mod scraped {
+mod session_reads {
     use super::*;
     use pierre_core::ai_policy::ProviderTerms;
     use pierre_core::constants::oauth_providers::SCIOTTE;
     use pierre_providers::core::ProviderFactory;
 
-    /// What the sciotte scraper read for the athlete: one strava.com session and
-    /// one Garmin Connect session, each stamped `sciotte` with the scraped
-    /// service as `source`, the way every sciotte backend stamps its items.
-    fn scraped_sessions() -> Vec<Activity> {
-        let scraped = |id: &str, name: &str, source: &str, days_ago: i64| {
+    /// What the sciotte service read for the athlete: one strava.com session and
+    /// one Garmin Connect session, each stamped `sciotte` with the service it
+    /// was read from as `source`, the way every sciotte backend stamps its items.
+    fn session_read_sessions() -> Vec<Activity> {
+        let session_row = |id: &str, name: &str, source: &str, days_ago: i64| {
             ActivityBuilder::new(
                 id,
                 name,
@@ -2074,19 +2074,19 @@ mod scraped {
             .build()
         };
         vec![
-            scraped("s1", "Scraped Strava Tempo", "strava", 1),
-            scraped("s2", "Scraped Garmin Hills", "garmin", 2),
+            session_row("s1", "Session Strava Tempo", "strava", 1),
+            session_row("s2", "Session Garmin Hills", "garmin", 2),
         ]
     }
 
-    /// The scraper's reader in place of the live sciotte service: the factory is
+    /// A session reader in place of the live sciotte service: the factory is
     /// swapped and the registered sciotte descriptors — the terms — are not.
-    struct Scraped {
+    struct SessionRead {
         config: ProviderConfig,
     }
 
     #[async_trait]
-    impl FitnessProvider for Scraped {
+    impl FitnessProvider for SessionRead {
         fn name(&self) -> &'static str {
             SCIOTTE
         }
@@ -2111,9 +2111,9 @@ mod scraped {
             Ok(Athlete {
                 active_streak: None,
                 created_at: None,
-                id: "scraped-athlete".to_owned(),
-                username: "scraped_runner".to_owned(),
-                firstname: Some("Scraped".to_owned()),
+                id: "session-athlete".to_owned(),
+                username: "session_runner".to_owned(),
+                firstname: Some("Session".to_owned()),
                 lastname: Some("Runner".to_owned()),
                 profile_picture: None,
                 provider: SCIOTTE.to_owned(),
@@ -2125,29 +2125,29 @@ mod scraped {
             &self,
             _params: &ActivityQueryParams,
         ) -> AppResult<Vec<Activity>> {
-            Ok(scraped_sessions())
+            Ok(session_read_sessions())
         }
 
         async fn get_activities_cursor(
             &self,
             _params: &PaginationParams,
         ) -> AppResult<CursorPage<Activity>> {
-            Ok(CursorPage::new(scraped_sessions(), None, None, false))
+            Ok(CursorPage::new(session_read_sessions(), None, None, false))
         }
 
         async fn get_activity(&self, id: &str) -> AppResult<Activity> {
-            scraped_sessions()
+            session_read_sessions()
                 .into_iter()
                 .find(|a| a.id() == id)
                 .ok_or_else(|| AppError::not_found(id.to_owned()))
         }
     }
 
-    struct ScrapedFactory;
+    struct SessionReadFactory;
 
-    impl ProviderFactory for ScrapedFactory {
+    impl ProviderFactory for SessionReadFactory {
         fn create(&self, config: ProviderConfig) -> AppResult<Box<dyn FitnessProvider>> {
-            Ok(Box::new(Scraped { config }))
+            Ok(Box::new(SessionRead { config }))
         }
 
         fn supported_providers(&self) -> &'static [&'static str] {
@@ -2155,13 +2155,13 @@ mod scraped {
         }
     }
 
-    /// D3: an item the sciotte scraper read — strava.com or Garmin Connect — is
-    /// governed by the backend that scraped it, so it never leaves over MCP or
+    /// D3: an item the sciotte service read — strava.com or Garmin Connect — is
+    /// governed by the backend that read it, so it never leaves over MCP or
     /// A2A, while the athlete's own Dravr surfaces still see it. The note the
     /// external caller reads names none of the withheld services and points it at
     /// what this interface does serve.
     #[tokio::test]
-    async fn a_scraped_item_stays_off_mcp_and_a2a_and_the_note_points_elsewhere() {
+    async fn a_session_read_item_stays_off_mcp_and_a2a_and_the_note_points_elsewhere() {
         let base = create_test_server_resources().await.unwrap();
         let mut registry = offline_provider_registry();
         assert_eq!(
@@ -2169,12 +2169,12 @@ mod scraped {
             Some(TransportPolicy::FirstPartyOnly),
             "the real sciotte descriptor governs, not the test's factory"
         );
-        registry.register_factory(SCIOTTE, Box::new(ScrapedFactory));
+        registry.register_factory(SCIOTTE, Box::new(SessionReadFactory));
         let mut context = (*base).clone();
         context.fitness.provider_registry = Arc::new(registry);
         let resources = Arc::new(context);
 
-        let email = format!("scraped-{}@example.com", Uuid::new_v4());
+        let email = format!("session-read-{}@example.com", Uuid::new_v4());
         let (user_id, _, tenant) =
             create_test_user_with_plan(&resources.agent.database, &email, "starter")
                 .await
@@ -2184,18 +2184,18 @@ mod scraped {
             user_id,
             tenant.to_string(),
             SCIOTTE.to_owned(),
-            "scraper-session".to_owned(),
+            "service-session".to_owned(),
             None,
             Some(Timestamp::now() + Elapsed::hours(6)),
             None,
         );
         repos.oauth_tokens.upsert_token(&token).await.unwrap();
-        // The scraped Garmin session reaches a model only under the athlete's
-        // Garmin AI consent (carnet#1157): given, so what MCP and A2A miss
+        // The Garmin session the service read reaches a model only under the
+        // athlete's Garmin AI consent (carnet#1157): given, so what MCP and A2A miss
         // below is the transport's doing alone.
         give_garmin_ai_consent(&resources.common.repos, user_id, tenant).await;
 
-        let call_scraped = |transport: Transport| {
+        let call_session_read = |transport: Transport| {
             let resources = Arc::clone(&resources);
             async move {
                 let runtime: Arc<dyn ToolRuntime> = resources.clone();
@@ -2221,15 +2221,15 @@ mod scraped {
             .provider_registry
             .first_party_only_sources();
         for transport in [Transport::McpHttp, Transport::A2a] {
-            let external = call_scraped(transport).await;
+            let external = call_session_read(transport).await;
             assert!(external.success, "{transport:?}: {:?}", external.error);
             let text = payload_text(&external);
             assert!(
-                !text.contains("Scraped Strava Tempo"),
+                !text.contains("Session Strava Tempo"),
                 "{transport:?}: {text}"
             );
             assert!(
-                !text.contains("Scraped Garmin Hills"),
+                !text.contains("Session Garmin Hills"),
                 "{transport:?}: {text}"
             );
             let note = &external.result.as_ref().expect("a payload")[UNAVAILABLE_HERE];
@@ -2239,7 +2239,7 @@ mod scraped {
             );
             assert!(
                 !note.to_string().to_ascii_lowercase().contains("sciotte"),
-                "{transport:?}: the note never names the scraper: {note}"
+                "{transport:?}: the note never names the service: {note}"
             );
             let available: Vec<&str> = note["available_sources"]
                 .as_array()
@@ -2264,11 +2264,11 @@ mod scraped {
             );
         }
 
-        let own = call_scraped(Transport::WebApp).await;
+        let own = call_session_read(Transport::WebApp).await;
         assert!(own.success, "{:?}", own.error);
         let text = payload_text(&own);
-        assert!(text.contains("Scraped Strava Tempo"), "{text}");
-        assert!(text.contains("Scraped Garmin Hills"), "{text}");
+        assert!(text.contains("Session Strava Tempo"), "{text}");
+        assert!(text.contains("Session Garmin Hills"), "{text}");
         assert!(!text.contains(UNAVAILABLE_HERE), "{text}");
     }
 }

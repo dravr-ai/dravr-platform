@@ -16,12 +16,12 @@ use crate::models::TimeSeriesData;
 /// time axis, else its route as a track ([`route_to_time_series`]), else
 /// none, which proves nothing.
 ///
-/// A scrape of Strava's detail reads the route and the sensor streams in one
+/// A session read of Strava's detail reads the route and the sensor streams in one
 /// request (`/activities/{id}/streams`), so when its streams answered, their
 /// `latlng` and `altitude` channels hold every fix and elevation the route
 /// holds, now on the time axis the route lacks. A stream set with no `latlng`
 /// channel is the activity recording no GPS, as Strava's API streams say it,
-/// unless the route beside it has points: the scraper then dropped a `latlng`
+/// unless the route beside it has points: the service then dropped a `latlng`
 /// stream it could not place on the axis, and the route keeps the map.
 pub(super) fn time_series(sciotte: &SciotteActivity) -> Option<TimeSeriesData> {
     let route = sciotte.route.as_ref();
@@ -69,10 +69,10 @@ fn streams_to_time_series(streams: &SciotteStreams) -> TimeSeriesData {
 /// set without a time axis gives every time-based consumer nothing to time.
 ///
 /// The two ways a detail answer can lack a route mean different things, and
-/// the conversion keeps them apart. No `route` at all is the scraper not
+/// the conversion keeps them apart. No `route` at all is the service not
 /// having read one — a page read before its map rendered, a detail read past
 /// the navigation budget — and the activity carries no time series, which
-/// proves nothing. A `route` whose coordinate list is empty is the scraper
+/// proves nothing. A `route` whose coordinate list is empty is the service
 /// saying it read the page and the activity recorded no GPS (a trainer ride):
 /// it becomes a stream set of zero samples, the same answer Strava's streams
 /// give for a ride without a `latlng` channel, and the route read settles
@@ -126,8 +126,8 @@ mod tests {
 
     use super::{time_series, SciotteActivity};
 
-    /// A scraped Strava ride carrying `fields`.
-    fn scraped(fields: &serde_json::Value) -> SciotteActivity {
+    /// A session-read Strava ride carrying `fields`.
+    fn session_row(fields: &serde_json::Value) -> SciotteActivity {
         let mut row = json!({
             "id": "16001",
             "name": "Session",
@@ -144,7 +144,7 @@ mod tests {
 
     #[test]
     fn streams_cross_on_their_time_axis_ahead_of_the_route() {
-        let activity = scraped(&json!({
+        let activity = session_row(&json!({
             "route": { "coordinates": [[45.5, -73.6]], "altitudes_meters": [44.0] },
             "streams": {
                 "timestamps": [0, 1],
@@ -172,7 +172,7 @@ mod tests {
 
     #[test]
     fn strava_grade_and_moving_channels_cross_on_the_time_axis() {
-        let activity = scraped(&json!({
+        let activity = session_row(&json!({
             "streams": {
                 "timestamps": [0, 1, 2],
                 "grade_smooth": [1.5, null, -0.4],
@@ -191,7 +191,7 @@ mod tests {
             Some(vec![Some(true), None, Some(false)]),
             "bug: the moving channel was dropped"
         );
-        let bare = scraped(&json!({
+        let bare = session_row(&json!({
             "streams": { "timestamps": [0], "gps_coordinates": [[45.5, -73.6]] }
         }));
         let series = time_series(&bare).unwrap_or_else(|| panic!("bug: no series"));
@@ -203,7 +203,7 @@ mod tests {
 
     #[test]
     fn an_indoor_ride_keeps_its_sensor_streams_with_no_fix() {
-        let activity = scraped(&json!({
+        let activity = session_row(&json!({
             "route": { "coordinates": [] },
             "streams": { "timestamps": [0, 1], "heart_rate": [120, 122] }
         }));
@@ -221,7 +221,7 @@ mod tests {
 
     #[test]
     fn streams_that_lost_their_fixes_leave_the_map_to_the_route() {
-        let activity = scraped(&json!({
+        let activity = session_row(&json!({
             "route": { "coordinates": [[45.5, -73.6]] },
             "streams": { "timestamps": [0, 1], "heart_rate": [120, 122] }
         }));
@@ -235,7 +235,7 @@ mod tests {
 
     #[test]
     fn a_detail_without_streams_keeps_its_route() {
-        let activity = scraped(&json!({
+        let activity = session_row(&json!({
             "route": { "coordinates": [[45.5, -73.6]], "altitudes_meters": [44.0] }
         }));
         let series = time_series(&activity).unwrap_or_else(|| panic!("bug: no series"));
@@ -246,7 +246,7 @@ mod tests {
             "bug: a detail without streams lost its route"
         );
         assert!(
-            time_series(&scraped(&json!({}))).is_none(),
+            time_series(&session_row(&json!({}))).is_none(),
             "no read, no series"
         );
     }

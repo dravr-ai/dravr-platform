@@ -23,7 +23,7 @@ use tracing::warn;
 
 use super::answer_marker;
 
-/// The scraper's text for a provider answer that may pass (`ScraperError::Network`).
+/// The service's text for a provider answer that may pass (`SessionReadError::Network`).
 const NETWORK_MARKER: &str = "network error:";
 
 /// The marker's own words for a provider rate limit.
@@ -54,7 +54,7 @@ pub(super) fn retryable(error: &ClientError, brand: &str) -> Option<AppError> {
         return None;
     };
     let rate_limited =
-        *status == StatusCode::TOO_MANY_REQUESTS || scraper_relayed_429(*status, body);
+        *status == StatusCode::TOO_MANY_REQUESTS || service_relayed_429(*status, body);
     if rate_limited {
         warn!(error = %error, "the provider rate limited a context read");
         return Some(AppError::new(
@@ -72,8 +72,8 @@ pub(super) fn retryable(error: &ClientError, brand: &str) -> Option<AppError> {
     None
 }
 
-/// Whether the scraper relayed a provider `429` as its own `500`.
-fn scraper_relayed_429(status: StatusCode, body: &Value) -> bool {
+/// Whether the service relayed a provider `429` as its own `500`.
+fn service_relayed_429(status: StatusCode, body: &Value) -> bool {
     status.is_server_error() && {
         let marker = answer_marker(body);
         marker.starts_with(NETWORK_MARKER) && marker.contains(RATE_LIMITED_MARKER)
@@ -104,7 +104,7 @@ mod tests {
     }
 
     #[test]
-    fn a_provider_429_the_scraper_relayed_is_a_rate_limit() {
+    fn a_provider_429_the_service_relayed_is_a_rate_limit() {
         let error = unexpected(
             Operation::Gear,
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -137,7 +137,7 @@ mod tests {
     }
 
     #[test]
-    fn a_provider_5xx_the_scraper_relayed_is_unavailable() {
+    fn a_provider_5xx_the_service_relayed_is_unavailable() {
         let error = unexpected(
             Operation::PersonalRecords,
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -155,11 +155,11 @@ mod tests {
         let plain_500 = unexpected(
             Operation::AthleteWeight,
             StatusCode::INTERNAL_SERVER_ERROR,
-            json!({"error": "scraping error: a weight this build cannot read"}),
+            json!({"error": "session read error: a weight this build cannot read"}),
         );
         assert!(
             retryable(&plain_500, "Strava").is_none(),
-            "bug: a scraper fault read as a retryable provider answer"
+            "bug: a service fault read as a retryable provider answer"
         );
         let other_operation = unexpected(
             Operation::Activities,

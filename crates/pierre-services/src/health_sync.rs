@@ -73,7 +73,7 @@ use push_fed::{history_walk_writes, history_walk_writes_night, wellness_fed_by_p
 /// flow through this adapter without any cross-version translation.
 ///
 /// The sync knows a provider by its own name (`garmin`, `coros`), while a
-/// scrape-backed connection's session lives on its mirror backend's token row
+/// session-read connection's session lives on its mirror backend's token row
 /// (`sciotte_garmin`, `sciotte_coros`). Every lookup here — the roster, the
 /// credentials, the tenant a row is written under — goes through
 /// [`sync_backend`], the one mapping between the two.
@@ -120,10 +120,10 @@ pub struct PierreSyncStorage {
     /// injection, credential reads fall back to the stored token row (startup
     /// window before the first scheduled sync tick, and storage-only tests).
     refresher: OnceLock<Arc<dyn SyncCredentialRefresher>>,
-    /// The scrape-session rows handed out to syncs, which a session rotated
+    /// The signed-in-session rows handed out to syncs, which a session rotated
     /// on a read is written back over ([`SessionRows`]).
     session_rows: SessionRows,
-    /// What every daily-summary read of a scrape session is admitted against
+    /// What every daily-summary read of a signed-in session is admitted against
     /// (carnet#1661); `None` reads uncounted. Shared with the provider registry.
     read_budget: Option<Arc<ProviderRateLimiter>>,
     /// The full registry, for the WHOOP owner-authorization read (the notice
@@ -168,7 +168,7 @@ pub trait SyncCredentialRefresher: Send + Sync {
         provider: &str,
     ) -> EnformeResult<Option<ProviderCredentials>>;
 
-    /// A sync found the scrape session `token` carries dead: flag that
+    /// A sync found the signed-in session `token` carries dead: flag that
     /// connection (`token.provider`, the session's own backend, never the
     /// provider the sync knows it by) for a reconnect and send its reconnect
     /// notice, while `token` is still the row as stored. A session has no
@@ -289,7 +289,7 @@ impl PierreSyncStorage {
         }
     }
 
-    /// This adapter, its scrape sessions' daily-summary reads admitted against
+    /// This adapter, its signed-in sessions' daily-summary reads admitted against
     /// each athlete's session-read windows in `limiter`.
     #[must_use]
     pub fn with_read_budget(mut self, limiter: Arc<ProviderRateLimiter>) -> Self {
@@ -312,7 +312,7 @@ impl PierreSyncStorage {
     /// Takes `&Arc<Self>` (not `self`) so the caller keeps a handle to the
     /// storage for post-construction injection of the credential refresher.
     /// The orchestrator is ready to run the scheduler or handle webhook events.
-    /// The scrape-backed providers read their daily summaries on the dedicated
+    /// The session-read providers read their daily summaries on the dedicated
     /// sciotte services (ADR-021) through `sciotte`, the server's read
     /// services: no browser runs in this pod.
     ///
@@ -344,7 +344,7 @@ impl PierreSyncStorage {
         self.build_orchestrator_with_reader(&reader, origins, whoop_webhook_secret)
     }
 
-    /// Build a `SyncOrchestrator` backed by this adapter whose scrape-backed
+    /// Build a `SyncOrchestrator` backed by this adapter whose session-read
     /// providers read their daily summaries through `reader`, whose
     /// Intervals.icu and WHOOP wellness are read at `origins`, and whose
     /// WHOOP webhooks are verified against `whoop_webhook_secret`
@@ -360,7 +360,7 @@ impl PierreSyncStorage {
         whoop_webhook_secret: Option<&SecretString>,
     ) -> EnformeResult<Arc<dravr_enforme::SyncOrchestrator>> {
         let storage = Arc::clone(self);
-        // A session the scraper refused is read no more in the same sync.
+        // A session the service refused is read no more in the same sync.
         let reader: Arc<dyn DailySummaryReader> = Arc::new(RefusedSessionReader::new(
             Arc::clone(reader),
             self.session_rows.clone(),
@@ -897,7 +897,7 @@ impl CredentialStore for PierreSyncStorage {
                 user_id,
                 provider,
                 backend = %token.provider,
-                "The scrape session is flagged for a reconnect; the sync does not read it"
+                "The signed-in session is flagged for a reconnect; the sync does not read it"
             );
             return Ok(None);
         }
@@ -955,7 +955,7 @@ impl CredentialStore for PierreSyncStorage {
             return Err(expired());
         };
         let token = *token;
-        // A scrape session has no refresh grant: the refusal is the verdict,
+        // A signed-in session has no refresh grant: the refusal is the verdict,
         // flagged on the session's own backend while its row still carries it.
         if token.token_type == TOKEN_TYPE_SESSION {
             if self.session_rows.refused_token(&token) {
@@ -963,7 +963,7 @@ impl CredentialStore for PierreSyncStorage {
                     user_id,
                     provider,
                     backend = %token.provider,
-                    "The scrape session was refused; flagging it for a reconnect"
+                    "The signed-in session was refused; flagging it for a reconnect"
                 );
                 if let Some(refresher) = self.refresher.get() {
                     refresher.session_refused(&token).await;

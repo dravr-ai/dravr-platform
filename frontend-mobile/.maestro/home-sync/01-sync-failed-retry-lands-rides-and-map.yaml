@@ -1,10 +1,10 @@
-# ABOUTME: Real backend, scripted scraper: a good sync, then a failing one Home names with its last good time, a retry that lands the day's ride
+# ABOUTME: Real backend, scripted service: a good sync, then a failing one Home names with its last good time, a retry that lands the day's ride
 # ABOUTME: Then the latest map answers unavailable and its own retry reads the route into the map's container; needs frontend/e2e-real/home-sync-control.ts beside the server
 
 # The mobile half of frontend/e2e-real/home-sync.real.spec.ts. Everything
-# between the app and the scraper is the real product — the Pierre server,
+# between the app and the service is the real product — the Pierre server,
 # its Home refresh, the stale schedule and the persisted query cache on the
-# device — and only the scraper is the double, scripted over HTTP through
+# device — and only the service is the double, scripted over HTTP through
 # control.js. The server must run with DRAVR_SCIOTTE_REMOTE_URL naming the
 # double (port 8097), and the control process with E2E_REAL_DATABASE_PATH
 # naming the server's SQLite file: scripts/e2e-home-sync-local.sh --mobile
@@ -15,7 +15,7 @@
 appId: ai.dravr.app
 
 ---
-# A good sync of two rides, moved five hours back, then a scraper that fails
+# A good sync of two rides, moved five hours back, then a service that fails
 # every read.
 - runScript:
     file: control.js
@@ -26,7 +26,7 @@ appId: ai.dravr.app
 - runFlow:
     file: ../helpers/login.yaml
 
-# The load refreshes the stale head; the scraper fails, and Home says so,
+# The load refreshes the stale head; the service fails, and Home says so,
 # naming the provider, with the rides of the last good sync kept and that
 # sync's time on the line below. The notice sits under the plan, the training
 # status, the weekly volume and the week strip — below the fold on the CI
@@ -59,15 +59,15 @@ appId: ai.dravr.app
     text: "${output.homeSync.recovered}.*"
 - takeScreenshot: "home-sync-failed"
 
-# The scraper recovers with the day's ride; its route read still fails. The
-# retry reads the scraper at once and lands the ride on top.
+# The service recovers with the day's ride; its route read still fails. The
+# retry reads the service at once and lands the ride on top.
 - runScript:
     file: control.js
     env:
       ACTION: recover
 - assertTrue:
     condition: ${output.homeSync.failedReads >= 1}
-    label: "the failed sync read the scraper"
+    label: "the failed sync read the service"
 - tapOn:
     id: "home-activities-sync-retry"
 - extendedWaitUntil:
@@ -82,10 +82,10 @@ appId: ai.dravr.app
       ACTION: reads
 - assertTrue:
     condition: ${output.homeSync.listReads >= 1}
-    label: "the retry itself read the scraper"
+    label: "the retry itself read the service"
 
 # The latest map could not be read: it says so, never "no GPS", with its own
-# retry. Once the scraper reads routes again, that retry reads the route.
+# retry. Once the service reads routes again, that retry reads the route.
 - scrollUntilVisible:
     element:
       id: "home-latest-map-failed"
@@ -134,5 +134,5 @@ appId: ai.dravr.app
       ACTION: reads
 - assertTrue:
     condition: ${output.homeSync.detailReads >= 1}
-    label: "the map's retry read the scraper past the stored answer"
+    label: "the map's retry read the service past the stored answer"
 - takeScreenshot: "home-sync-recovered"

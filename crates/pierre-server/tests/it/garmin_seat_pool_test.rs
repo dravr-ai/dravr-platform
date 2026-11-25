@@ -23,7 +23,7 @@ use crate::common;
 use crate::garmin_sign_in_test::{
     athlete, calls_matching, connect_garmin_oauth, connections, garmin_history, hold_grant,
     hold_session, server, server_with_garmin_oauth, session_token_held, sign_in,
-    spawn_switchable_scraper, ScraperSwitch, LIVE_SESSION,
+    spawn_switchable_session_reader, SessionReaderSwitch, LIVE_SESSION,
 };
 use crate::helpers::axum_test::AxumTestRequest;
 use crate::reconnect_prompt_on_served_turn_test::{
@@ -47,10 +47,10 @@ use secrecy::SecretString;
 use serde_json::Value;
 use uuid::Uuid;
 
-/// A config whose Garmin client holds `cap` seats, with `scraper` as the
+/// A config whose Garmin client holds `cap` seats, with `reader` as the
 /// usr/pwd sign-in service.
-fn config_with_cap(scraper: &str, cap: u32) -> ServerConfig {
-    let mut config = common::test_server_config_with_sciotte(scraper);
+fn config_with_cap(reader: &str, cap: u32) -> ServerConfig {
+    let mut config = common::test_server_config_with_sciotte(reader);
     config.oauth.garmin_seat_cap = Some(cap);
     config
 }
@@ -82,8 +82,8 @@ async fn garmin_card(resources: &Arc<ServerContext>, token: &str) -> Value {
 /// never refuses it (carnet#1494).
 #[tokio::test]
 async fn a_new_usr_pwd_garmin_sign_in_goes_through_with_a_seat_free() {
-    let (scraper, calls) = spawn_switchable_scraper(ScraperSwitch::default()).await;
-    let resources = server(config_with_cap(&scraper, 5)).await;
+    let (reader, calls) = spawn_switchable_session_reader(SessionReaderSwitch::default()).await;
+    let resources = server(config_with_cap(&reader, 5)).await;
     let (user_id, _user, tenant, token) = athlete(&resources).await;
 
     let (status, body) = sign_in(&resources, &token).await;
@@ -111,8 +111,8 @@ async fn a_new_usr_pwd_garmin_sign_in_goes_through_with_a_seat_free() {
 /// athlete's sign-in goes through.
 #[tokio::test]
 async fn a_full_pool_keeps_the_usr_pwd_sign_in() {
-    let (scraper, calls) = spawn_switchable_scraper(ScraperSwitch::default()).await;
-    let resources = server(config_with_cap(&scraper, 1)).await;
+    let (reader, calls) = spawn_switchable_session_reader(SessionReaderSwitch::default()).await;
+    let resources = server(config_with_cap(&reader, 1)).await;
     fill_a_seat(&resources).await;
     let (_user_id, _user, _tenant, token) = athlete(&resources).await;
 
@@ -133,8 +133,8 @@ async fn a_full_pool_keeps_the_usr_pwd_sign_in() {
 /// free: they keep their way in until they move.
 #[tokio::test]
 async fn an_existing_usr_pwd_connection_re_signs_with_a_seat_free() {
-    let (scraper, _calls) = spawn_switchable_scraper(ScraperSwitch::default()).await;
-    let resources = server(config_with_cap(&scraper, 5)).await;
+    let (reader, _calls) = spawn_switchable_session_reader(SessionReaderSwitch::default()).await;
+    let resources = server(config_with_cap(&reader, 5)).await;
     let (user_id, _user, tenant, token) = athlete(&resources).await;
     hold_session(&resources, user_id, tenant, "dead-session").await;
     resources
@@ -160,8 +160,8 @@ async fn an_existing_usr_pwd_connection_re_signs_with_a_seat_free() {
 /// stores becomes the provider's primary, beside the grant (carnet#1494).
 #[tokio::test]
 async fn a_grant_holders_sign_in_is_never_refused() {
-    let (scraper, _calls) = spawn_switchable_scraper(ScraperSwitch::default()).await;
-    let resources = server(config_with_cap(&scraper, 5)).await;
+    let (reader, _calls) = spawn_switchable_session_reader(SessionReaderSwitch::default()).await;
+    let resources = server(config_with_cap(&reader, 5)).await;
     let (user_id, _user, tenant, token) = athlete(&resources).await;
     hold_grant(&resources, user_id, tenant).await;
 
@@ -181,8 +181,8 @@ async fn a_grant_holders_sign_in_is_never_refused() {
 /// retires the session, and the card keeps reading it (carnet#1494).
 #[tokio::test]
 async fn connecting_the_grant_keeps_the_session_serving_the_card() {
-    let (scraper, calls) = spawn_switchable_scraper(ScraperSwitch::default()).await;
-    let resources = server_with_garmin_oauth(&scraper).await;
+    let (reader, calls) = spawn_switchable_session_reader(SessionReaderSwitch::default()).await;
+    let resources = server_with_garmin_oauth(&reader).await;
     let (user_id, _user, tenant, token) = athlete(&resources).await;
     hold_session(&resources, user_id, tenant, LIVE_SESSION).await;
     connect_garmin_oauth(&resources, user_id, tenant).await;
@@ -338,8 +338,8 @@ async fn the_daily_grant_check_skips_a_connection_with_no_token_row() {
 /// re-signs the seat they hold, and with a seat free the URL is minted.
 #[tokio::test]
 async fn the_chat_minted_garmin_authorization_url_honours_the_seat_pool() {
-    let (scraper, _calls) = spawn_switchable_scraper(ScraperSwitch::default()).await;
-    let resources = server(config_with_cap(&scraper, 1)).await;
+    let (reader, _calls) = spawn_switchable_session_reader(SessionReaderSwitch::default()).await;
+    let resources = server(config_with_cap(&reader, 1)).await;
     let (user_id, _u, tenant, _t) = athlete(&resources).await;
 
     let minted = mint_oauth_authorize_url(
@@ -389,8 +389,8 @@ async fn the_chat_minted_garmin_authorization_url_honours_the_seat_pool() {
 /// (carnet#1494).
 #[tokio::test]
 async fn a_garmin_reconnect_offers_the_sign_in_whatever_the_seats() {
-    let (scraper, _calls) = spawn_switchable_scraper(ScraperSwitch::default()).await;
-    let resources = server(config_with_cap(&scraper, 2)).await;
+    let (reader, _calls) = spawn_switchable_session_reader(SessionReaderSwitch::default()).await;
+    let resources = server(config_with_cap(&reader, 2)).await;
     let (user_id, _u, tenant, _t) = athlete(&resources).await;
     for seats in ["free", "full"] {
         if seats == "full" {
@@ -423,8 +423,8 @@ async fn a_garmin_reconnect_offers_the_sign_in_whatever_the_seats() {
 /// page. The grant is asked for when a write needs it.
 #[tokio::test]
 async fn a_sign_in_over_a_dead_grant_ends_connected_with_the_pool_full() {
-    let (scraper, _calls) = spawn_switchable_scraper(ScraperSwitch::default()).await;
-    let resources = server(config_with_cap(&scraper, 1)).await;
+    let (reader, _calls) = spawn_switchable_session_reader(SessionReaderSwitch::default()).await;
+    let resources = server(config_with_cap(&reader, 1)).await;
     let (user_id, _user, tenant, token) = athlete(&resources).await;
     hold_grant(&resources, user_id, tenant).await;
     resources

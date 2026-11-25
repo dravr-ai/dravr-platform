@@ -124,8 +124,8 @@ async fn seed_started(resources: &ServerContext, athlete: &Athlete) -> bool {
 }
 
 /// A Strava history is measured through the grant: a session is never a
-/// stream source, even now that a Strava scrape declares the channels, since
-/// its samples would be one scrape per run.
+/// stream source, even now that a Strava session read declares the channels,
+/// since its samples would be one session read per run.
 #[tokio::test]
 async fn a_strava_history_is_measured_on_the_grants_streams() {
     let (api_base, _mock) = mock_strava().await;

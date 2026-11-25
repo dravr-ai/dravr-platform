@@ -1,5 +1,5 @@
 // ABOUTME: Pins that detail reads are rationed by provider cost, never silently dropped
-// ABOUTME: A scrape-backed provider enriches the newest few; an API provider still enriches all
+// ABOUTME: A session-read provider enriches the newest few; an API provider still enriches all
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -8,7 +8,7 @@
 //! fetching each one's detail page. On an HTTP API that is milliseconds per activity;
 //! on a headless-browser provider it is a full page navigation. A live
 //! 2026-08-12 Telegram turn returned its list in 37s and then spent **3m41s**
-//! scraping 30 detail pages one at a time — 4m37s total for an answer the
+//! reading 30 detail pages one at a time — 4m37s total for an answer the
 //! summary already supported.
 //!
 //! The fix rations rather than removes. Detail is not decoration on sciotte:
@@ -36,7 +36,7 @@ fn declares_cheap_detail(registry: &ProviderRegistry, provider: &str) -> bool {
 }
 
 #[test]
-fn scrape_backed_providers_do_not_claim_cheap_detail() {
+fn session_read_providers_do_not_claim_cheap_detail() {
     let registry = offline_provider_registry();
     for provider in ["sciotte", "sciotte_garmin", "sciotte_trainingpeaks"] {
         assert!(
@@ -63,7 +63,7 @@ fn api_providers_keep_unrationed_detail() {
 // both sides are constants and a runtime assertion on them proves nothing the
 // compiler has not already decided.
 //
-// Zero would drop detail entirely on scrape providers. Their list page is
+// Zero would drop detail entirely on session-read providers. Their list page is
 // date-only, so the agent would stop knowing when a session happened and lose
 // HR and laps with it — the shortcut this whole change exists to avoid. A
 // budget at or above the cheap providers' cap would ration nothing.

@@ -10,11 +10,11 @@
 //! area make an area place (carnet#1723). Every search is made the way the
 //! `discover_routes` tool makes it.
 
+use dravr_barrage::parse::polyline::encode_polyline;
 use dravr_tronc::dates::Timestamp;
 use pierre_core::ai_policy::{ProviderTerms, SourcePolicy};
 use pierre_core::models::{ActivityBuilder, SportType, TenantId};
 use pierre_core::transport::TransportPolicy;
-use pierre_fitness_compute::encode_polyline;
 use pierre_services::athlete_loops::{own_loops, Effort, LoopSearch, OwnLoop};
 use pierre_services::athlete_places::{declare_home, HomeChoice, PlaceTarget};
 use uuid::Uuid;

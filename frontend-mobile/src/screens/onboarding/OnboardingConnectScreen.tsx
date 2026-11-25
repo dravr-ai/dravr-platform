@@ -377,7 +377,7 @@ export function OnboardingConnectScreen({ mode = 'connect' }: { mode?: 'connect'
   // The server withholds the raw `strava` / `garmin` rows a mirror card
   // covers and coalesces a card's two backends (carnet#255, carnet#574).
   // Onboarding offers only what an athlete connects themselves: the OAuth,
-  // scrape and API-key cards, not the synthetic dev providers. The seat step
+  // signed-in session and API-key cards, not the synthetic dev providers. The seat step
   // offers the coaching platforms alone, in seat order.
   const visibleProviders = seat
     ? COACH_PLATFORM_PROVIDERS.flatMap((name) => providers.filter((p) => p.provider === name))

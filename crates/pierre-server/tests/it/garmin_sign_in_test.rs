@@ -17,7 +17,7 @@
 // session's key, for athletes whose session it retired, is still served
 // through the grant's window.
 //
-// The scraper is a loopback stand-in (a test double, per the repo's mock
+// The session reader is a loopback stand-in (a test double, per the repo's mock
 // rule) that answers by session and records every call it serves; Garmin's
 // OAuth is the dev fixture's stand-in, as in the Garmin API e2e suite.
 #![cfg(all(feature = "provider-garmin", feature = "health-sync"))]
@@ -26,7 +26,7 @@
 
 use crate::common;
 use crate::helpers::axum_test::AxumTestRequest;
-use crate::helpers::sciotte_mock::seed_scrape_session;
+use crate::helpers::sciotte_mock::seed_signed_in_session;
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -85,17 +85,17 @@ pub(crate) const READ_DEADLINE: Duration = Duration::from_secs(20);
 /// Every call the stand-in served, as `"<route> <session or detail>"`.
 pub(crate) type Calls = Arc<Mutex<Vec<String>>>;
 
-/// The stand-in scraper's state: what it served, whether a read of the
+/// The stand-in session reader's state: what it served, whether a read of the
 /// account finds the session expired, and whether the next one fails.
 #[derive(Clone)]
-struct Scraper {
+struct SessionReader {
     calls: Calls,
-    switch: ScraperSwitch,
+    switch: SessionReaderSwitch,
 }
 
 /// What a test flips on the stand-in while it runs.
 #[derive(Clone, Default)]
-pub(crate) struct ScraperSwitch {
+pub(crate) struct SessionReaderSwitch {
     /// Every read of the account answers that the session expired.
     pub(crate) expired: Arc<AtomicBool>,
     /// The next activity read answers a server error, once.
@@ -135,22 +135,24 @@ pub(crate) fn workout(id: &str, sport: &str, start: &str) -> Value {
     })
 }
 
-/// A stand-in for the scraper service over a Garmin account holding a 2012
+/// A stand-in for the dravr-sciotte service over a Garmin account holding a 2012
 /// run, a 2019 ride and a ride three days old. `expired` makes every read of
 /// the account answer that the session expired, as the ~2 h Garmin web
 /// session does mid-copy.
-async fn spawn_scraper(expired: bool) -> (String, Calls) {
-    let switch = ScraperSwitch::default();
+async fn spawn_session_reader(expired: bool) -> (String, Calls) {
+    let switch = SessionReaderSwitch::default();
     switch.expired.store(expired, Ordering::SeqCst);
-    let (url, calls) = spawn_switchable_scraper(switch).await;
+    let (url, calls) = spawn_switchable_session_reader(switch).await;
     (url, calls)
 }
 
-/// [`spawn_scraper`], answering as `switch` says at each read. Every day's
+/// [`spawn_session_reader`], answering as `switch` says at each read. Every day's
 /// summary holds a resting heart rate.
-pub(crate) async fn spawn_switchable_scraper(switch: ScraperSwitch) -> (String, Calls) {
+pub(crate) async fn spawn_switchable_session_reader(
+    switch: SessionReaderSwitch,
+) -> (String, Calls) {
     let calls: Calls = Arc::new(Mutex::new(Vec::new()));
-    let state = Scraper {
+    let state = SessionReader {
         calls: Arc::clone(&calls),
         switch,
     };
@@ -159,8 +161,8 @@ pub(crate) async fn spawn_switchable_scraper(switch: ScraperSwitch) -> (String, 
         .route(
             "/auth/login-with-credentials",
             post(
-                |State(scraper): State<Scraper>, Json(body): Json<Value>| async move {
-                    scraper
+                |State(reader): State<SessionReader>, Json(body): Json<Value>| async move {
+                    reader
                         .calls
                         .lock()
                         .unwrap()
@@ -182,8 +184,8 @@ pub(crate) async fn spawn_switchable_scraper(switch: ScraperSwitch) -> (String, 
         .route(
             "/auth/sessions/{session_id}",
             delete(
-                |State(scraper): State<Scraper>, Path(session_id): Path<String>| async move {
-                    scraper
+                |State(reader): State<SessionReader>, Path(session_id): Path<String>| async move {
+                    reader
                         .calls
                         .lock()
                         .unwrap()
@@ -205,23 +207,23 @@ pub(crate) async fn spawn_switchable_scraper(switch: ScraperSwitch) -> (String, 
         .route(
             "/api/activities",
             get(
-                move |State(scraper): State<Scraper>,
+                move |State(reader): State<SessionReader>,
                       headers: HeaderMap,
                       RawQuery(query): RawQuery| {
                     let recent = recent.clone();
                     async move {
                         let session = session_header(&headers);
-                        scraper.calls.lock().unwrap().push(format!(
+                        reader.calls.lock().unwrap().push(format!(
                             "activities {session} {}",
                             query.unwrap_or_default()
                         ));
-                        if scraper.switch.fail_next.swap(false, Ordering::SeqCst) {
+                        if reader.switch.fail_next.swap(false, Ordering::SeqCst) {
                             return (
                                 StatusCode::INTERNAL_SERVER_ERROR,
-                                Json(json!({ "error": "internal", "message": "scraper hiccup" })),
+                                Json(json!({ "error": "internal", "message": "service hiccup" })),
                             );
                         }
-                        if scraper.switch.expired.load(Ordering::SeqCst) {
+                        if reader.switch.expired.load(Ordering::SeqCst) {
                             return (
                                 StatusCode::UNAUTHORIZED,
                                 Json(json!({
@@ -249,7 +251,9 @@ pub(crate) async fn spawn_switchable_scraper(switch: ScraperSwitch) -> (String, 
         .route(
             "/api/daily-summary",
             get(
-                |State(scraper): State<Scraper>, headers: HeaderMap, RawQuery(query): RawQuery| async move {
+                |State(reader): State<SessionReader>,
+                 headers: HeaderMap,
+                 RawQuery(query): RawQuery| async move {
                     let session = session_header(&headers);
                     let query = query.unwrap_or_default();
                     let date = query
@@ -257,12 +261,12 @@ pub(crate) async fn spawn_switchable_scraper(switch: ScraperSwitch) -> (String, 
                         .find_map(|pair| pair.strip_prefix("date="))
                         .unwrap_or_default()
                         .to_owned();
-                    scraper
+                    reader
                         .calls
                         .lock()
                         .unwrap()
                         .push(format!("summary {session} {date}"));
-                    if scraper.switch.expired.load(Ordering::SeqCst) {
+                    if reader.switch.expired.load(Ordering::SeqCst) {
                         return (
                             StatusCode::UNAUTHORIZED,
                             Json(json!({
@@ -271,18 +275,20 @@ pub(crate) async fn spawn_switchable_scraper(switch: ScraperSwitch) -> (String, 
                             })),
                         );
                     }
-                    let failing_day = *scraper.switch.fail_summary_on.lock().unwrap();
-                    if scraper.switch.fail_summaries.load(Ordering::SeqCst)
+                    let failing_day = *reader.switch.fail_summary_on.lock().unwrap();
+                    if reader.switch.fail_summaries.load(Ordering::SeqCst)
                         || failing_day.is_some_and(|day| day.to_string() == date)
                     {
                         return (
                             StatusCode::INTERNAL_SERVER_ERROR,
-                            Json(json!({ "error": "internal", "message": "scraper hiccup" })),
+                            Json(json!({ "error": "internal", "message": "service hiccup" })),
                         );
                     }
                     (
                         StatusCode::OK,
-                        Json(json!({ "date": date, "provider": "garmin", "resting_heart_rate": 48 })),
+                        Json(
+                            json!({ "date": date, "provider": "garmin", "resting_heart_rate": 48 }),
+                        ),
                     )
                 },
             ),
@@ -461,7 +467,7 @@ pub(crate) async fn hold_session(
     tenant: TenantId,
     session_id: &str,
 ) {
-    seed_scrape_session(
+    seed_signed_in_session(
         resources,
         user_id,
         tenant,
@@ -661,9 +667,9 @@ async fn prefetch_read(calls: &Calls) {
 /// history to offer.
 #[tokio::test]
 async fn a_usr_pwd_only_garmin_sign_in_is_untouched() {
-    let (scraper, calls) = spawn_scraper(false).await;
+    let (reader, calls) = spawn_session_reader(false).await;
     let resources = server(common::test_server_config_with_sciotte_usr_pwd_garmin(
-        &scraper,
+        &reader,
     ))
     .await;
     let (user_id, _user, tenant, token) = athlete(&resources).await;
@@ -704,13 +710,13 @@ async fn a_usr_pwd_only_garmin_sign_in_is_untouched() {
 /// A Garmin grant holder signs in with their username and password: the
 /// session becomes the provider's primary source (carnet#1494). It is warmed
 /// like any sign-in, by its own read, and nothing retires it: its token and
-/// connection stay beside the live grant, the scraper is never told to drop
+/// connection stay beside the live grant, the service is never told to drop
 /// it, nobody is told anything, and the card reads the session, which brings
 /// its own history in.
 #[tokio::test]
 async fn a_grant_holders_sign_in_keeps_the_session_as_the_primary() {
-    let (scraper, calls) = spawn_scraper(false).await;
-    let resources = server(common::test_server_config_with_sciotte(&scraper)).await;
+    let (reader, calls) = spawn_session_reader(false).await;
+    let resources = server(common::test_server_config_with_sciotte(&reader)).await;
     let (user_id, _user, tenant, token) = athlete(&resources).await;
     hold_grant(&resources, user_id, tenant).await;
 
@@ -850,11 +856,11 @@ async fn the_grants_own_pushes_leave_the_history_needed() {
 }
 
 /// A server whose Garmin OAuth reaches the dev fixture's stand-in and whose
-/// scraper is `scraper`.
-pub(crate) async fn server_with_garmin_oauth(scraper: &str) -> Arc<ServerContext> {
+/// session reader is `reader`.
+pub(crate) async fn server_with_garmin_oauth(reader: &str) -> Arc<ServerContext> {
     let fixture_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let fixture_base = format!("http://{}", fixture_listener.local_addr().unwrap());
-    let mut config = common::test_server_config_with_sciotte(scraper);
+    let mut config = common::test_server_config_with_sciotte(reader);
     common::set_server_app(
         &mut config,
         "garmin",
@@ -942,8 +948,8 @@ pub(crate) async fn connect_garmin_oauth(
 /// tells the athlete anything, and the card keeps reading the session.
 #[tokio::test]
 async fn the_oauth_callback_keeps_a_live_session_beside_the_new_grant() {
-    let (scraper, calls) = spawn_scraper(false).await;
-    let resources = server_with_garmin_oauth(&scraper).await;
+    let (reader, calls) = spawn_session_reader(false).await;
+    let resources = server_with_garmin_oauth(&reader).await;
     let (user_id, _user, tenant, token) = athlete(&resources).await;
     hold_session(&resources, user_id, tenant, LIVE_SESSION).await;
 
@@ -983,8 +989,8 @@ async fn the_oauth_callback_keeps_a_live_session_beside_the_new_grant() {
 /// revives it; the grant is its fallback meanwhile.
 #[tokio::test]
 async fn the_oauth_callback_keeps_a_flagged_session_beside_the_new_grant() {
-    let (scraper, calls) = spawn_scraper(false).await;
-    let resources = server_with_garmin_oauth(&scraper).await;
+    let (reader, calls) = spawn_session_reader(false).await;
+    let resources = server_with_garmin_oauth(&reader).await;
     let (user_id, _user, tenant, _token) = athlete(&resources).await;
     hold_session(&resources, user_id, tenant, DEAD_SESSION).await;
     resources

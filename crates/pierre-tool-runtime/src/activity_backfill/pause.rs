@@ -76,7 +76,7 @@ mod tests {
             "the pause does not depend on who refused: a provider 429 waits too"
         );
         for other in [
-            AppError::new(ErrorCode::ExternalServiceError, "scraper 502"),
+            AppError::new(ErrorCode::ExternalServiceError, "service 502"),
             AppError::new(ErrorCode::ProviderAuthRequired, "session expired"),
         ] {
             assert_eq!(

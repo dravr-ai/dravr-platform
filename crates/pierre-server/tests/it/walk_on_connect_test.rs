@@ -15,7 +15,7 @@
 // provider's history walk (pinned in `first_sync_post_test`). These tests
 // stand a recording hook in its slot and drive the real routes.
 //
-// The scraper and Garmin's OAuth are the loopback stand-ins of the Garmin
+// The session reader and Garmin's OAuth are the loopback stand-ins of the Garmin
 // sign-in suites.
 #![cfg(all(feature = "provider-garmin", feature = "health-sync"))]
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
@@ -25,7 +25,7 @@ use crate::common;
 use crate::garmin_sign_in_test::{
     athlete, connect_garmin_oauth, server, server_with_garmin_oauth, sign_in,
 };
-use crate::history_walk_test::{spawn_switchable_scraper, ScraperSwitch};
+use crate::history_walk_test::{spawn_switchable_session_reader, SessionReaderSwitch};
 
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -107,8 +107,8 @@ async fn reported(reports: &Reports) -> Vec<(Uuid, TenantId, String)> {
 /// in the tenant its token lives in, once: its history walk starts there.
 #[tokio::test]
 async fn a_sign_in_reports_the_session_it_stored() {
-    let (scraper, _calls) = spawn_switchable_scraper(ScraperSwitch::default()).await;
-    let resources = server(common::test_server_config_with_sciotte(&scraper)).await;
+    let (reader, _calls) = spawn_switchable_session_reader(SessionReaderSwitch::default()).await;
+    let resources = server(common::test_server_config_with_sciotte(&reader)).await;
     let (user_id, _user, tenant, token) = athlete(&resources).await;
     let reports = listen(&resources);
 
@@ -126,8 +126,8 @@ async fn a_sign_in_reports_the_session_it_stored() {
 /// the tenant its token lives in, once.
 #[tokio::test]
 async fn an_oauth_callback_reports_the_grant_it_stored() {
-    let (scraper, _calls) = spawn_switchable_scraper(ScraperSwitch::default()).await;
-    let resources = server_with_garmin_oauth(&scraper).await;
+    let (reader, _calls) = spawn_switchable_session_reader(SessionReaderSwitch::default()).await;
+    let resources = server_with_garmin_oauth(&reader).await;
     let (user_id, _user, tenant, _token) = athlete(&resources).await;
     let reports = listen(&resources);
 

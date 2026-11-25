@@ -33,7 +33,7 @@ use common::{
 };
 use embacle::types::ToolCallRequest;
 use futures_util::stream;
-use helpers::sciotte_mock::{seed_sciotte_session, spawn_mock_scraper};
+use helpers::sciotte_mock::{seed_sciotte_session, spawn_mock_session_reader};
 use pierre_core::errors::AppError;
 use pierre_core::models::ConnectionType;
 use pierre_llm::{
@@ -141,8 +141,8 @@ fn advertised_tools() -> Tool {
 
 #[tokio::test]
 async fn an_auth_trip_keeps_the_window_a_sibling_call_already_served() {
-    let scraper_url = spawn_mock_scraper().await;
-    let resources = create_test_server_resources_with_sciotte(&scraper_url)
+    let reader_url = spawn_mock_session_reader().await;
+    let resources = create_test_server_resources_with_sciotte(&reader_url)
         .await
         .expect("server resources");
     let (user_id, user) = create_test_user(&resources.agent.database)

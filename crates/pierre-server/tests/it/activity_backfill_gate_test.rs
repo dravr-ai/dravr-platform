@@ -1,5 +1,5 @@
 // ABOUTME: Tests the historical-backfill gate predicate that routes inline-fetch vs background backfill
-// ABOUTME: A deep `after` must route to backfill (never an inline scrape); a recent `after` fetches inline
+// ABOUTME: A deep `after` must route to backfill (never an inline session read); a recent `after` fetches inline
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -8,7 +8,7 @@
 //!
 //! The predicate is the safety-critical decision: a deep historical `after`
 //! must route to the bounded background backfill, never an inline provider
-//! scrape (the known sciotte timeout outage). These tests assert the routing
+//! session read (the known sciotte timeout outage). These tests assert the routing
 //! at the wall-clock boundaries against the default 90-day threshold (the
 //! `PIERRE_HISTORICAL_BACKFILL_THRESHOLD_DAYS` env is unset in this binary).
 
@@ -17,11 +17,11 @@ use pierre_tool_runtime::activity_backfill::is_historical_backfill_window;
 
 #[test]
 fn deep_historical_after_routes_to_backfill() {
-    // A three-year-old lower bound is far past any sane inline-scrape threshold.
+    // A three-year-old lower bound is far past any sane inline-read threshold.
     let three_years_ago = (Timestamp::now() - Elapsed::days(365 * 3)).epoch_seconds();
     assert!(
         is_historical_backfill_window(three_years_ago),
-        "a 3-year-old `after` must route to background backfill, not an inline scrape"
+        "a 3-year-old `after` must route to background backfill, not an inline session read"
     );
 }
 

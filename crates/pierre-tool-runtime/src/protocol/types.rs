@@ -182,7 +182,7 @@ pub(crate) fn metadata_str<'response>(
 /// the auth-required provider slug — the one signal that says the athlete must
 /// reconnect. It tags the refusal of a coach account's own calendar
 /// ([`is_own_calendar_refusal`]) too, which becomes the same coach-account
-/// error the scraper's refusal maps to ([`coach_account_error`]): the
+/// error the service's refusal maps to ([`coach_account_error`]): the
 /// account's standing state, judged the same whichever step refused it.
 /// Everything else it can fail with (an unsupported provider, a tenant
 /// missing OAuth credentials, a transport blip) is not a dead session and

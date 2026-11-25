@@ -13,14 +13,14 @@
 // through the session first, 36 months a request. Once a session step finds
 // nothing, the walk goes on through the grant, a year a window, strictly
 // below the oldest row the session stored, down to the account's creation
-// the grant's profile names: what the scraper never listed is still the
+// the grant's profile names: what the session never listed is still the
 // API's. The row keeps the session's key and stays owed through both phases,
 // its progress covers both, a restart resumes the API phase rather than the
 // session, and the athlete is told once, at the very end. A session walked
 // with no grant beside it ends there, and is reopened for the API phase when
 // a grant connects later.
 //
-// The scraper and Strava are loopback stand-ins (test doubles, per the repo's
+// The service and Strava are loopback stand-ins (test doubles, per the repo's
 // mock rule) that serve the history inside each read's bounds and count
 // every request.
 #![cfg(all(
@@ -32,7 +32,7 @@
 #![allow(missing_docs)]
 
 use crate::common;
-use crate::helpers::sciotte_mock::seed_scrape_session;
+use crate::helpers::sciotte_mock::seed_signed_in_session;
 use crate::helpers::strava_grant::hold_strava_grant;
 use crate::history_walk_api_test::{
     mock_strava, open_window, rows_under, strava_athlete, with_window, MockStrava,
@@ -110,7 +110,7 @@ fn query_bound(query: &str, name: &str) -> Option<i64> {
         .and_then(|value| value.parse().ok())
 }
 
-/// The scraper's JSON for the Strava ride starting at `start`, whose id
+/// The service's JSON for the Strava ride starting at `start`, whose id
 /// tells it apart from the API's rides (whose id is their start).
 fn session_ride(start: i64) -> Value {
     json!({
@@ -124,7 +124,7 @@ fn session_ride(start: i64) -> Value {
     })
 }
 
-/// A stand-in for the scraper service over a Strava account listing
+/// A stand-in for the session-read service over a Strava account listing
 /// `starts`, served within each read's `after` (inclusive) and `before`.
 async fn spawn_session(starts: Vec<i64>) -> (String, Arc<MockSession>) {
     let mock = Arc::new(MockSession::default());
@@ -226,9 +226,9 @@ struct Fixture {
 /// Strava stand-in, with a Strava window of `per_window` requests a day, and
 /// an athlete holding the usr/pwd session — and the API grant when `grant`.
 async fn fixture(session_starts: Vec<i64>, per_window: u32, grant: bool) -> Fixture {
-    let (scraper, session) = spawn_session(session_starts).await;
+    let (reader, session) = spawn_session(session_starts).await;
     let (api_base, strava) = mock_strava().await;
-    let mut config = common::test_server_config_with_sciotte(&scraper);
+    let mut config = common::test_server_config_with_sciotte(&reader);
     common::set_provider_endpoints(
         &mut config,
         "strava",
@@ -272,7 +272,7 @@ async fn fixture(session_starts: Vec<i64>, per_window: u32, grant: bool) -> Fixt
 
 /// Seed the athlete's live usr/pwd Strava session and its connection.
 async fn hold_session(resources: &Arc<ServerContext>, user_id: Uuid, tenant: TenantId) {
-    seed_scrape_session(
+    seed_signed_in_session(
         resources,
         user_id,
         tenant,
@@ -420,7 +420,7 @@ impl Fixture {
 }
 
 /// The session lists two rides of the last three years; the API holds three
-/// older ones the scraper never listed. The walk reads the session first,
+/// older ones the session never listed. The walk reads the session first,
 /// then the API strictly below the session's oldest row, 200 a page, down to
 /// the account's creation; the progress covers both phases on one row, and
 /// the athlete is told once, at the very end, of every activity and the

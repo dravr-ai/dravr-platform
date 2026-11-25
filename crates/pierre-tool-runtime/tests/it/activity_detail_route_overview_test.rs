@@ -76,11 +76,11 @@ fn detail_mode_keeps_every_other_field_of_the_activity() {
 }
 
 #[test]
-fn detail_mode_names_the_service_a_scraped_row_was_read_from() {
+fn detail_mode_names_the_service_a_session_read_row_was_read_from() {
     // A Garmin connection signed in with the athlete's username and password
     // from Dravr stamps its rows with the mirror backend; the model reads the
     // service instead.
-    let scraped = ActivityBuilder::new(
+    let session_row = ActivityBuilder::new(
         "g1",
         "Hill loop",
         SportType::Run,
@@ -90,7 +90,7 @@ fn detail_mode_names_the_service_a_scraped_row_was_read_from() {
     )
     .source("garmin")
     .build();
-    let value = detail_json(&[scraped, outdoor_run()]).unwrap();
+    let value = detail_json(&[session_row, outdoor_run()]).unwrap();
     let rows = value.as_array().unwrap();
     assert_eq!(rows[0]["provider"], "garmin");
     assert_eq!(rows[1]["provider"], "strava");

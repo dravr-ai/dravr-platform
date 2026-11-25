@@ -1250,7 +1250,7 @@ async fn an_ask_that_cannot_widen_the_owed_walk_reads_it_walking() {
     );
 }
 
-/// An athlete with only the Strava session: the scraper's detail read carries
+/// An athlete with only the Strava session: the service's detail read carries
 /// the segment efforts too (carnet#1602), so the walk is asked through the
 /// session, filed under it, and the window says it is being read.
 #[tokio::test]

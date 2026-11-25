@@ -342,9 +342,9 @@ dravr-riviere = { workspace = true }
 # tronc's MCP test client, which the MCP end-to-end tests drive /mcp with
 # (carnet#1000).
 dravr-tronc = { workspace = true, features = ["testkit"] }
-# The Home sync-truth suite builds its scraper stand-in's answers with the
-# scraper's own types and serializer, so it can only play a shape the scraper
-# can send.
+# The Home sync-truth suite builds its session reader stand-in's answers with
+# the service's own types and serializer, so it can only play a shape the
+# service can send.
 dravr-sciotte = { workspace = true, features = ["client"] }
 # Used only by the integration tests and benches: production reaches the
 # crates that need them through pierre-auth, pierre-tool-runtime and the

@@ -8,7 +8,7 @@
 //!
 //! [`crate::activity_backfill::spawn_activity_backfill`] writes a job row
 //! before it spawns and leases it to the instance that runs it. When that
-//! instance is reclaimed mid-scrape the lease lapses and the row is all that
+//! instance is reclaimed mid-read the lease lapses and the row is all that
 //! is left of the athlete's ask. [`resume_backfill_jobs`] is the other half:
 //! every [`SWEEP_INTERVAL`] it claims the rows whose lease lapsed, rebuilds
 //! each job from what the row kept — the window, the provider, the
@@ -49,7 +49,7 @@ pub const SWEEP_INTERVAL: Duration = Duration::from_mins(1);
 /// that wrote it; the sweep must not race that start.
 const QUEUED_GRACE: Duration = Duration::from_mins(2);
 
-/// Upper bound on jobs one pass claims. Each is a provider scrape that
+/// Upper bound on jobs one pass claims. Each is a provider read that
 /// takes the provider's global concurrency permit, so a handful per minute
 /// is plenty and a burst never stampedes Chrome.
 const SWEEP_BATCH: i64 = 5;

@@ -1,4 +1,4 @@
-// ABOUTME: Pins how a SciotteProvider stores a session the scraped platform rotated on a read
+// ABOUTME: Pins how a SciotteProvider stores a session the provider's platform rotated on a read
 // ABOUTME: Rotated (read ok or failed) → exported, held, handed to the callback; no rotation → no export; failed export → read unaffected
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -14,7 +14,7 @@
 //! the service now holds, imports that copy on its later reads, and hands it
 //! to its token-refresh callback with every other credential field as given.
 //!
-//! The scraper here is a loopback stand-in (a test double, per the repo's mock
+//! The service here is a loopback stand-in (a test double, per the repo's mock
 //! rule) that records each request — its path, the session it names and an
 //! import's cookies — and answers by the session.
 
@@ -197,7 +197,7 @@ fn answer_for(seen: &Seen, earlier: usize) -> (u16, Value, bool) {
     }
 }
 
-fn spawn_scraper_stub(listener: TcpListener, log: Arc<Mutex<Vec<Seen>>>) {
+fn spawn_session_reader_stub(listener: TcpListener, log: Arc<Mutex<Vec<Seen>>>) {
     tokio::spawn(async move {
         while let Ok((mut stream, _)) = listener.accept().await {
             let request = read_request(&mut stream).await;
@@ -297,7 +297,7 @@ async fn a_session_rotated_on_a_read_is_stored_and_read_through_next() {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let base = format!("http://{}", listener.local_addr().unwrap());
     let log = Arc::new(Mutex::new(Vec::new()));
-    spawn_scraper_stub(listener, Arc::clone(&log));
+    spawn_session_reader_stub(listener, Arc::clone(&log));
     let client =
         startup_reads(&[String::from(&base)], None).expect("a loopback client needs no audience"); // Safe: loopback URL
 
@@ -456,7 +456,7 @@ async fn every_call_of_a_session_reaches_the_read_service_its_id_names() {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         bases.push(format!("http://{}", listener.local_addr().unwrap()));
         let log = Arc::new(Mutex::new(Vec::new()));
-        spawn_scraper_stub(listener, Arc::clone(&log));
+        spawn_session_reader_stub(listener, Arc::clone(&log));
         logs.push(log);
     }
     let reads = startup_reads(&bases, None).expect("loopback services need no audience"); // Safe: loopback URLs

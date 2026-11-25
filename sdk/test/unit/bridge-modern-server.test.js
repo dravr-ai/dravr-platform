@@ -81,7 +81,7 @@ function startDravr({ tasks = true } = {}) {
             send(200, complete(rpc.id, {
               taskId: 'backfill-1',
               status: polls < 2 ? 'working' : 'completed',
-              statusMessage: polls < 2 ? 'scraping 2019' : undefined,
+              statusMessage: polls < 2 ? 'reading 2019' : undefined,
               createdAt: 't0',
               lastUpdatedAt: 't1',
               ttlMs: 60000,
@@ -212,7 +212,7 @@ describe('the bridge speaks 2026-07-28 to Dravr', () => {
       expect(notifications.map((n) => n.params.progress)).toEqual([1, 2, 3]);
       expect(notifications.every((n) => n.params.progressToken === 'host-7')).toBe(true);
       expect(notifications[0].params.message).toMatch(/task backfill-1/);
-      expect(notifications[1].params.message).toBe('scraping 2019');
+      expect(notifications[1].params.message).toBe('reading 2019');
     } finally {
       await wired.cleanup();
     }

@@ -13,7 +13,7 @@
 //! a chat that may never come, the sweep requests one of these bounded
 //! refreshes. Each refresh fetches the commitment window from every provider
 //! the athlete has connected, through the same authenticate-and-fetch path a
-//! chat turn uses (so every provider — OAuth API or scrape — is covered by the
+//! chat turn uses (so every provider — OAuth API or session read — is covered by the
 //! one seam), and the write-through plus its fetch-freshness mark is what lets
 //! the next sweep tick trust the count. An OAuth grant beside a usr/pwd
 //! session of its provider is passed over: its name resolves to the session,
@@ -38,7 +38,7 @@ use crate::runtime::ToolRuntime;
 const REFRESH_FETCH_LIMIT: usize = 200;
 
 /// In-flight refresh keys (`tenant:user`) so a sweep tick that defers several
-/// of one athlete's commitments — or two ticks racing a slow scrape — cannot
+/// of one athlete's commitments — or two ticks racing a slow session read — cannot
 /// stack duplicate provider fetches.
 static IN_FLIGHT_REFRESHES: LazyLock<Mutex<HashSet<String>>> =
     LazyLock::new(|| Mutex::new(HashSet::new()));
@@ -132,7 +132,7 @@ async fn run_commitment_refresh(
 ///
 /// A grant beside a session is passed over: it is the session's fallback,
 /// and its name resolves to the session, which its own connection reads, so
-/// the session is scraped once and the API is never read beside it
+/// the session is read once and the API is never read beside it
 /// (carnet#1494).
 async fn fetch_window_across_providers(
     runtime: &Arc<dyn ToolRuntime>,

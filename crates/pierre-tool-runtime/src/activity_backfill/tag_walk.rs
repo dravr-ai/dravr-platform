@@ -19,7 +19,7 @@
 //! [`TAG_WALK_PAGE_ROWS`], one page of the list, so a call is one page of the
 //! provider and the cursor is the number of pages done, kept in the row's
 //! `months_done` (the columns keep their first names; the unit is the job
-//! kind's). A page the scraper says it did not read whole is retried at the
+//! kind's). A page the service says it did not read whole is retried at the
 //! same page, never counted.
 //!
 //! **Budget.** Each page is admitted against the windows the detail walk
@@ -399,7 +399,7 @@ impl PageReader<'_> {
         // A walk that stopped short says nothing about the rows it missed:
         // the page is read again, never counted.
         if !listed.complete {
-            warn!(user_id = %job.user_id, provider = %job.provider_name, page, "Tag walk: the scraper did not read the page whole; it is read again");
+            warn!(user_id = %job.user_id, provider = %job.provider_name, page, "Tag walk: the service did not read the page whole; it is read again");
             return Read::Failed;
         }
         if listed.activities.is_empty() {

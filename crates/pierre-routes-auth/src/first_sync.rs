@@ -7,7 +7,7 @@
 //! What a provider connect reports once the athlete's data lands (carnet#831).
 //!
 //! A connect lands the athlete's first data one of two ways. A provider the
-//! health sync manages is backfilled right after the connect, and a scrape
+//! health sync manages is backfilled right after the connect, and a sign-in
 //! connect pre-fetches its activity list; either lands data this crate sees
 //! arrive. A provider read on demand — Strava and Wahoo over OAuth — has
 //! neither, and its first data is the first read of its activity list.
@@ -127,7 +127,7 @@ pub(crate) fn backfill_verdict(
     }
 }
 
-/// Report a scrape pre-fetch that lands activities as the athlete's data
+/// Report a session pre-fetch that lands activities as the athlete's data
 /// landing, for a provider the health sync does not backfill — the Strava
 /// mirror, whose pre-fetch is the only read a connect makes.
 ///
@@ -154,7 +154,7 @@ pub(crate) fn spawn_prefetch_landing(
             return;
         }
         // The session the pre-fetch read through is the mirror's, which a
-        // scrape-only athlete holds without any OAuth token: the first backend
+        // signed-in athlete holds without any OAuth token: the first backend
         // serving the provider that holds a token names the tenant.
         for backend in backend_resolver::serving_backends(&provider) {
             if let Some(tenant) = token_tenant(&auth_repos, user_uuid, &backend).await {
@@ -170,7 +170,7 @@ pub(crate) fn spawn_prefetch_landing(
 /// Report the connection of `backend` that just landed to the
 /// [`FirstSyncHook`], once `after` has finished.
 ///
-/// `after` is what the connect started on the connection: a scrape's
+/// `after` is what the connect started on the connection: a sign-in's
 /// pre-fetch and health backfill, an on-demand provider's first read, and the
 /// first post either leads to. The walk the hook starts may read the session
 /// those read, and the post's turn reads it too, so it waits for them, as the

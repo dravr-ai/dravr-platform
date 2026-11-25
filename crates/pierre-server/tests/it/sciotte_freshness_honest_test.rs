@@ -9,14 +9,14 @@
 
 //! Honest freshness for on-demand providers.
 //!
-//! sciotte is scraped per chat request and never background-synced, so its
+//! sciotte is read per chat request and never background-synced, so its
 //! `oauth_tokens.last_sync` is stamped once at login and never moves. The
 //! refresh service used to short-circuit on-demand providers to `Fresh`, so the
-//! agent believed sciotte data was current even when the scraped cache was
+//! agent believed sciotte data was current even when the session-read cache was
 //! hours old (the user-visible "tu parles à travers ton chapeau" bug).
 //!
 //! The freshness now derives from the activity cache's `synced_at` — the real
-//! timestamp of the last successful scrape. These tests pin that contract:
+//! timestamp of the last successful session read. These tests pin that contract:
 //!  1. No cached activities -> sciotte is reported stale (in `refreshing`), and
 //!     the agent hint warns about it.
 //!  2. Freshly cached activities -> sciotte is reported `fresh`, and the hint is

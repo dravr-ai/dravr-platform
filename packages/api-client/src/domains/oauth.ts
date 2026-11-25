@@ -20,11 +20,11 @@ import type {
 import { ENDPOINTS } from '../core/endpoints';
 
 // Backpressure retry parameters for the sciotte provider. The platform
-// answers HTTP 503 + `Retry-After` when the dedicated sciotte scraper
+// answers HTTP 503 + `Retry-After` when the dedicated sciotte session-read
 // service sheds load; clients retry with jittered exponential backoff so a
 // thundering herd at t+Retry-After doesn't re-saturate the service on every
 // synchronized tick. Values are fixed per-release — admins tune the
-// limit on the scraper service (DRAVR_SCIOTTE_MAX_CONCURRENT and friends),
+// limit on the sciotte service (DRAVR_SCIOTTE_MAX_CONCURRENT and friends),
 // not the client.
 const SCIOTTE_RETRY_MAX_ATTEMPTS = 3;
 const SCIOTTE_RETRY_BASE_MS = 1000;

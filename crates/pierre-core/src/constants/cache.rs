@@ -20,7 +20,7 @@ pub const TTL_ACTIVITY_LIST_SECS: u64 = 3_600; // 1 hour
 /// Provider roster cache TTL in seconds (10 minutes).
 ///
 /// A coach's roster on the provider (the athletes a TrainingPeaks coach
-/// account coaches) is read through a scraper page load. Ten minutes keeps a
+/// account coaches) is read through a session-read page load. Ten minutes keeps a
 /// coach linking several athletes in one sitting from paying that load per
 /// click, while an athlete added on the provider shows up within the same
 /// session; the linking UI can ask for a fresh read.

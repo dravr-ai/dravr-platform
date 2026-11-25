@@ -12,7 +12,7 @@
 //! heart rate and sleep HRV, since the Training Hub records no night), merged
 //! so one night — or one day — reported by two sources is one record carrying
 //! both sources' metrics. The chat pipeline refreshes a stale API source
-//! before the turn runs; a scrape-backed source (Garmin, COROS) syncs when the
+//! before the turn runs; a session-read source (Garmin, COROS) syncs when the
 //! athlete connects it and then at most every six hours, never inside a turn.
 //!
 //! A caller naming a source (the tools' `sleep_provider` argument) narrows the

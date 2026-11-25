@@ -78,7 +78,7 @@ export const CHANNEL_LINK_POLL_INTERVAL_MS = 3000;
  *
  * A stale answer means the server served the cache and started a background
  * refresh through the provider. Fifteen seconds covers a token provider's
- * fetch, which returns in a few. A scraped provider takes from tens of
+ * fetch, which returns in a few. A session-read provider takes from tens of
  * seconds up to the server's own bound on a refresh, four minutes, so the
  * waits widen and the last ask lands after that bound: 15 s, 45 s, 105 s and
  * 255 s after the first answer.

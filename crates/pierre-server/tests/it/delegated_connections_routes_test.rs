@@ -16,7 +16,7 @@
 //! coach's roster. Every notice is read back from the feed the clients read,
 //! in the reader's own language.
 //!
-//! The scraper is a loopback stand-in (a test double, per the repo's mock rule) that
+//! The session reader is a loopback stand-in (a test double, per the repo's mock rule) that
 //! answers by session and counts the roster reads it serves.
 
 use crate::common;
@@ -106,10 +106,10 @@ fn session_json(session_id: &str) -> Value {
     })
 }
 
-/// The scraper stand-in: a coach session reads the three-athlete roster,
+/// The session reader stand-in: a coach session reads the three-athlete roster,
 /// less the athletes dropped from it; any other session is an athlete
 /// account. A login's email picks the account.
-async fn spawn_scraper(roster_reads: Calls, dropped: Dropped) -> String {
+async fn spawn_session_reader(roster_reads: Calls, dropped: Dropped) -> String {
     let app = Router::new()
         .route(
             "/auth/login-with-credentials",
@@ -234,7 +234,7 @@ async fn person(res: &Arc<ServerContext>, email: &str, name: &str) -> Person {
     }
 }
 
-/// The world, its server reading through the scraper stand-in at `url`.
+/// The world, its server reading through the session reader stand-in at `url`.
 async fn world(roster_reads: Calls, dropped: Dropped, url: &str) -> World {
     let res = create_test_server_resources_with_sciotte(url)
         .await
@@ -607,7 +607,7 @@ fn roster_path(w: &World) -> String {
 
 /// Only the coach reads the roster, and, once the `provider_exposure_notice`
 /// flag arms the notice for them, only with its current version accepted;
-/// the refusal comes before any scrape.
+/// the refusal comes before any session read.
 async fn only_the_coach_reads_the_roster_with_the_notice_accepted(w: &World) {
     assert_denied(w.get(&roster_path(w), &w.m1).await, COACH_ONLY);
 
@@ -628,7 +628,7 @@ async fn only_the_coach_reads_the_roster_with_the_notice_accepted(w: &World) {
         StatusCode::BAD_REQUEST,
         "coach_platform_terms_outdated",
     );
-    assert_eq!(w.roster_reads(), 0, "refused before any scrape");
+    assert_eq!(w.roster_reads(), 0, "refused before any session read");
     users
         .record_provider_terms(w.coach.id, TP_NOTICE_BACKEND, tp_terms_version())
         .await
@@ -1403,7 +1403,7 @@ async fn an_inactive_group_admits_nobody(w: &World) {
 async fn a_coach_links_trainingpeaks_athletes_and_members_answer() {
     let roster_reads: Calls = Arc::new(Mutex::new(0));
     let dropped: Dropped = Arc::new(Mutex::new(Vec::new()));
-    let url = spawn_scraper(roster_reads.clone(), dropped.clone()).await;
+    let url = spawn_session_reader(roster_reads.clone(), dropped.clone()).await;
     let w = world(roster_reads, dropped, &url).await;
 
     the_coach_sees_the_group(&w).await;

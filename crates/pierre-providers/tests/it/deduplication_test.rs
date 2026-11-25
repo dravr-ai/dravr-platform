@@ -309,7 +309,7 @@ fn determinism_same_input_yields_same_canonical() {
 
 #[test]
 fn midnight_starts_are_not_merged_as_fragments() {
-    // Sciotte's date-only list scraping yields T00:00:00 (UTC midnight) when the
+    // Sciotte's date-only list read yields T00:00:00 (UTC midnight) when the
     // start time is unknown. Three distinct same-sport sessions that all land on
     // midnight must NOT collapse into one bogus fragment group — every midnight
     // row trivially "overlaps" every other, which produced the "N sessions
@@ -427,15 +427,15 @@ fn same_provider_overlapping_rides_are_one_session() {
 }
 
 #[test]
-fn a_scraped_copys_tags_fill_the_api_copy_that_has_none() {
-    // The Strava API row carries no tags; the scraped copy of the same
+fn a_session_read_copys_tags_fill_the_api_copy_that_has_none() {
+    // The Strava API row carries no tags; the session-read copy of the same
     // activity does (carnet#1618): the merged row reports them as filled.
     let t = base_time();
     let activities = vec![
         provider_activity("api-run", "strava", SportType::Run, t, 3_600)
             .distance_meters(10_000.0)
             .build(),
-        provider_activity("scraped-run", "sciotte", SportType::Run, t, 3_600)
+        provider_activity("session-run", "sciotte", SportType::Run, t, 3_600)
             .distance_meters(10_000.0)
             .tags(vec![TaggedBy::new(
                 ActivityTag::Recovery,
@@ -448,7 +448,7 @@ fn a_scraped_copys_tags_fill_the_api_copy_that_has_none() {
     assert_eq!(
         merged[0].merged_tags(),
         vec![ActivityTag::Recovery],
-        "bug: the scraped tags were not donated"
+        "bug: the session-read tags were not donated"
     );
     assert!(
         report.groups[0]
@@ -777,12 +777,12 @@ fn a_chain_of_three_recordings_is_one_group_whatever_the_input_order() {
 }
 
 #[test]
-fn a_date_only_scrape_pairs_with_the_timed_record_of_its_day() {
-    // A scrape mirror resolves only the day (T00:00:00); the API copy of the
+fn a_date_only_session_read_pairs_with_the_timed_record_of_its_day() {
+    // A session-read mirror resolves only the day (T00:00:00); the API copy of the
     // same run has the real start. Same sport, same day, matching distance.
     let day = Timestamp::parse_from_rfc3339("2026-05-28T00:00:00Z").unwrap();
     let activities = vec![
-        provider_activity("scrape", "sciotte", SportType::Run, day, 2_400)
+        provider_activity("session-read", "sciotte", SportType::Run, day, 2_400)
             .distance_meters(8_000.0)
             .build(),
         provider_activity(
@@ -930,7 +930,7 @@ fn a_report_scoped_to_a_page_keeps_only_that_page_s_groups_and_counts() {
 }
 
 #[test]
-fn a_scraped_recording_is_named_by_the_service_it_was_read_from() {
+fn a_session_read_recording_is_named_by_the_service_it_was_read_from() {
     // A Garmin connection signed in with the athlete's username and password
     // from Dravr stamps its rows with the mirror backend; the merge line and
     // `fragment_dedup` name the service, never the backend.
@@ -1034,7 +1034,7 @@ fn one_garmin_activity_id_is_one_workout_and_the_api_row_wins() {
 
 #[test]
 fn a_date_only_capture_still_folds_into_the_api_row_of_its_id() {
-    // A usr/pwd row scraped without its time sits at midnight UTC; the API
+    // A usr/pwd row read without its time sits at midnight UTC; the API
     // row starts the evening before in UTC. Only the id ties them.
     let api_start = Timestamp::parse_from_rfc3339("2026-05-21T23:30:00Z").unwrap();
     let midnight = Timestamp::parse_from_rfc3339("2026-05-22T00:00:00Z").unwrap();
@@ -1124,7 +1124,7 @@ fn strava_archive_row(id: &str, start: Timestamp, duration_secs: u64) -> Activit
 }
 
 /// A row the connection using usr/pwd from Dravr captured of a Strava
-/// activity: provider `sciotte`, source `strava`, scraped date-only (the list
+/// activity: provider `sciotte`, source `strava`, read date-only (the list
 /// page's day at midnight UTC), the sport the athlete relabelled it to.
 fn strava_capture_row(id: &str, day: Timestamp) -> Activity {
     ActivityBuilder::new(
@@ -1498,7 +1498,7 @@ fn two_recordings_of_the_same_tail_add_it_once() {
 
 #[test]
 fn a_date_only_row_never_adds_volume() {
-    // A capture scraped date-only sits at midnight: its window is not when it
+    // A capture read date-only sits at midnight: its window is not when it
     // was recorded, so it can never be a piece.
     let t = base_time();
     let day = t.utc_date().at_midnight().and_utc().unwrap();
@@ -1506,7 +1506,7 @@ fn a_date_only_row_never_adds_volume() {
         provider_activity("timed", "strava", SportType::Run, t, 3_600)
             .distance_meters(10_000.0)
             .build(),
-        provider_activity("scraped", "sciotte", SportType::Run, day, 3_600)
+        provider_activity("session-read", "sciotte", SportType::Run, day, 3_600)
             .distance_meters(10_050.0)
             .build(),
     ];
@@ -3015,7 +3015,7 @@ fn a_date_only_twin_leaves_the_pieces_of_a_session() {
 /// Two ids of one service are two workouts whichever path each came in by: a
 /// timed capture keys its row by the service's own id, as the API and the export
 /// do. A date-only capture has no clock to tell a ride from a copy, and still
-/// pairs (`a_date_only_scrape_pairs_with_the_timed_record_of_its_day`).
+/// pairs (`a_date_only_session_read_pairs_with_the_timed_record_of_its_day`).
 #[test]
 fn a_timed_capture_under_another_id_is_another_workout() {
     let t = base_time();

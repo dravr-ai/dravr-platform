@@ -1,5 +1,5 @@
 // ABOUTME: Unit tests for the usage banner a turn's own `notice` block produces
-// ABOUTME: Red if the banner stops naming the counter it measured and goes back to scraped prose
+// ABOUTME: Red if the banner stops naming the counter it measured and goes back to parsing prose
 
 import { afterAll, beforeAll, describe, it, expect } from 'vitest';
 import { formatCompactNumber, formatResetTime, quotaNoticeBanner } from '../src/quota';

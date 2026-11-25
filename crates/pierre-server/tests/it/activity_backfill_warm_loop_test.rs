@@ -12,7 +12,7 @@
 //! own warms asked again: on dev, one athlete with three providers connected
 //! was paged about once a second per provider for eleven hours.
 //!
-//! The scraper here is a loopback stand-in that serves each seeded session one
+//! The session reader here is a loopback stand-in that serves each seeded session one
 //! recent ride and records every activity-list read by session, so the reads
 //! each provider received are counted, not inferred.
 //
@@ -48,7 +48,7 @@ use tokio::time::{sleep, Instant};
 use uuid::Uuid;
 
 use crate::common;
-use crate::helpers::sciotte_mock::seed_scrape_session;
+use crate::helpers::sciotte_mock::seed_signed_in_session;
 
 /// Provider A: the connection whose backfill the test starts.
 const PROVIDER_A: &str = oauth_providers::SCIOTTE;
@@ -65,10 +65,10 @@ const STRAY_WINDOW: Duration = Duration::from_secs(2);
 /// Every activity-list read the stand-in served, as the session it read.
 type Reads = Arc<Mutex<Vec<String>>>;
 
-/// A stand-in scraper whose account, for every session, holds one ride five
+/// A stand-in session reader whose account, for every session, holds one ride five
 /// days old: far inside the 90-day default window plus its warm-up, so a warm
 /// over it stays partial and the provider holds nothing older.
-async fn spawn_scraper() -> (String, Reads) {
+async fn spawn_session_reader() -> (String, Reads) {
     let reads: Reads = Arc::new(Mutex::new(Vec::new()));
     let ride_start = (Timestamp::now() - Elapsed::days(5)).to_rfc3339();
     let app = Router::new()
@@ -153,7 +153,7 @@ async fn job_on_file(database: &Database, user_id: Uuid, tenant: TenantId, provi
     rows > 0
 }
 
-/// Connect `provider` for the athlete under a live scrape session `session`.
+/// Connect `provider` for the athlete under a live signed-in session `session`.
 async fn connect(
     resources: &Arc<ServerContext>,
     user_id: Uuid,
@@ -161,7 +161,7 @@ async fn connect(
     provider: &str,
     session: &str,
 ) {
-    seed_scrape_session(resources, user_id, tenant, provider, session).await;
+    seed_signed_in_session(resources, user_id, tenant, provider, session).await;
     resources
         .common
         .repos
@@ -183,8 +183,8 @@ async fn connect(
 async fn a_finished_backfills_warm_starts_no_capture_on_another_provider() {
     common::init_server_config();
     common::init_test_http_clients();
-    let (scraper, reads) = spawn_scraper().await;
-    let resources = common::create_test_server_resources_with_sciotte(&scraper)
+    let (reader, reads) = spawn_session_reader().await;
+    let resources = common::create_test_server_resources_with_sciotte(&reader)
         .await
         .unwrap();
     let (user_id, _user, tenant) = common::create_test_user_with_plan(

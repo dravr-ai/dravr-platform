@@ -21,7 +21,7 @@
 // keeps the day it stopped at and resumes from it; a history walk pauses.
 // None of them spends one of the walk's attempts on a refusal.
 //
-// The scraper is the Garmin stand-in the sign-in suite runs (a test double,
+// The session reader is the Garmin stand-in the sign-in suite runs (a test double,
 // per the repo's mock rule), which records every call it serves. Every
 // fixture athlete has their caps lifted to the ceiling; a test spends a
 // window by writing its counter, as reads would, and opens it again by
@@ -34,8 +34,8 @@
 use crate::common;
 use crate::garmin_sign_in_test::{
     athlete, calls_matching, hold_grant, hold_session, server, session_read_ceiling,
-    set_session_read_caps, sign_in, spawn_switchable_scraper, Calls, ScraperSwitch, LIVE_SESSION,
-    SIGNED_IN_SESSION,
+    set_session_read_caps, sign_in, spawn_switchable_session_reader, Calls, SessionReaderSwitch,
+    LIVE_SESSION, SIGNED_IN_SESSION,
 };
 use crate::history_walk_test::{
     age_job_rows, ask_walk, job_state, paused_retries_due, walk_ended, WALK_DEADLINE,
@@ -242,8 +242,8 @@ async fn activities_read(calls: &Calls) {
 /// nobody waits on the re-run, so its session read is background.
 #[tokio::test]
 async fn a_resume_sweep_rerun_of_an_asked_read_spends_background_reads() {
-    let (scraper, calls) = spawn_switchable_scraper(ScraperSwitch::default()).await;
-    let resources = server(common::test_server_config_with_sciotte(&scraper)).await;
+    let (reader, calls) = spawn_switchable_session_reader(SessionReaderSwitch::default()).await;
+    let resources = server(common::test_server_config_with_sciotte(&reader)).await;
     let (user_id, _user, tenant, _token) = athlete(&resources).await;
     hold_session(&resources, user_id, tenant, LIVE_SESSION).await;
     let asked = ActivityBackfillJobRow {
@@ -301,9 +301,9 @@ async fn a_resume_sweep_rerun_of_an_asked_read_spends_background_reads() {
 /// every session read it leads to is background.
 #[tokio::test]
 async fn a_sign_in_prefetch_spends_background_reads() {
-    let (scraper, calls) = spawn_switchable_scraper(ScraperSwitch::default()).await;
+    let (reader, calls) = spawn_switchable_session_reader(SessionReaderSwitch::default()).await;
     let resources = server(common::test_server_config_with_sciotte_usr_pwd_garmin(
-        &scraper,
+        &reader,
     ))
     .await;
     let (user_id, _user, _tenant, token) = athlete(&resources).await;
@@ -334,8 +334,8 @@ async fn a_capped_health_sync_keeps_its_days_and_resumes_at_the_refused_one() {
     // 8 reads take sleep 8 days in, recovery maps those 8 from the same
     // reads, and both stop at the day the cap refuses.
     const LEFT: u32 = 8;
-    let (scraper, calls) = spawn_switchable_scraper(ScraperSwitch::default()).await;
-    let resources = server(common::test_server_config_with_sciotte(&scraper)).await;
+    let (reader, calls) = spawn_switchable_session_reader(SessionReaderSwitch::default()).await;
+    let resources = server(common::test_server_config_with_sciotte(&reader)).await;
     let (user_id, _user, tenant, _token) = athlete(&resources).await;
     hold_session(&resources, user_id, tenant, SIGNED_IN_SESSION).await;
     let day = session_read_ceiling(&resources, SessionReadCap::BackgroundDaily).await;
@@ -354,7 +354,7 @@ async fn a_capped_health_sync_keeps_its_days_and_resumes_at_the_refused_one() {
     assert_eq!(
         summary_days(&calls, SIGNED_IN_SESSION).len(),
         usize::try_from(LEFT).unwrap(),
-        "bug: a read the cap refused reached the scraper"
+        "bug: a read the cap refused reached the service"
     );
     assert_eq!(
         recovery_days(&resources, user_id, tenant).await,
@@ -421,8 +421,8 @@ async fn recovery_days(resources: &Arc<ServerContext>, user_id: Uuid, tenant: Te
 /// day twice.
 #[tokio::test]
 async fn a_capped_first_wellness_fill_pauses_at_its_day_and_resumes_from_it() {
-    let (scraper, calls) = spawn_switchable_scraper(ScraperSwitch::default()).await;
-    let resources = server(common::test_server_config_with_sciotte(&scraper)).await;
+    let (reader, calls) = spawn_switchable_session_reader(SessionReaderSwitch::default()).await;
+    let resources = server(common::test_server_config_with_sciotte(&reader)).await;
     let (user_id, _user, tenant, _token) = athlete(&resources).await;
     hold_grant(&resources, user_id, tenant).await;
     hold_session(&resources, user_id, tenant, SIGNED_IN_SESSION).await;
@@ -478,7 +478,7 @@ async fn a_capped_first_wellness_fill_pauses_at_its_day_and_resumes_from_it() {
     assert_eq!(
         summary_days(&calls, SIGNED_IN_SESSION).len(),
         5,
-        "bug: a refused day reached the scraper"
+        "bug: a refused day reached the service"
     );
 
     fresh_windows(&resources, user_id).await;
@@ -547,8 +547,8 @@ const WHOLE_ACCOUNT_AFTER: i64 = 946_684_800;
 /// never again in the first fill's own allowance.
 #[tokio::test]
 async fn a_copy_after_the_first_fill_counts_in_the_background_day() {
-    let (scraper, calls) = spawn_switchable_scraper(ScraperSwitch::default()).await;
-    let resources = server(common::test_server_config_with_sciotte(&scraper)).await;
+    let (reader, calls) = spawn_switchable_session_reader(SessionReaderSwitch::default()).await;
+    let resources = server(common::test_server_config_with_sciotte(&reader)).await;
     let (user_id, _user, tenant, _token) = athlete(&resources).await;
     hold_grant(&resources, user_id, tenant).await;
     hold_session(&resources, user_id, tenant, SIGNED_IN_SESSION).await;
@@ -599,8 +599,8 @@ async fn a_copy_after_the_first_fill_counts_in_the_background_day() {
 /// incomplete, rather than pausing and being claimed again forever.
 #[tokio::test]
 async fn a_walk_a_zero_cap_refuses_ends_incomplete_within_its_attempts() {
-    let (scraper, calls) = spawn_switchable_scraper(ScraperSwitch::default()).await;
-    let resources = server(common::test_server_config_with_sciotte(&scraper)).await;
+    let (reader, calls) = spawn_switchable_session_reader(SessionReaderSwitch::default()).await;
+    let resources = server(common::test_server_config_with_sciotte(&reader)).await;
     let (user_id, _user, tenant, _token) = athlete(&resources).await;
     let off = HashMap::from([(
         SessionReadCap::BackgroundDaily.config_key(&UserTier::Starter),
@@ -635,7 +635,7 @@ async fn a_walk_a_zero_cap_refuses_ends_incomplete_within_its_attempts() {
     assert_eq!(
         calls_matching(&calls, "activities"),
         Vec::<String>::new(),
-        "bug: a read the kill switch refused reached the scraper"
+        "bug: a read the kill switch refused reached the service"
     );
 }
 
@@ -645,8 +645,8 @@ async fn a_walk_a_zero_cap_refuses_ends_incomplete_within_its_attempts() {
 /// opens it walks to the end.
 #[tokio::test]
 async fn a_capped_history_walk_step_pauses_without_spending_an_attempt() {
-    let (scraper, calls) = spawn_switchable_scraper(ScraperSwitch::default()).await;
-    let resources = server(common::test_server_config_with_sciotte(&scraper)).await;
+    let (reader, calls) = spawn_switchable_session_reader(SessionReaderSwitch::default()).await;
+    let resources = server(common::test_server_config_with_sciotte(&reader)).await;
     let (user_id, _user, tenant, _token) = athlete(&resources).await;
     hold_grant(&resources, user_id, tenant).await;
     hold_session(&resources, user_id, tenant, LIVE_SESSION).await;
@@ -672,7 +672,7 @@ async fn a_capped_history_walk_step_pauses_without_spending_an_attempt() {
     assert_eq!(
         calls_matching(&calls, "activities"),
         Vec::<String>::new(),
-        "bug: a refused step reached the scraper"
+        "bug: a refused step reached the service"
     );
 
     fresh_windows(&resources, user_id).await;

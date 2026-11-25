@@ -572,7 +572,7 @@ async fn a_failed_head_read_pages_and_an_auth_failure_does_not() {
         &head,
         &Err(AppError::external_service(
             "sciotte",
-            "500 from the scraper",
+            "500 from the service",
         )),
     )
     .await;
@@ -591,7 +591,7 @@ async fn a_failed_head_read_pages_and_an_auth_failure_does_not() {
     assert_eq!(page.field("provider"), "sciotte");
     assert_eq!(page.field("user_id"), user_id.to_string());
     assert!(
-        page.field("cause").contains("500 from the scraper"),
+        page.field("cause").contains("500 from the service"),
         "bug: the page names what failed, got: {}",
         page.field("cause")
     );
@@ -812,9 +812,9 @@ async fn a_serve_from_the_elected_providers_own_cache_touches_its_connection() {
 // Sciotte first, OAuth as fallback (carnet#1494): one fallback, the grant first
 // ---------------------------------------------------------------------------
 
-/// The scraper stand-in answers the session's activity list with its ride.
+/// The session reader stand-in answers the session's activity list with its ride.
 const SESSION_ANSWERS: u8 = 0;
-/// A `500`: the scraper failed.
+/// A `500`: the service failed.
 const SESSION_FAILS: u8 = 1;
 /// A `401` `session_expired`: Strava no longer honours the session.
 const SESSION_DEAD: u8 = 2;
@@ -828,19 +828,19 @@ const SESSION_DETAILS_ONLY: u8 = 5;
 
 /// The id of the ride the Strava API stand-in answers with.
 const GRANT_RIDE: &str = "4001";
-/// The id of the ride the scraper stand-in answers with.
+/// The id of the ride the session reader stand-in answers with.
 const SESSION_RIDE: &str = "21550000001";
 
-/// A scraper stand-in whose list answer the test picks, counting its reads.
-struct ScraperStandIn {
+/// A session reader stand-in whose list answer the test picks, counting its reads.
+struct SessionReaderStandIn {
     answer: AtomicU8,
     reads: AtomicUsize,
     /// Reads by id the stand-in answered.
     detail_reads: AtomicUsize,
 }
 
-async fn spawn_scraper(answer: u8) -> (Arc<ScraperStandIn>, String) {
-    let scraper = Arc::new(ScraperStandIn {
+async fn spawn_session_reader(answer: u8) -> (Arc<SessionReaderStandIn>, String) {
+    let reader = Arc::new(SessionReaderStandIn {
         answer: AtomicU8::new(answer),
         reads: AtomicUsize::new(0),
         detail_reads: AtomicUsize::new(0),
@@ -852,8 +852,8 @@ async fn spawn_scraper(answer: u8) -> (Arc<ScraperStandIn>, String) {
         )
         .route(
             "/api/activities",
-            get(|State(scraper): State<Arc<ScraperStandIn>>| async move {
-                scraper.reads.fetch_add(1, Ordering::SeqCst);
+            get(|State(reader): State<Arc<SessionReaderStandIn>>| async move {
+                reader.reads.fetch_add(1, Ordering::SeqCst);
                 let ride = json!({
                     "id": SESSION_RIDE,
                     "name": "Sortie du matin",
@@ -874,7 +874,7 @@ async fn spawn_scraper(answer: u8) -> (Arc<ScraperStandIn>, String) {
                         })),
                     )
                 };
-                match scraper.answer.load(Ordering::SeqCst) {
+                match reader.answer.load(Ordering::SeqCst) {
                     SESSION_FAILS | SESSION_DETAILS_ONLY => (
                         StatusCode::INTERNAL_SERVER_ERROR,
                         Json(json!({ "error": "the browser closed under the read" })),
@@ -892,11 +892,11 @@ async fn spawn_scraper(answer: u8) -> (Arc<ScraperStandIn>, String) {
         .route(
             "/api/activities/{id}",
             get(
-                |State(scraper): State<Arc<ScraperStandIn>>, Path(id): Path<String>| async move {
+                |State(reader): State<Arc<SessionReaderStandIn>>, Path(id): Path<String>| async move {
                     // A session Strava no longer honours refuses a read by id as
                     // it refuses its list; any other session finds no such ride,
                     // unless the test lets it read the ride the id names.
-                    match scraper.answer.load(Ordering::SeqCst) {
+                    match reader.answer.load(Ordering::SeqCst) {
                         SESSION_DEAD => {
                             return (
                                 StatusCode::UNAUTHORIZED,
@@ -904,7 +904,7 @@ async fn spawn_scraper(answer: u8) -> (Arc<ScraperStandIn>, String) {
                             );
                         }
                         SESSION_DETAILS_ONLY => {
-                            scraper.detail_reads.fetch_add(1, Ordering::SeqCst);
+                            reader.detail_reads.fetch_add(1, Ordering::SeqCst);
                             return (
                                 StatusCode::OK,
                                 Json(json!({
@@ -928,13 +928,13 @@ async fn spawn_scraper(answer: u8) -> (Arc<ScraperStandIn>, String) {
                 },
             ),
         )
-        .with_state(Arc::clone(&scraper));
+        .with_state(Arc::clone(&reader));
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     tokio::spawn(async move {
         axum::serve(listener, app).await.unwrap();
     });
-    (scraper, format!("http://{addr}"))
+    (reader, format!("http://{addr}"))
 }
 
 /// A Strava API stand-in serving one ride on its list and by its id, or a
@@ -1002,7 +1002,7 @@ async fn spawn_strava(failing: bool) -> (Arc<StravaStandIn>, String) {
 /// behind it, both pointed at stand-ins.
 struct Pair {
     resources: Arc<ServerContext>,
-    scraper: Arc<ScraperStandIn>,
+    reader: Arc<SessionReaderStandIn>,
     strava: Arc<StravaStandIn>,
     user_id: Uuid,
     tenant: TenantId,
@@ -1010,9 +1010,9 @@ struct Pair {
 
 impl Pair {
     async fn new(label: &str, session: u8, grant_failing: bool) -> Self {
-        let (scraper, scraper_url) = spawn_scraper(session).await;
+        let (reader, reader_url) = spawn_session_reader(session).await;
         let (strava, strava_url) = spawn_strava(grant_failing).await;
-        let mut config = common::test_server_config_with_sciotte(&scraper_url);
+        let mut config = common::test_server_config_with_sciotte(&reader_url);
         common::set_server_app(&mut config, "strava", "test_client", "test_secret");
         common::set_provider_endpoints(
             &mut config,
@@ -1032,7 +1032,7 @@ impl Pair {
                 .unwrap();
         let pair = Self {
             resources,
-            scraper,
+            reader,
             strava,
             user_id,
             tenant,
@@ -1215,7 +1215,7 @@ fn ids(rows: &[Activity]) -> Vec<&str> {
 }
 
 /// Every read the session did not vouch for is answered by the grant behind
-/// it: a scraper that failed, a capture that never reached the head, an
+/// it: a service that failed, a capture that never reached the head, an
 /// empty answer the cache contradicts, and a session Strava no longer
 /// honours. The session's failure is recorded under the session, the
 /// grant's answer is written under the grant, and nothing pages: the athlete
@@ -1251,7 +1251,7 @@ async fn each_session_read_that_falls_back_is_served_by_the_grant_and_recorded_w
             [GRANT_RIDE],
             "{label}: the grant's ride is served"
         );
-        assert_eq!(pair.scraper.reads.load(Ordering::SeqCst), 1, "{label}");
+        assert_eq!(pair.reader.reads.load(Ordering::SeqCst), 1, "{label}");
         assert_eq!(pair.strava.list_reads.load(Ordering::SeqCst), 1, "{label}");
         assert!(
             pair.synced("strava").await,
@@ -1368,7 +1368,7 @@ async fn a_dead_session_is_flagged_and_its_grant_keeps_serving_without_reading_i
         "bug: the dead session was not flagged for its sign-in"
     );
     assert_eq!(
-        pair.scraper.reads.load(Ordering::SeqCst),
+        pair.reader.reads.load(Ordering::SeqCst),
         1,
         "bug: the dead session was not read exactly once"
     );
@@ -1382,7 +1382,7 @@ async fn a_dead_session_is_flagged_and_its_grant_keeps_serving_without_reading_i
         "bug: the grant did not keep serving beside the flagged session"
     );
     assert_eq!(
-        pair.scraper.reads.load(Ordering::SeqCst),
+        pair.reader.reads.load(Ordering::SeqCst),
         1,
         "bug: a flagged session was signed in to again"
     );
@@ -1418,7 +1418,7 @@ async fn a_flagged_session_without_a_live_grant_serves_its_cache() {
         "bug: the flagged session's cache did not serve"
     );
     assert_eq!(
-        pair.scraper.reads.load(Ordering::SeqCst),
+        pair.reader.reads.load(Ordering::SeqCst),
         0,
         "bug: a flagged session was signed in to again"
     );
@@ -1600,7 +1600,7 @@ async fn a_detail_the_grant_answers_is_kept_under_the_grant_and_purged_with_it()
 }
 
 /// A session read whose list answers only once the test lets it, and then
-/// fails: a scrape that outlives the turn, then errors.
+/// fails: a session read that outlives the turn, then errors.
 struct SlowFailingSession {
     config: ProviderConfig,
     gate: Arc<Notify>,
@@ -1853,10 +1853,10 @@ async fn a_re_ask_of_a_read_its_grant_answered_reads_the_grants_rows() {
 /// A ride the grant listed while the session's list fails, detailed by the
 /// session's read by id, keeps that detail beside the grant's row it details,
 /// as the activity view keeps it: the next turn serves it from the store and
-/// scrapes nothing. Before, the session's answer looked for a session row of
-/// the ride, found none, and was dropped, so every turn scraped it again.
+/// reads nothing from the session. Before, the session's answer looked for a session row of
+/// the ride, found none, and was dropped, so every turn read it again.
 #[tokio::test]
-async fn a_session_detail_of_a_ride_the_grant_listed_is_kept_and_not_scraped_again() {
+async fn a_session_detail_of_a_ride_the_grant_listed_is_kept_and_not_read_again() {
     let pair = Pair::new("session-detail", SESSION_DETAILS_ONLY, false).await;
     let runtime = pair.runtime();
     let ctx = ToolContext::new()
@@ -1884,9 +1884,9 @@ async fn a_session_detail_of_a_ride_the_grant_listed_is_kept_and_not_scraped_aga
         );
     }
     assert_eq!(
-        pair.scraper.detail_reads.load(Ordering::SeqCst),
+        pair.reader.detail_reads.load(Ordering::SeqCst),
         1,
-        "bug: the session's detail of the grant's ride was dropped and scraped again"
+        "bug: the session's detail of the grant's ride was dropped and read again"
     );
     assert_eq!(
         pair.detail_read(GRANT_RIDE).await,

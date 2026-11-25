@@ -281,7 +281,7 @@ async fn push_provider_reauth_nudges_dm_and_resends_until_reconnect() {
 }
 
 /// The reauth nudge for a TrainingPeaks session: the body names the brand,
-/// never the backend slug, and the link opens the TrainingPeaks scraper. The
+/// never the backend slug, and the link opens the TrainingPeaks sign-in. The
 /// token's target is where a Strava default would hide — the body and the
 /// short link read the same either way.
 #[tokio::test]

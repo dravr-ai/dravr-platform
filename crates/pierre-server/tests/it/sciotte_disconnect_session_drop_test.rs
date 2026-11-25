@@ -7,7 +7,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-//! The platform is the session-of-record for a scrape session, but the shared
+//! The platform is the session-of-record for a signed-in session, but the shared
 //! sciotte service keeps its own copy of the athlete's provider cookies until
 //! the session idles out. A disconnect therefore asks the service to drop it
 //! (`DELETE /auth/sessions/{id}`, carnet#566), through the chokepoint every
@@ -46,20 +46,20 @@ use uuid::Uuid;
 
 /// What the stand-in service holds and every `DELETE` it was sent.
 #[derive(Clone, Default)]
-struct Scraper {
+struct SessionReader {
     held: Arc<Mutex<HashSet<String>>>,
     deletes: Arc<Mutex<Vec<String>>>,
 }
 
-impl Scraper {
+impl SessionReader {
     fn holding(sessions: &[&str]) -> Self {
-        let scraper = Self::default();
-        scraper
+        let reader = Self::default();
+        reader
             .held
             .lock()
             .unwrap()
             .extend(sessions.iter().map(|s| (*s).to_owned()));
-        scraper
+        reader
     }
 
     fn deletes(&self) -> Vec<String> {
@@ -75,11 +75,11 @@ impl Scraper {
 /// answers it: `200 removed` for a held session, `404 session_not_found`
 /// otherwise.
 async fn delete_session(
-    State(scraper): State<Scraper>,
+    State(reader): State<SessionReader>,
     Path(session_id): Path<String>,
 ) -> (StatusCode, Json<Value>) {
-    scraper.deletes.lock().unwrap().push(session_id.clone());
-    if scraper.held.lock().unwrap().remove(&session_id) {
+    reader.deletes.lock().unwrap().push(session_id.clone());
+    if reader.held.lock().unwrap().remove(&session_id) {
         (
             StatusCode::OK,
             Json(json!({ "status": "removed", "session_id": session_id })),
@@ -92,10 +92,10 @@ async fn delete_session(
     }
 }
 
-async fn spawn_scraper(scraper: Scraper) -> String {
+async fn spawn_session_reader(reader: SessionReader) -> String {
     let app = Router::new()
         .route("/auth/sessions/{id}", delete(delete_session))
-        .with_state(scraper);
+        .with_state(reader);
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     tokio::spawn(async move {
@@ -130,7 +130,7 @@ async fn user_with_tenant(resources: &Arc<ServerContext>) -> (Uuid, TenantId) {
     (user_id, tenant_id)
 }
 
-/// A user connected to `backend` through a scrape session stored as the
+/// A user connected to `backend` through a signed-in session stored as the
 /// login route stores it: the serialized session in the token row.
 async fn connected_by_session(
     resources: &Arc<ServerContext>,
@@ -216,12 +216,12 @@ async fn disconnect(
         .unwrap_or_else(|e| panic!("disconnecting {provider} succeeds: {e}"))
 }
 
-/// A held Strava scrape session is dropped from the service by its id.
+/// A held Strava signed-in session is dropped from the service by its id.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_held_session_is_dropped() {
-    let scraper = Scraper::holding(&["sess-strava-held"]);
+    let reader = SessionReader::holding(&["sess-strava-held"]);
     let resources =
-        &create_test_server_resources_with_sciotte(&spawn_scraper(scraper.clone()).await)
+        &create_test_server_resources_with_sciotte(&spawn_session_reader(reader.clone()).await)
             .await
             .unwrap();
     let (user_id, tenant_id) = connected_by_session(resources, SCIOTTE, "sess-strava-held").await;
@@ -229,18 +229,18 @@ async fn a_held_session_is_dropped() {
     let outcome = disconnect(resources, user_id, tenant_id, STRAVA).await;
 
     assert_eq!(
-        scraper.deletes(),
+        reader.deletes(),
         vec!["sess-strava-held".to_owned()],
         "exactly one DELETE, naming the stored session"
     );
     assert!(
-        !scraper.holds("sess-strava-held"),
+        !reader.holds("sess-strava-held"),
         "the service no longer holds the cookies"
     );
     assert_eq!(
         outcome,
         RevocationOutcome::NoGrant,
-        "a scrape session is no grant at the provider"
+        "a signed-in session is no grant at the provider"
     );
     assert_disconnected(resources, user_id, tenant_id, SCIOTTE).await;
 }
@@ -249,9 +249,9 @@ async fn a_held_session_is_dropped() {
 /// still completes.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_session_already_gone_still_disconnects() {
-    let scraper = Scraper::default();
+    let reader = SessionReader::default();
     let resources =
-        &create_test_server_resources_with_sciotte(&spawn_scraper(scraper.clone()).await)
+        &create_test_server_resources_with_sciotte(&spawn_session_reader(reader.clone()).await)
             .await
             .unwrap();
     let (user_id, tenant_id) =
@@ -260,7 +260,7 @@ async fn a_session_already_gone_still_disconnects() {
     disconnect(resources, user_id, tenant_id, GARMIN).await;
 
     assert_eq!(
-        scraper.deletes().last().map(String::as_str),
+        reader.deletes().last().map(String::as_str),
         Some("sess-garmin-idled-out"),
         "the DELETE names the stored session even when the service lost it"
     );
@@ -289,12 +289,12 @@ async fn an_unreachable_service_never_blocks_the_disconnect() {
 /// disconnect still completes.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_disconnect_drops_the_session_from_every_read_service() {
-    let holder = Scraper::holding(&["sess-strava-sharded"]);
-    let other = Scraper::default();
+    let holder = SessionReader::holding(&["sess-strava-sharded"]);
+    let other = SessionReader::default();
     let mut config = test_server_config();
     config.external_services.sciotte.read_urls = vec![
-        spawn_scraper(other.clone()).await,
-        spawn_scraper(holder.clone()).await,
+        spawn_session_reader(other.clone()).await,
+        spawn_session_reader(holder.clone()).await,
     ];
     let resources = &create_test_server_resources_with_config(config)
         .await
@@ -304,9 +304,9 @@ async fn a_disconnect_drops_the_session_from_every_read_service() {
 
     disconnect(resources, user_id, tenant_id, STRAVA).await;
 
-    for (service, scraper) in [("first", &other), ("second", &holder)] {
+    for (service, reader) in [("first", &other), ("second", &holder)] {
         assert_eq!(
-            scraper.deletes(),
+            reader.deletes(),
             vec!["sess-strava-sharded".to_owned()],
             "the {service} read service was asked to drop the session"
         );
@@ -322,10 +322,12 @@ async fn a_disconnect_drops_the_session_from_every_read_service() {
 /// still drops the session, and the disconnect completes (carnet#1504).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn an_unreachable_read_service_never_stops_the_others_dropping_the_session() {
-    let holder = Scraper::holding(&["sess-garmin-sharded"]);
+    let holder = SessionReader::holding(&["sess-garmin-sharded"]);
     let mut config = test_server_config();
-    config.external_services.sciotte.read_urls =
-        vec![unreachable_url().await, spawn_scraper(holder.clone()).await];
+    config.external_services.sciotte.read_urls = vec![
+        unreachable_url().await,
+        spawn_session_reader(holder.clone()).await,
+    ];
     let resources = &create_test_server_resources_with_config(config)
         .await
         .unwrap();

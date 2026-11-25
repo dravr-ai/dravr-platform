@@ -28,15 +28,15 @@ use pierre_tool_runtime::runtime::ToolRuntime;
 use serde_json::{json, Value};
 
 use crate::common::{create_test_server_resources_with_sciotte, create_test_user};
-use crate::helpers::sciotte_mock::{seed_sciotte_session, spawn_mock_scraper};
+use crate::helpers::sciotte_mock::{seed_sciotte_session, spawn_mock_session_reader};
 
-/// The ride the mock scraper serves, proving the fetch really happened.
-const SCRAPER_RIDE_ID: &str = "15551234567";
+/// The ride the mock session reader serves, proving the fetch really happened.
+const SESSION_RIDE_ID: &str = "15551234567";
 
 #[tokio::test]
 async fn a_served_window_stamps_last_used_and_wins_the_next_election() {
-    let scraper_url = spawn_mock_scraper().await;
-    let resources = create_test_server_resources_with_sciotte(&scraper_url)
+    let reader_url = spawn_mock_session_reader().await;
+    let resources = create_test_server_resources_with_sciotte(&reader_url)
         .await
         .unwrap();
     let (user_id, user) = create_test_user(&resources.agent.database)
@@ -95,7 +95,7 @@ async fn a_served_window_stamps_last_used_and_wins_the_next_election() {
         .collect();
     assert_eq!(
         ids,
-        vec![SCRAPER_RIDE_ID],
+        vec![SESSION_RIDE_ID],
         "the serve must be a real provider fetch, not a cache miss"
     );
 

@@ -51,7 +51,7 @@ pub(super) async fn notify_backfill_reauth(
 ///    while still disconnected gets the link again, so a first link that was
 ///    broken or never clicked does not silence them.
 ///
-/// `pub` so the integration suite can drive it without a scraper.
+/// `pub` so the integration suite can drive it without a session reader.
 pub async fn backfill_session_expired(
     runtime: &Arc<dyn ToolRuntime>,
     user_id: Uuid,

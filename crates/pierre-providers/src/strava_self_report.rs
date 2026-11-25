@@ -23,9 +23,9 @@
 //! The list endpoint does not carry it (intervals.icu forum, "RPE fed from
 //! Strava", 2021-02-27 and 2021-09-17), so only the detail read sees it.
 //!
-//! ## Scraped: the band label
+//! ## Session read: the band label
 //!
-//! A scraped activity page shows the band the slider sits in rather than the
+//! A session-read activity page shows the band the slider sits in rather than the
 //! number. Strava's help names only the two ends; the four bands below are the
 //! ones secondary sources describe the app labelling (sarakurth.com, "Rate of
 //! Perceived Exertion: A Guide for Runners"; Runner's World UK, "How to use
@@ -42,8 +42,8 @@
 //! could have picked inside it, so the stored point is never more than one
 //! step from what they chose. Max Effort is a single value and stays 10.
 //! "Modéré" and "Difficile" are the plain French words for the middle bands;
-//! no Strava page seen names them, so a French scrape that labels those bands
-//! otherwise maps to `None` rather than to a guess. When the scrape carries the
+//! no Strava page seen names them, so a French page that labels those bands
+//! otherwise maps to `None` rather than to a guess. When the read carries the
 //! slider's number instead, it is read as the rating directly.
 
 /// Strava's `perceived_exertion` as a CR-10 rating, or `None` when it is not
@@ -57,7 +57,7 @@ pub(crate) fn rpe_from_strava(rating: f32) -> Option<f32> {
     (1.0..=10.0).contains(&rating).then_some(rating)
 }
 
-/// A scraped Strava Perceived Exertion — the slider's number, or the label of
+/// A session-read Strava Perceived Exertion — the slider's number, or the label of
 /// the band it sits in — as a CR-10 rating. A band label becomes its midpoint
 /// (see the module documentation); anything else is `None`.
 #[cfg(feature = "provider-sciotte")]
@@ -126,7 +126,7 @@ mod tests {
 
     #[cfg(feature = "provider-sciotte")]
     #[test]
-    fn a_scraped_number_is_read_directly() {
+    fn a_session_read_number_is_taken_directly() {
         assert_eq!(rpe_from_strava_label("7"), Some(7.0));
         assert_eq!(rpe_from_strava_label(" 4 "), Some(4.0));
     }

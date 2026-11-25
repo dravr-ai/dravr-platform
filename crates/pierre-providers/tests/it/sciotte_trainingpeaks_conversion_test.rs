@@ -1,4 +1,4 @@
-// ABOUTME: Pins that a scraped TrainingPeaks workout reaches cageux with its load metrics and the athlete's self-report
+// ABOUTME: Pins that a session-read TrainingPeaks workout reaches cageux with its load metrics and the athlete's self-report
 // ABOUTME: Asserts TSS/IF/NP, feel and RPE in the platform's scales, the comment thread in order, and a Strava row's band as its CR-10 midpoint
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -7,18 +7,18 @@
 //! Sciotte TrainingPeaks → cageux `Activity` conversion contract.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-//! TrainingPeaks is the one scraped source whose rows carry the coach's load
+//! TrainingPeaks is the one session-read source whose rows carry the coach's load
 //! metrics — Training Stress Score, Intensity Factor and Normalized Power —
 //! on every workout, and the athlete's own self-report: the "How did you
 //! feel?" face, an RPE, and the notes and thread under the workout. This
-//! binary drives the providers against a loopback scraper stub and pins that
+//! binary drives the providers against a loopback session reader stub and pins that
 //! all of it reaches the cageux `Activity` the analytics read — the feel as a
 //! named rating (TrainingPeaks ranks it with 1 as the best), the RPE as a
 //! CR-10 number, the comments in order with their authors and times — and
 //! that a Strava row's exertion band crosses as its CR-10 midpoint while the
 //! TrainingPeaks feel scale never reads its rank.
 //!
-//! The scraped scenarios live in one test over one stand-in scraper, which
+//! The session-read scenarios live in one test over one stand-in session reader, which
 //! both providers reach through a client built for it rather than through the
 //! environment. The pure mapping functions are tested on their own below.
 
@@ -53,15 +53,15 @@ const REPORTED_WORKOUT_ID: &str = "6642427:3301978";
 /// A workout whose ratings sit outside the scales they claim.
 const OUT_OF_RANGE_WORKOUT_ID: &str = "6642427:3301979";
 
-/// A scraped Strava activity.
+/// A session-read Strava activity.
 const STRAVA_ACTIVITY_ID: &str = "15523001";
 
 /// Session ids, one per provider, so each import can be told apart.
 const TRAININGPEAKS_SESSION: &str = "tp-session";
 const STRAVA_SESSION: &str = "strava-session";
 
-/// An activity the scraper would return, as the detail extract reports it.
-fn scraped(id: &str, name: &str, sport: &str, provider: &str, extra: &Value) -> Value {
+/// An activity the session reader would return, as the detail extract reports it.
+fn session_row(id: &str, name: &str, sport: &str, provider: &str, extra: &Value) -> Value {
     let mut row = json!({
         "id": id,
         "name": name,
@@ -80,7 +80,7 @@ fn scraped(id: &str, name: &str, sport: &str, provider: &str, extra: &Value) -> 
 /// an id it does not serve.
 fn activity_body(id: &str) -> Option<Value> {
     let body = match id {
-        LOAD_WORKOUT_ID => scraped(
+        LOAD_WORKOUT_ID => session_row(
             id,
             "Sweet spot 3x15",
             "ride",
@@ -100,7 +100,7 @@ fn activity_body(id: &str) -> Option<Value> {
         // The shape sciotte gives a rated workout: the two single-field
         // notes first, attributed by role and untimed, then the thread,
         // oldest first, under each commenter's display name.
-        REPORTED_WORKOUT_ID => scraped(
+        REPORTED_WORKOUT_ID => session_row(
             id,
             "Threshold 2x20",
             "ride",
@@ -124,7 +124,7 @@ fn activity_body(id: &str) -> Option<Value> {
                 ]
             }),
         ),
-        OUT_OF_RANGE_WORKOUT_ID => scraped(
+        OUT_OF_RANGE_WORKOUT_ID => session_row(
             id,
             "Easy spin",
             "ride",
@@ -134,7 +134,7 @@ fn activity_body(id: &str) -> Option<Value> {
         // A Strava extract's exertion is the slider's band label. It is given
         // a feel rank here too, which no Strava extract produces, to show the
         // TrainingPeaks scale is never applied to another platform's rank.
-        STRAVA_ACTIVITY_ID => scraped(
+        STRAVA_ACTIVITY_ID => session_row(
             id,
             "Morning Run",
             "run",
@@ -180,7 +180,7 @@ async fn read_request(stream: &mut TcpStream) -> String {
 /// ids [`activity_body`] knows, recording every request so the test can read
 /// what the providers sent. An unknown path answers 404, so a request the
 /// test did not expect fails it rather than reading as some other row.
-fn spawn_scraper_stub(listener: TcpListener, seen: Arc<Mutex<Vec<String>>>) {
+fn spawn_session_reader_stub(listener: TcpListener, seen: Arc<Mutex<Vec<String>>>) {
     tokio::spawn(async move {
         while let Ok((mut stream, _)) = listener.accept().await {
             let request = read_request(&mut stream).await;
@@ -297,8 +297,8 @@ async fn a_workout_keeps_its_load_metrics(
     let import = import_for(seen, TRAININGPEAKS_SESSION);
     assert!(
         import.contains(r#""provider":"trainingpeaks""#),
-        "the session must be imported under the scraper's trainingpeaks provider, \
-         or the service routes the scrape to Strava: {import}"
+        "the session must be imported under the service's trainingpeaks provider, \
+         or the service routes the read to Strava: {import}"
     );
 }
 
@@ -383,7 +383,7 @@ async fn a_strava_row_reads_its_band_and_no_feel(
 }
 
 #[tokio::test]
-async fn scraped_rows_reach_cageux_with_their_metrics_and_self_report() {
+async fn session_read_rows_reach_cageux_with_their_metrics_and_self_report() {
     let listener = TcpListener::bind("127.0.0.1:0")
         .await
         .expect("bind loopback"); // Safe: ephemeral port on loopback
@@ -391,7 +391,7 @@ async fn scraped_rows_reach_cageux_with_their_metrics_and_self_report() {
         .local_addr()
         .expect("bound listener has an address"); // Safe: listener is bound
     let seen = Arc::new(Mutex::new(Vec::new()));
-    spawn_scraper_stub(listener, seen.clone());
+    spawn_session_reader_stub(listener, seen.clone());
 
     let client = startup_reads(&[String::from(&format!("http://{addr}"))], None)
         .expect("a loopback client needs no audience"); // Safe: loopback URL

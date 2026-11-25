@@ -408,8 +408,8 @@ pub(crate) const LATEST_ANCHOR_SQL: &str = r"
 pub(crate) const SUBJECT_EMAIL_SQL: &str = "SELECT email FROM users WHERE id = $1";
 
 /// Every provider-side id the account's tokens hold, `$1` its id as text. A
-/// scrape session stores none. Scoped by `user_id` alone, across every
-/// tenant: the deletion removes the account from all of them.
+/// signed-in session stores none. Scoped by `user_id` alone, across every
+/// tenant: the deletion removes the account from each.
 pub(crate) const PROVIDER_IDENTITIES_SQL: &str = r"
             SELECT DISTINCT provider, provider_user_id
             FROM user_oauth_tokens

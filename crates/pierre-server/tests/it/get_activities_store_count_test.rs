@@ -32,25 +32,25 @@ use uuid::Uuid;
 
 use crate::common::{create_test_server_resources_with_sciotte, create_test_user};
 use crate::helpers::sciotte_mock::{
-    seed_sciotte_session, spawn_mock_scraper_serving, MOCK_SCRAPER_RIDE_ID,
+    seed_sciotte_session, spawn_mock_session_reader_serving, MOCK_SESSION_RIDE_ID,
 };
 
 /// A key no connection of the athlete reads live: rows a former connection
 /// left in the store, which only the store read reaches.
 const FORMER_KEY: &str = "wahoo";
 
-/// The scraper stand-in serving one ride `age_days` old, with the flag its
+/// The session reader stand-in serving one ride `age_days` old, with the flag its
 /// `head_complete` verdict reads.
-async fn scraper_riding(age_days: i64) -> (Arc<AtomicBool>, String) {
+async fn session_reader_riding(age_days: i64) -> (Arc<AtomicBool>, String) {
     let head_complete = Arc::new(AtomicBool::new(true));
     let ride_start = (Timestamp::now() - Elapsed::days(age_days)).to_rfc3339();
-    let url = spawn_mock_scraper_serving(Arc::clone(&head_complete), ride_start).await;
+    let url = spawn_mock_session_reader_serving(Arc::clone(&head_complete), ride_start).await;
     (head_complete, url)
 }
 
-/// The scraper stand-in serving one ride two days old.
-async fn scraper() -> (Arc<AtomicBool>, String) {
-    scraper_riding(2).await
+/// The session reader stand-in serving one ride two days old.
+async fn reader() -> (Arc<AtomicBool>, String) {
+    session_reader_riding(2).await
 }
 
 /// A fresh athlete on one live sciotte connection, an empty store, and the
@@ -162,7 +162,7 @@ fn served_ids(payload: &Value) -> Vec<String> {
 /// count agree.
 #[tokio::test]
 async fn a_complete_live_read_is_stored_before_the_answer_and_counted_whole() {
-    let (_head_complete, url) = scraper().await;
+    let (_head_complete, url) = reader().await;
     let resources = create_test_server_resources_with_sciotte(&url)
         .await
         .unwrap();
@@ -178,13 +178,13 @@ async fn a_complete_live_read_is_stored_before_the_answer_and_counted_whole() {
 
     assert_eq!(
         served_ids(&payload),
-        vec![MOCK_SCRAPER_RIDE_ID],
+        vec![MOCK_SESSION_RIDE_ID],
         "bug: the ride was not served: {payload}"
     );
     assert!(
         stored_ids(&resources, user_id, tenant)
             .await
-            .contains(&MOCK_SCRAPER_RIDE_ID.to_owned()),
+            .contains(&MOCK_SESSION_RIDE_ID.to_owned()),
         "bug: a served ride the provider vouched for is not in the store when the answer returns"
     );
     let window = &payload["coverage"]["window"];
@@ -216,7 +216,7 @@ async fn a_complete_live_read_is_stored_before_the_answer_and_counted_whole() {
 /// the same civil day as `after` is outside the window and counts in neither.
 #[tokio::test]
 async fn the_window_total_is_the_stores_count_not_the_pages() {
-    let (_head_complete, url) = scraper().await;
+    let (_head_complete, url) = reader().await;
     let resources = create_test_server_resources_with_sciotte(&url)
         .await
         .unwrap();
@@ -244,7 +244,7 @@ async fn the_window_total_is_the_stores_count_not_the_pages() {
 
     assert_eq!(
         served_ids(&payload),
-        vec![MOCK_SCRAPER_RIDE_ID],
+        vec![MOCK_SESSION_RIDE_ID],
         "bug: the page is not the live read: {payload}"
     );
     let window = &payload["coverage"]["window"];
@@ -278,7 +278,7 @@ async fn the_window_total_is_the_stores_count_not_the_pages() {
 /// so a reply quoting its count is re-asked.
 #[tokio::test]
 async fn a_served_row_the_store_does_not_hold_is_named_unstored() {
-    let (head_complete, url) = scraper().await;
+    let (head_complete, url) = reader().await;
     let resources = create_test_server_resources_with_sciotte(&url)
         .await
         .unwrap();
@@ -295,7 +295,7 @@ async fn a_served_row_the_store_does_not_hold_is_named_unstored() {
 
     assert_eq!(
         served_ids(&payload),
-        vec![MOCK_SCRAPER_RIDE_ID],
+        vec![MOCK_SESSION_RIDE_ID],
         "bug: the headless capture is not served: {payload}"
     );
     assert!(
@@ -337,7 +337,7 @@ async fn a_served_row_the_store_does_not_hold_is_named_unstored() {
 /// the second ask at all.
 #[tokio::test]
 async fn a_window_the_response_cache_answers_is_counted_from_the_store() {
-    let (_head_complete, url) = scraper_riding(20).await;
+    let (_head_complete, url) = session_reader_riding(20).await;
     let resources = create_test_server_resources_with_sciotte(&url)
         .await
         .unwrap();
@@ -373,7 +373,7 @@ async fn a_window_the_response_cache_answers_is_counted_from_the_store() {
     let hit = get_activities(&resources, &ctx, args).await;
     assert_eq!(
         served_ids(&hit),
-        vec![MOCK_SCRAPER_RIDE_ID],
+        vec![MOCK_SESSION_RIDE_ID],
         "bug: the second ask was not the cached page: {hit}"
     );
     assert_eq!(
@@ -439,7 +439,7 @@ async fn seed_import(resources: &Arc<ServerContext>, user_id: Uuid, tenant: Tena
 /// count is exactly the count `query_activities` gives over the same days.
 #[tokio::test]
 async fn an_imported_row_is_served_counted_and_stored_and_query_activities_agrees() {
-    let (_head_complete, url) = scraper().await;
+    let (_head_complete, url) = reader().await;
     let resources = create_test_server_resources_with_sciotte(&url)
         .await
         .unwrap();
@@ -456,7 +456,7 @@ async fn an_imported_row_is_served_counted_and_stored_and_query_activities_agree
     ids.sort();
     assert_eq!(
         ids,
-        vec![MOCK_SCRAPER_RIDE_ID.to_owned(), "archive-ride".to_owned()],
+        vec![MOCK_SESSION_RIDE_ID.to_owned(), "archive-ride".to_owned()],
         "bug: the unpinned page is not the live ride and the imported one: {unpinned}"
     );
     let window = &unpinned["coverage"]["window"];
@@ -522,7 +522,7 @@ async fn an_imported_row_is_served_counted_and_stored_and_query_activities_agree
 /// import.
 #[tokio::test]
 async fn a_pinned_list_and_a_pinned_query_count_one_window() {
-    let (_head_complete, url) = scraper().await;
+    let (_head_complete, url) = reader().await;
     let resources = create_test_server_resources_with_sciotte(&url)
         .await
         .unwrap();

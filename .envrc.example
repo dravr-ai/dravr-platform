@@ -127,8 +127,8 @@ export JWT_EXPIRY_HOURS="24"
 # - "garmin": Real OAuth testing with Garmin
 export PIERRE_DEFAULT_PROVIDER=strava
 
-# Dedicated sciotte scraper service (ADR-021), optional. Set => the server sends
-# sciotte logins and scrapes here (the server runs no Chrome of its own, so
+# Dedicated sciotte service (ADR-021), optional. Set => the server sends
+# sciotte logins and session reads here (the server runs no Chrome of its own, so
 # unset disables the sciotte providers), and the one-shot
 # setup starts the service on this URL's port (scripts/sciotte-local.sh port).
 # Never 8091: that is the isolated Pierre server's port, and setup refuses a
@@ -438,7 +438,7 @@ export OAUTH2_RATE_LIMIT_WINDOW_SECS="60"
 # Maximum activities fetched from a provider in any single request.
 # Governs the direct analyze_training_load tool, group coaching snapshots,
 # and chat orchestration context. Lower values favour interactive latency
-# (slow paths like headless scrapers pay one round-trip per activity);
+# (slow paths like session reads pay one round-trip per activity);
 # higher values give more accurate CTL/ATL/TSB but increase tail latency.
 # Default when unset: pierre_core::constants::limits::DEFAULT_ACTIVITIES_LIMIT.
 export ACTIVITY_FETCH_LIMIT="20"

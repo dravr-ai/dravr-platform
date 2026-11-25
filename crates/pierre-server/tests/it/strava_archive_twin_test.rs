@@ -13,7 +13,7 @@
 //! share, nor on their sport, which the athlete may have relabelled on
 //! Strava after the device recorded it.
 //!
-//! The live copy here is the usr/pwd capture, served by a stand-in scraper
+//! The live copy here is the usr/pwd capture, served by a stand-in session reader
 //! through the production fetch path; the export is imported through the
 //! production import, on barrage's memory stores.
 //
@@ -59,7 +59,7 @@ use crate::common::{
     create_test_server_resources_with_archive_imports,
     create_test_server_resources_with_archive_imports_and_config, test_server_config_with_sciotte,
 };
-use crate::helpers::sciotte_mock::{seed_sciotte_session, spawn_mock_scraper_with_activity};
+use crate::helpers::sciotte_mock::{seed_sciotte_session, spawn_mock_session_reader_with_activity};
 
 /// Strava's id for the workout both copies hold.
 const RIDE_ID: &str = "16012345678";
@@ -87,7 +87,7 @@ fn evening_start() -> Timestamp {
     ride_day() + Elapsed::hours(25) + Elapsed::minutes(30)
 }
 
-/// The capture's JSON as the scraper serves it: date-only, and the sport the
+/// The capture's JSON as the service serves it: date-only, and the sport the
 /// athlete relabelled the ride to on Strava.
 fn date_only_capture_json() -> Value {
     json!({
@@ -147,11 +147,11 @@ async fn assert_listed_once(resources: &Arc<ServerContext>, athlete: &Athlete) {
 
 #[tokio::test]
 async fn a_date_only_capture_and_the_export_of_one_ride_are_listed_once() {
-    let scraper = spawn_mock_scraper_with_activity(date_only_capture_json()).await;
+    let reader = spawn_mock_session_reader_with_activity(date_only_capture_json()).await;
     let (imports, _) = imports_serving(one_ride_export(RIDE_ID, evening_start(), RIDE_SECONDS));
     let resources = create_test_server_resources_with_archive_imports_and_config(
         imports,
-        Some(test_server_config_with_sciotte(&scraper)),
+        Some(test_server_config_with_sciotte(&reader)),
     )
     .await
     .unwrap();
@@ -170,11 +170,11 @@ async fn a_timed_capture_and_the_export_of_one_ride_are_listed_once() {
     let mut capture = date_only_capture_json();
     capture["start_date"] = json!(start.to_rfc3339());
     capture["sport_type"] = json!("ride");
-    let scraper = spawn_mock_scraper_with_activity(capture).await;
+    let reader = spawn_mock_session_reader_with_activity(capture).await;
     let (imports, _) = imports_serving(one_ride_export(RIDE_ID, start, RIDE_SECONDS));
     let resources = create_test_server_resources_with_archive_imports_and_config(
         imports,
-        Some(test_server_config_with_sciotte(&scraper)),
+        Some(test_server_config_with_sciotte(&reader)),
     )
     .await
     .unwrap();
@@ -440,7 +440,7 @@ async fn a_by_id_read_of_a_ride_the_export_stands_for_returns_the_export_samples
     .unwrap();
     let athlete = seed_athlete(&resources, "strava-twin-by-id").await;
     // The usr/pwd capture holds the ride date-only, without samples; no
-    // scraper answers, so a read that reached it would fail.
+    // service answers, so a read that reached it would fail.
     store_capture(&resources, &athlete, true).await;
     hold_with_samples(
         &resources,
@@ -686,13 +686,13 @@ async fn run_tool(
 
 #[tokio::test]
 async fn the_per_activity_tools_read_an_uploaded_workout_by_its_id() {
-    // Connected to Strava through the usr/pwd capture, whose scraper knows
+    // Connected to Strava through the usr/pwd capture, whose reader knows
     // nothing of the file the athlete uploaded: the tools that answer about
     // one activity read the upload's own copy, as the sample tools do.
-    let scraper = spawn_mock_scraper_with_activity(date_only_capture_json()).await;
+    let reader = spawn_mock_session_reader_with_activity(date_only_capture_json()).await;
     let resources = create_test_server_resources_with_archive_imports_and_config(
         imports_serving(one_ride_export(RIDE_ID, evening_start(), RIDE_SECONDS)).0,
-        Some(test_server_config_with_sciotte(&scraper)),
+        Some(test_server_config_with_sciotte(&reader)),
     )
     .await
     .unwrap();

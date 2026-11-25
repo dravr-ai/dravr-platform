@@ -38,7 +38,7 @@ use uuid::Uuid;
 
 use crate::common::{create_test_server_resources, create_test_user};
 use crate::helpers::history_walk_ledger::{owe_history_walk, WALK_FLOOR};
-use crate::helpers::sciotte_mock::seed_scrape_session;
+use crate::helpers::sciotte_mock::seed_signed_in_session;
 
 /// The athlete's connection: a usr/pwd session, the source a walk reads.
 const BACKEND: &str = "sciotte";
@@ -73,7 +73,7 @@ async fn fixture() -> Fixture {
         .register_connection(user_id, tenant, BACKEND, &ConnectionType::Manual, None)
         .await
         .unwrap();
-    seed_scrape_session(&resources, user_id, tenant, BACKEND, "pending-session").await;
+    seed_signed_in_session(&resources, user_id, tenant, BACKEND, "pending-session").await;
     let runtime: Arc<dyn ToolRuntime> = resources.clone();
     Fixture {
         runtime,

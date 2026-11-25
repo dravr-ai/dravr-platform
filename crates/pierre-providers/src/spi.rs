@@ -173,12 +173,12 @@ bitflags::bitflags! {
         /// Provider supports continuous 24/7 data sync (sleep, recovery, HR, steps)
         const CONTINUOUS_DATA = 0b0010_0000;
         /// Fetching one activity's DETAIL costs about as much as fetching the
-        /// list — true for HTTP APIs, false for a headless-browser scrape
+        /// list — true for HTTP APIs, false for a headless-browser read
         /// where each detail is a full page navigation.
         ///
         /// `get_activities` details the activities of the last fourteen days, an
-        /// N+1 that is milliseconds on an API and minutes on a scrape: a live
-        /// 2026-08-12 Telegram turn spent 3m41s of its 4m37s scraping 30
+        /// N+1 that is milliseconds on an API and minutes on a session read: a
+        /// live 2026-08-12 Telegram turn spent 3m41s of its 4m37s reading 30
         /// detail pages one at a time, after the list had already returned in
         /// 37s. Absent by default, so a new provider is assumed expensive and
         /// stays fast until it opts in.
@@ -465,9 +465,9 @@ pub trait ProviderDescriptor: Send + Sync {
     }
 
     /// The service whose data this descriptor's backend reads, when that is
-    /// not the descriptor itself: a scraper names the provider it scrapes
+    /// not the descriptor itself: a session reader names the provider it reads
     /// (`sciotte_trainingpeaks` reads `trainingpeaks`). Items stamped with
-    /// that service's name — a scraped activity's `source`, a planned
+    /// that service's name — a session-read activity's `source`, a planned
     /// workout's `provider` — resolve to this descriptor's terms when no
     /// descriptor carries the name itself. `None` by default.
     fn origin(&self) -> Option<&'static str> {

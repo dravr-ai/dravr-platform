@@ -10,7 +10,7 @@
 //! Honest freshness + sync roster for OAuth-connected Strava.
 //!
 //! Strava was once registered with the enforme orchestrator for sciotte TSB
-//! scraping, but enforme background-syncs no activity data for anyone, and
+//! session reads, but enforme background-syncs no activity data for anyone, and
 //! for OAuth-connected users (Bearer token, no browser session) it could sync
 //! nothing at all. Two live failure modes followed (2026-07-11):
 //!
@@ -256,7 +256,7 @@ async fn a_mirror_only_providers_roster_reads_its_session_rows_never_oauth_rows(
         "opaque-oauth-token",
     )
     .await;
-    // A scrape-connected athlete: the session Garmin's health sync reads, on
+    // A session-connected athlete: the session Garmin's health sync reads, on
     // the mirror backend's row as the sciotte login writes it.
     seed_token(
         repos,
@@ -274,7 +274,7 @@ async fn a_mirror_only_providers_roster_reads_its_session_rows_never_oauth_rows(
     let ids: Vec<&str> = roster.iter().map(|u| u.user_id.as_str()).collect();
     assert!(
         ids.contains(&sciotte_user.to_string().as_str()),
-        "the scrape-connected Garmin athlete must be on the sync roster; got {ids:?}"
+        "the session-connected Garmin athlete must be on the sync roster; got {ids:?}"
     );
     assert!(
         !ids.contains(&oauth_user.to_string().as_str()),

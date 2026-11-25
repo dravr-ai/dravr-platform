@@ -999,7 +999,7 @@ impl ServerContext {
         // do. A build that registers no provider for one of them reads none
         // of its wellness. WHOOP's webhooks are verified against the secret
         // the configuration read at startup, the one the route checks.
-        // Every daily-summary read of a scrape session spends its owner's
+        // Every daily-summary read of a signed-in session spends its owner's
         // session reads (carnet#1661).
         let adapter =
             Arc::new(PierreSyncStorage::new(repos).with_read_budget(Arc::clone(request_limiter)));

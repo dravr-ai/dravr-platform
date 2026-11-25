@@ -7,7 +7,7 @@
 //! Regression guard for the live 2026-07-24 / 2026-08-11 Telegram incidents:
 //! the agent answered « Je ne suis pas capable d'accéder à tes données
 //! d'activité en ce moment (problème de connexion de mon côté) » on turns
-//! with **zero tool calls** while every scrape in the surrounding weeks was
+//! with **zero tool calls** while every session read in the surrounding weeks was
 //! green. The fabricated apology reached the user, was persisted, and
 //! replayed — teaching the model its data access was broken.
 //!
@@ -27,7 +27,7 @@ mod capability_recovery {
         test_server_config_with_sciotte,
     };
     use crate::helpers::axum_test::AxumTestRequest;
-    use crate::helpers::sciotte_mock::{seed_sciotte_session, spawn_mock_scraper};
+    use crate::helpers::sciotte_mock::{seed_sciotte_session, spawn_mock_session_reader};
     use async_trait::async_trait;
     use axum::http::StatusCode;
     use dravr_tronc::dates::Timestamp;
@@ -433,11 +433,11 @@ mod capability_recovery {
     #[tokio::test]
     #[serial]
     async fn fabricated_claim_with_working_provider_is_reasked_away() {
-        let scraper_url = spawn_mock_scraper().await;
+        let reader_url = spawn_mock_session_reader().await;
         let mock = Arc::new(ClaimThenCleanMockProvider);
         let resources = create_test_server_resources_with_llm_and_config(
             mock,
-            test_server_config_with_sciotte(&scraper_url),
+            test_server_config_with_sciotte(&reader_url),
         )
         .await
         .unwrap();
@@ -480,7 +480,7 @@ mod capability_recovery {
     async fn fabricated_claim_with_dead_provider_becomes_a_reconnect_challenge() {
         let mock = Arc::new(ClaimThenCleanMockProvider);
         let resources = create_test_server_resources_with_llm(mock).await.unwrap();
-        // A sciotte connection with no stored scrape session: the verification
+        // A sciotte connection with no stored signed-in session: the verification
         // fetch fails auth-shaped, which must route to the reconnect link.
         let (user_id, tenant_id) = create_user_with_connection(
             &resources,
@@ -618,11 +618,11 @@ mod capability_recovery {
     #[tokio::test]
     #[serial]
     async fn an_ungrounded_data_answer_is_regrounded_without_any_refusal_wording() {
-        let scraper_url = spawn_mock_scraper().await;
+        let reader_url = spawn_mock_session_reader().await;
         let mock = Arc::new(UngroundedThenGroundedMockProvider);
         let resources = create_test_server_resources_with_llm_and_config(
             mock,
-            test_server_config_with_sciotte(&scraper_url),
+            test_server_config_with_sciotte(&reader_url),
         )
         .await
         .unwrap();
@@ -748,11 +748,11 @@ mod capability_recovery {
     #[tokio::test]
     #[serial]
     async fn a_degenerate_fragment_after_tool_calls_is_reasked_into_an_answer() {
-        let scraper_url = spawn_mock_scraper().await;
+        let reader_url = spawn_mock_session_reader().await;
         let mock = Arc::new(ToolThenFragmentMockProvider);
         let resources = create_test_server_resources_with_llm_and_config(
             mock,
-            test_server_config_with_sciotte(&scraper_url),
+            test_server_config_with_sciotte(&reader_url),
         )
         .await
         .unwrap();
@@ -864,7 +864,7 @@ mod capability_recovery {
     }
 
     /// Found by the 2026-10-23 onboarding e2e on dev: a Garmin athlete whose
-    /// scraper did not answer asked about their last session, the turn spent
+    /// session reader did not answer asked about their last session, the turn spent
     /// its tools and came back empty, and the verification fetch failed the
     /// same non-auth way — so nothing re-asked, and the athlete saw no reply at
     /// all. An empty turn over an unreadable source must be re-asked into a
@@ -872,7 +872,7 @@ mod capability_recovery {
     #[tokio::test]
     #[serial]
     async fn an_empty_turn_over_an_unreadable_source_is_reasked_into_an_answer() {
-        // A connected scrape session whose scraper is down: every read fails,
+        // A connected signed-in session whose service is down: every read fails,
         // and none of the failures is a re-auth.
         let mock = Arc::new(ToolThenFragmentUnavailableProvider);
         let resources = create_test_server_resources_with_llm_and_config(
@@ -932,11 +932,11 @@ mod capability_recovery {
     #[tokio::test]
     #[serial]
     async fn a_reask_reply_is_stripped_before_it_is_delivered() {
-        let scraper_url = spawn_mock_scraper().await;
+        let reader_url = spawn_mock_session_reader().await;
         let mock = Arc::new(ClaimThenScaffoldingMockProvider);
         let resources = create_test_server_resources_with_llm_and_config(
             mock,
-            test_server_config_with_sciotte(&scraper_url),
+            test_server_config_with_sciotte(&reader_url),
         )
         .await
         .unwrap();
@@ -1050,14 +1050,14 @@ mod capability_recovery {
     #[tokio::test]
     #[serial]
     async fn a_leak_in_the_recovery_replacement_is_withheld() {
-        let scraper_url = spawn_mock_scraper().await;
+        let reader_url = spawn_mock_session_reader().await;
         let completions = Arc::new(AtomicUsize::new(0));
         let mock = Arc::new(ClaimLeakThenClaimMockProvider {
             completions: Arc::clone(&completions),
         });
         let resources = create_test_server_resources_with_llm_and_config(
             mock,
-            test_server_config_with_sciotte(&scraper_url),
+            test_server_config_with_sciotte(&reader_url),
         )
         .await
         .unwrap();
@@ -1354,7 +1354,7 @@ mod capability_recovery {
         }
 
         /// Phil (the asker, sciotte-connected; `asker_session_alive` seeds his
-        /// scrape session so his own fetch verifies, `false` leaves the
+        /// signed-in session so his own fetch verifies, `false` leaves the
         /// connection auth-dead) and JD (the peer, a cached Strava ride under
         /// his own tenant) in one Telegram-bound group under the bot tenant.
         async fn build_group_scenario(
@@ -1362,14 +1362,14 @@ mod capability_recovery {
             jd_consents: bool,
             asker_session_alive: bool,
         ) -> GroupScenario {
-            let scraper_url = spawn_mock_scraper().await;
+            let reader_url = spawn_mock_session_reader().await;
             // Seed canot's process-wide bot-username cache so mention
             // detection never issues a live getMe call.
             name_fixture_bot(BOT_ID, "dravr_subject_bot");
 
             let resources = create_test_server_resources_with_llm_and_config(
                 mock,
-                test_server_config_with_sciotte(&scraper_url),
+                test_server_config_with_sciotte(&reader_url),
             )
             .await
             .unwrap();

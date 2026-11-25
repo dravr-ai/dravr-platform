@@ -1,5 +1,5 @@
 // ABOUTME: A TrainingPeaks login records whether the account trains or coaches, off the login's own request
-// ABOUTME: Pins the manages_roster grant and its revocation, the coach refusal before any scrape, and lazy discovery
+// ABOUTME: Pins the manages_roster grant and its revocation, the coach refusal before any session read, and lazy discovery
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -14,13 +14,13 @@
 //! a coach connection earns it, and the workouts misfiled under it before
 //! sciotte 0.14 are deleted. A coach account that is someone else's, or shares
 //! no email, earns nothing. Once the role is known, a read of the
-//! coach account's own workouts is refused in words before any scrape; a
-//! connection made before roles were recorded learns its role from the
-//! scraper's refusal, or from a reused login.
+//! coach account's own workouts is refused in words before any session read;
+//! a connection made before roles were recorded learns its role from the
+//! service's refusal, or from a reused login.
 //! A login reuses a stored session only when it was written moments before;
 //! an older one is replaced by signing in with the submitted credentials.
 //!
-//! The scraper is a loopback stand-in (a test double, per the repo's mock rule) that
+//! The session reader is a loopback stand-in (a test double, per the repo's mock rule) that
 //! answers by session and records every call it serves.
 
 use crate::common;
@@ -88,7 +88,7 @@ const LEGACY_LOGIN_SESSION: &str = "legacy-coach-login";
 const STALE_SESSION: &str = "stale-session";
 /// A coach account whose TrainingPeaks email is not the user's.
 const STRANGER_COACH_SESSION: &str = "stranger-coach-session";
-/// An athlete account whose first profile read reaches a scraper instance the
+/// An athlete account whose first profile read reaches a service instance the
 /// import never did.
 const ROAMING_SESSION: &str = "roaming-athlete-session";
 
@@ -145,9 +145,9 @@ fn session_json(session_id: &str) -> Value {
     })
 }
 
-/// A stand-in for the scraper service: a login's email picks the account it
+/// A stand-in for the sciotte service: a login's email picks the account it
 /// signs in to, and each read answers by the session it carries.
-async fn spawn_scraper(calls: Calls) -> String {
+async fn spawn_session_reader(calls: Calls) -> String {
     let app = Router::new()
         .route(
             "/auth/login-with-credentials",
@@ -556,8 +556,8 @@ async fn a_coach_login_is_granted_the_roster_off_the_request(
 }
 
 /// Once the role is recorded, a read of the coach account's own workouts is
-/// refused in words before any scrape, and is no reconnect prompt.
-async fn a_recorded_coach_account_is_refused_before_any_scrape(
+/// refused in words before any session read, and is no reconnect prompt.
+async fn a_recorded_coach_account_is_refused_before_any_session_read(
     resources: &Arc<ServerContext>,
     calls: &Calls,
     coach: Uuid,
@@ -604,7 +604,7 @@ async fn a_recorded_coach_account_is_refused_before_any_scrape(
     assert_eq!(
         calls_to(calls, "/auth/import-session", COACH_SESSION),
         imports_before,
-        "the refusal happens before the session reaches the scraper"
+        "the refusal happens before the session reaches the service"
     );
     assert_eq!(calls_to(calls, "/api/activities", COACH_SESSION), 0);
 }
@@ -669,8 +669,8 @@ async fn the_grant_goes_with_the_coach_connection(
 }
 
 /// A connection made before roles were recorded learns it is a coach
-/// account from the scraper's refusal of its own read, and is refused before
-/// any scrape from then on. The refusal carries no email, so it grants
+/// account from the service's refusal of its own read, and is refused before
+/// any session read from then on. The refusal carries no email, so it grants
 /// nothing: the grant waits for a profile read that binds the account.
 async fn a_legacy_coach_read_is_discovered_from_the_refusal(
     resources: &Arc<ServerContext>,
@@ -691,7 +691,7 @@ async fn a_legacy_coach_read_is_discovered_from_the_refusal(
 
     let error = fetch_provider_head(&runtime, "trainingpeaks", coach, &tenant_str, &params)
         .await
-        .expect_err("the scraper refuses a coach account's own read");
+        .expect_err("the service refuses a coach account's own read");
     assert_eq!(sciotte_refusal(&error), Some(ATHLETE_REQUIRED));
     assert_eq!(error.provider_auth_required_provider(), None);
     assert!(
@@ -715,13 +715,13 @@ async fn a_legacy_coach_read_is_discovered_from_the_refusal(
     assert_eq!(
         calls_to(calls, "/api/activities", LEGACY_READ_SESSION),
         1,
-        "the next read is refused before any scrape"
+        "the next read is refused before any session read"
     );
 }
 
 /// A login that reuses a session stored before roles were recorded probes it.
 /// The session was stored moments before, so the login is answered from it
-/// without signing in to the scraper again.
+/// without signing in to the service again.
 async fn a_reused_legacy_session_is_probed(resources: &Arc<ServerContext>, calls: &Calls) {
     let (coach, tenant, token) = account(resources, "coach-d@example.test").await;
     store_legacy_session(
@@ -794,7 +794,7 @@ async fn a_stale_session_signs_in_again(resources: &Arc<ServerContext>, calls: &
             "athlete-e@example.test"
         ),
         1,
-        "the submitted credentials reach the scraper"
+        "the submitted credentials reach the service"
     );
 
     let stored = resources
@@ -813,7 +813,7 @@ async fn a_stale_session_signs_in_again(resources: &Arc<ServerContext>, calls: &
     );
 }
 
-/// The scraper keeps a session in the memory of the instance that imported
+/// The service keeps a session in the memory of the instance that imported
 /// it. A profile read that reaches another instance is answered
 /// `401 session_not_found`, which says nothing about the account's session:
 /// taken for a dead one, it tells a coach to reconnect an account that works.
@@ -854,13 +854,15 @@ async fn a_profile_read_that_misses_the_import_is_imported_once_more(
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_trainingpeaks_account_role_is_read_recorded_and_acted_on() {
     let calls: Calls = Arc::new(Mutex::new(Vec::new()));
-    let resources = create_test_server_resources_with_sciotte(&spawn_scraper(calls.clone()).await)
-        .await
-        .unwrap();
+    let resources =
+        create_test_server_resources_with_sciotte(&spawn_session_reader(calls.clone()).await)
+            .await
+            .unwrap();
 
     let (coach, tenant, token) =
         a_coach_login_is_granted_the_roster_off_the_request(&resources, &calls).await;
-    a_recorded_coach_account_is_refused_before_any_scrape(&resources, &calls, coach, tenant).await;
+    a_recorded_coach_account_is_refused_before_any_session_read(&resources, &calls, coach, tenant)
+        .await;
     an_athlete_login_records_the_role_and_grants_nothing(&resources, &calls).await;
     the_grant_goes_with_the_coach_connection(&resources, coach, tenant, &token).await;
     a_legacy_coach_read_is_discovered_from_the_refusal(&resources, &calls).await;
@@ -870,7 +872,7 @@ async fn a_trainingpeaks_account_role_is_read_recorded_and_acted_on() {
     a_profile_read_that_misses_the_import_is_imported_once_more(&resources, &calls).await;
 }
 
-/// A TrainingPeaks profile as the scraper returns it: an account of `role`,
+/// A TrainingPeaks profile as the service returns it: an account of `role`,
 /// listing `email` when it shares one.
 fn profile(role: &str, email: Option<&str>) -> AthleteProfile {
     serde_json::from_value(json!({ "id": "900101", "role": role, "email": email })).unwrap()

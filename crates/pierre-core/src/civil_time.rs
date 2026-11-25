@@ -372,7 +372,7 @@ pub fn relative_day_forms(day: RelativeDay, locale: &str) -> &'static [&'static 
 ///
 /// Several sources carry no time of day and render at midnight UTC of the
 /// workout day — `RosterActivity::start` documents exactly that for
-/// Strava-mirror scrapes. Such a value asserts a DAY, not a moment, and
+/// Strava-mirror session reads. Such a value asserts a DAY, not a moment, and
 /// converting it into a negative-offset zone moves it onto the previous
 /// calendar day: midnight UTC is 20:00 the day before in `America/Toronto`.
 ///

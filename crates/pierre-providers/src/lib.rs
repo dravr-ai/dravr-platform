@@ -106,29 +106,32 @@ mod intervals_icu_streams;
 /// Neutral session rendering for the calendars whose terms take rights over what Dravr writes.
 #[cfg(any(feature = "provider-wahoo", feature = "provider-garmin"))]
 mod neutral_session;
-/// Sciotte remote-service provider — routes scrapes to the dedicated dravr-sciotte service
+/// Sciotte remote-service provider — routes session reads to the dedicated dravr-sciotte service
 #[cfg(feature = "provider-sciotte")]
 pub mod sciotte_provider;
-/// The athlete's self-report on a scraped activity, read in the scale of the platform it came from.
+/// The athlete's self-report on a session-read activity, read in the scale of the platform it came from.
 #[cfg(feature = "provider-sciotte")]
 mod sciotte_self_report;
 
-/// COROS athlete self-report: the feeling the athlete picked, read off a scraped activity.
+/// COROS athlete self-report: the feeling the athlete picked, read off a session-read activity.
 #[cfg(feature = "provider-sciotte")]
 pub mod coros_self_report;
-/// Garmin Connect athlete self-report: RPE stored ×10 and the 0–100 feel score, read off a scraped activity.
+/// Garmin Connect athlete self-report: RPE stored ×10 and the 0–100 feel score, read off a session-read activity.
 #[cfg(feature = "provider-sciotte")]
 mod garmin_self_report;
-/// What a failed call to the dravr-sciotte scraper service is, as a platform error
+/// What a failed call to the dravr-sciotte service is, as a platform error
 #[cfg(feature = "provider-sciotte")]
 pub mod sciotte_error;
+/// The read error and busy wire value the dravr-sciotte crate names, under the platform's names
+#[cfg(feature = "provider-sciotte")]
+pub mod sciotte_names;
 /// Every read through a platform-held sciotte session, storing a session the provider rotated
 #[cfg(feature = "provider-sciotte")]
 pub mod sciotte_session;
 /// Strava API provider implementation
 #[cfg(feature = "provider-strava")]
 pub mod strava_provider;
-/// Strava athlete self-report: Perceived Exertion as the API's number or the scraped slider band.
+/// Strava athlete self-report: Perceived Exertion as the API's number or the session-read slider band.
 #[cfg(any(feature = "provider-strava", feature = "provider-sciotte"))]
 mod strava_self_report;
 #[cfg(feature = "provider-strava")]
@@ -136,10 +139,10 @@ pub mod strava_types;
 /// Terra unified API provider (150+ wearables)
 #[cfg(feature = "provider-terra")]
 pub mod terra;
-/// `TrainingPeaks` planned workouts: a scraped plan's blocks and targets in the periodization step grammar.
+/// `TrainingPeaks` planned workouts: a session-read plan's blocks and targets in the periodization step grammar.
 #[cfg(feature = "provider-sciotte")]
 pub mod trainingpeaks_plan;
-/// `TrainingPeaks` athlete self-report: the feeling rank (1 is the best face) and RPE, read off a scraped workout.
+/// `TrainingPeaks` athlete self-report: the feeling rank (1 is the best face) and RPE, read off a session-read workout.
 #[cfg(feature = "provider-sciotte")]
 pub mod trainingpeaks_self_report;
 /// Wahoo plan rendering: a `PlannedSession` into `plan.json` and the plan/workout form fields.

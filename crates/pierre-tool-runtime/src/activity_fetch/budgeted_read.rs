@@ -1,5 +1,5 @@
 // ABOUTME: A live activity-list read that answers its turn inside the refresh budget
-// ABOUTME: Past the budget the cached window answers and the read runs on as a durable job, so a slow scrape never fails a call
+// ABOUTME: Past the budget the cached window answers and the read runs on as a durable job, so a slow session read never fails a call
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -110,8 +110,8 @@ impl fmt::Debug for BudgetedRead {
 
 /// Read a provider's window live, waiting at most `budget` for it.
 ///
-/// A healthy scrape takes about two minutes, and the chat tool loop gives a
-/// tool call ninety seconds: an inline read of a scraped provider could fail
+/// A healthy session read takes about two minutes, and the chat tool loop gives
+/// a tool call ninety seconds: an inline read of a session-read provider could fail
 /// the whole `get_activities` call on a provider that was working. So the
 /// read is a [`BackfillJobKind::LiveRead`] job, recorded before it runs, and
 /// the turn waits for its first attempt. Past the budget the turn is answered
@@ -445,12 +445,12 @@ fn answered(
 /// Re-read a provider's recent head, waiting at most `budget` for it.
 ///
 /// The head top-up of a covered historical window ([`super::refresh_stale_head`])
-/// awaited [`super::refresh_head`] inline, so a slow scrape held the whole
+/// awaited [`super::refresh_head`] inline, so a slow session read held the whole
 /// call. It is a [`BackfillJobKind::LiveRead`] job no conversation waits on:
 /// past the budget the read runs on and its write-through lands for the next
 /// turn, silently; [`StaleReason::Timeout`] tells the caller the head it
 /// serves is behind. A read that failed is answered from the cache, as
-/// [`super::refresh_head`]'s is, and a flagged scrape session is not read at
+/// [`super::refresh_head`]'s is, and a flagged signed-in session is not read at
 /// all. A read the athlete's session-read cap refused (carnet#1661) answers
 /// [`StaleReason::ReadLimit`]: the cache the caller serves is the copy, and
 /// live reads resume when the reason says. Run unfiltered and filtered here,

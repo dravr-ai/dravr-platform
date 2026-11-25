@@ -107,7 +107,7 @@ pub enum RevocationOutcome {
     /// The provider answered the revocation with success.
     Revoked,
     /// There was no upstream grant to withdraw: the backend holds none (an
-    /// API key, a scrape session) or no token was stored for it.
+    /// API key, a signed-in session) or no token was stored for it.
     NoGrant,
     /// A grant may still be authorized at the provider: the revocation was
     /// refused, never reached it, or could not be built. The reason names
@@ -180,10 +180,10 @@ pub enum RevocationShape {
 /// `intervals_icu` deregisters an OAuth grant like WHOOP does; a row holding
 /// the API key an athlete pasted instead is no grant, and
 /// [`revoke_with_shape`] reports it as [`RevocationOutcome::NoGrant`].
-/// `sciotte`, `sciotte_garmin` and `sciotte_trainingpeaks` are scrape
+/// `sciotte`, `sciotte_garmin` and `sciotte_trainingpeaks` are signed-in
 /// sessions: the credential is a browser cookie jar, and there is nothing
 /// upstream to revoke either. The sciotte service's copy of that jar is
-/// dropped by [`drop_scrape_session`] instead.
+/// dropped by [`drop_service_session`] instead.
 ///
 /// LIMITATION(registre#509): `revocation_shape` returns `None` for `coros`
 /// because the COROS provider's OAuth endpoints are placeholders and no COROS
@@ -399,7 +399,7 @@ pub async fn revoke_upstream_grant(
     revocation_outcome(result, user_id, tenant_id, backend)
 }
 
-/// Drop the scrape session a disconnected mirror backend's row names from
+/// Drop the signed-in session a disconnected mirror backend's row names from
 /// every sciotte read service's memory (`DELETE /auth/sessions/{id}`).
 ///
 /// The platform is the session-of-record and deletes its row next, but a
@@ -414,10 +414,10 @@ pub async fn revoke_upstream_grant(
 /// that no longer holds the session is the state asked for.
 ///
 /// The session id is the key to those cookies on the service, so no log line
-/// here carries it. A backend that is not a scrape mirror, or a user holding
+/// here carries it. A backend that is not a session-read mirror, or a user holding
 /// no row for it, has nothing to drop, and neither has a server started with
 /// no service configured (`reads` is `None`).
-pub async fn drop_scrape_session(
+pub async fn drop_service_session(
     repos: &RepositoryRegistry,
     reads: Option<&SciotteReads>,
     user_id: Uuid,
@@ -434,7 +434,7 @@ pub async fn drop_scrape_session(
         debug!(
             user_id = %user_id,
             backend = %backend,
-            "Sciotte service not configured; no scrape session held there to drop"
+            "Sciotte service not configured; no signed-in session held there to drop"
         );
         return;
     };
@@ -468,25 +468,25 @@ fn log_session_removal(
             user_id = %user_id,
             tenant_id = %tenant_id,
             backend = %backend,
-            "Dropped the scrape session from the sciotte service"
+            "Dropped the signed-in session from the sciotte service"
         ),
         Ok(SessionRemoval::AlreadyGone) => debug!(
             sciotte_service = service,
             user_id = %user_id,
             backend = %backend,
-            "The sciotte service no longer held the scrape session"
+            "The sciotte service no longer held the signed-in session"
         ),
         Err(e) => warn!(
             sciotte_service = service,
             user_id = %user_id,
             backend = %backend,
             error = %e,
-            "Could not drop the scrape session on the sciotte service; its idle lifetime drops it"
+            "Could not drop the signed-in session on the sciotte service; its idle lifetime drops it"
         ),
     }
 }
 
-/// The session id a stored scrape-session row names, or `None` — logged at
+/// The session id a stored signed-in-session row names, or `None` — logged at
 /// WARN when a row exists but cannot be read or parsed — when there is none
 /// to drop. The id itself is never logged.
 async fn stored_session_id(
@@ -506,7 +506,7 @@ async fn stored_session_id(
                 user_id = %user_id,
                 backend = %backend,
                 error = %e,
-                "Could not read the stored scrape session to drop it on the sciotte service; its idle lifetime drops it"
+                "Could not read the stored signed-in session to drop it on the sciotte service; its idle lifetime drops it"
             );
             return None;
         }
@@ -516,7 +516,7 @@ async fn stored_session_id(
         warn!(
             user_id = %user_id,
             backend = %backend,
-            "Stored scrape session does not parse; no session id to drop on the sciotte service"
+            "Stored signed-in session does not parse; no session id to drop on the sciotte service"
         );
         return None;
     };
@@ -804,7 +804,7 @@ pub async fn surviving_rows(
 /// Withdraw every grant `provider` holds for `user_id` at the provider.
 ///
 /// Nothing is deleted here: this is the revocation of each backend of the
-/// coalesced pair in `tenant_id`, and the drop of its scrape session, both
+/// coalesced pair in `tenant_id`, and the drop of its signed-in session, both
 /// best-effort.
 ///
 /// The account deletion calls this before its one transaction, which deletes
@@ -820,7 +820,7 @@ pub async fn withdraw_upstream(
     let mut outcomes = Vec::new();
     for backend in backend_pair_for(provider) {
         outcomes.push(revoke_for_disconnect(service, user_id, tenant_id, &backend).await);
-        drop_scrape_session(
+        drop_service_session(
             service.data.repos(),
             service.data.provider_registry().sciotte_reads(),
             user_id,
@@ -834,12 +834,12 @@ pub async fn withdraw_upstream(
 
 /// Withdraw one backend completely: revoke upstream, then delete its rows.
 ///
-/// A scrape session is dropped from the sciotte service instead of revoked.
+/// A signed-in session is dropped from the sciotte service instead of revoked.
 /// The token and connection rows go in lockstep, and every row the provider
 /// contributed is purged.
 ///
 /// The two row types are separate sources of truth (`oauth_tokens` drives
-/// `resolve_backend` + the scrape session; `provider_connections` drives the
+/// `resolve_backend` + the signed-in session; `provider_connections` drives the
 /// "connected" badge and coaching fetch enumeration), so an orphaned connection
 /// row shows "Connected" for a dead session and routes the next fetch to a
 /// backend with no token.
@@ -865,13 +865,13 @@ pub async fn clear_backend(
     reason: DisconnectReason,
 ) -> AppResult<RevocationOutcome> {
     // Revoke BEFORE deleting — the stored token is the credential the
-    // revocation call spends, and names the scrape session to drop.
+    // revocation call spends, and names the signed-in session to drop.
     let outcome = if reason == DisconnectReason::ProviderRevoked {
         RevocationOutcome::NoGrant
     } else {
         revoke_for_disconnect(service, user_id, tenant_id, backend).await
     };
-    drop_scrape_session(
+    drop_service_session(
         data.repos(),
         data.provider_registry().sciotte_reads(),
         user_id,

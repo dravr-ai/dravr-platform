@@ -69,7 +69,7 @@
 //! declares the channels a best effort is read from: time and cumulative
 //! distance ([`BEST_EFFORT_CHANNELS`]), and that holds the walked history. A
 //! session is never read for samples, whatever its dictionary declares: each
-//! run's samples would be one scrape, and the seed never starts one, so a
+//! run's samples would be one session read, and the seed never starts one, so a
 //! Strava history read through the session is measured through the grant, by
 //! the activity id both share. A push holds no samples from before the
 //! athlete connected it, so Garmin is not seeded.
@@ -139,8 +139,8 @@ pub const BEST_EFFORT_CHANNELS: StreamChannels =
 /// dictionary.
 ///
 /// A usr/pwd session ([`HistorySourceRole::Session`]) is skipped even when
-/// its dictionary declares the channels, as a Strava scrape's now does: its
-/// samples are one scrape per run, and the seed never starts a scrape
+/// its dictionary declares the channels, as a Strava session read's now does:
+/// its samples are one session read per run, and the seed never starts one
 /// (carnet#1494), so Strava's history is measured through the grant. So is
 /// a push ([`HistorySourceRole::Pushed`]): it holds the samples of what
 /// arrived after the athlete connected it, none of the history a walk

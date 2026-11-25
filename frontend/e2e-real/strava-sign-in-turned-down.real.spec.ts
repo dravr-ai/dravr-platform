@@ -2,14 +2,14 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Real-backend E2E: a Strava email sign-in the provider turns down, in web onboarding, quotes its reason and is no dead end
-// ABOUTME: The window shows Strava's words, the Google/Apple advice, a retry and Strava's OAuth, against the scripted scraper double
+// ABOUTME: The window shows Strava's words, the Google/Apple advice, a retry and Strava's OAuth, against the scripted service double
 
 import { test, expect, request as apiRequest, type APIRequestContext } from '@playwright/test';
 import { SCIOTTE_DOUBLE_PORT, startSciotteDouble, type SciotteDouble } from './sciotte-double';
 import { freshAthlete, retireAthlete, skipOnboarding } from './fresh-athlete';
 import { signInThroughUi } from './ui-sign-in';
 
-// Opt-in real-server spec (`bun run test:e2e:real`), in the scraper-double
+// Opt-in real-server spec (`bun run test:e2e:real`), in the service-double
 // project: it needs a Pierre server started with
 // DRAVR_SCIOTTE_REMOTE_URL=http://127.0.0.1:8097 (SCIOTTE_DOUBLE_PORT) and
 // starts the double there itself. The server must hold Strava OAuth client
@@ -26,8 +26,8 @@ const STRAVA_REASON = "Couldn't find this account";
 const QUOTED_REASON = `Strava turned the sign-in down: “${STRAVA_REASON}”`;
 const ADVICE = 'If you open Strava with Google or Apple, try again and pick that option.';
 
-test.describe('Strava sign-in turned down in onboarding — real backend, scripted scraper', () => {
-  let scraper: SciotteDouble;
+test.describe('Strava sign-in turned down in onboarding — real backend, scripted service', () => {
+  let double: SciotteDouble;
   let ctx: APIRequestContext;
   let userId: string;
   let token: string;
@@ -35,10 +35,10 @@ test.describe('Strava sign-in turned down in onboarding — real backend, script
   const password = 'StravaTurnedDownPassw0rd!';
 
   test.beforeAll(async () => {
-    scraper = await startSciotteDouble([]);
-    scraper.login = 'rejected';
-    scraper.rejectionReason = STRAVA_REASON;
-    scraper.list = 'empty';
+    double = await startSciotteDouble([]);
+    double.login = 'rejected';
+    double.rejectionReason = STRAVA_REASON;
+    double.list = 'empty';
     ctx = await apiRequest.newContext({ baseURL: PIERRE_URL });
     ({ userId, token } = await freshAthlete(ctx, email, password, 'Strava Turned Down E2E'));
     await skipOnboarding(ctx, token);
@@ -47,7 +47,7 @@ test.describe('Strava sign-in turned down in onboarding — real backend, script
   test.afterAll(async () => {
     await retireAthlete(ctx, userId, email, 'strava sign-in turned down');
     await ctx?.dispose();
-    await scraper?.stop();
+    await double?.stop();
   });
 
   test('quotes Strava, advises Google or Apple, and offers a retry and the OAuth', async ({ page }) => {

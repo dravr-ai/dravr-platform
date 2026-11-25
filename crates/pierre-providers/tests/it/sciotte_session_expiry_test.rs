@@ -21,7 +21,7 @@ use pierre_providers::core::{
 use pierre_providers::sciotte_provider::SciotteProviderFactory;
 use secrecy::SecretString;
 
-/// Build a bare sciotte provider (no scraper, no client — the client is only
+/// Build a bare sciotte provider (no service, no client — the client is only
 /// touched on an actual fetch, never on construction or `is_authenticated`).
 fn sciotte_provider() -> Box<dyn FitnessProvider> {
     let config = ProviderConfig {

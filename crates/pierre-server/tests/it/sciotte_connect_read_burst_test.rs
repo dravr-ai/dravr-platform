@@ -1,21 +1,21 @@
-// ABOUTME: carnet#736 — a COROS connect's own reads never press its fresh session with two scrapes at once
+// ABOUTME: carnet#736 — a COROS connect's own reads never press its fresh session with two reads at once
 // ABOUTME: The proposal takes the in-flight pre-fetch's activities; the health backfill starts after it
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
 //! Within a second of a COROS two-factor connect, the platform fired three
-//! scrapes of the same fresh session at a scraper service that serves two
-//! browsers at a time: the activity pre-fetch, the 30-day health backfill and
-//! the onboarding proposal's own activity read. The daily-summary read failed
-//! and the proposal's read was shed, so the proposal was built on nothing.
+//! reads of the same fresh session at a service that serves two browsers at a
+//! time: the activity pre-fetch, the 30-day health backfill and the
+//! onboarding proposal's own activity read. The daily-summary read failed and
+//! the proposal's read was shed, so the proposal was built on nothing.
 //!
-//! The scraper here is a loopback stand-in (a test double, per the repo's mock
+//! The session reader here is a loopback stand-in (a test double, per the repo's mock
 //! rule) that serves the login, the session export and import, a slow activity
-//! list and the daily summaries, and records when each scrape of the session
+//! list and the daily summaries, and records when each read of the session
 //! starts and ends. The connect goes through the real routes, and the
 //! proposal is asked for the moment the connect answers, while the pre-fetch
-//! is still scraping.
+//! is still reading.
 //!
 //! One test, because the pre-fetch registry is process-wide.
 //
@@ -54,44 +54,44 @@ use tokio::time::sleep;
 const SESSION: &str = "coros-736";
 
 /// How long the stand-in takes over the activity list: long enough that the
-/// proposal, asked for the moment the connect answers, lands mid-scrape.
-const ACTIVITY_SCRAPE: Duration = Duration::from_millis(1500);
+/// proposal, asked for the moment the connect answers, lands mid-read.
+const ACTIVITY_READ: Duration = Duration::from_millis(1500);
 
-/// How long one daily-summary scrape takes.
-const SUMMARY_SCRAPE: Duration = Duration::from_millis(20);
+/// How long one daily-summary read takes.
+const SUMMARY_READ: Duration = Duration::from_millis(20);
 
 /// How long the backfill gets to finish before the test gives up.
 const BACKFILL_DEADLINE: Duration = Duration::from_secs(60);
 
 /// How long no new daily summary must be read for the backfill to count as
-/// finished: many summary scrapes' worth of quiet.
+/// finished: many summary reads' worth of quiet.
 const BACKFILL_QUIET: Duration = Duration::from_secs(2);
 
 /// The runs the account holds, newest first: fewer than the pre-fetch asks
 /// for, so the pre-fetch reads the whole history.
 const RUN_DAYS_AGO: [i64; 3] = [1, 3, 6];
 
-/// One scrape of the session the stand-in served.
+/// One read of the session the stand-in served.
 #[derive(Debug, Clone)]
-struct Scrape {
+struct Read {
     path: &'static str,
     started: Instant,
     ended: Option<Instant>,
 }
 
-/// What the stand-in saw of the session: every scrape, and the most that ran
+/// What the stand-in saw of the session: every read, and the most that ran
 /// at once.
 #[derive(Debug, Default)]
 struct Seen {
-    scrapes: Vec<Scrape>,
+    reads: Vec<Read>,
     running: usize,
     most_at_once: usize,
 }
 
 type Shared = Arc<Mutex<Seen>>;
 
-/// Count a scrape of `path` in; returns its index to count it out with.
-fn scrape_started(seen: &Shared, headers: &HeaderMap, path: &'static str) -> Option<usize> {
+/// Count a read of `path` in; returns its index to count it out with.
+fn read_started(seen: &Shared, headers: &HeaderMap, path: &'static str) -> Option<usize> {
     let session = headers
         .get("x-session-id")
         .and_then(|value| value.to_str().ok())
@@ -102,19 +102,19 @@ fn scrape_started(seen: &Shared, headers: &HeaderMap, path: &'static str) -> Opt
     let mut seen = seen.lock().unwrap();
     seen.running += 1;
     seen.most_at_once = seen.most_at_once.max(seen.running);
-    seen.scrapes.push(Scrape {
+    seen.reads.push(Read {
         path,
         started: Instant::now(),
         ended: None,
     });
-    Some(seen.scrapes.len() - 1)
+    Some(seen.reads.len() - 1)
 }
 
-fn scrape_ended(seen: &Shared, index: Option<usize>) {
+fn read_ended(seen: &Shared, index: Option<usize>) {
     if let Some(index) = index {
         let mut seen = seen.lock().unwrap();
         seen.running -= 1;
-        seen.scrapes[index].ended = Some(Instant::now());
+        seen.reads[index].ended = Some(Instant::now());
     }
 }
 
@@ -145,10 +145,10 @@ fn runs() -> Value {
     json!({ "count": activities.len(), "activities": activities, "head_complete": true })
 }
 
-/// The scraper service stand-in: a COROS login that asks for a code, the
+/// The service stand-in: a COROS login that asks for a code, the
 /// session it then exports, and the session's slow activity list and daily
 /// summaries.
-async fn spawn_scraper(seen: Shared) -> String {
+async fn spawn_session_reader(seen: Shared) -> String {
     let app = Router::new()
         .route(
             "/auth/login-with-credentials",
@@ -184,9 +184,9 @@ async fn spawn_scraper(seen: Shared) -> String {
         .route(
             "/api/activities",
             get(|State(seen): State<Shared>, headers: HeaderMap| async move {
-                let scrape = scrape_started(&seen, &headers, "/api/activities");
-                sleep(ACTIVITY_SCRAPE).await;
-                scrape_ended(&seen, scrape);
+                let read = read_started(&seen, &headers, "/api/activities");
+                sleep(ACTIVITY_READ).await;
+                read_ended(&seen, read);
                 Json(runs())
             }),
         )
@@ -194,9 +194,9 @@ async fn spawn_scraper(seen: Shared) -> String {
             "/api/daily-summary",
             get(
                 |State(seen): State<Shared>, headers: HeaderMap, RawQuery(query): RawQuery| async move {
-                    let scrape = scrape_started(&seen, &headers, "/api/daily-summary");
-                    sleep(SUMMARY_SCRAPE).await;
-                    scrape_ended(&seen, scrape);
+                    let read = read_started(&seen, &headers, "/api/daily-summary");
+                    sleep(SUMMARY_READ).await;
+                    read_ended(&seen, read);
                     let query = query.unwrap_or_default();
                     let date = query
                         .split('&')
@@ -229,17 +229,17 @@ async fn post_auth(resources: &Arc<ServerContext>, token: &str, path: &str, body
 fn summaries_read(seen: &Shared) -> usize {
     seen.lock()
         .unwrap()
-        .scrapes
+        .reads
         .iter()
         .filter(|s| s.path == "/api/daily-summary" && s.ended.is_some())
         .count()
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn a_coros_connect_reads_its_session_one_scrape_at_a_time() {
+async fn a_coros_connect_reads_its_session_one_read_at_a_time() {
     let seen = Shared::default();
     let resources =
-        create_test_server_resources_with_sciotte(&spawn_scraper(Arc::clone(&seen)).await)
+        create_test_server_resources_with_sciotte(&spawn_session_reader(Arc::clone(&seen)).await)
             .await
             .unwrap();
     let (user_id, user) = create_test_user(&resources.agent.database).await.unwrap();
@@ -277,7 +277,7 @@ async fn a_coros_connect_reads_its_session_one_scrape_at_a_time() {
     assert_eq!(connected["status"], "connected", "{connected}");
 
     // The onboarding screen asks for its proposal the moment the connect
-    // answers, while the pre-fetch is still scraping.
+    // answers, while the pre-fetch is still reading.
     let proposal = AxumTestRequest::get("/api/agents/proposal")
         .header("authorization", &format!("Bearer {token}"))
         .send(build_agents_router::<ServerContext>().with_state(Arc::clone(&resources)))
@@ -312,23 +312,23 @@ async fn a_coros_connect_reads_its_session_one_scrape_at_a_time() {
     assert_eq!(proposal["profile"]["primary_sport"], "run", "{proposal}");
 
     let seen = seen.lock().unwrap();
-    let activity_scrapes: Vec<&Scrape> = seen
-        .scrapes
+    let activity_reads: Vec<&Read> = seen
+        .reads
         .iter()
         .filter(|s| s.path == "/api/activities")
         .collect();
     assert_eq!(
-        activity_scrapes.len(),
+        activity_reads.len(),
         1,
-        "the proposal must take the pre-fetch's read, not scrape again: {seen:?}"
+        "the proposal must take the pre-fetch's read, not read again: {seen:?}"
     );
     assert_eq!(
         seen.most_at_once, 1,
-        "the connect's reads pressed the session with several scrapes at once: {seen:?}"
+        "the connect's reads pressed the session with several reads at once: {seen:?}"
     );
-    let prefetch_ended = activity_scrapes[0].ended.expect("the pre-fetch finished");
+    let prefetch_ended = activity_reads[0].ended.expect("the pre-fetch finished");
     let first_summary = seen
-        .scrapes
+        .reads
         .iter()
         .filter(|s| s.path == "/api/daily-summary")
         .map(|s| s.started)

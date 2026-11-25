@@ -4052,10 +4052,10 @@ name = "pierre-dev-fixture"
 version = "0.3.0"
 dependencies = [
  "axum",
+ "dravr-barrage",
  "dravr-tronc",
  "pierre-config",
  "pierre-core",
- "pierre-fitness-compute",
  "pierre-providers",
  "reqwest",
  "secrecy",
@@ -4114,13 +4114,13 @@ name = "pierre-fitness-compute"
 version = "0.3.0"
 dependencies = [
  "async-trait",
+ "dravr-barrage",
  "dravr-cageux",
  "dravr-meteo",
  "dravr-tronc",
  "hex",
  "pierre-core",
  "pierre-database",
- "proptest",
  "reqwest",
  "schemars 1.2.3",
  "serde",

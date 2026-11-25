@@ -220,7 +220,7 @@ describe('PHASE 2 — TurnEnvelope blocks on mobile', () => {
 
   it('renders the reconnect call to action from the block, not from a URL in the prose', async () => {
     // The regression this turns red: the deleted
-    // `/https?:\/\/\S*\/providers\/sciotte\/login\?token=\S+/` scrape coming back.
+    // `/https?:\/\/\S*\/providers\/sciotte\/login\?token=\S+/` match coming back.
     // The prose here carries no URL at all, so a regex-driven renderer draws
     // no button and the athlete has nothing to tap.
     const reconnectUrl = 'https://app.dravr.ai/providers/sciotte/login?token=one-time-abc';

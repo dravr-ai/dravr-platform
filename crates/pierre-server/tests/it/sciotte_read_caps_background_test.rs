@@ -14,7 +14,7 @@
 //! tool calls in the task that awaits it: a task-local does not cross a
 //! spawn. This pins it where it is decided, at the session read: the model
 //! lists the athlete's Strava activities, which reads their signed-in Strava
-//! session through the scraper, and that read is counted in the athlete's
+//! session through the service, and that read is counted in the athlete's
 //! background windows and never in the asked ones.
 #![cfg(feature = "client-messaging")]
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
@@ -41,7 +41,7 @@ use pierre_providers::request_budget::{
 };
 use uuid::Uuid;
 
-use crate::helpers::sciotte_mock::{seed_sciotte_session, spawn_mock_scraper};
+use crate::helpers::sciotte_mock::{seed_sciotte_session, spawn_mock_session_reader};
 
 /// A model that lists the athlete's Strava activities through a tool on its
 /// first ask and answers on the next, recording for each ask whether it ran in
@@ -117,7 +117,7 @@ impl LlmProvider for RecordingModel {
     }
 }
 
-/// The athlete's session reads at the scraper's Strava, counted as `counter`
+/// The athlete's session reads at the service's Strava, counted as `counter`
 /// today.
 async fn strava_session_reads(resources: &Arc<ServerContext>, user_id: Uuid, counter: &str) -> i64 {
     resources
@@ -140,10 +140,10 @@ async fn a_platform_posts_turn_runs_its_tool_round_in_background() {
     common::init_server_config();
     common::init_test_http_clients();
     let model = Arc::new(RecordingModel::default());
-    let scraper = spawn_mock_scraper().await;
+    let reader = spawn_mock_session_reader().await;
     let resources = common::create_test_server_resources_with_chat_provider_and_config(
         model.clone(),
-        common::test_server_config_with_sciotte(&scraper),
+        common::test_server_config_with_sciotte(&reader),
     )
     .await
     .unwrap();
@@ -167,7 +167,7 @@ async fn a_platform_posts_turn_runs_its_tool_round_in_background() {
         .await
         .unwrap()
         .id;
-    // Signed in to Strava through the scraper: every read of the athlete's
+    // Signed in to Strava through the service: every read of the athlete's
     // Strava is a read of their session.
     seed_sciotte_session(&resources, user_id, tenant_id).await;
     resources

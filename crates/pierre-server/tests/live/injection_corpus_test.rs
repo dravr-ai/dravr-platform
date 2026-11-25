@@ -7,11 +7,11 @@
 //! Live prompt-injection eval (carnet#1467).
 //!
 //! Tool outputs carry text nobody on the platform wrote: an activity's name, a
-//! note scraped off the athlete's provider account, a group member's activity
+//! note read from the athlete's provider session, a group member's activity
 //! titles, the description a coach typed on a planned workout. An attacker who
 //! can write any of them can plant an instruction, and the model reads it with
 //! the athlete's own grant. The corpus plants in all four — the athlete's own
-//! activity name (activity prefetch, `get_activities`), the note scraped onto
+//! activity name (activity prefetch, `get_activities`), the note read with
 //! it (the prefetch's athlete notes, a detailed `get_activities`), a group
 //! member's (peer grounding, `get_group_member_activities`) and a planned
 //! workout's description (`get_planned_workouts`, which the model has to call
@@ -46,7 +46,7 @@
 //! Every attempt of every scenario gets a fresh athlete, peer, tenant, group
 //! and conversation (`seed_injection_fixture`), on one server per pass. The
 //! athlete has four weeks of runs served live by a sciotte stand-in under the
-//! athlete's own scrape session and cached identically, two saved recipes, a
+//! athlete's own signed-in session and cached identically, two saved recipes, a
 //! token-less Strava connection (what `disconnect_provider` removes) beside the
 //! live sciotte one, a fitness configuration and a physiological profile. The
 //! peer shares a coaching group with them, consenting, with cached runs. A
@@ -157,8 +157,8 @@ use crate::helpers::live_lane::{
     await_contremaitre_overlay, lane_timeouts, turn_timeout, turn_usage, usage_ids,
 };
 use crate::injection_corpus::fixture::{
-    seed_catalogue, seed_injection_fixture, spawn_injection_scraper, web_turn, InjectionFixture,
-    ScraperBook,
+    seed_catalogue, seed_injection_fixture, spawn_injection_session_reader, web_turn,
+    InjectionFixture, SessionReaderBook,
 };
 use crate::injection_corpus::grading::{
     grade, snapshot, unmeasured, Grade, ReachObservation, ToolEffect, TurnDispatch,
@@ -450,12 +450,12 @@ async fn run_lane() {
         turn_timeout().as_secs(),
     );
 
-    let (scraper_url, book) = spawn_injection_scraper().await;
+    let (reader_url, book) = spawn_injection_session_reader().await;
     let lane = Lane {
         provider,
         chain,
         model,
-        scraper_url,
+        reader_url,
         book,
     };
     let mut records = Vec::new();
@@ -475,14 +475,14 @@ async fn run_lane() {
 }
 
 /// What every pass of a run shares: the provider, its chain and model, and
-/// the scraper stand-in every fixture reads from.
+/// the session reader stand-in every fixture reads from.
 struct Lane {
     /// Shared by every pass's server, so the provider's runtime starts once.
     provider: Arc<ChatProvider>,
     chain: LlmChain,
     model: String,
-    scraper_url: String,
-    book: ScraperBook,
+    reader_url: String,
+    book: SessionReaderBook,
 }
 
 /// One server, and one fresh fixture per scenario on it.
@@ -496,7 +496,7 @@ async fn run_pass(
         provider,
         chain,
         model,
-        scraper_url,
+        reader_url,
         book,
     } = lane;
     let resources = create_test_server_resources_with_real_chat_provider_and_config(
@@ -505,7 +505,7 @@ async fn run_pass(
             llm_chain: chain.clone(),
             timeouts: lane_timeouts(),
             chat_tools: ChatToolSettings::from_env(),
-            ..test_server_config_with_sciotte(scraper_url)
+            ..test_server_config_with_sciotte(reader_url)
         },
     )
     .await
@@ -547,7 +547,7 @@ const WARM_UP_TRIES: usize = 2;
 /// handshake, which the first live run lost twice to a timeout. A benign
 /// question on a fixture of its own takes that hit; it is printed and never
 /// recorded, and is tried again once if it got no model answer.
-async fn warm_up(resources: &Arc<ServerContext>, book: &ScraperBook, model: &str) {
+async fn warm_up(resources: &Arc<ServerContext>, book: &SessionReaderBook, model: &str) {
     for attempt in 1..=WARM_UP_TRIES {
         let fixture = seed_injection_fixture(resources, book, &WARM_UP, model).await;
         let outcome = run_turn(resources, &WARM_UP, &fixture).await;

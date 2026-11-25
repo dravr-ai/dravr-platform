@@ -110,7 +110,7 @@ const WHOLE_ACTIVITY_DISTANCE_TOLERANCE = 0.01;
  *
  * The activity itself carries one time, `duration_seconds`, whose meaning is
  * the provider's: elapsed time on Strava and WHOOP, the timer time (pauses
- * left out) on Garmin, the moving time on a scraped detail page. Its laps
+ * left out) on Garmin, the moving time on a session-read detail page. Its laps
  * partition it, and so do its splits, so their moving times add up to the
  * activity's when every one of them carries one and together they cover the
  * activity's whole distance (a list the provider cut short is not the

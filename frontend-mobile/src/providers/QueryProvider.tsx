@@ -47,7 +47,7 @@ interface QueryProviderProps {
  *
  * A drawn route never changes and is worth carrying across launches. An
  * answer without one can be taken back by the server — `unavailable` is a
- * read that has not settled yet, and on 2026-09-29 a failing scraper had
+ * read that has not settled yet, and on 2026-09-29 a failing session read had
  * `no_gps` stored for rides that recorded GPS — and one restored from disk
  * would be read as current on every launch, for up to the cache's seven
  * days, while the server says otherwise. Left in memory, it is asked again
@@ -262,7 +262,7 @@ export function QueryProvider({ children }: QueryProviderProps) {
         // response its components no longer read: v2 was the group health
         // flag `evidence` and the weekly report's `fresh_members`; v3 is
         // Home's `sync_failure`, and it drops the `no_gps` route answers the
-        // 2026-09-29 scraper outage left on phones — the server has since
+        // 2026-09-29 session-read outage left on phones — the server has since
         // taken them back.
         buster: 'v3',
         dehydrateOptions: { shouldDehydrateQuery: persistsQuery },

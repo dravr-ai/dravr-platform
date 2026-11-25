@@ -19,7 +19,7 @@
 // mid-walk ends it incomplete and is flagged for its sign-in, as every
 // background read of the athlete's primary is.
 //
-// The scraper is a loopback stand-in (a test double, per the repo's mock
+// The session reader is a loopback stand-in (a test double, per the repo's mock
 // rule) that answers by session and records every call it serves; Garmin's
 // OAuth is the dev fixture's stand-in, as in the Garmin API e2e suite.
 #![cfg(all(feature = "provider-garmin", feature = "health-sync"))]
@@ -75,17 +75,17 @@ const RECENT_RIDE: &str = "7000000003";
 /// How long a detached walk gets to end before the test gives up.
 pub(crate) const WALK_DEADLINE: Duration = Duration::from_secs(20);
 
-/// The stand-in scraper's state: what it served, whether a read of the
+/// The stand-in session reader's state: what it served, whether a read of the
 /// account finds the session expired, and whether the next one fails.
 #[derive(Clone)]
-struct Scraper {
+struct SessionReader {
     calls: Calls,
-    switch: ScraperSwitch,
+    switch: SessionReaderSwitch,
 }
 
 /// What a test flips on the stand-in while it runs.
 #[derive(Clone, Default)]
-pub(crate) struct ScraperSwitch {
+pub(crate) struct SessionReaderSwitch {
     /// Every read of the account answers that the session expired.
     pub(crate) expired: Arc<AtomicBool>,
     /// The next activity read answers a server error, once.
@@ -94,13 +94,13 @@ pub(crate) struct ScraperSwitch {
     pub(crate) fail_summaries: Arc<AtomicBool>,
     /// The daily-summary read of this one day answers a server error.
     pub(crate) fail_summary_on: Arc<Mutex<Option<CivilDate>>>,
-    /// The instant (unix seconds) the month walk fails at, as a scrape that
-    /// read the months above it and then failed on one does: a read reaching
+    /// The instant (unix seconds) the month walk fails at, as a session read
+    /// that covered the months above it and then failed on one does: a read reaching
     /// below it answers only what lies at or above it, short of its window
     /// (`head_complete` false), and one whose `before` is at or below it
     /// fails on its first month.
     pub(crate) short_below: Arc<Mutex<Option<i64>>>,
-    /// A read answers its `before` month whole, as the scraper's month walk
+    /// A read answers its `before` month whole, as the service's month walk
     /// does: a row starting at `before` itself comes back with the rows
     /// below it.
     pub(crate) whole_before_month: Arc<AtomicBool>,
@@ -109,23 +109,25 @@ pub(crate) struct ScraperSwitch {
     pub(crate) fail_below: Arc<Mutex<Option<i64>>>,
 }
 
-/// A stand-in for the scraper service over a Garmin account holding a run
+/// A stand-in for the session-read service over a Garmin account holding a run
 /// eight years old, a ride four years old and a ride three days old, served
 /// within each read's `after`/`before` bounds. `expired` makes every read of
 /// the account answer that the session expired, as the ~2 h Garmin web
 /// session does mid-copy.
-async fn spawn_scraper(expired: bool) -> (String, Calls) {
-    let switch = ScraperSwitch::default();
+async fn spawn_session_reader(expired: bool) -> (String, Calls) {
+    let switch = SessionReaderSwitch::default();
     switch.expired.store(expired, Ordering::SeqCst);
-    let (url, calls) = spawn_switchable_scraper(switch).await;
+    let (url, calls) = spawn_switchable_session_reader(switch).await;
     (url, calls)
 }
 
-/// [`spawn_scraper`], answering as `switch` says at each read. Every day's
+/// [`spawn_session_reader`], answering as `switch` says at each read. Every day's
 /// summary holds a resting heart rate.
-pub(crate) async fn spawn_switchable_scraper(switch: ScraperSwitch) -> (String, Calls) {
+pub(crate) async fn spawn_switchable_session_reader(
+    switch: SessionReaderSwitch,
+) -> (String, Calls) {
     let calls: Calls = Arc::new(Mutex::new(Vec::new()));
-    let state = Scraper {
+    let state = SessionReader {
         calls: Arc::clone(&calls),
         switch,
     };
@@ -139,8 +141,8 @@ pub(crate) async fn spawn_switchable_scraper(switch: ScraperSwitch) -> (String, 
         .route(
             "/auth/login-with-credentials",
             post(
-                |State(scraper): State<Scraper>, Json(body): Json<Value>| async move {
-                    scraper
+                |State(reader): State<SessionReader>, Json(body): Json<Value>| async move {
+                    reader
                         .calls
                         .lock()
                         .unwrap()
@@ -162,8 +164,8 @@ pub(crate) async fn spawn_switchable_scraper(switch: ScraperSwitch) -> (String, 
         .route(
             "/auth/sessions/{session_id}",
             delete(
-                |State(scraper): State<Scraper>, Path(session_id): Path<String>| async move {
-                    scraper
+                |State(reader): State<SessionReader>, Path(session_id): Path<String>| async move {
+                    reader
                         .calls
                         .lock()
                         .unwrap()
@@ -185,25 +187,25 @@ pub(crate) async fn spawn_switchable_scraper(switch: ScraperSwitch) -> (String, 
         .route(
             "/api/activities",
             get(
-                move |State(scraper): State<Scraper>,
+                move |State(reader): State<SessionReader>,
                       headers: HeaderMap,
                       RawQuery(query): RawQuery| {
                     let account = Arc::clone(&account);
                     async move {
                         let session = session_header(&headers);
                         let query = query.unwrap_or_default();
-                        scraper
+                        reader
                             .calls
                             .lock()
                             .unwrap()
                             .push(format!("activities {session} {query}"));
-                        if scraper.switch.fail_next.swap(false, Ordering::SeqCst) {
+                        if reader.switch.fail_next.swap(false, Ordering::SeqCst) {
                             return (
                                 StatusCode::INTERNAL_SERVER_ERROR,
-                                Json(json!({ "error": "internal", "message": "scraper hiccup" })),
+                                Json(json!({ "error": "internal", "message": "service hiccup" })),
                             );
                         }
-                        if scraper.switch.expired.load(Ordering::SeqCst) {
+                        if reader.switch.expired.load(Ordering::SeqCst) {
                             return (
                                 StatusCode::UNAUTHORIZED,
                                 Json(json!({
@@ -214,31 +216,35 @@ pub(crate) async fn spawn_switchable_scraper(switch: ScraperSwitch) -> (String, 
                         }
                         let after = query_bound(&query, "after");
                         let before = query_bound(&query, "before");
-                        let failing = *scraper.switch.fail_below.lock().unwrap();
-                        if failing.is_some_and(|failing| before.is_some_and(|before| before <= failing)) {
+                        let failing = *reader.switch.fail_below.lock().unwrap();
+                        if failing
+                            .is_some_and(|failing| before.is_some_and(|before| before <= failing))
+                        {
                             return (
                                 StatusCode::INTERNAL_SERVER_ERROR,
-                                Json(json!({ "error": "internal", "message": "scraper hiccup" })),
+                                Json(json!({ "error": "internal", "message": "service hiccup" })),
                             );
                         }
                         let whole_before_month =
-                            scraper.switch.whole_before_month.load(Ordering::SeqCst);
-                        let cut = *scraper.switch.short_below.lock().unwrap();
+                            reader.switch.whole_before_month.load(Ordering::SeqCst);
+                        let cut = *reader.switch.short_below.lock().unwrap();
                         if cut.is_some_and(|cut| before.is_some_and(|before| before <= cut)) {
                             return (
                                 StatusCode::INTERNAL_SERVER_ERROR,
-                                Json(json!({ "error": "internal", "message": "first month failed" })),
+                                Json(
+                                    json!({ "error": "internal", "message": "first month failed" }),
+                                ),
                             );
                         }
-                        let short = cut
-                            .filter(|cut| after.is_none_or(|after| after < *cut));
+                        let short = cut.filter(|cut| after.is_none_or(|after| after < *cut));
                         let activities: Vec<Value> = account
                             .iter()
                             .filter(|(_, _, start)| {
                                 after.is_none_or(|after| start.epoch_seconds() >= after)
                                     && before.is_none_or(|before| {
                                         start.epoch_seconds() < before
-                                            || (whole_before_month && start.epoch_seconds() == before)
+                                            || (whole_before_month
+                                                && start.epoch_seconds() == before)
                                     })
                                     && short.is_none_or(|cut| start.epoch_seconds() >= cut)
                             })
@@ -259,7 +265,9 @@ pub(crate) async fn spawn_switchable_scraper(switch: ScraperSwitch) -> (String, 
         .route(
             "/api/daily-summary",
             get(
-                |State(scraper): State<Scraper>, headers: HeaderMap, RawQuery(query): RawQuery| async move {
+                |State(reader): State<SessionReader>,
+                 headers: HeaderMap,
+                 RawQuery(query): RawQuery| async move {
                     let session = session_header(&headers);
                     let query = query.unwrap_or_default();
                     let date = query
@@ -267,12 +275,12 @@ pub(crate) async fn spawn_switchable_scraper(switch: ScraperSwitch) -> (String, 
                         .find_map(|pair| pair.strip_prefix("date="))
                         .unwrap_or_default()
                         .to_owned();
-                    scraper
+                    reader
                         .calls
                         .lock()
                         .unwrap()
                         .push(format!("summary {session} {date}"));
-                    if scraper.switch.expired.load(Ordering::SeqCst) {
+                    if reader.switch.expired.load(Ordering::SeqCst) {
                         return (
                             StatusCode::UNAUTHORIZED,
                             Json(json!({
@@ -281,18 +289,20 @@ pub(crate) async fn spawn_switchable_scraper(switch: ScraperSwitch) -> (String, 
                             })),
                         );
                     }
-                    let failing_day = *scraper.switch.fail_summary_on.lock().unwrap();
-                    if scraper.switch.fail_summaries.load(Ordering::SeqCst)
+                    let failing_day = *reader.switch.fail_summary_on.lock().unwrap();
+                    if reader.switch.fail_summaries.load(Ordering::SeqCst)
                         || failing_day.is_some_and(|day| day.to_string() == date)
                     {
                         return (
                             StatusCode::INTERNAL_SERVER_ERROR,
-                            Json(json!({ "error": "internal", "message": "scraper hiccup" })),
+                            Json(json!({ "error": "internal", "message": "service hiccup" })),
                         );
                     }
                     (
                         StatusCode::OK,
-                        Json(json!({ "date": date, "provider": "garmin", "resting_heart_rate": 48 })),
+                        Json(
+                            json!({ "date": date, "provider": "garmin", "resting_heart_rate": 48 }),
+                        ),
                     )
                 },
             ),
@@ -528,8 +538,8 @@ async fn served_ids(
 /// walk (B1), and nothing was told.
 #[tokio::test]
 async fn a_walk_beside_a_grant_reads_the_whole_history_from_the_session_and_keeps_it() {
-    let (scraper, calls) = spawn_scraper(false).await;
-    let resources = server(common::test_server_config_with_sciotte(&scraper)).await;
+    let (reader, calls) = spawn_session_reader(false).await;
+    let resources = server(common::test_server_config_with_sciotte(&reader)).await;
     let (user_id, _user, tenant, _token) = athlete(&resources).await;
     hold_grant(&resources, user_id, tenant).await;
     hold_session(&resources, user_id, tenant, SIGNED_IN_SESSION).await;
@@ -692,7 +702,7 @@ async fn a_walk_beside_a_grant_reads_the_whole_history_from_the_session_and_keep
     assert_eq!(
         calls_matching(&calls, &format!("drop {SIGNED_IN_SESSION}")),
         Vec::<String>::new(),
-        "bug: the scraper is never told to drop a walked session"
+        "bug: the service is never told to drop a walked session"
     );
     assert_eq!(
         notification_types(&resources, user_id, tenant).await,
@@ -772,8 +782,8 @@ async fn push_mornings(
 /// pushed morning is left as the push wrote it.
 #[tokio::test]
 async fn a_reconnected_grants_pushed_days_are_never_overwritten_by_the_walk() {
-    let (scraper, calls) = spawn_scraper(false).await;
-    let resources = server(common::test_server_config_with_sciotte(&scraper)).await;
+    let (reader, calls) = spawn_session_reader(false).await;
+    let resources = server(common::test_server_config_with_sciotte(&reader)).await;
     let (user_id, _user, tenant, _token) = athlete(&resources).await;
     let today = Timestamp::now().utc_date();
     let pushed_days: Vec<CivilDate> = (3..=10).map(|back| today - Elapsed::days(back)).collect();
@@ -848,10 +858,10 @@ async fn a_reconnected_grants_pushed_days_are_never_overwritten_by_the_walk() {
 /// back-off) and it lands.
 #[tokio::test]
 async fn a_session_expiring_mid_walk_ends_incomplete_and_asks_for_its_sign_in() {
-    let switch = ScraperSwitch::default();
+    let switch = SessionReaderSwitch::default();
     switch.expired.store(true, Ordering::SeqCst);
-    let (scraper, calls) = spawn_switchable_scraper(switch.clone()).await;
-    let resources = server(common::test_server_config_with_sciotte(&scraper)).await;
+    let (reader, calls) = spawn_switchable_session_reader(switch.clone()).await;
+    let resources = server(common::test_server_config_with_sciotte(&reader)).await;
     let (user_id, _user, tenant, token) = athlete(&resources).await;
     hold_grant(&resources, user_id, tenant).await;
     hold_session(&resources, user_id, tenant, SIGNED_IN_SESSION).await;
@@ -948,8 +958,8 @@ pub(crate) fn job_row(
 /// step, and the session stays when the walk ends (B1).
 #[tokio::test]
 async fn a_resumed_walk_reads_the_session_and_keeps_it() {
-    let (scraper, calls) = spawn_scraper(false).await;
-    let resources = server(common::test_server_config_with_sciotte(&scraper)).await;
+    let (reader, calls) = spawn_session_reader(false).await;
+    let resources = server(common::test_server_config_with_sciotte(&reader)).await;
     let (user_id, _user, tenant, _token) = athlete(&resources).await;
     hold_grant(&resources, user_id, tenant).await;
     hold_session(&resources, user_id, tenant, LIVE_SESSION).await;

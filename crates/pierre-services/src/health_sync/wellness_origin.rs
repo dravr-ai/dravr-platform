@@ -124,24 +124,23 @@ pub(super) fn sync_providers(
 mod tests {
     use super::*;
     use async_trait::async_trait;
-    use dravr_enforme::providers::sciotte_reader::{
-        AuthSession, DailySummary, ScraperError, ScraperResult,
-    };
+    use dravr_enforme::providers::sciotte_reader::{AuthSession, DailySummary};
     use dravr_tronc::dates::CivilDate;
+    use pierre_providers::sciotte_names::{SessionReadError, SessionReadResult};
 
-    /// A scrape reader no test here reads through.
-    struct NoScrape;
+    /// A session reader no test here reads through.
+    struct NoSessionRead;
 
     #[async_trait]
-    impl DailySummaryReader for NoScrape {
+    impl DailySummaryReader for NoSessionRead {
         async fn daily_summary(
             &self,
             provider: &str,
             _: &AuthSession,
             _: CivilDate,
-        ) -> ScraperResult<DailySummary> {
-            Err(ScraperError::Internal {
-                reason: format!("no scrape reader for {provider} in this test"),
+        ) -> SessionReadResult<DailySummary> {
+            Err(SessionReadError::Internal {
+                reason: format!("no session reader for {provider} in this test"),
             })
         }
     }
@@ -208,7 +207,7 @@ mod tests {
 
     #[test]
     fn the_reader_is_replaced_never_added() {
-        let reader: Arc<dyn DailySummaryReader> = Arc::new(NoScrape);
+        let reader: Arc<dyn DailySummaryReader> = Arc::new(NoSessionRead);
         let enforme_own = providers::build_provider_registry_with_reader(&reader).unwrap();
         assert!(
             enforme_own.contains_key(INTERVALS_ICU),

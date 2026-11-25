@@ -336,7 +336,7 @@ impl AuthService {
     /// For a read or write that must reach the backend it names whatever the
     /// athlete's read plan (`backend_resolver::read_plan`) serves first: a
     /// Strava webhook's and a first sync's read of the grant, which must never
-    /// start a scrape (carnet#1494), a calendar write already chosen by
+    /// start a session read (carnet#1494), a calendar write already chosen by
     /// capability, and a history walk, which reads the source of its own
     /// order (carnet#1482). Governed like
     /// [`Self::create_authenticated_provider`].
@@ -528,7 +528,7 @@ impl AuthService {
                     // where the row still reads Active but the token/session is
                     // gone — sciotte sessions never refresh, so no refresh
                     // failure ever flips their status (live incident 2026-08-11:
-                    // the athlete's dead scrape session produced a generic error
+                    // the athlete's dead signed-in session produced a generic error
                     // and never the reconnect link). The tag makes the chat tool
                     // loop short-circuit so auth_recovery renders a localized
                     // reconnect message + minted login link instead of letting
@@ -598,7 +598,7 @@ impl AuthService {
     /// applies, and its provider-side user id rides as `client_id`, the
     /// athlete the API path addresses. The key's requests are counted in the
     /// windows its provider keeps for each key, under that same id. A
-    /// scraper session is read as `user_id`, so its reads are counted in that
+    /// signed-in session is read as `user_id`, so its reads are counted in that
     /// athlete's session-read windows at its backend (carnet#1661).
     async fn signing_credentials(
         &self,

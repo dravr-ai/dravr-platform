@@ -159,7 +159,7 @@ fn without_a_timezone_the_roster_states_the_utc_weekday() {
 /// A date-only provider row keeps the day its provider named.
 ///
 /// `RosterActivity::start` says it plainly: *"Date-only sources (e.g.
-/// Strava-mirror scrapes) render at midnight UTC of the workout day."* Midnight
+/// Strava-mirror session reads) render at midnight UTC of the workout day."* Midnight
 /// UTC is 20:00 the PREVIOUS day in `America/Toronto`, so converting such a row
 /// into the athlete's zone prints the previous weekday — carnet#200 made worse,
 /// not better, on exactly the provider the 2026-09-02 athlete used.

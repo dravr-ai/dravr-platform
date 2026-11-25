@@ -1,5 +1,5 @@
 // ABOUTME: Pins that a SciotteProvider admits every read against the athlete's session-read windows
-// ABOUTME: A spent window sends nothing to the scraper and refuses with the brand; an open one reads (carnet#1661)
+// ABOUTME: A spent window sends nothing to the service and refuses with the brand; an open one reads (carnet#1661)
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -8,7 +8,7 @@
 //!
 //! Every read a `SciotteProvider` makes goes through its `read_through`,
 //! which first admits the read against the budget its credentials carry:
-//! the athlete's session-read windows at the backend. The scraper here is a
+//! the athlete's session-read windows at the backend. The service here is a
 //! loopback stand-in (a test double, per the repo's mock rule) that counts
 //! the connections it accepts and serves an empty list, so a refused read is
 //! seen to send nothing at all.
@@ -41,11 +41,11 @@ use uuid::Uuid;
 
 const BACKEND: &str = "sciotte_garmin";
 
-/// A stand-in scraper that records the path of every request it accepts and
+/// A stand-in session reader that records the path of every request it accepts and
 /// answers an import with the session and a list with no activities. When
 /// `rotates`, a list read says the session rotated, and an export of it
 /// answers the session the service now holds.
-async fn scraper(rotates: bool) -> (String, Arc<Mutex<Vec<String>>>) {
+async fn reader(rotates: bool) -> (String, Arc<Mutex<Vec<String>>>) {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let base = format!("http://{}", listener.local_addr().unwrap());
     let paths = Arc::new(Mutex::new(Vec::new()));
@@ -118,7 +118,7 @@ fn session() -> AuthSession {
     .unwrap()
 }
 
-/// A Garmin session provider on the scraper at `base`, its credentials
+/// A Garmin session provider on the session reader at `base`, its credentials
 /// carrying `budget`.
 async fn provider(base: &str, budget: RequestBudget) -> Box<dyn FitnessProvider> {
     let reads =
@@ -168,20 +168,20 @@ async fn a_spent_session_read_window_sends_nothing_and_an_open_one_reads() {
         Arc::clone(&repos.usage_counters),
         Arc::clone(&repos.provider_connections),
     ));
-    let (base, paths) = scraper(false).await;
+    let (base, paths) = reader(false).await;
     let connections = || paths.lock().unwrap().len();
     let athlete = Uuid::new_v4();
     let budget = RequestBudget::for_session_read(&limiter, BACKEND, athlete)
-        .expect("the scraper's Garmin session is counted");
+        .expect("the service's Garmin session is counted");
     let garmin = provider(&base, budget).await;
 
-    // An open window: the read reaches the scraper and is counted once.
+    // An open window: the read reaches the service and is counted once.
     garmin
         .get_activities_with_params(&list())
         .await
         .expect("an open window reads");
     let reached = connections();
-    assert!(reached > 0, "the admitted read never reached the scraper");
+    assert!(reached > 0, "the admitted read never reached the service");
     let key = session_read_counter_key(BACKEND, "asked", athlete);
     let counted = repos
         .usage_counters
@@ -216,7 +216,7 @@ async fn a_spent_session_read_window_sends_nothing_and_an_open_one_reads() {
         .get_activities_with_params(&list())
         .await
         .expect_err("a spent burst refuses the read");
-    assert_eq!(connections(), reached, "a refused read reached the scraper");
+    assert_eq!(connections(), reached, "a refused read reached the service");
     assert_eq!(
         refused.code,
         ErrorCode::ExternalRateLimited,
@@ -241,7 +241,7 @@ async fn a_spent_session_read_window_sends_nothing_and_an_open_one_reads() {
 }
 
 /// A read the athlete's window admits is still the whole read it was: when
-/// the scraped platform rotates the session on it, the rotation is exported
+/// the platform it reads rotates the session on it, the rotation is exported
 /// and handed to the token-refresh callback, and the next read imports the
 /// rotated copy. The import, the read and the export are one slot.
 #[tokio::test]
@@ -252,10 +252,10 @@ async fn an_admitted_read_still_stores_the_session_it_rotated() {
         Arc::clone(&repos.usage_counters),
         Arc::clone(&repos.provider_connections),
     ));
-    let (base, paths) = scraper(true).await;
+    let (base, paths) = reader(true).await;
     let athlete = Uuid::new_v4();
     let budget = RequestBudget::for_session_read(&limiter, BACKEND, athlete)
-        .expect("the scraper's Garmin session is counted");
+        .expect("the service's Garmin session is counted");
     let garmin = provider(&base, budget).await;
     let stored = Arc::new(Mutex::new(Vec::<OAuth2Credentials>::new()));
     let sink = Arc::clone(&stored);

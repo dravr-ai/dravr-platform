@@ -8,8 +8,8 @@
 //! `friendly_login_failure_message` in `pierre_routes_auth::sciotte`.
 //!
 //! A sciotte credential login runs an in-process headless Chrome. When that
-//! Chrome fails to launch (the container's dbus/crashpad case), the scraper
-//! returns an `Err(ScraperError::Browser)` whose `Display` is a multi-line
+//! Chrome fails to launch (the container's dbus/crashpad case), the reader
+//! returns an `Err(SessionReadError::Browser)` whose `Display` is a multi-line
 //! dump of raw browser stderr. Historically the handler built
 //! `format!("Login failed: {error}")` and returned it as an `InvalidInput`
 //! `AppError`, which `sanitized_message()` exposes **verbatim** — so the whole

@@ -18,7 +18,7 @@
 # woken for everyone eight times a day.
 # Flagged provider sessions are the one exception: every sweep also retries the
 # ones whose retry is due, whoever owns them, and their own six-hour claim
-# (SCRAPE_SESSION_RETRY_INTERVAL_HOURS) holds each to four reads a day.
+# (FLAGGED_SESSION_RETRY_INTERVAL_HOURS) holds each to four reads a day.
 #
 # The sweep runs inline on the request because the API scales to zero: a timer
 # inside the server would have no CPU between requests. It never attempts a

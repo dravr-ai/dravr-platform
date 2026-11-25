@@ -7,7 +7,7 @@
 //! The Dravr extension (or the app's `WebView`) signs the athlete in to the
 //! provider in their own browser and posts that provider's cookies to
 //! `POST /api/providers/browser-signin/{target}`. These tests run the
-//! platform's real routes against a loopback stand-in of the scraper service
+//! platform's real routes against a loopback stand-in of the dravr-sciotte service
 //! (a test double, per the repo's mock rule), on a thread of its own so it
 //! outlives each test's runtime.
 
@@ -53,10 +53,10 @@ struct Seen {
     deletes: Mutex<Vec<String>>,
 }
 
-static SCRAPER: OnceLock<(Arc<Seen>, String)> = OnceLock::new();
+static READER: OnceLock<(Arc<Seen>, String)> = OnceLock::new();
 
-fn scraper() -> &'static (Arc<Seen>, String) {
-    SCRAPER.get_or_init(|| {
+fn reader() -> &'static (Arc<Seen>, String) {
+    READER.get_or_init(|| {
         let seen = Arc::new(Seen::default());
         let (sender, receiver) = mpsc::channel();
         let state = Arc::clone(&seen);
@@ -164,7 +164,7 @@ struct Athlete {
 impl Athlete {
     async fn new() -> Self {
         let resources = common::create_test_server_resources_with_config(
-            common::test_server_config_with_sciotte_usr_pwd_garmin(&scraper().1),
+            common::test_server_config_with_sciotte_usr_pwd_garmin(&reader().1),
         )
         .await
         .unwrap();
@@ -257,7 +257,7 @@ fn garmin_cookies(session: &str) -> Value {
 /// The session ids of the imports the stand-in saw for a session holding
 /// `value`.
 fn imports_holding(value: &str) -> Vec<String> {
-    scraper()
+    reader()
         .0
         .imports
         .lock()
@@ -274,7 +274,7 @@ fn imports_holding(value: &str) -> Vec<String> {
 
 /// Whether the platform dropped the stand-in's copy of `session_id`.
 fn dropped(session_id: &str) -> bool {
-    scraper()
+    reader()
         .0
         .deletes
         .lock()

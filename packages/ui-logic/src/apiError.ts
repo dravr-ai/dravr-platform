@@ -282,7 +282,7 @@ export function isProviderAuthRefusal(err: unknown): boolean {
  * The service a provider-auth refusal is about, as the athlete knows it, or
  * `null` when the refusal names no provider this client can brand.
  *
- * A scraper backend's id (`sciotte_garmin`) is first resolved to the service
+ * A session-read backend's id (`sciotte_garmin`) is first resolved to the service
  * it signs in to (`garmin`); a plain provider id is branded as it is.
  */
 function providerAuthBrand(err: unknown): string | null {

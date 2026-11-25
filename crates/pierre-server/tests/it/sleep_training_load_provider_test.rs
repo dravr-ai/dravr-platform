@@ -10,7 +10,7 @@
 //! The sleep and recovery tools used to pick their activity provider from a
 //! private priority list gated on a valid OAuth token, falling back to
 //! "strava" when none matched. An Intervals.icu, TrainingPeaks or
-//! scrape-connected Garmin athlete was therefore never selected and was told
+//! session-connected Garmin athlete was therefore never selected and was told
 //! to reconnect a Strava account they never had (carnet#575). They now elect
 //! the provider through `resolve_provider_for_request`, as every activity tool
 //! does.

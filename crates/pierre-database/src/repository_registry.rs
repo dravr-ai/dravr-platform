@@ -294,7 +294,7 @@ pub struct RepositoryRegistry {
     /// The admin Engagement screen's reads, each in one admin scope.
     pub engagement: Arc<dyn EngagementRepository>,
     /// Provider-agnostic activity cache. Backs stale-while-revalidate reads on
-    /// the chat path so a slow scrape (Garmin/sciotte) or redundant API call
+    /// the chat path so a slow session read (Garmin/sciotte) or redundant API call
     /// never blocks a turn.
     pub activity_cache: Arc<dyn ActivityCacheRepository>,
     /// One stored route read per activity, so each activity's geometry costs

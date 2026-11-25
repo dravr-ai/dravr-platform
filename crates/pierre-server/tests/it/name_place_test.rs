@@ -26,11 +26,11 @@
 use crate::coach_athlete_reads_test::{fixture, ok, Fixture, Person, UPLOAD};
 use crate::get_activities_place_test::{assert_no_location, city_places, row, CITY_NAME};
 
+use dravr_barrage::parse::polyline::encode_polyline;
 use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::models::{Activity, ActivityBuilder, SportType};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::Transport;
-use pierre_fitness_compute::encode_polyline;
 use pierre_services::athlete_places::places_pass;
 use pierre_tool_runtime::protocols::{UniversalResponse, UniversalToolExecutor};
 use serde_json::{json, Value};

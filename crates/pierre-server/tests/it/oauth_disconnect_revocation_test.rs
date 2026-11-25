@@ -918,7 +918,7 @@ async fn terra_backend_deauthenticates_user_with_developer_headers() {
 
 /// Backends with no upstream grant stay local-only, and say so through the
 /// dispatch table rather than by accident: `sciotte`/`sciotte_garmin` are
-/// scrape sessions, and `coros` is the residue registered at
+/// signed-in sessions, and `coros` is the residue registered at
 /// `revocation_shape` (registre#509). An `intervals_icu` API-key link is the
 /// row-level case, pinned in `intervals_icu_oauth_test`. A sciotte-backed
 /// "Strava" disconnect must not touch Strava's revoke endpoint either.

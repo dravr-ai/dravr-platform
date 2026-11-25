@@ -854,7 +854,7 @@ mod tests {
     #[test]
     fn freshness_is_keyed_by_the_service_never_the_backend() {
         let now = Timestamp::parse_from_rfc3339("2026-10-14T12:00:00Z").unwrap();
-        let scraped = ActivityBuilder::new(
+        let session_row = ActivityBuilder::new(
             "g",
             "Ride",
             SportType::Ride,
@@ -864,7 +864,7 @@ mod tests {
         )
         .source("garmin")
         .build();
-        let latest = compute_last_activity_per_provider(&[run("a", now, 1, 1_800), scraped]);
+        let latest = compute_last_activity_per_provider(&[run("a", now, 1, 1_800), session_row]);
         let mut keys: Vec<&str> = latest.keys().map(String::as_str).collect();
         keys.sort_unstable();
         assert_eq!(keys, ["garmin", "strava"]);

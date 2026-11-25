@@ -5,14 +5,14 @@
 // Copyright (c) 2026 dravr.ai
 
 //! A COROS sign-in asks for a six-digit code. When the athlete typed a wrong
-//! one, the scraper service used to end the login, and the platform forgot the
+//! one, the service used to end the login, and the platform forgot the
 //! flow: the athlete was sent back to the credentials to start again. The
 //! service now keeps its browser parked on the code step and answers
 //! `otp_required` with `rejected`, and the platform keeps the flow it holds —
 //! without writing it again, so the flow still lapses with the browser it
 //! names.
 //!
-//! The scraper here is a loopback stand-in (a test double, per the repo's mock
+//! The session reader here is a loopback stand-in (a test double, per the repo's mock
 //! rule) that refuses every code but one, refuses an incomplete code the same
 //! way, and records every code it was sent, by flow. It runs on a thread of
 //! its own, because each `#[tokio::test]` drops its runtime when it ends and a
@@ -74,12 +74,12 @@ struct Seen {
     flows: AtomicUsize,
 }
 
-static SCRAPER: OnceLock<(String, Arc<Seen>)> = OnceLock::new();
+static READER: OnceLock<(String, Arc<Seen>)> = OnceLock::new();
 
 /// The stand-in's address and what it saw, started once for the binary on a
 /// thread with its own runtime.
-fn scraper() -> &'static (String, Arc<Seen>) {
-    SCRAPER.get_or_init(|| {
+fn reader() -> &'static (String, Arc<Seen>) {
+    READER.get_or_init(|| {
         let seen = Arc::new(Seen::default());
         let (sender, receiver) = mpsc::channel();
         let state = Arc::clone(&seen);
@@ -170,7 +170,7 @@ async fn submit_otp(State(seen): State<Arc<Seen>>, Json(body): Json<Value>) -> R
     Json(answer).into_response()
 }
 
-/// The scraper service stand-in: a COROS login that asks for a code, a code
+/// The service stand-in: a COROS login that asks for a code, a code
 /// step that takes one code, and the session the platform then exports and
 /// reads.
 fn stand_in(seen: Arc<Seen>) -> Router {
@@ -200,7 +200,7 @@ fn stand_in(seen: Arc<Seen>) -> Router {
 
 /// The codes the stand-in was sent naming `flow_id`, in order.
 fn codes_for(flow_id: &str) -> Vec<String> {
-    scraper()
+    reader()
         .1
         .codes
         .lock()
@@ -221,7 +221,7 @@ struct Athlete {
 
 impl Athlete {
     async fn new() -> Self {
-        let resources = create_test_server_resources_with_sciotte(&scraper().0)
+        let resources = create_test_server_resources_with_sciotte(&reader().0)
             .await
             .unwrap();
         let (user_id, user) = create_test_user(&resources.agent.database).await.unwrap();

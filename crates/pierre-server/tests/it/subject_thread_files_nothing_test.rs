@@ -56,7 +56,7 @@ use dravr_tronc::mcp::tool::{McpTool, ToolContext};
 use embacle::types::ToolCallRequest;
 use futures_util::stream;
 use helpers::axum_test::AxumTestRequest;
-use helpers::sciotte_mock::{seed_sciotte_session, spawn_mock_scraper_serving};
+use helpers::sciotte_mock::{seed_sciotte_session, spawn_mock_session_reader_serving};
 use pierre_chat_pipeline::stages::capability_recovery::REPAIR_EVIDENCE_FRAME;
 use pierre_chat_pipeline::stages::prefetch::{REFRESH_GROUNDING_LEAD, STARTUP_GROUNDING_LEAD};
 use pierre_chat_pipeline::{
@@ -115,7 +115,7 @@ const COMMITMENT: &str = "trois sorties faciles cette semaine";
 /// calls them.
 const OWN_ACCOUNT_WRITES: [&str; 2] = ["remember_fact", "commitment_create"];
 
-/// The ride the stand-in scraper serves as the coach's own.
+/// The ride the stand-in session reader serves as the coach's own.
 const COACH_RIDE: &str = "Sortie vélo matinale";
 
 /// The athlete's roster display name.
@@ -460,10 +460,10 @@ impl Fixture {
         Self::over(test_server_config()).await
     }
 
-    /// The fixture with the server's scraper client pointed at `scraper`
-    /// ([`stand_in_scraper`]).
-    async fn with_scraper(scraper: &str) -> Self {
-        Self::over(test_server_config_with_sciotte(scraper)).await
+    /// The fixture with the server's sciotte client pointed at `reader`
+    /// ([`stand_in_session_reader`]).
+    async fn with_session_reader(reader: &str) -> Self {
+        Self::over(test_server_config_with_sciotte(reader)).await
     }
 
     async fn over(config: ServerConfig) -> Self {
@@ -672,8 +672,8 @@ impl Fixture {
         resp.json::<Value>()["id"].as_str().unwrap().to_owned()
     }
 
-    /// Connect the coach's own rides, which the stand-in scraper serves
-    /// ([`stand_in_scraper`]).
+    /// Connect the coach's own rides, which the stand-in session reader serves
+    /// ([`stand_in_session_reader`]).
     async fn coach_rides(&self) {
         self.repos()
             .provider_connections
@@ -867,13 +867,13 @@ impl Fixture {
     }
 }
 
-/// A local stand-in scraper that serves one ride from yesterday to whichever
-/// session asks, and the URL the server's scraper client is built to reach it
-/// at.
-async fn stand_in_scraper() -> String {
+/// A local stand-in session reader that serves one ride from yesterday to
+/// whichever session asks, and the URL the server's sciotte client is built to
+/// reach it at.
+async fn stand_in_session_reader() -> String {
     let ride_start =
         (Timestamp::now() - Elapsed::hours(20)).to_rfc3339_opts(SecondsFormat::Secs, true);
-    spawn_mock_scraper_serving(Arc::new(AtomicBool::new(true)), ride_start).await
+    spawn_mock_session_reader_serving(Arc::new(AtomicBool::new(true)), ride_start).await
 }
 
 /// The agent the group runs: it declares an activity window, so both
@@ -1112,7 +1112,7 @@ async fn a_write_on_the_coachs_own_account_is_neither_offered_nor_run_in_her_thr
 /// grounded on them by both.
 #[tokio::test]
 async fn the_athlete_thread_prefetches_none_of_the_coachs_rides() {
-    let fx = Fixture::with_scraper(&stand_in_scraper().await).await;
+    let fx = Fixture::with_session_reader(&stand_in_session_reader().await).await;
     fx.coach_rides().await;
 
     // The control: the coach's own conversation with the same agent is
@@ -1299,7 +1299,7 @@ async fn what_the_coach_says_in_their_group_room_is_learned_by_nobody() {
 /// conversation is the control that the rides are served at all.
 #[tokio::test]
 async fn the_coach_seat_never_reads_the_coachs_own_rides_for_the_room() {
-    let fx = Fixture::with_scraper(&stand_in_scraper().await).await;
+    let fx = Fixture::with_session_reader(&stand_in_session_reader().await).await;
     fx.coach_rides().await;
     let coach_room = fx.room().await.coach;
 
@@ -1340,7 +1340,7 @@ async fn the_coach_seat_never_reads_the_coachs_own_rides_for_the_room() {
 /// never with the coach's rides as evidence.
 #[tokio::test]
 async fn a_coach_seat_re_ask_about_an_athlete_never_reads_the_coachs_side() {
-    let fx = Fixture::with_scraper(&stand_in_scraper().await).await;
+    let fx = Fixture::with_session_reader(&stand_in_session_reader().await).await;
     fx.coach_rides().await;
     let coach_room = fx.room().await.coach;
 

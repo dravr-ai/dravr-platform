@@ -44,8 +44,8 @@ const ACTIVITY_CACHE_FRESH_SECS: i64 = 4 * 3600;
 ///
 /// A grant beside a usr/pwd session of its provider
 /// ([`connection_grant_beside_session`]) is passed over: its name resolves to
-/// the session (carnet#1494), so reading it too would scrape the session a
-/// second time and write the scraped rows under the grant's key. The
+/// the session (carnet#1494), so a read of it too would read the session a
+/// second time and write the session-read rows under the grant's key. The
 /// session's own read serves the grant's stored rows
 /// (`training_history_read::history_store_keys`).
 async fn get_connected_providers(
@@ -266,7 +266,7 @@ async fn activity_cache_is_stale(
 /// finished inside that budget.
 ///
 /// Past the budget the task keeps running detached — capped at
-/// [`revalidation_timeout`] so a hung scrape releases its slot — and its
+/// [`revalidation_timeout`] so a hung session read releases its slot — and its
 /// write-through still lands for the next turn. Its reads count as the
 /// caller's do: background for a weekly digest, asked for a coach's turn
 /// ([`keep_scope`]). Deduplicated: only one

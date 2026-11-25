@@ -66,7 +66,7 @@ async function signIn(server: CoachServer, email: string, password: string): Pro
 /**
  * A new coach: registered, approved when the server holds new accounts for
  * approval, answered "I coach others", and with Strava connected through the
- * scraper double — so the app's first screen after sign-in is the group step.
+ * service double — so the app's first screen after sign-in is the group step.
  *
  * Every call makes a new account. The app keeps the step's done flag on the
  * device per user id, and the iOS lane resets only the keychain between

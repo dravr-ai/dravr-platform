@@ -333,7 +333,7 @@ if [[ -x "$PROJECT_ROOT/scripts/ci/check-backend-name-exposure.sh" ]]; then
     echo "-----------------------------------"
     if ! "$PROJECT_ROOT/scripts/ci/check-backend-name-exposure.sh"; then
         echo ""
-        echo "FAIL: the scraping backend's name reaches an athlete or coach!"
+        echo "FAIL: the session-read backend's name reaches an athlete or coach!"
         exit 1
     fi
     echo ""

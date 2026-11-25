@@ -9,7 +9,7 @@
 //! A stale activity cache is served and refreshed behind the reader's back —
 //! by a group snapshot, by a chat turn, by the Home page. Each of those can
 //! arrive many times while one refresh is still running, and a provider read
-//! can be a two-minute headless scrape, so they share one slot per `(user,
+//! can be a two-minute headless session read, so they share one slot per `(user,
 //! tenant)` here rather than each keeping its own: a refresh the chat path
 //! started is one the Home page does not start again.
 
@@ -23,18 +23,18 @@ use uuid::Uuid;
 
 /// Upper bound on a single revalidation.
 ///
-/// A sciotte/Garmin scrape that hangs on
+/// A sciotte/Garmin session read that hangs on
 /// a provider-side throttle must not hold the single-flight slot (nor the
 /// per-profile Chrome `SingletonLock`) open indefinitely, blocking every later
 /// revalidation for the same user. Generous relative to a healthy ~2-minute
-/// scrape so it only fires on a genuine stall.
+/// read so it only fires on a genuine stall.
 pub const REVALIDATION_TIMEOUT_SECS: u64 = 240;
 
 /// The bound a background revalidation runs under.
 ///
 /// [`REVALIDATION_TIMEOUT_SECS`], or the server's configured
-/// `PIERRE_REVALIDATION_TIMEOUT_SECS` — for a deployment whose scraper is
-/// slower, and for a suite that drives a scrape which never answers to its
+/// `PIERRE_REVALIDATION_TIMEOUT_SECS` — for a deployment whose service is
+/// slower, and for a suite that drives a session read which never answers to its
 /// bound.
 #[must_use]
 pub fn revalidation_timeout(timeouts: &ServerTimeouts) -> Duration {
@@ -50,8 +50,8 @@ pub fn revalidation_timeout(timeouts: &ServerTimeouts) -> Duration {
 ///
 /// Without this, every stale-cache turn spawned its own revalidation. The
 /// per-profile Chrome `SingletonLock` (see [`pierre_providers`]) serializes
-/// those scrapes rather than crashing, so N rapid turns queue N ~2-minute
-/// scrapes behind one lock — the later ones redundant by the time they run.
+/// those reads rather than crashing, so N rapid turns queue N ~2-minute
+/// reads behind one lock — the later ones redundant by the time they run.
 /// Stale-while-revalidate only needs one in-flight refresh per user; the rest
 /// are dropped. Entries are removed when the revalidation task finishes (or
 /// times out), so the slot frees for the next genuinely-stale turn.

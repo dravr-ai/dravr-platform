@@ -251,7 +251,7 @@ pub fn historical_head_slice(
 /// How far back a stale-head refresh re-reads from the provider.
 ///
 /// Thirty days, not the served window. The covered gate exists so a sixteen-week
-/// ask is not re-scraped on every turn — a sciotte scrape is a headless browser
+/// ask is not re-read on every turn — a sciotte read is a headless browser
 /// session costing tens of seconds — and the only thing a stale head can be
 /// missing is recent. Deep history is immutable once backfilled.
 const STALE_HEAD_REFRESH_DAYS: i64 = 30;
@@ -353,8 +353,8 @@ pub(crate) fn stale_head_params() -> ActivityQueryParams {
 ///
 /// A row the provider just returned is strictly newer than the cached copy of
 /// the same activity, so it replaces that copy rather than being dropped as a
-/// duplicate. Keeping the cached copy meant a turn that paid for a scrape
-/// answered from the rows the scrape had just superseded: on 2026-09-18 a live
+/// duplicate. Keeping the cached copy meant a turn that paid for a session read
+/// answered from the rows the read had just superseded: on 2026-09-18 a live
 /// read returned 811 m of climb for a 26 km trail run, the cached copy carried
 /// none, and the coach told the athlete elevation was "non dispo" for every
 /// outing but the one activity the cache had never seen. The write-through had
@@ -418,18 +418,18 @@ pub fn before_bounds_a_closed_window(before: Option<i64>, now_ts: i64) -> bool {
 ///
 /// A successful fetch is written through to the activity cache so a later
 /// failure can be served from it. When the live fetch fails (provider needs
-/// re-auth, transient scrape error, timeout), the user's cached activities for
+/// re-auth, transient session-read error, timeout), the user's cached activities for
 /// the same window are served stale instead of an empty result — a provider
 /// blip degrades to "slightly old data" rather than "no data". Returns `None`
 /// only when the live fetch fails *and* the cache is empty.
 ///
-/// A fetch the provider refused for authentication — a dead scrape session, a
+/// A fetch the provider refused for authentication — a dead signed-in session, a
 /// revoked token — is not recorded as a failed sync (see
 /// [`fetch_provider_head`]); it flags the connection `needs_reauth` and sends
 /// the athlete's reconnect notice instead
 /// ([`flag_needs_reauth`](reauth_notice::flag_needs_reauth)). Without
 /// that, the Home refresh that met a dead session said nothing, recorded no
-/// pause, and scraped the dead session again on every Home load. The flag
+/// pause, and read the dead session again on every Home load. The flag
 /// names the connection that refused (`reauth_notice::refused_backend`), and a
 /// session already flagged is not read ([`reauth_retry::flagged_session`])
 /// until a reconnect or a claimed retry: the live grant behind it serves in
@@ -477,8 +477,8 @@ pub async fn fetch_provider_activities(
     }
 }
 
-/// The window a read of a flagged scrape session is answered with, without
-/// calling the scraper ([`reauth_retry::flagged_session`]): the live grant
+/// The window a read of a flagged signed-in session is answered with, without
+/// calling the service ([`reauth_retry::flagged_session`]): the live grant
 /// behind it (`fallback::grant_window`, carnet#1494), else the cache; `None`
 /// when the read may go ahead.
 pub(crate) async fn serve_flagged_session(
@@ -560,7 +560,7 @@ pub(crate) async fn serve_after_failed_read(
 /// [`fetch_provider_activities`] is this plus the read path's fallback. Serving
 /// stale rows is right for an athlete waiting on an answer and wrong for a
 /// caller whose whole job is to notice that the fetch failed: the nightly
-/// capture sweep must tell an auth-shaped failure (a lapsed scrape session or a
+/// capture sweep must tell an auth-shaped failure (a lapsed signed-in session or a
 /// 401, both surfacing as [`AppError::provider_auth_required`]) from a transient
 /// one, because only the first may flag the athlete's connection.
 ///
@@ -576,7 +576,7 @@ pub(crate) async fn serve_after_failed_read(
 /// attempt instead ([`record_sync_failure`](sync_verdict::record_sync_failure)): the head then still reads
 /// stale, so a later Home load or turn refreshes it again once the failure's
 /// pause is over ([`sync_backoff_until`](sync_verdict::sync_backoff_until)), and Home can say the sync failed.
-/// On 2026-09-29 a scrape that failed answered `count=0` as a success, was
+/// On 2026-09-29 a session read that failed answered `count=0` as a success, was
 /// stamped fresh, and nothing looked again for four hours while the day's
 /// activities sat unseen.
 ///
@@ -642,7 +642,7 @@ pub(crate) enum Routing {
 ///
 /// For a read a provider's own event asks of the credential it names: a
 /// Strava webhook and the first read of a connection just made reach the
-/// grant, so a pushed event never starts a scrape of the session beside it
+/// grant, so a pushed event never starts a read of the session beside it
 /// (carnet#1494). A push-only backend answers with its pushed window, as it
 /// does on every read.
 ///

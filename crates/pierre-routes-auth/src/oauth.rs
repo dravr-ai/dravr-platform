@@ -319,7 +319,7 @@ pub(crate) async fn handle_providers_status(
 /// Is this card's provider connected, counting either backend that serves it?
 ///
 /// The Strava and Garmin cards are named for their MIRROR backends (`sciotte`,
-/// `sciotte_garmin`) because the scrape is the supported way in, and the raw
+/// `sciotte_garmin`) because the session read is the supported way in, and the raw
 /// `strava` / `garmin` cards are withheld below. But a connection made through OAuth is
 /// stored under the user-facing name. One athlete and one provider therefore
 /// have two possible row names, so a card lights up when EITHER is present.
@@ -554,7 +554,7 @@ pub(crate) async fn compute_providers_status(
 
     // A connection whose lifecycle status is NeedsReauth/Revoked still has a row
     // (so it reads as "connected") but its session no longer works — a dead
-    // sciotte scrape or a non-recoverable OAuth refresh. Track those separately so
+    // sciotte session or a non-recoverable OAuth refresh. Track those separately so
     // the screen can show "Reconnect needed" rather than a healthy "Connected".
     let reauth_providers: HashSet<String> = connections
         .iter()
@@ -621,7 +621,7 @@ pub(crate) async fn compute_providers_status(
     let mut provider_statuses = Vec::new();
 
     for provider_name in supported_providers {
-        // A provider with a scrape mirror is shown by ONE card, named for the
+        // A provider with a session-read mirror is shown by ONE card, named for the
         // mirror (`sciotte`, `sciotte_garmin`, ...), which already coalesces
         // both backends (`card_is_connected`) and whose disconnect clears the
         // pair. Its raw card is therefore never served: for COROS it names an

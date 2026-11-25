@@ -95,7 +95,7 @@ fn token_row(
 }
 
 /// The usr/pwd Garmin session and its live connection, as the sciotte login
-/// leaves them: the session itself as the access token a scraper reads, with
+/// leaves them: the session itself as the access token a session reader reads, with
 /// no expiry, under a manual connection.
 ///
 /// # Errors

@@ -17,7 +17,7 @@
 //! A flag is one attempt's verdict, and the sweep never walks a flagged
 //! connection again, so the verdict is revisited where the next read happens:
 //! a fetch the stored credential serves re-arms the connection. The second half
-//! of this file pins that against a scraper stand-in whose answer the test
+//! of this file pins that against a session reader stand-in whose answer the test
 //! switches between a refused session and a served one.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
@@ -247,7 +247,7 @@ async fn the_sweep_flags_a_connection_whose_credential_is_gone() {
 }
 
 /// Flagging a connection drops it out of the snapshot the sweep walks, so the
-/// next night does not spend another headless-browser scrape on a connection
+/// next night does not spend another headless-browser session read on a connection
 /// that cannot succeed until the athlete acts.
 ///
 /// This is the coupling to the staleness reader: both halves read one snapshot,
@@ -407,13 +407,13 @@ async fn an_exhausted_budget_is_reported_not_hidden() {
 
 // ── Re-arming: a flag the stored session outlived ───────────────────────────
 
-/// The id of the one ride the scraper stand-in serves.
+/// The id of the one ride the session reader stand-in serves.
 const RIDE_ID: &str = "15559990001";
 
-/// What the scraper stand-in answers the activity list with.
-struct Scraper {
+/// What the session reader stand-in answers the activity list with.
+struct SessionReader {
     /// Whether the provider still honours the session. `false` answers the
-    /// list `401 session_expired`, the scraper's word for cookies the provider
+    /// list `401 session_expired`, the service's word for cookies the provider
     /// refused.
     session_alive: AtomicBool,
     /// Whether the capture it serves reached the list head.
@@ -422,11 +422,11 @@ struct Scraper {
     ride_start: String,
 }
 
-/// Spawn a local stand-in for the `dravr-sciotte` scraper service, returning
+/// Spawn a local stand-in for the `dravr-sciotte` service, returning
 /// it with the URL the platform reaches it at. Every import succeeds; the list
 /// is served or refused by the flags the test holds.
-async fn spawn_scraper() -> (Arc<Scraper>, String) {
-    let scraper = Arc::new(Scraper {
+async fn spawn_session_reader() -> (Arc<SessionReader>, String) {
+    let reader = Arc::new(SessionReader {
         session_alive: AtomicBool::new(true),
         head_complete: AtomicBool::new(true),
         // Two days old: inside the sweep's head window and the cache's
@@ -440,8 +440,8 @@ async fn spawn_scraper() -> (Arc<Scraper>, String) {
         )
         .route(
             "/api/activities",
-            get(|State(scraper): State<Arc<Scraper>>| async move {
-                if !scraper.session_alive.load(Ordering::SeqCst) {
+            get(|State(reader): State<Arc<SessionReader>>| async move {
+                if !reader.session_alive.load(Ordering::SeqCst) {
                     return (
                         StatusCode::UNAUTHORIZED,
                         Json(json!({ "error": "session_expired" })),
@@ -455,31 +455,31 @@ async fn spawn_scraper() -> (Arc<Scraper>, String) {
                             "id": RIDE_ID,
                             "name": "Sortie du matin",
                             "sport_type": "ride",
-                            "start_date": scraper.ride_start,
+                            "start_date": reader.ride_start,
                             "duration_seconds": 3600,
                             "provider": "strava",
                             "distance_meters": 30000.0
                         }],
-                        "head_complete": scraper.head_complete.load(Ordering::SeqCst)
+                        "head_complete": reader.head_complete.load(Ordering::SeqCst)
                     })),
                 )
             }),
         )
-        .with_state(Arc::clone(&scraper));
+        .with_state(Arc::clone(&reader));
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     tokio::spawn(async move {
         axum::serve(listener, app).await.unwrap();
     });
-    (scraper, format!("http://{addr}"))
+    (reader, format!("http://{addr}"))
 }
 
 /// A fresh athlete whose Strava is served by the sciotte mirror: a `sciotte`
-/// connection, a live stored session behind it, and the scraper stand-in the
+/// connection, a live stored session behind it, and the session reader stand-in the
 /// platform reads it through.
-async fn athlete_on_the_mirror() -> (Fixture, Arc<Scraper>) {
-    let (scraper, scraper_url) = spawn_scraper().await;
-    let resources = create_test_server_resources_with_sciotte(&scraper_url)
+async fn athlete_on_the_mirror() -> (Fixture, Arc<SessionReader>) {
+    let (reader, reader_url) = spawn_session_reader().await;
+    let resources = create_test_server_resources_with_sciotte(&reader_url)
         .await
         .unwrap();
     let (user_id, _user) = create_test_user(&resources.agent.database)
@@ -511,7 +511,7 @@ async fn athlete_on_the_mirror() -> (Fixture, Arc<Scraper>) {
             user_id,
             tenant,
         },
-        scraper,
+        reader,
     )
 }
 
@@ -623,16 +623,16 @@ fn ids(activities: &[Activity]) -> Vec<&str> {
 
 /// The incident end to end. The sweep meets one auth-shaped answer and flags
 /// the connection. An ordinary read of the flagged session does not sign in to
-/// it again (each attempt is a headless sign-in on the scraper); the throttled
+/// it again (each attempt is a headless sign-in on the service); the throttled
 /// retry does, asked for by the name the athlete knows the provider by, and is
 /// served through the very same stored session. That read must put the
 /// connection back among the live ones, or the sweep and the Home page, which
 /// act on `active` connections only, never refresh it again.
 #[tokio::test]
 async fn a_flag_the_session_outlived_is_cleared_by_the_next_fetch_it_serves() {
-    let (f, scraper) = athlete_on_the_mirror().await;
+    let (f, reader) = athlete_on_the_mirror().await;
 
-    scraper.session_alive.store(false, Ordering::SeqCst);
+    reader.session_alive.store(false, Ordering::SeqCst);
     let flagging = refresh_captures(
         &f.runtime,
         SweepBudget::default(),
@@ -648,12 +648,12 @@ async fn a_flag_the_session_outlived_is_cleared_by_the_next_fetch_it_serves() {
         "the sweep flagged the connection over the refused read"
     );
 
-    scraper.session_alive.store(true, Ordering::SeqCst);
+    reader.session_alive.store(true, Ordering::SeqCst);
     let (tenant, window) = (f.tenant.to_string(), head_window());
     let read = || fetch_provider_activities(&f.runtime, "strava", f.user_id, &tenant, &window);
     assert!(
         read().await.is_none(),
-        "an ordinary read of a flagged session serves the (empty) cache, not the scraper"
+        "an ordinary read of a flagged session serves the (empty) cache, not the service"
     );
     assert_eq!(
         row_state(&f).await.status,
@@ -691,7 +691,7 @@ async fn a_flag_the_session_outlived_is_cleared_by_the_next_fetch_it_serves() {
 /// flag and the reason recorded with it stand.
 #[tokio::test]
 async fn a_fetch_the_provider_refuses_leaves_the_flag_standing() {
-    let (f, scraper) = athlete_on_the_mirror().await;
+    let (f, reader) = athlete_on_the_mirror().await;
     flag_as_the_sweep_does(&f).await;
     let flagged = row_state(&f).await;
     assert_eq!(
@@ -699,7 +699,7 @@ async fn a_fetch_the_provider_refuses_leaves_the_flag_standing() {
         RowState::new("needs_reauth", Some("session_expired"), true)
     );
 
-    scraper.session_alive.store(false, Ordering::SeqCst);
+    reader.session_alive.store(false, Ordering::SeqCst);
     let error = fetch_provider_head(
         &f.runtime,
         "sciotte",
@@ -725,7 +725,7 @@ async fn a_fetch_the_provider_refuses_leaves_the_flag_standing() {
 /// that still answers does not.
 #[tokio::test]
 async fn a_revoked_connection_is_never_rearmed() {
-    let (f, _scraper) = athlete_on_the_mirror().await;
+    let (f, _reader) = athlete_on_the_mirror().await;
     revoke(&f).await;
 
     let served = fetch_provider_head(
@@ -750,7 +750,7 @@ async fn a_revoked_connection_is_never_rearmed() {
 /// is stamped on a row that never left `active`.
 #[tokio::test]
 async fn an_active_connection_is_left_untouched_by_a_served_fetch() {
-    let (f, _scraper) = athlete_on_the_mirror().await;
+    let (f, _reader) = athlete_on_the_mirror().await;
     assert_eq!(row_state(&f).await, RowState::new("active", None, false));
 
     let served = fetch_provider_head(
@@ -771,15 +771,15 @@ async fn an_active_connection_is_left_untouched_by_a_served_fetch() {
     );
 }
 
-/// A capture whose head the scraper never saw is incomplete, not
+/// A capture whose head the service never saw is incomplete, not
 /// unauthenticated: the provider accepted the session before it read anything.
 /// It re-arms the connection, and is still kept out of the cache.
 #[tokio::test]
 async fn a_capture_missing_its_head_still_rearms_the_connection() {
-    let (f, scraper) = athlete_on_the_mirror().await;
+    let (f, reader) = athlete_on_the_mirror().await;
     flag_as_the_sweep_does(&f).await;
 
-    scraper.head_complete.store(false, Ordering::SeqCst);
+    reader.head_complete.store(false, Ordering::SeqCst);
     let served = fetch_provider_head(
         &f.runtime,
         "sciotte",
@@ -1008,7 +1008,7 @@ async fn the_daily_sweep_flags_a_garmin_grant_whose_refresh_is_refused() {
 /// A live usr/pwd session is its provider's primary source and the OAuth
 /// grant beside it only its fallback (carnet#1494), so the sweep walks the
 /// session and passes over the grant, counting it, instead of reading the
-/// API beside the scrape. The grant here is Active with a live token, so
+/// API beside the session read. The grant here is Active with a live token, so
 /// only the grant-beside-session rule leaves it out.
 #[tokio::test]
 async fn the_sweep_walks_the_session_and_passes_over_the_grant_beside_it() {
@@ -1068,7 +1068,7 @@ async fn the_sweep_walks_the_session_and_passes_over_the_grant_beside_it() {
 /// asked exactly that and passed the session over, the zero read as an hour.
 #[tokio::test]
 async fn an_active_sweep_skipping_nothing_refreshes_a_session_a_turn_just_read() {
-    let (f, _scraper) = athlete_on_the_mirror().await;
+    let (f, _reader) = athlete_on_the_mirror().await;
     let repos = f.runtime.repos();
     repos
         .provider_connections

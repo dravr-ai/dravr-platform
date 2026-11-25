@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Unit test for the sciotte login's busy-scraper retry wait
+// ABOUTME: Unit test for the sciotte login's busy-service retry wait
 // ABOUTME: The retry honours the refusal's details.retry_after_secs when no Retry-After header reaches the client
 
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import type { AxiosInstance } from 'axios'
 import { createOAuthApi } from '@pierre/api-client'
 
-describe('sciotte login retry on a busy scraper', () => {
+describe('sciotte login retry on a busy service', () => {
   afterEach(() => {
     vi.useRealTimers()
     vi.restoreAllMocks()

@@ -42,13 +42,13 @@ pub struct StoredTokenRow {
     row_id: String,
 }
 
-/// The one field of a stored scrape session read back.
+/// The one field of a stored signed-in session read back.
 #[derive(Deserialize)]
 struct SessionId {
     session_id: String,
 }
 
-/// The `session_id` of the scrape session `json` serializes; `None` when
+/// The `session_id` of the signed-in session `json` serializes; `None` when
 /// `json` is not one.
 #[must_use]
 pub fn session_id_of(json: &str) -> Option<String> {
@@ -106,7 +106,7 @@ impl StoredTokenRow {
 
     /// Write what a provider refreshed or rotated, `credentials`, back.
     ///
-    /// The row is read again first and must still carry its `id`. A scrape
+    /// The row is read again first and must still carry its `id`. A signed-in
     /// session row takes the session in `credentials`' access token
     /// ([`Self::write_session`]); any other row takes the access token,
     /// refresh token and expiry.
@@ -144,11 +144,11 @@ impl StoredTokenRow {
         self.log_write(written);
     }
 
-    /// Write a rotated scrape session, `session_json`, over this row, while
+    /// Write a rotated signed-in session, `session_json`, over this row, while
     /// it still stands.
     ///
     /// The row must still carry its `id` and the session's `session_id`. It
-    /// keeps its own refresh token (a scrape session has none, so a `NULL`
+    /// keeps its own refresh token (a signed-in session has none, so a `NULL`
     /// stays `NULL`) and takes `expires_at`, the rotated session's expiry,
     /// exactly as a login stores a session.
     ///
@@ -166,7 +166,7 @@ impl StoredTokenRow {
     }
 
     /// Write `session_json` over `stored`, this row as just read, while it
-    /// is a scrape session row carrying the session's `session_id`.
+    /// is a signed-in session row carrying the session's `session_id`.
     async fn write_session_over(
         &self,
         tokens: &dyn OAuthTokenRepository,

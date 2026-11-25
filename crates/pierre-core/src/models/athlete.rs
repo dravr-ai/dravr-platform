@@ -59,7 +59,7 @@ pub struct Athlete {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub created_at: Option<Timestamp>,
     /// The athlete's current activity streak, as Strava itself reports it
-    /// on the profile (the scraped Strava session only, the athlete's own
+    /// on the profile (the signed-in Strava session only, the athlete's own
     /// account). It is Strava's own figure, never a
     /// Dravr computation: nothing derives or recomputes it from activities,
     /// and `None` means the provider did not report one, not that the

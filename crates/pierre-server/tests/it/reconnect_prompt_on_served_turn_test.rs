@@ -665,7 +665,7 @@ async fn a_trainingpeaks_reconnect_names_it_and_opens_its_login() {
     .expect("the minted token verifies");
     assert_eq!(
         claims.tgt, "trainingpeaks",
-        "the hosted login must open the TrainingPeaks scraper, not the Strava default"
+        "the hosted login must open the TrainingPeaks session sign-in, not the Strava default"
     );
 }
 

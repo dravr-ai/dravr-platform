@@ -35,9 +35,9 @@ use crate::common::{
 /// Every session id a `DELETE /auth/sessions/{id}` named.
 type Deletes = Arc<Mutex<Vec<String>>>;
 
-/// A loopback stand-in for the scraper service that records the sessions it
+/// A loopback stand-in for the session-read service that records the sessions it
 /// is asked to drop, and the URL it serves at.
-async fn recording_scraper() -> (Deletes, String) {
+async fn recording_session_reader() -> (Deletes, String) {
     let deletes: Deletes = Arc::default();
     let app = Router::new()
         .route(
@@ -59,7 +59,7 @@ async fn recording_scraper() -> (Deletes, String) {
 }
 
 #[tokio::test]
-async fn a_config_with_no_scraper_service_builds_no_sciotte_client() {
+async fn a_config_with_no_session_read_service_builds_no_sciotte_client() {
     let resources = create_test_server_resources_with_config(test_server_config())
         .await
         .unwrap();
@@ -76,7 +76,7 @@ async fn a_config_with_no_scraper_service_builds_no_sciotte_client() {
 
 #[tokio::test]
 async fn the_sciotte_client_calls_the_service_its_config_names() {
-    let (deletes, url) = recording_scraper().await;
+    let (deletes, url) = recording_session_reader().await;
     let resources = create_test_server_resources_with_config(test_server_config_with_sciotte(&url))
         .await
         .unwrap();

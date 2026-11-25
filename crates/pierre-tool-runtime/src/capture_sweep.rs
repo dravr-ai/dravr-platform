@@ -22,13 +22,13 @@
 //! notice once ([`flag_needs_reauth`]), in the app and on every chat they
 //! linked, and their next turn consults it and hands back a reconnect link.
 //!
-//! A flag on a scrape session is one read's verdict, and the scraper can be
-//! wrong about a session that is fine, so the sweep also retries flagged scrape
+//! A flag on a signed-in session is one read's verdict, and the service can be
+//! wrong about a session that is fine, so the sweep also retries flagged signed-in
 //! sessions on a throttle ([`crate::reauth_retry`]) — the same headless read,
 //! never a login. One the session serves is re-armed.
 //!
-//! That constraint is not fastidiousness. A fresh scraper login can demand a 2FA
-//! phone tap within a four-minute window, and the scraper service scales to zero
+//! That constraint is not fastidiousness. A fresh service login can demand a 2FA
+//! phone tap within a four-minute window, and the service scales to zero
 //! holding no durable session, so there is nothing to resume from after an idle
 //! period — an unattended re-login is not something that can be made to work at
 //! 04:00. What this sweep buys is the conversion of *"silently captures nothing
@@ -47,7 +47,7 @@
 //! A usr/pwd session is its provider's primary source (carnet#1494): the
 //! sweep refreshes it, and passes over the OAuth grant standing beside it
 //! ([`grant_beside_session`]), which only answers when the session cannot,
-//! so the API is never read beside the scrape. A push-only grant has no head
+//! so the API is never read beside the session. A push-only grant has no head
 //! to refresh, so the daily sweep walks it through the token path instead
 //! ([`grant_check`]): a refresh the provider refuses flags the grant even for
 //! an athlete who records nothing, and a live grant keeps refreshing.
@@ -80,7 +80,7 @@ use crate::activity_fetch::sync_verdict::{
     covers_list_head, held_to_background_share, record_sync_failure,
 };
 use crate::protocol::reauth_notice::flag_needs_reauth;
-use crate::reauth_retry::{claim_scrape_session_retry, SCRAPE_SESSION_RETRY_INTERVAL_HOURS};
+use crate::reauth_retry::{claim_flagged_session_retry, FLAGGED_SESSION_RETRY_INTERVAL_HOURS};
 use crate::runtime::ToolRuntime;
 
 /// How far back one sweep fetch reaches. A nightly cadence only needs to cover
@@ -97,9 +97,9 @@ pub const DEFAULT_CONNECTION_LIMIT: i64 = 5_000;
 
 /// Per-connection fetch bound.
 ///
-/// A scrape-backed fetch drives a headless browser and is measured in tens of
+/// A session-read fetch drives a headless browser and is measured in tens of
 /// seconds. This bounds the *fetch*, never a login — the sweep does not log in,
-/// so the scraper's four-minute phone-tap window is not in play here.
+/// so the service's four-minute phone-tap window is not in play here.
 pub const DEFAULT_CONNECTION_TIMEOUT_SECS: u64 = 90;
 
 /// Whole-sweep bound.
@@ -143,10 +143,10 @@ impl Default for SweepBudget {
 /// Which live connections one sweep refreshes.
 ///
 /// The daily sweep walks every live connection. Between two of them an
-/// athlete's scraped capture moves only when they chat, and a chat's own read
+/// athlete's session-read capture moves only when they chat, and a chat's own read
 /// outlives the turn's budget, so its result lands after the reply that
 /// needed it (carnet#1206). A sweep run every few hours over the athletes who
-/// chat keeps their head current without waking the scraper for everyone.
+/// chat keeps their head current without waking the service for everyone.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SweepSelection {
     /// Only the connections of athletes served — a chat turn or an app load,
@@ -296,7 +296,7 @@ pub enum RefreshOutcome {
         /// The refusal, for the admin reading the report.
         error: String,
     },
-    /// The scraper refused the read because the account is a coach's, which
+    /// The service refused the read because the account is a coach's, which
     /// keeps no calendar of its own (a TrainingPeaks coach account): the
     /// account's standing state, not a failed read, so it is never flagged.
     /// The head read still records it, so the backoff spaces the reads it
@@ -343,12 +343,12 @@ pub struct RefreshReport {
     /// Attempts held back by the sweep's background share of the provider's
     /// request budget ([`RefreshOutcome::Deferred`]), never counted as failed.
     pub deferred: usize,
-    /// Attempts the scraper refused because the account is a coach's
+    /// Attempts the service refused because the account is a coach's
     /// ([`RefreshOutcome::CoachAccount`]), never counted as failed.
     pub coach_accounts: usize,
     /// Connections the time budget left unreached.
     pub skipped: usize,
-    /// Flagged scrape sessions the sweep retried, each also counted in
+    /// Flagged signed-in sessions the sweep retried, each also counted in
     /// `attempted` and in the outcome it reached.
     pub retried: usize,
     /// Push-only grants the daily sweep walked through the token path
@@ -368,7 +368,7 @@ pub struct RefreshReport {
 }
 
 /// Refresh the recent head of every live provider connection `selection`
-/// picks, then retry the flagged scrape sessions whose retry is due.
+/// picks, then retry the flagged signed-in sessions whose retry is due.
 ///
 /// Push-only providers' connections and grants beside a session of their
 /// provider are passed over ([`capturable`], [`grant_beside_session`]). The
@@ -377,7 +377,7 @@ pub struct RefreshReport {
 ///
 /// Walks the same snapshot the staleness reader judges — which already excludes
 /// connections needing re-auth, since a known-dead one has nothing to refresh.
-/// A flagged scrape session is the exception, walked after the live ones by
+/// A flagged signed-in session is the exception, walked after the live ones by
 /// [`retry_flagged_sessions`] on its own throttle; a flagged OAuth connection
 /// is never re-attempted.
 ///
@@ -580,10 +580,10 @@ impl Walk<'_> {
     }
 }
 
-/// Retry the flagged scrape sessions whose retry is due, and report how many
+/// Retry the flagged signed-in sessions whose retry is due, and report how many
 /// were attempted.
 ///
-/// Each is claimed through [`claim_scrape_session_retry`] before it is
+/// Each is claimed through [`claim_flagged_session_retry`] before it is
 /// fetched, so a connection Home or another replica retried within the
 /// interval is left alone and does not appear in the report. The fetch is the
 /// sweep's ordinary one: a session that serves it is re-armed by the live-read
@@ -592,7 +592,7 @@ impl Walk<'_> {
 /// session keeps its claim for the next sweep. A listing that cannot be read
 /// is logged and retries nothing: the live half of the sweep already ran.
 async fn retry_flagged_sessions(walk: &mut Walk<'_>, limit: i64) -> usize {
-    let due_before = Timestamp::now() - Elapsed::hours(SCRAPE_SESSION_RETRY_INTERVAL_HOURS);
+    let due_before = Timestamp::now() - Elapsed::hours(FLAGGED_SESSION_RETRY_INTERVAL_HOURS);
     let due = match walk
         .runtime
         .repos()
@@ -615,7 +615,7 @@ async fn retry_flagged_sessions(walk: &mut Walk<'_>, limit: i64) -> usize {
         let Ok(tenant) = TenantId::parse_str(&connection.tenant_id) else {
             continue;
         };
-        if !claim_scrape_session_retry(
+        if !claim_flagged_session_retry(
             walk.runtime,
             connection.user_id,
             tenant,
@@ -665,7 +665,7 @@ async fn refresh_one(
     let fetch = fetch_provider_head(runtime, provider, parsed_user, tenant_id, params);
     let Ok(result) = timeout(per_connection, fetch).await else {
         // A bound the sweep imposed, not a verdict on the connection — a slow
-        // scrape is not a dead session and must never flag one.
+        // session read is not a dead session and must never flag one.
         return fetch_dropped(
             runtime,
             tenant_id,
@@ -816,7 +816,7 @@ fn flag_outcome(user_id: Uuid, provider: &str, mark: ReauthMark) -> RefreshOutco
 /// and on every chat they linked, with a sign-in link where the provider has
 /// one. Flipping the status also drops the connection out of the staleness
 /// snapshot, so the reader stops counting a failure that now has a known
-/// reason and a stated remedy; a scrape session is then revisited by the
+/// reason and a stated remedy; a signed-in session is then revisited by the
 /// throttled retry ([`retry_flagged_sessions`]), which can re-arm it.
 ///
 /// A connection the athlete reconnected after `attempt_started_at` is left
@@ -963,7 +963,7 @@ mod tests {
             let row = connection(used, None);
             assert!(
                 !selects_alone(&ACTIVE_ONLY, &row),
-                "bug: an idle athlete must not wake the scraper: {used:?}"
+                "bug: an idle athlete must not wake the service: {used:?}"
             );
             assert!(
                 selects_alone(&SweepSelection::default(), &row),

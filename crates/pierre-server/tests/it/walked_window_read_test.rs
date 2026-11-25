@@ -36,7 +36,7 @@
 #![allow(missing_docs)]
 
 use crate::helpers::history_walk_ledger::owe_history_walk;
-use crate::helpers::sciotte_mock::seed_scrape_session;
+use crate::helpers::sciotte_mock::seed_signed_in_session;
 use crate::history_walk_api_test::{mock_strava, server, strava_athlete, MockStrava};
 
 use std::sync::Arc;
@@ -59,7 +59,7 @@ async fn walked_athlete() -> (Arc<ServerContext>, Arc<MockStrava>, Uuid, TenantI
     let (api_base, mock) = mock_strava().await;
     let resources = server(&api_base, 400).await;
     let (user_id, tenant) = strava_athlete(&resources).await;
-    seed_scrape_session(
+    seed_signed_in_session(
         &resources,
         user_id,
         tenant,

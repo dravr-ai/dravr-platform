@@ -38,18 +38,18 @@ use uuid::Uuid;
 
 use crate::common;
 use crate::helpers::garmin_consent::give_garmin_ai_consent;
-use crate::helpers::sciotte_mock::spawn_mock_scraper_with_activity;
+use crate::helpers::sciotte_mock::spawn_mock_session_reader_with_activity;
 
 /// Nothing listens here: a read the cap admitted would fail to connect, so a
 /// served answer can only be the stored copy.
-const NO_SCRAPER: &str = "http://127.0.0.1:9";
+const NO_READER: &str = "http://127.0.0.1:9";
 
-/// A Starter athlete signed in to Garmin through the scraper, and their tenant.
+/// A Starter athlete signed in to Garmin through the service, and their tenant.
 async fn garmin_athlete(resources: &Arc<ServerContext>) -> (Uuid, TenantId) {
     garmin_athlete_on(resources, UserTier::Starter).await
 }
 
-/// An athlete on `tier` signed in to Garmin through the scraper, and their
+/// An athlete on `tier` signed in to Garmin through the service, and their
 /// tenant. The tier is set before any read resolves their caps.
 async fn garmin_athlete_on(resources: &Arc<ServerContext>, tier: UserTier) -> (Uuid, TenantId) {
     let (user_id, _) = common::create_test_user(&resources.agent.database)
@@ -252,7 +252,7 @@ async fn call_with(
 
 #[tokio::test]
 async fn a_capped_read_is_answered_by_the_stored_copy_under_a_read_limit_caveat() {
-    let resources = common::create_test_server_resources_with_sciotte(NO_SCRAPER)
+    let resources = common::create_test_server_resources_with_sciotte(NO_READER)
         .await
         .unwrap();
     let (user_id, tenant) = garmin_athlete(&resources).await;
@@ -285,7 +285,7 @@ async fn a_capped_read_is_answered_by_the_stored_copy_under_a_read_limit_caveat(
 
 #[tokio::test]
 async fn a_capped_read_with_nothing_stored_answers_with_the_refusal() {
-    let resources = common::create_test_server_resources_with_sciotte(NO_SCRAPER)
+    let resources = common::create_test_server_resources_with_sciotte(NO_READER)
         .await
         .unwrap();
     let (user_id, tenant) = garmin_athlete(&resources).await;
@@ -310,7 +310,7 @@ async fn a_capped_read_with_nothing_stored_answers_with_the_refusal() {
 
 #[tokio::test]
 async fn a_capped_activity_list_says_its_reads_are_used_up() {
-    let resources = common::create_test_server_resources_with_sciotte(NO_SCRAPER)
+    let resources = common::create_test_server_resources_with_sciotte(NO_READER)
         .await
         .unwrap();
     let (user_id, tenant) = garmin_athlete(&resources).await;
@@ -339,7 +339,7 @@ async fn a_capped_activity_list_says_its_reads_are_used_up() {
 /// suggestions are built from activities that may be days old.
 #[tokio::test]
 async fn a_capped_goal_suggestion_carries_the_read_limit_caveat() {
-    let resources = common::create_test_server_resources_with_sciotte(NO_SCRAPER)
+    let resources = common::create_test_server_resources_with_sciotte(NO_READER)
         .await
         .unwrap();
     let (user_id, tenant) = garmin_athlete(&resources).await;
@@ -416,7 +416,7 @@ async fn store_pushed_samples(resources: &Arc<ServerContext>, user_id: Uuid, ten
 /// not change.
 #[tokio::test]
 async fn a_capped_sample_read_is_answered_by_the_stored_samples() {
-    let resources = common::create_test_server_resources_with_sciotte(NO_SCRAPER)
+    let resources = common::create_test_server_resources_with_sciotte(NO_READER)
         .await
         .unwrap();
     let (user_id, tenant) = garmin_athlete(&resources).await;
@@ -447,7 +447,7 @@ async fn a_capped_sample_read_is_answered_by_the_stored_samples() {
 /// refusal, never with an activity that reads as having recorded none.
 #[tokio::test]
 async fn a_capped_sample_read_with_no_stored_samples_answers_with_the_refusal() {
-    let resources = common::create_test_server_resources_with_sciotte(NO_SCRAPER)
+    let resources = common::create_test_server_resources_with_sciotte(NO_READER)
         .await
         .unwrap();
     let (user_id, tenant) = garmin_athlete(&resources).await;
@@ -485,10 +485,10 @@ async fn a_capped_sample_read_with_no_stored_samples_answers_with_the_refusal() 
 
 /// The caps are the athlete's tier's: a Professional athlete who has read
 /// their Garmin as often as a Starter's whole day still reads it live, from
-/// the scraper, with no caveat.
+/// the service, with no caveat.
 #[tokio::test]
 async fn a_professional_athlete_reads_past_the_starter_day() {
-    let scraper = spawn_mock_scraper_with_activity(json!({
+    let reader = spawn_mock_session_reader_with_activity(json!({
         "id": "8000000001",
         "name": "Garmin ride",
         "sport_type": "ride",
@@ -498,7 +498,7 @@ async fn a_professional_athlete_reads_past_the_starter_day() {
         "distance_meters": 30000.0
     }))
     .await;
-    let resources = common::create_test_server_resources_with_sciotte(&scraper)
+    let resources = common::create_test_server_resources_with_sciotte(&reader)
         .await
         .unwrap();
     let (user_id, tenant) = garmin_athlete_on(&resources, UserTier::Professional).await;
@@ -518,7 +518,7 @@ async fn a_professional_athlete_reads_past_the_starter_day() {
     );
     assert!(
         result.to_string().contains("8000000001"),
-        "the ride is read live from the scraper: {result}"
+        "the ride is read live from the service: {result}"
     );
     assert!(
         asked_reads(&resources, SCIOTTE_GARMIN, user_id).await > starter_day,
@@ -533,7 +533,7 @@ async fn a_professional_athlete_reads_past_the_starter_day() {
 /// (carnet#1679 keeps the route of a provider's own detail read only).
 #[tokio::test]
 async fn a_capped_read_answered_by_the_stored_copy_writes_no_route() {
-    let resources = common::create_test_server_resources_with_sciotte(NO_SCRAPER)
+    let resources = common::create_test_server_resources_with_sciotte(NO_READER)
         .await
         .unwrap();
     let (user_id, tenant) = garmin_athlete(&resources).await;
@@ -626,7 +626,7 @@ async fn a_capped_read_answered_by_the_stored_copy_writes_no_route() {
     }
 }
 
-/// A Strava athlete signed in through the scraper and holding a Strava grant:
+/// A Strava athlete signed in through the service and holding a Strava grant:
 /// a read their session-read cap refuses is asked of the grant, which has a
 /// request budget of its own and costs the session nothing, before any stored
 /// copy (JF on carnet#1661).
@@ -661,9 +661,9 @@ mod strava_grant {
         );
         let result = response.result.expect("a served list has a payload");
         assert_eq!(
-            w.scraper.reads(),
+            w.reader.reads(),
             0,
-            "bug: a refused session read reached the scraper"
+            "bug: a refused session read reached the service"
         );
         assert!(
             w.strava.reads() >= 1,
@@ -711,9 +711,9 @@ mod strava_grant {
         );
         let result = response.result.expect("a served list has a payload");
         assert_eq!(
-            w.scraper.reads(),
+            w.reader.reads(),
             0,
-            "bug: a refused background session read reached the scraper"
+            "bug: a refused background session read reached the service"
         );
         assert!(
             w.strava.reads() >= 1,

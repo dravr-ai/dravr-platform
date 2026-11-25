@@ -75,7 +75,7 @@ photograveur = { workspace = true }
 # provider-intervals-icu is named for the wellness reader health_sync builds
 # on the provider registry's Intervals.icu origin.
 dravr-enforme = { workspace = true, optional = true, features = ["provider-whoop", "provider-garmin", "provider-coros", "provider-intervals-icu"] }
-# The scraper service's typed client and the session, roster and athlete types
+# The sciotte service's typed client and the session, roster and athlete types
 # its reads and session drops name.
 dravr-sciotte = { workspace = true, features = ["client"] }
 # The wellness models and their per-night / per-day merge: `stored_health`
