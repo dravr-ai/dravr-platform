@@ -28,7 +28,7 @@ use dravr_tronc::mcp::auth::{
 use dravr_tronc::mcp::protocol::JsonRpcRequest;
 use dravr_tronc::mcp::transport::http::forwarded_headers;
 use dravr_tronc::server::auth::{bearer_credential, dpop_credential};
-use pierre_auth::config::{OAuth2ServerConfig, DIALED_HOST_HEADERS, DIALED_PROTO_HEADER};
+use pierre_auth::config::{self, OAuth2ServerConfig, DIALED_PROTO_HEADER};
 use pierre_auth::dpop::{DpopContext, PresentedProofs, BEARER_SCHEME, DPOP_HEADER, DPOP_SCHEME};
 use pierre_core::auth_header::is_api_key_format;
 use serde_json::Value;
@@ -64,27 +64,8 @@ impl PresentedCall {
     /// method and path a `DPoP` proof must name.
     #[must_use]
     pub fn from_http(headers: &HeaderMap, method: &str, path: &str) -> Self {
-        let authorization = headers
-            .get(header::AUTHORIZATION)
-            .and_then(|value| value.to_str().ok());
-        let presented = authorization
-            .and_then(|value| bearer_credential(value).map(|token| (BEARER_SCHEME, token)))
-            .or_else(|| {
-                authorization
-                    .and_then(|value| dpop_credential(value).map(|token| (DPOP_SCHEME, token)))
-            });
-        let mut metadata = HashMap::from([
-            (HTTP_METHOD_METADATA.to_owned(), method.to_owned()),
-            (
-                DPOP_PROOFS_METADATA.to_owned(),
-                headers.get_all(DPOP_HEADER).iter().count().to_string(),
-            ),
-            (REQUEST_PATH_METADATA.to_owned(), path.to_owned()),
-        ]);
-        let token = presented.map(|(scheme, token)| {
-            metadata.insert(AUTHORIZATION_SCHEME_METADATA.to_owned(), scheme.to_owned());
-            token.to_owned()
-        });
+        let (token, mut metadata) = presented_credential(headers, method);
+        metadata.insert(REQUEST_PATH_METADATA.to_owned(), path.to_owned());
         Self {
             token,
             metadata,
@@ -120,6 +101,56 @@ impl<S: Send + Sync> FromRequestParts<S> for PresentedCall {
     }
 }
 
+/// The token the `Authorization` header presents, and the `metadata` that
+/// says how: the scheme, the HTTP method and the number of `DPoP` headers.
+///
+/// A copy of tronc 7.5.0's private `presented_credential`
+/// (`mcp/transport/http.rs`) for a server that accepts the `DPoP` scheme, so
+/// `GET /mcp/tools` and A2A record exactly what `POST /mcp` does. Tronc
+/// branches `feature/export-presented-credential-7x` (7.x) and
+/// `feature/export-presented-credential` (main) export it; this copy is
+/// deleted for `dravr_tronc::mcp::transport::http::presented_credential`
+/// when the platform pins the release that carries it.
+fn presented_credential(
+    headers: &HeaderMap,
+    http_method: &str,
+) -> (Option<String>, HashMap<String, String>) {
+    let mut metadata = HashMap::from([
+        (HTTP_METHOD_METADATA.to_owned(), http_method.to_owned()),
+        (
+            DPOP_PROOFS_METADATA.to_owned(),
+            headers.get_all(DPOP_HEADER).iter().count().to_string(),
+        ),
+    ]);
+    let authorization = headers
+        .get(header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok());
+    let presented = authorization
+        .and_then(|value| bearer_credential(value).map(|token| (BEARER_SCHEME, token)))
+        .or_else(|| {
+            authorization.and_then(|value| dpop_credential(value).map(|token| (DPOP_SCHEME, token)))
+        });
+    let token = presented.map(|(scheme, token)| {
+        metadata.insert(AUTHORIZATION_SCHEME_METADATA.to_owned(), scheme.to_owned());
+        token.to_owned()
+    });
+    (token, metadata)
+}
+
+/// Whether `headers` use `DPoP` (RFC 9449): a proof header, or a token under
+/// the `DPoP` scheme, as [`presented_credential`] reads them. A refusal then
+/// also names that scheme (§7.1).
+#[must_use]
+pub fn used_dpop(headers: &HeaderMap) -> bool {
+    let (_, metadata) = presented_credential(headers, "");
+    metadata
+        .get(DPOP_PROOFS_METADATA)
+        .is_some_and(|count| count != "0")
+        || metadata
+            .get(AUTHORIZATION_SCHEME_METADATA)
+            .is_some_and(|scheme| scheme == DPOP_SCHEME)
+}
+
 /// The `Authorization` value the auth middleware reads for `token`, under
 /// the scheme `request` was presented with.
 ///
@@ -151,13 +182,11 @@ fn forwarded<'r>(request: &'r JsonRpcRequest, name: &str) -> Option<&'r str> {
         .and_then(Value::as_str)
 }
 
-/// The authority the client dialed: the first `X-Forwarded-Host` entry, else
-/// `Host`.
+/// The authority the client dialed, read from the forwarded headers by
+/// [`config::dialed_host`].
 #[must_use]
 pub fn dialed_host(request: &JsonRpcRequest) -> Option<&str> {
-    DIALED_HOST_HEADERS
-        .iter()
-        .find_map(|name| forwarded(request, name))
+    config::dialed_host(|name| forwarded(request, name))
 }
 
 /// The URI the client dialed, when its origin is one of the server's: the

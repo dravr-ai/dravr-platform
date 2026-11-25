@@ -27,9 +27,9 @@ pub use mcp_resource::{
     protected_resource_metadata_url, resolve_mcp_resource_aliases, www_authenticate_challenge,
 };
 pub use oauth::{
-    configured_credential, credential_env, provider_callback_uri, resolve_issuer_url,
+    configured_credential, credential_env, dialed_host, provider_callback_uri, resolve_issuer_url,
     resolve_mcp_resource_url, ClientRetentionConfig, FirebaseConfig, OAuth2ServerConfig,
     OAuthConfig, OAuthProviderConfig, ProviderEndpointOverride, ProviderEndpointOverrides,
-    DIALED_HOST_HEADERS, DIALED_PROTO_HEADER,
+    DIALED_PROTO_HEADER,
 };
 pub use rate_limit::RateLimitConfig;

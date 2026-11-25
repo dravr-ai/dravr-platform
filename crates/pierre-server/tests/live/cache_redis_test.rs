@@ -1,5 +1,5 @@
 // ABOUTME: Integration tests for Redis cache backend implementation
-// ABOUTME: Tests all CacheProvider operations with a real Redis instance; fails without one
+// ABOUTME: Tests all CacheProvider operations, and the DPoP replay burn, with a real Redis instance; fails without one
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -8,11 +8,15 @@
 #![allow(missing_docs)]
 
 use anyhow::Result;
+use pierre_auth::dpop::{DpopProofs, DpopRefusal, PresentedProofs};
 use pierre_cache::{Cache, CacheConfig, CacheKey, CacheResource};
 use pierre_core::models::TenantId;
+use pierre_test_support::dpop::A;
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
-use std::{env, time::Duration};
+use std::{env, sync::Arc, time::Duration};
+use tokio::sync::RwLock;
+use tokio::task::JoinSet;
 use tokio::time;
 use uuid::Uuid;
 
@@ -21,6 +25,11 @@ struct TestData {
     value: String,
     count: u32,
 }
+
+/// `clear_all` deletes every key of the namespace, another test's included.
+/// The tests that assert a key survives (a burned nonce, a stored-once entry)
+/// hold this for reading; `clear_all`'s test holds it for writing.
+static CLEAR_ALL: RwLock<()> = RwLock::const_new(());
 
 /// Helper: Create test cache key
 fn test_cache_key(resource: CacheResource) -> CacheKey {
@@ -101,6 +110,102 @@ async fn test_redis_cache_set_and_get() -> Result<()> {
     // Clean up
     cache.invalidate(&key).await?;
 
+    Ok(())
+}
+
+/// `SET NX EX`: the first caller stores, every later caller is told the key
+/// is taken, and an expired entry can be taken again. A `DPoP` proof's `jti`
+/// and a link token's nonce are burned this way, so a replay is refused on
+/// every replica.
+#[tokio::test]
+async fn test_redis_cache_set_if_absent_stores_once() -> Result<()> {
+    let _survives = CLEAR_ALL.read().await;
+    let cache = create_redis_cache().await?;
+    let key = test_cache_key(CacheResource::AthleteProfile);
+    cache.invalidate(&key).await?;
+
+    assert!(
+        cache
+            .set_if_absent(&key, &1_u8, Duration::from_secs(1))
+            .await?
+    );
+    assert!(
+        !cache
+            .set_if_absent(&key, &2_u8, Duration::from_mins(1))
+            .await?,
+        "a live entry is never overwritten"
+    );
+    let stored: Option<u8> = cache.get(&key).await?;
+    assert_eq!(stored, Some(1), "the losing call wrote nothing");
+
+    time::sleep(Duration::from_millis(1500)).await;
+    assert!(
+        cache
+            .set_if_absent(&key, &3_u8, Duration::from_mins(1))
+            .await?,
+        "an expired entry is taken again"
+    );
+    cache.invalidate(&key).await?;
+    Ok(())
+}
+
+/// Sixteen concurrent callers on one key: exactly one stores.
+#[tokio::test]
+async fn test_redis_cache_set_if_absent_has_one_winner() -> Result<()> {
+    let _survives = CLEAR_ALL.read().await;
+    let cache = Arc::new(create_redis_cache().await?);
+    let key = test_cache_key(CacheResource::AthleteProfile);
+    cache.invalidate(&key).await?;
+
+    let mut calls = JoinSet::new();
+    for caller in 0..16_u8 {
+        let cache = Arc::clone(&cache);
+        let key = key.clone();
+        calls.spawn(async move {
+            cache
+                .set_if_absent(&key, &caller, Duration::from_mins(1))
+                .await
+        });
+    }
+    let mut stored = 0;
+    while let Some(outcome) = calls.join_next().await {
+        if outcome?? {
+            stored += 1;
+        }
+    }
+    assert_eq!(stored, 1, "exactly one concurrent caller stores the key");
+    cache.invalidate(&key).await?;
+    Ok(())
+}
+
+/// A `DPoP` proof's `jti` burned through Redis is refused on every replica:
+/// two verifiers on two connections, as two server instances hold them, and
+/// the second presentation of one proof is a replay on either.
+#[tokio::test]
+async fn test_redis_dpop_replay_is_refused_across_replicas() -> Result<()> {
+    let _survives = CLEAR_ALL.read().await;
+    let replica_one = DpopProofs::new(Arc::new(create_redis_cache().await?));
+    let replica_two = DpopProofs::new(Arc::new(create_redis_cache().await?));
+    let htu = "https://mcp.example.test/mcp";
+    let proof = A.proof("POST", htu, None)?;
+    let presented = PresentedProofs {
+        proof: Some(&proof),
+        count: 1,
+    };
+
+    let verified = replica_one
+        .verify(presented, "POST", Some(htu), None)
+        .await
+        .map_err(|refusal| anyhow::anyhow!("a fresh proof is admitted: {refusal}"))?;
+    assert_eq!(verified.jkt, A.thumbprint()?);
+
+    for replica in [&replica_two, &replica_one] {
+        let replay = replica.verify(presented, "POST", Some(htu), None).await;
+        assert!(
+            matches!(replay, Err(DpopRefusal::Replayed)),
+            "a replayed proof is refused on every replica: {replay:?}"
+        );
+    }
     Ok(())
 }
 
@@ -368,6 +473,7 @@ async fn test_redis_cache_tenant_isolation() -> Result<()> {
 
 #[tokio::test]
 async fn test_redis_cache_clear_all() -> Result<()> {
+    let _clears = CLEAR_ALL.write().await;
     let cache = create_redis_cache().await?;
 
     // Use unique IDs for this test

@@ -11,7 +11,7 @@ use axum::{
     Json,
 };
 use pierre_auth::auth::PDPP_TOKEN_KINDS;
-use pierre_auth::config::oauth::DIALED_HOST_HEADERS;
+use pierre_auth::config;
 use pierre_auth::dpop::signing_algorithms;
 use pierre_auth::oauth2_server::authorization_details::AUTHORIZATION_DETAILS_TYPES;
 use pierre_core::permissions::scopes::OAuthScope;
@@ -19,11 +19,9 @@ use tokio::task::spawn_blocking;
 
 use super::{OAuth2Context, OAuth2Routes};
 
-/// The dialed authority a request carries, per [`DIALED_HOST_HEADERS`].
+/// The dialed authority a request carries, read by [`config::dialed_host`].
 fn dialed_host(headers: &HeaderMap) -> Option<&str> {
-    DIALED_HOST_HEADERS
-        .iter()
-        .find_map(|name| headers.get(*name).and_then(|value| value.to_str().ok()))
+    config::dialed_host(|name| headers.get(name).and_then(|value| value.to_str().ok()))
 }
 
 impl OAuth2Routes {

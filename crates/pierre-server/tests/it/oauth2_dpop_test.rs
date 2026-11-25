@@ -26,9 +26,7 @@ use std::sync::Arc;
 use axum::extract::connect_info::MockConnectInfo;
 use base64::{engine::general_purpose, Engine as _};
 use dravr_tronc::dates::Timestamp;
-use dravr_tronc::dpop::{access_token_hash, jwk_thumbprint};
 use jsonwebtoken::dangerous::insecure_decode;
-use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
 use pierre_auth::auth::Claims;
 use pierre_auth::oauth2_server::client_registration::ClientRegistrationManager;
 use pierre_auth::oauth2_server::models::ClientRegistrationRequest;
@@ -38,6 +36,7 @@ use pierre_core::constants::oauth2_client_retention::MAX_PENDING_REGISTRATIONS;
 use pierre_core::models::User;
 use pierre_mcp_server::mcp::multitenant::ProviderToolRouter;
 use pierre_mcp_server::mcp::resources::ServerContext;
+use pierre_test_support::dpop::{Key, A, B};
 use secrecy::ExposeSecret;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -46,76 +45,6 @@ use uuid::Uuid;
 
 const REDIRECT: &str = "https://dpop.example.test/callback";
 const VERIFIER: &str = "dpop-bound-pkce-verifier-0123456789-abcdefghijklmnopqrstuvwxyz";
-
-/// The client's P-256 key, as tronc's own `DPoP` tests sign with it.
-const KEY_A: &str = "-----BEGIN PRIVATE KEY-----
-MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgpbH6oQSVSYUgbrn3
-4AOEqaR1OtL0XIwAXxhiGRvRpcOhRANCAAR8xBbzOIvvGO0sqN5xb5q6xtZc01ze
-isqVehX/E2QN6niEKvzcpz1bCIJu3Lu5xmKN7H+YO77aKTQALV2uwDtD
------END PRIVATE KEY-----";
-const KEY_A_X: &str = "fMQW8ziL7xjtLKjecW-ausbWXNNc3orKlXoV_xNkDeo";
-const KEY_A_Y: &str = "eIQq_NynPVsIgm7cu7nGYo3sf5g7vtopNAAtXa7AO0M";
-
-/// Another P-256 key: valid proofs, but not the key the grant is bound to.
-const KEY_B: &str = "-----BEGIN PRIVATE KEY-----
-MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgr5m9QR1v+//M2thn
-bM7wJ83pAnAulYmrToyaZe7GRU6hRANCAAS7Q6COKJGHKRIuXNVnLUaAjQkNuZV0
-Tazd+Ydv7TGK4EJcVrKbLx4aMdh7tEo9ESKBRk/qq+MwpI9nizdS6YaY
------END PRIVATE KEY-----";
-const KEY_B_X: &str = "u0OgjiiRhykSLlzVZy1GgI0JDbmVdE2s3fmHb-0xiuA";
-const KEY_B_Y: &str = "QlxWspsvHhox2Hu0Sj0RIoFGT-qr4zCkj2eLN1Lphpg";
-
-/// A client's `DPoP` key pair.
-#[derive(Clone, Copy)]
-struct Key {
-    pem: &'static str,
-    x: &'static str,
-    y: &'static str,
-}
-
-const A: Key = Key {
-    pem: KEY_A,
-    x: KEY_A_X,
-    y: KEY_A_Y,
-};
-const B: Key = Key {
-    pem: KEY_B,
-    x: KEY_B_X,
-    y: KEY_B_Y,
-};
-
-impl Key {
-    fn jwk(self) -> Value {
-        json!({"kty": "EC", "crv": "P-256", "x": self.x, "y": self.y})
-    }
-
-    fn thumbprint(self) -> String {
-        jwk_thumbprint(&self.jwk()).unwrap()
-    }
-
-    /// A proof for `htm` `htu`, bound to `token` when one is given, made
-    /// `age` seconds ago.
-    fn proof_aged(self, htm: &str, htu: &str, token: Option<&str>, age: i64) -> String {
-        let mut header = Header::new(Algorithm::ES256);
-        header.typ = Some("dpop+jwt".to_owned());
-        header.jwk = Some(serde_json::from_value(self.jwk()).unwrap());
-        let mut claims = json!({
-            "jti": Uuid::new_v4().to_string(),
-            "htm": htm,
-            "htu": htu,
-            "iat": Timestamp::now().epoch_seconds() - age,
-        });
-        if let Some(token) = token {
-            claims["ath"] = json!(access_token_hash(token));
-        }
-        let key = EncodingKey::from_ec_pem(self.pem.as_bytes()).unwrap();
-        encode(&header, &claims, &key).unwrap()
-    }
-
-    fn proof(self, htm: &str, htu: &str, token: Option<&str>) -> String {
-        self.proof_aged(htm, htu, token, 0)
-    }
-}
 
 fn app(resources: &Arc<ServerContext>) -> axum::Router {
     ProviderToolRouter::build_http_app(resources)
@@ -291,7 +220,9 @@ fn code_in(location: &str) -> String {
 
 /// A code bound to `key` by a proof at PAR.
 async fn bound_code(world: &World, client: &Client, key: Key) -> String {
-    let proof = key.proof("POST", &world.issuer_url("/oauth2/par"), None);
+    let proof = key
+        .proof("POST", &world.issuer_url("/oauth2/par"), None)
+        .unwrap();
     let pushed = push_with(world, client, &[proof], &[]).await;
     assert_eq!(pushed.status(), 201, "{}", pushed.body_text());
     let body: Value = serde_json::from_str(&pushed.body_text()).unwrap();
@@ -379,7 +310,9 @@ fn issued(response: &AxumTestResponse) -> (String, String, Value) {
 /// A bound token for `key`: pushed, approved and exchanged with its proofs.
 async fn bound_tokens(world: &World, client: &Client, key: Key) -> (String, String) {
     let code = bound_code(world, client, key).await;
-    let proof = key.proof("POST", &world.issuer_url("/oauth2/token"), None);
+    let proof = key
+        .proof("POST", &world.issuer_url("/oauth2/token"), None)
+        .unwrap();
     let (access, refresh, _) = issued(&exchange(world, client, &code, &[proof]).await);
     (access, refresh)
 }
@@ -398,7 +331,9 @@ async fn mcp(world: &World, authorization: &str, proofs: &[String]) -> AxumTestR
 
 /// `POST /mcp` with the `DPoP` scheme and one proof by `key` for `token`.
 async fn mcp_with(world: &World, token: &str, key: Key) -> AxumTestResponse {
-    let proof = key.proof("POST", &world.resource_url("/mcp"), Some(token));
+    let proof = key
+        .proof("POST", &world.resource_url("/mcp"), Some(token))
+        .unwrap();
     mcp(world, &format!("DPoP {token}"), &[proof]).await
 }
 
@@ -424,7 +359,9 @@ async fn a_bound_code_mints_a_dpop_token_the_mcp_door_admits_with_its_proof() {
     let world = world().await;
     let client = register(&world).await;
     let code = bound_code(&world, &client, A).await;
-    let proof = A.proof("POST", &world.issuer_url("/oauth2/token"), None);
+    let proof = A
+        .proof("POST", &world.issuer_url("/oauth2/token"), None)
+        .unwrap();
     let (access, _, body) = issued(&exchange(&world, &client, &code, &[proof]).await);
     assert_eq!(body["token_type"], "DPoP", "{body}");
     assert_eq!(
@@ -433,24 +370,30 @@ async fn a_bound_code_mints_a_dpop_token_the_mcp_door_admits_with_its_proof() {
         "a third-party client's token lives 15 minutes"
     );
     let claims = insecure_decode::<Claims>(&access).unwrap().claims;
-    assert_eq!(claims.cnf.map(|cnf| cnf.jkt), Some(A.thumbprint()));
+    assert_eq!(claims.cnf.map(|cnf| cnf.jkt), Some(A.thumbprint().unwrap()));
 
     let admitted = mcp_with(&world, &access, A).await;
     assert_eq!(admitted.status(), 200, "{}", admitted.body_text());
 
     // RFC 9449 §7.2: never as Bearer, with or without a proof.
     assert_refused_with_dpop_challenge(&mcp(&world, &format!("Bearer {access}"), &[]).await);
-    let proof = A.proof("POST", &world.resource_url("/mcp"), Some(&access));
+    let proof = A
+        .proof("POST", &world.resource_url("/mcp"), Some(&access))
+        .unwrap();
     assert_refused_with_dpop_challenge(&mcp(&world, &format!("Bearer {access}"), &[proof]).await);
 
     // A proof is good once.
-    let proof = A.proof("POST", &world.resource_url("/mcp"), Some(&access));
+    let proof = A
+        .proof("POST", &world.resource_url("/mcp"), Some(&access))
+        .unwrap();
     let first = mcp(&world, &format!("DPoP {access}"), slice::from_ref(&proof)).await;
     assert_eq!(first.status(), 200, "{}", first.body_text());
     assert_refused_with_dpop_challenge(&mcp(&world, &format!("DPoP {access}"), &[proof]).await);
 
     // `GET /mcp/tools` checks the same way, for its own method and URL.
-    let tools_proof = A.proof("GET", &world.resource_url("/mcp/tools"), Some(&access));
+    let tools_proof = A
+        .proof("GET", &world.resource_url("/mcp/tools"), Some(&access))
+        .unwrap();
     let tools = world
         .dialed(AxumTestRequest::get("/mcp/tools"))
         .header("authorization", &format!("DPoP {access}"))
@@ -458,7 +401,9 @@ async fn a_bound_code_mints_a_dpop_token_the_mcp_door_admits_with_its_proof() {
         .send(app(&world.resources))
         .await;
     assert_eq!(tools.status(), 200, "{}", tools.body_text());
-    let posted_proof = A.proof("POST", &world.resource_url("/mcp/tools"), Some(&access));
+    let posted_proof = A
+        .proof("POST", &world.resource_url("/mcp/tools"), Some(&access))
+        .unwrap();
     let wrong_method = world
         .dialed(AxumTestRequest::get("/mcp/tools"))
         .header("authorization", &format!("DPoP {access}"))
@@ -482,29 +427,33 @@ async fn a_proof_that_does_not_fit_the_request_the_token_or_the_key_is_refused()
     // A valid proof, signed by a key the token is not bound to.
     assert_refused_with_dpop_challenge(&mcp_with(&world, &access, B).await);
     // Bound to another token.
-    let other_ath = A.proof("POST", &mcp_url, Some("another-access-token"));
+    let other_ath = A
+        .proof("POST", &mcp_url, Some("another-access-token"))
+        .unwrap();
     assert_refused_with_dpop_challenge(&mcp(&world, &dpop, &[other_ath]).await);
     // Made for no token at all.
-    let no_ath = A.proof("POST", &mcp_url, None);
+    let no_ath = A.proof("POST", &mcp_url, None).unwrap();
     assert_refused_with_dpop_challenge(&mcp(&world, &dpop, &[no_ath]).await);
     // For another URL.
-    let elsewhere = A.proof("POST", "https://elsewhere.example.test/mcp", Some(&access));
+    let elsewhere = A
+        .proof("POST", "https://elsewhere.example.test/mcp", Some(&access))
+        .unwrap();
     assert_refused_with_dpop_challenge(&mcp(&world, &dpop, &[elsewhere]).await);
     // For another method.
-    let get = A.proof("GET", &mcp_url, Some(&access));
+    let get = A.proof("GET", &mcp_url, Some(&access)).unwrap();
     assert_refused_with_dpop_challenge(&mcp(&world, &dpop, &[get]).await);
     // Made ten minutes ago.
-    let stale = A.proof_aged("POST", &mcp_url, Some(&access), 600);
+    let stale = A.proof_aged("POST", &mcp_url, Some(&access), 600).unwrap();
     assert_refused_with_dpop_challenge(&mcp(&world, &dpop, &[stale]).await);
     // Two proofs (RFC 9449 §4.3).
-    let one = A.proof("POST", &mcp_url, Some(&access));
-    let two = A.proof("POST", &mcp_url, Some(&access));
+    let one = A.proof("POST", &mcp_url, Some(&access)).unwrap();
+    let two = A.proof("POST", &mcp_url, Some(&access)).unwrap();
     assert_refused_with_dpop_challenge(&mcp(&world, &dpop, &[one, two]).await);
     // None at all.
     assert_refused_with_dpop_challenge(&mcp(&world, &dpop, &[]).await);
 
     // A dialed host that is none of the server's origins: no htu can match.
-    let proof = A.proof("POST", &mcp_url, Some(&access));
+    let proof = A.proof("POST", &mcp_url, Some(&access)).unwrap();
     let forged = AxumTestRequest::post("/mcp")
         .header("host", "elsewhere.example.test")
         .header("authorization", &dpop)
@@ -529,15 +478,17 @@ async fn a_bound_code_is_redeemed_only_with_its_key() {
     let token_url = world.issuer_url("/oauth2/token");
 
     assert_proof_refused(&exchange(&world, &client, &code, &[]).await);
-    let other_key = B.proof("POST", &token_url, None);
+    let other_key = B.proof("POST", &token_url, None).unwrap();
     assert_proof_refused(&exchange(&world, &client, &code, &[other_key]).await);
-    let wrong_url = A.proof("POST", &world.issuer_url("/oauth2/par"), None);
+    let wrong_url = A
+        .proof("POST", &world.issuer_url("/oauth2/par"), None)
+        .unwrap();
     assert_proof_refused(&exchange(&world, &client, &code, &[wrong_url]).await);
-    let one = A.proof("POST", &token_url, None);
-    let two = A.proof("POST", &token_url, None);
+    let one = A.proof("POST", &token_url, None).unwrap();
+    let two = A.proof("POST", &token_url, None).unwrap();
     assert_proof_refused(&exchange(&world, &client, &code, &[one, two]).await);
 
-    let proof = A.proof("POST", &token_url, None);
+    let proof = A.proof("POST", &token_url, None).unwrap();
     let (_, _, body) = issued(&exchange(&world, &client, &code, slice::from_ref(&proof)).await);
     assert_eq!(body["token_type"], "DPoP");
 
@@ -557,7 +508,7 @@ async fn a_bound_refresh_token_rotates_only_with_its_key() {
     let token_url = world.issuer_url("/oauth2/token");
 
     assert_proof_refused(&refresh(&world, &client, &refresh_token, &[]).await);
-    let other_key = B.proof("POST", &token_url, None);
+    let other_key = B.proof("POST", &token_url, None).unwrap();
     assert_proof_refused(&refresh(&world, &client, &refresh_token, &[other_key]).await);
 
     // validate-and-refresh, with the token expired, does not rotate it.
@@ -571,12 +522,12 @@ async fn a_bound_refresh_token_rotates_only_with_its_key() {
     assert_eq!(verdict["status"], "invalid", "{verdict}");
     assert_eq!(verdict["reason"], "refresh_at_token_endpoint", "{verdict}");
 
-    let proof = A.proof("POST", &token_url, None);
+    let proof = A.proof("POST", &token_url, None).unwrap();
     let (rotated_access, rotated_refresh, body) =
         issued(&refresh(&world, &client, &refresh_token, &[proof]).await);
     assert_eq!(body["token_type"], "DPoP");
     let claims = insecure_decode::<Claims>(&rotated_access).unwrap().claims;
-    assert_eq!(claims.cnf.map(|cnf| cnf.jkt), Some(A.thumbprint()));
+    assert_eq!(claims.cnf.map(|cnf| cnf.jkt), Some(A.thumbprint().unwrap()));
 
     // The successor is bound too.
     assert_proof_refused(&refresh(&world, &client, &rotated_refresh, &[]).await);
@@ -621,7 +572,9 @@ async fn a_bound_token_calls_a2a_with_its_proof() {
         request.send(app(&world.resources))
     };
 
-    let proof = A.proof("POST", &world.resource_url("/a2a/jsonrpc"), Some(&access));
+    let proof = A
+        .proof("POST", &world.resource_url("/a2a/jsonrpc"), Some(&access))
+        .unwrap();
     let admitted = call(format!("DPoP {access}"), Some(proof)).await;
     assert_eq!(admitted.status(), 200, "{}", admitted.body_text());
     let body: Value = serde_json::from_str(&admitted.body_text()).unwrap();
@@ -629,7 +582,9 @@ async fn a_bound_token_calls_a2a_with_its_proof() {
 
     let bearer = call(format!("Bearer {access}"), None).await;
     assert_eq!(bearer.status(), 401, "{}", bearer.body_text());
-    let other_key = B.proof("POST", &world.resource_url("/a2a/jsonrpc"), Some(&access));
+    let other_key = B
+        .proof("POST", &world.resource_url("/a2a/jsonrpc"), Some(&access))
+        .unwrap();
     let refused = call(format!("DPoP {access}"), Some(other_key)).await;
     assert_eq!(refused.status(), 401, "{}", refused.body_text());
     let challenge = refused.header("www-authenticate").unwrap_or_default();
@@ -648,8 +603,8 @@ async fn pushed_dpop_jkt_binds_the_code_and_must_name_the_proofs_key() {
     let mismatched = push_with(
         &world,
         &client,
-        &[A.proof("POST", &par_url, None)],
-        &[("dpop_jkt", &B.thumbprint())],
+        &[A.proof("POST", &par_url, None).unwrap()],
+        &[("dpop_jkt", &B.thumbprint().unwrap())],
     )
     .await;
     assert_proof_refused(&mismatched);
@@ -657,18 +612,37 @@ async fn pushed_dpop_jkt_binds_the_code_and_must_name_the_proofs_key() {
     let malformed = push_with(&world, &client, &[], &[("dpop_jkt", "not-a-thumbprint")]).await;
     assert_eq!(malformed.status(), 400, "{}", malformed.body_text());
 
-    let pushed = push_with(&world, &client, &[], &[("dpop_jkt", &B.thumbprint())]).await;
+    let pushed = push_with(
+        &world,
+        &client,
+        &[],
+        &[("dpop_jkt", &B.thumbprint().unwrap())],
+    )
+    .await;
     assert_eq!(pushed.status(), 201, "{}", pushed.body_text());
     let body: Value = serde_json::from_str(&pushed.body_text()).unwrap();
     let code = approve(&world, &client, body["request_uri"].as_str().unwrap()).await;
     let token_url = world.issuer_url("/oauth2/token");
     assert_proof_refused(
-        &exchange(&world, &client, &code, &[A.proof("POST", &token_url, None)]).await,
+        &exchange(
+            &world,
+            &client,
+            &code,
+            &[A.proof("POST", &token_url, None).unwrap()],
+        )
+        .await,
     );
-    let (access, _, _) =
-        issued(&exchange(&world, &client, &code, &[B.proof("POST", &token_url, None)]).await);
+    let (access, _, _) = issued(
+        &exchange(
+            &world,
+            &client,
+            &code,
+            &[B.proof("POST", &token_url, None).unwrap()],
+        )
+        .await,
+    );
     let claims = insecure_decode::<Claims>(&access).unwrap().claims;
-    assert_eq!(claims.cnf.map(|cnf| cnf.jkt), Some(B.thumbprint()));
+    assert_eq!(claims.cnf.map(|cnf| cnf.jkt), Some(B.thumbprint().unwrap()));
 }
 
 /// `dpop_jkt` sent in the authorization query (RFC 9449 §10) crosses the
@@ -680,7 +654,7 @@ async fn a_query_dpop_jkt_crosses_the_consent_screen_and_binds_the_code() {
     let client = register(&world).await;
     let challenge = challenge();
     let state = format!("state-{}", Uuid::new_v4().simple());
-    let jkt = A.thumbprint();
+    let jkt = A.thumbprint().unwrap();
     let query = authorize_query(&[
         ("response_type", "code"),
         ("client_id", client.id.as_str()),
@@ -725,7 +699,7 @@ async fn a_query_dpop_jkt_crosses_the_consent_screen_and_binds_the_code() {
 
     let token_url = world.issuer_url("/oauth2/token");
     assert_proof_refused(&exchange(&world, &client, &code, &[]).await);
-    let proof = A.proof("POST", &token_url, None);
+    let proof = A.proof("POST", &token_url, None).unwrap();
     let (_, _, body) = issued(&exchange(&world, &client, &code, &[proof]).await);
     assert_eq!(body["token_type"], "DPoP", "{body}");
 }

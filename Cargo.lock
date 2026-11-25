@@ -4661,6 +4661,7 @@ version = "0.3.0"
 dependencies = [
  "dravr-tronc",
  "futures-util",
+ "jsonwebtoken",
  "log",
  "pierre-config",
  "pierre-core",

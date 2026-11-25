@@ -50,9 +50,9 @@ use pierre_a2a::{
     A2ARequest, A2AResponse, A2AServer, JsonRpcError, A2A_VERSION, A2A_VERSION_HEADER,
     INVALID_PARAMS, JSONRPC_VERSION, METHOD_NOT_FOUND, PARSE_ERROR, SERVER_ERROR_START,
 };
-use pierre_auth::config::{www_authenticate_challenge, DIALED_HOST_HEADERS};
-use pierre_auth::dpop::{dpop_credential, signing_algorithms, DPOP_HEADER, DPOP_SCHEME};
-use pierre_middleware::dpop_request::PresentedCall;
+use pierre_auth::config::{dialed_host, www_authenticate_challenge};
+use pierre_auth::dpop::{signing_algorithms, DPOP_SCHEME};
+use pierre_middleware::dpop_request::{used_dpop, PresentedCall};
 use pierre_runtime_context::{A2ACtx, MiddlewareCtx};
 use serde_json::{json, Value};
 use tokio::sync::broadcast;
@@ -107,23 +107,17 @@ pub(crate) async fn challenge_unauthorized<C: MiddlewareCtx + A2ACtx>(
     request: Request,
     next: Next,
 ) -> Response {
-    let host = DIALED_HOST_HEADERS.iter().find_map(|name| {
+    let host = dialed_host(|name| {
         request
             .headers()
-            .get(*name)
+            .get(name)
             .and_then(|value| value.to_str().ok())
-            .map(str::to_owned)
-    });
+    })
+    .map(str::to_owned);
     let presented = request.headers().contains_key(AUTHORIZATION);
     // A request that used DPoP (RFC 9449 §7.1) is also told the scheme and
     // the algorithms a proof may use.
-    let used_dpop = request.headers().contains_key(DPOP_HEADER)
-        || request
-            .headers()
-            .get(AUTHORIZATION)
-            .and_then(|value| value.to_str().ok())
-            .and_then(dpop_credential)
-            .is_some();
+    let used_dpop = used_dpop(request.headers());
 
     let mut response = next.run(request).await;
     if response.status() == StatusCode::UNAUTHORIZED {
