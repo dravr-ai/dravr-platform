@@ -1480,6 +1480,35 @@
       "copied": "Lien copié",
       "copyFailed": "Impossible de copier le lien.",
       "after": "Dès qu’un athlète rejoint et partage ses données, il remonte ici les matins où quelque chose demande ton attention."
+    },
+    "brief": {
+      "title": "Brief du matin",
+      "schedule": "Chaque jour à {{time}}",
+      "status_never": "Pas encore passé",
+      "status_empty": "Passé à {{time}} : rien à signaler",
+      "status_posted": "Envoyé à {{time}} : {{count}} à traiter",
+      "status_held": "Retenu à {{time}}",
+      "status_paused": "En pause",
+      "pause": "Mettre en pause",
+      "resume": "Reprendre",
+      "settings": "Réglages du brief",
+      "hour_label": "Heure",
+      "reasons_label": "Ce qu’il vérifie",
+      "muted_label": "Exclus du brief",
+      "mute": "Exclure du brief",
+      "unmute": "Remettre dans le brief",
+      "muted_none": "Personne n’est exclu.",
+      "save_failed": "Impossible d’enregistrer. Réessaie.",
+      "reason": {
+        "consentRevoked": "A coupé le partage",
+        "unverifiedFigure": "Chiffre non vérifié dans une réponse de l’agent",
+        "providerReconnect": "Un service à reconnecter",
+        "nothingReceived": "Rien reçu",
+        "deepFatigueStreak": "Plusieurs matins fatigués de suite",
+        "planDraftWaiting": "Un brouillon de plan en attente",
+        "newMemberNoPlan": "Nouveau membre sans plan",
+        "planEnded": "Plan terminé"
+      }
     }
   },
   "coachReview": {
@@ -1708,7 +1737,8 @@
       "reads_source_group_report": "le rapport hebdomadaire du groupe",
       "reads_source_group_health": "les signaux de santé du groupe",
       "reads_source_weekly_digest": "son résumé hebdomadaire du groupe",
-      "reads_source_physiology_view": "tes seuils, depuis Infos du groupe"
+      "reads_source_physiology_view": "tes seuils, depuis Infos du groupe",
+      "reads_source_morning_brief": "son brief du matin"
     },
     "group-agent": {
       "description": "Choisir l'agent Dravr de ce groupe, ou détacher son coach humain"
@@ -3022,6 +3052,12 @@
     "calendarWriteStep": "Sur {{platform}}, {{coach}} doit aussi y être ton coach humain : ouvre intervals.icu/athletes, clique sur {{coach}} et choisis le rôle Coach, pas Follower.",
     "cardDescription": "Dravr lit l'entraînement de tes athlètes, prépare des plans que tu publies et répond avec toi dans leur groupe.",
     "coach": "Coach",
+    "coachCall": {
+      "badge": "Choix du coach",
+      "action": "C'est mon choix",
+      "undo": "Retirer mon choix",
+      "hint": "Tu gardes cette séance telle quelle : Dravr la décrira comme ton choix, sans la contester."
+    },
     "coachAndTrainCardDescription": "Tout ce que Dravr fait pour un coach, et un agent qui suit aussi ton propre entraînement.",
     "detachQ": "Détacher le coach humain de ce groupe ? Ses liens d'athlètes dans ce groupe prennent fin, et il perd l'accès à la liste du groupe.",
     "detached": "Le coach humain a été détaché de ce groupe.",
@@ -3132,6 +3168,7 @@
       "sourceGroupReport": "Le rapport hebdomadaire du groupe",
       "sourceGroupHealth": "Les signaux de santé du groupe",
       "sourceWeeklyDigest": "Son résumé hebdomadaire du groupe",
+      "sourceMorningBrief": "Son brief du matin",
       "sourcePhysiologyView": "Tes seuils, dans Infos du groupe",
       "servedToAssistant": "Lu par un outil d’IA que ton coach connecte à Dravr. L’entreprise qui l’exploite a reçu ces données.",
       "supportRead": "Lu par le soutien Dravr pendant qu’il aidait ton coach.",
@@ -4488,6 +4525,12 @@
     },
     "activity_landed": {
       "prompt": "Ma séance du {0} vient de se synchroniser (activité {1} sur {2}). Lis-la avec ses détails et écris-moi une courte réaction : une ou deux observations concrètes, avec uniquement des chiffres que tu as vraiment récupérés, et ce que ça veut dire pour mes prochaines séances. Décris la charge par rapport à mon niveau habituel, jamais comme un risque."
+    },
+    "morning_brief": {
+      "links": "Ouvrir dans À traiter :",
+      "not_sharing": "{0} non inclus : partage désactivé",
+      "prompt": "Brief du matin. Voici les athlètes de ma liste qui ont besoin de moi ce matin, tirés de ma file À traiter, un par ligne avec ce qui les a signalés :\n{0}\nÉcris-moi un court brief du matin à partir de ces lignes seulement : d’abord ce qui est pour aujourd’hui, puis pour cette semaine, une courte ligne par athlète dans l’ordre donné, en disant quoi regarder. Garde les chiffres et le contexte que portent les lignes ; jamais de pourcentage, jamais de supposition sur la santé de quelqu’un ou sur comment il se sent. N’ajoute aucun athlète, chiffre ou conseil que les lignes ne portent pas, et ne mets aucun lien : ils suivent ton texte. Pas de titres, moins de 120 mots.",
+      "unreadable": "{0} non inclus : leurs données n’ont pas pu être lues"
     }
   },
   "profile": {
@@ -5177,6 +5220,7 @@
     "intervalsAuthorizeAction": "Autoriser avec Intervals.icu",
     "intervalsAuthorizeHint": "Tu te connectes sur Intervals.icu et tu y autorises Dravr — aucune clé à copier.",
     "intervalsCoachKeyAction": "Tu entraînes des athlètes ? Connecte-toi avec ta clé API",
+    "intervalsCoachKeyHelp": "Utilise ton propre identifiant athlète et ta propre clé API, pas ceux de ton athlète. Le compte Intervals.icu doit avoir le courriel de ton inscription à Dravr, et ton athlète doit te donner accès là-bas.",
     "notificationsBellUnreadOne": "Notifications, {{count}} non lue",
     "notificationsBellUnreadN": "Notifications, {{count}} non lues",
     "modePickerTitle": "Comment veux-tu utiliser Dravr ?",

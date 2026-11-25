@@ -1480,6 +1480,35 @@
       "copied": "Link copied",
       "copyFailed": "Couldn’t copy the link.",
       "after": "Once an athlete joins and shares their data, they show up here on the mornings something needs your attention."
+    },
+    "brief": {
+      "title": "Morning brief",
+      "schedule": "Every day at {{time}}",
+      "status_never": "Hasn't run yet",
+      "status_empty": "Ran at {{time}}: nothing to report",
+      "status_posted": "Sent at {{time}}: {{count}} to handle",
+      "status_held": "Held back at {{time}}",
+      "status_paused": "Paused",
+      "pause": "Pause",
+      "resume": "Resume",
+      "settings": "Brief settings",
+      "hour_label": "Time",
+      "reasons_label": "What it checks",
+      "muted_label": "Left out of the brief",
+      "mute": "Leave out of the brief",
+      "unmute": "Put back in the brief",
+      "muted_none": "Nobody is left out.",
+      "save_failed": "Couldn't save. Try again.",
+      "reason": {
+        "consentRevoked": "Stopped sharing",
+        "unverifiedFigure": "Unverified figure in an agent reply",
+        "providerReconnect": "A service to reconnect",
+        "nothingReceived": "Nothing received",
+        "deepFatigueStreak": "Several tired mornings in a row",
+        "planDraftWaiting": "A plan draft waiting",
+        "newMemberNoPlan": "New member without a plan",
+        "planEnded": "Plan ended"
+      }
     }
   },
   "coachReview": {
@@ -1708,7 +1737,8 @@
       "reads_source_group_report": "the group's weekly report",
       "reads_source_group_health": "the group's health flags",
       "reads_source_weekly_digest": "their weekly digest of the group",
-      "reads_source_physiology_view": "your thresholds, from Group info"
+      "reads_source_physiology_view": "your thresholds, from Group info",
+      "reads_source_morning_brief": "their morning brief"
     },
     "group-agent": {
       "description": "Set this group's Dravr agent, or detach its human coach"
@@ -3022,6 +3052,12 @@
     "calendarWriteStep": "On {{platform}}, {{coach}} must also be your human coach there: open intervals.icu/athletes, click {{coach}} and pick the Coach role, not Follower.",
     "cardDescription": "Dravr reads your athletes' training, drafts plans you publish, and answers with you in their group.",
     "coach": "Coach",
+    "coachCall": {
+      "badge": "Coach's call",
+      "action": "It's my call",
+      "undo": "Withdraw my call",
+      "hint": "You keep this session as it is: Dravr will describe it as your call, without arguing it."
+    },
     "coachAndTrainCardDescription": "Everything Dravr does for a coach, plus an agent that follows your own training too.",
     "detachQ": "Detach the human coach from this group? Their athlete links in this group end, and they lose access to the group's roster.",
     "detached": "The human coach has been detached from this group.",
@@ -3132,6 +3168,7 @@
       "sourceGroupReport": "The group's weekly report",
       "sourceGroupHealth": "The group's health flags",
       "sourceWeeklyDigest": "Their weekly digest of the group",
+      "sourceMorningBrief": "Their morning brief",
       "sourcePhysiologyView": "Your thresholds, in Group info",
       "servedToAssistant": "Read by an AI tool your coach connects to Dravr. The company that runs it received this data.",
       "supportRead": "Read by Dravr support while helping your coach.",
@@ -4488,6 +4525,12 @@
     },
     "activity_landed": {
       "prompt": "My workout from {0} just synced (activity {1} on {2}). Read it with its details and write me a short reaction: one or two concrete observations, quoting only figures you actually fetched, and what it means for my next sessions. Describe load against my usual level, never as a risk."
+    },
+    "morning_brief": {
+      "links": "Open in To handle:",
+      "not_sharing": "{0} not included: sharing off",
+      "prompt": "Morning brief. These are the athletes on my roster who need me this morning, from my To handle queue, one per line with what flagged them:\n{0}\nWrite me a short morning brief from these lines only: today's items first, then this week's, one short line per athlete in the order given, saying what to look at. Keep the counts and context the lines carry; never a percentage, never a guess about anyone's health or how they feel. Add no athlete, figure or advice the lines don't carry, and list no links: they follow your text. No headings, under 120 words.",
+      "unreadable": "{0} not included: their data couldn't be read"
     }
   },
   "profile": {
@@ -5177,6 +5220,7 @@
     "intervalsAuthorizeAction": "Authorize with Intervals.icu",
     "intervalsAuthorizeHint": "You'll sign in on Intervals.icu and approve Dravr there — no key to copy.",
     "intervalsCoachKeyAction": "Coaching athletes? Link with your API key",
+    "intervalsCoachKeyHelp": "Use your own Athlete ID and API key, not your athlete’s. The Intervals.icu account must use the email you signed up to Dravr with, and your athlete must give you access there.",
     "notificationsBellUnreadOne": "Notifications, {{count}} unread",
     "notificationsBellUnreadN": "Notifications, {{count}} unread",
     "modePickerTitle": "How do you want to use Dravr?",
