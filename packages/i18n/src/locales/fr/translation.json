@@ -1486,6 +1486,7 @@
       "schedule": "Chaque jour à {{time}}",
       "status_never": "Pas encore passé",
       "status_empty": "Passé à {{time}} : rien à signaler",
+      "status_empty_left_out": "Passé à {{time}} : rien à signaler · {{count}} non inclus",
       "status_posted": "Envoyé à {{time}} : {{count}} à traiter",
       "status_held": "Retenu à {{time}}",
       "status_paused": "En pause",

@@ -1486,6 +1486,7 @@
       "schedule": "Todos os dias às {{time}}",
       "status_never": "Ainda não foi enviado",
       "status_empty": "Verificado às {{time}}: nada a relatar",
+      "status_empty_left_out": "Verificado às {{time}}: nada a relatar · {{count}} não incluídos",
       "status_posted": "Enviado às {{time}}: {{count}} a tratar",
       "status_held": "Retido às {{time}}",
       "status_paused": "Em pausa",

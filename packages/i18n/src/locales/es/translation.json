@@ -1486,6 +1486,7 @@
       "schedule": "Cada día a las {{time}}",
       "status_never": "Aún no se ha enviado",
       "status_empty": "Revisado a las {{time}}: nada que reportar",
+      "status_empty_left_out": "Revisado a las {{time}}: nada que reportar · {{count}} sin incluir",
       "status_posted": "Enviado a las {{time}}: {{count}} por atender",
       "status_held": "Retenido a las {{time}}",
       "status_paused": "En pausa",

@@ -1486,6 +1486,7 @@
       "schedule": "Every day at {{time}}",
       "status_never": "Hasn't run yet",
       "status_empty": "Ran at {{time}}: nothing to report",
+      "status_empty_left_out": "Ran at {{time}}: nothing to report · {{count}} not included",
       "status_posted": "Sent at {{time}}: {{count}} to handle",
       "status_held": "Held back at {{time}}",
       "status_paused": "Paused",

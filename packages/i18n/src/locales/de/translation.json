@@ -1486,6 +1486,7 @@
       "schedule": "Täglich um {{time}}",
       "status_never": "Noch nicht gelaufen",
       "status_empty": "Um {{time}} gelaufen: nichts zu melden",
+      "status_empty_left_out": "Um {{time}} gelaufen: nichts zu melden · {{count}} nicht enthalten",
       "status_posted": "Um {{time}} gesendet: {{count}} zu erledigen",
       "status_held": "Um {{time}} zurückgehalten",
       "status_paused": "Pausiert",
