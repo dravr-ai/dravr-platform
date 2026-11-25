@@ -34,7 +34,7 @@ use uuid::Uuid;
 
 use crate::rate_limiting::{enforce_request_budget, log_budget_refusal, report_api_key_request};
 
-/// The DPoP binding rules a JWT meets before it is admitted (RFC 9449 §7)
+/// The `DPoP` binding rules a JWT meets before it is admitted (RFC 9449 §7)
 mod dpop_binding;
 /// The consent grant a delegated token is admitted under, and its ceiling
 mod grant;
