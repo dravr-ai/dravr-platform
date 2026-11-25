@@ -125,6 +125,19 @@ function Node({ node }: { node: SceneNode }) {
   }
 }
 
+/**
+ * The line the block's data source asks to be shown with, directly beneath
+ * the title: Garmin's attribution on a chart or table drawn from
+ * Garmin-sourced data (carnet#1154). Set by the server, never the agent.
+ */
+function SourceAttribution({ line }: { line?: string }) {
+  return line ? (
+    <p className="-mt-1 mb-2 text-xs text-on-surface-variant" data-testid="scene-attribution">
+      {line}
+    </p>
+  ) : null;
+}
+
 /** A resolved chart. */
 function ChartView({ scene }: { scene: Scene }) {
   const { t } = useTranslation();
@@ -136,6 +149,7 @@ function ChartView({ scene }: { scene: Scene }) {
           {scene.title}
         </figcaption>
       )}
+      <SourceAttribution line={scene.attribution} />
       <div className="overflow-x-auto">
         <svg
           viewBox={`0 0 ${scene.view_box.width} ${scene.view_box.height}`}
@@ -175,6 +189,7 @@ function SceneTable({ view }: { view: TableView }) {
           {view.title}
         </figcaption>
       )}
+      <SourceAttribution line={view.attribution} />
       <div className="overflow-x-auto rounded border border-outline-variant">
         <table className="w-full text-sm">
           <thead>

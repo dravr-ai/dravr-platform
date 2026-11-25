@@ -211,6 +211,7 @@ mod tests {
             served_stale: false,
             timezone: None,
             deep_fatigue_mornings: Vec::new(),
+            garmin_contribution: None,
             computed_at: Timestamp::now(),
         }
     }

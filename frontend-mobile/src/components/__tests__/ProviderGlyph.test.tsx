@@ -96,3 +96,22 @@ describe('ProviderGlyph inks each mark for the active scheme', () => {
     },
   );
 });
+
+// carnet#1154: Garmin's OAuth connection card wears the official Garmin
+// Connect app tile; every other face of Garmin keeps its glyph.
+describe('ProviderGlyph on the Garmin Connect card', () => {
+  it('draws the official tile only when the card is Garmin OAuth', async () => {
+    await AsyncStorage.setItem(APPEARANCE_KEY, 'dark');
+    render(
+      <ThemeProvider>
+        <ProviderGlyph providerId="sciotte_garmin" label="Garmin" garminConnect />
+      </ThemeProvider>,
+    );
+    expect(await screen.findByTestId('provider-tile-garmin-connect')).toBeTruthy();
+  });
+
+  it('keeps the glyph for the account sign-in card', async () => {
+    await renderGlyph('sciotte_garmin', 'dark');
+    expect(screen.queryByTestId('provider-tile-garmin-connect')).toBeNull();
+  });
+});

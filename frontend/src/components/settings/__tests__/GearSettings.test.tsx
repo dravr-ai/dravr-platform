@@ -41,6 +41,7 @@ function pair(id: string, overrides: Partial<GearItem> = {}): GearItem {
     added_at: '2026-09-01T07:00:00Z',
     retired_at: null,
     last_used_at: null,
+    garmin_contribution: null,
     ...overrides,
   };
 }
@@ -100,6 +101,23 @@ describe('GearSettings', () => {
     expect(trail).toHaveTextContent('Pinned');
     expect(within(trail).queryByTestId('gear-warning-trail')).not.toBeInTheDocument();
     expect(within(trail).getByTestId('gear-delete-trail')).toBeInTheDocument();
+  });
+
+  // carnet#1154: Garmin's brand guidelines owe a distance summed from
+  // Garmin-recorded workouts its line, beneath the pair's name, never in a tooltip.
+  it('says beneath a pair what Garmin contributed to its distance, and nothing when it did not', async () => {
+    ledger = [
+      pair('road', { name: 'Pegasus 41', garmin_contribution: 'part' }),
+      pair('trail', { name: 'Speedgoat 6', garmin_contribution: 'sole' }),
+      pair('track', { name: 'Streakfly' }),
+    ];
+    renderPane();
+
+    expect(await screen.findByTestId('gear-garmin-road')).toHaveTextContent(
+      'Created in part using data provided by Garmin devices.',
+    );
+    expect(screen.getByTestId('gear-garmin-trail')).toHaveTextContent('Created using data provided by Garmin devices.');
+    expect(screen.queryByTestId('gear-garmin-track')).not.toBeInTheDocument();
   });
 
   // carnet#1212: the count chose its form with an inline `=== 1`, so a new

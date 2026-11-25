@@ -44,7 +44,7 @@ use futures_util::future::Either;
 use pierre_auth::auth::ImpersonationGrant;
 use pierre_auth::oauth2_server::grant_ceiling::GrantCeiling;
 use pierre_config::environment::default_provider;
-use pierre_core::ai_policy::WithConsent;
+use pierre_core::ai_policy::{WithConsent, Withheld};
 use pierre_core::constants::oauth::providers::is_credential_free;
 use pierre_core::constants::tools::identifiers::CONNECT_PROVIDER;
 use pierre_core::permissions::impersonation::CallerCredential;
@@ -133,6 +133,10 @@ pub struct UniversalExecutor {
     /// [`crate::context::TURN_DIRECT_MESSAGE`] when the executor is built
     /// inside a turn, and scoped back around each tool body. `None` outside a chat turn.
     turn_direct_message: Option<bool>,
+    /// Whether what the calls feed is posted into a messaging group chat
+    /// (carnet#1170), read when the executor is built inside such a turn and
+    /// scoped back around each tool body, so a Copilot loopback task keeps it.
+    group_chat: bool,
     /// The turn and the athlete's message it answers, read from
     /// [`crate::context::TURN_ASK`] like `turn_locale` and scoped back the same way.
     turn_ask: Option<TurnAsk>,
@@ -218,6 +222,7 @@ impl fmt::Debug for UniversalExecutor {
             .field("turn_agent_id", &self.turn_agent_id)
             .field("turn_locale", &self.turn_locale)
             .field("turn_direct_message", &self.turn_direct_message)
+            .field("group_chat", &self.group_chat)
             .field("turn_ask", &self.turn_ask)
             .field("support_session", &self.support_session)
             .field("turn_token", &self.turn_token)
@@ -252,6 +257,17 @@ impl UniversalExecutor {
             // around the whole turn, and a nested dispatch inherits it the same
             // way.
             turn_direct_message: TURN_DIRECT_MESSAGE.try_with(Clone::clone).ok().flatten(),
+            // A messaging turn in a group chat feeds the chat, whatever task
+            // the calls run on (carnet#1170).
+            group_chat: ai_scope::serving_group_chat()
+                || ai_scope::posts_to_group_chat(
+                    ai_scope::declared_transport(),
+                    TURN_DIRECT_MESSAGE
+                        .try_with(Clone::clone)
+                        .ok()
+                        .flatten()
+                        .unwrap_or(true),
+                ),
             turn_ask: TURN_ASK.try_with(Clone::clone).ok().flatten(),
             support_session: SUPPORT_SESSION.try_with(Clone::clone).ok().flatten(),
             credential: support_session::current_credential(),
@@ -897,6 +913,10 @@ impl UniversalExecutor {
         // Boxed for the reason the body above is.
         let body =
             Box::pin(self.levied(parties, ai_scope::under_grant(self.ceiling.clone(), body)));
+        // A call feeding a group chat reads nothing kept to Dravr's members
+        // (carnet#1170).
+        let group_chat = self.group_chat;
+        let body = ai_scope::for_group_chat(group_chat, body);
         let body = async {
             match transport {
                 Some(served) => ai_scope::serve_over(served, body).await,
@@ -1009,7 +1029,7 @@ impl UniversalExecutor {
         {
             // The refused read is itself the item this interface does not
             // serve: the caller gets the same neutral note as a dropped one.
-            held_back.off_interface += 1;
+            count_refused_read(&mut held_back, group_chat, transport);
         }
 
         // Every transport's result passes here on its way to the caller, so
@@ -1024,7 +1044,7 @@ impl UniversalExecutor {
             },
             &mut universal,
             held_back,
-            ai_scope::result_exposure(transport),
+            ai_scope::result_exposure(transport, group_chat),
         );
         // The caller writes its own reply from this result, and Dravr's claim
         // checker never sees that reply. A result that served the athlete's
@@ -1126,6 +1146,18 @@ impl UniversalExecutor {
     #[must_use]
     pub fn turn_token(&self) -> Option<&str> {
         self.turn_token.as_deref()
+    }
+}
+
+/// Count a read refused as unavailable here under the note its refusal owes.
+///
+/// On Dravr's own surfaces only a group chat refuses one (carnet#1170), and
+/// its note is the group chat's; anywhere else it is the interface's.
+fn count_refused_read(held_back: &mut Withheld, group_chat: bool, transport: Option<Transport>) {
+    if group_chat && transport.is_some_and(Transport::is_first_party) {
+        held_back.off_group_chat += 1;
+    } else {
+        held_back.off_interface += 1;
     }
 }
 

@@ -26,6 +26,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::dto::{resolve_scene_blocks, stored_actions, ChatMessageAction, MessageResponse};
+use crate::services::visual_attribution::reply_attribution;
+use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
 
 /// One completed chat turn.
 #[derive(Debug, Serialize, Deserialize)]
@@ -223,9 +225,15 @@ impl TurnResponse {
     ///
     /// Chart axis labels resolve in [`TurnEnvelope::locale`] — the language
     /// the reply was actually written in — so a chart matches the prose beside
-    /// it rather than the athlete's stored preference.
+    /// it rather than the athlete's stored preference. Each chart is drawn
+    /// with the attribution line the reply closes with, read against
+    /// `registry` ([`reply_attribution`]).
     #[must_use]
-    pub fn from_envelope(envelope: TurnEnvelope, execution_time_ms: u64) -> Self {
+    pub fn from_envelope(
+        envelope: TurnEnvelope,
+        execution_time_ms: u64,
+        registry: &MessagingStringsRegistry,
+    ) -> Self {
         let TurnEnvelope {
             turn_id,
             user_message,
@@ -239,6 +247,7 @@ impl TurnResponse {
             // always stored.
             posted: _,
         } = envelope;
+        let attribution = reply_attribution(registry, &assistant.message.content);
 
         Self {
             turn_id: turn_id.to_string(),
@@ -248,7 +257,7 @@ impl TurnResponse {
                 blocks: assistant
                     .blocks
                     .into_iter()
-                    .filter_map(|block| reply_block(block, &locale))
+                    .filter_map(|block| reply_block(block, &locale, attribution.as_deref()))
                     .collect(),
                 finish_reason: assistant.finish_reason,
             },
@@ -303,11 +312,15 @@ pub(super) fn welcome_response(record: MessageRecord) -> MessageResponse {
 /// A chart whose spec will not resolve is dropped and logged inside
 /// [`resolve_scene_blocks`] rather than failing the turn: one malformed chart
 /// must never cost the athlete the reply carrying it.
-fn reply_block(block: ReplyBlock, reply_locale: &str) -> Option<ReplyBlockResponse> {
+fn reply_block(
+    block: ReplyBlock,
+    reply_locale: &str,
+    attribution: Option<&str>,
+) -> Option<ReplyBlockResponse> {
     Some(match block {
         ReplyBlock::Prose { text } => ReplyBlockResponse::Prose { text },
         ReplyBlock::Scene { specs } => ReplyBlockResponse::Scene {
-            scene_blocks: resolve_scene_blocks(Some(&specs), reply_locale)?,
+            scene_blocks: resolve_scene_blocks(Some(&specs), reply_locale, attribution)?,
         },
         ReplyBlock::SceneImage {
             url,

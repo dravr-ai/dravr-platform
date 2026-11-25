@@ -40,6 +40,8 @@ pub mod turn_runner;
 pub mod chat_verdicts;
 /// Client for the photograveur press service (Scene -> PNG).
 pub mod photograveur_client;
+/// The attribution a reply's charts and tables are drawn with (carnet#1154).
+pub mod visual_attribution;
 
 /// User-facing memory fact service: list and forget what the agent remembers (Sprint C5)
 pub mod memory_facts;

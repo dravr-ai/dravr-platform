@@ -649,7 +649,7 @@ pub(crate) async fn assemble_prompt_and_messages(
     // user to connect providers that are already connected.
     let user_uuid = parse_uuid(&input.user_id).unwrap_or_default();
     let provider_context = if sender_is_subject {
-        build_provider_context(&ctx.data, user_uuid).await
+        build_provider_context(&ctx.data, user_uuid, input.tool_tenant_id).await
     } else {
         String::new()
     };

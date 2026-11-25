@@ -23,7 +23,7 @@ use pierre_core::ai_policy::{ProviderTerms, SourcePolicy};
 use pierre_core::constants::oauth as oauth_providers;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
-use pierre_core::transport::TransportPolicy;
+use pierre_core::transport::{AudiencePolicy, TransportPolicy};
 use std::fmt;
 use std::{
     collections::HashMap,
@@ -633,6 +633,11 @@ impl ProviderTerms for ProviderRegistry {
 
     fn served_over_every_transport(&self) -> Vec<&'static str> {
         self.sources_served(TransportPolicy::AnyTransport)
+    }
+
+    fn audience_policy(&self, provider: &str) -> Option<AudiencePolicy> {
+        self.terms_descriptor(provider)
+            .map(ProviderDescriptor::audience_policy)
     }
 
     /// Every sciotte backend stamps its items `sciotte` with the scraped

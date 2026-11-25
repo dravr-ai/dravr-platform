@@ -668,6 +668,7 @@ impl Seeded<'_> {
                 explanation: None,
                 evidence_refs: None,
                 transport_policy: TransportPolicy::AnyTransport,
+                ai_consent_sources: &[],
             })
             .await?;
         Ok(())

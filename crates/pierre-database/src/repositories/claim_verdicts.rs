@@ -23,7 +23,7 @@ use pierre_memory::{
 mod health;
 use health::ratio;
 pub(crate) use health::{
-    apply_status_count, health_breakdown_rows, reason_count_from_row, verdict_health_stats,
+    apply_status_count, health_breakdown_rows, reason_counts, verdict_health_stats,
 };
 
 /// Parameters for inserting a claim verdict via [`ClaimVerdictRepository`].
@@ -57,6 +57,10 @@ pub struct InsertClaimVerdictParams<'a> {
     /// The stamp of the reply the claim was judged in (carnet#769): a verdict
     /// quotes it.
     pub transport_policy: TransportPolicy,
+    /// The AI-consent keys of the provider data the judged reply was drawn
+    /// from (carnet#1170): a verdict naming one barred from AI evaluation
+    /// feeds no metric.
+    pub ai_consent_sources: &'a [String],
 }
 
 // The claim is a model reply about the athlete and the explanation restates
@@ -78,6 +82,7 @@ impl fmt::Debug for InsertClaimVerdictParams<'_> {
             .field("explanation_len", &self.explanation.map(str::len))
             .field("evidence_refs", &self.evidence_refs)
             .field("transport_policy", &self.transport_policy)
+            .field("ai_consent_sources", &self.ai_consent_sources)
             .finish()
     }
 }
@@ -446,9 +451,10 @@ pub(crate) const INSERT_CLAIM_VERDICT_SQL: &str = r"
             INSERT INTO claim_verdicts (
                 id, tenant_id, user_id, agent_id, conversation_id, message_id,
                 claim_text, category, status, evidence_strength, confidence,
-                layer_fired, explanation, evidence_refs, created_at, first_party_only
+                layer_fired, explanation, evidence_refs, created_at, first_party_only,
+                ai_consent_sources
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
             ";
 
 /// The column list every verdict read selects, in the order
@@ -559,10 +565,11 @@ macro_rules! verdict_daily_counts_sql {
             $day,
             " AS day,
                    status AS status,
+                   ai_consent_sources AS consent_sources,
                    COUNT(*) AS c
             FROM claim_verdicts
             WHERE ($1 IS NULL OR tenant_id = $1) AND created_at >= $2
-            GROUP BY day, status
+            GROUP BY day, status, consent_sources
             ORDER BY day ASC
             "
         )
@@ -586,12 +593,13 @@ macro_rules! verdict_health_breakdown_sql {
             $dim,
             " AS dim,
                    disposition AS disposition,
+                   ai_consent_sources AS consent_sources,
                    COUNT(*) AS c
             FROM claim_verdicts
             WHERE ($1 IS NULL OR tenant_id = $1)
               AND created_at >= $2
               AND status IN ('unsupported', 'contradicted')
-            GROUP BY dim, disposition
+            GROUP BY dim, disposition, consent_sources
             ORDER BY dim ASC
             "
         )
@@ -609,13 +617,14 @@ pub(crate) const HEALTH_BY_AGENT_SQL: &str = verdict_health_breakdown_sql!("agen
 /// Dispositions in a window counted by the reason they named.
 pub(crate) const HEALTH_BY_REASON_SQL: &str = r"
             SELECT disposition_reason AS reason,
+                   ai_consent_sources AS consent_sources,
                    COUNT(*) AS c
             FROM claim_verdicts
             WHERE ($1 IS NULL OR tenant_id = $1)
               AND created_at >= $2
               AND status IN ('unsupported', 'contradicted')
               AND disposition_reason IS NOT NULL
-            GROUP BY reason
+            GROUP BY reason, consent_sources
             ORDER BY reason ASC
             ";
 
@@ -794,6 +803,7 @@ macro_rules! impl_claim_verdict_repository {
                     .bind(params.evidence_refs)
                     .bind(now)
                     .bind(params.transport_policy.is_first_party_only())
+                    .bind(consent_sources_column(params.ai_consent_sources))
                     .execute(&self.pool)
                     .await
                     .map_err(|e| {
@@ -943,8 +953,15 @@ macro_rules! impl_claim_verdict_repository {
                         AppError::database(format!("Failed to aggregate claim verdicts: {e}"))
                     })?;
 
+                // A verdict on a reply drawn from data barred from AI
+                // evaluation counts in no metric (carnet#1170).
                 Ok(calibration_from_counts(
                     rows.iter()
+                        .filter(|row| {
+                            !column_excluded_from_ai_evaluation(
+                                row.get::<Option<String>, _>("consent_sources").as_deref(),
+                            )
+                        })
                         .map(|row| (row.get("day"), row.get("status"), row.get("c"))),
                     window_start,
                     days,
@@ -997,15 +1014,14 @@ macro_rules! impl_claim_verdict_repository {
                         .await
                         .map_err(fetch_failed)?,
                 )?;
-                let by_reason = sqlx::query(HEALTH_BY_REASON_SQL)
-                    .bind(&tenant)
-                    .bind(window_start)
-                    .fetch_all(&self.pool)
-                    .await
-                    .map_err(fetch_failed)?
-                    .iter()
-                    .map(reason_count_from_row)
-                    .collect::<AppResult<Vec<_>>>()?;
+                let by_reason = reason_counts(
+                    &sqlx::query(HEALTH_BY_REASON_SQL)
+                        .bind(&tenant)
+                        .bind(window_start)
+                        .fetch_all(&self.pool)
+                        .await
+                        .map_err(fetch_failed)?,
+                )?;
 
                 Ok(verdict_health_stats(
                     window_start.to_rfc3339(),

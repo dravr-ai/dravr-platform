@@ -30,6 +30,11 @@ pub const WITHHELD_KEY: &str = "_withheld";
 /// call came over a transport the data's terms keep it off.
 pub(crate) const UNAVAILABLE_HERE_KEY: &str = "_unavailable_over_this_interface";
 
+/// Key of the note added to a tool result that had data dropped because the
+/// reply is posted into a messaging group chat and the data's terms keep it to
+/// Dravr's members (carnet#1170).
+pub(crate) const NOT_IN_GROUP_CHAT_KEY: &str = "_not_shown_in_this_group_chat";
+
 /// Filter every provider item left in a tool's structured result for the
 /// gates `exposure` names, and add a note for each kind of hold-back — here or
 /// in the tool's reads (`read_side`). Nothing happens when no gate applies.
@@ -55,6 +60,9 @@ pub(crate) fn withhold_from_caller(
             UNAVAILABLE_HERE_KEY.to_owned(),
             withheld.interface_note(lookup),
         );
+    }
+    if withheld.off_group_chat > 0 {
+        notes.insert(NOT_IN_GROUP_CHAT_KEY.to_owned(), withheld.group_chat_note());
     }
     attach_notes(response, notes);
 }
@@ -121,12 +129,14 @@ mod tests {
     const MODEL: Exposure = Exposure {
         to_model: true,
         external: false,
+        group_chat: false,
     };
 
     /// A read for a model whose answer leaves over an external transport.
     const EXTERNAL_MODEL: Exposure = Exposure {
         to_model: true,
         external: true,
+        group_chat: false,
     };
 
     struct Lookup;
@@ -219,7 +229,7 @@ mod tests {
             &Lookup,
             &mut response,
             read_side,
-            result_exposure(Some(Transport::McpHttp)),
+            result_exposure(Some(Transport::McpHttp), false),
         );
         let result = response.result.expect("a result");
         assert_eq!(result["activities"], json!([]));
@@ -266,7 +276,7 @@ mod tests {
         assert_eq!(kept.len(), 1);
 
         let mut payload = response(json!([{ "provider": "nolio", "source": "zepp" }]));
-        let exposure = for_display(async { result_exposure(Some(Transport::WebApp)) }).await;
+        let exposure = for_display(async { result_exposure(Some(Transport::WebApp), false) }).await;
         assert_eq!(exposure, None, "a first-party chart crosses no gate");
         withhold_from_caller(&Lookup, &mut payload, withheld, exposure);
         assert_eq!(
@@ -275,7 +285,7 @@ mod tests {
         );
 
         let mut external = response(json!([{ "provider": "nolio", "source": "zepp" }]));
-        let exposure = for_display(async { result_exposure(Some(Transport::A2a)) }).await;
+        let exposure = for_display(async { result_exposure(Some(Transport::A2a), false) }).await;
         withhold_from_caller(&Lookup, &mut external, Withheld::default(), exposure);
         let result = external.result.expect("a result");
         assert_eq!(result["result"], json!([]));

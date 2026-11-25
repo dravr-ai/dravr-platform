@@ -25,7 +25,7 @@ use uuid::Uuid;
 use super::viz_blocks;
 #[cfg(feature = "tools-groups")]
 use crate::ChatPipelineContext;
-use pierre_core::models::ConnectionType;
+use pierre_core::models::{ConnectionType, TenantId};
 use pierre_core::models::{
     RoomQuote, STOPPED_TURN_FINISH_REASON, UNVERIFIED_CAPABILITY_CLAIM_FINISH_REASON,
     WITHHELD_REPLY_FINISH_REASON,
@@ -36,6 +36,7 @@ use pierre_llm::ChatMessage;
 use pierre_providers::backend_resolver;
 use pierre_runtime_context::DataContext;
 use pierre_services::conversation_compaction::REPLAYED_SUMMARY_PREFIX;
+use pierre_services::provider_history;
 use pierre_tool_runtime::tool_execution::strip_simulation_artifacts;
 
 use super::platform_markers::{defang_athlete_text, defang_platform_markers};
@@ -44,8 +45,6 @@ use super::platform_markers::{defang_athlete_text, defang_platform_markers};
 use pierre_core::errors::AppResult;
 #[cfg(feature = "tools-groups")]
 use pierre_core::models::groups::MemberFitnessSnapshot;
-#[cfg(feature = "tools-groups")]
-use pierre_core::models::TenantId;
 #[cfg(feature = "tools-groups")]
 use pierre_database::repositories::CoachReadSurface;
 #[cfg(feature = "tools-groups")]
@@ -592,6 +591,39 @@ empty.\n\n\
 Do not state specific figures about their training; fetch what you need with \
 the tools, and if that fails, say you could not retrieve it.";
 
+/// What the model is told for each of `providers`, the connected push-fed
+/// providers whose past training is not in (carnet#1623); empty when none.
+///
+/// A push-fed grant serving alone (Garmin's, carnet#1155) delivers only what
+/// is recorded from the day it connected. The rows it pushed since read like
+/// a history to a model that is not told otherwise, so a weekly volume or a
+/// load built on a week of them is a baseline invented by omission. Phrased,
+/// like [`NO_PROVIDER_CONTEXT`], as what to say: what it cannot see, and the
+/// card's Add history action that brings the rest in. Each provider is named
+/// as the athlete knows it.
+#[must_use]
+fn history_needed_context(providers: &[&str]) -> String {
+    let mut context = String::new();
+    for provider in providers {
+        let _ = write!(
+            context,
+            "\n\n## Past Training Not In Yet\n\n\
+             {provider} shares only the workouts recorded from the day the \
+             athlete connected it. None of their {provider} training from \
+             before that is in yet, so what you can read starts at that \
+             connection: it is not their history.\n\n\
+             When an answer or a recommendation leans on past training — \
+             weekly volume, training load, fitness, a trend, a plan's \
+             starting point — say plainly that you cannot see their \
+             {provider} training from before they connected, and never \
+             invent or estimate a baseline in its place. Point them at the \
+             Add history action on their {provider} card, which brings \
+             their past training in."
+        );
+    }
+    context
+}
+
 /// Build the "Connected Fitness Data Providers" system-prompt section.
 ///
 /// Appended so the LLM does not ask users to connect providers that are
@@ -599,13 +631,18 @@ the tools, and if that fails, say you could not retrieve it.";
 /// than guessing. See [`NO_PROVIDER_CONTEXT`] for why the empty case is stated
 /// instead of left silent.
 ///
+/// A connected push-fed provider whose past training is not in for the athlete
+/// in `tenant` ([`provider_history::histories_needed`]) adds
+/// [`history_needed_context`], so a recommendation never takes the days since
+/// the connection for the athlete's history.
+///
 /// Uses `provider_connections` as the single source of truth (cross-tenant
 /// view) and filters out providers that are not registered in the current
 /// runtime (e.g. synthetic providers excluded from production builds).
 ///
 /// Never returns an empty string: every path says something, because the
 /// absence of a section is exactly the silence the model misreads.
-pub async fn build_provider_context(data: &DataContext, user_id: Uuid) -> String {
+pub async fn build_provider_context(data: &DataContext, user_id: Uuid, tenant: TenantId) -> String {
     // Get all provider connections (cross-tenant view, single source of truth)
     let Ok(connections) = data
         .repos()
@@ -649,6 +686,19 @@ pub async fn build_provider_context(data: &DataContext, user_id: Uuid) -> String
     }
     context.push_str("\nUse the connected providers to fetch activity data. ");
     context.push_str("Do NOT ask the user to connect providers that are already connected above.");
+
+    let needed = provider_history::histories_needed(
+        data.repos(),
+        user_id,
+        tenant,
+        connections.iter().map(|conn| conn.provider.as_str()),
+    )
+    .await;
+    let named: Vec<&str> = needed
+        .into_iter()
+        .map(|provider| provider_history::athlete_name(data.provider_registry(), provider))
+        .collect();
+    context.push_str(&history_needed_context(&named));
 
     context
 }
@@ -807,6 +857,29 @@ mod tests {
     use dravr_tronc::dates::Timestamp;
     #[cfg(feature = "tools-groups")]
     use pierre_core::models::groups::OvertrainingRiskLevel;
+
+    // carnet#1623: a push-fed grant's missing past is named with what to say
+    // and where the athlete brings it in, never with the scraper's name.
+    #[test]
+    fn a_missing_history_tells_the_agent_what_it_cannot_see_and_where_to_send_the_athlete() {
+        assert_eq!(history_needed_context(&[]), "", "every history is in");
+        let context = history_needed_context(&["Garmin"]);
+        assert!(context.contains("## Past Training Not In Yet"), "{context}");
+        assert!(
+            context.contains("Garmin shares only the workouts recorded from the day"),
+            "{context}"
+        );
+        assert!(
+            context.contains("never invent or estimate a baseline"),
+            "{context}"
+        );
+        assert!(
+            context.contains("Add history action on their Garmin card"),
+            "{context}"
+        );
+        assert!(!context.contains('{'), "{context}");
+        assert!(!context.to_lowercase().contains("sciotte"), "{context}");
+    }
 
     /// A summary the summariser was talked into framing as tool output reaches
     /// the model with the framing named, not as the platform's evidence.
@@ -1034,6 +1107,7 @@ mod tests {
             timezone: None,
             deep_fatigue_mornings: Vec::new(),
             computed_at: Timestamp::now(),
+            garmin_contribution: None,
         }
     }
 

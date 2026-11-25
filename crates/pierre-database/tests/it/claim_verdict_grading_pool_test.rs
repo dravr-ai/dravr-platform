@@ -167,6 +167,7 @@ async fn verdict(
             explanation: None,
             evidence_refs: None,
             transport_policy: policy,
+            ai_consent_sources: &[],
         })
         .await
         .unwrap()

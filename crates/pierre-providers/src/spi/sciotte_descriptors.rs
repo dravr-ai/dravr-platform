@@ -8,7 +8,7 @@
 //! session sciotte reads, with the athlete's consent.
 
 use pierre_core::constants::oauth::providers::{COROS, GARMIN, STRAVA, TRAININGPEAKS};
-use pierre_core::transport::TransportPolicy;
+use pierre_core::transport::{AudiencePolicy, TransportPolicy};
 
 use super::{OAuthEndpoints, OAuthParams, OAuthRefresh, ProviderCapabilities, ProviderDescriptor};
 use crate::field_support::{ActivityFieldSupport, ActivityFields as F, StreamChannels as S};
@@ -145,6 +145,10 @@ impl ProviderDescriptor for SciotteGarminDescriptor {
 
     fn transport_policy(&self) -> TransportPolicy {
         provider_terms::GARMIN_TRANSPORT
+    }
+
+    fn audience_policy(&self) -> AudiencePolicy {
+        provider_terms::GARMIN_AUDIENCE
     }
 
     /// Activities are scraped on demand; the night's sleep, resting heart

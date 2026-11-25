@@ -15,6 +15,7 @@ import {
   analyticsScopeLine,
   canManageGroup,
   coachPlatformName,
+  garminContributionLine,
   offeredConsents,
   weeklyVolumeFigure,
 } from '@pierre/shared-constants';
@@ -133,6 +134,10 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
 
   const { stats, scope: statsScope, isLoading: isLoadingStats } = useGroupStats(groupId, memberSurfaces);
   const statsScopeLine = analyticsScopeLine(t, statsScope);
+  // The stats, the weekly report and the health flags are computed over the
+  // same members, so one line beneath the section's title attributes them all
+  // when Garmin contributed to their sessions (carnet#1154).
+  const garminLine = garminContributionLine(t, statsScope?.garmin_contribution);
   const isAdmin = canManageGroup(myMembership?.role);
   // Only an owner or admin may list a group's invites; the route refuses anyone else.
   const { invites, isLoading: isLoadingInvites } = useGroupInvites(groupId, memberSurfaces && isAdmin);
@@ -851,6 +856,11 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
 
         {!isCoachViewer && (
         <CollapsibleSection title={t('app.analytics')} testID="group-info-analytics">
+          {!isLoadingStats && garminLine && (
+            <Text className="text-text-secondary text-xs" testID="group-info-garmin">
+              {garminLine}
+            </Text>
+          )}
           <View className="flex-row py-2">
             <View className="flex-1 items-center">
               <Text className="text-lg font-bold font-mono tabular-nums text-text-primary" testID="group-stat-members">

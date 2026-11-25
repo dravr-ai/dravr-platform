@@ -57,6 +57,8 @@ import {
   ONBOARDING_LEAD_PROVIDERS,
   cardForSlug,
   cardStatus,
+  connectCardName,
+  isGarminConnectCard,
   connectConsentsFor,
   connectPlan,
   credentialFallbackOnRefusal,
@@ -403,7 +405,7 @@ export function OnboardingConnectScreen({ mode = 'connect' }: { mode?: 'connect'
     return (
       <View key={provider.provider} className="flex-row items-center px-4">
         <View className="w-6 items-center mr-3.5">
-          <ProviderGlyph providerId={provider.provider} label={provider.display_name} />
+          <ProviderGlyph providerId={provider.provider} label={provider.display_name} garminConnect={isGarminConnectCard(provider)} />
         </View>
         {/* The hairline sits on this inner column, so it insets past the glyph to the text. */}
         <View
@@ -411,7 +413,9 @@ export function OnboardingConnectScreen({ mode = 'connect' }: { mode?: 'connect'
           style={last ? undefined : { borderBottomWidth: StyleSheet.hairlineWidth }}
         >
           <View className="flex-1 min-w-0 py-2 mr-3">
-            <Text className="text-base text-text-primary">{provider.display_name}</Text>
+            <Text className="text-base text-text-primary">
+              {connectCardName(provider)}
+            </Text>
             {seat ? null : (
               <Text
                 className="text-sm text-text-secondary mt-0.5"
@@ -468,7 +472,9 @@ export function OnboardingConnectScreen({ mode = 'connect' }: { mode?: 'connect'
               className="text-md font-medium text-primary"
               onPress={() => handleConnect(provider)}
               accessibilityRole="button"
-              accessibilityLabel={t('app.connectProvider', { provider: provider.display_name })}
+              accessibilityLabel={t('app.connectProvider', {
+                provider: connectCardName(provider),
+              })}
               testID={`provider-action-${provider.provider}`}
             >
               {t('app.connect')}
@@ -546,7 +552,7 @@ export function OnboardingConnectScreen({ mode = 'connect' }: { mode?: 'connect'
                   {showMore ? null : (
                     <Text className="text-sm text-text-secondary mt-0.5" numberOfLines={1}>
                       {[
-                        ...moreProviders.slice(0, 3).map((p) => p.display_name),
+                        ...moreProviders.slice(0, 3).map((p) => connectCardName(p)),
                         t('onboarding.connect.moreServicesFile'),
                       ].join(', ')}
                     </Text>

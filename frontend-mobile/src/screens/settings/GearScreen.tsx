@@ -30,7 +30,7 @@ import {
   sportLabel,
   useDistanceUnit,
 } from '@pierre/ui-logic';
-import { countKey, GEAR_ACTIVITY_COUNT_KEYS } from '@pierre/shared-constants';
+import { countKey, GEAR_ACTIVITY_COUNT_KEYS, garminContributionLine } from '@pierre/shared-constants';
 import { spacing, useThemeColors } from '../../constants/theme';
 import {
   Button,
@@ -219,6 +219,9 @@ interface PairRowProps {
 function PairRow({ pair, last, children }: PairRowProps) {
   const { t, language } = useTranslation();
   const unit = useDistanceUnit();
+  // The distance sums Garmin-recorded workouts: Garmin's brand guidelines
+  // ask for the line beneath the pair's name (carnet#1154).
+  const garmin = garminContributionLine(t, pair.garmin_contribution);
   return (
     <View className="px-4" testID={`gear-${pair.id}`}>
       <View
@@ -234,6 +237,11 @@ function PairRow({ pair, last, children }: PairRowProps) {
             {formatGearDistance(pair.distance_meters, unit, language)}
           </Text>
         </View>
+        {garmin && (
+          <Text className="mt-0.5 text-xs text-text-secondary" testID={`gear-garmin-${pair.id}`}>
+            {garmin}
+          </Text>
+        )}
         <View className="mt-0.5 flex-row flex-wrap">
           <Text className="text-sm text-text-secondary">{sportLabel(t, pair.sport)}</Text>
           {pair.is_default && (

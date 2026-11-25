@@ -37,7 +37,7 @@
 use std::fmt;
 
 use dravr_cageux::periodization::{band_coordinates, AnchorRatios, SportFamily};
-use dravr_tronc::dates::{CivilDate, Timestamp};
+use dravr_tronc::dates::{CivilDate, CivilDateTime, Timestamp};
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
 use tracing::{info, warn};
@@ -51,6 +51,15 @@ use crate::neutral_session::{format_extent, is_power_sport, neutral_title, StepC
 /// The workout provider Garmin Connect shows the athlete, and the source it
 /// files Dravr's workouts under.
 pub(super) const WORKOUT_PROVIDER: &str = "Dravr";
+
+/// How Garmin writes a workout's `createdDate` and `updatedDate`: a UTC
+/// reading with no offset and a tenth of a second, `2026-11-18T16:49:47.0`.
+///
+/// Garmin documents no zone. The stamps on the workouts Dravr created in
+/// production settle it (carnet#1389): of 65 `seen=created` lines in the 30
+/// days to 2026-11-23, `createdDate` matched Dravr's UTC clock to the second
+/// in 39 and ran 1 s ahead in 26 — UTC, rounded to the second.
+const STAMP_FORMAT: &str = "%Y-%m-%dT%H:%M:%S%.f";
 
 /// Most steps a single-sport workout takes, repeat blocks included.
 const MAX_STEPS: usize = 100;
@@ -580,6 +589,16 @@ impl StoredWorkout {
         dravr(self.provider.as_ref()) && dravr(self.source_id.as_ref())
     }
 
+    /// When Garmin last changed this workout: its `updatedDate`, read as UTC
+    /// ([`STAMP_FORMAT`]), or `None` when it is absent or unreadable.
+    pub(super) fn updated_at(&self) -> Option<Timestamp> {
+        let text = self.updated_date.as_ref()?.as_str()?;
+        CivilDateTime::parse_from_str(text, STAMP_FORMAT)
+            .ok()?
+            .and_utc()
+            .ok()
+    }
+
     /// How many steps Garmin holds for this workout, repeat blocks included,
     /// or `None` when its answer carried no segments.
     pub(super) fn held_steps(&self) -> Option<usize> {
@@ -590,10 +609,10 @@ impl StoredWorkout {
     /// `seen` naming the call that returned it (carnet#1389), with the steps
     /// it holds (carnet#1532).
     ///
-    /// Garmin documents `createdDate` and `updatedDate` without a zone. A
-    /// stamp logged on a workout Dravr has just created or updated, against
-    /// `observed_at`, shows which zone Garmin writes them in; the same stamps
-    /// on a later read show whether an edit in Garmin Connect moved them.
+    /// The stamps logged on workouts Dravr created settled their zone
+    /// ([`STAMP_FORMAT`]); the same stamps on a later read show whether an
+    /// edit in Garmin Connect moved `updatedDate`, which is what tells an
+    /// athlete's edit from Dravr's own last write.
     /// The step count read back is what tells a workout Garmin kept whole
     /// from one it stored without its steps. Nothing here is the athlete's:
     /// ids, Garmin's stamps, a count, and the provider and source names the

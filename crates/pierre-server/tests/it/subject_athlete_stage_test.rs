@@ -38,6 +38,7 @@ use pierre_chat_pipeline::{
     ChatPipelineContext, InputSource, PipelineHooks, QuotaState, ReplyBlock, SurfaceId,
     SurfaceProfile, SurfaceRequest, TurnEnvelope, TurnInput, TurnOrigin,
 };
+use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
 use pierre_core::constants::oauth::INTERVALS_ICU;
 use pierre_core::errors::AppError;
 use pierre_core::models::groups::{
@@ -1036,7 +1037,12 @@ async fn the_card_carries_subject_and_draft_through_the_wire_and_the_store() {
     assert_eq!(read["draft_state"], serde_json::to_value(&state).unwrap());
 
     // The wire block: `subject` and `draft` beside `plan`.
-    let wire = serde_json::to_value(TurnResponse::from_envelope(envelope, 0)).unwrap();
+    let wire = serde_json::to_value(TurnResponse::from_envelope(
+        envelope,
+        0,
+        &MessagingStringsRegistry::new(),
+    ))
+    .unwrap();
     let block = wire["assistant"]["blocks"]
         .as_array()
         .unwrap()
@@ -1153,7 +1159,12 @@ async fn with_no_draft_the_card_is_the_live_season_and_draft_is_null() {
     let coach_draft = coach_draft.expect("the card names the athlete");
     assert_eq!(coach_draft.subject.user_id, fx.subject.id);
     assert_eq!(coach_draft.draft, None);
-    let wire = serde_json::to_value(TurnResponse::from_envelope(envelope, 0)).unwrap();
+    let wire = serde_json::to_value(TurnResponse::from_envelope(
+        envelope,
+        0,
+        &MessagingStringsRegistry::new(),
+    ))
+    .unwrap();
     let block = wire["assistant"]["blocks"]
         .as_array()
         .unwrap()
@@ -1544,7 +1555,12 @@ async fn a_plain_thread_is_the_coachs_own_as_before() {
     let (card, coach_draft) = plan_card(&envelope);
     assert_eq!(card["goal_race"]["name"], COACH_RACE);
     assert_eq!(coach_draft, None);
-    let wire = serde_json::to_value(TurnResponse::from_envelope(envelope, 0)).unwrap();
+    let wire = serde_json::to_value(TurnResponse::from_envelope(
+        envelope,
+        0,
+        &MessagingStringsRegistry::new(),
+    ))
+    .unwrap();
     let block = wire["assistant"]["blocks"]
         .as_array()
         .unwrap()

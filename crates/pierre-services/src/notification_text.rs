@@ -33,6 +33,7 @@ use pierre_contremaitre::messaging_strings::{
     KEY_GROUP_DIGEST_TREND_IMPROVING, KEY_GROUP_DIGEST_TREND_STABLE, KEY_NOTIFICATION_CHANNEL_BODY,
     KEY_NOTIFICATION_PR_DISTANCE_10K, KEY_NOTIFICATION_PR_DISTANCE_5K,
     KEY_NOTIFICATION_PR_DISTANCE_HALF_MARATHON, KEY_NOTIFICATION_PR_DISTANCE_MARATHON,
+    KEY_REPLY_GARMIN_ATTRIBUTION,
 };
 use pierre_core::models::{SportAnchorName, UnitSystem};
 use pierre_notifications::events::{
@@ -75,6 +76,15 @@ pub const PARAM_VISIBLE_MEMBERS: &str = "visible_members";
 /// Group-digest parameter carried beside [`PARAM_SHARED_MEMBERS`] or
 /// [`PARAM_VISIBLE_MEMBERS`]: how many members the group holds.
 pub const PARAM_ROSTER_MEMBERS: &str = "roster_members";
+/// Group-digest parameter carried when Garmin contributed to the copy.
+///
+/// What Garmin contributed to the sessions the copy was computed over:
+/// `sole` or `part`, as
+/// [`GarminContribution`](pierre_core::constants::oauth_providers::GarminContribution)
+/// spells it. The renderer opens the body with the attribution Garmin's
+/// brand guidelines owe the figures whenever it is present (carnet#1154);
+/// absent, the copy shows no Garmin-sourced data.
+pub const PARAM_GARMIN_CONTRIBUTION: &str = "garmin_contribution";
 
 /// Renders notification events as sentences in one locale and one unit
 /// system.
@@ -257,11 +267,19 @@ impl<'a> NotificationTextRenderer<'a> {
     /// A week no covered member's stored history reaches has no average, so
     /// the summary and the trend drawn from that average are left out rather
     /// than written around an empty slot.
+    ///
+    /// When Garmin contributed to the sessions the copy was computed over
+    /// ([`PARAM_GARMIN_CONTRIBUTION`]), its attribution opens the body,
+    /// directly beneath the title, where Garmin's brand guidelines ask for it.
     fn group_digest_body(&self, params: &Map<String, Value>) -> String {
         let scope = self.digest_scope(params);
         if digest_coverage(params).is_some_and(|(_, covered)| covered == 0) {
             return scope.unwrap_or_default();
         }
+        let attribution = params
+            .get(PARAM_GARMIN_CONTRIBUTION)
+            .is_some_and(|contribution| !contribution.is_null())
+            .then(|| self.line(KEY_REPLY_GARMIN_ATTRIBUTION, &[]));
 
         let members: Vec<String> = entries(params, "members")
             .map(|m| {
@@ -291,7 +309,10 @@ impl<'a> NotificationTextRenderer<'a> {
             .collect();
         let all_clear = highlights.is_empty() && concerns.is_empty();
 
-        let mut blocks: Vec<Vec<String>> = vec![scope.into_iter().collect()];
+        let mut blocks: Vec<Vec<String>> = vec![
+            attribution.into_iter().collect(),
+            scope.into_iter().collect(),
+        ];
         blocks.push(self.digest_opening(params));
         for (header, block) in [
             (KEY_GROUP_DIGEST_MEMBERS_HEADER, members),

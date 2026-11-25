@@ -22,6 +22,8 @@ mod group_digest_room_tests {
     use dravr_canot::channels::slack::renderer::SlackRenderer;
     use dravr_canot::renderer::ResponseRenderer;
     use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp};
+    use pierre_contremaitre::messaging_strings::KEY_REPLY_GARMIN_ATTRIBUTION;
+    use pierre_core::constants::oauth_providers::GarminContribution;
     use pierre_core::models::agents::{AgentCategory, AgentVisibility, CreateSystemAgentRequest};
     use pierre_core::models::groups::{
         CoachConsents, CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
@@ -1318,6 +1320,7 @@ mod group_digest_room_tests {
             timezone: None,
             deep_fatigue_mornings: Vec::new(),
             computed_at: Timestamp::now(),
+            garmin_contribution: None,
         }
     }
 
@@ -1449,6 +1452,48 @@ mod group_digest_room_tests {
         assert!(!text.contains(FRENCH_ALL_CLEAR), "{text}");
         assert!(text.contains("• Tired : forme à -45 %"), "{text}");
         assert!(!text.contains("Withheld"), "{text}");
+    }
+
+    /// A copy computed over a member whose sessions hold Garmin-sourced data
+    /// carries the contribution, and its body opens, beneath the title, with
+    /// the attribution Garmin's brand guidelines owe it; a Garmin member left
+    /// out of the copy owes it nothing (carnet#1154).
+    #[tokio::test]
+    async fn a_copy_over_garmin_data_opens_with_the_garmin_attribution() {
+        let resources = create_test_server_resources().await.unwrap();
+        let service = resources.common.group_service.as_ref();
+        let group = bare_group(true);
+        let (watch, phone) = (Uuid::new_v4(), Uuid::new_v4());
+        let mut garmin = snapshot(watch, "Watch", 40.0, None);
+        garmin.garmin_contribution = Some(GarminContribution::Sole);
+        let snapshots = vec![garmin, snapshot(phone, "Phone", 30.0, None)];
+        let attribution = resources
+            .mcp
+            .messaging_strings_registry
+            .get(KEY_REPLY_GARMIN_ATTRIBUTION, "fr");
+
+        let both_share = [member(group.id, watch, true), member(group.id, phone, true)];
+        let params = room_digest_params(service, &group, &both_share, &snapshots);
+        assert_eq!(params["garmin_contribution"], "part", "{params}");
+        let text = render_fr(&resources, &params);
+        let (title, body) = text.split_once('\n').unwrap();
+        assert!(title.contains("Les Rouleurs"), "{text}");
+        assert!(
+            body.trim_start().starts_with(&attribution),
+            "beneath the title, before the figures: {text}"
+        );
+        assert_eq!(text.matches(&attribution).count(), 1, "once: {text}");
+
+        let only_phone = [
+            member(group.id, watch, false),
+            member(group.id, phone, true),
+        ];
+        let params = room_digest_params(service, &group, &only_phone, &snapshots);
+        assert!(params.get("garmin_contribution").is_none(), "{params}");
+        assert!(
+            !render_fr(&resources, &params).contains(&attribution),
+            "no Garmin data shown, no attribution"
+        );
     }
 
     /// The admin kill switch withholds everyone, whatever they consented to.

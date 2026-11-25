@@ -667,6 +667,7 @@ macro_rules! impl_chat_repository {
                                 row.try_get("first_party_only")
                                     .map_err(|e| chat_column_error("first_party_only", &e))?,
                             ),
+                            ai_consent_sources: consent_sources_column_of(row)?,
                         })
                     })
                     .collect()

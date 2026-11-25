@@ -47,6 +47,10 @@ pub struct Provenance {
     /// Set once anything first-party-only was served. Shared between the turn
     /// and every executor and nested derivation it hands a clone to.
     served_first_party_only: Arc<AtomicBool>,
+    /// Set once anything kept to Dravr's members was served (carnet#1170):
+    /// nothing derived from it may be posted into a messaging group chat.
+    /// Shared the same way as the flag above.
+    served_members_only: Arc<AtomicBool>,
     /// The attributions of what was served (`"Garmin"` for Garmin
     /// device-sourced data): what a reply derived from it must say it drew on
     /// (carnet#521), each with the person whose data owed it (carnet#1464), so
@@ -89,6 +93,17 @@ impl Provenance {
     /// Record that first-party-only data was served.
     pub fn mark(&self) {
         self.served_first_party_only.store(true, Ordering::Release);
+    }
+
+    /// Record that data kept to Dravr's members was served (carnet#1170).
+    pub fn mark_members_only(&self) {
+        self.served_members_only.store(true, Ordering::Release);
+    }
+
+    /// Whether data kept to Dravr's members was served so far.
+    #[must_use]
+    pub fn members_only(&self) -> bool {
+        self.served_members_only.load(Ordering::Acquire)
     }
 
     /// Record that data carrying `attribution` was served, `owner`'s data
@@ -150,6 +165,9 @@ impl Provenance {
     pub(super) fn pass_to(&self, enclosing: &Self) {
         if self.policy().is_first_party_only() {
             enclosing.mark();
+        }
+        if self.members_only() {
+            enclosing.mark_members_only();
         }
         if self.served_provider_data() {
             enclosing.mark_provider_data();

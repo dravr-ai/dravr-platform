@@ -43,6 +43,7 @@ fn member(name: &str, km: Option<f64>, prev_km: Option<f64>) -> MemberFitnessSna
         served_stale: false,
         timezone: None,
         deep_fatigue_mornings: Vec::new(),
+        garmin_contribution: None,
         computed_at: Timestamp::now(),
     }
 }

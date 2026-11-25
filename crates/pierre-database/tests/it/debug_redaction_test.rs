@@ -283,6 +283,7 @@ fn a_claim_verdict_prints_the_size_of_its_claim_and_explanation_never_the_text()
         explanation: Some(explanation),
         evidence_refs: Some("doi:10.1000/182"),
         transport_policy: TransportPolicy::AnyTransport,
+        ai_consent_sources: &[],
     };
     let printed = printed_without(
         &params,

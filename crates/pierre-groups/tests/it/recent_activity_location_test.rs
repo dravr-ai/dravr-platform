@@ -45,6 +45,7 @@ fn snapshot_with_recent(recent: Vec<RosterActivity>) -> MemberFitnessSnapshot {
         timezone: None,
         deep_fatigue_mornings: Vec::new(),
         computed_at: Timestamp::now(),
+        garmin_contribution: None,
     }
 }
 

@@ -857,3 +857,73 @@ async fn the_ledger_is_read_in_the_tenant_the_athlete_belongs_to() {
         "a claimed tenant with no membership row is refused: {body}"
     );
 }
+
+/// A pair's distance names Garmin as its source when Garmin-recorded workouts
+/// make it up: wholly, in part beside another device's run, and in part
+/// beside the distance the pair was declared with (carnet#1154).
+#[tokio::test]
+async fn a_pairs_distance_says_what_garmin_contributed() {
+    let resources = common::create_test_server_resources().await.unwrap();
+    let athlete = seed_athlete(&resources, "gear-garmin").await;
+    let garmin_run = |id: &str, started: Timestamp| {
+        ActivityBuilder::new(
+            id,
+            format!("Run {id}"),
+            SportType::Run,
+            started,
+            2_400,
+            "strava",
+        )
+        .distance_meters(8_000.0)
+        .device_name("Garmin Forerunner 965")
+        .build()
+    };
+
+    let only = declare(&resources, &athlete, "Watch only", 0.0, 500_000.0, 10).await;
+    cache(
+        &resources,
+        &athlete,
+        "strava",
+        &[garmin_run("g1", days_ago(3))],
+    )
+    .await;
+    let sole = pair(&resources, &athlete, only).await;
+    assert_eq!(sole["garmin_contribution"], "sole", "{sole}");
+
+    cache(
+        &resources,
+        &athlete,
+        "strava",
+        &[run("p1", "strava", days_ago(2), 6_000.0)],
+    )
+    .await;
+    let mixed = pair(&resources, &athlete, only).await;
+    assert_eq!(mixed["garmin_contribution"], "part", "{mixed}");
+
+    let other = seed_athlete(&resources, "gear-garmin-declared").await;
+    let used = declare(&resources, &other, "Used", 120_000.0, 800_000.0, 10).await;
+    cache(
+        &resources,
+        &other,
+        "strava",
+        &[garmin_run("g2", days_ago(3))],
+    )
+    .await;
+    let declared = pair(&resources, &other, used).await;
+    assert_eq!(
+        declared["garmin_contribution"], "part",
+        "the declared start is no Garmin data: {declared}"
+    );
+
+    let plain = seed_athlete(&resources, "gear-no-garmin").await;
+    let road = declare(&resources, &plain, "Road", 0.0, 500_000.0, 10).await;
+    cache(
+        &resources,
+        &plain,
+        "strava",
+        &[run("r1", "strava", days_ago(3), 5_000.0)],
+    )
+    .await;
+    let none = pair(&resources, &plain, road).await;
+    assert!(none["garmin_contribution"].is_null(), "{none}");
+}

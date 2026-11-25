@@ -41,6 +41,7 @@ use dravr_tronc::dates::{Elapsed, Timestamp};
 use dravr_tronc::mcp::tool::{McpTool, ToolContext};
 use helpers::axum_test::AxumTestRequest;
 use pierre_auth::connect_order::{set_connect_order, ConnectOrder};
+use pierre_chat_pipeline::stages::prompt_builder::build_provider_context;
 use pierre_config::environment::{OAuthProviderConfig, ProviderEndpointOverride, ServerConfig};
 use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::constants::provider_seats::GARMIN_SEAT_CAPACITY_DEFAULT;
@@ -53,6 +54,7 @@ use pierre_middleware::provider_link_token::mint_connect_link_token;
 use pierre_providers::core::ActivityQueryParams;
 use pierre_routes_auth::AuthRoutes;
 use pierre_services::health_sync::PierreSyncStorage;
+use pierre_services::provider_history;
 use pierre_tool_runtime::activity_fetch::{fetch_provider_activities, fetch_provider_head};
 use pierre_tool_runtime::group_fitness::fetch_member_snapshots;
 use pierre_tool_runtime::implementations::data::GetActivitiesTool;
@@ -1572,5 +1574,91 @@ async fn a_flagged_grant_behind_a_garmin_session_raises_no_group_alert() {
         flagged[0].needs_reauth_providers,
         ["garmin"],
         "a dead session that serves first is the athlete's to reconnect"
+    );
+}
+
+/// The agent's prompt carries the card's history rule (carnet#1623): a
+/// Garmin grant serving alone with nothing from before it tells the agent
+/// what it cannot see and points at the card's Add history action. An
+/// imported export makes the past in, and a Strava athlete is never told.
+#[tokio::test]
+async fn the_agents_prompt_says_a_garmin_grants_past_is_not_in_until_it_is() {
+    let resources = common::create_test_server_resources().await.unwrap();
+    let (user_id, _, tenant) =
+        user_and_tenant(&resources, "garmin-history-prompt@example.com").await;
+    connect(
+        &resources,
+        user_id,
+        tenant,
+        oauth_providers::GARMIN,
+        Some("garmin-user-history"),
+    )
+    .await;
+
+    let needed = provider_history::histories_needed(
+        &resources.common.repos,
+        user_id,
+        tenant,
+        [oauth_providers::GARMIN, oauth_providers::SCIOTTE_GARMIN],
+    )
+    .await;
+    assert_eq!(needed, [oauth_providers::GARMIN], "named once, by its card");
+    let context = build_provider_context(&resources.data(), user_id, tenant).await;
+    assert!(
+        context.contains("## Past Training Not In Yet"),
+        "bug: an empty Garmin grant alone must tell the agent its past is missing: {context}"
+    );
+    assert!(
+        context.contains("Add history action on their Garmin card"),
+        "{context}"
+    );
+    assert!(
+        !context.to_lowercase().contains("sciotte"),
+        "the scraper never reaches the prompt: {context}"
+    );
+
+    let exported = ActivityBuilder::new(
+        "garmin-archive-1",
+        "Exported Run",
+        SportType::Run,
+        Timestamp::now() - Elapsed::days(200),
+        2_400,
+        oauth_providers::GARMIN_ARCHIVE,
+    )
+    .build();
+    store_under(
+        &resources,
+        user_id,
+        tenant,
+        oauth_providers::GARMIN_ARCHIVE,
+        &[exported],
+    )
+    .await;
+    let imported = build_provider_context(&resources.data(), user_id, tenant).await;
+    assert!(
+        !imported.contains("Past Training Not In Yet"),
+        "an imported export is the past: {imported}"
+    );
+
+    let (strava_user, _, strava_tenant) =
+        user_and_tenant(&resources, "strava-history-prompt@example.com").await;
+    resources
+        .common
+        .repos
+        .provider_connections
+        .register_connection(
+            strava_user,
+            strava_tenant,
+            oauth_providers::STRAVA,
+            &ConnectionType::OAuth,
+            None,
+        )
+        .await
+        .unwrap();
+    let strava = build_provider_context(&resources.data(), strava_user, strava_tenant).await;
+    assert!(strava.contains("- ✓ strava"), "{strava}");
+    assert!(
+        !strava.contains("Past Training Not In Yet"),
+        "a provider that reads its own history owes no line: {strava}"
     );
 }

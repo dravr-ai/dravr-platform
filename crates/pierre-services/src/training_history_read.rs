@@ -26,7 +26,7 @@
 //! provider's cached rows in the window are read, and the recordings of one
 //! workout — a ride a watch synced to Strava and Garmin, the session WHOOP
 //! detected during it — merge into one session through
-//! [`merge_duplicates`], the merger Home's list and volume and the chat turn
+//! [`merge_duplicates`](pierre_providers::deduplication::merge_duplicates), the merger Home's list and volume and the chat turn
 //! use. A workout therefore scores once, from its canonical copy, whichever
 //! connection was touched last.
 //!
@@ -35,16 +35,12 @@
 //! `upload` key, read in the same window, gated and merged with the rest, so a
 //! ride uploaded and also synced by a provider scores once.
 
-use std::collections::HashSet;
-
 use dravr_cageux::config::intelligence::AlgorithmConfig;
 use dravr_tronc::dates::{CivilDate, Elapsed};
 use pierre_config::environment::default_provider;
 use pierre_core::ai_policy::ProviderTerms;
 use pierre_core::civil_time::{local_date, resolve_zone};
-use pierre_core::constants::oauth_providers::{
-    garmin_contribution, garmin_recorded, GarminContribution,
-};
+use pierre_core::constants::oauth_providers::GarminContribution;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::coverage::{
     Completeness, Coverage, CoverageWindow, IncompleteReason, WindowScope,
@@ -56,7 +52,7 @@ use pierre_fitness_compute::training_history_compute::{
 };
 use pierre_providers::activity_source::ActivitySourceRank;
 use pierre_providers::ai_scope::Dated;
-use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
+use pierre_providers::deduplication::{DedupConfig, GarminSessions};
 use pierre_providers::registry::global_registry;
 use pierre_providers::{ai_scope, backend_resolver};
 use std::fmt;
@@ -403,26 +399,9 @@ pub async fn load_stored_window(
     // Gate first, then merge: a copy the reader may not see never lends its
     // values to one it may.
     let served = ai_scope::filter_activities(sources.terms, recordings);
-    let garmin_copies: HashSet<String> = served
-        .iter()
-        .filter(|a| garmin_recorded(a.source(), a.device_name()))
-        .map(|a| a.id().to_owned())
-        .collect();
-    let (activities, report) = merge_duplicates(served, &DedupConfig::from_env());
-    let garmin = garmin_contribution(activities.iter().map(|session| {
-        garmin_copies.contains(session.id())
-            || garmin_recorded(session.source(), session.device_name())
-            || report
-                .groups
-                .iter()
-                .find(|group| group.canonical_id == session.id())
-                .is_some_and(|group| {
-                    group
-                        .fragment_ids
-                        .iter()
-                        .any(|id| garmin_copies.contains(id))
-                })
-    }));
+    let (merged, _) = GarminSessions::merge(served, &DedupConfig::from_env());
+    let garmin = merged.garmin_contribution();
+    let activities = merged.sessions;
     let oldest_stored = activities
         .iter()
         .map(|a: &Activity| local_date(a.start_date(), &zone))

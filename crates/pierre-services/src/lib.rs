@@ -157,6 +157,10 @@ pub mod plan_card;
 /// mark worded as a live card words it (carnet#1552)
 pub mod plan_card_history;
 
+/// Whether a push-fed grant's history is in: one rule for the provider card,
+/// the first welcome and the agent's prompt (carnet#1386, carnet#1623)
+pub mod provider_history;
+
 /// Agent-selection recording — the one emit site for `agent.selected`
 pub mod agent_selection;
 

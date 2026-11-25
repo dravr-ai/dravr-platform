@@ -65,7 +65,7 @@ where
 ///
 /// # Errors
 /// Returns a database error when the column cannot be decoded.
-fn consent_sources_column_of<R>(row: &R) -> AppResult<Vec<String>>
+pub(crate) fn consent_sources_column_of<R>(row: &R) -> AppResult<Vec<String>>
 where
     R: sqlx::Row,
     for<'a> &'a str: sqlx::ColumnIndex<R>,

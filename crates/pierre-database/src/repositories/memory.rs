@@ -34,8 +34,8 @@
 mod rows;
 
 pub(crate) use rows::{
-    agent_session_from_row, compaction_block_from_row, user_fact_from_row,
-    user_fact_metrics_from_rows,
+    agent_session_from_row, compaction_block_from_row, consent_sources_column_of,
+    user_fact_from_row, user_fact_metrics_from_rows,
 };
 
 /// Persist one compaction block.

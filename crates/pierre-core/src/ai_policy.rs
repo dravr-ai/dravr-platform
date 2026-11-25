@@ -1,4 +1,4 @@
-// ABOUTME: What of a provider's data may enter a model prompt or leave over an external transport, per provider terms
+// ABOUTME: What of a provider's data may enter a model prompt, leave over an external transport or reach a group chat
 // ABOUTME: Resolves the rules for an item and applies them to its JSON form or to typed items via a serde round trip
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -40,7 +40,12 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 use serde_json::{Map, Value};
 
-use crate::transport::TransportPolicy;
+use crate::transport::{AudiencePolicy, TransportPolicy};
+
+/// Who may read a provider's data among a surface's readers (carnet#1170).
+mod audience;
+
+pub use audience::members_only;
 
 /// Where a served item came from, as the trust label on a tool result names
 /// it (owl T02 §3.1): what recorded or wrote it, not which service relayed it.
@@ -170,6 +175,13 @@ pub trait ProviderTerms: Send + Sync {
     fn served_over_every_transport(&self) -> Vec<&'static str> {
         Vec::new()
     }
+
+    /// Who `provider`'s terms let read its data among the people a surface
+    /// shows it to, or `None` when the provider is unknown (carnet#1170).
+    fn audience_policy(&self, provider: &str) -> Option<AudiencePolicy> {
+        let _ = provider;
+        None
+    }
 }
 
 /// A provider's terms, with the athlete's AI consent on top.
@@ -220,10 +232,17 @@ impl ProviderTerms for WithConsent<'_> {
     fn served_over_every_transport(&self) -> Vec<&'static str> {
         self.terms.served_over_every_transport()
     }
+
+    fn audience_policy(&self, provider: &str) -> Option<AudiencePolicy> {
+        self.terms.audience_policy(provider)
+    }
 }
 
-/// Which gates a read crosses: the AI rules when a model reads it, the
-/// transport gate when it is served over an external transport.
+/// Which gates a read crosses.
+///
+/// The AI rules when a model reads it, the transport gate when it is served
+/// over an external transport, the audience gate when what it feeds is posted
+/// into a messaging group chat.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Exposure {
     /// A model reads the data: each provider's AI rules apply.
@@ -231,13 +250,17 @@ pub struct Exposure {
     /// The call is served over an external transport: a
     /// [`TransportPolicy::FirstPartyOnly`] provider's items are dropped.
     pub external: bool,
+    /// What the call feeds is posted into a messaging group chat, which the
+    /// chat app lets anyone in it read: an [`AudiencePolicy::MembersOnly`]
+    /// provider's items are dropped (carnet#1170).
+    pub group_chat: bool,
 }
 
 impl Exposure {
     /// Whether any gate applies.
     #[must_use]
     pub const fn any(self) -> bool {
-        self.to_model || self.external
+        self.to_model || self.external || self.group_chat
     }
 }
 
@@ -348,13 +371,17 @@ pub struct Withheld {
     /// each field nulled on a row, or each read refused, counted once. A reason of its own
     /// in [`Self::to_note`], whatever service holds them.
     pub sensitive_reduced: usize,
+    /// Items, or stored rows derived from them, dropped because what the call
+    /// feeds is posted into a messaging group chat and their provider's terms
+    /// keep them to Dravr's members (carnet#1170).
+    pub off_group_chat: usize,
 }
 
 impl Withheld {
     /// Whether anything was held back.
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        !self.from_model() && self.off_interface == 0
+        !self.from_model() && self.off_interface == 0 && self.off_group_chat == 0
     }
 
     /// Whether the AI rules or the athlete's tier consent held anything back.
@@ -370,6 +397,7 @@ impl Withheld {
         self.sources.extend(other.sources);
         self.off_interface += other.off_interface;
         self.sensitive_reduced += other.sensitive_reduced;
+        self.off_group_chat += other.off_group_chat;
     }
 
     fn record(&mut self, outcome: Outcome, provider: &str, source: Option<&str>) {
@@ -467,6 +495,10 @@ where
         let (provider, source) = origin(&item);
         if exposure.external && first_party_only(lookup, &provider, source.as_deref()) {
             withheld.off_interface += 1;
+            continue;
+        }
+        if exposure.group_chat && members_only(lookup, &provider, source.as_deref()) {
+            withheld.off_group_chat += 1;
             continue;
         }
         if !exposure.to_model {
@@ -576,6 +608,10 @@ fn filter_item(
         withheld.off_interface += 1;
         return true;
     }
+    if exposure.group_chat && members_only(lookup, &provider, source.as_deref()) {
+        withheld.off_group_chat += 1;
+        return true;
+    }
     if !exposure.to_model {
         return false;
     }
@@ -624,12 +660,14 @@ mod tests {
     const MODEL: Exposure = Exposure {
         to_model: true,
         external: false,
+        group_chat: false,
     };
 
     /// A read for a model whose answer leaves over an external transport.
     const EXTERNAL_MODEL: Exposure = Exposure {
         to_model: true,
         external: true,
+        group_chat: false,
     };
 
     const NOLIO_KEEP: &[&str] = &["id", "provider", "source", "sport_type", "start_date"];
@@ -1026,6 +1064,7 @@ mod tests {
         let api_read = Exposure {
             to_model: false,
             external: true,
+            group_chat: false,
         };
         let (kept, withheld) = filter_items(&Lookup, mixed_items(), origin, &["name"], api_read);
         assert_eq!(ids(&kept), vec!["a", "b"]);

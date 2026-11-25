@@ -57,14 +57,6 @@ pub(crate) async fn card_backend(
     (backend, plan)
 }
 
-/// Whether the athlete's own grant serves `provider_name`'s card first: the
-/// plan's primary is the provider's OAuth backend.
-pub(crate) fn grant_serves(provider_name: &str, plan: Option<&ReadPlan>) -> bool {
-    let user_facing = backend_resolver::user_facing_name(provider_name);
-    backend_resolver::mirror_backend_for(user_facing).is_some()
-        && plan.is_some_and(|plan| plan.primary == user_facing)
-}
-
 /// Whether the card asks for a reconnect, given `connected_backend`, the
 /// backend serving it, and `reauth_providers`, the backends flagged for
 /// reconnect.

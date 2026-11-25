@@ -4,6 +4,7 @@
 // ABOUTME: The gear ledger wire shapes — the shoes the athlete declares, their distance, and the pair one activity was run in
 // ABOUTME: With their parsers and the bounds the server holds a declaration to, so a client refuses a bad field before sending it
 
+import { isGarminContribution, type GarminContribution } from './garmin-attribution.js';
 import { isInstant } from './instant.js';
 
 /**
@@ -73,6 +74,13 @@ export interface GearItem {
   retired_at: string | null;
   /** When the latest activity attributed to it started, RFC 3339. */
   last_used_at: string | null;
+  /**
+   * What Garmin-sourced workouts contribute to `distance_meters`: the client
+   * prints the line Garmin's brand guidelines owe it beneath the pair's name
+   * (carnet#1154). `null` when none does; absent from a server that predates
+   * it, which reads as `null`.
+   */
+  garmin_contribution: GarminContribution | null;
 }
 
 /** `GET /api/me/gear`. */
@@ -151,6 +159,10 @@ export function parseGearItem(value: unknown): GearItem | null {
   ) {
     return null;
   }
+  const garminContribution = value.garmin_contribution ?? null;
+  if (garminContribution !== null && !isGarminContribution(garminContribution)) {
+    return null;
+  }
   return {
     id: value.id,
     kind: value.kind,
@@ -166,6 +178,7 @@ export function parseGearItem(value: unknown): GearItem | null {
     added_at: value.added_at,
     retired_at: value.retired_at,
     last_used_at: value.last_used_at,
+    garmin_contribution: garminContribution,
   };
 }
 

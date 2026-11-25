@@ -192,7 +192,7 @@ describe('OnboardingConnectScreen — TrainingPeaks', () => {
  * ticked (carnet#1157, carnet#1390).
  */
 async function connectGarmin() {
-  fireEvent.press(await screen.findByLabelText('Connect Garmin'));
+  fireEvent.press(await screen.findByLabelText(/^Connect Garmin/));
   fireEvent.press(await screen.findByTestId('connect-consent-continue'));
 }
 
@@ -478,7 +478,7 @@ describe('OnboardingConnectScreen — Strava OAuth failure fallback', () => {
         await screen.findByText('Tu peux connecter un autre service maintenant, ou continuer.'),
       ).toBeTruthy();
       // The other services are still one tap away.
-      expect(screen.getByLabelText('Connecter Garmin')).toBeTruthy();
+      expect(screen.getByLabelText('Connecter Garmin Connect™')).toBeTruthy();
       expect(screen.queryByTestId('onboarding-connect-skip')).toBeNull();
 
       fireEvent.press(screen.getByText('Continuer'));

@@ -6,6 +6,7 @@
 
 use std::fmt;
 
+use pierre_core::constants::oauth_providers::GarminContribution;
 use serde::{Deserialize, Serialize};
 
 use pierre_core::models::groups::{
@@ -180,18 +181,23 @@ pub struct GroupMetadata {
     pub api_version: String,
 }
 
-/// Which members a group analytics response was computed over.
+/// What a group analytics response was computed over.
 ///
 /// Every number, name and flag in `/stats`, `/report` and `/health` comes
 /// from the members whose training the caller may see — those who share it
 /// with them, plus the caller — so a client can say when that is fewer than
-/// the group holds.
+/// the group holds. It also says what Garmin contributed to their sessions,
+/// so the client prints the line Garmin's brand guidelines owe the figures
+/// beneath their title (carnet#1154).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AnalyticsScope {
     /// Members the response covers.
     pub visible_members: usize,
     /// Members the group holds.
     pub roster_members: usize,
+    /// What Garmin contributed to the covered members' sessions; `null` when
+    /// nothing.
+    pub garmin_contribution: Option<GarminContribution>,
 }
 
 /// Response wrapper for group aggregate stats

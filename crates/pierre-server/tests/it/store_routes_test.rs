@@ -806,6 +806,7 @@ async fn test_browse_store_keeps_the_chosen_sort_whatever_the_viewers_verdicts_s
                 explanation: None,
                 evidence_refs: None,
                 transport_policy: TransportPolicy::AnyTransport,
+                ai_consent_sources: &[],
             })
             .await
             .unwrap();

@@ -61,7 +61,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use pierre_core::ai_policy::{
-    filter_items, first_party_only, Exposure, ProviderTerms, WithConsent, Withheld,
+    filter_items, first_party_only, members_only, Exposure, ProviderTerms, WithConsent, Withheld,
 };
 use pierre_core::constants::oauth_providers::{
     garmin_device, source_attribution, source_class_of, GARMIN_ATTRIBUTION,
@@ -81,6 +81,9 @@ mod derived_consent;
 mod governed;
 /// The consent-grant ceiling a call runs under: window floor and row tally.
 mod grant;
+/// The members-only audience: what is posted into a messaging group chat
+/// (carnet#1170).
+mod group_chat;
 /// A human coach's read: only the athlete's AI consents apply (carnet#1262).
 mod human_coach;
 /// The provenance accumulator, and the group members it records (carnet#1174).
@@ -101,6 +104,10 @@ pub use governed::AiGovernedProvider;
 pub use grant::{
     counting_rows, grant_ceiling, holds_stream, in_window, note_raw_rows, note_rows,
     retain_in_window, under_grant, window_since, without_route, Dated, ServedRows,
+};
+pub use group_chat::{
+    derived_members_only, for_group_chat, mark_members_only_served, members_only_key,
+    names_members_only, posts_to_group_chat, serving_group_chat,
 };
 pub use human_coach::for_human_coach;
 pub use provenance::{
@@ -201,6 +208,10 @@ pub fn mark_first_party_only_served() {
 fn note_served(lookup: &dyn ProviderTerms, provider: &str, source: Option<&str>) {
     if PROVENANCE.try_with(|_| ()).is_ok() && first_party_only(lookup, provider, source) {
         mark_first_party_only_served();
+    }
+    // Kept to Dravr's members: what is derived stays out of a group chat (carnet#1170).
+    if PROVENANCE.try_with(|_| ()).is_ok() && members_only(lookup, provider, source) {
+        mark_members_only_served();
     }
     // That an item was served at all, for the chokepoint's grounding read
     // (carnet#828). Not under `unfiltered`, for the reason marking is not.
@@ -370,18 +381,20 @@ fn consent_only() -> bool {
 #[must_use]
 pub fn exposure() -> Option<Exposure> {
     let for_model = flag(&FOR_MODEL);
-    gates(for_model, declared_transport())
+    gates(for_model, declared_transport(), serving_group_chat())
 }
 
-/// The gates a tool result crosses on its way to the caller, for an executor
-/// that served `transport` (`None`: undeclared, so external). Read after the
-/// tool body, outside the scope it ran in.
+/// The gates a tool result crosses on its way to the caller.
+///
+/// For an executor that served `transport` (`None`: undeclared, so external),
+/// into a group chat when `group_chat` holds. Read after the tool body,
+/// outside the scope it ran in.
 #[must_use]
-pub fn result_exposure(transport: Option<Transport>) -> Option<Exposure> {
-    gates(true, transport)
+pub fn result_exposure(transport: Option<Transport>, group_chat: bool) -> Option<Exposure> {
+    gates(true, transport, group_chat)
 }
 
-fn gates(for_model: bool, transport: Option<Transport>) -> Option<Exposure> {
+fn gates(for_model: bool, transport: Option<Transport>, group_chat: bool) -> Option<Exposure> {
     if flag(&UNFILTERED) {
         return None;
     }
@@ -391,6 +404,7 @@ fn gates(for_model: bool, transport: Option<Transport>) -> Option<Exposure> {
     let exposure = Exposure {
         to_model: (for_model && !flag(&DISPLAY)) || consent_only(),
         external,
+        group_chat,
     };
     exposure.any().then_some(exposure)
 }
@@ -556,15 +570,28 @@ fn withheld_error(id: &str) -> AppError {
 /// calendar) and single-item reads, and a tool that serves such a read from a
 /// cache before any provider is asked.
 ///
+/// The same read is refused while the call feeds a messaging group chat and
+/// the data's terms keep it to Dravr's members (carnet#1170), with the same
+/// code: the connection is fine there too.
+///
 /// # Errors
 ///
 /// [`ErrorCode::UnavailableOverTransport`](pierre_core::errors::ErrorCode::UnavailableOverTransport)
-/// when the call is external and the data's terms keep it first-party.
+/// when the call is external and the data's terms keep it first-party, or
+/// when it feeds a group chat and they keep it to Dravr's members.
 pub fn first_party_only_read(
     lookup: &dyn ProviderTerms,
     provider: &str,
     source: Option<&str>,
 ) -> AppResult<()> {
+    if members_only(lookup, provider, source) && !flag(&UNFILTERED) {
+        if serving_group_chat() {
+            return Err(AppError::unavailable_over_transport(
+                "this data is not shown in a group chat",
+            ));
+        }
+        mark_members_only_served();
+    }
     if !first_party_only(lookup, provider, source) {
         return Ok(());
     }

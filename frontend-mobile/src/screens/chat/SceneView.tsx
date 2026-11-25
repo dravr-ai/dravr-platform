@@ -219,6 +219,19 @@ function Node({ node, palette }: { node: SceneNode; palette: Record<ColorToken, 
   }
 }
 
+/**
+ * The line the block's data source asks to be shown with, directly beneath
+ * the title: Garmin's attribution on a chart or table drawn from
+ * Garmin-sourced data (carnet#1154). Set by the server, never the agent.
+ */
+function SourceAttribution({ line, colors }: { line?: string; colors: ThemeColors }) {
+  return line ? (
+    <Text className="-mt-1 mb-2 text-xs" style={{ color: colors.tokens.onSurfaceVariant }} testID="scene-attribution">
+      {line}
+    </Text>
+  ) : null;
+}
+
 function ChartView({ scene, colors }: { scene: Scene; colors: ThemeColors }) {
   const { t } = useTranslation();
   const palette = useMemo(() => paletteFor(colors), [colors]);
@@ -231,6 +244,7 @@ function ChartView({ scene, colors }: { scene: Scene; colors: ThemeColors }) {
           {scene.title}
         </Text>
       ) : null}
+      <SourceAttribution line={scene.attribution} colors={colors} />
       <View
         className="w-full overflow-hidden rounded-lg"
         // The aspect ratio lives on this View, not on the Svg. react-native-svg
@@ -290,6 +304,7 @@ function SceneTable({ view, colors }: { view: TableView; colors: ThemeColors }) 
           {view.title}
         </Text>
       ) : null}
+      <SourceAttribution line={view.attribution} colors={colors} />
       <ScrollView horizontal showsHorizontalScrollIndicator={false}>
         <View
           className="rounded-lg border"

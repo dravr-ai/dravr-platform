@@ -8,7 +8,13 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { GARMIN_CONTRIBUTION_KEY, garminContributionLine } from '../src/garmin-attribution';
+import { GARMIN_CONNECT_BRAND } from '../src/brands';
+import {
+  GARMIN_CONTRIBUTION_KEY,
+  connectCardName,
+  garminContributionLine,
+  isGarminConnectCard,
+} from '../src/garmin-attribution';
 
 const LOCALES = ['fr', 'en', 'es', 'de', 'pt'] as const;
 const LOCALES_DIR = join(dirname(fileURLToPath(import.meta.url)), '../../i18n/src/locales');
@@ -55,5 +61,32 @@ describe('Garmin contribution line', () => {
         expect(line.startsWith('Garmin'), `${locale} ${key}: ${line}`).toBe(false);
       }
     }
+  });
+});
+
+describe('the Garmin Connect card', () => {
+  const card = (overrides: Record<string, unknown>) =>
+    ({
+      provider: 'sciotte_garmin',
+      display_name: 'Garmin',
+      connected: false,
+      needs_reauth: false,
+      requires_oauth: false,
+      recommended_backend: 'oauth',
+      seats_left: 10,
+      ...overrides,
+    }) as Parameters<typeof connectCardName>[0];
+
+  it('names the card connecting through Garmin OAuth Garmin Connect in full, with its mark', () => {
+    expect(GARMIN_CONNECT_BRAND).toBe('Garmin Connect\u2122');
+    expect(connectCardName(card({}))).toBe('Garmin Connect\u2122');
+    expect(isGarminConnectCard(card({}))).toBe(true);
+    expect(isGarminConnectCard(card({ connected: true, connected_backend: 'garmin' }))).toBe(true);
+  });
+
+  it('leaves the card on the account sign-in, and every other card, as served', () => {
+    expect(connectCardName(card({ recommended_backend: 'mirror' }))).toBe('Garmin');
+    expect(isGarminConnectCard(card({ connected: true, connected_backend: 'sciotte_garmin' }))).toBe(false);
+    expect(connectCardName(card({ provider: 'whoop', display_name: 'WHOOP', requires_oauth: true }))).toBe('WHOOP');
   });
 });

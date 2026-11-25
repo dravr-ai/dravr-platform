@@ -52,6 +52,13 @@ export const PROVIDER_BRAND = {
   trainingpeaks: 'TrainingPeaks',
 } as const;
 
+/**
+ * Garmin Connect named in full, with its mark, as Garmin's API brand
+ * guidelines ask of the connect card and button of the official integration:
+ * never abbreviated or restyled (carnet#1154). A trademark, so data.
+ */
+export const GARMIN_CONNECT_BRAND = 'Garmin Connect\u2122';
+
 /** A provider id {@link PROVIDER_BRAND} names. */
 export type ProviderBrandId = keyof typeof PROVIDER_BRAND;
 

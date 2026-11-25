@@ -60,6 +60,7 @@ import {
   DIGEST_MODES,
   analyticsScopeLine,
   coachPlatformName,
+  garminContributionLine,
   offeredConsents,
   oneDecimal,
   weeklyVolumeFigure,
@@ -152,6 +153,10 @@ export default function GroupInfoPanel({
     !!group && !isCoachViewer,
   );
   const statsScopeLine = analyticsScopeLine(t, statsScope);
+  // The stats, the weekly report and the health flags are computed over the
+  // same members, so one line beneath the section's title attributes them all
+  // when Garmin contributed to their sessions (carnet#1154).
+  const garminLine = garminContributionLine(t, statsScope?.garmin_contribution);
   const { connections: delegatedConnections, viewer: delegationViewer } = useDelegatedConnections(
     groupId,
     !!group?.coach_user_id,
@@ -635,6 +640,11 @@ export default function GroupInfoPanel({
                 </div>
               ) : statsShown && stats ? (
                 <div>
+                  {garminLine && (
+                    <p className="text-xs text-on-surface-variant mb-2" data-testid="group-info-garmin">
+                      {garminLine}
+                    </p>
+                  )}
                   <div className="grid grid-cols-2 gap-3" data-testid="group-info-stats">
                     <div className="stat-card-dark">
                       <p className="text-xs font-medium text-on-surface-variant mb-1">{t('groups.activeMembers')}</p>

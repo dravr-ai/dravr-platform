@@ -34,6 +34,7 @@ use pierre_services::coach_platform::coach_platforms;
 use pierre_services::delegated_connections::{member_delegation, MemberDelegation};
 use pierre_services::oauth_flow::{get_user_for_oauth, AuthUrlOptions, OAuthService};
 use pierre_services::oauth_redirects;
+use pierre_services::provider_history;
 use pierre_services::provider_notice::{asks_for_notice, consent_state};
 use pierre_services::provider_revocation::DisconnectReason;
 
@@ -656,7 +657,7 @@ pub(crate) async fn compute_providers_status(
             .await;
             let needs_reauth =
                 card_backend::reauth_flag(connected_backend.as_deref(), &reauth_providers);
-            let grant_serves = card_backend::grant_serves(provider_name, plan.as_ref());
+            let grant_serves = provider_history::grant_serves(provider_name, plan.as_ref());
             // How that backend's connection was made. A connected backend with
             // no link of the user's own is served by a confirmed delegation.
             let connection_type = connected_backend.as_deref().map(|backend| {

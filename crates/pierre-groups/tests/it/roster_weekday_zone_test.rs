@@ -71,6 +71,7 @@ fn snapshot_in(timezone: Option<&str>) -> MemberFitnessSnapshot {
         timezone: timezone.map(str::to_owned),
         deep_fatigue_mornings: Vec::new(),
         computed_at: Timestamp::now(),
+        garmin_contribution: None,
     }
 }
 

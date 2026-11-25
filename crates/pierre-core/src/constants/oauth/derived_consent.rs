@@ -1,5 +1,5 @@
 // ABOUTME: The AI consents content derived from an athlete's data owes, and the providers kept out of AI memory
-// ABOUTME: A derived row names the consent keys of what it was drawn from; Garmin data never feeds memory or summaries (carnet#1157, #1158)
+// ABOUTME: A derived row names the consent keys of what it was drawn from; Garmin never feeds memory, summaries or AI evaluation (carnet#1157, #1158, #1170)
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -48,6 +48,36 @@ pub fn kept_out_of_ai_memory(key: &str) -> bool {
 #[must_use]
 pub fn names_kept_out_source(sources: &[String]) -> bool {
     sources.iter().any(|key| kept_out_of_ai_memory(key))
+}
+
+/// The AI-consent keys whose data, and what is derived from it, never feed an
+/// evaluation of the AI (carnet#1170, D30).
+///
+/// The verifier's health rates, the verdict calibration dashboard and the
+/// coach's corrections count each leave such a row out.
+///
+/// Garmin's agreement v9 §15.11 bars using Garmin data to "train, test,
+/// evaluate, benchmark or improve any AI model", and the privacy policy
+/// promises it. A verdict, a flag or a correction on a reply drawn from Garmin
+/// data is derived from it, so each of those metrics leaves out a row whose
+/// consent sources name a key here.
+pub const EXCLUDED_FROM_AI_EVALUATION: [&str; 1] = [GARMIN];
+
+/// Whether a row naming `sources` must be left out of every AI evaluation
+/// metric ([`EXCLUDED_FROM_AI_EVALUATION`]).
+#[must_use]
+pub fn excluded_from_ai_evaluation(sources: &[String]) -> bool {
+    sources.iter().any(|key| {
+        EXCLUDED_FROM_AI_EVALUATION
+            .iter()
+            .any(|excluded| excluded.eq_ignore_ascii_case(key))
+    })
+}
+
+/// [`excluded_from_ai_evaluation`] for a row's stored consent-sources column.
+#[must_use]
+pub fn column_excluded_from_ai_evaluation(column: Option<&str>) -> bool {
+    excluded_from_ai_evaluation(&consent_sources_from_column(column))
 }
 
 /// The column a row stores `sources` in: `None` when it names none.
@@ -116,6 +146,18 @@ mod tests {
             union_consent_sources(&keys(&["whoop"]), &keys(&["garmin", "whoop"])),
             keys(&["garmin", "whoop"])
         );
+    }
+
+    // carnet#1170 (D30): a row drawn from Garmin feeds no evaluation metric;
+    // one drawn from anything else, or naming nothing, still does.
+    #[test]
+    fn garmin_alone_is_excluded_from_ai_evaluation() {
+        assert!(excluded_from_ai_evaluation(&keys(&["whoop", "Garmin"])));
+        assert!(!excluded_from_ai_evaluation(&keys(&["whoop"])));
+        assert!(!excluded_from_ai_evaluation(&[]));
+        assert!(column_excluded_from_ai_evaluation(Some("garmin,whoop")));
+        assert!(!column_excluded_from_ai_evaluation(Some("whoop")));
+        assert!(!column_excluded_from_ai_evaluation(None));
     }
 
     // carnet#1158: Garmin, and only Garmin, is kept out of memory until

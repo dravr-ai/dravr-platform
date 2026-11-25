@@ -420,6 +420,18 @@ impl Fixture {
 
     /// Run one turn; return the assistant row it persisted.
     async fn turn(&self, content: &str) -> MessageRecord {
+        self.turn_on(content, Transport::WebApp, true).await
+    }
+
+    /// Run one turn served over `transport`, in a direct message or not;
+    /// return the assistant row it persisted.
+    async fn turn_on(
+        &self,
+        content: &str,
+        transport: Transport,
+        is_direct_message: bool,
+    ) -> MessageRecord {
+        let messaging = transport == Transport::Messaging;
         pierre_chat_pipeline::execute(
             &self.ctx,
             TurnRequest {
@@ -433,9 +445,9 @@ impl Fixture {
                 turn_id: ConversationTurnId::new(),
                 ambient_context: None,
                 quote: None,
-                channel_type: "web",
-                transport: Transport::WebApp,
-                is_direct_message: true,
+                channel_type: if messaging { "telegram" } else { "web" },
+                transport,
+                is_direct_message,
                 ambient_group_fallback: false,
                 command_persistence: CommandPersistence::Always,
                 sender_id: None,
@@ -444,7 +456,11 @@ impl Fixture {
                 grant: OAuthScope::self_grant(),
             },
             &SurfaceProfile::resolve(&SurfaceRequest {
-                surface: SurfaceId::Web,
+                surface: if messaging {
+                    SurfaceId::Telegram
+                } else {
+                    SurfaceId::Web
+                },
                 locale: "fr".to_owned(),
                 transport: None,
                 prose_contract: None,
@@ -604,6 +620,97 @@ async fn a_reply_names_the_consent_of_the_data_it_was_drawn_from() {
         reply.ai_consent_sources.is_empty(),
         "Strava data owes no AI consent: {:?}",
         reply.ai_consent_sources
+    );
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// carnet#1170 D28: Garmin data never reaches a messaging group chat
+// ════════════════════════════════════════════════════════════════════════
+
+/// A turn posted into a messaging group chat — read by whoever the chat app
+/// admits — serves the model neither the Garmin-recorded ride nor an earlier
+/// Garmin-derived reply, so its reply is drawn from no Garmin data; the same
+/// question in the member's own direct message on the same channel reads all
+/// of it.
+#[tokio::test]
+async fn a_group_chat_turn_reads_no_garmin_data_and_a_direct_message_does() {
+    let fx = Fixture::new("members-only-group@test.com", true).await;
+    // A Strava-recorded run beside the Garmin ride, so the group chat's window
+    // is not empty once the ride is withheld.
+    let run = ActivityBuilder::new(
+        "strava-run-1".to_owned(),
+        "Footing".to_owned(),
+        SportType::Run,
+        Timestamp::now() - Elapsed::days(1),
+        3_000,
+        "strava".to_owned(),
+    )
+    .distance_meters(9_000.0)
+    .build();
+    fx.resources
+        .common
+        .repos
+        .activity_cache
+        .upsert_activities(fx.user_id, &fx.tenant, "strava", &[run])
+        .await
+        .unwrap();
+    fx.earlier_exchange(
+        "Et ma sortie longue ?",
+        "Ta sortie Garmin de 187 km était solide.",
+        &keys(&[GARMIN]),
+    )
+    .await;
+    fx.earlier_exchange("Et ma course ?", "Ta course de 42 km aussi.", &[])
+        .await;
+
+    let from = fx.model.calls_so_far();
+    let rows_before = fx.rows().await.len();
+    let group_reply = fx.turn_on(READ_ASK, Transport::Messaging, false).await;
+    let group_calls = fx.model.coaching_since(from);
+    assert!(
+        group_calls.iter().any(|call| call.tool_results > 0),
+        "premise: the group turn read the athlete's activities"
+    );
+    for call in &group_calls {
+        assert!(
+            !call.carries("Ta sortie Garmin de 187 km"),
+            "bug: a Garmin-derived reply was replayed into a group-chat turn"
+        );
+    }
+    assert!(
+        group_calls
+            .iter()
+            .filter(|call| call.asked.contains(READ_ASK))
+            .all(|call| call.conversation.contains(OPEN_FIGURE)),
+        "the rest of the thread still reaches the group-chat turn"
+    );
+    let group_tool_rows: Vec<MessageRecord> = fx.rows().await[rows_before..]
+        .iter()
+        .filter(|row| row.role == "tool_result")
+        .cloned()
+        .collect();
+    assert!(
+        !group_tool_rows.is_empty(),
+        "premise: the read round was kept"
+    );
+    for row in &group_tool_rows {
+        assert!(
+            !row.content.contains("187"),
+            "bug: the Garmin ride reached a group-chat turn: {}",
+            row.content
+        );
+    }
+    assert!(
+        group_reply.ai_consent_sources.is_empty(),
+        "bug: the group-chat reply was drawn from Garmin data: {:?}",
+        group_reply.ai_consent_sources
+    );
+
+    let direct_reply = fx.turn_on(READ_ASK, Transport::Messaging, true).await;
+    assert_eq!(
+        direct_reply.ai_consent_sources,
+        keys(&[GARMIN]),
+        "the member's own direct message still reads their Garmin ride"
     );
 }
 

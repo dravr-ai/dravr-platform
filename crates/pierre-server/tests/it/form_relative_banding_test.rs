@@ -51,6 +51,7 @@ fn snapshot(ctl: f64, atl: f64, tsb: f64) -> MemberFitnessSnapshot {
         timezone: None,
         deep_fatigue_mornings: Vec::new(),
         computed_at: Timestamp::now(),
+        garmin_contribution: None,
     }
 }
 

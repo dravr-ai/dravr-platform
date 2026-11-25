@@ -5,6 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use dravr_tronc::dates::Timestamp;
+use pierre_core::constants::oauth_providers::column_excluded_from_ai_evaluation;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{
     CoachReply, CoachReplyCorrection, CoachReplyFilter, CoachReplyFlag, CoachReplyReview,

@@ -28,7 +28,7 @@ use pierre_core::models::groups::{
     TranscriptSpeaker,
 };
 use pierre_core::models::periodization::PhaseKind;
-use pierre_core::models::TenantId;
+use pierre_core::models::{ConnectionType, TenantId};
 use pierre_core::transport::Transport;
 use pierre_core::transport::TransportPolicy;
 use pierre_database::repositories::training_plans::PlanAuthor;
@@ -1424,6 +1424,58 @@ async fn plan_share_escapes_the_display_name_in_the_header() -> Result<()> {
     assert!(
         dialect.contains("<b>Marc *<3* vélo & co</b>"),
         "the channel egress must read the name back verbatim inside one bold span: {dialect}"
+    );
+    Ok(())
+}
+
+/// carnet#1170: an athlete with Garmin connected never has their plan posted
+/// into a messaging group chat, whose readers the chat app decides; the same
+/// share in their own direct message, and an athlete with no Garmin, still
+/// render it.
+#[tokio::test]
+async fn plan_share_of_a_garmin_athlete_never_reaches_a_group_chat() -> Result<()> {
+    let (resources, user_id, tenant, _dm) = setup().await?;
+    athlete_with_a_coached_plan(&resources, user_id, tenant, "Phil Tremblay").await?;
+    let (bot_tenant, room) = room_conversation(&resources, user_id, None).await?;
+    let share = |is_direct_message: bool| {
+        let ctx = ctx_on(
+            &resources,
+            user_id,
+            tenant,
+            &room,
+            vec![],
+            &Surface {
+                conversation_tenant: bot_tenant,
+                is_direct_message,
+                sender_id: Some(ROOM_SENDER),
+            },
+        );
+        async move { PlanShareHandler.execute(&ctx).await }
+    };
+
+    let before = share(false).await?.text;
+    assert!(
+        before.contains("endurance ride"),
+        "an athlete with no Garmin shares their plan: {before}"
+    );
+
+    resources
+        .common
+        .repos
+        .provider_connections
+        .register_connection(user_id, tenant, "garmin", &ConnectionType::OAuth, None)
+        .await?;
+
+    let refused = share(false).await;
+    assert!(
+        refused.is_err(),
+        "bug: a Garmin athlete's plan reached a group chat: {:?}",
+        refused.map(|response| response.text)
+    );
+    let direct = share(true).await?.text;
+    assert!(
+        direct.contains("endurance ride"),
+        "the athlete's own direct message still renders it: {direct}"
     );
     Ok(())
 }

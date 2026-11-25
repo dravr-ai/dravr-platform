@@ -30,16 +30,19 @@ use crate::repositories::claim_verdicts::status_counts::{
     impl_verdict_status_counts, VerdictStatusCounts, COUNT_VERDICTS_BY_STATUS_SQL,
 };
 use crate::repositories::claim_verdicts::{
-    calibration_from_counts, health_breakdown_rows, impl_claim_verdict_repository,
-    reason_count_from_row, verdict_daily_counts_sql, verdict_from_row,
-    verdict_health_breakdown_sql, verdict_health_stats, DispositionFilter, GET_VERDICT_SQL,
-    HEALTH_BY_AGENT_SQL, HEALTH_BY_CATEGORY_SQL, HEALTH_BY_LAYER_SQL, HEALTH_BY_REASON_SQL,
-    INSERT_CLAIM_VERDICT_SQL, LIST_VERDICTS_FILTERED_SQL, LIST_VERDICTS_FOR_CONVERSATION_SQL,
-    LIST_VERDICTS_FOR_MESSAGE_SQL, SET_VERDICT_DISPOSITION_SQL,
+    calibration_from_counts, health_breakdown_rows, impl_claim_verdict_repository, reason_counts,
+    verdict_daily_counts_sql, verdict_from_row, verdict_health_breakdown_sql, verdict_health_stats,
+    DispositionFilter, GET_VERDICT_SQL, HEALTH_BY_AGENT_SQL, HEALTH_BY_CATEGORY_SQL,
+    HEALTH_BY_LAYER_SQL, HEALTH_BY_REASON_SQL, INSERT_CLAIM_VERDICT_SQL,
+    LIST_VERDICTS_FILTERED_SQL, LIST_VERDICTS_FOR_CONVERSATION_SQL, LIST_VERDICTS_FOR_MESSAGE_SQL,
+    SET_VERDICT_DISPOSITION_SQL,
 };
 use crate::repositories::{
     ClaimVerdictRepository, InsertClaimVerdictParams, SetVerdictDispositionParams,
     VerdictCalibrationStats, VerdictHealthStats, VerdictListFilter, VerdictStatusBreakdown,
+};
+use pierre_core::constants::oauth_providers::{
+    column_excluded_from_ai_evaluation, consent_sources_column,
 };
 
 /// This backend's resolved daily-counts statement.

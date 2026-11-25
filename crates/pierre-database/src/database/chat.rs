@@ -62,6 +62,7 @@ use crate::repositories::chat_subject::{
     NewSubjectConversation, OpenedSubjectThread, SubjectThreads, CREATE_SUBJECT_CONVERSATION_SQL,
     REOPEN_SUBJECT_CONVERSATION_SQL, SUBJECT_CONVERSATION_SQL,
 };
+use crate::repositories::memory::consent_sources_column_of;
 use crate::repositories::uuid_columns::TextUuid;
 
 impl_chat_repository!(Database, SqliteRow, TextUuid, "", "BEGIN IMMEDIATE", "");

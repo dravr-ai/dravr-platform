@@ -36,6 +36,7 @@ use std::sync::Arc;
 use pierre_core::models::groups::{CoachingGroup, GroupMember};
 use pierre_core::models::{TenantId, TurnOrigin};
 use pierre_database::database::ConversationRecord;
+use pierre_providers::ai_scope;
 use pierre_services::group_chat_poster::{proactive_chat, GroupChatPoster};
 use tokio::runtime::Handle;
 use tracing::{info, warn};
@@ -211,8 +212,21 @@ pub(crate) async fn relay_to_connected_chat(
     });
 }
 
-/// Relay the agent's reply to an athlete's own app turn: a turn the platform
-/// started answers nobody's post, so its reply stays in the app.
+/// Whether the agent's reply to a turn may follow it into the chat.
+///
+/// Only an athlete's own post is answered there, and only by a reply drawn
+/// from nothing kept to Dravr's members (carnet#1170): the app turn read the
+/// member's Garmin data as any app turn does, and the chat is read by whoever
+/// its app admits.
+pub(crate) fn reply_crosses(origin: TurnOrigin, drawn_from_members_only: bool) -> bool {
+    origin == TurnOrigin::Athlete && !drawn_from_members_only
+}
+
+/// Relay the agent's reply to an athlete's own app turn.
+///
+/// A turn the platform started answers nobody's post, so its reply stays in
+/// the app, and so does a reply drawn from data kept to Dravr's members
+/// ([`reply_crosses`]).
 pub(crate) async fn relay_reply(
     ctx: &ChatPipelineContext,
     surface: SurfaceId,
@@ -221,7 +235,11 @@ pub(crate) async fn relay_reply(
     author: &str,
     text: &str,
 ) {
-    if origin == TurnOrigin::Athlete {
+    let members_only = ai_scope::derived_members_only();
+    if members_only && origin == TurnOrigin::Athlete {
+        info!(conversation_id = %conversation.id, "room relay: the reply was drawn from data kept to Dravr's members; kept in the app");
+    }
+    if reply_crosses(origin, members_only) {
         relay_to_connected_chat(
             ctx,
             surface,
@@ -242,6 +260,17 @@ mod tests {
     };
 
     use super::*;
+
+    // carnet#1170: a reply drawn from Garmin data stays in the app.
+    #[test]
+    fn a_reply_drawn_from_members_only_data_never_reaches_the_chat() {
+        assert!(reply_crosses(TurnOrigin::Athlete, false));
+        assert!(
+            !reply_crosses(TurnOrigin::Athlete, true),
+            "bug: a Garmin-derived reply would be posted into the group chat"
+        );
+        assert!(!reply_crosses(TurnOrigin::Platform, false));
+    }
 
     fn group(coach: Option<Uuid>, peer_data_sharing: bool) -> CoachingGroup {
         CoachingGroup {

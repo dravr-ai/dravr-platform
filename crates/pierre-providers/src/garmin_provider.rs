@@ -660,16 +660,13 @@ impl FitnessProvider for GarminProvider {
             .collect())
     }
 
-    /// The entry with its writer, read from its workout: [`WORKOUT_PROVIDER`]
-    /// as its `external_id` when Garmin files the workout under Dravr, none
-    /// when another app or the athlete made it. The workout read is kept for
-    /// an update that follows, which then sends without reading it again.
-    /// LIMITATION(registre#1389): `GarminProvider::calendar_event_detail` sets no `updated_at`, so an edit made in Garmin Connect is not told apart from Dravr's own last write.
-    /// Garmin documents the workout's `updatedDate` without a zone; read in
-    /// the wrong one, every update would count as the athlete's edit, or none
-    /// would. Every workout Garmin returns — on a create, a read, or an update
-    /// it answers with the workout — logs its stamps beside Dravr's clock
-    /// ([`StoredWorkout::log_stamps`]) so a live push settles the zone.
+    /// The entry with its writer and last change, read from its workout:
+    /// [`WORKOUT_PROVIDER`] as its `external_id` when Garmin files the
+    /// workout under Dravr, none when another app or the athlete made it;
+    /// its `updatedDate`, read as UTC, as its `updated_at`
+    /// ([`StoredWorkout::updated_at`]), which tells an edit made in Garmin
+    /// Connect from Dravr's own last write. The workout read is kept for an
+    /// update that follows, which then sends without reading it again.
     #[instrument(
         skip(self, event),
         fields(provider = "garmin", api_call = "calendar_event_detail")
@@ -679,12 +676,14 @@ impl FitnessProvider for GarminProvider {
         self.ensure_workout_import().await?;
         let workout = self.read_workout(id.workout_id).await?;
         let external_id = workout.is_dravrs().then(|| WORKOUT_PROVIDER.to_owned());
+        let updated_at = workout.updated_at();
         self.read_workouts
             .lock()
             .await
             .insert(id.workout_id, workout);
         Ok(CalendarEventRef {
             external_id,
+            updated_at,
             ..event
         })
     }

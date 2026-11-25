@@ -26,6 +26,7 @@ use serde::Deserialize;
 
 use crate::mcp::resources::ServerContext;
 use crate::services::turn_runner::turn_watchdog;
+use crate::services::visual_attribution::reply_attribution;
 use dravr_tronc::dates::Timestamp;
 use pierre_chat_pipeline::turn_stop::{awaiting_question, recent_rows};
 use pierre_core::errors::AppError;
@@ -132,7 +133,13 @@ pub(super) async fn get_messages(
     let messages_list: Vec<MessageResponse> = messages
         .into_iter()
         .map(|m| {
-            let blocks = resolve_stored_blocks(m.content_blocks.as_deref(), registry, &locale);
+            let attribution = reply_attribution(registry, &m.content);
+            let blocks = resolve_stored_blocks(
+                m.content_blocks.as_deref(),
+                registry,
+                &locale,
+                attribution.as_deref(),
+            );
             let quote = quotes.quote_of(&m);
             MessageResponse {
                 id: m.id,

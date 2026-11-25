@@ -5,6 +5,8 @@
 // ABOUTME: The server says what Garmin contributed; both clients print this line beneath the figure's title, never in a tooltip
 
 import type { GarminContribution } from '@pierre/shared-types';
+import { GARMIN_CONNECT_BRAND } from './brands';
+import { connectPlan, type ConnectPlanCard } from './connect-plan';
 
 /**
  * The corpus key for each contribution (carnet#1154). Garmin's guidelines ask
@@ -29,4 +31,32 @@ export function garminContributionLine(
   contribution: GarminContribution | null | undefined,
 ): string | undefined {
   return contribution ? t(GARMIN_CONTRIBUTION_KEY[contribution]) : undefined;
+}
+
+/** The provider Garmin's own OAuth connection is authorized and stored under. */
+const GARMIN_CONNECT_PROVIDER = 'garmin';
+
+/**
+ * Where the web client serves the official Garmin Connect app tile, copied
+ * from Garmin's brand assets and only scaled.
+ */
+export const GARMIN_CONNECT_TILE_WEB_PATH = '/brand/garmin-connect-app.png';
+
+/**
+ * Whether a connection card stands for Garmin's official API (carnet#1154):
+ * connected through Garmin's OAuth, or, unconnected, connecting through it.
+ * The Garmin card is one card over two backends, so the same card that
+ * connects through the account sign-in, or is connected through it, is not:
+ * Garmin's guidelines speak to the official integration, and only it wears
+ * Garmin Connect's name and tile.
+ */
+export function isGarminConnectCard(card: ConnectPlanCard): boolean {
+  if (card.connected) return card.connected_backend === GARMIN_CONNECT_PROVIDER;
+  const primary = connectPlan(card).primary;
+  return primary.kind === 'oauth' && primary.provider === GARMIN_CONNECT_PROVIDER;
+}
+
+/** The name a connection card shows: Garmin Connect in full on Garmin's OAuth card, the served name elsewhere. */
+export function connectCardName(card: ConnectPlanCard & { display_name: string }): string {
+  return isGarminConnectCard(card) ? GARMIN_CONNECT_BRAND : card.display_name;
 }

@@ -5,6 +5,7 @@
 // ABOUTME: Shared by every provider row and sheet so one provider wears one face, inked per scheme from the shared glyph-ink table
 
 import React from 'react';
+import { Image } from 'react-native';
 import { avatarSlot, initialsFor } from '@pierre/chat-utils';
 import { providerGlyphInk, useTheme, useThemeColors } from '../constants/theme';
 import { InitialsAvatar } from './ui';
@@ -19,7 +20,17 @@ interface ProviderGlyphProps {
   /** The provider's display name; the initials come from it when no mark exists. */
   label: string;
   size?: number;
+  /**
+   * The face sits on Garmin's OAuth connection card (`isGarminConnectCard`),
+   * which wears the official Garmin Connect app tile, as Garmin's brand
+   * guidelines ask of the connect entry point (carnet#1154). Every other
+   * surface, the account sign-in card included, keeps the glyph.
+   */
+  garminConnect?: boolean;
 }
+
+/** The official Garmin Connect app tile, scaled from Garmin's brand assets and otherwise unaltered. */
+const GARMIN_CONNECT_TILE = require('../../assets/garmin-connect-app.png');
 
 /**
  * The brand mark for a provider id, or an initials circle when
@@ -32,9 +43,19 @@ interface ProviderGlyphProps {
  * the body ink where it does not (TrainingPeaks' blue on the dark canvas,
  * WHOOP's green on the light one).
  */
-export function ProviderGlyph({ providerId, label, size = GLYPH_SIZE }: ProviderGlyphProps) {
+export function ProviderGlyph({ providerId, label, size = GLYPH_SIZE, garminConnect = false }: ProviderGlyphProps) {
   const { scheme } = useTheme();
   const colors = useThemeColors();
+  if (garminConnect) {
+    return (
+      <Image
+        source={GARMIN_CONNECT_TILE}
+        style={{ width: size, height: size }}
+        accessibilityIgnoresInvertColors
+        testID="provider-tile-garmin-connect"
+      />
+    );
+  }
   const Glyph = providerGlyph(providerId);
   if (Glyph) {
     return <Glyph size={size} color={providerGlyphInk(providerId, scheme) ?? colors.text.primary} />;

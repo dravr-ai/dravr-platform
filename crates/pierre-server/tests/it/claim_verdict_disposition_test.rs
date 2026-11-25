@@ -174,6 +174,7 @@ async fn seed(repos: &RepositoryRegistry, tenant_id: TenantId, s: Seed<'_>) -> S
         explanation: None,
         evidence_refs: s.evidence_refs,
         transport_policy: TransportPolicy::AnyTransport,
+        ai_consent_sources: &[],
     };
     repos
         .claim_verdicts

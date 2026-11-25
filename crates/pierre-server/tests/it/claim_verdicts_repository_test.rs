@@ -57,6 +57,7 @@ async fn insert_and_list_claim_verdict_round_trip() -> Result<()> {
         explanation: Some("Supported by Morton 2018"),
         evidence_refs: Some("doi:10.1/a"),
         transport_policy: TransportPolicy::AnyTransport,
+        ai_consent_sources: &[],
     };
 
     let saved = repos.claim_verdicts.insert_claim_verdict(&params).await?;
@@ -101,6 +102,7 @@ async fn insert_personalized_layer_verdict_round_trip() -> Result<()> {
         ),
         evidence_refs: None,
         transport_policy: TransportPolicy::AnyTransport,
+        ai_consent_sources: &[],
     };
 
     let saved = repos.claim_verdicts.insert_claim_verdict(&params).await?;
@@ -145,6 +147,7 @@ async fn the_recent_scan_returns_newest_first() -> Result<()> {
             explanation: None,
             evidence_refs: None,
             transport_policy: TransportPolicy::AnyTransport,
+            ai_consent_sources: &[],
         };
         repos.claim_verdicts.insert_claim_verdict(&params).await?;
         // Nudge timestamp ordering; sqlx RFC3339 seconds may collide otherwise.
@@ -185,6 +188,7 @@ async fn list_verdicts_for_conversation_filters_by_conversation() -> Result<()> 
         explanation: None,
         evidence_refs: None,
         transport_policy: TransportPolicy::AnyTransport,
+        ai_consent_sources: &[],
     };
     repos.claim_verdicts.insert_claim_verdict(&params_a).await?;
 
@@ -226,6 +230,7 @@ async fn aggregate_verdict_stats_rolls_up_totals_and_daily() -> Result<()> {
             explanation: None,
             evidence_refs: None,
             transport_policy: TransportPolicy::AnyTransport,
+            ai_consent_sources: &[],
         };
         repos.claim_verdicts.insert_claim_verdict(&params).await?;
     }
@@ -267,6 +272,7 @@ async fn aggregate_verdict_stats_clamps_window_days() -> Result<()> {
         explanation: None,
         evidence_refs: None,
         transport_policy: TransportPolicy::AnyTransport,
+        ai_consent_sources: &[],
     };
     repos.claim_verdicts.insert_claim_verdict(&params).await?;
 

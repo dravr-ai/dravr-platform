@@ -1,5 +1,5 @@
 // ABOUTME: The surface a call arrived through — one of Dravr's own apps, or a client outside them — and its class
-// ABOUTME: A provider whose terms keep its data inside Dravr's own surfaces declares FirstPartyOnly; the rest AnyTransport
+// ABOUTME: A provider declares where its data may be served (FirstPartyOnly or AnyTransport) and who may read it (MembersOnly)
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -207,9 +207,50 @@ impl TransportPolicy {
     }
 }
 
+/// Who a provider's terms let read its data among the people a surface shows
+/// it to (carnet#1170).
+///
+/// [`TransportPolicy`] answers which surfaces may serve the data; this
+/// answers who may read it once a surface does. Every surface Dravr draws is
+/// read by Dravr's members alone — the athlete, and the people they share
+/// with in Dravr — except a messaging group chat (a Telegram, Slack or
+/// Discord group a coaching group is bound or connected to): the chat app,
+/// not Dravr, decides who reads it, people with no Dravr account included.
+/// A [`Self::MembersOnly`] provider's data, and anything derived from it,
+/// never reaches what is posted into such a chat. The member's own direct
+/// message and Dravr's own apps are unaffected.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum AudiencePolicy {
+    /// Whoever the surface shows it to: what a provider's terms that set no
+    /// such restriction declare.
+    #[default]
+    AnyAudience,
+    /// Only Dravr's members: never a messaging group chat.
+    MembersOnly,
+}
+
+impl AudiencePolicy {
+    /// Whether the data stays out of a messaging group chat.
+    #[must_use]
+    pub const fn is_members_only(self) -> bool {
+        matches!(self, Self::MembersOnly)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_members_only_keeps_data_out_of_a_group_chat() {
+        assert!(AudiencePolicy::MembersOnly.is_members_only());
+        assert!(!AudiencePolicy::AnyAudience.is_members_only());
+        assert_eq!(
+            AudiencePolicy::default(),
+            AudiencePolicy::AnyAudience,
+            "a provider declaring nothing sets no audience restriction"
+        );
+    }
 
     /// Every variant, each with the class it must have. The match has no
     /// wildcard, so a new variant does not compile here until someone states

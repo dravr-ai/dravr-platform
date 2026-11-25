@@ -50,6 +50,9 @@ pub mod group_analytics;
 /// per-tenant `weekly_digest` tier flag.
 pub mod group_digest_scheduler;
 
+/// The language a group's chat reads its weekly digest in.
+mod group_digest_locale;
+
 /// When a group's weekly digest is due: Monday 08:00 in the group's own zone,
 /// caught up later that week in daytime, never at night.
 pub mod group_digest_slot;

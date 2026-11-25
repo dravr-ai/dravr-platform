@@ -1,6 +1,8 @@
 // ABOUTME: Shared TypeScript types for group coaching features
 // ABOUTME: Groups, members, invites, roles, analytics, and request/response types
 
+import type { GarminContribution } from './garmin-attribution.js';
+
 // ========== ENUMS ==========
 
 /** Role within a coaching group */
@@ -370,6 +372,13 @@ export interface GroupInvitesResponse {
 export interface GroupAnalyticsScope {
   visible_members: number;
   roster_members: number;
+  /**
+   * What Garmin contributed to the covered members' sessions: the client
+   * prints the line Garmin's brand guidelines owe the figures beneath their
+   * title (carnet#1154). `null` when nothing; absent from a server that
+   * predates it.
+   */
+  garmin_contribution?: GarminContribution | null;
 }
 
 /** Response for group stats */

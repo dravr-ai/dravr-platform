@@ -21,10 +21,13 @@ use common::{create_test_server_resources, create_test_user, generate_test_token
 use helpers::axum_test::AxumTestRequest;
 use pierre_contremaitre::messaging_strings::{
     format_template, KEY_AGENT_WELCOME_DISCOVER_LINE, KEY_AGENT_WELCOME_FIGURES_READ,
-    KEY_AGENT_WELCOME_FIGURES_READ_ONE, KEY_AGENT_WELCOME_GOAL_WHY, KEY_AGENT_WELCOME_TEAM_SOLO,
+    KEY_AGENT_WELCOME_FIGURES_READ_ONE, KEY_AGENT_WELCOME_GOAL_WHY,
+    KEY_AGENT_WELCOME_HISTORY_NEEDED, KEY_AGENT_WELCOME_TEAM_SOLO,
 };
+use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::models::{
-    Activity, ActivityBuilder, AddMessageParams, MessageRecord, PostPurpose, SportType, TenantId,
+    Activity, ActivityBuilder, AddMessageParams, ConnectionType, MessageRecord, PostPurpose,
+    SportType, TenantId, UserOAuthToken,
 };
 use pierre_core::transport::TransportPolicy;
 use pierre_mcp_server::mcp::resources::ServerContext;
@@ -34,6 +37,7 @@ use pierre_services::locale::resolve_user_locale;
 use pierre_services::personal_thread::{
     find_personal_thread, resolve_personal_thread, PersonalForge,
 };
+use secrecy::SecretString;
 use uuid::Uuid;
 
 /// An athlete who holds no agent yet, with a token for their tenant.
@@ -338,4 +342,144 @@ async fn the_welcome_quotes_the_goal_and_the_why() {
         ],
     );
     assert!(row.content.contains(&quoted), "{}", row.content);
+}
+
+/// A live Garmin grant and its connection row, as Garmin's OAuth connect
+/// writes them: the grant serves alone, so only what it pushes from the
+/// connection on is in (carnet#1155).
+async fn garmin_grant(resources: &ServerContext, user_id: Uuid, tenant: TenantId) {
+    let now = Timestamp::now();
+    let token = UserOAuthToken {
+        id: Uuid::new_v4().to_string(),
+        user_id,
+        tenant_id: tenant.to_string(),
+        provider: oauth_providers::GARMIN.to_owned(),
+        access_token: SecretString::from("garmin-access-do-not-log".to_owned()),
+        refresh_token: Some(SecretString::from("refresh-do-not-log".to_owned())),
+        token_type: "Bearer".to_owned(),
+        expires_at: Some(now + Elapsed::hours(12)),
+        scope: None,
+        provider_user_id: Some("garmin-user-welcome".to_owned()),
+        oauth_app_client_id: None,
+        created_at: now,
+        updated_at: now,
+    };
+    let repos = &resources.common.repos;
+    repos.oauth_tokens.upsert_token(&token).await.unwrap();
+    repos
+        .provider_connections
+        .register_connection(
+            user_id,
+            tenant,
+            oauth_providers::GARMIN,
+            &ConnectionType::OAuth,
+            None,
+        )
+        .await
+        .unwrap();
+}
+
+/// The history line's own words around the provider's name.
+async fn history_needed_words(resources: &ServerContext, user_id: Uuid) -> Vec<String> {
+    let line = said(resources, user_id, KEY_AGENT_WELCOME_HISTORY_NEEDED).await;
+    let words: Vec<String> = line
+        .split("{0}")
+        .map(str::trim)
+        .filter(|part| !part.is_empty())
+        .map(str::to_owned)
+        .collect();
+    assert!(!words.is_empty(), "the catalogue holds the history line");
+    words
+}
+
+/// carnet#1623: a Garmin grant serving alone brings in nothing from before it
+/// connected, so the welcome says the past is not in and points at the
+/// card's Add history action.
+#[tokio::test]
+async fn a_garmin_grant_alone_is_told_its_past_is_not_in_yet() {
+    let (resources, router, token, user_id, tenant) = athlete().await;
+    garmin_grant(&resources, user_id, tenant).await;
+
+    skip_to(&resources, &router, &token, user_id, tenant).await;
+    let row = welcome_row(&resources, user_id, tenant).await;
+
+    for words in history_needed_words(&resources, user_id).await {
+        assert!(row.content.contains(&words), "{words}: {}", row.content);
+    }
+    assert!(
+        !row.content.to_lowercase().contains("sciotte"),
+        "{}",
+        row.content
+    );
+}
+
+/// An imported Garmin export is the past: the welcome says no history line.
+#[tokio::test]
+async fn a_garmin_grant_with_its_export_imported_is_told_nothing_missing() {
+    let (resources, router, token, user_id, tenant) = athlete().await;
+    garmin_grant(&resources, user_id, tenant).await;
+    let exported = ActivityBuilder::new(
+        "garmin-archive-1".to_owned(),
+        "Exported Run".to_owned(),
+        SportType::Run,
+        Timestamp::now() - Elapsed::days(200),
+        2_400,
+        oauth_providers::GARMIN_ARCHIVE.to_owned(),
+    )
+    .build();
+    resources
+        .common
+        .repos
+        .activity_cache
+        .upsert_activities(
+            user_id,
+            &tenant,
+            oauth_providers::GARMIN_ARCHIVE,
+            &[exported],
+        )
+        .await
+        .unwrap();
+
+    skip_to(&resources, &router, &token, user_id, tenant).await;
+    let row = welcome_row(&resources, user_id, tenant).await;
+
+    let words = history_needed_words(&resources, user_id).await;
+    assert!(
+        !row.content.contains(&words[0]),
+        "an imported export is the past: {}",
+        row.content
+    );
+}
+
+/// An athlete whose provider reads its own history (Strava) is never told
+/// their past is missing, whatever synced.
+#[tokio::test]
+async fn a_strava_athlete_is_told_nothing_missing() {
+    let (resources, router, token, user_id, tenant) = athlete().await;
+    resources
+        .common
+        .repos
+        .provider_connections
+        .register_connection(
+            user_id,
+            tenant,
+            oauth_providers::STRAVA,
+            &ConnectionType::OAuth,
+            None,
+        )
+        .await
+        .unwrap();
+    synced(
+        &resources,
+        user_id,
+        tenant,
+        &[session("run-1", SportType::Run, 3, 1_800, 5_000.0)],
+    )
+    .await;
+
+    skip_to(&resources, &router, &token, user_id, tenant).await;
+    let row = welcome_row(&resources, user_id, tenant).await;
+
+    let words = history_needed_words(&resources, user_id).await;
+    assert!(!row.content.contains(&words[0]), "{}", row.content);
 }

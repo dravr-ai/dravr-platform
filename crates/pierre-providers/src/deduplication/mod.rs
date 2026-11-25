@@ -41,6 +41,7 @@
 
 mod config;
 mod detection;
+mod garmin_sessions;
 mod identity;
 
 pub use config::DedupConfig;
@@ -48,4 +49,5 @@ pub use detection::{
     carries_gps_trace, is_canonical_copy, merge_duplicates, native_activity_key, FilledField,
     FragmentGroup, FragmentReport,
 };
+pub use garmin_sessions::GarminSessions;
 pub use identity::one_activity_key;

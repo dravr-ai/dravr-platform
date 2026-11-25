@@ -29,7 +29,7 @@ import {
   sportLabel,
   useDistanceUnit,
 } from '@pierre/ui-logic';
-import { countKey, GEAR_ACTIVITY_COUNT_KEYS } from '@pierre/shared-constants';
+import { countKey, GEAR_ACTIVITY_COUNT_KEYS, garminContributionLine } from '@pierre/shared-constants';
 import { Badge, Button, Checkbox, ConfirmDialog, Input, Section, Select } from '../ui';
 import { useGearChanges, useGearLedger } from '../../hooks/useGear';
 import { GearWarning } from './GearWarning';
@@ -166,6 +166,9 @@ interface PairRowProps {
 function PairRow({ pair, actions, editor }: PairRowProps) {
   const { t, language } = useTranslation();
   const unit = useDistanceUnit();
+  // The distance sums Garmin-recorded workouts: Garmin's brand guidelines
+  // ask for the line beneath the pair's name (carnet#1154).
+  const garmin = garminContributionLine(t, pair.garmin_contribution);
   return (
     <li className="py-4" data-testid={`gear-${pair.id}`}>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -180,6 +183,11 @@ function PairRow({ pair, actions, editor }: PairRowProps) {
             )}
             {pair.pinned && <Badge variant="secondary">{t('gear.pinned')}</Badge>}
           </p>
+          {garmin && (
+            <p className="mt-0.5 text-xs text-on-surface-variant" data-testid={`gear-garmin-${pair.id}`}>
+              {garmin}
+            </p>
+          )}
           <p className="mt-1 font-mono text-base font-medium text-on-surface" data-testid={`gear-distance-${pair.id}`}>
             {formatGearDistance(pair.distance_meters, unit, language)}
           </p>

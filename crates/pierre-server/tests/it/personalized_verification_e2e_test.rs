@@ -186,6 +186,7 @@ async fn physiology_and_activities_drive_a_personalized_contradiction() -> Resul
         explanation: Some(&outcome.explanation),
         evidence_refs: outcome.evidence_refs.as_deref(),
         transport_policy: TransportPolicy::AnyTransport,
+        ai_consent_sources: &[],
     };
     let saved = repos.claim_verdicts.insert_claim_verdict(&params).await?;
     assert_eq!(saved.layer_fired, VerdictLayer::Personalized);
@@ -434,6 +435,7 @@ async fn synced_nights_drive_a_personalized_sleep_contradiction() -> Result<()> 
             explanation: Some(&verdicts[0].explanation),
             evidence_refs: verdicts[0].evidence_refs.as_deref(),
             transport_policy: TransportPolicy::FirstPartyOnly,
+            ai_consent_sources: &[],
         })
         .await?;
     assert_eq!(saved.status, ClaimStatus::Contradicted);

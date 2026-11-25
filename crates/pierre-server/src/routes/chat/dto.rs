@@ -26,6 +26,8 @@ use serde_json::Value;
 use tracing::warn;
 use uuid::Uuid;
 
+use crate::services::visual_attribution::attribute_blocks;
+
 /// What a stored `content_blocks` column resolves to on the read path.
 #[derive(Debug, Default)]
 pub(super) struct StoredBlocks {
@@ -56,11 +58,15 @@ pub(super) struct StoredBlocks {
 /// A stored plan card's outside-the-evidence mark is worded in `locale` from
 /// `registry` first, as a live card words it: snapshots saved from 079ffba87
 /// until carnet#1552 store it as a bool ([`word_stored_outside_evidence`]).
+///
+/// Each visual is drawn with `attribution` beneath its title when the reply
+/// owes one ([`crate::services::visual_attribution`]).
 #[must_use]
 pub(super) fn resolve_stored_blocks(
     stored: Option<&str>,
     registry: &MessagingStringsRegistry,
     locale: &str,
+    attribution: Option<&str>,
 ) -> StoredBlocks {
     let Some(mut entries) = stored.and_then(parse_stored_specs) else {
         return StoredBlocks::default();
@@ -83,7 +89,7 @@ pub(super) fn resolve_stored_blocks(
         .into_iter()
         .partition(|entry| block_type(entry).as_deref() == Some(ENVELOPE_NOTICE_BLOCK_TYPE));
     StoredBlocks {
-        scene_blocks: resolve_visual_specs(&specs, locale),
+        scene_blocks: resolve_visual_specs(&specs, locale, attribution),
         actions: actions.into_iter().find_map(decode_actions_entry),
         envelope_notice: notices
             .into_iter()
@@ -106,18 +112,27 @@ pub(super) fn stored_actions(stored: Option<&str>) -> Option<MessageActionsRespo
 /// [`resolve_stored_blocks`], for the live turn whose specs never carry
 /// controls.
 #[must_use]
-pub(super) fn resolve_scene_blocks(stored: Option<&str>, locale: &str) -> Option<String> {
+pub(super) fn resolve_scene_blocks(
+    stored: Option<&str>,
+    locale: &str,
+    attribution: Option<&str>,
+) -> Option<String> {
     let specs = parse_stored_specs(stored?)?;
-    resolve_visual_specs(&specs, locale)
+    resolve_visual_specs(&specs, locale, attribution)
 }
 
 /// Run photograveur over the visual specs, dropping and logging the ones that
-/// cannot resolve.
-fn resolve_visual_specs(specs: &[Value], locale: &str) -> Option<String> {
+/// cannot resolve, and draw each with `attribution` beneath its title.
+fn resolve_visual_specs(
+    specs: &[Value],
+    locale: &str,
+    attribution: Option<&str>,
+) -> Option<String> {
     if specs.is_empty() {
         return None;
     }
-    let (blocks, failures) = resolve_all(specs, Locale::from_tag(locale));
+    let (mut blocks, failures) = resolve_all(specs, Locale::from_tag(locale));
+    attribute_blocks(&mut blocks, attribution);
     for (index, error) in &failures {
         warn!(index, error = %error, "scene-blocks: dropping a block that could not resolve");
     }
@@ -955,5 +970,33 @@ impl ListConversationsQuery {
             self.limit.clamp(MIN_LIST_LIMIT, MAX_LIST_LIMIT),
             self.offset.max(0),
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
+    use serde_json::Value;
+
+    use super::resolve_stored_blocks;
+
+    const STORED: &str = r#"[{"type":"chart","kind":"line","source_tool":"analyze_training_load","title":"CTL","x":{"label":"Date","type":"time"},"series":[{"label":"CTL","points":[["2026-11-01",40.0],["2026-11-02",41.0]]}]}]"#;
+
+    /// A stored chart is served with the attribution its reply owes, and
+    /// without one when it owes none (carnet#1154).
+    #[test]
+    fn a_stored_chart_carries_the_attribution_its_reply_owes() {
+        let registry = MessagingStringsRegistry::new();
+        let line = "Insights derived in part from Garmin device-sourced data";
+        let served = resolve_stored_blocks(Some(STORED), &registry, "en", Some(line));
+        let blocks: Value =
+            serde_json::from_str(&served.scene_blocks.unwrap_or_default()).unwrap_or_default();
+        assert_eq!(blocks[0]["attribution"], line, "{blocks}");
+
+        let plain = resolve_stored_blocks(Some(STORED), &registry, "en", None);
+        let blocks: Value =
+            serde_json::from_str(&plain.scene_blocks.unwrap_or_default()).unwrap_or_default();
+        assert_eq!(blocks[0]["kind"], "chart");
+        assert!(blocks[0].get("attribution").is_none(), "{blocks}");
     }
 }

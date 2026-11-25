@@ -443,6 +443,24 @@ fn caller_display_name(user: Option<&User>) -> String {
     )
 }
 
+/// Whether `user_id` has a provider connected whose terms keep its data to
+/// Dravr's members (carnet#1170).
+///
+/// What a plan drawn from their training owes a group chat. A connection list
+/// that cannot be read counts as one, so a failed read never posts the plan.
+async fn reads_members_only_provider(ctx: &PlatformCommandContext, user_id: Uuid) -> bool {
+    ctx.ctx
+        .repos()
+        .provider_connections
+        .get_for_user(user_id, None)
+        .await
+        .map_or(true, |connections| {
+            connections
+                .iter()
+                .any(|connection| ai_scope::members_only_key(&connection.provider))
+        })
+}
+
 /// Render `owner`'s stored plan in the requested view, or `None` when
 /// nothing is saved. Shared by `/plan`, `/plan <athlete>` and `/plan share`:
 /// one body, three deliveries.
@@ -469,6 +487,14 @@ async fn render_plan_reply(
     if !ai_scope::admit_derived(plan.transport_policy) {
         return Err(AppError::unavailable_over_transport(
             "this athlete's training plan is not available over this interface",
+        ));
+    }
+    // A plan posted into a messaging group chat is read by whoever the chat
+    // app admits: one whose athlete has a provider connected whose terms keep
+    // its data to Dravr's members is not posted there (carnet#1170).
+    if ai_scope::serving_group_chat() && reads_members_only_provider(ctx, owner.user_id).await {
+        return Err(AppError::unavailable_over_transport(
+            "this athlete's training plan is not shown in a group chat",
         ));
     }
 
@@ -697,7 +723,15 @@ impl CommandHandler for PlanShareHandler {
         // attributes it.
         // Only ever the caller's own plan: a name after `share` is not read.
         let view = requested(ctx).view;
-        let Some(body) = render_plan_reply(ctx, PlanOwner::caller(ctx), view, today).await? else {
+        // Posted into a messaging group chat, it reads nothing kept to Dravr's
+        // members (carnet#1170).
+        let posts_to_room = !ctx.is_direct_message && ctx.sender_id.is_some();
+        let Some(body) = ai_scope::for_group_chat(
+            posts_to_room,
+            render_plan_reply(ctx, PlanOwner::caller(ctx), view, today),
+        )
+        .await?
+        else {
             return Ok(CommandResponse::rich_text(empty_plan_notice(ctx)));
         };
         // The header renders only where the reply is actually posted to a
@@ -705,7 +739,7 @@ impl CommandHandler for PlanShareHandler {
         // no room to share with, and an in-app group thread persists the
         // reply into the caller's own conversation alone, so claiming "shared
         // with the room" there would misstate its audience.
-        if ctx.is_direct_message || ctx.sender_id.is_none() {
+        if !posts_to_room {
             return Ok(CommandResponse::rich_text(body));
         }
         // The header is inline markdown and the name is user-set free text, so

@@ -28,9 +28,14 @@
 //! A pair's `distance_meters` is its declared distance plus the distance of
 //! every activity attributed to it. `warn_reached` says only that this
 //! distance is at or past the pair's own `warn_distance_meters`: a fact about
-//! the shoe, never a claim about the athlete. Another athlete's pair answers
-//! `404`, like a pair that does not exist.
+//! the shoe, never a claim about the athlete. `garmin_contribution` says
+//! whether Garmin-sourced workouts make up that distance, wholly (`sole`) or
+//! in part (`part`), so the client prints the line Garmin's brand guidelines
+//! owe it beneath the pair's name (carnet#1154). Another athlete's pair
+//! answers `404`, like a pair that does not exist.
 
+use std::collections::HashMap;
+use std::slice;
 use std::sync::Arc;
 
 use axum::extract::{Path, State};
@@ -38,6 +43,7 @@ use axum::http::StatusCode;
 use axum::routing::{get, patch, post};
 use axum::{Json, Router};
 use dravr_tronc::dates::Timestamp;
+use pierre_core::constants::oauth_providers::GarminContribution;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::{
     default_pair, parse_shoe_sport, shoe_sport_slug, AthleteGear, AttributionSource,
@@ -52,7 +58,7 @@ use uuid::Uuid;
 
 use crate::mcp::resources::ServerContext;
 use crate::services::gear_ledger::{
-    activity_gear, declare_activity_gear, read_ledger, ActivityGear,
+    activity_gear, declare_activity_gear, garmin_contributions, read_ledger, ActivityGear,
 };
 
 /// One pair, as every gear endpoint answers with it.
@@ -89,11 +95,20 @@ pub struct GearItem {
     pub retired_at: Option<Timestamp>,
     /// When the latest activity attributed to it started.
     pub last_used_at: Option<Timestamp>,
+    /// What Garmin-sourced workouts contribute to its distance, `null` when
+    /// none does.
+    pub garmin_contribution: Option<GarminContribution>,
 }
 
 impl GearItem {
-    /// The pair as answered, against the ledger it belongs to.
-    fn of(pair: &AthleteGear, ledger: &[AthleteGear], now: Timestamp) -> Self {
+    /// The pair as answered, against the ledger it belongs to and what Garmin
+    /// contributed to each pair's distance.
+    fn of(
+        pair: &AthleteGear,
+        ledger: &[AthleteGear],
+        garmin: &HashMap<Uuid, GarminContribution>,
+        now: Timestamp,
+    ) -> Self {
         let declaration = &pair.declaration;
         Self {
             id: pair.id,
@@ -111,6 +126,7 @@ impl GearItem {
             added_at: pair.added_at,
             retired_at: pair.retired_at,
             last_used_at: pair.last_used_at,
+            garmin_contribution: garmin.get(&pair.id).copied(),
         }
     }
 }
@@ -216,22 +232,31 @@ fn shoe_sport(sport: &str) -> AppResult<SportType> {
 
 /// The caller's pair `gear_id`, as answered against their whole ledger.
 async fn answered_pair(
-    resources: &ServerContext,
-    user_id: Uuid,
+    resources: &Arc<ServerContext>,
+    auth: &AuthenticatedUser,
     gear_id: Uuid,
 ) -> AppResult<GearItem> {
+    let tenant_id = require_tenant(resources, auth).await?;
     let ledger = resources
         .common
         .repos
         .athlete_gear
-        .list_gear(user_id)
+        .list_gear(auth.user_id)
         .await?;
     let now = Timestamp::now();
-    ledger
+    let pair = ledger
         .iter()
         .find(|pair| pair.id == gear_id)
-        .map(|pair| GearItem::of(pair, &ledger, now))
-        .ok_or_else(|| AppError::not_found(format!("gear {gear_id}")))
+        .ok_or_else(|| AppError::not_found(format!("gear {gear_id}")))?;
+    let garmin = garmin_contributions(
+        resources,
+        auth.user_id,
+        &tenant_id,
+        slice::from_ref(pair),
+        now,
+    )
+    .await?;
+    Ok(GearItem::of(pair, &ledger, &garmin, now))
 }
 
 /// `GET /api/me/gear`.
@@ -242,10 +267,11 @@ async fn list_gear(
     let tenant_id = require_tenant(&resources, &auth).await?;
     let now = Timestamp::now();
     let ledger = read_ledger(&resources, auth.user_id, &tenant_id, now).await?;
+    let garmin = garmin_contributions(&resources, auth.user_id, &tenant_id, &ledger, now).await?;
     Ok(Json(GearList {
         gear: ledger
             .iter()
-            .map(|pair| GearItem::of(pair, &ledger, now))
+            .map(|pair| GearItem::of(pair, &ledger, &garmin, now))
             .collect(),
     }))
 }
@@ -273,7 +299,7 @@ async fn create_gear(
         .athlete_gear
         .create_gear(auth.user_id, &declaration, Timestamp::now())
         .await?;
-    let pair = answered_pair(&resources, auth.user_id, id).await?;
+    let pair = answered_pair(&resources, &auth, id).await?;
     Ok((StatusCode::CREATED, Json(pair)))
 }
 
@@ -321,9 +347,7 @@ async fn update_gear(
     {
         return Err(AppError::not_found(format!("gear {gear_id}")));
     }
-    Ok(Json(
-        answered_pair(&resources, auth.user_id, gear_id).await?,
-    ))
+    Ok(Json(answered_pair(&resources, &auth, gear_id).await?))
 }
 
 /// `POST /api/me/gear/{gear_id}/retire`.
@@ -332,7 +356,7 @@ async fn retire_gear(
     auth: AuthenticatedUser,
     Path(gear_id): Path<String>,
 ) -> AppResult<Json<GearItem>> {
-    set_retired(&resources, auth.user_id, &gear_id, Some(Timestamp::now())).await
+    set_retired(&resources, &auth, &gear_id, Some(Timestamp::now())).await
 }
 
 /// `POST /api/me/gear/{gear_id}/restore`.
@@ -341,16 +365,17 @@ async fn restore_gear(
     auth: AuthenticatedUser,
     Path(gear_id): Path<String>,
 ) -> AppResult<Json<GearItem>> {
-    set_retired(&resources, auth.user_id, &gear_id, None).await
+    set_retired(&resources, &auth, &gear_id, None).await
 }
 
 /// Retire the caller's pair at `retired_at`, or restore it with `None`.
 async fn set_retired(
-    resources: &ServerContext,
-    user_id: Uuid,
+    resources: &Arc<ServerContext>,
+    auth: &AuthenticatedUser,
     gear_id: &str,
     retired_at: Option<Timestamp>,
 ) -> AppResult<Json<GearItem>> {
+    let user_id = auth.user_id;
     let gear_id = parse_uuid(gear_id)?;
     let gear = &resources.common.repos.athlete_gear;
     let current = gear
@@ -362,7 +387,7 @@ async fn set_retired(
     if !gear.set_gear_retired(user_id, gear_id, retired_at).await? {
         return Err(AppError::not_found(format!("gear {gear_id}")));
     }
-    Ok(Json(answered_pair(resources, user_id, gear_id).await?))
+    Ok(Json(answered_pair(resources, auth, gear_id).await?))
 }
 
 /// `DELETE /api/me/gear/{gear_id}`.

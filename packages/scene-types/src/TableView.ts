@@ -28,4 +28,14 @@ title: string | null,
 /**
  * The tool the numbers came from.
  */
-source_tool: string, };
+source_tool: string, 
+/**
+ * The line the data's source asks to be shown with, beneath the title:
+ * a provider's attribution such as "Insights derived in part from Garmin
+ * device-sourced data". Never authored by an agent: the platform sets it
+ * on the resolved block from what the turn read
+ * ([`RenderBlock::attribute`]), and every renderer draws it, the press
+ * included, so an image carries it wherever it is forwarded. Absent when
+ * no source asks for one, and then omitted from the wire.
+ */
+attribution?: string, };

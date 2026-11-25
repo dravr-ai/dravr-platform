@@ -795,6 +795,7 @@ pub async fn persist_pending_verdicts(
             explanation: Some(&outcome.explanation),
             evidence_refs: outcome.evidence_refs.as_deref(),
             transport_policy: ai_scope::derived_policy(),
+            ai_consent_sources: &ai_scope::derived_consent_sources(),
         };
         if let Err(e) = data
             .repos()

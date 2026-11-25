@@ -155,6 +155,7 @@ pub async fn run(args: SeedArgs, repos: &RepositoryRegistry) -> AppResult<()> {
                     ),
                     evidence_refs: Some(EVIDENCE_REF),
                     transport_policy: TransportPolicy::AnyTransport,
+                    ai_consent_sources: &[],
                 })
                 .await?;
         }

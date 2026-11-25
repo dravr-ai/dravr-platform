@@ -409,6 +409,12 @@ pub const KEY_AGENT_WELCOME_GOAL_WHY: &str = "messaging.agent_welcome.goal_why";
 pub const KEY_AGENT_WELCOME_GOAL_ONLY: &str = "messaging.agent_welcome.goal_only";
 /// Key: the athlete's why alone. `{0}` = the why.
 pub const KEY_AGENT_WELCOME_WHY_ONLY: &str = "messaging.agent_welcome.why_only";
+/// Key: the lead's first welcome saying a push-fed grant's past is not in.
+///
+/// The grant serves alone and shares only what is recorded from the day it
+/// connected; the provider card's Add history action brings the rest in
+/// (carnet#1623). `{0}` = the provider's name.
+pub const KEY_AGENT_WELCOME_HISTORY_NEEDED: &str = "messaging.agent_welcome.history_needed";
 
 /// Key: the reply to a tapped suggestion that no longer resolves — the thread
 /// lost its agent, or the agent's examples changed since it was posted

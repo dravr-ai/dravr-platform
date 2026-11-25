@@ -97,7 +97,7 @@ use pierre_core::ai_policy::SourcePolicy;
 use pierre_core::constants::oauth::{
     GARMIN_API_BASE_URL, GARMIN_AUTH_URL, GARMIN_DEREGISTRATION_URL, GARMIN_TOKEN_URL,
 };
-use pierre_core::transport::TransportPolicy;
+use pierre_core::transport::{AudiencePolicy, TransportPolicy};
 use std::fmt;
 
 #[cfg(feature = "provider-intervals-icu")]
@@ -447,6 +447,14 @@ pub trait ProviderDescriptor: Send + Sync {
         TransportPolicy::FirstPartyOnly
     }
 
+    /// Who this provider's terms let read its data among the people a surface
+    /// shows it to: anyone (the default), or only Dravr's members, which keeps
+    /// it and what is derived from it out of a messaging group chat
+    /// (carnet#1170). The declared policies live in [`crate::provider_terms`].
+    fn audience_policy(&self) -> AudiencePolicy {
+        AudiencePolicy::AnyAudience
+    }
+
     /// The relayed sources this provider's terms settle by name, each with
     /// where its items may be served: the transport counterpart of
     /// [`SourcePolicy::by_source`] (matched case-insensitively). A named
@@ -765,6 +773,10 @@ impl ProviderDescriptor for GarminDescriptor {
 
     fn transport_policy(&self) -> TransportPolicy {
         provider_terms::GARMIN_TRANSPORT
+    }
+
+    fn audience_policy(&self) -> AudiencePolicy {
+        provider_terms::GARMIN_AUDIENCE
     }
 }
 

@@ -135,6 +135,7 @@ async fn insert(
         explanation: None,
         evidence_refs: None,
         transport_policy: TransportPolicy::AnyTransport,
+        ai_consent_sources: &[],
     };
     repos
         .claim_verdicts
@@ -401,6 +402,103 @@ async fn health_rolls_a_known_mix_into_exact_totals_and_breakdowns() -> Result<(
     assert_eq!(stats.daily[0].date, Timestamp::now().utc_date().to_string());
     assert_eq!(stats.daily[0].flagged, 6);
     assert_eq!(stats.daily[0].false_positives, 3);
+    Ok(())
+}
+
+/// A flagged verdict on a reply drawn from the data `sources` name.
+async fn insert_drawn_from(repos: &RepositoryRegistry, sources: &[&str]) -> String {
+    let sources: Vec<String> = sources.iter().map(|key| (*key).to_owned()).collect();
+    repos
+        .claim_verdicts
+        .insert_claim_verdict(&InsertClaimVerdictParams {
+            tenant_id: tenant(),
+            user_id: "user-1",
+            agent_id: None,
+            conversation_id: None,
+            message_id: None,
+            claim_text: "you ran 12 km on Tuesday",
+            category: ClaimCategory::AthleteData,
+            status: ClaimStatus::Contradicted,
+            evidence_strength: EvidenceStrength::None,
+            confidence: 0.5,
+            layer_fired: VerdictLayer::Deterministic,
+            explanation: None,
+            evidence_refs: None,
+            transport_policy: TransportPolicy::FirstPartyOnly,
+            ai_consent_sources: &sources,
+        })
+        .await
+        .unwrap()
+        .id
+}
+
+/// carnet#1170 (D30): a verdict on a reply drawn from Garmin data feeds no
+/// evaluation metric — neither the verifier's health rates nor the
+/// calibration dashboard — while one drawn from any other provider still does.
+#[tokio::test]
+async fn a_garmin_derived_verdict_feeds_no_evaluation_metric() -> Result<()> {
+    let db = common::create_test_database().await?;
+    let repos = db.repositories();
+    seed_mix(repos).await;
+    let garmin = insert_drawn_from(repos, &["garmin"]).await;
+    let garmin_and_whoop = insert_drawn_from(repos, &["whoop", "garmin"]).await;
+    let whoop = insert_drawn_from(repos, &["whoop"]).await;
+    for id in [&garmin, &garmin_and_whoop, &whoop] {
+        dispose(
+            repos,
+            tenant(),
+            id,
+            VerdictDisposition::FalsePositive,
+            Some(DispositionReason::JudgeError),
+        )
+        .await;
+    }
+
+    let health = repos
+        .claim_verdicts
+        .aggregate_verdict_health(tenant().into(), 30)
+        .await?;
+    assert_eq!(
+        health.totals,
+        VerdictHealthTotals {
+            flagged: 7,
+            disposed: 5,
+            true_catches: 1,
+            false_positives: 4,
+            unsure: 0,
+        },
+        "bug: only the mix and the WHOOP-derived verdict may count"
+    );
+    let reasons: Vec<(&str, i64)> = health
+        .by_reason
+        .iter()
+        .map(|r| (r.reason.as_str(), r.count))
+        .collect();
+    assert_eq!(
+        reasons,
+        vec![
+            ("bound_too_tight", 1),
+            ("judge_error", 1),
+            ("missing_keyword", 2)
+        ],
+        "a reason is counted once over the verdicts that may feed it"
+    );
+    let athlete_data = health
+        .by_category
+        .iter()
+        .find(|c| c.category == "athlete_data")
+        .expect("the WHOOP-derived verdict keeps its category");
+    assert_eq!((athlete_data.flagged, athlete_data.false_positives), (1, 1));
+    assert_eq!(health.daily[0].flagged, 7);
+
+    let calibration = repos
+        .claim_verdicts
+        .aggregate_verdict_stats(tenant().into(), 30)
+        .await?;
+    assert_eq!(
+        calibration.totals.contradicted, 3,
+        "the mix's two and the WHOOP-derived one; never a Garmin-derived verdict"
+    );
     Ok(())
 }
 

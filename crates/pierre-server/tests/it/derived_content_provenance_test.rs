@@ -390,6 +390,7 @@ async fn verdicts_profiles_and_prescriptions_keep_their_stamp() {
             explanation: None,
             evidence_refs: None,
             transport_policy: FirstPartyOnly,
+            ai_consent_sources: &[],
         })
         .await
         .unwrap();

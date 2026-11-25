@@ -448,7 +448,11 @@ impl TurnEgress {
                         message_id: envelope.assistant.message.id.clone(),
                     });
                 }
-                let mut response = TurnResponse::from_envelope(*envelope, execution_time_ms);
+                let mut response = TurnResponse::from_envelope(
+                    *envelope,
+                    execution_time_ms,
+                    &self.resources.mcp.messaging_strings_registry,
+                );
                 // The one quote a send shows is the one this request verified
                 // under the thread's coaching gates, which its row now holds.
                 response.user_message.quote = self.quote.map(Into::into);

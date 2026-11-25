@@ -515,9 +515,10 @@ async fn a_detail_read_names_dravrs_workout_and_the_update_after_it_reads_nothin
         ("41:77", date()),
         "bug: the detail read changed the listed identity"
     );
-    assert!(
-        event.updated_at.is_none(),
-        "no change stamp until Garmin's zone is known (registre#1389)"
+    assert_eq!(
+        event.updated_at,
+        Some(utc("2026-11-10T14:02:11Z")),
+        "bug: Garmin's updatedDate was not read as the UTC instant it names"
     );
 
     provider
@@ -546,6 +547,63 @@ async fn a_detail_read_names_dravrs_workout_and_the_update_after_it_reads_nothin
     assert!(
         requests[3].is("PUT", "/training-api/schedule/77"),
         "the schedule follows the workout"
+    );
+}
+
+fn utc(text: &str) -> Timestamp {
+    Timestamp::parse_from_rfc3339(text).expect("an RFC 3339 instant")
+}
+
+#[tokio::test]
+async fn an_edit_in_garmin_connect_reads_as_its_updated_date_in_utc() {
+    let (base, stub) = stub(vec![
+        GRANTED,
+        (
+            "200 OK",
+            r#"{"workoutId":61,"ownerId":9000,"workoutProvider":"Dravr",
+                "workoutSourceId":"Dravr","createdDate":"2026-11-10T14:02:11.0",
+                "updatedDate":"2026-11-12T06:45:09.0"}"#,
+        ),
+        (
+            "200 OK",
+            r#"{"workoutId":62,"ownerId":9000,"workoutProvider":"Dravr",
+                "workoutSourceId":"Dravr","updatedDate":"2026-11-12T23:59:59"}"#,
+        ),
+        (
+            "200 OK",
+            r#"{"workoutId":63,"ownerId":9000,"workoutProvider":"Dravr",
+                "workoutSourceId":"Dravr","updatedDate":"last Tuesday"}"#,
+        ),
+        (
+            "200 OK",
+            r#"{"workoutId":64,"ownerId":9000,"workoutProvider":"Dravr",
+                "workoutSourceId":"Dravr"}"#,
+        ),
+    ])
+    .await;
+    let provider = provider(&base).await;
+    let stamps = [
+        ("61:91", Some(utc("2026-11-12T06:45:09Z"))),
+        ("62:92", Some(utc("2026-11-12T23:59:59Z"))),
+        ("63:93", None),
+        ("64:94", None),
+    ];
+    for (id, expected) in stamps {
+        let event = provider.calendar_event_detail(listed(id)).await.unwrap();
+        assert_eq!(
+            event.updated_at, expected,
+            "bug: {id}'s updatedDate was not read as UTC, or an unreadable one was guessed at"
+        );
+        assert_eq!(
+            event.external_id.as_deref(),
+            Some("Dravr"),
+            "the stamp leaves the writer as it was"
+        );
+    }
+    assert_eq!(
+        stub.await.unwrap().len(),
+        5,
+        "the permission once, then one read per entry"
     );
 }
 

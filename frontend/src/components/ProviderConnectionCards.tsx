@@ -14,8 +14,11 @@ import {
   PROVIDER_LINK_POLL_INTERVAL_MS,
   cardForSlug,
   cardStatus,
+  connectCardName,
   connectConsentsFor,
   connectPlan,
+  GARMIN_CONNECT_TILE_WEB_PATH,
+  isGarminConnectCard,
   noticeRequired,
   oauthFallbackTarget,
   providerGlyphInk,
@@ -447,7 +450,11 @@ export default function ProviderConnectionCards({
         const actionable = ACTIONABLE.has(status) && !historyWithoutSignIn;
         const refused =
           refusedCard === provider.provider && (status === 'connect' || status === 'reconnect');
-        const name = { provider: provider.display_name };
+        // Garmin's OAuth card is named Garmin Connect in full and wears its
+        // official tile, as Garmin's brand guidelines ask (carnet#1154).
+        const displayName = connectCardName(provider);
+        const garminConnect = isGarminConnectCard(provider);
+        const name = { provider: displayName };
         const historyHintId = `provider-history-hint-${provider.provider}`;
 
         return (
@@ -471,7 +478,7 @@ export default function ProviderConnectionCards({
                   : provider.connected
                   ? t('providers.isConnectedAria', name)
                   : isNonOAuth
-                    ? `${provider.display_name} - ${provider.description}`
+                    ? `${displayName} - ${provider.description}`
                     : t('providers.connectToAria', name)
               }
             >
@@ -481,13 +488,22 @@ export default function ProviderConnectionCards({
                 className={`flex h-6 w-6 flex-shrink-0 items-center justify-center text-on-surface ${isNonOAuth ? 'opacity-60' : ''}`}
                 style={glyphInk ? { color: glyphInk } : undefined}
               >
-                <ProviderIcon providerId={provider.provider} className="h-5 w-5" />
+                {garminConnect ? (
+                  <img
+                    src={GARMIN_CONNECT_TILE_WEB_PATH}
+                    alt=""
+                    className="h-6 w-6"
+                    data-testid="provider-tile-garmin-connect"
+                  />
+                ) : (
+                  <ProviderIcon providerId={provider.provider} className="h-5 w-5" />
+                )}
               </span>
               <span className={`flex min-w-[60%] flex-1 flex-wrap items-baseline gap-x-2 sm:min-w-0 ${isNonOAuth ? 'opacity-60' : ''}`}>
-                <span className="text-sm font-medium text-on-surface">{provider.display_name}</span>
+                <span className="text-sm font-medium text-on-surface">{displayName}</span>
                 {!plain && <span className="min-w-0 truncate text-xs text-on-surface-variant">{provider.description}</span>}
               </span>
-              <RowStatus status={status} provider={provider.provider} displayName={provider.display_name} refused={refused} />
+              <RowStatus status={status} provider={provider.provider} displayName={displayName} refused={refused} />
               {isNonOAuth && !provider.connected && (
                 <span className="flex-shrink-0 text-xs text-outline">{t('providers.demoBadge')}</span>
               )}
@@ -538,7 +554,7 @@ export default function ProviderConnectionCards({
               <span className="text-sm font-medium text-on-surface">{t('onboarding.connect.moreServices')}</span>
               {!showMore && (
                 <span className="min-w-0 truncate text-xs text-on-surface-variant">
-                  {[...more.filter((p) => connectPlan(p).primary.kind !== 'none').slice(0, 3).map((p) => p.display_name), t('onboarding.connect.moreServicesFile')].join(', ')}
+                  {[...more.filter((p) => connectPlan(p).primary.kind !== 'none').slice(0, 3).map((p) => connectCardName(p)), t('onboarding.connect.moreServicesFile')].join(', ')}
                 </span>
               )}
             </span>

@@ -169,12 +169,13 @@ impl GroupAnalyticsRoutes {
             .ok_or_else(|| AppError::not_found(format!("Group {group_id}")))?;
         let members = repos.groups.list_members(group_id).await?;
         let view = gate_group_view(repos, &group, &members, viewer, tenant_id, surface).await?;
+        let runtime = Self::as_runtime(resources);
+        let snapshots = fetch_member_snapshots_in(&runtime, &view.readable).await;
         let scope = AnalyticsScope {
             visible_members: view.readable.len(),
             roster_members: members.len(),
+            garmin_contribution: MemberFitnessSnapshot::group_garmin_contribution(&snapshots),
         };
-        let runtime = Self::as_runtime(resources);
-        let snapshots = fetch_member_snapshots_in(&runtime, &view.readable).await;
         Ok((snapshots, scope))
     }
 

@@ -674,6 +674,7 @@ mod tests {
             timezone: None,
             deep_fatigue_mornings: Vec::new(),
             computed_at: start,
+            garmin_contribution: None,
         };
         let training = project_training(&snapshot);
         assert_eq!(training.seconds_this_week, Some(3_239));

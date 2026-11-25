@@ -42,7 +42,7 @@
 //! Each tick enumerates the tenants, keeps those whose tier enables the
 //! digest, lists their active groups and, for a group whose week is due and
 //! claimed, builds member snapshots through the canonical
-//! [`fetch_member_snapshots_in`] builder (the same all-providers + deduplicated
+//! [`fetch_member_snapshots_traced`] builder (the same all-providers + deduplicated
 //! path the chat agent and the REST analytics endpoints use) — only for the
 //! members some copy of the digest covers.
 //!
@@ -53,8 +53,11 @@
 //!   members who share their training
 //!   ([`GroupService::peer_sharing_user_ids`], the rule the agent's group
 //!   context applies) and names or counts nobody else
-//!   ([`room_digest_params`]). When fewer than all share it opens by saying
-//!   how many do and how to join in; when none do, that line is all it says.
+//!   ([`room_digest_params`]), and of those, nobody whose figures were drawn
+//!   from data kept to Dravr's members ([`room_shown`], carnet#1170): the chat
+//!   app, not Dravr, decides who reads the chat. When fewer than all share it
+//!   opens by saying how many do and how to join in; when none do, that line
+//!   is all it says.
 //!   It is written in the language most members read ([`plurality_locale`]).
 //!   A room whose `respond_mode` is mentions-only still receives it — that
 //!   mode governs replies — and no transcript row is written for it.
@@ -105,7 +108,8 @@ use pierre_services::group_chat_poster::{self, GroupChatPoster};
 use pierre_services::locale::user_locale;
 use pierre_services::notification_text::{
     NotificationTextRenderer, CONCERN_DEEP_FATIGUE, CONCERN_HEAVY_BLOCK, CONCERN_INACTIVE,
-    CONCERN_OVERTRAINING_RISK, CONCERN_VOLUME_DROP, PARAM_ROSTER_MEMBERS, PARAM_SHARED_MEMBERS,
+    CONCERN_OVERTRAINING_RISK, CONCERN_VOLUME_DROP, PARAM_GARMIN_CONTRIBUTION,
+    PARAM_ROSTER_MEMBERS,
 };
 use pierre_services::periodic::spawn_periodic;
 #[cfg(feature = "client-notifications")]
@@ -113,7 +117,7 @@ use pierre_tool_runtime::coach_group_view::record_peer_view;
 use pierre_tool_runtime::coach_group_view::{
     gate_group_view_skipping, record_room_post, GroupView,
 };
-use pierre_tool_runtime::group_fitness::fetch_member_snapshots_in;
+use pierre_tool_runtime::group_fitness::fetch_member_snapshots_traced;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use serde_json::{json, Map, Value};
 use tracing::{debug, error, info, warn};
@@ -129,7 +133,13 @@ use pierre_notifications::{
 #[cfg(feature = "client-notifications")]
 use pierre_services::notification_text::PARAM_VISIBLE_MEMBERS;
 
+pub use crate::group_digest_locale::plurality_locale;
 use crate::group_digest_slot::{due_week, group_zone};
+
+/// The copy of the digest posted into the group's chat.
+mod room;
+
+pub use room::{room_digest_params, room_shown};
 
 /// How often the digest worker ticks.
 ///
@@ -414,13 +424,20 @@ async fn process_group<C>(
     // The digest is derived from those members' training: it is stamped with
     // what those reads served (carnet#769). Nobody waits on the weekly
     // digest, so its session reads count as background (carnet#1661).
-    let (snapshots, derived_from) = in_background(ai_scope::derived(fetch_member_snapshots_in(
+    let (traced, derived_from) = in_background(ai_scope::derived(fetch_member_snapshots_traced(
         sweep.runtime,
         &readers,
     )))
     .await;
+    // The chat copy is read by whoever the chat app admits, so it leaves out
+    // every member whose figures were drawn from data kept to Dravr's members
+    // (carnet#1170); the managers' copies, read in Dravr's own apps and their
+    // own channels, keep them.
+    let room_snapshots = room_shown(&traced);
+    let snapshots: Vec<MemberFitnessSnapshot> =
+        traced.into_iter().map(|traced| traced.snapshot).collect();
     outcome.groups_reported += 1;
-    let posted = post_digest_to_room(sweep, group, &audience, &snapshots, outcome).await;
+    let posted = post_digest_to_room(sweep, group, &audience, &room_snapshots, outcome).await;
 
     // The week closes as soon as the chat has been tried, before the managers
     // are told: a crash in the managers' fan-out then costs their copies, never
@@ -712,32 +729,6 @@ where
     parts > 0
 }
 
-/// The parameters of the digest posted into a group's chat.
-///
-/// [`digest_params`] over the members who share their training
-/// ([`GroupService::peer_sharing_user_ids`]) and nobody else — the summary,
-/// the trend, the volume lines, the highlights and the concerns are all
-/// computed over that set, so every line of the chat copy, the all-clear
-/// included, is true of it. It also carries how many members that is and how
-/// many the group holds, which the renderer turns into its scope line.
-#[must_use]
-pub fn room_digest_params(
-    service: &GroupService,
-    group: &CoachingGroup,
-    members: &[GroupMember],
-    snapshots: &[MemberFitnessSnapshot],
-) -> Value {
-    let sharing = GroupService::peer_sharing_user_ids(group, members);
-    covered_digest_params(
-        service,
-        group,
-        members,
-        snapshots,
-        &sharing,
-        PARAM_SHARED_MEMBERS,
-    )
-}
-
 /// The parameters of the digest one manager receives.
 ///
 /// [`digest_params`] over the members whose training `manager` may see
@@ -769,7 +760,8 @@ fn manager_digest_params(
 }
 
 /// [`digest_params`] over the snapshots of the `covered` members alone, with
-/// how many that is under `count_param` and how many members the group holds.
+/// how many that is under `count_param`, how many members the group holds,
+/// and what Garmin contributed to their sessions when it did.
 fn covered_digest_params(
     service: &GroupService,
     group: &CoachingGroup,
@@ -790,6 +782,9 @@ fn covered_digest_params(
     if let Some(object) = params.as_object_mut() {
         object.insert(count_param.to_owned(), json!(shown.len()));
         object.insert(PARAM_ROSTER_MEMBERS.to_owned(), json!(members.len()));
+        if let Some(garmin) = MemberFitnessSnapshot::group_garmin_contribution(&shown) {
+            object.insert(PARAM_GARMIN_CONTRIBUTION.to_owned(), json!(garmin));
+        }
     }
     params
 }
@@ -854,31 +849,6 @@ async fn member_locale(
                 .map(str::to_owned)
         })
         .unwrap_or_else(|| user_locale(user))
-}
-
-/// The language most of `votes` name; among equals the owner's when it is one
-/// of them, else the first one voted. With no votes, the owner's.
-#[must_use]
-pub fn plurality_locale<'a>(votes: impl IntoIterator<Item = &'a str>, owner: &str) -> String {
-    let mut counts: Vec<(&str, usize)> = Vec::new();
-    for vote in votes {
-        match counts.iter_mut().find(|(locale, _)| *locale == vote) {
-            Some((_, count)) => *count += 1,
-            None => counts.push((vote, 1)),
-        }
-    }
-    let top = counts.iter().map(|(_, count)| *count).max().unwrap_or(0);
-    let leaders: Vec<&str> = counts
-        .iter()
-        .filter(|(_, count)| *count == top)
-        .map(|(locale, _)| *locale)
-        .collect();
-    leaders
-        .iter()
-        .find(|locale| **locale == owner)
-        .or_else(|| leaders.first())
-        .map_or(owner, |locale| *locale)
-        .to_owned()
 }
 
 /// How one week's digest reached the group before its managers are told.

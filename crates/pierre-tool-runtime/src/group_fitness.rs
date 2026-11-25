@@ -42,11 +42,15 @@ use crate::protocol::AuthService;
 use crate::runtime::ToolRuntime;
 use pierre_providers::ai_scope;
 use pierre_providers::backend_resolver;
-use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
+use pierre_providers::deduplication::{DedupConfig, GarminSessions};
 
 mod monday_weeks;
 
 use monday_weeks::read_monday_weeks;
+/// Snapshots traced to what they were drawn from (carnet#1170).
+mod traced;
+
+pub use traced::{fetch_member_snapshots_traced, TracedSnapshot};
 
 /// Lookback (days of the athlete's calendar, their today included) for the
 /// `recent_activities` roster list rendered into the group context. One week
@@ -75,10 +79,12 @@ const TRAINING_LOAD_LOOKBACK_DAYS: i64 = 60;
 
 /// Fetch a member's recent activities from every connected provider in
 /// parallel, write each provider's answer through to the cache, and merge
-/// every recording of one workout into one session ([`merge_duplicates`],
+/// every recording of one workout into one session
+/// ([`merge_duplicates`](pierre_providers::deduplication::merge_duplicates),
 /// the one duplicate-workout merge): every provider's activities contribute
 /// to the training load, giving a complete picture of the athlete's
-/// workload.
+/// workload. The sessions holding Garmin-sourced data are noted as they merge
+/// ([`GarminSessions`]), for the attribution their figures owe.
 ///
 /// `activity_limit` caps each provider's read — the caller passes
 /// `ServerConfig::activity_fetch_limit`, so one env variable
@@ -89,7 +95,7 @@ pub(crate) async fn fetch_and_merge_all_providers(
     user_id: Uuid,
     tenant_id: TenantId,
     activity_limit: usize,
-) -> Vec<Activity> {
+) -> GarminSessions {
     let tenant_id_str = tenant_id.to_string();
     let now = Timestamp::now();
     let lookback_start = (now - Elapsed::days(TRAINING_LOAD_LOOKBACK_DAYS)).epoch_seconds();
@@ -151,18 +157,18 @@ pub(crate) async fn fetch_and_merge_all_providers(
     }
 
     if all_activities.is_empty() {
-        return Vec::new();
+        return GarminSessions::default();
     }
 
     // Merge every recording of one workout into one session
     let before_dedup = all_activities.len();
-    let (merged, _) = merge_duplicates(all_activities, &DedupConfig::from_env());
+    let (merged, _) = GarminSessions::merge(all_activities, &DedupConfig::from_env());
 
     info!(
         user_id = %user_id,
         providers_used = provider_count,
         before_dedup,
-        after_dedup = merged.len(),
+        after_dedup = merged.sessions.len(),
         "Snapshot: merged activities from all providers"
     );
 
@@ -236,25 +242,11 @@ pub async fn fetch_member_snapshots_in(
     runtime: &Arc<dyn ToolRuntime>,
     members: &[(Uuid, TenantId)],
 ) -> Vec<MemberFitnessSnapshot> {
-    if members.is_empty() {
-        return Vec::new();
-    }
-
-    let futures: Vec<_> = members
-        .iter()
-        .map(|&(user_id, tenant_id)| {
-            let runtime = Arc::clone(runtime);
-            async move {
-                ai_scope::reading_about(
-                    user_id,
-                    fetch_single_member_snapshot(&runtime, user_id, tenant_id),
-                )
-                .await
-            }
-        })
-        .collect();
-
-    join_all(futures).await
+    fetch_member_snapshots_traced(runtime, members)
+        .await
+        .into_iter()
+        .map(|traced| traced.snapshot)
+        .collect()
 }
 
 // The member display-name rule lives in `pierre_services::athlete_display_name`,
@@ -435,18 +427,21 @@ async fn fetch_member_activities_across_tenants(
     runtime: &Arc<dyn ToolRuntime>,
     user_id: Uuid,
     tenants: &[TenantId],
-) -> (Vec<Activity>, bool) {
-    let mut all = Vec::new();
+) -> (GarminSessions, bool) {
+    let mut parts = Vec::with_capacity(tenants.len());
     let mut any_stale = false;
     for &tenant_id in tenants {
-        let (activities, served_stale) = fetch_member_activities(runtime, user_id, tenant_id).await;
-        all.extend(activities);
+        let (sessions, served_stale) = fetch_member_activities(runtime, user_id, tenant_id).await;
+        parts.push(sessions);
         any_stale = any_stale || served_stale;
     }
-    if tenants.len() > 1 {
-        return (merge_duplicates(all, &DedupConfig::from_env()).0, any_stale);
+    if parts.len() == 1 {
+        return (parts.pop().unwrap_or_default(), any_stale);
     }
-    (all, any_stale)
+    (
+        GarminSessions::merge_all(parts, &DedupConfig::from_env()),
+        any_stale,
+    )
 }
 
 /// Fetch a single member's fitness snapshot.
@@ -487,19 +482,20 @@ async fn fetch_single_member_snapshot(
     let tenants = member_connection_tenants(user_id, &connections, fallback_tenant_id);
     // The member's data reaches the requester's model under the member's own
     // AI consents, not the requester's (carnet#726).
-    let (activities, served_stale) = under_ai_consent(
+    let (merged, served_stale) = under_ai_consent(
         data.repos(),
         fallback_tenant_id.as_uuid(),
         user_id,
         fetch_member_activities_across_tenants(runtime, user_id, &tenants),
     )
     .await;
+    let activities = &merged.sessions;
     // Emit one log line per fetched activity so an admin can verify
     // what reached the training-load calc when a snapshot looks stale
     // (e.g. "Phil rode 250km yesterday but ATL=19" — either the ride
     // isn't on the provider yet, or its TSS was skipped for missing
     // fields). debug! to keep the noise off INFO in normal operation.
-    for a in &activities {
+    for a in activities {
         debug!(
             user_id = %user_id,
             activity_id = %a.id(),
@@ -533,7 +529,7 @@ async fn fetch_single_member_snapshot(
             user_id,
             display_name,
             timezone,
-            &activities,
+            activities,
             now,
             athlete.as_ref(),
             &runtime.cageux_config().algorithms,
@@ -575,6 +571,7 @@ async fn fetch_single_member_snapshot(
     .await
     .fill(&mut snapshot);
     snapshot.served_stale = served_stale;
+    snapshot.garmin_contribution = merged.garmin_contribution();
     snapshot
 }
 
@@ -657,6 +654,8 @@ fn build_snapshot_from_activities(
         timezone,
         deep_fatigue_mornings,
         computed_at: now,
+        // Populated by the caller, which saw the copies merge.
+        garmin_contribution: None,
     }
 }
 
@@ -770,6 +769,7 @@ fn empty_snapshot(
         timezone,
         deep_fatigue_mornings: Vec::new(),
         computed_at,
+        garmin_contribution: None,
     }
 }
 

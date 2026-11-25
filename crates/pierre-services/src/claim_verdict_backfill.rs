@@ -303,6 +303,9 @@ async fn persist_verdict(
         explanation: Some(&outcome.explanation),
         evidence_refs: outcome.evidence_refs.as_deref(),
         transport_policy: row.transport_policy,
+        // The reply's own provenance: a verdict on a reply drawn from data
+        // barred from AI evaluation feeds no metric (carnet#1170).
+        ai_consent_sources: &row.ai_consent_sources,
     };
     match repos.claim_verdicts.insert_claim_verdict(&insert).await {
         Ok(_) => stats.verdicts_written += 1,

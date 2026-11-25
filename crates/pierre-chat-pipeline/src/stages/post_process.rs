@@ -6,6 +6,7 @@
 
 use pierre_core::models::{AgentRuntimeContext, CoachingPersona, UnitSystem};
 use pierre_database::database::ConversationRecord;
+use pierre_providers::ai_scope;
 use pierre_services::prompt_leak;
 use tracing::warn;
 use uuid::Uuid;
@@ -360,6 +361,35 @@ fn drop_ungrounded_data_appeals(
     appeal.cleaned
 }
 
+/// Whether a reply must be withheld from a messaging group chat: it is posted
+/// into one and the turn drew on data kept to Dravr's members (carnet#1170).
+pub(crate) const fn withholds_from_group_chat(
+    posted_to_group_chat: bool,
+    drawn_from_members_only: bool,
+) -> bool {
+    posted_to_group_chat && drawn_from_members_only
+}
+
+/// Whether the reply is withheld whole and replaced by the canned string.
+///
+/// On a canary hit, or when it is posted into a messaging group chat and the
+/// turn drew on data kept to Dravr's members (carnet#1170). Every read the
+/// turn made already withheld that data; a reply still marked as drawn from
+/// it came through a path no gate covered.
+fn withheld_whole(canary_hit: bool, conversation_id: &str) -> bool {
+    if withholds_from_group_chat(
+        ai_scope::serving_group_chat(),
+        ai_scope::derived_members_only(),
+    ) {
+        warn!(
+            conversation_id,
+            "a group-chat reply drew on data kept to Dravr's members; withheld"
+        );
+        return true;
+    }
+    canary_hit
+}
+
 /// Run post-LLM content processing over the raw assistant reply.
 ///
 /// Owns pipeline stages 15 through 18: canary scan, text guardrails,
@@ -416,7 +446,10 @@ pub(crate) async fn post_process_assistant_reply(
             envelope_days,
         )
     };
-    if leak_report.canary_hit {
+    // A reply posted into a messaging group chat never carries data kept to
+    // Dravr's members (carnet#1170): one the turn still marks as drawn from it
+    // is withheld whole, like a canary hit.
+    if withheld_whole(leak_report.canary_hit, &input.conversation_id) {
         return PostProcessedReply {
             content: ctx
                 .messaging_strings_registry
@@ -615,5 +648,22 @@ pub(crate) async fn post_process_assistant_reply(
         verdict_chips,
         quick_replies,
         provider_stop,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::withholds_from_group_chat;
+
+    // carnet#1170: only a group-chat reply drawn from members-only data is
+    // withheld; the member's own direct message keeps it.
+    #[test]
+    fn a_reply_is_withheld_only_from_a_group_chat_it_draws_members_only_data_into() {
+        assert!(withholds_from_group_chat(true, true));
+        assert!(
+            !withholds_from_group_chat(false, true),
+            "a direct message keeps it"
+        );
+        assert!(!withholds_from_group_chat(true, false));
     }
 }

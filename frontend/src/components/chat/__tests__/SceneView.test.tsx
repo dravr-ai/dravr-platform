@@ -48,4 +48,24 @@ describe('SceneView', () => {
     expect(container.textContent).not.toContain('source');
     expect(container.textContent).not.toContain('get_training_load');
   });
+
+  // carnet#1154: a block drawn from Garmin-sourced data carries Garmin's line
+  // directly beneath its title, set by the server.
+  it('draws the attribution beneath the title of a chart and a table that carry one', () => {
+    const line = 'Insights derived in part from Garmin device-sourced data';
+    const { unmount } = render(<SceneView block={{ ...CHART, attribution: line }} />);
+    const caption = screen.getByText('Weekly load, last four weeks');
+    const attribution = screen.getByTestId('scene-attribution');
+    expect(attribution).toHaveTextContent(line);
+    expect(caption.compareDocumentPosition(attribution)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    unmount();
+
+    render(<SceneView block={{ ...TABLE, attribution: line }} />);
+    expect(screen.getByTestId('scene-attribution')).toHaveTextContent(line);
+  });
+
+  it('draws no attribution for a block that carries none', () => {
+    render(<SceneView block={CHART} />);
+    expect(screen.queryByTestId('scene-attribution')).not.toBeInTheDocument();
+  });
 });

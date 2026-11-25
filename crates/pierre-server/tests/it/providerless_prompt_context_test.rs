@@ -32,6 +32,24 @@ use helpers::axum_test::AxumTestRequest;
 use serde_json::json;
 
 use pierre_chat_pipeline::stages::prompt_builder::build_provider_context;
+use pierre_core::models::TenantId;
+use pierre_mcp_server::mcp::resources::ServerContext;
+use std::sync::Arc;
+use uuid::Uuid;
+
+/// The tenant `user` owns.
+async fn tenant_of(resources: &Arc<ServerContext>, user: Uuid) -> TenantId {
+    resources
+        .common
+        .repos
+        .tenants
+        .list_for_user(user)
+        .await
+        .unwrap()
+        .first()
+        .map(|t| t.id)
+        .expect("the fixture user owns a tenant")
+}
 
 /// A user with nothing connected gets an explicit statement of that.
 ///
@@ -45,7 +63,8 @@ async fn a_providerless_user_is_named_as_such_in_the_prompt() {
         .await
         .unwrap();
 
-    let context = build_provider_context(&resources.data(), user.id).await;
+    let tenant = tenant_of(&resources, user.id).await;
+    let context = build_provider_context(&resources.data(), user.id, tenant).await;
 
     assert!(
         !context.is_empty(),
@@ -82,7 +101,8 @@ async fn a_connected_user_never_sees_the_providerless_wording() {
             .await
             .unwrap();
 
-    let context = build_provider_context(&resources.data(), user.id).await;
+    let tenant = tenant_of(&resources, user.id).await;
+    let context = build_provider_context(&resources.data(), user.id, tenant).await;
 
     assert!(
         context.contains("strava"),
@@ -109,16 +129,7 @@ async fn a_mirror_connection_is_listed_by_the_name_the_athlete_knows() {
     let (user, _token) = common::create_test_tenant(&resources, "mirror@test.local")
         .await
         .unwrap();
-    let tenant = resources
-        .common
-        .repos
-        .tenants
-        .list_for_user(user.id)
-        .await
-        .unwrap()
-        .first()
-        .map(|t| t.id)
-        .expect("the fixture user owns a tenant");
+    let tenant = tenant_of(&resources, user.id).await;
     for provider in ["sciotte_garmin", "sciotte", "strava"] {
         resources
             .common
@@ -129,7 +140,7 @@ async fn a_mirror_connection_is_listed_by_the_name_the_athlete_knows() {
             .unwrap();
     }
 
-    let context = build_provider_context(&resources.data(), user.id).await;
+    let context = build_provider_context(&resources.data(), user.id, tenant).await;
 
     assert!(context.contains("- ✓ garmin\n"), "got: {context}");
     assert_eq!(
@@ -155,7 +166,8 @@ async fn absence_and_uncertainty_are_not_the_same_statement() {
         .await
         .unwrap();
 
-    let providerless = build_provider_context(&resources.data(), user.id).await;
+    let tenant = tenant_of(&resources, user.id).await;
+    let providerless = build_provider_context(&resources.data(), user.id, tenant).await;
 
     // The providerless block asserts absence; it must not hedge it as unknown.
     assert!(

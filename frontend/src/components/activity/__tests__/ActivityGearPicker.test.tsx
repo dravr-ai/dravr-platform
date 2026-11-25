@@ -39,6 +39,7 @@ function pair(id: string, overrides: Partial<GearItem> = {}): GearItem {
     added_at: '2026-09-01T07:00:00Z',
     retired_at: null,
     last_used_at: null,
+    garmin_contribution: null,
     ...overrides,
   };
 }

@@ -5,6 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use crate::civil_time::{clock_date, resolve_zone};
+use crate::constants::oauth_providers::{combined_garmin_contribution, GarminContribution};
 use crate::transport::TransportPolicy;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
@@ -848,6 +849,12 @@ pub struct MemberFitnessSnapshot {
     /// band history: the series is the one the snapshot already reads.
     #[serde(default)]
     pub deep_fatigue_mornings: Vec<FormMorning>,
+    /// What Garmin contributed to the sessions this snapshot's figures were
+    /// computed from: Garmin's brand guidelines owe every surface showing
+    /// them an attribution, whole or in part (carnet#1154). `None` when no
+    /// session holds Garmin-sourced data, or there is none.
+    #[serde(default)]
+    pub garmin_contribution: Option<GarminContribution>,
     /// When this snapshot was computed
     pub computed_at: Timestamp,
 }
@@ -864,6 +871,19 @@ pub struct FormMorning {
 }
 
 impl MemberFitnessSnapshot {
+    /// What Garmin contributed to a figure computed over `snapshots`, each
+    /// member who trained counting with their own contribution and a member
+    /// with no session adding nothing ([`combined_garmin_contribution`]).
+    #[must_use]
+    pub fn group_garmin_contribution(snapshots: &[Self]) -> Option<GarminContribution> {
+        combined_garmin_contribution(
+            snapshots
+                .iter()
+                .filter(|s| s.days_since_last_activity.is_some())
+                .map(|s| s.garmin_contribution),
+        )
+    }
+
     /// The member's own civil day the snapshot was computed on: `computed_at`
     /// read on their clock, in [`Self::timezone`] (UTC when unset). The day
     /// the training load, its form reading and the deep-fatigue mornings

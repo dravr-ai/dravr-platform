@@ -144,6 +144,7 @@ async fn a_loopback_press_call_is_not_refused_for_lacking_a_token() {
             photograveur::ColumnAlignment::Right,
         ],
         source_tool: "get_activities".to_owned(),
+        attribution: None,
     });
     let message = match client.press(&block, "dark", "fr").await {
         Ok(bytes) => {
@@ -204,6 +205,7 @@ async fn the_press_request_carries_the_locale() {
             photograveur::ColumnAlignment::Right,
         ],
         source_tool: "get_activities".to_owned(),
+        attribution: Some("Insights derived in part from Garmin device-sourced data".to_owned()),
     });
     assert!(
         client.press(&block, "light", "de").await.is_err(),
@@ -232,6 +234,10 @@ async fn the_press_request_carries_the_locale() {
     assert_eq!(
         json["block"]["kind"], "table",
         "with the block it applies to"
+    );
+    assert_eq!(
+        json["block"]["attribution"], "Insights derived in part from Garmin device-sourced data",
+        "and the attribution the press draws in the image (carnet#1154)"
     );
     clear();
 }

@@ -6,6 +6,7 @@
 
 use std::collections::BTreeMap;
 
+use pierre_core::constants::oauth_providers::column_excluded_from_ai_evaluation;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_memory::VerdictDisposition;
 
@@ -39,6 +40,11 @@ pub(super) fn ratio(numerator: i64, denominator: i64) -> f64 {
 }
 
 /// One `(dim, disposition, count)` row of a health breakdown, already decoded.
+///
+/// Each statement also groups by the verdict's consent sources, so a row
+/// standing for verdicts on replies drawn from data barred from AI evaluation
+/// can be left out (carnet#1170); several rows may then share a key, which
+/// every fold below sums.
 pub(crate) struct HealthBreakdownRow {
     /// The grouping key; `None` only for the unattributed agent group.
     pub dim: Option<String>,
@@ -79,7 +85,24 @@ where
     })
 }
 
-/// Decode every row of one breakdown statement.
+/// Whether a grouped row stands for verdicts barred from AI evaluation
+/// (carnet#1170): its consent sources name such a key.
+fn excluded_row<R>(row: &R) -> AppResult<bool>
+where
+    R: sqlx::Row,
+    for<'a> &'a str: sqlx::ColumnIndex<R>,
+    Option<String>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+{
+    let sources: Option<String> = row
+        .try_get("consent_sources")
+        .map_err(|e| AppError::database(format!("claim_verdicts health consent_sources: {e}")))?;
+    Ok(column_excluded_from_ai_evaluation(sources.as_deref()))
+}
+
+/// Decode every row of one breakdown statement that may feed a metric.
+///
+/// A row standing for verdicts barred from AI evaluation is left out
+/// (carnet#1170).
 pub(crate) fn health_breakdown_rows<R>(rows: &[R]) -> AppResult<Vec<HealthBreakdownRow>>
 where
     R: sqlx::Row,
@@ -87,24 +110,43 @@ where
     Option<String>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     i64: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
-    rows.iter().map(health_breakdown_from_row).collect()
+    let mut decoded = Vec::with_capacity(rows.len());
+    for row in rows {
+        if !excluded_row(row)? {
+            decoded.push(health_breakdown_from_row(row)?);
+        }
+    }
+    Ok(decoded)
 }
 
-/// Decode one `(reason, count)` row of the reason table.
-pub(crate) fn reason_count_from_row<R>(row: &R) -> AppResult<VerdictReasonCount>
+/// The reason table from its `(reason, consent_sources, count)` rows.
+///
+/// Each reason once, its count summed over the rows that may feed a metric
+/// (carnet#1170), sorted by reason.
+pub(crate) fn reason_counts<R>(rows: &[R]) -> AppResult<Vec<VerdictReasonCount>>
 where
     R: sqlx::Row,
     for<'a> &'a str: sqlx::ColumnIndex<R>,
     String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Option<String>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     i64: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
     let col = |name: &str, e: sqlx::Error| {
         AppError::database(format!("claim_verdicts health {name}: {e}"))
     };
-    Ok(VerdictReasonCount {
-        reason: row.try_get("reason").map_err(|e| col("reason", e))?,
-        count: row.try_get("c").map_err(|e| col("c", e))?,
-    })
+    let mut by_reason: BTreeMap<String, i64> = BTreeMap::new();
+    for row in rows {
+        if excluded_row(row)? {
+            continue;
+        }
+        let reason: String = row.try_get("reason").map_err(|e| col("reason", e))?;
+        let count: i64 = row.try_get("c").map_err(|e| col("c", e))?;
+        *by_reason.entry(reason).or_default() += count;
+    }
+    Ok(by_reason
+        .into_iter()
+        .map(|(reason, count)| VerdictReasonCount { reason, count })
+        .collect())
 }
 
 /// Fold breakdown rows into per-key totals, keyed by the grouping value.

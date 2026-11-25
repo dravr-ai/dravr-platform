@@ -312,6 +312,77 @@ async fn report_names_the_fresh_member_with_their_form_share_and_tsb() {
     );
 }
 
+/// Every analytics response says what Garmin contributed to the sessions it
+/// was computed over, for the line Garmin's brand guidelines owe its figures:
+/// in part when a Garmin-recorded member trains beside one on another device,
+/// wholly when the Garmin member is the only one who trained (carnet#1154).
+#[tokio::test]
+async fn analytics_say_what_garmin_contributed_to_the_members_sessions() {
+    let fx = Box::pin(owner_with_group()).await;
+    let garmin_rides: Vec<Activity> = (1..=5)
+        .map(|days_ago| {
+            ActivityBuilder::new(
+                format!("edge-{days_ago}"),
+                format!("edge {days_ago}"),
+                SportType::Ride,
+                Timestamp::now() - Elapsed::days(days_ago),
+                3_600,
+                "strava".to_owned(),
+            )
+            .distance_meters(28_800.0)
+            .device_name("Garmin Edge 840")
+            .build()
+        })
+        .collect();
+    seed_rides(&fx.res, fx.owner_id, fx.tenant_id, &garmin_rides).await;
+    let get = |path: String| {
+        let router = fx.router.clone();
+        let auth = fx.owner_auth.clone();
+        async move {
+            let resp = AxumTestRequest::get(&path)
+                .header("authorization", &auth)
+                .send(router)
+                .await;
+            assert_eq!(resp.status_code(), StatusCode::OK);
+            resp.json::<Value>()
+        }
+    };
+
+    for route in ["stats", "report", "health"] {
+        let body = get(format!("/api/groups/{}/{route}", fx.group_id)).await;
+        assert_eq!(
+            body["scope"]["garmin_contribution"], "sole",
+            "{route}: only the owner trained, on a Garmin: {body}"
+        );
+    }
+
+    let (rider_id, _, rider_tenant) = create_test_user_with_plan(
+        &fx.res.agent.database,
+        "report-phone-rider@test.com",
+        "professional",
+    )
+    .await
+    .unwrap();
+    seed_rides(&fx.res, rider_id, rider_tenant, &rides_that_stopped(2)).await;
+    let group_uuid = Uuid::parse_str(&fx.group_id).unwrap();
+    add_member(
+        &fx.res,
+        group_uuid,
+        rider_id,
+        fx.tenant_id,
+        GroupRole::Member,
+    )
+    .await;
+
+    for route in ["stats", "report", "health"] {
+        let body = get(format!("/api/groups/{}/{route}", fx.group_id)).await;
+        assert_eq!(
+            body["scope"]["garmin_contribution"], "part",
+            "{route}: a member on another device trained too: {body}"
+        );
+    }
+}
+
 /// `/stats` aggregates only the members who share plus the caller, whatever
 /// the caller's role: otherwise the whole-roster average, minus the sharers'
 /// figures the weekly digest posts into the chat, would give away the week of
@@ -534,7 +605,7 @@ impl ConsentSplit {
         let body: Value = resp.json();
         assert_eq!(
             body["scope"],
-            json!({"visible_members": 3, "roster_members": 6}),
+            json!({"visible_members": 3, "roster_members": 6, "garmin_contribution": null}),
             "each viewer sees three of the six members: {body}"
         );
         body

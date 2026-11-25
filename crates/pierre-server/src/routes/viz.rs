@@ -26,6 +26,7 @@
 //! message, block index, theme and expiry, keyed on the server secret. No
 //! session, no cookie — the bearer is a bot fetcher that has neither.
 
+use std::slice;
 use std::sync::Arc;
 
 use axum::extract::{Path, State};
@@ -46,6 +47,7 @@ use sha2::Sha256;
 use tracing::{debug, warn};
 
 use crate::mcp::resources::ServerContext;
+use crate::services::visual_attribution::{attribute_blocks, reply_attribution};
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -280,9 +282,15 @@ async fn load_block(
     };
 
     // Resolved here rather than sent as a spec: the press service runs no
-    // geometry, which is what makes the PNG and the in-app chart identical.
+    // geometry, which is what makes the PNG and the in-app chart identical,
+    // the attribution the reply owes drawn in the image (carnet#1154).
     match resolve(spec, Locale::from_tag(&token.locale)) {
-        Ok(block) => Ok(Some(block)),
+        Ok(mut block) => {
+            let attribution =
+                reply_attribution(&resources.mcp.messaging_strings_registry, &message.content);
+            attribute_blocks(slice::from_mut(&mut block), attribution.as_deref());
+            Ok(Some(block))
+        }
         Err(e) => {
             warn!(error = %e, "viz block failed to resolve for raster");
             Ok(None)

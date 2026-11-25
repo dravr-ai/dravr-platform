@@ -28,6 +28,7 @@ const PAIR = {
   added_at: '2026-08-01T07:00:00Z',
   retired_at: null,
   last_used_at: '2026-10-08T06:30:00Z',
+  garmin_contribution: 'part',
 };
 
 describe('parseGearListResponse', () => {
@@ -54,6 +55,16 @@ describe('parseGearItem', () => {
     const withoutWarning: Record<string, unknown> = { ...PAIR };
     delete withoutWarning.warn_reached;
     expect(parseGearItem(withoutWarning)).toBeNull();
+  });
+
+  it('reads what Garmin contributed to the distance, an absent one as none, and rejects any other word', () => {
+    expect(parseGearItem(PAIR)?.garmin_contribution).toBe('part');
+    expect(parseGearItem({ ...PAIR, garmin_contribution: 'sole' })?.garmin_contribution).toBe('sole');
+    expect(parseGearItem({ ...PAIR, garmin_contribution: null })?.garmin_contribution).toBeNull();
+    const older: Record<string, unknown> = { ...PAIR };
+    delete older.garmin_contribution;
+    expect(parseGearItem(older)?.garmin_contribution).toBeNull();
+    expect(parseGearItem({ ...PAIR, garmin_contribution: 'all' })).toBeNull();
   });
 
   it('rejects an unreadable instant', () => {

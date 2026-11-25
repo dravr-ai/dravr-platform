@@ -24,7 +24,7 @@
 use std::future::Future;
 
 use pierre_core::ai_policy::{ProviderTerms, SourcePolicy};
-use pierre_core::transport::TransportPolicy;
+use pierre_core::transport::{AudiencePolicy, TransportPolicy};
 
 tokio::task_local! {
     /// Set while a human coach reads an athlete who shares with them.
@@ -74,6 +74,10 @@ impl ProviderTerms for ConsentOnly<'_> {
 
     fn served_over_every_transport(&self) -> Vec<&'static str> {
         self.0.served_over_every_transport()
+    }
+
+    fn audience_policy(&self, provider: &str) -> Option<AudiencePolicy> {
+        self.0.audience_policy(provider)
     }
 }
 

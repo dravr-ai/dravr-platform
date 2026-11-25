@@ -35,6 +35,9 @@ pub struct AssistantMessage {
     pub content: String,
     /// The reply's stamp (carnet#769), inherited by what is derived from it.
     pub transport_policy: TransportPolicy,
+    /// The AI-consent keys of what the reply was drawn from (carnet#1157),
+    /// inherited by a verdict judged on it (carnet#1170).
+    pub ai_consent_sources: Vec<String>,
 }
 
 /// What [`ChatRepository::reactivate_conversation`] did to a conversation.
@@ -1136,7 +1139,8 @@ pub(crate) const ASSISTANT_MESSAGES_AFTER_SQL: &str = r"
            c.user_id AS user_id,
            c.agent_id AS agent_id,
            m.content AS content,
-           m.first_party_only AS first_party_only
+           m.first_party_only AS first_party_only,
+           m.ai_consent_sources AS ai_consent_sources
     FROM chat_messages m
     INNER JOIN chat_conversations c ON c.id = m.conversation_id
     WHERE c.tenant_id = $1

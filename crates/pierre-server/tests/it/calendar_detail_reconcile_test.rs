@@ -503,6 +503,59 @@ async fn an_entry_is_read_only_before_it_is_overwritten_and_an_athletes_edit_kee
     Ok(())
 }
 
+/// Garmin stamps every write, Dravr's own included, with `updatedDate`
+/// rounded to the second (carnet#1389). A stamp at Dravr's last write is that
+/// write and the entry is updated in place; one later than it is the
+/// athlete's edit in Garmin Connect and the entry is left alone.
+#[tokio::test]
+async fn a_stamp_at_dravrs_write_updates_in_place_and_a_later_one_is_the_athletes_edit(
+) -> Result<()> {
+    let fx = fixture().await?;
+    let calendar = IdentityOnly::new();
+    fx.save_week(
+        true,
+        &[(0, "run", "Easy run"), (2, "bike", "Endurance ride")],
+    )
+    .await;
+    let first = fx.push(&calendar).await;
+    assert_eq!(
+        first.created, 2,
+        "the first push creates both days: {first:?}"
+    );
+
+    let live = fx.live().await;
+    let monday = &live[&fx.plan_key(0)];
+    let wednesday = &live[&fx.plan_key(2)];
+    let monday_event = monday.provider_event_id.clone().unwrap();
+    let wednesday_event = wednesday.provider_event_id.clone().unwrap();
+    // Monday carries the stamp of Dravr's own write, rounded up to the next
+    // second as Garmin does; Wednesday was edited in Garmin Connect a day on.
+    calendar.edit(&monday_event, monday.updated_at + Elapsed::seconds(1));
+    calendar.edit(&wednesday_event, wednesday.updated_at + Elapsed::hours(24));
+    fx.save_week(
+        false,
+        &[(0, "run", "Tempo run"), (2, "bike", "Sweet spot ride")],
+    )
+    .await;
+
+    let report = fx.push(&calendar).await;
+    assert_eq!(
+        calendar.updates(),
+        vec![monday_event],
+        "bug: Dravr's own write stamp read as an edit, or the athlete's edit was overwritten: {report:?}"
+    );
+    assert_eq!(
+        report
+            .skipped
+            .iter()
+            .map(|s| (s.external_id.clone(), s.reason))
+            .collect::<Vec<_>>(),
+        vec![(fx.plan_key(2), SkipReason::EditedOnProvider)],
+        "the entry stamped after Dravr's write is the athlete's edit"
+    );
+    Ok(())
+}
+
 #[tokio::test]
 async fn a_lost_write_is_adopted_by_its_writer_on_its_date_and_nothing_else_is_read() -> Result<()>
 {

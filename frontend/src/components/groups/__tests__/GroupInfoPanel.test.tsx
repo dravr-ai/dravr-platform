@@ -1183,6 +1183,40 @@ describe('GroupInfoPanel', () => {
     expect(screen.queryByTestId('group-report-summary')).toBeNull();
   });
 
+  // carnet#1154: figures computed over Garmin-recorded sessions carry
+  // Garmin's line beneath the section's title, above the figures.
+  it("says beneath This week what Garmin contributed to the members' sessions", async () => {
+    vi.mocked(groupsApi.getStats).mockResolvedValueOnce({
+      stats: {
+        total_members: 3,
+        active_members: 2,
+        avg_weekly_volume_km: 41.5,
+        avg_ctl: 55,
+        flagged_members: 0,
+        weekly_trend: 'stable',
+      },
+      scope: { visible_members: 3, roster_members: 3, garmin_contribution: 'part' },
+    });
+    const user = userEvent.setup();
+    renderPanel();
+
+    await user.click(await screen.findByRole('button', { name: 'This week' }));
+    const line = await screen.findByTestId('group-info-garmin');
+    expect(line).toHaveTextContent('Created in part using data provided by Garmin devices.');
+    expect(line.compareDocumentPosition(screen.getByTestId('group-info-stats'))).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+  });
+
+  it('prints no Garmin line when Garmin contributed nothing', async () => {
+    const user = userEvent.setup();
+    renderPanel();
+
+    await user.click(await screen.findByRole('button', { name: 'This week' }));
+    await screen.findByTestId('group-info-stats');
+    expect(screen.queryByTestId('group-info-garmin')).not.toBeInTheDocument();
+  });
+
   it('prints the group volume in miles for a reader on imperial units', async () => {
     const user = userEvent.setup();
     renderPanel('imperial');

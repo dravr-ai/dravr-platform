@@ -8,7 +8,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen, waitFor, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { PROVIDER_LINK_POLL_INTERVAL_MS, QUERY_KEYS } from '@pierre/shared-constants';
+import { GARMIN_CONNECT_BRAND, PROVIDER_LINK_POLL_INTERVAL_MS, QUERY_KEYS } from '@pierre/shared-constants';
 import { i18n } from '@pierre/i18n';
 import ProviderConnectionCards from '../ProviderConnectionCards';
 import { ThemeProvider } from '../../hooks/useTheme';
@@ -145,6 +145,34 @@ function renderCards(queryClient = new QueryClient({ defaultOptions: { queries: 
     </QueryClientProvider>,
   );
 }
+
+// carnet#1154: Garmin's brand guidelines ask the connect entry point of the
+// official integration to say "Garmin Connect™" in full beside the official
+// app tile; the account sign-in card keeps Garmin's served name and glyph.
+describe('ProviderConnectionCards — the Garmin Connect card', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('names the card connecting through Garmin OAuth Garmin Connect™, beside the official tile', async () => {
+    getProvidersStatus.mockResolvedValue({ providers: [garminCard('oauth')] });
+    renderCards();
+
+    const row = await screen.findByTestId('provider-card-sciotte_garmin');
+    expect(row).toHaveTextContent(GARMIN_CONNECT_BRAND);
+    expect(screen.getByTestId('provider-tile-garmin-connect')).toHaveAttribute('src', '/brand/garmin-connect-app.png');
+    expect(screen.getByLabelText(`Connect to ${GARMIN_CONNECT_BRAND}`)).toBeInTheDocument();
+  });
+
+  it('keeps the served name and glyph on the card that signs in to the account', async () => {
+    getProvidersStatus.mockResolvedValue({ providers: [garminCard('mirror')] });
+    renderCards();
+
+    const row = await screen.findByTestId('provider-card-sciotte_garmin');
+    expect(row).not.toHaveTextContent('Garmin Connect');
+    expect(screen.queryByTestId('provider-tile-garmin-connect')).not.toBeInTheDocument();
+  });
+});
 
 describe('ProviderConnectionCards — the glyph ink follows the scheme', () => {
   const card = (provider: string, display_name: string) => ({
@@ -303,7 +331,7 @@ describe('ProviderConnectionCards — OAuth-first with Sciotte fallback', () => 
     const user = userEvent.setup();
     renderCards();
 
-    await user.click(await screen.findByLabelText('Connect to Garmin'));
+    await user.click(await screen.findByLabelText(/^Connect to Garmin/));
     await continueConsents(user);
 
     await waitFor(() => expect(assign).toHaveBeenCalledWith('/api/oauth/authorize/garmin'));
@@ -316,7 +344,7 @@ describe('ProviderConnectionCards — OAuth-first with Sciotte fallback', () => 
     const user = userEvent.setup();
     renderCards();
 
-    await user.click(await screen.findByLabelText('Connect to Garmin'));
+    await user.click(await screen.findByLabelText(/^Connect to Garmin/));
     await continueConsents(user);
 
     expect(await screen.findByTestId('sciotte-modal')).toHaveTextContent('garmin');
@@ -329,7 +357,7 @@ describe('ProviderConnectionCards — OAuth-first with Sciotte fallback', () => 
     const user = userEvent.setup();
     renderCards();
 
-    await user.click(await screen.findByLabelText('Connect to Garmin'));
+    await user.click(await screen.findByLabelText(/^Connect to Garmin/));
     await continueConsents(user);
 
     await waitFor(() => expect(assign).toHaveBeenCalledWith('/api/oauth/authorize/garmin'));
@@ -383,7 +411,7 @@ describe('ProviderConnectionCards — OAuth-first with Sciotte fallback', () => 
       const user = userEvent.setup();
       renderCards();
 
-      await user.click(await screen.findByLabelText('Connect to Garmin'));
+      await user.click(await screen.findByLabelText(/^Connect to Garmin/));
       await continueConsents(user);
       await user.click(await screen.findByTestId('sign-in-unavailable'));
 
@@ -438,7 +466,7 @@ describe('ProviderConnectionCards — OAuth-first with Sciotte fallback', () => 
       renderCards();
 
       expect(await screen.findByTestId('provider-connect-refused-sciotte_garmin')).toHaveTextContent(
-        i18n.t('providers.connectRefused', { provider: 'Garmin' }),
+        i18n.t('providers.connectRefused', { provider: GARMIN_CONNECT_BRAND }),
       );
       expect(screen.queryByTestId('sciotte-modal')).not.toBeInTheDocument();
       expect(localStorage.getItem('pierre_oauth_result')).toBeNull();
@@ -446,7 +474,7 @@ describe('ProviderConnectionCards — OAuth-first with Sciotte fallback', () => 
       // Its row's name carries the line it shows, and its tap is the retry.
       await user.click(
         screen.getByRole('button', {
-          name: (name) => name.includes(i18n.t('providers.connectRefused', { provider: 'Garmin' })),
+          name: (name) => name.includes(i18n.t('providers.connectRefused', { provider: GARMIN_CONNECT_BRAND })),
         }),
       );
       await continueConsents(user);
@@ -517,7 +545,7 @@ describe('ProviderConnectionCards — OAuth-first with Sciotte fallback', () => 
     const user = userEvent.setup();
     renderCards();
 
-    await user.click(await screen.findByLabelText('Connect to Garmin'));
+    await user.click(await screen.findByLabelText(/^Connect to Garmin/));
     await continueConsents(user);
 
     await waitFor(() => expect(assign).toHaveBeenCalledWith('/api/oauth/authorize/garmin'));
@@ -606,7 +634,7 @@ describe('ProviderConnectionCards — OAuth-first with Sciotte fallback', () => 
       getProvidersStatus.mockResolvedValue({ providers: [garminAwaiting(false)] });
       renderCards();
 
-      expect(await screen.findByLabelText('Garmin is connected')).toBeDisabled();
+      expect(await screen.findByLabelText(`${GARMIN_CONNECT_BRAND} is connected`)).toBeDisabled();
       expect(screen.queryByTestId('sciotte-modal')).not.toBeInTheDocument();
     });
 
@@ -617,12 +645,12 @@ describe('ProviderConnectionCards — OAuth-first with Sciotte fallback', () => 
 
       // The row names its state and what it offers, never a bare "Connect".
       expect(await screen.findByText(i18n.t('providers.history.add'))).toBeInTheDocument();
-      expect(screen.queryByLabelText('Connect to Garmin')).not.toBeInTheDocument();
+      expect(screen.queryByLabelText(/^Connect to Garmin/)).not.toBeInTheDocument();
       // Its spoken name carries the visible action words and the provider (WCAG 2.5.3).
       const add = screen.getByRole('button', {
         name: (name) => name.includes('Garmin') && name.includes(i18n.t('providers.history.add')),
       });
-      expect(add).toHaveAccessibleDescription(i18n.t('providers.history.explainer', { provider: 'Garmin' }));
+      expect(add).toHaveAccessibleDescription(i18n.t('providers.history.explainer', { provider: GARMIN_CONNECT_BRAND }));
       await user.click(add);
 
       const modal = await screen.findByTestId('sciotte-modal');
@@ -640,7 +668,7 @@ describe('ProviderConnectionCards — OAuth-first with Sciotte fallback', () => 
       getProvidersStatus.mockResolvedValue({ providers: [bare] });
       renderCards();
 
-      expect(await screen.findByLabelText('Garmin is connected')).toBeDisabled();
+      expect(await screen.findByLabelText(`${GARMIN_CONNECT_BRAND} is connected`)).toBeDisabled();
       expect(screen.queryByText(i18n.t('providers.history.add'))).not.toBeInTheDocument();
       expect(screen.queryByTestId('sciotte-modal')).not.toBeInTheDocument();
     });
@@ -845,7 +873,7 @@ describe('ProviderConnectionCards — importing your own data sits beside the cr
     await user.click(strava);
     expect(await screen.findByTestId('sciotte-modal')).toHaveTextContent('strava');
 
-    await user.click(screen.getByLabelText('Connect to Garmin'));
+    await user.click(screen.getByLabelText(/^Connect to Garmin/));
     await continueConsents(user);
     expect(await screen.findByTestId('sciotte-modal')).toHaveTextContent('garmin');
   });
@@ -867,7 +895,7 @@ describe('ProviderConnectionCards — importing your own data sits beside the cr
     const user = userEvent.setup();
     renderCards();
 
-    const garmin = await screen.findByLabelText('Connect to Garmin');
+    const garmin = await screen.findByLabelText(/^Connect to Garmin/);
     const link = screen.getByTestId('import-own-data-link');
     expect(link).toHaveTextContent(i18n.t('providers.import.link'));
     expect(link).toHaveTextContent(i18n.t('providers.import.linkHint'));
@@ -909,7 +937,7 @@ describe('ProviderConnectionCards — the Garmin connect\'s offered consents (ca
     const user = userEvent.setup();
     renderCards();
 
-    await user.click(await screen.findByLabelText('Connect to Garmin'));
+    await user.click(await screen.findByLabelText(/^Connect to Garmin/));
     expect(assign).not.toHaveBeenCalled();
     await user.click(await screen.findByTestId('connect-consent-garmin'));
     await user.click(screen.getByTestId('connect-consent-garmin_workout_transfer'));
@@ -927,7 +955,7 @@ describe('ProviderConnectionCards — the Garmin connect\'s offered consents (ca
     const user = userEvent.setup();
     renderCards();
 
-    await user.click(await screen.findByLabelText('Connect to Garmin'));
+    await user.click(await screen.findByLabelText(/^Connect to Garmin/));
     await continueConsents(user);
 
     await waitFor(() => expect(assign).toHaveBeenCalledWith('/api/oauth/authorize/garmin'));
@@ -939,7 +967,7 @@ describe('ProviderConnectionCards — the Garmin connect\'s offered consents (ca
     const user = userEvent.setup();
     renderCards();
 
-    await user.click(await screen.findByLabelText('Connect to Garmin'));
+    await user.click(await screen.findByLabelText(/^Connect to Garmin/));
     await user.click(await screen.findByTestId('connect-consent-garmin'));
     await continueConsents(user);
 
@@ -954,7 +982,7 @@ describe('ProviderConnectionCards — the Garmin connect\'s offered consents (ca
     const user = userEvent.setup();
     renderCards();
 
-    await user.click(await screen.findByLabelText('Connect to Garmin'));
+    await user.click(await screen.findByLabelText(/^Connect to Garmin/));
     await user.click(await screen.findByRole('button', { name: 'Cancel' }));
 
     expect(assign).not.toHaveBeenCalled();

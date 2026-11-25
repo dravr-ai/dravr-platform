@@ -41,6 +41,8 @@ import {
   cardHistoryState,
   cardStatus,
   coachPlatformName,
+  connectCardName,
+  isGarminConnectCard,
   connectConsentsFor,
   connectPlan,
   credentialFallbackOnRefusal,
@@ -538,7 +540,7 @@ export function ConnectionsScreen() {
         testID={`provider-row-${id}`}
       >
         <View className="w-6 items-center mr-3.5">
-          <ProviderGlyph providerId={id} label={provider.display_name} />
+          <ProviderGlyph providerId={id} label={provider.display_name} garminConnect={isGarminConnectCard(provider)} />
         </View>
         {/* The hairline sits on this inner column, so it insets past the glyph to the text. */}
         <View
@@ -547,7 +549,7 @@ export function ConnectionsScreen() {
         >
           <View className="flex-1 min-w-0 py-2">
             <View className="flex-row items-baseline gap-2">
-              <Text className="text-base text-text-primary">{provider.display_name}</Text>
+              <Text className="text-base text-text-primary">{connectCardName(provider)}</Text>
               {provider.account_role === 'coach' && (
                 <Text className="text-xs font-medium text-text-tertiary" testID={`provider-coach-account-${id}`}>
                   {t('humanCoach.trainingpeaksAccount')}

@@ -232,9 +232,15 @@ pub(crate) const LIST_REVIEWS_FOR_WINDOW_SQL: &str = r"SELECT r.id, r.reply_entr
 /// When each of coach `$1`'s reviews since `$2` was made, each review row read
 /// under its group's own tenant (`r.tenant_id = g.tenant_id`). Every review
 /// the coach made counts, in a group they still coach or not: the count is of
-/// their own work.
-pub(crate) const LIST_REVIEW_STAMPS_SQL: &str = r"SELECT r.kind, r.created_at FROM coach_reply_reviews r
+/// their own work. Each carries the consent sources of the agent reply it
+/// reviewed, read from the reply's message, so a review of a reply drawn from
+/// data barred from AI evaluation is left out of the count (carnet#1170).
+pub(crate) const LIST_REVIEW_STAMPS_SQL: &str = r"SELECT r.kind, r.created_at,
+              m.ai_consent_sources AS consent_sources
+              FROM coach_reply_reviews r
               JOIN coaching_groups g ON g.id = r.group_id AND g.tenant_id = r.tenant_id
+              LEFT JOIN group_transcript_entries e ON e.id = r.reply_entry_id
+              LEFT JOIN chat_messages m ON m.id = e.source_message_id
               WHERE r.coach_user_id = $1 AND r.created_at >= $2
               ORDER BY r.created_at ASC";
 
@@ -467,7 +473,18 @@ macro_rules! impl_coach_reply_review_repository {
                     .map_err(|e| {
                         AppError::database(format!("Failed to count reply reviews: {e}"))
                     })?;
-                rows.iter()
+                // The weekly count is the cohort's "corrections needed"
+                // figure, an evaluation of the agent: a review of a reply
+                // drawn from data barred from it is left out (carnet#1170).
+                let mut evaluable = Vec::with_capacity(rows.len());
+                for r in &rows {
+                    let sources: Option<String> = column(r, "consent_sources")?;
+                    if !column_excluded_from_ai_evaluation(sources.as_deref()) {
+                        evaluable.push(r);
+                    }
+                }
+                evaluable
+                    .into_iter()
                     .map(|r| {
                         let kind: String = column(r, "kind")?;
                         Ok(ReplyReviewStamp {

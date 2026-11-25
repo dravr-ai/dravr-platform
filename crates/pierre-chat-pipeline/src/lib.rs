@@ -361,11 +361,18 @@ pub async fn run(
     // with no group bound to it carries no group, as a direct message does
     // (carnet#1421). Executors built inside the turn carry it to their tool
     // bodies.
+    // A turn posted into a messaging group chat reads nothing kept to Dravr's
+    // members, whichever entry point started it (carnet#1170).
+    let group_chat =
+        ai_scope::posts_to_group_chat(ai_scope::declared_transport(), input.is_direct_message);
     let outcome = ai_scope::for_model(ai_scope::with_ai_consent(
         consent_withheld,
-        Box::pin(TURN_DIRECT_MESSAGE.scope(
-            Some(input.is_direct_message),
-            run_turn(ctx, input, profile, hooks),
+        Box::pin(ai_scope::for_group_chat(
+            group_chat,
+            TURN_DIRECT_MESSAGE.scope(
+                Some(input.is_direct_message),
+                run_turn(ctx, input, profile, hooks),
+            ),
         )),
     ))
     .await;
@@ -920,7 +927,8 @@ async fn answer_stored_turn(
         ))
         .await?;
     // The reply to an app post in a group connected to a chat follows that
-    // post into the chat, when the room may read it (carnet#1683).
+    // post into the chat, when the room may read it (carnet#1683) and it was
+    // drawn from nothing kept to Dravr's members (carnet#1170).
     room_relay::relay_reply(
         ctx,
         profile.surface,

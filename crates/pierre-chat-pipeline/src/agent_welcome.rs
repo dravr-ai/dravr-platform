@@ -73,8 +73,8 @@ use tracing::{info, warn};
 use uuid::Uuid;
 
 use self::first_welcome::{
-    first_sync_spoke, first_welcome_lines, read_about_you, read_history, FirstWelcomeLines,
-    FirstWelcomeTemplates, Wording,
+    first_sync_spoke, first_welcome_lines, read_about_you, read_histories_needed, read_history,
+    FirstWelcomeLines, FirstWelcomeTemplates, WelcomeFacts, Wording,
 };
 use crate::envelope::{ActionKind, TurnAction};
 use crate::stages::command_persistence::actions_content_blocks;
@@ -359,8 +359,9 @@ const fn reads_history_on(surface: SurfaceId) -> bool {
 
 /// What the lead's welcome adds when this is the first-run Meet your team
 /// turn — the athlete's own personal thread, and the flow still open: the
-/// history it read when it has synced, the goal and the why, and the team
-/// (carnet#1099, carnet#1528). `None` otherwise, and when the first run or the
+/// history it read when it has synced, the past a push-fed grant cannot bring
+/// in, the goal and the why, and the team (carnet#1099, carnet#1528,
+/// carnet#1623). `None` otherwise, and when the first run or the
 /// team cannot be read (logged) — the welcome then goes out as it always has.
 ///
 /// The history is not read when carnet#831's first post already spoke about
@@ -394,6 +395,13 @@ async fn first_welcome(
     } else {
         (None, TransportPolicy::AnyTransport)
     };
+    // What a push-fed grant serving alone cannot bring in (carnet#1623): said
+    // in the app, where the card's Add history action the line points at is.
+    let history_needed = if in_app {
+        read_histories_needed(repos, target.agent_tenant_id, user).await
+    } else {
+        Vec::new()
+    };
     let about = read_about_you(repos, target.agent_tenant_id, target.user_id).await;
     let wording = Wording {
         strings,
@@ -401,7 +409,16 @@ async fn first_welcome(
         units: resolve_user_units(repos.unit_preferences.as_ref(), user).await,
     };
     Some(FirstWelcome {
-        lines: first_welcome_lines(&templates, history.as_ref(), spoke, &about, &wording),
+        lines: first_welcome_lines(
+            &templates,
+            WelcomeFacts {
+                history: history.as_ref(),
+                first_sync_spoke: spoke,
+                history_needed: &history_needed,
+                about: &about,
+            },
+            &wording,
+        ),
         team,
         policy,
     })

@@ -53,6 +53,9 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use dravr_tronc::dates::{Elapsed, Timestamp};
+use pierre_core::constants::oauth_providers::{
+    garmin_contribution, garmin_recorded, GarminContribution,
+};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{
     default_pair, shoe_sport_slug, Activity, ActivityGearKey, AthleteGear, AttributionSource,
@@ -62,9 +65,10 @@ use pierre_core::models::{
 use pierre_database::repositories::CachedRowsQuery;
 use pierre_database::RepositoryRegistry;
 use pierre_providers::ai_scope;
-use pierre_providers::backend_resolver::backend_pair_for;
+use pierre_providers::backend_resolver::{backend_pair_for, user_facing_name};
 use pierre_services::gear_release::{
-    ledger_workouts, workout_distance, LedgerWorkout, WORKOUT_ROW_LIMIT, WORKOUT_WINDOW_HOURS,
+    ledger_workouts, row_key, workout_distance, LedgerWorkout, WORKOUT_ROW_LIMIT,
+    WORKOUT_WINDOW_HOURS,
 };
 use pierre_services::workouts::served_rows;
 use pierre_tool_runtime::activity_fetch::CACHED_ACTIVITY_LOOKBACK_DAYS;
@@ -196,6 +200,89 @@ pub async fn read_ledger(
         .record_default_attributions(user_id, &defaults)
         .await?;
     repos.athlete_gear.list_gear(user_id).await
+}
+
+/// What Garmin contributed to each pair's distance, for the pairs it
+/// contributed to: the line Garmin's brand guidelines owe the figure beneath
+/// its title (carnet#1154).
+///
+/// A pair's distance is its declared start plus every workout attributed to
+/// it. A workout still cached holds Garmin-sourced data when any copy of it
+/// does ([`garmin_recorded`]); one the cache let go is known only by the copy
+/// its attribution names, Garmin's when that copy came from a Garmin
+/// connection. A declared start, or a workout with no Garmin-sourced copy,
+/// makes Garmin a contributing source rather than the sole one.
+///
+/// # Errors
+///
+/// A database error when the attributions or the activity cache cannot be
+/// read.
+pub async fn garmin_contributions(
+    resources: &ServerContext,
+    user_id: Uuid,
+    tenant_id: &TenantId,
+    ledger: &[AthleteGear],
+    now: Timestamp,
+) -> AppResult<HashMap<Uuid, GarminContribution>> {
+    let Some(oldest) = ledger.iter().map(|pair| pair.added_at).min() else {
+        return Ok(HashMap::new());
+    };
+    let repos = &resources.common.repos;
+    let margin = Elapsed::hours(WORKOUT_WINDOW_HOURS);
+    let attributions = repos
+        .athlete_gear
+        .list_gear_attributions(user_id, oldest - margin, now + margin)
+        .await?;
+    let since = oldest.max(now - Elapsed::days(CACHED_ACTIVITY_LOOKBACK_DAYS));
+    let rows = if since < now {
+        served_rows(
+            resources.fitness.provider_registry.as_ref(),
+            repos
+                .activity_cache
+                .get_cached_activity_rows(
+                    user_id,
+                    tenant_id,
+                    &CachedRowsQuery::window(since, now, LEDGER_ROW_LIMIT),
+                )
+                .await?,
+        )
+    } else {
+        Vec::new()
+    };
+    let garmin_copies: HashSet<ActivityGearKey> = rows
+        .iter()
+        .filter(|row| garmin_recorded(row.activity.source(), row.activity.device_name()))
+        .map(row_key)
+        .collect();
+    let workouts = ledger_workouts(&rows);
+    let garmin_workout = |key: &ActivityGearKey| {
+        workouts
+            .iter()
+            .find(|workout| workout.copies.contains(key))
+            .map_or_else(
+                || garmin_recorded(Some(user_facing_name(&key.provider)), None),
+                |workout| {
+                    workout
+                        .copies
+                        .iter()
+                        .any(|copy| garmin_copies.contains(copy))
+                },
+            )
+    };
+    Ok(ledger
+        .iter()
+        .filter_map(|pair| {
+            let declared = (pair.declaration.initial_distance_meters > 0.0).then_some(false);
+            let workouts = attributions
+                .iter()
+                .filter(|attribution| {
+                    attribution.gear_id == Some(pair.id) && attribution.distance_meters > 0.0
+                })
+                .map(|attribution| garmin_workout(&attribution.key));
+            garmin_contribution(declared.into_iter().chain(workouts))
+                .map(|contribution| (pair.id, contribution))
+        })
+        .collect())
 }
 
 /// The workout holding the caller's own cached activity `activity_id` from

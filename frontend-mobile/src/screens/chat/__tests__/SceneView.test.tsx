@@ -47,4 +47,21 @@ describe('SceneView', () => {
     expect(screen.queryByText(/source/)).toBeNull();
     expect(screen.queryByText(/get_training_load/)).toBeNull();
   });
+
+  // carnet#1154: a block drawn from Garmin-sourced data carries Garmin's line
+  // beneath its title, set by the server.
+  it('draws the attribution of a chart and a table that carry one', () => {
+    const line = 'Insights derived in part from Garmin device-sourced data';
+    const { unmount } = render(<SceneView block={{ ...CHART, attribution: line }} />);
+    expect(screen.getByTestId('scene-attribution')).toHaveTextContent(line);
+    unmount();
+
+    render(<SceneView block={{ ...TABLE, attribution: line }} />);
+    expect(screen.getByTestId('scene-attribution')).toHaveTextContent(line);
+  });
+
+  it('draws no attribution for a block that carries none', () => {
+    render(<SceneView block={CHART} />);
+    expect(screen.queryByTestId('scene-attribution')).toBeNull();
+  });
 });

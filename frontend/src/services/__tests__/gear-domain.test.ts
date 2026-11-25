@@ -24,6 +24,7 @@ const PAIR: GearItem = {
   added_at: '2026-09-01T07:00:00Z',
   retired_at: null,
   last_used_at: '2026-10-08T06:30:00Z',
+  garmin_contribution: null,
 }
 
 function axiosStub(answer: unknown) {

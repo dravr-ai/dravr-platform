@@ -1,4 +1,4 @@
-// ABOUTME: What each provider's terms allow for its data — the declared AI SourcePolicy and TransportPolicy
+// ABOUTME: What each provider's terms allow for its data — the declared AI SourcePolicy, TransportPolicy and AudiencePolicy
 // ABOUTME: WHOOP keeps scores out of prompts; Strava and WHOOP stay first-party; retention is runtime config, not code
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -50,7 +50,7 @@
 //!   terms read as [`NOLIO`], Part 3 E4.
 
 use pierre_core::ai_policy::{AiUse, SourcePolicy};
-use pierre_core::transport::TransportPolicy;
+use pierre_core::transport::{AudiencePolicy, TransportPolicy};
 
 /// WHOOP's own scores never reach a prompt; its measurements do.
 ///
@@ -170,6 +170,21 @@ pub const NOLIO_TRANSPORT: TransportPolicy = TransportPolicy::FirstPartyOnly;
 /// (§5.2(j) bars scraping outright).
 pub const GARMIN_TRANSPORT: TransportPolicy = TransportPolicy::FirstPartyOnly;
 
+/// Garmin Connect Developer Program Agreement: Garmin data stays out of a
+/// messaging group chat (carnet#1170).
+///
+/// It, and what is derived from it, is shown only to Dravr's members.
+/// §4.1 licenses displaying Garmin data within the licensee's applications;
+/// §6.4 and §6.6 bind its display to the end user and the people the
+/// licensee's own service shows it to. A Telegram, Slack or Discord group is
+/// read by whoever its chat app admits, people with no Dravr account
+/// included, so the 2026-10-23 legal review reads a post there as display to
+/// non-members in a third-party app (carnet#1170, D28; JF directive
+/// 2026-11-24). The member's own direct message and Dravr's own apps are
+/// unaffected. Binds `garmin` and the `sciotte_garmin` read alike, and any
+/// item whose recorded source is Garmin, whoever relays it.
+pub const GARMIN_AUDIENCE: AudiencePolicy = AudiencePolicy::MembersOnly;
+
 /// COROS API and Data Sharing Agreement (template, 2026-04-03): COROS data
 /// stays inside Dravr's own surfaces.
 ///
@@ -243,6 +258,7 @@ mod tests {
     const MODEL: Exposure = Exposure {
         to_model: true,
         external: false,
+        group_chat: false,
     };
 
     /// The registry's resolution, with Nolio registered beside WHOOP and Strava.
@@ -410,6 +426,46 @@ mod tests {
         ] {
             assert_eq!(registry.transport_policy(name), Some(policy), "{name}");
         }
+    }
+
+    /// Garmin keeps its data, by API or sign-in read, and every item recorded
+    /// by Garmin whoever relays it, out of a messaging group chat; no other
+    /// provider declares so (carnet#1170).
+    #[cfg(all(
+        feature = "provider-garmin",
+        feature = "provider-sciotte",
+        feature = "provider-intervals-icu"
+    ))]
+    #[test]
+    fn garmin_alone_keeps_its_data_to_dravr_members() {
+        use pierre_core::ai_policy::members_only;
+
+        let registry = ProviderRegistry::new();
+        for (provider, source) in [
+            ("garmin", None),
+            ("sciotte_garmin", None),
+            ("sciotte", Some("garmin")),
+            ("intervals_icu", Some("garmin")),
+            ("intervals_icu", Some("Garmin")),
+        ] {
+            assert!(
+                members_only(&registry, provider, source),
+                "{provider} / {source:?} stays out of a group chat"
+            );
+        }
+        for (provider, source) in [
+            ("strava", None),
+            ("sciotte", None),
+            ("sciotte", Some("strava")),
+            ("intervals_icu", None),
+            ("intervals_icu", Some("wahoo")),
+        ] {
+            assert!(
+                !members_only(&registry, provider, source),
+                "{provider} / {source:?} sets no audience restriction"
+            );
+        }
+        assert_eq!(registry.audience_policy("garmin"), Some(GARMIN_AUDIENCE));
     }
 
     /// Wahoo declares its policy instead of inheriting the trait default, so

@@ -295,6 +295,7 @@ impl McpTool<dyn ToolRuntime> for VerifyClaimTool {
                     explanation: Some(&outcome.explanation),
                     evidence_refs: outcome.evidence_refs.as_deref(),
                     transport_policy: ai_scope::derived_policy(),
+                    ai_consent_sources: &ai_scope::derived_consent_sources(),
                 };
                 let verdict = context
                     .resources

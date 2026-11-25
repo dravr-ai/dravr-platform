@@ -29,8 +29,9 @@ use pierre_core::transport::TransportPolicy;
 use pierre_core::constants::oauth_providers::KEPT_OUT_OF_AI_MEMORY;
 
 use super::{
-    admit_derived, current_provenance, exposure, flag, record_withheld, withheld_providers,
-    DISPLAY, FOR_MODEL, PROVENANCE, UNFILTERED,
+    admit_derived, current_provenance, exposure, flag, mark_members_only_served,
+    names_members_only, record_withheld, serving_group_chat, withheld_providers, DISPLAY,
+    FOR_MODEL, PROVENANCE, UNFILTERED,
 };
 
 /// Record on the running derivation the AI-consent key covering an item
@@ -72,10 +73,24 @@ pub fn derived_consent_sources() -> Vec<String> {
 /// memory, consent or not. A refusal is tallied like a withheld item. Every
 /// other read admits the row, so the athlete always sees their own rows. An
 /// admitted row's keys taint whatever is derived from it.
+///
+/// Whatever reads it, a row naming a key kept to Dravr's members
+/// ([`names_members_only`]) is refused while the call feeds a messaging group
+/// chat (carnet#1170), and taints the derivation reading it everywhere else.
 #[must_use]
 pub fn admit_consent_sources(sources: &[String], kept_out_applies: bool) -> bool {
     if sources.is_empty() {
         return true;
+    }
+    if names_members_only(sources) {
+        if serving_group_chat() && !flag(&UNFILTERED) {
+            record_withheld(Withheld {
+                off_group_chat: 1,
+                ..Withheld::default()
+            });
+            return false;
+        }
+        mark_members_only_served();
     }
     if let Some(refused) = refused_key(sources, kept_out_applies) {
         let mut withheld = Withheld {
@@ -211,6 +226,46 @@ mod tests {
         .await;
         assert!(admitted);
         assert_eq!(turn.consent_sources(), keys(&["garmin"]));
+    }
+
+    // carnet#1170: a row derived from Garmin never feeds a group-chat post,
+    // and taints a derivation everywhere else; a row naming WHOOP alone is
+    // read in a group chat like any other.
+    #[cfg(any(feature = "provider-garmin", feature = "provider-sciotte"))]
+    #[tokio::test]
+    async fn a_garmin_derived_row_stays_out_of_a_group_chat_only() {
+        use crate::ai_scope::for_group_chat;
+
+        let garmin = keys(&["garmin"]);
+        let in_group = for_group_chat(
+            true,
+            for_model(with_ai_consent(consented_to_all(), async {
+                (
+                    admit_consent_sources(&garmin, false),
+                    admit_consent_sources(&keys(&["whoop"]), false),
+                )
+            })),
+        )
+        .await;
+        assert_eq!(
+            in_group,
+            (false, true),
+            "bug: only the Garmin row is refused"
+        );
+
+        let turn = Provenance::new();
+        let in_dm = tracking(
+            turn.clone(),
+            for_model(with_ai_consent(consented_to_all(), async {
+                admit_consent_sources(&garmin, false)
+            })),
+        )
+        .await;
+        assert!(in_dm, "the member's own direct message reads it");
+        assert!(
+            turn.members_only(),
+            "bug: what is derived from it may not be posted into a group chat"
+        );
     }
 
     #[tokio::test]

@@ -37,6 +37,15 @@
 //! older than it, else from the oldest stored session — so an athlete whose
 //! history walk has not reached back yet is never told "90 days" over a week
 //! of rows.
+//!
+//! ## When the past is not in
+//!
+//! A push-fed grant serving alone (Garmin's, carnet#1155) delivers only what
+//! the athlete records from the day it connected. When its history reads
+//! `needed` ([`pierre_services::provider_history`], the rule the provider
+//! card reads), the welcome says so in one line and points at the card's Add
+//! history action (carnet#1623), whether or not it has figures to say: what
+//! the grant pushed since never stands for what came before.
 
 use std::collections::BTreeMap;
 
@@ -46,7 +55,8 @@ use pierre_contremaitre::messaging_strings::{
     KEY_AGENT_WELCOME_FIGURES_LAST, KEY_AGENT_WELCOME_FIGURES_PER_WEEK,
     KEY_AGENT_WELCOME_FIGURES_READ, KEY_AGENT_WELCOME_FIGURES_READ_ONE,
     KEY_AGENT_WELCOME_FIGURES_READ_UNMIXED, KEY_AGENT_WELCOME_GOAL_ONLY,
-    KEY_AGENT_WELCOME_GOAL_WHY, KEY_AGENT_WELCOME_WHY_ONLY, KEY_REPLY_GARMIN_ATTRIBUTION,
+    KEY_AGENT_WELCOME_GOAL_WHY, KEY_AGENT_WELCOME_HISTORY_NEEDED, KEY_AGENT_WELCOME_WHY_ONLY,
+    KEY_REPLY_GARMIN_ATTRIBUTION,
 };
 use pierre_core::civil_time::{clock_date, local_date};
 use pierre_core::constants::oauth_providers::garmin_recorded;
@@ -66,6 +76,7 @@ use pierre_providers::registry::global_registry;
 use pierre_services::activity_sports::activity_sport_label_key;
 use pierre_services::athlete_clock::athlete_zone;
 use pierre_services::notification_text;
+use pierre_services::provider_history;
 use tracing::warn;
 use uuid::Uuid;
 
@@ -158,6 +169,8 @@ pub(crate) struct FirstWelcomeTemplates {
     why_only: String,
     /// Garmin's attribution line.
     garmin: String,
+    /// `{0}` = the provider whose past training is not in.
+    history_needed: String,
 }
 
 impl FirstWelcomeTemplates {
@@ -175,6 +188,7 @@ impl FirstWelcomeTemplates {
             goal_only: strings.get(KEY_AGENT_WELCOME_GOAL_ONLY, locale),
             why_only: strings.get(KEY_AGENT_WELCOME_WHY_ONLY, locale),
             garmin: strings.get(KEY_REPLY_GARMIN_ATTRIBUTION, locale),
+            history_needed: strings.get(KEY_AGENT_WELCOME_HISTORY_NEEDED, locale),
         }
     }
 }
@@ -462,31 +476,89 @@ pub(crate) struct FirstWelcomeLines {
     pub closing: Vec<String>,
 }
 
-/// The first welcome's own lines for `history` and `about`.
+/// The connected push-fed providers whose past training is not in for `user`
+/// in `tenant`, named as the athlete knows them (`Garmin`).
 ///
-/// When `first_sync_spoke` — carnet#831's first post already spoke about the
-/// same data in this thread — the figures are left to it, and so is the
-/// Garmin line they owe; the goal and the why are still quoted.
+/// [`provider_history::histories_needed`] decides. Best-effort: connections
+/// that cannot be read are logged and read as none, so the welcome says no
+/// line.
+pub(crate) async fn read_histories_needed(
+    repos: &RepositoryRegistry,
+    tenant: TenantId,
+    user: Uuid,
+) -> Vec<&'static str> {
+    let connections = match repos.provider_connections.get_for_user(user, None).await {
+        Ok(connections) => connections,
+        Err(e) => {
+            warn!(error = %e, "connections unreadable; the welcome says no missing history");
+            return Vec::new();
+        }
+    };
+    let needed = provider_history::histories_needed(
+        repos,
+        user,
+        tenant,
+        connections
+            .iter()
+            .map(|connection| connection.provider.as_str()),
+    )
+    .await;
+    let registry = global_registry();
+    needed
+        .into_iter()
+        .map(|provider| provider_history::athlete_name(registry.as_ref(), provider))
+        .collect()
+}
+
+/// The line saying `provider`'s past training is not in, and where to bring
+/// it in; `None` when the strings hold no words for it.
+#[must_use]
+fn history_needed_line(templates: &FirstWelcomeTemplates, provider: &str) -> Option<String> {
+    Some(format_template(&templates.history_needed, &[provider]))
+        .filter(|line| !line.trim().is_empty())
+}
+
+/// What the first welcome reads off the athlete beyond the team.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct WelcomeFacts<'a> {
+    /// The figures read off the synced history, when any.
+    pub history: Option<&'a HistoryFigures>,
+    /// carnet#831's first post already spoke about the same data in this
+    /// thread.
+    pub first_sync_spoke: bool,
+    /// The names of the providers whose past training is not in
+    /// (carnet#1623), as the athlete knows them (`Garmin`).
+    pub history_needed: &'a [&'a str],
+    /// The goal and the why the athlete gave About you.
+    pub about: &'a AboutYou,
+}
+
+/// The first welcome's own lines for `facts`.
+///
+/// When `first_sync_spoke`, the figures are left to that post, and so is the
+/// Garmin line they owe; the goal and the why are still quoted. A provider
+/// whose past training is not in is named in one line after the figures
+/// either way: the first-sync post speaks about what came in, never about
+/// what did not.
 #[must_use]
 pub(crate) fn first_welcome_lines(
     templates: &FirstWelcomeTemplates,
-    history: Option<&HistoryFigures>,
-    first_sync_spoke: bool,
-    about: &AboutYou,
+    facts: WelcomeFacts<'_>,
     wording: &Wording<'_>,
 ) -> FirstWelcomeLines {
-    let said = history.filter(|_| !first_sync_spoke);
-    let opening = [
-        said.map(|figures| history_line(templates, figures, wording)),
-        about_line(templates, about),
-    ];
+    let said = facts.history.filter(|_| !facts.first_sync_spoke);
+    let figures = said.map(|figures| history_line(templates, figures, wording));
+    let needed = facts
+        .history_needed
+        .iter()
+        .filter_map(|provider| history_needed_line(templates, provider));
+    let opening = figures
+        .into_iter()
+        .chain(needed)
+        .chain(about_line(templates, facts.about));
     let closing = said.and_then(|figures| garmin_line(templates, figures));
     FirstWelcomeLines {
-        opening: opening
-            .into_iter()
-            .flatten()
-            .filter(|line| !line.trim().is_empty())
-            .collect(),
+        opening: opening.filter(|line| !line.trim().is_empty()).collect(),
         closing: closing.into_iter().collect(),
     }
 }
@@ -578,6 +650,7 @@ mod tests {
             goal_only: "Goal “{0}”.".to_owned(),
             why_only: "Why “{0}”.".to_owned(),
             garmin: "Garmin line.".to_owned(),
+            history_needed: "{0} shares from today; Add history on its card.".to_owned(),
         }
     }
 
@@ -814,7 +887,9 @@ mod tests {
         let strings = english();
         let wording = wording(&strings, UnitSystem::Metric);
         let history = garmin_history();
-        let lines = first_welcome_lines(&templates(), Some(&history), false, &goal(), &wording);
+        let about = goal();
+        let lines =
+            first_welcome_lines(&templates(), facts(Some(&history), false, &about), &wording);
         assert_eq!(lines.opening.len(), 2, "{lines:?}");
         assert!(
             lines.opening[0].starts_with("Read 20 days: 2 sessions"),
@@ -829,7 +904,9 @@ mod tests {
         let strings = english();
         let wording = wording(&strings, UnitSystem::Metric);
         let history = garmin_history();
-        let lines = first_welcome_lines(&templates(), Some(&history), true, &goal(), &wording);
+        let about = goal();
+        let lines =
+            first_welcome_lines(&templates(), facts(Some(&history), true, &about), &wording);
         assert_eq!(
             lines.opening,
             ["Goal “A spring half”."],
@@ -837,9 +914,114 @@ mod tests {
         );
         assert!(lines.closing.is_empty(), "no figures, so no Garmin line");
 
-        let nothing =
-            first_welcome_lines(&templates(), None, false, &AboutYou::default(), &wording);
+        let none = AboutYou::default();
+        let nothing = first_welcome_lines(&templates(), facts(None, false, &none), &wording);
         assert_eq!(nothing, FirstWelcomeLines::default());
+    }
+
+    /// What the welcome reads, with no provider's past missing.
+    fn facts<'a>(
+        history: Option<&'a HistoryFigures>,
+        first_sync_spoke: bool,
+        about: &'a AboutYou,
+    ) -> WelcomeFacts<'a> {
+        WelcomeFacts {
+            history,
+            first_sync_spoke,
+            history_needed: &[],
+            about,
+        }
+    }
+
+    // carnet#1623: a push-fed grant serving alone shares only what is recorded
+    // from the day it connected, so the welcome says the past is not in and
+    // points at the card's Add history action.
+    #[test]
+    fn a_missing_history_is_said_in_one_line_after_the_figures_and_before_the_goal() {
+        let strings = english();
+        let wording = wording(&strings, UnitSystem::Metric);
+        let history = garmin_history();
+        let about = goal();
+        let lines = first_welcome_lines(
+            &templates(),
+            WelcomeFacts {
+                history_needed: &["Garmin"],
+                ..facts(Some(&history), false, &about)
+            },
+            &wording,
+        );
+        assert_eq!(lines.opening.len(), 3, "{lines:?}");
+        assert!(lines.opening[0].starts_with("Read 20 days"), "{lines:?}");
+        assert_eq!(
+            lines.opening[1],
+            "Garmin shares from today; Add history on its card."
+        );
+        assert_eq!(lines.opening[2], "Goal “A spring half”.");
+    }
+
+    #[test]
+    fn a_missing_history_is_said_without_figures_and_after_the_first_sync_post() {
+        let strings = english();
+        let wording = wording(&strings, UnitSystem::Metric);
+        let history = garmin_history();
+        let none = AboutYou::default();
+        let expected = ["Garmin shares from today; Add history on its card."];
+        for (figures, spoke) in [(None, false), (Some(&history), true)] {
+            let lines = first_welcome_lines(
+                &templates(),
+                WelcomeFacts {
+                    history_needed: &["Garmin"],
+                    ..facts(figures, spoke, &none)
+                },
+                &wording,
+            );
+            assert_eq!(lines.opening, expected, "{lines:?}");
+        }
+    }
+
+    #[test]
+    fn a_history_that_is_in_or_never_owed_says_no_line() {
+        let strings = english();
+        let wording = wording(&strings, UnitSystem::Metric);
+        let history = garmin_history();
+        let none = AboutYou::default();
+        let lines =
+            first_welcome_lines(&templates(), facts(Some(&history), false, &none), &wording);
+        assert!(
+            lines
+                .opening
+                .iter()
+                .all(|line| !line.contains("Add history")),
+            "{lines:?}"
+        );
+        let mut blank = templates();
+        blank.history_needed = String::new();
+        let lines = first_welcome_lines(
+            &blank,
+            WelcomeFacts {
+                history_needed: &["Garmin"],
+                ..facts(None, false, &none)
+            },
+            &wording,
+        );
+        assert_eq!(lines, FirstWelcomeLines::default(), "no words, no line");
+    }
+
+    // carnet#1207: the athlete reads the provider and the card's action,
+    // never the scraper behind the sign-in.
+    #[test]
+    fn every_locales_line_names_the_provider_and_never_the_scraper() {
+        let strings = english();
+        for locale in ["en", "fr", "de", "es", "pt"] {
+            let templates = FirstWelcomeTemplates::resolve(&strings, locale);
+            let line = history_needed_line(&templates, "Garmin").unwrap_or_default();
+            assert!(line.contains("Garmin"), "{locale}: {line}");
+            assert!(!line.contains("{0}"), "{locale}: {line}");
+            assert!(!line.to_lowercase().contains("sciotte"), "{locale}: {line}");
+        }
+        let english = FirstWelcomeTemplates::resolve(&strings, "en");
+        let line = history_needed_line(&english, "Garmin").unwrap_or_default();
+        assert!(line.contains("Add history"), "the card's own words: {line}");
     }
 
     fn row(role: &str, finish_reason: Option<&str>, created_at: &str) -> MessageRecord {

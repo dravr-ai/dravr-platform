@@ -290,6 +290,7 @@ async fn seed_rows(resources: &Arc<ServerContext>, tenant: TenantId, user: Uuid,
             explanation: None,
             evidence_refs: None,
             transport_policy: TransportPolicy::AnyTransport,
+            ai_consent_sources: &[],
         })
         .await
         .unwrap();

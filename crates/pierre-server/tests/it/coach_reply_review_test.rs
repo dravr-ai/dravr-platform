@@ -234,6 +234,17 @@ async fn agent_reply(
     athlete: &Person,
     content: &str,
 ) -> (Uuid, String) {
+    agent_reply_drawn_from(res, group, athlete, content, &[]).await
+}
+
+/// [`agent_reply`] for a reply drawn from the provider data `sources` name.
+async fn agent_reply_drawn_from(
+    res: &Arc<ServerContext>,
+    group: Uuid,
+    athlete: &Person,
+    content: &str,
+    sources: &[String],
+) -> (Uuid, String) {
     let repos = &res.common.repos;
     let user = athlete.id.to_string();
     let conversation = repos
@@ -265,7 +276,7 @@ async fn agent_reply(
             channel_type: None,
             about_user_id: None,
             turn_attempted_write: None,
-            ai_consent_sources: &[],
+            ai_consent_sources: sources,
         })
         .await
         .unwrap();
@@ -318,6 +329,7 @@ async fn verdict(
             explanation: None,
             evidence_refs: None,
             transport_policy: TransportPolicy::AnyTransport,
+            ai_consent_sources: &[],
         })
         .await
         .unwrap();
@@ -639,6 +651,60 @@ async fn a_coach_cannot_flag_or_correct_a_reply_outside_their_groups() {
     .await;
     assert_eq!(weekly["weeks"][0]["flags"], 0);
     assert_eq!(weekly["weeks"][0]["corrections"], 0);
+}
+
+/// carnet#1170 (D30): the weekly count is the cohort's "corrections needed"
+/// figure, an evaluation of the agent, so a flag or a correction on a reply
+/// drawn from Garmin data is left out of it; one on any other reply counts.
+#[tokio::test]
+async fn a_review_of_a_garmin_derived_reply_feeds_no_corrections_count() {
+    let w = world().await;
+    let (garmin_reply, _) = agent_reply_drawn_from(
+        &w.res,
+        w.casey_group,
+        &w.alex,
+        "Alex, your Garmin ride was steady.",
+        &["garmin".to_owned()],
+    )
+    .await;
+    let (whoop_reply, _) = agent_reply_drawn_from(
+        &w.res,
+        w.casey_group,
+        &w.alex,
+        "Alex, your WHOOP sleep looks short.",
+        &["whoop".to_owned()],
+    )
+    .await;
+    for reply in [garmin_reply, whoop_reply] {
+        let (status, body) = post(
+            &w.router,
+            &format!("/api/coach/replies/{reply}/flags"),
+            &w.casey.auth,
+            &json!({ "reason": "wrong", "note": "check the numbers" }),
+        )
+        .await;
+        assert_eq!(status, 201, "{body}");
+        let (status, body) = post(
+            &w.router,
+            &format!("/api/coach/replies/{reply}/corrections"),
+            &w.casey.auth,
+            &json!({ "content": "The figures were off; see the app." }),
+        )
+        .await;
+        assert_eq!(status, 201, "{body}");
+    }
+
+    let (_, weekly) = get(
+        &w.router,
+        "/api/coach/replies/weekly?weeks=1",
+        &w.casey.auth,
+    )
+    .await;
+    assert_eq!(
+        weekly["weeks"][0]["flags"], 1,
+        "bug: only the WHOOP-derived reply's flag may count: {weekly}"
+    );
+    assert_eq!(weekly["weeks"][0]["corrections"], 1, "{weekly}");
 }
 
 /// Only the group's attached coach writes a correction, so the client may sign

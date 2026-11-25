@@ -10,7 +10,7 @@
 //! (`ProviderRegistry::supported_providers()`), which respects feature flags
 //! and includes externally registered providers.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::ai_policy::SourceClass;
 
@@ -227,7 +227,7 @@ pub fn garmin_recorded(source: Option<&str>, device_name: Option<&str>) -> bool 
 ///
 /// It decides the line Garmin's brand guidelines owe the figure: Garmin named
 /// as its distinct source, or as a contributing one (carnet#1154).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum GarminContribution {
     /// Every workout behind the figure carries Garmin-sourced data.
@@ -252,6 +252,31 @@ pub fn garmin_contribution(workouts: impl IntoIterator<Item = bool>) -> Option<G
         (true, false) => Some(GarminContribution::Sole),
         (true, true) => Some(GarminContribution::Part),
     }
+}
+
+/// What Garmin contributed to a figure combined from several parts.
+///
+/// Each part is given as what Garmin contributed to it: a group's figure from
+/// its members' own, a pair's distance from its workouts and its declared
+/// start.
+///
+/// Garmin is the sole source only when it is every part's; a part it
+/// contributed nothing to makes it a contributing one; `None` when it
+/// contributed to no part.
+#[must_use]
+pub fn combined_garmin_contribution(
+    parts: impl IntoIterator<Item = Option<GarminContribution>>,
+) -> Option<GarminContribution> {
+    garmin_contribution(
+        parts
+            .into_iter()
+            .flat_map(|part| match part {
+                Some(GarminContribution::Sole) => [Some(true), None],
+                Some(GarminContribution::Part) => [Some(true), Some(false)],
+                None => [Some(false), None],
+            })
+            .flatten(),
+    )
 }
 
 /// The line an activity is shown with beside its title: the device that
@@ -590,8 +615,8 @@ pub const COROS_DEFAULT_SCOPES: &str = "read:workouts read:sleep read:daily";
 #[cfg(test)]
 mod tests {
     use super::{
-        activity_attribution, garmin_contribution, garmin_recorded, garmin_service_attribution,
-        workout_attribution, GarminContribution,
+        activity_attribution, combined_garmin_contribution, garmin_contribution, garmin_recorded,
+        garmin_service_attribution, workout_attribution, GarminContribution,
     };
 
     mod device_stores {
@@ -756,6 +781,26 @@ mod tests {
         assert_eq!(
             serde_json::to_value(GarminContribution::Part).ok(),
             Some(serde_json::json!("part"))
+        );
+    }
+
+    /// A figure combined from several parts names Garmin as its sole source
+    /// only when it is every part's.
+    #[test]
+    fn a_combined_figure_names_garmin_sole_only_when_every_part_is() {
+        use GarminContribution::{Part, Sole};
+        assert_eq!(
+            combined_garmin_contribution([Some(Sole), Some(Sole)]),
+            Some(Sole)
+        );
+        assert_eq!(combined_garmin_contribution([Some(Sole), None]), Some(Part));
+        assert_eq!(combined_garmin_contribution([Some(Part)]), Some(Part));
+        assert_eq!(combined_garmin_contribution([None, None]), None);
+        assert_eq!(combined_garmin_contribution([]), None);
+        assert_eq!(
+            serde_json::from_value::<GarminContribution>(serde_json::json!("sole")).ok(),
+            Some(Sole),
+            "read back as the wire writes it"
         );
     }
 

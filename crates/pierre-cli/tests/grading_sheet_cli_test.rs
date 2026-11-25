@@ -110,6 +110,7 @@ async fn seed(database: &Database) -> TenantId {
                 } else {
                     TransportPolicy::AnyTransport
                 },
+                ai_consent_sources: &[],
             })
             .await
             .unwrap();

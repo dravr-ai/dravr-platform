@@ -31,7 +31,7 @@ use crate::protocol::AuthService;
 use crate::revalidation::{revalidation_timeout, RevalidationRegistry};
 use crate::runtime::ToolRuntime;
 use pierre_providers::ai_scope;
-use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
+use pierre_providers::deduplication::{DedupConfig, GarminSessions};
 use pierre_providers::request_budget::keep_scope;
 
 /// Age beyond which cached activities trigger a revalidation
@@ -72,7 +72,8 @@ async fn get_connected_providers(
 /// Resolve a member's connected providers and fetch activities using the merge strategy.
 ///
 /// Fetches from ALL providers, merges, and deduplicates to produce a complete
-/// activity list for training load computation.
+/// activity list for training load computation, noting the sessions that hold
+/// Garmin-sourced data ([`GarminSessions`]).
 ///
 /// The second element is true when the rows come from a cache that was stale
 /// and could not be freshened within the turn's refresh budget — the caller
@@ -84,7 +85,7 @@ pub(crate) async fn fetch_member_activities(
     runtime: &Arc<dyn ToolRuntime>,
     user_id: Uuid,
     tenant_id: TenantId,
-) -> (Vec<Activity>, bool) {
+) -> (GarminSessions, bool) {
     let data = runtime.data();
     let providers = get_connected_providers(runtime, user_id, tenant_id).await;
     if providers.is_empty() {
@@ -93,7 +94,7 @@ pub(crate) async fn fetch_member_activities(
             tenant_id = %tenant_id,
             "Snapshot: member has no connected providers — emitting empty snapshot (weekly counts and CTL/ATL/TSB will all be zero/None)"
         );
-        return (Vec::new(), false);
+        return (GarminSessions::default(), false);
     }
 
     let now = Timestamp::now();
@@ -149,11 +150,11 @@ pub(crate) async fn fetch_member_activities(
     // gone before it can lend values to a permitted one (carnet#723).
     let cached = ai_scope::filter_activities(runtime.provider_registry().as_ref(), cached);
     let before_dedup = cached.len();
-    let (cached, _) = merge_duplicates(cached, &DedupConfig::from_env());
+    let (cached, _) = GarminSessions::merge(cached, &DedupConfig::from_env());
     info!(
         user_id = %user_id,
         before_dedup,
-        after_dedup = cached.len(),
+        after_dedup = cached.sessions.len(),
         served_stale,
         "Snapshot: served activities from cache (stale-while-revalidate, deduplicated)"
     );
@@ -220,7 +221,7 @@ async fn fetch_and_persist_live(
     providers: &[String],
     user_id: Uuid,
     tenant_id: TenantId,
-) -> Vec<Activity> {
+) -> GarminSessions {
     let auth_service = AuthService::new(Arc::clone(runtime));
     fetch_and_merge_all_providers(
         &auth_service,
@@ -298,9 +299,9 @@ async fn revalidate_within_budget(
         )
         .await
         {
-            Ok(activities) => info!(
+            Ok(refreshed) => info!(
                 user_id = %user_id,
-                refreshed = activities.len(),
+                refreshed = refreshed.sessions.len(),
                 "Activity cache: revalidation complete"
             ),
             Err(_elapsed) => warn!(

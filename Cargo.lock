@@ -3718,8 +3718,8 @@ checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
 
 [[package]]
 name = "photograveur"
-version = "0.8.0"
-source = "git+https://github.com/dravr-ai/dravr-photograveur.git?tag=v0.8.0#2f3a9e74ffadc13b40ea1893736d4f53c89e8ab0"
+version = "0.9.0"
+source = "git+https://github.com/dravr-ai/dravr-photograveur.git?tag=v0.9.0#9112b75f931d09530697c70dd8d30da4596df3c6"
 dependencies = [
  "dravr-tronc",
  "serde",

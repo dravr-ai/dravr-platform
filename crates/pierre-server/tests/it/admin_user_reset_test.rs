@@ -831,6 +831,7 @@ async fn verdict_without_a_thread(
             explanation: None,
             evidence_refs: None,
             transport_policy: TransportPolicy::AnyTransport,
+            ai_consent_sources: &[],
         })
         .await
         .unwrap();

@@ -46,6 +46,7 @@ fn snapshot(weekly_duration_seconds: u64, recent: Vec<RosterActivity>) -> Member
         timezone: None,
         deep_fatigue_mornings: Vec::new(),
         computed_at: Timestamp::now(),
+        garmin_contribution: None,
     }
 }
 
