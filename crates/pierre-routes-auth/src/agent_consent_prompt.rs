@@ -17,9 +17,7 @@ use axum::response::{IntoResponse, Response};
 use axum::Json;
 use pierre_core::errors::AppError;
 use pierre_runtime_context::require_tenant_in;
-use pierre_services::agent_consent_prompt::{
-    agent_consent_prompt, answer_agent_consent_prompt, AgentConsentAnswer,
-};
+use pierre_services::agent_consent_prompt::{self, AgentConsentAnswer};
 use serde::Deserialize;
 
 use crate::AuthRoutesContext;
@@ -58,7 +56,9 @@ pub(crate) async fn handle_get_agent_prompt(
     let tenant_id = require_tenant_in(resources.repos.tenants.as_ref(), &auth)
         .await?
         .as_uuid();
-    let state = agent_consent_prompt(&resources.repos, tenant_id, auth.user_id).await?;
+    let state =
+        agent_consent_prompt::agent_consent_prompt(&resources.repos, tenant_id, auth.user_id)
+            .await?;
     Ok((StatusCode::OK, Json(state)).into_response())
 }
 
@@ -102,7 +102,12 @@ pub(crate) async fn handle_answer_agent_prompt(
             medical: body.medical,
         }
     };
-    let state =
-        answer_agent_consent_prompt(&resources.repos, tenant_id, auth.user_id, answer).await?;
+    let state = agent_consent_prompt::answer_agent_consent_prompt(
+        &resources.repos,
+        tenant_id,
+        auth.user_id,
+        answer,
+    )
+    .await?;
     Ok((StatusCode::OK, Json(state)).into_response())
 }

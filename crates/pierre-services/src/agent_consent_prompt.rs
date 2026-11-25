@@ -11,7 +11,7 @@
 //! injuries) only under `sensitive_t2`, both withheld by default (Law 25
 //! opt-in). Every athlete is asked once, in Dravr's app, whether to allow
 //! them. The answer is recorded as the consents themselves
-//! ([`grant_consent`]); a dismissal gives neither and the question is not
+//! ([`provider_notice::grant_consent`]); a dismissal gives neither and the question is not
 //! asked again. Either way the switches stay in the privacy settings.
 //!
 //! That the question was answered is the `agent_consent_prompt` step row in
@@ -28,7 +28,7 @@ use serde::Serialize;
 use uuid::Uuid;
 
 use crate::intake::{STATUS_COMPLETE, STATUS_SKIPPED};
-use crate::provider_notice::{consent_state, grant_consent};
+use crate::provider_notice;
 
 /// The `user_onboarding` step that records the question was answered.
 pub const STEP_AGENT_CONSENT_PROMPT: &str = "agent_consent_prompt";
@@ -69,7 +69,7 @@ pub async fn agent_consent_prompt(
     tenant_id: Uuid,
     user_id: Uuid,
 ) -> AppResult<AgentConsentPrompt> {
-    let memory = consent_state(
+    let memory = provider_notice::consent_state(
         repos,
         tenant_id,
         user_id,
@@ -77,7 +77,7 @@ pub async fn agent_consent_prompt(
         NoticeKind::AiConsent,
     )
     .await;
-    let medical = consent_state(
+    let medical = provider_notice::consent_state(
         repos,
         tenant_id,
         user_id,
@@ -120,7 +120,7 @@ pub async fn answer_agent_consent_prompt(
             for (class, given) in [(SENSITIVE_T3, memory), (SENSITIVE_T2, medical)] {
                 if given {
                     let brand = sensitive_display_name(class).unwrap_or(class);
-                    grant_consent(
+                    provider_notice::grant_consent(
                         repos,
                         tenant_id,
                         user_id,

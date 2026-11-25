@@ -129,7 +129,8 @@ async fn an_answer_gives_the_ticked_consents_and_the_question_is_not_asked_again
     assert_eq!(status, 200, "{body}");
     assert_eq!(
         serde_json::from_str::<Value>(&body).unwrap(),
-        json!({"due": false, "memory": true, "medical": false})
+        json!({"due": false, "memory": true, "medical": false}),
+        "bug: the answer's state is not what it gave"
     );
     assert_eq!(a.given(SENSITIVE_T3).await, Some(true), "the answer is the consent itself");
     assert_eq!(a.given(SENSITIVE_T2).await, Some(false), "bug: an unticked class was given");
@@ -162,7 +163,11 @@ async fn a_dismissal_gives_nothing_withdraws_nothing_and_is_never_asked_again() 
 
     // The switch in the privacy settings still gives it afterwards.
     a.switch_on(SENSITIVE_T3).await;
-    assert_eq!(a.read().await["memory"], true);
+    assert_eq!(
+        a.read().await["memory"],
+        true,
+        "bug: the switch cannot give it after a dismissal"
+    );
 }
 
 #[tokio::test]
@@ -172,7 +177,8 @@ async fn an_athlete_who_gave_both_from_the_settings_is_not_asked() {
     a.switch_on(SENSITIVE_T3).await;
     assert_eq!(
         a.read().await,
-        json!({"due": false, "memory": true, "medical": true})
+        json!({"due": false, "memory": true, "medical": true}),
+        "bug: an athlete who gave both is asked"
     );
 }
 
@@ -181,7 +187,11 @@ async fn a_dismissal_carrying_a_consent_is_refused_and_records_nothing() {
     let a = athlete("prompt-mixed").await;
     let (status, body) = a.answer(&json!({"dismissed": true, "medical": true})).await;
     assert_eq!(status, 400, "{body}");
-    assert_eq!(a.given(SENSITIVE_T2).await, Some(false));
+    assert_eq!(
+        a.given(SENSITIVE_T2).await,
+        Some(false),
+        "bug: a refused answer gave a consent"
+    );
     assert_eq!(a.read().await["due"], true, "nothing was answered");
 }
 
