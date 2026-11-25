@@ -206,6 +206,9 @@ fn tally(tier: Tier, count: usize) {
 
 #[cfg(test)]
 mod tests {
+    use dravr_tronc::dates::Timestamp;
+    use pierre_core::models::Pillar;
+
     use super::*;
 
     #[test]
@@ -243,7 +246,7 @@ mod tests {
             object: object.to_owned(),
             confidence: 1.0,
             source: "conversation".to_owned(),
-            updated_at: dravr_tronc::dates::Timestamp::now(),
+            updated_at: Timestamp::now(),
             valid_until: None,
             stale: false,
         }
@@ -253,7 +256,7 @@ mod tests {
         let mut dossier = Dossier::empty(Uuid::nil(), Uuid::nil());
         dossier.medical = vec![dossier_fact(FactKind::Medical, "parq")];
         dossier.pillars.insert(
-            pierre_core::models::Pillar::SleepAndRecovery,
+            Pillar::SleepAndRecovery,
             vec![
                 dossier_fact(FactKind::Injury, "sore left achilles"),
                 dossier_fact(FactKind::Goal, "sub-3 marathon"),
