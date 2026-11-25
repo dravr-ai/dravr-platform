@@ -8,12 +8,11 @@ import React from 'react';
 import { ActivityIndicator, Alert, Text, View } from 'react-native';
 import type { OAuthStandingPolicy } from '@pierre/shared-types';
 import { useTranslation } from '@pierre/i18n';
-import { describeApiError } from '@pierre/ui-logic';
+import { connectedAppPresetLabel, describeApiError } from '@pierre/ui-logic';
 import { formatDate } from '@pierre/chat-utils';
 import { useThemeColors } from '../../constants/theme';
 import { EmptyState, Row, Section } from '../../components/ui';
 import { useRemoveStandingPolicy, useStandingPolicies } from '../../hooks/useGrantHistory';
-import { presetLabel } from './connectedAppPreset';
 
 /** The app's registered name, else the id it was allowed under. */
 const policyAppName = (policy: OAuthStandingPolicy): string => policy.client_name || policy.client_id;
@@ -71,7 +70,7 @@ export function StandingPoliciesSection(): React.JSX.Element {
               title={policyAppName(policy)}
               subtitle={[
                 policy.client_host,
-                presetLabel(policy.preset, t) ?? policy.preset,
+                connectedAppPresetLabel(policy.preset, t) ?? policy.preset,
                 t('tokens.standingPolicySince', { date: formatDate(policy.created_at, language) }),
               ]
                 .filter(Boolean)

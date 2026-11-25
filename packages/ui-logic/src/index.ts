@@ -335,8 +335,10 @@ export {
 } from './grantHistoryHooks';
 export {
   type GrantReceiptOutcome,
+  GRANT_RECEIPT_OUTCOME_KEYS,
   alwaysAllowedClients,
   clientNames,
+  connectedAppPresetLabel,
   grantReceiptClientId,
   grantReceiptOutcome,
 } from './grantHistory';

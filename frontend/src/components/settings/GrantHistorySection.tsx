@@ -10,33 +10,15 @@ import { useTranslation } from '@pierre/i18n';
 import {
   clientNames,
   describeApiError,
+  GRANT_RECEIPT_OUTCOME_KEYS,
   GRANT_RECEIPT_PAGE,
   grantReceiptClientId,
   grantReceiptOutcome,
-  type GrantReceiptOutcome,
 } from '@pierre/ui-logic';
 import { formatDateTime } from '@pierre/chat-utils';
 import { ACCESS_FEED_KEYS } from '@pierre/shared-constants';
 import { Alert, Button, EmptyState, Section } from '../ui';
 import { useGrantReceipts } from '../../hooks/useGrantHistory';
-
-/** What a receipt records, in the reader's language. Each key is a literal so the catalogue gate sees it. */
-function outcomeLabel(outcome: GrantReceiptOutcome, t: (key: string) => string): string {
-  switch (outcome) {
-    case 'allowed':
-      return t('tokens.grantEventAllowed');
-    case 'renewed':
-      return t('tokens.grantEventRenewed');
-    case 'endedByYou':
-      return t('tokens.grantEventEndedByYou');
-    case 'endedByApp':
-      return t('tokens.grantEventEndedByApp');
-    case 'endedByDravr':
-      return t('tokens.grantEventEndedByDravr');
-    case 'expired':
-      return t('tokens.grantEventExpired');
-  }
-}
 
 interface ReceiptPageProps {
   page: number;
@@ -83,7 +65,7 @@ function ReceiptPage({ page, last, names, onOlder }: ReceiptPageProps) {
             >
               <div className="min-w-0">
                 <p className="text-sm text-on-surface break-all">{app}</p>
-                <p className="text-xs text-on-surface-variant">{outcomeLabel(grantReceiptOutcome(receipt), t)}</p>
+                <p className="text-xs text-on-surface-variant">{t(GRANT_RECEIPT_OUTCOME_KEYS[grantReceiptOutcome(receipt)])}</p>
               </div>
               <time className="text-xs text-outline flex-shrink-0" dateTime={receipt.at}>
                 {formatDateTime(receipt.at, language)}

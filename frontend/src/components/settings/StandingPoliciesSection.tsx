@@ -6,12 +6,11 @@
 
 import { useState } from 'react';
 import { useTranslation } from '@pierre/i18n';
-import { describeApiError } from '@pierre/ui-logic';
+import { connectedAppPresetLabel, describeApiError } from '@pierre/ui-logic';
 import { formatDate } from '@pierre/chat-utils';
 import type { OAuthStandingPolicy } from '@pierre/shared-types';
 import { Alert, Button, ConfirmDialog, EmptyState, Section, useErrorToast } from '../ui';
 import { useRemoveStandingPolicy, useStandingPolicies } from '../../hooks/useGrantHistory';
-import { connectedAppPresetLabel } from './connectedAppPreset';
 
 /** The app's registered name, else the id it was allowed under. */
 function policyAppName(policy: OAuthStandingPolicy): string {

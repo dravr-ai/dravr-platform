@@ -26,6 +26,7 @@ const {
   mockGetAccessFeed,
   mockListConnectedApps,
   mockRevokeConnectedApp,
+  mockListStandingPolicies,
 } = vi.hoisted(() => ({
   mockUpdateAnalyticsConsent: vi.fn(),
   mockUpdateUser: vi.fn(),
@@ -33,6 +34,7 @@ const {
   mockGetAccessFeed: vi.fn(),
   mockListConnectedApps: vi.fn(),
   mockRevokeConnectedApp: vi.fn(),
+  mockListStandingPolicies: vi.fn(),
 }))
 
 vi.mock('../../services/api', () => ({
@@ -41,7 +43,7 @@ vi.mock('../../services/api', () => ({
   oauthApi: {
     listConnectedApps: mockListConnectedApps,
     revokeConnectedApp: mockRevokeConnectedApp,
-    listStandingPolicies: () => Promise.resolve([]),
+    listStandingPolicies: mockListStandingPolicies,
   },
 }))
 vi.mock('../../hooks/useAuth', () => ({ useAuth: () => mockUseAuth() }))
@@ -76,6 +78,7 @@ describe('PrivacySettingsTab — analytics consent', () => {
     vi.clearAllMocks()
     mockGetAccessFeed.mockResolvedValue(EMPTY_FEED)
     mockListConnectedApps.mockResolvedValue([])
+    mockListStandingPolicies.mockResolvedValue([])
   })
 
   it('seeds the switch from the session user', () => {
@@ -239,6 +242,7 @@ describe('PrivacySettingsTab — who read your data', () => {
       grant('g3', 'client-other', 'fitness:read'),
     ])
     mockRevokeConnectedApp.mockResolvedValue(undefined)
+    mockListStandingPolicies.mockResolvedValue([])
   })
 
   it('lists each app with its calls, and the coach\'s day with its counts', async () => {
@@ -283,6 +287,29 @@ describe('PrivacySettingsTab — who read your data', () => {
       ),
     )
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+  })
+
+  // carnet#1544: an always-allowed app's policy renews the grant on its next
+  // connection, so its confirmation says so; another app's keeps the plain line.
+  it('warns that revoking an always-allowed app is undone on its next connection, and only that app', async () => {
+    const confirmOf = async (policyClient: string) => {
+      mockListStandingPolicies.mockResolvedValue([
+        { id: 'p1', client_id: policyClient, client_name: 'App', client_host: null, preset: 'training_coach', created_at: '2026-11-02T10:00:00Z' },
+      ])
+      const view = renderTab()
+      const [claude] = await screen.findAllByTestId('access-feed-app')
+      await waitFor(() => expect(mockListStandingPolicies).toHaveBeenCalled())
+      await waitFor(() => expect(within(claude).getByTestId('access-feed-revoke')).toBeInTheDocument())
+      fireEvent.click(within(claude).getByTestId('access-feed-revoke'))
+      const text = screen.getByRole('dialog').textContent
+      view.unmount()
+      mockListStandingPolicies.mockClear()
+      return text
+    }
+
+    expect(await confirmOf('client-claude')).toContain(i18n.t('app.confirmRevokeAlwaysAllowedApp', { app: 'Claude' }))
+    expect(await confirmOf('client-other')).toContain(i18n.t('app.confirmRevokeAppAccess', { app: 'Claude' }))
+    expect(mockRevokeConnectedApp).not.toHaveBeenCalled()
   })
 
   it('offers no Revoke to an API key, which it points to its settings, nor to support, which it does not name', async () => {

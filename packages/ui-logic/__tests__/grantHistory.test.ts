@@ -6,7 +6,32 @@
 
 import { describe, it, expect } from 'vitest';
 import type { OAuthGrant, OAuthGrantReceipt, OAuthStandingPolicy } from '@pierre/shared-types';
-import { alwaysAllowedClients, clientNames, grantReceiptClientId, grantReceiptOutcome } from '../src/grantHistory';
+import de from '../../i18n/src/locales/de/translation.json';
+import en from '../../i18n/src/locales/en/translation.json';
+import es from '../../i18n/src/locales/es/translation.json';
+import fr from '../../i18n/src/locales/fr/translation.json';
+import pt from '../../i18n/src/locales/pt/translation.json';
+import {
+  CONNECTED_APP_PRESET_KEYS,
+  GRANT_RECEIPT_OUTCOME_KEYS,
+  alwaysAllowedClients,
+  clientNames,
+  connectedAppPresetLabel,
+  grantReceiptClientId,
+  grantReceiptOutcome,
+} from '../src/grantHistory';
+
+// The catalogues are read as data: check-i18n-keys.sh scans the clients' own
+// t('…') literals only, so the keys these tables name for both clients are
+// checked against every locale here.
+const LOCALES: Record<string, unknown> = { de, en, es, fr, pt };
+
+function lookup(catalogue: unknown, key: string): unknown {
+  return key.split('.').reduce<unknown>(
+    (node, part) => (typeof node === 'object' && node !== null ? (node as Record<string, unknown>)[part] : undefined),
+    catalogue,
+  );
+}
 
 function receipt(
   event: OAuthGrantReceipt['event'],
@@ -79,5 +104,25 @@ describe('clientNames and alwaysAllowedClients', () => {
       ['c2', 'Coach app'],
     ]);
     expect([...alwaysAllowedClients([policy])]).toEqual(['c2']);
+  });
+});
+
+describe('the keys both clients name an outcome and a preset with', () => {
+  it('are carried by every locale', () => {
+    const keys = [...Object.values(GRANT_RECEIPT_OUTCOME_KEYS), ...Object.values(CONNECTED_APP_PRESET_KEYS)];
+    for (const [locale, catalogue] of Object.entries(LOCALES)) {
+      for (const key of keys) {
+        expect(typeof lookup(catalogue, key), `${locale}: ${key}`).toBe('string');
+      }
+    }
+  });
+
+  it('names the known presets, and none for a plain grant, an unknown preset or an inherited name', () => {
+    const t = (key: string) => `<${key}>`;
+    expect(connectedAppPresetLabel('training_coach', t)).toBe('<tokens.connectedAppsPresetTrainingCoach>');
+    expect(connectedAppPresetLabel('sleep_coach', t)).toBe('<tokens.connectedAppsPresetSleepCoach>');
+    expect(connectedAppPresetLabel(null, t)).toBeNull();
+    expect(connectedAppPresetLabel('recovery_coach', t)).toBeNull();
+    expect(connectedAppPresetLabel('toString', t)).toBeNull();
   });
 });

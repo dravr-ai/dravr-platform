@@ -11,34 +11,16 @@ import { useTranslation } from '@pierre/i18n';
 import {
   clientNames,
   describeApiError,
+  GRANT_RECEIPT_OUTCOME_KEYS,
   GRANT_RECEIPT_PAGE,
   grantReceiptClientId,
   grantReceiptOutcome,
-  type GrantReceiptOutcome,
 } from '@pierre/ui-logic';
 import { formatDateTime } from '@pierre/chat-utils';
 import { ACCESS_FEED_KEYS } from '@pierre/shared-constants';
 import { useThemeColors } from '../../constants/theme';
 import { EmptyState, Row, Section } from '../../components/ui';
 import { useGrantReceipts } from '../../hooks/useGrantHistory';
-
-/** What a receipt records, in the reader's language. Each key is a literal so the catalogue gate sees it. */
-const outcomeLabel = (outcome: GrantReceiptOutcome, t: (key: string) => string): string => {
-  switch (outcome) {
-    case 'allowed':
-      return t('tokens.grantEventAllowed');
-    case 'renewed':
-      return t('tokens.grantEventRenewed');
-    case 'endedByYou':
-      return t('tokens.grantEventEndedByYou');
-    case 'endedByApp':
-      return t('tokens.grantEventEndedByApp');
-    case 'endedByDravr':
-      return t('tokens.grantEventEndedByDravr');
-    case 'expired':
-      return t('tokens.grantEventExpired');
-  }
-};
 
 interface ReceiptPageProps {
   page: number;
@@ -83,7 +65,7 @@ function ReceiptPage({ page, last, names, onOlder }: ReceiptPageProps): React.JS
             key={receipt.id}
             testID={`grant-receipt-${receipt.id}`}
             title={app}
-            subtitle={`${outcomeLabel(grantReceiptOutcome(receipt), t)} · ${formatDateTime(receipt.at, language)}`}
+            subtitle={`${t(GRANT_RECEIPT_OUTCOME_KEYS[grantReceiptOutcome(receipt)])} · ${formatDateTime(receipt.at, language)}`}
             last={last && !offersOlder && index === receipts.length - 1}
           />
         );

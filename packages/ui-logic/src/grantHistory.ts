@@ -18,6 +18,33 @@ import type { OAuthGrant, OAuthGrantReceipt, OAuthStandingPolicy } from '@pierre
  */
 export type GrantReceiptOutcome = 'allowed' | 'renewed' | 'endedByYou' | 'endedByApp' | 'endedByDravr' | 'expired';
 
+/** The corpus key each outcome reads as; each client resolves it with its own t(). */
+export const GRANT_RECEIPT_OUTCOME_KEYS: Readonly<Record<GrantReceiptOutcome, string>> = {
+  allowed: 'tokens.grantEventAllowed',
+  renewed: 'tokens.grantEventRenewed',
+  endedByYou: 'tokens.grantEventEndedByYou',
+  endedByApp: 'tokens.grantEventEndedByApp',
+  endedByDravr: 'tokens.grantEventEndedByDravr',
+  expired: 'tokens.grantEventExpired',
+};
+
+/** The corpus key naming each preset a grant or a standing policy can carry. */
+export const CONNECTED_APP_PRESET_KEYS: Readonly<Record<string, string>> = {
+  training_coach: 'tokens.connectedAppsPresetTrainingCoach',
+  sleep_coach: 'tokens.connectedAppsPresetSleepCoach',
+};
+
+/**
+ * The name of `preset` in the reader's language, or `null` for a plain grant
+ * and for a preset this build does not know yet: the caller then shows the
+ * grant's scope or the preset's own slug. Own keys only, so `toString` is no preset.
+ */
+export function connectedAppPresetLabel(preset: string | null, t: (key: string) => string): string | null {
+  return preset !== null && Object.prototype.hasOwnProperty.call(CONNECTED_APP_PRESET_KEYS, preset)
+    ? t(CONNECTED_APP_PRESET_KEYS[preset])
+    : null;
+}
+
 /** The signed payload's member `name`, as an object, or null. */
 function member(payload: Record<string, unknown>, name: string): Record<string, unknown> | null {
   const value = payload[name];

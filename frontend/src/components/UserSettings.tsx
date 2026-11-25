@@ -77,7 +77,6 @@ import { useUsageStatus } from '../hooks/useUsageStatus';
 import { useAiConsent } from '../hooks/useAiConsent';
 import { useConnectedApps, useRevokeConnectedApps } from '../hooks/useAccessFeed';
 import { useStandingPolicies } from '../hooks/useGrantHistory';
-import { connectedAppPresetLabel } from './settings/connectedAppPreset';
 import StandingPoliciesSection from './settings/StandingPoliciesSection';
 import GrantHistorySection from './settings/GrantHistorySection';
 import { useFeatureFlags, FEATURE_KEYS } from '../hooks/useFeatureFlags';
@@ -90,7 +89,7 @@ import PreferredCalendarSettings from './settings/PreferredCalendarSettings';
 import IntervalsIcuLinkModal from './IntervalsIcuLinkModal';
 import OAuthAppSetupModal from './OAuthAppSetupModal';
 import { ownAppDevPortal } from '@pierre/domain-utils';
-import { alwaysAllowedClients, describeApiError, followConnectPlan, MIN_PASSWORD_LENGTH, isPasswordLongEnough } from '@pierre/ui-logic';
+import { alwaysAllowedClients, connectedAppPresetLabel, describeApiError, followConnectPlan, MIN_PASSWORD_LENGTH, isPasswordLongEnough } from '@pierre/ui-logic';
 
 // Garmin's offered consents, asked before its connect: loaded on the first
 // connect that offers them, so the dialog stays out of the entry bundle.

@@ -11,9 +11,8 @@ import { EmptyState, PaneScrollView, Row, Section } from '../../components/ui';
 import { useConnectedApps, useRevokeConnectedApps } from '../../hooks/useAccessFeed';
 import { useStandingPolicies } from '../../hooks/useGrantHistory';
 import { useTranslation } from '@pierre/i18n';
-import { alwaysAllowedClients, describeApiError } from '@pierre/ui-logic';
+import { alwaysAllowedClients, connectedAppPresetLabel, describeApiError } from '@pierre/ui-logic';
 import { formatDate } from '@pierre/chat-utils';
-import { presetLabel } from './connectedAppPreset';
 import { StandingPoliciesSection } from './StandingPoliciesSection';
 import { GrantHistorySection } from './GrantHistorySection';
 
@@ -40,7 +39,7 @@ export function ConnectedAppsScreen(): React.JSX.Element {
   const handleRevoke = (grant: OAuthGrant): void => {
     Alert.alert(
       t('app.revokeAccessQ'),
-      // The same sentence the web card's confirmation uses, from the same key:
+      // The same sentences the web card's confirmation uses, from the same keys:
       // revoking is the same act on both, so it cannot promise two things.
       alwaysAllowed.has(grant.client_id)
         ? t('app.confirmRevokeAlwaysAllowedApp', { app: connectedAppName(grant) })
@@ -117,7 +116,7 @@ export function ConnectedAppsScreen(): React.JSX.Element {
                     title={connectedAppName(grant)}
                     subtitle={[
                       grant.client_host,
-                      presetLabel(grant.preset, t) ?? grant.scope,
+                      connectedAppPresetLabel(grant.preset, t) ?? grant.scope,
                       alwaysAllowed.has(grant.client_id) ? t('tokens.connectedAppsAlwaysAllowed') : null,
                       t('app.connectedOn', { date: formatDate(grant.granted_at, language) }),
                       grant.expires_at && !expired
